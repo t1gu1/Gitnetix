@@ -447,6 +447,12 @@ impl Gitnetix {
 
     pub async fn files(&self, project_id: &str, branch: &str, mode: &str) -> Result<Vec<FileChange>> {
         let p = self.store.project(project_id)?;
+        if mode == "wip" {
+            return match self.checkout_dir(&p, branch).await? {
+                Some(dir) => Git::new(dir).wip_changes().await,
+                None => Ok(Vec::new()),
+            };
+        }
         let git = self.git(&p);
         let default = git.default_branch().await?;
         let base = self.base_of(&p, branch, &default);
@@ -457,10 +463,6 @@ impl Gitnetix {
                 }
                 git.branch_changes(&base, branch).await
             }
-            "wip" => match self.checkout_dir(&p, branch).await? {
-                Some(dir) => Git::new(dir).wip_changes().await,
-                None => Ok(Vec::new()),
-            },
             _ => {
                 let dir = self.checkout_dir(&p, branch).await?;
                 let mut known: HashMap<String, FileChange> = HashMap::new();
@@ -494,10 +496,7 @@ impl Gitnetix {
 
     pub async fn diff(&self, project_id: &str, branch: &str, mode: &str, path: &str) -> Result<Vec<Hunk>> {
         let p = self.store.project(project_id)?;
-        let git = self.git(&p);
-        let default = git.default_branch().await?;
-        let base = self.base_of(&p, branch, &default);
-        if mode == "wip" || (mode == "project" && self.checkout_dir(&p, branch).await?.is_some()) {
+        if matches!(mode, "wip" | "project") {
             if let Some(dir) = self.checkout_dir(&p, branch).await? {
                 let wip = Git::new(&dir).file_diff(path, None).await?;
                 if !wip.is_empty() || mode == "wip" {
@@ -505,6 +504,9 @@ impl Gitnetix {
                 }
             }
         }
+        let git = self.git(&p);
+        let default = git.default_branch().await?;
+        let base = self.base_of(&p, branch, &default);
         if base == branch {
             return Ok(Vec::new());
         }
@@ -524,13 +526,19 @@ impl Gitnetix {
         Ok(())
     }
 
-    pub async fn generate_commit_message(&self, project_id: &str, branch: &str) -> Result<String> {
-        let p = self.store.project(project_id)?;
-        let git = self.require_checkout(&p, branch).await?;
+    /// Stage everything in the branch's checkout; errors when there is nothing to commit.
+    async fn stage_all(&self, p: &Project, branch: &str) -> Result<Git> {
+        let git = self.require_checkout(p, branch).await?;
         git.add_all().await?;
         if !git.has_staged().await? {
             return Err(Error::Invalid("Nothing to commit".into()));
         }
+        Ok(git)
+    }
+
+    pub async fn generate_commit_message(&self, project_id: &str, branch: &str) -> Result<String> {
+        let p = self.store.project(project_id)?;
+        let git = self.stage_all(&p, branch).await?;
         self.commit_message_for(&p, &git, branch).await
     }
 
@@ -550,11 +558,7 @@ impl Gitnetix {
     /// Stage everything and commit. An empty message is written by AI.
     pub async fn commit(&self, project_id: &str, branch: &str, message: Option<String>) -> Result<CommitResult> {
         let p = self.store.project(project_id)?;
-        let git = self.require_checkout(&p, branch).await?;
-        git.add_all().await?;
-        if !git.has_staged().await? {
-            return Err(Error::Invalid("Nothing to commit".into()));
-        }
+        let git = self.stage_all(&p, branch).await?;
         let (message, ai_written) = match message.filter(|m| !m.trim().is_empty()) {
             Some(m) => (m, false),
             None => (self.commit_message_for(&p, &git, branch).await?, true),
@@ -785,10 +789,7 @@ impl Gitnetix {
         }
         let mut worktree = None;
         let cwd = if req.r#where == "worktree" {
-            let top = PathBuf::from(&p.path);
-            let parent = top.parent().map(Path::to_path_buf).unwrap_or_else(|| top.clone());
-            let slug = branch.rsplit('/').next().unwrap_or(&branch);
-            let path = parent.join(format!("{}.{}", p.name, slug));
+            let path = worktree_path(&p, &branch);
             git.worktree_add(&path, &branch, Some(&release.branch)).await?;
             worktree = Some(path.to_string_lossy().to_string());
             path
@@ -893,10 +894,7 @@ impl Gitnetix {
     pub async fn create_worktree(&self, project_id: &str, branch: &str) -> Result<String> {
         let p = self.store.project(project_id)?;
         let git = self.git(&p);
-        let top = PathBuf::from(&p.path);
-        let parent = top.parent().map(Path::to_path_buf).unwrap_or(top);
-        let slug = branch.rsplit('/').next().unwrap_or(branch);
-        let path = parent.join(format!("{}.{}", p.name, slug));
+        let path = worktree_path(&p, branch);
         if git.ref_exists(&format!("refs/heads/{branch}")).await? {
             git.worktree_add(&path, branch, None).await?;
         } else {
@@ -1166,29 +1164,24 @@ impl Gitnetix {
         let integ = self.store.read(|c| c.integrations.clone());
         let mut all: Vec<Ticket> = Vec::new();
         let mut errors = Vec::new();
+        let mut absorb = |r: Result<Vec<Ticket>>| match r {
+            Ok(v) => all.extend(v),
+            Err(e) => errors.push(e.to_string()),
+        };
         if let Some(j) = &integ.jira {
             match secrets::get("jira")? {
-                Some(tok) => match tickets::jira(j, &tok).await {
-                    Ok(v) => all.extend(v),
-                    Err(e) => errors.push(e.to_string()),
-                },
-                None => errors.push("Jira token missing".into()),
+                Some(tok) => absorb(tickets::jira(j, &tok).await),
+                None => absorb(Err(Error::Other("Jira token missing".into()))),
             }
         }
         if let Some(t) = &integ.trello {
             if let Some(tok) = secrets::get("trello")? {
-                match tickets::trello(t, &tok).await {
-                    Ok(v) => all.extend(v),
-                    Err(e) => errors.push(e.to_string()),
-                }
+                absorb(tickets::trello(t, &tok).await);
             }
         }
         if let Some(a) = &integ.asana {
             if let Some(tok) = secrets::get("asana")? {
-                match tickets::asana(a, &tok).await {
-                    Ok(v) => all.extend(v),
-                    Err(e) => errors.push(e.to_string()),
-                }
+                absorb(tickets::asana(a, &tok).await);
             }
         }
         if all.is_empty() && !errors.is_empty() {
@@ -1249,10 +1242,10 @@ impl Gitnetix {
         let end = out.rfind(']').ok_or_else(|| Error::Ai("AI did not return a list".into()))?;
         let mut v: Vec<Suggestion> = serde_json::from_str(&out[start..=end]).map_err(|e| Error::Ai(format!("bad triage answer: {e}")))?;
         let versions: Vec<&str> = p.releases.iter().filter(|r| r.shipped_at.is_none()).map(|r| r.version.as_str()).collect();
-        v.retain(|s| versions.contains(&s.release.trim_start_matches('v')));
-        for s in v.iter_mut() {
+        v.retain_mut(|s| {
             s.release = s.release.trim_start_matches('v').into();
-        }
+            versions.contains(&s.release.as_str())
+        });
         Ok(v)
     }
 
@@ -1352,15 +1345,24 @@ fn top_path(p: &Project) -> PathBuf {
     PathBuf::from(&p.path)
 }
 
+/// Worktrees live next to the main checkout: `<parent>/<project>.<last branch segment>`.
+fn worktree_path(p: &Project, branch: &str) -> PathBuf {
+    let top = top_path(p);
+    let parent = top.parent().map(Path::to_path_buf).unwrap_or_else(|| top.clone());
+    let slug = branch.rsplit('/').next().unwrap_or(branch);
+    parent.join(format!("{}.{}", p.name, slug))
+}
+
 fn commit_lines(commits: &[crate::git::Commit]) -> String {
     commits
         .iter()
         .map(|c| {
+            let sha = &c.sha[..7.min(c.sha.len())];
             let body = c.body.lines().filter(|l| !l.trim().is_empty()).take(3).collect::<Vec<_>>().join(" / ");
             if body.is_empty() {
-                format!("- {} ({})", c.subject, &c.sha[..7.min(c.sha.len())])
+                format!("- {} ({sha})", c.subject)
             } else {
-                format!("- {} ({}) — {body}", c.subject, &c.sha[..7.min(c.sha.len())])
+                format!("- {} ({sha}) — {body}", c.subject)
             }
         })
         .collect::<Vec<_>>()

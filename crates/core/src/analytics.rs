@@ -80,11 +80,13 @@ pub async fn compute(input: Input<'_>) -> Result<Analytics> {
     let since = format!("--since={}", (prev_start - Duration::days(1)).format("%Y-%m-%d"));
 
     let mut commits: Vec<(Commit, bool)> = Vec::new();
-    let mut tag_dates: Vec<(String, DateTime<Utc>, Git, HashSet<String>)> = Vec::new();
+    // (tag, date, index into `input.repos` / `ai_sets`)
+    let mut tag_dates: Vec<(String, DateTime<Utc>, usize)> = Vec::new();
+    let mut ai_sets: Vec<HashSet<String>> = Vec::new();
     let mut merges_now = 0u32;
     let mut merges_prev = 0u32;
 
-    for (git, ai) in &input.repos {
+    for (repo, (git, ai)) in input.repos.iter().enumerate() {
         let ai: HashSet<String> = ai.iter().cloned().collect();
         let refs: Vec<&str> = vec!["log", "--all", "--no-merges", &since, "--format=%H%x1f%an%x1f%ae%x1f%aI%x1f%s%x1f%b%x1e"];
         let raw = git.run(&refs).await.unwrap_or_default();
@@ -110,9 +112,10 @@ pub async fn compute(input: Input<'_>) -> Result<Analytics> {
         }
         for t in git.tags().await.unwrap_or_default() {
             if let Some(d) = parse_date(&t.date) {
-                tag_dates.push((t.name, d, git.clone(), ai.clone()));
+                tag_dates.push((t.name, d, repo));
             }
         }
+        ai_sets.push(ai);
     }
 
     // ---- daily activity ----
@@ -148,8 +151,9 @@ pub async fn compute(input: Input<'_>) -> Result<Analytics> {
     tag_dates.sort_by(|a, b| a.1.cmp(&b.1));
     let mut stats: Vec<(ReleaseStat, DateTime<Utc>)> = Vec::new();
     for i in 0..tag_dates.len() {
-        let (name, date, git, ai) = &tag_dates[i];
-        let prev = tag_dates[..i].iter().rev().find(|t| t.2.cwd() == git.cwd()).map(|t| t.0.clone());
+        let (name, date, repo) = &tag_dates[i];
+        let (git, ai) = (&input.repos[*repo].0, &ai_sets[*repo]);
+        let prev = tag_dates[..i].iter().rev().find(|t| t.2 == *repo).map(|t| t.0.clone());
         let range = match &prev {
             Some(p) => format!("{p}..{name}"),
             None => name.clone(),

@@ -195,7 +195,8 @@ impl Git {
     }
 
     pub async fn is_rebasing(&self) -> Result<bool> {
-        Ok(self.git_path("rebase-merge").await?.exists() || self.git_path("rebase-apply").await?.exists())
+        let out = self.run(&["rev-parse", "--git-path", "rebase-merge", "--git-path", "rebase-apply"]).await?;
+        Ok(out.lines().map(|l| self.cwd.join(l.trim())).any(|p| p.exists()))
     }
 
     // ---------- refs ----------
@@ -475,10 +476,6 @@ impl Git {
 
     pub async fn merge_ff_only(&self, from: &str) -> Result<()> {
         self.run(&["merge", "--ff-only", from]).await.map(|_| ())
-    }
-
-    pub async fn show_file(&self, rev: &str, path: &str) -> Result<String> {
-        self.run(&["show", &format!("{rev}:{path}")]).await
     }
 
     // ---------- history ----------

@@ -119,13 +119,10 @@ impl AgentManager {
         self.inner.lock().unwrap().sessions.get(id).cloned().ok_or_else(|| Error::NotFound(format!("agent session {id}")))
     }
 
-    pub fn running_count(&self) -> usize {
-        self.inner.lock().unwrap().sessions.values().filter(|s| s.status == AgentStatus::Running).count()
-    }
-
     fn persist(&self) {
-        let list = self.list();
-        if let Ok(json) = serde_json::to_string(&list) {
+        // Order does not matter on disk: `new` loads sessions into a map.
+        let json = serde_json::to_string(&self.inner.lock().unwrap().sessions.values().collect::<Vec<_>>());
+        if let Ok(json) = json {
             let _ = std::fs::write(&self.file, json);
         }
     }
@@ -240,9 +237,7 @@ impl AgentManager {
     }
 
     fn spawn(&self, id: &str, cwd: &std::path::Path, r: &Resolved, prompt: &str, resume: Option<&str>) -> Result<()> {
-        let info = ai::provider_info(&r.provider)?;
-        let bin = info.bin.ok_or_else(|| Error::Unsupported(format!("{} has no CLI", info.name)))?;
-        let path = ai::which(bin).ok_or_else(|| Error::NotConnected(format!("`{bin}` not found on your PATH")))?;
+        let (_, path) = ai::cli_path(r)?;
         let mut cmd = Command::new(path);
         cmd.current_dir(cwd);
         let structured = r.provider == "claude";
