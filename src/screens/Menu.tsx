@@ -52,179 +52,183 @@ export function Menu({ onUnpair }: { onUnpair: () => void }) {
       </header>
       <div className="menu-wrap">
         <nav aria-label="Main menu" className="menu">
-          {project && (
-            <>
-              <div className="row" style={{ justifyContent: "space-between", padding: "4px 10px 8px" }}>
-                <h1 className="label">For this project</h1>
-                <span className="mono faint" style={{ fontSize: 11.5 }}>{project.name}</span>
-              </div>
-              <div className="col card" style={{ gap: 12, padding: 14 }}>
-                <div className="col" style={{ gap: 2 }}>
-                  <span style={{ fontWeight: 500 }}>Generation language</span>
-                  <span className="hint">The language the AI writes in for this project. Templates stay the same.</span>
+          <div className="menu-grid">
+            {project && (
+              <section className="menu-col menu-project">
+                <div className="row menu-section" style={{ justifyContent: "space-between" }}>
+                  <h1 className="label">For this project</h1>
+                  <span className="mono faint" style={{ fontSize: 11.5 }}>{project.name}</span>
                 </div>
-                {(
-                  [
-                    ["commit", "Commit summary & message"],
-                    ["pr", "PR title & description"],
-                    ["release", "Release notes"],
-                  ] as const
-                ).map(([k, label]) => (
-                  <div key={k} className="row wrap" style={{ justifyContent: "space-between" }}>
-                    <span className="muted" id={`gen-${k}`}>{label}</span>
-                    <Seg label={label} value={project.genLang[k]} options={LANGS} onChange={(v) => setLang.mutate({ projectId: project.id, [k]: v })} />
-                  </div>
-                ))}
-                <div style={{ borderTop: "1px solid var(--line)", margin: "4px -14px 0" }} />
-                <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start" }}>
+                <div className="col card" style={{ gap: 12, padding: 14 }}>
                   <div className="col" style={{ gap: 2 }}>
-                    <span style={{ fontWeight: 500 }} id="menu-profile">Git profile</span>
-                    <span className="hint">Author name, email and signing key used for commits in this project.</span>
+                    <span style={{ fontWeight: 500 }}>Generation language</span>
+                    <span className="hint">The language the AI writes in for this project. Templates stay the same.</span>
                   </div>
-                  {!adding && (
-                    <button className="btn btn-sm" onClick={() => setAdding(true)}>
-                      <Icon name="plus" size={12} />
-                      Add profile
+                  {(
+                    [
+                      ["commit", "Commit summary & message"],
+                      ["pr", "PR title & description"],
+                      ["release", "Release notes"],
+                    ] as const
+                  ).map(([k, label]) => (
+                    <div key={k} className="row wrap" style={{ justifyContent: "space-between" }}>
+                      <span className="muted" id={`gen-${k}`}>{label}</span>
+                      <Seg label={label} value={project.genLang[k]} options={LANGS} onChange={(v) => setLang.mutate({ projectId: project.id, [k]: v })} />
+                    </div>
+                  ))}
+                  <div style={{ borderTop: "1px solid var(--line)", margin: "4px -14px 0" }} />
+                  <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start" }}>
+                    <div className="col" style={{ gap: 2 }}>
+                      <span style={{ fontWeight: 500 }} id="menu-profile">Git profile</span>
+                      <span className="hint">Author name, email and signing key used for commits in this project.</span>
+                    </div>
+                    {!adding && (
+                      <button className="btn btn-sm" onClick={() => setAdding(true)}>
+                        <Icon name="plus" size={12} />
+                        Add profile
+                      </button>
+                    )}
+                  </div>
+                  <div role="radiogroup" aria-labelledby="menu-profile" className="col" style={{ gap: 6 }}>
+                    <button className="radio-card" role="radio" aria-checked={!project.profileId} onClick={() => setProfile.mutate({ projectId: project.id, profileId: null })}>
+                      <span className="radio-dot" />
+                      <span className="col" style={{ gap: 2 }}>
+                        <span style={{ fontWeight: 500 }}>Repository config</span>
+                        <span className="hint">Whatever user.name / user.email git already uses here</span>
+                      </span>
                     </button>
+                    {(cfg?.profiles ?? []).map((p) => (
+                      <button key={p.id} className="radio-card" role="radio" aria-checked={project.profileId === p.id} onClick={() => setProfile.mutate({ projectId: project.id, profileId: p.id })}>
+                        <span className="radio-dot" />
+                        <span className="col grow" style={{ gap: 2, minWidth: 0 }}>
+                          <span style={{ fontWeight: 500 }}>{p.label}</span>
+                          <span className="hint ellipsis">{p.name} &lt;{p.email}&gt;</span>
+                        </span>
+                        <span className={`pill ${p.sign ? "c-add" : "faint"}`}>{p.sign ? "Signed" : "Unsigned"}</span>
+                      </button>
+                    ))}
+                  </div>
+                  {adding && (
+                    <form
+                      className="col note-box"
+                      style={{ gap: 10 }}
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        saveProfile.mutate(
+                          { profile: draft },
+                          {
+                            onSuccess: (p) => {
+                              setProfile.mutate({ projectId: project.id, profileId: p.id });
+                              setAdding(false);
+                              setDraft({ label: "", name: "", email: "", sign: true });
+                            },
+                          },
+                        );
+                      }}
+                    >
+                      <span style={{ fontWeight: 500 }}>New profile</span>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 8 }}>
+                        {(
+                          [
+                            ["label", "Profile name", "Client work"],
+                            ["name", "Author name", "Your name"],
+                            ["email", "Email", "you@client.com"],
+                          ] as const
+                        ).map(([k, l, ph]) => (
+                          <div key={k} className="field">
+                            <label htmlFor={`np-${k}`}>{l}</label>
+                            <input id={`np-${k}`} className="input" type={k === "email" ? "email" : "text"} placeholder={ph} value={draft[k]} onChange={(e) => setDraft({ ...draft, [k]: e.target.value })} />
+                          </div>
+                        ))}
+                      </div>
+                      <label className="check">
+                        <input type="checkbox" checked={draft.sign} onChange={() => setDraft({ ...draft, sign: !draft.sign })} />
+                        <span>Sign commits with my SSH key</span>
+                      </label>
+                      <div className="row" style={{ justifyContent: "flex-end" }}>
+                        <button type="button" className="btn" onClick={() => setAdding(false)}>Cancel</button>
+                        <button className="btn btn-primary" disabled={!draft.label.trim() || !draft.email.trim()}>Save and use</button>
+                      </div>
+                    </form>
                   )}
                 </div>
-                <div role="radiogroup" aria-labelledby="menu-profile" className="col" style={{ gap: 6 }}>
-                  <button className="radio-card" role="radio" aria-checked={!project.profileId} onClick={() => setProfile.mutate({ projectId: project.id, profileId: null })}>
-                    <span className="radio-dot" />
-                    <span className="col" style={{ gap: 2 }}>
-                      <span style={{ fontWeight: 500 }}>Repository config</span>
-                      <span className="hint">Whatever user.name / user.email git already uses here</span>
+              </section>
+            )}
+
+            <section className="menu-col menu-tools">
+              <h2 className="label menu-section">Tools</h2>
+              <div className="tool-grid">
+                {TOOLS.map((t) => (
+                  <button key={t.glyph} className="tool-tile" onClick={() => nav.go(t.route)} disabled={!nav.projectId && t.route.name !== "worktrees" && t.route.name !== "templates" && t.route.name !== "analytics"}>
+                    <span className="mono-badge">{t.glyph}</span>
+                    <span className="col" style={{ gap: 4 }}>
+                      <span className="tool-tile-title">{t.title}</span>
+                      <span className="tool-tile-sub">{t.sub}</span>
                     </span>
                   </button>
-                  {(cfg?.profiles ?? []).map((p) => (
-                    <button key={p.id} className="radio-card" role="radio" aria-checked={project.profileId === p.id} onClick={() => setProfile.mutate({ projectId: project.id, profileId: p.id })}>
-                      <span className="radio-dot" />
-                      <span className="col grow" style={{ gap: 2, minWidth: 0 }}>
-                        <span style={{ fontWeight: 500 }}>{p.label}</span>
-                        <span className="hint ellipsis">{p.name} &lt;{p.email}&gt;</span>
-                      </span>
-                      <span className={`pill ${p.sign ? "c-add" : "faint"}`}>{p.sign ? "Signed" : "Unsigned"}</span>
-                    </button>
-                  ))}
-                </div>
-                {adding && (
-                  <form
-                    className="col note-box"
-                    style={{ gap: 10 }}
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      saveProfile.mutate(
-                        { profile: draft },
-                        {
-                          onSuccess: (p) => {
-                            setProfile.mutate({ projectId: project.id, profileId: p.id });
-                            setAdding(false);
-                            setDraft({ label: "", name: "", email: "", sign: true });
-                          },
-                        },
-                      );
-                    }}
-                  >
-                    <span style={{ fontWeight: 500 }}>New profile</span>
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 8 }}>
-                      {(
-                        [
-                          ["label", "Profile name", "Client work"],
-                          ["name", "Author name", "Your name"],
-                          ["email", "Email", "you@client.com"],
-                        ] as const
-                      ).map(([k, l, ph]) => (
-                        <div key={k} className="field">
-                          <label htmlFor={`np-${k}`}>{l}</label>
-                          <input id={`np-${k}`} className="input" type={k === "email" ? "email" : "text"} placeholder={ph} value={draft[k]} onChange={(e) => setDraft({ ...draft, [k]: e.target.value })} />
-                        </div>
-                      ))}
-                    </div>
-                    <label className="check">
-                      <input type="checkbox" checked={draft.sign} onChange={() => setDraft({ ...draft, sign: !draft.sign })} />
-                      <span>Sign commits with my SSH key</span>
-                    </label>
-                    <div className="row" style={{ justifyContent: "flex-end" }}>
-                      <button type="button" className="btn" onClick={() => setAdding(false)}>Cancel</button>
-                      <button className="btn btn-primary" disabled={!draft.label.trim() || !draft.email.trim()}>Save and use</button>
-                    </div>
-                  </form>
-                )}
+                ))}
               </div>
-            </>
-          )}
+            </section>
 
-          <h2 className="label" style={{ padding: "20px 10px 4px" }}>Tools</h2>
-          {TOOLS.map((t) => (
-            <button key={t.glyph} className="tool-link" onClick={() => nav.go(t.route)} disabled={!nav.projectId && t.route.name !== "worktrees" && t.route.name !== "templates" && t.route.name !== "analytics"}>
-              <span className="mono-badge">{t.glyph}</span>
-              <span className="col" style={{ gap: 2 }}>
-                <span style={{ fontWeight: 500 }}>{t.title}</span>
-                <span className="hint">{t.sub}</span>
-              </span>
-            </button>
-          ))}
-
-          <h2 className="label" style={{ padding: "20px 10px 4px" }}>App</h2>
-          <button className="tool-link" onClick={() => nav.go({ name: "ai" })}>
-            <span className="mono-badge"><Icon name="sparkle" size={13} /></span>
-            <span className="col" style={{ gap: 2 }}>
-              <span style={{ fontWeight: 500 }}>AI setup</span>
-              <span className="hint">Providers, models and task routing</span>
-            </span>
-          </button>
-          <button className="tool-link" onClick={() => nav.go({ name: "settings" })}>
-            <span className="mono-badge"><Icon name="gear" size={14} /></span>
-            <span className="col" style={{ gap: 2 }}>
-              <span style={{ fontWeight: 500 }}>Settings</span>
-              <span className="hint">Git providers, integrations, companion &amp; MCP</span>
-            </span>
-          </button>
-          <div className="row wrap" style={{ justifyContent: "space-between", padding: "10px" }}>
-            <span>Language</span>
-            <Seg label="Language" value={cfg?.ui.language ?? "en"} options={LANGS} onChange={(v) => setUi.mutate({ language: v })} />
+            <section className="menu-col menu-app">
+              <h2 className="label menu-section">App</h2>
+              <div className="app-list">
+                <button className="app-row" onClick={() => nav.go({ name: "ai" })}>
+                  <Icon name="sparkle" size={16} />
+                  <span className="app-row-label">AI setup</span>
+                  <span className="app-row-sub">Providers, models and task routing</span>
+                </button>
+                <button className="app-row" onClick={() => nav.go({ name: "settings" })}>
+                  <Icon name="gear" size={16} />
+                  <span className="app-row-label">Settings</span>
+                  <span className="app-row-sub">Git providers, integrations, companion &amp; MCP</span>
+                </button>
+                <div className="app-row">
+                  <span className="app-row-label">Language</span>
+                  <span className="grow" />
+                  <Seg label="Language" value={cfg?.ui.language ?? "en"} options={LANGS} onChange={(v) => setUi.mutate({ language: v })} />
+                </div>
+                <div className="app-row">
+                  <span className="app-row-label">Theme</span>
+                  <span className="grow" />
+                  <Seg
+                    label="Theme"
+                    value={nav.themePref}
+                    options={[
+                      { value: "system", label: "System" },
+                      { value: "light", label: "Light" },
+                      { value: "dark", label: "Dark" },
+                    ]}
+                    onChange={nav.setThemePref}
+                  />
+                </div>
+                <button className="app-row" onClick={() => nav.go({ name: "settings", section: "companion" })}>
+                  <span className="app-row-label">{isLocal ? "Companion & MCP" : "Connected desktop"}</span>
+                  <span className="app-row-sub row" style={{ gap: 8, justifyContent: "flex-end" }}>
+                    {cfg?.server.enabled && <span className="pulse" style={{ background: "var(--add-fg)", animation: "none" }} />}
+                    {isLocal
+                      ? cfg?.server.enabled
+                        ? `Running on port ${cfg.server.port} · ${cfg.server.lan ? "LAN" : "this computer only"} · every action exposed`
+                        : "Off"
+                      : currentRemote()?.url}
+                  </span>
+                </button>
+              </div>
+              {!isLocal && (
+                <button
+                  className="btn btn-danger"
+                  style={{ marginTop: 8 }}
+                  onClick={() => {
+                    saveRemote(null);
+                    onUnpair();
+                  }}
+                >
+                  Disconnect from this desktop
+                </button>
+              )}
+            </section>
           </div>
-          <div className="row wrap" style={{ justifyContent: "space-between", padding: "10px" }}>
-            <span>Theme</span>
-            <Seg
-              label="Theme"
-              value={nav.themePref}
-              options={[
-                { value: "system", label: "System" },
-                { value: "light", label: "Light" },
-                { value: "dark", label: "Dark" },
-              ]}
-              onChange={nav.setThemePref}
-            />
-          </div>
-          <button className="tool-link" onClick={() => nav.go({ name: "settings", section: "companion" })}>
-            <span className="mono-badge"><Icon name="phone" size={13} /></span>
-            <span className="col grow" style={{ gap: 2 }}>
-              <span style={{ fontWeight: 500 }}>{isLocal ? "Companion & MCP" : "Connected desktop"}</span>
-              <span className="hint">
-                {isLocal
-                  ? cfg?.server.enabled
-                    ? `Running on port ${cfg.server.port} · ${cfg.server.lan ? "LAN" : "this computer only"} · every action exposed`
-                    : "Off"
-                  : currentRemote()?.url}
-              </span>
-            </span>
-            {cfg?.server.enabled && <span className="pulse" style={{ background: "var(--add-fg)", animation: "none" }} />}
-          </button>
-          {!isLocal && (
-            <button
-              className="btn btn-danger"
-              style={{ margin: "8px 10px" }}
-              onClick={() => {
-                saveRemote(null);
-                onUnpair();
-              }}
-            >
-              Disconnect from this desktop
-            </button>
-          )}
         </nav>
-        <div className="menu-scrim" onClick={close} aria-hidden="true" />
       </div>
     </>
   );
