@@ -1,0 +1,28 @@
+[package]
+name = "gitnetix-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Companion HTTP API (mobile app, remote control) and MCP bridge for Gitnetix"
+
+[[bin]]
+name = "gitnetix-server"
+path = "src/bin/server.rs"
+
+[[bin]]
+name = "gitnetix-mcp"
+path = "src/bin/mcp.rs"
+
+[dependencies]
+gitnetix-core.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["signal"] }
+reqwest.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+axum = "0.8"
+tower-http = { version = "0.6", features = ["cors"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
+futures-util = "0.3"

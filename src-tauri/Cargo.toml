@@ -1,0 +1,29 @@
+[package]
+name = "gitnetix"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Release-centric Git client with AI agents"
+
+[lib]
+name = "gitnetix_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+# The engine runs on desktop. The mobile build is a remote control that talks
+# to a desktop (or headless) Gitnetix over the companion API.
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+gitnetix-core.workspace = true
+gitnetix-server.workspace = true
+tokio.workspace = true

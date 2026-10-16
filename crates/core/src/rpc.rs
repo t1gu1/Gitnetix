@@ -1,0 +1,597 @@
+//! One RPC surface for every client: `call(method, params) -> JSON`.
+//! The Tauri command, the companion HTTP API and the MCP bridge all go
+//! through here, so an action added once is available everywhere.
+
+use serde_json::{json, Value};
+
+use crate::app::{Gitnetix, NewItem, NotesInclude};
+use crate::error::{Error, Result};
+use crate::store::{ConnectMethod, GitProfile, JiraConf, ReleaseKind, Route, TrelloConf, AsanaConf, new_id};
+use crate::templates::{self, Template};
+use crate::{ai, secrets};
+
+/// (method, description, params) — also the MCP tool list.
+pub const METHODS: &[(&str, &str, &str)] = &[
+    ("app.info", "App version and companion server address", ""),
+    ("config.get", "Full app configuration (no secrets)", ""),
+    ("ui.set", "Save UI preferences", "language?, theme?, lastProject?"),
+    ("server.set", "Configure the companion API", "enabled?, lan?, port?, regenerateToken?"),
+    ("projects.list", "List saved projects", ""),
+    ("projects.add", "Add local Git repositories", "paths: string[]"),
+    ("projects.remove", "Remove a project from the list (files untouched)", "projectId"),
+    ("projects.setGenLang", "Language AI writes in for a project", "projectId, commit?, pr?, release?"),
+    ("projects.setProfile", "Git profile used for commits in a project", "projectId, profileId"),
+    ("profiles.save", "Create or update a Git profile", "profile: {id?, label, name, email, sign, signingKey?}"),
+    ("profiles.delete", "Delete a Git profile", "id"),
+    ("workspace.overview", "Releases, their branches and repo state", "projectId"),
+    ("workspace.files", "Changed files of a branch", "projectId, branch, mode: branch|wip|project"),
+    ("workspace.diff", "Diff of one file", "projectId, branch, mode, path"),
+    ("workspace.switch", "Check out a branch (uncommitted work comes along)", "projectId, branch"),
+    ("workspace.commitMessage", "AI-written commit message for current changes", "projectId, branch"),
+    ("workspace.commit", "Stage all and commit; empty message = AI writes it", "projectId, branch, message?"),
+    ("workspace.push", "Push a branch to origin", "projectId, branch"),
+    ("workspace.rebase", "Rebase a branch onto its release; returns conflicts", "projectId, branch"),
+    ("workspace.rebaseContinue", "Continue a paused rebase", "projectId, branch"),
+    ("workspace.rebaseAbort", "Abort a paused rebase", "projectId, branch"),
+    ("workspace.conflictPropose", "AI proposal for a conflicted file", "projectId, branch, path"),
+    ("workspace.conflictApply", "Write and stage a resolved file", "projectId, branch, path, content"),
+    ("releases.create", "Cut a release branch", "projectId, version, kind: next|hotfix, from?"),
+    ("releases.ship", "Fast-forward main to the release and tag it", "projectId, version, push?"),
+    ("releases.delete", "Forget an open release (branch kept)", "projectId, version"),
+    ("items.suggestName", "AI branch name for a feature or fix", "projectId, kind, description, ticket?"),
+    ("items.create", "New feature/fix branch in a release", "projectId, release, kind, description, branchName?, ticket?, where: switch|worktree, startAgent?"),
+    ("items.attach", "Attach an existing branch to a release", "projectId, branch, release, kind"),
+    ("items.remove", "Remove a branch from its release", "projectId, branch, deleteBranch?"),
+    ("worktrees.list", "Every worktree across projects with its agent", ""),
+    ("worktrees.create", "Open a branch in a new worktree", "projectId, branch"),
+    ("worktrees.remove", "Remove a worktree", "projectId, path, force?"),
+    ("agents.list", "Agent sessions", ""),
+    ("agents.get", "One agent session with its log", "id"),
+    ("agents.start", "Start an agent on a branch (or main checkout)", "projectId, branch?, request"),
+    ("agents.message", "Send a follow-up message to an agent", "id, text"),
+    ("agents.pause", "Pause an agent", "id"),
+    ("agents.resume", "Resume an agent", "id"),
+    ("agents.stop", "Stop an agent", "id"),
+    ("agents.remove", "Delete an agent session", "id"),
+    ("ai.catalog", "AI providers, their status and settings", ""),
+    ("ai.saveProvider", "Configure an AI provider", "id, method?, model?, effort?, baseUrl?, apiKey?"),
+    ("ai.setDefault", "Default AI provider", "id"),
+    ("ai.test", "Test an AI provider", "id"),
+    ("ai.setRoute", "Which AI handles a task", "task, provider?, model?, effort?"),
+    ("ai.signIn", "Open the provider CLI to sign in", "id"),
+    ("templates.list", "AI templates", ""),
+    ("templates.save", "Create or update a template", "template"),
+    ("templates.delete", "Delete a template", "id"),
+    ("templates.setDefault", "Make a template the default for its kind", "id"),
+    ("templates.preview", "Run a template on real project data", "projectId, id, language"),
+    ("prs.list", "Pull requests of the project", "projectId"),
+    ("prs.get", "Pull request details, checks, reviews and conversations", "projectId, number"),
+    ("prs.generate", "AI title and description for a branch", "projectId, branch"),
+    ("prs.create", "Push and open a PR from a branch", "projectId, branch, draft?, title?, body?"),
+    ("prs.update", "Edit PR title and description", "projectId, number, title, body"),
+    ("prs.merge", "Merge a PR", "projectId, number, method?"),
+    ("prs.review", "Submit a review", "projectId, number, vote: approve|changes|comment, body?"),
+    ("prs.comment", "Comment on a PR", "projectId, number, body"),
+    ("prs.reply", "Reply in a review thread", "projectId, number, commentId, body"),
+    ("prs.resolve", "Resolve or reopen a review thread", "projectId, threadId, resolved"),
+    ("prs.react", "Add or remove a reaction", "projectId, subjectId, content, add"),
+    ("prs.draftReply", "AI-drafted reply for a thread", "projectId, number, threadId"),
+    ("prs.draftReview", "AI-drafted review summary", "projectId, number"),
+    ("tickets.list", "Tickets from Jira, Trello, Asana with their release", "projectId"),
+    ("tickets.setRelease", "Plan a ticket into a release", "projectId, key, release"),
+    ("tickets.triage", "AI suggestions for unplanned tickets", "projectId"),
+    ("integrations.save", "Connect GitHub, Jira, Trello or Asana", "kind, config?, token?"),
+    ("integrations.disconnect", "Disconnect an integration", "kind"),
+    ("notes.refs", "Tags and branches for a notes range", "projectId"),
+    ("notes.range", "Commit, branch and ticket counts in a range", "projectId, from, to"),
+    ("notes.generate", "AI release notes", "projectId, from, to, templateId?, language, include"),
+    ("notes.changelog", "Prepend notes to CHANGELOG.md", "projectId, markdown"),
+    ("notes.publish", "Publish a GitHub release", "projectId, tag, target, name, body"),
+    ("analytics.get", "Activity and release stats", "projectId (or \"all\"), days"),
+];
+
+fn s(v: &Value, k: &str) -> Result<String> {
+    v.get(k)
+        .and_then(Value::as_str)
+        .map(String::from)
+        .ok_or_else(|| Error::Invalid(format!("missing `{k}`")))
+}
+
+fn os(v: &Value, k: &str) -> Option<String> {
+    v.get(k).and_then(Value::as_str).map(String::from)
+}
+
+fn b(v: &Value, k: &str) -> bool {
+    v.get(k).and_then(Value::as_bool).unwrap_or(false)
+}
+
+fn u(v: &Value, k: &str) -> Result<u64> {
+    v.get(k).and_then(Value::as_u64).ok_or_else(|| Error::Invalid(format!("missing `{k}`")))
+}
+
+fn ok() -> Result<Value> {
+    Ok(json!({ "ok": true }))
+}
+
+fn to<T: serde::Serialize>(t: T) -> Result<Value> {
+    Ok(serde_json::to_value(t)?)
+}
+
+pub async fn call(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
+    let p = if p.is_null() { json!({}) } else { p };
+    match method {
+        "app.info" => {
+            let server = k.store.read(|c| c.server.clone());
+            to(json!({
+                "version": env!("CARGO_PKG_VERSION"),
+                "os": std::env::consts::OS,
+                "server": { "enabled": server.enabled, "port": server.port, "lan": server.lan },
+                "dataDir": k.dir.to_string_lossy(),
+            }))
+        }
+        "config.get" => to(k.store.snapshot()),
+        "ui.set" => {
+            k.store.write(|c| {
+                if let Some(x) = os(&p, "language") {
+                    c.ui.language = x;
+                }
+                if let Some(x) = os(&p, "theme") {
+                    c.ui.theme = x;
+                }
+                if let Some(x) = os(&p, "lastProject") {
+                    c.ui.last_project = Some(x);
+                }
+                Ok(())
+            })?;
+            ok()
+        }
+        "server.set" => {
+            let cfg = k.store.write(|c| {
+                if let Some(x) = p.get("enabled").and_then(Value::as_bool) {
+                    c.server.enabled = x;
+                }
+                if let Some(x) = p.get("lan").and_then(Value::as_bool) {
+                    c.server.lan = x;
+                }
+                if let Some(x) = p.get("port").and_then(Value::as_u64) {
+                    c.server.port = x as u16;
+                }
+                if b(&p, "regenerateToken") {
+                    c.server.token = crate::store::new_token();
+                }
+                Ok(c.server.clone())
+            })?;
+            to(json!({ "server": cfg, "restartRequired": true }))
+        }
+
+        // ---- projects & profiles ----
+        "projects.list" => to(k.projects().await),
+        "projects.add" => {
+            let paths: Vec<String> = serde_json::from_value(p.get("paths").cloned().unwrap_or(json!([])))?;
+            to(k.add_projects(paths).await?)
+        }
+        "projects.remove" => {
+            k.remove_project(&s(&p, "projectId")?)?;
+            ok()
+        }
+        "projects.setGenLang" => {
+            k.store.with_project(&s(&p, "projectId")?, |pr| {
+                if let Some(x) = os(&p, "commit") {
+                    pr.gen_lang.commit = x;
+                }
+                if let Some(x) = os(&p, "pr") {
+                    pr.gen_lang.pr = x;
+                }
+                if let Some(x) = os(&p, "release") {
+                    pr.gen_lang.release = x;
+                }
+                Ok(())
+            })?;
+            ok()
+        }
+        "projects.setProfile" => {
+            let pid = os(&p, "profileId");
+            k.store.with_project(&s(&p, "projectId")?, |pr| {
+                pr.profile_id = pid;
+                Ok(())
+            })?;
+            ok()
+        }
+        "profiles.save" => {
+            let mut prof: GitProfile = serde_json::from_value(p.get("profile").cloned().unwrap_or_default())?;
+            if prof.email.trim().is_empty() {
+                return Err(Error::Invalid("Email is required".into()));
+            }
+            if prof.id.is_empty() {
+                prof.id = new_id();
+            }
+            let saved = prof.clone();
+            k.store.write(|c| {
+                match c.profiles.iter_mut().find(|x| x.id == prof.id) {
+                    Some(x) => *x = prof,
+                    None => c.profiles.push(prof),
+                }
+                Ok(())
+            })?;
+            to(saved)
+        }
+        "profiles.delete" => {
+            let id = s(&p, "id")?;
+            k.store.write(|c| {
+                c.profiles.retain(|x| x.id != id);
+                for pr in c.projects.iter_mut() {
+                    if pr.profile_id.as_deref() == Some(id.as_str()) {
+                        pr.profile_id = None;
+                    }
+                }
+                Ok(())
+            })?;
+            ok()
+        }
+
+        // ---- workspace ----
+        "workspace.overview" => to(k.overview(&s(&p, "projectId")?).await?),
+        "workspace.files" => to(k.files(&s(&p, "projectId")?, &s(&p, "branch")?, &os(&p, "mode").unwrap_or_else(|| "branch".into())).await?),
+        "workspace.diff" => to(k.diff(&s(&p, "projectId")?, &s(&p, "branch")?, &os(&p, "mode").unwrap_or_else(|| "branch".into()), &s(&p, "path")?).await?),
+        "workspace.switch" => {
+            k.switch_branch(&s(&p, "projectId")?, &s(&p, "branch")?).await?;
+            ok()
+        }
+        "workspace.commitMessage" => to(json!({ "message": k.generate_commit_message(&s(&p, "projectId")?, &s(&p, "branch")?).await? })),
+        "workspace.commit" => to(k.commit(&s(&p, "projectId")?, &s(&p, "branch")?, os(&p, "message")).await?),
+        "workspace.push" => to(json!({ "output": k.push(&s(&p, "projectId")?, &s(&p, "branch")?).await? })),
+        "workspace.rebase" => to(json!({ "conflicts": k.rebase(&s(&p, "projectId")?, &s(&p, "branch")?).await? })),
+        "workspace.rebaseContinue" => to(json!({ "conflicts": k.rebase_continue(&s(&p, "projectId")?, &s(&p, "branch")?).await? })),
+        "workspace.rebaseAbort" => {
+            k.rebase_abort(&s(&p, "projectId")?, &s(&p, "branch")?).await?;
+            ok()
+        }
+        "workspace.conflictPropose" => to(json!({ "content": k.conflict_propose(&s(&p, "projectId")?, &s(&p, "branch")?, &s(&p, "path")?).await? })),
+        "workspace.conflictApply" => {
+            k.conflict_apply(&s(&p, "projectId")?, &s(&p, "branch")?, &s(&p, "path")?, &s(&p, "content")?).await?;
+            ok()
+        }
+
+        // ---- releases & items ----
+        "releases.create" => {
+            let kind = if os(&p, "kind").as_deref() == Some("hotfix") { ReleaseKind::Hotfix } else { ReleaseKind::Next };
+            to(k.create_release(&s(&p, "projectId")?, &s(&p, "version")?, kind, os(&p, "from")).await?)
+        }
+        "releases.ship" => to(json!({ "tag": k.ship_release(&s(&p, "projectId")?, &s(&p, "version")?, b(&p, "push")).await? })),
+        "releases.delete" => {
+            k.delete_release(&s(&p, "projectId")?, &s(&p, "version")?)?;
+            ok()
+        }
+        "items.suggestName" => {
+            let (name, ai) = k
+                .suggest_branch_name(&s(&p, "projectId")?, &os(&p, "kind").unwrap_or_else(|| "feat".into()), &s(&p, "description")?, os(&p, "ticket").as_deref())
+                .await?;
+            to(json!({ "name": name, "ai": ai }))
+        }
+        "items.create" => {
+            let req: NewItem = serde_json::from_value(p.clone())?;
+            to(k.create_item(&s(&p, "projectId")?, req).await?)
+        }
+        "items.attach" => {
+            k.attach_branch(&s(&p, "projectId")?, &s(&p, "branch")?, os(&p, "release"), &os(&p, "kind").unwrap_or_default())?;
+            ok()
+        }
+        "items.remove" => {
+            k.remove_item(&s(&p, "projectId")?, &s(&p, "branch")?, b(&p, "deleteBranch")).await?;
+            ok()
+        }
+
+        // ---- worktrees & agents ----
+        "worktrees.list" => to(k.worktrees().await?),
+        "worktrees.create" => to(json!({ "path": k.create_worktree(&s(&p, "projectId")?, &s(&p, "branch")?).await? })),
+        "worktrees.remove" => {
+            k.remove_worktree(&s(&p, "projectId")?, &s(&p, "path")?, b(&p, "force")).await?;
+            ok()
+        }
+        "agents.list" => to(k.agents.list()),
+        "agents.get" => to(k.agents.get(&s(&p, "id")?)?),
+        "agents.start" => to(k.start_agent_on(&s(&p, "projectId")?, os(&p, "branch"), &s(&p, "request")?).await?),
+        "agents.message" => {
+            k.agent_message(&s(&p, "id")?, &s(&p, "text")?)?;
+            ok()
+        }
+        "agents.pause" => {
+            k.agents.pause(&s(&p, "id")?)?;
+            ok()
+        }
+        "agents.resume" => {
+            k.agents.resume(&s(&p, "id")?)?;
+            ok()
+        }
+        "agents.stop" => {
+            k.agents.stop(&s(&p, "id")?)?;
+            ok()
+        }
+        "agents.remove" => {
+            k.agents.remove(&s(&p, "id")?)?;
+            ok()
+        }
+
+        // ---- AI setup ----
+        "ai.catalog" => {
+            let cfg = k.store.read(|c| c.ai.clone());
+            let list: Vec<Value> = ai::catalog()
+                .into_iter()
+                .map(|info| {
+                    let st = ai::status(&cfg, info.id).ok();
+                    json!({ "info": info, "status": st, "conf": cfg.providers.get(info.id) })
+                })
+                .collect();
+            to(json!({ "providers": list, "defaultProvider": cfg.default_provider, "routing": cfg.routing }))
+        }
+        "ai.saveProvider" => {
+            let id = s(&p, "id")?;
+            let info = ai::provider_info(&id)?;
+            if let Some(key) = os(&p, "apiKey").filter(|k| !k.is_empty()) {
+                secrets::set(&secrets::ai_key(&id), &key)?;
+            }
+            k.store.write(|c| {
+                let conf = c.ai.providers.entry(id.clone()).or_default();
+                if let Some(m) = os(&p, "method") {
+                    let m = if m == "api" { ConnectMethod::Api } else { ConnectMethod::Cli };
+                    if !info.methods.contains(&if m == ConnectMethod::Api { "api" } else { "cli" }) {
+                        return Err(Error::Invalid(format!("{} cannot connect that way", info.name)));
+                    }
+                    if conf.method != m {
+                        conf.connected = false;
+                    }
+                    conf.method = m;
+                }
+                if let Some(x) = os(&p, "model") {
+                    conf.model = x;
+                }
+                if let Some(x) = os(&p, "effort") {
+                    conf.effort = x;
+                }
+                if let Some(x) = os(&p, "baseUrl") {
+                    conf.base_url = Some(x);
+                }
+                if conf.effort.is_empty() {
+                    conf.effort = "medium".into();
+                }
+                Ok(())
+            })?;
+            ok()
+        }
+        "ai.setDefault" => {
+            let id = s(&p, "id")?;
+            ai::provider_info(&id)?;
+            k.store.write(|c| {
+                c.ai.providers.entry(id.clone()).or_default();
+                c.ai.default_provider = id;
+                Ok(())
+            })?;
+            ok()
+        }
+        "ai.test" => k.ai_test(&s(&p, "id")?).await,
+        "ai.setRoute" => {
+            let task = s(&p, "task")?;
+            let route = Route { provider: os(&p, "provider").filter(|x| !x.is_empty()), model: os(&p, "model"), effort: os(&p, "effort") };
+            k.store.write(|c| {
+                if route.provider.is_none() && route.model.is_none() && route.effort.is_none() {
+                    c.ai.routing.remove(&task);
+                } else {
+                    c.ai.routing.insert(task, route);
+                }
+                Ok(())
+            })?;
+            ok()
+        }
+        "ai.signIn" => {
+            let id = s(&p, "id")?;
+            let bin = ai::provider_info(&id)?.bin.ok_or_else(|| Error::Unsupported("no CLI".into()))?;
+            let path = ai::which(bin).ok_or_else(|| Error::NotConnected(format!("`{bin}` not found")))?;
+            open_terminal(&path.to_string_lossy())?;
+            ok()
+        }
+
+        // ---- templates ----
+        "templates.list" => {
+            let kinds: Vec<Value> = templates::KINDS
+                .iter()
+                .map(|(id, label)| json!({ "id": id, "label": label, "variables": templates::variables(id).into_iter().map(|(n, h)| json!({"name": n, "hint": h})).collect::<Vec<_>>() }))
+                .collect();
+            to(json!({ "templates": k.store.read(|c| c.templates.clone()), "kinds": kinds }))
+        }
+        "templates.save" => {
+            let mut t: Template = serde_json::from_value(p.get("template").cloned().unwrap_or_default())?;
+            if t.name.trim().is_empty() {
+                return Err(Error::Invalid("Name is required".into()));
+            }
+            if t.id.is_empty() {
+                t.id = new_id();
+            }
+            let saved = t.clone();
+            k.store.write(|c| {
+                match c.templates.iter_mut().find(|x| x.id == t.id) {
+                    Some(x) => *x = t,
+                    None => c.templates.push(t),
+                }
+                Ok(())
+            })?;
+            to(saved)
+        }
+        "templates.delete" => {
+            let id = s(&p, "id")?;
+            k.store.write(|c| {
+                c.templates.retain(|t| t.id != id);
+                Ok(())
+            })?;
+            ok()
+        }
+        "templates.setDefault" => {
+            let id = s(&p, "id")?;
+            k.store.write(|c| {
+                let kind = c.templates.iter().find(|t| t.id == id).map(|t| t.kind.clone()).ok_or_else(|| Error::NotFound("template".into()))?;
+                for t in c.templates.iter_mut().filter(|t| t.kind == kind) {
+                    t.is_default = t.id == id;
+                }
+                Ok(())
+            })?;
+            ok()
+        }
+        "templates.preview" => {
+            let (output, source) = k.template_preview(&s(&p, "projectId")?, &s(&p, "id")?, &os(&p, "language").unwrap_or_else(|| "en".into())).await?;
+            to(json!({ "output": output, "source": source }))
+        }
+
+        // ---- pull requests ----
+        "prs.list" => {
+            let gh = k.github(&s(&p, "projectId")?).await?;
+            to(json!({ "provider": "github", "repo": gh.repo, "items": gh.list().await? }))
+        }
+        "prs.get" => {
+            let gh = k.github(&s(&p, "projectId")?).await?;
+            to(gh.detail(u(&p, "number")?).await?)
+        }
+        "prs.generate" => {
+            let (title, body) = k.generate_pr(&s(&p, "projectId")?, &s(&p, "branch")?).await?;
+            to(json!({ "title": title, "body": body }))
+        }
+        "prs.create" => to(k.create_pr(&s(&p, "projectId")?, &s(&p, "branch")?, b(&p, "draft"), os(&p, "title"), os(&p, "body")).await?),
+        "prs.update" => {
+            let gh = k.github(&s(&p, "projectId")?).await?;
+            gh.update(u(&p, "number")?, &s(&p, "title")?, &os(&p, "body").unwrap_or_default()).await?;
+            ok()
+        }
+        "prs.merge" => {
+            let gh = k.github(&s(&p, "projectId")?).await?;
+            gh.merge(u(&p, "number")?, &os(&p, "method").unwrap_or_else(|| "merge".into())).await?;
+            ok()
+        }
+        "prs.review" => {
+            let gh = k.github(&s(&p, "projectId")?).await?;
+            gh.review(u(&p, "number")?, &s(&p, "vote")?, &os(&p, "body").unwrap_or_default()).await?;
+            ok()
+        }
+        "prs.comment" => {
+            let gh = k.github(&s(&p, "projectId")?).await?;
+            gh.comment(u(&p, "number")?, &s(&p, "body")?).await?;
+            ok()
+        }
+        "prs.reply" => {
+            let gh = k.github(&s(&p, "projectId")?).await?;
+            gh.reply(u(&p, "number")?, u(&p, "commentId")?, &s(&p, "body")?).await?;
+            ok()
+        }
+        "prs.resolve" => {
+            let gh = k.github(&s(&p, "projectId")?).await?;
+            gh.set_resolved(&s(&p, "threadId")?, b(&p, "resolved")).await?;
+            ok()
+        }
+        "prs.react" => {
+            let gh = k.github(&s(&p, "projectId")?).await?;
+            gh.react(&s(&p, "subjectId")?, &s(&p, "content")?, b(&p, "add")).await?;
+            ok()
+        }
+        "prs.draftReply" => to(json!({ "text": k.draft_reply(&s(&p, "projectId")?, u(&p, "number")?, &s(&p, "threadId")?).await? })),
+        "prs.draftReview" => to(json!({ "text": k.draft_review(&s(&p, "projectId")?, u(&p, "number")?).await? })),
+
+        // ---- tickets & integrations ----
+        "tickets.list" => {
+            let integ = k.store.read(|c| c.integrations.clone());
+            let sources: Vec<&str> = [("jira", integ.jira.is_some()), ("trello", integ.trello.is_some()), ("asana", integ.asana.is_some())]
+                .into_iter()
+                .filter(|(_, on)| *on)
+                .map(|(n, _)| n)
+                .collect();
+            if sources.is_empty() {
+                return to(json!({ "sources": [], "tickets": [] }));
+            }
+            to(json!({ "sources": sources, "tickets": k.tickets(&s(&p, "projectId")?).await?, "syncedAt": crate::store::now() }))
+        }
+        "tickets.setRelease" => {
+            k.set_ticket_release(&s(&p, "projectId")?, &s(&p, "key")?, &os(&p, "release").unwrap_or_default())?;
+            ok()
+        }
+        "tickets.triage" => to(k.triage(&s(&p, "projectId")?).await?),
+        "integrations.save" => {
+            let kind = s(&p, "kind")?;
+            let token = os(&p, "token").filter(|t| !t.is_empty());
+            let cfg = p.get("config").cloned().unwrap_or(json!({}));
+            if let Some(t) = &token {
+                secrets::set(&kind, t)?;
+            }
+            k.store.write(|c| {
+                match kind.as_str() {
+                    "github" => {
+                        c.integrations.github_api = os(&cfg, "apiBase").filter(|s| !s.is_empty());
+                        c.integrations.github_connected = true;
+                    }
+                    "jira" => c.integrations.jira = Some(serde_json::from_value::<JiraConf>(cfg.clone())?),
+                    "trello" => c.integrations.trello = Some(serde_json::from_value::<TrelloConf>(cfg.clone())?),
+                    "asana" => c.integrations.asana = Some(serde_json::from_value::<AsanaConf>(cfg.clone())?),
+                    other => return Err(Error::Invalid(format!("unknown integration {other}"))),
+                }
+                Ok(())
+            })?;
+            ok()
+        }
+        "integrations.disconnect" => {
+            let kind = s(&p, "kind")?;
+            secrets::delete(&kind)?;
+            k.store.write(|c| {
+                match kind.as_str() {
+                    "github" => c.integrations.github_connected = false,
+                    "jira" => c.integrations.jira = None,
+                    "trello" => c.integrations.trello = None,
+                    "asana" => c.integrations.asana = None,
+                    _ => {}
+                }
+                Ok(())
+            })?;
+            ok()
+        }
+
+        // ---- release notes ----
+        "notes.refs" => k.notes_refs(&s(&p, "projectId")?).await,
+        "notes.range" => k.notes_range(&s(&p, "projectId")?, &s(&p, "from")?, &s(&p, "to")?).await,
+        "notes.generate" => {
+            let inc: NotesInclude = serde_json::from_value(p.get("include").cloned().unwrap_or(json!({"feat":true,"fix":true,"internal":true,"tickets":true})))?;
+            let (markdown, model) = k
+                .generate_notes(&s(&p, "projectId")?, &s(&p, "from")?, &s(&p, "to")?, os(&p, "templateId").as_deref(), &os(&p, "language").unwrap_or_else(|| "en".into()), inc)
+                .await?;
+            to(json!({ "markdown": markdown, "model": model }))
+        }
+        "notes.changelog" => to(json!({ "path": k.add_to_changelog(&s(&p, "projectId")?, &s(&p, "markdown")?)? })),
+        "notes.publish" => {
+            let gh = k.github(&s(&p, "projectId")?).await?;
+            let url = gh.create_release(&s(&p, "tag")?, &s(&p, "target")?, &s(&p, "name")?, &s(&p, "body")?).await?;
+            to(json!({ "url": url }))
+        }
+
+        // ---- analytics ----
+        "analytics.get" => to(k.analytics(&os(&p, "projectId").unwrap_or_else(|| "all".into()), p.get("days").and_then(Value::as_i64).unwrap_or(30)).await?),
+
+        other => Err(Error::NotFound(format!("method {other}"))),
+    }
+}
+
+/// Open the user's terminal running `cmd` (used for CLI sign-in).
+fn open_terminal(cmd: &str) -> Result<()> {
+    #[cfg(target_os = "macos")]
+    {
+        let script = format!("tell application \"Terminal\" to do script \"{}\"\ntell application \"Terminal\" to activate", cmd.replace('"', "\\\""));
+        std::process::Command::new("osascript").args(["-e", &script]).spawn()?;
+        Ok(())
+    }
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("cmd").args(["/C", "start", "cmd", "/K", cmd]).spawn()?;
+        Ok(())
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        for term in ["x-terminal-emulator", "gnome-terminal", "konsole", "xterm"] {
+            if std::process::Command::new(term).args(["-e", cmd]).spawn().is_ok() {
+                return Ok(());
+            }
+        }
+        Err(Error::Unsupported("no terminal found; run the CLI yourself to sign in".into()))
+    }
+}
