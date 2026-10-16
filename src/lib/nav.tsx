@@ -25,7 +25,10 @@ export interface NewItemDraft {
 
 interface Nav {
   route: Route;
+  /** `{ name: "menu" }` opens the menu over the current screen; any other route closes it. */
   go: (r: Route) => void;
+  menuOpen: boolean;
+  closeMenu: () => void;
   projectId?: string;
   setProject: (id: string | undefined) => void;
   theme: "dark" | "light";
@@ -46,6 +49,7 @@ function systemTheme(): "dark" | "light" {
 
 export function NavProvider({ children, initialProject, initialTheme }: { children: ReactNode; initialProject?: string; initialTheme?: string }) {
   const [route, setRoute] = useState<Route>(initialProject ? { name: "workspace" } : { name: "home" });
+  const [menuOpen, setMenuOpen] = useState(false);
   const [projectId, setProjectId] = useState<string | undefined>(initialProject);
   const [themePref, setThemePrefState] = useState(initialTheme ?? "system");
   const [sys, setSys] = useState(systemTheme());
@@ -70,6 +74,13 @@ export function NavProvider({ children, initialProject, initialTheme }: { childr
     if (id) rpc("ui.set", { lastProject: id }).catch(() => {});
   }, []);
 
+  const go = useCallback((r: Route) => {
+    if (r.name === "menu") return setMenuOpen(true);
+    setMenuOpen(false);
+    setRoute(r);
+  }, []);
+  const closeMenu = useCallback(() => setMenuOpen(false), []);
+
   const setThemePref = useCallback((t: string) => {
     setThemePrefState(t);
     rpc("ui.set", { theme: t }).catch(() => {});
@@ -78,7 +89,9 @@ export function NavProvider({ children, initialProject, initialTheme }: { childr
   const value = useMemo<Nav>(
     () => ({
       route,
-      go: setRoute,
+      go,
+      menuOpen,
+      closeMenu,
       projectId,
       setProject,
       theme,
@@ -90,7 +103,7 @@ export function NavProvider({ children, initialProject, initialTheme }: { childr
       selectedBranch,
       selectBranch,
     }),
-    [route, projectId, setProject, theme, themePref, setThemePref, newItem, selectedBranch],
+    [route, go, menuOpen, closeMenu, projectId, setProject, theme, themePref, setThemePref, newItem, selectedBranch],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

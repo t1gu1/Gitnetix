@@ -1,6 +1,7 @@
 import { type ReactNode, useEffect } from "react";
 
 import { Icon } from "./Icon";
+import { isPageRoute } from "./TopBar";
 import { useNav } from "../lib/nav";
 
 export function Seg<T extends string>({
@@ -31,6 +32,7 @@ export function Seg<T extends string>({
 
 export function Header({ title, sub, back = "menu", right, onBack }: { title: ReactNode; sub?: ReactNode; back?: "menu" | "workspace" | "none"; right?: ReactNode; onBack?: () => void }) {
   const nav = useNav();
+  if (nav.projectId && isPageRoute(nav.route)) back = "none";
   return (
     <header className="hdr">
       {back !== "none" && (

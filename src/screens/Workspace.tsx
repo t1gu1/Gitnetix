@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 
-import { useAction, useAgents, useDiff, useFiles, useOverview, useProjects } from "../api/hooks";
+import { useAction, useAgents, useDiff, useFiles, useOverview } from "../api/hooks";
 import type { BranchView, FileChange, ReleaseView } from "../api/types";
 import { AgentLog } from "../components/AgentLog";
 import { DiffView } from "../components/DiffView";
 import { Icon } from "../components/Icon";
-import { ThemeToggle } from "../components/ThemeToggle";
 import { Busy, ErrorBox, Loading, Modal, releaseTagLabel, Seg } from "../components/ui";
 import { useNav } from "../lib/nav";
 import { ConflictModal } from "./ConflictModal";
@@ -16,9 +15,7 @@ type Pane = "releases" | "files" | "diff";
 export function Workspace() {
   const nav = useNav();
   const pid = nav.projectId!;
-  const projects = useProjects();
   const ov = useOverview(pid);
-  const agents = useAgents();
   const [mode, setMode] = useState<Mode>("branch");
   const [file, setFile] = useState<string | undefined>();
   const [diffMode, setDiffMode] = useState<"unified" | "split">("unified");
@@ -46,38 +43,11 @@ export function Workspace() {
 
   useEffect(() => setFile(undefined), [branch, mode]);
 
-  const runningAll = (agents.data ?? []).filter((a) => a.status === "running").length;
   const inRebase = (branch === o?.currentBranch && o?.rebasing) || !!view?.conflict;
 
   if (ov.isLoading) return <Loading />;
   return (
     <>
-      <header className="hdr">
-        <button className="hdr-icon" aria-label="Open menu" onClick={() => nav.go({ name: "menu" })}>
-          <Icon name="menu" size={18} stroke={1.4} />
-        </button>
-        <nav aria-label="Projects" className="tabs-projects">
-          {(projects.data ?? []).map((p) => (
-            <button key={p.id} className="tab-project" aria-pressed={p.id === pid} onClick={() => nav.setProject(p.id)}>
-              {p.runningAgents > 0 && <span className="pulse" title="AI task running" />}
-              <span>{p.name}</span>
-            </button>
-          ))}
-          <button className="btn btn-ghost btn-icon" style={{ height: "auto", width: 40, border: 0, borderRadius: 0 }} aria-label="Add project" onClick={() => nav.go({ name: "home" })}>
-            <Icon name="plus" />
-          </button>
-        </nav>
-        <div className="hdr-tools">
-          {runningAll > 0 && (
-            <button className="btn hide-narrow" style={{ height: 28 }} onClick={() => nav.go({ name: "worktrees" })}>
-              <span className="pulse" />
-              <span className="muted">{runningAll} {runningAll === 1 ? "agent" : "agents"} running</span>
-            </button>
-          )}
-          <ThemeToggle />
-        </div>
-      </header>
-
       <div className="pane-switch">
         <Seg<Pane>
           label="Panel"

@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useConfig, useEngineEvents } from "./api/hooks";
 import { currentRemote, isLocal } from "./api/transport";
 import { Icon } from "./components/Icon";
+import { isPageRoute, TopBar } from "./components/TopBar";
 import { Loading } from "./components/ui";
 import { NavProvider, useNav, type Route } from "./lib/nav";
 import { Toasts } from "./lib/toast";
@@ -59,9 +60,6 @@ function Shell({ onUnpair }: { onUnpair: () => void }) {
     case "workspace":
       screen = nav.projectId ? <Workspace /> : <Welcome />;
       break;
-    case "menu":
-      screen = <Menu onUnpair={onUnpair} />;
-      break;
     case "settings":
       screen = <Settings section={r.section} />;
       break;
@@ -92,11 +90,15 @@ function Shell({ onUnpair }: { onUnpair: () => void }) {
   }
   return (
     <div className="ag app">
-      {screen}
+      <div className="app-main">
+        {nav.projectId && isPageRoute(r) && <TopBar />}
+        {screen}
+        {nav.menuOpen && <Menu onUnpair={onUnpair} />}
+      </div>
       {nav.projectId && (
         <nav className="mobile-tabs" aria-label="Sections">
           {MOBILE_TABS.map((t) => (
-            <button key={t.label} aria-pressed={r.name === t.route.name} onClick={() => nav.go(t.route)}>
+            <button key={t.label} aria-pressed={t.route.name === "menu" ? nav.menuOpen : !nav.menuOpen && r.name === t.route.name} onClick={() => nav.go(t.route)}>
               <Icon name={t.icon} size={18} />
               {t.label}
             </button>

@@ -82,6 +82,7 @@ a:hover { color: var(--fg); }
 .spinner { width: 12px; height: 12px; border: 1.5px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin 0.8s linear infinite; display: inline-block; flex: 0 0 12px; }
 
 /* ---------- shell ---------- */
+.app-main { position: relative; flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 .app { height: 100vh; height: 100dvh; display: flex; flex-direction: column; background: var(--bg); overflow: hidden; padding-top: env(safe-area-inset-top); }
 .hdr { display: flex; align-items: stretch; height: 44px; flex: 0 0 44px; border-bottom: 1px solid var(--line); background: var(--bg); }
 .hdr-icon { display: flex; align-items: center; justify-content: center; width: 48px; flex: 0 0 48px; color: var(--fg); border: 0; border-right: 1px solid var(--line); background: transparent; text-decoration: none; }
@@ -91,6 +92,11 @@ a:hover { color: var(--fg); }
 .tabs-projects { display: flex; align-items: stretch; min-width: 0; overflow-x: auto; scrollbar-width: none; }
 .tab-project { display: flex; align-items: center; gap: 8px; padding: 0 16px; border: 0; border-right: 1px solid var(--line); background: transparent; color: var(--muted); white-space: nowrap; font-size: 13px; }
 .tab-project[aria-pressed="true"] { background: var(--panel); color: var(--fg); font-weight: 500; box-shadow: inset 0 -2px 0 var(--accent); }
+.tabs-pages { display: flex; align-items: stretch; flex: 0 0 40px; height: 40px; padding: 0 8px; gap: 2px; border-bottom: 1px solid var(--line); background: var(--panel); overflow-x: auto; scrollbar-width: none; }
+.tab-page { display: flex; align-items: center; gap: 7px; padding: 0 12px; border: 0; background: transparent; color: var(--muted); white-space: nowrap; font-size: 12.5px; box-shadow: inset 0 -2px 0 transparent; }
+.tab-page:hover { color: var(--fg); }
+.tab-page[aria-current="page"] { color: var(--fg); font-weight: 600; box-shadow: inset 0 -2px 0 var(--accent); }
+.tab-page[aria-current="page"] svg { color: var(--accent-fg); }
 .body { flex: 1 1 auto; min-height: 0; display: flex; overflow: hidden; }
 .scroll { overflow-y: auto; min-height: 0; }
 
@@ -244,25 +250,27 @@ a:hover { color: var(--fg); }
 .pre { margin: 0; padding: 16px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); font-family: var(--mono); font-size: 12.5px; line-height: 1.65; white-space: pre-wrap; word-break: break-word; }
 
 /* ---------- menu ---------- */
+.menu-overlay { position: absolute; inset: 0; z-index: 40; display: flex; }
+.menu-panel { flex: 0 0 auto; width: min(1100px, calc(100% - 160px)); display: flex; flex-direction: column; min-height: 0; background: var(--panel); border-right: 1px solid var(--line); box-shadow: var(--shadow); animation: menu-in 180ms ease-out; }
+.menu-scrim { flex: 1 1 auto; background: rgba(0, 0, 0, 0.45); animation: menu-fade 180ms ease-out; }
+@keyframes menu-in { from { transform: translateX(-100%); } }
+@keyframes menu-fade { from { opacity: 0; } }
+.menu-overlay.closing { pointer-events: none; }
+.menu-overlay.closing .menu-panel { animation: menu-out 160ms ease-in forwards; }
+.menu-overlay.closing .menu-scrim { animation: menu-fade-out 160ms ease-in forwards; }
+@keyframes menu-out { to { transform: translateX(-100%); } }
+@keyframes menu-fade-out { to { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .menu-panel, .menu-scrim { animation: none; } }
 .menu-wrap { flex: 1 1 auto; display: flex; min-height: 0; }
-.menu { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 6px; padding: 24px; background: var(--panel); overflow-y: auto; }
-.menu-grid { width: 100%; max-width: 760px; margin-inline: auto; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-areas: "project" "tools" "app"; gap: 22px; align-items: start; }
+.menu { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 6px; padding: 24px; background: var(--panel); overflow-y: auto; container-type: inline-size; }
+.menu-grid { width: 100%; max-width: 760px; margin-inline: auto; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-areas: "project" "app"; gap: 22px; align-items: start; }
 .menu-col { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .menu-project { grid-area: project; }
-.menu-tools { grid-area: tools; }
 .menu-app { grid-area: app; }
 .menu-section { padding: 4px 0 6px; }
-@media (min-width: 1200px) {
-  .menu { padding: 32px 40px; }
-  .menu-grid { max-width: 1320px; grid-template-columns: minmax(0, 1fr) minmax(360px, 440px); grid-template-rows: auto 1fr; grid-template-areas: "tools project" "tools app"; column-gap: 40px; }
+@container (min-width: 960px) {
+  .menu-grid { max-width: 1040px; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-areas: "project app"; column-gap: 40px; }
 }
-.tool-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); gap: 1px; border: 1px solid var(--line); border-radius: 4px; background: var(--line); overflow: hidden; }
-.tool-tile { display: flex; flex-direction: column; align-items: flex-start; gap: 14px; min-height: 132px; padding: 20px; border: 0; background: var(--panel); color: var(--fg); text-align: left; }
-.tool-tile:hover:not(:disabled) { background: var(--raised); }
-.tool-tile:disabled { opacity: 0.5; }
-.tool-tile .mono-badge { font-size: 12px; color: var(--accent-fg); }
-.tool-tile-title { font-size: 14px; font-weight: 600; }
-.tool-tile-sub { font-size: 12.5px; line-height: 1.45; color: var(--muted); }
 .app-list { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 4px; }
 .app-row { display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 0 16px; border: 0; background: transparent; color: var(--fg); text-align: left; width: 100%; }
 .app-list > .app-row + .app-row { border-top: 1px solid var(--line); }
@@ -318,6 +326,8 @@ button.app-row:hover { background: var(--raised); }
   .page { padding: 20px 16px 48px; }
   .detail { padding: 20px 16px 48px; }
   .menu { flex: 1 1 100%; padding: 16px; }
+  .menu-panel { width: 100%; border-right: 0; box-shadow: none; }
+  .menu-scrim { display: none; }
   .term { flex-basis: 45%; }
   .hide-narrow { display: none !important; }
   .mobile-tabs { display: flex; flex: 0 0 auto; border-top: 1px solid var(--line); background: var(--panel); padding-bottom: env(safe-area-inset-bottom); }
