@@ -251,8 +251,8 @@ a:hover { color: var(--fg); }
 
 /* ---------- menu ---------- */
 .menu-overlay { position: absolute; inset: 0; z-index: 40; display: flex; }
-.menu-panel { flex: 0 0 auto; width: min(1100px, calc(100% - 160px)); display: flex; flex-direction: column; min-height: 0; background: var(--panel); border-right: 1px solid var(--line); box-shadow: var(--shadow); animation: menu-in 180ms ease-out; }
-.menu-scrim { flex: 1 1 auto; background: rgba(0, 0, 0, 0.45); animation: menu-fade 180ms ease-out; }
+.menu-panel { position: relative; z-index: 1; flex: 0 0 auto; width: min(1100px, calc(100% - 160px)); display: flex; flex-direction: column; min-height: 0; background: var(--panel); border-right: 1px solid var(--line); box-shadow: var(--shadow); animation: menu-in 180ms ease-out; }
+.menu-scrim { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.45); animation: menu-fade 180ms ease-out; }
 @keyframes menu-in { from { transform: translateX(-100%); } }
 @keyframes menu-fade { from { opacity: 0; } }
 .menu-overlay.closing { pointer-events: none; }
