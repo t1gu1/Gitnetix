@@ -72,6 +72,8 @@ pub struct AgentManager {
     inner: Arc<Mutex<Inner>>,
     events: broadcast::Sender<Event>,
     file: PathBuf,
+    /// Serializes writes to `file` so concurrent persists cannot interleave.
+    write_lock: Arc<Mutex<()>>,
 }
 
 const MAX_LINES: usize = 2000;
@@ -105,7 +107,7 @@ impl AgentManager {
                 s.lines.push(LogLine::new("dim", "  ■ Stopped when Gitnetix quit"));
             }
         }
-        AgentManager { inner: Arc::new(Mutex::new(Inner { sessions, kills: HashMap::new() })), events, file }
+        AgentManager { inner: Arc::new(Mutex::new(Inner { sessions, kills: HashMap::new() })), events, file, write_lock: Arc::default() }
     }
 
     pub fn list(&self) -> Vec<AgentSession> {
@@ -120,10 +122,16 @@ impl AgentManager {
     }
 
     fn persist(&self) {
-        // Order does not matter on disk: `new` loads sessions into a map.
-        let json = serde_json::to_string(&self.inner.lock().unwrap().sessions.values().collect::<Vec<_>>());
-        if let Ok(json) = json {
-            let _ = std::fs::write(&self.file, json);
+        // Snapshot under the session lock, serialize and write outside it so
+        // log readers are not blocked. Order does not matter on disk: `new`
+        // loads sessions into a map.
+        let snapshot: Vec<AgentSession> = self.inner.lock().unwrap().sessions.values().cloned().collect();
+        let Ok(json) = serde_json::to_string(&snapshot) else { return };
+        // Write to a temp file and rename so a reader never sees a torn file.
+        let _guard = self.write_lock.lock().unwrap();
+        let tmp = self.file.with_extension("json.tmp");
+        if std::fs::write(&tmp, json).is_ok() {
+            let _ = std::fs::rename(&tmp, &self.file);
         }
     }
 
@@ -180,7 +188,7 @@ impl AgentManager {
             pid: None,
         };
         self.inner.lock().unwrap().sessions.insert(id.clone(), session.clone());
-        self.spawn(&id, &args.cwd, &args.ai, &args.prompt, None)?;
+        self.spawn_or_fail(&id, &args.cwd, &args.ai, &args.prompt, None)?;
         Ok(session)
     }
 
@@ -193,7 +201,18 @@ impl AgentManager {
         }
         self.push(id, LogLine::new("cmd", format!("› {text}")));
         self.set_status(id, AgentStatus::Running);
-        self.spawn(id, &PathBuf::from(&s.cwd), ai, text, s.resume_id.as_deref())
+        self.spawn_or_fail(id, &PathBuf::from(&s.cwd), ai, text, s.resume_id.as_deref())
+    }
+
+    /// Like `spawn`, but a session that never got a process is marked failed
+    /// instead of being left `Running`.
+    fn spawn_or_fail(&self, id: &str, cwd: &std::path::Path, r: &Resolved, prompt: &str, resume: Option<&str>) -> Result<()> {
+        let res = self.spawn(id, cwd, r, prompt, resume);
+        if let Err(e) = &res {
+            self.push(id, LogLine::new("err", format!("✕ Could not start the agent: {e}")));
+            self.set_status(id, AgentStatus::Failed);
+        }
+        res
     }
 
     pub fn stop(&self, id: &str) -> Result<()> {
@@ -237,7 +256,7 @@ impl AgentManager {
     }
 
     fn spawn(&self, id: &str, cwd: &std::path::Path, r: &Resolved, prompt: &str, resume: Option<&str>) -> Result<()> {
-        let (_, path) = ai::cli_path(r)?;
+        let (_, path) = ai::cli_path(&r.provider)?;
         let mut cmd = Command::new(path);
         cmd.current_dir(cwd);
         let structured = r.provider == "claude";

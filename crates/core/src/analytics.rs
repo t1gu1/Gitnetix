@@ -1,6 +1,6 @@
 //! Activity, release cadence and AI usage computed from git history.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use chrono::{DateTime, Duration, NaiveDate, Utc};
 use serde::Serialize;
@@ -82,12 +82,12 @@ pub async fn compute(input: Input<'_>) -> Result<Analytics> {
     let mut commits: Vec<(Commit, bool)> = Vec::new();
     // (tag, date, index into `input.repos` / `ai_sets`)
     let mut tag_dates: Vec<(String, DateTime<Utc>, usize)> = Vec::new();
-    let mut ai_sets: Vec<HashSet<String>> = Vec::new();
+    let ai_sets: Vec<HashSet<String>> = input.repos.iter().map(|(_, ai)| ai.iter().cloned().collect()).collect();
     let mut merges_now = 0u32;
     let mut merges_prev = 0u32;
 
-    for (repo, (git, ai)) in input.repos.iter().enumerate() {
-        let ai: HashSet<String> = ai.iter().cloned().collect();
+    for (repo, (git, _)) in input.repos.iter().enumerate() {
+        let ai = &ai_sets[repo];
         let refs: Vec<&str> = vec!["log", "--all", "--no-merges", &since, "--format=%H%x1f%an%x1f%ae%x1f%aI%x1f%s%x1f%b%x1e"];
         let raw = git.run(&refs).await.unwrap_or_default();
         for rec in raw.split('\x1e') {
@@ -115,7 +115,6 @@ pub async fn compute(input: Input<'_>) -> Result<Analytics> {
                 tag_dates.push((t.name, d, repo));
             }
         }
-        ai_sets.push(ai);
     }
 
     // ---- daily activity ----
@@ -134,7 +133,7 @@ pub async fn compute(input: Input<'_>) -> Result<Analytics> {
             *per.entry(c.author.clone()).or_default() += 1;
         }
         let mut authors: Vec<(String, u32)> = per.into_iter().collect();
-        authors.sort_by(|a, b| b.1.cmp(&a.1));
+        authors.sort_by_key(|a| std::cmp::Reverse(a.1));
         use chrono::Datelike;
         let wd = d.weekday().number_from_monday();
         days.push(Day {
@@ -148,12 +147,17 @@ pub async fn compute(input: Input<'_>) -> Result<Analytics> {
     }
 
     // ---- releases (tags) ----
-    tag_dates.sort_by(|a, b| a.1.cmp(&b.1));
+    tag_dates.sort_by_key(|t| t.1);
+    // Only tags in the two compared periods and the last 8 shown are used.
+    let keep_from = tag_dates.len().saturating_sub(8);
+    let mut prev_tag: HashMap<usize, &str> = HashMap::new();
     let mut stats: Vec<(ReleaseStat, DateTime<Utc>)> = Vec::new();
-    for i in 0..tag_dates.len() {
-        let (name, date, repo) = &tag_dates[i];
+    for (i, (name, date, repo)) in tag_dates.iter().enumerate() {
+        let prev = prev_tag.insert(*repo, name);
+        if i < keep_from && date.date_naive() < prev_start {
+            continue;
+        }
         let (git, ai) = (&input.repos[*repo].0, &ai_sets[*repo]);
-        let prev = tag_dates[..i].iter().rev().find(|t| t.2 == *repo).map(|t| t.0.clone());
         let range = match &prev {
             Some(p) => format!("{p}..{name}"),
             None => name.clone(),

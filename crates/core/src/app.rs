@@ -28,6 +28,29 @@ pub struct Gitnetix {
     pub dir: PathBuf,
 }
 
+/// Which changes the workspace file list and diff show.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ViewMode {
+    /// Uncommitted work in the branch's checkout.
+    Wip,
+    /// Committed changes since the branch's base.
+    Branch,
+    /// Every file on the branch, with its changes.
+    Project,
+}
+
+impl std::str::FromStr for ViewMode {
+    type Err = Error;
+    fn from_str(s: &str) -> Result<Self> {
+        match s {
+            "wip" => Ok(ViewMode::Wip),
+            "branch" => Ok(ViewMode::Branch),
+            "project" => Ok(ViewMode::Project),
+            other => Err(Error::Invalid(format!("unknown mode {other:?}"))),
+        }
+    }
+}
+
 // ---------- views returned to the UI ----------
 
 #[derive(Debug, Clone, Serialize)]
@@ -445,9 +468,9 @@ impl Gitnetix {
         Ok(Overview { project: p, current_branch: current, default_branch: default, releases, other_branches, rebasing, conflicts, remote })
     }
 
-    pub async fn files(&self, project_id: &str, branch: &str, mode: &str) -> Result<Vec<FileChange>> {
+    pub async fn files(&self, project_id: &str, branch: &str, mode: ViewMode) -> Result<Vec<FileChange>> {
         let p = self.store.project(project_id)?;
-        if mode == "wip" {
+        if mode == ViewMode::Wip {
             return match self.checkout_dir(&p, branch).await? {
                 Some(dir) => Git::new(dir).wip_changes().await,
                 None => Ok(Vec::new()),
@@ -457,13 +480,13 @@ impl Gitnetix {
         let default = git.default_branch().await?;
         let base = self.base_of(&p, branch, &default);
         match mode {
-            "branch" => {
+            ViewMode::Branch | ViewMode::Wip => {
                 if base == branch {
                     return Ok(Vec::new());
                 }
                 git.branch_changes(&base, branch).await
             }
-            _ => {
+            ViewMode::Project => {
                 let dir = self.checkout_dir(&p, branch).await?;
                 let mut known: HashMap<String, FileChange> = HashMap::new();
                 if base != branch {
@@ -494,14 +517,19 @@ impl Gitnetix {
         }
     }
 
-    pub async fn diff(&self, project_id: &str, branch: &str, mode: &str, path: &str) -> Result<Vec<Hunk>> {
+    pub async fn diff(&self, project_id: &str, branch: &str, mode: ViewMode, path: &str) -> Result<Vec<Hunk>> {
         let p = self.store.project(project_id)?;
-        if matches!(mode, "wip" | "project") {
-            if let Some(dir) = self.checkout_dir(&p, branch).await? {
-                let wip = Git::new(&dir).file_diff(path, None).await?;
-                if !wip.is_empty() || mode == "wip" {
-                    return Ok(wip);
+        if mode != ViewMode::Branch {
+            match self.checkout_dir(&p, branch).await? {
+                Some(dir) => {
+                    let wip = Git::new(&dir).file_diff(path, None).await?;
+                    if !wip.is_empty() || mode == ViewMode::Wip {
+                        return Ok(wip);
+                    }
                 }
+                // Not checked out: no uncommitted work, like `files`.
+                None if mode == ViewMode::Wip => return Ok(Vec::new()),
+                None => {}
             }
         }
         let git = self.git(&p);
@@ -1162,26 +1190,38 @@ impl Gitnetix {
     pub async fn tickets(&self, project_id: &str) -> Result<Vec<TicketView>> {
         let p = self.store.project(project_id)?;
         let integ = self.store.read(|c| c.integrations.clone());
-        let mut all: Vec<Ticket> = Vec::new();
-        let mut errors = Vec::new();
-        let mut absorb = |r: Result<Vec<Ticket>>| match r {
-            Ok(v) => all.extend(v),
-            Err(e) => errors.push(e.to_string()),
+        // One source failing (missing token, keychain refusal, HTTP error)
+        // must not hide tickets from the others.
+        let token = |name: &str, label: &str| match secrets::get(name) {
+            Ok(Some(tok)) => Ok(tok),
+            Ok(None) => Err(format!("{label} token missing")),
+            Err(e) => Err(format!("{label}: {e}")),
         };
+        let mut results: Vec<std::result::Result<Vec<Ticket>, String>> = Vec::new();
         if let Some(j) = &integ.jira {
-            match secrets::get("jira")? {
-                Some(tok) => absorb(tickets::jira(j, &tok).await),
-                None => absorb(Err(Error::Other("Jira token missing".into()))),
-            }
+            results.push(match token("jira", "Jira") {
+                Ok(tok) => tickets::jira(j, &tok).await.map_err(|e| e.to_string()),
+                Err(e) => Err(e),
+            });
         }
         if let Some(t) = &integ.trello {
-            if let Some(tok) = secrets::get("trello")? {
-                absorb(tickets::trello(t, &tok).await);
-            }
+            results.push(match token("trello", "Trello") {
+                Ok(tok) => tickets::trello(t, &tok).await.map_err(|e| e.to_string()),
+                Err(e) => Err(e),
+            });
         }
         if let Some(a) = &integ.asana {
-            if let Some(tok) = secrets::get("asana")? {
-                absorb(tickets::asana(a, &tok).await);
+            results.push(match token("asana", "Asana") {
+                Ok(tok) => tickets::asana(a, &tok).await.map_err(|e| e.to_string()),
+                Err(e) => Err(e),
+            });
+        }
+        let mut all: Vec<Ticket> = Vec::new();
+        let mut errors = Vec::new();
+        for r in results {
+            match r {
+                Ok(v) => all.extend(v),
+                Err(e) => errors.push(e),
             }
         }
         if all.is_empty() && !errors.is_empty() {
@@ -1345,12 +1385,12 @@ fn top_path(p: &Project) -> PathBuf {
     PathBuf::from(&p.path)
 }
 
-/// Worktrees live next to the main checkout: `<parent>/<project>.<last branch segment>`.
+/// Worktrees live next to the main checkout: `<parent>/<project>.<branch with / as ->`.
+/// The whole branch name is kept so `feat/login` and `fix/login` do not collide.
 fn worktree_path(p: &Project, branch: &str) -> PathBuf {
     let top = top_path(p);
     let parent = top.parent().map(Path::to_path_buf).unwrap_or_else(|| top.clone());
-    let slug = branch.rsplit('/').next().unwrap_or(branch);
-    parent.join(format!("{}.{}", p.name, slug))
+    parent.join(format!("{}.{}", p.name, branch.replace('/', "-")))
 }
 
 fn commit_lines(commits: &[crate::git::Commit]) -> String {

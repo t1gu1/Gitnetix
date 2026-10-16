@@ -148,15 +148,15 @@ pub async fn complete(r: &Resolved, prompt: &str, cwd: Option<&Path>) -> Result<
 }
 
 /// The provider's CLI binary name and its location on PATH.
-pub fn cli_path(r: &Resolved) -> Result<(&'static str, PathBuf)> {
-    let info = provider_info(&r.provider)?;
+pub fn cli_path(provider: &str) -> Result<(&'static str, PathBuf)> {
+    let info = provider_info(provider)?;
     let bin = info.bin.ok_or_else(|| Error::Unsupported(format!("{} has no CLI", info.name)))?;
     let path = which(bin).ok_or_else(|| Error::NotConnected(format!("`{bin}` not found on your PATH")))?;
     Ok((bin, path))
 }
 
 async fn complete_cli(r: &Resolved, prompt: &str, cwd: Option<&Path>) -> Result<String> {
-    let (bin, path) = cli_path(r)?;
+    let (bin, path) = cli_path(&r.provider)?;
     let mut cmd = Command::new(path);
     if let Some(d) = cwd {
         cmd.current_dir(d);

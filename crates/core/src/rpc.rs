@@ -4,7 +4,7 @@
 
 use serde_json::{json, Value};
 
-use crate::app::{Gitnetix, NewItem, NotesInclude};
+use crate::app::{Gitnetix, NewItem, NotesInclude, ViewMode};
 use crate::error::{Error, Result};
 use crate::store::{ConnectMethod, GitProfile, JiraConf, ReleaseKind, Route, TrelloConf, AsanaConf, new_id};
 use crate::templates::{self, Template};
@@ -99,6 +99,11 @@ fn s(v: &Value, k: &str) -> Result<String> {
 
 fn os(v: &Value, k: &str) -> Option<String> {
     v.get(k).and_then(Value::as_str).map(String::from)
+}
+
+/// Workspace view mode; defaults to "branch".
+fn mode(v: &Value) -> Result<ViewMode> {
+    os(v, "mode").as_deref().unwrap_or("branch").parse()
 }
 
 fn b(v: &Value, k: &str) -> bool {
@@ -231,8 +236,8 @@ pub async fn call(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
 
         // ---- workspace ----
         "workspace.overview" => to(k.overview(&s(&p, "projectId")?).await?),
-        "workspace.files" => to(k.files(&s(&p, "projectId")?, &s(&p, "branch")?, &os(&p, "mode").unwrap_or_else(|| "branch".into())).await?),
-        "workspace.diff" => to(k.diff(&s(&p, "projectId")?, &s(&p, "branch")?, &os(&p, "mode").unwrap_or_else(|| "branch".into()), &s(&p, "path")?).await?),
+        "workspace.files" => to(k.files(&s(&p, "projectId")?, &s(&p, "branch")?, mode(&p)?).await?),
+        "workspace.diff" => to(k.diff(&s(&p, "projectId")?, &s(&p, "branch")?, mode(&p)?, &s(&p, "path")?).await?),
         "workspace.switch" => {
             k.switch_branch(&s(&p, "projectId")?, &s(&p, "branch")?).await?;
             ok()
@@ -384,8 +389,7 @@ pub async fn call(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
         }
         "ai.signIn" => {
             let id = s(&p, "id")?;
-            let bin = ai::provider_info(&id)?.bin.ok_or_else(|| Error::Unsupported("no CLI".into()))?;
-            let path = ai::which(bin).ok_or_else(|| Error::NotConnected(format!("`{bin}` not found")))?;
+            let (_, path) = ai::cli_path(&id)?;
             open_terminal(&path.to_string_lossy())?;
             ok()
         }

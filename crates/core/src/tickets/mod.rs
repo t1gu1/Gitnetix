@@ -55,8 +55,9 @@ async fn check(res: reqwest::Response, who: &str) -> Result<Value> {
     Ok(v)
 }
 
-// ---------- Jira ----------
-
+/// Status from a status / column / section name. `category` is Jira's
+/// status category; boards with free-form columns pass "" and fall back to
+/// the name alone.
 fn status_from_name(name: &str, category: &str) -> &'static str {
     let n = name.to_lowercase();
     if n.contains("review") {
@@ -67,10 +68,14 @@ fn status_from_name(name: &str, category: &str) -> &'static str {
         match category {
             "done" => "done",
             "indeterminate" => "progress",
+            _ if n.contains("done") => "done",
+            _ if n.contains("progress") || n.contains("doing") => "progress",
             _ => "todo",
         }
     }
 }
+
+// ---------- Jira ----------
 
 /// Flatten Atlassian Document Format into text, pulling task items out as
 /// acceptance criteria.
@@ -148,17 +153,6 @@ pub async fn jira(conf: &JiraConf, token: &str) -> Result<Vec<Ticket>> {
         .collect())
 }
 
-/// Status from a board column / section name (lowercased), for boards with free-form columns.
-fn column_status(l: &str) -> &'static str {
-    if l.contains("review") {
-        "review"
-    } else if l.contains("progress") || l.contains("doing") {
-        "progress"
-    } else {
-        "todo"
-    }
-}
-
 // ---------- Trello ----------
 
 pub async fn trello(conf: &TrelloConf, token: &str) -> Result<Vec<Ticket>> {
@@ -174,8 +168,7 @@ pub async fn trello(conf: &TrelloConf, token: &str) -> Result<Vec<Ticket>> {
         .filter(|c| c["closed"] != true)
         .map(|c| {
             let list = c["list"]["name"].as_str().unwrap_or("");
-            let l = list.to_lowercase();
-            let status = if l.contains("done") { "done" } else { column_status(&l) };
+            let status = status_from_name(list, "");
             let criteria = c["checklists"]
                 .as_array()
                 .into_iter()
@@ -220,10 +213,11 @@ pub async fn asana(conf: &AsanaConf, token: &str) -> Result<Vec<Ticket>> {
         .flatten()
         .map(|t| {
             let section = t["memberships"][0]["section"]["name"].as_str().unwrap_or("");
-            let status = if t["completed"] == true { "done" } else { column_status(&section.to_lowercase()) };
-            let gid = t["gid"].as_str().unwrap_or("");
+            let status = if t["completed"] == true { "done" } else { status_from_name(section, "") };
             Ticket {
-                key: format!("#{}", &gid[gid.len().saturating_sub(4)..]),
+                // Full gid: a suffix collides across tasks, and the prefix
+                // keeps it apart from Trello's `#idShort` keys.
+                key: format!("AS-{}", t["gid"].as_str().unwrap_or("")),
                 source: "asana".into(),
                 title: t["name"].as_str().unwrap_or("").into(),
                 kind: "Task".into(),
@@ -263,6 +257,16 @@ mod tests {
     #[test]
     fn finds_keys() {
         assert_eq!(extract_keys("feat: x\n\nRefs ATL-212, see UTF-8"), vec!["ATL-212"]);
+    }
+
+    #[test]
+    fn column_statuses() {
+        assert_eq!(status_from_name("Ready to merge", ""), "ready");
+        assert_eq!(status_from_name("Done", ""), "done");
+        assert_eq!(status_from_name("Doing", ""), "progress");
+        assert_eq!(status_from_name("Code review", ""), "review");
+        assert_eq!(status_from_name("Backlog", ""), "todo");
+        assert_eq!(status_from_name("In Progress", "indeterminate"), "progress");
     }
 
     #[test]

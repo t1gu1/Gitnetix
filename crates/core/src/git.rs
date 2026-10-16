@@ -188,15 +188,15 @@ impl Git {
         Ok(if ok { Some(out.trim().to_string()) } else { None })
     }
 
-    pub async fn git_path(&self, name: &str) -> Result<PathBuf> {
-        let out = self.run(&["rev-parse", "--git-path", name]).await?;
-        let p = PathBuf::from(out.trim());
-        Ok(if p.is_absolute() { p } else { self.cwd.join(p) })
+    /// Resolve paths inside the git dir (handles worktrees), in one call.
+    async fn git_paths(&self, names: &[&str]) -> Result<Vec<PathBuf>> {
+        let args: Vec<&str> = ["rev-parse"].into_iter().chain(names.iter().flat_map(|n| ["--git-path", n])).collect();
+        let out = self.run(&args).await?;
+        Ok(out.lines().map(|l| self.cwd.join(l.trim())).collect())
     }
 
     pub async fn is_rebasing(&self) -> Result<bool> {
-        let out = self.run(&["rev-parse", "--git-path", "rebase-merge", "--git-path", "rebase-apply"]).await?;
-        Ok(out.lines().map(|l| self.cwd.join(l.trim())).any(|p| p.exists()))
+        Ok(self.git_paths(&["rebase-merge", "rebase-apply"]).await?.iter().any(|p| p.exists()))
     }
 
     // ---------- refs ----------
