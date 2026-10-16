@@ -4,7 +4,7 @@ import { useAction, useConfig } from "../api/hooks";
 import { currentRemote, isLocal, saveRemote } from "../api/transport";
 import type { GitProfile } from "../api/types";
 import { Icon } from "../components/Icon";
-import { Seg } from "../components/ui";
+import { LANGS, Seg } from "../components/ui";
 import { useNav, type Route } from "../lib/nav";
 
 const TOOLS: { glyph: string; title: string; sub: string; route: Route }[] = [
@@ -14,11 +14,6 @@ const TOOLS: { glyph: string; title: string; sub: string; route: Route }[] = [
   { glyph: "WT", title: "Worktrees & agents", sub: "Every agent session across projects, live.", route: { name: "worktrees" } },
   { glyph: "AT", title: "AI templates", sub: "How AI writes commits, PRs and release notes.", route: { name: "templates" } },
   { glyph: "ST", title: "Analytics & stats", sub: "Release cadence, lead time and AI activity.", route: { name: "analytics" } },
-];
-
-const LANGS = [
-  { value: "en", label: "English" },
-  { value: "fr", label: "Français" },
 ];
 
 export function Menu({ onUnpair }: { onUnpair: () => void }) {

@@ -2,7 +2,7 @@ import { useState } from "react";
 
 import { useAction, useFiles } from "../api/hooks";
 import { Icon } from "../components/Icon";
-import { Modal } from "../components/ui";
+import { Busy, Modal } from "../components/ui";
 
 export function ConflictModal({ pid, branch, base, onClose }: { pid: string; branch: string; base: string; onClose: () => void }) {
   const files = useFiles(pid, branch, "wip");
@@ -60,7 +60,7 @@ export function ConflictModal({ pid, branch, base, onClose }: { pid: string; bra
               <div className="row">
                 <span className="mono ellipsis grow">{path}</span>
                 <button className="btn" disabled={propose.isPending} onClick={() => propose.mutate({ projectId: pid, branch, path }, { onSuccess: (r) => setProposal({ ...proposal, [path]: r.content }) })}>
-                  {propose.isPending ? <span className="spinner" /> : <Icon name="sparkle" size={12} />}
+                  <Busy on={propose.isPending}><Icon name="sparkle" size={12} /></Busy>
                   {proposal[path] ? "Propose again" : "Propose with AI"}
                 </button>
               </div>

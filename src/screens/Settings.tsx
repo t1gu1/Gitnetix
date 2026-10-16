@@ -5,7 +5,7 @@ import { companionInfo, isLocal, type CompanionInfo } from "../api/transport";
 import type { Config, GitProfile } from "../api/types";
 import { Header } from "../components/ui";
 import { useNav } from "../lib/nav";
-import { toast } from "../lib/toast";
+import { copyToClipboard } from "../lib/toast";
 
 const GROUPS: [string, [string, string][]][] = [
   ["General", [["project", "Project"]]],
@@ -306,7 +306,6 @@ function Companion({ cfg }: { cfg: Config }) {
   }, [cfg.server.token]);
   const s = cfg.server;
   const host = s.lan ? info?.hosts[0] ?? "<this computer's IP>" : "127.0.0.1";
-  const copy = (t: string) => navigator.clipboard?.writeText(t).then(() => toast("Copied", "ok"));
   return (
     <>
       <div className="col" style={{ gap: 6 }}>
@@ -343,8 +342,8 @@ function Companion({ cfg }: { cfg: Config }) {
             </div>
           </div>
           <div className="row wrap">
-            <button className="btn" onClick={() => copy(`${host}:${s.port}`)}>Copy address</button>
-            <button className="btn" onClick={() => copy(s.token)}>Copy token</button>
+            <button className="btn" onClick={() => copyToClipboard(`${host}:${s.port}`)}>Copy address</button>
+            <button className="btn" onClick={() => copyToClipboard(s.token)}>Copy token</button>
             <button className="btn btn-danger" onClick={() => set.mutate({ regenerateToken: true })}>New token (unpairs devices)</button>
           </div>
         </section>

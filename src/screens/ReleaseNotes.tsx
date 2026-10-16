@@ -4,9 +4,9 @@ import { useQuery } from "@tanstack/react-query";
 import { useAction, useConfig, useOverview } from "../api/hooks";
 import { rpc } from "../api/transport";
 import { Icon } from "../components/Icon";
-import { Header, Markdown, Seg } from "../components/ui";
+import { Busy, Empty, Header, LANGS, Loading, Markdown, Seg } from "../components/ui";
 import { useNav } from "../lib/nav";
-import { toast } from "../lib/toast";
+import { copyToClipboard } from "../lib/toast";
 
 export function ReleaseNotes() {
   const nav = useNav();
@@ -92,7 +92,7 @@ export function ReleaseNotes() {
               <option value="">Default ({templates.find((t) => t.isDefault)?.name ?? "first"})</option>
               {templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
             </select>
-            <Seg grid label="Language" value={lang} onChange={setLang} options={[{ value: "en", label: "English" }, { value: "fr", label: "Français" }]} />
+            <Seg grid label="Language" value={lang} onChange={setLang} options={LANGS} />
           </section>
           <section className="col" style={{ gap: 4 }}>
             <h2 className="label" style={{ marginBottom: 6 }}>Include</h2>
@@ -112,7 +112,7 @@ export function ReleaseNotes() {
           </section>
           <span className="grow" />
           <button className="btn btn-primary btn-lg" disabled={!from || !to || gen.isPending} onClick={run}>
-            {gen.isPending ? <span className="spinner" /> : <Icon name="sparkle" size={13} />}
+            <Busy on={gen.isPending}><Icon name="sparkle" size={13} /></Busy>
             <span>Generate notes</span>
           </button>
         </aside>
@@ -127,7 +127,7 @@ export function ReleaseNotes() {
                 <Icon name="refresh" size={12} />
                 Regenerate
               </button>
-              <button className="btn" disabled={!md} onClick={() => navigator.clipboard?.writeText(md).then(() => toast("Copied", "ok"))}>Copy</button>
+              <button className="btn" disabled={!md} onClick={() => copyToClipboard(md)}>Copy</button>
               <button className="btn" disabled={!md || changelog.isPending} onClick={() => changelog.mutate({ projectId: pid, markdown: md })}>Add to CHANGELOG.md</button>
               <button
                 className="btn btn-raised"
@@ -140,8 +140,8 @@ export function ReleaseNotes() {
           </div>
           <div className="scroll" style={{ flex: "1 1 auto", padding: "40px 24px 64px" }}>
             <article style={{ maxWidth: 680, margin: "0 auto" }}>
-              {!md && !gen.isPending && <div className="empty">Pick a range and press Generate. AI reads the commits and linked tickets, using your release-notes template.</div>}
-              {gen.isPending && <div className="empty"><span className="spinner" /></div>}
+              {!md && !gen.isPending && <Empty>Pick a range and press Generate. AI reads the commits and linked tickets, using your release-notes template.</Empty>}
+              {gen.isPending && <Loading />}
               {md && view === "preview" && <Markdown text={md} />}
               {md && view === "markdown" && (
                 <>

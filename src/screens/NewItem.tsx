@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { useAction, useOverview } from "../api/hooks";
 import { rpc } from "../api/transport";
 import { Icon } from "../components/Icon";
-import { Modal, Seg } from "../components/ui";
+import { Modal, releaseTagLabel, Seg } from "../components/ui";
 import { useNav, type NewItemDraft } from "../lib/nav";
 
 export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () => void }) {
@@ -109,7 +109,7 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
           <label htmlFor="ni-rel">Release</label>
           <select id="ni-rel" className="select" value={release} onChange={(e) => setRelease(e.target.value)}>
             {open.map((r) => (
-              <option key={r.version} value={r.version}>v{r.version} — {r.tag === "next" ? "Next" : "Hotfix"}</option>
+              <option key={r.version} value={r.version}>v{r.version} — {releaseTagLabel(r.tag)}</option>
             ))}
           </select>
         </div>

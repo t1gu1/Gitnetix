@@ -103,6 +103,17 @@ export function Loading() {
   );
 }
 
+export const LANGS = [
+  { value: "en", label: "English" },
+  { value: "fr", label: "Français" },
+];
+
+const TAG_LABEL: Record<string, string> = { next: "Next", hotfix: "Hotfix", released: "Released" };
+
+export function releaseTagLabel(tag: string) {
+  return TAG_LABEL[tag] ?? tag;
+}
+
 export function initials(name: string) {
   const parts = name.replace(/[^\p{L}\p{N} ]/gu, " ").trim().split(/\s+/);
   return ((parts[0]?.[0] ?? "?") + (parts[1]?.[0] ?? "")).toUpperCase();

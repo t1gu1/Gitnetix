@@ -5,6 +5,7 @@ import { isLocal, onFolderDrop, pickFolders } from "../api/transport";
 import type { Project } from "../api/types";
 import { Icon } from "../components/Icon";
 import { ThemeToggle } from "../components/ThemeToggle";
+import { Busy } from "../components/ui";
 import { useNav } from "../lib/nav";
 
 export function Welcome() {
@@ -76,7 +77,7 @@ export function Welcome() {
                   <span className="muted" style={{ fontSize: 12.5 }}>Drop several at once to add them all</span>
                 </div>
                 <button className="btn btn-primary btn-md" disabled={add.isPending} onClick={async () => addPaths((await pickFolders()) ?? [])}>
-                  {add.isPending ? <span className="spinner" /> : <Icon name="folder" />}
+                  <Busy on={add.isPending}><Icon name="folder" /></Busy>
                   <span>Choose folders…</span>
                 </button>
               </>

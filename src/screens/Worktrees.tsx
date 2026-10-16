@@ -30,8 +30,17 @@ interface Row {
   status: AgentStatus | "idle";
 }
 
-const match = (s: Row["status"], f: Filter) =>
-  f === "all" || (f === "running" ? s === "running" : f === "needs" ? s === "waiting" || s === "failed" : s === "idle" || s === "done" || s === "paused" || s === "stopped");
+const GROUP: Record<Row["status"], Exclude<Filter, "all">> = {
+  running: "running",
+  waiting: "needs",
+  failed: "needs",
+  idle: "quiet",
+  done: "quiet",
+  paused: "quiet",
+  stopped: "quiet",
+};
+
+const match = (s: Row["status"], f: Filter) => f === "all" || GROUP[s] === f;
 
 export function Worktrees({ initial }: { initial?: string }) {
   const nav = useNav();

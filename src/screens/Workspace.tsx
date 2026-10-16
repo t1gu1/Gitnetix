@@ -6,7 +6,7 @@ import { AgentLog } from "../components/AgentLog";
 import { DiffView } from "../components/DiffView";
 import { Icon } from "../components/Icon";
 import { ThemeToggle } from "../components/ThemeToggle";
-import { ErrorBox, Loading, Modal, Seg } from "../components/ui";
+import { Busy, ErrorBox, Loading, Modal, releaseTagLabel, Seg } from "../components/ui";
 import { useNav } from "../lib/nav";
 import { ConflictModal } from "./ConflictModal";
 
@@ -169,7 +169,7 @@ export function Workspace() {
               <Seg value={diffMode} onChange={setDiffMode} label="Diff mode" options={[{ value: "unified", label: "Unified" }, { value: "split", label: "Split" }]} />
             </div>
             <div className="diff">
-              {diff.isLoading && current && <div className="empty"><span className="spinner" /></div>}
+              {diff.isLoading && current && <Loading />}
               {diff.error && <div style={{ padding: 16 }}><ErrorBox error={diff.error} /></div>}
               {diff.data && diff.data.length > 0 && <DiffView hunks={diff.data} mode={diffMode} />}
               {(!current || (diff.data && diff.data.length === 0)) && (
@@ -234,7 +234,7 @@ function ReleasesPane({
             <div className="rel-head">
               <Icon name="tag" size={13} stroke={1.4} className="faint" />
               <span className="mono" style={{ fontSize: 12.5, fontWeight: 500 }}>v{r.version}</span>
-              <span className={`tag${r.tag === "next" ? " accent" : ""}`}>{r.tag === "next" ? "Next" : r.tag === "hotfix" ? "Hotfix" : "Released"}</span>
+              <span className={`tag${r.tag === "next" ? " accent" : ""}`}>{releaseTagLabel(r.tag)}</span>
               <span className="grow" />
               {r.open && (
                 <div className="row" style={{ gap: 2 }}>
@@ -347,7 +347,7 @@ function BranchActions({ pid, branch, checkedOut, worktree, isRelease }: { pid: 
       {worktree && <span className="hint mono ellipsis" title={worktree}>{worktree}</span>}
       {isRelease && (
         <button className="btn btn-sm" disabled={rebase.isPending} onClick={() => rebase.mutate({ projectId: pid, branch })}>
-          {rebase.isPending ? <span className="spinner" /> : <Icon name="refresh" size={12} />}
+          <Busy on={rebase.isPending}><Icon name="refresh" size={12} /></Busy>
           Rebase onto release
         </button>
       )}
@@ -371,7 +371,7 @@ function CommitBox({ pid, branch, enabled, wip }: { pid: string; branch: string;
       <div className="row faint" style={{ justifyContent: "space-between", fontSize: 11 }}>
         <label htmlFor="ag-msg">Commit message</label>
         <button className="btn btn-ghost btn-sm" style={{ height: 20 }} disabled={!enabled || !wip || draft.isPending} onClick={() => draft.mutate({ projectId: pid, branch }, { onSuccess: (r) => setMsg(r.message) })}>
-          {draft.isPending ? <span className="spinner" /> : <Icon name="sparkle" size={10} />}
+          <Busy on={draft.isPending}><Icon name="sparkle" size={10} /></Busy>
           Draft
         </button>
       </div>
@@ -387,11 +387,11 @@ function CommitBox({ pid, branch, enabled, wip }: { pid: string; branch: string;
       />
       <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr 1fr", gap: 6 }}>
         <button className="btn btn-primary" style={{ height: 34 }} disabled={!enabled || !wip || commit.isPending} onClick={() => commit.mutate({ projectId: pid, branch, message: msg }, { onSuccess: () => setMsg("") })}>
-          {commit.isPending ? <span className="spinner" /> : <Icon name="sparkle" size={12} />}
+          <Busy on={commit.isPending}><Icon name="sparkle" size={12} /></Busy>
           <span>Commit</span>
         </button>
         <button className="btn btn-raised" style={{ height: 34 }} disabled={push.isPending} onClick={() => push.mutate({ projectId: pid, branch })}>
-          {push.isPending ? <span className="spinner" /> : <Icon name="push" size={12} stroke={1.6} />}
+          <Busy on={push.isPending}><Icon name="push" size={12} stroke={1.6} /></Busy>
           <span>Push</span>
         </button>
         <button
@@ -400,7 +400,7 @@ function CommitBox({ pid, branch, enabled, wip }: { pid: string; branch: string;
           disabled={pr.isPending}
           onClick={() => pr.mutate({ projectId: pid, branch }, { onSuccess: (r) => nav.go({ name: "prs", number: r.number }) })}
         >
-          {pr.isPending ? <span className="spinner" /> : <Icon name="sparkle" size={12} className="c-acc" />}
+          <Busy on={pr.isPending}><Icon name="sparkle" size={12} className="c-acc" /></Busy>
           <span>PR</span>
         </button>
       </div>
@@ -428,19 +428,19 @@ function Terminal({ pid, branch, checkedOut, open, setOpen }: { pid: string; bra
       </button>
     );
   }
+  const busy = cur?.status === "running" || cur?.status === "paused";
   const send = () => {
     const t = text.trim();
-    if (!t) return;
-    if (cur && cur.status !== "running" && cur.status !== "paused") {
+    if (!t || busy) return;
+    if (cur) {
       message.mutate({ id: cur.id, text: t }, { onSuccess: () => setText("") });
-    } else if (!cur) {
+    } else {
       start.mutate(
         { projectId: pid, branch: checkedOut ? branch : undefined, request: t },
         { onSuccess: (s) => { setText(""); setActive(s.id); } },
       );
     }
   };
-  const busy = cur?.status === "running" || cur?.status === "paused";
   return (
     <div className="term">
       <div className="term-tabs">

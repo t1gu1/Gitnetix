@@ -22,6 +22,10 @@ export function toast(text: string, kind: Kind = "info") {
   }, kind === "error" ? 8000 : 4000);
 }
 
+export function copyToClipboard(text: string) {
+  return navigator.clipboard?.writeText(text).then(() => toast("Copied", "ok"));
+}
+
 export function Toasts() {
   const list = useSyncExternalStore(
     (l) => {

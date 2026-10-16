@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { useAction, useConfig, useTemplates } from "../api/hooks";
 import type { Template } from "../api/types";
 import { Icon } from "../components/Icon";
-import { Header, Loading, Seg } from "../components/ui";
+import { Busy, Header, LANGS, Loading, Seg } from "../components/ui";
 import { useNav } from "../lib/nav";
 
 export function Templates() {
@@ -144,13 +144,13 @@ export function Templates() {
               <div className="row">
                 <h2 className="grow">Preview</h2>
                 <button className="btn" disabled={!nav.projectId || run.isPending || !!dirty} title={dirty ? "Save first" : undefined} onClick={() => run.mutate({ projectId: nav.projectId!, id: draft.id, language: lang }, { onSuccess: setPreview })}>
-                  {run.isPending ? <span className="spinner" /> : <Icon name="sparkle" size={12} className="c-acc" />}
+                  <Busy on={run.isPending}><Icon name="sparkle" size={12} className="c-acc" /></Busy>
                   {preview ? "Run again" : "Run preview"}
                 </button>
               </div>
               <div className="row">
                 <span className="muted" id="tp-gen-lang">Generate in</span>
-                <Seg label="Generate in" value={lang} onChange={setLang} options={[{ value: "en", label: "English" }, { value: "fr", label: "Français" }]} />
+                <Seg label="Generate in" value={lang} onChange={setLang} options={LANGS} />
               </div>
               <span className="hint">
                 {preview ? <>Ran on <span className="mono">{preview.source}</span>. Nothing is committed or posted.</> : nav.projectId ? "Runs this template on real data from the open project. Nothing is committed or posted." : "Open a project to preview."}

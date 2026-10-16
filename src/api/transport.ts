@@ -25,10 +25,8 @@ const isMobileUA = typeof navigator !== "undefined" && /Android|iPhone|iPad|iPod
 
 /** Desktop Tauri window: the engine is in-process. */
 export const isLocal = isTauri && !isMobileUA;
-/** Running on a phone (Tauri mobile build or mobile browser). */
-export const isMobile = isMobileUA;
 
-export function loadRemote(): Remote | null {
+function loadRemote(): Remote | null {
   try {
     const raw = localStorage.getItem(REMOTE_KEY);
     return raw ? (JSON.parse(raw) as Remote) : null;

@@ -3,7 +3,7 @@ import { useState } from "react";
 import { saveRemote, testRemote } from "../api/transport";
 import { queryClient } from "../api/hooks";
 import { Icon } from "../components/Icon";
-import { ErrorBox } from "../components/ui";
+import { Busy, ErrorBox } from "../components/ui";
 
 /** Mobile / browser: connect to a desktop running Gitnetix. */
 export function Pair({ onPaired, error }: { onPaired: () => void; error?: string }) {
@@ -62,7 +62,7 @@ export function Pair({ onPaired, error }: { onPaired: () => void; error?: string
           </div>
           {err && <ErrorBox error={err} />}
           <button type="submit" className="btn btn-primary btn-lg" disabled={busy || !url || !token}>
-            {busy ? <span className="spinner" /> : <Icon name="phone" />}
+            <Busy on={busy}><Icon name="phone" /></Busy>
             <span>Connect</span>
           </button>
           <p className="hint">Traffic is plain HTTP on your local network, protected by the token. Use it on networks you trust, or through a VPN such as Tailscale.</p>

@@ -4,7 +4,7 @@ import { useAction, useOverview, usePr, usePrs } from "../api/hooks";
 import { openExternal } from "../api/transport";
 import type { PrDetail, PrSummary, PrThread } from "../api/types";
 import { Icon } from "../components/Icon";
-import { ago, Empty, ErrorBox, Header, initials, Loading, Markdown, Seg } from "../components/ui";
+import { ago, Busy, Empty, ErrorBox, Header, initials, Loading, Markdown, Seg } from "../components/ui";
 import { useNav } from "../lib/nav";
 
 type Tab = "open" | "review" | "merged";
@@ -70,7 +70,7 @@ export function PullRequests({ initial }: { initial?: number }) {
                 }))}
               />
               <button className="btn" disabled={!branch || create.isPending} onClick={() => branch && create.mutate({ projectId: pid, branch }, { onSuccess: (r) => { setSel(r.number); setPane("detail"); } })}>
-                {create.isPending ? <span className="spinner" /> : <Icon name="sparkle" size={12} className="c-acc" />}
+                <Busy on={create.isPending}><Icon name="sparkle" size={12} className="c-acc" /></Busy>
                 <span className="ellipsis">New PR from {branch ?? "current branch"}</span>
               </button>
             </div>
@@ -202,7 +202,7 @@ function Detail({ pid, number }: { pid: string; number: number }) {
               )
             }
           >
-            {gen.isPending ? <span className="spinner" /> : <Icon name="sparkle" size={12} className="c-acc" />}
+            <Busy on={gen.isPending}><Icon name="sparkle" size={12} className="c-acc" /></Busy>
             Rewrite with AI
           </button>
         )}
@@ -346,7 +346,7 @@ function ReviewForm({ pid, d, onDone }: { pid: string; d: PrDetail; onDone: () =
       {d.mine && <span className="hint">You opened this pull request, so GitHub only lets you comment on it.</span>}
       <div className="row wrap">
         <button className="btn" disabled={draft.isPending} onClick={() => draft.mutate({ projectId: pid, number: d.number }, { onSuccess: (r) => setText(r.text) })}>
-          {draft.isPending ? <span className="spinner" /> : <Icon name="sparkle" size={12} className="c-acc" />}
+          <Busy on={draft.isPending}><Icon name="sparkle" size={12} className="c-acc" /></Busy>
           Draft with AI
         </button>
         <span className="grow" />
@@ -444,7 +444,7 @@ function ThreadView({ pid, number, t }: { pid: string; number: number; t: PrThre
         <textarea id={`reply-${t.id}`} className="textarea" rows={2} placeholder="Reply…" value={draft} onChange={(e) => setDraft(e.target.value)} />
         <div className="row wrap">
           <button className="btn btn-sm" disabled={ai.isPending} onClick={() => ai.mutate({ projectId: pid, number, threadId: t.id }, { onSuccess: (r) => setDraft(r.text) })}>
-            {ai.isPending ? <span className="spinner" /> : <Icon name="sparkle" size={11} className="c-acc" />}
+            <Busy on={ai.isPending}><Icon name="sparkle" size={11} className="c-acc" /></Busy>
             Draft reply
           </button>
           <span className="grow" />

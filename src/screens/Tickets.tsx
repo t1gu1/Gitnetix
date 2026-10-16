@@ -4,7 +4,7 @@ import { useAction, useOverview, useTickets } from "../api/hooks";
 import { openExternal } from "../api/transport";
 import type { Suggestion, Ticket } from "../api/types";
 import { Icon } from "../components/Icon";
-import { ago, Empty, ErrorBox, Header, Loading, Seg } from "../components/ui";
+import { ago, Busy, Empty, ErrorBox, Header, Loading, releaseTagLabel, Seg } from "../components/ui";
 import { useNav } from "../lib/nav";
 
 const STATUS: Record<Ticket["status"], [string, string]> = {
@@ -40,7 +40,7 @@ export function Tickets() {
   const visible = base.filter((t) => source === "all" || t.source === source);
   const groups =
     group === "release"
-      ? [...open.map((r) => ({ id: r.version, label: `${r.tag === "next" ? "Next" : "Hotfix"} · v${r.version}` })), { id: "", label: "Unplanned" }]
+      ? [...open.map((r) => ({ id: r.version, label: `${releaseTagLabel(r.tag)} · v${r.version}` })), { id: "", label: "Unplanned" }]
       : (Object.keys(STATUS) as Ticket["status"][]).map((s) => ({ id: s, label: STATUS[s][0] }));
   const grouped = groups
     .map((g) => ({ ...g, items: visible.filter((t) => (group === "release" ? (open.some((r) => r.version === t.release) ? t.release : "") === g.id : t.status === g.id)) }))
@@ -76,7 +76,7 @@ export function Tickets() {
           <>
             <span className="faint hide-narrow" style={{ fontSize: 12 }}>{q.data?.syncedAt ? `Synced ${ago(q.data.syncedAt)}` : ""}</span>
             <button className="btn btn-icon" style={{ height: 28 }} aria-label="Sync now" onClick={() => q.refetch()}>
-              {q.isFetching ? <span className="spinner" /> : <Icon name="refresh" size={13} />}
+              <Busy on={q.isFetching}><Icon name="refresh" size={13} /></Busy>
             </button>
           </>
         }
@@ -112,7 +112,7 @@ export function Tickets() {
                   disabled={triage.isPending}
                   onClick={() => triage.mutate({ projectId: pid }, { onSuccess: (r) => setSuggestions(Object.fromEntries(r.map((s) => [s.key, s]))) })}
                 >
-                  {triage.isPending ? <span className="spinner" /> : <Icon name="sparkle" size={12} className="c-acc" />}
+                  <Busy on={triage.isPending}><Icon name="sparkle" size={12} className="c-acc" /></Busy>
                   Triage {unplanned} unplanned with AI
                 </button>
               )}
@@ -154,7 +154,7 @@ export function Tickets() {
             {t ? (
               <TicketDetail
                 t={t}
-                releases={open.map((r) => ({ version: r.version, label: `v${r.version} · ${r.tag === "next" ? "Next" : "Hotfix"}`, branch: r.branch }))}
+                releases={open.map((r) => ({ version: r.version, label: `v${r.version} · ${releaseTagLabel(r.tag)}`, branch: r.branch }))}
                 suggestion={!t.release ? suggestions[t.key] : undefined}
                 onRelease={(v) => setRel.mutate({ projectId: pid, key: t.key, release: v })}
                 onDismiss={() => {
