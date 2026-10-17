@@ -407,3 +407,22 @@ async fn shipped_release_goes_back_under_main() {
     }
     assert_eq!(get("release/0.0.2")["role"], "release");
 }
+
+#[tokio::test]
+async fn merge_and_delete_the_checked_out_branch_switches_to_its_base() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("md");
+    init_repo(&repo);
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let added = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await;
+    let pid = added[0]["id"].as_str().unwrap().to_string();
+
+    sh(&repo, &["switch", "-qc", "feat/here"]);
+    commit_file(&repo, "here.txt", "h\n");
+    let r = call(&k, "branches.merge", json!({ "projectId": pid, "branch": "feat/here", "deleteBranch": true })).await;
+    assert_eq!((r["into"].as_str(), r["deleted"].as_bool(), r["switched"].as_bool()), (Some("main"), Some(true), Some(true)));
+    let head = Command::new("git").current_dir(&repo).args(["branch", "--show-current"]).output().unwrap();
+    assert_eq!(String::from_utf8(head.stdout).unwrap().trim(), "main");
+    assert!(rev(&repo, "refs/heads/feat/here").is_empty());
+    assert!(repo.join("here.txt").exists());
+}
