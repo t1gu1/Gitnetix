@@ -183,7 +183,7 @@ body.dragging-tab, body.dragging-tab * { cursor: grabbing !important; }
 /* ---------- workspace ---------- */
 .ws { flex: 1 1 auto; display: flex; min-height: 0; overflow: hidden; }
 .ws-releases { flex: 0 0 272px; display: flex; flex-direction: column; min-height: 0; background: var(--panel); border-right: 1px solid var(--line); }
-.ws-files { flex: 0 0 320px; display: flex; flex-direction: column; min-height: 0; background: var(--panel); border-right: 1px solid var(--line); }
+.ws-files { flex: 0 0 320px; width: 320px; min-width: 0; display: flex; flex-direction: column; min-height: 0; background: var(--panel); border-right: 1px solid var(--line); }
 .ws-diff { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; min-height: 0; background: var(--bg); }
 .pane-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; height: 44px; flex: 0 0 44px; padding: 0 12px 0 16px; border-bottom: 1px solid var(--line); }
 .rel-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px 4px 16px; }
@@ -223,7 +223,8 @@ body.dragging-tab, body.dragging-tab * { cursor: grabbing !important; }
 .file-btn { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 32px; padding: 0 14px; border: 0; background: transparent; font-size: 12.5px; text-align: left; }
 .file-btn[aria-pressed="true"] { background: var(--sel); }
 .file-btn:hover { background: var(--raised); }
-.file-row { position: relative; display: flex; align-items: center; }
+.file-row { position: relative; display: flex; align-items: center; min-width: 0; }
+.file-row .file-btn { min-width: 0; }
 .file-row:hover .file-btn { background: var(--raised); }
 .file-row .file-nums { min-width: 46px; justify-content: flex-end; }
 .file-acts { position: absolute; right: 8px; display: flex; gap: 2px; opacity: 0; }
