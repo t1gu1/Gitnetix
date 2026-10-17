@@ -22,9 +22,12 @@ const DETOURS = new Set<Route["name"]>(["settings", "ai", "templates", "pair"]);
 
 export interface NewItemDraft {
   release?: string;
+  /** Branch to start from (and merge back into) when not in a release. */
+  from?: string;
   ticket?: string;
   description?: string;
-  kind?: Kind;
+  /** A branch type, or "release" to cut a release instead. */
+  kind?: Kind | "release";
 }
 
 interface Nav {

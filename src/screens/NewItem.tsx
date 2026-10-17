@@ -12,9 +12,15 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
   const pid = nav.projectId!;
   const ov = useOverview(pid);
   const open = (ov.data?.releases ?? []).filter((r) => r.open);
-  const [kind, setKind] = useState<Kind>(draft.kind ?? "feat");
+  // Where it can branch off: open releases first, then the trunks (default and dev branches).
+  const bases = (ov.data?.branches ?? []).filter((b) => b.exists && (b.role === "release" || b.role === "trunk")).sort((a, b) => (a.role === b.role ? 0 : a.role === "release" ? -1 : 1));
+  const firstBase = () =>
+    (draft.release && open.find((r) => r.version === draft.release)?.branch) || draft.from || open[0]?.branch || ov.data?.defaultBranch || "";
+  const [kind, setKind] = useState<Kind | "release">(draft.kind ?? "feat");
+  const [relKind, setRelKind] = useState<"next" | "hotfix">("next");
+  const [version, setVersion] = useState("");
   const [desc, setDesc] = useState(draft.description ?? "");
-  const [release, setRelease] = useState(draft.release ?? open[0]?.version ?? "");
+  const [from, setFrom] = useState(firstBase);
   const [ticket, setTicket] = useState(draft.ticket ?? "");
   const [where, setWhere] = useState<"switch" | "worktree">("switch");
   const [agent, setAgent] = useState(false);
@@ -23,8 +29,8 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
   const [naming, setNaming] = useState(false);
 
   useEffect(() => {
-    if (!release && open[0]) setRelease(open[0].version);
-  }, [open, release]);
+    if (!from && ov.data) setFrom(firstBase());
+  }, [ov.data, from]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Ask AI for a branch name once the description settles.
   useEffect(() => {
@@ -48,30 +54,76 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
     invalidate: [["overview", pid], ["agents"], ["worktrees"]],
     success: (r) => `Created ${r.branch}${r.worktree ? ` in ${r.worktree}` : ""}${r.agentSession ? " · agent started" : ""}`,
   });
-  const rel = open.find((r) => r.version === release);
+  const v = version.replace(/^v/, "");
+  const createRelease = useAction("releases.create", { invalidate: [["overview", pid], ["projects"]], success: `Release v${v} created` });
+  const base = bases.find((b) => b.name === from);
+  const rel = open.find((r) => r.branch === from);
+  const types = [...KINDS.map((k) => ({ value: k.id as Kind | "release", label: k.label })), { value: "release" as const, label: "Release" }];
+
+  // Switching type rewrites a known type prefix (feature/x → fix/x); a custom prefix is left alone.
+  const pickKind = (k: Kind | "release") => {
+    setKind(k);
+    if (k !== "release" && kindOfBranch(name)) setName(`${k}/${name.slice(name.indexOf("/") + 1)}`);
+  };
+
+  if (kind === "release") {
+    return (
+      <Modal
+        title="New release"
+        sub={relKind === "next" ? "Branches off your default branch" : "Branches off the latest tag"}
+        onClose={onClose}
+        footer={
+          <>
+            <button className="btn btn-md" onClick={onClose}>Cancel</button>
+            <button
+              className="btn btn-primary btn-md"
+              disabled={!v || createRelease.isPending}
+              onClick={() =>
+                createRelease.mutate(
+                  { projectId: pid, version: v, kind: relKind },
+                  {
+                    onSuccess: () => {
+                      nav.selectBranch(`release/${v}`);
+                      nav.go({ name: "workspace" });
+                      onClose();
+                    },
+                  },
+                )
+              }
+            >
+              {createRelease.isPending && <span className="spinner" />}
+              Create release/{v || "x.y.z"}
+            </button>
+          </>
+        }
+      >
+        <Seg grid cols={6} size="lg" label="Type" value={kind} onChange={pickKind} options={types} />
+        <Seg grid size="lg" label="Release type" value={relKind} onChange={setRelKind} options={[{ value: "next", label: "Next release" }, { value: "hotfix", label: "Hotfix" }]} />
+        <div className="field">
+          <label htmlFor="ni-version">Version</label>
+          <input id="ni-version" className="input mono" placeholder="2.4.0" value={version} onChange={(e) => setVersion(e.target.value.trim())} autoFocus />
+        </div>
+      </Modal>
+    );
+  }
+
   const label = kindNoun(kind);
   const branch = withPrefix(name, kind);
 
-  // Switching type rewrites a known type prefix (feature/x → fix/x); a custom prefix is left alone.
-  const pickKind = (k: Kind) => {
-    setKind(k);
-    if (kindOfBranch(name)) setName(`${k}/${name.slice(name.indexOf("/") + 1)}`);
-  };
-
   return (
     <Modal
-      title={rel ? `New in v${rel.version}` : "New feature or fix"}
-      sub={rel ? <>Branches off <span className="mono">{rel.branch}</span></> : "Create a release first"}
+      title={rel ? `New in v${rel.version}` : base ? `New branch off ${base.name}` : "New feature or fix"}
+      sub={base ? <>Branches off <span className="mono">{base.name}</span> and merges back into it</> : "Pick where it starts"}
       onClose={onClose}
       footer={
         <>
           <button className="btn btn-md" onClick={onClose}>Cancel</button>
           <button
             className="btn btn-primary btn-md"
-            disabled={!rel || (agent ? !desc.trim() : !name.trim()) || create.isPending}
+            disabled={!base || (agent ? !desc.trim() : !name.trim()) || create.isPending}
             onClick={() =>
               create.mutate(
-                { projectId: pid, release, kind, description: agent ? desc : "", branchName: branch || undefined, ticket: ticket || undefined, where, startAgent: agent },
+                { projectId: pid, release: rel?.version ?? "", from: rel ? undefined : from, kind, description: agent ? desc : "", branchName: branch || undefined, ticket: ticket || undefined, where, startAgent: agent },
                 {
                   onSuccess: (r) => {
                     nav.selectBranch(r.branch);
@@ -88,7 +140,7 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
         </>
       }
     >
-      <Seg grid cols={5} size="lg" label="Type" value={kind} onChange={pickKind} options={KINDS.map((k) => ({ value: k.id, label: k.label }))} />
+      <Seg grid cols={6} size="lg" label="Type" value={kind} onChange={pickKind} options={types} />
       <div className="field">
         <label htmlFor="ni-branch">
           <span>Branch name</span>
@@ -116,11 +168,14 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 }}>
         <div className="field">
-          <label htmlFor="ni-rel">Release</label>
-          <select id="ni-rel" className="select" value={release} onChange={(e) => setRelease(e.target.value)}>
-            {open.map((r) => (
-              <option key={r.version} value={r.version}>v{r.version} — {releaseTagLabel(r.tag)}</option>
-            ))}
+          <label htmlFor="ni-rel">Branches off</label>
+          <select id="ni-rel" className="select" value={from} onChange={(e) => setFrom(e.target.value)}>
+            {bases.map((b) => {
+              const r = open.find((x) => x.branch === b.name);
+              return (
+                <option key={b.name} value={b.name}>{r ? `v${r.version} — ${releaseTagLabel(r.tag)}` : b.name}</option>
+              );
+            })}
           </select>
         </div>
         <div className="field">

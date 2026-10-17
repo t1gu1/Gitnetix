@@ -303,3 +303,69 @@ async fn merged_branches_are_flagged() {
     assert!(merged("via-merge"));
     assert!(merged("via-ff"));
 }
+
+#[tokio::test]
+async fn branch_tree_parents_remote_and_sync() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("tree");
+    init_repo(&repo);
+    let origin = tmp.path().join("origin.git");
+    sh(tmp.path(), &["init", "-q", "--bare", "-b", "main", origin.to_str().unwrap()]);
+    sh(&repo, &["remote", "add", "origin", origin.to_str().unwrap()]);
+
+    // dev with its own commit, a feature off dev, a branch that only exists on origin.
+    sh(&repo, &["switch", "-qc", "dev"]);
+    commit_file(&repo, "dev.txt", "d\n");
+    sh(&repo, &["switch", "-qc", "feat/on-dev"]);
+    commit_file(&repo, "x.txt", "x\n");
+    sh(&repo, &["switch", "-qc", "feat/remote", "main"]);
+    commit_file(&repo, "r.txt", "r\n");
+    sh(&repo, &["push", "-q", "origin", "main", "feat/remote"]);
+    sh(&repo, &["switch", "-q", "main"]);
+    sh(&repo, &["branch", "-qD", "feat/remote"]);
+
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let added = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await;
+    let pid = added[0]["id"].as_str().unwrap().to_string();
+    call(&k, "releases.create", json!({ "projectId": pid, "version": "1.0.0", "kind": "next" })).await;
+
+    let ov = call(&k, "workspace.overview", json!({ "projectId": pid })).await;
+    let get = |ov: &Value, n: &str| ov["branches"].as_array().unwrap().iter().find(|b| b["name"] == n).cloned().unwrap_or_else(|| panic!("no {n}"));
+    assert!(get(&ov, "main")["parent"].is_null());
+    assert_eq!(get(&ov, "main")["role"], "trunk");
+    assert_eq!(get(&ov, "dev")["parent"], "main");
+    assert_eq!(get(&ov, "dev")["role"], "trunk");
+    assert_eq!(get(&ov, "release/1.0.0")["role"], "release");
+    assert_eq!(get(&ov, "feat/on-dev")["parent"], "dev");
+    assert_eq!(get(&ov, "feat/on-dev")["kind"], "feat");
+    let r = get(&ov, "feat/remote");
+    assert_eq!((r["local"].as_bool(), r["remote"].as_bool(), r["ahead"].as_u64()), (Some(false), Some(true), Some(1)));
+
+    // An origin-only branch can be switched to; git creates the tracking branch.
+    call(&k, "workspace.switch", json!({ "projectId": pid, "branch": "feat/remote" })).await;
+    sh(&repo, &["switch", "-q", "main"]);
+
+    // Re-target a branch: onto the release attaches it, onto dev makes dev its parent.
+    call(&k, "branches.setParent", json!({ "projectId": pid, "branch": "feat/remote", "parent": "release/1.0.0" })).await;
+    let ov = call(&k, "workspace.overview", json!({ "projectId": pid })).await;
+    assert_eq!(get(&ov, "feat/remote")["parent"], "release/1.0.0");
+    assert_eq!(get(&ov, "feat/remote")["release"], "1.0.0");
+    call(&k, "branches.setParent", json!({ "projectId": pid, "branch": "feat/remote", "parent": "dev" })).await;
+    let ov = call(&k, "workspace.overview", json!({ "projectId": pid })).await;
+    assert_eq!(get(&ov, "feat/remote")["parent"], "dev");
+    assert!(get(&ov, "feat/remote")["release"].is_null());
+
+    // main moves on: the release falls behind, and sync merges main into it.
+    commit_file(&repo, "hotfix.txt", "h\n");
+    let ov = call(&k, "workspace.overview", json!({ "projectId": pid })).await;
+    assert_eq!(get(&ov, "release/1.0.0")["behind"], 1);
+    call(&k, "branches.sync", json!({ "projectId": pid, "branch": "release/1.0.0" })).await;
+    let ov = call(&k, "workspace.overview", json!({ "projectId": pid })).await;
+    assert_eq!(get(&ov, "release/1.0.0")["behind"], 0);
+
+    // New branch off dev, no release: dev is where it merges back.
+    call(&k, "items.create", json!({ "projectId": pid, "from": "dev", "kind": "fix", "description": "", "branchName": "fix/typo", "where": "switch" })).await;
+    let ov = call(&k, "workspace.overview", json!({ "projectId": pid })).await;
+    assert_eq!(get(&ov, "fix/typo")["parent"], "dev");
+    assert_eq!(rev(&repo, "fix/typo"), rev(&repo, "dev"));
+}
