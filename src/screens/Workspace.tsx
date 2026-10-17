@@ -154,7 +154,7 @@ export function Workspace() {
                 <li className="empty">{mode === "wip" ? (checkedOut ? "No uncommitted changes." : "This branch is not checked out.") : "No changes on this branch yet."}</li>
               )}
             </ul>
-            {branch && <CommitBox pid={pid} branch={branch} enabled={checkedOut} staged={stagedCount} />}
+            {branch && <CommitBox pid={pid} branch={branch} enabled={checkedOut} staged={stagedCount} toPush={view ? (view.upstream ? view.upstreamAhead : view.ahead) : 0} />}
           </section>
 
           <section aria-label="Diff" className="ws-diff" data-pane data-active={pane === "diff"}>
@@ -597,7 +597,7 @@ function DeleteBranchModal({
   );
 }
 
-function CommitBox({ pid, branch, enabled, staged }: { pid: string; branch: string; enabled: boolean; staged: number }) {
+function CommitBox({ pid, branch, enabled, staged, toPush }: { pid: string; branch: string; enabled: boolean; staged: number; toPush: number }) {
   const nav = useNav();
   const [msg, setMsg] = useState("");
   const inv = [["overview", pid], ["files", pid], ["diff", pid]];
@@ -631,11 +631,11 @@ function CommitBox({ pid, branch, enabled, staged }: { pid: string; branch: stri
       <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr 1fr", gap: 6 }}>
         <button className="btn btn-primary" style={{ height: 34 }} disabled={!enabled || !staged || commit.isPending} onClick={() => commit.mutate({ projectId: pid, branch, message: msg }, { onSuccess: () => setMsg("") })}>
           <Busy on={commit.isPending}><Icon name="sparkle" size={12} /></Busy>
-          <span>Commit{staged ? <span style={{ fontWeight: 400, opacity: 0.75 }}> {staged}</span> : null}</span>
+          <span>Commit{staged ? <span style={{ fontWeight: 400, opacity: 0.75, marginLeft: 6 }}>{staged}</span> : null}</span>
         </button>
-        <button className="btn btn-raised" style={{ height: 34 }} disabled={push.isPending} onClick={() => push.mutate({ projectId: pid, branch })}>
+        <button className="btn btn-raised" style={{ height: 34, paddingLeft: 6 }} disabled={push.isPending} onClick={() => push.mutate({ projectId: pid, branch })}>
           <Busy on={push.isPending}><Icon name="push" size={12} stroke={1.6} /></Busy>
-          <span>Push</span>
+          <span>Push{toPush ? <span style={{ fontWeight: 400, opacity: 0.75, marginLeft: 6 }}>{toPush}</span> : null}</span>
         </button>
         <button
           className="btn btn-raised"
