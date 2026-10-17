@@ -3,36 +3,20 @@ import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { useAction } from "../api/hooks";
 import type { BranchView, Overview, ReleaseView } from "../api/types";
 import { Icon } from "../components/Icon";
-import { releaseTagLabel } from "../components/ui";
+import { Empty, releaseTagLabel } from "../components/ui";
+import { plural } from "../lib/format";
 import { useNav } from "../lib/nav";
+import { useStored } from "../lib/stored";
 import { BranchSplit, type BranchActions, type BranchTarget } from "./BranchMenu";
-
-const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
 
 /** Sections that start closed; every other section starts open. */
 const CLOSED_BY_DEFAULT = new Set(["shipped"]);
 
 /** Collapsed sections, remembered per project in this browser. */
 function useToggles(pid: string) {
-  const key = `gnx.tree.${pid}`;
-  const [flipped, setFlipped] = useState<Record<string, boolean>>(() => {
-    try {
-      return JSON.parse(localStorage.getItem(key) ?? "{}");
-    } catch {
-      return {};
-    }
-  });
+  const [flipped, setFlipped] = useStored<Record<string, boolean>>(`gnx.tree.${pid}`, {});
   const isOpen = (id: string) => CLOSED_BY_DEFAULT.has(id) === !!flipped[id];
-  const toggle = (id: string) =>
-    setFlipped((f) => {
-      const next = { ...f, [id]: !f[id] };
-      try {
-        localStorage.setItem(key, JSON.stringify(next));
-      } catch {
-        /* per-viewer convenience only */
-      }
-      return next;
-    });
+  const toggle = (id: string) => setFlipped({ ...flipped, [id]: !flipped[id] });
   return { isOpen, toggle };
 }
 
@@ -45,7 +29,8 @@ function childrenOf(o: Overview) {
     // A parent that no longer exists hands its children to the default branch.
     const p = b.parent ? (names.has(b.parent) ? b.parent : o.defaultBranch) : null;
     if (!p || p === b.name || !names.has(p)) roots.push(b);
-    else kids.set(p, [...(kids.get(p) ?? []), b]);
+    else if (kids.has(p)) kids.get(p)!.push(b);
+    else kids.set(p, [b]);
   }
   const relOrder = (b: BranchView) => o.releases.findIndex((r) => r.open && r.branch === b.name);
   const rank = (b: BranchView) => (b.role === "release" ? 0 : b.role === "trunk" ? 1 : b.exists ? 2 : 3);
@@ -138,7 +123,7 @@ export function BranchTree({
           depth={depth}
           isDefault={b.name === o.defaultBranch}
           tag={releaseTag(o.releases, b)}
-          shipped={b.role === "branch" ? version ?? undefined : undefined}
+          shipped={shippedAs(b)}
           selected={b.name === selected}
           current={b.name === o.currentBranch}
           twist={hasKids ? { open, toggle: () => toggle(b.name) } : undefined}
@@ -194,7 +179,7 @@ export function BranchTree({
       )}
       <div className="scroll tree" style={{ flex: "1 1 auto" }}>
         {roots.map((b) => node(b, 0))}
-        {matches?.size === 0 && <div className="empty">No branch matches “{query}”.</div>}
+        {matches?.size === 0 && <Empty>No branch matches “{query}”.</Empty>}
         {shipped.length > 0 && !q && (
           <>
             <button className="tree-row tree-group" style={{ "--depth": 0, marginTop: 8 } as CSSProperties} aria-expanded={isOpen("shipped")} onClick={() => toggle("shipped")}>
@@ -293,7 +278,7 @@ function Row({
 }
 
 /** Status line under a branch, same order for every role. */
-export function BranchMeta({ b, parent, current, showName }: { b: BranchView; parent: string; current: boolean; showName?: boolean }) {
+function BranchMeta({ b, parent, current, showName }: { b: BranchView; parent: string; current: boolean; showName?: boolean }) {
   const tracked = b.exists && !b.merged && !!parent;
   return (
     <span className="branch-meta">

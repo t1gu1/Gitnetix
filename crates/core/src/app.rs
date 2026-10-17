@@ -282,7 +282,8 @@ struct Refs {
 
 impl Refs {
     async fn load(git: &Git, local: Vec<BranchInfo>) -> Refs {
-        Refs { local, remote: git.remote_branches().await.unwrap_or_default(), merges: git.merge_subjects(5000).await.unwrap_or_default() }
+        let (remote, merges) = tokio::join!(git.remote_branches(), git.merge_subjects(5000));
+        Refs { local, remote: remote.unwrap_or_default(), merges: merges.unwrap_or_default() }
     }
 
     /// Branch a merge commit of `name`'s tip says it went into (`Merge branch 'x' into y`);
@@ -392,7 +393,12 @@ impl Gitnetix {
     async fn base_of(&self, p: &Project, branch: &str, default: &str) -> String {
         let git = self.git(p);
         let refs = Refs::load(&git, git.branches().await.unwrap_or_default()).await;
-        self.parent_of(p, &git, &refs, default, branch).await.unwrap_or_else(|| default.to_string())
+        self.base_in(p, &git, &refs, branch, default).await
+    }
+
+    /// `base_of` with the refs already loaded.
+    async fn base_in(&self, p: &Project, git: &Git, refs: &Refs, branch: &str, default: &str) -> String {
+        self.parent_of(p, git, refs, default, branch).await.unwrap_or_else(|| default.to_string())
     }
 
     /// The branch `name` merges into: an open release branch's base, the release
@@ -682,7 +688,7 @@ impl Gitnetix {
         };
         let kind = match meta.map(|m| m.kind.as_str()).filter(|k| !k.is_empty()) {
             Some(k) => k.to_string(),
-            None if role == "branch" => name.split_once('/').and_then(|(pre, _)| normalize_kind(pre)).unwrap_or("").to_string(),
+            None if role == "branch" => kind_of_branch(name).unwrap_or("").to_string(),
             None => String::new(),
         };
         BranchView {
@@ -1103,9 +1109,7 @@ impl Gitnetix {
         let start = match &release {
             Some(r) => r.branch.clone(),
             None => match req.from.clone().filter(|f| !f.trim().is_empty()) {
-                Some(f) if git.ref_exists(&format!("refs/heads/{f}")).await? => f,
-                Some(f) if git.ref_exists(&format!("refs/remotes/origin/{f}")).await? => format!("origin/{f}"),
-                Some(f) => return Err(Error::NotFound(format!("branch {f}"))),
+                Some(f) => git.branch_rev(&f).await?.ok_or_else(|| Error::NotFound(format!("branch {f}")))?,
                 None => git.default_branch().await?,
             },
         };
@@ -1184,7 +1188,7 @@ impl Gitnetix {
             let release = p.releases.iter().find(|r| r.branch == parent && r.shipped_at.is_none()).map(|r| r.version.clone());
             let m = p.branches.entry(branch.to_string()).or_insert_with(|| BranchMeta { created_at: now(), ..Default::default() });
             if m.kind.is_empty() {
-                m.kind = branch.split_once('/').and_then(|(pre, _)| normalize_kind(pre)).unwrap_or("feat").into();
+                m.kind = kind_of_branch(branch).unwrap_or("feat").into();
             }
             m.parent = release.is_none().then(|| parent.to_string());
             m.release = release;
@@ -1296,8 +1300,7 @@ impl Gitnetix {
         let (sha, already_merged) = self.merge_refs(&p, branch, &into).await?;
         self.changed(project_id);
         if switch {
-            self.git(&p)
-                .switch(&into)
+            git.switch(&into)
                 .await
                 .map_err(|e| Error::Invalid(format!("Merged into {into}, but switching to it failed, so {branch} was kept: {e}")))?;
         }
@@ -1373,6 +1376,7 @@ impl Gitnetix {
             let git = self.git(&p);
             let Ok(list) = git.worktrees().await else { continue };
             let default = git.default_branch().await.unwrap_or_else(|_| "main".into());
+            let refs = Refs::load(&git, git.branches().await.unwrap_or_default()).await;
             for w in list {
                 let (mut add, mut del) = (0, 0);
                 for f in Git::new(&w.path).wip_changes().await.unwrap_or_default() {
@@ -1381,7 +1385,7 @@ impl Gitnetix {
                 }
                 let meta = w.branch.as_ref().and_then(|b| p.branches.get(b));
                 let base = match &w.branch {
-                    Some(b) => Some(self.base_of(&p, b, &default).await).filter(|x| x != b),
+                    Some(b) => Some(self.base_in(&p, &git, &refs, b, &default).await).filter(|x| x != b),
                     None => None,
                 };
                 out.push(WorktreeView {
@@ -1406,7 +1410,7 @@ impl Gitnetix {
         let git = self.git(&p);
         let path = worktree_path(&p, branch);
         // A branch only on origin is checked out tracking it (git's DWIM).
-        if git.ref_exists(&format!("refs/heads/{branch}")).await? || git.ref_exists(&format!("refs/remotes/origin/{branch}")).await? {
+        if git.branch_rev(branch).await?.is_some() {
             git.worktree_add(&path, branch, None).await?;
         } else {
             let default = git.default_branch().await?;
@@ -1882,6 +1886,11 @@ const KINDS: &[(&str, &[&str])] = &[
 fn normalize_kind(kind: &str) -> Option<&'static str> {
     let k = kind.trim().to_ascii_lowercase();
     KINDS.iter().find(|(id, aliases)| *id == k || aliases.contains(&k.as_str())).map(|(id, _)| *id)
+}
+
+/// Kind implied by a branch name's prefix (`feature/x` → feat).
+fn kind_of_branch(name: &str) -> Option<&'static str> {
+    name.split_once('/').and_then(|(pre, _)| normalize_kind(pre))
 }
 
 fn top_path(p: &Project) -> PathBuf {

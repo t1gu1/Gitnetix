@@ -4,6 +4,7 @@ import { useAction } from "../api/hooks";
 import type { BranchView } from "../api/types";
 import { ContextMenu, type MenuItem } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
+import { plural } from "../lib/format";
 import { useNav } from "../lib/nav";
 import { copyToClipboard, toast } from "../lib/toast";
 
@@ -31,8 +32,6 @@ export type Action = Exclude<MenuItem, "sep"> & { short?: string; /** Plain-text
 interface BranchMutation {
   mutate(vars: { projectId: string; branch: string }, opts: { onSuccess: () => void }): void;
 }
-
-const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
 
 /**
  * Every branch action in one place: the context menu, and the primary
@@ -180,10 +179,11 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
     if (v.conflict) return a.conflicts;
     if (!v.local) return a.switch;
     if (v.upstreamBehind > 0) return a.pull;
+    const needsPush = v.upstreamAhead > 0 || (!v.upstream && v.ahead > 0);
     if (v.role !== "branch") {
       // Releases and trunks are shared: catch up with the base by merging, no checkout needed.
       if (v.behind > 0 && t.base) return a.sync;
-      if (v.upstreamAhead > 0 || (!v.upstream && v.ahead > 0)) return a.push;
+      if (needsPush) return a.push;
       if (t.next && !t.next.disabled) return t.next;
       if (v.role === "trunk" && t.base && v.ahead > 0) return a.merge;
       if (!v.checkedOut) return a.switch;
@@ -191,7 +191,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
     }
     if (v.merged && !v.checkedOut) return a.delete;
     if (!v.checkedOut) return a.switch;
-    if (v.upstreamAhead > 0 || (!v.upstream && v.ahead > 0)) return a.push;
+    if (needsPush) return a.push;
     if (v.behind > 0) return a.rebase;
     if (v.ahead > 0) return a.merge;
     return v.upstream ? a.pull : a.push;

@@ -165,6 +165,17 @@ impl Git {
         Ok(ok)
     }
 
+    /// Revision to start from for branch `name`: the local branch, else its origin copy.
+    pub async fn branch_rev(&self, name: &str) -> Result<Option<String>> {
+        if self.ref_exists(&format!("refs/heads/{name}")).await? {
+            Ok(Some(name.to_string()))
+        } else if self.ref_exists(&format!("refs/remotes/origin/{name}")).await? {
+            Ok(Some(format!("origin/{name}")))
+        } else {
+            Ok(None)
+        }
+    }
+
     pub async fn rev_parse(&self, r: &str) -> Result<String> {
         Ok(self.run(&["rev-parse", r]).await?.trim().to_string())
     }

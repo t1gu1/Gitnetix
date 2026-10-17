@@ -8,6 +8,7 @@ import { Icon } from "../components/Icon";
 import { Resizer, usePaneWidth } from "../components/Resizer";
 import { Busy, ErrorBox, Loading, Modal, Seg } from "../components/ui";
 import { useNav } from "../lib/nav";
+import { useStoredChoice, useStoredFlag } from "../lib/stored";
 import { useBranchActions, type BranchDialog, type BranchTarget } from "./BranchMenu";
 import { BranchTree } from "./BranchTree";
 import { ConflictModal } from "./ConflictModal";
@@ -35,6 +36,8 @@ export function Workspace() {
   const byName = useMemo(() => new Map((o?.branches ?? []).map((b) => [b.name, b])), [o]);
   const branch = nav.selectedBranch ?? o?.currentBranch ?? o?.defaultBranch ?? undefined;
   const baseFor = (b: string) => byName.get(b)?.parent ?? "";
+  // Releases and trunks a work branch can be re-targeted to.
+  const targets = useMemo(() => (o?.branches ?? []).filter((x) => x.exists && x.role !== "branch"), [o]);
   /** A release branch reads as its version. */
   const labelOf = (b: string) => {
     const v = byName.get(b);
@@ -64,11 +67,12 @@ export function Workspace() {
       // Work branches can be re-targeted to any release or trunk.
       moveTo:
         v.role === "branch" && v.exists && !b.startsWith("release/")
-          ? (o?.branches ?? []).filter((x) => x.exists && x.role !== "branch" && x.name !== base && x.name !== b).map((x) => ({ branch: x.name, label: labelOf(x.name) }))
+          ? targets.filter((x) => x.name !== base && x.name !== b).map((x) => ({ branch: x.name, label: labelOf(x.name) }))
           : undefined,
     };
   };
   const view: BranchView | undefined = branch ? byName.get(branch) : undefined;
+  const dialogView = dialog && (byName.get(dialog.branch) ?? synthetic(dialog.branch, dialog.branch === o?.currentBranch));
   const base = branch ? baseFor(branch) : "";
   const checkedOut = view?.checkedOut ?? branch === o?.currentBranch;
 
@@ -228,42 +232,22 @@ export function Workspace() {
       {shipping && <ShipModal pid={pid} release={shipping} defaultBranch={o?.defaultBranch ?? "main"} onClose={() => setShipping(null)} />}
       {actions.menuEl}
       {dialog?.kind === "conflicts" && <ConflictModal pid={pid} branch={dialog.branch} base={baseFor(dialog.branch)} onClose={() => setDialog(null)} />}
-      {dialog?.kind === "merge" && (
-        <MergeModal pid={pid} branch={dialog.branch} base={baseFor(dialog.branch)} onClose={() => setDialog(null)} checkedOut={target(dialog.branch).view.checkedOut && !target(dialog.branch).view.worktree} onDeleted={(into) => dialog.branch === branch && nav.selectBranch(into)} />
+      {dialog?.kind === "merge" && dialogView && (
+        <MergeModal pid={pid} branch={dialog.branch} base={baseFor(dialog.branch)} onClose={() => setDialog(null)} checkedOut={dialogView.checkedOut && !dialogView.worktree} onDeleted={(into) => dialog.branch === branch && nav.selectBranch(into)} />
       )}
-      {dialog?.kind === "delete" && (
+      {dialog?.kind === "delete" && dialogView && (
         <DeleteBranchModal
           pid={pid}
           branch={dialog.branch}
           base={baseFor(dialog.branch)}
-          exists={target(dialog.branch).view.local}
-          worktree={target(dialog.branch).view.worktree ?? undefined}
+          exists={dialogView.local}
+          worktree={dialogView.worktree ?? undefined}
           onClose={() => setDialog(null)}
           onDeleted={() => dialog.branch === branch && nav.selectBranch(undefined)}
         />
       )}
     </>
   );
-}
-
-/** A boolean kept in this browser between sessions. */
-function useStoredFlag(key: string): [boolean, (v: boolean) => void] {
-  const [v, setV] = useState(() => {
-    try {
-      return localStorage.getItem(key) === "1";
-    } catch {
-      return false;
-    }
-  });
-  const set = (next: boolean) => {
-    setV(next);
-    try {
-      localStorage.setItem(key, next ? "1" : "0");
-    } catch {
-      /* per-viewer convenience only */
-    }
-  };
-  return [v, set];
 }
 
 function synthetic(name: string, checkedOut: boolean): BranchView {
@@ -555,17 +539,9 @@ function CommitBox({ pid, branch, enabled, staged, changed }: { pid: string; bra
   const aiProvider = ai && (ai.routing.commit?.provider || ai.defaultProvider);
   const aiOn = !ai || !!ai.providers.find((p) => p.info.id === aiProvider)?.conf;
   // null until the user toggles it; then their last choice wins over the AI-based default.
-  const [picked, setPicked] = useState<boolean | null>(() => {
-    try {
-      const v = localStorage.getItem(MSG_OPEN_KEY);
-      return v === null ? null : v === "1";
-    } catch { return null; }
-  });
+  const [picked, setPicked] = useStoredChoice(MSG_OPEN_KEY);
   const open = picked ?? !aiOn;
-  const toggle = () => {
-    setPicked(!open);
-    try { localStorage.setItem(MSG_OPEN_KEY, open ? "0" : "1"); } catch { /* not persisted */ }
-  };
+  const toggle = () => setPicked(!open);
   const all = !staged;
   const canType = enabled && !!changed;
   // An empty summary lets AI write the whole message, so a description alone has nowhere to go.
