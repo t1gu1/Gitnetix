@@ -77,6 +77,10 @@ export interface BranchView {
   running: boolean;
   conflict: boolean;
   ahead: number;
+  behind: number;
+  upstream?: string | null;
+  upstreamAhead: number;
+  upstreamBehind: number;
   ticket?: string | null;
   exists: boolean;
 }
@@ -103,7 +107,8 @@ export interface Overview {
   currentBranch?: string | null;
   defaultBranch: string;
   releases: ReleaseView[];
-  otherBranches: string[];
+  otherBranches: BranchView[];
+  defaultView?: BranchView | null;
   rebasing: boolean;
   conflicts: string[];
   remote?: string | null;

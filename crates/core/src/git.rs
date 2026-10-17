@@ -251,6 +251,13 @@ impl Git {
         Ok(out.trim().parse().unwrap_or(0))
     }
 
+    /// (commits only in `a`, commits only in `b`).
+    pub async fn left_right(&self, a: &str, b: &str) -> Result<(u32, u32)> {
+        let out = self.run(&["rev-list", "--left-right", "--count", &format!("{a}...{b}")]).await?;
+        let mut n = out.split_whitespace().map(|x| x.parse().unwrap_or(0));
+        Ok((n.next().unwrap_or(0), n.next().unwrap_or(0)))
+    }
+
     pub async fn is_ancestor(&self, a: &str, b: &str) -> Result<bool> {
         let (ok, _, _) = self.try_run(&["merge-base", "--is-ancestor", a, b]).await?;
         Ok(ok)
@@ -441,6 +448,21 @@ impl Git {
 
     pub async fn push_tag(&self, tag: &str) -> Result<()> {
         self.run(&["push", "origin", &format!("refs/tags/{tag}")]).await.map(|_| ())
+    }
+
+    /// Fast-forward `branch` to its upstream. In the branch's own checkout
+    /// this pulls; elsewhere it fetches straight into the ref (ff-only too).
+    pub async fn pull_ff(&self, branch: &str, upstream: &str, checked_out: bool) -> Result<String> {
+        let (ok, out, err) = if checked_out {
+            self.try_run(&["pull", "--ff-only"]).await?
+        } else {
+            let (remote, rbranch) = upstream.split_once('/').unwrap_or(("origin", upstream));
+            self.try_run(&["fetch", remote, &format!("refs/heads/{rbranch}:refs/heads/{branch}")]).await?
+        };
+        if !ok {
+            return Err(Error::Git { cmd: "pull".into(), stderr: err.trim().into() });
+        }
+        Ok(format!("{out}{err}").trim().to_string())
     }
 
     pub async fn fetch(&self) -> Result<()> {

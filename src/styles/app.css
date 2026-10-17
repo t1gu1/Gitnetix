@@ -179,6 +179,25 @@ a:hover { color: var(--fg); }
 .branch-btn[aria-pressed="true"] { background: var(--sel); }
 .branch-btn:hover { background: var(--raised); }
 .branch-kind { font-family: var(--mono); font-size: 10px; font-weight: 500; text-transform: uppercase; width: 34px; flex: 0 0 34px; padding-top: 2px; }
+.branch-row { position: relative; }
+.branch-row:hover .branch-btn:not([aria-pressed="true"]) { background: var(--raised); }
+.branch-acts { display: flex; }
+.branch-row .branch-acts { position: absolute; top: 8px; right: 14px; padding-left: 10px; border-radius: 4px; opacity: 0; pointer-events: none; transition: opacity .12s; background: var(--raised); box-shadow: -10px 0 8px -4px var(--raised); }
+.branch-row:hover .branch-acts, .branch-row:focus-within .branch-acts { opacity: 1; pointer-events: auto; }
+.branch-row:has([aria-pressed="true"]) .branch-acts { opacity: 1; pointer-events: auto; background: var(--sel); box-shadow: -10px 0 8px -4px var(--sel); }
+@media (hover: none) { .branch-row .branch-acts { opacity: 1; pointer-events: auto; } }
+.split { display: inline-flex; flex: 0 0 auto; }
+.split-main { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.split-more { margin-left: -1px; border-top-left-radius: 0; border-bottom-left-radius: 0; }
+.ctx-menu { position: fixed; z-index: 45; min-width: 220px; max-width: min(320px, calc(100vw - 16px)); padding: 4px; display: flex; flex-direction: column; background: var(--raised); border: 1px solid var(--line); border-radius: 6px; box-shadow: var(--shadow); }
+.ctx-item { display: flex; align-items: center; gap: 8px; min-height: 30px; padding: 0 10px 0 8px; border: 0; border-radius: 4px; background: transparent; color: var(--fg); font: inherit; font-size: 12.5px; text-align: left; cursor: pointer; }
+.ctx-item.c-del { color: var(--del-fg); }
+.ctx-item:hover:not(:disabled), .ctx-item:focus-visible { background: var(--sel); outline: none; }
+.ctx-item:disabled { color: var(--faint); cursor: default; }
+.ctx-icon { width: 14px; display: inline-flex; color: var(--muted); }
+.ctx-hint { margin-left: 12px; color: var(--faint); font-family: var(--mono); font-size: 11px; white-space: nowrap; }
+.ctx-sep { height: 1px; margin: 4px 2px; background: var(--line); }
+@media (pointer: coarse) { .ctx-item { min-height: 40px; } }
 .branch-meta { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--faint); flex-wrap: wrap; }
 .file-btn { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 32px; padding: 0 14px; border: 0; background: transparent; font-size: 12.5px; text-align: left; }
 .file-btn[aria-pressed="true"] { background: var(--sel); }

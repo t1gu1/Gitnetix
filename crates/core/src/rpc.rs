@@ -42,6 +42,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("items.create", "New feature/fix branch in a release", "projectId, release, kind, description, branchName?, ticket?, where: switch|worktree, startAgent?"),
     ("items.attach", "Attach an existing branch to a release", "projectId, branch, release, kind"),
     ("items.remove", "Remove a branch from its release", "projectId, branch, deleteBranch?"),
+    ("branches.pull", "Fast-forward a branch to its upstream (checked out or not)", "projectId, branch"),
     ("branches.merge", "Merge a branch into its release (or default branch) with a merge commit", "projectId, branch, deleteBranch?"),
     ("branches.delete", "Delete a local branch and its worktree; force = even if unmerged", "projectId, branch, force?"),
     ("worktrees.list", "Every worktree across projects with its agent", ""),
@@ -287,6 +288,7 @@ pub async fn call(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
             k.remove_item(&s(&p, "projectId")?, &s(&p, "branch")?, b(&p, "deleteBranch")).await?;
             ok()
         }
+        "branches.pull" => to(json!({ "output": k.pull_branch(&s(&p, "projectId")?, &s(&p, "branch")?).await? })),
         "branches.merge" => to(k.merge_branch(&s(&p, "projectId")?, &s(&p, "branch")?, b(&p, "deleteBranch")).await?),
         "branches.delete" => {
             k.delete_branch(&s(&p, "projectId")?, &s(&p, "branch")?, b(&p, "force")).await?;

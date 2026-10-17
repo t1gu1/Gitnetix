@@ -149,3 +149,52 @@ async fn merge_and_delete_branches() {
     assert_eq!(rev(&repo, "main"), main_before);
     assert!(rev(&repo, "refs/heads/feat/b").len() == 40);
 }
+
+#[tokio::test]
+async fn pull_and_tracking() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("atlas-api");
+    init_repo(&repo);
+    let origin = tmp.path().join("origin.git");
+    sh(tmp.path(), &["init", "-q", "--bare", "-b", "main", origin.to_str().unwrap()]);
+    sh(&repo, &["remote", "add", "origin", origin.to_str().unwrap()]);
+    sh(&repo, &["push", "-q", "-u", "origin", "main"]);
+    sh(&repo, &["switch", "-qc", "feat/x"]);
+    sh(&repo, &["push", "-q", "-u", "origin", "feat/x"]);
+    sh(&repo, &["switch", "-q", "main"]);
+
+    // Someone else pushes to both branches.
+    let other = tmp.path().join("other");
+    sh(tmp.path(), &["clone", "-q", origin.to_str().unwrap(), other.to_str().unwrap()]);
+    sh(&other, &["config", "user.email", "o@example.com"]);
+    sh(&other, &["config", "user.name", "Other"]);
+    sh(&other, &["config", "commit.gpgsign", "false"]);
+    commit_file(&other, "m.txt", "m\n");
+    sh(&other, &["switch", "-q", "feat/x"]);
+    commit_file(&other, "x.txt", "x\n");
+    sh(&other, &["push", "-q", "origin", "main", "feat/x"]);
+    sh(&repo, &["fetch", "-q", "origin"]);
+
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let added = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await;
+    let pid = added[0]["id"].as_str().unwrap().to_string();
+
+    let ov = call(&k, "workspace.overview", json!({ "projectId": pid })).await;
+    let x = &ov["otherBranches"][0];
+    assert_eq!(x["name"], "feat/x");
+    assert_eq!(x["upstream"], "origin/feat/x");
+    assert_eq!(x["upstreamBehind"], 1);
+    assert_eq!(x["upstreamAhead"], 0);
+
+    // Not checked out: fetched straight into the ref.
+    call(&k, "branches.pull", json!({ "projectId": pid, "branch": "feat/x" })).await;
+    assert_eq!(rev(&repo, "feat/x"), rev(&repo, "origin/feat/x"));
+    // Checked out: pulled into the working tree.
+    call(&k, "branches.pull", json!({ "projectId": pid, "branch": "main" })).await;
+    assert!(repo.join("m.txt").exists());
+
+    // feat/x is now behind main by the commit pushed there.
+    let ov = call(&k, "workspace.overview", json!({ "projectId": pid })).await;
+    assert_eq!(ov["otherBranches"][0]["behind"], 1);
+    assert_eq!(ov["otherBranches"][0]["upstreamBehind"], 0);
+}

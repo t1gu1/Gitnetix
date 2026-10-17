@@ -14,7 +14,7 @@ use crate::agents::{AgentManager, AgentSession, AgentStatus, StartArgs};
 use crate::ai::{self, Resolved};
 use crate::error::{Error, Result};
 use crate::events::Event;
-use crate::git::{FileChange, Git, Hunk, Identity};
+use crate::git::{BranchInfo, FileChange, Git, Hunk, Identity, WorktreeInfo};
 use crate::providers::{github::GitHub, parse_remote};
 use crate::secrets;
 use crate::store::{new_id, now, BranchMeta, GitProfile, Project, Release, ReleaseKind, Store};
@@ -74,7 +74,13 @@ pub struct BranchView {
     pub checked_out: bool,
     pub running: bool,
     pub conflict: bool,
+    /// Commits not yet in the base (release, or default branch).
     pub ahead: u32,
+    /// Commits in the base the branch does not have.
+    pub behind: u32,
+    pub upstream: Option<String>,
+    pub upstream_ahead: u32,
+    pub upstream_behind: u32,
     pub ticket: Option<String>,
     pub exists: bool,
 }
@@ -100,7 +106,9 @@ pub struct Overview {
     pub default_branch: String,
     pub releases: Vec<ReleaseView>,
     /// Branches no release claims (excluding default and release/*).
-    pub other_branches: Vec<String>,
+    pub other_branches: Vec<BranchView>,
+    /// The default branch itself (tracking state for pull/push).
+    pub default_view: Option<BranchView>,
     pub rebasing: bool,
     pub conflicts: Vec<String>,
     pub remote: Option<String>,
@@ -406,7 +414,6 @@ impl Gitnetix {
         let default = git.default_branch().await?;
         let current = git.current_branch().await?;
         let branches = git.branches().await?;
-        let names: Vec<&str> = branches.iter().map(|b| b.name.as_str()).collect();
         let wts = git.worktrees().await?;
         let agents = self.agents.list();
         let rebasing = git.is_rebasing().await.unwrap_or(false);
@@ -417,28 +424,11 @@ impl Gitnetix {
         for r in &open {
             let mut items = Vec::new();
             for (name, meta) in p.branches.iter().filter(|(_, m)| m.release.as_deref() == Some(r.version.as_str())) {
-                let exists = names.contains(&name.as_str());
-                let wt = wts.iter().find(|w| w.branch.as_deref() == Some(name.as_str()));
-                let ahead = if exists { git.count(&format!("{}..{}", r.branch, name)).await.unwrap_or(0) } else { 0 };
-                let wt_conflict = match wt {
-                    Some(w) => {
-                        let g = Git::new(&w.path);
-                        g.is_rebasing().await.unwrap_or(false) && !g.conflicted_files().await.unwrap_or_default().is_empty()
-                    }
-                    None => false,
-                };
-                items.push(BranchView {
-                    short: name.split_once('/').map(|(_, b)| b.to_string()).unwrap_or_else(|| name.clone()),
-                    name: name.clone(),
-                    kind: meta.kind.clone(),
-                    worktree: wt.filter(|w| !w.main).map(|w| w.path.clone()),
-                    checked_out: wt.is_some(),
-                    running: agents.iter().any(|a| &a.branch == name && a.project_id == p.id && a.status == AgentStatus::Running),
-                    conflict: wt_conflict,
-                    ahead,
-                    ticket: meta.ticket.clone(),
-                    exists,
-                });
+                let info = branches.iter().find(|b| &b.name == name);
+                let mut v = self.branch_view(&p, &git, name, &r.branch, info, &wts, &agents).await;
+                v.kind = meta.kind.clone();
+                v.ticket = meta.ticket.clone();
+                items.push(v);
             }
             releases.push(ReleaseView {
                 version: r.version.clone(),
@@ -468,14 +458,53 @@ impl Gitnetix {
                 note: if shipped > 0 { format!("{shipped} branches shipped") } else { String::new() },
             });
         }
-        let claimed: Vec<&String> = p.branches.keys().collect();
-        let other_branches = branches
-            .iter()
-            .map(|b| b.name.clone())
-            .filter(|n| n != &default && !n.starts_with("release/") && !claimed.contains(&n))
-            .collect();
+        let mut other_branches = Vec::new();
+        for b in branches.iter().filter(|b| b.name != default && !b.name.starts_with("release/") && !p.branches.contains_key(&b.name)) {
+            other_branches.push(self.branch_view(&p, &git, &b.name, &default, Some(b), &wts, &agents).await);
+        }
+        let default_view = match branches.iter().find(|b| b.name == default) {
+            Some(b) => Some(self.branch_view(&p, &git, &b.name, &default, Some(b), &wts, &agents).await),
+            None => None,
+        };
         let remote = git.remote_url("origin").await.ok().flatten();
-        Ok(Overview { project: p, current_branch: current, default_branch: default, releases, other_branches, rebasing, conflicts, remote })
+        Ok(Overview { project: p, current_branch: current, default_branch: default, releases, other_branches, default_view, rebasing, conflicts, remote })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn branch_view(&self, p: &Project, git: &Git, name: &str, base: &str, info: Option<&BranchInfo>, wts: &[WorktreeInfo], agents: &[AgentSession]) -> BranchView {
+        let wt = wts.iter().find(|w| w.branch.as_deref() == Some(name));
+        let (behind, ahead) = match info {
+            Some(_) => git.left_right(base, name).await.unwrap_or((0, 0)),
+            None => (0, 0),
+        };
+        let upstream = info.and_then(|b| b.upstream.clone());
+        let (upstream_ahead, upstream_behind) = match &upstream {
+            Some(u) if git.ref_exists(&format!("refs/remotes/{u}")).await.unwrap_or(false) => git.left_right(name, u).await.unwrap_or((0, 0)),
+            _ => (0, 0),
+        };
+        let conflict = match wt {
+            Some(w) => {
+                let g = Git::new(&w.path);
+                g.is_rebasing().await.unwrap_or(false) && !g.conflicted_files().await.unwrap_or_default().is_empty()
+            }
+            None => false,
+        };
+        BranchView {
+            short: name.split_once('/').map(|(_, b)| b.to_string()).unwrap_or_else(|| name.to_string()),
+            name: name.to_string(),
+            kind: String::new(),
+            worktree: wt.filter(|w| !w.main).map(|w| w.path.clone()),
+            checked_out: wt.is_some(),
+            running: agents.iter().any(|a| a.branch == name && a.project_id == p.id && a.status == AgentStatus::Running),
+            conflict,
+            ahead,
+            behind,
+            upstream,
+            upstream_ahead,
+            upstream_behind,
+            ticket: None,
+            exists: info.is_some(),
+        }
     }
 
     pub async fn files(&self, project_id: &str, branch: &str, mode: ViewMode) -> Result<Vec<FileChange>> {
@@ -923,6 +952,32 @@ impl Gitnetix {
         })?;
         self.changed(project_id);
         Ok(())
+    }
+
+    /// Fast-forward a branch to its upstream, checked out or not.
+    pub async fn pull_branch(&self, project_id: &str, branch: &str) -> Result<String> {
+        let p = self.store.project(project_id)?;
+        let git = self.git(&p);
+        let upstream = git
+            .branches()
+            .await?
+            .into_iter()
+            .find(|b| b.name == branch)
+            .ok_or_else(|| Error::NotFound(format!("branch {branch}")))?
+            .upstream
+            .ok_or_else(|| Error::Invalid(format!("{branch} has no upstream. Push it first.")))?;
+        let out = match self.checkout_dir(&p, branch).await? {
+            Some(dir) => self.git_at(&p, &dir).pull_ff(branch, &upstream, true).await,
+            None => git.pull_ff(branch, &upstream, false).await,
+        }
+        .map_err(|e| match e {
+            Error::Git { stderr, .. } if stderr.contains("non-fast-forward") || stderr.contains("Not possible to fast-forward") || stderr.contains("rejected") => {
+                Error::Invalid(format!("{branch} and {upstream} have diverged. Rebase or merge by hand."))
+            }
+            e => e,
+        })?;
+        self.changed(project_id);
+        Ok(out)
     }
 
     /// Merge a branch into its base (its release, else the default branch)
