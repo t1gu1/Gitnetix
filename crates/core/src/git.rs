@@ -227,6 +227,34 @@ impl Git {
             .collect())
     }
 
+    /// Branches on origin (names without the `origin/` prefix, `HEAD` left out).
+    pub async fn remote_branches(&self) -> Result<Vec<BranchInfo>> {
+        let out = self
+            .run(&["for-each-ref", "refs/remotes/origin", "--format=%(refname:short)%1f%(objectname)%1f%(committerdate:iso-strict)%1f%(symref)"])
+            .await?;
+        Ok(out
+            .lines()
+            .filter_map(|l| {
+                let f: Vec<&str> = l.split('\x1f').collect();
+                let name = f.first()?.strip_prefix("origin/")?;
+                (f.len() == 4 && f[3].is_empty() && name != "HEAD").then(|| BranchInfo { name: name.into(), sha: f[1].into(), upstream: None, date: f[2].into() })
+            })
+            .collect())
+    }
+
+    /// Subjects of recent merge commits, keyed by each merged-in (non-first) parent.
+    pub async fn merge_subjects(&self, limit: u32) -> Result<HashMap<String, String>> {
+        let out = self.run(&["log", "--all", "--merges", &format!("--max-count={limit}"), "--format=%P%x1f%s"]).await?;
+        let mut map = HashMap::new();
+        for l in out.lines() {
+            let Some((parents, subject)) = l.split_once('\x1f') else { continue };
+            for p in parents.split_whitespace().skip(1) {
+                map.entry(p.to_string()).or_insert_with(|| subject.to_string());
+            }
+        }
+        Ok(map)
+    }
+
     pub async fn tags(&self) -> Result<Vec<TagInfo>> {
         let out = self
             .run(&[
@@ -270,7 +298,8 @@ impl Git {
     /// True when `branch` had commits of its own that all landed in `base`:
     /// a merge commit in `base` has the branch tip as a parent, or the branch
     /// moved since it was created (reflog) and is fully contained in `base`.
-    /// A fresh branch with no commits yet is not "merged".
+    /// A fresh branch with no commits yet is not "merged". `branch` may be a
+    /// remote-tracking name (`origin/x`).
     pub async fn is_merged_into(&self, branch: &str, base: &str) -> Result<bool> {
         let (tip, base_tip) = (self.rev_parse(branch).await?, self.rev_parse(base).await?);
         if tip == base_tip || !self.is_ancestor(&tip, &base_tip).await? {
@@ -280,7 +309,9 @@ impl Git {
         if merges.lines().any(|l| l.split_whitespace().skip(2).any(|p| p == tip)) {
             return Ok(true);
         }
-        let (ok, log, _) = self.try_run(&["reflog", "show", "--format=%H", &format!("refs/heads/{branch}")]).await?;
+        let local = format!("refs/heads/{branch}");
+        let r = if self.ref_exists(&local).await? { local } else { format!("refs/remotes/{branch}") };
+        let (ok, log, _) = self.try_run(&["reflog", "show", "--format=%H", &r]).await?;
         Ok(ok && log.lines().last().is_some_and(|created| created.trim() != tip))
     }
 

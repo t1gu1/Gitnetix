@@ -107,6 +107,8 @@ pub struct BranchMeta {
     pub kind: String,
     /// Release version this branch ships in.
     pub release: Option<String>,
+    /// Branch it merges into when it is in no release (e.g. `dev`). Inferred from history when unset.
+    pub parent: Option<String>,
     pub ticket: Option<String>,
     pub worktree: Option<String>,
     pub description: Option<String>,

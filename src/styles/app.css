@@ -15,6 +15,7 @@
   --on-accent: #1b1205;
   --add-bg: rgba(64, 190, 150, 0.13);
   --add-fg: #62d6ae;
+  --warn-fg: #e3b45a;
   --del-bg: rgba(244, 104, 96, 0.13);
   --del-fg: #ff9089;
   --mod-fg: #86aeff;
@@ -41,6 +42,7 @@
   --on-accent: #1b1205;
   --add-bg: #e2f4eb;
   --add-fg: #17744d;
+  --warn-fg: #8a5a00;
   --del-bg: #fce6e4;
   --del-fg: #b0271f;
   --mod-fg: #2452c2;
@@ -141,6 +143,7 @@ body.dragging-tab, body.dragging-tab * { cursor: grabbing !important; }
 .c-add { color: var(--add-fg); }
 .c-del { color: var(--del-fg); }
 .c-mod { color: var(--mod-fg); }
+.c-warn { color: var(--warn-fg); }
 .c-acc { color: var(--accent-fg); }
 
 .label { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin: 0; }
@@ -182,31 +185,56 @@ body.dragging-tab, body.dragging-tab * { cursor: grabbing !important; }
 
 /* ---------- workspace ---------- */
 .ws { flex: 1 1 auto; display: flex; min-height: 0; overflow: hidden; }
-.ws-releases { flex: 0 0 272px; display: flex; flex-direction: column; min-height: 0; background: var(--panel); border-right: 1px solid var(--line); }
-.ws-files { flex: 0 0 320px; width: 320px; min-width: 0; display: flex; flex-direction: column; min-height: 0; background: var(--panel); border-right: 1px solid var(--line); }
+.ws-releases { flex: 0 0 var(--branches-w, 300px); width: var(--branches-w, 300px); min-width: 0; display: flex; flex-direction: column; min-height: 0; background: var(--panel); border-right: 1px solid var(--line); }
+.ws-files { flex: 0 0 var(--files-w, 320px); width: var(--files-w, 320px); min-width: 0; display: flex; flex-direction: column; min-height: 0; background: var(--panel); border-right: 1px solid var(--line); }
 .ws-diff { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; min-height: 0; background: var(--bg); }
+/* The branches show/hide toggle sits at the same spot open (pane head) or closed (rail). */
+.ws-rail { flex: 0 0 auto; display: flex; flex-direction: column; padding: 0 8px; background: var(--panel); border-right: 1px solid var(--line); }
+.ws-rail > .pane-toggle { margin-top: calc((43px - 26px) / 2); } /* centered like in the 44px head (1px bottom border) */
+.ws-releases > .pane-head:has(.pane-toggle) { padding-left: 8px; }
+@media (max-width: 900px) { .ws-releases > .pane-head:has(.pane-toggle) { padding-left: 16px; } }
+/* Drag handle over a pane's right border; the line lights up on hover and while dragging. */
+.resizer { position: relative; z-index: 3; flex: 0 0 7px; margin: 0 -4px 0 -3px; cursor: col-resize; touch-action: none; outline: none; }
+.resizer::after { content: ""; position: absolute; top: 0; bottom: 0; left: 2px; width: 3px; background: transparent; transition: background .12s; }
+.resizer:hover::after, .resizer:focus-visible::after, body.resizing .resizer:active::after { background: var(--accent); }
+body.resizing { cursor: col-resize; user-select: none; }
+body.resizing iframe, body.resizing .term { pointer-events: none; }
+@media (min-width: 901px) { .ws[data-branches-hidden] > .ws-releases { display: none; } }
 .pane-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; height: 44px; flex: 0 0 44px; padding: 0 12px 0 16px; border-bottom: 1px solid var(--line); }
-.rel-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px 4px 16px; }
-.rel-base { padding: 0 16px 6px 37px; }
-/* Release header and branch rows share one box: text column + action column,
-   so the actions never cover the text. 8px padding, 3px between lines, 44px min. */
-.rel-top, .branch-row { display: flex; align-items: flex-start; gap: 8px; min-height: 44px; margin: 0 8px; padding: 8px 8px 8px 0; border-radius: 4px; }
-.rel-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
-.rel-top .rel-head { height: 16px; padding: 0 0 0 8px; }
-.rel-top .rel-base { padding: 0 0 0 29px; }
-.rel-top[data-actions] { cursor: pointer; }
-.rel-top[data-actions]:hover, .branch-row:hover { background: var(--raised); }
-.rel-top[data-current], .branch-row[data-current] { background: color-mix(in srgb, var(--accent) 9%, transparent); }
-.rel-top[data-current][data-actions]:hover, .branch-row[data-current]:hover { background: color-mix(in srgb, var(--accent) 9%, var(--raised)); }
-.rel-top[aria-pressed="true"], .branch-row:has([aria-pressed="true"]) { background: var(--sel); }
-.rel-top[data-current][aria-pressed="true"], .branch-row[data-current]:has([aria-pressed="true"]) { background: color-mix(in srgb, var(--accent) 16%, var(--sel)); }
-.rel-acts, .branch-acts { flex: 0 0 auto; display: flex; opacity: 0; pointer-events: none; transition: opacity .12s; }
-.rel-top:hover .rel-acts, .rel-top:focus-within .rel-acts, .branch-row:hover .branch-acts, .branch-row:focus-within .branch-acts,
-.rel-top[aria-pressed="true"] .rel-acts, .branch-row:has([aria-pressed="true"]) .branch-acts { opacity: 1; pointer-events: auto; }
-@media (hover: none) { .rel-acts, .branch-acts { opacity: 1; pointer-events: auto; } }
-.branch-btn { flex: 1 1 auto; min-width: 0; display: flex; align-items: flex-start; gap: 6px; margin: -8px 0; padding: 8px 0 8px 13px; min-height: 44px; border: 0; border-radius: 4px; background: transparent; color: var(--fg); text-align: left; }
-.branch-row[data-merged] .branch-kind, .branch-row[data-merged] .branch-btn .mono.ellipsis { opacity: .6; }
-.branch-kind { font-family: var(--mono); font-size: 10px; font-weight: 500; text-transform: uppercase; width: 34px; flex: 0 0 34px; padding-top: 2px; }
+/* Branch tree: every branch is the same row (twist, icon, name + status line, actions),
+   indented by depth; only the icon, tags and suggested action change with its role. */
+.tree { display: flex; flex-direction: column; padding: 6px 0; }
+.tree-row { --depth: 0; position: relative; display: flex; align-items: flex-start; gap: 4px; min-height: 44px; margin: 0 6px; padding: 6px 6px 6px calc(var(--depth) * 14px + 2px); border-radius: 4px; }
+.tree-row:hover { background: var(--raised); }
+.tree-row[data-current] { background: color-mix(in srgb, var(--accent) 9%, transparent); }
+.tree-row[data-current]:hover { background: color-mix(in srgb, var(--accent) 9%, var(--raised)); }
+.tree-row:has(> .tree-btn[aria-pressed="true"]) { background: var(--sel); }
+.tree-row[data-current]:has(> .tree-btn[aria-pressed="true"]) { background: color-mix(in srgb, var(--accent) 16%, var(--sel)); }
+.tree-twist { flex: 0 0 16px; width: 16px; height: 20px; display: inline-flex; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: 3px; background: transparent; color: var(--faint); }
+button.tree-twist { cursor: pointer; }
+button.tree-twist:hover { color: var(--fg); }
+.tree-btn { flex: 1 1 auto; min-width: 0; display: flex; align-items: flex-start; gap: 8px; margin: -6px 0; padding: 6px 0; border: 0; background: transparent; color: var(--fg); font: inherit; text-align: left; cursor: pointer; }
+.tree-static .tree-btn { cursor: default; }
+.tree-icon { flex: 0 0 14px; height: 20px; display: inline-flex; align-items: center; color: var(--faint); }
+.tree-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.tree-name { display: flex; align-items: center; gap: 6px; min-width: 0; height: 20px; font-size: 12.5px; }
+/* No status to show (e.g. main, in sync, not checked out): a shorter row, content centered. */
+.tree-main > .branch-meta:empty { display: none; }
+.tree-row:has(> .tree-btn .tree-main > .branch-meta:empty) { min-height: 36px; align-items: center; }
+.tree-row:has(> .tree-btn .tree-main > .branch-meta:empty) > .tree-btn { align-items: center; }
+.tree-row[data-dim] .tree-name, .tree-row[data-dim] .kind-chip { opacity: .6; }
+.tree-acts { flex: 0 0 auto; display: flex; opacity: 0; pointer-events: none; transition: opacity .12s; }
+.tree-row:hover .tree-acts, .tree-row:focus-within .tree-acts, .tree-row:has(> .tree-btn[aria-pressed="true"]) .tree-acts { opacity: 1; pointer-events: auto; }
+@media (hover: none) { .tree-acts { opacity: 1; pointer-events: auto; } }
+.tree-ghost, .tree-group { width: calc(100% - 12px); min-height: 30px; align-items: center; border: 0; background: transparent; font: inherit; text-align: left; cursor: pointer; }
+.tree-ghost { color: var(--muted); font-size: 12px; gap: 4px; }
+.tree-ghost .tree-icon { height: auto; margin-right: 4px; }
+.tree-ghost:hover { color: var(--fg); }
+.tree-group { gap: 6px; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.tree-group:hover { color: var(--fg); }
+.tree-filter { display: flex; align-items: center; gap: 8px; padding: 8px 12px 8px 16px; border-bottom: 1px solid var(--line); }
+.tree-filter .input { flex: 1 1 auto; min-width: 0; height: 28px; font-size: 12.5px; }
+.kind-chip { font-family: var(--mono); font-size: 10px; font-weight: 500; text-transform: uppercase; }
 .split { display: inline-flex; flex: 0 0 auto; }
 .split-main { border-top-right-radius: 0; border-bottom-right-radius: 0; }
 .split-more { margin-left: -1px; border-top-left-radius: 0; border-bottom-left-radius: 0; }
@@ -241,7 +269,7 @@ body.dragging-tab, body.dragging-tab * { cursor: grabbing !important; }
 .file-sec-toggle { flex: 1 1 auto; min-width: 0; align-self: stretch; display: flex; align-items: center; gap: 6px; padding: 0 6px 0 14px; border: 0; background: transparent; color: inherit; font: inherit; letter-spacing: inherit; text-transform: inherit; cursor: pointer; }
 .file-sec-toggle:hover { color: var(--fg); }
 .chev { transition: transform 0.15s ease; }
-[aria-expanded="false"] > .chev { transform: rotate(-90deg); }
+[aria-expanded="false"] > .chev, [aria-expanded="false"] > .tree-twist > .chev { transform: rotate(-90deg); }
 @media (prefers-reduced-motion: reduce) { .chev { transition: none; } }
 .file-sec-acts { display: flex; gap: 2px; }
 .btn-act { width: 22px; height: 22px; padding: 0; color: var(--muted); }

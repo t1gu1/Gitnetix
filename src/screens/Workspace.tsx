@@ -1,14 +1,15 @@
-import { useEffect, useMemo, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 
 import { useAction, useAgents, useAiCatalog, useDiff, useFiles, useOverview } from "../api/hooks";
 import type { BranchView, FileChange, MergeResult, ReleaseView } from "../api/types";
 import { AgentLog } from "../components/AgentLog";
 import { DiffView } from "../components/DiffView";
 import { Icon } from "../components/Icon";
-import { Busy, ErrorBox, Loading, Modal, releaseTagLabel, Seg } from "../components/ui";
+import { Resizer, usePaneWidth } from "../components/Resizer";
+import { Busy, ErrorBox, Loading, Modal, Seg } from "../components/ui";
 import { useNav } from "../lib/nav";
-import { toast } from "../lib/toast";
-import { BranchSplit, useBranchActions, type BranchActions, type BranchDialog, type BranchTarget } from "./BranchMenu";
+import { useBranchActions, type BranchDialog, type BranchTarget } from "./BranchMenu";
+import { BranchTree } from "./BranchTree";
 import { ConflictModal } from "./ConflictModal";
 
 type Mode = "branch" | "wip" | "project";
@@ -23,26 +24,51 @@ export function Workspace() {
   const [diffMode, setDiffMode] = useState<"unified" | "split">("unified");
   const [termOpen, setTermOpen] = useState(true);
   const [pane, setPane] = useState<Pane>("releases");
-  const [newRelease, setNewRelease] = useState(false);
   const [shipping, setShipping] = useState<ReleaseView | null>(null);
   const [dialog, setDialog] = useState<{ kind: BranchDialog; branch: string } | null>(null);
+  const branchesW = usePaneWidth("gnx.pane.branches", 300, 220, 560);
+  const filesW = usePaneWidth("gnx.pane.files", 320, 220, 640);
+  const [branchesHidden, setBranchesHidden] = useStoredFlag("gnx.pane.branchesHidden");
   const actions = useBranchActions(pid, (kind, branch) => setDialog({ kind, branch }));
 
   const o = ov.data;
-  const allItems = useMemo(() => (o?.releases ?? []).flatMap((r) => r.items), [o]);
-  const releaseViews = useMemo(() => (o?.releases ?? []).flatMap((r) => (r.view ? [r.view] : [])), [o]);
-  const views = useMemo(() => [...allItems, ...releaseViews, ...(o?.otherBranches ?? []), ...(o?.defaultView ? [o.defaultView] : [])], [allItems, releaseViews, o]);
-  const branch = nav.selectedBranch ?? allItems[0]?.name ?? o?.currentBranch ?? undefined;
-  const baseFor = (b: string) =>
-    o?.releases.find((r) => r.version === o.project.branches[b]?.release)?.branch ?? o?.project.releases.find((r) => r.branch === b)?.base ?? o?.defaultBranch ?? "";
-  const target = (b: string, attachTo?: string[]): BranchTarget => ({
-    view: views.find((v) => v.name === b) ?? synthetic(b, b === o?.currentBranch),
-    base: baseFor(b),
-    isDefault: b === o?.defaultBranch,
-    isRelease: releaseViews.some((v) => v.name === b),
-    attachTo,
-  });
-  const view: BranchView | undefined = branch ? views.find((b) => b.name === branch) : undefined;
+  const byName = useMemo(() => new Map((o?.branches ?? []).map((b) => [b.name, b])), [o]);
+  const branch = nav.selectedBranch ?? o?.currentBranch ?? o?.defaultBranch ?? undefined;
+  const baseFor = (b: string) => byName.get(b)?.parent ?? "";
+  /** A release branch reads as its version. */
+  const labelOf = (b: string) => {
+    const v = byName.get(b);
+    return v?.role === "release" && v.release ? `v${v.release}` : b;
+  };
+  const target = (b: string): BranchTarget => {
+    const v = byName.get(b) ?? synthetic(b, b === o?.currentBranch);
+    const base = v.parent ?? "";
+    const rel = v.role === "release" ? o?.releases.find((r) => r.open && r.branch === b) : undefined;
+    return {
+      view: v,
+      base,
+      baseLabel: labelOf(base),
+      isDefault: b === o?.defaultBranch,
+      isRelease: !!rel,
+      extra: rel
+        ? [
+            { id: "new-item", label: <>New feature or fix in v{rel.version}…</>, icon: "plus", run: () => nav.openNewItem({ release: rel.version }) },
+            { id: "ship", label: <>Ship v{rel.version}…</>, icon: "ship", hint: "fast-forward + tag", run: () => setShipping(rel) },
+          ]
+        : v.role === "trunk" && v.exists
+          ? [{ id: "new-branch", label: <>New branch off <span className="mono">{b}</span>…</>, icon: "plus", run: () => nav.openNewItem({ from: b }) }]
+          : undefined,
+      next: rel
+        ? { id: "ship", label: `Ship v${rel.version}…`, short: "Ship", tip: `Fast-forward ${o?.defaultBranch} to ${b} and tag v${rel.version}`, icon: "ship", disabled: !v.ahead, run: () => setShipping(rel) }
+        : undefined,
+      // Work branches can be re-targeted to any release or trunk.
+      moveTo:
+        v.role === "branch" && v.exists && !b.startsWith("release/")
+          ? (o?.branches ?? []).filter((x) => x.exists && x.role !== "branch" && x.name !== base && x.name !== b).map((x) => ({ branch: x.name, label: labelOf(x.name) }))
+          : undefined,
+    };
+  };
+  const view: BranchView | undefined = branch ? byName.get(branch) : undefined;
   const base = branch ? baseFor(branch) : "";
   const checkedOut = view?.checkedOut ?? branch === o?.currentBranch;
 
@@ -71,7 +97,7 @@ export function Workspace() {
           value={pane}
           onChange={setPane}
           options={[
-            { value: "releases", label: "Releases" },
+            { value: "releases", label: "Branches" },
             { value: "files", label: `Files${fileCount ? ` ${fileCount}` : ""}` },
             { value: "diff", label: "Diff & agent" },
           ]}
@@ -85,23 +111,33 @@ export function Workspace() {
       )}
 
       {o && (
-        <main className="ws">
-          <ReleasesPane
+        <main
+          className="ws"
+          style={{ "--branches-w": `${branchesW.width}px`, "--files-w": `${filesW.width}px` } as CSSProperties}
+          data-branches-hidden={branchesHidden || undefined}
+        >
+          {branchesHidden && (
+            <div className="ws-rail hide-narrow">
+              <button className="btn btn-sm btn-icon pane-toggle" aria-label="Show branches" onClick={() => setBranchesHidden(false)}>
+                <Icon name="sidebar" size={13} />
+              </button>
+            </div>
+          )}
+          <BranchTree
+            onHide={() => setBranchesHidden(true)}
             active={pane === "releases"}
-            releases={o.releases}
-            others={o.otherBranches}
+            o={o}
             selected={branch}
-            currentBranch={o.currentBranch ?? undefined}
             actions={actions}
             target={target}
             onSelect={(b) => {
               nav.selectBranch(b);
               setPane("files");
             }}
-            onNewRelease={() => setNewRelease(true)}
-            onShip={setShipping}
+            onNewRelease={() => nav.openNewItem({ kind: "release" })}
           />
 
+          {!branchesHidden && <Resizer pane={branchesW} label="Resize branches panel" />}
           <section aria-label="Changed files" className="ws-files" data-pane data-active={pane === "files"}>
             <div className="col" style={{ gap: 10, padding: "12px 14px", borderBottom: "1px solid var(--line)" }}>
               <div className="row" style={{ alignItems: "baseline", minWidth: 0 }}>
@@ -160,6 +196,7 @@ export function Workspace() {
             {branch && <CommitBox pid={pid} branch={branch} enabled={checkedOut} staged={stagedCount} changed={wipCount} />}
           </section>
 
+          <Resizer pane={filesW} label="Resize files panel" />
           <section aria-label="Diff" className="ws-diff" data-pane data-active={pane === "diff"}>
             <div className="pane-head" style={{ background: "var(--panel)" }}>
               <span className="mono ellipsis" style={{ fontSize: 12.5 }}>{current?.path ?? "No file selected"}</span>
@@ -188,7 +225,6 @@ export function Workspace() {
       {discarding && branch && (
         <DiscardModal pid={pid} branch={branch} staged={discarding.staged} paths={discarding.paths} total={list.filter((f) => f.staged === discarding.staged).length} onClose={() => setDiscarding(null)} />
       )}
-      {newRelease && <NewReleaseModal pid={pid} onClose={() => setNewRelease(false)} />}
       {shipping && <ShipModal pid={pid} release={shipping} defaultBranch={o?.defaultBranch ?? "main"} onClose={() => setShipping(null)} />}
       {actions.menuEl}
       {dialog?.kind === "conflicts" && <ConflictModal pid={pid} branch={dialog.branch} base={baseFor(dialog.branch)} onClose={() => setDialog(null)} />}
@@ -200,7 +236,7 @@ export function Workspace() {
           pid={pid}
           branch={dialog.branch}
           base={baseFor(dialog.branch)}
-          exists={target(dialog.branch).view.exists}
+          exists={target(dialog.branch).view.local}
           worktree={target(dialog.branch).view.worktree ?? undefined}
           onClose={() => setDialog(null)}
           onDeleted={() => dialog.branch === branch && nav.selectBranch(undefined)}
@@ -210,166 +246,45 @@ export function Workspace() {
   );
 }
 
-function synthetic(name: string, checkedOut: boolean): BranchView {
-  return { name, kind: "", short: name, checkedOut, running: false, conflict: false, ahead: 0, behind: 0, upstreamAhead: 0, upstreamBehind: 0, exists: true, merged: false };
-}
-
-/** Status line under a branch: checkout, agent, merge and tracking state. */
-function BranchMeta({ b, base, current, className, children }: { b: BranchView; base: string; current: boolean; className?: string; children?: ReactNode }) {
-  return (
-    <span className={`branch-meta${className ? ` ${className}` : ""}`}>
-      {children}
-      {current && <span className="c-acc">checked out</span>}
-      {b.worktree && <span className="row" style={{ gap: 4 }}><Icon name="layers" size={11} stroke={1.4} />worktree</span>}
-      {b.running && <span className="row c-acc" style={{ gap: 4 }}><span className="pulse" style={{ width: 5, height: 5 }} />AI working</span>}
-      {b.conflict && <span className="c-del">conflict</span>}
-      {!b.exists && <span className="c-del">branch deleted</span>}
-      {b.merged && (
-        <span className="pill c-add" title={`All commits are in ${base}`}>
-          <Icon name="merged" size={10} stroke={1.6} />
-          merged
-        </span>
-      )}
-      {b.exists && !b.merged && <span>{b.ahead === 1 ? "1 commit" : `${b.ahead} commits`}</span>}
-      {(b.upstreamAhead > 0 || b.upstreamBehind > 0) && (
-        <span className="mono" title={`${b.upstreamAhead} to push, ${b.upstreamBehind} to pull`}>
-          {b.upstreamAhead > 0 && `↑${b.upstreamAhead}`}
-          {b.upstreamBehind > 0 && <span className="c-acc"> ↓{b.upstreamBehind}</span>}
-        </span>
-      )}
-      {b.ticket && <span className="mono">{b.ticket}</span>}
-    </span>
-  );
-}
-
-function ReleasesPane({
-  active,
-  releases,
-  others,
-  selected,
-  currentBranch,
-  actions,
-  target,
-  onSelect,
-  onNewRelease,
-  onShip,
-}: {
-  active: boolean;
-  releases: ReleaseView[];
-  others: BranchView[];
-  selected?: string;
-  currentBranch?: string;
-  actions: BranchActions;
-  target: (b: string, attachTo?: string[]) => BranchTarget;
-  onSelect: (b: string) => void;
-  onNewRelease: () => void;
-  onShip: (r: ReleaseView) => void;
-}) {
-  const nav = useNav();
-  const [showOthers, setShowOthers] = useState(false);
-  const sw = useAction("workspace.switch", { invalidate: [["overview"], ["files"]] });
-  const switchTo = (b: string) => sw.mutate({ projectId: nav.projectId!, branch: b }, { onSuccess: () => toast(`Switched to ${b}`, "ok") });
-  const open = releases.filter((r) => r.open).map((r) => r.version);
-  const releaseTarget = (r: ReleaseView): BranchTarget => ({
-    ...target(r.branch),
-    extra: [
-      { id: "new-item", label: <>New feature or fix in v{r.version}…</>, icon: "plus", run: () => nav.openNewItem({ release: r.version }) },
-      { id: "ship", label: <>Ship v{r.version}…</>, icon: "ship", hint: "fast-forward + tag", run: () => onShip(r) },
-    ],
+/** A boolean kept in this browser between sessions. */
+function useStoredFlag(key: string): [boolean, (v: boolean) => void] {
+  const [v, setV] = useState(() => {
+    try {
+      return localStorage.getItem(key) === "1";
+    } catch {
+      return false;
+    }
   });
-  const row = (b: BranchView, t: BranchTarget) => (
-    <div key={b.name} className="branch-row" data-merged={b.merged || undefined} data-current={b.name === currentBranch || undefined} onContextMenu={(e) => actions.openMenu(t, e)}>
-      <button className="branch-btn" aria-pressed={b.name === selected} onClick={() => onSelect(b.name)}>
-        <span className={`branch-kind ${b.kind === "fix" ? "c-del" : "c-mod"}`}>{b.kind}</span>
-        <span className="col grow" style={{ gap: 3, minWidth: 0 }}>
-          <span className="mono ellipsis" style={{ fontSize: 12 }}>{b.kind ? b.short : b.name}</span>
-          <BranchMeta b={b} base={t.base} current={b.name === currentBranch} />
-        </span>
-      </button>
-      <span className="branch-acts">
-        <BranchSplit t={t} actions={actions} />
-      </span>
-    </div>
-  );
-  return (
-    <section aria-label="Releases" className="ws-releases" data-pane data-active={active}>
-      <div className="pane-head">
-        <span className="label">Releases</span>
-        <button className="btn btn-sm" onClick={onNewRelease}>
-          <Icon name="plus" size={12} stroke={1.6} />
-          <span>Release</span>
-        </button>
-      </div>
-      <div className="scroll col" style={{ flex: "1 1 auto", padding: "8px 0", gap: 6 }}>
-        {releases.length === 0 && (
-          <div className="empty">
-            No release yet. Cut one to start: features and fixes branch off it.
-            <div style={{ marginTop: 12 }}>
-              <button className="btn btn-primary" onClick={onNewRelease}>New release</button>
-            </div>
-          </div>
-        )}
-        {releases.map((r) => (
-          <div key={`${r.version}-${r.tag}`} className="col" style={{ gap: 2 }}>
-            <div
-              className="rel-top"
-              data-current={(r.open && r.branch === currentBranch) || undefined}
-              data-actions={!!r.view || undefined}
-              {...(r.view && {
-                role: "button",
-                tabIndex: 0,
-                "aria-pressed": r.branch === selected,
-                onClick: (e: MouseEvent) => !(e.target as HTMLElement).closest("button") && onSelect(r.branch),
-                onKeyDown: (e: KeyboardEvent) => e.target === e.currentTarget && (e.key === "Enter" || e.key === " ") && (e.preventDefault(), onSelect(r.branch)),
-              })}
-            >
-              <div
-                className="rel-main"
-                style={r.open ? { userSelect: "none" } : undefined}
-                onContextMenu={r.view ? (e) => actions.openMenu(releaseTarget(r), e) : undefined}
-                title={r.open ? `Double-click to switch to ${r.branch}` : undefined}
-                onDoubleClick={() => r.open && r.branch !== currentBranch && switchTo(r.branch)}
-              >
-                <div className="rel-head">
-                  <Icon name="tag" size={13} stroke={1.4} className="faint" />
-                  <span className="mono" style={{ fontSize: 12.5, fontWeight: 500 }}>v{r.version}</span>
-                  <span className={`tag${r.tag === "next" ? " accent" : ""}`}>{releaseTagLabel(r.tag)}</span>
-                </div>
-                {r.view ? (
-                  <BranchMeta b={r.view} base={r.base} current={r.branch === currentBranch} className="rel-base">
-                    <span className="mono">{r.branch}</span>
-                  </BranchMeta>
-                ) : (
-                  <div className="rel-base branch-meta">
-                    <span className="mono">{r.open ? r.branch : r.base}</span>
-                  </div>
-                )}
-              </div>
-              {r.view && (
-                <span className="rel-acts">
-                  <BranchSplit t={releaseTarget(r)} actions={actions} />
-                </span>
-              )}
-            </div>
-            {r.items.map((b) => row(b, target(b.name)))}
-            {r.open && r.items.length === 0 && <div style={{ padding: "2px 16px 6px 37px", fontSize: 12 }} className="muted">No features or fixes yet.</div>}
-            {!r.open && r.note && <div style={{ padding: "2px 16px 6px 37px", fontSize: 12 }} className="muted">{r.note}</div>}
-          </div>
-        ))}
-        {others.length > 0 && (
-          <div className="col" style={{ gap: 2, marginTop: 8 }}>
-            <button className="rel-head btn-ghost" style={{ border: 0, background: "transparent", textAlign: "left" }} aria-expanded={showOthers} onClick={() => setShowOthers(!showOthers)}>
-              <Icon name="chevronDown" size={12} className="chev" />
-              <span className="label">Other branches</span>
-              <span className="faint">{others.length}</span>
-            </button>
-            {showOthers && others.map((b) => row(b, target(b.name, open)))}
-          </div>
-        )}
-      </div>
-      <div className="hint" style={{ padding: "10px 16px", borderTop: "1px solid var(--line)" }}>Right-click a branch for every action. Switching carries your uncommitted work with you.</div>
-    </section>
-  );
+  const set = (next: boolean) => {
+    setV(next);
+    try {
+      localStorage.setItem(key, next ? "1" : "0");
+    } catch {
+      /* per-viewer convenience only */
+    }
+  };
+  return [v, set];
+}
+
+function synthetic(name: string, checkedOut: boolean): BranchView {
+  return {
+    name,
+    kind: "",
+    short: name,
+    checkedOut,
+    running: false,
+    conflict: false,
+    ahead: 0,
+    behind: 0,
+    upstreamAhead: 0,
+    upstreamBehind: 0,
+    exists: true,
+    merged: false,
+    role: "branch",
+    local: true,
+    remote: false,
+    date: "",
+  };
 }
 
 /** WIP files appear once per side, so the side is part of the identity. */
@@ -796,33 +711,6 @@ function Terminal({ pid, branch, checkedOut, open, setOpen }: { pid: string; bra
         {(start.isPending || message.isPending) && <span className="spinner" />}
       </form>
     </div>
-  );
-}
-
-function NewReleaseModal({ pid, onClose }: { pid: string; onClose: () => void }) {
-  const [version, setVersion] = useState("");
-  const [kind, setKind] = useState<"next" | "hotfix">("next");
-  const create = useAction("releases.create", { invalidate: [["overview", pid], ["projects"]], success: `Release v${version} created` });
-  return (
-    <Modal
-      title="New release"
-      sub={kind === "next" ? "Branches off your default branch" : "Branches off the latest tag"}
-      onClose={onClose}
-      footer={
-        <>
-          <button className="btn btn-md" onClick={onClose}>Cancel</button>
-          <button className="btn btn-primary btn-md" disabled={!version || create.isPending} onClick={() => create.mutate({ projectId: pid, version, kind }, { onSuccess: onClose })}>
-            Create release/{version.replace(/^v/, "") || "x.y.z"}
-          </button>
-        </>
-      }
-    >
-      <Seg grid size="lg" label="Release type" value={kind} onChange={setKind} options={[{ value: "next", label: "Next release" }, { value: "hotfix", label: "Hotfix" }]} />
-      <div className="field">
-        <label htmlFor="rel-v">Version</label>
-        <input id="rel-v" className="input mono" placeholder="2.4.0" value={version} onChange={(e) => setVersion(e.target.value.trim())} autoFocus />
-      </div>
-    </Modal>
   );
 }
 

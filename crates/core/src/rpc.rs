@@ -44,11 +44,14 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("releases.ship", "Fast-forward main to the release and tag it", "projectId, version, push?"),
     ("releases.delete", "Forget an open release (branch kept)", "projectId, version"),
     ("items.suggestName", "AI branch name for a feature or fix", "projectId, kind, description, ticket?"),
-    ("items.create", "New feature/fix branch in a release", "projectId, release, kind, description, branchName?, ticket?, where: switch|worktree, startAgent?"),
+    ("items.create", "New feature/fix branch in a release, or off another branch (release empty, from = branch)", "projectId, release?, from?, kind, description, branchName?, ticket?, where: switch|worktree, startAgent?"),
     ("items.attach", "Attach an existing branch to a release", "projectId, branch, release, kind"),
     ("items.remove", "Remove a branch from its release", "projectId, branch, deleteBranch?"),
     ("branches.pull", "Fast-forward a branch to its upstream (checked out or not)", "projectId, branch"),
-    ("branches.merge", "Merge a branch into its release (or default branch) with a merge commit", "projectId, branch, deleteBranch?"),
+    ("branches.merge", "Merge a branch into its release (or parent branch) with a merge commit", "projectId, branch, deleteBranch?"),
+    ("branches.sync", "Merge a branch's base into it to bring it up to date", "projectId, branch"),
+    ("branches.setParent", "Choose what a branch merges into (an open release branch attaches it to that release)", "projectId, branch, parent"),
+    ("branches.fetch", "Fetch origin, pruning deleted branches", "projectId"),
     ("branches.delete", "Delete a local branch and its worktree; force = even if unmerged", "projectId, branch, force?"),
     ("worktrees.list", "Every worktree across projects with its agent", ""),
     ("worktrees.create", "Open a branch in a new worktree", "projectId, branch"),
@@ -321,6 +324,15 @@ pub async fn call(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
         }
         "branches.pull" => to(json!({ "output": k.pull_branch(&s(&p, "projectId")?, &s(&p, "branch")?).await? })),
         "branches.merge" => to(k.merge_branch(&s(&p, "projectId")?, &s(&p, "branch")?, b(&p, "deleteBranch")).await?),
+        "branches.sync" => to(k.sync_branch(&s(&p, "projectId")?, &s(&p, "branch")?).await?),
+        "branches.setParent" => {
+            k.set_parent(&s(&p, "projectId")?, &s(&p, "branch")?, &s(&p, "parent")?)?;
+            ok()
+        }
+        "branches.fetch" => {
+            k.fetch(&s(&p, "projectId")?).await?;
+            ok()
+        }
         "branches.delete" => {
             k.delete_branch(&s(&p, "projectId")?, &s(&p, "branch")?, b(&p, "force")).await?;
             ok()

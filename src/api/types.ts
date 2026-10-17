@@ -87,9 +87,20 @@ export interface BranchView {
   upstreamAhead: number;
   upstreamBehind: number;
   ticket?: string | null;
+  /** Exists locally or on origin (false: tracked by Gitnetix but gone). */
   exists: boolean;
   /** All its commits are in the base: merged, nothing new since. */
   merged: boolean;
+  /** Branch it merges into; null for the default branch. */
+  parent?: string | null;
+  role: "trunk" | "release" | "branch";
+  /** Open release it ships in (a release branch: its own version). */
+  release?: string | null;
+  local: boolean;
+  /** Exists on origin. */
+  remote: boolean;
+  /** Date of its last commit (ISO 8601). */
+  date: string;
 }
 
 export interface MergeResult {
@@ -118,6 +129,8 @@ export interface Overview {
   releases: ReleaseView[];
   otherBranches: BranchView[];
   defaultView?: BranchView | null;
+  /** Every branch (local, origin-only, tracked-but-gone), each with its parent. */
+  branches: BranchView[];
   rebasing: boolean;
   conflicts: string[];
   remote?: string | null;
