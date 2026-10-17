@@ -27,10 +27,13 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("profiles.delete", "Delete a Git profile", "id"),
     ("workspace.overview", "Releases, their branches and repo state", "projectId"),
     ("workspace.files", "Changed files of a branch", "projectId, branch, mode: branch|wip|project"),
-    ("workspace.diff", "Diff of one file", "projectId, branch, mode, path"),
+    ("workspace.diff", "Diff of one file; in wip mode `staged` picks the side", "projectId, branch, mode, path, staged?"),
     ("workspace.switch", "Check out a branch (uncommitted work comes along)", "projectId, branch"),
-    ("workspace.commitMessage", "AI-written commit message for current changes", "projectId, branch"),
-    ("workspace.commit", "Stage all and commit; empty message = AI writes it", "projectId, branch, message?"),
+    ("workspace.stage", "Stage files (all when paths is empty)", "projectId, branch, paths?"),
+    ("workspace.unstage", "Unstage files (all when paths is empty)", "projectId, branch, paths?"),
+    ("workspace.discard", "Discard staged or unstaged changes (all on that side when paths is empty)", "projectId, branch, staged, paths?"),
+    ("workspace.commitMessage", "AI-written commit message for the staged changes", "projectId, branch"),
+    ("workspace.commit", "Commit staged changes (all = stage everything first); empty message = AI writes it", "projectId, branch, message?, all?"),
     ("workspace.push", "Push a branch to origin", "projectId, branch"),
     ("workspace.rebase", "Rebase a branch onto its release; returns conflicts", "projectId, branch"),
     ("workspace.rebaseContinue", "Continue a paused rebase", "projectId, branch"),
@@ -109,6 +112,10 @@ fn os(v: &Value, k: &str) -> Option<String> {
 /// Workspace view mode; defaults to "branch".
 fn mode(v: &Value) -> Result<ViewMode> {
     os(v, "mode").as_deref().unwrap_or("branch").parse()
+}
+
+fn paths(v: &Value) -> Result<Vec<String>> {
+    Ok(serde_json::from_value(v.get("paths").cloned().unwrap_or(json!([])))?)
 }
 
 fn b(v: &Value, k: &str) -> bool {
@@ -252,13 +259,25 @@ pub async fn call(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
         // ---- workspace ----
         "workspace.overview" => to(k.overview(&s(&p, "projectId")?).await?),
         "workspace.files" => to(k.files(&s(&p, "projectId")?, &s(&p, "branch")?, mode(&p)?).await?),
-        "workspace.diff" => to(k.diff(&s(&p, "projectId")?, &s(&p, "branch")?, mode(&p)?, &s(&p, "path")?).await?),
+        "workspace.diff" => to(k.diff(&s(&p, "projectId")?, &s(&p, "branch")?, mode(&p)?, &s(&p, "path")?, p.get("staged").and_then(Value::as_bool)).await?),
         "workspace.switch" => {
             k.switch_branch(&s(&p, "projectId")?, &s(&p, "branch")?).await?;
             ok()
         }
         "workspace.commitMessage" => to(json!({ "message": k.generate_commit_message(&s(&p, "projectId")?, &s(&p, "branch")?).await? })),
-        "workspace.commit" => to(k.commit(&s(&p, "projectId")?, &s(&p, "branch")?, os(&p, "message")).await?),
+        "workspace.stage" => {
+            k.stage(&s(&p, "projectId")?, &s(&p, "branch")?, &paths(&p)?).await?;
+            ok()
+        }
+        "workspace.unstage" => {
+            k.unstage(&s(&p, "projectId")?, &s(&p, "branch")?, &paths(&p)?).await?;
+            ok()
+        }
+        "workspace.discard" => {
+            k.discard(&s(&p, "projectId")?, &s(&p, "branch")?, b(&p, "staged"), &paths(&p)?).await?;
+            ok()
+        }
+        "workspace.commit" => to(k.commit(&s(&p, "projectId")?, &s(&p, "branch")?, os(&p, "message"), b(&p, "all")).await?),
         "workspace.push" => to(json!({ "output": k.push(&s(&p, "projectId")?, &s(&p, "branch")?).await? })),
         "workspace.rebase" => to(json!({ "conflicts": k.rebase(&s(&p, "projectId")?, &s(&p, "branch")?).await? })),
         "workspace.rebaseContinue" => to(json!({ "conflicts": k.rebase_continue(&s(&p, "projectId")?, &s(&p, "branch")?).await? })),

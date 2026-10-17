@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { useAction, useAgents, useDiff, useFiles, useOverview } from "../api/hooks";
 import type { BranchView, FileChange, MergeResult, ReleaseView } from "../api/types";
@@ -44,11 +44,15 @@ export function Workspace() {
   const checkedOut = view?.checkedOut ?? branch === o?.currentBranch;
 
   const files = useFiles(pid, branch, mode);
-  const wipCount = useFiles(pid, branch, "wip").data?.length ?? 0;
+  const wipList = useFiles(pid, branch, "wip").data ?? [];
+  const wipCount = new Set(wipList.map((f) => f.path)).size;
+  const stagedCount = wipList.filter((f) => f.staged).length;
   const branchCount = useFiles(pid, branch, "branch").data?.length ?? 0;
   const list = files.data ?? [];
-  const current = list.find((f) => f.path === file) ?? list[0];
-  const diff = useDiff(pid, branch, mode, current?.path);
+  const fileCount = new Set(list.map((f) => f.path)).size;
+  const current = list.find((f) => fileKey(f) === file) ?? list[0];
+  const diff = useDiff(pid, branch, mode, current?.path, current?.staged);
+  const [discarding, setDiscarding] = useState<{ staged: boolean; paths: string[] } | null>(null);
 
   useEffect(() => setFile(undefined), [branch, mode]);
 
@@ -65,7 +69,7 @@ export function Workspace() {
           onChange={setPane}
           options={[
             { value: "releases", label: "Releases" },
-            { value: "files", label: `Files${list.length ? ` ${list.length}` : ""}` },
+            { value: "files", label: `Files${fileCount ? ` ${fileCount}` : ""}` },
             { value: "diff", label: "Diff & agent" },
           ]}
         />
@@ -112,12 +116,7 @@ export function Workspace() {
                   { value: "project", label: "Project" },
                 ]}
               />
-              {branch && (
-                <div className="row" style={{ gap: 8, minWidth: 0 }}>
-                  <BranchSplit t={target(branch)} actions={actions} />
-                  {view?.worktree && <span className="hint mono ellipsis" title={view.worktree}>{view.worktree}</span>}
-                </div>
-              )}
+              {branch && view?.worktree && <span className="hint mono ellipsis" title={view.worktree}>{view.worktree}</span>}
             </div>
             {inRebase && (
               <div className="col note-box" style={{ margin: "10px 12px 0" }}>
@@ -130,19 +129,31 @@ export function Workspace() {
                 </button>
               </div>
             )}
-            <ul className="scroll" style={{ flex: "1 1 auto", listStyle: "none", margin: 0, padding: "6px 0" }}>
+            <ul className="scroll" style={{ flex: "1 1 auto", listStyle: "none", margin: 0, padding: mode === "wip" && list.length > 0 ? "0 0 6px" : "6px 0" }}>
               {files.isLoading && <li className="empty"><span className="spinner" /></li>}
               {files.error && <li style={{ padding: 12 }}><ErrorBox error={files.error} /></li>}
-              {list.map((f) => (
-                <li key={f.path}>
-                  <FileRow f={f} active={f.path === current?.path} onPick={() => { setFile(f.path); setPane("diff"); }} />
-                </li>
-              ))}
+              {mode === "wip" && branch && list.length > 0 ? (
+                <WipList
+                  pid={pid}
+                  branch={branch}
+                  list={list}
+                  current={current}
+                  onPick={(f) => { setFile(fileKey(f)); setPane("diff"); }}
+                  onMoved={(f) => current && fileKey(current) === fileKey(f) && setFile(fileKey({ ...f, staged: !f.staged }))}
+                  onDiscard={(staged, paths) => setDiscarding({ staged, paths })}
+                />
+              ) : (
+                list.map((f) => (
+                  <li key={fileKey(f)}>
+                    <FileRow f={f} active={f === current} onPick={() => { setFile(fileKey(f)); setPane("diff"); }} />
+                  </li>
+                ))
+              )}
               {!files.isLoading && list.length === 0 && (
                 <li className="empty">{mode === "wip" ? (checkedOut ? "No uncommitted changes." : "This branch is not checked out.") : "No changes on this branch yet."}</li>
               )}
             </ul>
-            {branch && <CommitBox pid={pid} branch={branch} enabled={checkedOut} wip={wipCount} />}
+            {branch && <CommitBox pid={pid} branch={branch} enabled={checkedOut} staged={stagedCount} />}
           </section>
 
           <section aria-label="Diff" className="ws-diff" data-pane data-active={pane === "diff"}>
@@ -170,6 +181,9 @@ export function Workspace() {
         </main>
       )}
 
+      {discarding && branch && (
+        <DiscardModal pid={pid} branch={branch} staged={discarding.staged} paths={discarding.paths} total={list.filter((f) => f.staged === discarding.staged).length} onClose={() => setDiscarding(null)} />
+      )}
       {newRelease && <NewReleaseModal pid={pid} onClose={() => setNewRelease(false)} />}
       {shipping && <ShipModal pid={pid} release={shipping} defaultBranch={o?.defaultBranch ?? "main"} onClose={() => setShipping(null)} />}
       {actions.menuEl}
@@ -305,7 +319,7 @@ function ReleasesPane({
         {others.length > 0 && (
           <div className="col" style={{ gap: 2, marginTop: 8 }}>
             <button className="rel-head btn-ghost" style={{ border: 0, background: "transparent", textAlign: "left" }} aria-expanded={showOthers} onClick={() => setShowOthers(!showOthers)}>
-              <Icon name={showOthers ? "chevronUp" : "chevronDown"} size={12} />
+              <Icon name="chevronDown" size={12} className="chev" />
               <span className="label">Other branches</span>
               <span className="faint">{others.length}</span>
             </button>
@@ -318,22 +332,166 @@ function ReleasesPane({
   );
 }
 
-function FileRow({ f, active, onPick }: { f: FileChange; active: boolean; onPick: () => void }) {
+/** WIP files appear once per side, so the side is part of the identity. */
+function fileKey(f: FileChange) {
+  return f.staged === undefined ? f.path : `${f.staged ? "s" : "u"}:${f.path}`;
+}
+
+function WipList({
+  pid,
+  branch,
+  list,
+  current,
+  onPick,
+  onMoved,
+  onDiscard,
+}: {
+  pid: string;
+  branch: string;
+  list: FileChange[];
+  current?: FileChange;
+  onPick: (f: FileChange) => void;
+  onMoved: (f: FileChange) => void;
+  onDiscard: (staged: boolean, paths: string[]) => void;
+}) {
+  const inv = [["files", pid], ["diff", pid], ["overview", pid]];
+  const stage = useAction("workspace.stage", { invalidate: inv });
+  const unstage = useAction("workspace.unstage", { invalidate: inv });
+  const busy = stage.isPending || unstage.isPending;
+  const [closed, setClosed] = useState<Record<string, boolean>>({});
+  const move = (staged: boolean, f?: FileChange) =>
+    (staged ? unstage : stage).mutate({ projectId: pid, branch, paths: f ? [f.path] : [] }, { onSuccess: () => f && onMoved(f) });
+
+  return (
+    <>
+      {[true, false].map((staged) => {
+        const side = list.filter((f) => !!f.staged === staged);
+        if (!side.length) return null;
+        return (
+          <li key={String(staged)}>
+            <div className="file-sec">
+              <button className="file-sec-toggle" aria-expanded={!closed[String(staged)]} onClick={() => setClosed((c) => ({ ...c, [String(staged)]: !c[String(staged)] }))}>
+                <Icon name="chevronDown" size={12} className="chev" />
+                <span>{staged ? "Staged" : "Unstaged"}</span>
+                <span style={{ fontWeight: 400 }}>{side.length}</span>
+              </button>
+              <span className="file-sec-acts">
+                <button
+                  className="btn btn-ghost btn-act"
+                  title={staged ? "Unstage all" : "Stage all"}
+                  aria-label={staged ? "Unstage all files" : "Stage all files"}
+                  disabled={busy}
+                  onClick={() => move(staged)}
+                >
+                  <Icon name={staged ? "minus" : "plus"} size={12} />
+                </button>
+                <button
+                  className="btn btn-ghost btn-act btn-danger"
+                  title={staged ? "Discard all staged changes" : "Discard all unstaged changes"}
+                  aria-label={staged ? "Discard all staged changes" : "Discard all unstaged changes"}
+                  disabled={busy}
+                  onClick={() => onDiscard(staged, [])}
+                >
+                  <Icon name="undo" size={12} />
+                </button>
+              </span>
+            </div>
+            <ul style={{ listStyle: "none", margin: 0, padding: 0 }} hidden={closed[String(staged)]}>
+              {side.map((f) => (
+                <li key={fileKey(f)}>
+                  <FileRow
+                    f={f}
+                    active={f === current}
+                    onPick={() => onPick(f)}
+                    actions={
+                      <>
+                        <button
+                          className="btn btn-ghost btn-act"
+                          title={staged ? "Unstage" : "Stage"}
+                          aria-label={`${staged ? "Unstage" : "Stage"} ${f.path}`}
+                          disabled={busy}
+                          onClick={() => move(staged, f)}
+                        >
+                          <Icon name={staged ? "minus" : "plus"} size={12} />
+                        </button>
+                        <button
+                          className="btn btn-ghost btn-act btn-danger"
+                          title="Discard changes"
+                          aria-label={`Discard ${staged ? "staged" : "unstaged"} changes to ${f.path}`}
+                          disabled={busy}
+                          onClick={() => onDiscard(staged, [f.path])}
+                        >
+                          <Icon name="undo" size={12} />
+                        </button>
+                      </>
+                    }
+                  />
+                </li>
+              ))}
+            </ul>
+          </li>
+        );
+      })}
+    </>
+  );
+}
+
+function DiscardModal({ pid, branch, staged, paths, total, onClose }: { pid: string; branch: string; staged: boolean; paths: string[]; total: number; onClose: () => void }) {
+  const discard = useAction("workspace.discard", { invalidate: [["files", pid], ["diff", pid], ["overview", pid]], success: "Changes discarded" });
+  const what = paths.length === 1 ? <span className="mono">{paths[0]}</span> : <>{paths.length || total} file{(paths.length || total) === 1 ? "" : "s"}</>;
+  return (
+    <Modal
+      title={staged ? "Discard staged changes" : "Discard unstaged changes"}
+      sub={what}
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn btn-md" onClick={onClose}>Cancel</button>
+          <button
+            className="btn btn-md btn-danger"
+            disabled={discard.isPending}
+            onClick={() => discard.mutate({ projectId: pid, branch, staged, paths }, { onSuccess: onClose })}
+          >
+            {discard.isPending && <span className="spinner" />}
+            Discard
+          </button>
+        </>
+      }
+    >
+      <p style={{ margin: 0, lineHeight: 1.55 }}>
+        {staged
+          ? "Puts these files back to their last commit — staged and unstaged edits are both lost, and files added since are deleted."
+          : "Throws away edits that are not staged — staged changes are kept, and untracked files are deleted."}{" "}
+        This cannot be undone.
+      </p>
+      {discard.error && <ErrorBox error={discard.error} />}
+    </Modal>
+  );
+}
+
+function FileRow({ f, active, onPick, actions }: { f: FileChange; active: boolean; onPick: () => void; actions?: ReactNode }) {
   const cut = f.path.lastIndexOf("/");
   const base = cut >= 0 ? f.path.slice(cut + 1) : f.path;
   const dir = cut >= 0 ? f.path.slice(0, cut) : "";
   const color = { A: "c-add", D: "c-del", C: "c-acc", M: "c-mod", R: "c-mod", " ": "faint" }[f.status] ?? "faint";
-  return (
+  const btn = (
     <button className="file-btn" aria-pressed={active} onClick={onPick}>
       <span className={`file-st ${color}`}>{f.status === " " ? "·" : f.status}</span>
       <span className="grow ellipsis">
         <span style={{ color: f.status === " " ? "var(--muted)" : "var(--fg)" }}>{base}</span> <span className="faint" style={{ fontSize: 11.5 }}>{dir}</span>
       </span>
-      <span className="row mono" style={{ gap: 6, fontSize: 11 }}>
+      <span className="row mono file-nums" style={{ gap: 6, fontSize: 11 }}>
         {f.additions > 0 && <span className="c-add">+{f.additions}</span>}
         {f.deletions > 0 && <span className="c-del">−{f.deletions}</span>}
       </span>
     </button>
+  );
+  if (!actions) return btn;
+  return (
+    <div className="file-row">
+      {btn}
+      <span className="file-acts">{actions}</span>
+    </div>
   );
 }
 
@@ -432,7 +590,7 @@ function DeleteBranchModal({
   );
 }
 
-function CommitBox({ pid, branch, enabled, wip }: { pid: string; branch: string; enabled: boolean; wip: number }) {
+function CommitBox({ pid, branch, enabled, staged }: { pid: string; branch: string; enabled: boolean; staged: number }) {
   const nav = useNav();
   const [msg, setMsg] = useState("");
   const inv = [["overview", pid], ["files", pid], ["diff", pid]];
@@ -447,7 +605,8 @@ function CommitBox({ pid, branch, enabled, wip }: { pid: string; branch: string;
     <div className="col" style={{ padding: 12, borderTop: "1px solid var(--line)" }}>
       <div className="row faint" style={{ justifyContent: "space-between", fontSize: 11 }}>
         <label htmlFor="ag-msg">Commit message</label>
-        <button className="btn btn-ghost btn-sm" style={{ height: 20 }} disabled={!enabled || !wip || draft.isPending} onClick={() => draft.mutate({ projectId: pid, branch }, { onSuccess: (r) => setMsg(r.message) })}>
+        <button className="btn btn-ghost btn-sm" style={{ height: 20 }} disabled={!enabled || !staged || draft.isPending}
+          title={staged ? "AI drafts a message from the staged files" : "Stage files first"} onClick={() => draft.mutate({ projectId: pid, branch }, { onSuccess: (r) => setMsg(r.message) })}>
           <Busy on={draft.isPending}><Icon name="sparkle" size={10} /></Busy>
           Draft
         </button>
@@ -457,15 +616,15 @@ function CommitBox({ pid, branch, enabled, wip }: { pid: string; branch: string;
         className="textarea"
         rows={2}
         style={{ fontSize: 12.5, padding: "8px 10px", resize: "none" }}
-        placeholder={enabled ? "Leave empty — AI writes it from the diff" : "Check out this branch to commit"}
+        placeholder={!enabled ? "Check out this branch to commit" : staged ? "Leave empty — AI writes it from the staged files" : "Stage files to commit"}
         value={msg}
-        disabled={!enabled}
+        disabled={!enabled || !staged}
         onChange={(e) => setMsg(e.target.value)}
       />
       <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr 1fr", gap: 6 }}>
-        <button className="btn btn-primary" style={{ height: 34 }} disabled={!enabled || !wip || commit.isPending} onClick={() => commit.mutate({ projectId: pid, branch, message: msg }, { onSuccess: () => setMsg("") })}>
+        <button className="btn btn-primary" style={{ height: 34 }} disabled={!enabled || !staged || commit.isPending} onClick={() => commit.mutate({ projectId: pid, branch, message: msg }, { onSuccess: () => setMsg("") })}>
           <Busy on={commit.isPending}><Icon name="sparkle" size={12} /></Busy>
-          <span>Commit</span>
+          <span>Commit{staged ? <span style={{ fontWeight: 400, opacity: 0.75 }}> {staged}</span> : null}</span>
         </button>
         <button className="btn btn-raised" style={{ height: 34 }} disabled={push.isPending} onClick={() => push.mutate({ projectId: pid, branch })}>
           <Busy on={push.isPending}><Icon name="push" size={12} stroke={1.6} /></Busy>

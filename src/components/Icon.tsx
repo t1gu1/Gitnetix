@@ -3,6 +3,8 @@
 const PATHS: Record<string, { d: string[]; fill?: boolean; circles?: [number, number, number][] }> = {
   menu: { d: ["M2.5 4.5h11M2.5 8h11M2.5 11.5h11"] },
   plus: { d: ["M8 3v10M3 8h10"] },
+  minus: { d: ["M3 8h10"] },
+  undo: { d: ["M5.5 3.5L2.5 6.5l3 3M2.5 6.5H10a3.5 3.5 0 0 1 0 7H6.5"] },
   close: { d: ["M4 4l8 8M12 4l-8 8"] },
   back: { d: ["M10 3L5 8l5 5"] },
   chevronDown: { d: ["M4 6l4 4 4-4"] },

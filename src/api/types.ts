@@ -7,6 +7,8 @@ export interface FileChange {
   status: FileStatus;
   additions: number;
   deletions: number;
+  /** WIP only: true = staged (in the index), false = unstaged. */
+  staged?: boolean;
 }
 
 export interface DiffLine {
