@@ -215,6 +215,17 @@ body.dragging-tab, body.dragging-tab * { cursor: grabbing !important; }
 .file-btn { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 32px; padding: 0 14px; border: 0; background: transparent; font-size: 12.5px; text-align: left; }
 .file-btn[aria-pressed="true"] { background: var(--sel); }
 .file-btn:hover { background: var(--raised); }
+.file-row { position: relative; display: flex; align-items: center; }
+.file-row:hover .file-btn { background: var(--raised); }
+.file-row .file-nums { min-width: 46px; justify-content: flex-end; }
+.file-acts { position: absolute; right: 8px; display: flex; gap: 2px; opacity: 0; }
+.file-row:hover .file-acts, .file-row:focus-within .file-acts { opacity: 1; }
+.file-row:hover .file-nums, .file-row:focus-within .file-nums { visibility: hidden; }
+@media (hover: none) { .file-acts { opacity: 1; } .file-row .file-nums { visibility: hidden; } }
+.file-sec { display: flex; position: sticky; top: 0; z-index: 1; align-items: center; gap: 6px; height: 30px; padding: 0 8px 0 14px; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); background: var(--bg); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.btn-act { width: 22px; height: 22px; padding: 0; color: var(--muted); }
+.btn-act:hover:not(:disabled) { color: var(--fg); }
+.btn-act.btn-danger:hover:not(:disabled) { color: var(--del-fg); }
 .file-st { font-family: var(--mono); font-size: 11px; font-weight: 500; width: 14px; flex: 0 0 14px; }
 
 .diff { flex: 1 1 auto; min-height: 0; overflow: auto; font-family: var(--mono); font-size: 12.5px; line-height: 21px; }

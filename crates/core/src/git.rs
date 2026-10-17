@@ -25,6 +25,9 @@ pub struct FileChange {
     pub status: char,
     pub additions: u32,
     pub deletions: u32,
+    /// WIP split only: true = in the index, false = working tree only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub staged: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -360,6 +363,27 @@ impl Git {
         Ok(entries)
     }
 
+    /// Uncommitted changes split by side: staged (index vs HEAD) and
+    /// unstaged (working tree vs index, plus untracked). A partially staged
+    /// file appears once on each side.
+    pub async fn wip_split(&self) -> Result<Vec<FileChange>> {
+        let status = self.run(&["status", "--porcelain=v1", "-z", "-uall"]).await?;
+        let staged_stats = parse_numstat_z(&self.run(&["diff", "--cached", "--numstat", "-z"]).await?);
+        let unstaged_stats = parse_numstat_z(&self.run(&["diff", "--numstat", "-z"]).await?);
+        let mut out = parse_status_split_z(&status);
+        for e in out.iter_mut() {
+            let stats = if e.staged == Some(true) { &staged_stats } else { &unstaged_stats };
+            if let Some((a, d)) = stats.get(&e.path) {
+                e.additions = *a;
+                e.deletions = *d;
+            } else if e.status == 'A' && e.staged == Some(false) {
+                e.additions = count_lines(&self.cwd.join(&e.path));
+            }
+        }
+        out.sort_by(|a, b| a.path.cmp(&b.path));
+        Ok(out)
+    }
+
     /// Everything a branch changed since it left `base` (three-dot range).
     pub async fn branch_changes(&self, base: &str, branch: &str) -> Result<Vec<FileChange>> {
         let range = format!("{base}...{branch}");
@@ -401,6 +425,94 @@ impl Git {
             }
         };
         Ok(parse_unified(&out))
+    }
+
+    /// Diff of one side of a file's uncommitted work.
+    pub async fn file_diff_side(&self, path: &str, staged: bool) -> Result<Vec<Hunk>> {
+        let out = if staged {
+            self.run(&["diff", "--cached", "-M", "--", path]).await?
+        } else if self.is_tracked(path).await? {
+            self.run(&["diff", "--", path]).await?
+        } else {
+            self.try_run(&["diff", "--no-index", "--", "/dev/null", path]).await?.1
+        };
+        Ok(parse_unified(&out))
+    }
+
+    async fn is_tracked(&self, path: &str) -> Result<bool> {
+        Ok(self.try_run(&["ls-files", "--error-unmatch", "--", path]).await?.0)
+    }
+
+    /// Stage paths (all when empty), including deletions.
+    pub async fn stage(&self, paths: &[String]) -> Result<()> {
+        let mut args = vec!["add", "-A", "--"];
+        args.extend(paths.iter().map(String::as_str));
+        self.run(&args).await.map(|_| ())
+    }
+
+    /// Move paths (all when empty) back out of the index; the working tree is untouched.
+    pub async fn unstage(&self, paths: &[String]) -> Result<()> {
+        let all = [".".to_string()];
+        let paths = if paths.is_empty() { &all[..] } else { paths };
+        let mut args = if self.ref_exists("HEAD").await? { vec!["reset", "-q", "--"] } else { vec!["rm", "-r", "-q", "--cached", "--"] };
+        args.extend(paths.iter().map(String::as_str));
+        self.run(&args).await.map(|_| ())
+    }
+
+    /// Throw away working-tree changes to `paths`: tracked files go back to
+    /// their staged state, untracked ones are deleted.
+    pub async fn discard_unstaged(&self, paths: &[String]) -> Result<()> {
+        let (mut tracked, mut untracked) = (Vec::new(), Vec::new());
+        for p in paths {
+            if self.is_tracked(p).await? {
+                tracked.push(p.as_str());
+            } else {
+                untracked.push(p.as_str());
+            }
+        }
+        if !tracked.is_empty() {
+            let mut args = vec!["checkout", "--"];
+            args.extend(tracked);
+            self.run(&args).await?;
+        }
+        if !untracked.is_empty() {
+            let mut args = vec!["clean", "-f", "-q", "--"];
+            args.extend(untracked);
+            self.run(&args).await?;
+        }
+        Ok(())
+    }
+
+    /// Throw away staged changes to `paths` entirely: index and working tree
+    /// go back to HEAD (files added since HEAD are deleted, rename sources restored).
+    pub async fn discard_staged(&self, paths: &[String]) -> Result<()> {
+        let has_head = self.ref_exists("HEAD").await?;
+        let mut targets: Vec<String> = paths.to_vec();
+        if has_head {
+            // A staged rename only lists its new path; bring the old one back too.
+            let ns = self.run(&["diff", "--cached", "--name-status", "-z", "-M"]).await?;
+            let mut parts = ns.split('\0').filter(|p| !p.is_empty());
+            while let Some(code) = parts.next() {
+                if code.starts_with('R') || code.starts_with('C') {
+                    let (old, new) = (parts.next().unwrap_or(""), parts.next().unwrap_or(""));
+                    if code.starts_with('R') && paths.iter().any(|p| p == new) {
+                        targets.push(old.to_string());
+                    }
+                } else {
+                    parts.next();
+                }
+            }
+        }
+        for p in &targets {
+            let in_head = has_head && self.try_run(&["cat-file", "-e", &format!("HEAD:{p}")]).await?.0;
+            if in_head {
+                self.run(&["checkout", "HEAD", "--", p]).await?;
+            } else {
+                self.run(&["rm", "-f", "-q", "--ignore-unmatch", "--", p]).await?;
+                let _ = std::fs::remove_file(self.cwd.join(p));
+            }
+        }
+        Ok(())
     }
 
     pub async fn staged_diff(&self, max_bytes: usize) -> Result<String> {
@@ -591,7 +703,46 @@ pub fn parse_status_z(s: &str) -> Vec<FileChange> {
             _ if x == 'D' || y == 'D' => 'D',
             _ => 'M',
         };
-        out.push(FileChange { path, status, additions: 0, deletions: 0 });
+        out.push(FileChange { path, status, additions: 0, deletions: 0, staged: None });
+    }
+    out
+}
+
+/// Porcelain v1 split by side: X (index) becomes a staged entry, Y (working
+/// tree, `?` = untracked) an unstaged one. Conflicts are unstaged only.
+pub fn parse_status_split_z(s: &str) -> Vec<FileChange> {
+    let mut out = Vec::new();
+    let mut parts = s.split('\0').filter(|p| !p.is_empty());
+    while let Some(entry) = parts.next() {
+        if entry.len() < 4 {
+            continue;
+        }
+        let xy = &entry[..2];
+        let path = entry[3..].to_string();
+        let (x, y) = (xy.as_bytes()[0] as char, xy.as_bytes()[1] as char);
+        if x == 'R' || x == 'C' {
+            parts.next();
+        }
+        let entry = |status, staged| FileChange { path: path.clone(), status, additions: 0, deletions: 0, staged: Some(staged) };
+        if matches!(xy, "DD" | "AU" | "UD" | "UA" | "DU" | "AA" | "UU") {
+            out.push(entry('C', false));
+            continue;
+        }
+        let side = |c: char| match c {
+            'A' | 'C' | '?' => Some('A'),
+            'D' => Some('D'),
+            'R' => Some('R'),
+            'M' | 'T' => Some('M'),
+            _ => None,
+        };
+        if x != '?' {
+            if let Some(st) = side(x) {
+                out.push(entry(st, true));
+            }
+        }
+        if let Some(st) = side(y) {
+            out.push(entry(st, false));
+        }
     }
     out
 }
@@ -615,7 +766,7 @@ pub fn parse_name_status_z(s: &str) -> Vec<FileChange> {
                 'U' => 'C',
                 _ => 'M',
             };
-            out.push(FileChange { path: p.into(), status, additions: 0, deletions: 0 });
+            out.push(FileChange { path: p.into(), status, additions: 0, deletions: 0, staged: None });
         }
     }
     out
@@ -715,6 +866,25 @@ mod tests {
                 ("conflict.rs".into(), 'C'),
                 ("new.rs".into(), 'R'),
                 ("gone.md".into(), 'D'),
+            ]
+        );
+    }
+
+    #[test]
+    fn status_split_parsing() {
+        let s = "MM src/a.ts\0?? new.txt\0UU conflict.rs\0R  new.rs\0old.rs\0 D gone.md\0A  added.rs\0";
+        let v = parse_status_split_z(s);
+        let st: Vec<(String, char, bool)> = v.into_iter().map(|f| (f.path, f.status, f.staged.unwrap())).collect();
+        assert_eq!(
+            st,
+            vec![
+                ("src/a.ts".into(), 'M', true),
+                ("src/a.ts".into(), 'M', false),
+                ("new.txt".into(), 'A', false),
+                ("conflict.rs".into(), 'C', false),
+                ("new.rs".into(), 'R', true),
+                ("gone.md".into(), 'D', false),
+                ("added.rs".into(), 'A', true),
             ]
         );
     }

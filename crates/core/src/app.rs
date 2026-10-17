@@ -554,7 +554,7 @@ impl Gitnetix {
         let p = self.store.project(project_id)?;
         if mode == ViewMode::Wip {
             return match self.checkout_dir(&p, branch).await? {
-                Some(dir) => Git::new(dir).wip_changes().await,
+                Some(dir) => Git::new(dir).wip_split().await,
                 None => Ok(Vec::new()),
             };
         }
@@ -590,7 +590,7 @@ impl Gitnetix {
                 };
                 let mut all: Vec<FileChange> = listing
                     .into_iter()
-                    .map(|path| known.remove(&path).unwrap_or(FileChange { path, status: ' ', additions: 0, deletions: 0 }))
+                    .map(|path| known.remove(&path).unwrap_or(FileChange { path, status: ' ', additions: 0, deletions: 0, staged: None }))
                     .collect();
                 all.extend(known.into_values());
                 all.sort_by(|a, b| a.path.cmp(&b.path));
@@ -599,8 +599,15 @@ impl Gitnetix {
         }
     }
 
-    pub async fn diff(&self, project_id: &str, branch: &str, mode: ViewMode, path: &str) -> Result<Vec<Hunk>> {
+    /// `staged` picks the side of a WIP file (None = working tree vs HEAD).
+    pub async fn diff(&self, project_id: &str, branch: &str, mode: ViewMode, path: &str, staged: Option<bool>) -> Result<Vec<Hunk>> {
         let p = self.store.project(project_id)?;
+        if let (ViewMode::Wip, Some(staged)) = (mode, staged) {
+            return match self.checkout_dir(&p, branch).await? {
+                Some(dir) => Git::new(dir).file_diff_side(path, staged).await,
+                None => Ok(Vec::new()),
+            };
+        }
         if mode != ViewMode::Branch {
             match self.checkout_dir(&p, branch).await? {
                 Some(dir) => {
@@ -636,19 +643,57 @@ impl Gitnetix {
         Ok(())
     }
 
-    /// Stage everything in the branch's checkout; errors when there is nothing to commit.
-    async fn stage_all(&self, p: &Project, branch: &str) -> Result<Git> {
+    /// The branch's checkout, with everything staged first when `all`;
+    /// errors when nothing is staged.
+    async fn staged_checkout(&self, p: &Project, branch: &str, all: bool) -> Result<Git> {
         let git = self.require_checkout(p, branch).await?;
-        git.add_all().await?;
+        if all {
+            git.add_all().await?;
+        }
         if !git.has_staged().await? {
-            return Err(Error::Invalid("Nothing to commit".into()));
+            return Err(Error::Invalid(if all { "Nothing to commit" } else { "Nothing staged — stage files first" }.into()));
         }
         Ok(git)
     }
 
+    /// Stage `paths` (all when empty) in the branch's checkout.
+    pub async fn stage(&self, project_id: &str, branch: &str, paths: &[String]) -> Result<()> {
+        let p = self.store.project(project_id)?;
+        self.require_checkout(&p, branch).await?.stage(paths).await?;
+        self.changed(project_id);
+        Ok(())
+    }
+
+    /// Unstage `paths` (all when empty), keeping the working tree.
+    pub async fn unstage(&self, project_id: &str, branch: &str, paths: &[String]) -> Result<()> {
+        let p = self.store.project(project_id)?;
+        self.require_checkout(&p, branch).await?.unstage(paths).await?;
+        self.changed(project_id);
+        Ok(())
+    }
+
+    /// Throw away one side of the uncommitted work for `paths` (every file on that side when empty).
+    pub async fn discard(&self, project_id: &str, branch: &str, staged: bool, paths: &[String]) -> Result<()> {
+        let p = self.store.project(project_id)?;
+        let git = self.require_checkout(&p, branch).await?;
+        let paths: Vec<String> = if paths.is_empty() {
+            git.wip_split().await?.into_iter().filter(|f| f.staged == Some(staged)).map(|f| f.path).collect()
+        } else {
+            paths.to_vec()
+        };
+        if staged {
+            git.discard_staged(&paths).await?;
+        } else {
+            git.discard_unstaged(&paths).await?;
+        }
+        self.changed(project_id);
+        Ok(())
+    }
+
+    /// AI commit message for what is staged.
     pub async fn generate_commit_message(&self, project_id: &str, branch: &str) -> Result<String> {
         let p = self.store.project(project_id)?;
-        let git = self.stage_all(&p, branch).await?;
+        let git = self.staged_checkout(&p, branch, false).await?;
         self.commit_message_for(&p, &git, branch).await
     }
 
@@ -665,10 +710,10 @@ impl Gitnetix {
         self.ask("commit", &t, vars, &p.gen_lang.commit, Some(git.cwd())).await
     }
 
-    /// Stage everything and commit. An empty message is written by AI.
-    pub async fn commit(&self, project_id: &str, branch: &str, message: Option<String>) -> Result<CommitResult> {
+    /// Commit what is staged (`all` stages everything first). An empty message is written by AI.
+    pub async fn commit(&self, project_id: &str, branch: &str, message: Option<String>, all: bool) -> Result<CommitResult> {
         let p = self.store.project(project_id)?;
-        let git = self.stage_all(&p, branch).await?;
+        let git = self.staged_checkout(&p, branch, all).await?;
         let (message, ai_written) = match message.filter(|m| !m.trim().is_empty()) {
             Some(m) => (m, false),
             None => (self.commit_message_for(&p, &git, branch).await?, true),

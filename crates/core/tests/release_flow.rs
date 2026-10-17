@@ -66,7 +66,7 @@ async fn release_flow() {
     assert_eq!(wip[0]["path"], "oauth.ts");
     assert_eq!(wip[0]["status"], "A");
 
-    call(&k, "workspace.commit", json!({ "projectId": pid, "branch": "feat/oauth-login", "message": "feat(auth): add oauth" })).await;
+    call(&k, "workspace.commit", json!({ "projectId": pid, "branch": "feat/oauth-login", "message": "feat(auth): add oauth", "all": true })).await;
     let files = call(&k, "workspace.files", json!({ "projectId": pid, "branch": "feat/oauth-login", "mode": "branch" })).await;
     assert_eq!(files.as_array().unwrap().len(), 1);
     let diff = call(&k, "workspace.diff", json!({ "projectId": pid, "branch": "feat/oauth-login", "mode": "branch", "path": "oauth.ts" })).await;
@@ -223,4 +223,55 @@ async fn release_branch_created_after_add_is_picked_up() {
     assert!(ov["releases"].as_array().unwrap().iter().all(|r| r["open"] == false));
     let others: Vec<&str> = ov["otherBranches"].as_array().unwrap().iter().map(|b| b["name"].as_str().unwrap()).collect();
     assert_eq!(others, ["feat/loose", "release/1.2.0"]);
+}
+
+#[tokio::test]
+async fn stage_unstage_discard() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("atlas-api");
+    init_repo(&repo);
+    commit_file(&repo, "a.txt", "one\n");
+
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let added = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await;
+    let pid = added[0]["id"].as_str().unwrap().to_string();
+    let side = |v: &Value, staged: bool| -> Vec<String> {
+        v.as_array().unwrap().iter().filter(|f| f["staged"] == staged).map(|f| f["path"].as_str().unwrap().to_string()).collect()
+    };
+    let wip = || call(&k, "workspace.files", json!({ "projectId": pid, "branch": "main", "mode": "wip" }));
+
+    std::fs::write(repo.join("a.txt"), "two\n").unwrap();
+    std::fs::write(repo.join("new.txt"), "fresh\n").unwrap();
+    let w = wip().await;
+    assert_eq!(side(&w, false), vec!["a.txt", "new.txt"]);
+    assert!(side(&w, true).is_empty());
+
+    // Nothing staged: committing is refused.
+    assert!(rpc::call(&k, "workspace.commit", json!({ "projectId": pid, "branch": "main", "message": "x" })).await.is_err());
+
+    call(&k, "workspace.stage", json!({ "projectId": pid, "branch": "main", "paths": ["a.txt"] })).await;
+    std::fs::write(repo.join("a.txt"), "three\n").unwrap();
+    let w = wip().await;
+    assert_eq!(side(&w, true), vec!["a.txt"]);
+    assert_eq!(side(&w, false), vec!["a.txt", "new.txt"]);
+    let d = call(&k, "workspace.diff", json!({ "projectId": pid, "branch": "main", "mode": "wip", "path": "a.txt", "staged": true })).await;
+    assert!(d[0]["lines"].as_array().unwrap().iter().any(|l| l["text"] == "two"));
+
+    // Discarding the unstaged side keeps what is staged.
+    call(&k, "workspace.discard", json!({ "projectId": pid, "branch": "main", "staged": false })).await;
+    assert_eq!(std::fs::read_to_string(repo.join("a.txt")).unwrap(), "two\n");
+    assert!(!repo.join("new.txt").exists());
+
+    call(&k, "workspace.unstage", json!({ "projectId": pid, "branch": "main" })).await;
+    let w = wip().await;
+    assert!(side(&w, true).is_empty());
+    assert_eq!(side(&w, false), vec!["a.txt"]);
+
+    // Discarding staged work returns the file to HEAD.
+    std::fs::write(repo.join("b.txt"), "bee\n").unwrap();
+    call(&k, "workspace.stage", json!({ "projectId": pid, "branch": "main" })).await;
+    call(&k, "workspace.discard", json!({ "projectId": pid, "branch": "main", "staged": true, "paths": ["a.txt", "b.txt"] })).await;
+    assert_eq!(std::fs::read_to_string(repo.join("a.txt")).unwrap(), "one\n");
+    assert!(!repo.join("b.txt").exists());
+    assert!(wip().await.as_array().unwrap().is_empty());
 }

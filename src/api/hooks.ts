@@ -83,10 +83,10 @@ export const useFiles = (projectId?: string, branch?: string, mode = "branch") =
     refetchInterval: mode === "wip" ? 4_000 : false,
   });
 
-export const useDiff = (projectId?: string, branch?: string, mode = "branch", path?: string) =>
+export const useDiff = (projectId?: string, branch?: string, mode = "branch", path?: string, staged?: boolean) =>
   useQuery({
-    queryKey: ["diff", projectId, branch, mode, path],
-    queryFn: () => rpc<Hunk[]>("workspace.diff", { projectId, branch, mode, path }),
+    queryKey: ["diff", projectId, branch, mode, path, staged],
+    queryFn: () => rpc<Hunk[]>("workspace.diff", { projectId, branch, mode, path, staged }),
     enabled: !!projectId && !!branch && !!path,
   });
 
