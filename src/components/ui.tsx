@@ -38,7 +38,7 @@ export function Seg<T extends string>({
   );
 }
 
-export function Header({ title, sub, back = "menu", right, onBack }: { title: ReactNode; sub?: ReactNode; back?: "menu" | "workspace" | "none"; right?: ReactNode; onBack?: () => void }) {
+export function Header({ title, sub, back = "back", right, onBack }: { title: ReactNode; sub?: ReactNode; back?: "back" | "workspace" | "none"; right?: ReactNode; onBack?: () => void }) {
   const nav = useNav();
   if (nav.projectId && isPageRoute(nav.route)) back = "none";
   return (
@@ -46,8 +46,8 @@ export function Header({ title, sub, back = "menu", right, onBack }: { title: Re
       {back !== "none" && (
         <button
           className="hdr-icon"
-          aria-label={back === "menu" ? "Back to menu" : "Back to workspace"}
-          onClick={() => (onBack ? onBack() : nav.go(back === "menu" ? { name: "menu" } : { name: "workspace" }))}
+          aria-label={back === "back" ? "Back" : "Back to workspace"}
+          onClick={() => (onBack ? onBack() : back === "back" ? nav.back() : nav.go({ name: "workspace" }))}
         >
           <Icon name="back" size={16} />
         </button>

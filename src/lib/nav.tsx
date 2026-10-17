@@ -1,4 +1,4 @@
-import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 
 import { rpc } from "../api/transport";
 import type { Kind } from "./kinds";
@@ -17,6 +17,9 @@ export type Route =
   | { name: "worktrees"; path?: string }
   | { name: "pair" };
 
+/** Screens opened from the menu or a link, with no tab bar of their own: leaving them goes back to where the user came from. */
+const DETOURS = new Set<Route["name"]>(["settings", "ai", "pair"]);
+
 export interface NewItemDraft {
   release?: string;
   ticket?: string;
@@ -28,6 +31,8 @@ interface Nav {
   route: Route;
   /** `{ name: "menu" }` opens the menu over the current screen; any other route closes it. */
   go: (r: Route) => void;
+  /** Leave a detour screen (settings, AI setup…) for the page it was opened from. */
+  back: () => void;
   menuOpen: boolean;
   closeMenu: () => void;
   projectId?: string;
@@ -56,6 +61,8 @@ export function NavProvider({ children, initialProject, initialTheme }: { childr
   const [sys, setSys] = useState(systemTheme());
   const [newItem, setNewItem] = useState<NewItemDraft | null>(null);
   const [selectedBranch, selectBranch] = useState<string | undefined>();
+  const routeRef = useRef(route);
+  const returnTo = useRef<Route | null>(null);
 
   useEffect(() => {
     const m = matchMedia("(prefers-color-scheme: light)");
@@ -78,8 +85,13 @@ export function NavProvider({ children, initialProject, initialTheme }: { childr
   const go = useCallback((r: Route) => {
     if (r.name === "menu") return setMenuOpen(true);
     setMenuOpen(false);
+    if (!DETOURS.has(routeRef.current.name)) returnTo.current = routeRef.current;
+    routeRef.current = r;
     setRoute(r);
   }, []);
+  const back = useCallback(() => {
+    go(returnTo.current ?? (projectId ? { name: "workspace" } : { name: "home" }));
+  }, [go, projectId]);
   const closeMenu = useCallback(() => setMenuOpen(false), []);
 
   const setThemePref = useCallback((t: string) => {
@@ -91,6 +103,7 @@ export function NavProvider({ children, initialProject, initialTheme }: { childr
     () => ({
       route,
       go,
+      back,
       menuOpen,
       closeMenu,
       projectId,
@@ -104,7 +117,7 @@ export function NavProvider({ children, initialProject, initialTheme }: { childr
       selectedBranch,
       selectBranch,
     }),
-    [route, go, menuOpen, closeMenu, projectId, setProject, theme, themePref, setThemePref, newItem, selectedBranch],
+    [route, go, back, menuOpen, closeMenu, projectId, setProject, theme, themePref, setThemePref, newItem, selectedBranch],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

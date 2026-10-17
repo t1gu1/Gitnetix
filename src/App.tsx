@@ -62,7 +62,7 @@ function Shell({ onUnpair }: { onUnpair: () => void }) {
       screen = nav.projectId ? <Workspace /> : <Welcome />;
       break;
     case "settings":
-      screen = <Settings section={r.section} />;
+      screen = <Settings key={r.section} section={r.section} />;
       break;
     case "ai":
       screen = <AISetup />;
