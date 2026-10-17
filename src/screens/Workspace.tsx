@@ -116,12 +116,7 @@ export function Workspace() {
                   { value: "project", label: "Project" },
                 ]}
               />
-              {branch && (
-                <div className="row" style={{ gap: 8, minWidth: 0 }}>
-                  <BranchSplit t={target(branch)} actions={actions} />
-                  {view?.worktree && <span className="hint mono ellipsis" title={view.worktree}>{view.worktree}</span>}
-                </div>
-              )}
+              {branch && view?.worktree && <span className="hint mono ellipsis" title={view.worktree}>{view.worktree}</span>}
             </div>
             {inRebase && (
               <div className="col note-box" style={{ margin: "10px 12px 0" }}>
@@ -324,7 +319,7 @@ function ReleasesPane({
         {others.length > 0 && (
           <div className="col" style={{ gap: 2, marginTop: 8 }}>
             <button className="rel-head btn-ghost" style={{ border: 0, background: "transparent", textAlign: "left" }} aria-expanded={showOthers} onClick={() => setShowOthers(!showOthers)}>
-              <Icon name={showOthers ? "chevronUp" : "chevronDown"} size={12} />
+              <Icon name="chevronDown" size={12} className="chev" />
               <span className="label">Other branches</span>
               <span className="faint">{others.length}</span>
             </button>
@@ -363,6 +358,7 @@ function WipList({
   const stage = useAction("workspace.stage", { invalidate: inv });
   const unstage = useAction("workspace.unstage", { invalidate: inv });
   const busy = stage.isPending || unstage.isPending;
+  const [closed, setClosed] = useState<Record<string, boolean>>({});
   const move = (staged: boolean, f?: FileChange) =>
     (staged ? unstage : stage).mutate({ projectId: pid, branch, paths: f ? [f.path] : [] }, { onSuccess: () => f && onMoved(f) });
 
@@ -370,32 +366,37 @@ function WipList({
     <>
       {[true, false].map((staged) => {
         const side = list.filter((f) => !!f.staged === staged);
+        if (!side.length) return null;
         return (
           <li key={String(staged)}>
             <div className="file-sec">
-              <span>{staged ? "Staged" : "Unstaged"}</span>
-              <span style={{ fontWeight: 400 }}>{side.length}</span>
-              <span className="grow" />
-              <button
-                className="btn btn-ghost btn-act"
-                title={staged ? "Unstage all" : "Stage all"}
-                aria-label={staged ? "Unstage all files" : "Stage all files"}
-                disabled={!side.length || busy}
-                onClick={() => move(staged)}
-              >
-                <Icon name={staged ? "minus" : "plus"} size={12} />
+              <button className="file-sec-toggle" aria-expanded={!closed[String(staged)]} onClick={() => setClosed((c) => ({ ...c, [String(staged)]: !c[String(staged)] }))}>
+                <Icon name="chevronDown" size={12} className="chev" />
+                <span>{staged ? "Staged" : "Unstaged"}</span>
+                <span style={{ fontWeight: 400 }}>{side.length}</span>
               </button>
-              <button
-                className="btn btn-ghost btn-act btn-danger"
-                title={staged ? "Discard all staged changes" : "Discard all unstaged changes"}
-                aria-label={staged ? "Discard all staged changes" : "Discard all unstaged changes"}
-                disabled={!side.length || busy}
-                onClick={() => onDiscard(staged, [])}
-              >
-                <Icon name="undo" size={12} />
-              </button>
+              <span className="file-sec-acts">
+                <button
+                  className="btn btn-ghost btn-act"
+                  title={staged ? "Unstage all" : "Stage all"}
+                  aria-label={staged ? "Unstage all files" : "Stage all files"}
+                  disabled={busy}
+                  onClick={() => move(staged)}
+                >
+                  <Icon name={staged ? "minus" : "plus"} size={12} />
+                </button>
+                <button
+                  className="btn btn-ghost btn-act btn-danger"
+                  title={staged ? "Discard all staged changes" : "Discard all unstaged changes"}
+                  aria-label={staged ? "Discard all staged changes" : "Discard all unstaged changes"}
+                  disabled={busy}
+                  onClick={() => onDiscard(staged, [])}
+                >
+                  <Icon name="undo" size={12} />
+                </button>
+              </span>
             </div>
-            <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
+            <ul style={{ listStyle: "none", margin: 0, padding: 0 }} hidden={closed[String(staged)]}>
               {side.map((f) => (
                 <li key={fileKey(f)}>
                   <FileRow
@@ -427,9 +428,6 @@ function WipList({
                   />
                 </li>
               ))}
-              {side.length === 0 && (
-                <li className="hint" style={{ padding: "4px 14px 8px" }}>{staged ? "Nothing staged — stage files to commit them." : "No other changes."}</li>
-              )}
             </ul>
           </li>
         );
