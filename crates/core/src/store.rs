@@ -57,6 +57,8 @@ pub struct Project {
     /// Commits whose message was written by AI (for analytics).
     pub ai_commits: Vec<String>,
     pub added_at: String,
+    /// Closed from the project bar; still saved and listed on the welcome screen.
+    pub hidden: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

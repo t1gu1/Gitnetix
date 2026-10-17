@@ -57,6 +57,7 @@ export interface Project {
   ticketReleases: Record<string, string>;
   aiCommits: string[];
   addedAt: string;
+  hidden?: boolean;
 }
 
 export interface ProjectSummary {
@@ -66,6 +67,7 @@ export interface ProjectSummary {
   exists: boolean;
   nextRelease?: string | null;
   runningAgents: number;
+  hidden?: boolean;
 }
 
 export interface BranchView {

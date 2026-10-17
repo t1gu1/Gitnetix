@@ -62,6 +62,7 @@ pub struct ProjectSummary {
     pub exists: bool,
     pub next_release: Option<String>,
     pub running_agents: usize,
+    pub hidden: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -340,6 +341,7 @@ impl Gitnetix {
                     exists: Path::new(&p.path).exists(),
                     next_release: p.releases.iter().find(|r| r.shipped_at.is_none() && r.kind == ReleaseKind::Next).map(|r| r.version.clone()),
                     running_agents: agents.iter().filter(|a| a.project_id == p.id && a.status == AgentStatus::Running).count(),
+                    hidden: p.hidden,
                 })
                 .collect()
         })
@@ -358,7 +360,12 @@ impl Gitnetix {
                 .await
                 .map_err(|_| Error::Invalid(format!("{} is not a Git repository", expanded.display())))?;
             let path = top.to_string_lossy().to_string();
-            if let Some(existing) = self.store.read(|c| c.projects.iter().find(|p| p.path == path).cloned()) {
+            if let Some(id) = self.store.read(|c| c.projects.iter().find(|p| p.path == path).map(|p| p.id.clone())) {
+                // Re-adding a closed project brings its tab back.
+                let existing = self.store.with_project(&id, |p| {
+                    p.hidden = false;
+                    Ok(p.clone())
+                })?;
                 added.push(existing);
                 continue;
             }
@@ -395,6 +402,26 @@ impl Gitnetix {
                 }
             }
         }
+    }
+
+    /// Close or reopen a project's tab; its data is kept either way.
+    pub fn set_project_hidden(&self, id: &str, hidden: bool) -> Result<()> {
+        self.store.with_project(id, |p| {
+            p.hidden = hidden;
+            Ok(())
+        })?;
+        self.config_changed();
+        Ok(())
+    }
+
+    /// Reorder projects to match `ids`; projects not listed keep their order after them.
+    pub fn reorder_projects(&self, ids: &[String]) -> Result<()> {
+        self.store.write(|c| {
+            c.projects.sort_by_key(|p| ids.iter().position(|id| *id == p.id).unwrap_or(usize::MAX));
+            Ok(())
+        })?;
+        self.config_changed();
+        Ok(())
     }
 
     pub fn remove_project(&self, id: &str) -> Result<()> {

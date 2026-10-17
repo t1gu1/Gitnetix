@@ -18,6 +18,7 @@ export function Welcome() {
     success: (r) => (r.length ? `Added ${r.map((p) => p.name).join(", ")}` : undefined),
   });
   const remove = useAction("projects.remove", { invalidate: [["projects"], ["config"]] });
+  const reopen = useAction("projects.setHidden", { invalidate: [["projects"], ["config"]] });
 
   const addPaths = (paths: string[]) => {
     if (!paths.length) return;
@@ -112,6 +113,7 @@ export function Welcome() {
                       className="row grow"
                       style={{ gap: 14, minHeight: 56, padding: "0 16px", border: 0, background: "transparent", textAlign: "left", minWidth: 0 }}
                       onClick={() => {
+                        if (p.hidden) reopen.mutate({ projectId: p.id, hidden: false });
                         nav.setProject(p.id);
                         nav.go({ name: "workspace" });
                       }}
@@ -122,6 +124,7 @@ export function Welcome() {
                       </span>
                       <span className="grow" />
                       {!p.exists && <span className="pill c-del">Missing</span>}
+                      {p.hidden && <span className="pill faint">Closed</span>}
                       <span className="muted" style={{ fontSize: 12, whiteSpace: "nowrap" }}>
                         {p.nextRelease ? `Next: v${p.nextRelease}` : "No open release"}
                       </span>

@@ -19,6 +19,8 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("projects.list", "List saved projects", ""),
     ("projects.add", "Add local Git repositories", "paths: string[]"),
     ("projects.remove", "Remove a project from the list (files untouched)", "projectId"),
+    ("projects.setHidden", "Close or reopen a project's tab (data kept)", "projectId, hidden"),
+    ("projects.reorder", "Set the order of projects", "ids: string[]"),
     ("projects.setGenLang", "Language AI writes in for a project", "projectId, commit?, pr?, release?"),
     ("projects.setProfile", "Git profile used for commits in a project", "projectId, profileId"),
     ("profiles.save", "Create or update a Git profile", "profile: {id?, label, name, email, sign, signingKey?}"),
@@ -180,6 +182,16 @@ pub async fn call(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
         }
         "projects.remove" => {
             k.remove_project(&s(&p, "projectId")?)?;
+            ok()
+        }
+        "projects.setHidden" => {
+            let hidden = p.get("hidden").and_then(|v| v.as_bool()).unwrap_or(true);
+            k.set_project_hidden(&s(&p, "projectId")?, hidden)?;
+            ok()
+        }
+        "projects.reorder" => {
+            let ids: Vec<String> = serde_json::from_value(p.get("ids").cloned().unwrap_or(json!([])))?;
+            k.reorder_projects(&ids)?;
             ok()
         }
         "projects.setGenLang" => {

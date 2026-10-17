@@ -33,7 +33,8 @@ function Engine({ onUnpair }: { onUnpair: () => void }) {
   if (cfg.isLoading) return <Loading />;
   if (cfg.error && !isLocal) return <Pair onPaired={() => cfg.refetch()} error={cfg.error.message} />;
   const c = cfg.data;
-  const last = c?.ui.lastProject && c.projects.some((p) => p.id === c.ui.lastProject) ? c.ui.lastProject : c?.projects[0]?.id;
+  const open = c?.projects.filter((p) => !p.hidden) ?? [];
+  const last = c?.ui.lastProject && open.some((p) => p.id === c.ui.lastProject) ? c.ui.lastProject : open[0]?.id;
   return (
     <NavProvider initialProject={last ?? undefined} initialTheme={c?.ui.theme}>
       <Shell onUnpair={onUnpair} />
