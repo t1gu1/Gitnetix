@@ -82,7 +82,7 @@ claude mcp add gitnetix -- "$(pwd)/target/release/gitnetix-mcp"
 
 Working and tested (`crates/core/tests/release_flow.rs` drives the full flow on a real repo):
 projects, releases, feature/fix branches, worktrees, file lists and diffs, commit/push,
-rebase with conflict resolution, ship + tag, analytics, companion API, MCP bridge.
+rebase with conflict resolution, branch merge and delete, ship + tag, analytics, companion API, MCP bridge.
 
 Implemented but not yet exercised against live services: AI calls (CLI and API), agent
 sessions, GitHub PRs/reviews/releases, Jira/Trello/Asana.

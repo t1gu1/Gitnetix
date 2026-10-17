@@ -17,19 +17,34 @@ async fn call(k: &Gitnetix, m: &str, p: Value) -> Value {
     }
 }
 
+fn init_repo(repo: &std::path::Path) {
+    std::fs::create_dir(repo).unwrap();
+    sh(repo, &["init", "-q", "-b", "main"]);
+    sh(repo, &["config", "user.email", "t@example.com"]);
+    sh(repo, &["config", "user.name", "Test"]);
+    sh(repo, &["config", "commit.gpgsign", "false"]);
+    sh(repo, &["config", "tag.gpgsign", "false"]);
+    std::fs::write(repo.join("README.md"), "# atlas\n").unwrap();
+    sh(repo, &["add", "."]);
+    sh(repo, &["commit", "-qm", "chore: init"]);
+}
+
+fn rev(repo: &std::path::Path, r: &str) -> String {
+    let out = Command::new("git").current_dir(repo).args(["rev-parse", "--verify", "-q", r]).output().unwrap();
+    String::from_utf8(out.stdout).unwrap().trim().to_string()
+}
+
+fn commit_file(repo: &std::path::Path, path: &str, body: &str) {
+    std::fs::write(repo.join(path), body).unwrap();
+    sh(repo, &["add", "."]);
+    sh(repo, &["commit", "-qm", &format!("edit {path}")]);
+}
+
 #[tokio::test]
 async fn release_flow() {
     let tmp = tempfile::tempdir().unwrap();
     let repo = tmp.path().join("atlas-api");
-    std::fs::create_dir(&repo).unwrap();
-    sh(&repo, &["init", "-q", "-b", "main"]);
-    sh(&repo, &["config", "user.email", "t@example.com"]);
-    sh(&repo, &["config", "user.name", "Test"]);
-    sh(&repo, &["config", "commit.gpgsign", "false"]);
-    sh(&repo, &["config", "tag.gpgsign", "false"]);
-    std::fs::write(repo.join("README.md"), "# atlas\n").unwrap();
-    sh(&repo, &["add", "."]);
-    sh(&repo, &["commit", "-qm", "chore: init"]);
+    init_repo(&repo);
 
     let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
     let added = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await;
@@ -64,9 +79,10 @@ async fn release_flow() {
     assert_eq!(rel["items"][0]["ahead"], 1);
 
     // Merge the feature into the release, then ship.
-    sh(&repo, &["switch", "-q", "release/2.4.0"]);
-    sh(&repo, &["merge", "-q", "--no-ff", "-m", "Merge feat/oauth-login", "feat/oauth-login"]);
-    sh(&repo, &["switch", "-q", "feat/oauth-login"]);
+    // The release is not checked out: merged without touching any checkout.
+    let merged = call(&k, "branches.merge", json!({ "projectId": pid, "branch": "feat/oauth-login" })).await;
+    assert_eq!(merged["into"], "release/2.4.0");
+    assert_eq!(merged["alreadyMerged"], false);
     let shipped = call(&k, "releases.ship", json!({ "projectId": pid, "version": "2.4.0" })).await;
     assert_eq!(shipped["tag"], "v2.4.0");
     let out = Command::new("git").current_dir(&repo).args(["rev-parse", "main", "release/2.4.0"]).output().unwrap();
@@ -89,4 +105,47 @@ async fn release_flow() {
 
     let a = call(&k, "analytics.get", json!({ "projectId": pid, "days": 30 })).await;
     assert_eq!(a["releases"][0]["version"], "v2.4.0");
+}
+
+#[tokio::test]
+async fn merge_and_delete_branches() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("atlas-api");
+    init_repo(&repo);
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let added = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await;
+    let pid = added[0]["id"].as_str().unwrap().to_string();
+
+    // Unmerged branch: plain delete refuses, force deletes.
+    sh(&repo, &["switch", "-qc", "spike"]);
+    commit_file(&repo, "spike.txt", "spike\n");
+    sh(&repo, &["switch", "-q", "main"]);
+    let err = rpc::call(&k, "branches.delete", json!({ "projectId": pid, "branch": "spike" })).await.unwrap_err();
+    assert!(err.to_string().contains("not merged into main"), "{err}");
+    call(&k, "branches.delete", json!({ "projectId": pid, "branch": "spike", "force": true })).await;
+    assert!(rev(&repo, "refs/heads/spike").is_empty());
+    assert!(rpc::call(&k, "branches.delete", json!({ "projectId": pid, "branch": "main" })).await.is_err());
+
+    // Base checked out: merge commit in that checkout, then delete.
+    sh(&repo, &["switch", "-qc", "feat/a"]);
+    commit_file(&repo, "a.txt", "a\n");
+    sh(&repo, &["switch", "-q", "main"]);
+    let main_before = rev(&repo, "main");
+    let m = call(&k, "branches.merge", json!({ "projectId": pid, "branch": "feat/a", "deleteBranch": true })).await;
+    assert_eq!(m["into"], "main");
+    assert_eq!(m["deleted"], true);
+    assert_eq!(rev(&repo, "main^1"), main_before);
+    assert!(repo.join("a.txt").exists(), "working tree updated");
+    assert!(rev(&repo, "refs/heads/feat/a").is_empty());
+
+    // Conflicting merge stops before changing anything.
+    sh(&repo, &["switch", "-qc", "feat/b"]);
+    commit_file(&repo, "README.md", "# b\n");
+    sh(&repo, &["switch", "-q", "main"]);
+    commit_file(&repo, "README.md", "# main\n");
+    let main_before = rev(&repo, "main");
+    let err = rpc::call(&k, "branches.merge", json!({ "projectId": pid, "branch": "feat/b" })).await.unwrap_err();
+    assert!(err.to_string().contains("README.md"), "{err}");
+    assert_eq!(rev(&repo, "main"), main_before);
+    assert!(rev(&repo, "refs/heads/feat/b").len() == 40);
 }

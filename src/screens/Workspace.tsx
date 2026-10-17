@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { useAction, useAgents, useDiff, useFiles, useOverview } from "../api/hooks";
-import type { BranchView, FileChange, ReleaseView } from "../api/types";
+import type { BranchView, FileChange, MergeResult, ReleaseView } from "../api/types";
 import { AgentLog } from "../components/AgentLog";
 import { DiffView } from "../components/DiffView";
 import { Icon } from "../components/Icon";
@@ -24,6 +24,8 @@ export function Workspace() {
   const [newRelease, setNewRelease] = useState(false);
   const [shipping, setShipping] = useState<ReleaseView | null>(null);
   const [conflicts, setConflicts] = useState(false);
+  const [merging, setMerging] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const o = ov.data;
   const allItems = useMemo(() => (o?.releases ?? []).flatMap((r) => r.items), [o]);
@@ -33,6 +35,8 @@ export function Workspace() {
   const release = o?.releases.find((r) => r.version === meta?.release);
   const base = release?.branch ?? o?.defaultBranch ?? "";
   const checkedOut = view?.checkedOut ?? branch === o?.currentBranch;
+  const exists = view?.exists ?? true;
+  const manageable = !!branch && branch !== o?.defaultBranch && branch !== base;
 
   const files = useFiles(pid, branch, mode);
   const wipCount = useFiles(pid, branch, "wip").data?.length ?? 0;
@@ -100,7 +104,18 @@ export function Workspace() {
                   { value: "project", label: "Project" },
                 ]}
               />
-              {branch && <BranchActions pid={pid} branch={branch} checkedOut={checkedOut} worktree={view?.worktree ?? undefined} isRelease={!!release} />}
+              {branch && (
+                <BranchActions
+                  pid={pid}
+                  branch={branch}
+                  base={base}
+                  checkedOut={checkedOut}
+                  worktree={view?.worktree ?? undefined}
+                  isRelease={!!release}
+                  onMerge={manageable && exists ? () => setMerging(true) : undefined}
+                  onDelete={manageable ? () => setDeleting(true) : undefined}
+                />
+              )}
             </div>
             {inRebase && (
               <div className="col note-box" style={{ margin: "10px 12px 0" }}>
@@ -156,6 +171,10 @@ export function Workspace() {
       {newRelease && <NewReleaseModal pid={pid} onClose={() => setNewRelease(false)} />}
       {shipping && <ShipModal pid={pid} release={shipping} defaultBranch={o?.defaultBranch ?? "main"} onClose={() => setShipping(null)} />}
       {conflicts && branch && <ConflictModal pid={pid} branch={branch} base={base} onClose={() => setConflicts(false)} />}
+      {merging && branch && <MergeModal pid={pid} branch={branch} base={base} onClose={() => setMerging(false)} onDeleted={() => nav.selectBranch(undefined)} />}
+      {deleting && branch && (
+        <DeleteBranchModal pid={pid} branch={branch} base={base} exists={exists} worktree={view?.worktree ?? undefined} onClose={() => setDeleting(false)} onDeleted={() => nav.selectBranch(undefined)} />
+      )}
     </>
   );
 }
@@ -293,7 +312,25 @@ function FileRow({ f, active, onPick }: { f: FileChange; active: boolean; onPick
   );
 }
 
-function BranchActions({ pid, branch, checkedOut, worktree, isRelease }: { pid: string; branch: string; checkedOut: boolean; worktree?: string; isRelease: boolean }) {
+function BranchActions({
+  pid,
+  branch,
+  base,
+  checkedOut,
+  worktree,
+  isRelease,
+  onMerge,
+  onDelete,
+}: {
+  pid: string;
+  branch: string;
+  base: string;
+  checkedOut: boolean;
+  worktree?: string;
+  isRelease: boolean;
+  onMerge?: () => void;
+  onDelete?: () => void;
+}) {
   const inv = [["overview", pid], ["files", pid]];
   const sw = useAction("workspace.switch", { invalidate: inv, success: `Switched to ${branch}` });
   const wt = useAction<{ path: string }>("worktrees.create", { invalidate: inv, success: (r) => `Worktree at ${r.path}` });
@@ -301,6 +338,21 @@ function BranchActions({ pid, branch, checkedOut, worktree, isRelease }: { pid: 
     invalidate: inv,
     success: (r) => (r.conflicts.length ? `Rebase stopped on ${r.conflicts.length} conflict(s)` : "Rebased, no conflicts"),
   });
+  const manage = (
+    <>
+      {onMerge && (
+        <button className="btn btn-sm" onClick={onMerge} title={`Merge ${branch} into ${base}`}>
+          <Icon name="branch" size={12} stroke={1.4} />
+          Merge into {base}
+        </button>
+      )}
+      {onDelete && (
+        <button className="btn btn-ghost btn-sm btn-icon btn-danger" aria-label={`Delete ${branch}`} title="Delete branch" onClick={onDelete}>
+          <Icon name="trash" size={13} />
+        </button>
+      )}
+    </>
+  );
   if (!checkedOut) {
     return (
       <div className="row wrap" style={{ gap: 6 }}>
@@ -309,6 +361,7 @@ function BranchActions({ pid, branch, checkedOut, worktree, isRelease }: { pid: 
           <Icon name="layers" size={12} stroke={1.4} />
           Open in worktree
         </button>
+        {manage}
       </div>
     );
   }
@@ -321,7 +374,103 @@ function BranchActions({ pid, branch, checkedOut, worktree, isRelease }: { pid: 
           Rebase onto release
         </button>
       )}
+      {manage}
     </div>
+  );
+}
+
+function MergeModal({ pid, branch, base, onClose, onDeleted }: { pid: string; branch: string; base: string; onClose: () => void; onDeleted: () => void }) {
+  const [del, setDel] = useState(false);
+  const merge = useAction<MergeResult>("branches.merge", {
+    invalidate: [["overview", pid], ["files", pid], ["diff", pid]],
+    success: (r) => `${r.alreadyMerged ? `${branch} was already in ${r.into}` : `Merged ${branch} into ${r.into}`}${r.deleted ? " · branch deleted" : ""}`,
+  });
+  return (
+    <Modal
+      title="Merge branch"
+      sub={<span className="mono">{branch} → {base}</span>}
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn btn-md" onClick={onClose}>Cancel</button>
+          <button
+            className="btn btn-primary btn-md"
+            disabled={merge.isPending}
+            onClick={() => merge.mutate({ projectId: pid, branch, deleteBranch: del }, { onSuccess: (r) => { if (r.deleted) onDeleted(); onClose(); } })}
+          >
+            {merge.isPending && <span className="spinner" />}
+            Merge into {base}
+          </button>
+        </>
+      }
+    >
+      <p style={{ margin: 0, lineHeight: 1.55 }}>
+        Creates a merge commit on <span className="mono">{base}</span> — no need to check it out. If {base} is checked out, it must have no uncommitted changes.
+        Nothing changes when the merge would conflict: rebase onto {base} and resolve first.
+      </p>
+      {merge.error && <ErrorBox error={merge.error} />}
+      <label className="check">
+        <input type="checkbox" checked={del} onChange={() => setDel(!del)} />
+        <span>Delete <span className="mono">{branch}</span> after merging</span>
+      </label>
+    </Modal>
+  );
+}
+
+function DeleteBranchModal({
+  pid,
+  branch,
+  base,
+  exists,
+  worktree,
+  onClose,
+  onDeleted,
+}: {
+  pid: string;
+  branch: string;
+  base: string;
+  exists: boolean;
+  worktree?: string;
+  onClose: () => void;
+  onDeleted: () => void;
+}) {
+  const [force, setForce] = useState(false);
+  const del = useAction("branches.delete", { invalidate: [["overview", pid], ["files", pid], ["worktrees"]], success: `Deleted ${branch}` });
+  return (
+    <Modal
+      title="Delete branch"
+      sub={<span className="mono">{branch}</span>}
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn btn-md" onClick={onClose}>Cancel</button>
+          <button
+            className="btn btn-md btn-danger"
+            disabled={del.isPending}
+            onClick={() => del.mutate({ projectId: pid, branch, force }, { onSuccess: () => { onDeleted(); onClose(); } })}
+          >
+            {del.isPending && <span className="spinner" />}
+            {exists ? "Delete branch" : "Forget branch"}
+          </button>
+        </>
+      }
+    >
+      {exists ? (
+        <>
+          <p style={{ margin: 0, lineHeight: 1.55 }}>
+            Deletes the local branch <span className="mono">{branch}</span>
+            {worktree && <> and its worktree at <span className="mono">{worktree}</span></>}. The remote branch is kept.
+          </p>
+          {del.error && <ErrorBox error={del.error} />}
+          <label className="check">
+            <input type="checkbox" checked={force} onChange={() => setForce(!force)} />
+            <span>Delete even if not merged into <span className="mono">{base}</span> (its commits are lost)</span>
+          </label>
+        </>
+      ) : (
+        <p style={{ margin: 0, lineHeight: 1.55 }}>The branch no longer exists. This removes it from its release.</p>
+      )}
+    </Modal>
   );
 }
 

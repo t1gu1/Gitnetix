@@ -478,6 +478,44 @@ impl Git {
         self.run(&["merge", "--ff-only", from]).await.map(|_| ())
     }
 
+    /// Merge commit in the current checkout. On failure the merge is aborted.
+    pub async fn merge_no_ff(&self, from: &str, message: &str) -> Result<String> {
+        let (ok, _, err) = self.try_run(&["merge", "--no-ff", "-m", message, from]).await?;
+        if !ok {
+            let _ = self.try_run(&["merge", "--abort"]).await;
+            return Err(Error::Git { cmd: "merge".into(), stderr: err.trim().into() });
+        }
+        self.rev_parse("HEAD").await
+    }
+
+    /// Merge `from` into `into` in memory, touching no checkout.
+    /// Ok(tree) when clean, Err(conflicted paths) otherwise.
+    pub async fn merge_tree(&self, into: &str, from: &str) -> Result<std::result::Result<String, Vec<String>>> {
+        let out = self.command(&["merge-tree", "--write-tree", "--name-only", "--no-messages", into, from]).output().await?;
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        let mut lines = stdout.lines();
+        let tree = lines.next().unwrap_or("").trim().to_string();
+        match out.status.code() {
+            Some(0) => Ok(Ok(tree)),
+            Some(1) => Ok(Err(lines.map(str::trim).filter(|l| !l.is_empty()).map(String::from).collect())),
+            _ => Err(Error::Git { cmd: "merge-tree".into(), stderr: String::from_utf8_lossy(&out.stderr).trim().into() }),
+        }
+    }
+
+    pub async fn commit_tree(&self, tree: &str, parents: &[&str], message: &str) -> Result<String> {
+        let mut args = vec!["commit-tree", tree];
+        for p in parents {
+            args.extend(["-p", p]);
+        }
+        args.extend(["-m", message]);
+        Ok(self.run(&args).await?.trim().to_string())
+    }
+
+    /// Move `r` to `new` only if it still points at `old`.
+    pub async fn update_ref_from(&self, r: &str, new: &str, old: &str) -> Result<()> {
+        self.run(&["update-ref", r, new, old]).await.map(|_| ())
+    }
+
     // ---------- history ----------
 
     /// `range` like "v2.3.0..release/2.4.0", or "--all", or a branch.

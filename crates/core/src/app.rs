@@ -168,6 +168,16 @@ pub struct NewItemResult {
     pub agent_session: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MergeResult {
+    pub into: String,
+    /// Tip of `into` after the merge.
+    pub sha: String,
+    pub already_merged: bool,
+    pub deleted: bool,
+}
+
 #[derive(Debug, Clone, Deserialize, Default)]
 #[serde(default, rename_all = "camelCase")]
 pub struct NotesInclude {
@@ -865,15 +875,45 @@ impl Gitnetix {
     }
 
     pub async fn remove_item(&self, project_id: &str, branch: &str, delete_branch: bool) -> Result<()> {
+        if delete_branch {
+            return self.delete_branch(project_id, branch, true).await;
+        }
+        self.store.with_project(project_id, |p| {
+            p.branches.remove(branch);
+            Ok(())
+        })?;
+        self.changed(project_id);
+        Ok(())
+    }
+
+    // ---------- branches ----------
+
+    /// Delete a local branch and forget it. Its worktree (if any) goes too;
+    /// without `force`, refuses when the branch has commits not in its base.
+    pub async fn delete_branch(&self, project_id: &str, branch: &str, force: bool) -> Result<()> {
         let p = self.store.project(project_id)?;
         let git = self.git(&p);
-        if delete_branch {
+        let default = git.default_branch().await?;
+        if branch == default {
+            return Err(Error::Invalid(format!("{branch} is the default branch")));
+        }
+        if let Some(r) = p.releases.iter().find(|r| r.branch == branch && r.shipped_at.is_none()) {
+            return Err(Error::Invalid(format!("{branch} is the branch of open release v{}", r.version)));
+        }
+        if git.ref_exists(&format!("refs/heads/{branch}")).await? {
+            let base = self.base_of(&p, branch, &default);
+            if !force && !git.is_ancestor(branch, &base).await? {
+                let n = git.count(&format!("{base}..{branch}")).await?;
+                return Err(Error::Invalid(format!(
+                    "{branch} has {n} commit{} not merged into {base}. Merge it first or force the delete.",
+                    if n == 1 { "" } else { "s" }
+                )));
+            }
             if let Some(dir) = self.checkout_dir(&p, branch).await? {
-                if dir != Path::new(&p.path) {
-                    git.worktree_remove(&dir, false).await?;
-                } else {
+                if dir == Path::new(&p.path) {
                     return Err(Error::Invalid(format!("{branch} is checked out. Switch away first.")));
                 }
+                self.remove_worktree(project_id, &dir.to_string_lossy(), false).await?;
             }
             git.delete_branch(branch, true).await?;
         }
@@ -883,6 +923,54 @@ impl Gitnetix {
         })?;
         self.changed(project_id);
         Ok(())
+    }
+
+    /// Merge a branch into its base (its release, else the default branch)
+    /// with a merge commit. Works whether or not the base is checked out;
+    /// stops before touching anything when the merge would conflict.
+    pub async fn merge_branch(&self, project_id: &str, branch: &str, delete_after: bool) -> Result<MergeResult> {
+        let p = self.store.project(project_id)?;
+        let git = self.git(&p);
+        let default = git.default_branch().await?;
+        let into = self.base_of(&p, branch, &default);
+        if into == branch {
+            return Err(Error::Invalid(format!("{branch} has no other branch to merge into")));
+        }
+        if !git.ref_exists(&format!("refs/heads/{branch}")).await? {
+            return Err(Error::NotFound(format!("branch {branch}")));
+        }
+        let already_merged = git.is_ancestor(branch, &into).await?;
+        let sha = if already_merged {
+            git.rev_parse(&into).await?
+        } else {
+            let tree = git.merge_tree(&into, branch).await?.map_err(|files| {
+                Error::Invalid(format!(
+                    "Merging {branch} into {into} conflicts in {}. Rebase {branch} onto {into} and resolve first.",
+                    files.join(", ")
+                ))
+            })?;
+            let message = format!("Merge branch '{branch}' into {into}");
+            match self.checkout_dir(&p, &into).await? {
+                Some(dir) => {
+                    let g = self.git_at(&p, &dir);
+                    if g.is_rebasing().await? || !g.wip_changes().await?.is_empty() {
+                        return Err(Error::Invalid(format!("{into} has uncommitted changes at {}", dir.display())));
+                    }
+                    g.merge_no_ff(branch, &message).await?
+                }
+                None => {
+                    let (old, from) = (git.rev_parse(&into).await?, git.rev_parse(branch).await?);
+                    let commit = git.commit_tree(&tree, &[&old, &from], &message).await?;
+                    git.update_ref_from(&format!("refs/heads/{into}"), &commit, &old).await?;
+                    commit
+                }
+            }
+        };
+        self.changed(project_id);
+        if delete_after {
+            self.delete_branch(project_id, branch, false).await?;
+        }
+        Ok(MergeResult { into, sha, already_merged, deleted: delete_after })
     }
 
     // ---------- worktrees & agents ----------

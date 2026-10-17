@@ -81,6 +81,13 @@ export interface BranchView {
   exists: boolean;
 }
 
+export interface MergeResult {
+  into: string;
+  sha: string;
+  alreadyMerged: boolean;
+  deleted: boolean;
+}
+
 export interface ReleaseView {
   version: string;
   tag: "next" | "hotfix" | "released";
