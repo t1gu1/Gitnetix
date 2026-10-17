@@ -18,7 +18,7 @@ export function Workspace() {
   const nav = useNav();
   const pid = nav.projectId!;
   const ov = useOverview(pid);
-  const [mode, setMode] = useState<Mode>("branch");
+  const [mode, setMode] = useState<Mode>("wip");
   const [file, setFile] = useState<string | undefined>();
   const [diffMode, setDiffMode] = useState<"unified" | "split">("unified");
   const [termOpen, setTermOpen] = useState(true);
@@ -104,11 +104,10 @@ export function Workspace() {
 
           <section aria-label="Changed files" className="ws-files" data-pane data-active={pane === "files"}>
             <div className="col" style={{ gap: 10, padding: "12px 14px", borderBottom: "1px solid var(--line)" }}>
-              <div className="row" style={{ alignItems: "center", minWidth: 0 }}>
+              <div className="row" style={{ alignItems: "baseline", minWidth: 0 }}>
                 <span className="mono ellipsis" style={{ fontSize: 13, fontWeight: 500 }}>{branch ?? "No branch"}</span>
                 {base && branch !== base && <span className="faint" style={{ fontSize: 11.5, whiteSpace: "nowrap" }}>{view?.merged ? "merged into" : "from"} {base}</span>}
                 {view?.merged && <span className="c-add row" style={{ marginLeft: 6, flex: "0 0 auto" }} title={`All commits are in ${base}`}><Icon name="merged" size={12} stroke={1.6} label="merged" /></span>}
-                {branch && <ShareButtons pid={pid} branch={branch} toPush={view ? (view.upstream ? view.upstreamAhead : view.ahead) : 0} />}
               </div>
               <Seg<Mode>
                 label="File view"
@@ -116,8 +115,8 @@ export function Workspace() {
                 value={mode}
                 onChange={setMode}
                 options={[
-                  { value: "branch", label: <>Branch <span className="faint">{branchCount}</span></> },
                   { value: "wip", label: <>WIP <span className="faint">{wipCount}</span></> },
+                  { value: "branch", label: <>Branch <span className="faint">{branchCount}</span></> },
                   { value: "project", label: "Project" },
                 ]}
               />
@@ -628,29 +627,6 @@ function DeleteBranchModal({
         <p style={{ margin: 0, lineHeight: 1.55 }}>The branch no longer exists. This removes it from its release.</p>
       )}
     </Modal>
-  );
-}
-
-function ShareButtons({ pid, branch, toPush }: { pid: string; branch: string; toPush: number }) {
-  const nav = useNav();
-  const push = useAction("workspace.push", { invalidate: [["overview", pid], ["files", pid], ["diff", pid]], success: `Pushed ${branch}` });
-  const pr = useAction<{ number: number }>("prs.create", { invalidate: [["prs", pid]], success: (r) => `Opened PR #${r.number}` });
-  return (
-    <div className="row" style={{ marginLeft: "auto", gap: 6, flex: "0 0 auto" }}>
-      <button className="btn btn-raised btn-sm" style={{ height: 26 }} disabled={push.isPending} onClick={() => push.mutate({ projectId: pid, branch })}>
-        <Busy on={push.isPending}><Icon name="push" size={12} stroke={1.6} /></Busy>
-        <span>Push{toPush ? <span style={{ fontWeight: 400, opacity: 0.75, marginLeft: 6 }}>{toPush}</span> : null}</span>
-      </button>
-      <button
-        className="btn btn-raised btn-sm"
-        style={{ height: 26 }}
-        disabled={pr.isPending}
-        onClick={() => pr.mutate({ projectId: pid, branch }, { onSuccess: (r) => nav.go({ name: "prs", number: r.number }) })}
-      >
-        <Busy on={pr.isPending}><Icon name="sparkle" size={12} className="c-acc" /></Busy>
-        <span>PR</span>
-      </button>
-    </div>
   );
 }
 
