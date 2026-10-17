@@ -185,9 +185,21 @@ body.dragging-tab, body.dragging-tab * { cursor: grabbing !important; }
 
 /* ---------- workspace ---------- */
 .ws { flex: 1 1 auto; display: flex; min-height: 0; overflow: hidden; }
-.ws-releases { flex: 0 0 300px; width: 300px; min-width: 0; display: flex; flex-direction: column; min-height: 0; background: var(--panel); border-right: 1px solid var(--line); }
-.ws-files { flex: 0 0 320px; width: 320px; min-width: 0; display: flex; flex-direction: column; min-height: 0; background: var(--panel); border-right: 1px solid var(--line); }
+.ws-releases { flex: 0 0 var(--branches-w, 300px); width: var(--branches-w, 300px); min-width: 0; display: flex; flex-direction: column; min-height: 0; background: var(--panel); border-right: 1px solid var(--line); }
+.ws-files { flex: 0 0 var(--files-w, 320px); width: var(--files-w, 320px); min-width: 0; display: flex; flex-direction: column; min-height: 0; background: var(--panel); border-right: 1px solid var(--line); }
 .ws-diff { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; min-height: 0; background: var(--bg); }
+/* The branches show/hide toggle sits at the same spot open (pane head) or closed (rail). */
+.ws-rail { flex: 0 0 auto; display: flex; flex-direction: column; padding: 0 8px; background: var(--panel); border-right: 1px solid var(--line); }
+.ws-rail > .pane-toggle { margin-top: calc((43px - 26px) / 2); } /* centered like in the 44px head (1px bottom border) */
+.ws-releases > .pane-head:has(.pane-toggle) { padding-left: 8px; }
+@media (max-width: 900px) { .ws-releases > .pane-head:has(.pane-toggle) { padding-left: 16px; } }
+/* Drag handle over a pane's right border; the line lights up on hover and while dragging. */
+.resizer { position: relative; z-index: 3; flex: 0 0 7px; margin: 0 -4px 0 -3px; cursor: col-resize; touch-action: none; outline: none; }
+.resizer::after { content: ""; position: absolute; top: 0; bottom: 0; left: 2px; width: 3px; background: transparent; transition: background .12s; }
+.resizer:hover::after, .resizer:focus-visible::after, body.resizing .resizer:active::after { background: var(--accent); }
+body.resizing { cursor: col-resize; user-select: none; }
+body.resizing iframe, body.resizing .term { pointer-events: none; }
+@media (min-width: 901px) { .ws[data-branches-hidden] > .ws-releases { display: none; } }
 .pane-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; height: 44px; flex: 0 0 44px; padding: 0 12px 0 16px; border-bottom: 1px solid var(--line); }
 /* Branch tree: every branch is the same row (twist, icon, name + status line, actions),
    indented by depth; only the icon, tags and suggested action change with its role. */

@@ -72,6 +72,7 @@ export function BranchTree({
   target,
   onSelect,
   onNewRelease,
+  onHide,
 }: {
   active: boolean;
   o: Overview;
@@ -80,6 +81,7 @@ export function BranchTree({
   target: (b: string) => BranchTarget;
   onSelect: (b: string) => void;
   onNewRelease: () => void;
+  onHide: () => void;
 }) {
   const nav = useNav();
   const pid = o.project.id;
@@ -168,7 +170,12 @@ export function BranchTree({
   return (
     <section aria-label="Branches" className="ws-releases" data-pane data-active={active}>
       <div className="pane-head">
-        <span className="label">Branches</span>
+        <span className="row" style={{ gap: 6 }}>
+          <button className="btn btn-sm btn-icon hide-narrow pane-toggle" aria-label="Hide branches" onClick={onHide}>
+            <Icon name="sidebar" size={13} />
+          </button>
+          <span className="label">Branches</span>
+        </span>
         <span className="row" style={{ gap: 4 }}>
           <button className="btn btn-sm btn-icon" aria-label="Fetch origin" disabled={fetchOrigin.isPending || !o.remote} onClick={() => fetchOrigin.mutate({ projectId: pid })}>
             {fetchOrigin.isPending ? <span className="spinner" /> : <Icon name="refresh" size={12} />}

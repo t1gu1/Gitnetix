@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 
 import { useAction, useAgents, useAiCatalog, useDiff, useFiles, useOverview } from "../api/hooks";
 import type { BranchView, FileChange, MergeResult, ReleaseView } from "../api/types";
 import { AgentLog } from "../components/AgentLog";
 import { DiffView } from "../components/DiffView";
 import { Icon } from "../components/Icon";
+import { Resizer, usePaneWidth } from "../components/Resizer";
 import { Busy, ErrorBox, Loading, Modal, Seg } from "../components/ui";
 import { useNav } from "../lib/nav";
 import { useBranchActions, type BranchDialog, type BranchTarget } from "./BranchMenu";
@@ -25,6 +26,9 @@ export function Workspace() {
   const [pane, setPane] = useState<Pane>("releases");
   const [shipping, setShipping] = useState<ReleaseView | null>(null);
   const [dialog, setDialog] = useState<{ kind: BranchDialog; branch: string } | null>(null);
+  const branchesW = usePaneWidth("gnx.pane.branches", 300, 220, 560);
+  const filesW = usePaneWidth("gnx.pane.files", 320, 220, 640);
+  const [branchesHidden, setBranchesHidden] = useStoredFlag("gnx.pane.branchesHidden");
   const actions = useBranchActions(pid, (kind, branch) => setDialog({ kind, branch }));
 
   const o = ov.data;
@@ -107,8 +111,20 @@ export function Workspace() {
       )}
 
       {o && (
-        <main className="ws">
+        <main
+          className="ws"
+          style={{ "--branches-w": `${branchesW.width}px`, "--files-w": `${filesW.width}px` } as CSSProperties}
+          data-branches-hidden={branchesHidden || undefined}
+        >
+          {branchesHidden && (
+            <div className="ws-rail hide-narrow">
+              <button className="btn btn-sm btn-icon pane-toggle" aria-label="Show branches" onClick={() => setBranchesHidden(false)}>
+                <Icon name="sidebar" size={13} />
+              </button>
+            </div>
+          )}
           <BranchTree
+            onHide={() => setBranchesHidden(true)}
             active={pane === "releases"}
             o={o}
             selected={branch}
@@ -121,6 +137,7 @@ export function Workspace() {
             onNewRelease={() => nav.openNewItem({ kind: "release" })}
           />
 
+          {!branchesHidden && <Resizer pane={branchesW} label="Resize branches panel" />}
           <section aria-label="Changed files" className="ws-files" data-pane data-active={pane === "files"}>
             <div className="col" style={{ gap: 10, padding: "12px 14px", borderBottom: "1px solid var(--line)" }}>
               <div className="row" style={{ alignItems: "baseline", minWidth: 0 }}>
@@ -179,6 +196,7 @@ export function Workspace() {
             {branch && <CommitBox pid={pid} branch={branch} enabled={checkedOut} staged={stagedCount} changed={wipCount} />}
           </section>
 
+          <Resizer pane={filesW} label="Resize files panel" />
           <section aria-label="Diff" className="ws-diff" data-pane data-active={pane === "diff"}>
             <div className="pane-head" style={{ background: "var(--panel)" }}>
               <span className="mono ellipsis" style={{ fontSize: 12.5 }}>{current?.path ?? "No file selected"}</span>
@@ -226,6 +244,26 @@ export function Workspace() {
       )}
     </>
   );
+}
+
+/** A boolean kept in this browser between sessions. */
+function useStoredFlag(key: string): [boolean, (v: boolean) => void] {
+  const [v, setV] = useState(() => {
+    try {
+      return localStorage.getItem(key) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const set = (next: boolean) => {
+    setV(next);
+    try {
+      localStorage.setItem(key, next ? "1" : "0");
+    } catch {
+      /* per-viewer convenience only */
+    }
+  };
+  return [v, set];
 }
 
 function synthetic(name: string, checkedOut: boolean): BranchView {
