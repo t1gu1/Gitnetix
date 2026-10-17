@@ -206,11 +206,15 @@ button.tree-twist:hover { color: var(--fg); }
 .tree-icon { flex: 0 0 14px; height: 20px; display: inline-flex; align-items: center; color: var(--faint); }
 .tree-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .tree-name { display: flex; align-items: center; gap: 6px; min-width: 0; height: 20px; font-size: 12.5px; }
+/* No status to show (e.g. main, in sync, not checked out): a shorter row, content centered. */
+.tree-main > .branch-meta:empty { display: none; }
+.tree-row:has(> .tree-btn .tree-main > .branch-meta:empty) { min-height: 36px; align-items: center; }
+.tree-row:has(> .tree-btn .tree-main > .branch-meta:empty) > .tree-btn { align-items: center; }
 .tree-row[data-dim] .tree-name, .tree-row[data-dim] .kind-chip { opacity: .6; }
 .tree-acts { flex: 0 0 auto; display: flex; opacity: 0; pointer-events: none; transition: opacity .12s; }
 .tree-row:hover .tree-acts, .tree-row:focus-within .tree-acts, .tree-row:has(> .tree-btn[aria-pressed="true"]) .tree-acts { opacity: 1; pointer-events: auto; }
 @media (hover: none) { .tree-acts { opacity: 1; pointer-events: auto; } }
-.tree-ghost, .tree-group { min-height: 30px; align-items: center; border: 0; background: transparent; font: inherit; text-align: left; cursor: pointer; }
+.tree-ghost, .tree-group { width: calc(100% - 12px); min-height: 30px; align-items: center; border: 0; background: transparent; font: inherit; text-align: left; cursor: pointer; }
 .tree-ghost { color: var(--muted); font-size: 12px; gap: 4px; }
 .tree-ghost .tree-icon { height: auto; margin-right: 4px; }
 .tree-ghost:hover { color: var(--fg); }

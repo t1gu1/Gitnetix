@@ -270,13 +270,30 @@ fn import_release_branches(p: &mut Project, branches: &[BranchInfo], default: &s
 /// Long-lived integration branches that sit under the default branch.
 const DEV_TRUNKS: &[&str] = &["develop", "dev", "development"];
 
-/// Local and origin branches, looked up by name.
+/// Local and origin branches, looked up by name, plus what recent merge commits say.
 struct Refs {
     local: Vec<BranchInfo>,
     remote: Vec<BranchInfo>,
+    /// Merge commit subject, keyed by the tip it merged in.
+    merges: HashMap<String, String>,
 }
 
 impl Refs {
+    async fn load(git: &Git, local: Vec<BranchInfo>) -> Refs {
+        Refs { local, remote: git.remote_branches().await.unwrap_or_default(), merges: git.merge_subjects(5000).await.unwrap_or_default() }
+    }
+
+    /// Branch a merge commit of `name`'s tip says it went into (`Merge branch 'x' into y`);
+    /// git leaves out "into" for the default branch.
+    fn merged_into(&self, name: &str, default: &str) -> Option<String> {
+        let sha = &self.local(name).or_else(|| self.remote(name))?.sha;
+        let subject = self.merges.get(sha)?;
+        if !(subject.starts_with("Merge branch") || subject.starts_with("Merge remote-tracking branch")) {
+            return None;
+        }
+        Some(subject.rsplit_once(" into ").map(|(_, t)| t.trim().to_string()).unwrap_or_else(|| default.to_string()))
+    }
+
     fn local(&self, name: &str) -> Option<&BranchInfo> {
         self.local.iter().find(|b| b.name == name)
     }
@@ -372,7 +389,7 @@ impl Gitnetix {
     /// Branch `branch` merges into (rebases onto, diffs against); the default branch maps to itself.
     async fn base_of(&self, p: &Project, branch: &str, default: &str) -> String {
         let git = self.git(p);
-        let refs = Refs { local: git.branches().await.unwrap_or_default(), remote: git.remote_branches().await.unwrap_or_default() };
+        let refs = Refs::load(&git, git.branches().await.unwrap_or_default()).await;
         self.parent_of(p, &git, &refs, default, branch).await.unwrap_or_else(|| default.to_string())
     }
 
@@ -383,19 +400,27 @@ impl Gitnetix {
         if name == default {
             return None;
         }
-        if let Some(r) = p.releases.iter().find(|r| r.branch == name && r.shipped_at.is_none()) {
+        // Release branches, open or shipped, sit under the branch they were cut from.
+        if let Some(r) = p.releases.iter().find(|r| r.branch == name) {
             return Some(r.base.clone());
         }
-        if DEV_TRUNKS.contains(&name) {
+        if name.starts_with("release/") || DEV_TRUNKS.contains(&name) {
             return Some(default.to_string());
         }
         if let Some(m) = p.branches.get(name) {
-            if let Some(r) = m.release.as_ref().and_then(|v| p.releases.iter().find(|r| &r.version == v && r.shipped_at.is_none())) {
-                return Some(r.branch.clone());
+            // Its release, while open, or shipped as long as the release branch is still around.
+            if let Some(r) = m.release.as_ref().and_then(|v| p.releases.iter().find(|r| &r.version == v)) {
+                if r.shipped_at.is_none() || refs.rev(&r.branch).is_some() {
+                    return Some(r.branch.clone());
+                }
             }
             if let Some(parent) = m.parent.as_ref().filter(|x| *x != name && refs.rev(x).is_some()) {
                 return Some(parent.clone());
             }
+        }
+        // Merged by hand: the merge commit names where it went.
+        if let Some(t) = refs.merged_into(name, default).filter(|t| t != name && refs.rev(t).is_some()) {
+            return Some(t);
         }
         let (Some(rev), targets) = (refs.rev(name), merge_targets(p, refs, default)) else {
             return Some(default.to_string());
@@ -405,8 +430,11 @@ impl Gitnetix {
             for (i, t) in targets.into_iter().enumerate().filter(|(_, t)| t != name) {
                 let Some(trev) = refs.rev(&t) else { continue };
                 let Ok((behind, ahead)) = git.left_right(&trev, &rev).await else { continue };
-                if best.as_ref().is_none_or(|(k, _)| (ahead, behind, i) < *k) {
-                    best = Some(((ahead, behind, i), t));
+                // On a tie, work in progress belongs to the most specific target; a branch that
+                // already landed everywhere belongs to the most upstream one (shipped to main).
+                let key = (ahead, behind, if ahead == 0 { usize::MAX - i } else { i });
+                if best.as_ref().is_none_or(|(k, _)| key < *k) {
+                    best = Some((key, t));
                 }
             }
         }
@@ -553,7 +581,7 @@ impl Gitnetix {
         let rebasing = git.is_rebasing().await.unwrap_or(false);
         let conflicts = if rebasing { git.conflicted_files().await.unwrap_or_default() } else { Vec::new() };
 
-        let refs = Refs { local: branches, remote: git.remote_branches().await.unwrap_or_default() };
+        let refs = Refs::load(&git, branches).await;
         let open: Vec<&Release> = p.releases.iter().filter(|r| r.shipped_at.is_none()).collect();
         // Every branch once: local, origin-only, and the ones Gitnetix tracks that are gone.
         let mut names: Vec<String> = refs.local.iter().chain(&refs.remote).map(|b| b.name.clone()).collect();

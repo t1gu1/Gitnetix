@@ -55,8 +55,9 @@ function childrenOf(o: Overview) {
   return { roots, kids: (name: string) => kids.get(name) ?? [] };
 }
 
-function look(b: BranchView, isDefault: boolean): { icon: string; cls: string } {
+function look(b: BranchView, isDefault: boolean, shipped: boolean): { icon: string; cls: string } {
   if (!b.exists) return { icon: "close", cls: "c-del" };
+  if (shipped) return { icon: "tag", cls: "" };
   if (b.merged) return { icon: "merged", cls: "c-add" };
   if (b.role === "release") return { icon: "tag", cls: "c-acc" };
   if (b.role === "trunk") return { icon: isDefault ? "home" : "commit", cls: "" };
@@ -86,7 +87,9 @@ export function BranchTree({
   const [query, setQuery] = useState("");
   const fetchOrigin = useAction("branches.fetch", { invalidate: [["overview", pid]], success: () => "Fetched origin" });
   const { roots, kids } = useMemo(() => childrenOf(o), [o]);
-  const shipped = o.releases.filter((r) => !r.open);
+  // Shipped releases whose branch is gone; the others show in the tree with what they shipped.
+  const shipped = o.releases.filter((r) => !r.open && !o.branches.some((b) => b.name === `release/${r.version}`));
+  const shippedAs = (b: BranchView) => (b.role === "branch" && b.name.startsWith("release/") ? b.name.slice("release/".length) : undefined);
 
   const q = query.trim().toLowerCase();
   const matches = useMemo(() => {
@@ -124,6 +127,7 @@ export function BranchTree({
     const open = !!q || isOpen(b.name);
     const mergedKey = `merged:${b.name}`;
     const mergedOpen = !!q || isOpen(mergedKey);
+    const version = b.role === "release" ? b.release : shippedAs(b);
     return (
       <div key={b.name} role="group" className="tree-node">
         <Row
@@ -132,6 +136,7 @@ export function BranchTree({
           depth={depth}
           isDefault={b.name === o.defaultBranch}
           tag={releaseTag(o.releases, b)}
+          shipped={b.role === "branch" ? version ?? undefined : undefined}
           selected={b.name === selected}
           current={b.name === o.currentBranch}
           twist={hasKids ? { open, toggle: () => toggle(b.name) } : undefined}
@@ -140,13 +145,15 @@ export function BranchTree({
         />
         {open && (
           <>
+            {/* Trunks offer a new branch first, its + under the trunk's own icon; a release lists its work, then the way to add more. */}
+            {canGrow && b.role === "trunk" && ghost(b, depth)}
             {live.map((c) => node(c, depth + 1))}
-            {canGrow && ghost(b, depth + 1)}
+            {canGrow && b.role === "release" && ghost(b, depth + 1)}
             {merged.length > 0 && (
               <>
                 <button className="tree-row tree-group" style={{ "--depth": depth + 1 } as CSSProperties} aria-expanded={mergedOpen} onClick={() => toggle(mergedKey)}>
                   <span className="tree-twist"><Icon name="chevronDown" size={12} className="chev" /></span>
-                  <span>Merged into {b.role === "release" && b.release ? `v${b.release}` : b.name}</span>
+                  <span>Merged into {version ? `v${version}` : b.name}</span>
                   <span className="faint">{merged.length}</span>
                 </button>
                 {mergedOpen && merged.map((c) => node(c, depth + 1))}
@@ -224,6 +231,7 @@ function Row({
   depth,
   isDefault,
   tag,
+  shipped,
   selected,
   current,
   twist,
@@ -235,14 +243,16 @@ function Row({
   depth: number;
   isDefault: boolean;
   tag: ReactNode;
+  /** Version this (shipped) release branch went out as. */
+  shipped?: string;
   selected: boolean;
   current: boolean;
   twist?: { open: boolean; toggle: () => void };
   actions: BranchActions;
   onSelect: () => void;
 }) {
-  const { icon, cls } = look(b, isDefault);
-  const name = b.role === "release" && b.release ? `v${b.release}` : b.role === "branch" && b.kind ? b.short : b.name;
+  const { icon, cls } = look(b, isDefault, !!shipped);
+  const name = shipped ? `v${shipped}` : b.role === "release" && b.release ? `v${b.release}` : b.role === "branch" && b.kind ? b.short : b.name;
   return (
     <div
       className="tree-row"
@@ -263,9 +273,9 @@ function Row({
         <span className="tree-main">
           <span className="tree-name">
             <span className="mono ellipsis">{name}</span>
-            {tag}
+            {shipped ? <span className="tag">{releaseTagLabel("released")}</span> : tag}
           </span>
-          <BranchMeta b={b} parent={t.baseLabel} current={current} />
+          <BranchMeta b={b} parent={t.baseLabel} current={current} showName={!!shipped} />
         </span>
       </button>
       <span className="tree-acts">
@@ -276,12 +286,12 @@ function Row({
 }
 
 /** Status line under a branch, same order for every role. */
-export function BranchMeta({ b, parent, current }: { b: BranchView; parent: string; current: boolean }) {
+export function BranchMeta({ b, parent, current, showName }: { b: BranchView; parent: string; current: boolean; showName?: boolean }) {
   const tracked = b.exists && !b.merged && !!parent;
   return (
     <span className="branch-meta">
       {b.role === "branch" && b.kind && <span className={`kind-chip ${b.kind === "fix" ? "c-del" : "c-mod"}`}>{b.kind}</span>}
-      {b.role === "release" && <span className="mono">{b.name}</span>}
+      {(b.role === "release" || showName) && <span className="mono">{b.name}</span>}
       {current && <span className="c-acc">checked out</span>}
       {b.worktree && <span className="row" style={{ gap: 4 }}><Icon name="layers" size={11} stroke={1.4} />worktree</span>}
       {b.running && <span className="row c-acc" style={{ gap: 4 }}><span className="pulse" style={{ width: 5, height: 5 }} />AI working</span>}

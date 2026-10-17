@@ -242,6 +242,19 @@ impl Git {
             .collect())
     }
 
+    /// Subjects of recent merge commits, keyed by each merged-in (non-first) parent.
+    pub async fn merge_subjects(&self, limit: u32) -> Result<HashMap<String, String>> {
+        let out = self.run(&["log", "--all", "--merges", &format!("--max-count={limit}"), "--format=%P%x1f%s"]).await?;
+        let mut map = HashMap::new();
+        for l in out.lines() {
+            let Some((parents, subject)) = l.split_once('\x1f') else { continue };
+            for p in parents.split_whitespace().skip(1) {
+                map.entry(p.to_string()).or_insert_with(|| subject.to_string());
+            }
+        }
+        Ok(map)
+    }
+
     pub async fn tags(&self) -> Result<Vec<TagInfo>> {
         let out = self
             .run(&[

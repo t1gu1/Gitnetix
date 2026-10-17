@@ -59,7 +59,7 @@ export function Workspace() {
         : undefined,
       // Work branches can be re-targeted to any release or trunk.
       moveTo:
-        v.role === "branch" && v.exists
+        v.role === "branch" && v.exists && !b.startsWith("release/")
           ? (o?.branches ?? []).filter((x) => x.exists && x.role !== "branch" && x.name !== base && x.name !== b).map((x) => ({ branch: x.name, label: labelOf(x.name) }))
           : undefined,
     };

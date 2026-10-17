@@ -369,3 +369,41 @@ async fn branch_tree_parents_remote_and_sync() {
     assert_eq!(get(&ov, "fix/typo")["parent"], "dev");
     assert_eq!(rev(&repo, "fix/typo"), rev(&repo, "dev"));
 }
+
+#[tokio::test]
+async fn shipped_release_goes_back_under_main() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("ship");
+    init_repo(&repo);
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let added = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await;
+    let pid = added[0]["id"].as_str().unwrap().to_string();
+
+    call(&k, "releases.create", json!({ "projectId": pid, "version": "0.0.1", "kind": "next" })).await;
+    // One feature through Gitnetix, one merged by hand with git.
+    call(&k, "items.create", json!({ "projectId": pid, "release": "0.0.1", "kind": "feat", "description": "", "branchName": "feat/item", "where": "switch" })).await;
+    commit_file(&repo, "item.txt", "i\n");
+    call(&k, "branches.merge", json!({ "projectId": pid, "branch": "feat/item" })).await;
+    sh(&repo, &["switch", "-qc", "feat/by-hand", "release/0.0.1"]);
+    commit_file(&repo, "hand.txt", "h\n");
+    sh(&repo, &["switch", "-q", "release/0.0.1"]);
+    sh(&repo, &["merge", "-q", "--no-ff", "--no-edit", "feat/by-hand"]);
+    commit_file(&repo, "one.txt", "1\n");
+    sh(&repo, &["switch", "-q", "main"]);
+    call(&k, "releases.ship", json!({ "projectId": pid, "version": "0.0.1" })).await;
+    // A feature that landed in 0.0.1 without being attached through Gitnetix.
+    sh(&repo, &["branch", "feat/landed", "release/0.0.1"]);
+    call(&k, "releases.create", json!({ "projectId": pid, "version": "0.0.2", "kind": "next" })).await;
+
+    let ov = call(&k, "workspace.overview", json!({ "projectId": pid })).await;
+    let get = |n: &str| ov["branches"].as_array().unwrap().iter().find(|b| b["name"] == n).cloned().unwrap();
+    assert_eq!(get("release/0.0.1")["parent"], "main");
+    assert_eq!(get("release/0.0.1")["role"], "branch");
+    assert_eq!(get("feat/landed")["parent"], "main");
+    // What shipped in 0.0.1 stays under it while its branch exists.
+    for f in ["feat/item", "feat/by-hand"] {
+        assert_eq!(get(f)["parent"], "release/0.0.1", "{f}");
+        assert_eq!(get(f)["merged"], true, "{f}");
+    }
+    assert_eq!(get("release/0.0.2")["role"], "release");
+}
