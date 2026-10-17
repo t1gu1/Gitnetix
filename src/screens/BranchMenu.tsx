@@ -91,7 +91,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
         id: "merge",
         label: <>Merge into <span className="mono">{t.base}</span>…</>,
         short: "Merge",
-        icon: "check",
+        icon: "merged",
         hint: v.ahead ? plural(v.ahead, "commit") : "nothing to merge",
         disabled: !mergeable || !v.ahead,
         run: () => openDialog("merge", b),
