@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 
 import { useAction, useAiCatalog } from "../api/hooks";
 import type { AiCatalog, ConnectMethod } from "../api/types";
@@ -23,7 +23,6 @@ const METHOD_TEXT: Record<ConnectMethod, [string, string]> = {
 
 export function AISetup() {
   const cat = useAiCatalog();
-  const [sel, setSel] = useState("claude");
   if (!cat.data) return (<><Header title="AI setup" /><Loading /></>);
   const c = cat.data;
   const connected = c.providers.filter((p) => p.status?.status === "connected").length;
@@ -32,35 +31,49 @@ export function AISetup() {
     <>
       <Header title="AI setup" sub={`${connected} connected · default: ${defName}`} />
       <div className="body">
-        <nav aria-label="AI providers" className="sidenav hide-narrow" style={{ flexBasis: 300 }}>
-          <div className="group-label">Providers</div>
-          {c.providers.map((p) => (
-            <button key={p.info.id} className="nav-item" style={{ minHeight: 56 }} aria-pressed={p.info.id === sel} onClick={() => setSel(p.info.id)}>
-              <span className="mono-badge">{p.info.mono}</span>
-              <span className="col" style={{ gap: 2 }}>
-                <span className="row" style={{ gap: 6 }}>
-                  <span style={{ color: "var(--fg)", fontWeight: 500 }}>{p.info.name}</span>
-                  {c.defaultProvider === p.info.id && <span className="tag accent">Default</span>}
-                </span>
-                <StatusText s={p.status?.status} method={p.conf?.method} local={p.info.local} />
-              </span>
-            </button>
-          ))}
-          <div className="hint" style={{ padding: "12px 10px" }}>Connect as many as you like, then choose which one does what in Task routing.</div>
-        </nav>
-        <main className="page">
-          <div className="show-narrow" style={{ marginBottom: 16 }}>
-            <label htmlFor="ai-pick" className="sr-only">Provider</label>
-            <select id="ai-pick" className="select" style={{ width: "100%" }} value={sel} onChange={(e) => setSel(e.target.value)}>
-              {c.providers.map((p) => <option key={p.info.id} value={p.info.id}>{p.info.name}</option>)}
-            </select>
-          </div>
-          <div className="page-inner">
-            <ProviderDetail key={sel} cat={c} id={sel} />
-            <Routing cat={c} />
-          </div>
-        </main>
+        <AISetupPanes />
       </div>
+    </>
+  );
+}
+
+/** Provider list and detail panes, also shown inside Settings; `top` goes above the detail (e.g. a section picker). */
+export function AISetupPanes({ top }: { top?: ReactNode }) {
+  const cat = useAiCatalog();
+  const [sel, setSel] = useState("claude");
+  if (!cat.data) return <Loading />;
+  const c = cat.data;
+  return (
+    <>
+      <nav aria-label="AI providers" className="sidenav hide-narrow" style={{ flexBasis: 300 }}>
+        <div className="group-label">Providers</div>
+        {c.providers.map((p) => (
+          <button key={p.info.id} className="nav-item" style={{ minHeight: 56 }} aria-pressed={p.info.id === sel} onClick={() => setSel(p.info.id)}>
+            <span className="mono-badge">{p.info.mono}</span>
+            <span className="col" style={{ gap: 2 }}>
+              <span className="row" style={{ gap: 6 }}>
+                <span style={{ color: "var(--fg)", fontWeight: 500 }}>{p.info.name}</span>
+                {c.defaultProvider === p.info.id && <span className="tag accent">Default</span>}
+              </span>
+              <StatusText s={p.status?.status} method={p.conf?.method} local={p.info.local} />
+            </span>
+          </button>
+        ))}
+        <div className="hint" style={{ padding: "12px 10px" }}>Connect as many as you like, then choose which one does what in Task routing.</div>
+      </nav>
+      <main className="page">
+        {top}
+        <div className="show-narrow" style={{ marginBottom: 16 }}>
+          <label htmlFor="ai-pick" className="sr-only">Provider</label>
+          <select id="ai-pick" className="select" style={{ width: "100%" }} value={sel} onChange={(e) => setSel(e.target.value)}>
+            {c.providers.map((p) => <option key={p.info.id} value={p.info.id}>{p.info.name}</option>)}
+          </select>
+        </div>
+        <div className="page-inner">
+          <ProviderDetail key={sel} cat={c} id={sel} />
+          <Routing cat={c} />
+        </div>
+      </main>
     </>
   );
 }

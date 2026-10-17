@@ -14,7 +14,6 @@ export const PAGES: { label: string; icon: string; route: Route }[] = [
   { label: "Pull requests", icon: "pr", route: { name: "prs" } },
   { label: "Tickets", icon: "ticket", route: { name: "tickets" } },
   { label: "Worktrees & agents", icon: "layers", route: { name: "worktrees" } },
-  { label: "AI templates", icon: "sparkle", route: { name: "templates" } },
   { label: "Analytics", icon: "chart", route: { name: "analytics" } },
 ];
 

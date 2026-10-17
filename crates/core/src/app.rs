@@ -84,6 +84,8 @@ pub struct BranchView {
     pub upstream_behind: u32,
     pub ticket: Option<String>,
     pub exists: bool,
+    /// Its commits are all in the base (merged, nothing new since).
+    pub merged: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -97,6 +99,8 @@ pub struct ReleaseView {
     pub open: bool,
     pub items: Vec<BranchView>,
     pub note: String,
+    /// The release branch itself (open releases only).
+    pub view: Option<BranchView>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -473,6 +477,8 @@ impl Gitnetix {
                 v.ticket = meta.ticket.clone();
                 items.push(v);
             }
+            let info = branches.iter().find(|b| b.name == r.branch);
+            let view = Some(self.branch_view(&p, &git, &r.branch, &r.base, info, &wts, &agents).await);
             releases.push(ReleaseView {
                 version: r.version.clone(),
                 tag: match r.kind {
@@ -484,6 +490,7 @@ impl Gitnetix {
                 open: true,
                 items,
                 note: String::new(),
+                view,
             });
         }
         // Last shipped releases, from tags.
@@ -498,6 +505,7 @@ impl Gitnetix {
                 base: format!("{default} · tagged {date}"),
                 open: false,
                 items: vec![],
+                view: None,
                 note: if shipped > 0 { format!("{shipped} branches shipped") } else { String::new() },
             });
         }
@@ -532,6 +540,7 @@ impl Gitnetix {
             }
             None => false,
         };
+        let merged = info.is_some() && ahead == 0 && name != base && git.is_merged_into(name, base).await.unwrap_or(false);
         BranchView {
             short: name.split_once('/').map(|(_, b)| b.to_string()).unwrap_or_else(|| name.to_string()),
             name: name.to_string(),
@@ -547,6 +556,7 @@ impl Gitnetix {
             upstream_behind,
             ticket: None,
             exists: info.is_some(),
+            merged,
         }
     }
 

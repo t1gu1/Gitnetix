@@ -88,6 +88,8 @@ export interface BranchView {
   upstreamBehind: number;
   ticket?: string | null;
   exists: boolean;
+  /** All its commits are in the base: merged, nothing new since. */
+  merged: boolean;
 }
 
 export interface MergeResult {
@@ -105,6 +107,8 @@ export interface ReleaseView {
   open: boolean;
   items: BranchView[];
   note: string;
+  /** The release branch itself (open releases only). */
+  view?: BranchView | null;
 }
 
 export interface Overview {

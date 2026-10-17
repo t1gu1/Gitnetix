@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useConfig, useEngineEvents } from "./api/hooks";
 import { currentRemote, isLocal } from "./api/transport";
 import { Icon } from "./components/Icon";
+import { TooltipLayer } from "./components/Tooltip";
 import { isPageRoute, TopBar } from "./components/TopBar";
 import { Loading } from "./components/ui";
 import { NavProvider, useNav, type Route } from "./lib/nav";
@@ -62,7 +63,7 @@ function Shell({ onUnpair }: { onUnpair: () => void }) {
       screen = nav.projectId ? <Workspace /> : <Welcome />;
       break;
     case "settings":
-      screen = <Settings section={r.section} />;
+      screen = <Settings key={r.section} section={r.section} />;
       break;
     case "ai":
       screen = <AISetup />;
@@ -108,6 +109,7 @@ function Shell({ onUnpair }: { onUnpair: () => void }) {
       )}
       {nav.newItem && <NewItem draft={nav.newItem} onClose={nav.closeNewItem} />}
       <Toasts />
+      <TooltipLayer />
     </div>
   );
 }

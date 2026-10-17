@@ -15,11 +15,15 @@ export interface BranchTarget {
   /** Branch it merges into / rebases onto. */
   base: string;
   isDefault: boolean;
+  /** Branch of an open release: can't be deleted. */
+  isRelease?: boolean;
+  /** Extra actions listed first in the menu (e.g. release actions). */
+  extra?: MenuItem[];
   /** Open releases an unattached branch can join. */
   attachTo?: string[];
 }
 
-type Action = Exclude<MenuItem, "sep"> & { short?: string };
+type Action = Exclude<MenuItem, "sep"> & { short?: string; /** Plain-text tooltip for the split button. */ tip?: string };
 
 interface BranchMutation {
   mutate(vars: { projectId: string; branch: string }, opts: { onSuccess: () => void }): void;
@@ -55,12 +59,13 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
     const b = v.name;
     const mergeable = !t.isDefault && t.base !== b;
     return {
-      switch: { id: "switch", label: "Switch to branch", short: "Switch", icon: "swap", run: () => run(sw, b, `Switched to ${b}`) },
-      worktree: { id: "worktree", label: "Open in worktree", icon: "layers", run: () => wt.mutate({ projectId: pid, branch: b }) },
+      switch: { id: "switch", label: "Switch to branch", short: "Switch", tip: `Check out ${b}`, icon: "swap", run: () => run(sw, b, `Switched to ${b}`) },
+      worktree: { id: "worktree", label: "Open in worktree", tip: `Open ${b} in its own worktree`, icon: "layers", run: () => wt.mutate({ projectId: pid, branch: b }) },
       pull: {
         id: "pull",
         label: v.upstream ? <>Pull from <span className="mono">{v.upstream}</span></> : "Pull",
         short: v.upstreamBehind ? `Pull ${v.upstreamBehind}` : "Pull",
+        tip: !v.upstream ? "No upstream to pull from" : v.upstreamBehind ? `Pull ${plural(v.upstreamBehind, "commit")} from ${v.upstream}` : `Pull from ${v.upstream}`,
         icon: "refresh",
         hint: v.upstreamBehind ? `↓${v.upstreamBehind}` : undefined,
         disabled: !v.upstream,
@@ -70,6 +75,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
         id: "push",
         label: v.upstream ? "Push" : "Publish to origin",
         short: v.upstream ? `Push ${v.upstreamAhead || ""}`.trim() : "Publish",
+        tip: !v.upstream ? `Publish ${b} to origin` : v.upstreamAhead ? `Push ${plural(v.upstreamAhead, "commit")} to ${v.upstream}` : `Push to ${v.upstream}`,
         icon: "push",
         hint: v.upstreamAhead ? `↑${v.upstreamAhead}` : undefined,
         run: () => run(push, b, `Pushed ${b}`),
@@ -78,6 +84,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
         id: "rebase",
         label: <>Rebase onto <span className="mono">{t.base}</span></>,
         short: "Rebase",
+        tip: !v.checkedOut ? `Check out ${b} to rebase it` : v.behind ? `Rebase onto ${t.base} (${plural(v.behind, "commit")} behind)` : `Rebase onto ${t.base}`,
         icon: "branch",
         hint: v.checkedOut ? (v.behind ? `${v.behind} behind` : undefined) : "check out first",
         disabled: !v.checkedOut || !mergeable,
@@ -87,12 +94,13 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
         id: "merge",
         label: <>Merge into <span className="mono">{t.base}</span>…</>,
         short: "Merge",
-        icon: "check",
+        tip: v.ahead ? `Merge ${plural(v.ahead, "commit")} into ${t.base}` : `Nothing to merge into ${t.base}`,
+        icon: "merged",
         hint: v.ahead ? plural(v.ahead, "commit") : "nothing to merge",
         disabled: !mergeable || !v.ahead,
         run: () => openDialog("merge", b),
       },
-      conflicts: { id: "conflicts", label: "Resolve conflicts…", short: "Resolve", icon: "sparkle", run: () => openDialog("conflicts", b) },
+      conflicts: { id: "conflicts", label: "Resolve conflicts…", short: "Resolve", tip: `Resolve conflicts with ${t.base}`, icon: "sparkle", run: () => openDialog("conflicts", b) },
       pr: {
         id: "pr",
         label: "Open pull request",
@@ -101,14 +109,14 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
         run: () => pr.mutate({ projectId: pid, branch: b }, { onSuccess: (r) => nav.go({ name: "prs", number: r.number }) }),
       },
       copy: { id: "copy", label: "Copy branch name", icon: "edit", run: () => copyToClipboard(b) },
-      delete: { id: "delete", label: v.exists ? "Delete branch…" : "Forget branch…", icon: "trash", danger: true, run: () => openDialog("delete", b) },
+      delete: { id: "delete", label: v.exists ? "Delete branch…" : "Forget branch…", tip: v.exists ? `Delete ${b}` : `${b} no longer exists: remove it from the list`, icon: "trash", danger: true, run: () => openDialog("delete", b) },
     };
   };
 
   const items = (t: BranchTarget): MenuItem[] => {
     const a = all(t);
     if (!t.view.exists) return [a.delete];
-    const list: MenuItem[] = [];
+    const list: MenuItem[] = t.extra?.length ? [...t.extra, "sep"] : [];
     if (t.view.conflict) list.push(a.conflicts, "sep");
     if (!t.view.checkedOut) list.push(a.switch, a.worktree, "sep");
     list.push(a.pull, a.push, "sep", a.rebase, a.merge, a.pr);
@@ -121,7 +129,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
       });
     }
     list.push("sep", a.copy);
-    if (!t.isDefault) list.push("sep", a.delete);
+    if (!t.isDefault && !t.isRelease) list.push("sep", a.delete);
     return list;
   };
 
@@ -163,7 +171,7 @@ export function BranchSplit({ t, actions, size = "sm" }: { t: BranchTarget; acti
   const cls = size === "sm" ? "btn btn-sm" : "btn";
   return (
     <span className="split" onClick={(e) => e.stopPropagation()}>
-      <button className={`${cls} split-main${p.danger ? " btn-danger" : ""}`} disabled={p.disabled || busy} title={typeof p.label === "string" ? p.label : undefined} onClick={p.run}>
+      <button className={`${cls} split-main${p.danger ? " btn-danger" : ""}`} disabled={p.disabled || busy} data-tip={p.tip ?? (typeof p.label === "string" ? p.label : undefined)} onClick={p.run}>
         {busy ? <span className="spinner" /> : p.icon && <Icon name={p.icon} size={12} />}
         <span>{p.short ?? p.label}</span>
       </button>

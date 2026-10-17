@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 
-import { useAction, useAgents, useDiff, useFiles, useOverview } from "../api/hooks";
+import { useAction, useAgents, useAiCatalog, useDiff, useFiles, useOverview } from "../api/hooks";
 import type { BranchView, FileChange, MergeResult, ReleaseView } from "../api/types";
 import { AgentLog } from "../components/AgentLog";
 import { DiffView } from "../components/DiffView";
@@ -18,7 +18,7 @@ export function Workspace() {
   const nav = useNav();
   const pid = nav.projectId!;
   const ov = useOverview(pid);
-  const [mode, setMode] = useState<Mode>("branch");
+  const [mode, setMode] = useState<Mode>("wip");
   const [file, setFile] = useState<string | undefined>();
   const [diffMode, setDiffMode] = useState<"unified" | "split">("unified");
   const [termOpen, setTermOpen] = useState(true);
@@ -30,13 +30,16 @@ export function Workspace() {
 
   const o = ov.data;
   const allItems = useMemo(() => (o?.releases ?? []).flatMap((r) => r.items), [o]);
-  const views = useMemo(() => [...allItems, ...(o?.otherBranches ?? []), ...(o?.defaultView ? [o.defaultView] : [])], [allItems, o]);
+  const releaseViews = useMemo(() => (o?.releases ?? []).flatMap((r) => (r.view ? [r.view] : [])), [o]);
+  const views = useMemo(() => [...allItems, ...releaseViews, ...(o?.otherBranches ?? []), ...(o?.defaultView ? [o.defaultView] : [])], [allItems, releaseViews, o]);
   const branch = nav.selectedBranch ?? allItems[0]?.name ?? o?.currentBranch ?? undefined;
-  const baseFor = (b: string) => o?.releases.find((r) => r.version === o.project.branches[b]?.release)?.branch ?? o?.defaultBranch ?? "";
+  const baseFor = (b: string) =>
+    o?.releases.find((r) => r.version === o.project.branches[b]?.release)?.branch ?? o?.project.releases.find((r) => r.branch === b)?.base ?? o?.defaultBranch ?? "";
   const target = (b: string, attachTo?: string[]): BranchTarget => ({
     view: views.find((v) => v.name === b) ?? synthetic(b, b === o?.currentBranch),
     base: baseFor(b),
     isDefault: b === o?.defaultBranch,
+    isRelease: releaseViews.some((v) => v.name === b),
     attachTo,
   });
   const view: BranchView | undefined = branch ? views.find((b) => b.name === branch) : undefined;
@@ -103,7 +106,8 @@ export function Workspace() {
             <div className="col" style={{ gap: 10, padding: "12px 14px", borderBottom: "1px solid var(--line)" }}>
               <div className="row" style={{ alignItems: "baseline", minWidth: 0 }}>
                 <span className="mono ellipsis" style={{ fontSize: 13, fontWeight: 500 }}>{branch ?? "No branch"}</span>
-                {base && branch !== base && <span className="faint" style={{ fontSize: 11.5, whiteSpace: "nowrap" }}>from {base}</span>}
+                {base && branch !== base && <span className="faint" style={{ fontSize: 11.5, whiteSpace: "nowrap" }}>{view?.merged ? "merged into" : "from"} {base}</span>}
+                {view?.merged && <span className="c-add row" style={{ marginLeft: 6, flex: "0 0 auto" }} title={`All commits are in ${base}`}><Icon name="merged" size={12} stroke={1.6} label="merged" /></span>}
               </div>
               <Seg<Mode>
                 label="File view"
@@ -111,8 +115,8 @@ export function Workspace() {
                 value={mode}
                 onChange={setMode}
                 options={[
-                  { value: "branch", label: <>Branch <span className="faint">{branchCount}</span></> },
                   { value: "wip", label: <>WIP <span className="faint">{wipCount}</span></> },
+                  { value: "branch", label: <>Branch <span className="faint">{branchCount}</span></> },
                   { value: "project", label: "Project" },
                 ]}
               />
@@ -153,7 +157,7 @@ export function Workspace() {
                 <li className="empty">{mode === "wip" ? (checkedOut ? "No uncommitted changes." : "This branch is not checked out.") : "No changes on this branch yet."}</li>
               )}
             </ul>
-            {branch && <CommitBox pid={pid} branch={branch} enabled={checkedOut} staged={stagedCount} />}
+            {branch && <CommitBox pid={pid} branch={branch} enabled={checkedOut} staged={stagedCount} changed={wipCount} />}
           </section>
 
           <section aria-label="Diff" className="ws-diff" data-pane data-active={pane === "diff"}>
@@ -207,7 +211,35 @@ export function Workspace() {
 }
 
 function synthetic(name: string, checkedOut: boolean): BranchView {
-  return { name, kind: "", short: name, checkedOut, running: false, conflict: false, ahead: 0, behind: 0, upstreamAhead: 0, upstreamBehind: 0, exists: true };
+  return { name, kind: "", short: name, checkedOut, running: false, conflict: false, ahead: 0, behind: 0, upstreamAhead: 0, upstreamBehind: 0, exists: true, merged: false };
+}
+
+/** Status line under a branch: checkout, agent, merge and tracking state. */
+function BranchMeta({ b, base, current, className, children }: { b: BranchView; base: string; current: boolean; className?: string; children?: ReactNode }) {
+  return (
+    <span className={`branch-meta${className ? ` ${className}` : ""}`}>
+      {children}
+      {current && <span className="c-acc">checked out</span>}
+      {b.worktree && <span className="row" style={{ gap: 4 }}><Icon name="layers" size={11} stroke={1.4} />worktree</span>}
+      {b.running && <span className="row c-acc" style={{ gap: 4 }}><span className="pulse" style={{ width: 5, height: 5 }} />AI working</span>}
+      {b.conflict && <span className="c-del">conflict</span>}
+      {!b.exists && <span className="c-del">branch deleted</span>}
+      {b.merged && (
+        <span className="pill c-add" title={`All commits are in ${base}`}>
+          <Icon name="merged" size={10} stroke={1.6} />
+          merged
+        </span>
+      )}
+      {b.exists && !b.merged && <span>{b.ahead === 1 ? "1 commit" : `${b.ahead} commits`}</span>}
+      {(b.upstreamAhead > 0 || b.upstreamBehind > 0) && (
+        <span className="mono" title={`${b.upstreamAhead} to push, ${b.upstreamBehind} to pull`}>
+          {b.upstreamAhead > 0 && `↑${b.upstreamAhead}`}
+          {b.upstreamBehind > 0 && <span className="c-acc"> ↓{b.upstreamBehind}</span>}
+        </span>
+      )}
+      {b.ticket && <span className="mono">{b.ticket}</span>}
+    </span>
+  );
 }
 
 function ReleasesPane({
@@ -238,27 +270,20 @@ function ReleasesPane({
   const sw = useAction("workspace.switch", { invalidate: [["overview"], ["files"]] });
   const switchTo = (b: string) => sw.mutate({ projectId: nav.projectId!, branch: b }, { onSuccess: () => toast(`Switched to ${b}`, "ok") });
   const open = releases.filter((r) => r.open).map((r) => r.version);
+  const releaseTarget = (r: ReleaseView): BranchTarget => ({
+    ...target(r.branch),
+    extra: [
+      { id: "new-item", label: <>New feature or fix in v{r.version}…</>, icon: "plus", run: () => nav.openNewItem({ release: r.version }) },
+      { id: "ship", label: <>Ship v{r.version}…</>, icon: "ship", hint: "fast-forward + tag", run: () => onShip(r) },
+    ],
+  });
   const row = (b: BranchView, t: BranchTarget) => (
-    <div key={b.name} className="branch-row" onContextMenu={(e) => actions.openMenu(t, e)}>
+    <div key={b.name} className="branch-row" data-merged={b.merged || undefined} data-current={b.name === currentBranch || undefined} onContextMenu={(e) => actions.openMenu(t, e)}>
       <button className="branch-btn" aria-pressed={b.name === selected} onClick={() => onSelect(b.name)}>
         <span className={`branch-kind ${b.kind === "fix" ? "c-del" : "c-mod"}`}>{b.kind}</span>
         <span className="col grow" style={{ gap: 3, minWidth: 0 }}>
           <span className="mono ellipsis" style={{ fontSize: 12 }}>{b.kind ? b.short : b.name}</span>
-          <span className="branch-meta">
-            {b.name === currentBranch && <span className="c-acc">checked out</span>}
-            {b.worktree && <span className="row" style={{ gap: 4 }}><Icon name="layers" size={11} stroke={1.4} />worktree</span>}
-            {b.running && <span className="row c-acc" style={{ gap: 4 }}><span className="pulse" style={{ width: 5, height: 5 }} />AI working</span>}
-            {b.conflict && <span className="c-del">conflict</span>}
-            {!b.exists && <span className="c-del">branch deleted</span>}
-            {b.exists && <span>{b.ahead === 1 ? "1 commit" : `${b.ahead} commits`}</span>}
-            {(b.upstreamAhead > 0 || b.upstreamBehind > 0) && (
-              <span className="mono" title={`${b.upstreamAhead} to push, ${b.upstreamBehind} to pull`}>
-                {b.upstreamAhead > 0 && `↑${b.upstreamAhead}`}
-                {b.upstreamBehind > 0 && <span className="c-acc"> ↓{b.upstreamBehind}</span>}
-              </span>
-            )}
-            {b.ticket && <span className="mono">{b.ticket}</span>}
-          </span>
+          <BranchMeta b={b} base={t.base} current={b.name === currentBranch} />
         </span>
       </button>
       <span className="branch-acts">
@@ -287,29 +312,44 @@ function ReleasesPane({
         {releases.map((r) => (
           <div key={`${r.version}-${r.tag}`} className="col" style={{ gap: 2 }}>
             <div
-              className="rel-head"
-              style={r.open ? { userSelect: "none" } : undefined}
-              title={r.open ? `Double-click to switch to ${r.branch}` : undefined}
-              onDoubleClick={(e) => r.open && r.branch !== currentBranch && !(e.target as HTMLElement).closest("button") && switchTo(r.branch)}
+              className="rel-top"
+              data-current={(r.open && r.branch === currentBranch) || undefined}
+              data-actions={!!r.view || undefined}
+              {...(r.view && {
+                role: "button",
+                tabIndex: 0,
+                "aria-pressed": r.branch === selected,
+                onClick: (e: MouseEvent) => !(e.target as HTMLElement).closest("button") && onSelect(r.branch),
+                onKeyDown: (e: KeyboardEvent) => e.target === e.currentTarget && (e.key === "Enter" || e.key === " ") && (e.preventDefault(), onSelect(r.branch)),
+              })}
             >
-              <Icon name="tag" size={13} stroke={1.4} className="faint" />
-              <span className="mono" style={{ fontSize: 12.5, fontWeight: 500 }}>v{r.version}</span>
-              <span className={`tag${r.tag === "next" ? " accent" : ""}`}>{releaseTagLabel(r.tag)}</span>
-              <span className="grow" />
-              {r.open && (
-                <div className="row" style={{ gap: 2 }}>
-                  <button className="btn btn-ghost btn-sm btn-icon" aria-label={`New feature or fix in v${r.version}`} onClick={() => nav.openNewItem({ release: r.version })}>
-                    <Icon name="plus" size={13} stroke={1.6} />
-                  </button>
-                  <button className="btn btn-ghost btn-sm btn-icon" aria-label={`Ship v${r.version}: move main and create tag`} onClick={() => onShip(r)}>
-                    <Icon name="ship" size={13} />
-                  </button>
+              <div
+                className="rel-main"
+                style={r.open ? { userSelect: "none" } : undefined}
+                onContextMenu={r.view ? (e) => actions.openMenu(releaseTarget(r), e) : undefined}
+                title={r.open ? `Double-click to switch to ${r.branch}` : undefined}
+                onDoubleClick={() => r.open && r.branch !== currentBranch && switchTo(r.branch)}
+              >
+                <div className="rel-head">
+                  <Icon name="tag" size={13} stroke={1.4} className="faint" />
+                  <span className="mono" style={{ fontSize: 12.5, fontWeight: 500 }}>v{r.version}</span>
+                  <span className={`tag${r.tag === "next" ? " accent" : ""}`}>{releaseTagLabel(r.tag)}</span>
                 </div>
+                {r.view ? (
+                  <BranchMeta b={r.view} base={r.base} current={r.branch === currentBranch} className="rel-base">
+                    <span className="mono">{r.branch}</span>
+                  </BranchMeta>
+                ) : (
+                  <div className="rel-base branch-meta">
+                    <span className="mono">{r.open ? r.branch : r.base}</span>
+                  </div>
+                )}
+              </div>
+              {r.view && (
+                <span className="rel-acts">
+                  <BranchSplit t={releaseTarget(r)} actions={actions} />
+                </span>
               )}
-            </div>
-            <div className="rel-base">
-              {r.open ? r.branch : r.base}
-              {r.open && r.branch === currentBranch && <span className="c-acc"> · checked out</span>}
             </div>
             {r.items.map((b) => row(b, target(b.name)))}
             {r.open && r.items.length === 0 && <div style={{ padding: "2px 16px 6px 37px", fontSize: 12 }} className="muted">No features or fixes yet.</div>}
@@ -477,7 +517,7 @@ function FileRow({ f, active, onPick, actions }: { f: FileChange; active: boolea
   const btn = (
     <button className="file-btn" aria-pressed={active} onClick={onPick}>
       <span className={`file-st ${color}`}>{f.status === " " ? "·" : f.status}</span>
-      <span className="grow ellipsis">
+      <span className="grow ellipsis" data-tip={f.path} data-tip-overflow>
         <span style={{ color: f.status === " " ? "var(--muted)" : "var(--fg)" }}>{base}</span> <span className="faint" style={{ fontSize: 11.5 }}>{dir}</span>
       </span>
       <span className="row mono file-nums" style={{ gap: 6, fontSize: 11 }}>
@@ -590,56 +630,84 @@ function DeleteBranchModal({
   );
 }
 
-function CommitBox({ pid, branch, enabled, staged }: { pid: string; branch: string; enabled: boolean; staged: number }) {
-  const nav = useNav();
-  const [msg, setMsg] = useState("");
+const MSG_OPEN_KEY = "gitnetix.commitMessageOpen";
+
+function CommitBox({ pid, branch, enabled, staged, changed }: { pid: string; branch: string; enabled: boolean; staged: number; changed: number }) {
+  const [summary, setSummary] = useState("");
+  const [body, setBody] = useState("");
+  const ai = useAiCatalog().data;
+  // Same lookup the backend does for the "commit" task: its route's provider, else the default.
+  const aiProvider = ai && (ai.routing.commit?.provider || ai.defaultProvider);
+  const aiOn = !ai || !!ai.providers.find((p) => p.info.id === aiProvider)?.conf;
+  // null until the user toggles it; then their last choice wins over the AI-based default.
+  const [picked, setPicked] = useState<boolean | null>(() => {
+    try {
+      const v = localStorage.getItem(MSG_OPEN_KEY);
+      return v === null ? null : v === "1";
+    } catch { return null; }
+  });
+  const open = picked ?? !aiOn;
+  const toggle = () => {
+    setPicked(!open);
+    try { localStorage.setItem(MSG_OPEN_KEY, open ? "0" : "1"); } catch { /* not persisted */ }
+  };
+  const all = !staged;
+  const canType = enabled && !!changed;
+  // An empty summary lets AI write the whole message, so a description alone has nowhere to go.
+  const orphanBody = !summary.trim() && !!body.trim();
+  const message = summary.trim() ? [summary.trim(), body.trim()].filter(Boolean).join("\n\n") : "";
+  const clear = () => { setSummary(""); setBody(""); };
   const inv = [["overview", pid], ["files", pid], ["diff", pid]];
   const commit = useAction<{ sha: string; message: string; aiWritten: boolean }>("workspace.commit", {
     invalidate: inv,
     success: (r) => `${r.aiWritten ? "AI wrote: " : "Committed: "}${r.message.split("\n")[0]}`,
   });
-  const push = useAction("workspace.push", { invalidate: inv, success: `Pushed ${branch}` });
-  const pr = useAction<{ number: number }>("prs.create", { invalidate: [["prs", pid]], success: (r) => `Opened PR #${r.number}` });
   const draft = useAction<{ message: string }>("workspace.commitMessage");
   return (
     <div className="col" style={{ padding: 12, borderTop: "1px solid var(--line)" }}>
       <div className="row faint" style={{ justifyContent: "space-between", fontSize: 11 }}>
-        <label htmlFor="ag-msg">Commit message</label>
-        <button className="btn btn-ghost btn-sm" style={{ height: 20 }} disabled={!enabled || !staged || draft.isPending}
-          title={staged ? "AI drafts a message from the staged files" : "Stage files first"} onClick={() => draft.mutate({ projectId: pid, branch }, { onSuccess: (r) => setMsg(r.message) })}>
+        <button className="row" style={{ gap: 6, padding: 0, border: 0, background: "transparent", color: "inherit", font: "inherit", cursor: "pointer" }} aria-expanded={open} aria-controls="ag-msg" onClick={toggle}>
+          <Icon name="chevronDown" size={12} className="chev" />
+          <span>Commit message</span>
+        </button>
+        {open && <button className="btn btn-ghost btn-sm" style={{ height: 20 }} disabled={!enabled || !staged || draft.isPending}
+          title={staged ? "AI drafts a message from the staged files" : "Stage files first"} onClick={() => draft.mutate({ projectId: pid, branch }, { onSuccess: (r) => {
+            const [first, ...rest] = r.message.split("\n");
+            setSummary(first);
+            setBody(rest.join("\n").trim());
+          } })}>
           <Busy on={draft.isPending}><Icon name="sparkle" size={10} /></Busy>
           Draft
-        </button>
+        </button>}
       </div>
-      <textarea
-        id="ag-msg"
-        className="textarea"
-        rows={2}
-        style={{ fontSize: 12.5, padding: "8px 10px", resize: "none" }}
-        placeholder={!enabled ? "Check out this branch to commit" : staged ? "Leave empty — AI writes it from the staged files" : "Stage files to commit"}
-        value={msg}
-        disabled={!enabled || !staged}
-        onChange={(e) => setMsg(e.target.value)}
-      />
-      <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr 1fr", gap: 6 }}>
-        <button className="btn btn-primary" style={{ height: 34 }} disabled={!enabled || !staged || commit.isPending} onClick={() => commit.mutate({ projectId: pid, branch, message: msg }, { onSuccess: () => setMsg("") })}>
-          <Busy on={commit.isPending}><Icon name="sparkle" size={12} /></Busy>
-          <span>Commit{staged ? <span style={{ fontWeight: 400, opacity: 0.75 }}> {staged}</span> : null}</span>
-        </button>
-        <button className="btn btn-raised" style={{ height: 34 }} disabled={push.isPending} onClick={() => push.mutate({ projectId: pid, branch })}>
-          <Busy on={push.isPending}><Icon name="push" size={12} stroke={1.6} /></Busy>
-          <span>Push</span>
-        </button>
-        <button
-          className="btn btn-raised"
-          style={{ height: 34 }}
-          disabled={pr.isPending}
-          onClick={() => pr.mutate({ projectId: pid, branch }, { onSuccess: (r) => nav.go({ name: "prs", number: r.number }) })}
-        >
-          <Busy on={pr.isPending}><Icon name="sparkle" size={12} className="c-acc" /></Busy>
-          <span>PR</span>
-        </button>
-      </div>
+      {open && <div id="ag-msg" className="col">
+        <input
+          id="ag-summary"
+          className="input"
+          style={{ height: 32, fontSize: 12.5, padding: "0 10px" }}
+          placeholder={!enabled ? "Check out this branch to commit" : !changed ? "No changes to commit" : "Summary — leave empty for AI"}
+          aria-label="Summary"
+          value={summary}
+          disabled={!canType}
+          onChange={(e) => setSummary(e.target.value)}
+        />
+        <textarea
+          className="textarea"
+          rows={3}
+          style={{ fontSize: 12.5, padding: "8px 10px", resize: "none" }}
+          placeholder="Description (optional)"
+          aria-label="Description"
+          value={body}
+          disabled={!canType}
+          onChange={(e) => setBody(e.target.value)}
+        />
+      </div>}
+      <button className="btn btn-primary" style={{ height: 34, width: "100%" }} disabled={!canType || orphanBody || commit.isPending}
+        title={orphanBody ? "Add a summary to go with the description" : undefined}
+        onClick={() => commit.mutate({ projectId: pid, branch, message, all }, { onSuccess: clear })}>
+        <Busy on={commit.isPending}><Icon name="sparkle" size={12} /></Busy>
+        <span>{all ? "Stage all & Commit" : "Commit"}<span style={{ fontWeight: 400, opacity: 0.75, marginLeft: 6 }}>{all ? changed || null : staged}</span></span>
+      </button>
     </div>
   );
 }
