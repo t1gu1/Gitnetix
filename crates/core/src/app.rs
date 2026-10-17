@@ -224,6 +224,28 @@ fn release_branch(version: &str) -> String {
     format!("release/{}", version.trim_start_matches('v'))
 }
 
+/// Register `release/x.y.z` branches Gitnetix does not know yet. Returns whether any were added.
+fn import_release_branches(p: &mut Project, branches: &[BranchInfo], default: &str) -> bool {
+    let mut added = false;
+    for b in branches {
+        let Some(v) = b.name.strip_prefix("release/") else { continue };
+        if p.releases.iter().any(|r| r.version == v || r.branch == b.name) || p.forgotten_releases.iter().any(|f| f == v) {
+            continue;
+        }
+        let hotfix = v.split('.').nth(2).is_some_and(|patch| patch != "0");
+        p.releases.push(Release {
+            version: v.into(),
+            kind: if hotfix { ReleaseKind::Hotfix } else { ReleaseKind::Next },
+            branch: b.name.clone(),
+            base: default.into(),
+            created_at: now(),
+            ..Default::default()
+        });
+        added = true;
+    }
+    added
+}
+
 impl Gitnetix {
     pub fn open(dir: &Path) -> Result<Arc<Gitnetix>> {
         let store = Store::open(dir)?;
@@ -387,21 +409,8 @@ impl Gitnetix {
     async fn import_release_branches(&self, p: &mut Project) {
         let git = Git::new(&p.path);
         let default = git.default_branch().await.unwrap_or_else(|_| "main".into());
-        for b in git.branches().await.unwrap_or_default() {
-            if let Some(v) = b.name.strip_prefix("release/") {
-                if !p.releases.iter().any(|r| r.version == v) {
-                    let hotfix = v.split('.').nth(2).is_some_and(|patch| patch != "0");
-                    p.releases.push(Release {
-                        version: v.into(),
-                        kind: if hotfix { ReleaseKind::Hotfix } else { ReleaseKind::Next },
-                        branch: b.name.clone(),
-                        base: default.clone(),
-                        created_at: now(),
-                        ..Default::default()
-                    });
-                }
-            }
-        }
+        let branches = git.branches().await.unwrap_or_default();
+        import_release_branches(p, &branches, &default);
     }
 
     /// Close or reopen a project's tab; its data is kept either way.
@@ -436,11 +445,18 @@ impl Gitnetix {
     // ---------- workspace ----------
 
     pub async fn overview(&self, project_id: &str) -> Result<Overview> {
-        let p = self.store.project(project_id)?;
+        let mut p = self.store.project(project_id)?;
         let git = self.git(&p);
         let default = git.default_branch().await?;
         let current = git.current_branch().await?;
         let branches = git.branches().await?;
+        // Release branches created outside Gitnetix (or after the project was added).
+        if import_release_branches(&mut p.clone(), &branches, &default) {
+            p = self.store.with_project(project_id, |p| {
+                import_release_branches(p, &branches, &default);
+                Ok(p.clone())
+            })?;
+        }
         let wts = git.worktrees().await?;
         let agents = self.agents.list();
         let rebasing = git.is_rebasing().await.unwrap_or(false);
@@ -486,7 +502,7 @@ impl Gitnetix {
             });
         }
         let mut other_branches = Vec::new();
-        for b in branches.iter().filter(|b| b.name != default && !b.name.starts_with("release/") && !p.branches.contains_key(&b.name)) {
+        for b in branches.iter().filter(|b| b.name != default && !p.releases.iter().any(|r| r.branch == b.name) && !p.branches.contains_key(&b.name)) {
             other_branches.push(self.branch_view(&p, &git, &b.name, &default, Some(b), &wts, &agents).await);
         }
         let default_view = match branches.iter().find(|b| b.name == default) {
@@ -769,6 +785,7 @@ impl Gitnetix {
         }
         let r = Release { version, kind, branch, base: default, created_at: now(), shipped_at: None, tag: None };
         self.store.with_project(project_id, |p| {
+            p.forgotten_releases.retain(|f| *f != r.version);
             p.releases.push(r.clone());
             Ok(())
         })?;
@@ -825,6 +842,9 @@ impl Gitnetix {
     pub fn delete_release(&self, project_id: &str, version: &str) -> Result<()> {
         self.store.with_project(project_id, |p| {
             p.releases.retain(|r| !(r.version == version && r.shipped_at.is_none()));
+            if !p.forgotten_releases.iter().any(|f| f == version) {
+                p.forgotten_releases.push(version.into());
+            }
             Ok(())
         })?;
         self.changed(project_id);

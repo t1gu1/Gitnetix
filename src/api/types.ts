@@ -58,6 +58,7 @@ export interface Project {
   aiCommits: string[];
   addedAt: string;
   hidden?: boolean;
+  forgottenReleases?: string[];
 }
 
 export interface ProjectSummary {

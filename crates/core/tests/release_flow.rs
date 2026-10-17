@@ -198,3 +198,29 @@ async fn pull_and_tracking() {
     assert_eq!(ov["otherBranches"][0]["behind"], 1);
     assert_eq!(ov["otherBranches"][0]["upstreamBehind"], 0);
 }
+
+#[tokio::test]
+async fn release_branch_created_after_add_is_picked_up() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("late");
+    init_repo(&repo);
+
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let added = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await;
+    let pid = added[0]["id"].as_str().unwrap().to_string();
+
+    sh(&repo, &["branch", "release/1.2.0"]);
+    sh(&repo, &["branch", "feat/loose"]);
+    let ov = call(&k, "workspace.overview", json!({ "projectId": pid })).await;
+    let open: Vec<&str> = ov["releases"].as_array().unwrap().iter().filter(|r| r["open"] == true).map(|r| r["version"].as_str().unwrap()).collect();
+    assert_eq!(open, ["1.2.0"]);
+    let others: Vec<&str> = ov["otherBranches"].as_array().unwrap().iter().map(|b| b["name"].as_str().unwrap()).collect();
+    assert_eq!(others, ["feat/loose"]);
+
+    // Forgotten releases stay forgotten; their branch shows up as a plain branch.
+    call(&k, "releases.delete", json!({ "projectId": pid, "version": "1.2.0" })).await;
+    let ov = call(&k, "workspace.overview", json!({ "projectId": pid })).await;
+    assert!(ov["releases"].as_array().unwrap().iter().all(|r| r["open"] == false));
+    let others: Vec<&str> = ov["otherBranches"].as_array().unwrap().iter().map(|b| b["name"].as_str().unwrap()).collect();
+    assert_eq!(others, ["feat/loose", "release/1.2.0"]);
+}

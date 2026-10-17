@@ -59,6 +59,8 @@ pub struct Project {
     pub added_at: String,
     /// Closed from the project bar; still saved and listed on the welcome screen.
     pub hidden: bool,
+    /// Versions forgotten with `releases.delete`; their branches are not re-imported.
+    pub forgotten_releases: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
