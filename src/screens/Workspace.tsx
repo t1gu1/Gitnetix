@@ -104,10 +104,11 @@ export function Workspace() {
 
           <section aria-label="Changed files" className="ws-files" data-pane data-active={pane === "files"}>
             <div className="col" style={{ gap: 10, padding: "12px 14px", borderBottom: "1px solid var(--line)" }}>
-              <div className="row" style={{ alignItems: "baseline", minWidth: 0 }}>
+              <div className="row" style={{ alignItems: "center", minWidth: 0 }}>
                 <span className="mono ellipsis" style={{ fontSize: 13, fontWeight: 500 }}>{branch ?? "No branch"}</span>
                 {base && branch !== base && <span className="faint" style={{ fontSize: 11.5, whiteSpace: "nowrap" }}>{view?.merged ? "merged into" : "from"} {base}</span>}
                 {view?.merged && <span className="c-add row" style={{ marginLeft: 6, flex: "0 0 auto" }} title={`All commits are in ${base}`}><Icon name="merged" size={12} stroke={1.6} label="merged" /></span>}
+                {branch && <ShareButtons pid={pid} branch={branch} toPush={view ? (view.upstream ? view.upstreamAhead : view.ahead) : 0} />}
               </div>
               <Seg<Mode>
                 label="File view"
@@ -157,7 +158,7 @@ export function Workspace() {
                 <li className="empty">{mode === "wip" ? (checkedOut ? "No uncommitted changes." : "This branch is not checked out.") : "No changes on this branch yet."}</li>
               )}
             </ul>
-            {branch && <CommitBox pid={pid} branch={branch} enabled={checkedOut} staged={stagedCount} toPush={view ? (view.upstream ? view.upstreamAhead : view.ahead) : 0} />}
+            {branch && <CommitBox pid={pid} branch={branch} enabled={checkedOut} staged={stagedCount} changed={wipCount} />}
           </section>
 
           <section aria-label="Diff" className="ws-diff" data-pane data-active={pane === "diff"}>
@@ -630,56 +631,84 @@ function DeleteBranchModal({
   );
 }
 
-function CommitBox({ pid, branch, enabled, staged, toPush }: { pid: string; branch: string; enabled: boolean; staged: number; toPush: number }) {
+function ShareButtons({ pid, branch, toPush }: { pid: string; branch: string; toPush: number }) {
   const nav = useNav();
-  const [msg, setMsg] = useState("");
+  const push = useAction("workspace.push", { invalidate: [["overview", pid], ["files", pid], ["diff", pid]], success: `Pushed ${branch}` });
+  const pr = useAction<{ number: number }>("prs.create", { invalidate: [["prs", pid]], success: (r) => `Opened PR #${r.number}` });
+  return (
+    <div className="row" style={{ marginLeft: "auto", gap: 6, flex: "0 0 auto" }}>
+      <button className="btn btn-raised btn-sm" style={{ height: 26 }} disabled={push.isPending} onClick={() => push.mutate({ projectId: pid, branch })}>
+        <Busy on={push.isPending}><Icon name="push" size={12} stroke={1.6} /></Busy>
+        <span>Push{toPush ? <span style={{ fontWeight: 400, opacity: 0.75, marginLeft: 6 }}>{toPush}</span> : null}</span>
+      </button>
+      <button
+        className="btn btn-raised btn-sm"
+        style={{ height: 26 }}
+        disabled={pr.isPending}
+        onClick={() => pr.mutate({ projectId: pid, branch }, { onSuccess: (r) => nav.go({ name: "prs", number: r.number }) })}
+      >
+        <Busy on={pr.isPending}><Icon name="sparkle" size={12} className="c-acc" /></Busy>
+        <span>PR</span>
+      </button>
+    </div>
+  );
+}
+
+function CommitBox({ pid, branch, enabled, staged, changed }: { pid: string; branch: string; enabled: boolean; staged: number; changed: number }) {
+  const [summary, setSummary] = useState("");
+  const [body, setBody] = useState("");
+  const all = !staged;
+  const canType = enabled && !!changed;
+  // An empty summary lets AI write the whole message, so a description alone has nowhere to go.
+  const orphanBody = !summary.trim() && !!body.trim();
+  const message = summary.trim() ? [summary.trim(), body.trim()].filter(Boolean).join("\n\n") : "";
+  const clear = () => { setSummary(""); setBody(""); };
   const inv = [["overview", pid], ["files", pid], ["diff", pid]];
   const commit = useAction<{ sha: string; message: string; aiWritten: boolean }>("workspace.commit", {
     invalidate: inv,
     success: (r) => `${r.aiWritten ? "AI wrote: " : "Committed: "}${r.message.split("\n")[0]}`,
   });
-  const push = useAction("workspace.push", { invalidate: inv, success: `Pushed ${branch}` });
-  const pr = useAction<{ number: number }>("prs.create", { invalidate: [["prs", pid]], success: (r) => `Opened PR #${r.number}` });
   const draft = useAction<{ message: string }>("workspace.commitMessage");
   return (
     <div className="col" style={{ padding: 12, borderTop: "1px solid var(--line)" }}>
       <div className="row faint" style={{ justifyContent: "space-between", fontSize: 11 }}>
-        <label htmlFor="ag-msg">Commit message</label>
+        <label htmlFor="ag-summary">Commit message</label>
         <button className="btn btn-ghost btn-sm" style={{ height: 20 }} disabled={!enabled || !staged || draft.isPending}
-          title={staged ? "AI drafts a message from the staged files" : "Stage files first"} onClick={() => draft.mutate({ projectId: pid, branch }, { onSuccess: (r) => setMsg(r.message) })}>
+          title={staged ? "AI drafts a message from the staged files" : "Stage files first"} onClick={() => draft.mutate({ projectId: pid, branch }, { onSuccess: (r) => {
+            const [first, ...rest] = r.message.split("\n");
+            setSummary(first);
+            setBody(rest.join("\n").trim());
+          } })}>
           <Busy on={draft.isPending}><Icon name="sparkle" size={10} /></Busy>
           Draft
         </button>
       </div>
-      <textarea
-        id="ag-msg"
-        className="textarea"
-        rows={2}
-        style={{ fontSize: 12.5, padding: "8px 10px", resize: "none" }}
-        placeholder={!enabled ? "Check out this branch to commit" : staged ? "Leave empty — AI writes it from the staged files" : "Stage files to commit"}
-        value={msg}
-        disabled={!enabled || !staged}
-        onChange={(e) => setMsg(e.target.value)}
+      <input
+        id="ag-summary"
+        className="input"
+        style={{ height: 32, fontSize: 12.5, padding: "0 10px" }}
+        placeholder={!enabled ? "Check out this branch to commit" : !changed ? "No changes to commit" : "Summary — leave empty for AI"}
+        aria-label="Summary"
+        value={summary}
+        disabled={!canType}
+        onChange={(e) => setSummary(e.target.value)}
       />
-      <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr 1fr", gap: 6 }}>
-        <button className="btn btn-primary" style={{ height: 34 }} disabled={!enabled || !staged || commit.isPending} onClick={() => commit.mutate({ projectId: pid, branch, message: msg }, { onSuccess: () => setMsg("") })}>
-          <Busy on={commit.isPending}><Icon name="sparkle" size={12} /></Busy>
-          <span>Commit{staged ? <span style={{ fontWeight: 400, opacity: 0.75, marginLeft: 6 }}>{staged}</span> : null}</span>
-        </button>
-        <button className="btn btn-raised" style={{ height: 34, paddingLeft: 6 }} disabled={push.isPending} onClick={() => push.mutate({ projectId: pid, branch })}>
-          <Busy on={push.isPending}><Icon name="push" size={12} stroke={1.6} /></Busy>
-          <span>Push{toPush ? <span style={{ fontWeight: 400, opacity: 0.75, marginLeft: 6 }}>{toPush}</span> : null}</span>
-        </button>
-        <button
-          className="btn btn-raised"
-          style={{ height: 34 }}
-          disabled={pr.isPending}
-          onClick={() => pr.mutate({ projectId: pid, branch }, { onSuccess: (r) => nav.go({ name: "prs", number: r.number }) })}
-        >
-          <Busy on={pr.isPending}><Icon name="sparkle" size={12} className="c-acc" /></Busy>
-          <span>PR</span>
-        </button>
-      </div>
+      <textarea
+        className="textarea"
+        rows={3}
+        style={{ fontSize: 12.5, padding: "8px 10px", resize: "none" }}
+        placeholder="Description (optional)"
+        aria-label="Description"
+        value={body}
+        disabled={!canType}
+        onChange={(e) => setBody(e.target.value)}
+      />
+      <button className="btn btn-primary" style={{ height: 34, width: "100%" }} disabled={!canType || orphanBody || commit.isPending}
+        title={orphanBody ? "Add a summary to go with the description" : undefined}
+        onClick={() => commit.mutate({ projectId: pid, branch, message, all }, { onSuccess: clear })}>
+        <Busy on={commit.isPending}><Icon name="sparkle" size={12} /></Busy>
+        <span>{all ? "Stage all & Commit" : "Commit"}<span style={{ fontWeight: 400, opacity: 0.75, marginLeft: 6 }}>{all ? changed || null : staged}</span></span>
+      </button>
     </div>
   );
 }
