@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 
-import { useAction, useAgents, useDiff, useFiles, useOverview } from "../api/hooks";
+import { useAction, useAgents, useAiCatalog, useDiff, useFiles, useOverview } from "../api/hooks";
 import type { BranchView, FileChange, MergeResult, ReleaseView } from "../api/types";
 import { AgentLog } from "../components/AgentLog";
 import { DiffView } from "../components/DiffView";
@@ -654,9 +654,27 @@ function ShareButtons({ pid, branch, toPush }: { pid: string; branch: string; to
   );
 }
 
+const MSG_OPEN_KEY = "gitnetix.commitMessageOpen";
+
 function CommitBox({ pid, branch, enabled, staged, changed }: { pid: string; branch: string; enabled: boolean; staged: number; changed: number }) {
   const [summary, setSummary] = useState("");
   const [body, setBody] = useState("");
+  const ai = useAiCatalog().data;
+  // Same lookup the backend does for the "commit" task: its route's provider, else the default.
+  const aiProvider = ai && (ai.routing.commit?.provider || ai.defaultProvider);
+  const aiOn = !ai || !!ai.providers.find((p) => p.info.id === aiProvider)?.conf;
+  // null until the user toggles it; then their last choice wins over the AI-based default.
+  const [picked, setPicked] = useState<boolean | null>(() => {
+    try {
+      const v = localStorage.getItem(MSG_OPEN_KEY);
+      return v === null ? null : v === "1";
+    } catch { return null; }
+  });
+  const open = picked ?? !aiOn;
+  const toggle = () => {
+    setPicked(!open);
+    try { localStorage.setItem(MSG_OPEN_KEY, open ? "0" : "1"); } catch { /* not persisted */ }
+  };
   const all = !staged;
   const canType = enabled && !!changed;
   // An empty summary lets AI write the whole message, so a description alone has nowhere to go.
@@ -672,8 +690,11 @@ function CommitBox({ pid, branch, enabled, staged, changed }: { pid: string; bra
   return (
     <div className="col" style={{ padding: 12, borderTop: "1px solid var(--line)" }}>
       <div className="row faint" style={{ justifyContent: "space-between", fontSize: 11 }}>
-        <label htmlFor="ag-summary">Commit message</label>
-        <button className="btn btn-ghost btn-sm" style={{ height: 20 }} disabled={!enabled || !staged || draft.isPending}
+        <button className="row" style={{ gap: 6, padding: 0, border: 0, background: "transparent", color: "inherit", font: "inherit", cursor: "pointer" }} aria-expanded={open} aria-controls="ag-msg" onClick={toggle}>
+          <Icon name="chevronDown" size={12} className="chev" />
+          <span>Commit message</span>
+        </button>
+        {open && <button className="btn btn-ghost btn-sm" style={{ height: 20 }} disabled={!enabled || !staged || draft.isPending}
           title={staged ? "AI drafts a message from the staged files" : "Stage files first"} onClick={() => draft.mutate({ projectId: pid, branch }, { onSuccess: (r) => {
             const [first, ...rest] = r.message.split("\n");
             setSummary(first);
@@ -681,28 +702,30 @@ function CommitBox({ pid, branch, enabled, staged, changed }: { pid: string; bra
           } })}>
           <Busy on={draft.isPending}><Icon name="sparkle" size={10} /></Busy>
           Draft
-        </button>
+        </button>}
       </div>
-      <input
-        id="ag-summary"
-        className="input"
-        style={{ height: 32, fontSize: 12.5, padding: "0 10px" }}
-        placeholder={!enabled ? "Check out this branch to commit" : !changed ? "No changes to commit" : "Summary — leave empty for AI"}
-        aria-label="Summary"
-        value={summary}
-        disabled={!canType}
-        onChange={(e) => setSummary(e.target.value)}
-      />
-      <textarea
-        className="textarea"
-        rows={3}
-        style={{ fontSize: 12.5, padding: "8px 10px", resize: "none" }}
-        placeholder="Description (optional)"
-        aria-label="Description"
-        value={body}
-        disabled={!canType}
-        onChange={(e) => setBody(e.target.value)}
-      />
+      {open && <div id="ag-msg" className="col">
+        <input
+          id="ag-summary"
+          className="input"
+          style={{ height: 32, fontSize: 12.5, padding: "0 10px" }}
+          placeholder={!enabled ? "Check out this branch to commit" : !changed ? "No changes to commit" : "Summary — leave empty for AI"}
+          aria-label="Summary"
+          value={summary}
+          disabled={!canType}
+          onChange={(e) => setSummary(e.target.value)}
+        />
+        <textarea
+          className="textarea"
+          rows={3}
+          style={{ fontSize: 12.5, padding: "8px 10px", resize: "none" }}
+          placeholder="Description (optional)"
+          aria-label="Description"
+          value={body}
+          disabled={!canType}
+          onChange={(e) => setBody(e.target.value)}
+        />
+      </div>}
       <button className="btn btn-primary" style={{ height: 34, width: "100%" }} disabled={!canType || orphanBody || commit.isPending}
         title={orphanBody ? "Add a summary to go with the description" : undefined}
         onClick={() => commit.mutate({ projectId: pid, branch, message, all }, { onSuccess: clear })}>
