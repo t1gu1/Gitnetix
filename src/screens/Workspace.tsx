@@ -240,7 +240,7 @@ function ReleasesPane({
   const switchTo = (b: string) => sw.mutate({ projectId: nav.projectId!, branch: b }, { onSuccess: () => toast(`Switched to ${b}`, "ok") });
   const open = releases.filter((r) => r.open).map((r) => r.version);
   const row = (b: BranchView, t: BranchTarget) => (
-    <div key={b.name} className="branch-row" data-merged={b.merged || undefined} onContextMenu={(e) => actions.openMenu(t, e)}>
+    <div key={b.name} className="branch-row" data-merged={b.merged || undefined} data-current={b.name === currentBranch || undefined} onContextMenu={(e) => actions.openMenu(t, e)}>
       <button className="branch-btn" aria-pressed={b.name === selected} onClick={() => onSelect(b.name)}>
         <span className={`branch-kind ${b.kind === "fix" ? "c-del" : "c-mod"}`}>{b.kind}</span>
         <span className="col grow" style={{ gap: 3, minWidth: 0 }}>

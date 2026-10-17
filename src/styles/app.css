@@ -195,6 +195,11 @@ body.dragging-tab, body.dragging-tab * { cursor: grabbing !important; }
 .branch-row { position: relative; }
 .branch-row[data-merged] .branch-kind, .branch-row[data-merged] .branch-btn .mono.ellipsis { opacity: .6; }
 .branch-row:hover .branch-btn:not([aria-pressed="true"]) { background: var(--raised); }
+.branch-row[data-current] .branch-btn:not([aria-pressed="true"]) { background: color-mix(in srgb, var(--accent) 9%, transparent); }
+.branch-row[data-current]:hover .branch-btn:not([aria-pressed="true"]) { background: color-mix(in srgb, var(--accent) 9%, var(--raised)); }
+.branch-row[data-current]:hover:not(:has([aria-pressed="true"])) .branch-acts { background: color-mix(in srgb, var(--accent) 9%, var(--raised)); box-shadow: -10px 0 8px -4px color-mix(in srgb, var(--accent) 9%, var(--raised)); }
+.branch-row[data-current] .branch-btn[aria-pressed="true"] { background: color-mix(in srgb, var(--accent) 16%, var(--sel)); }
+.branch-row[data-current]:has([aria-pressed="true"]) .branch-acts { background: color-mix(in srgb, var(--accent) 16%, var(--sel)); box-shadow: -10px 0 8px -4px color-mix(in srgb, var(--accent) 16%, var(--sel)); }
 .branch-acts { display: flex; }
 .branch-row .branch-acts { position: absolute; top: 8px; right: 14px; padding-left: 10px; border-radius: 4px; opacity: 0; pointer-events: none; transition: opacity .12s; background: var(--raised); box-shadow: -10px 0 8px -4px var(--raised); }
 .branch-row:hover .branch-acts, .branch-row:focus-within .branch-acts { opacity: 1; pointer-events: auto; }
