@@ -206,6 +206,8 @@ pub struct MergeResult {
     pub sha: String,
     pub already_merged: bool,
     pub deleted: bool,
+    /// The main checkout was on the deleted branch and moved to `into`.
+    pub switched: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -1280,12 +1282,29 @@ impl Gitnetix {
         if into == branch {
             return Err(Error::Invalid(format!("{branch} has no other branch to merge into")));
         }
+        // Deleting the branch the main checkout is on means moving that checkout to `into`:
+        // make sure that can happen before merging anything.
+        let switch = delete_after && self.checkout_dir(&p, branch).await?.is_some_and(|d| d == Path::new(&p.path));
+        if switch {
+            if let Some(dir) = self.checkout_dir(&p, &into).await? {
+                return Err(Error::Invalid(format!(
+                    "{into} is open in a worktree at {}, so this checkout can't switch to it. Merge without deleting, or close that worktree first.",
+                    dir.display()
+                )));
+            }
+        }
         let (sha, already_merged) = self.merge_refs(&p, branch, &into).await?;
         self.changed(project_id);
+        if switch {
+            self.git(&p)
+                .switch(&into)
+                .await
+                .map_err(|e| Error::Invalid(format!("Merged into {into}, but switching to it failed, so {branch} was kept: {e}")))?;
+        }
         if delete_after {
             self.delete_branch(project_id, branch, false).await?;
         }
-        Ok(MergeResult { into, sha, already_merged, deleted: delete_after })
+        Ok(MergeResult { into, sha, already_merged, deleted: delete_after, switched: switch })
     }
 
     /// Bring a branch up to date with its base by merging the base into it
@@ -1300,7 +1319,7 @@ impl Gitnetix {
         }
         let (sha, already_merged) = self.merge_refs(&p, &from, branch).await?;
         self.changed(project_id);
-        Ok(MergeResult { into: branch.to_string(), sha, already_merged, deleted: false })
+        Ok(MergeResult { into: branch.to_string(), sha, already_merged, deleted: false, switched: false })
     }
 
     /// Merge commit of `from` into local branch `into`. Returns (new tip, already merged).

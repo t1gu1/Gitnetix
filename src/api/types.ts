@@ -108,6 +108,8 @@ export interface MergeResult {
   sha: string;
   alreadyMerged: boolean;
   deleted: boolean;
+  /** The checkout was on the deleted branch and moved to `into`. */
+  switched: boolean;
 }
 
 export interface ReleaseView {

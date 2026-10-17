@@ -229,7 +229,7 @@ export function Workspace() {
       {actions.menuEl}
       {dialog?.kind === "conflicts" && <ConflictModal pid={pid} branch={dialog.branch} base={baseFor(dialog.branch)} onClose={() => setDialog(null)} />}
       {dialog?.kind === "merge" && (
-        <MergeModal pid={pid} branch={dialog.branch} base={baseFor(dialog.branch)} onClose={() => setDialog(null)} onDeleted={() => dialog.branch === branch && nav.selectBranch(undefined)} />
+        <MergeModal pid={pid} branch={dialog.branch} base={baseFor(dialog.branch)} onClose={() => setDialog(null)} checkedOut={target(dialog.branch).view.checkedOut && !target(dialog.branch).view.worktree} onDeleted={(into) => dialog.branch === branch && nav.selectBranch(into)} />
       )}
       {dialog?.kind === "delete" && (
         <DeleteBranchModal
@@ -450,11 +450,11 @@ function FileRow({ f, active, onPick, actions }: { f: FileChange; active: boolea
   );
 }
 
-function MergeModal({ pid, branch, base, onClose, onDeleted }: { pid: string; branch: string; base: string; onClose: () => void; onDeleted: () => void }) {
+function MergeModal({ pid, branch, base, checkedOut, onClose, onDeleted }: { pid: string; branch: string; base: string; checkedOut: boolean; onClose: () => void; onDeleted: (into: string) => void }) {
   const [del, setDel] = useState(false);
   const merge = useAction<MergeResult>("branches.merge", {
     invalidate: [["overview", pid], ["files", pid], ["diff", pid]],
-    success: (r) => `${r.alreadyMerged ? `${branch} was already in ${r.into}` : `Merged ${branch} into ${r.into}`}${r.deleted ? " · branch deleted" : ""}`,
+    success: (r) => `${r.alreadyMerged ? `${branch} was already in ${r.into}` : `Merged ${branch} into ${r.into}`}${r.switched ? ` · switched to ${r.into}` : ""}${r.deleted ? " · branch deleted" : ""}`,
   });
   return (
     <Modal
@@ -467,7 +467,7 @@ function MergeModal({ pid, branch, base, onClose, onDeleted }: { pid: string; br
           <button
             className="btn btn-primary btn-md"
             disabled={merge.isPending}
-            onClick={() => merge.mutate({ projectId: pid, branch, deleteBranch: del }, { onSuccess: (r) => { if (r.deleted) onDeleted(); onClose(); } })}
+            onClick={() => merge.mutate({ projectId: pid, branch, deleteBranch: del }, { onSuccess: (r) => { if (r.deleted) onDeleted(r.into); onClose(); } })}
           >
             {merge.isPending && <span className="spinner" />}
             Merge into {base}
@@ -482,7 +482,7 @@ function MergeModal({ pid, branch, base, onClose, onDeleted }: { pid: string; br
       {merge.error && <ErrorBox error={merge.error} />}
       <label className="check">
         <input type="checkbox" checked={del} onChange={() => setDel(!del)} />
-        <span>Delete <span className="mono">{branch}</span> after merging</span>
+        <span>Delete <span className="mono">{branch}</span> after merging{checkedOut ? <> and switch to <span className="mono">{base}</span></> : null}</span>
       </label>
     </Modal>
   );
