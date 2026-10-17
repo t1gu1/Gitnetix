@@ -187,24 +187,26 @@ body.dragging-tab, body.dragging-tab * { cursor: grabbing !important; }
 .ws-diff { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; min-height: 0; background: var(--bg); }
 .pane-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; height: 44px; flex: 0 0 44px; padding: 0 12px 0 16px; border-bottom: 1px solid var(--line); }
 .rel-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px 4px 16px; }
-.rel-base { padding: 0 16px 4px 37px; font-family: var(--mono); font-size: 11px; color: var(--faint); }
-.branch-btn { display: flex; align-items: flex-start; gap: 6px; margin: 0 8px; padding: 8px 10px 8px 13px; min-height: 44px; border: 0; border-radius: 4px; background: transparent; color: var(--fg); text-align: left; width: calc(100% - 16px); }
-.branch-btn[aria-pressed="true"] { background: var(--sel); }
-.branch-btn:hover { background: var(--raised); }
-.branch-kind { font-family: var(--mono); font-size: 10px; font-weight: 500; text-transform: uppercase; width: 34px; flex: 0 0 34px; padding-top: 2px; }
-.branch-row { position: relative; }
+.rel-base { padding: 0 16px 6px 37px; }
+/* Release header and branch rows share one box: text column + action column,
+   so the actions never cover the text. 8px padding, 3px between lines, 44px min. */
+.rel-top, .branch-row { display: flex; align-items: flex-start; gap: 8px; min-height: 44px; margin: 0 8px; padding: 8px 8px 8px 0; border-radius: 4px; }
+.rel-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.rel-top .rel-head { height: 16px; padding: 0 0 0 8px; }
+.rel-top .rel-base { padding: 0 0 0 29px; }
+.rel-top[data-actions] { cursor: pointer; }
+.rel-top[data-actions]:hover, .branch-row:hover { background: var(--raised); }
+.rel-top[data-current], .branch-row[data-current] { background: color-mix(in srgb, var(--accent) 9%, transparent); }
+.rel-top[data-current][data-actions]:hover, .branch-row[data-current]:hover { background: color-mix(in srgb, var(--accent) 9%, var(--raised)); }
+.rel-top[aria-pressed="true"], .branch-row:has([aria-pressed="true"]) { background: var(--sel); }
+.rel-top[data-current][aria-pressed="true"], .branch-row[data-current]:has([aria-pressed="true"]) { background: color-mix(in srgb, var(--accent) 16%, var(--sel)); }
+.rel-acts, .branch-acts { flex: 0 0 auto; display: flex; opacity: 0; pointer-events: none; transition: opacity .12s; }
+.rel-top:hover .rel-acts, .rel-top:focus-within .rel-acts, .branch-row:hover .branch-acts, .branch-row:focus-within .branch-acts,
+.rel-top[aria-pressed="true"] .rel-acts, .branch-row:has([aria-pressed="true"]) .branch-acts { opacity: 1; pointer-events: auto; }
+@media (hover: none) { .rel-acts, .branch-acts { opacity: 1; pointer-events: auto; } }
+.branch-btn { flex: 1 1 auto; min-width: 0; display: flex; align-items: flex-start; gap: 6px; margin: -8px 0; padding: 8px 0 8px 13px; min-height: 44px; border: 0; border-radius: 4px; background: transparent; color: var(--fg); text-align: left; }
 .branch-row[data-merged] .branch-kind, .branch-row[data-merged] .branch-btn .mono.ellipsis { opacity: .6; }
-.branch-row:hover .branch-btn:not([aria-pressed="true"]) { background: var(--raised); }
-.branch-row[data-current] .branch-btn:not([aria-pressed="true"]) { background: color-mix(in srgb, var(--accent) 9%, transparent); }
-.branch-row[data-current]:hover .branch-btn:not([aria-pressed="true"]) { background: color-mix(in srgb, var(--accent) 9%, var(--raised)); }
-.branch-row[data-current]:hover:not(:has([aria-pressed="true"])) .branch-acts { background: color-mix(in srgb, var(--accent) 9%, var(--raised)); box-shadow: -10px 0 8px -4px color-mix(in srgb, var(--accent) 9%, var(--raised)); }
-.branch-row[data-current] .branch-btn[aria-pressed="true"] { background: color-mix(in srgb, var(--accent) 16%, var(--sel)); }
-.branch-row[data-current]:has([aria-pressed="true"]) .branch-acts { background: color-mix(in srgb, var(--accent) 16%, var(--sel)); box-shadow: -10px 0 8px -4px color-mix(in srgb, var(--accent) 16%, var(--sel)); }
-.branch-acts { display: flex; }
-.branch-row .branch-acts { position: absolute; top: 8px; right: 14px; padding-left: 10px; border-radius: 4px; opacity: 0; pointer-events: none; transition: opacity .12s; background: var(--raised); box-shadow: -10px 0 8px -4px var(--raised); }
-.branch-row:hover .branch-acts, .branch-row:focus-within .branch-acts { opacity: 1; pointer-events: auto; }
-.branch-row:has([aria-pressed="true"]) .branch-acts { opacity: 1; pointer-events: auto; background: var(--sel); box-shadow: -10px 0 8px -4px var(--sel); }
-@media (hover: none) { .branch-row .branch-acts { opacity: 1; pointer-events: auto; } }
+.branch-kind { font-family: var(--mono); font-size: 10px; font-weight: 500; text-transform: uppercase; width: 34px; flex: 0 0 34px; padding-top: 2px; }
 .split { display: inline-flex; flex: 0 0 auto; }
 .split-main { border-top-right-radius: 0; border-bottom-right-radius: 0; }
 .split-more { margin-left: -1px; border-top-left-radius: 0; border-bottom-left-radius: 0; }

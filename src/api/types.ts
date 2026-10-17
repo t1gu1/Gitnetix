@@ -107,6 +107,8 @@ export interface ReleaseView {
   open: boolean;
   items: BranchView[];
   note: string;
+  /** The release branch itself (open releases only). */
+  view?: BranchView | null;
 }
 
 export interface Overview {

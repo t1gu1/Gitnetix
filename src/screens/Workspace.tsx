@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 
 import { useAction, useAgents, useDiff, useFiles, useOverview } from "../api/hooks";
 import type { BranchView, FileChange, MergeResult, ReleaseView } from "../api/types";
@@ -30,13 +30,16 @@ export function Workspace() {
 
   const o = ov.data;
   const allItems = useMemo(() => (o?.releases ?? []).flatMap((r) => r.items), [o]);
-  const views = useMemo(() => [...allItems, ...(o?.otherBranches ?? []), ...(o?.defaultView ? [o.defaultView] : [])], [allItems, o]);
+  const releaseViews = useMemo(() => (o?.releases ?? []).flatMap((r) => (r.view ? [r.view] : [])), [o]);
+  const views = useMemo(() => [...allItems, ...releaseViews, ...(o?.otherBranches ?? []), ...(o?.defaultView ? [o.defaultView] : [])], [allItems, releaseViews, o]);
   const branch = nav.selectedBranch ?? allItems[0]?.name ?? o?.currentBranch ?? undefined;
-  const baseFor = (b: string) => o?.releases.find((r) => r.version === o.project.branches[b]?.release)?.branch ?? o?.defaultBranch ?? "";
+  const baseFor = (b: string) =>
+    o?.releases.find((r) => r.version === o.project.branches[b]?.release)?.branch ?? o?.project.releases.find((r) => r.branch === b)?.base ?? o?.defaultBranch ?? "";
   const target = (b: string, attachTo?: string[]): BranchTarget => ({
     view: views.find((v) => v.name === b) ?? synthetic(b, b === o?.currentBranch),
     base: baseFor(b),
     isDefault: b === o?.defaultBranch,
+    isRelease: releaseViews.some((v) => v.name === b),
     attachTo,
   });
   const view: BranchView | undefined = branch ? views.find((b) => b.name === branch) : undefined;
@@ -211,6 +214,34 @@ function synthetic(name: string, checkedOut: boolean): BranchView {
   return { name, kind: "", short: name, checkedOut, running: false, conflict: false, ahead: 0, behind: 0, upstreamAhead: 0, upstreamBehind: 0, exists: true, merged: false };
 }
 
+/** Status line under a branch: checkout, agent, merge and tracking state. */
+function BranchMeta({ b, base, current, className, children }: { b: BranchView; base: string; current: boolean; className?: string; children?: ReactNode }) {
+  return (
+    <span className={`branch-meta${className ? ` ${className}` : ""}`}>
+      {children}
+      {current && <span className="c-acc">checked out</span>}
+      {b.worktree && <span className="row" style={{ gap: 4 }}><Icon name="layers" size={11} stroke={1.4} />worktree</span>}
+      {b.running && <span className="row c-acc" style={{ gap: 4 }}><span className="pulse" style={{ width: 5, height: 5 }} />AI working</span>}
+      {b.conflict && <span className="c-del">conflict</span>}
+      {!b.exists && <span className="c-del">branch deleted</span>}
+      {b.merged && (
+        <span className="pill c-add" title={`All commits are in ${base}`}>
+          <Icon name="merged" size={10} stroke={1.6} />
+          merged
+        </span>
+      )}
+      {b.exists && !b.merged && <span>{b.ahead === 1 ? "1 commit" : `${b.ahead} commits`}</span>}
+      {(b.upstreamAhead > 0 || b.upstreamBehind > 0) && (
+        <span className="mono" title={`${b.upstreamAhead} to push, ${b.upstreamBehind} to pull`}>
+          {b.upstreamAhead > 0 && `↑${b.upstreamAhead}`}
+          {b.upstreamBehind > 0 && <span className="c-acc"> ↓{b.upstreamBehind}</span>}
+        </span>
+      )}
+      {b.ticket && <span className="mono">{b.ticket}</span>}
+    </span>
+  );
+}
+
 function ReleasesPane({
   active,
   releases,
@@ -239,33 +270,20 @@ function ReleasesPane({
   const sw = useAction("workspace.switch", { invalidate: [["overview"], ["files"]] });
   const switchTo = (b: string) => sw.mutate({ projectId: nav.projectId!, branch: b }, { onSuccess: () => toast(`Switched to ${b}`, "ok") });
   const open = releases.filter((r) => r.open).map((r) => r.version);
+  const releaseTarget = (r: ReleaseView): BranchTarget => ({
+    ...target(r.branch),
+    extra: [
+      { id: "new-item", label: <>New feature or fix in v{r.version}…</>, icon: "plus", run: () => nav.openNewItem({ release: r.version }) },
+      { id: "ship", label: <>Ship v{r.version}…</>, icon: "ship", hint: "fast-forward + tag", run: () => onShip(r) },
+    ],
+  });
   const row = (b: BranchView, t: BranchTarget) => (
     <div key={b.name} className="branch-row" data-merged={b.merged || undefined} data-current={b.name === currentBranch || undefined} onContextMenu={(e) => actions.openMenu(t, e)}>
       <button className="branch-btn" aria-pressed={b.name === selected} onClick={() => onSelect(b.name)}>
         <span className={`branch-kind ${b.kind === "fix" ? "c-del" : "c-mod"}`}>{b.kind}</span>
         <span className="col grow" style={{ gap: 3, minWidth: 0 }}>
           <span className="mono ellipsis" style={{ fontSize: 12 }}>{b.kind ? b.short : b.name}</span>
-          <span className="branch-meta">
-            {b.name === currentBranch && <span className="c-acc">checked out</span>}
-            {b.worktree && <span className="row" style={{ gap: 4 }}><Icon name="layers" size={11} stroke={1.4} />worktree</span>}
-            {b.running && <span className="row c-acc" style={{ gap: 4 }}><span className="pulse" style={{ width: 5, height: 5 }} />AI working</span>}
-            {b.conflict && <span className="c-del">conflict</span>}
-            {!b.exists && <span className="c-del">branch deleted</span>}
-            {b.merged && (
-              <span className="pill c-add" title={`All commits are in ${t.base}`}>
-                <Icon name="merged" size={10} stroke={1.6} />
-                merged
-              </span>
-            )}
-            {b.exists && !b.merged && <span>{b.ahead === 1 ? "1 commit" : `${b.ahead} commits`}</span>}
-            {(b.upstreamAhead > 0 || b.upstreamBehind > 0) && (
-              <span className="mono" title={`${b.upstreamAhead} to push, ${b.upstreamBehind} to pull`}>
-                {b.upstreamAhead > 0 && `↑${b.upstreamAhead}`}
-                {b.upstreamBehind > 0 && <span className="c-acc"> ↓{b.upstreamBehind}</span>}
-              </span>
-            )}
-            {b.ticket && <span className="mono">{b.ticket}</span>}
-          </span>
+          <BranchMeta b={b} base={t.base} current={b.name === currentBranch} />
         </span>
       </button>
       <span className="branch-acts">
@@ -294,29 +312,44 @@ function ReleasesPane({
         {releases.map((r) => (
           <div key={`${r.version}-${r.tag}`} className="col" style={{ gap: 2 }}>
             <div
-              className="rel-head"
-              style={r.open ? { userSelect: "none" } : undefined}
-              title={r.open ? `Double-click to switch to ${r.branch}` : undefined}
-              onDoubleClick={(e) => r.open && r.branch !== currentBranch && !(e.target as HTMLElement).closest("button") && switchTo(r.branch)}
+              className="rel-top"
+              data-current={(r.open && r.branch === currentBranch) || undefined}
+              data-actions={!!r.view || undefined}
+              {...(r.view && {
+                role: "button",
+                tabIndex: 0,
+                "aria-pressed": r.branch === selected,
+                onClick: (e: MouseEvent) => !(e.target as HTMLElement).closest("button") && onSelect(r.branch),
+                onKeyDown: (e: KeyboardEvent) => e.target === e.currentTarget && (e.key === "Enter" || e.key === " ") && (e.preventDefault(), onSelect(r.branch)),
+              })}
             >
-              <Icon name="tag" size={13} stroke={1.4} className="faint" />
-              <span className="mono" style={{ fontSize: 12.5, fontWeight: 500 }}>v{r.version}</span>
-              <span className={`tag${r.tag === "next" ? " accent" : ""}`}>{releaseTagLabel(r.tag)}</span>
-              <span className="grow" />
-              {r.open && (
-                <div className="row" style={{ gap: 2 }}>
-                  <button className="btn btn-ghost btn-sm btn-icon" aria-label={`New feature or fix in v${r.version}`} onClick={() => nav.openNewItem({ release: r.version })}>
-                    <Icon name="plus" size={13} stroke={1.6} />
-                  </button>
-                  <button className="btn btn-ghost btn-sm btn-icon" aria-label={`Ship v${r.version}: move main and create tag`} onClick={() => onShip(r)}>
-                    <Icon name="ship" size={13} />
-                  </button>
+              <div
+                className="rel-main"
+                style={r.open ? { userSelect: "none" } : undefined}
+                onContextMenu={r.view ? (e) => actions.openMenu(releaseTarget(r), e) : undefined}
+                title={r.open ? `Double-click to switch to ${r.branch}` : undefined}
+                onDoubleClick={() => r.open && r.branch !== currentBranch && switchTo(r.branch)}
+              >
+                <div className="rel-head">
+                  <Icon name="tag" size={13} stroke={1.4} className="faint" />
+                  <span className="mono" style={{ fontSize: 12.5, fontWeight: 500 }}>v{r.version}</span>
+                  <span className={`tag${r.tag === "next" ? " accent" : ""}`}>{releaseTagLabel(r.tag)}</span>
                 </div>
+                {r.view ? (
+                  <BranchMeta b={r.view} base={r.base} current={r.branch === currentBranch} className="rel-base">
+                    <span className="mono">{r.branch}</span>
+                  </BranchMeta>
+                ) : (
+                  <div className="rel-base branch-meta">
+                    <span className="mono">{r.open ? r.branch : r.base}</span>
+                  </div>
+                )}
+              </div>
+              {r.view && (
+                <span className="rel-acts">
+                  <BranchSplit t={releaseTarget(r)} actions={actions} />
+                </span>
               )}
-            </div>
-            <div className="rel-base">
-              {r.open ? r.branch : r.base}
-              {r.open && r.branch === currentBranch && <span className="c-acc"> · checked out</span>}
             </div>
             {r.items.map((b) => row(b, target(b.name)))}
             {r.open && r.items.length === 0 && <div style={{ padding: "2px 16px 6px 37px", fontSize: 12 }} className="muted">No features or fixes yet.</div>}

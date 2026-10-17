@@ -99,6 +99,8 @@ pub struct ReleaseView {
     pub open: bool,
     pub items: Vec<BranchView>,
     pub note: String,
+    /// The release branch itself (open releases only).
+    pub view: Option<BranchView>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -475,6 +477,8 @@ impl Gitnetix {
                 v.ticket = meta.ticket.clone();
                 items.push(v);
             }
+            let info = branches.iter().find(|b| b.name == r.branch);
+            let view = Some(self.branch_view(&p, &git, &r.branch, &r.base, info, &wts, &agents).await);
             releases.push(ReleaseView {
                 version: r.version.clone(),
                 tag: match r.kind {
@@ -486,6 +490,7 @@ impl Gitnetix {
                 open: true,
                 items,
                 note: String::new(),
+                view,
             });
         }
         // Last shipped releases, from tags.
@@ -500,6 +505,7 @@ impl Gitnetix {
                 base: format!("{default} · tagged {date}"),
                 open: false,
                 items: vec![],
+                view: None,
                 note: if shipped > 0 { format!("{shipped} branches shipped") } else { String::new() },
             });
         }

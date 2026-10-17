@@ -15,6 +15,10 @@ export interface BranchTarget {
   /** Branch it merges into / rebases onto. */
   base: string;
   isDefault: boolean;
+  /** Branch of an open release: can't be deleted. */
+  isRelease?: boolean;
+  /** Extra actions listed first in the menu (e.g. release actions). */
+  extra?: MenuItem[];
   /** Open releases an unattached branch can join. */
   attachTo?: string[];
 }
@@ -108,7 +112,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
   const items = (t: BranchTarget): MenuItem[] => {
     const a = all(t);
     if (!t.view.exists) return [a.delete];
-    const list: MenuItem[] = [];
+    const list: MenuItem[] = t.extra?.length ? [...t.extra, "sep"] : [];
     if (t.view.conflict) list.push(a.conflicts, "sep");
     if (!t.view.checkedOut) list.push(a.switch, a.worktree, "sep");
     list.push(a.pull, a.push, "sep", a.rebase, a.merge, a.pr);
@@ -121,7 +125,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
       });
     }
     list.push("sep", a.copy);
-    if (!t.isDefault) list.push("sep", a.delete);
+    if (!t.isDefault && !t.isRelease) list.push("sep", a.delete);
     return list;
   };
 
