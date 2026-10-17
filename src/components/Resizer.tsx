@@ -6,8 +6,15 @@ import { useStored } from "../lib/stored";
 export function usePaneWidth(key: string, def: number, min: number, max: number) {
   const clamp = (v: number) => Math.round(Math.min(max, Math.max(min, v)));
   const [width, setWidth] = useStored(key, def, (s) => clamp(Number(s)) || def, String);
-  const set = (v: number, persist = false) => setWidth(clamp(v), persist);
-  return { width, set, def, min, max };
+  // Latest width, ahead of the render: a drag can end before its last move has rendered.
+  const last = useRef(width);
+  last.current = width;
+  const set = (v: number, persist = false) => {
+    last.current = clamp(v);
+    setWidth(last.current, persist);
+  };
+  const save = () => setWidth(last.current, true);
+  return { width, set, save, def, min, max };
 }
 
 export type PaneWidth = ReturnType<typeof usePaneWidth>;
@@ -19,7 +26,7 @@ export function Resizer({ pane, label }: { pane: PaneWidth; label: string }) {
     if (!start.current) return;
     start.current = null;
     document.body.classList.remove("resizing");
-    pane.set(pane.width, true);
+    pane.save();
   };
   return (
     <div

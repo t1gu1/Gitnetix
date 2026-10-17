@@ -176,6 +176,11 @@ impl Git {
         }
     }
 
+    /// `branch_rev`, else `name` as given (a tag or SHA, or a branch git will report missing).
+    pub async fn rev_of(&self, name: &str) -> String {
+        self.branch_rev(name).await.ok().flatten().unwrap_or_else(|| name.to_string())
+    }
+
     pub async fn rev_parse(&self, r: &str) -> Result<String> {
         Ok(self.run(&["rev-parse", r]).await?.trim().to_string())
     }
@@ -327,7 +332,7 @@ impl Git {
     }
 
     pub async fn create_branch(&self, name: &str, from: &str) -> Result<()> {
-        self.run(&["branch", name, from]).await.map(|_| ())
+        self.run(&["branch", "--no-track", name, from]).await.map(|_| ())
     }
 
     /// Switch branch. Uncommitted work comes along (git's default when it
@@ -337,7 +342,7 @@ impl Git {
     }
 
     pub async fn switch_create(&self, name: &str, from: &str) -> Result<()> {
-        self.run(&["switch", "-c", name, from]).await.map(|_| ())
+        self.run(&["switch", "--no-track", "-c", name, from]).await.map(|_| ())
     }
 
     pub async fn delete_branch(&self, name: &str, force: bool) -> Result<()> {
@@ -383,7 +388,7 @@ impl Git {
     pub async fn worktree_add(&self, path: &Path, branch: &str, from: Option<&str>) -> Result<()> {
         let p = path.to_string_lossy();
         match from {
-            Some(base) => self.run(&["worktree", "add", "-b", branch, &p, base]).await?,
+            Some(base) => self.run(&["worktree", "add", "--no-track", "-b", branch, &p, base]).await?,
             None => self.run(&["worktree", "add", &p, branch]).await?,
         };
         Ok(())

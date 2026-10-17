@@ -32,9 +32,11 @@ function childrenOf(o: Overview) {
     else if (kids.has(p)) kids.get(p)!.push(b);
     else kids.set(p, [b]);
   }
+  // Dates carry each committer's own UTC offset, so compare instants, not strings.
+  const time = (b: BranchView) => Date.parse(b.date) || 0;
   const relOrder = (b: BranchView) => o.releases.findIndex((r) => r.open && r.branch === b.name);
   const rank = (b: BranchView) => (b.role === "release" ? 0 : b.role === "trunk" ? 1 : b.exists ? 2 : 3);
-  const order = (a: BranchView, b: BranchView) => rank(a) - rank(b) || relOrder(a) - relOrder(b) || b.date.localeCompare(a.date) || a.name.localeCompare(b.name);
+  const order = (a: BranchView, b: BranchView) => rank(a) - rank(b) || relOrder(a) - relOrder(b) || time(b) - time(a) || a.name.localeCompare(b.name);
   for (const list of kids.values()) list.sort(order);
   roots.sort((a, b) => (a.name === o.defaultBranch ? -1 : b.name === o.defaultBranch ? 1 : order(a, b)));
   return { roots, kids: (name: string) => kids.get(name) ?? [] };
@@ -75,8 +77,7 @@ export function BranchTree({
   const fetchOrigin = useAction("branches.fetch", { invalidate: [["overview", pid]], success: () => "Fetched origin" });
   const { roots, kids } = useMemo(() => childrenOf(o), [o]);
   // Shipped releases whose branch is gone; the others show in the tree with what they shipped.
-  const shipped = o.releases.filter((r) => !r.open && !o.branches.some((b) => b.name === `release/${r.version}`));
-  const shippedAs = (b: BranchView) => (b.role === "branch" && b.name.startsWith("release/") ? b.name.slice("release/".length) : undefined);
+  const shipped = o.releases.filter((r) => !r.open && !o.branches.some((b) => b.shipped === r.version));
 
   const q = query.trim().toLowerCase();
   const matches = useMemo(() => {
@@ -114,7 +115,7 @@ export function BranchTree({
     const open = !!q || isOpen(b.name);
     const mergedKey = `merged:${b.name}`;
     const mergedOpen = !!q || isOpen(mergedKey);
-    const version = b.role === "release" ? b.release : shippedAs(b);
+    const version = b.role === "release" ? b.release : b.shipped;
     return (
       <div key={b.name} role="group" className="tree-node">
         <Row
@@ -123,7 +124,7 @@ export function BranchTree({
           depth={depth}
           isDefault={b.name === o.defaultBranch}
           tag={releaseTag(o.releases, b)}
-          shipped={shippedAs(b)}
+          shipped={b.shipped ?? undefined}
           selected={b.name === selected}
           current={b.name === o.currentBranch}
           twist={hasKids ? { open, toggle: () => toggle(b.name) } : undefined}
@@ -171,7 +172,7 @@ export function BranchTree({
           </button>
         </span>
       </div>
-      {o.branches.length > 6 && (
+      {(o.branches.length > 6 || query) && (
         <div className="tree-filter">
           <Icon name="search" size={12} className="faint" />
           <input type="search" className="input" placeholder="Filter branches" aria-label="Filter branches" value={query} onChange={(e) => setQuery(e.target.value)} />

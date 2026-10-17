@@ -6,16 +6,23 @@ import { useState } from "react";
  * `set(v, false)` updates the value without saving it (e.g. mid-drag).
  */
 export function useStored<T>(key: string, def: T, parse: (s: string) => T = JSON.parse, show: (v: T) => string = JSON.stringify) {
-  const [value, setValue] = useState<T>(() => {
+  const read = () => {
     try {
       const s = localStorage.getItem(key);
       return s === null ? def : parse(s);
     } catch {
       return def;
     }
-  });
+  };
+  const [state, setState] = useState(() => ({ key, value: read() }));
+  // A new key (e.g. another project) reads its own value rather than keeping the old one.
+  let value = state.value;
+  if (state.key !== key) {
+    value = read();
+    setState({ key, value });
+  }
   const set = (next: T, persist = true) => {
-    setValue(next);
+    setState({ key, value: next });
     if (!persist) return;
     try {
       localStorage.setItem(key, show(next));

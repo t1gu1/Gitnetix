@@ -22,6 +22,7 @@ uuid.workspace = true
 dirs.workspace = true
 regex.workspace = true
 tracing.workspace = true
+futures-util.workspace = true
 base64 = "0.22"
 keyring = { version = "3", optional = true, features = ["apple-native", "windows-native", "sync-secret-service"] }
 

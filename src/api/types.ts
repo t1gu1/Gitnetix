@@ -96,6 +96,8 @@ export interface BranchView {
   role: "trunk" | "release" | "branch";
   /** Open release it ships in (a release branch: its own version). */
   release?: string | null;
+  /** Version this release branch shipped as. */
+  shipped?: string | null;
   local: boolean;
   /** Exists on origin. */
   remote: boolean;
