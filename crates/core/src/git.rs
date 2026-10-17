@@ -266,6 +266,23 @@ impl Git {
         Ok(ok)
     }
 
+    /// True when `branch` had commits of its own that all landed in `base`:
+    /// a merge commit in `base` has the branch tip as a parent, or the branch
+    /// moved since it was created (reflog) and is fully contained in `base`.
+    /// A fresh branch with no commits yet is not "merged".
+    pub async fn is_merged_into(&self, branch: &str, base: &str) -> Result<bool> {
+        let (tip, base_tip) = (self.rev_parse(branch).await?, self.rev_parse(base).await?);
+        if tip == base_tip || !self.is_ancestor(&tip, &base_tip).await? {
+            return Ok(false);
+        }
+        let merges = self.run(&["rev-list", "--merges", "--parents", "--ancestry-path", &format!("{tip}..{base_tip}")]).await?;
+        if merges.lines().any(|l| l.split_whitespace().skip(2).any(|p| p == tip)) {
+            return Ok(true);
+        }
+        let (ok, log, _) = self.try_run(&["reflog", "show", "--format=%H", &format!("refs/heads/{branch}")]).await?;
+        Ok(ok && log.lines().last().is_some_and(|created| created.trim() != tip))
+    }
+
     pub async fn create_branch(&self, name: &str, from: &str) -> Result<()> {
         self.run(&["branch", name, from]).await.map(|_| ())
     }

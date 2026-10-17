@@ -275,3 +275,31 @@ async fn stage_unstage_discard() {
     assert!(!repo.join("b.txt").exists());
     assert!(wip().await.as_array().unwrap().is_empty());
 }
+
+#[tokio::test]
+async fn merged_branches_are_flagged() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("atlas-api");
+    init_repo(&repo);
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let added = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await;
+    let pid = added[0]["id"].as_str().unwrap().to_string();
+
+    // Fresh branch (no commits), unmerged branch, merge-commit and fast-forward merges.
+    sh(&repo, &["branch", "fresh"]);
+    for b in ["open", "via-merge", "via-ff"] {
+        sh(&repo, &["switch", "-qc", b]);
+        commit_file(&repo, &format!("{b}.txt"), "x\n");
+        sh(&repo, &["switch", "-q", "main"]);
+    }
+    sh(&repo, &["merge", "-q", "--ff-only", "via-ff"]);
+    call(&k, "branches.merge", json!({ "projectId": pid, "branch": "via-merge" })).await;
+    sh(&repo, &["branch", "-qf", "fresh", "main"]);
+
+    let ov = call(&k, "workspace.overview", json!({ "projectId": pid })).await;
+    let merged = |n: &str| ov["otherBranches"].as_array().unwrap().iter().find(|b| b["name"] == n).unwrap()["merged"].as_bool().unwrap();
+    assert!(!merged("fresh"));
+    assert!(!merged("open"));
+    assert!(merged("via-merge"));
+    assert!(merged("via-ff"));
+}

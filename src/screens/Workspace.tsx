@@ -103,7 +103,8 @@ export function Workspace() {
             <div className="col" style={{ gap: 10, padding: "12px 14px", borderBottom: "1px solid var(--line)" }}>
               <div className="row" style={{ alignItems: "baseline", minWidth: 0 }}>
                 <span className="mono ellipsis" style={{ fontSize: 13, fontWeight: 500 }}>{branch ?? "No branch"}</span>
-                {base && branch !== base && <span className="faint" style={{ fontSize: 11.5, whiteSpace: "nowrap" }}>from {base}</span>}
+                {base && branch !== base && <span className="faint" style={{ fontSize: 11.5, whiteSpace: "nowrap" }}>{view?.merged ? "merged into" : "from"} {base}</span>}
+                {view?.merged && <span className="c-add row" style={{ marginLeft: 6, flex: "0 0 auto" }} title={`All commits are in ${base}`}><Icon name="merged" size={12} stroke={1.6} label="merged" /></span>}
               </div>
               <Seg<Mode>
                 label="File view"
@@ -207,7 +208,7 @@ export function Workspace() {
 }
 
 function synthetic(name: string, checkedOut: boolean): BranchView {
-  return { name, kind: "", short: name, checkedOut, running: false, conflict: false, ahead: 0, behind: 0, upstreamAhead: 0, upstreamBehind: 0, exists: true };
+  return { name, kind: "", short: name, checkedOut, running: false, conflict: false, ahead: 0, behind: 0, upstreamAhead: 0, upstreamBehind: 0, exists: true, merged: false };
 }
 
 function ReleasesPane({
@@ -239,7 +240,7 @@ function ReleasesPane({
   const switchTo = (b: string) => sw.mutate({ projectId: nav.projectId!, branch: b }, { onSuccess: () => toast(`Switched to ${b}`, "ok") });
   const open = releases.filter((r) => r.open).map((r) => r.version);
   const row = (b: BranchView, t: BranchTarget) => (
-    <div key={b.name} className="branch-row" onContextMenu={(e) => actions.openMenu(t, e)}>
+    <div key={b.name} className="branch-row" data-merged={b.merged || undefined} onContextMenu={(e) => actions.openMenu(t, e)}>
       <button className="branch-btn" aria-pressed={b.name === selected} onClick={() => onSelect(b.name)}>
         <span className={`branch-kind ${b.kind === "fix" ? "c-del" : "c-mod"}`}>{b.kind}</span>
         <span className="col grow" style={{ gap: 3, minWidth: 0 }}>
@@ -250,7 +251,13 @@ function ReleasesPane({
             {b.running && <span className="row c-acc" style={{ gap: 4 }}><span className="pulse" style={{ width: 5, height: 5 }} />AI working</span>}
             {b.conflict && <span className="c-del">conflict</span>}
             {!b.exists && <span className="c-del">branch deleted</span>}
-            {b.exists && <span>{b.ahead === 1 ? "1 commit" : `${b.ahead} commits`}</span>}
+            {b.merged && (
+              <span className="pill c-add" title={`All commits are in ${t.base}`}>
+                <Icon name="merged" size={10} stroke={1.6} />
+                merged
+              </span>
+            )}
+            {b.exists && !b.merged && <span>{b.ahead === 1 ? "1 commit" : `${b.ahead} commits`}</span>}
             {(b.upstreamAhead > 0 || b.upstreamBehind > 0) && (
               <span className="mono" title={`${b.upstreamAhead} to push, ${b.upstreamBehind} to pull`}>
                 {b.upstreamAhead > 0 && `↑${b.upstreamAhead}`}

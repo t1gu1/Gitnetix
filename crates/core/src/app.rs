@@ -84,6 +84,8 @@ pub struct BranchView {
     pub upstream_behind: u32,
     pub ticket: Option<String>,
     pub exists: bool,
+    /// Its commits are all in the base (merged, nothing new since).
+    pub merged: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -532,6 +534,7 @@ impl Gitnetix {
             }
             None => false,
         };
+        let merged = info.is_some() && ahead == 0 && name != base && git.is_merged_into(name, base).await.unwrap_or(false);
         BranchView {
             short: name.split_once('/').map(|(_, b)| b.to_string()).unwrap_or_else(|| name.to_string()),
             name: name.to_string(),
@@ -547,6 +550,7 @@ impl Gitnetix {
             upstream_behind,
             ticket: None,
             exists: info.is_some(),
+            merged,
         }
     }
 

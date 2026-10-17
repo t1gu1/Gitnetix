@@ -193,6 +193,7 @@ body.dragging-tab, body.dragging-tab * { cursor: grabbing !important; }
 .branch-btn:hover { background: var(--raised); }
 .branch-kind { font-family: var(--mono); font-size: 10px; font-weight: 500; text-transform: uppercase; width: 34px; flex: 0 0 34px; padding-top: 2px; }
 .branch-row { position: relative; }
+.branch-row[data-merged] .branch-kind, .branch-row[data-merged] .branch-btn .mono.ellipsis { opacity: .6; }
 .branch-row:hover .branch-btn:not([aria-pressed="true"]) { background: var(--raised); }
 .branch-acts { display: flex; }
 .branch-row .branch-acts { position: absolute; top: 8px; right: 14px; padding-left: 10px; border-radius: 4px; opacity: 0; pointer-events: none; transition: opacity .12s; background: var(--raised); box-shadow: -10px 0 8px -4px var(--raised); }

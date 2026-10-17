@@ -25,6 +25,7 @@ const PATHS: Record<string, { d: string[]; fill?: boolean; circles?: [number, nu
   external: { d: ["M9 3h4v4M13 3L7 9M11 9.5V13H3V5h3.5"] },
   search: { d: ["M11 11l3 3"], circles: [[7, 7, 4.5]] },
   branch: { d: ["M5 3v10M11 6.5c0 3-3 3.5-6 4"], circles: [[5, 3, 1.5], [5, 13, 1.5], [11, 5, 1.5]] },
+  merged: { d: ["M5 4.5v9M5 6c0 3 3 4.5 6 4.5"], circles: [[5, 3, 1.5], [11, 10.5, 1.5]] },
   pr: { d: ["M5 4.5v7M11 11.5V7a2 2 0 0 0-2-2H7M8.5 3.5L7 5l1.5 1.5"], circles: [[5, 3, 1.5], [5, 13, 1.5], [11, 13, 1.5]] },
   ticket: { d: ["M2.5 4.5h11v2a1.5 1.5 0 0 0 0 3v2h-11v-2a1.5 1.5 0 0 0 0-3z"] },
   chart: { d: ["M2.5 13.5h11M4.5 11V8M8 11V4.5M11.5 11V6.5"] },
