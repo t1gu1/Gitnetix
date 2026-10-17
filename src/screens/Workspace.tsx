@@ -517,7 +517,7 @@ function FileRow({ f, active, onPick, actions }: { f: FileChange; active: boolea
   const btn = (
     <button className="file-btn" aria-pressed={active} onClick={onPick}>
       <span className={`file-st ${color}`}>{f.status === " " ? "·" : f.status}</span>
-      <span className="grow ellipsis">
+      <span className="grow ellipsis" data-tip={f.path} data-tip-overflow>
         <span style={{ color: f.status === " " ? "var(--muted)" : "var(--fg)" }}>{base}</span> <span className="faint" style={{ fontSize: 11.5 }}>{dir}</span>
       </span>
       <span className="row mono file-nums" style={{ gap: 6, fontSize: 11 }}>
