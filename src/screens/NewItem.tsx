@@ -4,6 +4,7 @@ import { useAction, useOverview } from "../api/hooks";
 import { rpc } from "../api/transport";
 import { Icon } from "../components/Icon";
 import { Modal, releaseTagLabel, Seg } from "../components/ui";
+import { KINDS, kindNoun, kindOfBranch, withPrefix, type Kind } from "../lib/kinds";
 import { useNav, type NewItemDraft } from "../lib/nav";
 
 export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () => void }) {
@@ -11,12 +12,12 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
   const pid = nav.projectId!;
   const ov = useOverview(pid);
   const open = (ov.data?.releases ?? []).filter((r) => r.open);
-  const [kind, setKind] = useState<"feat" | "fix">(draft.kind ?? "feat");
+  const [kind, setKind] = useState<Kind>(draft.kind ?? "feat");
   const [desc, setDesc] = useState(draft.description ?? "");
   const [release, setRelease] = useState(draft.release ?? open[0]?.version ?? "");
   const [ticket, setTicket] = useState(draft.ticket ?? "");
   const [where, setWhere] = useState<"switch" | "worktree">("worktree");
-  const [agent, setAgent] = useState(true);
+  const [agent, setAgent] = useState(false);
   const [name, setName] = useState("");
   const [named, setNamed] = useState<"ai" | "auto" | "you" | null>(null);
   const [naming, setNaming] = useState(false);
@@ -27,7 +28,7 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
 
   // Ask AI for a branch name once the description settles.
   useEffect(() => {
-    if (named === "you" || desc.trim().length < 6) return;
+    if (!agent || named === "you" || desc.trim().length < 6) return;
     const t = setTimeout(async () => {
       setNaming(true);
       try {
@@ -41,14 +42,21 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
       }
     }, 700);
     return () => clearTimeout(t);
-  }, [desc, kind, ticket, pid]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [agent, desc, kind, ticket, pid]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const create = useAction<{ branch: string; worktree?: string; agentSession?: string }>("items.create", {
     invalidate: [["overview", pid], ["agents"], ["worktrees"]],
     success: (r) => `Created ${r.branch}${r.worktree ? ` in ${r.worktree}` : ""}${r.agentSession ? " · agent started" : ""}`,
   });
   const rel = open.find((r) => r.version === release);
-  const label = kind === "feat" ? "feature" : "fix";
+  const label = kindNoun(kind);
+  const branch = withPrefix(name, kind);
+
+  // Switching type rewrites a known type prefix (feature/x → fix/x); a custom prefix is left alone.
+  const pickKind = (k: Kind) => {
+    setKind(k);
+    if (kindOfBranch(name)) setName(`${k}/${name.slice(name.indexOf("/") + 1)}`);
+  };
 
   return (
     <Modal
@@ -60,10 +68,10 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
           <button className="btn btn-md" onClick={onClose}>Cancel</button>
           <button
             className="btn btn-primary btn-md"
-            disabled={!rel || !desc.trim() || create.isPending}
+            disabled={!rel || (agent ? !desc.trim() : !name.trim()) || create.isPending}
             onClick={() =>
               create.mutate(
-                { projectId: pid, release, kind, description: desc, branchName: name || undefined, ticket: ticket || undefined, where, startAgent: agent },
+                { projectId: pid, release, kind, description: agent ? desc : "", branchName: branch || undefined, ticket: ticket || undefined, where, startAgent: agent },
                 {
                   onSuccess: (r) => {
                     nav.selectBranch(r.branch);
@@ -80,11 +88,7 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
         </>
       }
     >
-      <Seg grid size="lg" label="Type" value={kind} onChange={setKind} options={[{ value: "feat", label: "Feature" }, { value: "fix", label: "Fix" }]} />
-      <div className="field">
-        <label htmlFor="ni-desc">Describe it</label>
-        <textarea id="ni-desc" className="textarea" rows={3} style={{ resize: "none" }} value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Let users sign in with Google and GitHub." autoFocus />
-      </div>
+      <Seg grid cols={5} size="lg" label="Type" value={kind} onChange={pickKind} options={KINDS.map((k) => ({ value: k.id, label: k.label }))} />
       <div className="field">
         <label htmlFor="ni-branch">
           <span>Branch name</span>
@@ -98,11 +102,17 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
           style={{ fontSize: 12.5 }}
           value={name}
           placeholder={`${kind}/…`}
+          autoFocus
           onChange={(e) => {
             setName(e.target.value);
             setNamed("you");
+            const k = kindOfBranch(e.target.value);
+            if (k) setKind(k);
           }}
         />
+        {branch && branch !== name.trim() && (
+          <span className="faint" style={{ fontSize: 12 }}>Creates <span className="mono">{branch}</span></span>
+        )}
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 }}>
         <div className="field">
@@ -139,6 +149,12 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
         <input type="checkbox" checked={agent} onChange={() => setAgent(!agent)} />
         <span>Start an AI agent on it right away</span>
       </label>
+      {agent && (
+        <div className="field">
+          <label htmlFor="ni-desc">Describe it</label>
+          <textarea id="ni-desc" className="textarea" rows={3} style={{ resize: "none" }} value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Let users sign in with Google and GitHub." autoFocus />
+        </div>
+      )}
     </Modal>
   );
 }

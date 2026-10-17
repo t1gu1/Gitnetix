@@ -1,0 +1,37 @@
+/** Branch types offered when creating a feature/fix. `id` is the branch prefix (`feat/login`). */
+export const KINDS = [
+  { id: "feat", label: "Feature", noun: "feature", aliases: ["feature", "features"] },
+  { id: "fix", label: "Fix", noun: "fix", aliases: ["bugfix", "bug", "hotfix"] },
+  { id: "refactor", label: "Refactor", noun: "refactor", aliases: ["refacto", "refractor"] },
+  { id: "perf", label: "Perf", noun: "perf change", aliases: ["performance"] },
+  { id: "style", label: "Style", noun: "style change", aliases: ["styles"] },
+  { id: "test", label: "Test", noun: "test", aliases: ["tests"] },
+  { id: "docs", label: "Docs", noun: "docs change", aliases: ["doc"] },
+  { id: "chore", label: "Chore", noun: "chore", aliases: [] },
+  { id: "ci", label: "CI", noun: "CI change", aliases: [] },
+  { id: "poc", label: "POC", noun: "POC", aliases: ["spike"] },
+] as const;
+
+export type Kind = (typeof KINDS)[number]["id"];
+
+/** Maps a prefix like `feature` or `Feat` to its kind, or null when it is not a known type. */
+export function kindOf(prefix: string): Kind | null {
+  const p = prefix.trim().toLowerCase();
+  const k = KINDS.find((k) => k.id === p || (k.aliases as readonly string[]).includes(p));
+  return k ? k.id : null;
+}
+
+/** Kind implied by a branch name's prefix (`feature/x` → feat), or null. */
+export function kindOfBranch(name: string): Kind | null {
+  const i = name.indexOf("/");
+  return i > 0 ? kindOf(name.slice(0, i)) : null;
+}
+
+/** Keeps a prefix the user typed (`feature/x`, `wip/x`); otherwise prefixes with the chosen kind. */
+export function withPrefix(name: string, kind: Kind): string {
+  const n = name.trim();
+  if (!n) return "";
+  return n.includes("/") ? n : `${kind}/${n}`;
+}
+
+export const kindNoun = (k: string) => KINDS.find((x) => x.id === k)?.noun ?? "item";

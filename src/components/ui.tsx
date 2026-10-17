@@ -10,6 +10,7 @@ export function Seg<T extends string>({
   onChange,
   label,
   grid,
+  cols,
   size,
 }: {
   value: T;
@@ -17,10 +18,17 @@ export function Seg<T extends string>({
   onChange: (v: T) => void;
   label: string;
   grid?: boolean;
+  /** With `grid`, wraps the options onto rows of this many columns. */
+  cols?: number;
   size?: "lg";
 }) {
   return (
-    <div role="group" aria-label={label} className={`seg${grid ? " grid" : ""}${size ? " " + size : ""}`}>
+    <div
+      role="group"
+      aria-label={label}
+      className={`seg${grid ? " grid" : ""}${size ? " " + size : ""}`}
+      style={grid && cols ? { gridAutoFlow: "row", gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` } : undefined}
+    >
       {options.map((o) => (
         <button key={o.value} type="button" aria-pressed={o.value === value} onClick={() => onChange(o.value)}>
           {o.label}

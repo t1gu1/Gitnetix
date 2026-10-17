@@ -1,6 +1,7 @@
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useState } from "react";
 
 import { rpc } from "../api/transport";
+import type { Kind } from "./kinds";
 
 export type Route =
   | { name: "home" }
@@ -20,7 +21,7 @@ export interface NewItemDraft {
   release?: string;
   ticket?: string;
   description?: string;
-  kind?: "feat" | "fix";
+  kind?: Kind;
 }
 
 interface Nav {

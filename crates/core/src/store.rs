@@ -103,7 +103,7 @@ pub struct Release {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default, rename_all = "camelCase")]
 pub struct BranchMeta {
-    /// "feat" or "fix".
+    /// Branch type: "feat", "fix", "refactor", "perf", "style", "test", "docs", "chore", "ci" or "poc".
     pub kind: String,
     /// Release version this branch ships in.
     pub release: Option<String>,

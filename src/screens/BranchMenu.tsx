@@ -4,6 +4,7 @@ import { useAction } from "../api/hooks";
 import type { BranchView } from "../api/types";
 import { ContextMenu, type MenuItem } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
+import { kindOfBranch } from "../lib/kinds";
 import { useNav } from "../lib/nav";
 import { copyToClipboard, toast } from "../lib/toast";
 
@@ -116,7 +117,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
         id: `attach-${r}`,
         label: <>Attach to v{r}</>,
         icon: "tag",
-        run: () => attach.mutate({ projectId: pid, branch: t.view.name, release: r, kind: t.view.name.startsWith("fix") ? "fix" : "feat" }),
+        run: () => attach.mutate({ projectId: pid, branch: t.view.name, release: r, kind: kindOfBranch(t.view.name) ?? "feat" }),
       });
     }
     list.push("sep", a.copy);

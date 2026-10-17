@@ -889,9 +889,10 @@ impl Gitnetix {
             .find(|r| r.version == req.release && r.shipped_at.is_none())
             .cloned()
             .ok_or_else(|| Error::NotFound(format!("open release v{}", req.release)))?;
-        let kind = if req.kind == "fix" { "fix" } else { "feat" };
+        let kind = normalize_kind(&req.kind).unwrap_or("feat");
         let branch = match req.branch_name.clone().filter(|s| !s.trim().is_empty()) {
-            Some(b) => b.trim().to_string(),
+            Some(b) if b.contains('/') => b.trim().to_string(),
+            Some(b) => format!("{kind}/{}", b.trim()),
             None => self.suggest_branch_name(project_id, kind, &req.description, req.ticket.as_deref()).await?.0,
         };
         if !valid_branch_name(&branch) {
@@ -942,7 +943,7 @@ impl Gitnetix {
     pub fn attach_branch(&self, project_id: &str, branch: &str, release: Option<String>, kind: &str) -> Result<()> {
         self.store.with_project(project_id, |p| {
             let m = p.branches.entry(branch.to_string()).or_insert_with(|| BranchMeta { created_at: now(), ..Default::default() });
-            m.kind = if kind.is_empty() { "feat".into() } else { kind.into() };
+            m.kind = normalize_kind(kind).unwrap_or("feat").into();
             m.release = release.filter(|s| !s.is_empty());
             Ok(())
         })?;
@@ -1571,6 +1572,26 @@ impl Gitnetix {
     }
 }
 
+/// Branch types, by prefix, with the spellings people also use for them.
+const KINDS: &[(&str, &[&str])] = &[
+    ("feat", &["feature", "features"]),
+    ("fix", &["bugfix", "bug", "hotfix"]),
+    ("refactor", &["refacto", "refractor"]),
+    ("perf", &["performance"]),
+    ("style", &["styles"]),
+    ("test", &["tests"]),
+    ("docs", &["doc"]),
+    ("chore", &[]),
+    ("ci", &[]),
+    ("poc", &["spike"]),
+];
+
+/// `feature` → `feat`, `Fix` → `fix`; None when it is not a known type.
+fn normalize_kind(kind: &str) -> Option<&'static str> {
+    let k = kind.trim().to_ascii_lowercase();
+    KINDS.iter().find(|(id, aliases)| *id == k || aliases.contains(&k.as_str())).map(|(id, _)| *id)
+}
+
 fn top_path(p: &Project) -> PathBuf {
     PathBuf::from(&p.path)
 }
@@ -1612,6 +1633,9 @@ mod tests {
     #[test]
     fn branch_names() {
         assert!(valid_branch_name("feat/oauth-login"));
+        assert_eq!(normalize_kind("Feature"), Some("feat"));
+        assert_eq!(normalize_kind("docs"), Some("docs"));
+        assert_eq!(normalize_kind("wip"), None);
         assert!(!valid_branch_name("feat/ bad"));
         assert!(!valid_branch_name("feat/.."));
     }
