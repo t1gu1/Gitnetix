@@ -16,45 +16,54 @@ const GROUPS: [string, [string, string][]][] = [
 
 export function Settings({ section }: { section?: string }) {
   const nav = useNav();
-  const [sec, setSec] = useState(section ?? "git");
-  const cfg = useConfig().data;
-  const pick = (id: string) => {
-    if (id === "ai") nav.go({ name: "ai" });
-    else if (id === "templates") nav.go({ name: "templates" });
-    else setSec(id);
-  };
   return (
     <>
       <Header title="Settings" />
       <div className="body split">
-        <nav aria-label="Settings sections" className="sidenav hide-narrow">
-          {GROUPS.map(([g, items]) => (
-            <div key={g} className="col" style={{ gap: 2 }}>
-              <span className="group-label">{g}</span>
-              {items.map(([id, label]) => (
-                <button key={id} className="nav-item" aria-current={sec === id ? "page" : undefined} onClick={() => pick(id)}>{label}</button>
-              ))}
-            </div>
-          ))}
-        </nav>
-        <main className="page">
-          <div className="show-narrow" style={{ marginBottom: 16 }}>
-            <label htmlFor="st-sec" className="sr-only">Section</label>
-            <select id="st-sec" className="select" style={{ width: "100%" }} value={sec} onChange={(e) => pick(e.target.value)}>
-              {GROUPS.flatMap(([, items]) => items).map(([id, l]) => <option key={id} value={id}>{l}</option>)}
-            </select>
-          </div>
-          {cfg && (
-            <div className="page-inner">
-              {sec === "project" && <ProjectSection cfg={cfg} />}
-              {sec === "profiles" && <Profiles cfg={cfg} />}
-              {sec === "git" && <GitProviders cfg={cfg} />}
-              {sec === "tools" && <Integrations cfg={cfg} />}
-              {sec === "companion" && <Companion cfg={cfg} />}
-            </div>
-          )}
-        </main>
+        <SettingsPanes section={section} onAi={() => nav.go({ name: "ai" })} onTemplates={() => nav.go({ name: "templates" })} />
       </div>
+    </>
+  );
+}
+
+/** Section list and content panes, also shown inside the menu panel; `onAi` / `onTemplates` open those pages wherever the host shows them. */
+export function SettingsPanes({ section, onAi, onTemplates }: { section?: string; onAi: () => void; onTemplates: () => void }) {
+  const [sec, setSec] = useState(section ?? "git");
+  const cfg = useConfig().data;
+  const pick = (id: string) => {
+    if (id === "ai") onAi();
+    else if (id === "templates") onTemplates();
+    else setSec(id);
+  };
+  return (
+    <>
+      <nav aria-label="Settings sections" className="sidenav hide-narrow">
+        {GROUPS.map(([g, items]) => (
+          <div key={g} className="col" style={{ gap: 2 }}>
+            <span className="group-label">{g}</span>
+            {items.map(([id, label]) => (
+              <button key={id} className="nav-item" aria-current={sec === id ? "page" : undefined} onClick={() => pick(id)}>{label}</button>
+            ))}
+          </div>
+        ))}
+      </nav>
+      <main className="page">
+        <div className="show-narrow" style={{ marginBottom: 16 }}>
+          <label htmlFor="st-sec" className="sr-only">Section</label>
+          <select id="st-sec" className="select" style={{ width: "100%" }} value={sec} onChange={(e) => pick(e.target.value)}>
+            {GROUPS.flatMap(([, items]) => items).map(([id, l]) => <option key={id} value={id}>{l}</option>)}
+          </select>
+        </div>
+        {cfg && (
+          <div className="page-inner">
+            {sec === "project" && <ProjectSection cfg={cfg} />}
+            {sec === "profiles" && <Profiles cfg={cfg} />}
+            {sec === "git" && <GitProviders cfg={cfg} />}
+            {sec === "tools" && <Integrations cfg={cfg} />}
+            {sec === "companion" && <Companion cfg={cfg} />}
+          </div>
+        )}
+      </main>
     </>
   );
 }

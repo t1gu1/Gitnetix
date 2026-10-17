@@ -328,6 +328,10 @@ body.dragging-tab, body.dragging-tab * { cursor: grabbing !important; }
 @container (min-width: 960px) {
   .menu-grid { max-width: 1040px; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-areas: "project app"; column-gap: 40px; }
 }
+/* A page opened inside the menu panel: same width as the menu grid, scrolling with the panel. */
+.menu-embed { display: flex; align-items: stretch; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+.menu-embed > .sidenav, .menu-embed > .page { overflow: visible; }
+.menu-embed > .page { padding: 24px; background: var(--bg); }
 .app-list { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 4px; }
 .app-row { display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 0 16px; border: 0; background: transparent; color: var(--fg); text-align: left; width: 100%; }
 .app-list > .app-row + .app-row { border-top: 1px solid var(--line); }

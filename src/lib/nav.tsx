@@ -18,7 +18,7 @@ export type Route =
   | { name: "pair" };
 
 /** Screens opened from the menu or a link, with no tab bar of their own: leaving them goes back to where the user came from. */
-const DETOURS = new Set<Route["name"]>(["settings", "ai", "pair"]);
+const DETOURS = new Set<Route["name"]>(["settings", "ai", "templates", "pair"]);
 
 export interface NewItemDraft {
   release?: string;
