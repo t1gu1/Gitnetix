@@ -249,12 +249,12 @@ body.dragging-tab, body.dragging-tab * { cursor: grabbing !important; }
 .btn-act.btn-danger:hover:not(:disabled) { color: var(--del-fg); }
 .file-st { font-family: var(--mono); font-size: 11px; font-weight: 500; width: 14px; flex: 0 0 14px; }
 
-.diff { flex: 1 1 auto; min-height: 0; overflow: auto; font-family: var(--mono); font-size: 12.5px; line-height: 21px; }
-.diff-u { display: flex; flex-direction: column; min-width: max-content; padding: 8px 0; }
-.diff-row { display: grid; grid-template-columns: 52px 52px 20px auto; }
+.diff { flex: 1 1 auto; min-height: 0; min-width: 0; overflow-x: hidden; overflow-y: auto; font-family: var(--mono); font-size: 12.5px; line-height: 21px; }
+.diff-u { display: flex; flex-direction: column; padding: 8px 0; }
+.diff-row { display: grid; grid-template-columns: 52px 52px 20px minmax(0, 1fr); }
 .diff-row .ln { padding: 0 8px; text-align: right; color: var(--faint); user-select: none; }
 .diff-row .sg { text-align: center; color: var(--faint); user-select: none; }
-.diff-row .tx { white-space: pre; padding-right: 24px; }
+.diff-row .tx { white-space: pre-wrap; overflow-wrap: anywhere; padding-right: 24px; }
 .diff-row.add { background: var(--add-bg); } .diff-row.add .sg { color: var(--add-fg); }
 .diff-row.del { background: var(--del-bg); } .diff-row.del .sg { color: var(--del-fg); }
 .diff-row.hunk { background: var(--hunk-bg); color: var(--muted); }
@@ -262,7 +262,7 @@ body.dragging-tab, body.dragging-tab * { cursor: grabbing !important; }
 .diff-split { display: flex; flex-direction: column; padding: 8px 0; }
 .diff-split-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .diff-half { display: grid; grid-template-columns: 52px 20px minmax(0, 1fr); overflow: hidden; border-right: 1px solid var(--line); }
-.diff-half .tx { white-space: pre; overflow: hidden; text-overflow: ellipsis; }
+.diff-half .tx { white-space: pre-wrap; overflow-wrap: anywhere; padding-right: 8px; }
 .diff-half .ln { padding: 0 8px; text-align: right; color: var(--faint); }
 .diff-half .sg { text-align: center; color: var(--faint); }
 .diff-half.add { background: var(--add-bg); } .diff-half.add .sg { color: var(--add-fg); }

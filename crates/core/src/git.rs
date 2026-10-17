@@ -38,6 +38,7 @@ pub struct DiffLine {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Hunk {
     pub header: String,
     pub old_start: u32,

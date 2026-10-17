@@ -83,7 +83,7 @@ function Split({ hunks }: { hunks: Hunk[] }) {
             <div key={j} className={`diff-half ${x.cls}`}>
               <span className="ln">{x.num}</span>
               <span className="sg">{x.sign}</span>
-              <span className="tx" title={x.text}>{x.text}</span>
+              <span className="tx">{x.text}</span>
             </div>
           ))}
         </div>
