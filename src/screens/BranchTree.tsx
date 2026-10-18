@@ -211,8 +211,7 @@ export function BranchTree({
         </div>
       )}
       <div className="scroll tree" style={{ flex: "1 1 auto" }}>
-        {roots.map((b) => node(b))}
-        {q && [...shippedBranches.values()].map((b) => node(b))}
+        {(q ? tops : roots).map((b) => node(b))}
         {matches?.size === 0 && <Empty>No branch matches “{query}”.</Empty>}
         {shipped.length > 0 && !q && (
           <>
@@ -222,20 +221,23 @@ export function BranchTree({
               <span className="faint">{shipped.length}</span>
             </button>
             {isOpen("shipped") &&
-              shipped.map((r) => shippedBranches.has(r.version) ? node(shippedBranches.get(r.version)!) : (
-                <div key={`${r.version}-${r.tag}`} className="tree-row tree-static" data-role="release">
-                  <span className="tree-btn">
-                    <span className="tree-icon"><Icon name="tag" size={13} stroke={1.4} /></span>
-                    <span className="tree-main">
-                      <span className="tree-name"><span className="mono ellipsis">v{r.version}</span><span className={`tag${r.tag === "released" ? " released" : ""}`}>{releaseTagLabel(r.tag)}</span></span>
-                      <span className="branch-meta">
-                        <span className="mono">{r.base}</span>
-                        {r.note && <span>{r.note}</span>}
+              shipped.map((r) => {
+                const b = shippedBranches.get(r.version);
+                return b ? node(b) : (
+                  <div key={`${r.version}-${r.tag}`} className="tree-row tree-static" data-role="release">
+                    <span className="tree-btn">
+                      <span className="tree-icon"><Icon name="tag" size={13} stroke={1.4} /></span>
+                      <span className="tree-main">
+                        <span className="tree-name"><span className="mono ellipsis">v{r.version}</span><span className={`tag${r.tag === "released" ? " released" : ""}`}>{releaseTagLabel(r.tag)}</span></span>
+                        <span className="branch-meta">
+                          <span className="mono">{r.base}</span>
+                          {r.note && <span>{r.note}</span>}
+                        </span>
                       </span>
                     </span>
-                  </span>
-                </div>
-              ))}
+                  </div>
+                );
+              })}
           </>
         )}
       </div>

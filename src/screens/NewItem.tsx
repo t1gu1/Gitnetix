@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { useAction, useOverview } from "../api/hooks";
+import { useAction, useOverview, useSuggestedVersion } from "../api/hooks";
 import { rpc } from "../api/transport";
 import { Icon } from "../components/Icon";
 import { Modal, releaseTagLabel, Seg } from "../components/ui";
@@ -21,8 +21,8 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
     (draft.release && open.find((r) => r.version === draft.release)?.branch) || draft.from || open[0]?.branch || ov.data?.defaultBranch || "";
   const [kind, setKind] = useState<Kind | "release">(draft.kind ?? "feat");
   const [relKind, setRelKind] = useState<"next" | "hotfix">("next");
-  const [version, setVersion] = useState("");
-  const [versionTyped, setVersionTyped] = useState(false);
+  // Null until the user types their own; the suggestion shows meanwhile.
+  const [typedVersion, setVersion] = useState<string | null>(null);
   const [desc, setDesc] = useState(draft.description ?? "");
   const [from, setFrom] = useState(firstBase);
   const [ticket, setTicket] = useState(draft.ticket ?? "");
@@ -36,17 +36,8 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
     if (!from && ov.data) setFrom(firstBase());
   }, [ov.data, from]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Release version: the next one after the latest tag or release branch, until the user types their own.
-  useEffect(() => {
-    if (kind !== "release" || versionTyped) return;
-    let live = true;
-    rpc<{ version: string }>("releases.suggestVersion", { projectId: pid, kind: relKind })
-      .then((r) => live && setVersion(r.version))
-      .catch(() => {});
-    return () => {
-      live = false;
-    };
-  }, [kind, relKind, pid, versionTyped]);
+  const suggested = useSuggestedVersion(pid, relKind, kind === "release" && typedVersion === null);
+  const version = typedVersion ?? suggested.data?.version ?? "";
 
   // Ask AI for a branch name once the description settles.
   useEffect(() => {
@@ -117,17 +108,7 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
         <Seg grid size="lg" label="Release type" value={relKind} onChange={setRelKind} options={[{ value: "next", label: "Next release" }, { value: "hotfix", label: "Hotfix" }]} />
         <div className="field">
           <label htmlFor="ni-version">Version</label>
-          <input
-            id="ni-version"
-            className="input mono"
-            placeholder="2.4.0"
-            value={version}
-            autoFocus
-            onChange={(e) => {
-              setVersion(e.target.value.trim());
-              setVersionTyped(true);
-            }}
-          />
+          <input id="ni-version" className="input mono" placeholder="2.4.0" value={version} onChange={(e) => setVersion(e.target.value.trim())} autoFocus />
         </div>
       </Modal>
     );

@@ -57,8 +57,8 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
 
   const mutations = [sw, wt, pull, push, rebase, sync, stash, pr];
   // Pushes started elsewhere count too: the commit box's auto push spins the branch's Push button.
-  const pushing = usePendingBranches("workspace.push");
-  const busy = mutations.find((m) => m.isPending)?.variables?.branch ?? pushing.find(Boolean);
+  const pushing = usePendingBranches("workspace.push", pid);
+  const busy = mutations.find((m) => m.isPending)?.variables?.branch ?? pushing[0];
   const run = (m: BranchMutation, branch: string, ok: string) => m.mutate({ projectId: pid, branch }, { onSuccess: () => toast(ok, "ok") });
 
   const all = (t: BranchTarget) => {

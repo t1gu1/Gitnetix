@@ -108,6 +108,14 @@ export const useOverview = (projectId?: string) =>
     enabled: !!projectId,
   });
 
+/** Version for a new release: the next one after the latest tag or release branch. */
+export const useSuggestedVersion = (projectId: string, kind: "next" | "hotfix", enabled: boolean) =>
+  useQuery({
+    queryKey: ["suggestVersion", projectId, kind],
+    queryFn: () => rpc<{ version: string }>("releases.suggestVersion", { projectId, kind }),
+    enabled,
+  });
+
 /** `commit` lists that commit's files instead of the branch's. */
 export const useFiles = (projectId?: string, branch?: string, mode = "branch", commit?: string) =>
   useQuery({
@@ -180,17 +188,19 @@ export const useAnalytics = (projectId: string, days: number) =>
     staleTime: 60_000,
   });
 
+/** Branches of a project a method is running on right now, wherever it was started. */
+export function usePendingBranches(method: string, projectId: string): string[] {
+  const vars = useMutationState({
+    filters: { mutationKey: [method], status: "pending" },
+    select: (m) => m.state.variables as { projectId?: string; branch?: string } | undefined,
+  });
+  return vars.flatMap((v) => (v?.projectId === projectId && v.branch ? [v.branch] : []));
+}
+
 /**
  * Fire an RPC from a button: shows errors as toasts and refreshes the
  * given query keys afterwards.
  */
-/** Branches a method is running on right now, wherever it was started. */
-export function usePendingBranches(method: string): string[] {
-  return useMutationState({
-    filters: { mutationKey: [method], status: "pending" },
-    select: (m) => (m.state.variables as { branch?: string } | undefined)?.branch ?? "",
-  });
-}
 
 export function useAction<T = unknown, V extends Record<string, unknown> = Record<string, unknown>>(
   method: string,

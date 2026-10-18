@@ -616,8 +616,10 @@ impl Git {
 
     /// Every uncommitted change against HEAD, then the untracked files by name.
     pub async fn wip_diff(&self, max_bytes: usize) -> Result<String> {
-        let mut d = self.run(&["diff", "HEAD", "--stat", "-p"]).await?;
-        let untracked = self.run(&["ls-files", "--others", "--exclude-standard"]).await?;
+        let (mut d, untracked) = tokio::try_join!(
+            self.run(&["diff", "HEAD", "--stat", "-p"]),
+            self.run(&["ls-files", "--others", "--exclude-standard"]),
+        )?;
         if !untracked.trim().is_empty() {
             d = format!("New files:\n{untracked}\n{d}");
         }

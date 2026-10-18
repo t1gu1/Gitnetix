@@ -1148,16 +1148,17 @@ impl Gitnetix {
     pub async fn suggest_version(&self, project_id: &str, kind: ReleaseKind) -> Result<String> {
         let p = self.store.project(project_id)?;
         let git = self.git(&p);
-        let tags: Vec<[u64; 3]> = git.tags().await?.iter().filter_map(|t| parse_version(&t.name)).collect();
-        let mut taken: Vec<[u64; 3]> = tags.clone();
+        let (tags, local, remote) = tokio::try_join!(git.tags(), git.branches(), git.remote_branches())?;
+        let mut taken: Vec<[u64; 3]> = tags.iter().filter_map(|t| parse_version(&t.name)).collect();
+        let latest_tag = taken.iter().max().copied();
         taken.extend(p.releases.iter().filter_map(|r| parse_version(&r.version)));
-        let names = git.branches().await?.into_iter().chain(git.remote_branches().await?).map(|b| b.name);
+        let names = local.into_iter().chain(remote).map(|b| b.name);
         taken.extend(names.filter_map(|n| n.trim_start_matches("origin/").strip_prefix("release/").and_then(parse_version)));
         let v = match kind {
             ReleaseKind::Next => taken.iter().max().map(|v| [v[0], v[1] + 1, 0]).unwrap_or([0, 1, 0]),
             // Hotfixes patch what shipped; skip past patches already taken by another hotfix.
             ReleaseKind::Hotfix => {
-                let mut v = tags.iter().max().copied().unwrap_or([0, 0, 0]);
+                let mut v = latest_tag.unwrap_or([0, 0, 0]);
                 v[2] += 1;
                 while taken.contains(&v) {
                     v[2] += 1;
@@ -1312,14 +1313,18 @@ impl Gitnetix {
             Some(b) if b.contains('/') => b.trim().to_string(),
             Some(b) => format!("{kind}/{}", b.trim()),
             // Nothing typed: switching carries the uncommitted changes along, so they say what the work is.
-            None if req.description.trim().is_empty() && req.r#where != "worktree" && git.wip_count().await? > 0 => {
-                let wip = format!("Name it after these uncommitted changes:\n{}", git.wip_diff(20_000).await?);
-                match self.suggest_branch_name(project_id, kind, &wip, req.ticket.as_deref()).await? {
-                    (name, true) => name,
-                    _ => return Err(Error::Invalid("AI couldn't name the branch from your changes. Type a name.".into())),
+            None => {
+                let wip = if req.description.trim().is_empty() && req.r#where != "worktree" { git.wip_diff(20_000).await? } else { String::new() };
+                if wip.trim().is_empty() {
+                    self.suggest_branch_name(project_id, kind, &req.description, req.ticket.as_deref()).await?.0
+                } else {
+                    let wip = format!("Name it after these uncommitted changes:\n{wip}");
+                    match self.suggest_branch_name(project_id, kind, &wip, req.ticket.as_deref()).await? {
+                        (name, true) => name,
+                        _ => return Err(Error::Invalid("AI couldn't name the branch from your changes. Type a name.".into())),
+                    }
                 }
             }
-            None => self.suggest_branch_name(project_id, kind, &req.description, req.ticket.as_deref()).await?.0,
         };
         let branch = with_ticket(&branch, req.ticket.as_deref().unwrap_or(""));
         if !valid_branch_name(&branch) {

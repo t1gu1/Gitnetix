@@ -138,6 +138,11 @@ fn mode(v: &Value) -> Result<ViewMode> {
     os(v, "mode").as_deref().unwrap_or("branch").parse()
 }
 
+/// Release kind; anything but "hotfix" is the next release.
+fn release_kind(v: &Value) -> ReleaseKind {
+    if os(v, "kind").as_deref() == Some("hotfix") { ReleaseKind::Hotfix } else { ReleaseKind::Next }
+}
+
 fn paths(v: &Value) -> Result<Vec<String>> {
     Ok(serde_json::from_value(v.get("paths").cloned().unwrap_or(json!([])))?)
 }
@@ -354,13 +359,9 @@ pub async fn call(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
 
         // ---- releases & items ----
         "releases.create" => {
-            let kind = if os(&p, "kind").as_deref() == Some("hotfix") { ReleaseKind::Hotfix } else { ReleaseKind::Next };
-            to(k.create_release(&s(&p, "projectId")?, &s(&p, "version")?, kind, os(&p, "from")).await?)
+            to(k.create_release(&s(&p, "projectId")?, &s(&p, "version")?, release_kind(&p), os(&p, "from")).await?)
         }
-        "releases.suggestVersion" => {
-            let kind = if os(&p, "kind").as_deref() == Some("hotfix") { ReleaseKind::Hotfix } else { ReleaseKind::Next };
-            to(json!({ "version": k.suggest_version(&s(&p, "projectId")?, kind).await? }))
-        }
+        "releases.suggestVersion" => to(json!({ "version": k.suggest_version(&s(&p, "projectId")?, release_kind(&p)).await? })),
         "releases.ship" => to(json!({ "tag": k.ship_release(&s(&p, "projectId")?, &s(&p, "version")?, b(&p, "push")).await? })),
         "releases.delete" => {
             k.delete_release(&s(&p, "projectId")?, &s(&p, "version")?)?;
