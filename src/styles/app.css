@@ -216,8 +216,13 @@ body.resizing iframe, body.resizing .term { pointer-events: none; }
    Children step in 6px; the line sits on the parent row's left edge, 6px left of each child row. */
 .tree-sub, .tree-open, .tree-kids { position: relative; }
 .tree-kids { margin-left: 6px; }
-.tree-open::before, .tree-merged + .tree-kids::before { content: ""; position: absolute; z-index: 1; top: 4px; bottom: 4px; left: 6px; width: 1px; background: var(--line); pointer-events: none; }
+.tree-open::before, .tree-merged + .tree-kids::before { content: ""; position: absolute; z-index: 1; top: 4px; bottom: 4px; left: 6px; width: 1px; background: repeating-linear-gradient(to bottom, var(--line) 0 1px, transparent 1px 3px); pointer-events: none; }
 .tree-merged + .tree-kids::before { top: 0; left: 0; }
+/* Under an open show/hide toggle, an elbow steps from the line beside it (6px left of the row) over to the children's line,
+   which starts right there. Only where there is a line beside it: nested, or the orange path at the top level. */
+.tree-toggle + .tree-open::before { top: 0; }
+.tree-kids .tree-toggle + .tree-open::after, .tree-toggle[data-path] + .tree-open::after { content: ""; position: absolute; z-index: 1; top: 0; left: 0; width: 7px; height: 1px; background: repeating-linear-gradient(to right, var(--line) 0 1px, transparent 1px 3px); pointer-events: none; }
+.tree-toggle[data-path] + .tree-open::after { z-index: 2; background: repeating-linear-gradient(to right, var(--trunk-fg) 0 1px, transparent 1px 3px); }
 /* Hover and selection: a layer under the row's content, so the nesting lines stay drawn on top. */
 .tree-row { isolation: isolate; }
 .tree-row:hover::after, .tree-row:has(> .tree-btn[aria-pressed="true"])::after { content: ""; position: absolute; z-index: -1; inset: 0; border-radius: 4px; background: var(--raised); pointer-events: none; }
