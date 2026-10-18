@@ -39,7 +39,7 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
       setNaming(true);
       try {
         const r = await rpc<{ name: string; ai: boolean }>("items.suggestName", { projectId: pid, kind, description: desc, ticket });
-        setName(r.name);
+        setName(r.name.replace(/\s/g, "-"));
         setNamed(r.ai ? "ai" : "auto");
       } catch {
         /* keep whatever is there */
@@ -156,9 +156,11 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
           placeholder={`${kind}/…`}
           autoFocus
           onChange={(e) => {
-            setName(e.target.value);
+            // Git names can't hold spaces: each one becomes a dash as you type.
+            const v = e.target.value.replace(/\s/g, "-");
+            setName(v);
             setNamed("you");
-            const k = kindOfBranch(e.target.value);
+            const k = kindOfBranch(v);
             if (k) setKind(k);
           }}
         />

@@ -51,6 +51,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("items.create", "New feature/fix branch in a release, or off another branch (release empty, from = branch)", "projectId, release?, from?, kind, description, branchName?, ticket?, where: switch|worktree, startAgent?"),
     ("items.attach", "Attach an existing branch to a release", "projectId, branch, release, kind"),
     ("items.remove", "Remove a branch from its release", "projectId, branch, deleteBranch?"),
+    ("branches.stash", "Stash a checked-out branch's uncommitted changes, untracked files included", "projectId, branch"),
     ("branches.pull", "Fast-forward a branch to its upstream (checked out or not)", "projectId, branch"),
     ("branches.merge", "Merge a branch into its release (or parent branch) with a merge commit", "projectId, branch, deleteBranch?"),
     ("branches.sync", "Merge a branch's base into it to bring it up to date", "projectId, branch"),
@@ -337,6 +338,10 @@ pub async fn call(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
         }
         "items.remove" => {
             k.remove_item(&s(&p, "projectId")?, &s(&p, "branch")?, b(&p, "deleteBranch")).await?;
+            ok()
+        }
+        "branches.stash" => {
+            k.stash_branch(&s(&p, "projectId")?, &s(&p, "branch")?).await?;
             ok()
         }
         "branches.pull" => to(json!({ "output": k.pull_branch(&s(&p, "projectId")?, &s(&p, "branch")?).await? })),

@@ -434,6 +434,12 @@ impl Git {
         Ok(parse_status_z(&status).len() as u32)
     }
 
+    /// Set aside every uncommitted change, untracked files included.
+    pub async fn stash(&self, message: &str) -> Result<()> {
+        self.run(&["stash", "push", "--include-untracked", "-m", message]).await?;
+        Ok(())
+    }
+
     /// Uncommitted changes split by side: staged (index vs HEAD) and
     /// unstaged (working tree vs index, plus untracked). A partially staged
     /// file appears once on each side.

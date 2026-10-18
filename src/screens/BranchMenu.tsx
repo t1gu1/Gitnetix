@@ -51,11 +51,12 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
     success: (r) => (r.conflicts.length ? `Rebase stopped on ${plural(r.conflicts.length, "conflict")}` : "Rebased, no conflicts"),
   });
   const sync = useAction<unknown, { projectId: string; branch: string }>("branches.sync", { invalidate: inv });
+  const stash = useAction<unknown, { projectId: string; branch: string }>("branches.stash", { invalidate: inv });
   const pr = useAction<{ number: number }, { projectId: string; branch: string }>("prs.create", { invalidate: [["prs", pid]], success: (r) => `Opened PR #${r.number}` });
   const move = useAction("branches.setParent", { invalidate: inv });
   const [menu, setMenu] = useState<{ x: number; y: number; alignRight: boolean; t: BranchTarget } | null>(null);
 
-  const mutations = [sw, wt, pull, push, rebase, sync, pr];
+  const mutations = [sw, wt, pull, push, rebase, sync, stash, pr];
   const busy = mutations.find((m) => m.isPending)?.variables?.branch;
   const run = (m: BranchMutation, branch: string, ok: string) => m.mutate({ projectId: pid, branch }, { onSuccess: () => toast(ok, "ok") });
 
@@ -92,6 +93,15 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
         icon: "push",
         hint: v.upstreamAhead ? `↑${v.upstreamAhead}` : undefined,
         run: () => run(push, b, `Pushed ${b}`),
+      },
+      stash: {
+        id: "stash",
+        label: "Stash changes",
+        tip: !v.checkedOut ? `Check out ${b} to stash its changes` : v.wip ? `Set aside ${plural(v.wip, "uncommitted file")} on ${b}` : "No uncommitted changes",
+        icon: "stash",
+        hint: v.checkedOut ? (v.wip ? plural(v.wip, "file") : "nothing to stash") : "check out first",
+        disabled: !v.checkedOut || !v.wip,
+        run: () => run(stash, b, `Stashed changes on ${b}`),
       },
       rebase: {
         id: "rebase",
@@ -162,6 +172,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
     list.push(a.create, "sep");
     if (v.local) {
       list.push(a.pull, a.push);
+      if (v.checkedOut) list.push(a.stash);
       if (t.base) {
         list.push("sep");
         // Shared branches (releases, dev) catch up by merging; work branches can also be rebased.

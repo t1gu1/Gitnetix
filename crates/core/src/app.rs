@@ -1328,6 +1328,18 @@ impl Gitnetix {
     }
 
     /// Fast-forward a branch to its upstream, checked out or not.
+    /// Stash a checked-out branch's uncommitted changes (untracked files included).
+    pub async fn stash_branch(&self, project_id: &str, branch: &str) -> Result<()> {
+        let p = self.store.project(project_id)?;
+        let git = self.require_checkout(&p, branch).await?;
+        if git.wip_count().await? == 0 {
+            return Err(Error::Invalid(format!("{branch} has no uncommitted changes to stash.")));
+        }
+        git.stash(&format!("Gitnetix: {branch}")).await?;
+        self.changed(project_id);
+        Ok(())
+    }
+
     pub async fn pull_branch(&self, project_id: &str, branch: &str) -> Result<String> {
         let p = self.store.project(project_id)?;
         let git = self.git(&p);
