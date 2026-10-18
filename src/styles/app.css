@@ -219,7 +219,7 @@ body.resizing iframe, body.resizing .term { pointer-events: none; }
 .tree-merged + .tree-kids::before { top: 0; left: 0; }
 /* Hover and selection: a layer under the row's content, so the nesting lines stay drawn on top. */
 .tree-row { isolation: isolate; }
-.tree-row:not(.tree-ghost):hover::after, .tree-row:has(> .tree-btn[aria-pressed="true"])::after { content: ""; position: absolute; z-index: -1; inset: 0; border-radius: 4px; background: var(--raised); pointer-events: none; }
+.tree-row:hover::after, .tree-row:has(> .tree-btn[aria-pressed="true"])::after { content: ""; position: absolute; z-index: -1; inset: 0; border-radius: 4px; background: var(--raised); pointer-events: none; }
 .tree-row:has(> .tree-btn[aria-pressed="true"])::after { background: var(--sel); }
 /* Checked-out branch and every branch above it: their stretch of the parent's line turns orange; at the top level, their own left edge.
    Rows isolate their layers, so these are lifted above the nesting lines for their orange to show over them. */
@@ -246,9 +246,6 @@ button.tree-twist:hover { color: var(--fg); }
 .tree-row:hover .tree-acts, .tree-row:focus-within .tree-acts, .tree-row:has(> .tree-btn[aria-pressed="true"]) .tree-acts { opacity: 1; pointer-events: auto; }
 @media (hover: none) { .tree-acts { opacity: 1; pointer-events: auto; } }
 .tree-group { width: calc(100% - 12px); min-height: 30px; align-items: center; border: 0; background: transparent; font: inherit; text-align: left; cursor: pointer; }
-/* "New branch / feature" sits under its parent as a real button; the row itself stays flat. */
-.tree-ghost { min-height: 36px; align-items: center; }
-.tree-ghost .btn { min-width: 0; max-width: 100%; }
 .tree-group { gap: 6px; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
 .tree-group:hover { color: var(--fg); }
 .tree-merged { color: var(--add-fg); }
@@ -258,6 +255,7 @@ button.tree-twist:hover { color: var(--fg); }
 .kind-chip { font-family: var(--mono); font-size: 10px; font-weight: 500; text-transform: uppercase; }
 .split { display: inline-flex; flex: 0 0 auto; }
 .split-main { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.split-mid { margin-left: -1px; border-radius: 0; }
 .split-more { margin-left: -1px; border-top-left-radius: 0; border-bottom-left-radius: 0; }
 .ctx-menu { position: fixed; z-index: 45; min-width: 220px; max-width: min(320px, calc(100vw - 16px)); padding: 4px; display: flex; flex-direction: column; background: var(--raised); border: 1px solid var(--line); border-radius: 6px; box-shadow: var(--shadow); }
 .tip { position: fixed; z-index: 70; max-width: min(320px, calc(100vw - 16px)); padding: 5px 9px; border: 1px solid var(--line); border-radius: 4px; background: var(--raised); color: var(--fg); box-shadow: var(--shadow); font-size: 12px; line-height: 1.4; white-space: pre-line; overflow-wrap: anywhere; pointer-events: none; animation: tip-in 110ms ease-out; }

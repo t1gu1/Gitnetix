@@ -5,7 +5,6 @@ import type { BranchView, Overview, ReleaseView } from "../api/types";
 import { Icon } from "../components/Icon";
 import { Empty, releaseTagLabel } from "../components/ui";
 import { plural } from "../lib/format";
-import { useNav } from "../lib/nav";
 import { useStored } from "../lib/stored";
 import { BranchSplit, type BranchActions, type BranchTarget } from "./BranchMenu";
 
@@ -70,7 +69,6 @@ export function BranchTree({
   onNewRelease: () => void;
   onHide: () => void;
 }) {
-  const nav = useNav();
   const pid = o.project.id;
   const { isOpen, toggle } = useToggles(pid);
   const [query, setQuery] = useState("");
@@ -105,25 +103,12 @@ export function BranchTree({
     return on;
   }, [roots, kids, o.currentBranch]);
 
-  const ghost = (b: BranchView) => {
-    const release = b.role === "release" ? b.release : undefined;
-    return (
-      <div key={`new-${b.name}`} className="tree-row tree-ghost">
-        <button className="btn btn-primary btn-sm" onClick={() => nav.openNewItem(release ? { release } : { from: b.name })}>
-          <Icon name="plus" size={12} stroke={1.8} />
-          <span className="ellipsis">{release ? "New feature or fix" : <>New branch off <span className="mono">{b.name}</span></>}</span>
-        </button>
-      </div>
-    );
-  };
-
   const node = (b: BranchView): ReactNode => {
     if (!shown(b)) return null;
     const children = kids(b.name).filter(shown);
     const live = children.filter((c) => !c.merged);
     const merged = children.filter((c) => c.merged);
-    const canGrow = b.exists && (b.role === "release" || b.role === "trunk") && !q;
-    const hasKids = children.length > 0 || canGrow;
+    const hasKids = children.length > 0;
     const open = !!q || isOpen(b.name);
     const mergedKey = `merged:${b.name}`;
     const mergedOpen = !!q || isOpen(mergedKey);
@@ -149,16 +134,13 @@ export function BranchTree({
               <button className="tree-row tree-group tree-toggle" data-path={(path.has(b.name) && b.name !== o.currentBranch) || undefined} aria-expanded={open} aria-label={`${open ? "Hide" : "Show"} the child branches of ${b.name}`} onClick={() => toggle(b.name)}>
                 <span className="tree-twist"><Icon name="chevronDown" size={12} className="chev" /></span>
                 <span>{open ? "Hide" : "Show"} child branches</span>
-                {children.length > 0 && <span className="faint">{children.length}</span>}
+                <span className="faint">{children.length}</span>
               </button>
             )}
             {open && (
               <div className="tree-open">
-                {/* Trunks offer a new branch first, its + under the trunk's own icon; a release lists its work, then the way to add more. */}
-                {canGrow && b.role === "trunk" && ghost(b)}
                 <div className="tree-kids">
                   {live.map((c) => node(c))}
-                  {canGrow && b.role === "release" && ghost(b)}
                   {merged.length > 0 && (
                     <>
                       <button className="tree-row tree-group tree-merged" aria-expanded={mergedOpen} onClick={() => toggle(mergedKey)}>

@@ -58,14 +58,7 @@ export function Workspace() {
       baseLabel: labelOf(base),
       isDefault: b === o?.defaultBranch,
       isRelease: !!rel,
-      extra: rel
-        ? [
-            { id: "new-item", label: <>New feature or fix in v{rel.version}…</>, icon: "plus", run: () => nav.openNewItem({ release: rel.version }) },
-            { id: "ship", label: <>Ship v{rel.version}…</>, icon: "ship", hint: "fast-forward + tag", run: () => setShipping(rel) },
-          ]
-        : v.role === "trunk" && v.exists
-          ? [{ id: "new-branch", label: <>New branch off <span className="mono">{b}</span>…</>, icon: "plus", run: () => nav.openNewItem({ from: b }) }]
-          : undefined,
+      extra: rel ? [{ id: "ship", label: <>Ship v{rel.version}…</>, icon: "ship", hint: "fast-forward + tag", run: () => setShipping(rel) }] : undefined,
       showCommits: v.exists ? () => openHistory(b) : undefined,
       next: rel
         ? { id: "ship", label: `Ship v${rel.version}…`, short: "Ship", tip: `Fast-forward ${o?.defaultBranch} to ${b} and tag v${rel.version}`, icon: "ship", disabled: !v.ahead, run: () => setShipping(rel) }

@@ -131,6 +131,14 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
         disabled: !t.base,
         run: () => pr.mutate({ projectId: pid, branch: b }, { onSuccess: (r) => nav.go({ name: "prs", number: r.number }) }),
       },
+      // An open release takes new work as a feature or fix in it; any other branch just starts one off itself.
+      create: {
+        id: "create",
+        label: "Create a branch from here",
+        tip: "Create a branch from here",
+        icon: "plus",
+        run: () => nav.openNewItem(v.role === "release" && v.release ? { release: v.release } : { from: b }),
+      },
       copy: { id: "copy", label: "Copy branch name", icon: "edit", run: () => copyToClipboard(b) },
       delete: {
         id: "delete",
@@ -150,7 +158,8 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
     if (!v.exists) return [a.delete];
     const list: MenuItem[] = t.extra?.length ? [...t.extra, "sep"] : [];
     if (v.conflict) list.push(a.conflicts, "sep");
-    if (!v.checkedOut) list.push(a.switch, a.worktree, "sep");
+    if (!v.checkedOut) list.push(a.switch, a.worktree);
+    list.push(a.create, "sep");
     if (v.local) {
       list.push(a.pull, a.push);
       if (t.base) {
@@ -213,16 +222,20 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
 
   const switchTo = (b: string) => run(sw, b, `Switched to ${b}`);
 
+  /** Start a new branch off this one; gone branches have nothing to start from. */
+  const create = (t: BranchTarget): Action | undefined => (t.view.exists ? all(t).create : undefined);
+
   const menuEl = menu && <ContextMenu x={menu.x} y={menu.y} alignRight={menu.alignRight} label={`Actions for ${menu.t.view.name}`} items={items(menu.t)} onClose={() => setMenu(null)} />;
 
-  return { primary, openMenu, menuEl, busy, switchTo };
+  return { primary, create, openMenu, menuEl, busy, switchTo };
 }
 
 export type BranchActions = ReturnType<typeof useBranchActions>;
 
-/** Primary action for the branch's state, plus a "…" button with every action. */
+/** Primary action for the branch's state, a "+" to start a branch off it, and a "…" button with every action. */
 export function BranchSplit({ t, actions, size = "sm" }: { t: BranchTarget; actions: BranchActions; size?: "sm" | "md" }) {
   const p = actions.primary(t);
+  const add = actions.create(t);
   const busy = actions.busy === t.view.name;
   const cls = size === "sm" ? "btn btn-sm" : "btn";
   return (
@@ -231,6 +244,11 @@ export function BranchSplit({ t, actions, size = "sm" }: { t: BranchTarget; acti
         {busy ? <span className="spinner" /> : p.icon && <Icon name={p.icon} size={12} />}
         <span>{p.short ?? p.label}</span>
       </button>
+      {add && (
+        <button className={`${cls} btn-icon split-mid`} aria-label={add.tip} data-tip={add.tip} onClick={add.run}>
+          <Icon name="plus" size={12} />
+        </button>
+      )}
       <button className={`${cls} btn-icon split-more`} aria-label={`More actions for ${t.view.name}`} aria-haspopup="menu" onClick={(e) => actions.openMenu(t, e)}>
         <Icon name="more" size={13} />
       </button>
