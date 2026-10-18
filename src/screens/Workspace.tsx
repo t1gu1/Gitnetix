@@ -675,11 +675,7 @@ function CleanupModal({
   onClose: () => void;
   onDeleted: (branches: string[]) => void;
 }) {
-  const [alsoOrigin, setAlsoOrigin] = useState(false);
   const [skipped, setSkipped] = useState<CleanupResult["skipped"]>([]);
-  // Origin-only branches can only go from origin.
-  const targets = branches.filter((b) => b.local || alsoOrigin);
-  const anyOrigin = branches.some((b) => b.remote);
   const run = useAction<CleanupResult>("branches.cleanup", {
     invalidate: [["overview", pid], ["files", pid], ["worktrees"]],
     success: (r) => `Deleted ${r.deleted.length} merged branch${r.deleted.length === 1 ? "" : "es"}`,
@@ -694,10 +690,10 @@ function CleanupModal({
           <button className="btn btn-md" onClick={onClose}>{skipped.length ? "Close" : "Cancel"}</button>
           <button
             className="btn btn-md btn-danger"
-            disabled={run.isPending || !targets.length}
+            disabled={run.isPending || !branches.length}
             onClick={() =>
               run.mutate(
-                { projectId: pid, branches: targets.map((b) => b.name), remote: alsoOrigin },
+                { projectId: pid, branches: branches.map((b) => b.name), remote: true },
                 {
                   onSuccess: (r) => {
                     onDeleted(r.deleted);
@@ -709,28 +705,22 @@ function CleanupModal({
             }
           >
             {run.isPending && <span className="spinner" />}
-            Delete {targets.length} branch{targets.length === 1 ? "" : "es"}
+            Delete {branches.length} branch{branches.length === 1 ? "" : "es"}
           </button>
         </>
       }
     >
       <p style={{ margin: 0, lineHeight: 1.55 }}>
-        Their commits are all in <span className="mono">{label}</span>, so nothing is lost. Worktrees they have go too.
+        Their commits are all in <span className="mono">{label}</span>, so nothing is lost. They are deleted locally and on origin, and worktrees they have go too.
       </p>
       <ul className="col" style={{ margin: 0, padding: 0, listStyle: "none", gap: 4 }}>
         {branches.map((b) => (
-          <li key={b.name} className="row" style={{ gap: 8, opacity: targets.includes(b) ? 1 : 0.5 }}>
+          <li key={b.name} className="row" style={{ gap: 8 }}>
             <span className="mono ellipsis">{b.name}</span>
             {!b.local && <span className="tag" title="Only on origin">origin</span>}
           </li>
         ))}
       </ul>
-      {anyOrigin && (
-        <label className="check">
-          <input type="checkbox" checked={alsoOrigin} onChange={() => setAlsoOrigin(!alsoOrigin)} />
-          <span>Also delete them on origin</span>
-        </label>
-      )}
       {run.error && <ErrorBox error={run.error} />}
       {skipped.length > 0 && (
         <div className="col" style={{ gap: 4 }}>

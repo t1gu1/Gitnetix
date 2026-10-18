@@ -152,7 +152,7 @@ export function BranchTree({
                     <span className="faint">{merged.length}</span>
                   </button>
                   {removable.length > 0 && (
-                    <button className="btn btn-sm tree-cleanup" title={`Delete the ${removable.length} merged branch${removable.length === 1 ? "" : "es"} under ${mergedLabel}`} onClick={() => onCleanup(b.name, mergedLabel, removable)}>
+                    <button className="btn btn-sm tree-cleanup" title={`Delete the ${removable.length} merged branch${removable.length === 1 ? "" : "es"} under ${mergedLabel}, locally and on origin`} onClick={() => onCleanup(b.name, mergedLabel, removable)}>
                       Clean up
                     </button>
                   )}
