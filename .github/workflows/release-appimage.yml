@@ -1,0 +1,87 @@
+name: Release AppImage
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Tag push events carry no branch, so make sure the tagged commit is on main.
+  check-main:
+    runs-on: ubuntu-latest
+    outputs:
+      on-main: ${{ steps.check.outputs.on-main }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - id: check
+        run: |
+          if git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "on-main=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::Tag ${GITHUB_REF_NAME} is not on main, skipping build."
+            echo "on-main=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  build-appimage:
+    needs: check-main
+    if: needs.check-main.outputs.on-main == 'true'
+    # Oldest supported Ubuntu keeps the AppImage's glibc requirement low.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libxdo-dev \
+            libssl-dev \
+            patchelf \
+            file
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build AppImage
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          pnpm tauri build --bundles appimage --config "{\"version\":\"${VERSION}\"}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gitnetix-appimage-${{ github.ref_name }}
+          path: target/release/bundle/appimage/*.AppImage
+          if-no-files-found: error
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: target/release/bundle/appimage/*.AppImage
+          generate_release_notes: true
