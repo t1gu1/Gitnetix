@@ -292,6 +292,37 @@ fn valid_branch_name(s: &str) -> bool {
         && s.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '-' | '_' | '.'))
 }
 
+/// Start the part after the prefix with the ticket key and an underscore (`feat/ATL-212_login`).
+/// A key already there (`feat/atl-212-login`) is replaced rather than repeated.
+fn with_ticket(branch: &str, ticket: &str) -> String {
+    let t = ticket.trim().replace(char::is_whitespace, "-");
+    if t.is_empty() {
+        return branch.to_string();
+    }
+    let (prefix, rest) = match branch.split_once('/') {
+        Some((p, r)) => (format!("{p}/"), r),
+        None => (String::new(), branch),
+    };
+    let rest = match rest.get(..t.len()) {
+        Some(head) if head.eq_ignore_ascii_case(&t) && matches!(rest.as_bytes().get(t.len()), Some(b'-' | b'_')) => &rest[t.len() + 1..],
+        _ => rest,
+    };
+    format!("{prefix}{t}_{rest}")
+}
+
+/// `v2.4` / `2.4.1` → [2, 4, 0] / [2, 4, 1]; anything else (pre-releases included) is not a version.
+fn parse_version(s: &str) -> Option<[u64; 3]> {
+    let parts: Vec<&str> = s.trim_start_matches('v').split('.').collect();
+    if !(2..=3).contains(&parts.len()) {
+        return None;
+    }
+    let mut v = [0; 3];
+    for (i, part) in parts.iter().enumerate() {
+        v[i] = part.parse().ok()?;
+    }
+    Some(v)
+}
+
 fn release_branch(version: &str) -> String {
     format!("release/{}", version.trim_start_matches('v'))
 }
@@ -1112,6 +1143,31 @@ impl Gitnetix {
 
     // ---------- releases ----------
 
+    /// Version for a new release, from the highest one around (tags, release branches here or on origin,
+    /// releases Gitnetix knows): next bumps the minor, hotfix bumps the patch of the latest tag.
+    pub async fn suggest_version(&self, project_id: &str, kind: ReleaseKind) -> Result<String> {
+        let p = self.store.project(project_id)?;
+        let git = self.git(&p);
+        let tags: Vec<[u64; 3]> = git.tags().await?.iter().filter_map(|t| parse_version(&t.name)).collect();
+        let mut taken: Vec<[u64; 3]> = tags.clone();
+        taken.extend(p.releases.iter().filter_map(|r| parse_version(&r.version)));
+        let names = git.branches().await?.into_iter().chain(git.remote_branches().await?).map(|b| b.name);
+        taken.extend(names.filter_map(|n| n.trim_start_matches("origin/").strip_prefix("release/").and_then(parse_version)));
+        let v = match kind {
+            ReleaseKind::Next => taken.iter().max().map(|v| [v[0], v[1] + 1, 0]).unwrap_or([0, 1, 0]),
+            // Hotfixes patch what shipped; skip past patches already taken by another hotfix.
+            ReleaseKind::Hotfix => {
+                let mut v = tags.iter().max().copied().unwrap_or([0, 0, 0]);
+                v[2] += 1;
+                while taken.contains(&v) {
+                    v[2] += 1;
+                }
+                v
+            }
+        };
+        Ok(format!("{}.{}.{}", v[0], v[1], v[2]))
+    }
+
     pub async fn create_release(&self, project_id: &str, version: &str, kind: ReleaseKind, from: Option<String>) -> Result<Release> {
         let version = version.trim().trim_start_matches('v').to_string();
         if version.is_empty() || !version.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-') {
@@ -1255,8 +1311,17 @@ impl Gitnetix {
         let branch = match req.branch_name.clone().filter(|s| !s.trim().is_empty()) {
             Some(b) if b.contains('/') => b.trim().to_string(),
             Some(b) => format!("{kind}/{}", b.trim()),
+            // Nothing typed: switching carries the uncommitted changes along, so they say what the work is.
+            None if req.description.trim().is_empty() && req.r#where != "worktree" && git.wip_count().await? > 0 => {
+                let wip = format!("Name it after these uncommitted changes:\n{}", git.wip_diff(20_000).await?);
+                match self.suggest_branch_name(project_id, kind, &wip, req.ticket.as_deref()).await? {
+                    (name, true) => name,
+                    _ => return Err(Error::Invalid("AI couldn't name the branch from your changes. Type a name.".into())),
+                }
+            }
             None => self.suggest_branch_name(project_id, kind, &req.description, req.ticket.as_deref()).await?.0,
         };
+        let branch = with_ticket(&branch, req.ticket.as_deref().unwrap_or(""));
         if !valid_branch_name(&branch) {
             return Err(Error::Invalid(format!("“{branch}” is not a valid branch name")));
         }
@@ -2244,6 +2309,7 @@ const KINDS: &[(&str, &[&str])] = &[
     ("docs", &["doc"]),
     ("chore", &[]),
     ("ci", &[]),
+    ("build", &["deps"]),
     ("poc", &["spike"]),
 ];
 
@@ -2318,6 +2384,22 @@ mod tests {
         assert_eq!(normalize_kind("wip"), None);
         assert!(!valid_branch_name("feat/ bad"));
         assert!(!valid_branch_name("feat/.."));
+    }
+
+    #[test]
+    fn ticket_in_branch() {
+        assert_eq!(with_ticket("feat/login", "ATL-212"), "feat/ATL-212_login");
+        assert_eq!(with_ticket("feat/atl-212-login", "ATL-212"), "feat/ATL-212_login");
+        assert_eq!(with_ticket("feat/ATL-212_login", "ATL-212"), "feat/ATL-212_login");
+        assert_eq!(with_ticket("feat/login", ""), "feat/login");
+    }
+
+    #[test]
+    fn versions() {
+        assert_eq!(parse_version("v2.4.1"), Some([2, 4, 1]));
+        assert_eq!(parse_version("2.4"), Some([2, 4, 0]));
+        assert_eq!(parse_version("2.4.0-rc1"), None);
+        assert_eq!(parse_version("latest"), None);
     }
 
     #[test]

@@ -47,6 +47,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("workspace.conflictPropose", "AI proposal for a conflicted file", "projectId, branch, path"),
     ("workspace.conflictApply", "Write and stage a resolved file", "projectId, branch, path, content"),
     ("releases.create", "Cut a release branch", "projectId, version, kind: next|hotfix, from?"),
+    ("releases.suggestVersion", "Version for a new release: next = minor bump of the highest tag or release branch, hotfix = patch bump of the latest tag", "projectId, kind: next|hotfix"),
     ("releases.ship", "Fast-forward main to the release and tag it", "projectId, version, push?"),
     ("releases.delete", "Forget an open release (branch kept)", "projectId, version"),
     ("items.suggestName", "AI branch name for a feature or fix", "projectId, kind, description, ticket?"),
@@ -355,6 +356,10 @@ pub async fn call(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
         "releases.create" => {
             let kind = if os(&p, "kind").as_deref() == Some("hotfix") { ReleaseKind::Hotfix } else { ReleaseKind::Next };
             to(k.create_release(&s(&p, "projectId")?, &s(&p, "version")?, kind, os(&p, "from")).await?)
+        }
+        "releases.suggestVersion" => {
+            let kind = if os(&p, "kind").as_deref() == Some("hotfix") { ReleaseKind::Hotfix } else { ReleaseKind::Next };
+            to(json!({ "version": k.suggest_version(&s(&p, "projectId")?, kind).await? }))
         }
         "releases.ship" => to(json!({ "tag": k.ship_release(&s(&p, "projectId")?, &s(&p, "version")?, b(&p, "push")).await? })),
         "releases.delete" => {

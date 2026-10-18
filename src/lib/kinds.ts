@@ -9,6 +9,7 @@ export const KINDS = [
   { id: "docs", label: "Docs", noun: "docs change", aliases: ["doc"] },
   { id: "chore", label: "Chore", noun: "chore", aliases: [] },
   { id: "ci", label: "CI", noun: "CI change", aliases: [] },
+  { id: "build", label: "Build", noun: "build change", aliases: ["deps"] },
   { id: "poc", label: "POC", noun: "POC", aliases: ["spike"] },
 ] as const;
 
@@ -32,6 +33,16 @@ export function withPrefix(name: string, kind: Kind): string {
   const n = name.trim();
   if (!n) return "";
   return n.includes("/") ? n : `${kind}/${n}`;
+}
+
+/** Starts the part after the prefix with the ticket key and an underscore (`feat/ATL-212_login`); a key already there is not repeated. */
+export function withTicket(branch: string, ticket: string): string {
+  const t = ticket.trim().replace(/\s/g, "-");
+  if (!branch || !t) return branch;
+  const i = branch.indexOf("/") + 1;
+  let rest = branch.slice(i);
+  if (rest.toLowerCase().startsWith(t.toLowerCase()) && /^[-_]/.test(rest.slice(t.length))) rest = rest.slice(t.length + 1);
+  return `${branch.slice(0, i)}${t}_${rest}`;
 }
 
 export const kindNoun = (k: string) => KINDS.find((x) => x.id === k)?.noun ?? "item";

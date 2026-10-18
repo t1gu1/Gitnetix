@@ -1,6 +1,6 @@
 import { useState, type MouseEvent } from "react";
 
-import { useAction } from "../api/hooks";
+import { useAction, usePendingBranches } from "../api/hooks";
 import type { BranchView } from "../api/types";
 import { ContextMenu, type MenuItem } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
@@ -56,7 +56,9 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
   const [menu, setMenu] = useState<{ x: number; y: number; alignRight: boolean; t: BranchTarget } | null>(null);
 
   const mutations = [sw, wt, pull, push, rebase, sync, stash, pr];
-  const busy = mutations.find((m) => m.isPending)?.variables?.branch;
+  // Pushes started elsewhere count too: the commit box's auto push spins the branch's Push button.
+  const pushing = usePendingBranches("workspace.push");
+  const busy = mutations.find((m) => m.isPending)?.variables?.branch ?? pushing.find(Boolean);
   const run = (m: BranchMutation, branch: string, ok: string) => m.mutate({ projectId: pid, branch }, { onSuccess: () => toast(ok, "ok") });
 
   const all = (t: BranchTarget) => {

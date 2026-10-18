@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { QueryClient, useMutation, useMutationState, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { rpc, subscribe } from "./transport";
 import type {
@@ -184,12 +184,22 @@ export const useAnalytics = (projectId: string, days: number) =>
  * Fire an RPC from a button: shows errors as toasts and refreshes the
  * given query keys afterwards.
  */
+/** Branches a method is running on right now, wherever it was started. */
+export function usePendingBranches(method: string): string[] {
+  return useMutationState({
+    filters: { mutationKey: [method], status: "pending" },
+    select: (m) => (m.state.variables as { branch?: string } | undefined)?.branch ?? "",
+  });
+}
+
 export function useAction<T = unknown, V extends Record<string, unknown> = Record<string, unknown>>(
   method: string,
   opts: { invalidate?: unknown[][]; success?: string | ((r: T) => string | undefined) } = {},
 ) {
   const qc = useQueryClient();
   return useMutation<T, Error, V>({
+    // Keyed by method so other screens can tell it is running (e.g. a push started from the commit box).
+    mutationKey: [method],
     mutationFn: (vars) => rpc<T>(method, vars),
     onSuccess: (r) => {
       for (const k of opts.invalidate ?? []) qc.invalidateQueries({ queryKey: k });

@@ -614,6 +614,17 @@ impl Git {
         Ok(d)
     }
 
+    /// Every uncommitted change against HEAD, then the untracked files by name.
+    pub async fn wip_diff(&self, max_bytes: usize) -> Result<String> {
+        let mut d = self.run(&["diff", "HEAD", "--stat", "-p"]).await?;
+        let untracked = self.run(&["ls-files", "--others", "--exclude-standard"]).await?;
+        if !untracked.trim().is_empty() {
+            d = format!("New files:\n{untracked}\n{d}");
+        }
+        truncate_utf8(&mut d, max_bytes);
+        Ok(d)
+    }
+
     pub async fn range_diff(&self, range: &str, max_bytes: usize) -> Result<String> {
         let mut d = self.run(&["diff", "--stat", "-p", range]).await?;
         truncate_utf8(&mut d, max_bytes);

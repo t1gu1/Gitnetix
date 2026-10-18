@@ -671,3 +671,28 @@ async fn outside_git_changes_refresh_the_project() {
     .await;
     assert!(seen.is_ok(), "no ProjectChanged after an outside commit");
 }
+
+#[tokio::test]
+async fn suggest_version() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("atlas-api");
+    init_repo(&repo);
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let added = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await;
+    let pid = added[0]["id"].as_str().unwrap().to_string();
+    let suggest = |kind: &'static str| {
+        let (k, pid) = (&k, pid.clone());
+        async move { call(k, "releases.suggestVersion", json!({ "projectId": pid, "kind": kind })).await["version"].as_str().unwrap().to_string() }
+    };
+
+    assert_eq!(suggest("next").await, "0.1.0");
+    sh(&repo, &["tag", "v1.2.0"]);
+    sh(&repo, &["tag", "v1.10.3"]);
+    assert_eq!(suggest("next").await, "1.11.0");
+    assert_eq!(suggest("hotfix").await, "1.10.4");
+    // A release branch past the tags wins for next; a hotfix already cut is skipped.
+    sh(&repo, &["branch", "release/1.11.0"]);
+    sh(&repo, &["branch", "release/1.10.4"]);
+    assert_eq!(suggest("next").await, "1.12.0");
+    assert_eq!(suggest("hotfix").await, "1.10.5");
+}

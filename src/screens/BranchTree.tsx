@@ -19,12 +19,17 @@ function useToggles(pid: string) {
   return { isOpen, toggle };
 }
 
-/** Children of a branch, in display order: releases, trunks, active work by recency; merged ones apart. */
+/** Children of a branch, in display order: releases, trunks, active work by recency; merged ones apart. Shipped release branches sit apart too. */
 function childrenOf(o: Overview) {
   const names = new Set(o.branches.map((b) => b.name));
   const kids = new Map<string, BranchView[]>();
   const roots: BranchView[] = [];
+  const shipped = new Map<string, BranchView>();
   for (const b of o.branches) {
+    if (b.shipped) {
+      shipped.set(b.shipped, b);
+      continue;
+    }
     // A parent that no longer exists hands its children to the default branch.
     const p = b.parent ? (names.has(b.parent) ? b.parent : o.defaultBranch) : null;
     if (!p || p === b.name || !names.has(p)) roots.push(b);
@@ -38,7 +43,7 @@ function childrenOf(o: Overview) {
   const order = (a: BranchView, b: BranchView) => rank(a) - rank(b) || relOrder(a) - relOrder(b) || time(b) - time(a) || a.name.localeCompare(b.name);
   for (const list of kids.values()) list.sort(order);
   roots.sort((a, b) => (a.name === o.defaultBranch ? -1 : b.name === o.defaultBranch ? 1 : order(a, b)));
-  return { roots, kids: (name: string) => kids.get(name) ?? [] };
+  return { roots, shipped, kids: (name: string) => kids.get(name) ?? [] };
 }
 
 function look(b: BranchView, isDefault: boolean, shipped: boolean): { icon: string; cls: string } {
@@ -76,9 +81,10 @@ export function BranchTree({
   const { isOpen, toggle } = useToggles(pid);
   const [query, setQuery] = useState("");
   const fetchOrigin = useAction("branches.fetch", { invalidate: [["overview", pid]], success: () => "Fetched origin" });
-  const { roots, kids } = useMemo(() => childrenOf(o), [o]);
-  // Shipped releases whose branch is gone; the others show in the tree with what they shipped.
-  const shipped = o.releases.filter((r) => !r.open && !o.branches.some((b) => b.shipped === r.version));
+  const { roots, shipped: shippedBranches, kids } = useMemo(() => childrenOf(o), [o]);
+  // Shipped releases: the branch row (with what merged into it) while it is still around, else a plain entry.
+  const shipped = o.releases.filter((r) => !r.open);
+  const tops = useMemo(() => [...roots, ...shippedBranches.values()], [roots, shippedBranches]);
 
   const q = query.trim().toLowerCase();
   const matches = useMemo(() => {
@@ -90,9 +96,9 @@ export function BranchTree({
       if (self || child) hit.add(b.name);
       return self || child;
     };
-    roots.forEach(walk);
+    tops.forEach(walk);
     return hit;
-  }, [q, roots, kids]);
+  }, [q, tops, kids]);
   const shown = (b: BranchView) => !matches || matches.has(b.name);
   // The checked-out branch and every branch above it, marked whether or not their children are showing.
   const path = useMemo(() => {
@@ -102,9 +108,9 @@ export function BranchTree({
       if (hit) on.add(b.name);
       return hit;
     };
-    roots.forEach(walk);
+    tops.forEach(walk);
     return on;
-  }, [roots, kids, o.currentBranch]);
+  }, [tops, kids, o.currentBranch]);
 
   // Uncommitted files anywhere below a branch, surfaced on its toggle while its children are hidden.
   const hiddenWip = (b: BranchView): number => kids(b.name).reduce((n, c) => n + c.wip + hiddenWip(c), 0);
@@ -206,6 +212,7 @@ export function BranchTree({
       )}
       <div className="scroll tree" style={{ flex: "1 1 auto" }}>
         {roots.map((b) => node(b))}
+        {q && [...shippedBranches.values()].map((b) => node(b))}
         {matches?.size === 0 && <Empty>No branch matches “{query}”.</Empty>}
         {shipped.length > 0 && !q && (
           <>
@@ -215,7 +222,7 @@ export function BranchTree({
               <span className="faint">{shipped.length}</span>
             </button>
             {isOpen("shipped") &&
-              shipped.map((r) => (
+              shipped.map((r) => shippedBranches.has(r.version) ? node(shippedBranches.get(r.version)!) : (
                 <div key={`${r.version}-${r.tag}`} className="tree-row tree-static" data-role="release">
                   <span className="tree-btn">
                     <span className="tree-icon"><Icon name="tag" size={13} stroke={1.4} /></span>

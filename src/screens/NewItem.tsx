@@ -4,7 +4,7 @@ import { useAction, useOverview } from "../api/hooks";
 import { rpc } from "../api/transport";
 import { Icon } from "../components/Icon";
 import { Modal, releaseTagLabel, Seg } from "../components/ui";
-import { KINDS, kindNoun, kindOfBranch, withPrefix, type Kind } from "../lib/kinds";
+import { KINDS, kindNoun, kindOfBranch, withPrefix, withTicket, type Kind } from "../lib/kinds";
 import { useNav, type NewItemDraft } from "../lib/nav";
 
 export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () => void }) {
@@ -22,6 +22,7 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
   const [kind, setKind] = useState<Kind | "release">(draft.kind ?? "feat");
   const [relKind, setRelKind] = useState<"next" | "hotfix">("next");
   const [version, setVersion] = useState("");
+  const [versionTyped, setVersionTyped] = useState(false);
   const [desc, setDesc] = useState(draft.description ?? "");
   const [from, setFrom] = useState(firstBase);
   const [ticket, setTicket] = useState(draft.ticket ?? "");
@@ -34,6 +35,18 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
   useEffect(() => {
     if (!from && ov.data) setFrom(firstBase());
   }, [ov.data, from]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Release version: the next one after the latest tag or release branch, until the user types their own.
+  useEffect(() => {
+    if (kind !== "release" || versionTyped) return;
+    let live = true;
+    rpc<{ version: string }>("releases.suggestVersion", { projectId: pid, kind: relKind })
+      .then((r) => live && setVersion(r.version))
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [kind, relKind, pid, versionTyped]);
 
   // Ask AI for a branch name once the description settles.
   useEffect(() => {
@@ -104,14 +117,27 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
         <Seg grid size="lg" label="Release type" value={relKind} onChange={setRelKind} options={[{ value: "next", label: "Next release" }, { value: "hotfix", label: "Hotfix" }]} />
         <div className="field">
           <label htmlFor="ni-version">Version</label>
-          <input id="ni-version" className="input mono" placeholder="2.4.0" value={version} onChange={(e) => setVersion(e.target.value.trim())} autoFocus />
+          <input
+            id="ni-version"
+            className="input mono"
+            placeholder="2.4.0"
+            value={version}
+            autoFocus
+            onChange={(e) => {
+              setVersion(e.target.value.trim());
+              setVersionTyped(true);
+            }}
+          />
         </div>
       </Modal>
     );
   }
 
   const label = kindNoun(kind);
-  const branch = withPrefix(name, kind);
+  const branch = withTicket(withPrefix(name, kind), ticket);
+  // Switching brings the uncommitted changes along: with no name, AI names the branch after them.
+  const wip = ov.data?.branches.find((b) => b.name === ov.data?.currentBranch)?.wip ?? 0;
+  const nameFromWip = !agent && where === "switch" && wip > 0;
 
   return (
     <Modal
@@ -123,7 +149,7 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
           <button className="btn btn-md" onClick={onClose}>Cancel</button>
           <button
             className="btn btn-primary btn-md"
-            disabled={!base || (agent ? !desc.trim() : !name.trim()) || create.isPending}
+            disabled={!base || (agent ? !desc.trim() : !name.trim() && !nameFromWip) || create.isPending}
             onClick={() =>
               create.mutate(
                 { projectId: pid, release: rel?.version ?? "", from: rel ? undefined : from, kind, description: agent ? desc : "", branchName: branch || undefined, ticket: ticket || undefined, where, startAgent: agent },
@@ -144,33 +170,6 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
       }
     >
       <Seg grid cols={6} size="lg" label="Type" value={kind} onChange={pickKind} options={types} />
-      <div className="field">
-        <label htmlFor="ni-branch">
-          <span>Branch name</span>
-          <span className="row c-acc" style={{ gap: 5, fontWeight: 400 }}>
-            {naming ? <span className="spinner" /> : named === "ai" ? <><Icon name="sparkle" size={11} />Named by AI</> : named === "auto" ? "From description" : null}
-          </span>
-        </label>
-        <input
-          id="ni-branch"
-          className="input mono"
-          style={{ fontSize: 12.5 }}
-          value={name}
-          placeholder={`${kind}/…`}
-          autoFocus
-          onChange={(e) => {
-            // Git names can't hold spaces: each one becomes a dash as you type.
-            const v = e.target.value.replace(/\s/g, "-");
-            setName(v);
-            setNamed("you");
-            const k = kindOfBranch(v);
-            if (k) setKind(k);
-          }}
-        />
-        {branch && branch !== name.trim() && (
-          <span className="faint" style={{ fontSize: 12 }}>Creates <span className="mono">{branch}</span></span>
-        )}
-      </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 }}>
         <div className="field">
           <label htmlFor="ni-rel">Branches off</label>
@@ -187,6 +186,33 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
           <label htmlFor="ni-ticket">Ticket <span className="faint" style={{ fontWeight: 400 }}>optional</span></label>
           <input id="ni-ticket" className="input mono" placeholder="ATL-212" value={ticket} onChange={(e) => setTicket(e.target.value)} />
         </div>
+      </div>
+      <div className="field">
+        <label htmlFor="ni-branch">
+          <span>Branch name</span>
+          <span className="row c-acc" style={{ gap: 5, fontWeight: 400 }}>
+            {naming ? <span className="spinner" /> : named === "ai" ? <><Icon name="sparkle" size={11} />Named by AI</> : named === "auto" ? "From description" : null}
+          </span>
+        </label>
+        <input
+          id="ni-branch"
+          className="input mono"
+          style={{ fontSize: 12.5 }}
+          value={name}
+          placeholder={nameFromWip ? "Leave empty to let AI name it from your changes" : `${kind}/…`}
+          autoFocus
+          onChange={(e) => {
+            // Git names can't hold spaces: each one becomes a dash as you type.
+            const v = e.target.value.replace(/\s/g, "-");
+            setName(v);
+            setNamed("you");
+            const k = kindOfBranch(v);
+            if (k) setKind(k);
+          }}
+        />
+        {branch && branch !== name.trim() && (
+          <span className="faint" style={{ fontSize: 12 }}>Creates <span className="mono">{branch}</span></span>
+        )}
       </div>
       <fieldset className="col" style={{ margin: 0, padding: 0, border: 0, gap: 6 }}>
         <legend className="muted" style={{ padding: "0 0 6px", fontSize: 12, fontWeight: 500 }}>Where to work</legend>
