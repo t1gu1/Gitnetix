@@ -209,8 +209,9 @@ body.resizing iframe, body.resizing .term { pointer-events: none; }
 .pane-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; height: 44px; flex: 0 0 44px; padding: 0 12px 0 16px; border-bottom: 1px solid var(--line); }
 /* Branch tree: every branch is the same row (icon, name + status line, actions),
    nested under a left border; only the icon, tags and suggested action change with its role. */
-.tree { display: flex; flex-direction: column; padding: 6px 0; }
-.tree-row { position: relative; display: flex; align-items: flex-start; gap: 4px; min-height: 44px; margin: 0 6px; padding: 6px 6px 6px 2px; border-radius: 4px; }
+/* 6px extra on the left: top-level rows keep the same gap to their orange marker as nested ones. */
+.tree { display: flex; flex-direction: column; padding: 6px 0 6px 6px; }
+.tree-row { position: relative; display: flex; align-items: flex-start; gap: 4px; min-height: 44px; margin: 0 6px; padding: 6px; border-radius: 4px; }
 /* An open branch's line starts below its show/hide toggle and runs down past its children, so they read as under it.
    Children step in 6px; the line sits on the parent row's left edge, 6px left of each child row. */
 .tree-sub, .tree-open, .tree-kids { position: relative; }
@@ -221,11 +222,12 @@ body.resizing iframe, body.resizing .term { pointer-events: none; }
 .tree-row { isolation: isolate; }
 .tree-row:hover::after, .tree-row:has(> .tree-btn[aria-pressed="true"])::after { content: ""; position: absolute; z-index: -1; inset: 0; border-radius: 4px; background: var(--raised); pointer-events: none; }
 .tree-row:has(> .tree-btn[aria-pressed="true"])::after { background: var(--sel); }
-/* Checked-out branch and every branch above it: their stretch of the parent's line turns orange; at the top level, their own left edge.
+/* Checked-out branch and every branch above it: their stretch of the parent's line turns orange (6px left of the row, top level included).
    Rows isolate their layers, so these are lifted above the nesting lines for their orange to show over them. */
 .tree-row[data-path] { z-index: 2; }
-.tree-row[data-path]::before { content: ""; position: absolute; z-index: 2; top: 0; bottom: 0; left: 0; width: 1px; background: var(--trunk-fg); pointer-events: none; }
-.tree-kids .tree-row[data-path]::before { left: -6px; }
+.tree-row[data-path]::before { content: ""; position: absolute; z-index: 2; top: 0; bottom: 0; left: -6px; width: 1px; background: var(--trunk-fg); pointer-events: none; }
+/* Above it (parents, and their show/hide toggles), the orange is dotted: the path leads further down. */
+.tree-row[data-path]:not([data-current])::before { background: repeating-linear-gradient(to bottom, var(--trunk-fg) 0 1px, transparent 1px 3px); }
 .tree-twist { flex: 0 0 16px; width: 16px; height: 20px; display: inline-flex; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: 3px; background: transparent; color: var(--faint); }
 button.tree-twist { cursor: pointer; }
 button.tree-twist:hover { color: var(--fg); }
