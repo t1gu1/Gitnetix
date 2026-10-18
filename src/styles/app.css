@@ -226,10 +226,11 @@ button.tree-twist:hover { color: var(--fg); }
 .tree-acts { flex: 0 0 auto; display: flex; opacity: 0; pointer-events: none; transition: opacity .12s; }
 .tree-row:hover .tree-acts, .tree-row:focus-within .tree-acts, .tree-row:has(> .tree-btn[aria-pressed="true"]) .tree-acts { opacity: 1; pointer-events: auto; }
 @media (hover: none) { .tree-acts { opacity: 1; pointer-events: auto; } }
-.tree-ghost, .tree-group { width: calc(100% - 12px); min-height: 30px; align-items: center; border: 0; background: transparent; font: inherit; text-align: left; cursor: pointer; }
-.tree-ghost { color: var(--muted); font-size: 12px; gap: 4px; }
-.tree-ghost .tree-icon { height: auto; margin-right: 4px; }
-.tree-ghost:hover { color: var(--fg); }
+.tree-group { width: calc(100% - 12px); min-height: 30px; align-items: center; border: 0; background: transparent; font: inherit; text-align: left; cursor: pointer; }
+/* "New branch / feature" sits under its parent as a real button; the row itself stays flat. */
+.tree-ghost { min-height: 36px; align-items: center; }
+.tree-ghost:hover { background: transparent; }
+.tree-ghost .btn { min-width: 0; max-width: 100%; }
 .tree-group { gap: 6px; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
 .tree-group:hover { color: var(--fg); }
 .tree-filter { display: flex; align-items: center; gap: 8px; padding: 8px 12px 8px 16px; border-bottom: 1px solid var(--line); }

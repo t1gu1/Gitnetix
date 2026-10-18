@@ -97,11 +97,13 @@ export function BranchTree({
   const ghost = (b: BranchView, depth: number) => {
     const release = b.role === "release" ? b.release : undefined;
     return (
-      <button key={`new-${b.name}`} className="tree-row tree-ghost" style={{ "--depth": depth } as CSSProperties} onClick={() => nav.openNewItem(release ? { release } : { from: b.name })}>
+      <div key={`new-${b.name}`} className="tree-row tree-ghost" style={{ "--depth": depth } as CSSProperties}>
         <span className="tree-twist" />
-        <span className="tree-icon"><Icon name="plus" size={12} stroke={1.6} /></span>
-        <span className="ellipsis">{release ? "New feature or fix" : <>New branch off <span className="mono">{b.name}</span></>}</span>
-      </button>
+        <button className="btn btn-primary btn-sm" onClick={() => nav.openNewItem(release ? { release } : { from: b.name })}>
+          <Icon name="plus" size={12} stroke={1.8} />
+          <span className="ellipsis">{release ? "New feature or fix" : <>New branch off <span className="mono">{b.name}</span></>}</span>
+        </button>
+      </div>
     );
   };
 
