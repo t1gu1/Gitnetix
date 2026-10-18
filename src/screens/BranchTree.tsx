@@ -1,4 +1,4 @@
-import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 
 import { useAction } from "../api/hooks";
 import type { BranchView, Overview, ReleaseView } from "../api/types";
@@ -94,10 +94,10 @@ export function BranchTree({
   }, [q, roots, kids]);
   const shown = (b: BranchView) => !matches || matches.has(b.name);
 
-  const ghost = (b: BranchView, depth: number) => {
+  const ghost = (b: BranchView) => {
     const release = b.role === "release" ? b.release : undefined;
     return (
-      <div key={`new-${b.name}`} className="tree-row tree-ghost" style={{ "--depth": depth } as CSSProperties}>
+      <div key={`new-${b.name}`} className="tree-row tree-ghost">
         <span className="tree-twist" />
         <button className="btn btn-primary btn-sm" onClick={() => nav.openNewItem(release ? { release } : { from: b.name })}>
           <Icon name="plus" size={12} stroke={1.8} />
@@ -107,7 +107,7 @@ export function BranchTree({
     );
   };
 
-  const node = (b: BranchView, depth: number): ReactNode => {
+  const node = (b: BranchView): ReactNode => {
     if (!shown(b)) return null;
     const children = kids(b.name).filter(shown);
     const live = children.filter((c) => !c.merged);
@@ -123,7 +123,6 @@ export function BranchTree({
         <Row
           b={b}
           t={target(b.name)}
-          depth={depth}
           isDefault={b.name === o.defaultBranch}
           tag={releaseTag(o.releases, b)}
           shipped={b.shipped ?? undefined}
@@ -136,19 +135,21 @@ export function BranchTree({
         {open && (
           <>
             {/* Trunks offer a new branch first, its + under the trunk's own icon; a release lists its work, then the way to add more. */}
-            {canGrow && b.role === "trunk" && ghost(b, depth)}
-            {live.map((c) => node(c, depth + 1))}
-            {canGrow && b.role === "release" && ghost(b, depth + 1)}
-            {merged.length > 0 && (
-              <>
-                <button className="tree-row tree-group tree-merged" style={{ "--depth": depth + 1 } as CSSProperties} aria-expanded={mergedOpen} onClick={() => toggle(mergedKey)}>
-                  <span className="tree-twist"><Icon name="chevronDown" size={12} className="chev" /></span>
-                  <span>Merged into {version ? `v${version}` : b.name}</span>
-                  <span className="faint">{merged.length}</span>
-                </button>
-                {mergedOpen && merged.map((c) => node(c, depth + 1))}
-              </>
-            )}
+            {canGrow && b.role === "trunk" && ghost(b)}
+            <div className="tree-kids">
+              {live.map((c) => node(c))}
+              {canGrow && b.role === "release" && ghost(b)}
+              {merged.length > 0 && (
+                <>
+                  <button className="tree-row tree-group tree-merged" aria-expanded={mergedOpen} onClick={() => toggle(mergedKey)}>
+                    <span className="tree-twist"><Icon name="chevronDown" size={12} className="chev" /></span>
+                    <span>Merged into {version ? `v${version}` : b.name}</span>
+                    <span className="faint">{merged.length}</span>
+                  </button>
+                  {mergedOpen && <div className="tree-kids">{merged.map((c) => node(c))}</div>}
+                </>
+              )}
+            </div>
           </>
         )}
       </div>
@@ -181,18 +182,18 @@ export function BranchTree({
         </div>
       )}
       <div className="scroll tree" style={{ flex: "1 1 auto" }}>
-        {roots.map((b) => node(b, 0))}
+        {roots.map((b) => node(b))}
         {matches?.size === 0 && <Empty>No branch matches “{query}”.</Empty>}
         {shipped.length > 0 && !q && (
           <>
-            <button className="tree-row tree-group" style={{ "--depth": 0, marginTop: 8 } as CSSProperties} aria-expanded={isOpen("shipped")} onClick={() => toggle("shipped")}>
+            <button className="tree-row tree-group" style={{ marginTop: 8 }} aria-expanded={isOpen("shipped")} onClick={() => toggle("shipped")}>
               <span className="tree-twist"><Icon name="chevronDown" size={12} className="chev" /></span>
               <span>Shipped</span>
               <span className="faint">{shipped.length}</span>
             </button>
             {isOpen("shipped") &&
               shipped.map((r) => (
-                <div key={`${r.version}-${r.tag}`} className="tree-row tree-static" data-role="release" style={{ "--depth": 0 } as CSSProperties}>
+                <div key={`${r.version}-${r.tag}`} className="tree-row tree-static" data-role="release">
                   <span className="tree-twist" />
                   <span className="tree-btn">
                     <span className="tree-icon"><Icon name="tag" size={13} stroke={1.4} /></span>
@@ -223,7 +224,6 @@ function releaseTag(releases: ReleaseView[], b: BranchView) {
 function Row({
   b,
   t,
-  depth,
   isDefault,
   tag,
   shipped,
@@ -235,7 +235,6 @@ function Row({
 }: {
   b: BranchView;
   t: BranchTarget;
-  depth: number;
   isDefault: boolean;
   tag: ReactNode;
   /** Version this (shipped) release branch went out as. */
@@ -251,7 +250,6 @@ function Row({
   return (
     <div
       className="tree-row"
-      style={{ "--depth": depth } as CSSProperties}
       data-current={current || undefined}
       data-dim={b.merged || !b.exists || undefined}
       data-role={shipped ? "release" : b.role}
@@ -288,7 +286,7 @@ function BranchMeta({ b, parent, current, showName, onCommits }: { b: BranchView
     <span className="branch-meta">
       {b.role === "branch" && b.kind && <span className={`kind-chip ${b.kind === "fix" ? "c-del" : "c-mod"}`}>{b.kind}</span>}
       {(b.role === "release" || showName) && <span className="mono">{b.name}</span>}
-      {current && <span className="c-acc">checked out</span>}
+      {current && <span className="c-current">checked out</span>}
       {b.worktree && <span className="row" style={{ gap: 4 }}><Icon name="layers" size={11} stroke={1.4} />worktree</span>}
       {b.running && <span className="row c-acc" style={{ gap: 4 }}><span className="pulse" style={{ width: 5, height: 5 }} />AI working</span>}
       {b.conflict && <span className="c-del">conflict</span>}
