@@ -254,6 +254,24 @@ async fn pull_and_tracking() {
     assert_eq!(rev(&origin, "snap-1^{commit}"), rev(&repo, "feat/x"));
     let err = rpc::call(&k, "branches.tag", json!({ "projectId": pid, "branch": "main", "name": "snap-1" })).await.unwrap_err();
     assert!(err.to_string().contains("already exists"), "{err}");
+    // Checking it out detaches HEAD on its commit.
+    call(&k, "tags.checkout", json!({ "projectId": pid, "name": "snap-1" })).await;
+    assert_eq!(rev(&repo, "HEAD"), rev(&repo, "feat/x"));
+    let ov = call(&k, "workspace.overview", json!({ "projectId": pid })).await;
+    let snap = ov["releases"].as_array().unwrap().iter().find(|r| r["tagName"] == "snap-1").unwrap().clone();
+    assert_eq!(snap["checkedOut"], true, "{snap}");
+    sh(&repo, &["switch", "-q", "main"]);
+    // A branch started from it merges into the default branch.
+    call(&k, "items.create", json!({ "projectId": pid, "from": "snap-1", "kind": "fix", "description": "", "branchName": "fix/from-snap", "where": "switch" })).await;
+    assert_eq!(rev(&repo, "fix/from-snap"), rev(&repo, "feat/x"));
+    let ov = call(&k, "workspace.overview", json!({ "projectId": pid })).await;
+    let b = ov["branches"].as_array().unwrap().iter().find(|b| b["name"] == "fix/from-snap").unwrap().clone();
+    assert_eq!(b["parent"], "main", "{b}");
+    sh(&repo, &["switch", "-q", "main"]);
+    // Deleting it removes it on origin too.
+    call(&k, "tags.delete", json!({ "projectId": pid, "name": "snap-1" })).await;
+    let gone = |dir: &std::path::Path| !std::process::Command::new("git").current_dir(dir).args(["rev-parse", "-q", "--verify", "refs/tags/snap-1"]).status().unwrap().success();
+    assert!(gone(&repo) && gone(&origin));
 
     // Rebased after it was pushed: flagged as rewritten, and a force push replaces origin's copy.
     sh(&repo, &["switch", "-q", "feat/x"]);
@@ -829,4 +847,25 @@ async fn squash_and_rebase_merges_delete_the_branch_last() {
     assert!(m["deleteError"].is_string(), "{m}");
     assert_eq!(m["pushed"], true, "{m}");
     assert_eq!(rev(&repo, "origin/main"), rev(&repo, "main"));
+}
+
+#[tokio::test]
+async fn publish_sets_upstream_even_if_already_on_origin() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("atlas-api");
+    init_repo(&repo);
+    let origin = tmp.path().join("origin.git");
+    sh(tmp.path(), &["init", "-q", "--bare", "-b", "main", origin.to_str().unwrap()]);
+    sh(&repo, &["remote", "add", "origin", origin.to_str().unwrap()]);
+    sh(&repo, &["push", "-q", "-u", "origin", "main"]);
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let added = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await;
+    let pid = added[0]["id"].as_str().unwrap().to_string();
+    call(&k, "items.create", json!({ "projectId": pid, "from": "main", "kind": "feat", "description": "", "branchName": "feat/pub", "where": "switch" })).await;
+    // Pushed by hand without -u: on origin, but not tracked.
+    sh(&repo, &["push", "-q", "origin", "feat/pub"]);
+    let upstream = |ov: &Value| ov["branches"].as_array().unwrap().iter().find(|b| b["name"] == "feat/pub").unwrap()["upstream"].clone();
+    assert!(upstream(&call(&k, "workspace.overview", json!({ "projectId": pid })).await).is_null());
+    call(&k, "workspace.push", json!({ "projectId": pid, "branch": "feat/pub" })).await;
+    assert_eq!(upstream(&call(&k, "workspace.overview", json!({ "projectId": pid })).await), "origin/feat/pub");
 }

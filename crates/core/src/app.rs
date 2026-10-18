@@ -130,6 +130,10 @@ pub struct ReleaseView {
     pub note: String,
     /// The release branch itself (open releases only).
     pub view: Option<BranchView>,
+    /// Git tag it shipped as (shipped releases only).
+    pub tag_name: Option<String>,
+    /// HEAD is detached on its tag.
+    pub checked_out: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -764,9 +768,12 @@ impl Gitnetix {
                 items,
                 note: String::new(),
                 view: find(&r.branch),
+                tag_name: None,
+                checked_out: false,
             });
         }
         // Last shipped releases, from tags.
+        let detached = if current.is_none() { git.rev_parse("HEAD").await.ok() } else { None };
         for t in git.tags().await.unwrap_or_default().into_iter().take(3) {
             let v = t.name.trim_start_matches('v').to_string();
             let shipped = p.branches.values().filter(|m| m.release.as_deref() == Some(v.as_str())).count();
@@ -780,6 +787,8 @@ impl Gitnetix {
                 items: vec![],
                 view: None,
                 note: if shipped > 0 { format!("{shipped} branches shipped") } else { String::new() },
+                checked_out: detached.as_deref() == Some(t.sha.as_str()),
+                tag_name: Some(t.name),
             });
         }
         let other_branches = all
@@ -1117,8 +1126,9 @@ impl Gitnetix {
             let upstream = git.upstream(branch).await?.ok_or_else(|| Error::Invalid(format!("{branch} has no upstream to force push to.")))?;
             git.force_push(branch, &upstream).await?
         } else {
-            let has_upstream = git.ref_exists(&format!("refs/remotes/origin/{branch}")).await?;
-            git.push(branch, !has_upstream).await?
+            // Track it unless it already does: a branch pushed without -u (on origin, untracked) gets its upstream now.
+            let tracked = git.upstream(branch).await?.is_some();
+            git.push(branch, !tracked).await?
         };
         self.changed(project_id);
         Ok(out)
@@ -1346,11 +1356,19 @@ impl Gitnetix {
             ),
         };
         // Without a release, the branch starts from (and later merges into) `from`.
-        let start = match &release {
-            Some(r) => r.branch.clone(),
+        // A tag can't take merges: a branch started from one merges into the default branch.
+        let (start, merge_into) = match &release {
+            Some(r) => (r.branch.clone(), None),
             None => match req.from.clone().filter(|f| !f.trim().is_empty()) {
-                Some(f) => git.branch_rev(&f).await?.ok_or_else(|| Error::NotFound(format!("branch {f}")))?,
-                None => git.default_branch().await?,
+                Some(f) => match git.branch_rev(&f).await? {
+                    Some(rev) => (rev.clone(), Some(rev.trim_start_matches("origin/").to_string())),
+                    None if git.ref_exists(&format!("refs/tags/{f}")).await? => (format!("refs/tags/{f}"), Some(git.default_branch().await?)),
+                    None => return Err(Error::NotFound(format!("branch or tag {f}"))),
+                },
+                None => {
+                    let d = git.default_branch().await?;
+                    (d.clone(), Some(d))
+                }
             },
         };
         let kind = normalize_kind(&req.kind).unwrap_or("feat");
@@ -1392,7 +1410,7 @@ impl Gitnetix {
         let meta = BranchMeta {
             kind: kind.into(),
             release: release.as_ref().map(|r| r.version.clone()),
-            parent: release.is_none().then(|| start.trim_start_matches("origin/").to_string()),
+            parent: merge_into,
             ticket: req.ticket.clone().filter(|t| !t.is_empty()),
             worktree: worktree.clone(),
             description: Some(req.description.clone()),
@@ -1589,6 +1607,39 @@ impl Gitnetix {
         Ok(())
     }
 
+    /// Check out a tag's commit in the main checkout (detached HEAD).
+    pub async fn checkout_tag(&self, project_id: &str, name: &str) -> Result<()> {
+        let p = self.store.project(project_id)?;
+        let git = self.git(&p);
+        if !git.ref_exists(&format!("refs/tags/{name}")).await? {
+            return Err(Error::NotFound(format!("tag {name}")));
+        }
+        git.switch_detach(&format!("refs/tags/{name}^{{commit}}")).await?;
+        self.changed(project_id);
+        Ok(())
+    }
+
+    /// Delete a tag locally and on origin (a fetch would bring it back otherwise).
+    pub async fn delete_tag(&self, project_id: &str, name: &str) -> Result<()> {
+        let p = self.store.project(project_id)?;
+        let git = self.git(&p);
+        let local = git.ref_exists(&format!("refs/tags/{name}")).await?;
+        let remote = git.remote_url("origin").await?.is_some() && git.delete_remote_tag(name).await?;
+        if local {
+            git.delete_tag(name).await?;
+        } else if !remote {
+            return Err(Error::NotFound(format!("tag {name}")));
+        }
+        self.store.with_project(project_id, |p| {
+            for r in p.releases.iter_mut().filter(|r| r.tag.as_deref() == Some(name)) {
+                r.tag = None;
+            }
+            Ok(())
+        })?;
+        self.changed(project_id);
+        Ok(())
+    }
+
     pub async fn pull_branch(&self, project_id: &str, branch: &str) -> Result<String> {
         let p = self.store.project(project_id)?;
         let git = self.git(&p);
@@ -1701,7 +1752,7 @@ impl Gitnetix {
         }
         // The merge stands even when the push doesn't: report it rather than fail.
         let push_error = if opts.push {
-            let tracked = git.ref_exists(&format!("refs/remotes/origin/{into}")).await.unwrap_or(false);
+            let tracked = git.upstream(&into).await.ok().flatten().is_some();
             let res = git.push(&into, !tracked).await.err().map(|e| e.to_string());
             self.changed(project_id);
             res

@@ -4,14 +4,14 @@ import { useAction, useAgents, useAiOn, useDiff, useFiles, useOverview, useProje
 import type { BranchView, CleanupResult, Commit, FileChange, MergeResult, ReleaseView } from "../api/types";
 import { AgentLog } from "../components/AgentLog";
 import { DiffView } from "../components/DiffView";
-import { ContextMenu } from "../components/ContextMenu";
+import { ContextMenu, type MenuItem } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
 import { Resizer, usePaneWidth } from "../components/Resizer";
 import { Busy, ErrorBox, Loading, Modal, Seg } from "../components/ui";
 import { ago, plural } from "../lib/format";
 import { useNav } from "../lib/nav";
 import { useStoredChoice, useStoredFlag } from "../lib/stored";
-import { toast } from "../lib/toast";
+import { copyToClipboard, toast } from "../lib/toast";
 import { useBranchActions, type BranchDialog, type BranchTarget } from "./BranchMenu";
 import { BranchTree } from "./BranchTree";
 import { CommitList } from "./CommitList";
@@ -31,6 +31,8 @@ export function Workspace() {
   const [pane, setPane] = useState<Pane>("releases");
   const [shipping, setShipping] = useState<ReleaseView | null>(null);
   const [dialog, setDialog] = useState<{ kind: BranchDialog; branch: string } | null>(null);
+  const [deletingTag, setDeletingTag] = useState<string | null>(null);
+  const checkoutTag = useAction<unknown, { projectId: string; name: string }>("tags.checkout", { invalidate: [["overview", pid], ["files", pid], ["diff", pid], ["commits", pid]] });
   const [cleanup, setCleanup] = useState<{ parent: string; label: string; branches: BranchView[] } | null>(null);
   // Branch whose commits replace the tree, and the commit picked there (none = all changes).
   const [history, setHistory] = useState<string | null>(null);
@@ -55,12 +57,17 @@ export function Workspace() {
     const v = byName.get(b) ?? synthetic(b, b === o?.currentBranch);
     const base = v.parent ?? "";
     const rel = v.role === "release" ? o?.releases.find((r) => r.open && r.branch === b) : undefined;
+    const shippedRel = v.shipped ? o?.releases.find((r) => !r.open && r.version === v.shipped) : undefined;
     return {
       view: v,
       base,
       baseLabel: labelOf(base),
       isDefault: b === o?.defaultBranch,
-      extra: rel ? [{ id: "ship", label: <>Ship v{rel.version}…</>, icon: "ship", hint: "fast-forward + tag", run: () => setShipping(rel) }] : undefined,
+      extra: rel
+        ? [{ id: "ship", label: <>Ship v{rel.version}…</>, icon: "ship", hint: "fast-forward + tag", run: () => setShipping(rel) }]
+        : shippedRel?.tagName
+          ? tagItems(shippedRel.tagName, shippedRel.checkedOut)
+          : undefined,
       showCommits: v.exists ? () => openHistory(b) : undefined,
       next: rel
         ? { id: "ship", label: `Ship v${rel.version}…`, short: "Ship", tip: `Fast-forward ${o?.defaultBranch} to ${b} and tag v${rel.version}`, icon: "ship", disabled: !v.ahead, run: () => setShipping(rel) }
@@ -72,6 +79,20 @@ export function Workspace() {
           : undefined,
     };
   };
+  const tagItems = (tag: string, checkedOut: boolean): MenuItem[] => [
+    {
+      id: "checkoutTag",
+      label: <>Check out <span className="mono">{tag}</span></>,
+      icon: "swap",
+      hint: checkedOut ? "checked out" : "detached HEAD",
+      disabled: checkedOut || checkoutTag.isPending,
+      run: () => checkoutTag.mutate({ projectId: pid, name: tag }, { onSuccess: () => toast(`Checked out ${tag} (detached HEAD)`, "ok") }),
+    },
+    { id: "createFromTag", label: "Create a branch from here", icon: "plus", run: () => nav.openNewItem({ tag }) },
+    { id: "copyTag", label: "Copy tag name", icon: "edit", run: () => copyToClipboard(tag) },
+    "sep",
+    { id: "deleteTag", label: <>Delete tag <span className="mono">{tag}</span>…</>, icon: "trash", danger: true, run: () => setDeletingTag(tag) },
+  ];
   const openHistory = (b: string) => {
     nav.selectBranch(b);
     setHistory(b);
@@ -172,6 +193,7 @@ export function Workspace() {
               }}
               onNewRelease={() => nav.openNewItem({ kind: "release" })}
               onCleanup={(parent, label, branches) => setCleanup({ parent, label, branches })}
+              tagItems={tagItems}
             />
           )}
 
@@ -308,6 +330,7 @@ export function Workspace() {
       {dialog?.kind === "reset" && dialogView?.upstream && (
         <ResetBranchModal pid={pid} view={dialogView} onClose={() => setDialog(null)} />
       )}
+      {deletingTag && <DeleteTagModal pid={pid} tag={deletingTag} onClose={() => setDeletingTag(null)} />}
       {dialog?.kind === "tag" && <TagBranchModal pid={pid} branch={dialog.branch} onClose={() => setDialog(null)} />}
       {dialog?.kind === "delete" && dialogView && (
         <DeleteBranchModal
@@ -733,6 +756,31 @@ function TagBranchModal({ pid, branch, onClose }: { pid: string; branch: string;
         </div>
       </form>
       {tag.error && <ErrorBox error={tag.error} />}
+    </Modal>
+  );
+}
+
+function DeleteTagModal({ pid, tag, onClose }: { pid: string; tag: string; onClose: () => void }) {
+  const del = useAction("tags.delete", { invalidate: [["overview", pid], ["commits", pid]], success: `Deleted tag ${tag}` });
+  return (
+    <Modal
+      title="Delete tag"
+      sub={<span className="mono">{tag}</span>}
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn btn-md" onClick={onClose}>Cancel</button>
+          <button className="btn btn-md btn-danger" disabled={del.isPending} onClick={() => del.mutate({ projectId: pid, name: tag }, { onSuccess: onClose })}>
+            {del.isPending && <span className="spinner" />}
+            Delete tag
+          </button>
+        </>
+      }
+    >
+      <p style={{ margin: 0, lineHeight: 1.55 }}>
+        Deletes <span className="mono">{tag}</span> locally and on origin, for everyone who uses it. The commits it points at stay.
+      </p>
+      {del.error && <ErrorBox error={del.error} />}
     </Modal>
   );
 }

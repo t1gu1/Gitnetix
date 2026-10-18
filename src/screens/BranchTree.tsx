@@ -1,7 +1,8 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState, type MouseEvent, type ReactNode } from "react";
 
 import { useAction } from "../api/hooks";
 import type { BranchView, Overview, ReleaseView } from "../api/types";
+import { ContextMenu, type MenuItem } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
 import { Empty, releaseTagLabel } from "../components/ui";
 import { plural } from "../lib/format";
@@ -70,6 +71,7 @@ export function BranchTree({
   onNewRelease,
   onHide,
   onCleanup,
+  tagItems,
 }: {
   active: boolean;
   o: Overview;
@@ -81,10 +83,22 @@ export function BranchTree({
   onHide: () => void;
   /** Clean up the merged children of `parent`, shown as `label`. */
   onCleanup: (parent: string, label: string, branches: BranchView[]) => void;
+  /** Actions for a shipped release's tag; the first one (check out) also runs on double-click. */
+  tagItems: (tag: string, checkedOut: boolean) => MenuItem[];
 }) {
   const pid = o.project.id;
   const { isOpen, toggle } = useToggles(pid);
   const [query, setQuery] = useState("");
+  const [tagMenu, setTagMenu] = useState<{ x: number; y: number; alignRight: boolean; tag: string; checkedOut: boolean } | null>(null);
+  const openTagMenu = (tag: string, checkedOut: boolean, e: MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    // Same anchoring as the branch menu: the pointer on right-click, under the button (or element, from the keyboard) otherwise.
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const fromKey = e.type === "contextmenu" && e.clientX === 0 && e.clientY === 0;
+    if (e.type !== "contextmenu") setTagMenu({ x: r.right, y: r.bottom + 2, alignRight: true, tag, checkedOut });
+    else setTagMenu({ x: fromKey ? r.left : e.clientX, y: fromKey ? r.bottom + 2 : e.clientY, alignRight: false, tag, checkedOut });
+  };
   const fetchOrigin = useAction("branches.fetch", { invalidate: [["overview", pid]], success: () => "Fetched origin" });
   const { roots, shipped: shippedBranches, kids } = useMemo(() => childrenOf(o), [o]);
   // Shipped releases: the branch row (with what merged into it) while it is still around, else a plain entry.
@@ -228,24 +242,49 @@ export function BranchTree({
             {isOpen("shipped") &&
               shipped.map((r) => {
                 const b = shippedBranches.get(r.version);
-                return b ? node(b) : (
-                  <div key={`${r.version}-${r.tag}`} className="tree-row tree-static" data-role="release">
+                if (b) return node(b);
+                const tag = r.tagName;
+                const checkout = tag ? tagItems(tag, r.checkedOut)[0] : undefined;
+                return (
+                  <div
+                    key={`${r.version}-${r.tag}`}
+                    className="tree-row tree-static"
+                    data-role="release"
+                    data-current={r.checkedOut || undefined}
+                    onContextMenu={tag ? (e) => openTagMenu(tag, r.checkedOut, e) : undefined}
+                    onDoubleClick={checkout && checkout !== "sep" && !checkout.disabled ? checkout.run : undefined}
+                  >
                     <span className="tree-btn">
                       <span className="tree-icon"><Icon name="tag" size={13} stroke={1.4} /></span>
                       <span className="tree-main">
                         <span className="tree-name"><span className="mono ellipsis">v{r.version}</span><span className={`tag${r.tag === "released" ? " released" : ""}`}>{releaseTagLabel(r.tag)}</span></span>
                         <span className="branch-meta">
                           <span className="mono">{r.base}</span>
+                          {r.checkedOut && <span className="c-current">checked out</span>}
                           {r.note && <span>{r.note}</span>}
                         </span>
                       </span>
                     </span>
+                    {tag && checkout && checkout !== "sep" && (
+                      <span className="tree-acts">
+                        <span className="split" onDoubleClick={(e) => e.stopPropagation()}>
+                          <button className="btn btn-sm split-main" disabled={checkout.disabled} data-tip={`Check out the commit ${tag} points at (detached HEAD)`} onClick={checkout.run}>
+                            <Icon name="swap" size={12} />
+                            <span>Check out</span>
+                          </button>
+                          <button className="btn btn-sm btn-icon split-more" aria-label={`More actions for ${tag}`} aria-haspopup="menu" onClick={(e) => openTagMenu(tag, r.checkedOut, e)}>
+                            <Icon name="more" size={13} />
+                          </button>
+                        </span>
+                      </span>
+                    )}
                   </div>
                 );
               })}
           </>
         )}
       </div>
+      {tagMenu && <ContextMenu x={tagMenu.x} y={tagMenu.y} alignRight={tagMenu.alignRight} label={`Actions for ${tagMenu.tag}`} items={tagItems(tagMenu.tag, tagMenu.checkedOut)} onClose={() => setTagMenu(null)} />}
       <div className="hint" style={{ padding: "10px 16px", borderTop: "1px solid var(--line)" }}>Double-click a branch to switch to it, right-click for every action, click its commit count to browse them. Your uncommitted work comes along.</div>
     </section>
   );

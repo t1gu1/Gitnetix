@@ -24,6 +24,8 @@ export interface NewItemDraft {
   release?: string;
   /** Branch to start from (and merge back into) when not in a release. */
   from?: string;
+  /** Tag to start from instead ("Create a branch from here" on a shipped tag); merges into the default branch. */
+  tag?: string;
   ticket?: string;
   description?: string;
   /** A branch type, or "release" to cut a release instead. */

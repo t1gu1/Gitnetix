@@ -18,7 +18,7 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
     .filter((b) => b.exists && (b.role === "release" || b.role === "trunk" || b.name === draft.from))
     .sort((a, b) => (a.role === b.role ? 0 : a.role === "release" ? -1 : b.role === "release" ? 1 : a.role === "trunk" ? -1 : 1));
   const firstBase = () =>
-    (draft.release && open.find((r) => r.version === draft.release)?.branch) || draft.from || open[0]?.branch || ov.data?.defaultBranch || "";
+    (draft.release && open.find((r) => r.version === draft.release)?.branch) || draft.tag || draft.from || open[0]?.branch || ov.data?.defaultBranch || "";
   const [kind, setKind] = useState<Kind | "release">(draft.kind ?? "feat");
   const [relKind, setRelKind] = useState<"next" | "hotfix">("next");
   // Null until the user types their own; the suggestion shows meanwhile.
@@ -64,6 +64,7 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
   const v = version.replace(/^v/, "");
   const createRelease = useAction("releases.create", { invalidate: [["overview", pid], ["projects"]], success: `Release v${v} created` });
   const base = bases.find((b) => b.name === from);
+  const fromTag = !!draft.tag && from === draft.tag;
   const rel = open.find((r) => r.branch === from);
   const types = [...KINDS.map((k) => ({ value: k.id as Kind | "release", label: k.label })), { value: "release" as const, label: "Release" }];
 
@@ -123,15 +124,19 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
 
   return (
     <Modal
-      title={rel ? `New in v${rel.version}` : base ? `New branch off ${base.name}` : "New feature or fix"}
-      sub={base ? <>Branches off <span className="mono">{base.name}</span> and merges back into it</> : "Pick where it starts"}
+      title={rel ? `New in v${rel.version}` : base ? `New branch off ${base.name}` : fromTag ? `New branch off ${draft.tag}` : "New feature or fix"}
+      sub={
+        base ? <>Branches off <span className="mono">{base.name}</span> and merges back into it</>
+        : fromTag ? <>Branches off tag <span className="mono">{draft.tag}</span> and merges into <span className="mono">{ov.data?.defaultBranch}</span></>
+        : "Pick where it starts"
+      }
       onClose={onClose}
       footer={
         <>
           <button className="btn btn-md" onClick={onClose}>Cancel</button>
           <button
             className="btn btn-primary btn-md"
-            disabled={!base || (agent ? !desc.trim() : !name.trim() && !nameFromWip) || create.isPending}
+            disabled={!(base || fromTag) || (agent ? !desc.trim() : !name.trim() && !nameFromWip) || create.isPending}
             onClick={() =>
               create.mutate(
                 { projectId: pid, release: rel?.version ?? "", from: rel ? undefined : from, kind, description: agent ? desc : "", branchName: branch || undefined, ticket: ticket || undefined, where, startAgent: agent },
@@ -156,6 +161,7 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
         <div className="field">
           <label htmlFor="ni-rel">Branches off</label>
           <select id="ni-rel" className="select" value={from} onChange={(e) => setFrom(e.target.value)}>
+            {draft.tag && <option value={draft.tag}>{draft.tag} (tag)</option>}
             {bases.map((b) => {
               const r = open.find((x) => x.branch === b.name);
               return (

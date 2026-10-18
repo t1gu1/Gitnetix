@@ -51,12 +51,14 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("releases.ship", "Fast-forward main to the release and tag it", "projectId, version, push?"),
     ("releases.delete", "Forget an open release (branch kept)", "projectId, version"),
     ("items.suggestName", "AI branch name for a feature or fix", "projectId, kind, description, ticket?"),
-    ("items.create", "New feature/fix branch in a release, or off another branch (release empty, from = branch)", "projectId, release?, from?, kind, description, branchName?, ticket?, where: switch|worktree, startAgent?"),
+    ("items.create", "New feature/fix branch in a release, or off another branch or a tag (release empty, from = branch or tag)", "projectId, release?, from?, kind, description, branchName?, ticket?, where: switch|worktree, startAgent?"),
     ("items.attach", "Attach an existing branch to a release", "projectId, branch, release, kind"),
     ("items.remove", "Remove a branch from its release", "projectId, branch, deleteBranch?"),
     ("branches.stash", "Stash a checked-out branch's uncommitted changes, untracked files included", "projectId, branch"),
     ("branches.pull", "Fast-forward a branch to its upstream (checked out or not)", "projectId, branch"),
     ("branches.tag", "Tag a branch's tip (annotated, message defaults to the name) and push it to origin", "projectId, branch, name, message?"),
+    ("tags.checkout", "Check out a tag's commit (detached HEAD; uncommitted work comes along)", "projectId, name"),
+    ("tags.delete", "Delete a tag, locally and on origin", "projectId, name"),
     ("branches.reset", "Hard-reset a branch to its upstream, dropping local commits (and uncommitted changes when checked out)", "projectId, branch"),
     ("branches.merge", "Merge a branch into its release (or parent branch, or `into`): a merge commit, or rebase = rebase it onto the target and fast-forward; squash = collapse its commits first (\"squash | <branch>\", or squashAi = AI writes the message); deleteBranch = delete it last, locally and on origin; push = push the target after", "projectId, branch, into?, deleteBranch?, squash?, squashAi?, rebase?, push?"),
     ("branches.sync", "Merge a branch's base into it to bring it up to date", "projectId, branch"),
@@ -393,6 +395,14 @@ pub async fn call(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
         "branches.pull" => to(json!({ "output": k.pull_branch(&s(&p, "projectId")?, &s(&p, "branch")?).await? })),
         "branches.tag" => {
             k.tag_branch(&s(&p, "projectId")?, &s(&p, "branch")?, &s(&p, "name")?, os(&p, "message").as_deref()).await?;
+            ok()
+        }
+        "tags.checkout" => {
+            k.checkout_tag(&s(&p, "projectId")?, &s(&p, "name")?).await?;
+            ok()
+        }
+        "tags.delete" => {
+            k.delete_tag(&s(&p, "projectId")?, &s(&p, "name")?).await?;
             ok()
         }
         "branches.reset" => {

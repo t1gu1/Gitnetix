@@ -183,6 +183,10 @@ export interface ReleaseView {
   note: string;
   /** The release branch itself (open releases only). */
   view?: BranchView | null;
+  /** Git tag it shipped as (shipped releases only). */
+  tagName?: string | null;
+  /** HEAD is detached on its tag. */
+  checkedOut: boolean;
 }
 
 export interface Overview {

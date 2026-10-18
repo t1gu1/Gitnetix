@@ -380,6 +380,11 @@ impl Git {
         self.run(&["switch", name]).await.map(|_| ())
     }
 
+    /// Detach HEAD at `rev` (uncommitted work comes along, like a switch).
+    pub async fn switch_detach(&self, rev: &str) -> Result<()> {
+        self.run(&["switch", "--detach", rev]).await.map(|_| ())
+    }
+
     pub async fn switch_create(&self, name: &str, from: &str) -> Result<()> {
         self.run(&["switch", "--no-track", "-c", name, from]).await.map(|_| ())
     }
@@ -395,6 +400,10 @@ impl Git {
 
     pub async fn tag(&self, name: &str, target: &str, message: &str) -> Result<()> {
         self.run(&["tag", "-a", name, target, "-m", message]).await.map(|_| ())
+    }
+
+    pub async fn delete_tag(&self, name: &str) -> Result<()> {
+        self.run(&["tag", "-d", name]).await.map(|_| ())
     }
 
     /// Move annotated tag `name` to `target`, keeping its original date so it
@@ -730,6 +739,19 @@ impl Git {
             return Err(Error::Git { cmd: "push".into(), stderr: err.trim().into() });
         }
         Ok(format!("{out}{err}").trim().to_string())
+    }
+
+    /// Delete `tag` on origin; false when origin didn't have it.
+    pub async fn delete_remote_tag(&self, tag: &str) -> Result<bool> {
+        let r = format!("refs/tags/{tag}");
+        let (ok, _, err) = self.try_run(&["push", "origin", "--delete", &r]).await?;
+        if ok {
+            Ok(true)
+        } else if err.contains("remote ref does not exist") {
+            Ok(false)
+        } else {
+            Err(Error::Git { cmd: "push".into(), stderr: err.trim().into() })
+        }
     }
 
     /// Push `tag`; `force` replaces the one on origin if it points elsewhere.
