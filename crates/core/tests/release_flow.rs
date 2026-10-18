@@ -362,6 +362,11 @@ async fn branch_tree_parents_remote_and_sync() {
     call(&k, "branches.sync", json!({ "projectId": pid, "branch": "release/1.0.0" })).await;
     let ov = call(&k, "workspace.overview", json!({ "projectId": pid })).await;
     assert_eq!(get(&ov, "release/1.0.0")["behind"], 0);
+    // A fresh branch on main's tip (now a merge parent in the release) is not that merge's work.
+    sh(&repo, &["branch", "fix/empty", "main"]);
+    let ov = call(&k, "workspace.overview", json!({ "projectId": pid })).await;
+    assert_eq!(get(&ov, "fix/empty")["parent"], "main");
+    assert_eq!(get(&ov, "fix/empty")["merged"], false);
 
     // New branch off dev, no release: dev is where it merges back.
     call(&k, "items.create", json!({ "projectId": pid, "from": "dev", "kind": "fix", "description": "", "branchName": "fix/typo", "where": "switch" })).await;
@@ -399,6 +404,8 @@ async fn shipped_release_goes_back_under_main() {
     let get = |n: &str| ov["branches"].as_array().unwrap().iter().find(|b| b["name"] == n).cloned().unwrap();
     assert_eq!(get("release/0.0.1")["parent"], "main");
     assert_eq!(get("release/0.0.1")["role"], "branch");
+    assert_eq!(get("release/0.0.1")["shipped"], "0.0.1");
+    assert!(get("release/0.0.2")["shipped"].is_null());
     assert_eq!(get("feat/landed")["parent"], "main");
     // What shipped in 0.0.1 stays under it while its branch exists.
     for f in ["feat/item", "feat/by-hand"] {
@@ -425,4 +432,135 @@ async fn merge_and_delete_the_checked_out_branch_switches_to_its_base() {
     assert_eq!(String::from_utf8(head.stdout).unwrap().trim(), "main");
     assert!(rev(&repo, "refs/heads/feat/here").is_empty());
     assert!(repo.join("here.txt").exists());
+}
+
+#[tokio::test]
+async fn origin_only_branches_and_gitflow() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("flow");
+    init_repo(&repo);
+    let origin = tmp.path().join("origin.git");
+    sh(tmp.path(), &["init", "-q", "--bare", "-b", "main", origin.to_str().unwrap()]);
+    sh(&repo, &["remote", "add", "origin", origin.to_str().unwrap()]);
+
+    // develop and a teammate's feature exist only on origin; develop is the default.
+    sh(&repo, &["switch", "-qc", "develop"]);
+    commit_file(&repo, "dev.txt", "d\n");
+    sh(&repo, &["switch", "-qc", "feat/remote"]);
+    commit_file(&repo, "r.txt", "r\n");
+    sh(&repo, &["push", "-q", "origin", "main", "develop", "feat/remote"]);
+    sh(&repo, &["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/develop"]);
+    // A local branch tracking an origin branch of another name.
+    sh(&repo, &["switch", "-qc", "myfix", "--track", "origin/feat/remote"]);
+    sh(&repo, &["switch", "-q", "main"]);
+    sh(&repo, &["branch", "-qD", "develop", "feat/remote"]);
+
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let added = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await;
+    let pid = added[0]["id"].as_str().unwrap().to_string();
+    let ov = call(&k, "workspace.overview", json!({ "projectId": pid })).await;
+    let get = |ov: &Value, n: &str| ov["branches"].as_array().unwrap().iter().find(|b| b["name"] == n).cloned();
+    assert_eq!(ov["defaultBranch"], "develop");
+    // main is a trunk under develop, never work that can be "merged" and deleted.
+    let main = get(&ov, "main").unwrap();
+    assert_eq!((main["role"].as_str(), main["merged"].as_bool()), (Some("trunk"), Some(false)));
+    // origin/feat/remote is myfix's upstream: listed once, as myfix.
+    assert!(get(&ov, "feat/remote").is_none());
+    assert!(get(&ov, "myfix").is_some());
+
+    // A branch off origin-only develop: no tracking of develop, and its diff reads origin/develop.
+    call(&k, "items.create", json!({ "projectId": pid, "from": "develop", "kind": "feat", "description": "", "branchName": "feat/new", "where": "switch" })).await;
+    assert_eq!(rev(&repo, "feat/new@{upstream}"), "");
+    commit_file(&repo, "n.txt", "n\n");
+    let files = call(&k, "workspace.files", json!({ "projectId": pid, "branch": "feat/new", "mode": "branch" })).await;
+    assert_eq!(files.as_array().unwrap().iter().map(|f| f["path"].as_str().unwrap()).collect::<Vec<_>>(), ["n.txt"]);
+    let diff = call(&k, "workspace.diff", json!({ "projectId": pid, "branch": "feat/new", "mode": "branch", "path": "n.txt" })).await;
+    assert_eq!(diff[0]["lines"][0]["kind"], "+");
+}
+
+#[tokio::test]
+async fn commit_actions() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("atlas-api");
+    init_repo(&repo);
+    let root = rev(&repo, "HEAD");
+
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let added = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await;
+    let pid = added[0]["id"].as_str().unwrap().to_string();
+
+    sh(&repo, &["switch", "-q", "-c", "feat/a"]);
+    commit_file(&repo, "a.txt", "a\n");
+    commit_file(&repo, "b.txt", "b\n");
+    let a = rev(&repo, "HEAD~1");
+
+    let commits = call(&k, "workspace.commits", json!({ "projectId": pid, "branch": "feat/a" })).await;
+    let subjects: Vec<&str> = commits.as_array().unwrap().iter().map(|c| c["subject"].as_str().unwrap()).collect();
+    assert_eq!(subjects, ["edit b.txt", "edit a.txt"]);
+
+    // Per-commit files, including the root commit (no parent).
+    let files = call(&k, "workspace.files", json!({ "projectId": pid, "branch": "feat/a", "mode": "branch", "commit": a })).await;
+    assert_eq!(files[0]["path"], "a.txt");
+    let files = call(&k, "workspace.files", json!({ "projectId": pid, "branch": "main", "mode": "branch", "commit": root })).await;
+    assert_eq!(files[0]["path"], "README.md");
+    assert!(rpc::call(&k, "workspace.files", json!({ "projectId": pid, "branch": "main", "commit": "--output=x" })).await.is_err());
+
+    call(&k, "commits.revert", json!({ "projectId": pid, "branch": "feat/a", "sha": a })).await;
+    assert!(!repo.join("a.txt").exists());
+
+    // Cherry-pick onto the checked-out branch.
+    sh(&repo, &["switch", "-q", "main"]);
+    call(&k, "commits.cherryPick", json!({ "projectId": pid, "onto": "main", "sha": a })).await;
+    assert!(repo.join("a.txt").exists());
+
+    call(&k, "commits.reset", json!({ "projectId": pid, "branch": "main", "sha": root, "mode": "soft" })).await;
+    assert_eq!(rev(&repo, "HEAD"), root);
+    assert!(repo.join("a.txt").exists(), "soft keeps the changes");
+    call(&k, "commits.reset", json!({ "projectId": pid, "branch": "main", "sha": root, "mode": "hard" })).await;
+    assert!(!repo.join("a.txt").exists(), "hard drops them");
+    assert!(rpc::call(&k, "commits.reset", json!({ "projectId": pid, "branch": "main", "sha": root, "mode": "keep" })).await.is_err());
+}
+
+#[tokio::test]
+async fn delete_on_origin_and_release_branches() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("atlas-api");
+    init_repo(&repo);
+    let origin = tmp.path().join("origin.git");
+    sh(tmp.path(), &["init", "-q", "--bare", "-b", "main", origin.to_str().unwrap()]);
+    sh(&repo, &["remote", "add", "origin", origin.to_str().unwrap()]);
+    sh(&repo, &["push", "-q", "-u", "origin", "main"]);
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let added = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await;
+    let pid = added[0]["id"].as_str().unwrap().to_string();
+
+    // Local and on origin: the local branch goes, origin keeps it unless asked.
+    sh(&repo, &["switch", "-qc", "feat/both"]);
+    sh(&repo, &["push", "-q", "-u", "origin", "feat/both"]);
+    sh(&repo, &["switch", "-q", "main"]);
+    call(&k, "branches.delete", json!({ "projectId": pid, "branch": "feat/both" })).await;
+    assert!(rev(&repo, "refs/heads/feat/both").is_empty());
+    assert_eq!(rev(&repo, "refs/remotes/origin/feat/both").len(), 40);
+    call(&k, "branches.delete", json!({ "projectId": pid, "branch": "feat/both", "remote": true })).await;
+    assert!(rev(&repo, "refs/remotes/origin/feat/both").is_empty());
+    assert!(rev(&origin, "refs/heads/feat/both").is_empty());
+
+    // Origin only, unmerged: refused without force.
+    sh(&repo, &["switch", "-qc", "feat/far"]);
+    commit_file(&repo, "far.txt", "far\n");
+    sh(&repo, &["push", "-q", "origin", "feat/far"]);
+    sh(&repo, &["switch", "-q", "main"]);
+    sh(&repo, &["branch", "-qD", "feat/far"]);
+    let err = rpc::call(&k, "branches.delete", json!({ "projectId": pid, "branch": "feat/far", "remote": true })).await.unwrap_err();
+    assert!(err.to_string().contains("not merged into main"), "{err}");
+    call(&k, "branches.delete", json!({ "projectId": pid, "branch": "feat/far", "remote": true, "force": true })).await;
+    assert!(rev(&origin, "refs/heads/feat/far").is_empty());
+
+    // The branch of an open release can go too.
+    sh(&repo, &["switch", "-qc", "release/9.0.0"]);
+    sh(&repo, &["switch", "-q", "main"]);
+    let o = call(&k, "workspace.overview", json!({ "projectId": pid })).await;
+    assert!(o["releases"].as_array().unwrap().iter().any(|r| r["branch"] == "release/9.0.0" && r["open"] == true), "{o}");
+    call(&k, "branches.delete", json!({ "projectId": pid, "branch": "release/9.0.0" })).await;
+    assert!(rev(&repo, "refs/heads/release/9.0.0").is_empty());
 }

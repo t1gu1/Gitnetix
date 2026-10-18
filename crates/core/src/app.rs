@@ -7,14 +7,15 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
 
+use futures_util::{stream, StreamExt};
 use serde::{Deserialize, Serialize};
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, OnceCell};
 
 use crate::agents::{AgentManager, AgentSession, AgentStatus, StartArgs};
 use crate::ai::{self, Resolved};
 use crate::error::{Error, Result};
 use crate::events::Event;
-use crate::git::{BranchInfo, FileChange, Git, Hunk, Identity, WorktreeInfo};
+use crate::git::{BranchInfo, Commit, FileChange, Git, Hunk, Identity, WorktreeInfo};
 use crate::providers::{github::GitHub, parse_remote};
 use crate::secrets;
 use crate::store::{new_id, now, BranchMeta, GitProfile, Project, Release, ReleaseKind, Store};
@@ -26,7 +27,12 @@ pub struct Gitnetix {
     pub agents: AgentManager,
     pub events: broadcast::Sender<Event>,
     pub dir: PathBuf,
+    /// Branches the git host protects, per project, with when they were looked up.
+    protected: std::sync::Mutex<HashMap<String, (Instant, Vec<String>)>>,
 }
+
+/// How long the git host's protected branches are trusted before asking again.
+const PROTECTED_TTL: std::time::Duration = std::time::Duration::from_secs(300);
 
 /// Which changes the workspace file list and diff show.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -75,6 +81,8 @@ pub struct BranchView {
     pub checked_out: bool,
     pub running: bool,
     pub conflict: bool,
+    /// Files with uncommitted changes in its checkout (0 when not checked out).
+    pub wip: u32,
     /// Commits not yet in the base (release, or default branch).
     pub ahead: u32,
     /// Commits in the base the branch does not have.
@@ -93,9 +101,13 @@ pub struct BranchView {
     pub role: String,
     /// Open release it ships in (a release branch: its own version).
     pub release: Option<String>,
+    /// Version this release branch shipped as (role "branch" once shipped).
+    pub shipped: Option<String>,
     pub local: bool,
     /// Exists on origin.
     pub remote: bool,
+    /// The git host protects it (branch protection or a ruleset): it can't be deleted.
+    pub protected: bool,
     /// Date of its last commit (ISO 8601).
     pub date: String,
 }
@@ -198,6 +210,20 @@ pub struct NewItemResult {
     pub agent_session: Option<String>,
 }
 
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CleanupResult {
+    pub deleted: Vec<String>,
+    pub skipped: Vec<Skipped>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Skipped {
+    pub branch: String,
+    pub reason: String,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MergeResult {
@@ -206,8 +232,10 @@ pub struct MergeResult {
     pub sha: String,
     pub already_merged: bool,
     pub deleted: bool,
-    /// The main checkout was on the deleted branch and moved to `into`.
+    /// The main checkout moved to `into`.
     pub switched: bool,
+    /// Why the main checkout didn't move to `into` when it should have.
+    pub stayed: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -272,28 +300,38 @@ fn import_release_branches(p: &mut Project, branches: &[BranchInfo], default: &s
 /// Long-lived integration branches that sit under the default branch.
 const DEV_TRUNKS: &[&str] = &["develop", "dev", "development"];
 
+/// Long-lived branches that are never work: dev branches, and `main`/`master`
+/// when the default branch is something else (gitflow).
+fn is_trunk(name: &str) -> bool {
+    DEV_TRUNKS.contains(&name) || matches!(name, "main" | "master")
+}
+
 /// Local and origin branches, looked up by name, plus what recent merge commits say.
 struct Refs {
     local: Vec<BranchInfo>,
     remote: Vec<BranchInfo>,
-    /// Merge commit subject, keyed by the tip it merged in.
-    merges: HashMap<String, String>,
+    /// Merge commit subject, keyed by the tip it merged in; read on first use (a long history walk).
+    merges: OnceCell<HashMap<String, String>>,
 }
 
 impl Refs {
     async fn load(git: &Git, local: Vec<BranchInfo>) -> Refs {
-        Refs { local, remote: git.remote_branches().await.unwrap_or_default(), merges: git.merge_subjects(5000).await.unwrap_or_default() }
+        Refs { local, remote: git.remote_branches().await.unwrap_or_default(), merges: OnceCell::new() }
     }
 
-    /// Branch a merge commit of `name`'s tip says it went into (`Merge branch 'x' into y`);
-    /// git leaves out "into" for the default branch.
-    fn merged_into(&self, name: &str, default: &str) -> Option<String> {
+    /// Branch a merge commit of `name` says it went into (`Merge branch 'name' into y`);
+    /// git leaves out "into" for the default branch. The subject must name this branch:
+    /// another branch sitting on the same commit was not the one merged.
+    async fn merged_into(&self, git: &Git, name: &str, default: &str) -> Option<String> {
         let sha = &self.local(name).or_else(|| self.remote(name))?.sha;
-        let subject = self.merges.get(sha)?;
-        if !(subject.starts_with("Merge branch") || subject.starts_with("Merge remote-tracking branch")) {
+        let merges = self.merges.get_or_init(|| async { git.merge_subjects(5000).await.unwrap_or_default() }).await;
+        let subject = merges.get(sha)?;
+        let rest = subject.strip_prefix("Merge branch '").or_else(|| subject.strip_prefix("Merge remote-tracking branch '"))?;
+        let (merged, tail) = rest.split_once('\'')?;
+        if merged != name && merged.strip_prefix("origin/") != Some(name) {
             return None;
         }
-        Some(subject.rsplit_once(" into ").map(|(_, t)| t.trim().to_string()).unwrap_or_else(|| default.to_string()))
+        Some(tail.rsplit_once(" into ").map(|(_, t)| t.trim().to_string()).unwrap_or_else(|| default.to_string()))
     }
 
     fn local(&self, name: &str) -> Option<&BranchInfo> {
@@ -327,7 +365,7 @@ impl Gitnetix {
         let store = Store::open(dir)?;
         let (events, _) = broadcast::channel(1024);
         let agents = AgentManager::new(events.clone(), dir);
-        Ok(Arc::new(Gitnetix { store, agents, events, dir: dir.to_path_buf() }))
+        Ok(Arc::new(Gitnetix { store, agents, events, dir: dir.to_path_buf(), protected: Default::default() }))
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<Event> {
@@ -392,7 +430,12 @@ impl Gitnetix {
     async fn base_of(&self, p: &Project, branch: &str, default: &str) -> String {
         let git = self.git(p);
         let refs = Refs::load(&git, git.branches().await.unwrap_or_default()).await;
-        self.parent_of(p, &git, &refs, default, branch).await.unwrap_or_else(|| default.to_string())
+        self.base_in(p, &git, &refs, branch, default).await
+    }
+
+    /// `base_of` with the refs already loaded.
+    async fn base_in(&self, p: &Project, git: &Git, refs: &Refs, branch: &str, default: &str) -> String {
+        self.parent_of(p, git, refs, default, branch).await.unwrap_or_else(|| default.to_string())
     }
 
     /// The branch `name` merges into: an open release branch's base, the release
@@ -406,7 +449,7 @@ impl Gitnetix {
         if let Some(r) = p.releases.iter().find(|r| r.branch == name) {
             return Some(r.base.clone());
         }
-        if name.starts_with("release/") || DEV_TRUNKS.contains(&name) {
+        if name.starts_with("release/") || is_trunk(name) {
             return Some(default.to_string());
         }
         if let Some(m) = p.branches.get(name) {
@@ -421,7 +464,7 @@ impl Gitnetix {
             }
         }
         // Merged by hand: the merge commit names where it went.
-        if let Some(t) = refs.merged_into(name, default).filter(|t| t != name && refs.rev(t).is_some()) {
+        if let Some(t) = refs.merged_into(git, name, default).await.filter(|t| t != name && refs.rev(t).is_some()) {
             return Some(t);
         }
         let (Some(rev), targets) = (refs.rev(name), merge_targets(p, refs, default)) else {
@@ -586,15 +629,26 @@ impl Gitnetix {
         let refs = Refs::load(&git, branches).await;
         let open: Vec<&Release> = p.releases.iter().filter(|r| r.shipped_at.is_none()).collect();
         // Every branch once: local, origin-only, and the ones Gitnetix tracks that are gone.
-        let mut names: Vec<String> = refs.local.iter().chain(&refs.remote).map(|b| b.name.clone()).collect();
+        // An origin branch a local one tracks under another name is that local branch.
+        let tracked: Vec<&str> = refs.local.iter().filter_map(|b| b.upstream.as_deref()?.strip_prefix("origin/")).collect();
+        let remote_only = refs.remote.iter().filter(|b| !tracked.contains(&b.name.as_str()));
+        let mut names: Vec<String> = refs.local.iter().chain(remote_only).map(|b| b.name.clone()).collect();
         names.extend(p.branches.keys().cloned());
         names.extend(open.iter().map(|r| r.branch.clone()));
         names.sort();
         names.dedup();
-        let mut all = Vec::with_capacity(names.len());
-        for n in &names {
-            let parent = self.parent_of(&p, &git, &refs, &default, n).await;
-            all.push(self.branch_view(&p, &git, &refs, n, parent, &wts, &agents).await);
+        // A few git calls per branch: run several branches at once, keeping the order.
+        let (pr, g, r, d, w, a) = (&p, &git, &refs, default.as_str(), wts.as_slice(), agents.as_slice());
+        let views = stream::iter(names)
+            .map(|n| async move {
+                let parent = self.parent_of(pr, g, r, d, &n).await;
+                self.branch_view(pr, g, r, &n, parent, w, a).await
+            })
+            .buffered(8)
+            .collect::<Vec<BranchView>>();
+        let (mut all, protected) = tokio::join!(views, self.protected_branches(project_id, false));
+        for b in &mut all {
+            b.protected = protected.contains(&b.name);
         }
         let find = |n: &str| all.iter().find(|b| b.name == n).cloned();
 
@@ -621,9 +675,9 @@ impl Gitnetix {
             let shipped = p.branches.values().filter(|m| m.release.as_deref() == Some(v.as_str())).count();
             let date = t.date.get(..10).unwrap_or("").to_string();
             releases.push(ReleaseView {
+                branch: p.releases.iter().find(|r| r.version == v).map(|r| r.branch.clone()).unwrap_or_default(),
                 version: v,
                 tag: "released".into(),
-                branch: String::new(),
                 base: format!("{default} · tagged {date}"),
                 open: false,
                 items: vec![],
@@ -656,15 +710,25 @@ impl Gitnetix {
             Some(u) if git.ref_exists(&format!("refs/remotes/{u}")).await.unwrap_or(false) => git.left_right(name, u).await.unwrap_or((0, 0)),
             _ => (0, 0),
         };
-        let conflict = match wt {
+        let (conflict, wip) = match wt {
             Some(w) => {
                 let g = Git::new(&w.path);
-                g.is_rebasing().await.unwrap_or(false) && !g.conflicted_files().await.unwrap_or_default().is_empty()
+                let conflict = g.is_rebasing().await.unwrap_or(false) && !g.conflicted_files().await.unwrap_or_default().is_empty();
+                (conflict, g.wip_count().await.unwrap_or(0))
             }
-            None => false,
+            None => (false, 0),
         };
+        let own_release = p.releases.iter().find(|r| r.branch == name);
+        let role = if own_release.is_some_and(|r| r.shipped_at.is_none()) {
+            "release"
+        } else if parent.is_none() || is_trunk(name) {
+            "trunk"
+        } else {
+            "branch"
+        };
+        // Trunks and open releases live on; only work gets merged away.
         let merged = match (&rev, &base_rev) {
-            (Some(r), Some(b)) if ahead == 0 => {
+            (Some(r), Some(b)) if ahead == 0 && role == "branch" => {
                 // Origin-only branches have no creation reflog: fully contained and left behind counts.
                 git.is_merged_into(r, b).await.unwrap_or(false) || (info.is_none() && behind > 0)
             }
@@ -672,17 +736,9 @@ impl Gitnetix {
         };
         let meta = p.branches.get(name);
         let open_release = |v: &str| p.releases.iter().any(|r| r.version == v && r.shipped_at.is_none());
-        let own_release = p.releases.iter().find(|r| r.branch == name && r.shipped_at.is_none());
-        let role = if own_release.is_some() {
-            "release"
-        } else if parent.is_none() || DEV_TRUNKS.contains(&name) {
-            "trunk"
-        } else {
-            "branch"
-        };
         let kind = match meta.map(|m| m.kind.as_str()).filter(|k| !k.is_empty()) {
             Some(k) => k.to_string(),
-            None if role == "branch" => name.split_once('/').and_then(|(pre, _)| normalize_kind(pre)).unwrap_or("").to_string(),
+            None if role == "branch" => kind_of_branch(name).unwrap_or("").to_string(),
             None => String::new(),
         };
         BranchView {
@@ -693,6 +749,7 @@ impl Gitnetix {
             checked_out: wt.is_some(),
             running: agents.iter().any(|a| a.branch == name && a.project_id == p.id && a.status == AgentStatus::Running),
             conflict,
+            wip,
             ahead,
             behind,
             upstream,
@@ -703,9 +760,11 @@ impl Gitnetix {
             merged,
             parent,
             role: role.into(),
-            release: own_release.map(|r| r.version.clone()).or_else(|| meta.and_then(|m| m.release.clone()).filter(|v| open_release(v))),
+            release: own_release.filter(|r| r.shipped_at.is_none()).map(|r| r.version.clone()).or_else(|| meta.and_then(|m| m.release.clone()).filter(|v| open_release(v))),
+            shipped: own_release.filter(|r| r.shipped_at.is_some()).map(|r| r.version.clone()),
             local: info.is_some(),
             remote: refs.remote(name).is_some(),
+            protected: false,
             date: info.or_else(|| refs.remote(name)).map(|b| b.date.clone()).unwrap_or_default(),
         }
     }
@@ -721,18 +780,20 @@ impl Gitnetix {
         let git = self.git(&p);
         let default = git.default_branch().await?;
         let base = self.base_of(&p, branch, &default).await;
+        // Either may exist only on origin.
+        let (base_rev, rev) = tokio::join!(git.rev_of(&base), git.rev_of(branch));
         match mode {
             ViewMode::Branch | ViewMode::Wip => {
                 if base == branch {
                     return Ok(Vec::new());
                 }
-                git.branch_changes(&base, branch).await
+                git.branch_changes(&base_rev, &rev).await
             }
             ViewMode::Project => {
                 let dir = self.checkout_dir(&p, branch).await?;
                 let mut known: HashMap<String, FileChange> = HashMap::new();
                 if base != branch {
-                    for f in git.branch_changes(&base, branch).await? {
+                    for f in git.branch_changes(&base_rev, &rev).await? {
                         known.insert(f.path.clone(), f);
                     }
                 }
@@ -744,7 +805,7 @@ impl Gitnetix {
                 let listing = match &dir {
                     Some(d) => Git::new(d).ls_files().await?,
                     None => {
-                        let out = git.run(&["ls-tree", "-r", "--name-only", "-z", branch]).await?;
+                        let out = git.run(&["ls-tree", "-r", "--name-only", "-z", &rev]).await?;
                         out.split('\0').filter(|s| !s.is_empty()).map(String::from).collect()
                     }
                 };
@@ -787,7 +848,56 @@ impl Gitnetix {
         if base == branch {
             return Ok(Vec::new());
         }
-        git.file_diff(path, Some(&format!("{base}...{branch}"))).await
+        let (base_rev, rev) = tokio::join!(git.rev_of(&base), git.rev_of(branch));
+        git.file_diff(path, Some(&format!("{base_rev}...{rev}"))).await
+    }
+
+    /// Commits a branch has that its base does not, newest first; a trunk lists its recent history.
+    pub async fn commits(&self, project_id: &str, branch: &str) -> Result<Vec<Commit>> {
+        let p = self.store.project(project_id)?;
+        let git = self.git(&p);
+        let default = git.default_branch().await?;
+        let base = self.base_of(&p, branch, &default).await;
+        let (base_rev, rev) = tokio::join!(git.rev_of(&base), git.rev_of(branch));
+        if base == branch {
+            return git.log(&rev, Some(200)).await;
+        }
+        git.log(&format!("{base_rev}..{rev}"), Some(500)).await
+    }
+
+    /// Files one commit changed, against its first parent.
+    pub async fn commit_files(&self, project_id: &str, sha: &str) -> Result<Vec<FileChange>> {
+        let git = self.git(&self.store.project(project_id)?);
+        git.range_changes(&git.commit_range(check_sha(sha)?).await?).await
+    }
+
+    pub async fn commit_diff(&self, project_id: &str, sha: &str, path: &str) -> Result<Vec<Hunk>> {
+        let git = self.git(&self.store.project(project_id)?);
+        git.file_diff(path, Some(&git.commit_range(check_sha(sha)?).await?)).await
+    }
+
+    /// Revert one commit of `branch` with a new commit on it.
+    pub async fn revert_commit(&self, project_id: &str, branch: &str, sha: &str) -> Result<String> {
+        let p = self.store.project(project_id)?;
+        let out = self.require_checkout(&p, branch).await?.revert(check_sha(sha)?).await;
+        self.changed(project_id);
+        out
+    }
+
+    /// Copy one commit onto `onto`.
+    pub async fn cherry_pick(&self, project_id: &str, onto: &str, sha: &str) -> Result<String> {
+        let p = self.store.project(project_id)?;
+        let out = self.require_checkout(&p, onto).await?.cherry_pick(check_sha(sha)?).await;
+        self.changed(project_id);
+        out
+    }
+
+    /// Move `branch` to one of its commits: soft keeps the changes staged, mixed unstaged, hard drops them.
+    pub async fn reset_branch(&self, project_id: &str, branch: &str, sha: &str, mode: &str) -> Result<()> {
+        let p = self.store.project(project_id)?;
+        self.require_checkout(&p, branch).await?.reset(check_sha(sha)?, mode).await?;
+        self.changed(project_id);
+        Ok(())
     }
 
     pub async fn switch_branch(&self, project_id: &str, branch: &str) -> Result<()> {
@@ -907,7 +1017,7 @@ impl Gitnetix {
         let git = self.require_checkout(&p, branch).await?;
         let default = git.default_branch().await?;
         let base = self.base_of(&p, branch, &default).await;
-        let ok = git.rebase(&base).await?;
+        let ok = git.rebase(&git.rev_of(&base).await).await?;
         self.changed(project_id);
         if ok {
             Ok(Vec::new())
@@ -1103,9 +1213,7 @@ impl Gitnetix {
         let start = match &release {
             Some(r) => r.branch.clone(),
             None => match req.from.clone().filter(|f| !f.trim().is_empty()) {
-                Some(f) if git.ref_exists(&format!("refs/heads/{f}")).await? => f,
-                Some(f) if git.ref_exists(&format!("refs/remotes/origin/{f}")).await? => format!("origin/{f}"),
-                Some(f) => return Err(Error::NotFound(format!("branch {f}"))),
+                Some(f) => git.branch_rev(&f).await?.ok_or_else(|| Error::NotFound(format!("branch {f}")))?,
                 None => git.default_branch().await?,
             },
         };
@@ -1184,7 +1292,7 @@ impl Gitnetix {
             let release = p.releases.iter().find(|r| r.branch == parent && r.shipped_at.is_none()).map(|r| r.version.clone());
             let m = p.branches.entry(branch.to_string()).or_insert_with(|| BranchMeta { created_at: now(), ..Default::default() });
             if m.kind.is_empty() {
-                m.kind = branch.split_once('/').and_then(|(pre, _)| normalize_kind(pre)).unwrap_or("feat").into();
+                m.kind = kind_of_branch(branch).unwrap_or("feat").into();
             }
             m.parent = release.is_none().then(|| parent.to_string());
             m.release = release;
@@ -1196,7 +1304,7 @@ impl Gitnetix {
 
     pub async fn remove_item(&self, project_id: &str, branch: &str, delete_branch: bool) -> Result<()> {
         if delete_branch {
-            return self.delete_branch(project_id, branch, true).await;
+            return self.delete_branch(project_id, branch, true, false).await;
         }
         self.store.with_project(project_id, |p| {
             p.branches.remove(branch);
@@ -1208,31 +1316,43 @@ impl Gitnetix {
 
     // ---------- branches ----------
 
-    /// Delete a local branch and forget it. Its worktree (if any) goes too;
-    /// without `force`, refuses when the branch has commits not in its base.
-    pub async fn delete_branch(&self, project_id: &str, branch: &str, force: bool) -> Result<()> {
+    /// Delete a branch and forget it: the local one (its worktree goes too) and, with `remote`,
+    /// the one on origin. Without `force`, refuses when it has commits not in its base.
+    /// The default branch and branches the git host protects are never deleted.
+    pub async fn delete_branch(&self, project_id: &str, branch: &str, force: bool, remote: bool) -> Result<()> {
         let p = self.store.project(project_id)?;
         let git = self.git(&p);
         let default = git.default_branch().await?;
         if branch == default {
             return Err(Error::Invalid(format!("{branch} is the default branch")));
         }
-        if let Some(r) = p.releases.iter().find(|r| r.branch == branch && r.shipped_at.is_none()) {
-            return Err(Error::Invalid(format!("{branch} is the branch of open release v{}", r.version)));
+        if self.protected_branches(project_id, false).await.iter().any(|b| b == branch) {
+            return Err(Error::Invalid(format!("{branch} is protected on the git host")));
         }
-        if git.ref_exists(&format!("refs/heads/{branch}")).await? {
+        let local = git.ref_exists(&format!("refs/heads/{branch}")).await?;
+        let on_origin = remote && git.ref_exists(&format!("refs/remotes/origin/{branch}")).await?;
+        if local || on_origin {
+            let rev = if local { branch.to_string() } else { format!("origin/{branch}") };
             let base = self.base_of(&p, branch, &default).await;
-            if !force && !git.is_ancestor(branch, &base).await? {
-                let n = git.count(&format!("{base}..{branch}")).await?;
+            let base_rev = git.rev_of(&base).await;
+            if !force && !git.is_ancestor(&rev, &base_rev).await? {
+                let n = git.count(&format!("{base_rev}..{rev}")).await?;
                 return Err(Error::Invalid(format!(
                     "{branch} has {n} commit{} not merged into {base}. Merge it first or force the delete.",
                     if n == 1 { "" } else { "s" }
                 )));
             }
-            if let Some(dir) = self.checkout_dir(&p, branch).await? {
-                if dir == Path::new(&p.path) {
-                    return Err(Error::Invalid(format!("{branch} is checked out. Switch away first.")));
-                }
+        }
+        let dir = if local { self.checkout_dir(&p, branch).await? } else { None };
+        if dir.as_deref() == Some(Path::new(&p.path)) {
+            return Err(Error::Invalid(format!("{branch} is checked out. Switch away first.")));
+        }
+        // Origin first: if the host refuses, the local branch is still there.
+        if on_origin {
+            git.delete_remote_branch(branch).await?;
+        }
+        if local {
+            if let Some(dir) = dir {
                 self.remove_worktree(project_id, &dir.to_string_lossy(), false).await?;
             }
             git.delete_branch(branch, true).await?;
@@ -1245,7 +1365,50 @@ impl Gitnetix {
         Ok(())
     }
 
+    /// Delete several merged branches (never forced), carrying on past the ones that can't go.
+    pub async fn cleanup_branches(&self, project_id: &str, branches: &[String], remote: bool) -> Result<CleanupResult> {
+        let mut out = CleanupResult::default();
+        for b in branches {
+            match self.delete_branch(project_id, b, false, remote).await {
+                Ok(()) => out.deleted.push(b.clone()),
+                Err(e) => out.skipped.push(Skipped { branch: b.clone(), reason: e.to_string() }),
+            }
+        }
+        Ok(out)
+    }
+
+    /// Branches the git host protects, looked up again after a few minutes or on `refresh`.
+    /// Empty without a connected GitHub, or when the host can't be reached.
+    async fn protected_branches(&self, project_id: &str, refresh: bool) -> Vec<String> {
+        if !refresh {
+            if let Some((at, list)) = self.protected.lock().unwrap().get(project_id) {
+                if at.elapsed() < PROTECTED_TTL {
+                    return list.clone();
+                }
+            }
+        }
+        let lookup = async { self.github(project_id).await?.protected_branches().await };
+        let list = match tokio::time::timeout(std::time::Duration::from_secs(5), lookup).await {
+            Ok(Ok(list)) => list,
+            _ => Vec::new(),
+        };
+        self.protected.lock().unwrap().insert(project_id.into(), (Instant::now(), list.clone()));
+        list
+    }
+
     /// Fast-forward a branch to its upstream, checked out or not.
+    /// Stash a checked-out branch's uncommitted changes (untracked files included).
+    pub async fn stash_branch(&self, project_id: &str, branch: &str) -> Result<()> {
+        let p = self.store.project(project_id)?;
+        let git = self.require_checkout(&p, branch).await?;
+        if git.wip_count().await? == 0 {
+            return Err(Error::Invalid(format!("{branch} has no uncommitted changes to stash.")));
+        }
+        git.stash(&format!("Gitnetix: {branch}")).await?;
+        self.changed(project_id);
+        Ok(())
+    }
+
     pub async fn pull_branch(&self, project_id: &str, branch: &str) -> Result<String> {
         let p = self.store.project(project_id)?;
         let git = self.git(&p);
@@ -1274,19 +1437,24 @@ impl Gitnetix {
     /// Merge a branch into its base (its release, else its parent) with a
     /// merge commit. Works whether or not the base is checked out; stops
     /// before touching anything when the merge would conflict.
-    pub async fn merge_branch(&self, project_id: &str, branch: &str, delete_after: bool) -> Result<MergeResult> {
+    /// `into` overrides the target (any other local branch); by default it is the branch's base.
+    pub async fn merge_branch(&self, project_id: &str, branch: &str, into: Option<&str>, delete_after: bool) -> Result<MergeResult> {
         let p = self.store.project(project_id)?;
         let git = self.git(&p);
         let default = git.default_branch().await?;
-        let into = self.base_of(&p, branch, &default).await;
+        let into = match into.filter(|i| !i.trim().is_empty()) {
+            Some(i) => i.to_string(),
+            None => self.base_of(&p, branch, &default).await,
+        };
         if into == branch {
             return Err(Error::Invalid(format!("{branch} has no other branch to merge into")));
         }
         // Deleting the branch the main checkout is on means moving that checkout to `into`:
         // make sure that can happen before merging anything.
-        let switch = delete_after && self.checkout_dir(&p, branch).await?.is_some_and(|d| d == Path::new(&p.path));
-        if switch {
-            if let Some(dir) = self.checkout_dir(&p, &into).await? {
+        let must_switch = delete_after && self.checkout_dir(&p, branch).await?.is_some_and(|d| d == Path::new(&p.path));
+        let into_dir = self.checkout_dir(&p, &into).await?;
+        if must_switch {
+            if let Some(dir) = &into_dir {
                 return Err(Error::Invalid(format!(
                     "{into} is open in a worktree at {}, so this checkout can't switch to it. Merge without deleting, or close that worktree first.",
                     dir.display()
@@ -1295,16 +1463,31 @@ impl Gitnetix {
         }
         let (sha, already_merged) = self.merge_refs(&p, branch, &into).await?;
         self.changed(project_id);
-        if switch {
-            self.git(&p)
-                .switch(&into)
-                .await
-                .map_err(|e| Error::Invalid(format!("Merged into {into}, but switching to it failed, so {branch} was kept: {e}")))?;
+        // Land the main checkout on the branch that got the changes, unless it's already there
+        // or `into` is open in another worktree (a branch can't be checked out twice).
+        let mut stayed = None;
+        let switched = match &into_dir {
+            Some(dir) if dir == Path::new(&p.path) => false,
+            Some(dir) => {
+                stayed = Some(format!("{into} is open in a worktree at {}", dir.display()));
+                false
+            }
+            None => match git.switch(&into).await {
+                Ok(()) => true,
+                Err(e) if must_switch => return Err(Error::Invalid(format!("Merged into {into}, but switching to it failed, so {branch} was kept: {e}"))),
+                Err(e) => {
+                    stayed = Some(format!("switching to {into} failed: {e}"));
+                    false
+                }
+            },
+        };
+        if switched {
+            self.changed(project_id);
         }
         if delete_after {
-            self.delete_branch(project_id, branch, false).await?;
+            self.delete_branch(project_id, branch, false, false).await?;
         }
-        Ok(MergeResult { into, sha, already_merged, deleted: delete_after, switched: switch })
+        Ok(MergeResult { into, sha, already_merged, deleted: delete_after, switched, stayed })
     }
 
     /// Bring a branch up to date with its base by merging the base into it
@@ -1319,7 +1502,7 @@ impl Gitnetix {
         }
         let (sha, already_merged) = self.merge_refs(&p, &from, branch).await?;
         self.changed(project_id);
-        Ok(MergeResult { into: branch.to_string(), sha, already_merged, deleted: false, switched: false })
+        Ok(MergeResult { into: branch.to_string(), sha, already_merged, deleted: false, switched: false, stayed: None })
     }
 
     /// Merge commit of `from` into local branch `into`. Returns (new tip, already merged).
@@ -1359,6 +1542,7 @@ impl Gitnetix {
     pub async fn fetch(&self, project_id: &str) -> Result<()> {
         let p = self.store.project(project_id)?;
         self.git(&p).fetch().await?;
+        self.protected_branches(project_id, true).await;
         self.changed(project_id);
         Ok(())
     }
@@ -1373,6 +1557,7 @@ impl Gitnetix {
             let git = self.git(&p);
             let Ok(list) = git.worktrees().await else { continue };
             let default = git.default_branch().await.unwrap_or_else(|_| "main".into());
+            let refs = Refs::load(&git, git.branches().await.unwrap_or_default()).await;
             for w in list {
                 let (mut add, mut del) = (0, 0);
                 for f in Git::new(&w.path).wip_changes().await.unwrap_or_default() {
@@ -1381,7 +1566,7 @@ impl Gitnetix {
                 }
                 let meta = w.branch.as_ref().and_then(|b| p.branches.get(b));
                 let base = match &w.branch {
-                    Some(b) => Some(self.base_of(&p, b, &default).await).filter(|x| x != b),
+                    Some(b) => Some(self.base_in(&p, &git, &refs, b, &default).await).filter(|x| x != b),
                     None => None,
                 };
                 out.push(WorktreeView {
@@ -1406,7 +1591,7 @@ impl Gitnetix {
         let git = self.git(&p);
         let path = worktree_path(&p, branch);
         // A branch only on origin is checked out tracking it (git's DWIM).
-        if git.ref_exists(&format!("refs/heads/{branch}")).await? || git.ref_exists(&format!("refs/remotes/origin/{branch}")).await? {
+        if git.branch_rev(branch).await?.is_some() {
             git.worktree_add(&path, branch, None).await?;
         } else {
             let default = git.default_branch().await?;
@@ -1596,9 +1781,10 @@ impl Gitnetix {
         let base = self.base_of(&p, branch, &default).await;
         let t = self.template("pr", None, Some(&p.id))?;
         let ticket = p.branches.get(branch).and_then(|m| m.ticket.clone()).unwrap_or_else(|| "(none)".into());
+        let (base_rev, rev) = tokio::join!(git.rev_of(&base), git.rev_of(branch));
         let mut vars = BTreeMap::new();
-        vars.insert("diff".into(), git.range_diff(&format!("{base}...{branch}"), 60_000).await?);
-        vars.insert("commits".into(), commit_lines(&git.log(&format!("{base}..{branch}"), Some(100)).await?));
+        vars.insert("diff".into(), git.range_diff(&format!("{base_rev}...{rev}"), 60_000).await?);
+        vars.insert("commits".into(), commit_lines(&git.log(&format!("{base_rev}..{rev}"), Some(100)).await?));
         vars.insert("branch".into(), branch.into());
         vars.insert("base".into(), base);
         vars.insert("ticket".into(), ticket);
@@ -1617,7 +1803,10 @@ impl Gitnetix {
         if !git.ref_exists(&format!("refs/remotes/origin/{base}")).await? {
             git.push(&base, true).await?;
         }
-        self.push(project_id, branch).await?;
+        // A branch only on origin is already there.
+        if git.ref_exists(&format!("refs/heads/{branch}")).await? {
+            self.push(project_id, branch).await?;
+        }
         let (title, body) = match (title.filter(|s| !s.is_empty()), body) {
             (Some(t), b) => (t, b.unwrap_or_default()),
             (None, _) => self.generate_pr(project_id, branch).await?,
@@ -1884,6 +2073,11 @@ fn normalize_kind(kind: &str) -> Option<&'static str> {
     KINDS.iter().find(|(id, aliases)| *id == k || aliases.contains(&k.as_str())).map(|(id, _)| *id)
 }
 
+/// Kind implied by a branch name's prefix (`feature/x` → feat).
+fn kind_of_branch(name: &str) -> Option<&'static str> {
+    name.split_once('/').and_then(|(pre, _)| normalize_kind(pre))
+}
+
 fn top_path(p: &Project) -> PathBuf {
     PathBuf::from(&p.path)
 }
@@ -1894,6 +2088,15 @@ fn worktree_path(p: &Project, branch: &str) -> PathBuf {
     let top = top_path(p);
     let parent = top.parent().map(Path::to_path_buf).unwrap_or_else(|| top.clone());
     parent.join(format!("{}.{}", p.name, branch.replace('/', "-")))
+}
+
+/// A commit id from the UI goes straight to `git diff`, so it must not read as an option.
+fn check_sha(sha: &str) -> Result<&str> {
+    if (4..=64).contains(&sha.len()) && sha.chars().all(|c| c.is_ascii_hexdigit()) {
+        Ok(sha)
+    } else {
+        Err(Error::Invalid(format!("not a commit id: {sha:?}")))
+    }
 }
 
 fn commit_lines(commits: &[crate::git::Commit]) -> String {

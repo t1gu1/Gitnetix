@@ -6,6 +6,7 @@ import type {
   AgentSession,
   AiCatalog,
   Analytics,
+  Commit,
   Config,
   FileChange,
   Hunk,
@@ -51,6 +52,7 @@ export function useEngineEvents() {
             qc.invalidateQueries({ queryKey: ["overview", e.projectId] });
             qc.invalidateQueries({ queryKey: ["files", e.projectId] });
             qc.invalidateQueries({ queryKey: ["diff", e.projectId] });
+            qc.invalidateQueries({ queryKey: ["commits", e.projectId] });
             qc.invalidateQueries({ queryKey: ["worktrees"] });
             qc.invalidateQueries({ queryKey: ["projects"] });
             break;
@@ -75,19 +77,27 @@ export const useOverview = (projectId?: string) =>
     enabled: !!projectId,
   });
 
-export const useFiles = (projectId?: string, branch?: string, mode = "branch") =>
+/** `commit` lists that commit's files instead of the branch's. */
+export const useFiles = (projectId?: string, branch?: string, mode = "branch", commit?: string) =>
   useQuery({
-    queryKey: ["files", projectId, branch, mode],
-    queryFn: () => rpc<FileChange[]>("workspace.files", { projectId, branch, mode }),
+    queryKey: ["files", projectId, branch, mode, commit],
+    queryFn: () => rpc<FileChange[]>("workspace.files", { projectId, branch, mode, commit }),
     enabled: !!projectId && !!branch,
-    refetchInterval: mode === "wip" ? 4_000 : false,
+    refetchInterval: mode === "wip" && !commit ? 4_000 : false,
   });
 
-export const useDiff = (projectId?: string, branch?: string, mode = "branch", path?: string, staged?: boolean) =>
+export const useDiff = (projectId?: string, branch?: string, mode = "branch", path?: string, staged?: boolean, commit?: string) =>
   useQuery({
-    queryKey: ["diff", projectId, branch, mode, path, staged],
-    queryFn: () => rpc<Hunk[]>("workspace.diff", { projectId, branch, mode, path, staged }),
+    queryKey: ["diff", projectId, branch, mode, path, staged, commit],
+    queryFn: () => rpc<Hunk[]>("workspace.diff", { projectId, branch, mode, path, staged, commit }),
     enabled: !!projectId && !!branch && !!path,
+  });
+
+export const useCommits = (projectId?: string, branch?: string) =>
+  useQuery({
+    queryKey: ["commits", projectId, branch],
+    queryFn: () => rpc<Commit[]>("workspace.commits", { projectId, branch }),
+    enabled: !!projectId && !!branch,
   });
 
 export const useAgents = () =>

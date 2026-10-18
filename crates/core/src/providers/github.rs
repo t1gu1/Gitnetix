@@ -170,6 +170,12 @@ impl GitHub {
         format!("/repos/{}/{}", self.repo.owner, self.repo.repo)
     }
 
+    /// Branches protected by branch protection rules or rulesets (the first 100).
+    pub async fn protected_branches(&self) -> Result<Vec<String>> {
+        let v = self.get(&format!("{}/branches?protected=true&per_page=100", self.rp())).await?;
+        Ok(v.as_array().map(|a| a.iter().filter_map(|b| b["name"].as_str().map(String::from)).collect()).unwrap_or_default())
+    }
+
     pub async fn me(&self) -> Result<String> {
         Ok(self.get("/user").await?["login"].as_str().unwrap_or("").to_string())
     }

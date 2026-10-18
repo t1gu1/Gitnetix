@@ -4,6 +4,7 @@ import { useAction } from "../api/hooks";
 import type { BranchView } from "../api/types";
 import { ContextMenu, type MenuItem } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
+import { plural } from "../lib/format";
 import { useNav } from "../lib/nav";
 import { copyToClipboard, toast } from "../lib/toast";
 
@@ -15,15 +16,16 @@ export interface BranchTarget {
   base: string;
   /** How to show `base` (a release branch reads as its version). */
   baseLabel: string;
+  /** The default branch: can't be deleted. */
   isDefault: boolean;
-  /** Branch of an open release: can't be deleted. */
-  isRelease?: boolean;
   /** Extra actions listed first in the menu (e.g. release actions). */
   extra?: MenuItem[];
   /** Suggested once nothing is more urgent (e.g. Ship for a release). */
   next?: Action;
   /** Other branches it could merge into instead. */
   moveTo?: { branch: string; label: string }[];
+  /** Opens the branch's commit list. */
+  showCommits?: () => void;
 }
 
 export type Action = Exclude<MenuItem, "sep"> & { short?: string; /** Plain-text tooltip for the split button. */ tip?: string };
@@ -32,15 +34,13 @@ interface BranchMutation {
   mutate(vars: { projectId: string; branch: string }, opts: { onSuccess: () => void }): void;
 }
 
-const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
-
 /**
  * Every branch action in one place: the context menu, and the primary
  * action the split button offers for the branch's role and state.
  */
 export function useBranchActions(pid: string, openDialog: (d: BranchDialog, branch: string) => void) {
   const nav = useNav();
-  const inv = [["overview", pid], ["files", pid], ["diff", pid]];
+  const inv = [["overview", pid], ["files", pid], ["diff", pid], ["commits", pid]];
   const sw = useAction<unknown, { projectId: string; branch: string }>("workspace.switch", { invalidate: inv });
   const wt = useAction<{ path: string }, { projectId: string; branch: string }>("worktrees.create", { invalidate: [...inv, ["worktrees"]], success: (r) => `Worktree at ${r.path}` });
   const pull = useAction<{ output: string }, { projectId: string; branch: string }>("branches.pull", { invalidate: inv });
@@ -50,11 +50,12 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
     success: (r) => (r.conflicts.length ? `Rebase stopped on ${plural(r.conflicts.length, "conflict")}` : "Rebased, no conflicts"),
   });
   const sync = useAction<unknown, { projectId: string; branch: string }>("branches.sync", { invalidate: inv });
+  const stash = useAction<unknown, { projectId: string; branch: string }>("branches.stash", { invalidate: inv });
   const pr = useAction<{ number: number }, { projectId: string; branch: string }>("prs.create", { invalidate: [["prs", pid]], success: (r) => `Opened PR #${r.number}` });
   const move = useAction("branches.setParent", { invalidate: inv });
   const [menu, setMenu] = useState<{ x: number; y: number; alignRight: boolean; t: BranchTarget } | null>(null);
 
-  const mutations = [sw, wt, pull, push, rebase, sync, pr];
+  const mutations = [sw, wt, pull, push, rebase, sync, stash, pr];
   const busy = mutations.find((m) => m.isPending)?.variables?.branch;
   const run = (m: BranchMutation, branch: string, ok: string) => m.mutate({ projectId: pid, branch }, { onSuccess: () => toast(ok, "ok") });
 
@@ -91,6 +92,15 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
         icon: "push",
         hint: v.upstreamAhead ? `↑${v.upstreamAhead}` : undefined,
         run: () => run(push, b, `Pushed ${b}`),
+      },
+      stash: {
+        id: "stash",
+        label: "Stash changes",
+        tip: !v.checkedOut ? `Check out ${b} to stash its changes` : v.wip ? `Set aside ${plural(v.wip, "uncommitted file")} on ${b}` : "No uncommitted changes",
+        icon: "stash",
+        hint: v.checkedOut ? (v.wip ? plural(v.wip, "file") : "nothing to stash") : "check out first",
+        disabled: !v.checkedOut || !v.wip,
+        run: () => run(stash, b, `Stashed changes on ${b}`),
       },
       rebase: {
         id: "rebase",
@@ -130,12 +140,20 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
         disabled: !t.base,
         run: () => pr.mutate({ projectId: pid, branch: b }, { onSuccess: (r) => nav.go({ name: "prs", number: r.number }) }),
       },
+      // An open release takes new work as a feature or fix in it; any other branch just starts one off itself.
+      create: {
+        id: "create",
+        label: "Create a branch from here",
+        tip: "Create a branch from here",
+        icon: "plus",
+        run: () => nav.openNewItem(v.role === "release" && v.release ? { release: v.release } : { from: b }),
+      },
       copy: { id: "copy", label: "Copy branch name", icon: "edit", run: () => copyToClipboard(b) },
       delete: {
         id: "delete",
         label: v.exists ? "Delete branch…" : "Forget branch…",
         short: v.exists ? "Delete" : "Forget",
-        tip: !v.exists ? `${b} no longer exists: remove it from the list` : v.merged ? `${b} is merged into ${parent}: delete the local branch` : `Delete ${b}`,
+        tip: !v.exists ? `${b} no longer exists: remove it from the list` : originOnly ? `Delete ${b} on origin` : v.merged ? `${b} is merged into ${parent}: delete the local branch` : `Delete ${b}`,
         icon: "trash",
         danger: true,
         run: () => openDialog("delete", b),
@@ -149,9 +167,11 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
     if (!v.exists) return [a.delete];
     const list: MenuItem[] = t.extra?.length ? [...t.extra, "sep"] : [];
     if (v.conflict) list.push(a.conflicts, "sep");
-    if (!v.checkedOut) list.push(a.switch, a.worktree, "sep");
+    if (!v.checkedOut) list.push(a.switch, a.worktree);
+    list.push(a.create, "sep");
     if (v.local) {
       list.push(a.pull, a.push);
+      if (v.checkedOut) list.push(a.stash);
       if (t.base) {
         list.push("sep");
         // Shared branches (releases, dev) catch up by merging; work branches can also be rebased.
@@ -167,8 +187,11 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
         list.push({ id: `move-${m.branch}`, label: <>Target <span className="mono">{m.label}</span></>, icon: "merged", run: () => move.mutate({ projectId: pid, branch: v.name, parent: m.branch }) });
       }
     }
-    list.push("sep", a.copy);
-    if (v.local && !t.isDefault && !t.isRelease) list.push("sep", a.delete);
+    list.push("sep");
+    if (t.showCommits) list.push({ id: "commits", label: "Show commits", icon: "commit", run: t.showCommits });
+    list.push(a.copy);
+    // Any branch but the default one, unless the git host protects it.
+    if (!t.isDefault && !v.protected) list.push("sep", a.delete);
     return list;
   };
 
@@ -180,18 +203,19 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
     if (v.conflict) return a.conflicts;
     if (!v.local) return a.switch;
     if (v.upstreamBehind > 0) return a.pull;
+    const needsPush = v.upstreamAhead > 0 || (!v.upstream && v.ahead > 0);
     if (v.role !== "branch") {
       // Releases and trunks are shared: catch up with the base by merging, no checkout needed.
       if (v.behind > 0 && t.base) return a.sync;
-      if (v.upstreamAhead > 0 || (!v.upstream && v.ahead > 0)) return a.push;
+      if (needsPush) return a.push;
       if (t.next && !t.next.disabled) return t.next;
       if (v.role === "trunk" && t.base && v.ahead > 0) return a.merge;
       if (!v.checkedOut) return a.switch;
       return v.upstream ? a.pull : a.push;
     }
-    if (v.merged && !v.checkedOut) return a.delete;
+    if (v.merged && !v.checkedOut && !v.protected) return a.delete;
     if (!v.checkedOut) return a.switch;
-    if (v.upstreamAhead > 0 || (!v.upstream && v.ahead > 0)) return a.push;
+    if (needsPush) return a.push;
     if (v.behind > 0) return a.rebase;
     if (v.ahead > 0) return a.merge;
     return v.upstream ? a.pull : a.push;
@@ -209,16 +233,20 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
 
   const switchTo = (b: string) => run(sw, b, `Switched to ${b}`);
 
+  /** Start a new branch off this one; gone branches have nothing to start from. */
+  const create = (t: BranchTarget): Action | undefined => (t.view.exists ? all(t).create : undefined);
+
   const menuEl = menu && <ContextMenu x={menu.x} y={menu.y} alignRight={menu.alignRight} label={`Actions for ${menu.t.view.name}`} items={items(menu.t)} onClose={() => setMenu(null)} />;
 
-  return { primary, openMenu, menuEl, busy, switchTo };
+  return { primary, create, openMenu, menuEl, busy, switchTo };
 }
 
 export type BranchActions = ReturnType<typeof useBranchActions>;
 
-/** Primary action for the branch's state, plus a "…" button with every action. */
+/** Primary action for the branch's state, a "+" to start a branch off it, and a "…" button with every action. */
 export function BranchSplit({ t, actions, size = "sm" }: { t: BranchTarget; actions: BranchActions; size?: "sm" | "md" }) {
   const p = actions.primary(t);
+  const add = actions.create(t);
   const busy = actions.busy === t.view.name;
   const cls = size === "sm" ? "btn btn-sm" : "btn";
   return (
@@ -227,6 +255,11 @@ export function BranchSplit({ t, actions, size = "sm" }: { t: BranchTarget; acti
         {busy ? <span className="spinner" /> : p.icon && <Icon name={p.icon} size={12} />}
         <span>{p.short ?? p.label}</span>
       </button>
+      {add && (
+        <button className={`${cls} btn-icon split-mid`} aria-label={add.tip} data-tip={add.tip} onClick={add.run}>
+          <Icon name="plus" size={12} />
+        </button>
+      )}
       <button className={`${cls} btn-icon split-more`} aria-label={`More actions for ${t.view.name}`} aria-haspopup="menu" onClick={(e) => actions.openMenu(t, e)}>
         <Icon name="more" size={13} />
       </button>

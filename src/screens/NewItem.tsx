@@ -12,8 +12,11 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
   const pid = nav.projectId!;
   const ov = useOverview(pid);
   const open = (ov.data?.releases ?? []).filter((r) => r.open);
-  // Where it can branch off: open releases first, then the trunks (default and dev branches).
-  const bases = (ov.data?.branches ?? []).filter((b) => b.exists && (b.role === "release" || b.role === "trunk")).sort((a, b) => (a.role === b.role ? 0 : a.role === "release" ? -1 : 1));
+  // Where it can branch off: open releases first, then the trunks (default and dev branches),
+  // plus the work branch it was opened from ("Create a branch from here" on a feature).
+  const bases = (ov.data?.branches ?? [])
+    .filter((b) => b.exists && (b.role === "release" || b.role === "trunk" || b.name === draft.from))
+    .sort((a, b) => (a.role === b.role ? 0 : a.role === "release" ? -1 : b.role === "release" ? 1 : a.role === "trunk" ? -1 : 1));
   const firstBase = () =>
     (draft.release && open.find((r) => r.version === draft.release)?.branch) || draft.from || open[0]?.branch || ov.data?.defaultBranch || "";
   const [kind, setKind] = useState<Kind | "release">(draft.kind ?? "feat");
@@ -39,7 +42,7 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
       setNaming(true);
       try {
         const r = await rpc<{ name: string; ai: boolean }>("items.suggestName", { projectId: pid, kind, description: desc, ticket });
-        setName(r.name);
+        setName(r.name.replace(/\s/g, "-"));
         setNamed(r.ai ? "ai" : "auto");
       } catch {
         /* keep whatever is there */
@@ -156,9 +159,11 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
           placeholder={`${kind}/…`}
           autoFocus
           onChange={(e) => {
-            setName(e.target.value);
+            // Git names can't hold spaces: each one becomes a dash as you type.
+            const v = e.target.value.replace(/\s/g, "-");
+            setName(v);
             setNamed("you");
-            const k = kindOfBranch(e.target.value);
+            const k = kindOfBranch(v);
             if (k) setKind(k);
           }}
         />

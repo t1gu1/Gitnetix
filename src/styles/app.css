@@ -19,6 +19,8 @@
   --del-bg: rgba(244, 104, 96, 0.13);
   --del-fg: #ff9089;
   --mod-fg: #86aeff;
+  --trunk-fg: #f7c48a;
+  --release-fg: #c4a7ff;
   --hunk-bg: rgba(134, 174, 255, 0.08);
   --term: #0b0c0e;
   --shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
@@ -46,6 +48,8 @@
   --del-bg: #fce6e4;
   --del-fg: #b0271f;
   --mod-fg: #2452c2;
+  --trunk-fg: #a85a12;
+  --release-fg: #6b46c1;
   --hunk-bg: #eef2fb;
   --term: #fafaf8;
   --shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
@@ -140,10 +144,12 @@ body.dragging-tab, body.dragging-tab * { cursor: grabbing !important; }
 .pill { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; padding: 1px 7px; border: 1px solid currentColor; border-radius: 3px; white-space: nowrap; }
 .tag { font-size: 10.5px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; padding: 1px 6px; border: 1px solid var(--line); border-radius: 3px; color: var(--muted); }
 .tag.accent { color: var(--accent-fg); border-color: var(--accent); }
+.tag.released { color: var(--add-fg); border-color: color-mix(in srgb, var(--add-fg) 45%, transparent); }
 .c-add { color: var(--add-fg); }
 .c-del { color: var(--del-fg); }
 .c-mod { color: var(--mod-fg); }
 .c-warn { color: var(--warn-fg); }
+.c-current { color: var(--trunk-fg); }
 .c-acc { color: var(--accent-fg); }
 
 .label { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin: 0; }
@@ -154,7 +160,12 @@ body.dragging-tab, body.dragging-tab * { cursor: grabbing !important; }
 .textarea { height: auto; padding: 10px 12px; resize: vertical; line-height: 1.5; }
 .input:focus, .select:focus, .textarea:focus { border-color: var(--accent); outline: none; }
 .check { display: flex; align-items: center; gap: 10px; min-height: 32px; cursor: pointer; }
-.check input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
+/* Drawn by hand: the native check fills the whole box, edge to edge. */
+.check input { flex: 0 0 auto; appearance: none; width: 16px; height: 16px; margin: 0; border: 1px solid var(--faint); border-radius: 4px; background: transparent center / 10px 10px no-repeat; cursor: pointer; }
+/* The tick is --on-accent, the same in both themes. */
+.check input:checked { border-color: var(--accent); background-color: var(--accent); background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M2 5.2 4.1 7.3 8 2.9' fill='none' stroke='%231b1205' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"); }
+.check input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.check input:disabled { opacity: .5; cursor: default; }
 .radio-card { display: flex; align-items: flex-start; gap: 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 4px; background: transparent; text-align: left; width: 100%; }
 .radio-card[aria-pressed="true"], .radio-card[aria-checked="true"] { border-color: var(--accent); background: var(--raised); }
 .radio-dot { width: 14px; height: 14px; flex: 0 0 14px; border-radius: 7px; border: 1.5px solid var(--faint); margin-top: 2px; }
@@ -201,15 +212,36 @@ body.resizing { cursor: col-resize; user-select: none; }
 body.resizing iframe, body.resizing .term { pointer-events: none; }
 @media (min-width: 901px) { .ws[data-branches-hidden] > .ws-releases { display: none; } }
 .pane-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; height: 44px; flex: 0 0 44px; padding: 0 12px 0 16px; border-bottom: 1px solid var(--line); }
-/* Branch tree: every branch is the same row (twist, icon, name + status line, actions),
-   indented by depth; only the icon, tags and suggested action change with its role. */
-.tree { display: flex; flex-direction: column; padding: 6px 0; }
-.tree-row { --depth: 0; position: relative; display: flex; align-items: flex-start; gap: 4px; min-height: 44px; margin: 0 6px; padding: 6px 6px 6px calc(var(--depth) * 14px + 2px); border-radius: 4px; }
-.tree-row:hover { background: var(--raised); }
-.tree-row[data-current] { background: color-mix(in srgb, var(--accent) 9%, transparent); }
-.tree-row[data-current]:hover { background: color-mix(in srgb, var(--accent) 9%, var(--raised)); }
-.tree-row:has(> .tree-btn[aria-pressed="true"]) { background: var(--sel); }
-.tree-row[data-current]:has(> .tree-btn[aria-pressed="true"]) { background: color-mix(in srgb, var(--accent) 16%, var(--sel)); }
+/* Branch tree: every branch is the same row (icon, name + status line, actions),
+   nested under a left border; only the icon, tags and suggested action change with its role. */
+/* 6px extra on the left: top-level rows keep the same gap to their orange marker as nested ones. */
+.tree { display: flex; flex-direction: column; padding: 6px 0 6px 6px; }
+.tree-row { position: relative; display: flex; align-items: flex-start; gap: 4px; min-height: 44px; margin: 0 6px 1px; padding: 6px; border-radius: 4px; }
+/* An open branch's line starts below its show/hide toggle and runs down past its children, so they read as under it.
+   Children step in 6px; the line sits on the parent row's left edge, 6px left of each child row. */
+.tree-sub, .tree-open, .tree-kids { position: relative; }
+.tree-kids { margin-left: 6px; }
+.tree-open::before, .tree-merged + .tree-kids::before { content: ""; position: absolute; z-index: 1; top: 4px; bottom: 4px; left: 6px; width: 1px; background: repeating-linear-gradient(to bottom, var(--line) 0 1px, transparent 1px 3px); pointer-events: none; }
+.tree-merged + .tree-kids::before { top: 0; left: 0; }
+/* Under an open show/hide toggle, an elbow steps from the line beside it (6px left of the row) over to the children's line,
+   which starts right there. Only where there is a line beside it: nested, or the orange path at the top level. */
+.tree-toggle + .tree-open::before { top: 0; }
+.tree-kids .tree-toggle + .tree-open::after, .tree-toggle[data-path] + .tree-open::after { content: ""; position: absolute; z-index: 1; top: 0; left: 0; width: 7px; height: 1px; background: repeating-linear-gradient(to right, var(--line) 0 1px, transparent 1px 3px); pointer-events: none; }
+.tree-toggle[data-path] + .tree-open::after { z-index: 2; background: repeating-linear-gradient(to right, var(--trunk-fg) 0 1px, transparent 1px 3px); }
+/* An open merged group on the orange path: the parent's line (6px left of it) runs on past it to a live child,
+   or an elbow steps over to the merged children's line when the path goes into one of them. */
+.tree-merged + .tree-kids[data-path]::after { content: ""; position: absolute; z-index: 2; top: 0; bottom: 0; left: -6px; width: 1px; background: repeating-linear-gradient(to bottom, var(--trunk-fg) 0 1px, transparent 1px 3px); pointer-events: none; }
+.tree-merged + .tree-kids[data-path="in"]::after { bottom: auto; width: 7px; height: 1px; background: repeating-linear-gradient(to right, var(--trunk-fg) 0 1px, transparent 1px 3px); }
+/* Hover and selection: a layer under the row's content, so the nesting lines stay drawn on top. */
+.tree-row { isolation: isolate; }
+.tree-row:hover::after, .tree-row:has(> .tree-btn[aria-pressed="true"])::after { content: ""; position: absolute; z-index: -1; inset: 0; border-radius: 4px; background: var(--raised); pointer-events: none; }
+.tree-row:has(> .tree-btn[aria-pressed="true"])::after { background: var(--sel); }
+/* Checked-out branch and every branch above it: their stretch of the parent's line turns orange (6px left of the row, top level included).
+   Rows isolate their layers, so these are lifted above the nesting lines for their orange to show over them. */
+.tree-row[data-path] { z-index: 2; }
+.tree-row[data-path]::before { content: ""; position: absolute; z-index: 2; top: 0; bottom: 0; left: -6px; width: 1px; background: var(--trunk-fg); pointer-events: none; }
+/* Above it (parents, and their show/hide toggles), the orange is dotted: the path leads further down. */
+.tree-row[data-path]:not([data-current])::before { background: repeating-linear-gradient(to bottom, var(--trunk-fg) 0 1px, transparent 1px 3px); }
 .tree-twist { flex: 0 0 16px; width: 16px; height: 20px; display: inline-flex; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: 3px; background: transparent; color: var(--faint); }
 button.tree-twist { cursor: pointer; }
 button.tree-twist:hover { color: var(--fg); }
@@ -222,23 +254,35 @@ button.tree-twist:hover { color: var(--fg); }
 .tree-main > .branch-meta:empty { display: none; }
 .tree-row:has(> .tree-btn .tree-main > .branch-meta:empty) { min-height: 36px; align-items: center; }
 .tree-row:has(> .tree-btn .tree-main > .branch-meta:empty) > .tree-btn { align-items: center; }
+/* Uncommitted work on a branch: loud orange, gently pulsing so it isn't forgotten. */
+.wip-badge { color: #ff7a00; font-weight: 600; animation: agpulse 1.6s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .wip-badge { animation: none; } }
 .tree-row[data-dim] .tree-name, .tree-row[data-dim] .kind-chip { opacity: .6; }
+/* Shared branches read apart from work: trunks (main, dev…) orange, releases (open or shipped) purple. */
+.tree-row[data-role="trunk"] .tree-name > .mono { color: var(--trunk-fg); }
+.tree-row[data-role="release"] .tree-name > .mono { color: var(--release-fg); }
 .tree-acts { flex: 0 0 auto; display: flex; opacity: 0; pointer-events: none; transition: opacity .12s; }
 .tree-row:hover .tree-acts, .tree-row:focus-within .tree-acts, .tree-row:has(> .tree-btn[aria-pressed="true"]) .tree-acts { opacity: 1; pointer-events: auto; }
 @media (hover: none) { .tree-acts { opacity: 1; pointer-events: auto; } }
-.tree-ghost, .tree-group { width: calc(100% - 12px); min-height: 30px; align-items: center; border: 0; background: transparent; font: inherit; text-align: left; cursor: pointer; }
-.tree-ghost { color: var(--muted); font-size: 12px; gap: 4px; }
-.tree-ghost .tree-icon { height: auto; margin-right: 4px; }
-.tree-ghost:hover { color: var(--fg); }
+.tree-group { width: calc(100% - 12px); min-height: 30px; align-items: center; border: 0; background: transparent; font: inherit; text-align: left; cursor: pointer; }
 .tree-group { gap: 6px; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
 .tree-group:hover { color: var(--fg); }
+.tree-merged { color: var(--add-fg); cursor: default; }
+.tree-merged:hover { color: var(--add-fg); }
+/* The merged group's toggle fills its row (the Clean up button aside), so the whole row still opens it. */
+.tree-merged-toggle { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 6px; align-self: stretch; margin: -6px 0; padding: 6px 0; border: 0; background: transparent; color: inherit; font: inherit; letter-spacing: inherit; text-transform: inherit; text-align: left; cursor: pointer; }
+.tree-merged-toggle:hover { color: color-mix(in srgb, var(--add-fg) 70%, var(--fg)); }
+.tree-cleanup { flex: 0 0 auto; height: 22px; text-transform: none; letter-spacing: normal; font-weight: 500; }
 .tree-filter { display: flex; align-items: center; gap: 8px; padding: 8px 12px 8px 16px; border-bottom: 1px solid var(--line); }
 .tree-filter .input { flex: 1 1 auto; min-width: 0; height: 28px; font-size: 12.5px; }
 .kind-chip { font-family: var(--mono); font-size: 10px; font-weight: 500; text-transform: uppercase; }
 .split { display: inline-flex; flex: 0 0 auto; }
 .split-main { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.split-mid { margin-left: -1px; border-radius: 0; }
 .split-more { margin-left: -1px; border-top-left-radius: 0; border-bottom-left-radius: 0; }
-.ctx-menu { position: fixed; z-index: 45; min-width: 220px; max-width: min(320px, calc(100vw - 16px)); padding: 4px; display: flex; flex-direction: column; background: var(--raised); border: 1px solid var(--line); border-radius: 6px; box-shadow: var(--shadow); }
+/* Primary buttons have no border: a darker accent hairline splits the arrow from the main button. */
+.btn-primary.split-more { margin-left: 0; border-left: 1px solid color-mix(in srgb, var(--accent) 80%, #000); }
+.ctx-menu { position: fixed; z-index: 60; min-width: 220px; max-width: min(320px, calc(100vw - 16px)); padding: 4px; display: flex; flex-direction: column; background: var(--raised); border: 1px solid var(--line); border-radius: 6px; box-shadow: var(--shadow); }
 .tip { position: fixed; z-index: 70; max-width: min(320px, calc(100vw - 16px)); padding: 5px 9px; border: 1px solid var(--line); border-radius: 4px; background: var(--raised); color: var(--fg); box-shadow: var(--shadow); font-size: 12px; line-height: 1.4; white-space: pre-line; overflow-wrap: anywhere; pointer-events: none; animation: tip-in 110ms ease-out; }
 .tip::after { content: ""; position: absolute; left: calc(var(--tip-arrow, 50%) - 4px); width: 7px; height: 7px; background: var(--raised); border: 1px solid var(--line); transform: rotate(45deg); }
 .tip[data-side="top"]::after { bottom: -5px; border-top: 0; border-left: 0; }
@@ -433,3 +477,15 @@ button.app-row:hover { background: var(--raised); }
   .seg > button { min-height: 32px; }
 }
 @media (min-width: 901px) { .show-narrow { display: none !important; } }
+/* Commit list: replaces the branch tree; subject, description, then sha · author · when. */
+.commits { display: flex; flex-direction: column; padding: 6px 0; }
+.commit-row { display: flex; flex-direction: column; gap: 3px; margin: 0 6px; padding: 8px 10px; border: 0; border-radius: 4px; background: transparent; color: var(--fg); font: inherit; text-align: left; cursor: pointer; }
+.commit-row:hover { background: var(--raised); }
+.commit-row[aria-pressed="true"] { background: var(--sel); }
+.commit-subject { font-size: 12.5px; font-weight: 500; line-height: 1.4; overflow-wrap: anywhere; }
+.commit-body { font-size: 11.5px; line-height: 1.45; color: var(--muted); white-space: pre-line; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow-wrap: anywhere; }
+.commit-row[aria-pressed="true"] .commit-body { -webkit-line-clamp: unset; }
+.commit-meta { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 11px; color: var(--faint); }
+.commit-head { display: flex; align-items: flex-start; gap: 8px; min-width: 0; }
+.meta-link { cursor: pointer; text-decoration: underline dotted; text-underline-offset: 2px; }
+.meta-link:hover { color: var(--fg); text-decoration-style: solid; }

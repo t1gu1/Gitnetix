@@ -1,28 +1,20 @@
-import { useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
+import { useRef, type KeyboardEvent, type PointerEvent } from "react";
+
+import { useStored } from "../lib/stored";
 
 /** A pane width the viewer can drag, kept in this browser between sessions. */
 export function usePaneWidth(key: string, def: number, min: number, max: number) {
   const clamp = (v: number) => Math.round(Math.min(max, Math.max(min, v)));
-  const [width, setWidth] = useState(() => {
-    try {
-      const v = Number(localStorage.getItem(key));
-      return v ? clamp(v) : def;
-    } catch {
-      return def;
-    }
-  });
+  const [width, setWidth] = useStored(key, def, (s) => clamp(Number(s)) || def, String);
+  // Latest width, ahead of the render: a drag can end before its last move has rendered.
+  const last = useRef(width);
+  last.current = width;
   const set = (v: number, persist = false) => {
-    const w = clamp(v);
-    setWidth(w);
-    if (persist) {
-      try {
-        localStorage.setItem(key, String(w));
-      } catch {
-        /* per-viewer convenience only */
-      }
-    }
+    last.current = clamp(v);
+    setWidth(last.current, persist);
   };
-  return { width, set, def, min, max };
+  const save = () => setWidth(last.current, true);
+  return { width, set, save, def, min, max };
 }
 
 export type PaneWidth = ReturnType<typeof usePaneWidth>;
@@ -34,7 +26,7 @@ export function Resizer({ pane, label }: { pane: PaneWidth; label: string }) {
     if (!start.current) return;
     start.current = null;
     document.body.classList.remove("resizing");
-    pane.set(pane.width, true);
+    pane.save();
   };
   return (
     <div

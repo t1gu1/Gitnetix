@@ -26,8 +26,12 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("profiles.save", "Create or update a Git profile", "profile: {id?, label, name, email, sign, signingKey?}"),
     ("profiles.delete", "Delete a Git profile", "id"),
     ("workspace.overview", "Releases, their branches and repo state", "projectId"),
-    ("workspace.files", "Changed files of a branch", "projectId, branch, mode: branch|wip|project"),
-    ("workspace.diff", "Diff of one file; in wip mode `staged` picks the side", "projectId, branch, mode, path, staged?"),
+    ("workspace.files", "Changed files of a branch, or of one commit when `commit` is given", "projectId, branch, mode: branch|wip|project, commit?"),
+    ("workspace.diff", "Diff of one file; in wip mode `staged` picks the side; `commit` diffs that commit", "projectId, branch, mode, path, staged?, commit?"),
+    ("workspace.commits", "Commits a branch has that its base does not (a trunk: recent history)", "projectId, branch"),
+    ("commits.revert", "Revert a commit with a new commit on its branch", "projectId, branch, sha"),
+    ("commits.cherryPick", "Copy a commit onto a checked-out branch", "projectId, onto, sha"),
+    ("commits.reset", "Reset a checked-out branch to a commit", "projectId, branch, sha, mode: soft|mixed|hard"),
     ("workspace.switch", "Check out a branch (uncommitted work comes along)", "projectId, branch"),
     ("workspace.stage", "Stage files (all when paths is empty)", "projectId, branch, paths?"),
     ("workspace.unstage", "Unstage files (all when paths is empty)", "projectId, branch, paths?"),
@@ -47,12 +51,14 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("items.create", "New feature/fix branch in a release, or off another branch (release empty, from = branch)", "projectId, release?, from?, kind, description, branchName?, ticket?, where: switch|worktree, startAgent?"),
     ("items.attach", "Attach an existing branch to a release", "projectId, branch, release, kind"),
     ("items.remove", "Remove a branch from its release", "projectId, branch, deleteBranch?"),
+    ("branches.stash", "Stash a checked-out branch's uncommitted changes, untracked files included", "projectId, branch"),
     ("branches.pull", "Fast-forward a branch to its upstream (checked out or not)", "projectId, branch"),
-    ("branches.merge", "Merge a branch into its release (or parent branch) with a merge commit", "projectId, branch, deleteBranch?"),
+    ("branches.merge", "Merge a branch into its release (or parent branch, or `into`) with a merge commit", "projectId, branch, into?, deleteBranch?"),
     ("branches.sync", "Merge a branch's base into it to bring it up to date", "projectId, branch"),
     ("branches.setParent", "Choose what a branch merges into (an open release branch attaches it to that release)", "projectId, branch, parent"),
     ("branches.fetch", "Fetch origin, pruning deleted branches", "projectId"),
-    ("branches.delete", "Delete a local branch and its worktree; force = even if unmerged", "projectId, branch, force?"),
+    ("branches.cleanup", "Delete merged branches (never forced), skipping the ones that can't go; remote = on origin too", "projectId, branches: string[], remote?"),
+    ("branches.delete", "Delete a local branch and its worktree; force = even if unmerged, remote = on origin too. Not the default or a host-protected branch", "projectId, branch, force?, remote?"),
     ("worktrees.list", "Every worktree across projects with its agent", ""),
     ("worktrees.create", "Open a branch in a new worktree", "projectId, branch"),
     ("worktrees.remove", "Remove a worktree", "projectId, path, force?"),
@@ -261,8 +267,21 @@ pub async fn call(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
 
         // ---- workspace ----
         "workspace.overview" => to(k.overview(&s(&p, "projectId")?).await?),
-        "workspace.files" => to(k.files(&s(&p, "projectId")?, &s(&p, "branch")?, mode(&p)?).await?),
-        "workspace.diff" => to(k.diff(&s(&p, "projectId")?, &s(&p, "branch")?, mode(&p)?, &s(&p, "path")?, p.get("staged").and_then(Value::as_bool)).await?),
+        "workspace.files" => match os(&p, "commit") {
+            Some(sha) => to(k.commit_files(&s(&p, "projectId")?, &sha).await?),
+            None => to(k.files(&s(&p, "projectId")?, &s(&p, "branch")?, mode(&p)?).await?),
+        },
+        "workspace.diff" => match os(&p, "commit") {
+            Some(sha) => to(k.commit_diff(&s(&p, "projectId")?, &sha, &s(&p, "path")?).await?),
+            None => to(k.diff(&s(&p, "projectId")?, &s(&p, "branch")?, mode(&p)?, &s(&p, "path")?, p.get("staged").and_then(Value::as_bool)).await?),
+        },
+        "workspace.commits" => to(k.commits(&s(&p, "projectId")?, &s(&p, "branch")?).await?),
+        "commits.revert" => to(json!({ "sha": k.revert_commit(&s(&p, "projectId")?, &s(&p, "branch")?, &s(&p, "sha")?).await? })),
+        "commits.cherryPick" => to(json!({ "sha": k.cherry_pick(&s(&p, "projectId")?, &s(&p, "onto")?, &s(&p, "sha")?).await? })),
+        "commits.reset" => {
+            k.reset_branch(&s(&p, "projectId")?, &s(&p, "branch")?, &s(&p, "sha")?, &s(&p, "mode")?).await?;
+            ok()
+        }
         "workspace.switch" => {
             k.switch_branch(&s(&p, "projectId")?, &s(&p, "branch")?).await?;
             ok()
@@ -322,8 +341,12 @@ pub async fn call(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
             k.remove_item(&s(&p, "projectId")?, &s(&p, "branch")?, b(&p, "deleteBranch")).await?;
             ok()
         }
+        "branches.stash" => {
+            k.stash_branch(&s(&p, "projectId")?, &s(&p, "branch")?).await?;
+            ok()
+        }
         "branches.pull" => to(json!({ "output": k.pull_branch(&s(&p, "projectId")?, &s(&p, "branch")?).await? })),
-        "branches.merge" => to(k.merge_branch(&s(&p, "projectId")?, &s(&p, "branch")?, b(&p, "deleteBranch")).await?),
+        "branches.merge" => to(k.merge_branch(&s(&p, "projectId")?, &s(&p, "branch")?, os(&p, "into").as_deref(), b(&p, "deleteBranch")).await?),
         "branches.sync" => to(k.sync_branch(&s(&p, "projectId")?, &s(&p, "branch")?).await?),
         "branches.setParent" => {
             k.set_parent(&s(&p, "projectId")?, &s(&p, "branch")?, &s(&p, "parent")?)?;
@@ -333,8 +356,12 @@ pub async fn call(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
             k.fetch(&s(&p, "projectId")?).await?;
             ok()
         }
+        "branches.cleanup" => {
+            let branches: Vec<String> = serde_json::from_value(p.get("branches").cloned().unwrap_or(json!([])))?;
+            to(k.cleanup_branches(&s(&p, "projectId")?, &branches, b(&p, "remote")).await?)
+        }
         "branches.delete" => {
-            k.delete_branch(&s(&p, "projectId")?, &s(&p, "branch")?, b(&p, "force")).await?;
+            k.delete_branch(&s(&p, "projectId")?, &s(&p, "branch")?, b(&p, "force"), b(&p, "remote")).await?;
             ok()
         }
 

@@ -81,6 +81,8 @@ export interface BranchView {
   checkedOut: boolean;
   running: boolean;
   conflict: boolean;
+  /** Files with uncommitted changes in its checkout (0 when not checked out). */
+  wip: number;
   ahead: number;
   behind: number;
   upstream?: string | null;
@@ -96,11 +98,30 @@ export interface BranchView {
   role: "trunk" | "release" | "branch";
   /** Open release it ships in (a release branch: its own version). */
   release?: string | null;
+  /** Version this release branch shipped as. */
+  shipped?: string | null;
   local: boolean;
   /** Exists on origin. */
   remote: boolean;
+  /** The git host protects it (branch protection or a ruleset): it can't be deleted. */
+  protected: boolean;
   /** Date of its last commit (ISO 8601). */
   date: string;
+}
+
+export interface Commit {
+  sha: string;
+  author: string;
+  email: string;
+  /** Author date (ISO 8601). */
+  date: string;
+  subject: string;
+  body: string;
+}
+
+export interface CleanupResult {
+  deleted: string[];
+  skipped: { branch: string; reason: string }[];
 }
 
 export interface MergeResult {
@@ -108,8 +129,10 @@ export interface MergeResult {
   sha: string;
   alreadyMerged: boolean;
   deleted: boolean;
-  /** The checkout was on the deleted branch and moved to `into`. */
+  /** The main checkout moved to `into`. */
   switched: boolean;
+  /** Why the main checkout didn't move to `into`. */
+  stayed?: string | null;
 }
 
 export interface ReleaseView {

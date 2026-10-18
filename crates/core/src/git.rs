@@ -165,6 +165,22 @@ impl Git {
         Ok(ok)
     }
 
+    /// Revision to start from for branch `name`: the local branch, else its origin copy.
+    pub async fn branch_rev(&self, name: &str) -> Result<Option<String>> {
+        if self.ref_exists(&format!("refs/heads/{name}")).await? {
+            Ok(Some(name.to_string()))
+        } else if self.ref_exists(&format!("refs/remotes/origin/{name}")).await? {
+            Ok(Some(format!("origin/{name}")))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// `branch_rev`, else `name` as given (a tag or SHA, or a branch git will report missing).
+    pub async fn rev_of(&self, name: &str) -> String {
+        self.branch_rev(name).await.ok().flatten().unwrap_or_else(|| name.to_string())
+    }
+
     pub async fn rev_parse(&self, r: &str) -> Result<String> {
         Ok(self.run(&["rev-parse", r]).await?.trim().to_string())
     }
@@ -316,7 +332,7 @@ impl Git {
     }
 
     pub async fn create_branch(&self, name: &str, from: &str) -> Result<()> {
-        self.run(&["branch", name, from]).await.map(|_| ())
+        self.run(&["branch", "--no-track", name, from]).await.map(|_| ())
     }
 
     /// Switch branch. Uncommitted work comes along (git's default when it
@@ -326,11 +342,15 @@ impl Git {
     }
 
     pub async fn switch_create(&self, name: &str, from: &str) -> Result<()> {
-        self.run(&["switch", "-c", name, from]).await.map(|_| ())
+        self.run(&["switch", "--no-track", "-c", name, from]).await.map(|_| ())
     }
 
     pub async fn delete_branch(&self, name: &str, force: bool) -> Result<()> {
         self.run(&["branch", if force { "-D" } else { "-d" }, name]).await.map(|_| ())
+    }
+
+    pub async fn delete_remote_branch(&self, name: &str) -> Result<()> {
+        self.run(&["push", "origin", "--delete", name]).await.map(|_| ())
     }
 
     pub async fn tag(&self, name: &str, target: &str, message: &str) -> Result<()> {
@@ -372,7 +392,7 @@ impl Git {
     pub async fn worktree_add(&self, path: &Path, branch: &str, from: Option<&str>) -> Result<()> {
         let p = path.to_string_lossy();
         match from {
-            Some(base) => self.run(&["worktree", "add", "-b", branch, &p, base]).await?,
+            Some(base) => self.run(&["worktree", "add", "--no-track", "-b", branch, &p, base]).await?,
             None => self.run(&["worktree", "add", &p, branch]).await?,
         };
         Ok(())
@@ -412,6 +432,18 @@ impl Git {
         Ok(entries)
     }
 
+    /// Number of files with uncommitted changes (staged, unstaged or untracked), each counted once.
+    pub async fn wip_count(&self) -> Result<u32> {
+        let status = self.run(&["status", "--porcelain=v1", "-z", "-uall"]).await?;
+        Ok(parse_status_z(&status).len() as u32)
+    }
+
+    /// Set aside every uncommitted change, untracked files included.
+    pub async fn stash(&self, message: &str) -> Result<()> {
+        self.run(&["stash", "push", "--include-untracked", "-m", message]).await?;
+        Ok(())
+    }
+
     /// Uncommitted changes split by side: staged (index vs HEAD) and
     /// unstaged (working tree vs index, plus untracked). A partially staged
     /// file appears once on each side.
@@ -435,9 +467,13 @@ impl Git {
 
     /// Everything a branch changed since it left `base` (three-dot range).
     pub async fn branch_changes(&self, base: &str, branch: &str) -> Result<Vec<FileChange>> {
-        let range = format!("{base}...{branch}");
-        let ns = self.run(&["diff", "--name-status", "-z", "-M", &range]).await?;
-        let stats = parse_numstat_z(&self.run(&["diff", "--numstat", "-z", "-M", &range]).await?);
+        self.range_changes(&format!("{base}...{branch}")).await
+    }
+
+    /// Files changed in a diff range, with line counts.
+    pub async fn range_changes(&self, range: &str) -> Result<Vec<FileChange>> {
+        let ns = self.run(&["diff", "--name-status", "-z", "-M", range]).await?;
+        let stats = parse_numstat_z(&self.run(&["diff", "--numstat", "-z", "-M", range]).await?);
         let mut out = parse_name_status_z(&ns);
         for e in out.iter_mut() {
             if let Some((a, d)) = stats.get(&e.path) {
@@ -447,6 +483,14 @@ impl Git {
         }
         out.sort_by(|a, b| a.path.cmp(&b.path));
         Ok(out)
+    }
+
+    /// Diff range of one commit against its first parent (the empty tree for a root commit).
+    pub async fn commit_range(&self, sha: &str) -> Result<String> {
+        const EMPTY_TREE: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+        let parent = format!("{sha}^");
+        let base = if self.try_run(&["rev-parse", "--verify", "-q", &parent]).await?.0 { parent } else { EMPTY_TREE.into() };
+        Ok(format!("{base}..{sha}"))
     }
 
     pub async fn conflicted_files(&self) -> Result<Vec<String>> {
@@ -655,6 +699,40 @@ impl Git {
 
     pub async fn rebase_abort(&self) -> Result<()> {
         self.run(&["rebase", "--abort"]).await.map(|_| ())
+    }
+
+    /// Undo a commit with a new one. On conflict nothing changes.
+    pub async fn revert(&self, sha: &str) -> Result<String> {
+        self.apply_commit("revert", sha).await
+    }
+
+    /// Copy a commit onto the checked-out branch. On conflict nothing changes.
+    pub async fn cherry_pick(&self, sha: &str) -> Result<String> {
+        self.apply_commit("cherry-pick", sha).await
+    }
+
+    /// `revert` / `cherry-pick` one commit; a merge commit is taken against its first parent.
+    async fn apply_commit(&self, cmd: &str, sha: &str) -> Result<String> {
+        let merge = self.try_run(&["rev-parse", "--verify", "-q", &format!("{sha}^2")]).await?.0;
+        let mut args = vec![cmd, "--no-edit"];
+        if merge {
+            args.extend(["-m", "1"]);
+        }
+        args.push(sha);
+        let (ok, _, err) = self.try_run(&args).await?;
+        if !ok {
+            let _ = self.try_run(&[cmd, "--abort"]).await;
+            return Err(Error::Git { cmd: cmd.into(), stderr: err.trim().into() });
+        }
+        self.rev_parse("HEAD").await
+    }
+
+    /// Move the checked-out branch to `sha`; `mode` is soft, mixed or hard.
+    pub async fn reset(&self, sha: &str, mode: &str) -> Result<()> {
+        if !matches!(mode, "soft" | "mixed" | "hard") {
+            return Err(Error::Invalid(format!("unknown reset mode {mode:?}")));
+        }
+        self.run(&["reset", &format!("--{mode}"), sha]).await.map(|_| ())
     }
 
     pub async fn merge_ff_only(&self, from: &str) -> Result<()> {

@@ -1,15 +1,19 @@
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 
 import { useAction, useAgents, useAiCatalog, useDiff, useFiles, useOverview } from "../api/hooks";
-import type { BranchView, FileChange, MergeResult, ReleaseView } from "../api/types";
+import type { BranchView, CleanupResult, Commit, FileChange, MergeResult, ReleaseView } from "../api/types";
 import { AgentLog } from "../components/AgentLog";
 import { DiffView } from "../components/DiffView";
+import { ContextMenu } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
 import { Resizer, usePaneWidth } from "../components/Resizer";
 import { Busy, ErrorBox, Loading, Modal, Seg } from "../components/ui";
+import { ago } from "../lib/format";
 import { useNav } from "../lib/nav";
+import { useStoredChoice, useStoredFlag } from "../lib/stored";
 import { useBranchActions, type BranchDialog, type BranchTarget } from "./BranchMenu";
 import { BranchTree } from "./BranchTree";
+import { CommitList } from "./CommitList";
 import { ConflictModal } from "./ConflictModal";
 
 type Mode = "branch" | "wip" | "project";
@@ -26,6 +30,10 @@ export function Workspace() {
   const [pane, setPane] = useState<Pane>("releases");
   const [shipping, setShipping] = useState<ReleaseView | null>(null);
   const [dialog, setDialog] = useState<{ kind: BranchDialog; branch: string } | null>(null);
+  const [cleanup, setCleanup] = useState<{ parent: string; label: string; branches: BranchView[] } | null>(null);
+  // Branch whose commits replace the tree, and the commit picked there (none = all changes).
+  const [history, setHistory] = useState<string | null>(null);
+  const [commit, setCommit] = useState<Commit | undefined>();
   const branchesW = usePaneWidth("gnx.pane.branches", 300, 220, 560);
   const filesW = usePaneWidth("gnx.pane.files", 320, 220, 640);
   const [branchesHidden, setBranchesHidden] = useStoredFlag("gnx.pane.branchesHidden");
@@ -35,6 +43,8 @@ export function Workspace() {
   const byName = useMemo(() => new Map((o?.branches ?? []).map((b) => [b.name, b])), [o]);
   const branch = nav.selectedBranch ?? o?.currentBranch ?? o?.defaultBranch ?? undefined;
   const baseFor = (b: string) => byName.get(b)?.parent ?? "";
+  // Releases and trunks a work branch can be re-targeted to.
+  const targets = useMemo(() => (o?.branches ?? []).filter((x) => x.exists && x.role !== "branch"), [o]);
   /** A release branch reads as its version. */
   const labelOf = (b: string) => {
     const v = byName.get(b);
@@ -49,30 +59,34 @@ export function Workspace() {
       base,
       baseLabel: labelOf(base),
       isDefault: b === o?.defaultBranch,
-      isRelease: !!rel,
-      extra: rel
-        ? [
-            { id: "new-item", label: <>New feature or fix in v{rel.version}…</>, icon: "plus", run: () => nav.openNewItem({ release: rel.version }) },
-            { id: "ship", label: <>Ship v{rel.version}…</>, icon: "ship", hint: "fast-forward + tag", run: () => setShipping(rel) },
-          ]
-        : v.role === "trunk" && v.exists
-          ? [{ id: "new-branch", label: <>New branch off <span className="mono">{b}</span>…</>, icon: "plus", run: () => nav.openNewItem({ from: b }) }]
-          : undefined,
+      extra: rel ? [{ id: "ship", label: <>Ship v{rel.version}…</>, icon: "ship", hint: "fast-forward + tag", run: () => setShipping(rel) }] : undefined,
+      showCommits: v.exists ? () => openHistory(b) : undefined,
       next: rel
         ? { id: "ship", label: `Ship v${rel.version}…`, short: "Ship", tip: `Fast-forward ${o?.defaultBranch} to ${b} and tag v${rel.version}`, icon: "ship", disabled: !v.ahead, run: () => setShipping(rel) }
         : undefined,
       // Work branches can be re-targeted to any release or trunk.
       moveTo:
         v.role === "branch" && v.exists && !b.startsWith("release/")
-          ? (o?.branches ?? []).filter((x) => x.exists && x.role !== "branch" && x.name !== base && x.name !== b).map((x) => ({ branch: x.name, label: labelOf(x.name) }))
+          ? targets.filter((x) => x.name !== base && x.name !== b).map((x) => ({ branch: x.name, label: labelOf(x.name) }))
           : undefined,
     };
   };
+  const openHistory = (b: string) => {
+    nav.selectBranch(b);
+    setHistory(b);
+    setCommit(undefined);
+    setMode("branch");
+  };
+  const closeHistory = () => {
+    setHistory(null);
+    setCommit(undefined);
+  };
   const view: BranchView | undefined = branch ? byName.get(branch) : undefined;
+  const dialogView = dialog && (byName.get(dialog.branch) ?? synthetic(dialog.branch, dialog.branch === o?.currentBranch));
   const base = branch ? baseFor(branch) : "";
   const checkedOut = view?.checkedOut ?? branch === o?.currentBranch;
 
-  const files = useFiles(pid, branch, mode);
+  const files = useFiles(pid, branch, mode, commit?.sha);
   const wipList = useFiles(pid, branch, "wip").data ?? [];
   const wipCount = new Set(wipList.map((f) => f.path)).size;
   const stagedCount = wipList.filter((f) => f.staged).length;
@@ -80,10 +94,14 @@ export function Workspace() {
   const list = files.data ?? [];
   const fileCount = new Set(list.map((f) => f.path)).size;
   const current = list.find((f) => fileKey(f) === file) ?? list[0];
-  const diff = useDiff(pid, branch, mode, current?.path, current?.staged);
+  const diff = useDiff(pid, branch, mode, current?.path, current?.staged, commit?.sha);
   const [discarding, setDiscarding] = useState<{ staged: boolean; paths: string[] } | null>(null);
 
-  useEffect(() => setFile(undefined), [branch, mode]);
+  useEffect(() => setFile(undefined), [branch, mode, commit]);
+  // Picking another branch (e.g. from a ticket) leaves its commit list.
+  useEffect(() => {
+    if (history && branch !== history) closeHistory();
+  }, [branch, history]);
 
   const inRebase = (branch === o?.currentBranch && o?.rebasing) || !!view?.conflict;
 
@@ -123,19 +141,38 @@ export function Workspace() {
               </button>
             </div>
           )}
-          <BranchTree
-            onHide={() => setBranchesHidden(true)}
-            active={pane === "releases"}
-            o={o}
-            selected={branch}
-            actions={actions}
-            target={target}
-            onSelect={(b) => {
-              nav.selectBranch(b);
-              setPane("files");
-            }}
-            onNewRelease={() => nav.openNewItem({ kind: "release" })}
-          />
+          {history ? (
+            <CommitList
+              active={pane === "releases"}
+              pid={pid}
+              branch={history}
+              base={baseFor(history) === history ? "" : labelOf(baseFor(history))}
+              selected={commit?.sha}
+              checkedOut={byName.get(history)?.checkedOut ?? history === o.currentBranch}
+              current={o.currentBranch ?? undefined}
+              onPick={(c) => {
+                setCommit(c);
+                setMode("branch");
+                setPane("files");
+              }}
+              onBack={closeHistory}
+            />
+          ) : (
+            <BranchTree
+              onHide={() => setBranchesHidden(true)}
+              active={pane === "releases"}
+              o={o}
+              selected={branch}
+              actions={actions}
+              target={target}
+              onSelect={(b) => {
+                nav.selectBranch(b);
+                setPane("files");
+              }}
+              onNewRelease={() => nav.openNewItem({ kind: "release" })}
+              onCleanup={(parent, label, branches) => setCleanup({ parent, label, branches })}
+            />
+          )}
 
           {!branchesHidden && <Resizer pane={branchesW} label="Resize branches panel" />}
           <section aria-label="Changed files" className="ws-files" data-pane data-active={pane === "files"}>
@@ -145,17 +182,33 @@ export function Workspace() {
                 {base && branch !== base && <span className="faint" style={{ fontSize: 11.5, whiteSpace: "nowrap" }}>{view?.merged ? "merged into" : "from"} {base}</span>}
                 {view?.merged && <span className="c-add row" style={{ marginLeft: 6, flex: "0 0 auto" }} title={`All commits are in ${base}`}><Icon name="merged" size={12} stroke={1.6} label="merged" /></span>}
               </div>
-              <Seg<Mode>
-                label="File view"
-                grid
-                value={mode}
-                onChange={setMode}
-                options={[
-                  { value: "wip", label: <>WIP <span className="faint">{wipCount}</span></> },
-                  { value: "branch", label: <>Branch <span className="faint">{branchCount}</span></> },
-                  { value: "project", label: "Project" },
-                ]}
-              />
+              {commit ? (
+                <div className="commit-head">
+                  <div className="col" style={{ gap: 3, minWidth: 0, flex: "1 1 auto" }}>
+                    <span className="commit-subject">{commit.subject}</span>
+                    <span className="commit-meta">
+                      <span className="mono">{commit.sha.slice(0, 7)}</span>
+                      <span className="ellipsis">{commit.author}</span>
+                      <span style={{ whiteSpace: "nowrap" }}>{ago(commit.date)}</span>
+                    </span>
+                  </div>
+                  <button className="btn btn-sm btn-icon" aria-label="Show all branch changes" data-tip="Back to all changes" onClick={() => setCommit(undefined)}>
+                    <Icon name="close" size={12} />
+                  </button>
+                </div>
+              ) : (
+                <Seg<Mode>
+                  label="File view"
+                  grid
+                  value={mode}
+                  onChange={setMode}
+                  options={[
+                    { value: "wip", label: <>WIP <span className="faint">{wipCount}</span></> },
+                    { value: "branch", label: <>Branch <span className="faint">{branchCount}</span></> },
+                    { value: "project", label: "Project" },
+                  ]}
+                />
+              )}
               {branch && view?.worktree && <span className="hint mono ellipsis" title={view.worktree}>{view.worktree}</span>}
             </div>
             {inRebase && (
@@ -172,7 +225,7 @@ export function Workspace() {
             <ul className="scroll" style={{ flex: "1 1 auto", listStyle: "none", margin: 0, padding: mode === "wip" && list.length > 0 ? "0 0 6px" : "6px 0" }}>
               {files.isLoading && <li className="empty"><span className="spinner" /></li>}
               {files.error && <li style={{ padding: 12 }}><ErrorBox error={files.error} /></li>}
-              {mode === "wip" && branch && list.length > 0 ? (
+              {mode === "wip" && !commit && branch && list.length > 0 ? (
                 <WipList
                   pid={pid}
                   branch={branch}
@@ -190,7 +243,7 @@ export function Workspace() {
                 ))
               )}
               {!files.isLoading && list.length === 0 && (
-                <li className="empty">{mode === "wip" ? (checkedOut ? "No uncommitted changes." : "This branch is not checked out.") : "No changes on this branch yet."}</li>
+                <li className="empty">{commit ? "This commit changes no files." : mode === "wip" ? (checkedOut ? "No uncommitted changes." : "This branch is not checked out.") : "No changes on this branch yet."}</li>
               )}
             </ul>
             {branch && <CommitBox pid={pid} branch={branch} enabled={checkedOut} staged={stagedCount} changed={wipCount} />}
@@ -228,42 +281,40 @@ export function Workspace() {
       {shipping && <ShipModal pid={pid} release={shipping} defaultBranch={o?.defaultBranch ?? "main"} onClose={() => setShipping(null)} />}
       {actions.menuEl}
       {dialog?.kind === "conflicts" && <ConflictModal pid={pid} branch={dialog.branch} base={baseFor(dialog.branch)} onClose={() => setDialog(null)} />}
-      {dialog?.kind === "merge" && (
-        <MergeModal pid={pid} branch={dialog.branch} base={baseFor(dialog.branch)} onClose={() => setDialog(null)} checkedOut={target(dialog.branch).view.checkedOut && !target(dialog.branch).view.worktree} onDeleted={(into) => dialog.branch === branch && nav.selectBranch(into)} />
+      {dialog?.kind === "merge" && dialogView && (
+        <MergeModal
+          pid={pid}
+          branch={dialog.branch}
+          base={baseFor(dialog.branch)}
+          // Any other local branch can take it: releases first, then trunks, then work branches.
+          others={(o?.branches ?? [])
+            .filter((x) => x.local && x.name !== dialog.branch)
+            .sort((a, b) => ["release", "trunk", "branch"].indexOf(a.role) - ["release", "trunk", "branch"].indexOf(b.role))
+            .map((x) => x.name)}
+          onClose={() => setDialog(null)} onDeleted={(into) => dialog.branch === branch && nav.selectBranch(into)} />
       )}
-      {dialog?.kind === "delete" && (
+      {cleanup && (
+        <CleanupModal
+          pid={pid}
+          {...cleanup}
+          onClose={() => setCleanup(null)}
+          onDeleted={(gone) => branch && gone.includes(branch) && nav.selectBranch(undefined)}
+        />
+      )}
+      {dialog?.kind === "delete" && dialogView && (
         <DeleteBranchModal
           pid={pid}
           branch={dialog.branch}
           base={baseFor(dialog.branch)}
-          exists={target(dialog.branch).view.local}
-          worktree={target(dialog.branch).view.worktree ?? undefined}
+          local={dialogView.local}
+          remote={dialogView.remote}
+          worktree={dialogView.worktree ?? undefined}
           onClose={() => setDialog(null)}
           onDeleted={() => dialog.branch === branch && nav.selectBranch(undefined)}
         />
       )}
     </>
   );
-}
-
-/** A boolean kept in this browser between sessions. */
-function useStoredFlag(key: string): [boolean, (v: boolean) => void] {
-  const [v, setV] = useState(() => {
-    try {
-      return localStorage.getItem(key) === "1";
-    } catch {
-      return false;
-    }
-  });
-  const set = (next: boolean) => {
-    setV(next);
-    try {
-      localStorage.setItem(key, next ? "1" : "0");
-    } catch {
-      /* per-viewer convenience only */
-    }
-  };
-  return [v, set];
 }
 
 function synthetic(name: string, checkedOut: boolean): BranchView {
@@ -274,6 +325,7 @@ function synthetic(name: string, checkedOut: boolean): BranchView {
     checkedOut,
     running: false,
     conflict: false,
+    wip: 0,
     ahead: 0,
     behind: 0,
     upstreamAhead: 0,
@@ -283,6 +335,7 @@ function synthetic(name: string, checkedOut: boolean): BranchView {
     role: "branch",
     local: true,
     remote: false,
+    protected: false,
     date: "",
   };
 }
@@ -450,11 +503,28 @@ function FileRow({ f, active, onPick, actions }: { f: FileChange; active: boolea
   );
 }
 
-function MergeModal({ pid, branch, base, checkedOut, onClose, onDeleted }: { pid: string; branch: string; base: string; checkedOut: boolean; onClose: () => void; onDeleted: (into: string) => void }) {
-  const [del, setDel] = useState(false);
+function MergeModal({
+  pid,
+  branch,
+  base: defaultBase,
+  others,
+  onClose,
+  onDeleted,
+}: {
+  pid: string;
+  branch: string;
+  base: string;
+  /** Every other branch it could merge into instead. */
+  others: string[];
+  onClose: () => void;
+  onDeleted: (into: string) => void;
+}) {
+  const [del, setDel] = useState(true);
+  const [base, setBase] = useState(defaultBase);
+  const [pick, setPick] = useState<{ x: number; y: number } | null>(null);
   const merge = useAction<MergeResult>("branches.merge", {
     invalidate: [["overview", pid], ["files", pid], ["diff", pid]],
-    success: (r) => `${r.alreadyMerged ? `${branch} was already in ${r.into}` : `Merged ${branch} into ${r.into}`}${r.switched ? ` · switched to ${r.into}` : ""}${r.deleted ? " · branch deleted" : ""}`,
+    success: (r) => `${r.alreadyMerged ? `${branch} was already in ${r.into}` : `Merged ${branch} into ${r.into}`}${r.switched ? ` · switched to ${r.into}` : ""}${r.deleted ? " · branch deleted" : ""}${r.stayed ? ` · stayed put: ${r.stayed}` : ""}`,
   });
   return (
     <Modal
@@ -464,25 +534,50 @@ function MergeModal({ pid, branch, base, checkedOut, onClose, onDeleted }: { pid
       footer={
         <>
           <button className="btn btn-md" onClick={onClose}>Cancel</button>
-          <button
-            className="btn btn-primary btn-md"
-            disabled={merge.isPending}
-            onClick={() => merge.mutate({ projectId: pid, branch, deleteBranch: del }, { onSuccess: (r) => { if (r.deleted) onDeleted(r.into); onClose(); } })}
-          >
-            {merge.isPending && <span className="spinner" />}
-            Merge into {base}
-          </button>
+          <span className="split">
+            <button
+              className="btn btn-primary btn-md split-main"
+              disabled={merge.isPending}
+              onClick={() => merge.mutate({ projectId: pid, branch, into: base, deleteBranch: del }, { onSuccess: (r) => { if (r.deleted || r.switched) onDeleted(r.into); onClose(); } })}
+            >
+              {merge.isPending && <span className="spinner" />}
+              Merge into {base}
+            </button>
+            <button
+              className="btn btn-primary btn-md btn-icon split-more"
+              aria-label="Merge into another branch"
+              data-tip="Merge into another branch"
+              aria-haspopup="menu"
+              disabled={merge.isPending || !others.length}
+              onClick={(e) => {
+                const r = e.currentTarget.getBoundingClientRect();
+                setPick({ x: r.right, y: r.bottom + 2 });
+              }}
+            >
+              <Icon name="chevronDown" size={13} />
+            </button>
+          </span>
+          {pick && (
+            <ContextMenu
+              x={pick.x}
+              y={pick.y}
+              alignRight
+              label="Merge into"
+              items={others.map((b) => ({ id: b, label: <span className="mono">{b}</span>, icon: b === base ? "check" : undefined, hint: b === defaultBase ? "its base" : undefined, run: () => setBase(b) }))}
+              onClose={() => setPick(null)}
+            />
+          )}
         </>
       }
     >
       <p style={{ margin: 0, lineHeight: 1.55 }}>
-        Creates a merge commit on <span className="mono">{base}</span> — no need to check it out. If {base} is checked out, it must have no uncommitted changes.
+        Creates a merge commit on <span className="mono">{base}</span>, then switches to it. If {base} is checked out, it must have no uncommitted changes.
         Nothing changes when the merge would conflict: rebase onto {base} and resolve first.
       </p>
       {merge.error && <ErrorBox error={merge.error} />}
       <label className="check">
         <input type="checkbox" checked={del} onChange={() => setDel(!del)} />
-        <span>Delete <span className="mono">{branch}</span> after merging{checkedOut ? <> and switch to <span className="mono">{base}</span></> : null}</span>
+        <span>Delete <span className="mono">{branch}</span> after merging</span>
       </label>
     </Modal>
   );
@@ -492,7 +587,8 @@ function DeleteBranchModal({
   pid,
   branch,
   base,
-  exists,
+  local,
+  remote,
   worktree,
   onClose,
   onDeleted,
@@ -500,12 +596,18 @@ function DeleteBranchModal({
   pid: string;
   branch: string;
   base: string;
-  exists: boolean;
+  local: boolean;
+  /** Exists on origin. */
+  remote: boolean;
   worktree?: string;
   onClose: () => void;
   onDeleted: () => void;
 }) {
   const [force, setForce] = useState(false);
+  // Origin-only branches can only go from origin; otherwise origin keeps its copy unless asked.
+  const [alsoOrigin, setAlsoOrigin] = useState(false);
+  const onOrigin = remote && (!local || alsoOrigin);
+  const exists = local || remote;
   const del = useAction("branches.delete", { invalidate: [["overview", pid], ["files", pid], ["worktrees"]], success: `Deleted ${branch}` });
   return (
     <Modal
@@ -518,7 +620,7 @@ function DeleteBranchModal({
           <button
             className="btn btn-md btn-danger"
             disabled={del.isPending}
-            onClick={() => del.mutate({ projectId: pid, branch, force }, { onSuccess: () => { onDeleted(); onClose(); } })}
+            onClick={() => del.mutate({ projectId: pid, branch, force, remote: onOrigin }, { onSuccess: () => { onDeleted(); onClose(); } })}
           >
             {del.isPending && <span className="spinner" />}
             {exists ? "Delete branch" : "Forget branch"}
@@ -529,10 +631,23 @@ function DeleteBranchModal({
       {exists ? (
         <>
           <p style={{ margin: 0, lineHeight: 1.55 }}>
-            Deletes the local branch <span className="mono">{branch}</span>
-            {worktree && <> and its worktree at <span className="mono">{worktree}</span></>}. The remote branch is kept.
+            {local ? (
+              <>
+                Deletes the local branch <span className="mono">{branch}</span>
+                {worktree && <> and its worktree at <span className="mono">{worktree}</span></>}
+                {remote ? (alsoOrigin ? <>, and <span className="mono">origin/{branch}</span> for everyone.</> : <>. The branch on origin is kept.</>) : "."}
+              </>
+            ) : (
+              <>Deletes <span className="mono">{branch}</span> on origin, for everyone who uses it.</>
+            )}
           </p>
           {del.error && <ErrorBox error={del.error} />}
+          {local && remote && (
+            <label className="check">
+              <input type="checkbox" checked={alsoOrigin} onChange={() => setAlsoOrigin(!alsoOrigin)} />
+              <span>Also delete it on origin</span>
+            </label>
+          )}
           <label className="check">
             <input type="checkbox" checked={force} onChange={() => setForce(!force)} />
             <span>Delete even if not merged into <span className="mono">{base}</span> (its commits are lost)</span>
@@ -540,6 +655,80 @@ function DeleteBranchModal({
         </>
       ) : (
         <p style={{ margin: 0, lineHeight: 1.55 }}>The branch no longer exists. This removes it from its release.</p>
+      )}
+    </Modal>
+  );
+}
+
+function CleanupModal({
+  pid,
+  label,
+  branches,
+  onClose,
+  onDeleted,
+}: {
+  pid: string;
+  parent: string;
+  /** How to show the branch they were merged into. */
+  label: string;
+  branches: BranchView[];
+  onClose: () => void;
+  onDeleted: (branches: string[]) => void;
+}) {
+  const [skipped, setSkipped] = useState<CleanupResult["skipped"]>([]);
+  const run = useAction<CleanupResult>("branches.cleanup", {
+    invalidate: [["overview", pid], ["files", pid], ["worktrees"]],
+    success: (r) => `Deleted ${r.deleted.length} merged branch${r.deleted.length === 1 ? "" : "es"}`,
+  });
+  return (
+    <Modal
+      title="Clean up merged branches"
+      sub={<>merged into <span className="mono">{label}</span></>}
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn btn-md" onClick={onClose}>{skipped.length ? "Close" : "Cancel"}</button>
+          <button
+            className="btn btn-md btn-danger"
+            disabled={run.isPending || !branches.length}
+            onClick={() =>
+              run.mutate(
+                { projectId: pid, branches: branches.map((b) => b.name), remote: true },
+                {
+                  onSuccess: (r) => {
+                    onDeleted(r.deleted);
+                    if (r.skipped.length) setSkipped(r.skipped);
+                    else onClose();
+                  },
+                },
+              )
+            }
+          >
+            {run.isPending && <span className="spinner" />}
+            Delete {branches.length} branch{branches.length === 1 ? "" : "es"}
+          </button>
+        </>
+      }
+    >
+      <p style={{ margin: 0, lineHeight: 1.55 }}>
+        Their commits are all in <span className="mono">{label}</span>, so nothing is lost. They are deleted locally and on origin, and worktrees they have go too.
+      </p>
+      <ul className="col" style={{ margin: 0, padding: 0, listStyle: "none", gap: 4 }}>
+        {branches.map((b) => (
+          <li key={b.name} className="row" style={{ gap: 8 }}>
+            <span className="mono ellipsis">{b.name}</span>
+            {!b.local && <span className="tag" title="Only on origin">origin</span>}
+          </li>
+        ))}
+      </ul>
+      {run.error && <ErrorBox error={run.error} />}
+      {skipped.length > 0 && (
+        <div className="col" style={{ gap: 4 }}>
+          <span className="c-warn">Kept {skipped.length}:</span>
+          {skipped.map((s) => (
+            <span key={s.branch} style={{ lineHeight: 1.45 }}><span className="mono">{s.branch}</span>: {s.reason}</span>
+          ))}
+        </div>
       )}
     </Modal>
   );
@@ -555,24 +744,16 @@ function CommitBox({ pid, branch, enabled, staged, changed }: { pid: string; bra
   const aiProvider = ai && (ai.routing.commit?.provider || ai.defaultProvider);
   const aiOn = !ai || !!ai.providers.find((p) => p.info.id === aiProvider)?.conf;
   // null until the user toggles it; then their last choice wins over the AI-based default.
-  const [picked, setPicked] = useState<boolean | null>(() => {
-    try {
-      const v = localStorage.getItem(MSG_OPEN_KEY);
-      return v === null ? null : v === "1";
-    } catch { return null; }
-  });
+  const [picked, setPicked] = useStoredChoice(MSG_OPEN_KEY);
   const open = picked ?? !aiOn;
-  const toggle = () => {
-    setPicked(!open);
-    try { localStorage.setItem(MSG_OPEN_KEY, open ? "0" : "1"); } catch { /* not persisted */ }
-  };
+  const toggle = () => setPicked(!open);
   const all = !staged;
   const canType = enabled && !!changed;
   // An empty summary lets AI write the whole message, so a description alone has nowhere to go.
   const orphanBody = !summary.trim() && !!body.trim();
   const message = summary.trim() ? [summary.trim(), body.trim()].filter(Boolean).join("\n\n") : "";
   const clear = () => { setSummary(""); setBody(""); };
-  const inv = [["overview", pid], ["files", pid], ["diff", pid]];
+  const inv = [["overview", pid], ["files", pid], ["diff", pid], ["commits", pid]];
   const commit = useAction<{ sha: string; message: string; aiWritten: boolean }>("workspace.commit", {
     invalidate: inv,
     success: (r) => `${r.aiWritten ? "AI wrote: " : "Committed: "}${r.message.split("\n")[0]}`,
