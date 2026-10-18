@@ -211,8 +211,10 @@ pub struct MergeResult {
     pub sha: String,
     pub already_merged: bool,
     pub deleted: bool,
-    /// The main checkout was on the deleted branch and moved to `into`.
+    /// The main checkout moved to `into`.
     pub switched: bool,
+    /// Why the main checkout didn't move to `into` when it should have.
+    pub stayed: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -1368,19 +1370,24 @@ impl Gitnetix {
     /// Merge a branch into its base (its release, else its parent) with a
     /// merge commit. Works whether or not the base is checked out; stops
     /// before touching anything when the merge would conflict.
-    pub async fn merge_branch(&self, project_id: &str, branch: &str, delete_after: bool) -> Result<MergeResult> {
+    /// `into` overrides the target (any other local branch); by default it is the branch's base.
+    pub async fn merge_branch(&self, project_id: &str, branch: &str, into: Option<&str>, delete_after: bool) -> Result<MergeResult> {
         let p = self.store.project(project_id)?;
         let git = self.git(&p);
         let default = git.default_branch().await?;
-        let into = self.base_of(&p, branch, &default).await;
+        let into = match into.filter(|i| !i.trim().is_empty()) {
+            Some(i) => i.to_string(),
+            None => self.base_of(&p, branch, &default).await,
+        };
         if into == branch {
             return Err(Error::Invalid(format!("{branch} has no other branch to merge into")));
         }
         // Deleting the branch the main checkout is on means moving that checkout to `into`:
         // make sure that can happen before merging anything.
-        let switch = delete_after && self.checkout_dir(&p, branch).await?.is_some_and(|d| d == Path::new(&p.path));
-        if switch {
-            if let Some(dir) = self.checkout_dir(&p, &into).await? {
+        let must_switch = delete_after && self.checkout_dir(&p, branch).await?.is_some_and(|d| d == Path::new(&p.path));
+        let into_dir = self.checkout_dir(&p, &into).await?;
+        if must_switch {
+            if let Some(dir) = &into_dir {
                 return Err(Error::Invalid(format!(
                     "{into} is open in a worktree at {}, so this checkout can't switch to it. Merge without deleting, or close that worktree first.",
                     dir.display()
@@ -1389,15 +1396,31 @@ impl Gitnetix {
         }
         let (sha, already_merged) = self.merge_refs(&p, branch, &into).await?;
         self.changed(project_id);
-        if switch {
-            git.switch(&into)
-                .await
-                .map_err(|e| Error::Invalid(format!("Merged into {into}, but switching to it failed, so {branch} was kept: {e}")))?;
+        // Land the main checkout on the branch that got the changes, unless it's already there
+        // or `into` is open in another worktree (a branch can't be checked out twice).
+        let mut stayed = None;
+        let switched = match &into_dir {
+            Some(dir) if dir == Path::new(&p.path) => false,
+            Some(dir) => {
+                stayed = Some(format!("{into} is open in a worktree at {}", dir.display()));
+                false
+            }
+            None => match git.switch(&into).await {
+                Ok(()) => true,
+                Err(e) if must_switch => return Err(Error::Invalid(format!("Merged into {into}, but switching to it failed, so {branch} was kept: {e}"))),
+                Err(e) => {
+                    stayed = Some(format!("switching to {into} failed: {e}"));
+                    false
+                }
+            },
+        };
+        if switched {
+            self.changed(project_id);
         }
         if delete_after {
             self.delete_branch(project_id, branch, false).await?;
         }
-        Ok(MergeResult { into, sha, already_merged, deleted: delete_after, switched: switch })
+        Ok(MergeResult { into, sha, already_merged, deleted: delete_after, switched, stayed })
     }
 
     /// Bring a branch up to date with its base by merging the base into it
@@ -1412,7 +1435,7 @@ impl Gitnetix {
         }
         let (sha, already_merged) = self.merge_refs(&p, &from, branch).await?;
         self.changed(project_id);
-        Ok(MergeResult { into: branch.to_string(), sha, already_merged, deleted: false, switched: false })
+        Ok(MergeResult { into: branch.to_string(), sha, already_merged, deleted: false, switched: false, stayed: None })
     }
 
     /// Merge commit of `from` into local branch `into`. Returns (new tip, already merged).

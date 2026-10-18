@@ -122,8 +122,10 @@ export interface MergeResult {
   sha: string;
   alreadyMerged: boolean;
   deleted: boolean;
-  /** The checkout was on the deleted branch and moved to `into`. */
+  /** The main checkout moved to `into`. */
   switched: boolean;
+  /** Why the main checkout didn't move to `into`. */
+  stayed?: string | null;
 }
 
 export interface ReleaseView {

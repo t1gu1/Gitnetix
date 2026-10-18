@@ -53,7 +53,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("items.remove", "Remove a branch from its release", "projectId, branch, deleteBranch?"),
     ("branches.stash", "Stash a checked-out branch's uncommitted changes, untracked files included", "projectId, branch"),
     ("branches.pull", "Fast-forward a branch to its upstream (checked out or not)", "projectId, branch"),
-    ("branches.merge", "Merge a branch into its release (or parent branch) with a merge commit", "projectId, branch, deleteBranch?"),
+    ("branches.merge", "Merge a branch into its release (or parent branch, or `into`) with a merge commit", "projectId, branch, into?, deleteBranch?"),
     ("branches.sync", "Merge a branch's base into it to bring it up to date", "projectId, branch"),
     ("branches.setParent", "Choose what a branch merges into (an open release branch attaches it to that release)", "projectId, branch, parent"),
     ("branches.fetch", "Fetch origin, pruning deleted branches", "projectId"),
@@ -345,7 +345,7 @@ pub async fn call(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
             ok()
         }
         "branches.pull" => to(json!({ "output": k.pull_branch(&s(&p, "projectId")?, &s(&p, "branch")?).await? })),
-        "branches.merge" => to(k.merge_branch(&s(&p, "projectId")?, &s(&p, "branch")?, b(&p, "deleteBranch")).await?),
+        "branches.merge" => to(k.merge_branch(&s(&p, "projectId")?, &s(&p, "branch")?, os(&p, "into").as_deref(), b(&p, "deleteBranch")).await?),
         "branches.sync" => to(k.sync_branch(&s(&p, "projectId")?, &s(&p, "branch")?).await?),
         "branches.setParent" => {
             k.set_parent(&s(&p, "projectId")?, &s(&p, "branch")?, &s(&p, "parent")?)?;
