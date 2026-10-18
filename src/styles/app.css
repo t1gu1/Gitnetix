@@ -211,14 +211,16 @@ body.resizing iframe, body.resizing .term { pointer-events: none; }
    nested under a left border; only the icon, tags and suggested action change with its role. */
 .tree { display: flex; flex-direction: column; padding: 6px 0; }
 .tree-row { position: relative; display: flex; align-items: flex-start; gap: 4px; min-height: 44px; margin: 0 6px; padding: 6px 6px 6px 2px; border-radius: 4px; }
-.tree-kids { margin-left: 6px; border-left: 1px solid var(--line); }
-.tree-kids .tree-row { margin-left: 2px; }
+/* An open branch's line starts at its own row and runs down past its children, so they read as under it.
+   Children step in 6px; the line sits on the parent row's left edge, 6px left of each child row. */
+.tree-node, .tree-kids { position: relative; }
+.tree-kids { margin-left: 6px; }
+.tree-node:has(> .tree-kids:not(:empty))::before, .tree-merged + .tree-kids::before { content: ""; position: absolute; z-index: 1; top: 8px; bottom: 4px; left: 6px; width: 1px; background: linear-gradient(to bottom, color-mix(in srgb, var(--fg) 75%, var(--line)), var(--line) 25px); pointer-events: none; }
+.tree-merged + .tree-kids::before { top: 0; left: 0; }
 .tree-row:hover { background: var(--raised); }
-/* Checked-out branch: orange left edge (inset, so the row doesn't shift). */
-.tree-row[data-current] { box-shadow: inset 2px 0 0 var(--trunk-fg); }
-/* Nested, it lights up its stretch of the parent's line instead (2px margin + 1px border to the left). */
-.tree-kids .tree-row[data-current] { box-shadow: none; }
-.tree-kids .tree-row[data-current]::before { content: ""; position: absolute; top: 0; bottom: 0; left: -3px; width: 1px; background: var(--trunk-fg); }
+/* Checked-out branch: its stretch of the parent's line turns orange; at the top level, its own left edge. */
+.tree-row[data-current]::before { content: ""; position: absolute; z-index: 2; top: 0; bottom: 0; left: 0; width: 2px; background: var(--trunk-fg); pointer-events: none; }
+.tree-kids .tree-row[data-current]::before { left: -6px; width: 1px; }
 .tree-row:has(> .tree-btn[aria-pressed="true"]) { background: var(--sel); }
 .tree-twist { flex: 0 0 16px; width: 16px; height: 20px; display: inline-flex; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: 3px; background: transparent; color: var(--faint); }
 button.tree-twist { cursor: pointer; }
