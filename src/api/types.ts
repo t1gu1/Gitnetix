@@ -107,6 +107,8 @@ export interface BranchView {
   upstream?: string | null;
   upstreamAhead: number;
   upstreamBehind: number;
+  /** Diverged from its upstream only because it was rewritten (rebased): origin's tip was once on the local branch. */
+  rewritten: boolean;
   ticket?: string | null;
   /** Exists locally or on origin (false: tracked by Gitnetix but gone). */
   exists: boolean;
@@ -156,6 +158,17 @@ export interface MergeResult {
   pushed: boolean;
   /** Why pushing `into` failed (the merge itself went through). */
   pushError?: string | null;
+  /** Release tag moved to cover new commits: a shipped release merged again into the default branch and pushed. */
+  retagged?: string | null;
+  /** Why moving or pushing the tag failed (the merge itself went through). */
+  tagError?: string | null;
+}
+
+export interface RebaseResult {
+  /** Conflicted files where the rebase stopped (empty = done). */
+  conflicts: string[];
+  /** Upstream that now needs a force push: the branch was already pushed before the rebase. */
+  forcePushTo?: string | null;
 }
 
 export interface ReleaseView {

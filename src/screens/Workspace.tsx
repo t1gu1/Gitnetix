@@ -302,6 +302,9 @@ export function Workspace() {
           onDeleted={(gone) => branch && gone.includes(branch) && nav.selectBranch(undefined)}
         />
       )}
+      {dialog?.kind === "forcePush" && dialogView?.upstream && (
+        <ForcePushModal pid={pid} view={dialogView} onClose={() => setDialog(null)} />
+      )}
       {dialog?.kind === "reset" && dialogView?.upstream && (
         <ResetBranchModal pid={pid} view={dialogView} onClose={() => setDialog(null)} />
       )}
@@ -334,6 +337,7 @@ function synthetic(name: string, checkedOut: boolean): BranchView {
     behind: 0,
     upstreamAhead: 0,
     upstreamBehind: 0,
+    rewritten: false,
     exists: true,
     merged: false,
     role: "branch",
@@ -530,7 +534,7 @@ function MergeModal({
   const merge = useAction<MergeResult>("branches.merge", {
     invalidate: [["overview", pid], ["files", pid], ["diff", pid], ["commits", pid]],
     success: (r) =>
-      `${r.alreadyMerged ? `${branch} was already in ${r.into}` : `Merged ${branch} into ${r.into}`}${r.switched ? ` · switched to ${r.into}` : ""}${r.deleted ? " · branch deleted" : ""}${r.pushed ? " · pushed" : ""}${r.stayed ? ` · stayed put: ${r.stayed}` : ""}`,
+      `${r.alreadyMerged ? `${branch} was already in ${r.into}` : `Merged ${branch} into ${r.into}`}${r.switched ? ` · switched to ${r.into}` : ""}${r.deleted ? " · branch deleted" : ""}${r.pushed ? " · pushed" : ""}${r.retagged ? ` · ${r.retagged} moved` : ""}${r.stayed ? ` · stayed put: ${r.stayed}` : ""}`,
   });
   const run = () =>
     merge.mutate(
@@ -538,6 +542,7 @@ function MergeModal({
       {
         onSuccess: (r) => {
           if (r.pushError) toast(`Merged, but pushing ${r.into} failed: ${r.pushError}`, "error");
+          if (r.tagError) toast(`Merged, but moving its release tag failed: ${r.tagError}`, "error");
           if (r.deleted || r.switched) onDeleted(r.into);
           onClose();
         },
@@ -661,6 +666,36 @@ function ResetBranchModal({ pid, view, onClose }: { pid: string; view: BranchVie
         {view.checkedOut && <> Uncommitted changes in its checkout are lost{view.wip > 0 && <> ({plural(view.wip, "file")})</>}.</>} This cannot be undone.
       </p>
       {reset.error && <ErrorBox error={reset.error} />}
+    </Modal>
+  );
+}
+
+function ForcePushModal({ pid, view, onClose }: { pid: string; view: BranchView; onClose: () => void }) {
+  const { name: branch, upstream } = view;
+  const push = useAction("workspace.push", { invalidate: [["overview", pid], ["files", pid], ["diff", pid], ["commits", pid]], success: `Force pushed ${branch}` });
+  return (
+    <Modal
+      title="Force push"
+      sub={<span className="mono">{branch}</span>}
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn btn-md" onClick={onClose}>Cancel</button>
+          <button className="btn btn-md btn-danger" disabled={push.isPending} onClick={() => push.mutate({ projectId: pid, branch, force: true }, { onSuccess: onClose })}>
+            {push.isPending && <span className="spinner" />}
+            Force push
+          </button>
+        </>
+      }
+    >
+      <p style={{ margin: 0, lineHeight: 1.55 }}>
+        Replaces <span className="mono">{upstream}</span> with <span className="mono">{branch}</span>
+        {view.upstreamBehind > 0 && <>: the {plural(view.upstreamBehind, "commit")} only on origin {view.upstreamBehind === 1 ? "goes" : "go"} away</>}.
+        {view.rewritten
+          ? <> They were on {branch} before it was rewritten (rebased), so nothing you haven't seen is lost.</>
+          : <> Some were never on {branch}: someone else may have pushed them. Git refuses those, so pull or reset first.</>}
+      </p>
+      {push.error && <ErrorBox error={push.error} />}
     </Modal>
   );
 }

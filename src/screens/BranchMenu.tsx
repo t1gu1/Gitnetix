@@ -1,14 +1,14 @@
 import { useState, type MouseEvent } from "react";
 
 import { useAction, usePendingBranches } from "../api/hooks";
-import type { BranchView } from "../api/types";
+import type { BranchView, RebaseResult } from "../api/types";
 import { ContextMenu, type MenuItem } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
 import { plural } from "../lib/format";
 import { useNav } from "../lib/nav";
 import { copyToClipboard, toast } from "../lib/toast";
 
-export type BranchDialog = "merge" | "delete" | "conflicts" | "reset";
+export type BranchDialog = "merge" | "delete" | "conflicts" | "reset" | "forcePush";
 
 export interface BranchTarget {
   view: BranchView;
@@ -34,6 +34,18 @@ interface BranchMutation {
   mutate(vars: { projectId: string; branch: string }, opts: { onSuccess: () => void }): void;
 }
 
+/** Toast text for a finished or stopped rebase. */
+export const rebaseMessage = (r: RebaseResult) =>
+  r.conflicts.length
+    ? `Rebase stopped on ${plural(r.conflicts.length, "conflict")}`
+    // Already on origin: the rewritten commits only go up forced.
+    : r.forcePushTo
+      ? `Rebased. Force push to update ${r.forcePushTo}`
+      : "Rebased, no conflicts";
+
+/** Origin and local each have commits the other lacks (e.g. rebased): origin only takes it forced. */
+const isDiverged = (v: BranchView) => !!v.upstream && v.upstreamAhead > 0 && v.upstreamBehind > 0;
+
 /**
  * Every branch action in one place: the context menu, and the primary
  * action the split button offers for the branch's role and state.
@@ -45,10 +57,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
   const wt = useAction<{ path: string }, { projectId: string; branch: string }>("worktrees.create", { invalidate: [...inv, ["worktrees"]], success: (r) => `Worktree at ${r.path}` });
   const pull = useAction<{ output: string }, { projectId: string; branch: string }>("branches.pull", { invalidate: inv });
   const push = useAction<{ output: string }, { projectId: string; branch: string }>("workspace.push", { invalidate: inv });
-  const rebase = useAction<{ conflicts: string[] }, { projectId: string; branch: string }>("workspace.rebase", {
-    invalidate: inv,
-    success: (r) => (r.conflicts.length ? `Rebase stopped on ${plural(r.conflicts.length, "conflict")}` : "Rebased, no conflicts"),
-  });
+  const rebase = useAction<RebaseResult, { projectId: string; branch: string }>("workspace.rebase", { invalidate: inv, success: rebaseMessage });
   const sync = useAction<unknown, { projectId: string; branch: string }>("branches.sync", { invalidate: inv });
   const stash = useAction<unknown, { projectId: string; branch: string }>("branches.stash", { invalidate: inv });
   const pr = useAction<{ number: number }, { projectId: string; branch: string }>("prs.create", { invalidate: [["prs", pid]], success: (r) => `Opened PR #${r.number}` });
@@ -66,6 +75,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
     const b = v.name;
     const parent = t.baseLabel;
     const originOnly = v.remote && !v.local;
+    const diverged = isDiverged(v);
     return {
       switch: {
         id: "switch",
@@ -102,6 +112,16 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
         icon: "push",
         hint: v.upstreamAhead ? `↑${v.upstreamAhead}` : undefined,
         run: () => run(push, b, `Pushed ${b}`),
+      },
+      forcePush: {
+        id: "forcePush",
+        label: <>Force push to <span className="mono">{v.upstream}</span></>,
+        short: "Force push",
+        tip: `${v.rewritten ? `${b} was rewritten (rebased): r` : "R"}eplace ${v.upstream} with ${b}. Refused if origin has commits that were never on ${b}`,
+        icon: "push",
+        hint: diverged ? `↑${v.upstreamAhead} ↓${v.upstreamBehind}` : undefined,
+        danger: true,
+        run: () => openDialog("forcePush", b),
       },
       stash: {
         id: "stash",
@@ -147,7 +167,9 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
         id: "pr",
         label: <>Open pull request into <span className="mono">{parent}</span></>,
         icon: "pr",
-        disabled: !t.base,
+        hint: diverged ? "force push first" : undefined,
+        // Origin has a different history: the PR would show it, and pushing first is refused.
+        disabled: !t.base || diverged,
         run: () => pr.mutate({ projectId: pid, branch: b }, { onSuccess: (r) => nav.go({ name: "prs", number: r.number }) }),
       },
       // An open release takes new work as a feature or fix in it; any other branch just starts one off itself.
@@ -184,6 +206,8 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
       // Out of step with origin: offer to throw away the local side.
       if (v.upstream && (v.upstreamAhead || v.upstreamBehind)) list.push(a.reset);
       list.push(a.push);
+      // Only work branches get rewritten; shared branches never take a force push.
+      if (v.role === "branch" && !v.protected && v.upstream && v.upstreamAhead) list.push(a.forcePush);
       if (v.checkedOut) list.push(a.stash);
       if (t.base) {
         list.push("sep");
@@ -215,6 +239,8 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
     if (!v.exists) return a.delete;
     if (v.conflict) return a.conflicts;
     if (!v.local) return a.switch;
+    // A rebased work branch: pulling would bring the old commits back, so suggest replacing origin's copy.
+    if (v.role === "branch" && !v.protected && v.rewritten) return a.forcePush;
     if (v.upstreamBehind > 0) return a.pull;
     const needsPush = v.upstreamAhead > 0 || (!v.upstream && v.ahead > 0);
     if (v.role !== "branch") {

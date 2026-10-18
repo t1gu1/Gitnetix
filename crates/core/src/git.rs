@@ -306,6 +306,19 @@ impl Git {
         Ok((n.next().unwrap_or(0), n.next().unwrap_or(0)))
     }
 
+    /// Configured upstream of `branch` (`origin/x`), if any.
+    pub async fn upstream(&self, branch: &str) -> Result<Option<String>> {
+        let (ok, out, _) = self.try_run(&["rev-parse", "--abbrev-ref", &format!("{branch}@{{upstream}}")]).await?;
+        Ok(ok.then(|| out.trim().to_string()).filter(|u| !u.is_empty()))
+    }
+
+    /// `sha` was the tip of local `branch` at some point (its reflog): the
+    /// branch has had it, so replacing it upstream loses nothing unseen.
+    pub async fn in_reflog(&self, branch: &str, sha: &str) -> Result<bool> {
+        let (ok, out, _) = self.try_run(&["reflog", "show", "--format=%H", &format!("refs/heads/{branch}")]).await?;
+        Ok(ok && out.lines().any(|l| l == sha))
+    }
+
     pub async fn is_ancestor(&self, a: &str, b: &str) -> Result<bool> {
         let (ok, _, _) = self.try_run(&["merge-base", "--is-ancestor", a, b]).await?;
         Ok(ok)
@@ -355,6 +368,20 @@ impl Git {
 
     pub async fn tag(&self, name: &str, target: &str, message: &str) -> Result<()> {
         self.run(&["tag", "-a", name, target, "-m", message]).await.map(|_| ())
+    }
+
+    /// Move annotated tag `name` to `target`, keeping its original date so it
+    /// keeps its place among the other tags. Returns the old tag object, to
+    /// put it back with [`Git::update_ref`] if needed.
+    pub async fn retag(&self, name: &str, target: &str, message: &str) -> Result<String> {
+        let r = format!("refs/tags/{name}");
+        let old = self.rev_parse(&r).await?;
+        let date = self.run(&["for-each-ref", "--format=%(creatordate:iso-strict)", &r]).await?;
+        let out = self.command(&["tag", "-f", "-a", name, target, "-m", message]).env("GIT_COMMITTER_DATE", date.trim()).output().await?;
+        if !out.status.success() {
+            return Err(Error::Git { cmd: "tag".into(), stderr: String::from_utf8_lossy(&out.stderr).trim().to_string() });
+        }
+        Ok(old)
     }
 
     pub async fn update_ref(&self, r: &str, sha: &str) -> Result<()> {
@@ -659,15 +686,34 @@ impl Git {
             args.push("-u");
         }
         args.extend(["origin", branch]);
-        let (ok, out, err) = self.try_run(&args).await?;
+        self.push_with(&args).await
+    }
+
+    /// Replace `upstream` (`remote/branch`) with local `branch`, e.g. after a rebase.
+    /// Refused when origin has commits that were never on the local branch
+    /// (`--force-if-includes`), even if a background fetch already saw them.
+    pub async fn force_push(&self, branch: &str, upstream: &str) -> Result<String> {
+        let (remote, dest) = upstream.split_once('/').unwrap_or(("origin", upstream));
+        self.push_with(&["push", "--force-with-lease", "--force-if-includes", remote, &format!("{branch}:refs/heads/{dest}")]).await
+    }
+
+    async fn push_with(&self, args: &[&str]) -> Result<String> {
+        let (ok, out, err) = self.try_run(args).await?;
         if !ok {
             return Err(Error::Git { cmd: "push".into(), stderr: err.trim().into() });
         }
         Ok(format!("{out}{err}").trim().to_string())
     }
 
-    pub async fn push_tag(&self, tag: &str) -> Result<()> {
-        self.run(&["push", "origin", &format!("refs/tags/{tag}")]).await.map(|_| ())
+    /// Push `tag`; `force` replaces the one on origin if it points elsewhere.
+    pub async fn push_tag(&self, tag: &str, force: bool) -> Result<()> {
+        let r = format!("refs/tags/{tag}");
+        let mut args = vec!["push"];
+        if force {
+            args.push("--force");
+        }
+        args.extend(["origin", &r]);
+        self.run(&args).await.map(|_| ())
     }
 
     /// Fast-forward `branch` to its upstream. In the branch's own checkout
@@ -686,7 +732,8 @@ impl Git {
     }
 
     pub async fn fetch(&self) -> Result<()> {
-        self.run(&["fetch", "--prune", "--tags", "origin"]).await.map(|_| ())
+        // --force: a tag moved on origin (a re-merged release) replaces the local one instead of failing the fetch.
+        self.run(&["fetch", "--prune", "--tags", "--force", "origin"]).await.map(|_| ())
     }
 
     /// Rebase the current branch. Returns false when it stopped on conflicts.

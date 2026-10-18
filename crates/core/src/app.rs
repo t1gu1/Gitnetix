@@ -92,6 +92,9 @@ pub struct BranchView {
     pub upstream: Option<String>,
     pub upstream_ahead: u32,
     pub upstream_behind: u32,
+    /// Diverged from its upstream only because it was rewritten (rebased, amended):
+    /// origin's tip was once on the local branch, so a force push loses nothing unseen.
+    pub rewritten: bool,
     pub ticket: Option<String>,
     /// Exists locally or on origin (false: Gitnetix still tracks it but it is gone).
     pub exists: bool,
@@ -243,6 +246,15 @@ pub struct MergeOptions {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct RebaseResult {
+    /// Conflicted files where the rebase stopped (empty = done).
+    pub conflicts: Vec<String>,
+    /// Upstream that now needs a force push: the branch was already pushed before the rebase.
+    pub force_push_to: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct MergeResult {
     pub into: String,
     /// Tip of `into` after the merge.
@@ -257,6 +269,10 @@ pub struct MergeResult {
     pub pushed: bool,
     /// Why pushing `into` failed (the merge itself went through).
     pub push_error: Option<String>,
+    /// Tag recreated on `sha`: a release already shipped merged again into the default branch.
+    pub retagged: Option<String>,
+    /// Why moving or pushing the tag failed (the merge itself went through).
+    pub tag_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -789,6 +805,13 @@ impl Gitnetix {
             Some(u) if git.ref_exists(&format!("refs/remotes/{u}")).await.unwrap_or(false) => git.left_right(name, u).await.unwrap_or((0, 0)),
             _ => (0, 0),
         };
+        let rewritten = match &upstream {
+            Some(u) if upstream_ahead > 0 && upstream_behind > 0 => match git.rev_parse(u).await {
+                Ok(sha) => git.in_reflog(name, &sha).await.unwrap_or(false),
+                Err(_) => false,
+            },
+            _ => false,
+        };
         let (conflict, wip) = match wt {
             Some(w) => {
                 let g = Git::new(&w.path);
@@ -834,6 +857,7 @@ impl Gitnetix {
             upstream,
             upstream_ahead,
             upstream_behind,
+            rewritten,
             ticket: meta.and_then(|m| m.ticket.clone()),
             exists: rev.is_some(),
             merged,
@@ -1078,43 +1102,53 @@ impl Gitnetix {
         Ok(CommitResult { sha, message, ai_written })
     }
 
-    pub async fn push(&self, project_id: &str, branch: &str) -> Result<String> {
+    /// Push a branch; `force` replaces its upstream (see [`Git::force_push`]), e.g. after a rebase.
+    pub async fn push(&self, project_id: &str, branch: &str, force: bool) -> Result<String> {
         let p = self.store.project(project_id)?;
         let git = match self.checkout_dir(&p, branch).await? {
             Some(d) => self.git_at(&p, &d),
             None => self.git(&p),
         };
-        let has_upstream = git.ref_exists(&format!("refs/remotes/origin/{branch}")).await?;
-        let out = git.push(branch, !has_upstream).await?;
+        let out = if force {
+            let upstream = git.upstream(branch).await?.ok_or_else(|| Error::Invalid(format!("{branch} has no upstream to force push to.")))?;
+            git.force_push(branch, &upstream).await?
+        } else {
+            let has_upstream = git.ref_exists(&format!("refs/remotes/origin/{branch}")).await?;
+            git.push(branch, !has_upstream).await?
+        };
         self.changed(project_id);
         Ok(out)
     }
 
-    /// Rebase a branch onto its release. Returns conflicted files (empty = done).
-    pub async fn rebase(&self, project_id: &str, branch: &str) -> Result<Vec<String>> {
+    /// Rebase a branch onto its release.
+    pub async fn rebase(&self, project_id: &str, branch: &str) -> Result<RebaseResult> {
         let p = self.store.project(project_id)?;
         let git = self.require_checkout(&p, branch).await?;
         let default = git.default_branch().await?;
         let base = self.base_of(&p, branch, &default).await;
         let ok = git.rebase(&git.rev_of(&base).await).await?;
         self.changed(project_id);
-        if ok {
-            Ok(Vec::new())
-        } else {
-            git.conflicted_files().await
-        }
+        Self::rebase_result(&git, branch, ok).await
     }
 
-    pub async fn rebase_continue(&self, project_id: &str, branch: &str) -> Result<Vec<String>> {
+    pub async fn rebase_continue(&self, project_id: &str, branch: &str) -> Result<RebaseResult> {
         let p = self.store.project(project_id)?;
         let git = self.require_checkout(&p, branch).await?;
         let ok = git.rebase_continue().await?;
         self.changed(project_id);
-        if ok {
-            Ok(Vec::new())
-        } else {
-            git.conflicted_files().await
+        Self::rebase_result(&git, branch, ok).await
+    }
+
+    async fn rebase_result(git: &Git, branch: &str, done: bool) -> Result<RebaseResult> {
+        if !done {
+            return Ok(RebaseResult { conflicts: git.conflicted_files().await?, force_push_to: None });
         }
+        // Its upstream no longer fits under it: the rewritten commits only go up forced.
+        let force_push_to = match git.upstream(branch).await? {
+            Some(u) if git.ref_exists(&format!("refs/remotes/{u}")).await? && !git.is_ancestor(&u, branch).await? => Some(u),
+            _ => None,
+        };
+        Ok(RebaseResult { conflicts: Vec::new(), force_push_to })
     }
 
     pub async fn rebase_abort(&self, project_id: &str, branch: &str) -> Result<()> {
@@ -1246,7 +1280,7 @@ impl Gitnetix {
         git.tag(&tag, &sha, &format!("Release {tag}")).await?;
         if push {
             git.push(&default, false).await?;
-            git.push_tag(&tag).await?;
+            git.push_tag(&tag, false).await?;
         }
         self.store.with_project(project_id, |p| {
             if let Some(x) = p.releases.iter_mut().find(|x| x.version == version && x.shipped_at.is_none()) {
@@ -1595,6 +1629,13 @@ impl Gitnetix {
                 )));
             }
         }
+        // A shipped release merged into the default branch again: note its own tip, where its tag moves,
+        // so the tag never takes in later work that only `into` has.
+        let shipped = if into == default { p.releases.iter().find(|r| r.branch == branch && r.shipped_at.is_some()) } else { None };
+        let release_tip = match shipped {
+            Some(_) => git.rev_parse(branch).await.ok(),
+            None => None,
+        };
         if opts.squash && !git.is_ancestor(branch, &into).await.unwrap_or(false) {
             // Squashing rewrites the branch: check everything that could stop the merge first,
             // so a refusal never leaves it squashed but not merged.
@@ -1637,7 +1678,39 @@ impl Gitnetix {
             None
         };
         let pushed = opts.push && push_error.is_none();
-        Ok(MergeResult { into, sha, already_merged, deleted: opts.delete_after, switched, stayed, pushed, push_error })
+        // New release commits now on origin's default branch: the release tag moves to cover them.
+        // Only once pushed, so the tag never differs between here and origin. Reported, never fatal.
+        let (mut retagged, mut tag_error) = (None, None);
+        if let (Some(r), true, false) = (shipped, pushed, already_merged) {
+            let tag = format!("v{}", r.version);
+            // Squash and rebase land rewritten commits, not the release's own: tag what landed.
+            let target = if opts.squash || opts.rebase { Some(sha.clone()) } else { release_tip };
+            if let Some(target) = target {
+                match Self::move_tag(&git, &tag, &target).await {
+                    Ok(true) => {
+                        self.changed(project_id);
+                        retagged = Some(tag);
+                    }
+                    Ok(false) => {}
+                    Err(e) => tag_error = Some(e.to_string()),
+                }
+            }
+        }
+        Ok(MergeResult { into, sha, already_merged, deleted: opts.delete_after, switched, stayed, pushed, push_error, retagged, tag_error })
+    }
+
+    /// Move release tag `tag` to `target` on origin too. A failed push puts the
+    /// old tag back, so the two never disagree. Ok(false): already there.
+    async fn move_tag(git: &Git, tag: &str, target: &str) -> Result<bool> {
+        if git.rev_parse(&format!("refs/tags/{tag}^{{commit}}")).await.ok().as_deref() == Some(target) {
+            return Ok(false);
+        }
+        let old = git.retag(tag, target, &format!("Release {tag}")).await?;
+        if let Err(e) = git.push_tag(tag, true).await {
+            let _ = git.update_ref(&format!("refs/tags/{tag}"), &old).await;
+            return Err(e);
+        }
+        Ok(true)
     }
 
     /// Refuse up front what would stop a squash or rebase merge halfway: conflicts,
@@ -1760,7 +1833,7 @@ impl Gitnetix {
         }
         let (sha, already_merged) = self.merge_refs(&p, &from, branch).await?;
         self.changed(project_id);
-        Ok(MergeResult { into: branch.to_string(), sha, already_merged, deleted: false, switched: false, stayed: None, pushed: false, push_error: None })
+        Ok(MergeResult { into: branch.to_string(), sha, already_merged, deleted: false, switched: false, stayed: None, pushed: false, push_error: None, retagged: None, tag_error: None })
     }
 
     /// Merge commit of `from` into local branch `into`. Returns (new tip, already merged).
@@ -2063,7 +2136,12 @@ impl Gitnetix {
         }
         // A branch only on origin is already there.
         if git.ref_exists(&format!("refs/heads/{branch}")).await? {
-            self.push(project_id, branch).await?;
+            if let Some(u) = git.upstream(branch).await? {
+                if git.ref_exists(&format!("refs/remotes/{u}")).await? && !git.is_ancestor(&u, branch).await? {
+                    return Err(Error::Invalid(format!("{branch} was rewritten since it was pushed (rebased?). Force push it to {u} first, then open the pull request.")));
+                }
+            }
+            self.push(project_id, branch, false).await?;
         }
         let (title, body) = match (title.filter(|s| !s.is_empty()), body) {
             (Some(t), b) => (t, b.unwrap_or_default()),

@@ -89,6 +89,39 @@ async fn release_flow() {
     let shas: Vec<&str> = std::str::from_utf8(&out.stdout).unwrap().lines().collect();
     assert_eq!(shas[0], shas[1], "main fast-forwarded to the release");
 
+    // A fix on the shipped release, merged into main again once main moved on.
+    let origin = tmp.path().join("origin.git");
+    sh(tmp.path(), &["init", "-q", "--bare", "-b", "main", origin.to_str().unwrap()]);
+    sh(&repo, &["remote", "add", "origin", origin.to_str().unwrap()]);
+    sh(&repo, &["push", "-q", "-u", "origin", "main", "v2.4.0"]);
+    let tag_date = || {
+        let out = Command::new("git").current_dir(&repo).args(["for-each-ref", "--format=%(creatordate:unix)", "refs/tags/v2.4.0"]).output().unwrap();
+        String::from_utf8(out.stdout).unwrap().trim().to_string()
+    };
+    let shipped_date = tag_date();
+    sh(&repo, &["switch", "-q", "release/2.4.0"]);
+    commit_file(&repo, "oauth.ts", "export const x = 2;\n");
+    let fix = rev(&repo, "release/2.4.0");
+    sh(&repo, &["switch", "-q", "main"]);
+    commit_file(&repo, "next.txt", "2.5 work\n");
+    // Pushed: the tag moves to the release's own tip (not main's, which has 2.5 work), on origin too, keeping its date.
+    let remerged = call(&k, "branches.merge", json!({ "projectId": pid, "branch": "release/2.4.0", "into": "main", "push": true })).await;
+    assert_eq!(remerged["retagged"], "v2.4.0", "{remerged}");
+    assert_eq!(rev(&repo, "v2.4.0^{commit}"), fix);
+    assert_eq!(rev(&origin, "v2.4.0^{commit}"), fix);
+    assert_eq!(tag_date(), shipped_date, "keeps its place among the tags");
+    // Nothing new to merge: the tag stays.
+    let again = call(&k, "branches.merge", json!({ "projectId": pid, "branch": "release/2.4.0", "into": "main", "push": true })).await;
+    assert_eq!(again["alreadyMerged"], true);
+    assert!(again["retagged"].is_null(), "{again}");
+    // Not pushed: the tag stays too, so it never differs from origin's.
+    sh(&repo, &["switch", "-q", "release/2.4.0"]);
+    commit_file(&repo, "oauth.ts", "export const x = 3;\n");
+    sh(&repo, &["switch", "-q", "main"]);
+    let local = call(&k, "branches.merge", json!({ "projectId": pid, "branch": "release/2.4.0", "into": "main" })).await;
+    assert!(local["retagged"].is_null(), "{local}");
+    assert_eq!(rev(&repo, "v2.4.0^{commit}"), fix);
+
     // Worktree for a hotfix branch.
     call(&k, "releases.create", json!({ "projectId": pid, "version": "2.4.1", "kind": "hotfix" })).await;
     let wt = call(
@@ -214,6 +247,33 @@ async fn pull_and_tracking() {
     assert_eq!(rev(&repo, "main"), rev(&repo, "origin/main"));
     assert!(!repo.join("mine.txt").exists());
     assert_eq!(std::fs::read_to_string(repo.join("m.txt")).unwrap(), "m\n");
+
+    // Rebased after it was pushed: flagged as rewritten, and a force push replaces origin's copy.
+    sh(&repo, &["switch", "-q", "feat/x"]);
+    let r = call(&k, "workspace.rebase", json!({ "projectId": pid, "branch": "feat/x" })).await;
+    assert_eq!(r["forcePushTo"], "origin/feat/x", "{r}");
+    let feat_x = |ov: &Value| ov["branches"].as_array().unwrap().iter().find(|b| b["name"] == "feat/x").unwrap().clone();
+    let x = feat_x(&call(&k, "workspace.overview", json!({ "projectId": pid })).await);
+    assert_eq!(x["rewritten"], true, "{x}");
+    let err = rpc::call(&k, "workspace.push", json!({ "projectId": pid, "branch": "feat/x" })).await.unwrap_err();
+    assert!(err.to_string().contains("rejected"), "{err}");
+    call(&k, "workspace.push", json!({ "projectId": pid, "branch": "feat/x", "force": true })).await;
+    assert_eq!(rev(&origin, "feat/x"), rev(&repo, "feat/x"));
+    let r = call(&k, "workspace.rebase", json!({ "projectId": pid, "branch": "feat/x" })).await;
+    assert!(r["forcePushTo"].is_null(), "nothing rewritten: {r}");
+
+    // A teammate pushed, and a fetch saw it, but it was never on the local branch: not rewritten, force refused.
+    commit_file(&repo, "l2.txt", "l2\n");
+    sh(&other, &["fetch", "-q", "origin"]);
+    sh(&other, &["reset", "-q", "--hard", "origin/feat/x"]);
+    commit_file(&other, "y.txt", "y\n");
+    sh(&other, &["push", "-q", "origin", "feat/x"]);
+    call(&k, "branches.fetch", json!({ "projectId": pid })).await;
+    let x = feat_x(&call(&k, "workspace.overview", json!({ "projectId": pid })).await);
+    assert_eq!((x["upstreamAhead"].as_u64(), x["upstreamBehind"].as_u64(), x["rewritten"].as_bool()), (Some(1), Some(1), Some(false)), "{x}");
+    let theirs = rev(&origin, "feat/x");
+    assert!(rpc::call(&k, "workspace.push", json!({ "projectId": pid, "branch": "feat/x", "force": true })).await.is_err());
+    assert_eq!(rev(&origin, "feat/x"), theirs, "teammate's commit kept");
 }
 
 #[tokio::test]

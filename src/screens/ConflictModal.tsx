@@ -1,8 +1,10 @@
 import { useState } from "react";
 
 import { useAction, useFiles } from "../api/hooks";
+import type { RebaseResult } from "../api/types";
 import { Icon } from "../components/Icon";
 import { Busy, Modal } from "../components/ui";
+import { rebaseMessage } from "./BranchMenu";
 
 export function ConflictModal({ pid, branch, base, onClose }: { pid: string; branch: string; base: string; onClose: () => void }) {
   const files = useFiles(pid, branch, "wip");
@@ -13,9 +15,9 @@ export function ConflictModal({ pid, branch, base, onClose }: { pid: string; bra
   const inv = [["overview", pid], ["files", pid], ["diff", pid]];
   const propose = useAction<{ content: string }>("workspace.conflictPropose");
   const apply = useAction("workspace.conflictApply", { invalidate: inv, success: `Resolved ${path}` });
-  const cont = useAction<{ conflicts: string[] }>("workspace.rebaseContinue", {
+  const cont = useAction<RebaseResult>("workspace.rebaseContinue", {
     invalidate: inv,
-    success: (r) => (r.conflicts.length ? `Next commit has ${r.conflicts.length} conflict(s)` : "Rebase finished"),
+    success: (r) => (r.conflicts.length ? `Next commit has ${r.conflicts.length} conflict(s)` : rebaseMessage(r)),
   });
   const abort = useAction("workspace.rebaseAbort", { invalidate: inv, success: "Rebase aborted" });
 
