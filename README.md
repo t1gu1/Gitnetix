@@ -1,3 +1,5 @@
+<p align="center"><img src="gitnetix-logo-extended-animated.gif" alt="Gitnetix" /></p>
+
 # Gitnetix
 
 Release-centric Git client with AI built in. Rust engine, React UI, Tauri 2 shell.

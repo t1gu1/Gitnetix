@@ -72,6 +72,7 @@ export function Menu({ onUnpair }: { onUnpair: () => void }) {
             </button>
           )}
           <div className="hdr-title">
+            {!view && <img className="hdr-logo" src="/logo.png" alt="" />}
             <strong>{view ? VIEW_TITLE[view.name] : "Gitnetix"}</strong>
             {!view && project && (
               <>

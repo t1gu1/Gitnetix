@@ -93,6 +93,7 @@ a:hover { color: var(--fg); }
 .hdr { display: flex; align-items: stretch; height: 44px; flex: 0 0 44px; border-bottom: 1px solid var(--line); background: var(--bg); }
 .hdr-icon { display: flex; align-items: center; justify-content: center; width: 48px; flex: 0 0 48px; color: var(--fg); border: 0; border-right: 1px solid var(--line); background: transparent; text-decoration: none; }
 .hdr-title { display: flex; align-items: center; gap: 10px; padding: 0 16px; min-width: 0; }
+.hdr-logo { width: 36px; height: 36px; margin-left: -12px; flex: none; }
 .hdr-title strong { font-weight: 600; white-space: nowrap; }
 .hdr-tools { display: flex; align-items: center; gap: 8px; padding: 0 12px; margin-left: auto; }
 .tabs-projects { display: flex; align-items: stretch; min-width: 0; overflow-x: auto; scrollbar-width: none; }
