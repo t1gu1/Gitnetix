@@ -113,10 +113,13 @@ export function BranchTree({
     const merged = children.filter((c) => c.merged);
     const hasKids = children.length > 0;
     const open = !!q || isOpen(b.name);
-    const wipBelow = open ? 0 : hiddenWip(b);
+    const wipBelow = open ? 0 : live.reduce((n, c) => n + c.wip + hiddenWip(c), 0);
     const mergedKey = `merged:${b.name}`;
     const mergedOpen = !!q || isOpen(mergedKey);
     const version = b.role === "release" ? b.release : b.shipped;
+    // Where the orange path leaves this branch: into a merged child, or past the merged group to a live one.
+    const pathLive = live.some((c) => path.has(c.name));
+    const pathMerged = merged.some((c) => path.has(c.name));
     return (
       <div key={b.name} role="group" className="tree-node">
         <Row
@@ -132,31 +135,29 @@ export function BranchTree({
           onSelect={() => onSelect(b.name)}
         />
         {hasKids && (
-          // The show/hide toggle sits under the branch; the nesting line starts below it.
+          // Merged children come first, then the show/hide toggle for the live ones; the nesting line starts below it.
           <div className="tree-sub">
-            {!q && (
-              <button className="tree-row tree-group tree-toggle" data-path={(path.has(b.name) && b.name !== o.currentBranch) || undefined} aria-expanded={open} aria-label={`${open ? "Hide" : "Show"} the child branches of ${b.name}`} onClick={() => toggle(b.name)}>
+            {merged.length > 0 && (
+              <>
+                <button className="tree-row tree-group tree-merged" data-path={pathLive || pathMerged || undefined} aria-expanded={mergedOpen} onClick={() => toggle(mergedKey)}>
+                  <span className="tree-twist"><Icon name="chevronDown" size={12} className="chev" /></span>
+                  <span>Merged into {version ? `v${version}` : b.name}</span>
+                  <span className="faint">{merged.length}</span>
+                </button>
+                {mergedOpen && <div className="tree-kids" data-path={pathMerged ? "in" : pathLive ? "past" : undefined}>{merged.map((c) => node(c))}</div>}
+              </>
+            )}
+            {live.length > 0 && !q && (
+              <button className="tree-row tree-group tree-toggle" data-path={pathLive || undefined} aria-expanded={open} aria-label={`${open ? "Hide" : "Show"} the child branches of ${b.name}`} onClick={() => toggle(b.name)}>
                 <span className="tree-twist"><Icon name="chevronDown" size={12} className="chev" /></span>
                 <span>{open ? "Hide" : "Show"} child branches</span>
-                <span className="faint">{children.length}</span>
+                <span className="faint">{live.length}</span>
                 {wipBelow > 0 && <span className="wip-badge" title={`${plural(wipBelow, "file")} with uncommitted changes in hidden branches`}>(WIP {wipBelow})</span>}
               </button>
             )}
-            {open && (
+            {live.length > 0 && open && (
               <div className="tree-open">
-                <div className="tree-kids">
-                  {live.map((c) => node(c))}
-                  {merged.length > 0 && (
-                    <>
-                      <button className="tree-row tree-group tree-merged" aria-expanded={mergedOpen} onClick={() => toggle(mergedKey)}>
-                        <span className="tree-twist"><Icon name="chevronDown" size={12} className="chev" /></span>
-                        <span>Merged into {version ? `v${version}` : b.name}</span>
-                        <span className="faint">{merged.length}</span>
-                      </button>
-                      {mergedOpen && <div className="tree-kids">{merged.map((c) => node(c))}</div>}
-                    </>
-                  )}
-                </div>
+                <div className="tree-kids">{live.map((c) => node(c))}</div>
               </div>
             )}
           </div>

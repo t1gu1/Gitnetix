@@ -223,6 +223,10 @@ body.resizing iframe, body.resizing .term { pointer-events: none; }
 .tree-toggle + .tree-open::before { top: 0; }
 .tree-kids .tree-toggle + .tree-open::after, .tree-toggle[data-path] + .tree-open::after { content: ""; position: absolute; z-index: 1; top: 0; left: 0; width: 7px; height: 1px; background: repeating-linear-gradient(to right, var(--line) 0 1px, transparent 1px 3px); pointer-events: none; }
 .tree-toggle[data-path] + .tree-open::after { z-index: 2; background: repeating-linear-gradient(to right, var(--trunk-fg) 0 1px, transparent 1px 3px); }
+/* An open merged group on the orange path: the parent's line (6px left of it) runs on past it to a live child,
+   or an elbow steps over to the merged children's line when the path goes into one of them. */
+.tree-merged + .tree-kids[data-path]::after { content: ""; position: absolute; z-index: 2; top: 0; bottom: 0; left: -6px; width: 1px; background: repeating-linear-gradient(to bottom, var(--trunk-fg) 0 1px, transparent 1px 3px); pointer-events: none; }
+.tree-merged + .tree-kids[data-path="in"]::after { bottom: auto; width: 7px; height: 1px; background: repeating-linear-gradient(to right, var(--trunk-fg) 0 1px, transparent 1px 3px); }
 /* Hover and selection: a layer under the row's content, so the nesting lines stay drawn on top. */
 .tree-row { isolation: isolate; }
 .tree-row:hover::after, .tree-row:has(> .tree-btn[aria-pressed="true"])::after { content: ""; position: absolute; z-index: -1; inset: 0; border-radius: 4px; background: var(--raised); pointer-events: none; }
