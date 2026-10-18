@@ -543,6 +543,7 @@ function MergeModal({
         onSuccess: (r) => {
           if (r.pushError) toast(`Merged, but pushing ${r.into} failed: ${r.pushError}`, "error");
           if (r.tagError) toast(`Merged, but moving its release tag failed: ${r.tagError}`, "error");
+          if (r.deleteError) toast(`Merged, but deleting ${branch} failed: ${r.deleteError}`, "error");
           if (r.deleted || r.switched) onDeleted(r.into);
           onClose();
         },
@@ -630,7 +631,7 @@ function MergeModal({
         )}
         <label className="check">
           <input type="checkbox" checked={opts.deleteBranch} onChange={() => set({ deleteBranch: !opts.deleteBranch })} />
-          <span>Delete <span className="mono">{branch}</span> after merging</span>
+          <span>Delete <span className="mono">{branch}</span> after merging, locally and on origin</span>
         </label>
         <label className="check">
           <input type="checkbox" checked={opts.push} onChange={() => set({ push: !opts.push })} />

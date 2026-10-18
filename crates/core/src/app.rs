@@ -238,7 +238,7 @@ pub struct MergeOptions {
     pub squash_ai: bool,
     /// Rebase the branch onto the target and fast-forward the target, instead of a merge commit.
     pub rebase: bool,
-    /// Delete the (local) branch afterwards.
+    /// Delete the branch afterwards, locally and on origin.
     pub delete_after: bool,
     /// Push the target to origin afterwards.
     pub push: bool,
@@ -261,6 +261,8 @@ pub struct MergeResult {
     pub sha: String,
     pub already_merged: bool,
     pub deleted: bool,
+    /// Why deleting the branch failed (the merge itself went through).
+    pub delete_error: Option<String>,
     /// The main checkout moved to `into`.
     pub switched: bool,
     /// Why the main checkout didn't move to `into` when it should have.
@@ -834,6 +836,8 @@ impl Gitnetix {
                 // Origin-only branches have no creation reflog: fully contained and left behind counts.
                 git.is_merged_into(r, b).await.unwrap_or(false) || (info.is_none() && behind > 0)
             }
+            // Squashed or rebased in: the base gained commits carrying the branch's changes.
+            (Some(r), Some(b)) if behind > 0 && role == "branch" => git.is_squash_merged(r, b).await.unwrap_or(false),
             _ => false,
         };
         let meta = p.branches.get(name);
@@ -1481,12 +1485,23 @@ impl Gitnetix {
             let rev = if local { branch.to_string() } else { format!("origin/{branch}") };
             let base = self.base_of(&p, branch, &default).await;
             let base_rev = git.rev_of(&base).await;
-            if !force && !git.is_ancestor(&rev, &base_rev).await? {
+            if !force && !git.is_ancestor(&rev, &base_rev).await? && !git.is_squash_merged(&rev, &base_rev).await.unwrap_or(false) {
                 let n = git.count(&format!("{base_rev}..{rev}")).await?;
                 return Err(Error::Invalid(format!(
                     "{branch} has {n} commit{} not merged into {base}. Merge it first or force the delete.",
                     if n == 1 { "" } else { "s" }
                 )));
+            }
+            // The local branch is merged; origin's copy may still hold commits pushed from elsewhere.
+            // It goes when those are in the base too, or the local branch had them (then rewrote them, e.g. a squash).
+            if !force && local && on_origin {
+                let theirs = git.rev_parse(&format!("refs/remotes/origin/{branch}")).await?;
+                let seen = git.is_ancestor(&theirs, &base_rev).await?
+                    || git.in_reflog(branch, &theirs).await?
+                    || git.is_squash_merged(&theirs, &base_rev).await.unwrap_or(false);
+                if !seen {
+                    return Err(Error::Invalid(format!("origin/{branch} has commits that are neither in {base} nor in {branch}. Pull them first or force the delete.")));
+                }
             }
         }
         let dir = if local { self.checkout_dir(&p, branch).await? } else { None };
@@ -1665,9 +1680,6 @@ impl Gitnetix {
         if switched {
             self.changed(project_id);
         }
-        if opts.delete_after {
-            self.delete_branch(project_id, branch, false, false).await?;
-        }
         // The merge stands even when the push doesn't: report it rather than fail.
         let push_error = if opts.push {
             let tracked = git.ref_exists(&format!("refs/remotes/origin/{into}")).await.unwrap_or(false);
@@ -1696,7 +1708,10 @@ impl Gitnetix {
                 }
             }
         }
-        Ok(MergeResult { into, sha, already_merged, deleted: opts.delete_after, switched, stayed, pushed, push_error, retagged, tag_error })
+        // Last, once everything else landed, so a branch that can't go never holds up the push or the tag.
+        let delete_error = if opts.delete_after { self.delete_branch(project_id, branch, false, true).await.err().map(|e| e.to_string()) } else { None };
+        let deleted = opts.delete_after && delete_error.is_none();
+        Ok(MergeResult { into, sha, already_merged, deleted, delete_error, switched, stayed, pushed, push_error, retagged, tag_error })
     }
 
     /// Move release tag `tag` to `target` on origin too. A failed push puts the
@@ -1833,7 +1848,7 @@ impl Gitnetix {
         }
         let (sha, already_merged) = self.merge_refs(&p, &from, branch).await?;
         self.changed(project_id);
-        Ok(MergeResult { into: branch.to_string(), sha, already_merged, deleted: false, switched: false, stayed: None, pushed: false, push_error: None, retagged: None, tag_error: None })
+        Ok(MergeResult { into: branch.to_string(), sha, already_merged, deleted: false, delete_error: None, switched: false, stayed: None, pushed: false, push_error: None, retagged: None, tag_error: None })
     }
 
     /// Merge commit of `from` into local branch `into`. Returns (new tip, already merged).

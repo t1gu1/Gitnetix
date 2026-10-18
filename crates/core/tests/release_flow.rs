@@ -362,15 +362,19 @@ async fn merged_branches_are_flagged() {
     let added = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await;
     let pid = added[0]["id"].as_str().unwrap().to_string();
 
-    // Fresh branch (no commits), unmerged branch, merge-commit and fast-forward merges.
+    // Fresh branch (no commits), unmerged branch, merge-commit, fast-forward, squash and rebase merges.
     sh(&repo, &["branch", "fresh"]);
-    for b in ["open", "via-merge", "via-ff"] {
+    for b in ["open", "via-merge", "via-ff", "via-squash", "via-rebase"] {
         sh(&repo, &["switch", "-qc", b]);
         commit_file(&repo, &format!("{b}.txt"), "x\n");
+        commit_file(&repo, &format!("{b}-2.txt"), "y\n");
         sh(&repo, &["switch", "-q", "main"]);
     }
     sh(&repo, &["merge", "-q", "--ff-only", "via-ff"]);
     call(&k, "branches.merge", json!({ "projectId": pid, "branch": "via-merge" })).await;
+    sh(&repo, &["merge", "-q", "--squash", "via-squash"]);
+    sh(&repo, &["commit", "-qm", "squash via-squash"]);
+    sh(&repo, &["cherry-pick", "main..via-rebase"]);
     sh(&repo, &["branch", "-qf", "fresh", "main"]);
 
     let ov = call(&k, "workspace.overview", json!({ "projectId": pid })).await;
@@ -379,6 +383,11 @@ async fn merged_branches_are_flagged() {
     assert!(!merged("open"));
     assert!(merged("via-merge"));
     assert!(merged("via-ff"));
+    assert!(merged("via-squash"));
+    assert!(merged("via-rebase"));
+    // Squash-merged branches go without forcing.
+    call(&k, "branches.cleanup", json!({ "projectId": pid, "branches": ["via-squash", "via-rebase"] })).await;
+    assert!(!repo.join(".git/refs/heads/via-squash").exists());
 }
 
 #[tokio::test]
@@ -755,4 +764,62 @@ async fn suggest_version() {
     sh(&repo, &["branch", "release/1.10.4"]);
     assert_eq!(suggest("next").await, "1.12.0");
     assert_eq!(suggest("hotfix").await, "1.10.5");
+}
+
+#[tokio::test]
+async fn squash_and_rebase_merges_delete_the_branch_last() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("atlas-api");
+    init_repo(&repo);
+    let origin = tmp.path().join("origin.git");
+    sh(tmp.path(), &["init", "-q", "--bare", "origin.git"]);
+    sh(&repo, &["remote", "add", "origin", &origin.to_string_lossy()]);
+    sh(&repo, &["push", "-qu", "origin", "main"]);
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let added = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await;
+    let pid = added[0]["id"].as_str().unwrap().to_string();
+
+    // Each branch open in its own worktree, main moved on meanwhile.
+    let branch = |b: &str| {
+        sh(&repo, &["switch", "-qc", b]);
+        commit_file(&repo, &format!("{}-1.txt", &b[5..]), "x\n");
+        commit_file(&repo, &format!("{}-2.txt", &b[5..]), "y\n");
+        sh(&repo, &["push", "-qu", "origin", b]);
+        sh(&repo, &["switch", "-q", "main"]);
+        commit_file(&repo, &format!("main-{}.txt", &b[5..]), "m\n");
+        let wt = tmp.path().join(&b[5..]);
+        sh(&repo, &["worktree", "add", "-q", &wt.to_string_lossy(), b]);
+        wt
+    };
+    for (b, squash, rebase) in [("feat/sq", true, false), ("feat/rb", false, true), ("feat/both", true, true)] {
+        branch(b);
+        let m = call(&k, "branches.merge", json!({ "projectId": pid, "branch": b, "squash": squash, "rebase": rebase, "deleteBranch": true, "push": true })).await;
+        assert_eq!((m["deleted"].as_bool(), m["pushed"].as_bool()), (Some(true), Some(true)), "{b}: {m}");
+        assert!(rev(&repo, &format!("refs/heads/{b}")).is_empty(), "{b} still there");
+        assert!(rev(&origin, &format!("refs/heads/{b}")).is_empty(), "{b} still on origin");
+    }
+
+    // Origin got a commit the local branch never had: the merge lands, the branch stays everywhere.
+    branch("feat/theirs");
+    sh(tmp.path(), &["clone", "-q", "-b", "feat/theirs", &origin.to_string_lossy(), "other"]);
+    let other = tmp.path().join("other");
+    sh(&other, &["config", "user.email", "o@example.com"]);
+    sh(&other, &["config", "user.name", "Other"]);
+    commit_file(&other, "theirs.txt", "t\n");
+    sh(&other, &["push", "-q", "origin", "feat/theirs"]);
+    sh(&repo, &["fetch", "-q", "origin"]);
+    let m = call(&k, "branches.merge", json!({ "projectId": pid, "branch": "feat/theirs", "deleteBranch": true, "push": true })).await;
+    assert_eq!(m["deleted"], false, "{m}");
+    assert!(m["deleteError"].as_str().unwrap().contains("origin/feat/theirs"), "{m}");
+    assert_eq!(rev(&repo, "refs/heads/feat/theirs").len(), 40);
+    assert_eq!(rev(&origin, "refs/heads/feat/theirs").len(), 40);
+
+    // A branch that can't go (its worktree has untracked work) still gets merged and pushed.
+    let wt = branch("feat/kept");
+    std::fs::write(wt.join("scratch.txt"), "wip\n").unwrap();
+    let m = call(&k, "branches.merge", json!({ "projectId": pid, "branch": "feat/kept", "squash": true, "deleteBranch": true, "push": true })).await;
+    assert_eq!(m["deleted"], false, "{m}");
+    assert!(m["deleteError"].is_string(), "{m}");
+    assert_eq!(m["pushed"], true, "{m}");
+    assert_eq!(rev(&repo, "origin/main"), rev(&repo, "main"));
 }

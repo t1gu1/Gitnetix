@@ -344,6 +344,32 @@ impl Git {
         Ok(ok && log.lines().last().is_some_and(|created| created.trim() != tip))
     }
 
+    /// True when `branch` landed in `base` as new commits rather than its own:
+    /// every commit was rebased onto `base` (same patches), or all of it was
+    /// squashed into one commit there. Compares patch ids with `git cherry`;
+    /// the squash check builds a throwaway commit holding the whole branch diff.
+    pub async fn is_squash_merged(&self, branch: &str, base: &str) -> Result<bool> {
+        let picked = |out: &str| !out.trim().is_empty() && out.lines().all(|l| l.starts_with('-'));
+        if picked(&self.run(&["cherry", base, branch]).await?) {
+            return Ok(true);
+        }
+        let fork = self.run(&["merge-base", base, branch]).await?;
+        let tree = format!("{branch}^{{tree}}");
+        let out = self
+            .command(&["commit-tree", &tree, "-p", fork.trim(), "-m", "squash"])
+            .env("GIT_AUTHOR_NAME", "gitnetix")
+            .env("GIT_AUTHOR_EMAIL", "gitnetix@localhost")
+            .env("GIT_COMMITTER_NAME", "gitnetix")
+            .env("GIT_COMMITTER_EMAIL", "gitnetix@localhost")
+            .output()
+            .await?;
+        if !out.status.success() {
+            return Ok(false);
+        }
+        let squash = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        Ok(picked(&self.run(&["cherry", base, &squash]).await?))
+    }
+
     pub async fn create_branch(&self, name: &str, from: &str) -> Result<()> {
         self.run(&["branch", "--no-track", name, from]).await.map(|_| ())
     }
@@ -363,7 +389,8 @@ impl Git {
     }
 
     pub async fn delete_remote_branch(&self, name: &str) -> Result<()> {
-        self.run(&["push", "origin", "--delete", name]).await.map(|_| ())
+        // Lease on the last fetched tip: a push made since then is never deleted unseen.
+        self.run(&["push", "--force-with-lease", "origin", "--delete", name]).await.map(|_| ())
     }
 
     pub async fn tag(&self, name: &str, target: &str, message: &str) -> Result<()> {

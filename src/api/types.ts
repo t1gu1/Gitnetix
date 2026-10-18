@@ -150,6 +150,8 @@ export interface MergeResult {
   sha: string;
   alreadyMerged: boolean;
   deleted: boolean;
+  /** Why deleting the branch failed (the merge itself went through). */
+  deleteError?: string | null;
   /** The main checkout moved to `into`. */
   switched: boolean;
   /** Why the main checkout didn't move to `into`. */
