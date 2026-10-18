@@ -26,8 +26,9 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("profiles.save", "Create or update a Git profile", "profile: {id?, label, name, email, sign, signingKey?}"),
     ("profiles.delete", "Delete a Git profile", "id"),
     ("workspace.overview", "Releases, their branches and repo state", "projectId"),
-    ("workspace.files", "Changed files of a branch", "projectId, branch, mode: branch|wip|project"),
-    ("workspace.diff", "Diff of one file; in wip mode `staged` picks the side", "projectId, branch, mode, path, staged?"),
+    ("workspace.files", "Changed files of a branch, or of one commit when `commit` is given", "projectId, branch, mode: branch|wip|project, commit?"),
+    ("workspace.diff", "Diff of one file; in wip mode `staged` picks the side; `commit` diffs that commit", "projectId, branch, mode, path, staged?, commit?"),
+    ("workspace.commits", "Commits a branch has that its base does not (a trunk: recent history)", "projectId, branch"),
     ("workspace.switch", "Check out a branch (uncommitted work comes along)", "projectId, branch"),
     ("workspace.stage", "Stage files (all when paths is empty)", "projectId, branch, paths?"),
     ("workspace.unstage", "Unstage files (all when paths is empty)", "projectId, branch, paths?"),
@@ -261,8 +262,15 @@ pub async fn call(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
 
         // ---- workspace ----
         "workspace.overview" => to(k.overview(&s(&p, "projectId")?).await?),
-        "workspace.files" => to(k.files(&s(&p, "projectId")?, &s(&p, "branch")?, mode(&p)?).await?),
-        "workspace.diff" => to(k.diff(&s(&p, "projectId")?, &s(&p, "branch")?, mode(&p)?, &s(&p, "path")?, p.get("staged").and_then(Value::as_bool)).await?),
+        "workspace.files" => match os(&p, "commit") {
+            Some(sha) => to(k.commit_files(&s(&p, "projectId")?, &sha).await?),
+            None => to(k.files(&s(&p, "projectId")?, &s(&p, "branch")?, mode(&p)?).await?),
+        },
+        "workspace.diff" => match os(&p, "commit") {
+            Some(sha) => to(k.commit_diff(&s(&p, "projectId")?, &sha, &s(&p, "path")?).await?),
+            None => to(k.diff(&s(&p, "projectId")?, &s(&p, "branch")?, mode(&p)?, &s(&p, "path")?, p.get("staged").and_then(Value::as_bool)).await?),
+        },
+        "workspace.commits" => to(k.commits(&s(&p, "projectId")?, &s(&p, "branch")?).await?),
         "workspace.switch" => {
             k.switch_branch(&s(&p, "projectId")?, &s(&p, "branch")?).await?;
             ok()

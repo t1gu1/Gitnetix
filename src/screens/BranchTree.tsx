@@ -207,7 +207,7 @@ export function BranchTree({
           </>
         )}
       </div>
-      <div className="hint" style={{ padding: "10px 16px", borderTop: "1px solid var(--line)" }}>Double-click a branch to switch to it, right-click for every action. Your uncommitted work comes along.</div>
+      <div className="hint" style={{ padding: "10px 16px", borderTop: "1px solid var(--line)" }}>Double-click a branch to switch to it, right-click for every action, click its commit count to browse them. Your uncommitted work comes along.</div>
     </section>
   );
 }
@@ -268,7 +268,7 @@ function Row({
             <span className="mono ellipsis">{name}</span>
             {shipped ? <span className="tag">{releaseTagLabel("released")}</span> : tag}
           </span>
-          <BranchMeta b={b} parent={t.baseLabel} current={current} showName={!!shipped} />
+          <BranchMeta b={b} parent={t.baseLabel} current={current} showName={!!shipped} onCommits={t.showCommits} />
         </span>
       </button>
       <span className="tree-acts">
@@ -279,7 +279,7 @@ function Row({
 }
 
 /** Status line under a branch, same order for every role. */
-function BranchMeta({ b, parent, current, showName }: { b: BranchView; parent: string; current: boolean; showName?: boolean }) {
+function BranchMeta({ b, parent, current, showName, onCommits }: { b: BranchView; parent: string; current: boolean; showName?: boolean; onCommits?: () => void }) {
   const tracked = b.exists && !b.merged && !!parent;
   return (
     <span className="branch-meta">
@@ -296,7 +296,17 @@ function BranchMeta({ b, parent, current, showName }: { b: BranchView; parent: s
           merged
         </span>
       )}
-      {tracked && b.ahead > 0 && <span title={`${plural(b.ahead, "commit")} not in ${parent} yet`}>{plural(b.ahead, "commit")}</span>}
+      {tracked && b.ahead > 0 && (
+        // Inside the row's button, so a span: the context menu offers the same for keyboards.
+        <span
+          className={onCommits ? "meta-link" : undefined}
+          data-tip={`${plural(b.ahead, "commit")} not in ${parent} yet${onCommits ? ". Click to list them." : ""}`}
+          onClick={onCommits && ((e) => { e.stopPropagation(); onCommits(); })}
+          onDoubleClick={(e) => e.stopPropagation()}
+        >
+          {plural(b.ahead, "commit")}
+        </span>
+      )}
       {tracked && b.ahead === 0 && b.role === "branch" && <span>no commits yet</span>}
       {tracked && b.behind > 0 && (
         <span className="c-warn" title={`${parent} has ${plural(b.behind, "commit")} that ${b.name} doesn't. Update or rebase to catch up.`}>

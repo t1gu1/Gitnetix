@@ -433,3 +433,15 @@ button.app-row:hover { background: var(--raised); }
   .seg > button { min-height: 32px; }
 }
 @media (min-width: 901px) { .show-narrow { display: none !important; } }
+/* Commit list: replaces the branch tree; subject, description, then sha · author · when. */
+.commits { display: flex; flex-direction: column; padding: 6px 0; }
+.commit-row { display: flex; flex-direction: column; gap: 3px; margin: 0 6px; padding: 8px 10px; border: 0; border-radius: 4px; background: transparent; color: var(--fg); font: inherit; text-align: left; cursor: pointer; }
+.commit-row:hover { background: var(--raised); }
+.commit-row[aria-pressed="true"] { background: var(--sel); }
+.commit-subject { font-size: 12.5px; font-weight: 500; line-height: 1.4; overflow-wrap: anywhere; }
+.commit-body { font-size: 11.5px; line-height: 1.45; color: var(--muted); white-space: pre-line; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow-wrap: anywhere; }
+.commit-row[aria-pressed="true"] .commit-body { -webkit-line-clamp: unset; }
+.commit-meta { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 11px; color: var(--faint); }
+.commit-head { display: flex; align-items: flex-start; gap: 8px; min-width: 0; }
+.meta-link { cursor: pointer; text-decoration: underline dotted; text-underline-offset: 2px; }
+.meta-link:hover { color: var(--fg); text-decoration-style: solid; }

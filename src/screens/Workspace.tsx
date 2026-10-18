@@ -1,16 +1,18 @@
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 
 import { useAction, useAgents, useAiCatalog, useDiff, useFiles, useOverview } from "../api/hooks";
-import type { BranchView, FileChange, MergeResult, ReleaseView } from "../api/types";
+import type { BranchView, Commit, FileChange, MergeResult, ReleaseView } from "../api/types";
 import { AgentLog } from "../components/AgentLog";
 import { DiffView } from "../components/DiffView";
 import { Icon } from "../components/Icon";
 import { Resizer, usePaneWidth } from "../components/Resizer";
 import { Busy, ErrorBox, Loading, Modal, Seg } from "../components/ui";
+import { ago } from "../lib/format";
 import { useNav } from "../lib/nav";
 import { useStoredChoice, useStoredFlag } from "../lib/stored";
 import { useBranchActions, type BranchDialog, type BranchTarget } from "./BranchMenu";
 import { BranchTree } from "./BranchTree";
+import { CommitList } from "./CommitList";
 import { ConflictModal } from "./ConflictModal";
 
 type Mode = "branch" | "wip" | "project";
@@ -27,6 +29,9 @@ export function Workspace() {
   const [pane, setPane] = useState<Pane>("releases");
   const [shipping, setShipping] = useState<ReleaseView | null>(null);
   const [dialog, setDialog] = useState<{ kind: BranchDialog; branch: string } | null>(null);
+  // Branch whose commits replace the tree, and the commit picked there (none = all changes).
+  const [history, setHistory] = useState<string | null>(null);
+  const [commit, setCommit] = useState<Commit | undefined>();
   const branchesW = usePaneWidth("gnx.pane.branches", 300, 220, 560);
   const filesW = usePaneWidth("gnx.pane.files", 320, 220, 640);
   const [branchesHidden, setBranchesHidden] = useStoredFlag("gnx.pane.branchesHidden");
@@ -61,6 +66,7 @@ export function Workspace() {
         : v.role === "trunk" && v.exists
           ? [{ id: "new-branch", label: <>New branch off <span className="mono">{b}</span>…</>, icon: "plus", run: () => nav.openNewItem({ from: b }) }]
           : undefined,
+      showCommits: v.exists ? () => openHistory(b) : undefined,
       next: rel
         ? { id: "ship", label: `Ship v${rel.version}…`, short: "Ship", tip: `Fast-forward ${o?.defaultBranch} to ${b} and tag v${rel.version}`, icon: "ship", disabled: !v.ahead, run: () => setShipping(rel) }
         : undefined,
@@ -71,12 +77,22 @@ export function Workspace() {
           : undefined,
     };
   };
+  const openHistory = (b: string) => {
+    nav.selectBranch(b);
+    setHistory(b);
+    setCommit(undefined);
+    setMode("branch");
+  };
+  const closeHistory = () => {
+    setHistory(null);
+    setCommit(undefined);
+  };
   const view: BranchView | undefined = branch ? byName.get(branch) : undefined;
   const dialogView = dialog && (byName.get(dialog.branch) ?? synthetic(dialog.branch, dialog.branch === o?.currentBranch));
   const base = branch ? baseFor(branch) : "";
   const checkedOut = view?.checkedOut ?? branch === o?.currentBranch;
 
-  const files = useFiles(pid, branch, mode);
+  const files = useFiles(pid, branch, mode, commit?.sha);
   const wipList = useFiles(pid, branch, "wip").data ?? [];
   const wipCount = new Set(wipList.map((f) => f.path)).size;
   const stagedCount = wipList.filter((f) => f.staged).length;
@@ -84,10 +100,14 @@ export function Workspace() {
   const list = files.data ?? [];
   const fileCount = new Set(list.map((f) => f.path)).size;
   const current = list.find((f) => fileKey(f) === file) ?? list[0];
-  const diff = useDiff(pid, branch, mode, current?.path, current?.staged);
+  const diff = useDiff(pid, branch, mode, current?.path, current?.staged, commit?.sha);
   const [discarding, setDiscarding] = useState<{ staged: boolean; paths: string[] } | null>(null);
 
-  useEffect(() => setFile(undefined), [branch, mode]);
+  useEffect(() => setFile(undefined), [branch, mode, commit]);
+  // Picking another branch (e.g. from a ticket) leaves its commit list.
+  useEffect(() => {
+    if (history && branch !== history) closeHistory();
+  }, [branch, history]);
 
   const inRebase = (branch === o?.currentBranch && o?.rebasing) || !!view?.conflict;
 
@@ -127,19 +147,35 @@ export function Workspace() {
               </button>
             </div>
           )}
-          <BranchTree
-            onHide={() => setBranchesHidden(true)}
-            active={pane === "releases"}
-            o={o}
-            selected={branch}
-            actions={actions}
-            target={target}
-            onSelect={(b) => {
-              nav.selectBranch(b);
-              setPane("files");
-            }}
-            onNewRelease={() => nav.openNewItem({ kind: "release" })}
-          />
+          {history ? (
+            <CommitList
+              active={pane === "releases"}
+              pid={pid}
+              branch={history}
+              base={baseFor(history) === history ? "" : labelOf(baseFor(history))}
+              selected={commit?.sha}
+              onPick={(c) => {
+                setCommit(c);
+                setMode("branch");
+                setPane("files");
+              }}
+              onBack={closeHistory}
+            />
+          ) : (
+            <BranchTree
+              onHide={() => setBranchesHidden(true)}
+              active={pane === "releases"}
+              o={o}
+              selected={branch}
+              actions={actions}
+              target={target}
+              onSelect={(b) => {
+                nav.selectBranch(b);
+                setPane("files");
+              }}
+              onNewRelease={() => nav.openNewItem({ kind: "release" })}
+            />
+          )}
 
           {!branchesHidden && <Resizer pane={branchesW} label="Resize branches panel" />}
           <section aria-label="Changed files" className="ws-files" data-pane data-active={pane === "files"}>
@@ -149,17 +185,33 @@ export function Workspace() {
                 {base && branch !== base && <span className="faint" style={{ fontSize: 11.5, whiteSpace: "nowrap" }}>{view?.merged ? "merged into" : "from"} {base}</span>}
                 {view?.merged && <span className="c-add row" style={{ marginLeft: 6, flex: "0 0 auto" }} title={`All commits are in ${base}`}><Icon name="merged" size={12} stroke={1.6} label="merged" /></span>}
               </div>
-              <Seg<Mode>
-                label="File view"
-                grid
-                value={mode}
-                onChange={setMode}
-                options={[
-                  { value: "wip", label: <>WIP <span className="faint">{wipCount}</span></> },
-                  { value: "branch", label: <>Branch <span className="faint">{branchCount}</span></> },
-                  { value: "project", label: "Project" },
-                ]}
-              />
+              {commit ? (
+                <div className="commit-head">
+                  <div className="col" style={{ gap: 3, minWidth: 0, flex: "1 1 auto" }}>
+                    <span className="commit-subject">{commit.subject}</span>
+                    <span className="commit-meta">
+                      <span className="mono">{commit.sha.slice(0, 7)}</span>
+                      <span className="ellipsis">{commit.author}</span>
+                      <span style={{ whiteSpace: "nowrap" }}>{ago(commit.date)}</span>
+                    </span>
+                  </div>
+                  <button className="btn btn-sm btn-icon" aria-label="Show all branch changes" data-tip="Back to all changes" onClick={() => setCommit(undefined)}>
+                    <Icon name="close" size={12} />
+                  </button>
+                </div>
+              ) : (
+                <Seg<Mode>
+                  label="File view"
+                  grid
+                  value={mode}
+                  onChange={setMode}
+                  options={[
+                    { value: "wip", label: <>WIP <span className="faint">{wipCount}</span></> },
+                    { value: "branch", label: <>Branch <span className="faint">{branchCount}</span></> },
+                    { value: "project", label: "Project" },
+                  ]}
+                />
+              )}
               {branch && view?.worktree && <span className="hint mono ellipsis" title={view.worktree}>{view.worktree}</span>}
             </div>
             {inRebase && (
@@ -176,7 +228,7 @@ export function Workspace() {
             <ul className="scroll" style={{ flex: "1 1 auto", listStyle: "none", margin: 0, padding: mode === "wip" && list.length > 0 ? "0 0 6px" : "6px 0" }}>
               {files.isLoading && <li className="empty"><span className="spinner" /></li>}
               {files.error && <li style={{ padding: 12 }}><ErrorBox error={files.error} /></li>}
-              {mode === "wip" && branch && list.length > 0 ? (
+              {mode === "wip" && !commit && branch && list.length > 0 ? (
                 <WipList
                   pid={pid}
                   branch={branch}
@@ -194,7 +246,7 @@ export function Workspace() {
                 ))
               )}
               {!files.isLoading && list.length === 0 && (
-                <li className="empty">{mode === "wip" ? (checkedOut ? "No uncommitted changes." : "This branch is not checked out.") : "No changes on this branch yet."}</li>
+                <li className="empty">{commit ? "This commit changes no files." : mode === "wip" ? (checkedOut ? "No uncommitted changes." : "This branch is not checked out.") : "No changes on this branch yet."}</li>
               )}
             </ul>
             {branch && <CommitBox pid={pid} branch={branch} enabled={checkedOut} staged={stagedCount} changed={wipCount} />}
@@ -548,7 +600,7 @@ function CommitBox({ pid, branch, enabled, staged, changed }: { pid: string; bra
   const orphanBody = !summary.trim() && !!body.trim();
   const message = summary.trim() ? [summary.trim(), body.trim()].filter(Boolean).join("\n\n") : "";
   const clear = () => { setSummary(""); setBody(""); };
-  const inv = [["overview", pid], ["files", pid], ["diff", pid]];
+  const inv = [["overview", pid], ["files", pid], ["diff", pid], ["commits", pid]];
   const commit = useAction<{ sha: string; message: string; aiWritten: boolean }>("workspace.commit", {
     invalidate: inv,
     success: (r) => `${r.aiWritten ? "AI wrote: " : "Committed: "}${r.message.split("\n")[0]}`,

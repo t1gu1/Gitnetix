@@ -25,6 +25,8 @@ export interface BranchTarget {
   next?: Action;
   /** Other branches it could merge into instead. */
   moveTo?: { branch: string; label: string }[];
+  /** Opens the branch's commit list. */
+  showCommits?: () => void;
 }
 
 export type Action = Exclude<MenuItem, "sep"> & { short?: string; /** Plain-text tooltip for the split button. */ tip?: string };
@@ -39,7 +41,7 @@ interface BranchMutation {
  */
 export function useBranchActions(pid: string, openDialog: (d: BranchDialog, branch: string) => void) {
   const nav = useNav();
-  const inv = [["overview", pid], ["files", pid], ["diff", pid]];
+  const inv = [["overview", pid], ["files", pid], ["diff", pid], ["commits", pid]];
   const sw = useAction<unknown, { projectId: string; branch: string }>("workspace.switch", { invalidate: inv });
   const wt = useAction<{ path: string }, { projectId: string; branch: string }>("worktrees.create", { invalidate: [...inv, ["worktrees"]], success: (r) => `Worktree at ${r.path}` });
   const pull = useAction<{ output: string }, { projectId: string; branch: string }>("branches.pull", { invalidate: inv });
@@ -166,7 +168,9 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
         list.push({ id: `move-${m.branch}`, label: <>Target <span className="mono">{m.label}</span></>, icon: "merged", run: () => move.mutate({ projectId: pid, branch: v.name, parent: m.branch }) });
       }
     }
-    list.push("sep", a.copy);
+    list.push("sep");
+    if (t.showCommits) list.push({ id: "commits", label: "Show commits", icon: "commit", run: t.showCommits });
+    list.push(a.copy);
     if (v.local && !t.isDefault && !t.isRelease) list.push("sep", a.delete);
     return list;
   };

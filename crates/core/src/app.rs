@@ -15,7 +15,7 @@ use crate::agents::{AgentManager, AgentSession, AgentStatus, StartArgs};
 use crate::ai::{self, Resolved};
 use crate::error::{Error, Result};
 use crate::events::Event;
-use crate::git::{BranchInfo, FileChange, Git, Hunk, Identity, WorktreeInfo};
+use crate::git::{BranchInfo, Commit, FileChange, Git, Hunk, Identity, WorktreeInfo};
 use crate::providers::{github::GitHub, parse_remote};
 use crate::secrets;
 use crate::store::{new_id, now, BranchMeta, GitProfile, Project, Release, ReleaseKind, Store};
@@ -819,6 +819,30 @@ impl Gitnetix {
         }
         let (base_rev, rev) = tokio::join!(git.rev_of(&base), git.rev_of(branch));
         git.file_diff(path, Some(&format!("{base_rev}...{rev}"))).await
+    }
+
+    /// Commits a branch has that its base does not, newest first; a trunk lists its recent history.
+    pub async fn commits(&self, project_id: &str, branch: &str) -> Result<Vec<Commit>> {
+        let p = self.store.project(project_id)?;
+        let git = self.git(&p);
+        let default = git.default_branch().await?;
+        let base = self.base_of(&p, branch, &default).await;
+        let (base_rev, rev) = tokio::join!(git.rev_of(&base), git.rev_of(branch));
+        if base == branch {
+            return git.log(&rev, Some(200)).await;
+        }
+        git.log(&format!("{base_rev}..{rev}"), Some(500)).await
+    }
+
+    /// Files one commit changed, against its first parent.
+    pub async fn commit_files(&self, project_id: &str, sha: &str) -> Result<Vec<FileChange>> {
+        let git = self.git(&self.store.project(project_id)?);
+        git.range_changes(&git.commit_range(check_sha(sha)?).await?).await
+    }
+
+    pub async fn commit_diff(&self, project_id: &str, sha: &str, path: &str) -> Result<Vec<Hunk>> {
+        let git = self.git(&self.store.project(project_id)?);
+        git.file_diff(path, Some(&git.commit_range(check_sha(sha)?).await?)).await
     }
 
     pub async fn switch_branch(&self, project_id: &str, branch: &str) -> Result<()> {
@@ -1933,6 +1957,15 @@ fn worktree_path(p: &Project, branch: &str) -> PathBuf {
     let top = top_path(p);
     let parent = top.parent().map(Path::to_path_buf).unwrap_or_else(|| top.clone());
     parent.join(format!("{}.{}", p.name, branch.replace('/', "-")))
+}
+
+/// A commit id from the UI goes straight to `git diff`, so it must not read as an option.
+fn check_sha(sha: &str) -> Result<&str> {
+    if (4..=64).contains(&sha.len()) && sha.chars().all(|c| c.is_ascii_hexdigit()) {
+        Ok(sha)
+    } else {
+        Err(Error::Invalid(format!("not a commit id: {sha:?}")))
+    }
 }
 
 fn commit_lines(commits: &[crate::git::Commit]) -> String {

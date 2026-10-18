@@ -451,9 +451,13 @@ impl Git {
 
     /// Everything a branch changed since it left `base` (three-dot range).
     pub async fn branch_changes(&self, base: &str, branch: &str) -> Result<Vec<FileChange>> {
-        let range = format!("{base}...{branch}");
-        let ns = self.run(&["diff", "--name-status", "-z", "-M", &range]).await?;
-        let stats = parse_numstat_z(&self.run(&["diff", "--numstat", "-z", "-M", &range]).await?);
+        self.range_changes(&format!("{base}...{branch}")).await
+    }
+
+    /// Files changed in a diff range, with line counts.
+    pub async fn range_changes(&self, range: &str) -> Result<Vec<FileChange>> {
+        let ns = self.run(&["diff", "--name-status", "-z", "-M", range]).await?;
+        let stats = parse_numstat_z(&self.run(&["diff", "--numstat", "-z", "-M", range]).await?);
         let mut out = parse_name_status_z(&ns);
         for e in out.iter_mut() {
             if let Some((a, d)) = stats.get(&e.path) {
@@ -463,6 +467,14 @@ impl Git {
         }
         out.sort_by(|a, b| a.path.cmp(&b.path));
         Ok(out)
+    }
+
+    /// Diff range of one commit against its first parent (the empty tree for a root commit).
+    pub async fn commit_range(&self, sha: &str) -> Result<String> {
+        const EMPTY_TREE: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+        let parent = format!("{sha}^");
+        let base = if self.try_run(&["rev-parse", "--verify", "-q", &parent]).await?.0 { parent } else { EMPTY_TREE.into() };
+        Ok(format!("{base}..{sha}"))
     }
 
     pub async fn conflicted_files(&self) -> Result<Vec<String>> {

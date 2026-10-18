@@ -105,6 +105,16 @@ export interface BranchView {
   date: string;
 }
 
+export interface Commit {
+  sha: string;
+  author: string;
+  email: string;
+  /** Author date (ISO 8601). */
+  date: string;
+  subject: string;
+  body: string;
+}
+
 export interface MergeResult {
   into: string;
   sha: string;
