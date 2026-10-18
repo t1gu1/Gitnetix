@@ -477,3 +477,46 @@ async fn origin_only_branches_and_gitflow() {
     let diff = call(&k, "workspace.diff", json!({ "projectId": pid, "branch": "feat/new", "mode": "branch", "path": "n.txt" })).await;
     assert_eq!(diff[0]["lines"][0]["kind"], "+");
 }
+
+#[tokio::test]
+async fn commit_actions() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("atlas-api");
+    init_repo(&repo);
+    let root = rev(&repo, "HEAD");
+
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let added = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await;
+    let pid = added[0]["id"].as_str().unwrap().to_string();
+
+    sh(&repo, &["switch", "-q", "-c", "feat/a"]);
+    commit_file(&repo, "a.txt", "a\n");
+    commit_file(&repo, "b.txt", "b\n");
+    let a = rev(&repo, "HEAD~1");
+
+    let commits = call(&k, "workspace.commits", json!({ "projectId": pid, "branch": "feat/a" })).await;
+    let subjects: Vec<&str> = commits.as_array().unwrap().iter().map(|c| c["subject"].as_str().unwrap()).collect();
+    assert_eq!(subjects, ["edit b.txt", "edit a.txt"]);
+
+    // Per-commit files, including the root commit (no parent).
+    let files = call(&k, "workspace.files", json!({ "projectId": pid, "branch": "feat/a", "mode": "branch", "commit": a })).await;
+    assert_eq!(files[0]["path"], "a.txt");
+    let files = call(&k, "workspace.files", json!({ "projectId": pid, "branch": "main", "mode": "branch", "commit": root })).await;
+    assert_eq!(files[0]["path"], "README.md");
+    assert!(rpc::call(&k, "workspace.files", json!({ "projectId": pid, "branch": "main", "commit": "--output=x" })).await.is_err());
+
+    call(&k, "commits.revert", json!({ "projectId": pid, "branch": "feat/a", "sha": a })).await;
+    assert!(!repo.join("a.txt").exists());
+
+    // Cherry-pick onto the checked-out branch.
+    sh(&repo, &["switch", "-q", "main"]);
+    call(&k, "commits.cherryPick", json!({ "projectId": pid, "onto": "main", "sha": a })).await;
+    assert!(repo.join("a.txt").exists());
+
+    call(&k, "commits.reset", json!({ "projectId": pid, "branch": "main", "sha": root, "mode": "soft" })).await;
+    assert_eq!(rev(&repo, "HEAD"), root);
+    assert!(repo.join("a.txt").exists(), "soft keeps the changes");
+    call(&k, "commits.reset", json!({ "projectId": pid, "branch": "main", "sha": root, "mode": "hard" })).await;
+    assert!(!repo.join("a.txt").exists(), "hard drops them");
+    assert!(rpc::call(&k, "commits.reset", json!({ "projectId": pid, "branch": "main", "sha": root, "mode": "keep" })).await.is_err());
+}

@@ -685,6 +685,40 @@ impl Git {
         self.run(&["rebase", "--abort"]).await.map(|_| ())
     }
 
+    /// Undo a commit with a new one. On conflict nothing changes.
+    pub async fn revert(&self, sha: &str) -> Result<String> {
+        self.apply_commit("revert", sha).await
+    }
+
+    /// Copy a commit onto the checked-out branch. On conflict nothing changes.
+    pub async fn cherry_pick(&self, sha: &str) -> Result<String> {
+        self.apply_commit("cherry-pick", sha).await
+    }
+
+    /// `revert` / `cherry-pick` one commit; a merge commit is taken against its first parent.
+    async fn apply_commit(&self, cmd: &str, sha: &str) -> Result<String> {
+        let merge = self.try_run(&["rev-parse", "--verify", "-q", &format!("{sha}^2")]).await?.0;
+        let mut args = vec![cmd, "--no-edit"];
+        if merge {
+            args.extend(["-m", "1"]);
+        }
+        args.push(sha);
+        let (ok, _, err) = self.try_run(&args).await?;
+        if !ok {
+            let _ = self.try_run(&[cmd, "--abort"]).await;
+            return Err(Error::Git { cmd: cmd.into(), stderr: err.trim().into() });
+        }
+        self.rev_parse("HEAD").await
+    }
+
+    /// Move the checked-out branch to `sha`; `mode` is soft, mixed or hard.
+    pub async fn reset(&self, sha: &str, mode: &str) -> Result<()> {
+        if !matches!(mode, "soft" | "mixed" | "hard") {
+            return Err(Error::Invalid(format!("unknown reset mode {mode:?}")));
+        }
+        self.run(&["reset", &format!("--{mode}"), sha]).await.map(|_| ())
+    }
+
     pub async fn merge_ff_only(&self, from: &str) -> Result<()> {
         self.run(&["merge", "--ff-only", from]).await.map(|_| ())
     }

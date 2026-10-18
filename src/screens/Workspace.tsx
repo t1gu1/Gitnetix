@@ -154,6 +154,8 @@ export function Workspace() {
               branch={history}
               base={baseFor(history) === history ? "" : labelOf(baseFor(history))}
               selected={commit?.sha}
+              checkedOut={byName.get(history)?.checkedOut ?? history === o.currentBranch}
+              current={o.currentBranch ?? undefined}
               onPick={(c) => {
                 setCommit(c);
                 setMode("branch");

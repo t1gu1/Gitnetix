@@ -845,6 +845,30 @@ impl Gitnetix {
         git.file_diff(path, Some(&git.commit_range(check_sha(sha)?).await?)).await
     }
 
+    /// Revert one commit of `branch` with a new commit on it.
+    pub async fn revert_commit(&self, project_id: &str, branch: &str, sha: &str) -> Result<String> {
+        let p = self.store.project(project_id)?;
+        let out = self.require_checkout(&p, branch).await?.revert(check_sha(sha)?).await;
+        self.changed(project_id);
+        out
+    }
+
+    /// Copy one commit onto `onto`.
+    pub async fn cherry_pick(&self, project_id: &str, onto: &str, sha: &str) -> Result<String> {
+        let p = self.store.project(project_id)?;
+        let out = self.require_checkout(&p, onto).await?.cherry_pick(check_sha(sha)?).await;
+        self.changed(project_id);
+        out
+    }
+
+    /// Move `branch` to one of its commits: soft keeps the changes staged, mixed unstaged, hard drops them.
+    pub async fn reset_branch(&self, project_id: &str, branch: &str, sha: &str, mode: &str) -> Result<()> {
+        let p = self.store.project(project_id)?;
+        self.require_checkout(&p, branch).await?.reset(check_sha(sha)?, mode).await?;
+        self.changed(project_id);
+        Ok(())
+    }
+
     pub async fn switch_branch(&self, project_id: &str, branch: &str) -> Result<()> {
         let p = self.store.project(project_id)?;
         if let Some(dir) = self.checkout_dir(&p, branch).await? {

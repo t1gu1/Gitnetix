@@ -29,6 +29,9 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("workspace.files", "Changed files of a branch, or of one commit when `commit` is given", "projectId, branch, mode: branch|wip|project, commit?"),
     ("workspace.diff", "Diff of one file; in wip mode `staged` picks the side; `commit` diffs that commit", "projectId, branch, mode, path, staged?, commit?"),
     ("workspace.commits", "Commits a branch has that its base does not (a trunk: recent history)", "projectId, branch"),
+    ("commits.revert", "Revert a commit with a new commit on its branch", "projectId, branch, sha"),
+    ("commits.cherryPick", "Copy a commit onto a checked-out branch", "projectId, onto, sha"),
+    ("commits.reset", "Reset a checked-out branch to a commit", "projectId, branch, sha, mode: soft|mixed|hard"),
     ("workspace.switch", "Check out a branch (uncommitted work comes along)", "projectId, branch"),
     ("workspace.stage", "Stage files (all when paths is empty)", "projectId, branch, paths?"),
     ("workspace.unstage", "Unstage files (all when paths is empty)", "projectId, branch, paths?"),
@@ -271,6 +274,12 @@ pub async fn call(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
             None => to(k.diff(&s(&p, "projectId")?, &s(&p, "branch")?, mode(&p)?, &s(&p, "path")?, p.get("staged").and_then(Value::as_bool)).await?),
         },
         "workspace.commits" => to(k.commits(&s(&p, "projectId")?, &s(&p, "branch")?).await?),
+        "commits.revert" => to(json!({ "sha": k.revert_commit(&s(&p, "projectId")?, &s(&p, "branch")?, &s(&p, "sha")?).await? })),
+        "commits.cherryPick" => to(json!({ "sha": k.cherry_pick(&s(&p, "projectId")?, &s(&p, "onto")?, &s(&p, "sha")?).await? })),
+        "commits.reset" => {
+            k.reset_branch(&s(&p, "projectId")?, &s(&p, "branch")?, &s(&p, "sha")?, &s(&p, "mode")?).await?;
+            ok()
+        }
         "workspace.switch" => {
             k.switch_branch(&s(&p, "projectId")?, &s(&p, "branch")?).await?;
             ok()
