@@ -197,6 +197,23 @@ async fn pull_and_tracking() {
     let ov = call(&k, "workspace.overview", json!({ "projectId": pid })).await;
     assert_eq!(ov["otherBranches"][0]["behind"], 1);
     assert_eq!(ov["otherBranches"][0]["upstreamBehind"], 0);
+
+    // Diverged both ways: reset drops the local commit and lands on origin's.
+    sh(&repo, &["switch", "-q", "feat/x"]);
+    commit_file(&repo, "local.txt", "l\n");
+    sh(&repo, &["switch", "-q", "main"]);
+    commit_file(&other, "x2.txt", "x2\n");
+    sh(&other, &["push", "-q", "origin", "feat/x"]);
+    sh(&repo, &["fetch", "-q", "origin"]);
+    call(&k, "branches.reset", json!({ "projectId": pid, "branch": "feat/x" })).await;
+    assert_eq!(rev(&repo, "feat/x"), rev(&repo, "origin/feat/x"));
+    // Checked out: the working tree follows, local commit and edits gone.
+    commit_file(&repo, "mine.txt", "m\n");
+    std::fs::write(repo.join("m.txt"), "edited\n").unwrap();
+    call(&k, "branches.reset", json!({ "projectId": pid, "branch": "main" })).await;
+    assert_eq!(rev(&repo, "main"), rev(&repo, "origin/main"));
+    assert!(!repo.join("mine.txt").exists());
+    assert_eq!(std::fs::read_to_string(repo.join("m.txt")).unwrap(), "m\n");
 }
 
 #[tokio::test]
@@ -563,4 +580,94 @@ async fn delete_on_origin_and_release_branches() {
     assert!(o["releases"].as_array().unwrap().iter().any(|r| r["branch"] == "release/9.0.0" && r["open"] == true), "{o}");
     call(&k, "branches.delete", json!({ "projectId": pid, "branch": "release/9.0.0" })).await;
     assert!(rev(&repo, "refs/heads/release/9.0.0").is_empty());
+}
+
+#[tokio::test]
+async fn merge_by_squash_rebase_and_push() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("atlas-api");
+    init_repo(&repo);
+    let origin = tmp.path().join("origin.git");
+    sh(tmp.path(), &["init", "-q", "--bare", "-b", "main", origin.to_str().unwrap()]);
+    sh(&repo, &["remote", "add", "origin", origin.to_str().unwrap()]);
+    sh(&repo, &["push", "-q", "-u", "origin", "main"]);
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let added = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await;
+    let pid = added[0]["id"].as_str().unwrap().to_string();
+    let count = |r: &str| {
+        let out = Command::new("git").current_dir(&repo).args(["rev-list", "--count", r]).output().unwrap();
+        String::from_utf8(out.stdout).unwrap().trim().parse::<u32>().unwrap()
+    };
+
+    // Rebase + fast-forward, branch not checked out, main moved on meanwhile: linear history.
+    sh(&repo, &["switch", "-qc", "feat/r"]);
+    commit_file(&repo, "r1.txt", "1\n");
+    commit_file(&repo, "r2.txt", "2\n");
+    sh(&repo, &["switch", "-q", "main"]);
+    commit_file(&repo, "m.txt", "m\n");
+    let m = call(&k, "branches.merge", json!({ "projectId": pid, "branch": "feat/r", "rebase": true })).await;
+    assert_eq!(m["alreadyMerged"], false);
+    assert_eq!(rev(&repo, "main"), rev(&repo, "feat/r"));
+    assert_eq!(count("main"), 4, "init, m, r1, r2: no merge commit");
+    assert!(repo.join("r2.txt").exists(), "checked-out main fast-forwarded");
+
+    // Squash, then a merge commit: one commit on the branch, listing what it replaced.
+    sh(&repo, &["switch", "-qc", "feat/s"]);
+    commit_file(&repo, "s1.txt", "1\n");
+    commit_file(&repo, "s2.txt", "2\n");
+    sh(&repo, &["switch", "-q", "main"]);
+    let before = count("main");
+    call(&k, "branches.merge", json!({ "projectId": pid, "branch": "feat/s", "squash": true })).await;
+    assert_eq!(count("main"), before + 2, "squashed commit + merge commit");
+    let msg = Command::new("git").current_dir(&repo).args(["log", "-1", "--format=%B", "main^2"]).output().unwrap();
+    let msg = String::from_utf8(msg.stdout).unwrap();
+    assert!(msg.starts_with("squash | feat/s\n") && msg.contains("* edit s1.txt\n* edit s2.txt"), "{msg}");
+
+    // Squash + rebase + push + delete: one new commit on main, on origin too.
+    sh(&repo, &["switch", "-qc", "feat/p"]);
+    commit_file(&repo, "p1.txt", "1\n");
+    commit_file(&repo, "p2.txt", "2\n");
+    sh(&repo, &["switch", "-q", "main"]);
+    let before = count("main");
+    let m = call(&k, "branches.merge", json!({ "projectId": pid, "branch": "feat/p", "squash": true, "rebase": true, "push": true, "deleteBranch": true })).await;
+    assert_eq!(m["pushed"], true, "{m}");
+    assert_eq!(count("main"), before + 1);
+    assert_eq!(rev(&origin, "main"), rev(&repo, "main"));
+    assert!(rev(&repo, "refs/heads/feat/p").is_empty());
+
+    // A conflicting squash refuses before rewriting anything.
+    sh(&repo, &["switch", "-qc", "feat/c"]);
+    commit_file(&repo, "README.md", "# c\n");
+    commit_file(&repo, "c.txt", "c\n");
+    sh(&repo, &["switch", "-q", "main"]);
+    commit_file(&repo, "README.md", "# main\n");
+    let tip = rev(&repo, "feat/c");
+    let err = rpc::call(&k, "branches.merge", json!({ "projectId": pid, "branch": "feat/c", "squash": true, "rebase": true })).await.unwrap_err();
+    assert!(err.to_string().contains("README.md"), "{err}");
+    assert_eq!(rev(&repo, "feat/c"), tip);
+}
+
+#[tokio::test]
+async fn outside_git_changes_refresh_the_project() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("atlas-api");
+    init_repo(&repo);
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let added = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await;
+    let pid = added[0]["id"].as_str().unwrap().to_string();
+    let mut rx = k.subscribe();
+
+    // A commit made in a terminal, not through Gitnetix.
+    commit_file(&repo, "outside.txt", "x\n");
+    let seen = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            if let Ok(gitnetix_core::Event::ProjectChanged { project_id }) = rx.recv().await {
+                if project_id == pid {
+                    return;
+                }
+            }
+        }
+    })
+    .await;
+    assert!(seen.is_ok(), "no ProjectChanged after an outside commit");
 }

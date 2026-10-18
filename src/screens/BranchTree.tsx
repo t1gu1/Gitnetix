@@ -11,7 +11,7 @@ import { BranchSplit, type BranchActions, type BranchTarget } from "./BranchMenu
 /** Sections that start closed; every other section starts open. */
 const CLOSED_BY_DEFAULT = new Set(["shipped"]);
 
-/** Collapsed sections, remembered per project in this browser. */
+/** Collapsed sections, remembered per project between sessions. */
 function useToggles(pid: string) {
   const [flipped, setFlipped] = useStored<Record<string, boolean>>(`gnx.tree.${pid}`, {});
   const isOpen = (id: string) => CLOSED_BY_DEFAULT.has(id) === !!flipped[id];

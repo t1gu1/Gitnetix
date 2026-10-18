@@ -61,6 +61,47 @@ pub struct Project {
     pub hidden: bool,
     /// Versions forgotten with `releases.delete`; their branches are not re-imported.
     pub forgotten_releases: Vec<String>,
+    /// Merge dialog options, as last chosen.
+    pub merge: MergePrefs,
+    /// Commit button options.
+    pub commit: CommitPrefs,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct MergePrefs {
+    /// Squash the branch into one commit first.
+    pub squash: bool,
+    /// Who writes the squashed commit's message.
+    pub squash_message: SquashMessage,
+    /// Rebase and fast-forward instead of a merge commit.
+    pub rebase: bool,
+    pub delete_branch: bool,
+    /// Push the target to origin after.
+    pub push: bool,
+}
+
+impl Default for MergePrefs {
+    fn default() -> Self {
+        MergePrefs { squash: false, squash_message: SquashMessage::Branch, rebase: false, delete_branch: true, push: false }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum SquashMessage {
+    /// "squash | <branch name>", then the squashed commits' subjects.
+    #[default]
+    Branch,
+    /// Written by AI from the branch's changes, with the commit template.
+    Ai,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(default, rename_all = "camelCase")]
+pub struct CommitPrefs {
+    /// Push the branch after each commit.
+    pub auto_push: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -224,11 +265,13 @@ pub struct UiPrefs {
     pub language: String,
     pub theme: String,
     pub last_project: Option<String>,
+    /// How the screens were left (pane widths, collapsed sections…), by key, as the UI wrote them.
+    pub view: BTreeMap<String, String>,
 }
 
 impl Default for UiPrefs {
     fn default() -> Self {
-        UiPrefs { language: "en".into(), theme: "system".into(), last_project: None }
+        UiPrefs { language: "en".into(), theme: "system".into(), last_project: None, view: BTreeMap::new() }
     }
 }
 

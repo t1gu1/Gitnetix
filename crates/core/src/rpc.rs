@@ -4,7 +4,7 @@
 
 use serde_json::{json, Value};
 
-use crate::app::{Gitnetix, NewItem, NotesInclude, ViewMode};
+use crate::app::{Gitnetix, MergeOptions, NewItem, NotesInclude, ViewMode};
 use crate::error::{Error, Result};
 use crate::store::{ConnectMethod, GitProfile, JiraConf, ReleaseKind, Route, TrelloConf, AsanaConf, new_id};
 use crate::templates::{self, Template};
@@ -15,6 +15,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("app.info", "App version and companion server address", ""),
     ("config.get", "Full app configuration (no secrets)", ""),
     ("ui.set", "Save UI preferences", "language?, theme?, lastProject?"),
+    ("ui.setView", "Remember how a screen was left (pane width, collapsed section…); no value forgets it", "key, value?"),
     ("server.set", "Configure the companion API", "enabled?, lan?, port?, regenerateToken?"),
     ("projects.list", "List saved projects", ""),
     ("projects.add", "Add local Git repositories", "paths: string[]"),
@@ -22,6 +23,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("projects.setHidden", "Close or reopen a project's tab (data kept)", "projectId, hidden"),
     ("projects.reorder", "Set the order of projects", "ids: string[]"),
     ("projects.setGenLang", "Language AI writes in for a project", "projectId, commit?, pr?, release?"),
+    ("projects.setPrefs", "Remembered merge and commit options for a project", "projectId, merge?: {squash?, squashMessage?: branch|ai, rebase?, deleteBranch?, push?}, commit?: {autoPush?}"),
     ("projects.setProfile", "Git profile used for commits in a project", "projectId, profileId"),
     ("profiles.save", "Create or update a Git profile", "profile: {id?, label, name, email, sign, signingKey?}"),
     ("profiles.delete", "Delete a Git profile", "id"),
@@ -53,7 +55,8 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("items.remove", "Remove a branch from its release", "projectId, branch, deleteBranch?"),
     ("branches.stash", "Stash a checked-out branch's uncommitted changes, untracked files included", "projectId, branch"),
     ("branches.pull", "Fast-forward a branch to its upstream (checked out or not)", "projectId, branch"),
-    ("branches.merge", "Merge a branch into its release (or parent branch, or `into`) with a merge commit", "projectId, branch, into?, deleteBranch?"),
+    ("branches.reset", "Hard-reset a branch to its upstream, dropping local commits (and uncommitted changes when checked out)", "projectId, branch"),
+    ("branches.merge", "Merge a branch into its release (or parent branch, or `into`): a merge commit, or rebase = rebase it onto the target and fast-forward; squash = collapse its commits first (\"squash | <branch>\", or squashAi = AI writes the message); push = push the target after", "projectId, branch, into?, deleteBranch?, squash?, squashAi?, rebase?, push?"),
     ("branches.sync", "Merge a branch's base into it to bring it up to date", "projectId, branch"),
     ("branches.setParent", "Choose what a branch merges into (an open release branch attaches it to that release)", "projectId, branch, parent"),
     ("branches.fetch", "Fetch origin, pruning deleted branches", "projectId"),
@@ -114,6 +117,17 @@ fn s(v: &Value, k: &str) -> Result<String> {
         .ok_or_else(|| Error::Invalid(format!("missing `{k}`")))
 }
 
+/// `cur` with the fields given in `patch` replaced.
+fn overlay<T: serde::Serialize + serde::de::DeserializeOwned>(cur: &T, patch: &Value) -> Result<T> {
+    let mut v = serde_json::to_value(cur)?;
+    if let (Some(obj), Some(p)) = (v.as_object_mut(), patch.as_object()) {
+        for (k, x) in p {
+            obj.insert(k.clone(), x.clone());
+        }
+    }
+    Ok(serde_json::from_value(v)?)
+}
+
 fn os(v: &Value, k: &str) -> Option<String> {
     v.get(k).and_then(Value::as_str).map(String::from)
 }
@@ -171,6 +185,18 @@ pub async fn call(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
             })?;
             ok()
         }
+        "ui.setView" => {
+            let key = s(&p, "key")?;
+            let value = os(&p, "value");
+            k.store.write(|c| {
+                match value {
+                    Some(v) => c.ui.view.insert(key, v),
+                    None => c.ui.view.remove(&key),
+                };
+                Ok(())
+            })?;
+            ok()
+        }
         "server.set" => {
             let cfg = k.store.write(|c| {
                 if let Some(x) = p.get("enabled").and_then(Value::as_bool) {
@@ -220,6 +246,18 @@ pub async fn call(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
                 }
                 if let Some(x) = os(&p, "release") {
                     pr.gen_lang.release = x;
+                }
+                Ok(())
+            })?;
+            ok()
+        }
+        "projects.setPrefs" => {
+            k.store.with_project(&s(&p, "projectId")?, |pr| {
+                if let Some(m) = p.get("merge") {
+                    pr.merge = overlay(&pr.merge, m)?;
+                }
+                if let Some(c) = p.get("commit") {
+                    pr.commit = overlay(&pr.commit, c)?;
                 }
                 Ok(())
             })?;
@@ -346,7 +384,14 @@ pub async fn call(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
             ok()
         }
         "branches.pull" => to(json!({ "output": k.pull_branch(&s(&p, "projectId")?, &s(&p, "branch")?).await? })),
-        "branches.merge" => to(k.merge_branch(&s(&p, "projectId")?, &s(&p, "branch")?, os(&p, "into").as_deref(), b(&p, "deleteBranch")).await?),
+        "branches.reset" => {
+            k.reset_to_upstream(&s(&p, "projectId")?, &s(&p, "branch")?).await?;
+            ok()
+        }
+        "branches.merge" => {
+            let opts = MergeOptions { squash: b(&p, "squash"), squash_ai: b(&p, "squashAi"), rebase: b(&p, "rebase"), delete_after: b(&p, "deleteBranch"), push: b(&p, "push") };
+            to(k.merge_branch(&s(&p, "projectId")?, &s(&p, "branch")?, os(&p, "into").as_deref(), opts).await?)
+        }
         "branches.sync" => to(k.sync_branch(&s(&p, "projectId")?, &s(&p, "branch")?).await?),
         "branches.setParent" => {
             k.set_parent(&s(&p, "projectId")?, &s(&p, "branch")?, &s(&p, "parent")?)?;

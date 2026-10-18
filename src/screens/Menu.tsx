@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { useAction, useConfig } from "../api/hooks";
+import { useAction, useConfig, useProjectPrefs } from "../api/hooks";
 import { currentRemote, isLocal, saveRemote } from "../api/transport";
 import type { GitProfile } from "../api/types";
 import { Icon } from "../components/Icon";
@@ -22,6 +22,7 @@ export function Menu({ onUnpair }: { onUnpair: () => void }) {
   const setProfile = useAction("projects.setProfile", { invalidate: inv });
   const saveProfile = useAction<GitProfile>("profiles.save", { invalidate: inv });
   const setUi = useAction("ui.set", { invalidate: inv });
+  const prefs = useProjectPrefs(project?.id);
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState({ label: "", name: "", email: "", sign: true });
   const [closing, setClosing] = useState(false);
@@ -117,6 +118,55 @@ export function Menu({ onUnpair }: { onUnpair: () => void }) {
                           <Seg label={label} value={project.genLang[k]} options={LANGS} onChange={(v) => setLang.mutate({ projectId: project.id, [k]: v })} />
                         </div>
                       ))}
+                      <div style={{ borderTop: "1px solid var(--line)", margin: "4px -14px 0" }} />
+                      <div className="col" style={{ gap: 2 }}>
+                        <span style={{ fontWeight: 500 }}>Merging</span>
+                        <span className="hint">What the merge dialog starts with. Changing them there changes them here too.</span>
+                      </div>
+                      <Seg
+                        grid
+                        label="How to merge"
+                        value={prefs.merge.rebase ? "rebase" : "merge"}
+                        onChange={(v) => prefs.setMerge({ rebase: v === "rebase" })}
+                        options={[{ value: "merge", label: "Merge commit" }, { value: "rebase", label: "Rebase & fast-forward" }]}
+                      />
+                      <div className="col" style={{ gap: 0 }}>
+                        <label className="check">
+                          <input type="checkbox" checked={prefs.merge.squash} onChange={() => prefs.setMerge({ squash: !prefs.merge.squash })} />
+                          <span>Squash the branch into one renamed commit first</span>
+                        </label>
+                        {prefs.merge.squash && (
+                          <div style={{ margin: "2px 0 6px 26px" }}>
+                            <Seg
+                              grid
+                              label="Squashed commit summary"
+                              value={prefs.merge.squashMessage}
+                              onChange={(v) => prefs.setMerge({ squashMessage: v })}
+                              options={[
+                                { value: "branch", label: <span className="mono">squash | branch name</span> },
+                                { value: "ai", label: <span className="row" style={{ gap: 6, justifyContent: "center" }}><Icon name="sparkle" size={11} />AI writes it</span> },
+                              ]}
+                            />
+                          </div>
+                        )}
+                        <label className="check">
+                          <input type="checkbox" checked={prefs.merge.deleteBranch} onChange={() => prefs.setMerge({ deleteBranch: !prefs.merge.deleteBranch })} />
+                          <span>Delete the branch after merging</span>
+                        </label>
+                        <label className="check">
+                          <input type="checkbox" checked={prefs.merge.push} onChange={() => prefs.setMerge({ push: !prefs.merge.push })} />
+                          <span>Push the target branch to origin after merging</span>
+                        </label>
+                      </div>
+                      <div style={{ borderTop: "1px solid var(--line)", margin: "4px -14px 0" }} />
+                      <div className="col" style={{ gap: 2 }}>
+                        <span style={{ fontWeight: 500 }}>Committing</span>
+                        <span className="hint">Also in the menu next to the Commit button.</span>
+                      </div>
+                      <label className="check">
+                        <input type="checkbox" checked={prefs.commit.autoPush} onChange={() => prefs.setCommit({ autoPush: !prefs.commit.autoPush })} />
+                        <span>Push the branch after each commit</span>
+                      </label>
                       <div style={{ borderTop: "1px solid var(--line)", margin: "4px -14px 0" }} />
                       <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start" }}>
                         <div className="col" style={{ gap: 2 }}>

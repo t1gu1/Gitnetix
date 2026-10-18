@@ -772,6 +772,16 @@ impl Git {
         Ok(self.run(&args).await?.trim().to_string())
     }
 
+    pub async fn merge_base(&self, a: &str, b: &str) -> Result<String> {
+        Ok(self.run(&["merge-base", a, b]).await?.trim().to_string())
+    }
+
+    /// Subjects of the non-merge commits in `range`, oldest first.
+    pub async fn subjects(&self, range: &str) -> Result<Vec<String>> {
+        let out = self.run(&["log", "--no-merges", "--reverse", "--format=%s", range]).await?;
+        Ok(out.lines().filter(|l| !l.is_empty()).map(String::from).collect())
+    }
+
     /// Move `r` to `new` only if it still points at `old`.
     pub async fn update_ref_from(&self, r: &str, new: &str, old: &str) -> Result<()> {
         self.run(&["update-ref", r, new, old]).await.map(|_| ())

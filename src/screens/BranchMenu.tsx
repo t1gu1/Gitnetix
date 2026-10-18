@@ -8,7 +8,7 @@ import { plural } from "../lib/format";
 import { useNav } from "../lib/nav";
 import { copyToClipboard, toast } from "../lib/toast";
 
-export type BranchDialog = "merge" | "delete" | "conflicts";
+export type BranchDialog = "merge" | "delete" | "conflicts" | "reset";
 
 export interface BranchTarget {
   view: BranchView;
@@ -83,6 +83,14 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
         hint: v.upstreamBehind ? `↓${v.upstreamBehind}` : undefined,
         disabled: !v.upstream,
         run: () => run(pull, b, `Pulled ${b}`),
+      },
+      reset: {
+        id: "reset",
+        label: <>Reset to <span className="mono">{v.upstream}</span>…</>,
+        tip: `Move ${b} to where ${v.upstream} is, dropping what differs locally`,
+        icon: "undo",
+        danger: true,
+        run: () => openDialog("reset", b),
       },
       push: {
         id: "push",
@@ -170,7 +178,10 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
     if (!v.checkedOut) list.push(a.switch, a.worktree);
     list.push(a.create, "sep");
     if (v.local) {
-      list.push(a.pull, a.push);
+      list.push(a.pull);
+      // Out of step with origin: offer to throw away the local side.
+      if (v.upstream && (v.upstreamAhead || v.upstreamBehind)) list.push(a.reset);
+      list.push(a.push);
       if (v.checkedOut) list.push(a.stash);
       if (t.base) {
         list.push("sep");

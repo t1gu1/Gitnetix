@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 
-import { useAction, useAgents, useAiCatalog, useDiff, useFiles, useOverview } from "../api/hooks";
+import { useAction, useAgents, useAiCatalog, useDiff, useFiles, useOverview, useProjectPrefs } from "../api/hooks";
 import type { BranchView, CleanupResult, Commit, FileChange, MergeResult, ReleaseView } from "../api/types";
 import { AgentLog } from "../components/AgentLog";
 import { DiffView } from "../components/DiffView";
@@ -8,9 +8,10 @@ import { ContextMenu } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
 import { Resizer, usePaneWidth } from "../components/Resizer";
 import { Busy, ErrorBox, Loading, Modal, Seg } from "../components/ui";
-import { ago } from "../lib/format";
+import { ago, plural } from "../lib/format";
 import { useNav } from "../lib/nav";
 import { useStoredChoice, useStoredFlag } from "../lib/stored";
+import { toast } from "../lib/toast";
 import { useBranchActions, type BranchDialog, type BranchTarget } from "./BranchMenu";
 import { BranchTree } from "./BranchTree";
 import { CommitList } from "./CommitList";
@@ -301,6 +302,9 @@ export function Workspace() {
           onDeleted={(gone) => branch && gone.includes(branch) && nav.selectBranch(undefined)}
         />
       )}
+      {dialog?.kind === "reset" && dialogView?.upstream && (
+        <ResetBranchModal pid={pid} view={dialogView} onClose={() => setDialog(null)} />
+      )}
       {dialog?.kind === "delete" && dialogView && (
         <DeleteBranchModal
           pid={pid}
@@ -519,13 +523,26 @@ function MergeModal({
   onClose: () => void;
   onDeleted: (into: string) => void;
 }) {
-  const [del, setDel] = useState(true);
+  // The options picked last time, saved with the project.
+  const { merge: opts, setMerge: set } = useProjectPrefs(pid);
   const [base, setBase] = useState(defaultBase);
   const [pick, setPick] = useState<{ x: number; y: number } | null>(null);
   const merge = useAction<MergeResult>("branches.merge", {
-    invalidate: [["overview", pid], ["files", pid], ["diff", pid]],
-    success: (r) => `${r.alreadyMerged ? `${branch} was already in ${r.into}` : `Merged ${branch} into ${r.into}`}${r.switched ? ` · switched to ${r.into}` : ""}${r.deleted ? " · branch deleted" : ""}${r.stayed ? ` · stayed put: ${r.stayed}` : ""}`,
+    invalidate: [["overview", pid], ["files", pid], ["diff", pid], ["commits", pid]],
+    success: (r) =>
+      `${r.alreadyMerged ? `${branch} was already in ${r.into}` : `Merged ${branch} into ${r.into}`}${r.switched ? ` · switched to ${r.into}` : ""}${r.deleted ? " · branch deleted" : ""}${r.pushed ? " · pushed" : ""}${r.stayed ? ` · stayed put: ${r.stayed}` : ""}`,
   });
+  const run = () =>
+    merge.mutate(
+      { projectId: pid, branch, into: base, deleteBranch: opts.deleteBranch, squash: opts.squash, squashAi: opts.squashMessage === "ai", rebase: opts.rebase, push: opts.push },
+      {
+        onSuccess: (r) => {
+          if (r.pushError) toast(`Merged, but pushing ${r.into} failed: ${r.pushError}`, "error");
+          if (r.deleted || r.switched) onDeleted(r.into);
+          onClose();
+        },
+      },
+    );
   return (
     <Modal
       title="Merge branch"
@@ -538,7 +555,7 @@ function MergeModal({
             <button
               className="btn btn-primary btn-md split-main"
               disabled={merge.isPending}
-              onClick={() => merge.mutate({ projectId: pid, branch, into: base, deleteBranch: del }, { onSuccess: (r) => { if (r.deleted || r.switched) onDeleted(r.into); onClose(); } })}
+              onClick={run}
             >
               {merge.isPending && <span className="spinner" />}
               Merge into {base}
@@ -570,15 +587,80 @@ function MergeModal({
         </>
       }
     >
+      <Seg
+        grid
+        label="How to merge"
+        value={opts.rebase ? "rebase" : "merge"}
+        onChange={(v) => set({ rebase: v === "rebase" })}
+        options={[{ value: "merge", label: "Merge commit" }, { value: "rebase", label: "Rebase & fast-forward" }]}
+      />
       <p style={{ margin: 0, lineHeight: 1.55 }}>
-        Creates a merge commit on <span className="mono">{base}</span>, then switches to it. If {base} is checked out, it must have no uncommitted changes.
+        {opts.rebase ? (
+          <>Replays <span className="mono">{branch}</span> on top of <span className="mono">{base}</span>, then fast-forwards {base} to it: no merge commit.</>
+        ) : (
+          <>Creates a merge commit on <span className="mono">{base}</span>.</>
+        )}{" "}
+        Then switches to {base}. Where {base}{opts.rebase ? ` or ${branch}` : ""} is checked out, it must have no uncommitted changes.
         Nothing changes when the merge would conflict: rebase onto {base} and resolve first.
       </p>
       {merge.error && <ErrorBox error={merge.error} />}
-      <label className="check">
-        <input type="checkbox" checked={del} onChange={() => setDel(!del)} />
-        <span>Delete <span className="mono">{branch}</span> after merging</span>
-      </label>
+      <div className="col" style={{ gap: 0 }}>
+        <label className="check">
+          <input type="checkbox" checked={opts.squash} onChange={() => set({ squash: !opts.squash })} />
+          <span>Squash <span className="mono">{branch}</span> into one renamed commit first</span>
+        </label>
+        {opts.squash && (
+          <div style={{ margin: "2px 0 6px 26px" }}>
+            <Seg
+              grid
+              label="Squashed commit summary"
+              value={opts.squashMessage}
+              onChange={(v) => set({ squashMessage: v })}
+              options={[
+                { value: "branch", label: <span className="mono ellipsis">squash | {branch.replace(/-/g, " ")}</span> },
+                { value: "ai", label: <span className="row" style={{ gap: 6, justifyContent: "center" }}><Icon name="sparkle" size={11} />AI writes it</span> },
+              ]}
+            />
+          </div>
+        )}
+        <label className="check">
+          <input type="checkbox" checked={opts.deleteBranch} onChange={() => set({ deleteBranch: !opts.deleteBranch })} />
+          <span>Delete <span className="mono">{branch}</span> after merging</span>
+        </label>
+        <label className="check">
+          <input type="checkbox" checked={opts.push} onChange={() => set({ push: !opts.push })} />
+          <span>Push <span className="mono">{base}</span> to origin after merging</span>
+        </label>
+      </div>
+    </Modal>
+  );
+}
+
+function ResetBranchModal({ pid, view, onClose }: { pid: string; view: BranchView; onClose: () => void }) {
+  const { name: branch, upstream } = view;
+  const reset = useAction("branches.reset", { invalidate: [["overview", pid], ["files", pid], ["diff", pid], ["commits", pid]], success: `Reset ${branch} to ${upstream}` });
+  return (
+    <Modal
+      title="Reset to origin"
+      sub={<span className="mono">{branch}</span>}
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn btn-md" onClick={onClose}>Cancel</button>
+          <button className="btn btn-md btn-danger" disabled={reset.isPending} onClick={() => reset.mutate({ projectId: pid, branch }, { onSuccess: onClose })}>
+            {reset.isPending && <span className="spinner" />}
+            Reset branch
+          </button>
+        </>
+      }
+    >
+      <p style={{ margin: 0, lineHeight: 1.55 }}>
+        Moves <span className="mono">{branch}</span> to exactly where <span className="mono">{upstream}</span> is
+        {view.upstreamBehind > 0 && <>, taking its {plural(view.upstreamBehind, "new commit")}</>}.
+        {view.upstreamAhead > 0 && <> The {plural(view.upstreamAhead, "local commit")} not on origin {view.upstreamAhead === 1 ? "is" : "are"} dropped.</>}
+        {view.checkedOut && <> Uncommitted changes in its checkout are lost{view.wip > 0 && <> ({plural(view.wip, "file")})</>}.</>} This cannot be undone.
+      </p>
+      {reset.error && <ErrorBox error={reset.error} />}
     </Modal>
   );
 }
@@ -759,6 +841,12 @@ function CommitBox({ pid, branch, enabled, staged, changed }: { pid: string; bra
     success: (r) => `${r.aiWritten ? "AI wrote: " : "Committed: "}${r.message.split("\n")[0]}`,
   });
   const draft = useAction<{ message: string }>("workspace.commitMessage");
+  const nav = useNav();
+  // Saved with the project, like the merge options.
+  const { commit: prefs, setCommit } = useProjectPrefs(pid);
+  const autoPush = prefs.autoPush;
+  const push = useAction("workspace.push", { invalidate: inv, success: `Pushed ${branch}` });
+  const [more, setMore] = useState<{ x: number; y: number } | null>(null);
   return (
     <div className="col" style={{ padding: 12, borderTop: "1px solid var(--line)" }}>
       <div className="row faint" style={{ justifyContent: "space-between", fontSize: 11 }}>
@@ -798,12 +886,41 @@ function CommitBox({ pid, branch, enabled, staged, changed }: { pid: string; bra
           onChange={(e) => setBody(e.target.value)}
         />
       </div>}
-      <button className="btn btn-primary" style={{ height: 34, width: "100%" }} disabled={!canType || orphanBody || commit.isPending}
-        title={orphanBody ? "Add a summary to go with the description" : undefined}
-        onClick={() => commit.mutate({ projectId: pid, branch, message, all }, { onSuccess: clear })}>
-        <Busy on={commit.isPending}><Icon name="sparkle" size={12} /></Busy>
-        <span>{all ? "Stage all & Commit" : "Commit"}<span style={{ fontWeight: 400, opacity: 0.75, marginLeft: 6 }}>{all ? changed || null : staged}</span></span>
-      </button>
+      <span className="split" style={{ display: "flex", width: "100%" }}>
+        <button className="btn btn-primary split-main" style={{ height: 34, flex: "1 1 auto" }} disabled={!canType || orphanBody || commit.isPending || push.isPending}
+          title={orphanBody ? "Add a summary to go with the description" : undefined}
+          onClick={() => commit.mutate({ projectId: pid, branch, message, all }, { onSuccess: () => { clear(); if (autoPush) push.mutate({ projectId: pid, branch }); } })}>
+          <Busy on={commit.isPending || push.isPending}><Icon name="sparkle" size={12} /></Busy>
+          <span>{all ? "Stage all & Commit" : "Commit"}<span style={{ fontWeight: 400, opacity: 0.75, marginLeft: 6 }}>{all ? changed || null : staged}</span></span>
+        </button>
+        <button
+          className="btn btn-primary btn-icon split-more"
+          style={{ height: 34, width: 34 }}
+          aria-label="Commit options"
+          data-tip="Commit options"
+          aria-haspopup="menu"
+          onClick={(e) => {
+            const r = e.currentTarget.getBoundingClientRect();
+            setMore({ x: r.right, y: r.bottom + 2 });
+          }}
+        >
+          <Icon name="more" size={14} />
+        </button>
+      </span>
+      {more && (
+        <ContextMenu
+          x={more.x}
+          y={more.y}
+          alignRight
+          label="Commit options"
+          items={[
+            { id: "push", label: "Auto push commits", icon: autoPush ? "check" : undefined, hint: autoPush ? "on" : "off", run: () => setCommit({ autoPush: !autoPush }) },
+            "sep",
+            { id: "templates", label: "Show AI templates", icon: "sparkle", run: () => nav.go({ name: "templates" }) },
+          ]}
+          onClose={() => setMore(null)}
+        />
+      )}
     </div>
   );
 }

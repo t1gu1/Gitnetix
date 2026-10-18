@@ -7,9 +7,11 @@ import type {
   AiCatalog,
   Analytics,
   Commit,
+  CommitPrefs,
   Config,
   FileChange,
   Hunk,
+  MergePrefs,
   Overview,
   PrDetail,
   PrSummary,
@@ -65,6 +67,35 @@ export function useEngineEvents() {
       }),
     [qc],
   );
+}
+
+const MERGE_DEFAULTS: MergePrefs = { squash: false, squashMessage: "branch", rebase: false, deleteBranch: true, push: false };
+const COMMIT_DEFAULTS: CommitPrefs = { autoPush: false };
+
+type PrefsPatch = { merge?: Partial<MergePrefs>; commit?: Partial<CommitPrefs> };
+
+/** A project's remembered merge and commit options. Changes show at once, then save. */
+export function useProjectPrefs(projectId?: string) {
+  const qc = useQueryClient();
+  const project = useConfig().data?.projects.find((p) => p.id === projectId);
+  const save = useMutation<unknown, Error, PrefsPatch>({
+    mutationFn: (patch) => rpc("projects.setPrefs", { projectId, ...patch }),
+    onMutate: (patch) =>
+      qc.setQueryData<Config>(["config"], (c) =>
+        c && {
+          ...c,
+          projects: c.projects.map((p) => (p.id === projectId ? { ...p, merge: { ...MERGE_DEFAULTS, ...p.merge, ...patch.merge }, commit: { ...COMMIT_DEFAULTS, ...p.commit, ...patch.commit } } : p)),
+        },
+      ),
+    onError: (e) => toast(e.message, "error"),
+    onSettled: () => qc.invalidateQueries({ queryKey: ["config"] }),
+  });
+  return {
+    merge: { ...MERGE_DEFAULTS, ...project?.merge },
+    commit: { ...COMMIT_DEFAULTS, ...project?.commit },
+    setMerge: (merge: Partial<MergePrefs>) => save.mutate({ merge }),
+    setCommit: (commit: Partial<CommitPrefs>) => save.mutate({ commit }),
+  };
 }
 
 export const useConfig = () => useQuery({ queryKey: ["config"], queryFn: () => rpc<Config>("config.get") });

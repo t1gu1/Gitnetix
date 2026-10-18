@@ -23,6 +23,23 @@ export interface Hunk {
   lines: DiffLine[];
 }
 
+export interface MergePrefs {
+  /** Squash the branch into one commit first. */
+  squash: boolean;
+  /** Who writes the squashed commit's message: "squash | <branch>", or AI. */
+  squashMessage: "branch" | "ai";
+  /** Rebase and fast-forward instead of a merge commit. */
+  rebase: boolean;
+  deleteBranch: boolean;
+  /** Push the target to origin after. */
+  push: boolean;
+}
+
+export interface CommitPrefs {
+  /** Push the branch after each commit. */
+  autoPush: boolean;
+}
+
 export interface GenLangs {
   commit: string;
   pr: string;
@@ -54,6 +71,8 @@ export interface Project {
   path: string;
   profileId?: string | null;
   genLang: GenLangs;
+  merge: MergePrefs;
+  commit: CommitPrefs;
   releases: Release[];
   branches: Record<string, BranchMeta>;
   ticketReleases: Record<string, string>;
@@ -133,6 +152,10 @@ export interface MergeResult {
   switched: boolean;
   /** Why the main checkout didn't move to `into`. */
   stayed?: string | null;
+  /** `into` was pushed to origin after the merge. */
+  pushed: boolean;
+  /** Why pushing `into` failed (the merge itself went through). */
+  pushError?: string | null;
 }
 
 export interface ReleaseView {
@@ -217,7 +240,13 @@ export interface Config {
     trello?: { apiKey: string; boardId?: string | null } | null;
     asana?: { workspaceGid: string; projectGid?: string | null } | null;
   };
-  ui: { language: string; theme: string; lastProject?: string | null };
+  ui: {
+    language: string;
+    theme: string;
+    lastProject?: string | null;
+    /** How the screens were left (pane widths, collapsed sections…), by key. */
+    view: Record<string, string>;
+  };
   server: { enabled: boolean; port: number; lan: boolean; token: string };
 }
 

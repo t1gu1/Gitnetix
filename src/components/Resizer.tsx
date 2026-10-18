@@ -2,7 +2,7 @@ import { useRef, type KeyboardEvent, type PointerEvent } from "react";
 
 import { useStored } from "../lib/stored";
 
-/** A pane width the viewer can drag, kept in this browser between sessions. */
+/** A pane width the viewer can drag, kept between sessions. */
 export function usePaneWidth(key: string, def: number, min: number, max: number) {
   const clamp = (v: number) => Math.round(Math.min(max, Math.max(min, v)));
   const [width, setWidth] = useStored(key, def, (s) => clamp(Number(s)) || def, String);

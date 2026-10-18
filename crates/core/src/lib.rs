@@ -15,6 +15,7 @@ pub mod secrets;
 pub mod store;
 pub mod templates;
 pub mod tickets;
+pub mod watch;
 
 pub use app::Gitnetix;
 pub use error::{Error, ErrorBody, Result};

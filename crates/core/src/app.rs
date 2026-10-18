@@ -29,6 +29,8 @@ pub struct Gitnetix {
     pub dir: PathBuf,
     /// Branches the git host protects, per project, with when they were looked up.
     protected: std::sync::Mutex<HashMap<String, (Instant, Vec<String>)>>,
+    /// Watches the projects' git dirs for changes made outside Gitnetix.
+    watcher: std::sync::Mutex<Option<notify::RecommendedWatcher>>,
 }
 
 /// How long the git host's protected branches are trusted before asking again.
@@ -224,6 +226,21 @@ pub struct Skipped {
     pub reason: String,
 }
 
+/// How [`Gitnetix::merge_branch`] lands a branch.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct MergeOptions {
+    /// Collapse the branch's commits into one first.
+    pub squash: bool,
+    /// AI writes the squashed commit's message (else "squash | <branch>").
+    pub squash_ai: bool,
+    /// Rebase the branch onto the target and fast-forward the target, instead of a merge commit.
+    pub rebase: bool,
+    /// Delete the (local) branch afterwards.
+    pub delete_after: bool,
+    /// Push the target to origin afterwards.
+    pub push: bool,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MergeResult {
@@ -236,6 +253,10 @@ pub struct MergeResult {
     pub switched: bool,
     /// Why the main checkout didn't move to `into` when it should have.
     pub stayed: Option<String>,
+    /// `into` was pushed to origin after the merge.
+    pub pushed: bool,
+    /// Why pushing `into` failed (the merge itself went through).
+    pub push_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -365,7 +386,18 @@ impl Gitnetix {
         let store = Store::open(dir)?;
         let (events, _) = broadcast::channel(1024);
         let agents = AgentManager::new(events.clone(), dir);
-        Ok(Arc::new(Gitnetix { store, agents, events, dir: dir.to_path_buf(), protected: Default::default() }))
+        let k = Arc::new(Gitnetix { store, agents, events, dir: dir.to_path_buf(), protected: Default::default(), watcher: Default::default() });
+        k.rewatch();
+        Ok(k)
+    }
+
+    /// Watch the git dirs of the current projects, replacing the previous watch.
+    fn rewatch(&self) {
+        let projects = self.store.read(|c| c.projects.clone());
+        let mut w = self.watcher.lock().unwrap();
+        // Stop the old one first so a repo is never watched twice.
+        *w = None;
+        *w = crate::watch::watch(&projects, self.events.clone());
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<Event> {
@@ -565,6 +597,7 @@ impl Gitnetix {
             })?;
             added.push(project);
         }
+        self.rewatch();
         self.config_changed();
         Ok(added)
     }
@@ -602,6 +635,7 @@ impl Gitnetix {
             c.projects.retain(|p| p.id != id);
             Ok(())
         })?;
+        self.rewatch();
         self.config_changed();
         Ok(())
     }
@@ -1434,11 +1468,33 @@ impl Gitnetix {
         Ok(out)
     }
 
-    /// Merge a branch into its base (its release, else its parent) with a
-    /// merge commit. Works whether or not the base is checked out; stops
-    /// before touching anything when the merge would conflict.
+    /// Move a branch to exactly where its upstream is, dropping local commits. In its
+    /// checkout this is a hard reset (uncommitted changes are lost too); elsewhere the ref just moves.
+    pub async fn reset_to_upstream(&self, project_id: &str, branch: &str) -> Result<()> {
+        let p = self.store.project(project_id)?;
+        let git = self.git(&p);
+        let upstream = git
+            .branches()
+            .await?
+            .into_iter()
+            .find(|b| b.name == branch)
+            .ok_or_else(|| Error::NotFound(format!("branch {branch}")))?
+            .upstream
+            .ok_or_else(|| Error::Invalid(format!("{branch} has no upstream to reset to.")))?;
+        let sha = git.rev_parse(&upstream).await?;
+        match self.checkout_dir(&p, branch).await? {
+            Some(dir) => self.git_at(&p, &dir).reset(&sha, "hard").await?,
+            None => git.update_ref(&format!("refs/heads/{branch}"), &sha).await?,
+        }
+        self.changed(project_id);
+        Ok(())
+    }
+
+    /// Merge a branch into its base (its release, else its parent). Works whether or not
+    /// the base is checked out; stops before touching anything when the merge would conflict.
     /// `into` overrides the target (any other local branch); by default it is the branch's base.
-    pub async fn merge_branch(&self, project_id: &str, branch: &str, into: Option<&str>, delete_after: bool) -> Result<MergeResult> {
+    /// See [`MergeOptions`] for squashing first, rebasing instead of a merge commit, and pushing.
+    pub async fn merge_branch(&self, project_id: &str, branch: &str, into: Option<&str>, opts: MergeOptions) -> Result<MergeResult> {
         let p = self.store.project(project_id)?;
         let git = self.git(&p);
         let default = git.default_branch().await?;
@@ -1451,7 +1507,7 @@ impl Gitnetix {
         }
         // Deleting the branch the main checkout is on means moving that checkout to `into`:
         // make sure that can happen before merging anything.
-        let must_switch = delete_after && self.checkout_dir(&p, branch).await?.is_some_and(|d| d == Path::new(&p.path));
+        let must_switch = opts.delete_after && self.checkout_dir(&p, branch).await?.is_some_and(|d| d == Path::new(&p.path));
         let into_dir = self.checkout_dir(&p, &into).await?;
         if must_switch {
             if let Some(dir) = &into_dir {
@@ -1461,7 +1517,13 @@ impl Gitnetix {
                 )));
             }
         }
-        let (sha, already_merged) = self.merge_refs(&p, branch, &into).await?;
+        if opts.squash && !git.is_ancestor(branch, &into).await.unwrap_or(false) {
+            // Squashing rewrites the branch: check everything that could stop the merge first,
+            // so a refusal never leaves it squashed but not merged.
+            self.check_mergeable(&p, branch, &into, opts.rebase).await?;
+            self.squash_branch(&p, branch, &into, opts.squash_ai).await?;
+        }
+        let (sha, already_merged) = if opts.rebase { self.rebase_ff(&p, branch, &into).await? } else { self.merge_refs(&p, branch, &into).await? };
         self.changed(project_id);
         // Land the main checkout on the branch that got the changes, unless it's already there
         // or `into` is open in another worktree (a branch can't be checked out twice).
@@ -1484,10 +1546,128 @@ impl Gitnetix {
         if switched {
             self.changed(project_id);
         }
-        if delete_after {
+        if opts.delete_after {
             self.delete_branch(project_id, branch, false, false).await?;
         }
-        Ok(MergeResult { into, sha, already_merged, deleted: delete_after, switched, stayed })
+        // The merge stands even when the push doesn't: report it rather than fail.
+        let push_error = if opts.push {
+            let tracked = git.ref_exists(&format!("refs/remotes/origin/{into}")).await.unwrap_or(false);
+            let res = git.push(&into, !tracked).await.err().map(|e| e.to_string());
+            self.changed(project_id);
+            res
+        } else {
+            None
+        };
+        let pushed = opts.push && push_error.is_none();
+        Ok(MergeResult { into, sha, already_merged, deleted: opts.delete_after, switched, stayed, pushed, push_error })
+    }
+
+    /// Refuse up front what would stop a squash or rebase merge halfway: conflicts,
+    /// and uncommitted changes where the rebase or the fast-forward has to run.
+    async fn check_mergeable(&self, p: &Project, from: &str, into: &str, rebase: bool) -> Result<()> {
+        let git = self.git(p);
+        for b in [from, into] {
+            if !git.ref_exists(&format!("refs/heads/{b}")).await? {
+                return Err(Error::NotFound(format!("local branch {b}")));
+            }
+        }
+        if let Err(files) = git.merge_tree(into, from).await? {
+            return Err(Error::Invalid(format!("Merging {from} into {into} conflicts in {}. Rebase onto the base and resolve first.", files.join(", "))));
+        }
+        let mut dirs = vec![(into, self.checkout_dir(p, into).await?)];
+        if rebase {
+            dirs.push((from, self.checkout_dir(p, from).await?));
+        }
+        for (b, dir) in dirs {
+            if let Some(dir) = dir {
+                let g = self.git_at(p, &dir);
+                if g.is_rebasing().await? || !g.wip_changes().await?.is_empty() {
+                    return Err(Error::Invalid(format!("{b} has uncommitted changes at {}", dir.display())));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Collapse `branch`'s commits since it left `onto` into one, its files unchanged.
+    /// Only the ref moves, so a checkout of it stays as it was. The message is
+    /// "squash | <branch>" with the squashed subjects, or written by AI (`ai`).
+    async fn squash_branch(&self, p: &Project, branch: &str, onto: &str, ai: bool) -> Result<()> {
+        let git = self.git(p);
+        let base = git.merge_base(onto, branch).await?;
+        let range = format!("{base}..{branch}");
+        if git.count(&range).await? < 2 {
+            return Ok(());
+        }
+        // Written before anything moves: if AI fails, the branch is untouched.
+        let message = if ai {
+            let t = self.template("commit", None, Some(&p.id))?;
+            let ticket = p.branches.get(branch).and_then(|m| m.ticket.clone()).unwrap_or_else(|| "(none)".into());
+            let mut vars = BTreeMap::new();
+            vars.insert("diff".into(), git.range_diff(&range, 60_000).await?);
+            vars.insert("files".into(), git.run(&["diff", "--name-status", &range]).await?);
+            vars.insert("branch".into(), branch.to_string());
+            vars.insert("ticket".into(), ticket);
+            self.ask("commit", &t, vars, &p.gen_lang.commit, Some(Path::new(&p.path))).await?
+        } else {
+            let list: Vec<String> = git.subjects(&range).await?.iter().map(|s| format!("* {s}")).collect();
+            format!("{}\n\n{}", squash_title(branch), list.join("\n"))
+        };
+        let old = git.rev_parse(branch).await?;
+        let tree = git.rev_parse(&format!("{branch}^{{tree}}")).await?;
+        let commit = git.commit_tree(&tree, &[&base], &message).await?;
+        git.update_ref_from(&format!("refs/heads/{branch}"), &commit, &old).await?;
+        if ai {
+            self.store.with_project(&p.id, |p| {
+                p.ai_commits.push(commit.clone());
+                Ok(())
+            })?;
+        }
+        Ok(())
+    }
+
+    /// Rebase `from` onto `into`, then fast-forward `into` to it. Returns (new tip, already merged).
+    async fn rebase_ff(&self, p: &Project, from: &str, into: &str) -> Result<(String, bool)> {
+        let git = self.git(p);
+        self.check_mergeable(p, from, into, true).await?;
+        if git.is_ancestor(from, into).await? {
+            return Ok((git.rev_parse(into).await?, true));
+        }
+        if !git.is_ancestor(into, from).await? {
+            let conflict = || Error::Invalid(format!("Rebasing {from} onto {into} stopped on conflicts. Rebase it by hand and resolve first."));
+            match self.checkout_dir(p, from).await? {
+                Some(dir) => {
+                    let g = self.git_at(p, &dir);
+                    if !g.rebase(into).await? {
+                        g.rebase_abort().await?;
+                        return Err(conflict());
+                    }
+                }
+                // Not checked out anywhere: rebase it in a throwaway worktree.
+                None => {
+                    let tmp = std::env::temp_dir().join(format!("gitnetix-rebase-{}", new_id()));
+                    git.worktree_add(&tmp, from, None).await?;
+                    let g = self.git_at(p, &tmp);
+                    let done = g.rebase(into).await;
+                    if matches!(done, Ok(false)) {
+                        let _ = g.rebase_abort().await;
+                    }
+                    git.worktree_remove(&tmp, true).await?;
+                    if !done? {
+                        return Err(conflict());
+                    }
+                }
+            }
+        }
+        let tip = git.rev_parse(from).await?;
+        match self.checkout_dir(p, into).await? {
+            Some(dir) => self.git_at(p, &dir).merge_ff_only(from).await?,
+            None => {
+                let old = git.rev_parse(into).await?;
+                git.update_ref_from(&format!("refs/heads/{into}"), &tip, &old).await?;
+            }
+        }
+        Ok((tip, false))
     }
 
     /// Bring a branch up to date with its base by merging the base into it
@@ -1502,7 +1682,7 @@ impl Gitnetix {
         }
         let (sha, already_merged) = self.merge_refs(&p, &from, branch).await?;
         self.changed(project_id);
-        Ok(MergeResult { into: branch.to_string(), sha, already_merged, deleted: false, switched: false, stayed: None })
+        Ok(MergeResult { into: branch.to_string(), sha, already_merged, deleted: false, switched: false, stayed: None, pushed: false, push_error: None })
     }
 
     /// Merge commit of `from` into local branch `into`. Returns (new tip, already merged).
@@ -2115,6 +2295,11 @@ fn commit_lines(commits: &[crate::git::Commit]) -> String {
         .join("\n")
 }
 
+/// Summary of a squashed branch: "squash | feat/add login" for `feat/add-login`.
+fn squash_title(branch: &str) -> String {
+    format!("squash | {}", branch.replace('-', " "))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2133,5 +2318,10 @@ mod tests {
         assert_eq!(normalize_kind("wip"), None);
         assert!(!valid_branch_name("feat/ bad"));
         assert!(!valid_branch_name("feat/.."));
+    }
+
+    #[test]
+    fn squash_title_drops_dashes() {
+        assert_eq!(squash_title("feat/add-login-page"), "squash | feat/add login page");
     }
 }
