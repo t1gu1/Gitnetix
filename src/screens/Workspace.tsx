@@ -4,6 +4,7 @@ import { useAction, useAgents, useAiCatalog, useDiff, useFiles, useOverview } fr
 import type { BranchView, Commit, FileChange, MergeResult, ReleaseView } from "../api/types";
 import { AgentLog } from "../components/AgentLog";
 import { DiffView } from "../components/DiffView";
+import { ContextMenu } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
 import { Resizer, usePaneWidth } from "../components/Resizer";
 import { Busy, ErrorBox, Loading, Modal, Seg } from "../components/ui";
@@ -280,7 +281,16 @@ export function Workspace() {
       {actions.menuEl}
       {dialog?.kind === "conflicts" && <ConflictModal pid={pid} branch={dialog.branch} base={baseFor(dialog.branch)} onClose={() => setDialog(null)} />}
       {dialog?.kind === "merge" && dialogView && (
-        <MergeModal pid={pid} branch={dialog.branch} base={baseFor(dialog.branch)} onClose={() => setDialog(null)} checkedOut={dialogView.checkedOut && !dialogView.worktree} onDeleted={(into) => dialog.branch === branch && nav.selectBranch(into)} />
+        <MergeModal
+          pid={pid}
+          branch={dialog.branch}
+          base={baseFor(dialog.branch)}
+          // Any other local branch can take it: releases first, then trunks, then work branches.
+          others={(o?.branches ?? [])
+            .filter((x) => x.local && x.name !== dialog.branch)
+            .sort((a, b) => ["release", "trunk", "branch"].indexOf(a.role) - ["release", "trunk", "branch"].indexOf(b.role))
+            .map((x) => x.name)}
+          onClose={() => setDialog(null)} onDeleted={(into) => dialog.branch === branch && nav.selectBranch(into)} />
       )}
       {dialog?.kind === "delete" && dialogView && (
         <DeleteBranchModal
@@ -482,11 +492,28 @@ function FileRow({ f, active, onPick, actions }: { f: FileChange; active: boolea
   );
 }
 
-function MergeModal({ pid, branch, base, checkedOut, onClose, onDeleted }: { pid: string; branch: string; base: string; checkedOut: boolean; onClose: () => void; onDeleted: (into: string) => void }) {
+function MergeModal({
+  pid,
+  branch,
+  base: defaultBase,
+  others,
+  onClose,
+  onDeleted,
+}: {
+  pid: string;
+  branch: string;
+  base: string;
+  /** Every other branch it could merge into instead. */
+  others: string[];
+  onClose: () => void;
+  onDeleted: (into: string) => void;
+}) {
   const [del, setDel] = useState(false);
+  const [base, setBase] = useState(defaultBase);
+  const [pick, setPick] = useState<{ x: number; y: number } | null>(null);
   const merge = useAction<MergeResult>("branches.merge", {
     invalidate: [["overview", pid], ["files", pid], ["diff", pid]],
-    success: (r) => `${r.alreadyMerged ? `${branch} was already in ${r.into}` : `Merged ${branch} into ${r.into}`}${r.switched ? ` · switched to ${r.into}` : ""}${r.deleted ? " · branch deleted" : ""}`,
+    success: (r) => `${r.alreadyMerged ? `${branch} was already in ${r.into}` : `Merged ${branch} into ${r.into}`}${r.switched ? ` · switched to ${r.into}` : ""}${r.deleted ? " · branch deleted" : ""}${r.stayed ? ` · stayed put: ${r.stayed}` : ""}`,
   });
   return (
     <Modal
@@ -496,25 +523,50 @@ function MergeModal({ pid, branch, base, checkedOut, onClose, onDeleted }: { pid
       footer={
         <>
           <button className="btn btn-md" onClick={onClose}>Cancel</button>
-          <button
-            className="btn btn-primary btn-md"
-            disabled={merge.isPending}
-            onClick={() => merge.mutate({ projectId: pid, branch, deleteBranch: del }, { onSuccess: (r) => { if (r.deleted) onDeleted(r.into); onClose(); } })}
-          >
-            {merge.isPending && <span className="spinner" />}
-            Merge into {base}
-          </button>
+          <span className="split">
+            <button
+              className="btn btn-primary btn-md split-main"
+              disabled={merge.isPending}
+              onClick={() => merge.mutate({ projectId: pid, branch, into: base, deleteBranch: del }, { onSuccess: (r) => { if (r.deleted || r.switched) onDeleted(r.into); onClose(); } })}
+            >
+              {merge.isPending && <span className="spinner" />}
+              Merge into {base}
+            </button>
+            <button
+              className="btn btn-primary btn-md btn-icon split-more"
+              aria-label="Merge into another branch"
+              data-tip="Merge into another branch"
+              aria-haspopup="menu"
+              disabled={merge.isPending || !others.length}
+              onClick={(e) => {
+                const r = e.currentTarget.getBoundingClientRect();
+                setPick({ x: r.right, y: r.bottom + 2 });
+              }}
+            >
+              <Icon name="chevronDown" size={13} />
+            </button>
+          </span>
+          {pick && (
+            <ContextMenu
+              x={pick.x}
+              y={pick.y}
+              alignRight
+              label="Merge into"
+              items={others.map((b) => ({ id: b, label: <span className="mono">{b}</span>, icon: b === base ? "check" : undefined, hint: b === defaultBase ? "its base" : undefined, run: () => setBase(b) }))}
+              onClose={() => setPick(null)}
+            />
+          )}
         </>
       }
     >
       <p style={{ margin: 0, lineHeight: 1.55 }}>
-        Creates a merge commit on <span className="mono">{base}</span> — no need to check it out. If {base} is checked out, it must have no uncommitted changes.
+        Creates a merge commit on <span className="mono">{base}</span>, then switches to it. If {base} is checked out, it must have no uncommitted changes.
         Nothing changes when the merge would conflict: rebase onto {base} and resolve first.
       </p>
       {merge.error && <ErrorBox error={merge.error} />}
       <label className="check">
         <input type="checkbox" checked={del} onChange={() => setDel(!del)} />
-        <span>Delete <span className="mono">{branch}</span> after merging{checkedOut ? <> and switch to <span className="mono">{base}</span></> : null}</span>
+        <span>Delete <span className="mono">{branch}</span> after merging</span>
       </label>
     </Modal>
   );

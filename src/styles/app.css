@@ -267,7 +267,9 @@ button.tree-twist:hover { color: var(--fg); }
 .split-main { border-top-right-radius: 0; border-bottom-right-radius: 0; }
 .split-mid { margin-left: -1px; border-radius: 0; }
 .split-more { margin-left: -1px; border-top-left-radius: 0; border-bottom-left-radius: 0; }
-.ctx-menu { position: fixed; z-index: 45; min-width: 220px; max-width: min(320px, calc(100vw - 16px)); padding: 4px; display: flex; flex-direction: column; background: var(--raised); border: 1px solid var(--line); border-radius: 6px; box-shadow: var(--shadow); }
+/* Primary buttons have no border: a darker accent hairline splits the arrow from the main button. */
+.btn-primary.split-more { margin-left: 0; border-left: 1px solid color-mix(in srgb, var(--accent) 80%, #000); }
+.ctx-menu { position: fixed; z-index: 60; min-width: 220px; max-width: min(320px, calc(100vw - 16px)); padding: 4px; display: flex; flex-direction: column; background: var(--raised); border: 1px solid var(--line); border-radius: 6px; box-shadow: var(--shadow); }
 .tip { position: fixed; z-index: 70; max-width: min(320px, calc(100vw - 16px)); padding: 5px 9px; border: 1px solid var(--line); border-radius: 4px; background: var(--raised); color: var(--fg); box-shadow: var(--shadow); font-size: 12px; line-height: 1.4; white-space: pre-line; overflow-wrap: anywhere; pointer-events: none; animation: tip-in 110ms ease-out; }
 .tip::after { content: ""; position: absolute; left: calc(var(--tip-arrow, 50%) - 4px); width: 7px; height: 7px; background: var(--raised); border: 1px solid var(--line); transform: rotate(45deg); }
 .tip[data-side="top"]::after { bottom: -5px; border-top: 0; border-left: 0; }
