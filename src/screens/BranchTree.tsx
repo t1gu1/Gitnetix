@@ -19,17 +19,16 @@ function useToggles(pid: string) {
   return { isOpen, toggle };
 }
 
-/** Children of a branch, in display order: releases, trunks, active work by recency; merged ones apart. Shipped release branches sit apart too. */
+/**
+ * Children of a branch, in display order: releases, trunks, active work by recency; merged ones apart.
+ * Shipped release branches move to the Shipped section, unless that section doesn't list them or
+ * the checked-out branch or unmerged work sits below them.
+ */
 function childrenOf(o: Overview) {
   const names = new Set(o.branches.map((b) => b.name));
   const kids = new Map<string, BranchView[]>();
   const roots: BranchView[] = [];
-  const shipped = new Map<string, BranchView>();
   for (const b of o.branches) {
-    if (b.shipped) {
-      shipped.set(b.shipped, b);
-      continue;
-    }
     // A parent that no longer exists hands its children to the default branch.
     const p = b.parent ? (names.has(b.parent) ? b.parent : o.defaultBranch) : null;
     if (!p || p === b.name || !names.has(p)) roots.push(b);
@@ -41,9 +40,15 @@ function childrenOf(o: Overview) {
   const relOrder = (b: BranchView) => o.releases.findIndex((r) => r.open && r.branch === b.name);
   const rank = (b: BranchView) => (b.role === "release" ? 0 : b.role === "trunk" ? 1 : b.exists ? 2 : 3);
   const order = (a: BranchView, b: BranchView) => rank(a) - rank(b) || relOrder(a) - relOrder(b) || time(b) - time(a) || a.name.localeCompare(b.name);
-  for (const list of kids.values()) list.sort(order);
-  roots.sort((a, b) => (a.name === o.defaultBranch ? -1 : b.name === o.defaultBranch ? 1 : order(a, b)));
-  return { roots, shipped, kids: (name: string) => kids.get(name) ?? [] };
+  const listed = new Set(o.releases.filter((r) => !r.open).map((r) => r.version));
+  const inUse = (b: BranchView): boolean => b.name === o.currentBranch || (kids.get(b.name) ?? []).some((c) => !c.merged || inUse(c));
+  const shipped = new Map<string, BranchView>();
+  for (const b of o.branches) if (b.shipped && listed.has(b.shipped) && !inUse(b)) shipped.set(b.shipped, b);
+  const inTree = (b: BranchView) => !(b.shipped && shipped.get(b.shipped) === b);
+  for (const [p, list] of kids) kids.set(p, list.filter(inTree).sort(order));
+  const tops = roots.filter(inTree);
+  tops.sort((a, b) => (a.name === o.defaultBranch ? -1 : b.name === o.defaultBranch ? 1 : order(a, b)));
+  return { roots: tops, shipped, kids: (name: string) => kids.get(name) ?? [] };
 }
 
 function look(b: BranchView, isDefault: boolean, shipped: boolean): { icon: string; cls: string } {

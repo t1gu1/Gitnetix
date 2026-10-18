@@ -35,12 +35,16 @@ export function withPrefix(name: string, kind: Kind): string {
   return n.includes("/") ? n : `${kind}/${n}`;
 }
 
-/** Starts the part after the prefix with the ticket key and an underscore (`feat/ATL-212_login`); a key already there is not repeated. */
+/**
+ * Starts the part after the prefix with the ticket key and an underscore (`feat/ATL-212_login`); a key already there is not repeated.
+ * Preview of the backend's `with_ticket`, which applies it again on create: keep the two in step.
+ */
 export function withTicket(branch: string, ticket: string): string {
-  const t = ticket.trim().replace(/\s/g, "-");
+  const t = ticket.trim().replace(/\s/g, "-").replace(/[^A-Za-z0-9._-]/g, "").replace(/^[-_.]+|[-_.]+$/g, "");
   if (!branch || !t) return branch;
   const i = branch.indexOf("/") + 1;
   let rest = branch.slice(i);
+  if (rest.toLowerCase() === t.toLowerCase()) return `${branch.slice(0, i)}${t}`;
   if (rest.toLowerCase().startsWith(t.toLowerCase()) && /^[-_]/.test(rest.slice(t.length))) rest = rest.slice(t.length + 1);
   return `${branch.slice(0, i)}${t}_${rest}`;
 }

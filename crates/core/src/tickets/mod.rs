@@ -237,11 +237,12 @@ pub async fn asana(conf: &AsanaConf, token: &str) -> Result<Vec<Ticket>> {
 
 /// Ticket keys mentioned in text ("ATL-212", "Refs ATL-212").
 pub fn extract_keys(text: &str) -> Vec<String> {
-    let re = regex::Regex::new(r"\b[A-Z][A-Z0-9]{1,9}-\d+\b").expect("regex");
+    // Branch names put an underscore after the key (`feat/ATL-212_login`), and `_` is a word character.
+    let re = regex::Regex::new(r"\b([A-Z][A-Z0-9]{1,9}-\d+)(?:_|\b)").expect("regex");
     const NOT_TICKETS: &[&str] = &["UTF", "ISO", "SHA", "RFC", "HTTP", "TLS", "AES", "CVE", "MD", "X"];
     let mut v: Vec<String> = Vec::new();
-    for m in re.find_iter(text) {
-        let k = m.as_str();
+    for c in re.captures_iter(text) {
+        let k = &c[1];
         let prefix = k.split('-').next().unwrap_or("");
         if !NOT_TICKETS.contains(&prefix) && !v.iter().any(|x| x == k) {
             v.push(k.to_string());
@@ -257,6 +258,7 @@ mod tests {
     #[test]
     fn finds_keys() {
         assert_eq!(extract_keys("feat: x\n\nRefs ATL-212, see UTF-8"), vec!["ATL-212"]);
+        assert_eq!(extract_keys("Merge branch 'feat/ATL-212_login'"), vec!["ATL-212"]);
     }
 
     #[test]

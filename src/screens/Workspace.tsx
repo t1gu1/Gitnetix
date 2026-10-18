@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 
-import { useAction, useAgents, useAiCatalog, useDiff, useFiles, useOverview, useProjectPrefs } from "../api/hooks";
+import { useAction, useAgents, useAiOn, useDiff, useFiles, useOverview, useProjectPrefs } from "../api/hooks";
 import type { BranchView, CleanupResult, Commit, FileChange, MergeResult, ReleaseView } from "../api/types";
 import { AgentLog } from "../components/AgentLog";
 import { DiffView } from "../components/DiffView";
@@ -821,10 +821,7 @@ const MSG_OPEN_KEY = "gitnetix.commitMessageOpen";
 function CommitBox({ pid, branch, enabled, staged, changed }: { pid: string; branch: string; enabled: boolean; staged: number; changed: number }) {
   const [summary, setSummary] = useState("");
   const [body, setBody] = useState("");
-  const ai = useAiCatalog().data;
-  // Same lookup the backend does for the "commit" task: its route's provider, else the default.
-  const aiProvider = ai && (ai.routing.commit?.provider || ai.defaultProvider);
-  const aiOn = !ai || !!ai.providers.find((p) => p.info.id === aiProvider)?.conf;
+  const aiOn = useAiOn("commit");
   // null until the user toggles it; then their last choice wins over the AI-based default.
   const [picked, setPicked] = useStoredChoice(MSG_OPEN_KEY);
   const open = picked ?? !aiOn;

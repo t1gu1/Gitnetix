@@ -114,6 +114,9 @@ export const useSuggestedVersion = (projectId: string, kind: "next" | "hotfix", 
     queryKey: ["suggestVersion", projectId, kind],
     queryFn: () => rpc<{ version: string }>("releases.suggestVersion", { projectId, kind }),
     enabled,
+    // Tags and releases change behind it: ask again each time the dialog opens, never show an old answer.
+    staleTime: 0,
+    gcTime: 0,
   });
 
 /** `commit` lists that commit's files instead of the branch's. */
@@ -146,6 +149,13 @@ export const useWorktrees = () =>
   useQuery({ queryKey: ["worktrees"], queryFn: () => rpc<WorktreeView[]>("worktrees.list"), refetchInterval: 10_000 });
 
 export const useAiCatalog = () => useQuery({ queryKey: ["ai"], queryFn: () => rpc<AiCatalog>("ai.catalog") });
+
+/** Whether AI can run `task`: same lookup the backend does, its route's provider else the default. True while loading. */
+export function useAiOn(task: string): boolean {
+  const ai = useAiCatalog().data;
+  const provider = ai && (ai.routing[task]?.provider || ai.defaultProvider);
+  return !ai || !!ai.providers.find((p) => p.info.id === provider)?.conf;
+}
 
 export const useTemplates = () =>
   useQuery({

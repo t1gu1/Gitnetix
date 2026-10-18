@@ -58,7 +58,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
   const mutations = [sw, wt, pull, push, rebase, sync, stash, pr];
   // Pushes started elsewhere count too: the commit box's auto push spins the branch's Push button.
   const pushing = usePendingBranches("workspace.push", pid);
-  const busy = mutations.find((m) => m.isPending)?.variables?.branch ?? pushing[0];
+  const busy = new Set([...mutations.flatMap((m) => (m.isPending && m.variables?.branch ? [m.variables.branch] : [])), ...pushing]);
   const run = (m: BranchMutation, branch: string, ok: string) => m.mutate({ projectId: pid, branch }, { onSuccess: () => toast(ok, "ok") });
 
   const all = (t: BranchTarget) => {
@@ -260,7 +260,7 @@ export type BranchActions = ReturnType<typeof useBranchActions>;
 export function BranchSplit({ t, actions, size = "sm" }: { t: BranchTarget; actions: BranchActions; size?: "sm" | "md" }) {
   const p = actions.primary(t);
   const add = actions.create(t);
-  const busy = actions.busy === t.view.name;
+  const busy = actions.busy.has(t.view.name);
   const cls = size === "sm" ? "btn btn-sm" : "btn";
   return (
     <span className="split" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>

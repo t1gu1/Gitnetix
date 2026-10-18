@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { useAction, useOverview, useSuggestedVersion } from "../api/hooks";
+import { useAction, useAiOn, useOverview, useSuggestedVersion } from "../api/hooks";
 import { rpc } from "../api/transport";
 import { Icon } from "../components/Icon";
 import { Modal, releaseTagLabel, Seg } from "../components/ui";
@@ -118,7 +118,8 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
   const branch = withTicket(withPrefix(name, kind), ticket);
   // Switching brings the uncommitted changes along: with no name, AI names the branch after them.
   const wip = ov.data?.branches.find((b) => b.name === ov.data?.currentBranch)?.wip ?? 0;
-  const nameFromWip = !agent && where === "switch" && wip > 0;
+  const aiOn = useAiOn("branch");
+  const nameFromWip = aiOn && !agent && where === "switch" && wip > 0;
 
   return (
     <Modal

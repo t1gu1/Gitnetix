@@ -614,17 +614,19 @@ impl Git {
         Ok(d)
     }
 
-    /// Every uncommitted change against HEAD, then the untracked files by name.
+    /// The untracked files by name (a quarter of the budget at most), then every uncommitted change
+    /// against HEAD; before the first commit, the staged ones.
     pub async fn wip_diff(&self, max_bytes: usize) -> Result<String> {
-        let (mut d, untracked) = tokio::try_join!(
-            self.run(&["diff", "HEAD", "--stat", "-p"]),
-            self.run(&["ls-files", "--others", "--exclude-standard"]),
-        )?;
+        let diff: &[&str] = if self.ref_exists("HEAD").await? { &["diff", "HEAD", "--stat", "-p"] } else { &["diff", "--cached", "--stat", "-p"] };
+        let (d, mut untracked) = tokio::try_join!(self.run(diff), self.run(&["ls-files", "--others", "--exclude-standard"]))?;
+        let mut out = String::new();
         if !untracked.trim().is_empty() {
-            d = format!("New files:\n{untracked}\n{d}");
+            truncate_utf8(&mut untracked, max_bytes / 4);
+            out = format!("New files:\n{untracked}\n");
         }
-        truncate_utf8(&mut d, max_bytes);
-        Ok(d)
+        out.push_str(&d);
+        truncate_utf8(&mut out, max_bytes);
+        Ok(out)
     }
 
     pub async fn range_diff(&self, range: &str, max_bytes: usize) -> Result<String> {

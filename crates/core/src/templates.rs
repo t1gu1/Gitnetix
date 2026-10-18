@@ -149,7 +149,6 @@ pub fn default_templates() -> Vec<Template> {
             is_default: true,
             rules: vec![
                 rule("maxWords", "Max slug words", "number", json!(4)),
-                rule("ticketPrefix", "Prefix with ticket key", "check", json!(false)),
             ],
             body: "Name a git branch for this work.\n\nFormat: {type}/[slug]\n- slug: 2 to {maxWords} lowercase English words joined by hyphens, ASCII only\n- no ticket key unless asked\n\nWork description:\n{description}".into(),
             ..Default::default()

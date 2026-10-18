@@ -15,7 +15,7 @@ use crate::agents::{AgentManager, AgentSession, AgentStatus, StartArgs};
 use crate::ai::{self, Resolved};
 use crate::error::{Error, Result};
 use crate::events::Event;
-use crate::git::{BranchInfo, Commit, FileChange, Git, Hunk, Identity, WorktreeInfo};
+use crate::git::{BranchInfo, Commit, FileChange, Git, Hunk, Identity, TagInfo, WorktreeInfo};
 use crate::providers::{github::GitHub, parse_remote};
 use crate::secrets;
 use crate::store::{new_id, now, BranchMeta, GitProfile, Project, Release, ReleaseKind, Store};
@@ -293,9 +293,11 @@ fn valid_branch_name(s: &str) -> bool {
 }
 
 /// Start the part after the prefix with the ticket key and an underscore (`feat/ATL-212_login`).
-/// A key already there (`feat/atl-212-login`) is replaced rather than repeated.
+/// A key already there (`feat/atl-212-login`) is replaced rather than repeated. Characters a branch
+/// can't hold are dropped from the key, so Trello's `#12` becomes `12`.
 fn with_ticket(branch: &str, ticket: &str) -> String {
-    let t = ticket.trim().replace(char::is_whitespace, "-");
+    let t: String = ticket.trim().replace(char::is_whitespace, "-").chars().filter(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.')).collect();
+    let t = t.trim_matches(|c| matches!(c, '-' | '_' | '.'));
     if t.is_empty() {
         return branch.to_string();
     }
@@ -303,14 +305,18 @@ fn with_ticket(branch: &str, ticket: &str) -> String {
         Some((p, r)) => (format!("{p}/"), r),
         None => (String::new(), branch),
     };
+    if rest.eq_ignore_ascii_case(t) {
+        return format!("{prefix}{t}");
+    }
     let rest = match rest.get(..t.len()) {
-        Some(head) if head.eq_ignore_ascii_case(&t) && matches!(rest.as_bytes().get(t.len()), Some(b'-' | b'_')) => &rest[t.len() + 1..],
+        Some(head) if head.eq_ignore_ascii_case(t) && matches!(rest.as_bytes().get(t.len()), Some(b'-' | b'_')) => &rest[t.len() + 1..],
         _ => rest,
     };
     format!("{prefix}{t}_{rest}")
 }
 
 /// `v2.4` / `2.4.1` → [2, 4, 0] / [2, 4, 1]; anything else (pre-releases included) is not a version.
+/// Parts are capped at u32 so bumping one can't overflow.
 fn parse_version(s: &str) -> Option<[u64; 3]> {
     let parts: Vec<&str> = s.trim_start_matches('v').split('.').collect();
     if !(2..=3).contains(&parts.len()) {
@@ -318,13 +324,21 @@ fn parse_version(s: &str) -> Option<[u64; 3]> {
     }
     let mut v = [0; 3];
     for (i, part) in parts.iter().enumerate() {
-        v[i] = part.parse().ok()?;
+        v[i] = part.parse::<u32>().ok()?.into();
     }
     Some(v)
 }
 
 fn release_branch(version: &str) -> String {
     format!("release/{}", version.trim_start_matches('v'))
+}
+
+/// Tag a hotfix for `version` starts from: the highest earlier patch of its line (v2.4.1 for 2.4.2),
+/// else the highest version tag, else the newest tag.
+fn hotfix_base(tags: &[TagInfo], version: &str) -> Option<String> {
+    let versioned = || tags.iter().filter_map(|t| parse_version(&t.name).map(|v| (v, t)));
+    let line = parse_version(version).and_then(|want| versioned().filter(|(v, _)| v[..2] == want[..2] && *v < want).max_by_key(|(v, _)| *v));
+    line.or_else(|| versioned().max_by_key(|(v, _)| *v)).map(|(_, t)| t).or(tags.first()).map(|t| t.name.clone())
 }
 
 /// Register `release/x.y.z` branches Gitnetix does not know yet. Returns whether any were added.
@@ -1144,7 +1158,7 @@ impl Gitnetix {
     // ---------- releases ----------
 
     /// Version for a new release, from the highest one around (tags, release branches here or on origin,
-    /// releases Gitnetix knows): next bumps the minor, hotfix bumps the patch of the latest tag.
+    /// releases Gitnetix knows): next bumps the minor, hotfix bumps the patch of the highest version tag.
     pub async fn suggest_version(&self, project_id: &str, kind: ReleaseKind) -> Result<String> {
         let p = self.store.project(project_id)?;
         let git = self.git(&p);
@@ -1153,7 +1167,7 @@ impl Gitnetix {
         let latest_tag = taken.iter().max().copied();
         taken.extend(p.releases.iter().filter_map(|r| parse_version(&r.version)));
         let names = local.into_iter().chain(remote).map(|b| b.name);
-        taken.extend(names.filter_map(|n| n.trim_start_matches("origin/").strip_prefix("release/").and_then(parse_version)));
+        taken.extend(names.filter_map(|n| n.strip_prefix("release/").and_then(parse_version)));
         let v = match kind {
             ReleaseKind::Next => taken.iter().max().map(|v| [v[0], v[1] + 1, 0]).unwrap_or([0, 1, 0]),
             // Hotfixes patch what shipped; skip past patches already taken by another hotfix.
@@ -1182,7 +1196,7 @@ impl Gitnetix {
         let default = git.default_branch().await?;
         let from = match from.filter(|s| !s.is_empty()) {
             Some(f) => f,
-            None if kind == ReleaseKind::Hotfix => git.tags().await?.first().map(|t| t.name.clone()).unwrap_or(default.clone()),
+            None if kind == ReleaseKind::Hotfix => hotfix_base(&git.tags().await?, &version).unwrap_or(default.clone()),
             None => default.clone(),
         };
         let branch = release_branch(&version);
@@ -1261,15 +1275,8 @@ impl Gitnetix {
         let p = self.store.project(project_id)?;
         let t = self.template("branch", None, Some(&p.id))?;
         let max_words = templates::rule_num(&t, "maxWords").unwrap_or(4) as usize;
-        let fallback = || {
-            let mut slug = slugify(description, max_words);
-            if templates::rule_bool(&t, "ticketPrefix") {
-                if let Some(k) = ticket.filter(|k| !k.is_empty()) {
-                    slug = format!("{}-{slug}", k.to_lowercase());
-                }
-            }
-            format!("{kind}/{slug}")
-        };
+        // The ticket key is added by with_ticket when the branch is created.
+        let fallback = || format!("{kind}/{}", slugify(description, max_words));
         let mut vars = BTreeMap::new();
         vars.insert("description".into(), description.to_string());
         vars.insert("type".into(), kind.to_string());
@@ -1314,7 +1321,8 @@ impl Gitnetix {
             Some(b) => format!("{kind}/{}", b.trim()),
             // Nothing typed: switching carries the uncommitted changes along, so they say what the work is.
             None => {
-                let wip = if req.description.trim().is_empty() && req.r#where != "worktree" { git.wip_diff(20_000).await? } else { String::new() };
+                // Only on an explicit switch: API callers that omit `where` keep the plain slug fallback.
+                let wip = if req.description.trim().is_empty() && req.r#where == "switch" { git.wip_diff(20_000).await? } else { String::new() };
                 if wip.trim().is_empty() {
                     self.suggest_branch_name(project_id, kind, &req.description, req.ticket.as_deref()).await?.0
                 } else {
@@ -2397,6 +2405,22 @@ mod tests {
         assert_eq!(with_ticket("feat/atl-212-login", "ATL-212"), "feat/ATL-212_login");
         assert_eq!(with_ticket("feat/ATL-212_login", "ATL-212"), "feat/ATL-212_login");
         assert_eq!(with_ticket("feat/login", ""), "feat/login");
+        assert_eq!(with_ticket("feat/atl-212", "ATL-212"), "feat/ATL-212");
+        assert_eq!(with_ticket("feat/login", "#12"), "feat/12_login");
+    }
+
+    #[test]
+    fn hotfix_bases() {
+        // Newest first, like Git::tags: a 1.9 backport tagged after 2.0.0.
+        let tags: Vec<TagInfo> = ["deploy-prod", "v1.9.5", "v2.0.0", "v1.9.4"]
+            .iter()
+            .map(|n| TagInfo { name: n.to_string(), date: String::new(), sha: String::new() })
+            .collect();
+        assert_eq!(hotfix_base(&tags, "2.0.1").as_deref(), Some("v2.0.0"));
+        assert_eq!(hotfix_base(&tags, "1.9.6").as_deref(), Some("v1.9.5"));
+        assert_eq!(hotfix_base(&tags, "3.1.1").as_deref(), Some("v2.0.0"));
+        assert_eq!(hotfix_base(&tags[..1], "1.0.1").as_deref(), Some("deploy-prod"));
+        assert_eq!(hotfix_base(&[], "1.0.1"), None);
     }
 
     #[test]
@@ -2405,6 +2429,7 @@ mod tests {
         assert_eq!(parse_version("2.4"), Some([2, 4, 0]));
         assert_eq!(parse_version("2.4.0-rc1"), None);
         assert_eq!(parse_version("latest"), None);
+        assert_eq!(parse_version("1.18446744073709551615"), None);
     }
 
     #[test]
