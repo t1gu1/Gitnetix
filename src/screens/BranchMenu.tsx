@@ -8,7 +8,7 @@ import { plural } from "../lib/format";
 import { useNav } from "../lib/nav";
 import { copyToClipboard, toast } from "../lib/toast";
 
-export type BranchDialog = "merge" | "delete" | "conflicts" | "reset" | "forcePush";
+export type BranchDialog = "merge" | "delete" | "conflicts" | "reset" | "forcePush" | "tag";
 
 export interface BranchTarget {
   view: BranchView;
@@ -180,6 +180,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
         icon: "plus",
         run: () => nav.openNewItem(v.role === "release" && v.release ? { release: v.release } : { from: b }),
       },
+      tag: { id: "tag", label: "Create tag…", tip: `Tag the tip of ${b}`, icon: "tag", run: () => openDialog("tag", b) },
       copy: { id: "copy", label: "Copy branch name", icon: "edit", run: () => copyToClipboard(b) },
       delete: {
         id: "delete",
@@ -226,7 +227,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
     }
     list.push("sep");
     if (t.showCommits) list.push({ id: "commits", label: "Show commits", icon: "commit", run: t.showCommits });
-    list.push(a.copy);
+    list.push(a.tag, a.copy);
     // Any branch but the default one, unless the git host protects it.
     if (!t.isDefault && !v.protected) list.push("sep", a.delete);
     return list;

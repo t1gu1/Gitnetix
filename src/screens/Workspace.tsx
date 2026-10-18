@@ -308,6 +308,7 @@ export function Workspace() {
       {dialog?.kind === "reset" && dialogView?.upstream && (
         <ResetBranchModal pid={pid} view={dialogView} onClose={() => setDialog(null)} />
       )}
+      {dialog?.kind === "tag" && <TagBranchModal pid={pid} branch={dialog.branch} onClose={() => setDialog(null)} />}
       {dialog?.kind === "delete" && dialogView && (
         <DeleteBranchModal
           pid={pid}
@@ -697,6 +698,41 @@ function ForcePushModal({ pid, view, onClose }: { pid: string; view: BranchView;
           : <> Some were never on {branch}: someone else may have pushed them. Git refuses those, so pull or reset first.</>}
       </p>
       {push.error && <ErrorBox error={push.error} />}
+    </Modal>
+  );
+}
+
+function TagBranchModal({ pid, branch, onClose }: { pid: string; branch: string; onClose: () => void }) {
+  const [name, setName] = useState("");
+  const [message, setMessage] = useState("");
+  const tag = useAction("branches.tag", { invalidate: [["overview", pid], ["commits", pid]], success: `Tagged ${branch} as ${name.trim()} and pushed it` });
+  const submit = () => name.trim() && tag.mutate({ projectId: pid, branch, name: name.trim(), message }, { onSuccess: onClose });
+  return (
+    <Modal
+      title="Create tag"
+      sub={<span className="mono">{branch}</span>}
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn btn-md" onClick={onClose}>Cancel</button>
+          <button className="btn btn-md btn-primary" disabled={!name.trim() || tag.isPending} onClick={submit}>
+            {tag.isPending && <span className="spinner" />}
+            Create and push
+          </button>
+        </>
+      }
+    >
+      <form className="col" style={{ gap: 14 }} onSubmit={(e) => { e.preventDefault(); submit(); }}>
+        <div className="field">
+          <label htmlFor="tag-name">Name</label>
+          <input id="tag-name" className="input mono" placeholder="v1.2.0" autoFocus value={name} onChange={(e) => setName(e.target.value)} />
+        </div>
+        <div className="field">
+          <label htmlFor="tag-msg">Message</label>
+          <input id="tag-msg" className="input" placeholder="Defaults to the name" value={message} onChange={(e) => setMessage(e.target.value)} />
+        </div>
+      </form>
+      {tag.error && <ErrorBox error={tag.error} />}
     </Modal>
   );
 }

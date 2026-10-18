@@ -1570,6 +1570,25 @@ impl Gitnetix {
         Ok(())
     }
 
+    /// Tag a branch's tip (annotated; the message defaults to the name) and push the tag to origin.
+    pub async fn tag_branch(&self, project_id: &str, branch: &str, name: &str, message: Option<&str>) -> Result<()> {
+        let name = name.trim();
+        if name.is_empty() {
+            return Err(Error::Invalid("Name the tag.".into()));
+        }
+        let p = self.store.project(project_id)?;
+        let git = self.git(&p);
+        let rev = git.branch_rev(branch).await?.ok_or_else(|| Error::NotFound(format!("branch {branch}")))?;
+        if git.ref_exists(&format!("refs/tags/{name}")).await? {
+            return Err(Error::Invalid(format!("Tag {name} already exists.")));
+        }
+        let message = message.map(str::trim).filter(|m| !m.is_empty()).unwrap_or(name);
+        git.tag(name, &rev, message).await?;
+        self.changed(project_id);
+        git.push_tag(name, false).await?;
+        Ok(())
+    }
+
     pub async fn pull_branch(&self, project_id: &str, branch: &str) -> Result<String> {
         let p = self.store.project(project_id)?;
         let git = self.git(&p);

@@ -248,6 +248,13 @@ async fn pull_and_tracking() {
     assert!(!repo.join("mine.txt").exists());
     assert_eq!(std::fs::read_to_string(repo.join("m.txt")).unwrap(), "m\n");
 
+    // Tag a branch's tip, pushed to origin too; the same name again is refused.
+    call(&k, "branches.tag", json!({ "projectId": pid, "branch": "feat/x", "name": "snap-1" })).await;
+    assert_eq!(rev(&repo, "snap-1^{commit}"), rev(&repo, "feat/x"));
+    assert_eq!(rev(&origin, "snap-1^{commit}"), rev(&repo, "feat/x"));
+    let err = rpc::call(&k, "branches.tag", json!({ "projectId": pid, "branch": "main", "name": "snap-1" })).await.unwrap_err();
+    assert!(err.to_string().contains("already exists"), "{err}");
+
     // Rebased after it was pushed: flagged as rewritten, and a force push replaces origin's copy.
     sh(&repo, &["switch", "-q", "feat/x"]);
     let r = call(&k, "workspace.rebase", json!({ "projectId": pid, "branch": "feat/x" })).await;
