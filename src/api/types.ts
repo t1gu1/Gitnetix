@@ -81,6 +81,8 @@ export interface BranchView {
   checkedOut: boolean;
   running: boolean;
   conflict: boolean;
+  /** Files with uncommitted changes in its checkout (0 when not checked out). */
+  wip: number;
   ahead: number;
   behind: number;
   upstream?: string | null;

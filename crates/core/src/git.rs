@@ -428,6 +428,12 @@ impl Git {
         Ok(entries)
     }
 
+    /// Number of files with uncommitted changes (staged, unstaged or untracked), each counted once.
+    pub async fn wip_count(&self) -> Result<u32> {
+        let status = self.run(&["status", "--porcelain=v1", "-z", "-uall"]).await?;
+        Ok(parse_status_z(&status).len() as u32)
+    }
+
     /// Uncommitted changes split by side: staged (index vs HEAD) and
     /// unstaged (working tree vs index, plus untracked). A partially staged
     /// file appears once on each side.

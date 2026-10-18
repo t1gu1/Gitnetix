@@ -103,6 +103,9 @@ export function BranchTree({
     return on;
   }, [roots, kids, o.currentBranch]);
 
+  // Uncommitted files anywhere below a branch, surfaced on its toggle while its children are hidden.
+  const hiddenWip = (b: BranchView): number => kids(b.name).reduce((n, c) => n + c.wip + hiddenWip(c), 0);
+
   const node = (b: BranchView): ReactNode => {
     if (!shown(b)) return null;
     const children = kids(b.name).filter(shown);
@@ -110,6 +113,7 @@ export function BranchTree({
     const merged = children.filter((c) => c.merged);
     const hasKids = children.length > 0;
     const open = !!q || isOpen(b.name);
+    const wipBelow = open ? 0 : hiddenWip(b);
     const mergedKey = `merged:${b.name}`;
     const mergedOpen = !!q || isOpen(mergedKey);
     const version = b.role === "release" ? b.release : b.shipped;
@@ -135,6 +139,7 @@ export function BranchTree({
                 <span className="tree-twist"><Icon name="chevronDown" size={12} className="chev" /></span>
                 <span>{open ? "Hide" : "Show"} child branches</span>
                 <span className="faint">{children.length}</span>
+                {wipBelow > 0 && <span className="wip-badge" title={`${plural(wipBelow, "file")} with uncommitted changes in hidden branches`}>(WIP {wipBelow})</span>}
               </button>
             )}
             {open && (
@@ -288,6 +293,7 @@ function BranchMeta({ b, parent, current, showName, onCommits }: { b: BranchView
       {b.worktree && <span className="row" style={{ gap: 4 }}><Icon name="layers" size={11} stroke={1.4} />worktree</span>}
       {b.running && <span className="row c-acc" style={{ gap: 4 }}><span className="pulse" style={{ width: 5, height: 5 }} />AI working</span>}
       {b.conflict && <span className="c-del">conflict</span>}
+      {b.wip > 0 && <span className="wip-badge" title={`${plural(b.wip, "file")} with uncommitted changes`}>WIP {b.wip}</span>}
       {!b.exists && <span className="c-del">branch deleted</span>}
       {b.merged && (
         <span className="pill c-add" title={`All its commits are in ${parent}`}>

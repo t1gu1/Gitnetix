@@ -211,7 +211,7 @@ body.resizing iframe, body.resizing .term { pointer-events: none; }
    nested under a left border; only the icon, tags and suggested action change with its role. */
 /* 6px extra on the left: top-level rows keep the same gap to their orange marker as nested ones. */
 .tree { display: flex; flex-direction: column; padding: 6px 0 6px 6px; }
-.tree-row { position: relative; display: flex; align-items: flex-start; gap: 4px; min-height: 44px; margin: 0 6px; padding: 6px; border-radius: 4px; }
+.tree-row { position: relative; display: flex; align-items: flex-start; gap: 4px; min-height: 44px; margin: 0 6px 1px; padding: 6px; border-radius: 4px; }
 /* An open branch's line starts below its show/hide toggle and runs down past its children, so they read as under it.
    Children step in 6px; the line sits on the parent row's left edge, 6px left of each child row. */
 .tree-sub, .tree-open, .tree-kids { position: relative; }
@@ -245,6 +245,9 @@ button.tree-twist:hover { color: var(--fg); }
 .tree-main > .branch-meta:empty { display: none; }
 .tree-row:has(> .tree-btn .tree-main > .branch-meta:empty) { min-height: 36px; align-items: center; }
 .tree-row:has(> .tree-btn .tree-main > .branch-meta:empty) > .tree-btn { align-items: center; }
+/* Uncommitted work on a branch: loud orange, gently pulsing so it isn't forgotten. */
+.wip-badge { color: #ff7a00; font-weight: 600; animation: agpulse 1.6s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .wip-badge { animation: none; } }
 .tree-row[data-dim] .tree-name, .tree-row[data-dim] .kind-chip { opacity: .6; }
 /* Shared branches read apart from work: trunks (main, dev…) orange, releases (open or shipped) purple. */
 .tree-row[data-role="trunk"] .tree-name > .mono { color: var(--trunk-fg); }

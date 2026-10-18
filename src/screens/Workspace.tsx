@@ -305,6 +305,7 @@ function synthetic(name: string, checkedOut: boolean): BranchView {
     checkedOut,
     running: false,
     conflict: false,
+    wip: 0,
     ahead: 0,
     behind: 0,
     upstreamAhead: 0,

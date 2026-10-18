@@ -76,6 +76,8 @@ pub struct BranchView {
     pub checked_out: bool,
     pub running: bool,
     pub conflict: bool,
+    /// Files with uncommitted changes in its checkout (0 when not checked out).
+    pub wip: u32,
     /// Commits not yet in the base (release, or default branch).
     pub ahead: u32,
     /// Commits in the base the branch does not have.
@@ -682,12 +684,13 @@ impl Gitnetix {
             Some(u) if git.ref_exists(&format!("refs/remotes/{u}")).await.unwrap_or(false) => git.left_right(name, u).await.unwrap_or((0, 0)),
             _ => (0, 0),
         };
-        let conflict = match wt {
+        let (conflict, wip) = match wt {
             Some(w) => {
                 let g = Git::new(&w.path);
-                g.is_rebasing().await.unwrap_or(false) && !g.conflicted_files().await.unwrap_or_default().is_empty()
+                let conflict = g.is_rebasing().await.unwrap_or(false) && !g.conflicted_files().await.unwrap_or_default().is_empty();
+                (conflict, g.wip_count().await.unwrap_or(0))
             }
-            None => false,
+            None => (false, 0),
         };
         let own_release = p.releases.iter().find(|r| r.branch == name);
         let role = if own_release.is_some_and(|r| r.shipped_at.is_none()) {
@@ -720,6 +723,7 @@ impl Gitnetix {
             checked_out: wt.is_some(),
             running: agents.iter().any(|a| a.branch == name && a.project_id == p.id && a.status == AgentStatus::Running),
             conflict,
+            wip,
             ahead,
             behind,
             upstream,
