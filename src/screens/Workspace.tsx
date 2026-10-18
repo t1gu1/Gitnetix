@@ -519,7 +519,7 @@ function MergeModal({
   onClose: () => void;
   onDeleted: (into: string) => void;
 }) {
-  const [del, setDel] = useState(false);
+  const [del, setDel] = useState(true);
   const [base, setBase] = useState(defaultBase);
   const [pick, setPick] = useState<{ x: number; y: number } | null>(null);
   const merge = useAction<MergeResult>("branches.merge", {
