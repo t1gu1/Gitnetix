@@ -59,6 +59,7 @@ export function BranchTree({
   onSelect,
   onNewRelease,
   onHide,
+  onCleanup,
 }: {
   active: boolean;
   o: Overview;
@@ -68,6 +69,8 @@ export function BranchTree({
   onSelect: (b: string) => void;
   onNewRelease: () => void;
   onHide: () => void;
+  /** Clean up the merged children of `parent`, shown as `label`. */
+  onCleanup: (parent: string, label: string, branches: BranchView[]) => void;
 }) {
   const pid = o.project.id;
   const { isOpen, toggle } = useToggles(pid);
@@ -117,6 +120,9 @@ export function BranchTree({
     const mergedKey = `merged:${b.name}`;
     const mergedOpen = !!q || isOpen(mergedKey);
     const version = b.role === "release" ? b.release : b.shipped;
+    const mergedLabel = version ? `v${version}` : b.name;
+    // Protected and checked-out branches stay put.
+    const removable = merged.filter((c) => !c.protected && !c.checkedOut);
     // Where the orange path leaves this branch: into a merged child, or past the merged group to a live one.
     const pathLive = live.some((c) => path.has(c.name));
     const pathMerged = merged.some((c) => path.has(c.name));
@@ -139,11 +145,18 @@ export function BranchTree({
           <div className="tree-sub">
             {merged.length > 0 && (
               <>
-                <button className="tree-row tree-group tree-merged" data-path={pathLive || pathMerged || undefined} aria-expanded={mergedOpen} onClick={() => toggle(mergedKey)}>
-                  <span className="tree-twist"><Icon name="chevronDown" size={12} className="chev" /></span>
-                  <span>Merged into {version ? `v${version}` : b.name}</span>
-                  <span className="faint">{merged.length}</span>
-                </button>
+                <div className="tree-row tree-group tree-merged" data-path={pathLive || pathMerged || undefined}>
+                  <button className="tree-merged-toggle" aria-expanded={mergedOpen} onClick={() => toggle(mergedKey)}>
+                    <span className="tree-twist"><Icon name="chevronDown" size={12} className="chev" /></span>
+                    <span>Merged into {mergedLabel}</span>
+                    <span className="faint">{merged.length}</span>
+                  </button>
+                  {removable.length > 0 && (
+                    <button className="btn btn-sm tree-cleanup" title={`Delete the ${removable.length} merged branch${removable.length === 1 ? "" : "es"} under ${mergedLabel}`} onClick={() => onCleanup(b.name, mergedLabel, removable)}>
+                      Clean up
+                    </button>
+                  )}
+                </div>
                 {mergedOpen && <div className="tree-kids" data-path={pathMerged ? "in" : pathLive ? "past" : undefined}>{merged.map((c) => node(c))}</div>}
               </>
             )}

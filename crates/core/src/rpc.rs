@@ -57,7 +57,8 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("branches.sync", "Merge a branch's base into it to bring it up to date", "projectId, branch"),
     ("branches.setParent", "Choose what a branch merges into (an open release branch attaches it to that release)", "projectId, branch, parent"),
     ("branches.fetch", "Fetch origin, pruning deleted branches", "projectId"),
-    ("branches.delete", "Delete a local branch and its worktree; force = even if unmerged", "projectId, branch, force?"),
+    ("branches.cleanup", "Delete merged branches (never forced), skipping the ones that can't go; remote = on origin too", "projectId, branches: string[], remote?"),
+    ("branches.delete", "Delete a local branch and its worktree; force = even if unmerged, remote = on origin too. Not the default or a host-protected branch", "projectId, branch, force?, remote?"),
     ("worktrees.list", "Every worktree across projects with its agent", ""),
     ("worktrees.create", "Open a branch in a new worktree", "projectId, branch"),
     ("worktrees.remove", "Remove a worktree", "projectId, path, force?"),
@@ -355,8 +356,12 @@ pub async fn call(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
             k.fetch(&s(&p, "projectId")?).await?;
             ok()
         }
+        "branches.cleanup" => {
+            let branches: Vec<String> = serde_json::from_value(p.get("branches").cloned().unwrap_or(json!([])))?;
+            to(k.cleanup_branches(&s(&p, "projectId")?, &branches, b(&p, "remote")).await?)
+        }
         "branches.delete" => {
-            k.delete_branch(&s(&p, "projectId")?, &s(&p, "branch")?, b(&p, "force")).await?;
+            k.delete_branch(&s(&p, "projectId")?, &s(&p, "branch")?, b(&p, "force"), b(&p, "remote")).await?;
             ok()
         }
 

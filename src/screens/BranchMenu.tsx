@@ -16,9 +16,8 @@ export interface BranchTarget {
   base: string;
   /** How to show `base` (a release branch reads as its version). */
   baseLabel: string;
+  /** The default branch: can't be deleted. */
   isDefault: boolean;
-  /** Branch of an open release: can't be deleted. */
-  isRelease?: boolean;
   /** Extra actions listed first in the menu (e.g. release actions). */
   extra?: MenuItem[];
   /** Suggested once nothing is more urgent (e.g. Ship for a release). */
@@ -154,7 +153,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
         id: "delete",
         label: v.exists ? "Delete branch…" : "Forget branch…",
         short: v.exists ? "Delete" : "Forget",
-        tip: !v.exists ? `${b} no longer exists: remove it from the list` : v.merged ? `${b} is merged into ${parent}: delete the local branch` : `Delete ${b}`,
+        tip: !v.exists ? `${b} no longer exists: remove it from the list` : originOnly ? `Delete ${b} on origin` : v.merged ? `${b} is merged into ${parent}: delete the local branch` : `Delete ${b}`,
         icon: "trash",
         danger: true,
         run: () => openDialog("delete", b),
@@ -191,7 +190,8 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
     list.push("sep");
     if (t.showCommits) list.push({ id: "commits", label: "Show commits", icon: "commit", run: t.showCommits });
     list.push(a.copy);
-    if (v.local && !t.isDefault && !t.isRelease) list.push("sep", a.delete);
+    // Any branch but the default one, unless the git host protects it.
+    if (!t.isDefault && !v.protected) list.push("sep", a.delete);
     return list;
   };
 
@@ -213,7 +213,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
       if (!v.checkedOut) return a.switch;
       return v.upstream ? a.pull : a.push;
     }
-    if (v.merged && !v.checkedOut) return a.delete;
+    if (v.merged && !v.checkedOut && !v.protected) return a.delete;
     if (!v.checkedOut) return a.switch;
     if (needsPush) return a.push;
     if (v.behind > 0) return a.rebase;

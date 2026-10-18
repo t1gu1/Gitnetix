@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 
 import { useAction, useAgents, useAiCatalog, useDiff, useFiles, useOverview } from "../api/hooks";
-import type { BranchView, Commit, FileChange, MergeResult, ReleaseView } from "../api/types";
+import type { BranchView, CleanupResult, Commit, FileChange, MergeResult, ReleaseView } from "../api/types";
 import { AgentLog } from "../components/AgentLog";
 import { DiffView } from "../components/DiffView";
 import { ContextMenu } from "../components/ContextMenu";
@@ -30,6 +30,7 @@ export function Workspace() {
   const [pane, setPane] = useState<Pane>("releases");
   const [shipping, setShipping] = useState<ReleaseView | null>(null);
   const [dialog, setDialog] = useState<{ kind: BranchDialog; branch: string } | null>(null);
+  const [cleanup, setCleanup] = useState<{ parent: string; label: string; branches: BranchView[] } | null>(null);
   // Branch whose commits replace the tree, and the commit picked there (none = all changes).
   const [history, setHistory] = useState<string | null>(null);
   const [commit, setCommit] = useState<Commit | undefined>();
@@ -58,7 +59,6 @@ export function Workspace() {
       base,
       baseLabel: labelOf(base),
       isDefault: b === o?.defaultBranch,
-      isRelease: !!rel,
       extra: rel ? [{ id: "ship", label: <>Ship v{rel.version}…</>, icon: "ship", hint: "fast-forward + tag", run: () => setShipping(rel) }] : undefined,
       showCommits: v.exists ? () => openHistory(b) : undefined,
       next: rel
@@ -170,6 +170,7 @@ export function Workspace() {
                 setPane("files");
               }}
               onNewRelease={() => nav.openNewItem({ kind: "release" })}
+              onCleanup={(parent, label, branches) => setCleanup({ parent, label, branches })}
             />
           )}
 
@@ -292,12 +293,21 @@ export function Workspace() {
             .map((x) => x.name)}
           onClose={() => setDialog(null)} onDeleted={(into) => dialog.branch === branch && nav.selectBranch(into)} />
       )}
+      {cleanup && (
+        <CleanupModal
+          pid={pid}
+          {...cleanup}
+          onClose={() => setCleanup(null)}
+          onDeleted={(gone) => branch && gone.includes(branch) && nav.selectBranch(undefined)}
+        />
+      )}
       {dialog?.kind === "delete" && dialogView && (
         <DeleteBranchModal
           pid={pid}
           branch={dialog.branch}
           base={baseFor(dialog.branch)}
-          exists={dialogView.local}
+          local={dialogView.local}
+          remote={dialogView.remote}
           worktree={dialogView.worktree ?? undefined}
           onClose={() => setDialog(null)}
           onDeleted={() => dialog.branch === branch && nav.selectBranch(undefined)}
@@ -325,6 +335,7 @@ function synthetic(name: string, checkedOut: boolean): BranchView {
     role: "branch",
     local: true,
     remote: false,
+    protected: false,
     date: "",
   };
 }
@@ -576,7 +587,8 @@ function DeleteBranchModal({
   pid,
   branch,
   base,
-  exists,
+  local,
+  remote,
   worktree,
   onClose,
   onDeleted,
@@ -584,12 +596,18 @@ function DeleteBranchModal({
   pid: string;
   branch: string;
   base: string;
-  exists: boolean;
+  local: boolean;
+  /** Exists on origin. */
+  remote: boolean;
   worktree?: string;
   onClose: () => void;
   onDeleted: () => void;
 }) {
   const [force, setForce] = useState(false);
+  // Origin-only branches can only go from origin; otherwise origin keeps its copy unless asked.
+  const [alsoOrigin, setAlsoOrigin] = useState(false);
+  const onOrigin = remote && (!local || alsoOrigin);
+  const exists = local || remote;
   const del = useAction("branches.delete", { invalidate: [["overview", pid], ["files", pid], ["worktrees"]], success: `Deleted ${branch}` });
   return (
     <Modal
@@ -602,7 +620,7 @@ function DeleteBranchModal({
           <button
             className="btn btn-md btn-danger"
             disabled={del.isPending}
-            onClick={() => del.mutate({ projectId: pid, branch, force }, { onSuccess: () => { onDeleted(); onClose(); } })}
+            onClick={() => del.mutate({ projectId: pid, branch, force, remote: onOrigin }, { onSuccess: () => { onDeleted(); onClose(); } })}
           >
             {del.isPending && <span className="spinner" />}
             {exists ? "Delete branch" : "Forget branch"}
@@ -613,10 +631,23 @@ function DeleteBranchModal({
       {exists ? (
         <>
           <p style={{ margin: 0, lineHeight: 1.55 }}>
-            Deletes the local branch <span className="mono">{branch}</span>
-            {worktree && <> and its worktree at <span className="mono">{worktree}</span></>}. The remote branch is kept.
+            {local ? (
+              <>
+                Deletes the local branch <span className="mono">{branch}</span>
+                {worktree && <> and its worktree at <span className="mono">{worktree}</span></>}
+                {remote ? (alsoOrigin ? <>, and <span className="mono">origin/{branch}</span> for everyone.</> : <>. The branch on origin is kept.</>) : "."}
+              </>
+            ) : (
+              <>Deletes <span className="mono">{branch}</span> on origin, for everyone who uses it.</>
+            )}
           </p>
           {del.error && <ErrorBox error={del.error} />}
+          {local && remote && (
+            <label className="check">
+              <input type="checkbox" checked={alsoOrigin} onChange={() => setAlsoOrigin(!alsoOrigin)} />
+              <span>Also delete it on origin</span>
+            </label>
+          )}
           <label className="check">
             <input type="checkbox" checked={force} onChange={() => setForce(!force)} />
             <span>Delete even if not merged into <span className="mono">{base}</span> (its commits are lost)</span>
@@ -624,6 +655,90 @@ function DeleteBranchModal({
         </>
       ) : (
         <p style={{ margin: 0, lineHeight: 1.55 }}>The branch no longer exists. This removes it from its release.</p>
+      )}
+    </Modal>
+  );
+}
+
+function CleanupModal({
+  pid,
+  label,
+  branches,
+  onClose,
+  onDeleted,
+}: {
+  pid: string;
+  parent: string;
+  /** How to show the branch they were merged into. */
+  label: string;
+  branches: BranchView[];
+  onClose: () => void;
+  onDeleted: (branches: string[]) => void;
+}) {
+  const [alsoOrigin, setAlsoOrigin] = useState(false);
+  const [skipped, setSkipped] = useState<CleanupResult["skipped"]>([]);
+  // Origin-only branches can only go from origin.
+  const targets = branches.filter((b) => b.local || alsoOrigin);
+  const anyOrigin = branches.some((b) => b.remote);
+  const run = useAction<CleanupResult>("branches.cleanup", {
+    invalidate: [["overview", pid], ["files", pid], ["worktrees"]],
+    success: (r) => `Deleted ${r.deleted.length} merged branch${r.deleted.length === 1 ? "" : "es"}`,
+  });
+  return (
+    <Modal
+      title="Clean up merged branches"
+      sub={<>merged into <span className="mono">{label}</span></>}
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn btn-md" onClick={onClose}>{skipped.length ? "Close" : "Cancel"}</button>
+          <button
+            className="btn btn-md btn-danger"
+            disabled={run.isPending || !targets.length}
+            onClick={() =>
+              run.mutate(
+                { projectId: pid, branches: targets.map((b) => b.name), remote: alsoOrigin },
+                {
+                  onSuccess: (r) => {
+                    onDeleted(r.deleted);
+                    if (r.skipped.length) setSkipped(r.skipped);
+                    else onClose();
+                  },
+                },
+              )
+            }
+          >
+            {run.isPending && <span className="spinner" />}
+            Delete {targets.length} branch{targets.length === 1 ? "" : "es"}
+          </button>
+        </>
+      }
+    >
+      <p style={{ margin: 0, lineHeight: 1.55 }}>
+        Their commits are all in <span className="mono">{label}</span>, so nothing is lost. Worktrees they have go too.
+      </p>
+      <ul className="col" style={{ margin: 0, padding: 0, listStyle: "none", gap: 4 }}>
+        {branches.map((b) => (
+          <li key={b.name} className="row" style={{ gap: 8, opacity: targets.includes(b) ? 1 : 0.5 }}>
+            <span className="mono ellipsis">{b.name}</span>
+            {!b.local && <span className="tag" title="Only on origin">origin</span>}
+          </li>
+        ))}
+      </ul>
+      {anyOrigin && (
+        <label className="check">
+          <input type="checkbox" checked={alsoOrigin} onChange={() => setAlsoOrigin(!alsoOrigin)} />
+          <span>Also delete them on origin</span>
+        </label>
+      )}
+      {run.error && <ErrorBox error={run.error} />}
+      {skipped.length > 0 && (
+        <div className="col" style={{ gap: 4 }}>
+          <span className="c-warn">Kept {skipped.length}:</span>
+          {skipped.map((s) => (
+            <span key={s.branch} style={{ lineHeight: 1.45 }}><span className="mono">{s.branch}</span>: {s.reason}</span>
+          ))}
+        </div>
       )}
     </Modal>
   );

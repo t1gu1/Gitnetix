@@ -349,6 +349,10 @@ impl Git {
         self.run(&["branch", if force { "-D" } else { "-d" }, name]).await.map(|_| ())
     }
 
+    pub async fn delete_remote_branch(&self, name: &str) -> Result<()> {
+        self.run(&["push", "origin", "--delete", name]).await.map(|_| ())
+    }
+
     pub async fn tag(&self, name: &str, target: &str, message: &str) -> Result<()> {
         self.run(&["tag", "-a", name, target, "-m", message]).await.map(|_| ())
     }

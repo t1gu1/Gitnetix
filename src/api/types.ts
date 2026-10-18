@@ -103,6 +103,8 @@ export interface BranchView {
   local: boolean;
   /** Exists on origin. */
   remote: boolean;
+  /** The git host protects it (branch protection or a ruleset): it can't be deleted. */
+  protected: boolean;
   /** Date of its last commit (ISO 8601). */
   date: string;
 }
@@ -115,6 +117,11 @@ export interface Commit {
   date: string;
   subject: string;
   body: string;
+}
+
+export interface CleanupResult {
+  deleted: string[];
+  skipped: { branch: string; reason: string }[];
 }
 
 export interface MergeResult {

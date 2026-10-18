@@ -27,7 +27,12 @@ pub struct Gitnetix {
     pub agents: AgentManager,
     pub events: broadcast::Sender<Event>,
     pub dir: PathBuf,
+    /// Branches the git host protects, per project, with when they were looked up.
+    protected: std::sync::Mutex<HashMap<String, (Instant, Vec<String>)>>,
 }
+
+/// How long the git host's protected branches are trusted before asking again.
+const PROTECTED_TTL: std::time::Duration = std::time::Duration::from_secs(300);
 
 /// Which changes the workspace file list and diff show.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -101,6 +106,8 @@ pub struct BranchView {
     pub local: bool,
     /// Exists on origin.
     pub remote: bool,
+    /// The git host protects it (branch protection or a ruleset): it can't be deleted.
+    pub protected: bool,
     /// Date of its last commit (ISO 8601).
     pub date: String,
 }
@@ -201,6 +208,20 @@ pub struct NewItemResult {
     pub branch: String,
     pub worktree: Option<String>,
     pub agent_session: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CleanupResult {
+    pub deleted: Vec<String>,
+    pub skipped: Vec<Skipped>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Skipped {
+    pub branch: String,
+    pub reason: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -344,7 +365,7 @@ impl Gitnetix {
         let store = Store::open(dir)?;
         let (events, _) = broadcast::channel(1024);
         let agents = AgentManager::new(events.clone(), dir);
-        Ok(Arc::new(Gitnetix { store, agents, events, dir: dir.to_path_buf() }))
+        Ok(Arc::new(Gitnetix { store, agents, events, dir: dir.to_path_buf(), protected: Default::default() }))
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<Event> {
@@ -618,14 +639,17 @@ impl Gitnetix {
         names.dedup();
         // A few git calls per branch: run several branches at once, keeping the order.
         let (pr, g, r, d, w, a) = (&p, &git, &refs, default.as_str(), wts.as_slice(), agents.as_slice());
-        let all: Vec<BranchView> = stream::iter(names)
+        let views = stream::iter(names)
             .map(|n| async move {
                 let parent = self.parent_of(pr, g, r, d, &n).await;
                 self.branch_view(pr, g, r, &n, parent, w, a).await
             })
             .buffered(8)
-            .collect()
-            .await;
+            .collect::<Vec<BranchView>>();
+        let (mut all, protected) = tokio::join!(views, self.protected_branches(project_id, false));
+        for b in &mut all {
+            b.protected = protected.contains(&b.name);
+        }
         let find = |n: &str| all.iter().find(|b| b.name == n).cloned();
 
         let mut releases = Vec::new();
@@ -740,6 +764,7 @@ impl Gitnetix {
             shipped: own_release.filter(|r| r.shipped_at.is_some()).map(|r| r.version.clone()),
             local: info.is_some(),
             remote: refs.remote(name).is_some(),
+            protected: false,
             date: info.or_else(|| refs.remote(name)).map(|b| b.date.clone()).unwrap_or_default(),
         }
     }
@@ -1279,7 +1304,7 @@ impl Gitnetix {
 
     pub async fn remove_item(&self, project_id: &str, branch: &str, delete_branch: bool) -> Result<()> {
         if delete_branch {
-            return self.delete_branch(project_id, branch, true).await;
+            return self.delete_branch(project_id, branch, true, false).await;
         }
         self.store.with_project(project_id, |p| {
             p.branches.remove(branch);
@@ -1291,32 +1316,43 @@ impl Gitnetix {
 
     // ---------- branches ----------
 
-    /// Delete a local branch and forget it. Its worktree (if any) goes too;
-    /// without `force`, refuses when the branch has commits not in its base.
-    pub async fn delete_branch(&self, project_id: &str, branch: &str, force: bool) -> Result<()> {
+    /// Delete a branch and forget it: the local one (its worktree goes too) and, with `remote`,
+    /// the one on origin. Without `force`, refuses when it has commits not in its base.
+    /// The default branch and branches the git host protects are never deleted.
+    pub async fn delete_branch(&self, project_id: &str, branch: &str, force: bool, remote: bool) -> Result<()> {
         let p = self.store.project(project_id)?;
         let git = self.git(&p);
         let default = git.default_branch().await?;
         if branch == default {
             return Err(Error::Invalid(format!("{branch} is the default branch")));
         }
-        if let Some(r) = p.releases.iter().find(|r| r.branch == branch && r.shipped_at.is_none()) {
-            return Err(Error::Invalid(format!("{branch} is the branch of open release v{}", r.version)));
+        if self.protected_branches(project_id, false).await.iter().any(|b| b == branch) {
+            return Err(Error::Invalid(format!("{branch} is protected on the git host")));
         }
-        if git.ref_exists(&format!("refs/heads/{branch}")).await? {
+        let local = git.ref_exists(&format!("refs/heads/{branch}")).await?;
+        let on_origin = remote && git.ref_exists(&format!("refs/remotes/origin/{branch}")).await?;
+        if local || on_origin {
+            let rev = if local { branch.to_string() } else { format!("origin/{branch}") };
             let base = self.base_of(&p, branch, &default).await;
             let base_rev = git.rev_of(&base).await;
-            if !force && !git.is_ancestor(branch, &base_rev).await? {
-                let n = git.count(&format!("{base_rev}..{branch}")).await?;
+            if !force && !git.is_ancestor(&rev, &base_rev).await? {
+                let n = git.count(&format!("{base_rev}..{rev}")).await?;
                 return Err(Error::Invalid(format!(
                     "{branch} has {n} commit{} not merged into {base}. Merge it first or force the delete.",
                     if n == 1 { "" } else { "s" }
                 )));
             }
-            if let Some(dir) = self.checkout_dir(&p, branch).await? {
-                if dir == Path::new(&p.path) {
-                    return Err(Error::Invalid(format!("{branch} is checked out. Switch away first.")));
-                }
+        }
+        let dir = if local { self.checkout_dir(&p, branch).await? } else { None };
+        if dir.as_deref() == Some(Path::new(&p.path)) {
+            return Err(Error::Invalid(format!("{branch} is checked out. Switch away first.")));
+        }
+        // Origin first: if the host refuses, the local branch is still there.
+        if on_origin {
+            git.delete_remote_branch(branch).await?;
+        }
+        if local {
+            if let Some(dir) = dir {
                 self.remove_worktree(project_id, &dir.to_string_lossy(), false).await?;
             }
             git.delete_branch(branch, true).await?;
@@ -1327,6 +1363,37 @@ impl Gitnetix {
         })?;
         self.changed(project_id);
         Ok(())
+    }
+
+    /// Delete several merged branches (never forced), carrying on past the ones that can't go.
+    pub async fn cleanup_branches(&self, project_id: &str, branches: &[String], remote: bool) -> Result<CleanupResult> {
+        let mut out = CleanupResult::default();
+        for b in branches {
+            match self.delete_branch(project_id, b, false, remote).await {
+                Ok(()) => out.deleted.push(b.clone()),
+                Err(e) => out.skipped.push(Skipped { branch: b.clone(), reason: e.to_string() }),
+            }
+        }
+        Ok(out)
+    }
+
+    /// Branches the git host protects, looked up again after a few minutes or on `refresh`.
+    /// Empty without a connected GitHub, or when the host can't be reached.
+    async fn protected_branches(&self, project_id: &str, refresh: bool) -> Vec<String> {
+        if !refresh {
+            if let Some((at, list)) = self.protected.lock().unwrap().get(project_id) {
+                if at.elapsed() < PROTECTED_TTL {
+                    return list.clone();
+                }
+            }
+        }
+        let lookup = async { self.github(project_id).await?.protected_branches().await };
+        let list = match tokio::time::timeout(std::time::Duration::from_secs(5), lookup).await {
+            Ok(Ok(list)) => list,
+            _ => Vec::new(),
+        };
+        self.protected.lock().unwrap().insert(project_id.into(), (Instant::now(), list.clone()));
+        list
     }
 
     /// Fast-forward a branch to its upstream, checked out or not.
@@ -1418,7 +1485,7 @@ impl Gitnetix {
             self.changed(project_id);
         }
         if delete_after {
-            self.delete_branch(project_id, branch, false).await?;
+            self.delete_branch(project_id, branch, false, false).await?;
         }
         Ok(MergeResult { into, sha, already_merged, deleted: delete_after, switched, stayed })
     }
@@ -1475,6 +1542,7 @@ impl Gitnetix {
     pub async fn fetch(&self, project_id: &str) -> Result<()> {
         let p = self.store.project(project_id)?;
         self.git(&p).fetch().await?;
+        self.protected_branches(project_id, true).await;
         self.changed(project_id);
         Ok(())
     }

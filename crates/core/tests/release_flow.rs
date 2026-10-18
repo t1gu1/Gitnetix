@@ -520,3 +520,47 @@ async fn commit_actions() {
     assert!(!repo.join("a.txt").exists(), "hard drops them");
     assert!(rpc::call(&k, "commits.reset", json!({ "projectId": pid, "branch": "main", "sha": root, "mode": "keep" })).await.is_err());
 }
+
+#[tokio::test]
+async fn delete_on_origin_and_release_branches() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("atlas-api");
+    init_repo(&repo);
+    let origin = tmp.path().join("origin.git");
+    sh(tmp.path(), &["init", "-q", "--bare", "-b", "main", origin.to_str().unwrap()]);
+    sh(&repo, &["remote", "add", "origin", origin.to_str().unwrap()]);
+    sh(&repo, &["push", "-q", "-u", "origin", "main"]);
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let added = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await;
+    let pid = added[0]["id"].as_str().unwrap().to_string();
+
+    // Local and on origin: the local branch goes, origin keeps it unless asked.
+    sh(&repo, &["switch", "-qc", "feat/both"]);
+    sh(&repo, &["push", "-q", "-u", "origin", "feat/both"]);
+    sh(&repo, &["switch", "-q", "main"]);
+    call(&k, "branches.delete", json!({ "projectId": pid, "branch": "feat/both" })).await;
+    assert!(rev(&repo, "refs/heads/feat/both").is_empty());
+    assert_eq!(rev(&repo, "refs/remotes/origin/feat/both").len(), 40);
+    call(&k, "branches.delete", json!({ "projectId": pid, "branch": "feat/both", "remote": true })).await;
+    assert!(rev(&repo, "refs/remotes/origin/feat/both").is_empty());
+    assert!(rev(&origin, "refs/heads/feat/both").is_empty());
+
+    // Origin only, unmerged: refused without force.
+    sh(&repo, &["switch", "-qc", "feat/far"]);
+    commit_file(&repo, "far.txt", "far\n");
+    sh(&repo, &["push", "-q", "origin", "feat/far"]);
+    sh(&repo, &["switch", "-q", "main"]);
+    sh(&repo, &["branch", "-qD", "feat/far"]);
+    let err = rpc::call(&k, "branches.delete", json!({ "projectId": pid, "branch": "feat/far", "remote": true })).await.unwrap_err();
+    assert!(err.to_string().contains("not merged into main"), "{err}");
+    call(&k, "branches.delete", json!({ "projectId": pid, "branch": "feat/far", "remote": true, "force": true })).await;
+    assert!(rev(&origin, "refs/heads/feat/far").is_empty());
+
+    // The branch of an open release can go too.
+    sh(&repo, &["switch", "-qc", "release/9.0.0"]);
+    sh(&repo, &["switch", "-q", "main"]);
+    let o = call(&k, "workspace.overview", json!({ "projectId": pid })).await;
+    assert!(o["releases"].as_array().unwrap().iter().any(|r| r["branch"] == "release/9.0.0" && r["open"] == true), "{o}");
+    call(&k, "branches.delete", json!({ "projectId": pid, "branch": "release/9.0.0" })).await;
+    assert!(rev(&repo, "refs/heads/release/9.0.0").is_empty());
+}
