@@ -141,7 +141,7 @@ export function BranchTree({
             {canGrow && b.role === "release" && ghost(b, depth + 1)}
             {merged.length > 0 && (
               <>
-                <button className="tree-row tree-group" style={{ "--depth": depth + 1 } as CSSProperties} aria-expanded={mergedOpen} onClick={() => toggle(mergedKey)}>
+                <button className="tree-row tree-group tree-merged" style={{ "--depth": depth + 1 } as CSSProperties} aria-expanded={mergedOpen} onClick={() => toggle(mergedKey)}>
                   <span className="tree-twist"><Icon name="chevronDown" size={12} className="chev" /></span>
                   <span>Merged into {version ? `v${version}` : b.name}</span>
                   <span className="faint">{merged.length}</span>
@@ -192,12 +192,12 @@ export function BranchTree({
             </button>
             {isOpen("shipped") &&
               shipped.map((r) => (
-                <div key={`${r.version}-${r.tag}`} className="tree-row tree-static" style={{ "--depth": 0 } as CSSProperties}>
+                <div key={`${r.version}-${r.tag}`} className="tree-row tree-static" data-role="release" style={{ "--depth": 0 } as CSSProperties}>
                   <span className="tree-twist" />
                   <span className="tree-btn">
                     <span className="tree-icon"><Icon name="tag" size={13} stroke={1.4} /></span>
                     <span className="tree-main">
-                      <span className="tree-name"><span className="mono ellipsis">v{r.version}</span><span className="tag">{releaseTagLabel(r.tag)}</span></span>
+                      <span className="tree-name"><span className="mono ellipsis">v{r.version}</span><span className={`tag${r.tag === "released" ? " released" : ""}`}>{releaseTagLabel(r.tag)}</span></span>
                       <span className="branch-meta">
                         <span className="mono">{r.base}</span>
                         {r.note && <span>{r.note}</span>}
@@ -254,6 +254,7 @@ function Row({
       style={{ "--depth": depth } as CSSProperties}
       data-current={current || undefined}
       data-dim={b.merged || !b.exists || undefined}
+      data-role={shipped ? "release" : b.role}
       onContextMenu={(e) => actions.openMenu(t, e)}
     >
       {twist ? (
@@ -268,7 +269,7 @@ function Row({
         <span className="tree-main">
           <span className="tree-name">
             <span className="mono ellipsis">{name}</span>
-            {shipped ? <span className="tag">{releaseTagLabel("released")}</span> : tag}
+            {shipped ? <span className="tag released">{releaseTagLabel("released")}</span> : tag}
           </span>
           <BranchMeta b={b} parent={t.baseLabel} current={current} showName={!!shipped} onCommits={t.showCommits} />
         </span>
