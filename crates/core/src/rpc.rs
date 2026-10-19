@@ -101,6 +101,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("prs.create", "Push and open a PR from a branch", "projectId, branch, draft?, title?, body?"),
     ("prs.update", "Edit PR title and description", "projectId, number, title, body"),
     ("prs.merge", "Merge a PR", "projectId, number, method?"),
+    ("prs.close", "Close (abandon) a PR without merging, or reopen it", "projectId, number, reopen?"),
     ("prs.review", "Submit a review", "projectId, number, vote: approve|changes|comment, body?"),
     ("prs.comment", "Comment on a PR", "projectId, number, body"),
     ("prs.editComment", "Edit the text of a comment or review summary", "projectId, commentId (node id), body"),
@@ -632,6 +633,11 @@ pub async fn call(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
         "prs.merge" => {
             let gh = k.github(&s(&p, "projectId")?).await?;
             gh.merge(u(&p, "number")?, &os(&p, "method").unwrap_or_else(|| "merge".into())).await?;
+            ok()
+        }
+        "prs.close" => {
+            let gh = k.github(&s(&p, "projectId")?).await?;
+            gh.set_closed(u(&p, "number")?, !b(&p, "reopen")).await?;
             ok()
         }
         "prs.review" => {

@@ -13,6 +13,7 @@ release notes and the in-app update prompt.
 
 ### Added
 - "Update changelog" branch action: AI adds the branch's changes to the `Unreleased` section of `CHANGELOG.md` and commits it on the branch. Shown when the project has a changelog and AI is set up.
+- Close (abandon) a pull request without merging, after a confirmation, and reopen a closed one. The "Merged" tab is now "Closed" and also lists your closed PRs.
 
 ## [0.1.0] - 2026-10-19
 
