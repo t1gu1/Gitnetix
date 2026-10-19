@@ -318,14 +318,15 @@ export function BranchTree({
                     </span>
                     {tag && checkout && checkout !== "sep" && (
                       <span className="tree-acts">
-                        <span className="split" onDoubleClick={(e) => e.stopPropagation()}>
-                          <button className="btn btn-sm split-main" disabled={checkout.disabled} data-tip={`Check out the commit ${tag} points at (detached HEAD)`} onClick={checkout.run}>
-                            <Icon name="swap" size={12} />
-                            <span>Check out</span>
+                        <span className="acts" onDoubleClick={(e) => e.stopPropagation()}>
+                          <button className="act act-main" disabled={checkout.disabled} aria-label={`Check out ${tag}`} data-tip={`Check out the commit ${tag} points at (detached HEAD)`} onClick={checkout.run}>
+                            <Icon name="swap" size={14} />
                           </button>
-                          <button className="btn btn-sm btn-icon split-more" aria-label={`More actions for ${tag}`} aria-haspopup="menu" onClick={(e) => openTagMenu(tag, r.checkedOut, e)}>
-                            <Icon name="more" size={13} />
-                          </button>
+                          <span className="act-stack">
+                            <button className="act" aria-label={`More actions for ${tag}`} data-tip={`More actions for ${tag}`} aria-haspopup="menu" onClick={(e) => openTagMenu(tag, r.checkedOut, e)}>
+                              <Icon name="more" size={13} />
+                            </button>
+                          </span>
                         </span>
                       </span>
                     )}

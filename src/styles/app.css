@@ -266,9 +266,10 @@ button.tree-twist:hover { color: var(--fg); }
 @media (prefers-reduced-motion: reduce) { .wip-badge { animation: none; } }
 .tree-row[data-dim] .tree-name, .tree-row[data-dim] .kind-chip { opacity: .6; }
 /* Shared branches read apart from work: trunks (main, dev…) orange, releases (open or shipped) purple. */
-.tree-row[data-role="trunk"] .tree-name > .mono { color: var(--trunk-fg); }
+.tree-row[data-role="trunk"] .tree-name > .mono { color: var(--trunk-fg); font-weight: 600; }
 .tree-row[data-role="release"] .tree-name > .mono { color: var(--release-fg); }
-.tree-acts { flex: 0 0 auto; display: flex; opacity: 0; pointer-events: none; transition: opacity .12s; }
+/* Row actions fill the row's height, flush with its right edge, over its own background. */
+.tree-acts { flex: 0 0 auto; display: flex; align-self: stretch; margin: -6px -6px -6px 0; opacity: 0; pointer-events: none; transition: opacity .12s; }
 .tree-row:hover .tree-acts, .tree-row:focus-within .tree-acts, .tree-row:has(> .tree-btn[aria-pressed="true"]) .tree-acts { opacity: 1; pointer-events: auto; }
 @media (hover: none) { .tree-acts { opacity: 1; pointer-events: auto; } }
 .tree-group { width: calc(100% - 12px); min-height: 30px; align-items: center; border: 0; background: transparent; font: inherit; text-align: left; cursor: pointer; }
@@ -288,6 +289,16 @@ button.tree-twist:hover { color: var(--fg); }
 .tree-filter { display: flex; align-items: center; gap: 8px; padding: 8px 12px 8px 16px; border-bottom: 1px solid var(--line); }
 .tree-filter .input { flex: 1 1 auto; min-width: 0; height: 28px; font-size: 12.5px; }
 .kind-chip { font-family: var(--mono); font-size: 10px; font-weight: 500; text-transform: uppercase; }
+/* Icon-only split: the suggested action full height, "+" and "…" stacked half height beside it. */
+.acts { --act-line: color-mix(in srgb, var(--fg) 3%, transparent); display: flex; align-items: stretch; border-left: 1px solid var(--act-line); border-radius: 0 4px 4px 0; overflow: hidden; }
+.act { display: inline-flex; align-items: center; justify-content: center; width: 26px; padding: 0; border: 0; background: transparent; color: var(--muted); cursor: pointer; }
+.act:hover:not(:disabled) { background: color-mix(in srgb, var(--fg) 8%, transparent); color: var(--fg); }
+.act:disabled { opacity: .4; cursor: default; }
+.act-main { width: 34px; color: var(--fg); }
+.act.btn-danger { color: var(--del-fg); }
+.act-stack { display: flex; flex-direction: column; border-left: 1px solid var(--act-line); }
+.act-stack > .act { flex: 1 1 0; min-height: 0; }
+.act-stack > .act + .act { border-top: 1px solid var(--act-line); }
 .split { display: inline-flex; flex: 0 0 auto; }
 .split-main { border-top-right-radius: 0; border-bottom-right-radius: 0; }
 .split-mid { margin-left: -1px; border-radius: 0; }

@@ -283,26 +283,31 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
 
 export type BranchActions = ReturnType<typeof useBranchActions>;
 
-/** Primary action for the branch's state, a "+" to start a branch off it, and a "…" button with every action. */
-export function BranchSplit({ t, actions, size = "sm" }: { t: BranchTarget; actions: BranchActions; size?: "sm" | "md" }) {
+/**
+ * Icon-only actions filling the row's height: the primary action for the branch's state,
+ * then a "+" to start a branch off it stacked over a "…" with every action.
+ */
+export function BranchSplit({ t, actions }: { t: BranchTarget; actions: BranchActions }) {
   const p = actions.primary(t);
   const add = actions.create(t);
   const busy = actions.busy.has(t.view.name);
-  const cls = size === "sm" ? "btn btn-sm" : "btn";
+  const tip = p.tip ?? (typeof p.label === "string" ? p.label : undefined);
+  const more = `More actions for ${t.view.name}`;
   return (
-    <span className="split" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
-      <button className={`${cls} split-main${p.danger ? " btn-danger" : ""}`} disabled={p.disabled || busy} data-tip={p.tip ?? (typeof p.label === "string" ? p.label : undefined)} onClick={p.run}>
-        {busy ? <span className="spinner" /> : p.icon && <Icon name={p.icon} size={12} />}
-        <span>{p.short ?? p.label}</span>
+    <span className="acts" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
+      <button className={`act act-main${p.danger ? " btn-danger" : ""}`} disabled={p.disabled || busy} aria-label={tip} data-tip={tip} onClick={p.run}>
+        {busy ? <span className="spinner" /> : <Icon name={p.icon ?? "check"} size={14} />}
       </button>
-      {add && (
-        <button className={`${cls} btn-icon split-mid`} aria-label={add.tip} data-tip={add.tip} onClick={add.run}>
-          <Icon name="plus" size={12} />
+      <span className="act-stack">
+        {add && (
+          <button className="act" aria-label={add.tip} data-tip={add.tip} onClick={add.run}>
+            <Icon name="plus" size={12} />
+          </button>
+        )}
+        <button className="act" aria-label={more} data-tip={more} aria-haspopup="menu" onClick={(e) => actions.openMenu(t, e)}>
+          <Icon name="more" size={13} />
         </button>
-      )}
-      <button className={`${cls} btn-icon split-more`} aria-label={`More actions for ${t.view.name}`} aria-haspopup="menu" onClick={(e) => actions.openMenu(t, e)}>
-        <Icon name="more" size={13} />
-      </button>
+      </span>
     </span>
   );
 }
