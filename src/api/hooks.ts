@@ -17,6 +17,7 @@ import type {
   PrDetail,
   PrSummary,
   ProjectSummary,
+  Submodule,
   Template,
   Ticket,
   WorktreeView,
@@ -59,6 +60,7 @@ export function useEngineEvents() {
             qc.invalidateQueries({ queryKey: ["commits", e.projectId] });
             qc.invalidateQueries({ queryKey: ["worktrees"] });
             qc.invalidateQueries({ queryKey: ["projects"] });
+            qc.invalidateQueries({ queryKey: ["submodules", e.projectId] });
             break;
           case "configChanged":
             qc.invalidateQueries({ queryKey: ["config"] });
@@ -166,6 +168,14 @@ export const useAgents = () =>
 
 export const useWorktrees = () =>
   useQuery({ queryKey: ["worktrees"], queryFn: () => rpc<WorktreeView[]>("worktrees.list"), refetchInterval: 10_000 });
+
+export const useSubmodules = (projectId?: string) =>
+  useQuery({
+    queryKey: ["submodules", projectId],
+    queryFn: () => rpc<Submodule[]>("submodules.list", { projectId }),
+    enabled: !!projectId,
+    refetchInterval: 15_000,
+  });
 
 export const useAiCatalog = () => useQuery({ queryKey: ["ai"], queryFn: () => rpc<AiCatalog>("ai.catalog") });
 

@@ -235,6 +235,43 @@ export interface Stash {
   untracked: boolean;
 }
 
+export type SubmoduleState = "uninitialized" | "clean" | "moved" | "conflict" | "missing";
+
+export interface Submodule {
+  name: string;
+  path: string;
+  /** URL in .gitmodules. */
+  url: string;
+  /** URL the local clone actually uses; null until initialized. */
+  localUrl?: string | null;
+  /** The local clone fetches from elsewhere than .gitmodules says: a sync is due. */
+  urlDrift: boolean;
+  /** The repository's page on its host; null for a local or unknown remote. */
+  webUrl?: string | null;
+  /** Branch `update --remote` follows; null = the remote's default. */
+  branch?: string | null;
+  state: SubmoduleState;
+  /** Commit the project pins. */
+  recorded?: string | null;
+  /** The pin in the index differs from HEAD's: waiting to be committed. */
+  staged: boolean;
+  /** Commit checked out in the submodule. */
+  head?: string | null;
+  /** Branch checked out inside; null = detached. */
+  headBranch?: string | null;
+  subject?: string | null;
+  author?: string | null;
+  date?: string | null;
+  /** Uncommitted files inside. */
+  dirty: number;
+  /** Commits checked out that the pin lacks, and the reverse. */
+  ahead: number;
+  behind: number;
+  /** Remote branch compared to, as of the last fetch. */
+  upstream?: string | null;
+  upstreamBehind: number;
+}
+
 export interface StashApplied {
   /** Files left conflicted; the stash is kept then. */
   conflicts: string[];

@@ -13,6 +13,7 @@ release notes and the in-app update prompt.
 
 ### Added
 - Image and SVG previews in the file diff. A replaced image can be compared side by side, with a swipe slider, as an onion skin or as a pixel difference.
+- Submodules page: every submodule of the project with its pinned and checked-out commits, uncommitted files and new commits on its remote. Add, clone, update to the pin or pull the latest, pin the checked-out commit, sync or edit the URL and tracked branch, open its repository page on GitHub, GitLab or Azure DevOps, open one as a project, or remove it. "Update all" clones missing submodules and checks each out at its pin; its menu pulls the latest for all, syncs every URL or checks remotes for updates.
 
 ## [0.1.0] - 2026-10-19
 

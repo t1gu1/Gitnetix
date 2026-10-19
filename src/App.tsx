@@ -17,6 +17,7 @@ import { Pair } from "./screens/Pair";
 import { PullRequests } from "./screens/PullRequests";
 import { ReleaseNotes } from "./screens/ReleaseNotes";
 import { Settings } from "./screens/Settings";
+import { Submodules } from "./screens/Submodules";
 import { Templates } from "./screens/Templates";
 import { Tickets } from "./screens/Tickets";
 import { Welcome } from "./screens/Welcome";
@@ -86,6 +87,9 @@ function Shell({ onUnpair }: { onUnpair: () => void }) {
       break;
     case "worktrees":
       screen = <Worktrees initial={r.path} />;
+      break;
+    case "submodules":
+      screen = nav.projectId ? <Submodules /> : <Welcome />;
       break;
     case "pair":
       screen = <Pair onPaired={() => nav.go({ name: "workspace" })} />;

@@ -13,6 +13,7 @@ pub mod providers;
 pub mod rpc;
 pub mod secrets;
 pub mod store;
+pub mod submodules;
 pub mod templates;
 pub mod tickets;
 pub mod watch;

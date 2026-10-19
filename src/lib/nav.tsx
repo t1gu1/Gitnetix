@@ -15,6 +15,7 @@ export type Route =
   | { name: "tickets" }
   | { name: "analytics" }
   | { name: "worktrees"; path?: string }
+  | { name: "submodules" }
   | { name: "pair" };
 
 /** Screens opened from the menu or a link, with no tab bar of their own: leaving them goes back to where the user came from. */

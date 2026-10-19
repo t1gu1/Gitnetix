@@ -75,6 +75,14 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("branches.fetch", "Fetch origin, pruning deleted branches", "projectId"),
     ("branches.cleanup", "Delete branches, skipping the ones that can't go; force = even if unmerged, remote = on origin too", "projectId, branches: string[], force?, remote?"),
     ("branches.delete", "Delete a local branch and its worktree; force = even if unmerged, remote = on origin too. Not the default or a host-protected branch", "projectId, branch, force?, remote?"),
+    ("submodules.list", "Submodules of the project: URL, tracked branch, recorded vs checked-out commit, uncommitted files, commits behind its remote", "projectId"),
+    ("submodules.add", "Add a submodule (path defaults to the URL's last segment) and clone it", "projectId, url, path?, branch?"),
+    ("submodules.update", "Check out the recorded commit of one submodule (path) or all, cloning missing ones, nested included; remote = the tracked branch's tip instead", "projectId, path?, remote?"),
+    ("submodules.sync", "Copy the URLs from .gitmodules into the local clones of one submodule or all", "projectId, path?"),
+    ("submodules.set", "Change a submodule's URL and/or tracked branch (empty branch = the remote's default)", "projectId, path, url?, branch?"),
+    ("submodules.stage", "Stage the commit checked out in a submodule as its new pin", "projectId, path"),
+    ("submodules.remove", "Remove a submodule: deinit, delete its folder and clone; the removal is staged", "projectId, path"),
+    ("submodules.fetch", "Fetch every initialized submodule's origin", "projectId"),
     ("worktrees.list", "Every worktree across projects with its agent", ""),
     ("worktrees.create", "Open a branch in a new worktree", "projectId, branch"),
     ("worktrees.remove", "Remove a worktree", "projectId, path, force?"),
@@ -459,6 +467,25 @@ pub async fn call(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
             k.delete_branch(&s(&p, "projectId")?, &s(&p, "branch")?, b(&p, "force"), b(&p, "remote")).await?;
             ok()
         }
+
+        // ---- submodules ----
+        "submodules.list" => to(k.submodules(&s(&p, "projectId")?).await?),
+        "submodules.add" => to(json!({ "output": k.add_submodule(&s(&p, "projectId")?, &s(&p, "url")?, os(&p, "path").as_deref(), os(&p, "branch").as_deref()).await? })),
+        "submodules.update" => to(json!({ "output": k.update_submodules(&s(&p, "projectId")?, os(&p, "path").as_deref(), b(&p, "remote")).await? })),
+        "submodules.sync" => to(json!({ "output": k.sync_submodules(&s(&p, "projectId")?, os(&p, "path").as_deref()).await? })),
+        "submodules.set" => {
+            k.set_submodule(&s(&p, "projectId")?, &s(&p, "path")?, os(&p, "url").as_deref(), os(&p, "branch").as_deref()).await?;
+            ok()
+        }
+        "submodules.stage" => {
+            k.stage_submodule(&s(&p, "projectId")?, &s(&p, "path")?).await?;
+            ok()
+        }
+        "submodules.remove" => {
+            k.remove_submodule(&s(&p, "projectId")?, &s(&p, "path")?).await?;
+            ok()
+        }
+        "submodules.fetch" => to(k.fetch_submodules(&s(&p, "projectId")?).await?),
 
         // ---- worktrees & agents ----
         "worktrees.list" => to(k.worktrees().await?),

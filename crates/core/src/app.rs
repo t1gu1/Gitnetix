@@ -19,6 +19,7 @@ use crate::git::{Blobs, BranchInfo, Commit, FileChange, Git, Hunk, Side, Identit
 use crate::providers::{github::GitHub, parse_remote};
 use crate::secrets;
 use crate::store::{new_id, now, BranchMeta, GitProfile, Project, Release, ReleaseKind, Store};
+use crate::submodules::{self, FetchReport, Submodule};
 use crate::templates::{self, Template};
 use crate::tickets::{self, Ticket};
 
@@ -2800,6 +2801,87 @@ impl Gitnetix {
         }
         self.changed(project_id);
         Ok(format!("Changelog updated on {branch}"))
+    }
+
+    // ---------- submodules ----------
+
+    pub async fn submodules(&self, project_id: &str) -> Result<Vec<Submodule>> {
+        submodules::list(&self.git(&self.store.project(project_id)?)).await
+    }
+
+    /// The submodule at `path`, so actions only ever touch a declared one.
+    async fn submodule(&self, git: &Git, path: &str) -> Result<Submodule> {
+        let path = submodules::check_path(path)?;
+        submodules::list(git).await?.into_iter().find(|s| s.path == path).ok_or_else(|| Error::NotFound(format!("submodule {path}")))
+    }
+
+    /// Add a submodule; `path` defaults to the URL's last segment.
+    pub async fn add_submodule(&self, project_id: &str, url: &str, path: Option<&str>, branch: Option<&str>) -> Result<String> {
+        let url = url.trim();
+        if url.is_empty() {
+            return Err(Error::Invalid("Give the repository URL.".into()));
+        }
+        let fallback = submodules::default_path(url);
+        let path = submodules::check_path(path.map(str::trim).filter(|p| !p.is_empty()).unwrap_or(&fallback))?;
+        let git = self.git(&self.store.project(project_id)?);
+        if git.cwd().join(path).exists() {
+            return Err(Error::Invalid(format!("{path} already exists in the project. Pick another folder.")));
+        }
+        let out = submodules::add(&git, url, path, branch.map(str::trim).filter(|b| !b.is_empty())).await;
+        self.changed(project_id);
+        out
+    }
+
+    /// Check out the recorded commits (`remote` = the tracked branches' tips instead). `path` None = all.
+    pub async fn update_submodules(&self, project_id: &str, path: Option<&str>, remote: bool) -> Result<String> {
+        let git = self.git(&self.store.project(project_id)?);
+        if let Some(p) = path {
+            self.submodule(&git, p).await?;
+        }
+        let out = submodules::update(&git, path.map(|p| p.trim().trim_end_matches('/')), remote).await;
+        self.changed(project_id);
+        out
+    }
+
+    pub async fn sync_submodules(&self, project_id: &str, path: Option<&str>) -> Result<String> {
+        let git = self.git(&self.store.project(project_id)?);
+        if let Some(p) = path {
+            self.submodule(&git, p).await?;
+        }
+        submodules::sync(&git, path.map(|p| p.trim().trim_end_matches('/'))).await
+    }
+
+    pub async fn set_submodule(&self, project_id: &str, path: &str, url: Option<&str>, branch: Option<&str>) -> Result<()> {
+        let git = self.git(&self.store.project(project_id)?);
+        let s = self.submodule(&git, path).await?;
+        let url = url.map(str::trim).filter(|u| !u.is_empty() && *u != s.url);
+        let branch = branch.map(str::trim).filter(|b| Some(*b) != s.branch.as_deref().or(Some("")));
+        submodules::set(&git, &s.path, url, branch).await?;
+        self.changed(project_id);
+        Ok(())
+    }
+
+    /// Stage the commit checked out in a submodule as its new pin, ready to commit.
+    pub async fn stage_submodule(&self, project_id: &str, path: &str) -> Result<()> {
+        let git = self.git(&self.store.project(project_id)?);
+        let s = self.submodule(&git, path).await?;
+        git.run(&["add", "--", &s.path]).await?;
+        self.changed(project_id);
+        Ok(())
+    }
+
+    pub async fn remove_submodule(&self, project_id: &str, path: &str) -> Result<()> {
+        let git = self.git(&self.store.project(project_id)?);
+        let s = self.submodule(&git, path).await?;
+        let out = submodules::remove(&git, &s).await;
+        self.changed(project_id);
+        out
+    }
+
+    pub async fn fetch_submodules(&self, project_id: &str) -> Result<FetchReport> {
+        let git = self.git(&self.store.project(project_id)?);
+        let list = submodules::list(&git).await?;
+        Ok(submodules::fetch(&git, &list).await)
     }
 
     // ---------- analytics ----------

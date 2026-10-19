@@ -256,7 +256,7 @@ impl Git {
     }
 
     /// Resolve paths inside the git dir (handles worktrees), in one call.
-    async fn git_paths(&self, names: &[&str]) -> Result<Vec<PathBuf>> {
+    pub(crate) async fn git_paths(&self, names: &[&str]) -> Result<Vec<PathBuf>> {
         let args: Vec<&str> = ["rev-parse"].into_iter().chain(names.iter().flat_map(|n| ["--git-path", n])).collect();
         let out = self.run(&args).await?;
         Ok(out.lines().map(|l| self.cwd.join(l.trim())).collect())
