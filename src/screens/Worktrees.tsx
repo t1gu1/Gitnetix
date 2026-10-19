@@ -168,7 +168,7 @@ function Detail({ r }: { r: Row }) {
   };
   const [label, cls] = STATUS[r.status];
   return (
-    <div className="detail-inner" style={{ flex: 1, minHeight: 0, maxWidth: 960 }}>
+    <div className="detail-inner" style={{ flex: 1, minHeight: 0 }}>
       <div className="col" style={{ gap: 6 }}>
         <div className="row wrap" style={{ fontSize: 12.5 }}>
           <span className={`pill ${cls}`}>{label}</span>

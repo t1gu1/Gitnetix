@@ -64,7 +64,7 @@ function Body({ a }: { a: A }) {
   const ticks = (m: number, unit = "") => [0, 1, 2, 3, 4].map((i) => ({ v: `${Math.round((m * i) / 4)}${unit && i === 4 ? unit : ""}`, top: 100 - i * 25 }));
 
   return (
-    <div className="col" style={{ gap: 32, maxWidth: 1200 }}>
+    <div className="col" style={{ gap: 32, maxWidth: 1200, marginInline: "auto" }}>
       <section aria-label="Key figures" className="kpis">
         {a.kpis.map((k) => (
           <div key={k.label} className="kpi">
