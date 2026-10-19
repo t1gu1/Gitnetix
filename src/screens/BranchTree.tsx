@@ -1,4 +1,4 @@
-import { useMemo, useState, type MouseEvent, type ReactNode } from "react";
+import { useMemo, useReducer, useState, type MouseEvent, type ReactNode } from "react";
 
 import { useAction } from "../api/hooks";
 import type { BranchView, Overview, ReleaseView } from "../api/types";
@@ -6,22 +6,31 @@ import { ContextMenu, type MenuItem } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
 import { Empty, releaseTagLabel } from "../components/ui";
 import { plural, stashCount } from "../lib/format";
-import { useStored } from "../lib/stored";
 import { BranchSplit, type BranchActions, type BranchTarget } from "./BranchMenu";
-
-/** Sections that start closed; every other section starts open. */
-const CLOSED_BY_DEFAULT = new Set(["shipped"]);
 
 /** Branches this many commits behind the default branch count as falling behind. */
 const BEHIND_LIMIT = 25;
 /** The Falling behind section shows once more than this many branches fall behind. */
 const BEHIND_MIN_BRANCHES = 2;
 
-/** Collapsed sections, remembered per project between sessions. */
-function useToggles(pid: string) {
-  const [flipped, setFlipped] = useStored<Record<string, boolean>>(`gnx.tree.${pid}`, {});
-  const isOpen = (id: string) => CLOSED_BY_DEFAULT.has(id) === !!flipped[id];
-  const toggle = (id: string) => setFlipped({ ...flipped, [id]: !flipped[id] });
+/** Open sections per project, for this run of the app. */
+const openSections = new Map<string, Set<string>>();
+
+/**
+ * Open sections of a project. The first time it shows in a run of the app, everything starts
+ * closed except the sections leading to `initial`'s checked-out branch.
+ */
+function useToggles(pid: string, initial: () => Set<string>) {
+  const [, rerender] = useReducer((n: number) => n + 1, 0);
+  if (!openSections.has(pid)) openSections.set(pid, initial());
+  const open = openSections.get(pid)!;
+  const isOpen = (id: string) => open.has(id);
+  const toggle = (id: string) => {
+    const next = new Set(open);
+    if (!next.delete(id)) next.add(id);
+    openSections.set(pid, next);
+    rerender();
+  };
   return { isOpen, toggle };
 }
 
@@ -98,7 +107,6 @@ export function BranchTree({
   onStashes: () => void;
 }) {
   const pid = o.project.id;
-  const { isOpen, toggle } = useToggles(pid);
   const [query, setQuery] = useState("");
   const [tagMenu, setTagMenu] = useState<{ x: number; y: number; alignRight: boolean; tag: string; checkedOut: boolean } | null>(null);
   const openTagMenu = (tag: string, checkedOut: boolean, e: MouseEvent) => {
@@ -153,6 +161,14 @@ export function BranchTree({
     tops.forEach(walk);
     return on;
   }, [tops, kids, o.currentBranch]);
+  // Only the groups the path runs through start open: live children or the merged ones.
+  const { isOpen, toggle } = useToggles(pid, () => {
+    const open = new Set<string>();
+    for (const name of path) {
+      for (const c of kids(name)) if (path.has(c.name)) open.add(c.merged ? `merged:${name}` : name);
+    }
+    return open;
+  });
 
   // Uncommitted files anywhere below a branch, surfaced on its toggle while its children are hidden.
   const hiddenWip = (b: BranchView): number => kids(b.name).reduce((n, c) => n + c.wip + hiddenWip(c), 0);
