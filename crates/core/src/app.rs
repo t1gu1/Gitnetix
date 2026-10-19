@@ -3456,9 +3456,11 @@ impl Gitnetix {
 
     // ---------- analytics ----------
 
-    pub async fn analytics(&self, project_id: &str, days: i64) -> Result<crate::analytics::Analytics> {
+    /// Stats over the projects in `project_ids`; empty or `"all"` means every project.
+    pub async fn analytics(&self, project_ids: &[String], days: i64) -> Result<crate::analytics::Analytics> {
         let projects = self.store.read(|c| c.projects.clone());
-        let chosen: Vec<&Project> = projects.iter().filter(|p| project_id == "all" || p.id == project_id).collect();
+        let all = project_ids.is_empty() || project_ids.iter().any(|id| id == "all");
+        let chosen: Vec<&Project> = projects.iter().filter(|p| all || project_ids.contains(&p.id)).collect();
         let repos = chosen.iter().map(|p| (Git::new(&p.path), p.ai_commits.as_slice())).collect();
         crate::analytics::compute(crate::analytics::Input { repos, range_days: days }).await
     }

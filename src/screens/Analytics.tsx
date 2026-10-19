@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { useAnalytics, useProjects } from "../api/hooks";
-import type { Analytics as A } from "../api/types";
+import type { Analytics as A, ProjectSummary } from "../api/types";
+import { Icon } from "../components/Icon";
 import { ErrorBox, Header, initials, Loading, Seg } from "../components/ui";
 import { useNav } from "../lib/nav";
 import { useStored } from "../lib/stored";
@@ -12,14 +13,20 @@ function niceMax(v: number) {
   for (const s of [4, 8, 12, 16, 20, 24, 30, 40, 50, 60, 80, 100]) if (v <= s) return s;
   return Math.ceil(v / 20) * 20;
 }
+const lead = (h: number) => {
+  if (h < 1) return "Less than 1 h";
+  const d = Math.floor(h / 24), r = h % 24;
+  return d === 0 ? `${r} h` : r === 0 ? `${d} d` : `${d} d ${r} h`;
+};
 const fmt = (iso: string, opts: Intl.DateTimeFormatOptions) => new Date(`${iso}T12:00:00`).toLocaleDateString("en-US", opts);
 
 export function Analytics() {
   const nav = useNav();
   const projects = useProjects().data ?? [];
   const [days, setDays] = useStored("gnx.analytics.days", "14", (s) => (RANGES.includes(s) ? s : "14"), String);
-  const [pid, setPid] = useState(nav.projectId ?? "all");
-  const q = useAnalytics(pid, Number(days));
+  // Empty means every project.
+  const [ids, setIds] = useState<string[]>(nav.projectId ? [nav.projectId] : []);
+  const q = useAnalytics(ids, Number(days));
 
   const exportCsv = () => {
     if (!q.data) return;
@@ -36,11 +43,7 @@ export function Analytics() {
       <Header title="Analytics & stats" />
       <div className="row wrap" style={{ padding: "10px 24px", borderBottom: "1px solid var(--line)", gap: 12 }}>
         <Seg label="Time range" value={days} onChange={setDays} options={RANGES.map((d) => ({ value: d, label: `${d} days` }))} />
-        <label htmlFor="an-project" className="sr-only">Project</label>
-        <select id="an-project" className="select" style={{ height: 32 }} value={pid} onChange={(e) => setPid(e.target.value)}>
-          {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          <option value="all">All projects</option>
-        </select>
+        <ProjectPicker projects={projects} value={ids} onChange={setIds} />
         <span className="grow" />
         <button className="btn" disabled={!q.data} onClick={exportCsv}>Export CSV</button>
       </div>
@@ -53,6 +56,56 @@ export function Analytics() {
   );
 }
 
+/** Dropdown of project checkboxes; nothing checked means all projects. */
+function ProjectPicker({ projects, value, onChange }: { projects: ProjectSummary[]; value: string[]; onChange: (ids: string[]) => void }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  // Ids of removed projects are dropped from the label and the count.
+  const chosen = projects.filter((p) => value.includes(p.id));
+  const label = chosen.length === 0 || chosen.length === projects.length ? "All projects" : chosen.length === 1 ? chosen[0].name : `${chosen.length} projects`;
+  const toggle = (id: string) => {
+    const next = chosen.some((p) => p.id === id) ? chosen.filter((p) => p.id !== id) : [...chosen, projects.find((p) => p.id === id)!];
+    onChange(next.length === projects.length ? [] : next.map((p) => p.id));
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    const down = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && setOpen(false);
+    const key = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    window.addEventListener("mousedown", down, true);
+    window.addEventListener("keydown", key);
+    return () => {
+      window.removeEventListener("mousedown", down, true);
+      window.removeEventListener("keydown", key);
+    };
+  }, [open]);
+
+  return (
+    <div ref={ref} style={{ position: "relative" }}>
+      <button className="select row" style={{ height: 32, gap: 8 }} aria-haspopup="true" aria-expanded={open} onClick={() => setOpen(!open)}>
+        <span className="sr-only">Projects: </span>
+        <span className="ellipsis" style={{ maxWidth: 220 }}>{label}</span>
+        <Icon name="chevronDown" size={12} />
+      </button>
+      {open && (
+        <div className="ctx-menu" role="group" aria-label="Projects to include" style={{ position: "absolute", top: 36, left: 0, maxHeight: 360, overflowY: "auto" }}>
+          <label className="check ctx-item">
+            <input type="checkbox" checked={chosen.length === 0 || chosen.length === projects.length} onChange={() => onChange([])} />
+            <span className="grow ellipsis">All projects</span>
+          </label>
+          <div className="ctx-sep" role="separator" />
+          {projects.map((p) => (
+            <label key={p.id} className="check ctx-item">
+              <input type="checkbox" checked={chosen.some((c) => c.id === p.id)} onChange={() => toggle(p.id)} />
+              <span className="grow ellipsis">{p.name}</span>
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Body({ a }: { a: A }) {
   const [hd, setHd] = useState(-1);
   const [hb, setHb] = useState(-1);
@@ -62,7 +115,7 @@ function Body({ a }: { a: A }) {
   const max = niceMax(Math.max(1, ...a.days.map((d) => d.total)));
   const busiest = a.days.reduce((b, d) => (d.total > b.total ? d : b), a.days[0]);
   const labels = n <= 30 ? 6 : n <= 90 ? 7 : 12;
-  const leadMax = niceMax(Math.max(1, ...a.releases.map((r) => r.leadDays)));
+  const leadMax = niceMax(Math.max(1, ...a.releases.map((r) => r.leadHours / 24)));
   const hover = hd >= 0 ? a.days[hd] : null;
   const ticks = (m: number, unit = "") => [0, 1, 2, 3, 4].map((i) => ({ v: `${Math.round((m * i) / 4)}${unit && i === 4 ? unit : ""}`, top: 100 - i * 25 }));
 
@@ -137,20 +190,20 @@ function Body({ a }: { a: A }) {
         {a.releases.length === 0 ? (
           <span className="muted">No tagged release yet.</span>
         ) : (
-          <div className="chart" role="img" aria-label={`Lead time per release in days: ${a.releases.map((r) => `${r.version} ${r.leadDays}`).join(", ")}.`}>
+          <div className="chart" role="img" aria-label={`Lead time per release: ${a.releases.map((r) => `${r.version} ${lead(r.leadHours)}`).join(", ")}.`}>
             <div className="chart-y">{ticks(leadMax, " d").map((t) => <span key={t.top} style={{ top: `${t.top}%` }}>{t.v}</span>)}</div>
             <div className="chart-plot" style={{ gap: 16 }} onMouseLeave={() => setHb(-1)}>
               {ticks(leadMax).map((t) => <div key={t.top} className="chart-grid" style={{ top: `${t.top}%` }} />)}
               {a.releases.map((r, i) => (
                 <div key={r.version} className={`chart-bar${hb >= 0 && hb !== i ? " dim" : ""}`} onMouseEnter={() => setHb(i)}>
-                  <span style={{ height: `${(r.leadDays / leadMax) * 100}%`, maxWidth: 56, borderRadius: "3px 3px 0 0" }} />
+                  <span style={{ height: `${(r.leadHours / 24 / leadMax) * 100}%`, maxWidth: 56, borderRadius: "3px 3px 0 0" }} />
                   {hb === i && (
                     <div className="chart-tip" style={{ left: i / a.releases.length < 0.2 ? 0 : i / a.releases.length > 0.8 ? "100%" : "50%", transform: `translateX(${i / a.releases.length < 0.2 ? "0" : i / a.releases.length > 0.8 ? "-100%" : "-50%"})` }}>
                       <div className="row">
                         <strong className="mono grow">{r.version}</strong>
-                        <span>{r.leadDays === 1 ? "1 day" : `${r.leadDays} days`}</span>
+                        <span>{lead(r.leadHours)}</span>
                       </div>
-                      {([["Shipped", r.shipped], ["Features", r.features], ["Fixes", r.fixes], ["AI-assisted", `${r.aiPct}%`]] as const).map(([k, v]) => (
+                      {([["Shipped", r.shipped], ["Features", r.features], ["Fixes", r.fixes]] as const).map(([k, v]) => (
                         <div key={k} className="row">
                           <span className="grow muted">{k}</span>
                           <span className="mono">{v}</span>
@@ -167,38 +220,6 @@ function Body({ a }: { a: A }) {
           </div>
         )}
       </section>
-
-      {a.releases.length > 0 && (
-        <section className="section">
-          <h2>Releases</h2>
-          <div style={{ overflowX: "auto" }}>
-            <table className="table">
-              <thead>
-                <tr>
-                  <th scope="col">Version</th>
-                  <th scope="col">Shipped</th>
-                  <th scope="col" className="num">Features</th>
-                  <th scope="col" className="num">Fixes</th>
-                  <th scope="col" className="num">Lead time</th>
-                  <th scope="col" className="num">AI-written commits</th>
-                </tr>
-              </thead>
-              <tbody>
-                {[...a.releases].reverse().map((r) => (
-                  <tr key={r.version}>
-                    <th scope="row" className="mono" style={{ fontWeight: 500 }}>{r.version}</th>
-                    <td className="muted">{r.shipped}</td>
-                    <td className="num">{r.features}</td>
-                    <td className="num">{r.fixes}</td>
-                    <td className="num">{r.leadDays} d</td>
-                    <td className="num">{r.aiPct}%</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      )}
     </div>
   );
 }

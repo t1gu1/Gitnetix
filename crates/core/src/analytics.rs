@@ -6,7 +6,7 @@ use chrono::{DateTime, Duration, NaiveDate, Utc};
 use serde::Serialize;
 
 use crate::error::Result;
-use crate::git::{Commit, Git};
+use crate::git::{Commit, Git, PR_ANY_GREP};
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -35,6 +35,8 @@ pub struct ReleaseStat {
     pub features: u32,
     pub fixes: u32,
     pub lead_days: i64,
+    /// Whole hours from the first commit to the tag, for finer charts.
+    pub lead_hours: i64,
     pub ai_pct: u32,
 }
 
@@ -99,7 +101,11 @@ pub async fn compute(input: Input<'_>) -> Result<Analytics> {
             }
         }
         let default = git.default_branch().await.unwrap_or_else(|_| "main".into());
-        let merges = git.run(&["log", "--merges", "--format=%aI", &since, &default]).await.unwrap_or_default();
+        // Merges into main and into release branches; one log walk counts each merge once.
+        // Pull requests squashed in (`Merged PR 12: …`) count as merges too.
+        let targets = [&since, default.as_str(), "--branches=release/*", "--remotes=origin/release/*"];
+        let mut merges = git.run(&[&["log", "--merges", "--format=%aI"][..], &targets].concat()).await.unwrap_or_default();
+        merges += &git.run(&[&["log", "--no-merges", "-E", PR_ANY_GREP, "--format=%aI"][..], &targets].concat()).await.unwrap_or_default();
         for l in merges.lines() {
             if let Some(d) = parse_date(l.trim()) {
                 let day = d.date_naive();
@@ -174,6 +180,7 @@ pub async fn compute(input: Input<'_>) -> Result<Analytics> {
                 features,
                 fixes,
                 lead_days: (*date - first).num_days().max(0),
+                lead_hours: (*date - first).num_hours().max(0),
                 ai_pct: if list.is_empty() { 0 } else { (ai_n * 100 / list.len()) as u32 },
             },
             *date,
@@ -190,16 +197,9 @@ pub async fn compute(input: Input<'_>) -> Result<Analytics> {
     let lead_now = median(shipped_now.iter().map(|s| s.0.lead_days).collect());
     let lead_prev = median(shipped_prev.iter().map(|s| s.0.lead_days).collect());
 
-    let ai_share = |from: NaiveDate, to: NaiveDate| {
-        let list: Vec<&(Commit, bool)> = commits.iter().filter(|(c, _)| parse_date(&c.date).is_some_and(|d| in_range(&d, from, to))).collect();
-        if list.is_empty() {
-            None
-        } else {
-            Some((list.iter().filter(|(_, ai)| *ai).count() * 100 / list.len()) as i64)
-        }
-    };
-    let ai_now = ai_share(start, today);
-    let ai_prev = ai_share(prev_start, start - Duration::days(1));
+    let count_commits = |from: NaiveDate, to: NaiveDate| commits.iter().filter(|(c, _)| parse_date(&c.date).is_some_and(|d| in_range(&d, from, to))).count() as i64;
+    let commits_now = count_commits(start, today);
+    let commits_prev = count_commits(prev_start, start - Duration::days(1));
 
     let period = format!("vs previous {n} days");
     let kpis = vec![
@@ -213,21 +213,19 @@ pub async fn compute(input: Input<'_>) -> Result<Analytics> {
             value: lead_now.map(|d| format!("{d} d")).unwrap_or_else(|| "—".into()),
             delta: match (lead_now, lead_prev) {
                 (Some(a), Some(b)) => format!("{} {period}", signed(a - b, " d")),
-                _ => "No release to compare".into(),
+                (None, _) => format!("No release in last {n} days"),
+                (Some(_), None) => format!("No release to compare in previous {n} days"),
             },
         },
         Kpi {
-            label: "Merges into main".into(),
+            label: "Merges into main and releases".into(),
             value: merges_now.to_string(),
             delta: format!("{} {period}", signed(merges_now as i64 - merges_prev as i64, "")),
         },
         Kpi {
-            label: "AI-written commit messages".into(),
-            value: ai_now.map(|p| format!("{p}%")).unwrap_or_else(|| "—".into()),
-            delta: match (ai_now, ai_prev) {
-                (Some(a), Some(b)) => format!("{} {period}", signed(a - b, " pts")),
-                _ => "Tracked from commits made in Gitnetix".into(),
-            },
+            label: "Total commits".into(),
+            value: commits_now.to_string(),
+            delta: format!("{} {period}", signed(commits_now - commits_prev, "")),
         },
     ];
 

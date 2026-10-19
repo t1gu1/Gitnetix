@@ -496,7 +496,7 @@ export interface Analytics {
   rangeDays: number;
   kpis: { label: string; value: string; delta: string }[];
   days: { date: string; weekend: boolean; total: number; authors: [string, number][]; subjects: string[] }[];
-  releases: { version: string; shipped: string; features: number; fixes: number; leadDays: number; aiPct: number }[];
+  releases: { version: string; shipped: string; features: number; fixes: number; leadDays: number; leadHours: number; aiPct: number }[];
 }
 
 export type GitnetixEvent =

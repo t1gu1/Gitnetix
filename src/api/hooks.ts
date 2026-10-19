@@ -252,10 +252,11 @@ export const useTickets = (projectId?: string) =>
     staleTime: 60_000,
   });
 
-export const useAnalytics = (projectId: string, days: number) =>
+/** Stats over `projectIds`; an empty list means every project. */
+export const useAnalytics = (projectIds: string[], days: number) =>
   useQuery({
-    queryKey: ["analytics", projectId, days],
-    queryFn: () => rpc<Analytics>("analytics.get", { projectId, days }),
+    queryKey: ["analytics", [...projectIds].sort(), days],
+    queryFn: () => rpc<Analytics>("analytics.get", { projectIds, days }),
     staleTime: 60_000,
   });
 

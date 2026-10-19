@@ -18,7 +18,7 @@ const EMPTY_TREE: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 const PR_GREP: &str = "--grep=^Merged PR [0-9]+: [^ ]+$";
 
 /// `git log -E` filter for every pull request squash.
-const PR_ANY_GREP: &str = "--grep=^Merged PR [0-9]+: ";
+pub(crate) const PR_ANY_GREP: &str = "--grep=^Merged PR [0-9]+: ";
 
 /// Branch a pull request squash came from: `Merged PR 12: feature/x` → `feature/x`.
 /// An edited title (spaces in it) names no branch.

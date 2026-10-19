@@ -1,13 +1,13 @@
-import { useState } from "react";
+import { Activity, type ReactNode, useState } from "react";
 
-import { useConfig, useEngineEvents } from "./api/hooks";
+import { useConfig, useEngineEvents, useProjects } from "./api/hooks";
 import { currentRemote, isLocal } from "./api/transport";
 import { Icon } from "./components/Icon";
 import { TooltipLayer } from "./components/Tooltip";
 import { isPageRoute, TopBar } from "./components/TopBar";
 import { UpdatePrompt } from "./components/UpdatePrompt";
 import { Loading } from "./components/ui";
-import { NavProvider, useNav, type Route } from "./lib/nav";
+import { NavProvider, ProjectView, useNav, useVisited, type Route } from "./lib/nav";
 import { Toasts } from "./lib/toast";
 import { AISetup } from "./screens/AISetup";
 import { Analytics } from "./screens/Analytics";
@@ -56,6 +56,50 @@ const MOBILE_TABS: { route: Route; label: string; icon: string }[] = [
 function Shell({ onUnpair }: { onUnpair: () => void }) {
   const nav = useNav();
   const r = nav.route;
+  const projects = useProjects().data;
+  // Every project opened this session keeps its screens mounted (hidden while another is open),
+  // so coming back to it finds the same page, dialog, scroll and filters.
+  const open = new Set(projects?.filter((p) => !p.hidden).map((p) => p.id));
+  const keys = useVisited().filter((k) => k === (nav.projectId ?? "") || open.has(k));
+  const each = (render: () => ReactNode) =>
+    keys.map((k) => (
+      <Activity key={k} mode={k === (nav.projectId ?? "") ? "visible" : "hidden"}>
+        <ProjectView projectKey={k}>{render()}</ProjectView>
+      </Activity>
+    ));
+  return (
+    <div className="ag app">
+      <div className="app-main">
+        {nav.projectId && isPageRoute(r) && <TopBar />}
+        {each(() => <Screen onUnpair={onUnpair} />)}
+      </div>
+      {nav.projectId && (
+        <nav className="mobile-tabs" aria-label="Sections">
+          {MOBILE_TABS.map((t) => (
+            <button key={t.label} aria-pressed={t.route.name === "menu" ? nav.menuOpen : !nav.menuOpen && r.name === t.route.name} onClick={() => nav.go(t.route)}>
+              <Icon name={t.icon} size={18} />
+              {t.label}
+            </button>
+          ))}
+        </nav>
+      )}
+      {each(() => <NewItemDialog />)}
+      <UpdatePrompt />
+      <Toasts />
+      <TooltipLayer />
+    </div>
+  );
+}
+
+function NewItemDialog() {
+  const nav = useNav();
+  return nav.newItem && <NewItem draft={nav.newItem} onClose={nav.closeNewItem} />;
+}
+
+/** The page of the project this sits under, with its menu when open. */
+function Screen({ onUnpair }: { onUnpair: () => void }) {
+  const nav = useNav();
+  const r = nav.route;
   let screen;
   switch (r.name) {
     case "home":
@@ -96,26 +140,9 @@ function Shell({ onUnpair }: { onUnpair: () => void }) {
       break;
   }
   return (
-    <div className="ag app">
-      <div className="app-main">
-        {nav.projectId && isPageRoute(r) && <TopBar />}
-        {screen}
-        {nav.menuOpen && <Menu onUnpair={onUnpair} />}
-      </div>
-      {nav.projectId && (
-        <nav className="mobile-tabs" aria-label="Sections">
-          {MOBILE_TABS.map((t) => (
-            <button key={t.label} aria-pressed={t.route.name === "menu" ? nav.menuOpen : !nav.menuOpen && r.name === t.route.name} onClick={() => nav.go(t.route)}>
-              <Icon name={t.icon} size={18} />
-              {t.label}
-            </button>
-          ))}
-        </nav>
-      )}
-      {nav.newItem && <NewItem draft={nav.newItem} onClose={nav.closeNewItem} />}
-      <UpdatePrompt />
-      <Toasts />
-      <TooltipLayer />
-    </div>
+    <>
+      {screen}
+      {nav.menuOpen && <Menu onUnpair={onUnpair} />}
+    </>
   );
 }

@@ -15,6 +15,7 @@ release notes and the in-app update prompt.
 - Path dots on branches the path only passes through are now dimmed.
 - Dimmed path runs now fade in and out at their ends.
 - Tree now shows the checked-out branch or tag as soon as a switch completes.
+- Switching projects now returns you to where you left each one: same page, open dialogs and menu, selected branch, and that project's analytics.
 
 ### Fixed
 - Branch path line now runs past the sibling branches above it.

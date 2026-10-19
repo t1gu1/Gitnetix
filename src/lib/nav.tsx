@@ -55,22 +55,36 @@ interface Nav {
   forgetBranches: (projectId: string, branches: string[]) => void;
 }
 
+/** Where one project was left: its page, open menu or dialog, selected branch. */
+interface View {
+  route: Route;
+  menuOpen: boolean;
+  newItem: NewItemDraft | null;
+  selectedBranch?: string;
+  /** Page a detour screen goes back to. */
+  returnTo: Route | null;
+}
+
+/** Key of the view shown while no project is open. */
+const NONE = "";
+const freshView = (key: string): View => ({ route: key ? { name: "workspace" } : { name: "home" }, menuOpen: false, newItem: null, returnTo: null });
+
 const Ctx = createContext<Nav | null>(null);
+const ViewsCtx = createContext<{ views: Record<string, View>; base: Nav } | null>(null);
 
 function systemTheme(): "dark" | "light" {
   return typeof matchMedia !== "undefined" && matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
 }
 
 export function NavProvider({ children, initialProject, initialTheme }: { children: ReactNode; initialProject?: string; initialTheme?: string }) {
-  const [route, setRoute] = useState<Route>(initialProject ? { name: "workspace" } : { name: "home" });
-  const [menuOpen, setMenuOpen] = useState(false);
   const [projectId, setProjectId] = useState<string | undefined>(initialProject);
+  const [views, setViews] = useState<Record<string, View>>(() => ({ [initialProject ?? NONE]: freshView(initialProject ?? NONE) }));
   const [themePref, setThemePrefState] = useState(initialTheme ?? "system");
   const [sys, setSys] = useState(systemTheme());
-  const [newItem, setNewItem] = useState<NewItemDraft | null>(null);
-  const [selectedBranch, selectBranch] = useState<string | undefined>();
-  const routeRef = useRef(route);
-  const returnTo = useRef<Route | null>(null);
+  // Read by work that finishes after the user moved on (e.g. a background cleanup), and by
+  // calls made right after `setProject` in the same handler, which act on the new project.
+  const projectRef = useRef(projectId);
+  const viewsRef = useRef(views);
 
   useEffect(() => {
     const m = matchMedia("(prefers-color-scheme: light)");
@@ -84,55 +98,98 @@ export function NavProvider({ children, initialProject, initialTheme }: { childr
     document.documentElement.dataset.theme = theme;
   }, [theme]);
 
-  // Read by work that finishes after the user moved on (e.g. a background cleanup).
-  const projectRef = useRef(projectId);
-  const setProject = useCallback((id: string | undefined) => {
-    projectRef.current = id;
-    setProjectId(id);
-    selectBranch(undefined);
-    if (id) rpc("ui.set", { lastProject: id }).catch(() => {});
+  /** Change the view of the open project (or of `key`). */
+  const update = useCallback((f: (v: View) => View, key = projectRef.current ?? NONE) => {
+    const next = { ...viewsRef.current, [key]: f(viewsRef.current[key] ?? freshView(key)) };
+    viewsRef.current = next;
+    setViews(next);
   }, []);
 
-  const go = useCallback((r: Route) => {
-    if (r.name === "menu") return setMenuOpen(true);
-    setMenuOpen(false);
-    if (!DETOURS.has(routeRef.current.name)) returnTo.current = routeRef.current;
-    routeRef.current = r;
-    setRoute(r);
-  }, []);
+  const setProject = useCallback(
+    (id: string | undefined) => {
+      projectRef.current = id;
+      setProjectId(id);
+      if (!viewsRef.current[id ?? NONE]) update((v) => v, id ?? NONE);
+      if (id) rpc("ui.set", { lastProject: id }).catch(() => {});
+    },
+    [update],
+  );
+
+  const go = useCallback(
+    (r: Route) =>
+      update((v) => {
+        if (r.name === "menu") return { ...v, menuOpen: true };
+        return { ...v, menuOpen: false, route: r, returnTo: DETOURS.has(v.route.name) ? v.returnTo : v.route };
+      }),
+    [update],
+  );
   const back = useCallback(() => {
-    go(returnTo.current ?? (projectId ? { name: "workspace" } : { name: "home" }));
-  }, [go, projectId]);
-  const closeMenu = useCallback(() => setMenuOpen(false), []);
-  const forgetBranches = useCallback((id: string, branches: string[]) => {
-    if (projectRef.current === id) selectBranch((b) => (b && branches.includes(b) ? undefined : b));
-  }, []);
+    const v = viewsRef.current[projectRef.current ?? NONE];
+    go(v?.returnTo ?? (projectRef.current ? { name: "workspace" } : { name: "home" }));
+  }, [go]);
+  const closeMenu = useCallback(() => update((v) => ({ ...v, menuOpen: false })), [update]);
+  const openNewItem = useCallback((d?: NewItemDraft) => update((v) => ({ ...v, newItem: d ?? {} })), [update]);
+  const closeNewItem = useCallback(() => update((v) => ({ ...v, newItem: null })), [update]);
+  const selectBranch = useCallback((b: string | undefined) => update((v) => ({ ...v, selectedBranch: b })), [update]);
+  const forgetBranches = useCallback(
+    (id: string, branches: string[]) => update((v) => (v.selectedBranch && branches.includes(v.selectedBranch) ? { ...v, selectedBranch: undefined } : v), id),
+    [update],
+  );
 
   const setThemePref = useCallback((t: string) => {
     setThemePrefState(t);
     rpc("ui.set", { theme: t }).catch(() => {});
   }, []);
 
-  const value = useMemo<Nav>(
-    () => ({
-      route,
+  const base = useMemo<Nav>(() => {
+    const v = views[projectId ?? NONE] ?? freshView(projectId ?? NONE);
+    return {
+      route: v.route,
       go,
       back,
-      menuOpen,
+      menuOpen: v.menuOpen,
       closeMenu,
       projectId,
       setProject,
       theme,
       themePref,
       setThemePref,
-      newItem,
-      openNewItem: (d) => setNewItem(d ?? {}),
-      closeNewItem: () => setNewItem(null),
-      selectedBranch,
+      newItem: v.newItem,
+      openNewItem,
+      closeNewItem,
+      selectedBranch: v.selectedBranch,
       selectBranch,
       forgetBranches,
-    }),
-    [route, go, back, menuOpen, closeMenu, projectId, setProject, theme, themePref, setThemePref, newItem, selectedBranch],
+    };
+  }, [views, projectId, go, back, closeMenu, setProject, theme, themePref, setThemePref, openNewItem, closeNewItem, selectBranch, forgetBranches]);
+  const all = useMemo(() => ({ views, base }), [views, base]);
+  return (
+    <ViewsCtx.Provider value={all}>
+      <Ctx.Provider value={base}>{children}</Ctx.Provider>
+    </ViewsCtx.Provider>
+  );
+}
+
+/** Keys of the projects whose view has been opened this session ("" for no project). */
+export function useVisited() {
+  const v = useContext(ViewsCtx);
+  if (!v) throw new Error("useVisited outside NavProvider");
+  return Object.keys(v.views);
+}
+
+/**
+ * Show `children` as project `projectKey` was left ("" for no project): its own page,
+ * menu, dialog and selection, even while another project is the open one. Actions still
+ * go to the open project, which is the only one whose screens can be used.
+ */
+export function ProjectView({ projectKey, children }: { projectKey: string; children: ReactNode }) {
+  const all = useContext(ViewsCtx);
+  if (!all) throw new Error("ProjectView outside NavProvider");
+  const { views, base } = all;
+  const v = views[projectKey] ?? freshView(projectKey);
+  const value = useMemo<Nav>(
+    () => ({ ...base, projectId: projectKey || undefined, route: v.route, menuOpen: v.menuOpen, newItem: v.newItem, selectedBranch: v.selectedBranch }),
+    [base, projectKey, v],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

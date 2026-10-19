@@ -136,7 +136,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("changelog.update", "AI adds what a branch changes to the Unreleased section of its CHANGELOG.md and commits it on the branch", "projectId, branch"),
     ("changelog.release", "Move the Unreleased section of an open release's CHANGELOG.md into its version and commit it on the release branch", "projectId, version"),
     ("notes.publish", "Publish a GitHub release", "projectId, tag, target, name, body"),
-    ("analytics.get", "Activity and release stats", "projectId (or \"all\"), days"),
+    ("analytics.get", "Activity and release stats", "projectIds (empty = all) or projectId (or \"all\"), days"),
 ];
 
 fn s(v: &Value, k: &str) -> Result<String> {
@@ -830,7 +830,13 @@ pub async fn call(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
         }
 
         // ---- analytics ----
-        "analytics.get" => to(k.analytics(&os(&p, "projectId").unwrap_or_else(|| "all".into()), p.get("days").and_then(Value::as_i64).unwrap_or(30)).await?),
+        "analytics.get" => {
+            let ids: Vec<String> = match p.get("projectIds").and_then(Value::as_array) {
+                Some(a) => a.iter().filter_map(Value::as_str).map(String::from).collect(),
+                None => os(&p, "projectId").into_iter().collect(),
+            };
+            to(k.analytics(&ids, p.get("days").and_then(Value::as_i64).unwrap_or(30)).await?)
+        }
 
         other => Err(Error::NotFound(format!("method {other}"))),
     }
