@@ -32,7 +32,7 @@ export function Analytics() {
     <>
       <Header title="Analytics & stats" />
       <div className="row wrap" style={{ padding: "10px 24px", borderBottom: "1px solid var(--line)", gap: 12 }}>
-        <Seg label="Time range" value={days} onChange={setDays} options={[{ value: "30", label: "30 days" }, { value: "90", label: "90 days" }, { value: "365", label: "365 days" }]} />
+        <Seg label="Time range" value={days} onChange={setDays} options={[{ value: "7", label: "7 days" }, { value: "14", label: "14 days" }, { value: "21", label: "21 days" }, { value: "30", label: "30 days" }, { value: "90", label: "90 days" }, { value: "365", label: "365 days" }]} />
         <label htmlFor="an-project" className="sr-only">Project</label>
         <select id="an-project" className="select" style={{ height: 32 }} value={pid} onChange={(e) => setPid(e.target.value)}>
           {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
@@ -64,7 +64,7 @@ function Body({ a }: { a: A }) {
   const ticks = (m: number, unit = "") => [0, 1, 2, 3, 4].map((i) => ({ v: `${Math.round((m * i) / 4)}${unit && i === 4 ? unit : ""}`, top: 100 - i * 25 }));
 
   return (
-    <div className="col" style={{ gap: 32, maxWidth: 1200 }}>
+    <div className="col" style={{ gap: 32, maxWidth: 1200, marginInline: "auto" }}>
       <section aria-label="Key figures" className="kpis">
         {a.kpis.map((k) => (
           <div key={k.label} className="kpi">
@@ -142,9 +142,18 @@ function Body({ a }: { a: A }) {
                 <div key={r.version} className={`chart-bar${hb >= 0 && hb !== i ? " dim" : ""}`} onMouseEnter={() => setHb(i)}>
                   <span style={{ height: `${(r.leadDays / leadMax) * 100}%`, maxWidth: 56, borderRadius: "3px 3px 0 0" }} />
                   {hb === i && (
-                    <span className="chart-tip" style={{ top: -8, width: "auto", whiteSpace: "nowrap", transform: "translateY(-100%)" }}>
-                      <strong className="mono">{r.version}</strong> {r.leadDays} days · {r.shipped}
-                    </span>
+                    <div className="chart-tip" style={{ left: i / a.releases.length < 0.2 ? 0 : i / a.releases.length > 0.8 ? "100%" : "50%", transform: `translateX(${i / a.releases.length < 0.2 ? "0" : i / a.releases.length > 0.8 ? "-100%" : "-50%"})` }}>
+                      <div className="row">
+                        <strong className="mono grow">{r.version}</strong>
+                        <span>{r.leadDays === 1 ? "1 day" : `${r.leadDays} days`}</span>
+                      </div>
+                      {([["Shipped", r.shipped], ["Features", r.features], ["Fixes", r.fixes], ["AI-assisted", `${r.aiPct}%`]] as const).map(([k, v]) => (
+                        <div key={k} className="row">
+                          <span className="grow muted">{k}</span>
+                          <span className="mono">{v}</span>
+                        </div>
+                      ))}
+                    </div>
                   )}
                 </div>
               ))}

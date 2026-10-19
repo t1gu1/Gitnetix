@@ -2402,7 +2402,9 @@ impl Gitnetix {
         Ok(pr)
     }
 
-    pub async fn draft_reply(&self, project_id: &str, number: u64, thread_id: &str) -> Result<String> {
+    /// A reply for a review conversation; with `draft`, the author's started reply polished instead.
+    /// `editing` is the comment the draft rewrites: the conversation then stops before it.
+    pub async fn draft_reply(&self, project_id: &str, number: u64, thread_id: &str, draft: Option<&str>, editing: Option<&str>) -> Result<String> {
         let gh = self.github(project_id).await?;
         let d = gh.detail(number).await?;
         let th = d.threads.iter().find(|t| t.id == thread_id).ok_or_else(|| Error::NotFound("thread".into()))?;
@@ -2410,15 +2412,21 @@ impl Gitnetix {
         if let Some(path) = &th.path {
             convo.push_str(&format!("File: {path}:{}\n{}\n\n", th.line.unwrap_or(0), th.snippet.join("\n")));
         }
-        for c in &th.comments {
+        for c in th.comments.iter().take_while(|c| Some(c.id.as_str()) != editing) {
             convo.push_str(&format!("{}: {}\n\n", c.author, c.body));
         }
         let p = self.store.project(project_id)?;
-        let t = Template {
-            kind: "pr".into(),
-            body: format!("You are the author of pull request “{}”. Draft a short, friendly reply to this review conversation. If a change is needed, say what you will change.\n\n{convo}", d.summary.title),
-            ..Default::default()
+        let ask = match draft.map(str::trim).filter(|d| !d.is_empty()) {
+            Some(draft) => format!(
+                "You are the author of pull request “{}” and started a reply to this review conversation. Improve it: fix spelling, grammar and punctuation, and rephrase what reads awkwardly or unclearly. Keep its meaning, tone and roughly its length, and add nothing it does not say. Answer with the reply only, in the language the draft is written in (if unclear, {{language}}).\n\n{convo}Draft reply:\n{draft}",
+                d.summary.title
+            ),
+            None => format!(
+                "You are the author of pull request “{}”. Draft a short, friendly reply to this review conversation. If a change is needed, say what you will change.\n\n{convo}",
+                d.summary.title
+            ),
         };
+        let t = Template { kind: "pr".into(), body: ask, ..Default::default() };
         self.ask("pr", &t, BTreeMap::new(), &p.gen_lang.pr, None).await
     }
 

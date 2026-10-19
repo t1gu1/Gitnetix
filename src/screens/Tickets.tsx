@@ -53,8 +53,8 @@ export function Tickets() {
     return (
       <>
         <Header title="Tickets" sub={ov?.project.name} />
-        <div className="page">
-          <div className="page-inner">
+        <div className="page" style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ maxWidth: 420 }}>
             <Empty>
               Connect Jira, Trello or Asana to see tickets here, plan them into releases and start a branch from one.
               <div style={{ marginTop: 14 }}>

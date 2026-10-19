@@ -12,6 +12,8 @@ release notes and the in-app update prompt.
 ## [Unreleased]
 
 ### Added
+- Edit your own PR comments, review thread replies and review summaries, with "Improve" to polish the wording.
+- "Improve reply" on PR conversations: AI fixes spelling and grammar and smooths the wording of a reply you started.
 - Sign in with GitHub from Settings › Git providers, no token to create; personal access tokens still work.
 - macOS (universal `.dmg`) and Windows (`-setup.exe`) builds on every release, next to the AppImage.
 - Prompt to install new releases on launch.
@@ -21,6 +23,7 @@ release notes and the in-app update prompt.
 - Branch commit list marks the local and origin tips.
 
 ### Changed
+- Pull request conversations show the text reviewers submit with their vote, and load every thread and comment instead of the first 60.
 - Branch tree opens only the sections on the checked-out path.
 - Branch row actions are icon-only and fill the row height.
 - Cleanup deletes branches four at a time.

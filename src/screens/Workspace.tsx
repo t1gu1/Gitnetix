@@ -652,7 +652,7 @@ function MergeModal({
       footer={
         <>
           <button className="btn btn-md" onClick={onClose}>Cancel</button>
-          <span className="split">
+          <span className="split-btn">
             <button
               className="btn btn-primary btn-md split-main"
               disabled={merge.isPending}
@@ -1124,7 +1124,7 @@ function CommitBox({ pid, branch, enabled, staged, changed }: { pid: string; bra
           onChange={(e) => setBody(e.target.value)}
         />
       </div>}
-      <span className="split" style={{ display: "flex", width: "100%" }}>
+      <span className="split-btn" style={{ display: "flex", width: "100%" }}>
         <button className="btn btn-primary split-main" style={{ height: 34, flex: "1 1 auto" }} disabled={!canType || orphanBody || commit.isPending || push.isPending}
           title={orphanBody ? "Add a summary to go with the description" : undefined}
           onClick={() => commit.mutate({ projectId: pid, branch, message, all }, { onSuccess: () => { clear(); if (autoPush) push.mutate({ projectId: pid, branch }); } })}>

@@ -369,7 +369,10 @@ function ThreadView({ pid, number, t }: { pid: string; number: number; t: PrThre
   const comment = useAction("prs.comment", { invalidate: inv });
   const resolve = useAction("prs.resolve", { invalidate: inv });
   const react = useAction("prs.react", { invalidate: inv });
+  const save = useAction("prs.editComment", { invalidate: inv });
+  const [editing, setEditing] = useState<{ id: string; text: string } | null>(null);
   const ai = useAction<{ text: string }>("prs.draftReply");
+  const improve = useAction<{ text: string }>("prs.draftReply");
   const first = t.comments[0];
   const file = t.path ? `${t.path}${t.line ? `:${t.line}` : ""}` : null;
 
@@ -413,9 +416,52 @@ function ThreadView({ pid, number, t }: { pid: string; number: number; t: PrThre
           <div className="col grow" style={{ gap: 6, minWidth: 0 }}>
             <div className="row" style={{ gap: 8 }}>
               <span style={{ fontWeight: 500 }}>{c.author}</span>
-              <span className="faint" style={{ fontSize: 12 }}>{ago(c.createdAt)}</span>
+              {t.review && (
+                <span className={`pill ${t.review === "approve" ? "c-add" : t.review === "changes" ? "c-acc" : "faint"}`}>
+                  {{ approve: "Approved", changes: "Requested changes", comment: "Reviewed" }[t.review]}
+                </span>
+              )}
+              <span className="faint grow" style={{ fontSize: 12 }}>{ago(c.createdAt)}</span>
+              {c.canEdit && editing?.id !== c.id && (
+                <button className="btn btn-ghost btn-icon btn-sm" aria-label="Edit comment" onClick={() => setEditing({ id: c.id, text: c.body })}>
+                  <Icon name="edit" size={12} />
+                </button>
+              )}
             </div>
-            <div className="comment-body">{c.body}</div>
+            {editing?.id === c.id ? (
+              <div className="col" style={{ gap: 6 }}>
+                <label htmlFor={`edit-${c.id}`} className="sr-only">Edit comment</label>
+                <textarea id={`edit-${c.id}`} className="textarea" rows={3} autoFocus value={editing.text} onChange={(e) => setEditing({ id: c.id, text: e.target.value })} />
+                <div className="row" style={{ gap: 6 }}>
+                  <button
+                    className="btn btn-sm"
+                    disabled={!editing.text.trim() || improve.isPending}
+                    title="Fix spelling and grammar and smooth the wording"
+                    onClick={() =>
+                      improve.mutate(
+                        { projectId: pid, number, threadId: t.id, draft: editing.text, editing: c.id },
+                        { onSuccess: (r) => setEditing((e) => (e?.id === c.id ? { id: c.id, text: r.text } : e)) },
+                      )
+                    }
+                  >
+                    <Busy on={improve.isPending}><Icon name="sparkle" size={11} className="c-acc" /></Busy>
+                    Improve
+                  </button>
+                  <span className="grow" />
+                  <button className="btn btn-sm" onClick={() => setEditing(null)}>Cancel</button>
+                  <button
+                    className="btn btn-sm btn-primary"
+                    disabled={!editing.text.trim() || editing.text === c.body || save.isPending}
+                    onClick={() => save.mutate({ projectId: pid, commentId: c.id, body: editing.text }, { onSuccess: () => setEditing(null) })}
+                  >
+                    <Busy on={save.isPending}>{null}</Busy>
+                    Save
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="comment-body">{c.body}</div>
+            )}
             <div className="row wrap" style={{ gap: 6, position: "relative" }}>
               {c.reactions.map((r) => (
                 <button key={r.content} className="reaction" aria-pressed={r.mine} aria-label={`${r.content} ${r.count}${r.mine ? ", you reacted" : ""}`} onClick={() => react.mutate({ projectId: pid, subjectId: c.id, content: r.content, add: !r.mine })}>
@@ -443,9 +489,14 @@ function ThreadView({ pid, number, t }: { pid: string; number: number; t: PrThre
         <label htmlFor={`reply-${t.id}`} className="sr-only">Reply</label>
         <textarea id={`reply-${t.id}`} className="textarea" rows={2} placeholder="Reply…" value={draft} onChange={(e) => setDraft(e.target.value)} />
         <div className="row wrap">
-          <button className="btn btn-sm" disabled={ai.isPending} onClick={() => ai.mutate({ projectId: pid, number, threadId: t.id }, { onSuccess: (r) => setDraft(r.text) })}>
+          <button
+            className="btn btn-sm"
+            disabled={ai.isPending}
+            title={draft.trim() ? "Fix spelling and grammar and smooth the wording of your reply" : undefined}
+            onClick={() => ai.mutate({ projectId: pid, number, threadId: t.id, draft }, { onSuccess: (r) => setDraft(r.text) })}
+          >
             <Busy on={ai.isPending}><Icon name="sparkle" size={11} className="c-acc" /></Busy>
-            Draft reply
+            {draft.trim() ? "Improve reply" : "Draft reply"}
           </button>
           <span className="grow" />
           {t.resolvable && !t.resolved && (
