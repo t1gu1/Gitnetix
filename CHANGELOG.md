@@ -14,6 +14,31 @@ release notes and the in-app update prompt.
 ### Added
 - "Update changelog" branch action: AI adds the branch's changes to the `Unreleased` section of `CHANGELOG.md` and commits it on the branch. Shown when the project has a changelog and AI is set up.
 - Close (abandon) a pull request without merging, after a confirmation, optionally deleting its branch locally and on origin, and reopen a closed one. The "Merged" tab is now "Closed" and also lists your closed PRs.
+- "Update changelog" falls back to the latest tag when the branch has no diff.
+- Sign in with Azure DevOps from Settings using a device code. The token is renewed automatically before it expires.
+- Sign in with GitHub through the OAuth device flow in Settings › Git providers.
+- Review summaries show as threads labeled Approved, Requested changes or Reviewed. Every review thread, comment, review and review request now loads, not just the first 60.
+- Edit your own PR comments and review summaries, with an "Improve" action that polishes the text with AI.
+- "Improve reply" on PR review threads: AI fixes spelling, grammar and wording of a started reply, keeping its meaning, tone and language.
+- Stash management: list stashes per branch or project-wide, view their files and diffs, then pop, apply or drop them.
+- "Branches falling behind" group in the branch tree for branches 25 or more commits behind the default branch, with a Clean up action to pick which ones to delete.
+- Branch commit list shows origin's commits next to the local branch, with local and origin tips tagged. Unpulled commits can't be reverted or reset until pulled.
+- Local-only and origin-only branches get labels in the branch tree.
+- Analytics offers 7, 14 and 21 day ranges and a richer release tooltip.
+- The app checks for new releases on launch and offers to download, install and restart.
+- Release builds for macOS (universal) and Windows, alongside the Linux AppImage.
+
+### Changed
+- Branch cleanups run in the background and stay visible in the tree when you change screen or project. Branches are deleted four at a time.
+- Branch tree opens only the sections on the checked-out path. Row actions are now icon-only and fill the row height.
+- Analytics, Tickets empty state and worktree detail are centered, and the detail column is capped at 1040px.
+- The PR list pane has a fixed width.
+
+### Fixed
+- Tab and segment labels no longer widen and shift nearby controls when they turn bold.
+- The new-PR button stays disabled while the PR is being created.
+- Branches merged on origin are detected even when the local base branch lags behind.
+- An open release is dropped when its branch is deleted.
 
 ## [0.1.0] - 2026-10-19
 
