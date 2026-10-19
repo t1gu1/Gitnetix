@@ -564,6 +564,13 @@ button.app-row:hover { background: var(--raised); }
 .commit-row { display: flex; flex-direction: column; gap: 3px; margin: 0 6px; padding: 8px 10px; border: 0; border-radius: 4px; background: transparent; color: var(--fg); font: inherit; text-align: left; cursor: pointer; }
 .commit-row:hover { background: var(--raised); }
 .commit-row[aria-pressed="true"] { background: var(--sel); }
+/* A stash: the row's button beside its actions (same split as a branch), sharing one hover and selection background. */
+.stash-row { display: flex; align-items: stretch; margin: 0 6px; border-radius: 4px; }
+.stash-row:hover { background: var(--raised); }
+.stash-row:has(> .commit-row[aria-pressed="true"]) { background: var(--sel); }
+.stash-row > .commit-row { flex: 1 1 auto; min-width: 0; margin: 0; background: transparent; }
+.stash-row > .tree-acts { margin: 0; }
+.stash-row:hover > .tree-acts, .stash-row:focus-within > .tree-acts, .stash-row:has(> .commit-row[aria-pressed="true"]) > .tree-acts { opacity: 1; pointer-events: auto; }
 .commit-subject { font-size: 12.5px; font-weight: 500; line-height: 1.4; overflow-wrap: anywhere; }
 .commit-body { font-size: 11.5px; line-height: 1.45; color: var(--muted); white-space: pre-line; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow-wrap: anywhere; }
 .commit-row[aria-pressed="true"] .commit-body { -webkit-line-clamp: unset; }
