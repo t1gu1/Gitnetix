@@ -29,9 +29,13 @@ fn init_repo(repo: &std::path::Path) {
     sh(repo, &["commit", "-qm", "chore: init"]);
 }
 
+fn git_out(repo: &std::path::Path, args: &[&str]) -> String {
+    let out = Command::new("git").current_dir(repo).args(args).output().unwrap();
+    String::from_utf8(out.stdout).unwrap()
+}
+
 fn rev(repo: &std::path::Path, r: &str) -> String {
-    let out = Command::new("git").current_dir(repo).args(["rev-parse", "--verify", "-q", r]).output().unwrap();
-    String::from_utf8(out.stdout).unwrap().trim().to_string()
+    git_out(repo, &["rev-parse", "--verify", "-q", r]).trim().to_string()
 }
 
 fn commit_file(repo: &std::path::Path, path: &str, body: &str) {
@@ -950,4 +954,48 @@ async fn stash_flow() {
     call(&k, "stashes.drop", json!({ "projectId": pid, "sha": sha })).await;
     assert!(call(&k, "stashes.list", json!({ "projectId": pid })).await.as_array().unwrap().is_empty());
     assert!(rpc::call(&k, "stashes.drop", json!({ "projectId": pid, "sha": sha })).await.is_err());
+}
+
+#[tokio::test]
+async fn ship_dates_the_changelog() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("changelog");
+    init_repo(&repo);
+    commit_file(&repo, "CHANGELOG.md", "# Changelog\n\n## [Unreleased]\n\n- First.\n");
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let added = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await;
+    let pid = added[0]["id"].as_str().unwrap().to_string();
+    let show = |r: &str| git_out(&repo, &["show", &format!("{r}:CHANGELOG.md")]);
+
+    // Release branch not checked out: committed without touching a checkout.
+    call(&k, "releases.create", json!({ "projectId": pid, "version": "0.1.0", "kind": "next" })).await;
+    call(&k, "releases.ship", json!({ "projectId": pid, "version": "0.1.0" })).await;
+    let shipped = show("v0.1.0");
+    assert!(shipped.starts_with("# Changelog\n\n## [Unreleased]\n\n## [0.1.0] - "), "{shipped}");
+    assert!(shipped.ends_with("\n\n- First.\n"), "{shipped}");
+    assert_eq!(rev(&repo, "main"), rev(&repo, "v0.1.0^{commit}"));
+    assert_eq!(std::fs::read_to_string(repo.join("CHANGELOG.md")).unwrap(), shipped, "main checkout fast-forwarded");
+
+    // Release branch checked out: committed there, other staged work left alone.
+    call(&k, "releases.create", json!({ "projectId": pid, "version": "0.2.0", "kind": "next" })).await;
+    sh(&repo, &["switch", "-q", "release/0.2.0"]);
+    let next = shipped.replacen("## [Unreleased]\n", "## [Unreleased]\n\n- Second.\n", 1);
+    commit_file(&repo, "CHANGELOG.md", &next);
+    std::fs::write(repo.join("wip.txt"), "w\n").unwrap();
+    sh(&repo, &["add", "wip.txt"]);
+    let main_dir = tmp.path().join("main-wt");
+    sh(&repo, &["worktree", "add", "-q", &main_dir.to_string_lossy(), "main"]);
+    call(&k, "releases.ship", json!({ "projectId": pid, "version": "0.2.0" })).await;
+    let shipped = show("v0.2.0");
+    assert!(shipped.contains("## [Unreleased]\n\n## [0.2.0] - "), "{shipped}");
+    assert!(shipped.contains("- Second.\n\n## [0.1.0] - "), "{shipped}");
+    assert_eq!(std::fs::read_to_string(repo.join("CHANGELOG.md")).unwrap(), shipped);
+    assert_eq!(show(":0"), shipped, "index matches");
+    assert_eq!(git_out(&repo, &["diff", "--cached", "--name-only"]), "wip.txt\n");
+
+    // Nothing unreleased: no extra commit.
+    call(&k, "releases.create", json!({ "projectId": pid, "version": "0.3.0", "kind": "next" })).await;
+    let before = rev(&repo, "release/0.3.0");
+    call(&k, "releases.ship", json!({ "projectId": pid, "version": "0.3.0" })).await;
+    assert_eq!(rev(&repo, "v0.3.0^{commit}"), before);
 }

@@ -157,6 +157,10 @@ impl Git {
     /// Run git and return stdout; non-zero exit becomes `Error::Git`.
     pub async fn run(&self, args: &[&str]) -> Result<String> {
         let out = self.command(args).output().await?;
+        Self::stdout_or_err(args, out)
+    }
+
+    fn stdout_or_err(args: &[&str], out: std::process::Output) -> Result<String> {
         if !out.status.success() {
             return Err(Error::Git {
                 cmd: args.first().copied().unwrap_or("").to_string(),
@@ -799,6 +803,48 @@ impl Git {
     pub async fn commit(&self, message: &str) -> Result<String> {
         self.run(&["commit", "-m", message]).await?;
         self.rev_parse("HEAD").await
+    }
+
+    /// Commit only `paths` as they are in the working tree; anything else staged stays staged.
+    pub async fn commit_paths(&self, paths: &[&str], message: &str) -> Result<()> {
+        let mut args = vec!["commit", "-m", message, "--only", "--"];
+        args.extend(paths);
+        self.run(&args).await?;
+        Ok(())
+    }
+
+    /// Contents of `path` at `rev`, None when it doesn't exist there.
+    pub async fn show_file(&self, rev: &str, path: &str) -> Result<Option<String>> {
+        let (ok, out, _) = self.try_run(&["show", &format!("{rev}:{path}")]).await?;
+        Ok(ok.then_some(out))
+    }
+
+    /// Commit `content` as the top-level file `name` on `branch` without touching any checkout.
+    pub async fn commit_root_file(&self, branch: &str, name: &str, content: &str, message: &str) -> Result<String> {
+        let r = format!("refs/heads/{branch}");
+        let old = self.rev_parse(&r).await?;
+        let blob = self.run_stdin(&["hash-object", "-w", "--stdin"], content).await?.trim().to_string();
+        let listing = self.run(&["ls-tree", "-z", &old]).await?;
+        let mut entries: Vec<String> = listing
+            .split('\0')
+            .filter(|e| !e.is_empty() && e.split_once('\t').map(|(_, n)| n) != Some(name))
+            .map(String::from)
+            .collect();
+        entries.push(format!("100644 blob {blob}\t{name}"));
+        let tree = self.run_stdin(&["mktree", "-z"], &(entries.join("\0") + "\0")).await?.trim().to_string();
+        let sha = self.commit_tree(&tree, &[&old], message).await?;
+        self.update_ref_from(&r, &sha, &old).await?;
+        Ok(sha)
+    }
+
+    async fn run_stdin(&self, args: &[&str], input: &str) -> Result<String> {
+        use std::process::Stdio;
+        use tokio::io::AsyncWriteExt;
+        let mut child = self.command(args).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
+        let mut stdin = child.stdin.take().expect("piped stdin");
+        stdin.write_all(input.as_bytes()).await?;
+        drop(stdin);
+        Self::stdout_or_err(args, child.wait_with_output().await?)
     }
 
     pub async fn push(&self, branch: &str, set_upstream: bool) -> Result<String> {

@@ -36,7 +36,10 @@
     ],
     "category": "DeveloperTool",
     "shortDescription": "Release-centric Git client with AI agents",
-    "createUpdaterArtifacts": true
+    "createUpdaterArtifacts": true,
+    "macOS": {
+      "signingIdentity": "-"
+    }
   },
   "plugins": {
     "updater": {

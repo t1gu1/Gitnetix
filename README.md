@@ -10,7 +10,7 @@ Desktop does the work; a mobile build of the same UI manages it remotely.
 - A **release** is a branch `release/x.y.z` cut from `main` (or from the latest tag for a hotfix).
 - **Features and fixes** branch off a release, either by switching branch or in their own **worktree**.
 - An **AI agent** (Claude Code CLI, Codex, Gemini…) can work on each branch in parallel.
-- **Ship** fast-forwards `main` to the release branch, tags `vx.y.z`, and can push both.
+- **Ship** dates the `Unreleased` section of `CHANGELOG.md` (when there is one), fast-forwards `main` to the release branch, tags `vx.y.z`, and can push both.
 - AI writes commit messages, branch names, PR descriptions, release notes, conflict resolutions and ticket triage, driven by editable **templates** and per-task **model routing**.
 
 ## Layout
@@ -27,7 +27,29 @@ Every client goes through one RPC surface (`crates/core/src/rpc.rs`):
 Tauri `invoke("rpc")` on desktop, `POST /rpc` for the phone/browser, and MCP tools for agents.
 Adding a method there makes it available everywhere.
 
-## Run
+## Install
+
+Grab the latest build from [Releases](https://github.com/t1gu1/Gitnetix/releases/latest):
+`.AppImage` (Linux), `.dmg` (macOS, Apple Silicon and Intel), `-setup.exe` (Windows).
+Installed apps offer new releases on launch.
+
+### macOS: first launch
+
+Gitnetix is too early in development to pay for an Apple Developer ID, so the app is not
+notarized. macOS quarantines anything downloaded from the internet and refuses to open
+un-notarized apps, saying Gitnetix "is damaged" or "cannot be verified". The app is fine;
+macOS just can't check who made it.
+
+After dragging Gitnetix to Applications, clear the quarantine flag once:
+
+```sh
+xattr -cr /Applications/Gitnetix.app
+```
+
+Or open it once, then go to System Settings › Privacy & Security and click **Open Anyway**.
+Updates installed from inside the app don't need this again.
+
+## Run from source
 
 ```sh
 pnpm install

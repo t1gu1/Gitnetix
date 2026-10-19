@@ -368,6 +368,38 @@ fn release_branch(version: &str) -> String {
     format!("release/{}", version.trim_start_matches('v'))
 }
 
+/// Keep a Changelog file that shipping dates (see `stamp_changelog`).
+const CHANGELOG: &str = "CHANGELOG.md";
+
+/// Rename the `## [Unreleased]` section to `## [version] - date` and open a fresh empty
+/// `Unreleased` above it. None when there is no Unreleased section, it has no entries,
+/// or the version already has a section.
+fn stamp_changelog(text: &str, version: &str, date: &str) -> Option<String> {
+    let heading = format!("## [{version}]");
+    if text.lines().any(|l| l.trim_start().starts_with(&heading)) {
+        return None;
+    }
+    let start = text.lines().position(|l| l.trim().eq_ignore_ascii_case("## [unreleased]"))?;
+    let has_entries = text
+        .lines()
+        .skip(start + 1)
+        .take_while(|l| !l.trim_start().starts_with("## "))
+        .any(|l| !l.trim().is_empty());
+    if !has_entries {
+        return None;
+    }
+    let eol = if text.contains("\r\n") { "\r\n" } else { "\n" };
+    let mut out = String::with_capacity(text.len() + 64);
+    for (i, line) in text.split_inclusive('\n').enumerate() {
+        if i == start {
+            out.push_str(&format!("## [Unreleased]{eol}{eol}## [{version}] - {date}{eol}"));
+        } else {
+            out.push_str(line);
+        }
+    }
+    Some(out)
+}
+
 /// Tag a hotfix for `version` starts from: the highest earlier patch of its line (v2.4.1 for 2.4.2),
 /// else the highest version tag, else the newest tag.
 fn hotfix_base(tags: &[TagInfo], version: &str) -> Option<String> {
@@ -1297,8 +1329,8 @@ impl Gitnetix {
         Ok(r)
     }
 
-    /// Ship: move the default branch to the release (fast-forward only),
-    /// tag it, optionally push both.
+    /// Ship: date the release's CHANGELOG.md entry, move the default branch to the
+    /// release (fast-forward only), tag it, optionally push both.
     pub async fn ship_release(&self, project_id: &str, version: &str, push: bool) -> Result<String> {
         let p = self.store.project(project_id)?;
         let r = p
@@ -1315,15 +1347,16 @@ impl Gitnetix {
                 r.branch
             )));
         }
-        let sha = git.rev_parse(&r.branch).await?;
-        match self.checkout_dir(&p, &default).await? {
-            Some(dir) => {
-                let g = Git::new(&dir);
-                if !g.wip_changes().await?.is_empty() {
-                    return Err(Error::Invalid(format!("{default} has uncommitted changes at {}", dir.display())));
-                }
-                g.merge_ff_only(&r.branch).await?;
+        let default_dir = self.checkout_dir(&p, &default).await?;
+        if let Some(dir) = &default_dir {
+            if !Git::new(dir).wip_changes().await?.is_empty() {
+                return Err(Error::Invalid(format!("{default} has uncommitted changes at {}", dir.display())));
             }
+        }
+        self.stamp_release_changelog(&p, &git, &r.branch, version).await?;
+        let sha = git.rev_parse(&r.branch).await?;
+        match default_dir {
+            Some(dir) => Git::new(&dir).merge_ff_only(&r.branch).await?,
             None => git.update_ref(&format!("refs/heads/{default}"), &sha).await?,
         }
         let tag = format!("v{version}");
@@ -1341,6 +1374,29 @@ impl Gitnetix {
         })?;
         self.changed(project_id);
         Ok(tag)
+    }
+
+    /// Turn the `Unreleased` section of the release branch's CHANGELOG.md into this
+    /// version's, and commit that on the branch. No-op without a changelog or entries.
+    async fn stamp_release_changelog(&self, p: &Project, git: &Git, branch: &str, version: &str) -> Result<()> {
+        let Some(text) = git.show_file(branch, CHANGELOG).await? else { return Ok(()) };
+        let date = chrono::Local::now().format("%Y-%m-%d").to_string();
+        let Some(stamped) = stamp_changelog(&text, version, &date) else { return Ok(()) };
+        let message = format!("docs(changelog): release v{version}");
+        match self.checkout_dir(p, branch).await? {
+            Some(dir) => {
+                let g = self.git_at(p, &dir);
+                if !g.run(&["status", "--porcelain", "--", CHANGELOG]).await?.trim().is_empty() {
+                    return Err(Error::Invalid(format!("{CHANGELOG} has uncommitted changes at {}", dir.display())));
+                }
+                tokio::fs::write(dir.join(CHANGELOG), stamped).await?;
+                g.commit_paths(&[CHANGELOG], &message).await?;
+            }
+            None => {
+                git.commit_root_file(branch, CHANGELOG, &stamped, &message).await?;
+            }
+        }
+        Ok(())
     }
 
     pub fn delete_release(&self, project_id: &str, version: &str) -> Result<()> {
@@ -2668,6 +2724,23 @@ mod tests {
     fn slugs() {
         assert_eq!(slugify("Let users sign in with Google and GitHub.", 4), "sign-google-github");
         assert_eq!(slugify("!!!", 4), "change");
+    }
+
+    #[test]
+    fn changelog_stamp() {
+        let text = "# Changelog\n\n## [Unreleased]\n\n### Added\n- Stash.\n\n## [0.0.6] - 2026-10-18\n\n- Tags.\n";
+        assert_eq!(
+            stamp_changelog(text, "0.0.7", "2026-10-19").as_deref(),
+            Some("# Changelog\n\n## [Unreleased]\n\n## [0.0.7] - 2026-10-19\n\n### Added\n- Stash.\n\n## [0.0.6] - 2026-10-18\n\n- Tags.\n")
+        );
+        // Already stamped, nothing unreleased, or no Unreleased section at all.
+        assert_eq!(stamp_changelog(text, "0.0.6", "2026-10-19"), None);
+        assert_eq!(stamp_changelog("## [Unreleased]\n\n## [0.0.6]\n- Tags.\n", "0.0.7", "2026-10-19"), None);
+        assert_eq!(stamp_changelog("# Changelog\n", "0.0.7", "2026-10-19"), None);
+        assert_eq!(
+            stamp_changelog("## [Unreleased]\r\n- Fix.\r\n", "1.0.0", "2026-10-19").as_deref(),
+            Some("## [Unreleased]\r\n\r\n## [1.0.0] - 2026-10-19\r\n- Fix.\r\n")
+        );
     }
 
     #[test]
