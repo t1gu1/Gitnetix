@@ -13,7 +13,7 @@ Desktop does the work; a mobile build of the same UI manages it remotely.
 - **Ship** dates the `Unreleased` section of `CHANGELOG.md` (when there is one), fast-forwards `main` to the release branch, tags `vx.y.z`, and can push both.
 - AI writes commit messages, branch names, PR descriptions, release notes, conflict resolutions and ticket triage, driven by editable **templates** and per-task **model routing**.
 
-## Layout
+## Layoutsa asd
 
 ```
 crates/core     engine: git CLI wrapper, release flow, AI providers, agents,
