@@ -1592,13 +1592,22 @@ impl Gitnetix {
         Ok(())
     }
 
-    /// Delete several branches (merged ones only unless `force`), carrying on past the ones that can't go.
+    /// Delete several branches (merged ones only unless `force`), a few at a time, carrying on past the ones that can't go.
     pub async fn cleanup_branches(&self, project_id: &str, branches: &[String], force: bool, remote: bool) -> Result<CleanupResult> {
+        // Kept small: deletes share git's packed-refs lock, and remote ones a connection to origin.
+        let results = stream::iter(branches.iter().cloned())
+            .map(|b| async move {
+                let r = self.delete_branch(project_id, &b, force, remote).await;
+                (b, r)
+            })
+            .buffered(4)
+            .collect::<Vec<_>>()
+            .await;
         let mut out = CleanupResult::default();
-        for b in branches {
-            match self.delete_branch(project_id, b, force, remote).await {
-                Ok(()) => out.deleted.push(b.clone()),
-                Err(e) => out.skipped.push(Skipped { branch: b.clone(), reason: e.to_string() }),
+        for (b, r) in results {
+            match r {
+                Ok(()) => out.deleted.push(b),
+                Err(e) => out.skipped.push(Skipped { branch: b, reason: e.to_string() }),
             }
         }
         Ok(out)
