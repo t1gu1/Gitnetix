@@ -69,6 +69,9 @@ pub struct Commit {
     pub date: String,
     pub subject: String,
     pub body: String,
+    /// Tags pointing at it.
+    #[serde(default)]
+    pub tags: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -902,7 +905,8 @@ impl Git {
 
     /// `range` like "v2.3.0..release/2.4.0", or "--all", or a branch.
     pub async fn log(&self, range: &str, limit: Option<u32>) -> Result<Vec<Commit>> {
-        let mut args = vec!["log".to_string(), "--format=%H%x1f%an%x1f%ae%x1f%aI%x1f%s%x1f%b%x1e".to_string()];
+        // %D limited to tags reads "tag: v1.0, tag: latest".
+        let mut args = vec!["log".to_string(), "--decorate-refs=refs/tags/".to_string(), "--format=%H%x1f%an%x1f%ae%x1f%aI%x1f%D%x1f%s%x1f%b%x1e".to_string()];
         if let Some(n) = limit {
             args.push(format!("-n{n}"));
         }
@@ -913,14 +917,15 @@ impl Git {
             .split('\x1e')
             .filter_map(|rec| {
                 let rec = rec.trim_start_matches('\n');
-                let f: Vec<&str> = rec.splitn(6, '\x1f').collect();
-                (f.len() == 6).then(|| Commit {
+                let f: Vec<&str> = rec.splitn(7, '\x1f').collect();
+                (f.len() == 7).then(|| Commit {
                     sha: f[0].into(),
                     author: f[1].into(),
                     email: f[2].into(),
                     date: f[3].into(),
-                    subject: f[4].into(),
-                    body: f[5].trim().into(),
+                    subject: f[5].into(),
+                    body: f[6].trim().into(),
+                    tags: f[4].split(", ").filter_map(|d| d.strip_prefix("tag: ")).map(Into::into).collect(),
                 })
             })
             .collect())

@@ -138,6 +138,8 @@ export interface Commit {
   date: string;
   subject: string;
   body: string;
+  /** Tags pointing at it. */
+  tags: string[];
 }
 
 export interface CleanupResult {

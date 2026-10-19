@@ -285,7 +285,7 @@ export function BranchTree({
         )}
       </div>
       {tagMenu && <ContextMenu x={tagMenu.x} y={tagMenu.y} alignRight={tagMenu.alignRight} label={`Actions for ${tagMenu.tag}`} items={tagItems(tagMenu.tag, tagMenu.checkedOut)} onClose={() => setTagMenu(null)} />}
-      <div className="hint" style={{ padding: "10px 16px", borderTop: "1px solid var(--line)" }}>Double-click a branch to switch to it, right-click for every action, click its commit count to browse them. Your uncommitted work comes along.</div>
+      <div className="hint" style={{ padding: "10px 16px", borderTop: "1px solid var(--line)" }}>Double-click a branch to switch to it, right-click for every action, click its commit count (or "history" on main) to browse them. Your uncommitted work comes along.</div>
     </section>
   );
 }
@@ -380,6 +380,17 @@ function BranchMeta({ b, parent, current, showName, onCommits }: { b: BranchView
         </span>
       )}
       {tracked && b.ahead === 0 && b.role === "branch" && <span>no commits yet</span>}
+      {b.exists && !parent && onCommits && (
+        // A trunk has no base to count against: offer its recent history instead.
+        <span
+          className="meta-link"
+          data-tip={`Browse the recent commits of ${b.name}`}
+          onClick={(e) => { e.stopPropagation(); onCommits(); }}
+          onDoubleClick={(e) => e.stopPropagation()}
+        >
+          history
+        </span>
+      )}
       {tracked && b.behind > 0 && (
         <span className="c-warn" title={`${parent} has ${plural(b.behind, "commit")} that ${b.name} doesn't. Update or rebase to catch up.`}>
           ↓{b.behind} from {parent}

@@ -113,6 +113,16 @@ export function CommitList({
         )}
         {list.map((c) => (
           <button key={c.sha} className="commit-row" aria-pressed={c.sha === selected} onClick={() => onPick(c)} onContextMenu={(e) => openMenu(c, e)}>
+            {c.tags.length > 0 && (
+              <span className="commit-tags">
+                {c.tags.map((t) => (
+                  <span key={t} className="commit-tag mono" title={`Tag ${t}`}>
+                    <Icon name="tag" size={10} stroke={1.6} />
+                    {t}
+                  </span>
+                ))}
+              </span>
+            )}
             <span className="commit-subject">{c.subject}</span>
             {c.body && <span className="commit-body">{c.body}</span>}
             <span className="commit-meta">
