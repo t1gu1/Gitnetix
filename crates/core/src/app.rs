@@ -565,9 +565,9 @@ impl Gitnetix {
             return Some(default.to_string());
         }
         if let Some(m) = p.branches.get(name) {
-            // Its release, while open, or shipped as long as the release branch is still around.
+            // Its release, as long as the release branch is still around.
             if let Some(r) = m.release.as_ref().and_then(|v| p.releases.iter().find(|r| &r.version == v)) {
-                if r.shipped_at.is_none() || refs.rev(&r.branch).is_some() {
+                if refs.rev(&r.branch).is_some() {
                     return Some(r.branch.clone());
                 }
             }
@@ -1572,8 +1572,20 @@ impl Gitnetix {
             }
             git.delete_branch(branch, true).await?;
         }
+        // An open release whose branch is gone everywhere goes with it; its branches find a new base.
+        let gone = !git.ref_exists(&format!("refs/remotes/origin/{branch}")).await?;
         self.store.with_project(project_id, |p| {
             p.branches.remove(branch);
+            let Some(version) = p.releases.iter().find(|r| r.branch == branch && r.shipped_at.is_none() && gone).map(|r| r.version.clone()) else {
+                return Ok(());
+            };
+            p.releases.retain(|r| !(r.version == version && r.shipped_at.is_none()));
+            if !p.forgotten_releases.contains(&version) {
+                p.forgotten_releases.push(version.clone());
+            }
+            for m in p.branches.values_mut().filter(|m| m.release.as_deref() == Some(version.as_str())) {
+                m.release = None;
+            }
             Ok(())
         })?;
         self.changed(project_id);

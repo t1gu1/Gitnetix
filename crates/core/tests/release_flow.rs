@@ -184,6 +184,33 @@ async fn merge_and_delete_branches() {
 }
 
 #[tokio::test]
+async fn delete_release_branch_before_its_items() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("atlas-api");
+    init_repo(&repo);
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let added = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await;
+    let pid = added[0]["id"].as_str().unwrap().to_string();
+
+    call(&k, "releases.create", json!({ "projectId": pid, "version": "0.10.0", "kind": "next" })).await;
+    call(
+        &k,
+        "items.create",
+        json!({ "projectId": pid, "release": "0.10.0", "kind": "feat", "description": "child", "branchName": "feat/child", "where": "switch" }),
+    )
+    .await;
+    commit_file(&repo, "child.txt", "child\n");
+    sh(&repo, &["switch", "-q", "main"]);
+
+    // The release goes with its branch; the item falls back to main.
+    call(&k, "branches.delete", json!({ "projectId": pid, "branch": "release/0.10.0", "force": true })).await;
+    let ov = call(&k, "workspace.overview", json!({ "projectId": pid })).await;
+    assert!(ov["releases"].as_array().unwrap().iter().all(|r| r["version"] != "0.10.0"), "{}", ov["releases"]);
+    let diff = call(&k, "workspace.diff", json!({ "projectId": pid, "branch": "feat/child", "mode": "branch", "path": "child.txt" })).await;
+    assert_eq!(diff[0]["lines"][0]["kind"], "+");
+}
+
+#[tokio::test]
 async fn pull_and_tracking() {
     let tmp = tempfile::tempdir().unwrap();
     let repo = tmp.path().join("atlas-api");
