@@ -172,11 +172,11 @@ function Profiles({ cfg }: { cfg: Config }) {
 
 type DeviceCode = { deviceCode: string; userCode: string; verificationUri: string; interval: number; expiresIn: number };
 
-/** "Sign in with GitHub": show a code, open github.com to enter it, poll until GitHub hands over a token. */
-function GitHubSignIn() {
+/** "Sign in with GitHub / Azure DevOps": show a code, open the provider's page to enter it, poll until it hands over a token. */
+function DeviceSignIn({ method, name, site }: { method: "github" | "azure"; name: string; site: string }) {
   const qc = useQueryClient();
   const [code, setCode] = useState<DeviceCode | null>(null);
-  const start = useAction<DeviceCode>("github.signInStart");
+  const start = useAction<DeviceCode>(`${method}.signInStart`);
   useEffect(() => {
     if (!code) return;
     let interval = code.interval;
@@ -185,13 +185,13 @@ function GitHubSignIn() {
     const deadline = Date.now() + code.expiresIn * 1000;
     const tick = async () => {
       try {
-        const r = await rpc<{ status: string; interval?: number; user?: string | null }>("github.signInPoll", { deviceCode: code.deviceCode });
+        const r = await rpc<{ status: string; interval?: number; user?: string | null }>(`${method}.signInPoll`, { deviceCode: code.deviceCode });
         if (stopped) return;
         if (r.status === "done") {
           setCode(null);
           qc.invalidateQueries({ queryKey: ["config"] });
           qc.invalidateQueries({ queryKey: ["prs"] });
-          toast(r.user ? `Signed in to GitHub as ${r.user}` : "GitHub connected", "ok");
+          toast(r.user ? `Signed in to ${name} as ${r.user}` : `${name} connected`, "ok");
           return;
         }
         if (r.interval) interval = r.interval;
@@ -208,7 +208,7 @@ function GitHubSignIn() {
       stopped = true;
       clearTimeout(timer);
     };
-  }, [code, qc]);
+  }, [code, qc, method, name]);
 
   if (!code)
     return (
@@ -226,18 +226,18 @@ function GitHubSignIn() {
             })
           }
         >
-          {start.isPending ? "Opening GitHub…" : "Sign in with GitHub"}
+          {start.isPending ? `Opening ${site}…` : `Sign in with ${name}`}
         </button>
       </div>
     );
   return (
     <div className="col" style={{ gap: 8 }}>
-      <span className="hint">Enter this code on GitHub (copied to your clipboard), then authorize Gitnetix. Waiting…</span>
+      <span className="hint">Enter this code on {site} (copied to your clipboard), then authorize Gitnetix. Waiting…</span>
       <div className="row" style={{ gap: 8 }}>
         <button className="btn mono" style={{ fontSize: 18, letterSpacing: 2 }} title="Copy code" onClick={() => copyToClipboard(code.userCode)}>
           {code.userCode}
         </button>
-        <button className="btn" onClick={() => openExternal(code.verificationUri)}>Open GitHub</button>
+        <button className="btn" onClick={() => openExternal(code.verificationUri)}>Open {site}</button>
         <button className="btn" onClick={() => setCode(null)}>Cancel</button>
       </div>
     </div>
@@ -250,8 +250,10 @@ function GitProviders({ cfg }: { cfg: Config }) {
   const [manual, setManual] = useState(!!cfg.integrations.githubApi);
   const save = useAction("integrations.save", { invalidate: [["config"], ["prs"]], success: "GitHub connected" });
   const disc = useAction("integrations.disconnect", { invalidate: [["config"], ["prs"]], success: "GitHub disconnected" });
+  const discAzure = useAction("integrations.disconnect", { invalidate: [["config"]], success: "Azure DevOps disconnected" });
   const on = cfg.integrations.githubConnected;
   const user = cfg.integrations.githubUser;
+  const azureOn = cfg.integrations.azureConnected;
   return (
     <>
       <div className="col" style={{ gap: 6 }}>
@@ -269,7 +271,7 @@ function GitProviders({ cfg }: { cfg: Config }) {
             </span>
             {on && <button className="btn" onClick={() => disc.mutate({ kind: "github" })}>Disconnect</button>}
           </div>
-          {!on && <GitHubSignIn />}
+          {!on && <DeviceSignIn method="github" name="GitHub" site="GitHub" />}
           {!manual ? (
             <div>
               <button className="btn btn-sm" onClick={() => setManual(true)}>
@@ -300,7 +302,19 @@ function GitProviders({ cfg }: { cfg: Config }) {
             </form>
           )}
         </li>
-        {["GitLab", "Azure DevOps", "Bitbucket", "Gitea"].map((n) => (
+        <li className="col" style={{ padding: 16, gap: 12 }}>
+          <div className="row">
+            <span className="col grow" style={{ gap: 2 }}>
+              <span style={{ fontWeight: 500 }}>Azure DevOps</span>
+              <span className={azureOn ? "c-add" : "faint"} style={{ fontSize: 12 }}>
+                {azureOn ? (cfg.integrations.azureUser ? `Signed in as ${cfg.integrations.azureUser}` : "Connected · token in keychain") : "Not connected"}
+              </span>
+            </span>
+            {azureOn && <button className="btn" onClick={() => discAzure.mutate({ kind: "azure" })}>Disconnect</button>}
+          </div>
+          {!azureOn && <DeviceSignIn method="azure" name="Azure DevOps" site="Microsoft" />}
+        </li>
+        {["GitLab", "Bitbucket", "Gitea"].map((n) => (
           <li key={n} className="list-row">
             <span className="col grow" style={{ gap: 2 }}>
               <span style={{ fontWeight: 500 }}>{n}</span>
