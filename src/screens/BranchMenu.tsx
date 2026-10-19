@@ -1,6 +1,6 @@
 import { useState, type MouseEvent } from "react";
 
-import { useAction, usePendingBranches } from "../api/hooks";
+import { useAction, useAiOn, useOverview, usePendingBranches } from "../api/hooks";
 import type { BranchView, RebaseResult, Stash, StashApplied } from "../api/types";
 import { ContextMenu, type MenuItem } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
@@ -69,10 +69,13 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
     success: (r) => (r.conflicts.length ? undefined : "Popped the latest stash"),
   });
   const pr = useAction<{ number: number }, { projectId: string; branch: string }>("prs.create", { invalidate: [["prs", pid]], success: (r) => `Opened PR #${r.number}` });
+  const changelog = useAction<{ message: string }, { projectId: string; branch: string }>("changelog.update", { invalidate: inv, success: (r) => r.message });
+  // Changelog entries are written by the AI that writes release notes.
+  const canChangelog = useAiOn("release") && !!useOverview(pid).data?.hasChangelog;
   const move = useAction("branches.setParent", { invalidate: inv });
   const [menu, setMenu] = useState<{ x: number; y: number; alignRight: boolean; t: BranchTarget } | null>(null);
 
-  const mutations = [sw, wt, pull, push, rebase, sync, stash, unstash, pr];
+  const mutations = [sw, wt, pull, push, rebase, sync, stash, unstash, pr, changelog];
   // Pushes started elsewhere count too: the commit box's auto push spins the branch's Push button.
   const pushing = usePendingBranches("workspace.push", pid);
   const busy = new Set([...mutations.flatMap((m) => (m.isPending && m.variables?.branch ? [m.variables.branch] : [])), ...pushing]);
@@ -205,6 +208,15 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
         icon: "plus",
         run: () => nav.openNewItem(v.role === "release" && v.release ? { release: v.release } : { from: b }),
       },
+      changelog: {
+        id: "changelog",
+        label: "Update changelog",
+        tip: `AI adds what ${b} changes over ${parent} to the Unreleased section of CHANGELOG.md, committed on ${b}`,
+        icon: "sparkle",
+        hint: v.ahead ? undefined : "nothing new",
+        disabled: !v.ahead,
+        run: () => changelog.mutate({ projectId: pid, branch: b }),
+      },
       tag: { id: "tag", label: "Create tag…", tip: `Tag the tip of ${b}`, icon: "tag", run: () => openDialog("tag", b) },
       copy: { id: "copy", label: "Copy branch name", icon: "edit", run: () => copyToClipboard(b) },
       delete: {
@@ -245,6 +257,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
       }
     }
     if (t.base) list.push(a.pr);
+    if (t.base && v.local && canChangelog) list.push(a.changelog);
     if (t.moveTo?.length) {
       list.push("sep");
       for (const m of t.moveTo) {

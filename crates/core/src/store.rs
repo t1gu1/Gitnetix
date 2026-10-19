@@ -330,8 +330,11 @@ impl Store {
         let data = if path.exists() {
             let raw = std::fs::read_to_string(&path)?;
             let mut cfg: Config = serde_json::from_str(&raw)?;
-            if cfg.templates.is_empty() {
-                cfg.templates = default_templates();
+            // Kinds added since the config was written get their default templates.
+            for t in default_templates() {
+                if !cfg.templates.iter().any(|x| x.kind == t.kind) {
+                    cfg.templates.push(t);
+                }
             }
             cfg
         } else {

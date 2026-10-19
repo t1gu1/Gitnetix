@@ -122,6 +122,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("notes.range", "Commit, branch and ticket counts in a range", "projectId, from, to"),
     ("notes.generate", "AI release notes", "projectId, from, to, templateId?, language, include"),
     ("notes.changelog", "Prepend notes to CHANGELOG.md", "projectId, markdown"),
+    ("changelog.update", "AI adds what a branch changes to the Unreleased section of its CHANGELOG.md and commits it on the branch", "projectId, branch"),
     ("notes.publish", "Publish a GitHub release", "projectId, tag, target, name, body"),
     ("analytics.get", "Activity and release stats", "projectId (or \"all\"), days"),
 ];
@@ -774,6 +775,7 @@ pub async fn call(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
             to(json!({ "markdown": markdown, "model": model }))
         }
         "notes.changelog" => to(json!({ "path": k.add_to_changelog(&s(&p, "projectId")?, &s(&p, "markdown")?)? })),
+        "changelog.update" => to(json!({ "message": k.update_changelog(&s(&p, "projectId")?, &s(&p, "branch")?).await? })),
         "notes.publish" => {
             let gh = k.github(&s(&p, "projectId")?).await?;
             let url = gh.create_release(&s(&p, "tag")?, &s(&p, "target")?, &s(&p, "name")?, &s(&p, "body")?).await?;

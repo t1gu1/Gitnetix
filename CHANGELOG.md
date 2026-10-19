@@ -12,6 +12,13 @@ release notes and the in-app update prompt.
 ## [Unreleased]
 
 ### Added
+- "Update changelog" branch action: AI adds the branch's changes to the `Unreleased` section of `CHANGELOG.md` and commits it on the branch. Shown when the project has a changelog and AI is set up.
+
+## [0.1.0] - 2026-10-19
+
+### Added
+- Sign in with Azure DevOps from Settings › Git providers (Microsoft device code sign-in).
+- 7, 14 and 21 day ranges in analytics, and a richer release tooltip.
 - Edit your own PR comments, review thread replies and review summaries, with "Improve" to polish the wording.
 - "Improve reply" on PR conversations: AI fixes spelling and grammar and smooths the wording of a reply you started.
 - Sign in with GitHub from Settings › Git providers, no token to create; personal access tokens still work.
@@ -27,9 +34,12 @@ release notes and the in-app update prompt.
 - Branch tree opens only the sections on the checked-out path.
 - Branch row actions are icon-only and fill the row height.
 - Cleanup deletes branches four at a time.
+- Analytics, tickets and worktree detail are centered.
 
 ### Fixed
 - Open release is dropped when its branch is deleted.
+- Branches merged on origin are detected even when the local base is behind.
+- "New PR from …" stays busy while the PR is being created, even after leaving the page and coming back.
 
 ## [0.0.6] - 2026-10-18
 

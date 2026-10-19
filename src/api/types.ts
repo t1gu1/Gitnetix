@@ -213,6 +213,8 @@ export interface Overview {
   remote?: string | null;
   /** Every stash, newest first (shared by all worktrees). */
   stashes: Stash[];
+  /** The checkout has a CHANGELOG.md at its root. */
+  hasChangelog: boolean;
 }
 
 export interface Stash {

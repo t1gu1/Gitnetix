@@ -156,6 +156,8 @@ pub struct Overview {
     pub remote: Option<String>,
     /// Every stash, newest first (shared by all worktrees).
     pub stashes: Vec<StashInfo>,
+    /// The checkout has a CHANGELOG.md at its root.
+    pub has_changelog: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -398,6 +400,39 @@ fn stamp_changelog(text: &str, version: &str, date: &str) -> Option<String> {
         }
     }
     Some(out)
+}
+
+/// `text` with the body of its `## [Unreleased]` section replaced by `body`. Without
+/// that section, one is opened above the first version heading (or at the end).
+fn replace_unreleased(text: &str, body: &str) -> String {
+    let eol = if text.contains("\r\n") { "\r\n" } else { "\n" };
+    let lines: Vec<&str> = text.split_inclusive('\n').collect();
+    let is_unreleased = |l: &str| l.trim().eq_ignore_ascii_case("## [unreleased]");
+    let start = lines.iter().position(|l| is_unreleased(l));
+    let after = start.map_or(0, |s| s + 1);
+    let end = lines.iter().skip(after).position(|l| l.trim_start().starts_with("## ")).map_or(lines.len(), |i| after + i);
+    let mut out: String = lines[..start.unwrap_or(end)].concat();
+    if !out.is_empty() && !out.ends_with('\n') {
+        out.push_str(eol);
+    }
+    out.push_str(&format!("## [Unreleased]{eol}{eol}"));
+    let body = body.trim();
+    if !body.is_empty() {
+        out.push_str(&body.lines().map(str::trim_end).collect::<Vec<_>>().join(eol));
+        out.push_str(eol);
+    }
+    if end < lines.len() {
+        out.push_str(eol);
+        out.push_str(&lines[end..].concat());
+    }
+    out
+}
+
+/// The body of the `## [Unreleased]` section ("" when there is none).
+fn unreleased_body(text: &str) -> String {
+    let mut lines = text.lines().skip_while(|l| !l.trim().eq_ignore_ascii_case("## [unreleased]")).skip(1);
+    let body: Vec<&str> = lines.by_ref().take_while(|l| !l.trim_start().starts_with("## ")).collect();
+    body.join("\n").trim().to_string()
 }
 
 /// Tag a hotfix for `version` starts from: the highest earlier patch of its line (v2.4.1 for 2.4.2),
@@ -858,7 +893,8 @@ impl Gitnetix {
             .collect();
         let default_view = find(&default);
         let remote = git.remote_url("origin").await.ok().flatten();
-        Ok(Overview { project: p, current_branch: current, default_branch: default, releases, other_branches, default_view, branches: all, rebasing, conflicts, remote, stashes })
+        let has_changelog = Path::new(&p.path).join(CHANGELOG).is_file();
+        Ok(Overview { project: p, current_branch: current, default_branch: default, releases, other_branches, default_view, branches: all, rebasing, conflicts, remote, stashes, has_changelog })
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -2670,6 +2706,51 @@ impl Gitnetix {
         Ok(path.to_string_lossy().to_string())
     }
 
+    /// AI adds the changes `branch` brings over its base to the `Unreleased` section of
+    /// the branch's CHANGELOG.md, and commits that on the branch.
+    pub async fn update_changelog(&self, project_id: &str, branch: &str) -> Result<String> {
+        let p = self.store.project(project_id)?;
+        let git = self.git(&p);
+        let text = git.show_file(branch, CHANGELOG).await?.ok_or_else(|| Error::Invalid(format!("{branch} has no {CHANGELOG}")))?;
+        let default = git.default_branch().await?;
+        let base = self.base_of(&p, branch, &default).await;
+        let (base_rev, rev) = tokio::join!(git.rev_of(&base), git.rev_of(branch));
+        let commits = git.log(&format!("{base_rev}..{rev}"), Some(200)).await?;
+        if commits.is_empty() {
+            return Err(Error::Invalid(format!("{branch} has no commits that {base} lacks")));
+        }
+        let t = self.template("changelog", None, Some(&p.id))?;
+        let current = unreleased_body(&text);
+        let mut vars = BTreeMap::new();
+        vars.insert("commits".into(), commit_lines(&commits));
+        vars.insert("unreleased".into(), if current.is_empty() { "(empty)".into() } else { current.clone() });
+        vars.insert("branch".into(), branch.into());
+        vars.insert("base".into(), base);
+        let out = self.ask("release", &t, vars, &p.gen_lang.release, Some(Path::new(&p.path))).await?;
+        // Some models repeat the heading they were told to leave out.
+        let body = out.trim().strip_prefix("## [Unreleased]").unwrap_or(out.trim()).trim().to_string();
+        if body == current {
+            return Ok("Changelog already lists these changes".into());
+        }
+        let updated = replace_unreleased(&text, &body);
+        let message = format!("docs(changelog): add changes from {branch}");
+        match self.checkout_dir(&p, branch).await? {
+            Some(dir) => {
+                let g = self.git_at(&p, &dir);
+                if !g.run(&["status", "--porcelain", "--", CHANGELOG]).await?.trim().is_empty() {
+                    return Err(Error::Invalid(format!("{CHANGELOG} has uncommitted changes at {}", dir.display())));
+                }
+                tokio::fs::write(dir.join(CHANGELOG), updated).await?;
+                g.commit_paths(&[CHANGELOG], &message).await?;
+            }
+            None => {
+                git.commit_root_file(branch, CHANGELOG, &updated, &message).await?;
+            }
+        }
+        self.changed(project_id);
+        Ok(format!("Changelog updated on {branch}"))
+    }
+
     // ---------- analytics ----------
 
     pub async fn analytics(&self, project_id: &str, days: i64) -> Result<crate::analytics::Analytics> {
@@ -2765,6 +2846,20 @@ mod tests {
     fn slugs() {
         assert_eq!(slugify("Let users sign in with Google and GitHub.", 4), "sign-google-github");
         assert_eq!(slugify("!!!", 4), "change");
+    }
+
+    #[test]
+    fn changelog_unreleased() {
+        let text = "# Changelog\n\n## [Unreleased]\n\n### Added\n- Stash.\n\n## [0.0.6] - 2026-10-18\n\n- Tags.\n";
+        assert_eq!(unreleased_body(text), "### Added\n- Stash.");
+        assert_eq!(
+            replace_unreleased(text, "### Added\n- Stash.\n- Azure.\n"),
+            "# Changelog\n\n## [Unreleased]\n\n### Added\n- Stash.\n- Azure.\n\n## [0.0.6] - 2026-10-18\n\n- Tags.\n"
+        );
+        // No Unreleased section yet: opened above the latest version.
+        assert_eq!(replace_unreleased("# Changelog\n\n## [0.0.6]\n- Tags.\n", "- Fix."), "# Changelog\n\n## [Unreleased]\n\n- Fix.\n\n## [0.0.6]\n- Tags.\n");
+        assert_eq!(replace_unreleased("# Changelog\n", "- Fix."), "# Changelog\n## [Unreleased]\n\n- Fix.\n");
+        assert_eq!(replace_unreleased("## [Unreleased]\r\n\r\n## [1.0.0]\r\n- A.\r\n", "- B."), "## [Unreleased]\r\n\r\n- B.\r\n\r\n## [1.0.0]\r\n- A.\r\n");
     }
 
     #[test]
