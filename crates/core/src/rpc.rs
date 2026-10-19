@@ -101,7 +101,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("prs.create", "Push and open a PR from a branch", "projectId, branch, draft?, title?, body?"),
     ("prs.update", "Edit PR title and description", "projectId, number, title, body"),
     ("prs.merge", "Merge a PR", "projectId, number, method?"),
-    ("prs.close", "Close (abandon) a PR without merging, or reopen it", "projectId, number, reopen?"),
+    ("prs.close", "Close (abandon) a PR without merging, or reopen it; deleteBranch = also delete its branch, local and on origin, even if unmerged", "projectId, number, reopen?, deleteBranch? (head branch name)"),
     ("prs.review", "Submit a review", "projectId, number, vote: approve|changes|comment, body?"),
     ("prs.comment", "Comment on a PR", "projectId, number, body"),
     ("prs.editComment", "Edit the text of a comment or review summary", "projectId, commentId (node id), body"),
@@ -638,7 +638,12 @@ pub async fn call(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
         "prs.close" => {
             let gh = k.github(&s(&p, "projectId")?).await?;
             gh.set_closed(u(&p, "number")?, !b(&p, "reopen")).await?;
-            ok()
+            // The PR is closed either way; a refused delete is reported, not raised.
+            let delete_error = match os(&p, "deleteBranch") {
+                Some(branch) => k.delete_branch(&s(&p, "projectId")?, &branch, true, true).await.err().map(|e| e.to_string()),
+                None => None,
+            };
+            to(json!({ "deleteError": delete_error }))
         }
         "prs.review" => {
             let gh = k.github(&s(&p, "projectId")?).await?;

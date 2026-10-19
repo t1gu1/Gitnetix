@@ -6,6 +6,7 @@ import type { PrDetail, PrSummary, PrThread } from "../api/types";
 import { Icon } from "../components/Icon";
 import { ago, Busy, Empty, ErrorBox, Header, initials, Loading, Markdown, Modal, Seg } from "../components/ui";
 import { useNav } from "../lib/nav";
+import { toast } from "../lib/toast";
 
 type Tab = "open" | "review" | "closed";
 const EMOJI: [string, string, string][] = [
@@ -115,7 +116,10 @@ function Detail({ pid, number }: { pid: string; number: number }) {
   const inv = [["pr", pid, number], ["prs", pid]];
   const merge = useAction("prs.merge", { invalidate: inv, success: `Merged #${number}` });
   const update = useAction("prs.update", { invalidate: inv, success: "Saved to GitHub" });
-  const close = useAction("prs.close", { invalidate: inv, success: `Closed #${number}` });
+  const close = useAction<{ deleteError: string | null }>("prs.close", {
+    invalidate: [...inv, ["overview", pid], ["files", pid], ["worktrees"]],
+    success: (r) => (r.deleteError ? undefined : `Closed #${number}`),
+  });
   const reopen = useAction("prs.close", { invalidate: inv, success: `Reopened #${number}` });
   const gen = useAction<{ title: string; body: string }>("prs.generate");
   const [editing, setEditing] = useState(false);
@@ -123,6 +127,7 @@ function Detail({ pid, number }: { pid: string; number: number }) {
   const [body, setBody] = useState("");
   const [reviewOpen, setReviewOpen] = useState(false);
   const [confirmClose, setConfirmClose] = useState(false);
+  const [deleteBranch, setDeleteBranch] = useState(false);
   const [filter, setFilter] = useState<"all" | "open">("all");
 
   if (q.isLoading) return <Loading />;
@@ -237,16 +242,35 @@ function Detail({ pid, number }: { pid: string; number: number }) {
           footer={
             <>
               <button className="btn btn-md" onClick={() => setConfirmClose(false)}>Cancel</button>
-              <button className="btn btn-md btn-danger" disabled={close.isPending} onClick={() => close.mutate({ projectId: pid, number }, { onSuccess: () => setConfirmClose(false) })}>
+              <button className="btn btn-md btn-danger" disabled={close.isPending} onClick={() =>
+                  close.mutate(
+                    { projectId: pid, number, ...(deleteBranch && { deleteBranch: d.head }) },
+                    {
+                      onSuccess: (r) => {
+                        if (r.deleteError) toast(`Closed #${number}, but the branch was kept: ${r.deleteError}`, "error");
+                        setConfirmClose(false);
+                      },
+                    },
+                  )
+                }
+              >
                 {close.isPending && <span className="spinner" />}
-                Close without merging
+                {deleteBranch ? "Close and delete branch" : "Close without merging"}
               </button>
             </>
           }
         >
           <p style={{ margin: 0, lineHeight: 1.55 }}>
-            Abandons the pull request on GitHub. The branch <span className="mono">{d.head}</span> and its commits stay, and you can reopen it later.
+            {deleteBranch ? (
+              <>Abandons the pull request on GitHub and deletes <span className="mono">{d.head}</span> here and on origin, with its worktree. Commits not merged elsewhere are lost.</>
+            ) : (
+              <>Abandons the pull request on GitHub. The branch <span className="mono">{d.head}</span> and its commits stay, and you can reopen it later.</>
+            )}
           </p>
+          <label className="check" style={{ marginTop: 12 }}>
+            <input type="checkbox" checked={deleteBranch} onChange={() => setDeleteBranch(!deleteBranch)} />
+            <span>Also delete <span className="mono">{d.head}</span>, locally and on origin</span>
+          </label>
         </Modal>
       )}
 
