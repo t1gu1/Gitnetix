@@ -4,6 +4,9 @@ import { useAnalytics, useProjects } from "../api/hooks";
 import type { Analytics as A } from "../api/types";
 import { ErrorBox, Header, initials, Loading, Seg } from "../components/ui";
 import { useNav } from "../lib/nav";
+import { useStored } from "../lib/stored";
+
+const RANGES = ["7", "14", "21", "30", "90", "365"];
 
 function niceMax(v: number) {
   for (const s of [4, 8, 12, 16, 20, 24, 30, 40, 50, 60, 80, 100]) if (v <= s) return s;
@@ -14,7 +17,7 @@ const fmt = (iso: string, opts: Intl.DateTimeFormatOptions) => new Date(`${iso}T
 export function Analytics() {
   const nav = useNav();
   const projects = useProjects().data ?? [];
-  const [days, setDays] = useState("30");
+  const [days, setDays] = useStored("gnx.analytics.days", "14", (s) => (RANGES.includes(s) ? s : "14"), String);
   const [pid, setPid] = useState(nav.projectId ?? "all");
   const q = useAnalytics(pid, Number(days));
 
@@ -32,7 +35,7 @@ export function Analytics() {
     <>
       <Header title="Analytics & stats" />
       <div className="row wrap" style={{ padding: "10px 24px", borderBottom: "1px solid var(--line)", gap: 12 }}>
-        <Seg label="Time range" value={days} onChange={setDays} options={[{ value: "7", label: "7 days" }, { value: "14", label: "14 days" }, { value: "21", label: "21 days" }, { value: "30", label: "30 days" }, { value: "90", label: "90 days" }, { value: "365", label: "365 days" }]} />
+        <Seg label="Time range" value={days} onChange={setDays} options={RANGES.map((d) => ({ value: d, label: `${d} days` }))} />
         <label htmlFor="an-project" className="sr-only">Project</label>
         <select id="an-project" className="select" style={{ height: 32 }} value={pid} onChange={(e) => setPid(e.target.value)}>
           {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
