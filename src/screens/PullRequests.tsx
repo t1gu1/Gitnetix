@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 
 import { useAction, useOverview, usePendingBranches, usePr, usePrs } from "../api/hooks";
 import { openExternal } from "../api/transport";
@@ -60,7 +60,7 @@ export function PullRequests({ initial }: { initial?: number }) {
         </div>
       ) : (
         <div className="body split">
-          <section aria-label="Pull request list" className="master" data-pane data-active={pane === "list"}>
+          <section aria-label="Pull request list" className="master" style={{ "--master-w": "460px" } as CSSProperties} data-pane data-active={pane === "list"}>
             <div className="master-tools">
               <Seg<Tab>
                 grid

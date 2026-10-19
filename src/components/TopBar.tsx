@@ -7,6 +7,7 @@ import type { ProjectSummary } from "../api/types";
 import { useNav, type Route } from "../lib/nav";
 import { Icon } from "./Icon";
 import { ThemeToggle } from "./ThemeToggle";
+import { FixedWidth } from "./ui";
 
 export const PAGES: { label: string; icon: string; route: Route }[] = [
   { label: "Workspace", icon: "home", route: { name: "workspace" } },
@@ -168,7 +169,7 @@ export function TopBar() {
                 onClick={(e) => e.detail === 0 && nav.setProject(p.id)}
               >
                 {p.runningAgents > 0 && <span className="pulse" title="AI task running" />}
-                <span>{p.name}</span>
+                <FixedWidth>{p.name}</FixedWidth>
               </button>
               <button className="tab-project-close" aria-label={`Close ${p.name}`} title="Close tab (project stays saved)" disabled={hide.isPending} onClick={() => close(p.id)}>
                 <Icon name="close" size={12} />
@@ -196,7 +197,7 @@ export function TopBar() {
           return (
             <button key={p.label} className="tab-page" aria-current={active ? "page" : undefined} onClick={() => nav.go(p.route)}>
               <Icon name={p.icon} size={14} />
-              {p.label}
+              <FixedWidth>{p.label}</FixedWidth>
             </button>
           );
         })}
@@ -214,7 +215,7 @@ function DragGhost({ drag, project, active }: { drag: Drag; project?: ProjectSum
     <div className="tab-project tab-ghost" data-active={active || undefined} style={style} aria-hidden>
       <span className="tab-project-open">
         {project.runningAgents > 0 && <span className="pulse" />}
-        <span>{project.name}</span>
+        <FixedWidth>{project.name}</FixedWidth>
       </span>
       <span className="tab-project-close">
         <Icon name="close" size={12} />

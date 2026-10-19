@@ -31,10 +31,20 @@ export function Seg<T extends string>({
     >
       {options.map((o) => (
         <button key={o.value} type="button" aria-pressed={o.value === value} onClick={() => onChange(o.value)}>
-          {o.label}
+          {grid ? o.label : <FixedWidth>{o.label}</FixedWidth>}
         </button>
       ))}
     </div>
+  );
+}
+
+/** Reserves the width of the bold rendering so toggling the active weight doesn't resize the control. */
+export function FixedWidth({ children }: { children: ReactNode }) {
+  return (
+    <span className="fixed-w">
+      <span>{children}</span>
+      <span className="fixed-w-ghost" aria-hidden>{children}</span>
+    </span>
   );
 }
 
