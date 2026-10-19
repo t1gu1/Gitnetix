@@ -4,10 +4,11 @@ import { useAction, useOverview, usePendingBranches, usePr, usePrs } from "../ap
 import { openExternal } from "../api/transport";
 import type { PrDetail, PrSummary, PrThread } from "../api/types";
 import { Icon } from "../components/Icon";
-import { ago, Busy, Empty, ErrorBox, Header, initials, Loading, Markdown, Seg } from "../components/ui";
+import { ago, Busy, Empty, ErrorBox, Header, initials, Loading, Markdown, Modal, Seg } from "../components/ui";
 import { useNav } from "../lib/nav";
+import { toast } from "../lib/toast";
 
-type Tab = "open" | "review" | "merged";
+type Tab = "open" | "review" | "closed";
 const EMOJI: [string, string, string][] = [
   ["THUMBS_UP", "👍", "Thumbs up"],
   ["THUMBS_DOWN", "👎", "Thumbs down"],
@@ -37,7 +38,7 @@ export function PullRequests({ initial }: { initial?: number }) {
   const [pane, setPane] = useState<"list" | "detail">(initial ? "detail" : "list");
   const items = prs.data?.items ?? [];
   const inTab = (p: PrSummary, t: Tab) =>
-    t === "merged" ? p.state === "merged" : t === "review" ? p.reviewRequested && p.state !== "merged" && p.state !== "closed" : p.mine && (p.state === "open" || p.state === "draft");
+    t === "closed" ? p.state === "merged" || (p.mine && p.state === "closed") : t === "review" ? p.reviewRequested && p.state !== "merged" && p.state !== "closed" : p.mine && (p.state === "open" || p.state === "draft");
   const list = items.filter((p) => inTab(p, tab));
   const current = sel ?? list[0]?.number;
   const create = useAction<PrSummary>("prs.create", { invalidate: [["prs", pid]], success: (r) => `Opened #${r.number}` });
@@ -66,9 +67,9 @@ export function PullRequests({ initial }: { initial?: number }) {
                 label="Filter"
                 value={tab}
                 onChange={(t) => { setTab(t); setSel(undefined); }}
-                options={(["open", "review", "merged"] as Tab[]).map((t) => ({
+                options={(["open", "review", "closed"] as Tab[]).map((t) => ({
                   value: t,
-                  label: <>{t === "open" ? "Open" : t === "review" ? "To review" : "Merged"} <span className="faint">{items.filter((p) => inTab(p, t)).length}</span></>,
+                  label: <>{t === "open" ? "Open" : t === "review" ? "To review" : "Closed"} <span className="faint">{items.filter((p) => inTab(p, t)).length}</span></>,
                 }))}
               />
               <button className="btn" disabled={!branch || creating} onClick={() => branch && create.mutate({ projectId: pid, branch }, { onSuccess: (r) => { setSel(r.number); setPane("detail"); } })}>
@@ -115,11 +116,18 @@ function Detail({ pid, number }: { pid: string; number: number }) {
   const inv = [["pr", pid, number], ["prs", pid]];
   const merge = useAction("prs.merge", { invalidate: inv, success: `Merged #${number}` });
   const update = useAction("prs.update", { invalidate: inv, success: "Saved to GitHub" });
+  const close = useAction<{ deleteError: string | null }>("prs.close", {
+    invalidate: [...inv, ["overview", pid], ["files", pid], ["worktrees"]],
+    success: (r) => (r.deleteError ? undefined : `Closed #${number}`),
+  });
+  const reopen = useAction("prs.close", { invalidate: inv, success: `Reopened #${number}` });
   const gen = useAction<{ title: string; body: string }>("prs.generate");
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [reviewOpen, setReviewOpen] = useState(false);
+  const [confirmClose, setConfirmClose] = useState(false);
+  const [deleteBranch, setDeleteBranch] = useState(false);
   const [filter, setFilter] = useState<"all" | "open">("all");
 
   if (q.isLoading) return <Loading />;
@@ -212,8 +220,59 @@ function Detail({ pid, number }: { pid: string; number: number }) {
           <Icon name="external" size={12} />
           Open on GitHub
         </button>
+        {open && (
+          <button className="btn btn-danger" disabled={close.isPending} onClick={() => setConfirmClose(true)}>
+            <Icon name="close" size={12} />
+            Close pull request
+          </button>
+        )}
+        {d.state === "closed" && (
+          <button className="btn" disabled={reopen.isPending} onClick={() => reopen.mutate({ projectId: pid, number, reopen: true })}>
+            {reopen.isPending && <span className="spinner" />}
+            Reopen
+          </button>
+        )}
         {unresolved > 0 && open && <span className="c-acc" style={{ fontSize: 12.5 }}>{unresolved} unresolved conversation{unresolved === 1 ? "" : "s"}</span>}
       </div>
+
+      {confirmClose && (
+        <Modal
+          title={`Close #${number}?`}
+          onClose={() => setConfirmClose(false)}
+          footer={
+            <>
+              <button className="btn btn-md" onClick={() => setConfirmClose(false)}>Cancel</button>
+              <button className="btn btn-md btn-danger" disabled={close.isPending} onClick={() =>
+                  close.mutate(
+                    { projectId: pid, number, ...(deleteBranch && { deleteBranch: d.head }) },
+                    {
+                      onSuccess: (r) => {
+                        if (r.deleteError) toast(`Closed #${number}, but the branch was kept: ${r.deleteError}`, "error");
+                        setConfirmClose(false);
+                      },
+                    },
+                  )
+                }
+              >
+                {close.isPending && <span className="spinner" />}
+                {deleteBranch ? "Close and delete branch" : "Close without merging"}
+              </button>
+            </>
+          }
+        >
+          <p style={{ margin: 0, lineHeight: 1.55 }}>
+            {deleteBranch ? (
+              <>Abandons the pull request on GitHub and deletes <span className="mono">{d.head}</span> here and on origin, with its worktree. Commits not merged elsewhere are lost.</>
+            ) : (
+              <>Abandons the pull request on GitHub. The branch <span className="mono">{d.head}</span> and its commits stay, and you can reopen it later.</>
+            )}
+          </p>
+          <label className="check" style={{ marginTop: 12 }}>
+            <input type="checkbox" checked={deleteBranch} onChange={() => setDeleteBranch(!deleteBranch)} />
+            <span>Also delete <span className="mono">{d.head}</span>, locally and on origin</span>
+          </label>
+        </Modal>
+      )}
 
       {reviewOpen && <ReviewForm pid={pid} d={d} onDone={() => setReviewOpen(false)} />}
 

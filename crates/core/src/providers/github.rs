@@ -422,6 +422,14 @@ impl GitHub {
             .map(|_| ())
     }
 
+    /// Closes (abandons) a PR without merging, or reopens a closed one.
+    pub async fn set_closed(&self, number: u64, closed: bool) -> Result<()> {
+        let state = if closed { "closed" } else { "open" };
+        self.req(reqwest::Method::PATCH, &format!("{}/pulls/{number}", self.rp()), Some(json!({ "state": state })))
+            .await
+            .map(|_| ())
+    }
+
     /// vote: approve | changes | comment
     pub async fn review(&self, number: u64, vote: &str, body: &str) -> Result<()> {
         let event = match vote {
