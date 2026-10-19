@@ -286,6 +286,7 @@ export interface Config {
   integrations: {
     githubApi?: string | null;
     githubConnected: boolean;
+    githubUser?: string | null;
     jira?: { baseUrl: string; email: string; jql?: string | null } | null;
     trello?: { apiKey: string; boardId?: string | null } | null;
     asana?: { workspaceGid: string; projectGid?: string | null } | null;

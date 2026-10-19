@@ -8,6 +8,7 @@ use crate::app::{Gitnetix, MergeOptions, NewItem, NotesInclude, ViewMode};
 use crate::error::{Error, Result};
 use crate::store::{ConnectMethod, GitProfile, JiraConf, ReleaseKind, Route, TrelloConf, AsanaConf, new_id};
 use crate::templates::{self, Template};
+use crate::providers::github_auth::{self, Poll};
 use crate::{ai, secrets};
 
 /// (method, description, params) — also the MCP tool list.
@@ -110,6 +111,8 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("tickets.setRelease", "Plan a ticket into a release", "projectId, key, release"),
     ("tickets.triage", "AI suggestions for unplanned tickets", "projectId"),
     ("integrations.save", "Connect GitHub, Jira, Trello or Asana", "kind, config?, token?"),
+    ("github.signInStart", "Start \"Sign in with GitHub\": a code for the user to enter at verificationUri", ""),
+    ("github.signInPoll", "Check whether the user entered the code; done = token stored and GitHub connected", "deviceCode"),
     ("integrations.disconnect", "Disconnect an integration", "kind"),
     ("notes.refs", "Tags and branches for a notes range", "projectId"),
     ("notes.range", "Commit, branch and ticket counts in a range", "projectId, from, to"),
@@ -684,6 +687,9 @@ pub async fn call(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
                     "github" => {
                         c.integrations.github_api = os(&cfg, "apiBase").filter(|s| !s.is_empty());
                         c.integrations.github_connected = true;
+                        if token.is_some() {
+                            c.integrations.github_user = None;
+                        }
                     }
                     "jira" => c.integrations.jira = Some(serde_json::from_value::<JiraConf>(cfg.clone())?),
                     "trello" => c.integrations.trello = Some(serde_json::from_value::<TrelloConf>(cfg.clone())?),
@@ -694,12 +700,32 @@ pub async fn call(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
             })?;
             ok()
         }
+        "github.signInStart" => to(github_auth::start().await?),
+        "github.signInPoll" => match github_auth::poll(&s(&p, "deviceCode")?).await? {
+            Poll::Pending => to(json!({ "status": "pending" })),
+            Poll::SlowDown(interval) => to(json!({ "status": "pending", "interval": interval })),
+            Poll::Token(t) => {
+                let user = github_auth::login(&t).await.ok().filter(|u| !u.is_empty());
+                secrets::set("github", &t)?;
+                k.store.write(|c| {
+                    // OAuth tokens are for github.com, not an Enterprise host.
+                    c.integrations.github_api = None;
+                    c.integrations.github_connected = true;
+                    c.integrations.github_user = user.clone();
+                    Ok(())
+                })?;
+                to(json!({ "status": "done", "user": user }))
+            }
+        },
         "integrations.disconnect" => {
             let kind = s(&p, "kind")?;
             secrets::delete(&kind)?;
             k.store.write(|c| {
                 match kind.as_str() {
-                    "github" => c.integrations.github_connected = false,
+                    "github" => {
+                        c.integrations.github_connected = false;
+                        c.integrations.github_user = None;
+                    }
                     "jira" => c.integrations.jira = None,
                     "trello" => c.integrations.trello = None,
                     "asana" => c.integrations.asana = None,

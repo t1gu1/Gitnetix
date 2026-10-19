@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { useAction, useConfig } from "../api/hooks";
-import { companionInfo, isLocal, type CompanionInfo } from "../api/transport";
+import { companionInfo, isLocal, openExternal, rpc, type CompanionInfo } from "../api/transport";
 import type { Config, GitProfile } from "../api/types";
 import { Header } from "../components/ui";
 import { useNav } from "../lib/nav";
-import { copyToClipboard } from "../lib/toast";
+import { copyToClipboard, toast } from "../lib/toast";
 
 const GROUPS: [string, [string, string][]][] = [
   ["General", [["project", "Project"]]],
@@ -169,12 +170,88 @@ function Profiles({ cfg }: { cfg: Config }) {
   );
 }
 
+type DeviceCode = { deviceCode: string; userCode: string; verificationUri: string; interval: number; expiresIn: number };
+
+/** "Sign in with GitHub": show a code, open github.com to enter it, poll until GitHub hands over a token. */
+function GitHubSignIn() {
+  const qc = useQueryClient();
+  const [code, setCode] = useState<DeviceCode | null>(null);
+  const start = useAction<DeviceCode>("github.signInStart");
+  useEffect(() => {
+    if (!code) return;
+    let interval = code.interval;
+    let timer: ReturnType<typeof setTimeout>;
+    let stopped = false;
+    const deadline = Date.now() + code.expiresIn * 1000;
+    const tick = async () => {
+      try {
+        const r = await rpc<{ status: string; interval?: number; user?: string | null }>("github.signInPoll", { deviceCode: code.deviceCode });
+        if (stopped) return;
+        if (r.status === "done") {
+          setCode(null);
+          qc.invalidateQueries({ queryKey: ["config"] });
+          qc.invalidateQueries({ queryKey: ["prs"] });
+          toast(r.user ? `Signed in to GitHub as ${r.user}` : "GitHub connected", "ok");
+          return;
+        }
+        if (r.interval) interval = r.interval;
+        if (Date.now() > deadline) throw new Error("The sign-in code expired — start again");
+        timer = setTimeout(tick, interval * 1000);
+      } catch (e) {
+        if (stopped) return;
+        setCode(null);
+        toast((e as Error).message, "error");
+      }
+    };
+    timer = setTimeout(tick, interval * 1000);
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
+  }, [code, qc]);
+
+  if (!code)
+    return (
+      <div>
+        <button
+          className="btn btn-primary"
+          disabled={start.isPending}
+          onClick={() =>
+            start.mutate({}, {
+              onSuccess: (c) => {
+                setCode(c);
+                copyToClipboard(c.userCode);
+                openExternal(c.verificationUri);
+              },
+            })
+          }
+        >
+          {start.isPending ? "Opening GitHub…" : "Sign in with GitHub"}
+        </button>
+      </div>
+    );
+  return (
+    <div className="col" style={{ gap: 8 }}>
+      <span className="hint">Enter this code on GitHub (copied to your clipboard), then authorize Gitnetix. Waiting…</span>
+      <div className="row" style={{ gap: 8 }}>
+        <button className="btn mono" style={{ fontSize: 18, letterSpacing: 2 }} title="Copy code" onClick={() => copyToClipboard(code.userCode)}>
+          {code.userCode}
+        </button>
+        <button className="btn" onClick={() => openExternal(code.verificationUri)}>Open GitHub</button>
+        <button className="btn" onClick={() => setCode(null)}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
 function GitProviders({ cfg }: { cfg: Config }) {
   const [token, setToken] = useState("");
   const [api, setApi] = useState(cfg.integrations.githubApi ?? "");
+  const [manual, setManual] = useState(!!cfg.integrations.githubApi);
   const save = useAction("integrations.save", { invalidate: [["config"], ["prs"]], success: "GitHub connected" });
   const disc = useAction("integrations.disconnect", { invalidate: [["config"], ["prs"]], success: "GitHub disconnected" });
   const on = cfg.integrations.githubConnected;
+  const user = cfg.integrations.githubUser;
   return (
     <>
       <div className="col" style={{ gap: 6 }}>
@@ -186,31 +263,42 @@ function GitProviders({ cfg }: { cfg: Config }) {
           <div className="row">
             <span className="col grow" style={{ gap: 2 }}>
               <span style={{ fontWeight: 500 }}>GitHub</span>
-              <span className={on ? "c-add" : "faint"} style={{ fontSize: 12 }}>{on ? "Connected · token in keychain" : "Not connected"}</span>
+              <span className={on ? "c-add" : "faint"} style={{ fontSize: 12 }}>
+                {on ? (user ? `Signed in as ${user}` : "Connected · token in keychain") : "Not connected"}
+              </span>
             </span>
             {on && <button className="btn" onClick={() => disc.mutate({ kind: "github" })}>Disconnect</button>}
           </div>
-          <form
-            className="col"
-            style={{ gap: 10 }}
-            onSubmit={(e) => {
-              e.preventDefault();
-              save.mutate({ kind: "github", token, config: { apiBase: api } }, { onSuccess: () => setToken("") });
-            }}
-          >
-            <div className="field">
-              <label htmlFor="gh-token">{on ? "Replace token" : "Personal access token"}</label>
-              <input id="gh-token" type="password" className="input mono" placeholder="github_pat_…" value={token} onChange={(e) => setToken(e.target.value)} />
-              <span className="hint">Fine-grained token with Pull requests, Contents, Checks (read) and Issues permissions on your repos.</span>
-            </div>
-            <div className="field">
-              <label htmlFor="gh-api">API base <span className="faint" style={{ fontWeight: 400 }}>GitHub Enterprise only</span></label>
-              <input id="gh-api" className="input mono" placeholder="https://github.example.com/api/v3" value={api} onChange={(e) => setApi(e.target.value)} />
-            </div>
+          {!on && <GitHubSignIn />}
+          {!manual ? (
             <div>
-              <button className="btn btn-primary" disabled={!token && !on}>{on ? "Save" : "Connect"}</button>
+              <button className="btn btn-sm" onClick={() => setManual(true)}>
+                {on ? "Replace with a personal access token" : "Use a personal access token or GitHub Enterprise"}
+              </button>
             </div>
-          </form>
+          ) : (
+            <form
+              className="col"
+              style={{ gap: 10 }}
+              onSubmit={(e) => {
+                e.preventDefault();
+                save.mutate({ kind: "github", token, config: { apiBase: api } }, { onSuccess: () => setToken("") });
+              }}
+            >
+              <div className="field">
+                <label htmlFor="gh-token">{on ? "Replace token" : "Personal access token"}</label>
+                <input id="gh-token" type="password" className="input mono" placeholder="github_pat_…" value={token} onChange={(e) => setToken(e.target.value)} />
+                <span className="hint">Fine-grained token with Pull requests, Contents, Checks (read) and Issues permissions on your repos.</span>
+              </div>
+              <div className="field">
+                <label htmlFor="gh-api">API base <span className="faint" style={{ fontWeight: 400 }}>GitHub Enterprise only</span></label>
+                <input id="gh-api" className="input mono" placeholder="https://github.example.com/api/v3" value={api} onChange={(e) => setApi(e.target.value)} />
+              </div>
+              <div>
+                <button className="btn btn-primary" disabled={!token && !on}>{on ? "Save" : "Connect"}</button>
+              </div>
+            </form>
+          )}
         </li>
         {["GitLab", "Azure DevOps", "Bitbucket", "Gitea"].map((n) => (
           <li key={n} className="list-row">

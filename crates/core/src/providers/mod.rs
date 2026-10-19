@@ -1,4 +1,5 @@
 pub mod github;
+pub mod github_auth;
 
 use serde::{Deserialize, Serialize};
 

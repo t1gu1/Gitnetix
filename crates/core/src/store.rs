@@ -230,6 +230,8 @@ pub struct Integrations {
     /// GitHub API base, None = api.github.com. Token in keychain "github".
     pub github_api: Option<String>,
     pub github_connected: bool,
+    /// Account signed in with "Sign in with GitHub"; None for a pasted token.
+    pub github_user: Option<String>,
     pub jira: Option<JiraConf>,
     pub trello: Option<TrelloConf>,
     pub asana: Option<AsanaConf>,

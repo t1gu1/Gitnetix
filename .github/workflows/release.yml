@@ -98,6 +98,8 @@ jobs:
           # Signs the update bundles so installed apps accept them as updates.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # Client ID of the Gitnetix OAuth App, for "Sign in with GitHub".
+          GITNETIX_GITHUB_CLIENT_ID: ${{ vars.GITNETIX_GITHUB_CLIENT_ID }}
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           ARGS=(--bundles "${{ matrix.bundles }}" --config "{\"version\":\"${VERSION}\"}")
