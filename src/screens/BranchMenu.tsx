@@ -211,10 +211,8 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
       changelog: {
         id: "changelog",
         label: "Update changelog",
-        tip: `AI adds what ${b} changes over ${parent} to the Unreleased section of CHANGELOG.md, committed on ${b}`,
+        tip: `AI adds what ${b} changes${t.base && v.ahead ? ` over ${parent}` : " since its latest tag"} to the Unreleased section of CHANGELOG.md, committed on ${b}`,
         icon: "sparkle",
-        hint: v.ahead ? undefined : "nothing new",
-        disabled: !v.ahead,
         run: () => changelog.mutate({ projectId: pid, branch: b }),
       },
       tag: { id: "tag", label: "Create tag…", tip: `Tag the tip of ${b}`, icon: "tag", run: () => openDialog("tag", b) },
@@ -257,7 +255,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
       }
     }
     if (t.base) list.push(a.pr);
-    if (t.base && v.local && canChangelog) list.push(a.changelog);
+    if (v.local && canChangelog) list.push(a.changelog);
     if (t.moveTo?.length) {
       list.push("sep");
       for (const m of t.moveTo) {

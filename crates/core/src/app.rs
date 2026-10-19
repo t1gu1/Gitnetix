@@ -2707,17 +2707,26 @@ impl Gitnetix {
     }
 
     /// AI adds the changes `branch` brings over its base to the `Unreleased` section of
-    /// the branch's CHANGELOG.md, and commits that on the branch.
+    /// the branch's CHANGELOG.md, and commits that on the branch. The default branch, or
+    /// one with nothing over its base (main, dev), uses the commits since its latest tag.
     pub async fn update_changelog(&self, project_id: &str, branch: &str) -> Result<String> {
         let p = self.store.project(project_id)?;
         let git = self.git(&p);
         let text = git.show_file(branch, CHANGELOG).await?.ok_or_else(|| Error::Invalid(format!("{branch} has no {CHANGELOG}")))?;
         let default = git.default_branch().await?;
-        let base = self.base_of(&p, branch, &default).await;
-        let (base_rev, rev) = tokio::join!(git.rev_of(&base), git.rev_of(branch));
-        let commits = git.log(&format!("{base_rev}..{rev}"), Some(200)).await?;
+        let mut base = self.base_of(&p, branch, &default).await;
+        let rev = git.rev_of(branch).await;
+        let mut commits = if branch == default { Vec::new() } else { git.log(&format!("{}..{rev}", git.rev_of(&base).await), Some(200)).await? };
         if commits.is_empty() {
-            return Err(Error::Invalid(format!("{branch} has no commits that {base} lacks")));
+            let tag = git.run(&["describe", "--tags", "--abbrev=0", &rev]).await.ok().map(|t| t.trim().to_string()).filter(|t| !t.is_empty());
+            commits = match &tag {
+                Some(t) => git.log(&format!("{t}..{rev}"), Some(200)).await?,
+                None => git.log(&rev, Some(100)).await?,
+            };
+            base = tag.unwrap_or_else(|| "the start of its history".into());
+        }
+        if commits.is_empty() {
+            return Err(Error::Invalid(format!("{branch} has no commits since {base}")));
         }
         let t = self.template("changelog", None, Some(&p.id))?;
         let current = unreleased_body(&text);
