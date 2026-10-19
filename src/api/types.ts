@@ -23,6 +23,12 @@ export interface Hunk {
   lines: DiffLine[];
 }
 
+/** Both versions of a file, base64; null when absent on that side. */
+export interface Blobs {
+  old: string | null;
+  new: string | null;
+}
+
 export interface MergePrefs {
   /** Squash the branch into one commit first. */
   squash: boolean;

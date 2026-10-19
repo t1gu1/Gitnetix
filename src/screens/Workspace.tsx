@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 
-import { useAction, useAgents, useAiOn, useDiff, useFiles, useOverview, useProjectPrefs } from "../api/hooks";
+import { useAction, useAgents, useAiOn, useBlobs, useDiff, useFiles, useOverview, useProjectPrefs } from "../api/hooks";
 import type { BranchView, Commit, FileChange, MergeResult, ReleaseView, Stash } from "../api/types";
 import { AgentLog } from "../components/AgentLog";
 import { DiffView } from "../components/DiffView";
+import { ImageDiff, isImage } from "../components/ImageDiff";
 import { ContextMenu, type MenuItem } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
 import { Resizer, usePaneWidth } from "../components/Resizer";
@@ -141,6 +142,8 @@ export function Workspace() {
   const fileCount = new Set(list.map((f) => f.path)).size;
   const current = list.find((f) => fileKey(f) === file) ?? list[0];
   const diff = useDiff(pid, branch, mode, current?.path, current?.staged, commit?.sha, stash?.sha);
+  const image = isImage(current?.path);
+  const blobs = useBlobs(pid, branch, mode, current?.path, current?.staged, commit?.sha, stash?.sha, image);
   const [discarding, setDiscarding] = useState<{ staged: boolean; paths: string[] } | null>(null);
 
   useEffect(() => setFile(undefined), [branch, mode, commit, stash]);
@@ -349,8 +352,10 @@ export function Workspace() {
             <div className="diff">
               {diff.isLoading && current && <Loading />}
               {diff.error && <div style={{ padding: 16 }}><ErrorBox error={diff.error} /></div>}
+              {image && current && blobs.data && <ImageDiff path={current.path} blobs={blobs.data} />}
+              {blobs.error && image && <div style={{ padding: 16 }}><ErrorBox error={blobs.error} /></div>}
               {diff.data && diff.data.length > 0 && <DiffView hunks={diff.data} mode={diffMode} />}
-              {(!current || (diff.data && diff.data.length === 0)) && (
+              {(!current || (diff.data && diff.data.length === 0 && !image)) && (
                 <div className="empty" style={{ fontFamily: "var(--sans)" }}>
                   {list.length === 0 ? "Nothing to show — working tree is clean." : "No textual changes in this file."}
                 </div>

@@ -15,7 +15,7 @@ use crate::agents::{AgentManager, AgentSession, AgentStatus, StartArgs};
 use crate::ai::{self, Resolved};
 use crate::error::{Error, Result};
 use crate::events::Event;
-use crate::git::{BranchInfo, Commit, FileChange, Git, Hunk, Identity, StashInfo, TagInfo, WorktreeInfo};
+use crate::git::{Blobs, BranchInfo, Commit, FileChange, Git, Hunk, Side, Identity, StashInfo, TagInfo, WorktreeInfo};
 use crate::providers::{github::GitHub, parse_remote};
 use crate::secrets;
 use crate::store::{new_id, now, BranchMeta, GitProfile, Project, Release, ReleaseKind, Store};
@@ -1073,6 +1073,48 @@ impl Gitnetix {
         }
         let (base_rev, rev) = tokio::join!(git.rev_of(&base), git.rev_of(branch));
         git.file_diff(path, Some(&format!("{base_rev}...{rev}"))).await
+    }
+
+    /// Old and new contents of one file, picked like `diff` (for image previews).
+    pub async fn blobs(&self, project_id: &str, branch: &str, mode: ViewMode, path: &str, staged: Option<bool>) -> Result<Blobs> {
+        let p = self.store.project(project_id)?;
+        if mode != ViewMode::Branch {
+            if let Some(dir) = self.checkout_dir(&p, branch).await? {
+                let git = Git::new(dir);
+                match staged.filter(|_| mode == ViewMode::Wip) {
+                    Some(true) => return git.blobs(Side::Rev("HEAD"), Side::Index, path).await,
+                    Some(false) => return git.blobs(Side::Index, Side::Worktree, path).await,
+                    None if mode == ViewMode::Wip || git.is_dirty(path).await? => {
+                        return git.blobs(Side::Rev("HEAD"), Side::Worktree, path).await;
+                    }
+                    None => {}
+                }
+            } else if mode == ViewMode::Wip {
+                return Ok(Blobs::default());
+            }
+        }
+        let git = self.git(&p);
+        let default = git.default_branch().await?;
+        let base = self.base_of(&p, branch, &default).await;
+        if base == branch {
+            return Ok(Blobs::default());
+        }
+        let (base_rev, rev) = tokio::join!(git.rev_of(&base), git.rev_of(branch));
+        git.range_blobs(&format!("{base_rev}...{rev}"), path).await
+    }
+
+    pub async fn commit_blobs(&self, project_id: &str, sha: &str, path: &str) -> Result<Blobs> {
+        let git = self.git(&self.store.project(project_id)?);
+        git.range_blobs(&git.commit_range(check_sha(sha)?).await?, path).await
+    }
+
+    pub async fn stash_blobs(&self, project_id: &str, sha: &str, path: &str) -> Result<Blobs> {
+        let git = self.git(&self.store.project(project_id)?);
+        let (tracked, untracked) = git.stash_ranges(check_sha(sha)?).await?;
+        match untracked {
+            Some(r) if git.run(&["diff", "--name-only", &tracked, "--", path]).await?.trim().is_empty() => git.range_blobs(&r, path).await,
+            _ => git.range_blobs(&tracked, path).await,
+        }
     }
 
     /// Commits a branch has that its base does not, newest first; a trunk lists its recent history.

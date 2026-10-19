@@ -49,6 +49,21 @@ pub struct Hunk {
     pub lines: Vec<DiffLine>,
 }
 
+/// Where to read one version of a file from.
+#[derive(Debug, Clone, Copy)]
+pub enum Side<'a> {
+    Rev(&'a str),
+    Index,
+    Worktree,
+}
+
+/// Both versions of a file, base64; None when absent on that side.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Blobs {
+    pub old: Option<String>,
+    pub new: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BranchInfo {
     pub name: String,
@@ -682,6 +697,42 @@ impl Git {
             self.try_run(&["diff", "--no-index", "--", "/dev/null", path]).await?.1
         };
         Ok(parse_unified(&out))
+    }
+
+    /// Raw bytes of one version of a file; None when it doesn't exist there.
+    pub async fn blob(&self, side: Side<'_>, path: &str) -> Result<Option<Vec<u8>>> {
+        let spec = match side {
+            Side::Rev(r) => format!("{r}:{path}"),
+            Side::Index => format!(":{path}"),
+            Side::Worktree => return Ok(tokio::fs::read(self.cwd.join(path)).await.ok()),
+        };
+        let out = self.command(&["cat-file", "blob", &spec]).output().await?;
+        Ok(out.status.success().then_some(out.stdout))
+    }
+
+    /// Both versions of a file, base64.
+    pub async fn blobs(&self, old: Side<'_>, new: Side<'_>, path: &str) -> Result<Blobs> {
+        use base64::Engine;
+        let (o, n) = tokio::join!(self.blob(old, path), self.blob(new, path));
+        let enc = |b: Option<Vec<u8>>| b.map(|b| base64::engine::general_purpose::STANDARD.encode(b));
+        Ok(Blobs { old: enc(o?), new: enc(n?) })
+    }
+
+    /// Both versions of a file across a diff range (`a..b`, or `a...b` from their merge base).
+    pub async fn range_blobs(&self, range: &str, path: &str) -> Result<Blobs> {
+        let (old, new) = match range.split_once("...") {
+            Some((a, b)) => (self.merge_base(a, b).await?, b.to_string()),
+            None => {
+                let (a, b) = range.split_once("..").unwrap_or((range, "HEAD"));
+                (a.to_string(), b.to_string())
+            }
+        };
+        self.blobs(Side::Rev(&old), Side::Rev(&new), path).await
+    }
+
+    /// Whether `path` has uncommitted changes in this checkout.
+    pub async fn is_dirty(&self, path: &str) -> Result<bool> {
+        Ok(!self.run(&["status", "--porcelain", "--", path]).await?.trim().is_empty())
     }
 
     async fn is_tracked(&self, path: &str) -> Result<bool> {

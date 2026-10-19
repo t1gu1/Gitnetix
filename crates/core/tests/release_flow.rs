@@ -1039,3 +1039,40 @@ async fn merged_on_origin_while_local_base_lags() {
     assert!(!repo.join(".git/refs/heads/feat/via-pr").exists());
     assert!(!repo.join(".git/refs/heads/feat/via-squash").exists());
 }
+
+#[tokio::test]
+async fn blobs_pick_both_versions_of_a_file() {
+    use base64::Engine;
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("atlas-api");
+    init_repo(&repo);
+    let png = |b: u8| vec![0x89, b'P', b'N', b'G', 0, 0xff, b];
+    std::fs::write(repo.join("logo.png"), png(1)).unwrap();
+    sh(&repo, &["add", "."]);
+    sh(&repo, &["commit", "-qm", "add logo"]);
+
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let added = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await;
+    let pid = added[0]["id"].as_str().unwrap().to_string();
+    let dec = |v: &Value| v.as_str().map(|s| base64::engine::general_purpose::STANDARD.decode(s).unwrap());
+    let blobs = |p: Value| {
+        let k = &k;
+        async move {
+            let v = call(k, "workspace.blobs", p).await;
+            (dec(&v["old"]), dec(&v["new"]))
+        }
+    };
+
+    // A commit that added it: nothing before.
+    let sha = rev(&repo, "HEAD");
+    assert_eq!(blobs(json!({ "projectId": pid, "branch": "main", "mode": "branch", "path": "logo.png", "commit": sha })).await, (None, Some(png(1))));
+
+    // Staged and unstaged sides of uncommitted work.
+    std::fs::write(repo.join("logo.png"), png(2)).unwrap();
+    sh(&repo, &["add", "."]);
+    std::fs::write(repo.join("logo.png"), png(3)).unwrap();
+    let wip = |staged: bool| json!({ "projectId": pid, "branch": "main", "mode": "wip", "path": "logo.png", "staged": staged });
+    assert_eq!(blobs(wip(true)).await, (Some(png(1)), Some(png(2))));
+    assert_eq!(blobs(wip(false)).await, (Some(png(2)), Some(png(3))));
+    assert_eq!(blobs(json!({ "projectId": pid, "branch": "main", "mode": "project", "path": "logo.png" })).await, (Some(png(1)), Some(png(3))));
+}

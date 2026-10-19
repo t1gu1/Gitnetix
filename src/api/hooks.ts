@@ -6,6 +6,7 @@ import type {
   AgentSession,
   AiCatalog,
   Analytics,
+  Blobs,
   Commit,
   CommitPrefs,
   Config,
@@ -54,6 +55,7 @@ export function useEngineEvents() {
             qc.invalidateQueries({ queryKey: ["overview", e.projectId] });
             qc.invalidateQueries({ queryKey: ["files", e.projectId] });
             qc.invalidateQueries({ queryKey: ["diff", e.projectId] });
+            qc.invalidateQueries({ queryKey: ["blobs", e.projectId] });
             qc.invalidateQueries({ queryKey: ["commits", e.projectId] });
             qc.invalidateQueries({ queryKey: ["worktrees"] });
             qc.invalidateQueries({ queryKey: ["projects"] });
@@ -139,6 +141,17 @@ export const useDiff = (projectId?: string, branch?: string, mode = "branch", pa
         ? rpc<Hunk[]>("stashes.diff", { projectId, sha: stash, path })
         : rpc<Hunk[]>("workspace.diff", { projectId, branch, mode, path, staged, commit }),
     enabled: !!projectId && (!!branch || !!stash) && !!path,
+  });
+
+/** Both versions of one file (image previews), picked like `useDiff`. */
+export const useBlobs = (projectId?: string, branch?: string, mode = "branch", path?: string, staged?: boolean, commit?: string, stash?: string, enabled = true) =>
+  useQuery({
+    queryKey: ["blobs", projectId, branch, mode, path, staged, commit, stash],
+    queryFn: () =>
+      stash
+        ? rpc<Blobs>("stashes.blobs", { projectId, sha: stash, path })
+        : rpc<Blobs>("workspace.blobs", { projectId, branch, mode, path, staged, commit }),
+    enabled: enabled && !!projectId && (!!branch || !!stash) && !!path,
   });
 
 export const useCommits = (projectId?: string, branch?: string) =>

@@ -11,6 +11,9 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+### Added
+- Image and SVG previews in the file diff. A replaced image can be compared side by side, with a swipe slider, as an onion skin or as a pixel difference.
+
 ## [0.1.0] - 2026-10-19
 
 ### Added
