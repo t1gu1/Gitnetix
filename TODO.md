@@ -1,5 +1,11 @@
 # TODO
 
+## What's next
+
+- Create a custom terminal emulator using a Nerd Font.
+- Add a submodule manager.
+- Rework the worktrees & agent section and how it works.
+
 ## Code signing
 
 Release builds are only signed for the in-app updater (Tauri key). The installers themselves
