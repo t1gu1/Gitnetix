@@ -287,6 +287,8 @@ export interface Config {
     githubApi?: string | null;
     githubConnected: boolean;
     githubUser?: string | null;
+    azureConnected: boolean;
+    azureUser?: string | null;
     jira?: { baseUrl: string; email: string; jql?: string | null } | null;
     trello?: { apiKey: string; boardId?: string | null } | null;
     asana?: { workspaceGid: string; projectGid?: string | null } | null;

@@ -232,6 +232,9 @@ pub struct Integrations {
     pub github_connected: bool,
     /// Account signed in with "Sign in with GitHub"; None for a pasted token.
     pub github_user: Option<String>,
+    /// Signed in with "Sign in with Azure DevOps". Tokens in keychain "azure".
+    pub azure_connected: bool,
+    pub azure_user: Option<String>,
     pub jira: Option<JiraConf>,
     pub trello: Option<TrelloConf>,
     pub asana: Option<AsanaConf>,

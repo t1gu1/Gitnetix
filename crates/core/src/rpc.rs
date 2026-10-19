@@ -9,6 +9,7 @@ use crate::error::{Error, Result};
 use crate::store::{ConnectMethod, GitProfile, JiraConf, ReleaseKind, Route, TrelloConf, AsanaConf, new_id};
 use crate::templates::{self, Template};
 use crate::providers::github_auth::{self, Poll};
+use crate::providers::azure_auth;
 use crate::{ai, secrets};
 
 /// (method, description, params) — also the MCP tool list.
@@ -114,6 +115,8 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("integrations.save", "Connect GitHub, Jira, Trello or Asana", "kind, config?, token?"),
     ("github.signInStart", "Start \"Sign in with GitHub\": a code for the user to enter at verificationUri", ""),
     ("github.signInPoll", "Check whether the user entered the code; done = token stored and GitHub connected", "deviceCode"),
+    ("azure.signInStart", "Start \"Sign in with Azure DevOps\": a code for the user to enter at verificationUri", ""),
+    ("azure.signInPoll", "Check whether the user entered the code; done = tokens stored and Azure DevOps connected", "deviceCode"),
     ("integrations.disconnect", "Disconnect an integration", "kind"),
     ("notes.refs", "Tags and branches for a notes range", "projectId"),
     ("notes.range", "Commit, branch and ticket counts in a range", "projectId, from, to"),
@@ -723,6 +726,20 @@ pub async fn call(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
                 to(json!({ "status": "done", "user": user }))
             }
         },
+        "azure.signInStart" => to(azure_auth::start().await?),
+        "azure.signInPoll" => match azure_auth::poll(&s(&p, "deviceCode")?).await? {
+            Poll::Pending => to(json!({ "status": "pending" })),
+            Poll::SlowDown(interval) => to(json!({ "status": "pending", "interval": interval })),
+            Poll::Token(t) => {
+                let user = azure_auth::login(&t).await.ok().filter(|u| !u.is_empty());
+                k.store.write(|c| {
+                    c.integrations.azure_connected = true;
+                    c.integrations.azure_user = user.clone();
+                    Ok(())
+                })?;
+                to(json!({ "status": "done", "user": user }))
+            }
+        },
         "integrations.disconnect" => {
             let kind = s(&p, "kind")?;
             secrets::delete(&kind)?;
@@ -731,6 +748,10 @@ pub async fn call(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
                     "github" => {
                         c.integrations.github_connected = false;
                         c.integrations.github_user = None;
+                    }
+                    "azure" => {
+                        c.integrations.azure_connected = false;
+                        c.integrations.azure_user = None;
                     }
                     "jira" => c.integrations.jira = None,
                     "trello" => c.integrations.trello = None,
