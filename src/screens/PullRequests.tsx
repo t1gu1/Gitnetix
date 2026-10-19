@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { useAction, useOverview, usePr, usePrs } from "../api/hooks";
+import { useAction, useOverview, usePendingBranches, usePr, usePrs } from "../api/hooks";
 import { openExternal } from "../api/transport";
 import type { PrDetail, PrSummary, PrThread } from "../api/types";
 import { Icon } from "../components/Icon";
@@ -42,6 +42,8 @@ export function PullRequests({ initial }: { initial?: number }) {
   const current = sel ?? list[0]?.number;
   const create = useAction<PrSummary>("prs.create", { invalidate: [["prs", pid]], success: (r) => `Opened #${r.number}` });
   const branch = nav.selectedBranch ?? ov?.currentBranch;
+  // From the mutation cache, so it still shows after leaving the page and coming back.
+  const creating = usePendingBranches("prs.create", pid).includes(branch ?? "");
 
   return (
     <>
@@ -69,8 +71,8 @@ export function PullRequests({ initial }: { initial?: number }) {
                   label: <>{t === "open" ? "Open" : t === "review" ? "To review" : "Merged"} <span className="faint">{items.filter((p) => inTab(p, t)).length}</span></>,
                 }))}
               />
-              <button className="btn" disabled={!branch || create.isPending} onClick={() => branch && create.mutate({ projectId: pid, branch }, { onSuccess: (r) => { setSel(r.number); setPane("detail"); } })}>
-                <Busy on={create.isPending}><Icon name="sparkle" size={12} className="c-acc" /></Busy>
+              <button className="btn" disabled={!branch || creating} onClick={() => branch && create.mutate({ projectId: pid, branch }, { onSuccess: (r) => { setSel(r.number); setPane("detail"); } })}>
+                <Busy on={creating}><Icon name="sparkle" size={12} className="c-acc" /></Busy>
                 <span className="ellipsis">New PR from {branch ?? "current branch"}</span>
               </button>
             </div>
