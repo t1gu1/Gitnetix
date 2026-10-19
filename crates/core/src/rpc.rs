@@ -55,6 +55,11 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("items.attach", "Attach an existing branch to a release", "projectId, branch, release, kind"),
     ("items.remove", "Remove a branch from its release", "projectId, branch, deleteBranch?"),
     ("branches.stash", "Stash a checked-out branch's uncommitted changes, untracked files included", "projectId, branch"),
+    ("stashes.list", "Every stash of the project, newest first, with the branch it was made on", "projectId"),
+    ("stashes.files", "Files a stash holds, untracked ones included", "projectId, sha"),
+    ("stashes.diff", "Diff of one file of a stash", "projectId, sha, path"),
+    ("stashes.apply", "Apply a stash onto a checked-out branch; pop = drop it once applied cleanly (kept on conflicts, which are returned)", "projectId, branch, sha, pop?"),
+    ("stashes.drop", "Delete a stash for good", "projectId, sha"),
     ("branches.pull", "Fast-forward a branch to its upstream (checked out or not)", "projectId, branch"),
     ("branches.tag", "Tag a branch's tip (annotated, message defaults to the name) and push it to origin", "projectId, branch, name, message?"),
     ("tags.checkout", "Check out a tag's commit (detached HEAD; uncommitted work comes along)", "projectId, name"),
@@ -390,6 +395,14 @@ pub async fn call(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
         }
         "branches.stash" => {
             k.stash_branch(&s(&p, "projectId")?, &s(&p, "branch")?).await?;
+            ok()
+        }
+        "stashes.list" => to(k.stashes(&s(&p, "projectId")?).await?),
+        "stashes.files" => to(k.stash_files(&s(&p, "projectId")?, &s(&p, "sha")?).await?),
+        "stashes.diff" => to(k.stash_diff(&s(&p, "projectId")?, &s(&p, "sha")?, &s(&p, "path")?).await?),
+        "stashes.apply" => to(k.apply_stash(&s(&p, "projectId")?, &s(&p, "branch")?, &s(&p, "sha")?, b(&p, "pop")).await?),
+        "stashes.drop" => {
+            k.drop_stash(&s(&p, "projectId")?, &s(&p, "sha")?).await?;
             ok()
         }
         "branches.pull" => to(json!({ "output": k.pull_branch(&s(&p, "projectId")?, &s(&p, "branch")?).await? })),

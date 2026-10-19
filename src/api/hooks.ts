@@ -119,20 +119,26 @@ export const useSuggestedVersion = (projectId: string, kind: "next" | "hotfix", 
     gcTime: 0,
   });
 
-/** `commit` lists that commit's files instead of the branch's. */
-export const useFiles = (projectId?: string, branch?: string, mode = "branch", commit?: string) =>
+/** `commit` lists that commit's files instead of the branch's, `stash` that stash's. */
+export const useFiles = (projectId?: string, branch?: string, mode = "branch", commit?: string, stash?: string) =>
   useQuery({
-    queryKey: ["files", projectId, branch, mode, commit],
-    queryFn: () => rpc<FileChange[]>("workspace.files", { projectId, branch, mode, commit }),
-    enabled: !!projectId && !!branch,
-    refetchInterval: mode === "wip" && !commit ? 4_000 : false,
+    queryKey: ["files", projectId, branch, mode, commit, stash],
+    queryFn: () =>
+      stash
+        ? rpc<FileChange[]>("stashes.files", { projectId, sha: stash })
+        : rpc<FileChange[]>("workspace.files", { projectId, branch, mode, commit }),
+    enabled: !!projectId && (!!branch || !!stash),
+    refetchInterval: mode === "wip" && !commit && !stash ? 4_000 : false,
   });
 
-export const useDiff = (projectId?: string, branch?: string, mode = "branch", path?: string, staged?: boolean, commit?: string) =>
+export const useDiff = (projectId?: string, branch?: string, mode = "branch", path?: string, staged?: boolean, commit?: string, stash?: string) =>
   useQuery({
-    queryKey: ["diff", projectId, branch, mode, path, staged, commit],
-    queryFn: () => rpc<Hunk[]>("workspace.diff", { projectId, branch, mode, path, staged, commit }),
-    enabled: !!projectId && !!branch && !!path,
+    queryKey: ["diff", projectId, branch, mode, path, staged, commit, stash],
+    queryFn: () =>
+      stash
+        ? rpc<Hunk[]>("stashes.diff", { projectId, sha: stash, path })
+        : rpc<Hunk[]>("workspace.diff", { projectId, branch, mode, path, staged, commit }),
+    enabled: !!projectId && (!!branch || !!stash) && !!path,
   });
 
 export const useCommits = (projectId?: string, branch?: string) =>

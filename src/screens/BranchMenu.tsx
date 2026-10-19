@@ -1,7 +1,7 @@
 import { useState, type MouseEvent } from "react";
 
 import { useAction, usePendingBranches } from "../api/hooks";
-import type { BranchView, RebaseResult } from "../api/types";
+import type { BranchView, RebaseResult, Stash, StashApplied } from "../api/types";
 import { ContextMenu, type MenuItem } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
 import { plural } from "../lib/format";
@@ -26,6 +26,10 @@ export interface BranchTarget {
   moveTo?: { branch: string; label: string }[];
   /** Opens the branch's commit list. */
   showCommits?: () => void;
+  /** Opens the stashes made on the branch (none: it has none). */
+  showStashes?: () => void;
+  /** Newest stash made on the branch. */
+  latestStash?: Stash;
 }
 
 export type Action = Exclude<MenuItem, "sep"> & { short?: string; /** Plain-text tooltip for the split button. */ tip?: string };
@@ -60,11 +64,15 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
   const rebase = useAction<RebaseResult, { projectId: string; branch: string }>("workspace.rebase", { invalidate: inv, success: rebaseMessage });
   const sync = useAction<unknown, { projectId: string; branch: string }>("branches.sync", { invalidate: inv });
   const stash = useAction<unknown, { projectId: string; branch: string }>("branches.stash", { invalidate: inv });
+  const unstash = useAction<StashApplied, { projectId: string; branch: string; sha: string; pop: boolean }>("stashes.apply", {
+    invalidate: inv,
+    success: (r) => (r.conflicts.length ? undefined : "Popped the latest stash"),
+  });
   const pr = useAction<{ number: number }, { projectId: string; branch: string }>("prs.create", { invalidate: [["prs", pid]], success: (r) => `Opened PR #${r.number}` });
   const move = useAction("branches.setParent", { invalidate: inv });
   const [menu, setMenu] = useState<{ x: number; y: number; alignRight: boolean; t: BranchTarget } | null>(null);
 
-  const mutations = [sw, wt, pull, push, rebase, sync, stash, pr];
+  const mutations = [sw, wt, pull, push, rebase, sync, stash, unstash, pr];
   // Pushes started elsewhere count too: the commit box's auto push spins the branch's Push button.
   const pushing = usePendingBranches("workspace.push", pid);
   const busy = new Set([...mutations.flatMap((m) => (m.isPending && m.variables?.branch ? [m.variables.branch] : [])), ...pushing]);
@@ -131,6 +139,23 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
         hint: v.checkedOut ? (v.wip ? plural(v.wip, "file") : "nothing to stash") : "check out first",
         disabled: !v.checkedOut || !v.wip,
         run: () => run(stash, b, `Stashed changes on ${b}`),
+      },
+      unstash: {
+        id: "unstash",
+        label: "Pop latest stash",
+        tip: t.latestStash ? `Put back “${t.latestStash.message}” and drop the stash` : `No stash made on ${b}`,
+        icon: "unstash",
+        hint: t.latestStash?.message,
+        disabled: !t.latestStash,
+        run: () =>
+          t.latestStash &&
+          unstash.mutate(
+            { projectId: pid, branch: b, sha: t.latestStash.sha, pop: true },
+            {
+              onSuccess: (r) =>
+                r.conflicts.length > 0 && toast(`Popped with ${plural(r.conflicts.length, "conflict")}: resolve them in the WIP files. The stash is kept.`, "error"),
+            },
+          ),
       },
       rebase: {
         id: "rebase",
@@ -210,6 +235,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
       // Only work branches get rewritten; shared branches never take a force push.
       if (v.role === "branch" && !v.protected && v.upstream && v.upstreamAhead) list.push(a.forcePush);
       if (v.checkedOut) list.push(a.stash);
+      if (v.checkedOut && t.latestStash) list.push(a.unstash);
       if (t.base) {
         list.push("sep");
         // Shared branches (releases, dev) catch up by merging; work branches can also be rebased.
@@ -227,6 +253,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
     }
     list.push("sep");
     if (t.showCommits) list.push({ id: "commits", label: "Show commits", icon: "commit", run: t.showCommits });
+    if (t.showStashes) list.push({ id: "stashes", label: "Show stashes", icon: "stash", hint: v.stashes ? String(v.stashes) : undefined, run: t.showStashes });
     list.push(a.tag, a.copy);
     // Any branch but the default one, unless the git host protects it.
     if (!t.isDefault && !v.protected) list.push("sep", a.delete);

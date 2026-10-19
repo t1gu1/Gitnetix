@@ -5,7 +5,7 @@ import type { BranchView, Overview, ReleaseView } from "../api/types";
 import { ContextMenu, type MenuItem } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
 import { Empty, releaseTagLabel } from "../components/ui";
-import { plural } from "../lib/format";
+import { plural, stashCount } from "../lib/format";
 import { useStored } from "../lib/stored";
 import { BranchSplit, type BranchActions, type BranchTarget } from "./BranchMenu";
 
@@ -78,6 +78,7 @@ export function BranchTree({
   onCleanup,
   onCleanupBehind,
   tagItems,
+  onStashes,
 }: {
   active: boolean;
   o: Overview;
@@ -93,6 +94,8 @@ export function BranchTree({
   onCleanupBehind: (branches: BranchView[]) => void;
   /** Actions for a shipped release's tag; the first one (check out) also runs on double-click. */
   tagItems: (tag: string, checkedOut: boolean) => MenuItem[];
+  /** Opens every stash of the project. */
+  onStashes: () => void;
 }) {
   const pid = o.project.id;
   const { isOpen, toggle } = useToggles(pid);
@@ -234,6 +237,12 @@ export function BranchTree({
           <span className="label">Branches</span>
         </span>
         <span className="row" style={{ gap: 4 }}>
+          {o.stashes.length > 0 && (
+            <button className="btn btn-sm" aria-label={`Show ${stashCount(o.stashes.length)}`} data-tip={`${stashCount(o.stashes.length)} set aside`} onClick={onStashes}>
+              <Icon name="stash" size={12} stroke={1.6} />
+              <span>{o.stashes.length}</span>
+            </button>
+          )}
           <button className="btn btn-sm btn-icon" aria-label="Fetch origin" disabled={fetchOrigin.isPending || !o.remote} onClick={() => fetchOrigin.mutate({ projectId: pid })}>
             {fetchOrigin.isPending ? <span className="spinner" /> : <Icon name="refresh" size={12} />}
           </button>
@@ -337,7 +346,7 @@ export function BranchTree({
         )}
       </div>
       {tagMenu && <ContextMenu x={tagMenu.x} y={tagMenu.y} alignRight={tagMenu.alignRight} label={`Actions for ${tagMenu.tag}`} items={tagItems(tagMenu.tag, tagMenu.checkedOut)} onClose={() => setTagMenu(null)} />}
-      <div className="hint" style={{ padding: "10px 16px", borderTop: "1px solid var(--line)" }}>Double-click a branch to switch to it, right-click for every action, click its commit count (or "history" on main) to browse them. Your uncommitted work comes along.</div>
+      <div className="hint" style={{ padding: "10px 16px", borderTop: "1px solid var(--line)" }}>Double-click a branch to switch to it, right-click for every action, click its commit count (or "all commits" on main) to browse them. Your uncommitted work comes along.</div>
     </section>
   );
 }
@@ -391,7 +400,7 @@ function Row({
             <span className="mono ellipsis">{name}</span>
             {shipped ? <span className="tag released">{releaseTagLabel("released")}</span> : tag}
           </span>
-          <BranchMeta b={b} parent={t.baseLabel} current={current} showName={!!shipped} onCommits={t.showCommits} />
+          <BranchMeta b={b} parent={t.baseLabel} current={current} showName={!!shipped} onCommits={t.showCommits} onStashes={t.showStashes} />
         </span>
       </button>
       <span className="tree-acts">
@@ -402,7 +411,21 @@ function Row({
 }
 
 /** Status line under a branch, same order for every role. */
-function BranchMeta({ b, parent, current, showName, onCommits }: { b: BranchView; parent: string; current: boolean; showName?: boolean; onCommits?: () => void }) {
+function BranchMeta({
+  b,
+  parent,
+  current,
+  showName,
+  onCommits,
+  onStashes,
+}: {
+  b: BranchView;
+  parent: string;
+  current: boolean;
+  showName?: boolean;
+  onCommits?: () => void;
+  onStashes?: () => void;
+}) {
   const tracked = b.exists && !b.merged && !!parent;
   return (
     <span className="branch-meta">
@@ -440,7 +463,19 @@ function BranchMeta({ b, parent, current, showName, onCommits }: { b: BranchView
           onClick={(e) => { e.stopPropagation(); onCommits(); }}
           onDoubleClick={(e) => e.stopPropagation()}
         >
-          history
+          all commits
+        </span>
+      )}
+      {b.stashes > 0 && (
+        <span
+          className={`row${onStashes ? " meta-link meta-link-icon" : ""}`}
+          style={{ gap: 3 }}
+          data-tip={`${stashCount(b.stashes)} made on ${b.name}${onStashes ? ". Click to list them." : ""}`}
+          onClick={onStashes && ((e) => { e.stopPropagation(); onStashes(); })}
+          onDoubleClick={(e) => e.stopPropagation()}
+        >
+          <Icon name="stash" size={11} stroke={1.5} />
+          {b.stashes}
         </span>
       )}
       {tracked && b.behind > 0 && (

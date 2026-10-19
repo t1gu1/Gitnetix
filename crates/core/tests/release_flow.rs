@@ -869,3 +869,58 @@ async fn publish_sets_upstream_even_if_already_on_origin() {
     call(&k, "workspace.push", json!({ "projectId": pid, "branch": "feat/pub" })).await;
     assert_eq!(upstream(&call(&k, "workspace.overview", json!({ "projectId": pid })).await), "origin/feat/pub");
 }
+
+#[tokio::test]
+async fn stash_flow() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("atlas-api");
+    init_repo(&repo);
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let added = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await;
+    let pid = added[0]["id"].as_str().unwrap().to_string();
+
+    std::fs::write(repo.join("README.md"), "# atlas\nmore\n").unwrap();
+    std::fs::write(repo.join("new.ts"), "x\n").unwrap();
+    call(&k, "branches.stash", json!({ "projectId": pid, "branch": "main" })).await;
+
+    let ov = call(&k, "workspace.overview", json!({ "projectId": pid })).await;
+    let s = &ov["stashes"][0];
+    assert_eq!(s["branch"], "main");
+    assert_eq!(s["message"], "2 files: README.md, new.ts");
+    assert_eq!(s["untracked"], true);
+    assert_eq!(ov["defaultView"]["stashes"], 1);
+    assert_eq!(ov["defaultView"]["wip"], 0);
+    let sha = s["sha"].as_str().unwrap().to_string();
+
+    // Tracked changes and untracked files both show, each with its diff.
+    let files = call(&k, "stashes.files", json!({ "projectId": pid, "sha": sha })).await;
+    let st: Vec<(&str, &str)> = files.as_array().unwrap().iter().map(|f| (f["path"].as_str().unwrap(), f["status"].as_str().unwrap())).collect();
+    assert_eq!(st, vec![("README.md", "M"), ("new.ts", "A")]);
+    let diff = call(&k, "stashes.diff", json!({ "projectId": pid, "sha": sha, "path": "new.ts" })).await;
+    assert_eq!(diff[0]["lines"][0]["text"], "x");
+
+    // Apply keeps it; pop then drops it.
+    let r = call(&k, "stashes.apply", json!({ "projectId": pid, "branch": "main", "sha": sha })).await;
+    assert_eq!(r["dropped"], false);
+    assert_eq!(call(&k, "stashes.list", json!({ "projectId": pid })).await.as_array().unwrap().len(), 1);
+    sh(&repo, &["checkout", "--", "README.md"]);
+    std::fs::remove_file(repo.join("new.ts")).unwrap();
+    let r = call(&k, "stashes.apply", json!({ "projectId": pid, "branch": "main", "sha": sha, "pop": true })).await;
+    assert_eq!(r["dropped"], true);
+    assert_eq!(std::fs::read_to_string(repo.join("new.ts")).unwrap(), "x\n");
+    assert!(call(&k, "stashes.list", json!({ "projectId": pid })).await.as_array().unwrap().is_empty());
+
+    // A conflicting pop keeps the stash and reports the file.
+    call(&k, "branches.stash", json!({ "projectId": pid, "branch": "main" })).await;
+    commit_file(&repo, "README.md", "# other\n");
+    let sha = call(&k, "stashes.list", json!({ "projectId": pid })).await[0]["sha"].as_str().unwrap().to_string();
+    let r = call(&k, "stashes.apply", json!({ "projectId": pid, "branch": "main", "sha": sha, "pop": true })).await;
+    assert_eq!(r["conflicts"], json!(["README.md"]));
+    assert_eq!(r["dropped"], false);
+    sh(&repo, &["reset", "-q", "--hard"]);
+    sh(&repo, &["clean", "-qfd"]);
+
+    call(&k, "stashes.drop", json!({ "projectId": pid, "sha": sha })).await;
+    assert!(call(&k, "stashes.list", json!({ "projectId": pid })).await.as_array().unwrap().is_empty());
+    assert!(rpc::call(&k, "stashes.drop", json!({ "projectId": pid, "sha": sha })).await.is_err());
+}

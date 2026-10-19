@@ -102,6 +102,8 @@ export interface BranchView {
   conflict: boolean;
   /** Files with uncommitted changes in its checkout (0 when not checked out). */
   wip: number;
+  /** Stashes made on it. */
+  stashes: number;
   ahead: number;
   behind: number;
   upstream?: string | null;
@@ -209,6 +211,27 @@ export interface Overview {
   rebasing: boolean;
   conflicts: string[];
   remote?: string | null;
+  /** Every stash, newest first (shared by all worktrees). */
+  stashes: Stash[];
+}
+
+export interface Stash {
+  /** Its identity: the stash@{n} position shifts as stashes come and go. */
+  sha: string;
+  /** Branch it was made on; null from a detached HEAD. */
+  branch?: string | null;
+  message: string;
+  /** When it was made (ISO 8601). */
+  date: string;
+  /** Holds untracked files too. */
+  untracked: boolean;
+}
+
+export interface StashApplied {
+  /** Files left conflicted; the stash is kept then. */
+  conflicts: string[];
+  /** The stash was dropped (popped cleanly). */
+  dropped: boolean;
 }
 
 export interface GitProfile {

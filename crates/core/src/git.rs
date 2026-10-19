@@ -11,6 +11,9 @@ use tokio::process::Command;
 
 use crate::error::{Error, Result};
 
+/// Git's empty tree: the base to diff a root commit (or a stash's untracked files) against.
+const EMPTY_TREE: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+
 #[derive(Debug, Clone)]
 pub struct Git {
     cwd: PathBuf,
@@ -81,6 +84,19 @@ pub struct Commit {
     /// On origin but not pulled into the local branch yet.
     #[serde(default)]
     pub unpulled: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StashInfo {
+    /// Identity of the stash: its `stash@{n}` position shifts as others come and go.
+    pub sha: String,
+    /// Branch it was made on; None from a detached HEAD.
+    pub branch: Option<String>,
+    pub message: String,
+    /// When it was made (ISO 8601).
+    pub date: String,
+    /// Holds untracked files too.
+    pub untracked: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -524,6 +540,59 @@ impl Git {
         Ok(())
     }
 
+    /// Every stash of the repository (shared by all its worktrees), newest first.
+    pub async fn stashes(&self) -> Result<Vec<StashInfo>> {
+        let out = self.run(&["stash", "list", "--format=%H%x1f%cI%x1f%P%x1f%gs%x1e"]).await?;
+        Ok(out
+            .split('\x1e')
+            .filter_map(|rec| {
+                let f: Vec<&str> = rec.trim_start_matches('\n').splitn(4, '\x1f').collect();
+                (f.len() == 4).then(|| {
+                    let (branch, message) = parse_stash_subject(f[3]);
+                    StashInfo { sha: f[0].into(), date: f[1].into(), untracked: f[2].split(' ').count() == 3, branch, message }
+                })
+            })
+            .collect())
+    }
+
+    /// `stash@{n}` of the stash `sha`, as of now.
+    async fn stash_ref(&self, sha: &str) -> Result<String> {
+        let i = self
+            .stashes()
+            .await?
+            .iter()
+            .position(|s| s.sha == sha)
+            .ok_or_else(|| Error::Invalid("That stash no longer exists.".into()))?;
+        Ok(format!("stash@{{{i}}}"))
+    }
+
+    /// Diff ranges of a stash: its tracked changes, and its untracked files when it has some.
+    pub async fn stash_ranges(&self, sha: &str) -> Result<(String, Option<String>)> {
+        let untracked = format!("{sha}^3");
+        let has = self.try_run(&["rev-parse", "--verify", "-q", &untracked]).await?.0;
+        Ok((format!("{sha}^1..{sha}"), has.then(|| format!("{EMPTY_TREE}..{untracked}"))))
+    }
+
+    /// Put a stash's changes back into this checkout; the stash stays.
+    /// Returns the files left conflicted (empty: applied cleanly).
+    pub async fn stash_apply(&self, sha: &str) -> Result<Vec<String>> {
+        let r = self.stash_ref(sha).await?;
+        let (ok, _, err) = self.try_run(&["stash", "apply", &r]).await?;
+        if ok {
+            return Ok(Vec::new());
+        }
+        let conflicts = self.conflicted_files().await?;
+        if conflicts.is_empty() {
+            return Err(Error::Git { cmd: "stash".into(), stderr: err.trim().into() });
+        }
+        Ok(conflicts)
+    }
+
+    pub async fn stash_drop(&self, sha: &str) -> Result<()> {
+        let r = self.stash_ref(sha).await?;
+        self.run(&["stash", "drop", &r]).await.map(|_| ())
+    }
+
     /// Uncommitted changes split by side: staged (index vs HEAD) and
     /// unstaged (working tree vs index, plus untracked). A partially staged
     /// file appears once on each side.
@@ -567,7 +636,6 @@ impl Git {
 
     /// Diff range of one commit against its first parent (the empty tree for a root commit).
     pub async fn commit_range(&self, sha: &str) -> Result<String> {
-        const EMPTY_TREE: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
         let parent = format!("{sha}^");
         let base = if self.try_run(&["rev-parse", "--verify", "-q", &parent]).await?.0 { parent } else { EMPTY_TREE.into() };
         Ok(format!("{base}..{sha}"))
@@ -957,6 +1025,21 @@ impl Git {
 
 // ---------- parsers (pure, unit-tested) ----------
 
+/// Branch and message of a stash subject: "On <branch>: <message>" when given a message,
+/// "WIP on <branch>: <sha> <subject>" otherwise; the branch reads "(no branch)" when detached.
+pub fn parse_stash_subject(s: &str) -> (Option<String>, String) {
+    let (wip, rest) = match s.strip_prefix("WIP on ") {
+        Some(r) => (true, r),
+        None => (false, s.strip_prefix("On ").unwrap_or(s)),
+    };
+    let Some((branch, msg)) = rest.split_once(": ") else {
+        return (None, s.to_string());
+    };
+    // Without a message git describes HEAD: drop its abbreviated SHA.
+    let msg = if wip { msg.split_once(' ').map_or(msg, |(_, subject)| subject) } else { msg };
+    ((branch != "(no branch)").then(|| branch.to_string()), msg.to_string())
+}
+
 pub fn parse_status_z(s: &str) -> Vec<FileChange> {
     let mut out = Vec::new();
     let mut parts = s.split('\0').filter(|p| !p.is_empty());
@@ -1128,6 +1211,14 @@ pub fn truncate_utf8(s: &mut String, max: usize) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stash_subjects() {
+        assert_eq!(parse_stash_subject("On feat/x: 2 files: a.rs, b.rs"), (Some("feat/x".into()), "2 files: a.rs, b.rs".into()));
+        assert_eq!(parse_stash_subject("WIP on main: 1a2b3c4 fix: the thing"), (Some("main".into()), "fix: the thing".into()));
+        assert_eq!(parse_stash_subject("On (no branch): saved"), (None, "saved".into()));
+        assert_eq!(parse_stash_subject("odd"), (None, "odd".into()));
+    }
 
     #[test]
     fn status_parsing() {

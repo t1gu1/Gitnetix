@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 
 import { useAction, useAgents, useAiOn, useDiff, useFiles, useOverview, useProjectPrefs } from "../api/hooks";
-import type { BranchView, CleanupResult, Commit, FileChange, MergeResult, ReleaseView } from "../api/types";
+import type { BranchView, CleanupResult, Commit, FileChange, MergeResult, ReleaseView, Stash } from "../api/types";
 import { AgentLog } from "../components/AgentLog";
 import { DiffView } from "../components/DiffView";
 import { ContextMenu, type MenuItem } from "../components/ContextMenu";
@@ -16,6 +16,7 @@ import { useBranchActions, type BranchDialog, type BranchTarget } from "./Branch
 import { BranchTree } from "./BranchTree";
 import { CommitList } from "./CommitList";
 import { ConflictModal } from "./ConflictModal";
+import { StashList } from "./StashList";
 
 type Mode = "branch" | "wip" | "project";
 type Pane = "releases" | "files" | "diff";
@@ -38,6 +39,9 @@ export function Workspace() {
   // Branch whose commits replace the tree, and the commit picked there (none = all changes).
   const [history, setHistory] = useState<string | null>(null);
   const [commit, setCommit] = useState<Commit | undefined>();
+  // Stash list in place of the tree: one branch's ("" = every stash), and the stash picked there.
+  const [stashesOf, setStashesOf] = useState<string | null>(null);
+  const [stash, setStash] = useState<Stash | undefined>();
   const branchesW = usePaneWidth("gnx.pane.branches", 300, 220, 560);
   const filesW = usePaneWidth("gnx.pane.files", 320, 220, 640);
   const [branchesHidden, setBranchesHidden] = useStoredFlag("gnx.pane.branchesHidden");
@@ -70,6 +74,8 @@ export function Workspace() {
           ? tagItems(shippedRel.tagName, shippedRel.checkedOut)
           : undefined,
       showCommits: v.exists ? () => openHistory(b) : undefined,
+      showStashes: v.stashes ? () => openStashes(b) : undefined,
+      latestStash: o?.stashes.find((s) => s.branch === b),
       next: rel
         ? { id: "ship", label: `Ship v${rel.version}…`, short: "Ship", tip: `Fast-forward ${o?.defaultBranch} to ${b} and tag v${rel.version}`, icon: "ship", disabled: !v.ahead, run: () => setShipping(rel) }
         : undefined,
@@ -95,10 +101,22 @@ export function Workspace() {
     { id: "deleteTag", label: <>Delete tag <span className="mono">{tag}</span>…</>, icon: "trash", danger: true, run: () => setDeletingTag(tag) },
   ];
   const openHistory = (b: string) => {
+    closeStashes();
     nav.selectBranch(b);
     setHistory(b);
     setCommit(undefined);
     setMode("branch");
+  };
+  /** `b` = the stashes made on that branch, none = every stash. */
+  const openStashes = (b?: string) => {
+    closeHistory();
+    if (b) nav.selectBranch(b);
+    setStashesOf(b ?? "");
+    setStash(undefined);
+  };
+  const closeStashes = () => {
+    setStashesOf(null);
+    setStash(undefined);
   };
   const closeHistory = () => {
     setHistory(null);
@@ -109,7 +127,7 @@ export function Workspace() {
   const base = branch ? baseFor(branch) : "";
   const checkedOut = view?.checkedOut ?? branch === o?.currentBranch;
 
-  const files = useFiles(pid, branch, mode, commit?.sha);
+  const files = useFiles(pid, branch, mode, commit?.sha, stash?.sha);
   const wipList = useFiles(pid, branch, "wip").data ?? [];
   const wipCount = new Set(wipList.map((f) => f.path)).size;
   const stagedCount = wipList.filter((f) => f.staged).length;
@@ -117,14 +135,19 @@ export function Workspace() {
   const list = files.data ?? [];
   const fileCount = new Set(list.map((f) => f.path)).size;
   const current = list.find((f) => fileKey(f) === file) ?? list[0];
-  const diff = useDiff(pid, branch, mode, current?.path, current?.staged, commit?.sha);
+  const diff = useDiff(pid, branch, mode, current?.path, current?.staged, commit?.sha, stash?.sha);
   const [discarding, setDiscarding] = useState<{ staged: boolean; paths: string[] } | null>(null);
 
-  useEffect(() => setFile(undefined), [branch, mode, commit]);
-  // Picking another branch (e.g. from a ticket) leaves its commit list.
+  useEffect(() => setFile(undefined), [branch, mode, commit, stash]);
+  // Picking another branch (e.g. from a ticket) leaves its commit or stash list.
   useEffect(() => {
     if (history && branch !== history) closeHistory();
-  }, [branch, history]);
+    if (stashesOf && branch !== stashesOf) closeStashes();
+  }, [branch, history, stashesOf]);
+  // A stash popped or dropped elsewhere is gone: stop showing it.
+  useEffect(() => {
+    if (stash && o && !o.stashes.some((s) => s.sha === stash.sha)) setStash(undefined);
+  }, [o, stash]);
 
   const inRebase = (branch === o?.currentBranch && o?.rebasing) || !!view?.conflict;
 
@@ -164,7 +187,24 @@ export function Workspace() {
               </button>
             </div>
           )}
-          {history ? (
+          {stashesOf !== null ? (
+            <StashList
+              active={pane === "releases"}
+              pid={pid}
+              stashes={stashesOf ? o.stashes.filter((s) => s.branch === stashesOf) : o.stashes}
+              branch={stashesOf || undefined}
+              total={o.stashes.length}
+              selected={stash?.sha}
+              // Back onto its own branch when that is checked out, else onto the main checkout's.
+              targetOf={(s) => (s.branch && byName.get(s.branch)?.checkedOut ? s.branch : o.currentBranch ?? undefined)}
+              onPick={(s) => {
+                setStash(s);
+                if (s) setPane("files");
+              }}
+              onShowAll={() => openStashes()}
+              onBack={closeStashes}
+            />
+          ) : history ? (
             <CommitList
               active={pane === "releases"}
               pid={pid}
@@ -196,6 +236,7 @@ export function Workspace() {
               onCleanup={(parent, label, branches) => setCleanup({ parent, label, branches })}
               onCleanupBehind={setCleanupBehind}
               tagItems={tagItems}
+              onStashes={() => openStashes()}
             />
           )}
 
@@ -207,7 +248,21 @@ export function Workspace() {
                 {base && branch !== base && <span className="faint" style={{ fontSize: 11.5, whiteSpace: "nowrap" }}>{view?.merged ? "merged into" : "from"} {base}</span>}
                 {view?.merged && <span className="c-add row" style={{ marginLeft: 6, flex: "0 0 auto" }} title={`All commits are in ${base}`}><Icon name="merged" size={12} stroke={1.6} label="merged" /></span>}
               </div>
-              {commit ? (
+              {stash ? (
+                <div className="commit-head">
+                  <div className="col" style={{ gap: 3, minWidth: 0, flex: "1 1 auto" }}>
+                    <span className="commit-subject row" style={{ gap: 6 }}><Icon name="stash" size={12} stroke={1.6} />{stash.message}</span>
+                    <span className="commit-meta">
+                      <span className="mono">{stash.sha.slice(0, 7)}</span>
+                      {stash.branch && <span className="mono ellipsis">on {stash.branch}</span>}
+                      <span style={{ whiteSpace: "nowrap" }}>{ago(stash.date)}</span>
+                    </span>
+                  </div>
+                  <button className="btn btn-sm btn-icon" aria-label="Close stash" data-tip="Back to the branch's files" onClick={() => setStash(undefined)}>
+                    <Icon name="close" size={12} />
+                  </button>
+                </div>
+              ) : commit ? (
                 <div className="commit-head">
                   <div className="col" style={{ gap: 3, minWidth: 0, flex: "1 1 auto" }}>
                     <span className="commit-subject">{commit.subject}</span>
@@ -250,7 +305,7 @@ export function Workspace() {
             <ul className="scroll" style={{ flex: "1 1 auto", listStyle: "none", margin: 0, padding: mode === "wip" && list.length > 0 ? "0 0 6px" : "6px 0" }}>
               {files.isLoading && <li className="empty"><span className="spinner" /></li>}
               {files.error && <li style={{ padding: 12 }}><ErrorBox error={files.error} /></li>}
-              {mode === "wip" && !commit && branch && list.length > 0 ? (
+              {mode === "wip" && !commit && !stash && branch && list.length > 0 ? (
                 <WipList
                   pid={pid}
                   branch={branch}
@@ -268,7 +323,7 @@ export function Workspace() {
                 ))
               )}
               {!files.isLoading && list.length === 0 && (
-                <li className="empty">{commit ? "This commit changes no files." : mode === "wip" ? (checkedOut ? "No uncommitted changes." : "This branch is not checked out.") : "No changes on this branch yet."}</li>
+                <li className="empty">{stash ? "This stash holds no files." : commit ? "This commit changes no files." : mode === "wip" ? (checkedOut ? "No uncommitted changes." : "This branch is not checked out.") : "No changes on this branch yet."}</li>
               )}
             </ul>
             {branch && <CommitBox pid={pid} branch={branch} enabled={checkedOut} staged={stagedCount} changed={wipCount} />}
@@ -368,6 +423,7 @@ function synthetic(name: string, checkedOut: boolean): BranchView {
     running: false,
     conflict: false,
     wip: 0,
+    stashes: 0,
     ahead: 0,
     behind: 0,
     upstreamAhead: 0,

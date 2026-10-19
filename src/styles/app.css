@@ -514,3 +514,6 @@ button.app-row:hover { background: var(--raised); }
 .commit-head { display: flex; align-items: flex-start; gap: 8px; min-width: 0; }
 .meta-link { cursor: pointer; text-decoration: underline dotted; text-underline-offset: 2px; }
 .meta-link:hover { color: var(--fg); text-decoration-style: solid; }
+/* Text underlines skip icons: a border runs under both. */
+.meta-link-icon { text-decoration: none; border-bottom: 1px dotted; line-height: 1.2; }
+.meta-link-icon:hover { text-decoration: none; border-bottom-style: solid; }

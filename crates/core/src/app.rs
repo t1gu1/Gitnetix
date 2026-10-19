@@ -15,7 +15,7 @@ use crate::agents::{AgentManager, AgentSession, AgentStatus, StartArgs};
 use crate::ai::{self, Resolved};
 use crate::error::{Error, Result};
 use crate::events::Event;
-use crate::git::{BranchInfo, Commit, FileChange, Git, Hunk, Identity, TagInfo, WorktreeInfo};
+use crate::git::{BranchInfo, Commit, FileChange, Git, Hunk, Identity, StashInfo, TagInfo, WorktreeInfo};
 use crate::providers::{github::GitHub, parse_remote};
 use crate::secrets;
 use crate::store::{new_id, now, BranchMeta, GitProfile, Project, Release, ReleaseKind, Store};
@@ -85,6 +85,8 @@ pub struct BranchView {
     pub conflict: bool,
     /// Files with uncommitted changes in its checkout (0 when not checked out).
     pub wip: u32,
+    /// Stashes made on it.
+    pub stashes: u32,
     /// Commits not yet in the base (release, or default branch).
     pub ahead: u32,
     /// Commits in the base the branch does not have.
@@ -152,6 +154,17 @@ pub struct Overview {
     pub rebasing: bool,
     pub conflicts: Vec<String>,
     pub remote: Option<String>,
+    /// Every stash, newest first (shared by all worktrees).
+    pub stashes: Vec<StashInfo>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StashApplied {
+    /// Files left conflicted; the stash is kept then.
+    pub conflicts: Vec<String>,
+    /// The stash was dropped (popped cleanly).
+    pub dropped: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -747,9 +760,11 @@ impl Gitnetix {
             })
             .buffered(8)
             .collect::<Vec<BranchView>>();
-        let (mut all, protected) = tokio::join!(views, self.protected_branches(project_id, false));
+        let (mut all, protected, stashes) = tokio::join!(views, self.protected_branches(project_id, false), git.stashes());
+        let stashes = stashes.unwrap_or_default();
         for b in &mut all {
             b.protected = protected.contains(&b.name);
+            b.stashes = stashes.iter().filter(|s| s.branch.as_deref() == Some(b.name.as_str())).count() as u32;
         }
         let find = |n: &str| all.iter().find(|b| b.name == n).cloned();
 
@@ -798,7 +813,7 @@ impl Gitnetix {
             .collect();
         let default_view = find(&default);
         let remote = git.remote_url("origin").await.ok().flatten();
-        Ok(Overview { project: p, current_branch: current, default_branch: default, releases, other_branches, default_view, branches: all, rebasing, conflicts, remote })
+        Ok(Overview { project: p, current_branch: current, default_branch: default, releases, other_branches, default_view, branches: all, rebasing, conflicts, remote, stashes })
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -865,6 +880,7 @@ impl Gitnetix {
             running: agents.iter().any(|a| a.branch == name && a.project_id == p.id && a.status == AgentStatus::Running),
             conflict,
             wip,
+            stashes: 0,
             ahead,
             behind,
             upstream,
@@ -1595,15 +1611,66 @@ impl Gitnetix {
         list
     }
 
-    /// Fast-forward a branch to its upstream, checked out or not.
     /// Stash a checked-out branch's uncommitted changes (untracked files included).
     pub async fn stash_branch(&self, project_id: &str, branch: &str) -> Result<()> {
         let p = self.store.project(project_id)?;
         let git = self.require_checkout(&p, branch).await?;
-        if git.wip_count().await? == 0 {
+        let files = git.wip_changes().await?;
+        if files.is_empty() {
             return Err(Error::Invalid(format!("{branch} has no uncommitted changes to stash.")));
         }
-        git.stash(&format!("Gitnetix: {branch}")).await?;
+        git.stash(&stash_message(&files)).await?;
+        self.changed(project_id);
+        Ok(())
+    }
+
+    /// Every stash of the project, newest first.
+    pub async fn stashes(&self, project_id: &str) -> Result<Vec<StashInfo>> {
+        self.git(&self.store.project(project_id)?).stashes().await
+    }
+
+    /// Files a stash holds: its tracked changes, and its untracked files.
+    pub async fn stash_files(&self, project_id: &str, sha: &str) -> Result<Vec<FileChange>> {
+        let git = self.git(&self.store.project(project_id)?);
+        let (tracked, untracked) = git.stash_ranges(check_sha(sha)?).await?;
+        let mut files = git.range_changes(&tracked).await?;
+        if let Some(r) = untracked {
+            files.extend(git.range_changes(&r).await?);
+            files.sort_by(|a, b| a.path.cmp(&b.path));
+        }
+        Ok(files)
+    }
+
+    pub async fn stash_diff(&self, project_id: &str, sha: &str, path: &str) -> Result<Vec<Hunk>> {
+        let git = self.git(&self.store.project(project_id)?);
+        let (tracked, untracked) = git.stash_ranges(check_sha(sha)?).await?;
+        let hunks = git.file_diff(path, Some(&tracked)).await?;
+        match untracked {
+            Some(r) if hunks.is_empty() => git.file_diff(path, Some(&r)).await,
+            _ => Ok(hunks),
+        }
+    }
+
+    /// Put a stash's changes back on a checked-out branch. `pop` drops the stash once it
+    /// applied cleanly; on conflicts it stays, and the conflicted files are returned.
+    pub async fn apply_stash(&self, project_id: &str, branch: &str, sha: &str, pop: bool) -> Result<StashApplied> {
+        let p = self.store.project(project_id)?;
+        let git = self.require_checkout(&p, branch).await?;
+        let sha = check_sha(sha)?;
+        let out = git.stash_apply(sha).await;
+        // Even a refused apply may have touched files.
+        self.changed(project_id);
+        let conflicts = out?;
+        let dropped = pop && conflicts.is_empty();
+        if dropped {
+            git.stash_drop(sha).await?;
+            self.changed(project_id);
+        }
+        Ok(StashApplied { conflicts, dropped })
+    }
+
+    pub async fn drop_stash(&self, project_id: &str, sha: &str) -> Result<()> {
+        self.git(&self.store.project(project_id)?).stash_drop(check_sha(sha)?).await?;
         self.changed(project_id);
         Ok(())
     }
@@ -1660,6 +1727,7 @@ impl Gitnetix {
         Ok(())
     }
 
+    /// Fast-forward a branch to its upstream, checked out or not.
     pub async fn pull_branch(&self, project_id: &str, branch: &str) -> Result<String> {
         let p = self.store.project(project_id)?;
         let git = self.git(&p);
@@ -2533,6 +2601,15 @@ fn worktree_path(p: &Project, branch: &str) -> PathBuf {
 }
 
 /// A commit id from the UI goes straight to `git diff`, so it must not read as an option.
+/// Stash message naming what it holds: "3 files: a.rs, b.rs, c.rs" (a few names, then "+N more").
+fn stash_message(files: &[FileChange]) -> String {
+    const SHOWN: usize = 3;
+    let names: Vec<&str> = files.iter().take(SHOWN).map(|f| f.path.rsplit('/').next().unwrap_or(&f.path)).collect();
+    let more = files.len().saturating_sub(SHOWN);
+    let count = if files.len() == 1 { "1 file".to_string() } else { format!("{} files", files.len()) };
+    format!("{count}: {}{}", names.join(", "), if more > 0 { format!(" +{more} more") } else { String::new() })
+}
+
 fn check_sha(sha: &str) -> Result<&str> {
     if (4..=64).contains(&sha.len()) && sha.chars().all(|c| c.is_ascii_hexdigit()) {
         Ok(sha)
