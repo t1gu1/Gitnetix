@@ -50,6 +50,8 @@ interface Nav {
   closeNewItem: () => void;
   selectedBranch?: string;
   selectBranch: (b: string | undefined) => void;
+  /** Drop the selection if it is one of these deleted branches and `projectId` is still open. */
+  forgetBranches: (projectId: string, branches: string[]) => void;
 }
 
 const Ctx = createContext<Nav | null>(null);
@@ -81,7 +83,10 @@ export function NavProvider({ children, initialProject, initialTheme }: { childr
     document.documentElement.dataset.theme = theme;
   }, [theme]);
 
+  // Read by work that finishes after the user moved on (e.g. a background cleanup).
+  const projectRef = useRef(projectId);
   const setProject = useCallback((id: string | undefined) => {
+    projectRef.current = id;
     setProjectId(id);
     selectBranch(undefined);
     if (id) rpc("ui.set", { lastProject: id }).catch(() => {});
@@ -98,6 +103,9 @@ export function NavProvider({ children, initialProject, initialTheme }: { childr
     go(returnTo.current ?? (projectId ? { name: "workspace" } : { name: "home" }));
   }, [go, projectId]);
   const closeMenu = useCallback(() => setMenuOpen(false), []);
+  const forgetBranches = useCallback((id: string, branches: string[]) => {
+    if (projectRef.current === id) selectBranch((b) => (b && branches.includes(b) ? undefined : b));
+  }, []);
 
   const setThemePref = useCallback((t: string) => {
     setThemePrefState(t);
@@ -121,6 +129,7 @@ export function NavProvider({ children, initialProject, initialTheme }: { childr
       closeNewItem: () => setNewItem(null),
       selectedBranch,
       selectBranch,
+      forgetBranches,
     }),
     [route, go, back, menuOpen, closeMenu, projectId, setProject, theme, themePref, setThemePref, newItem, selectedBranch],
   );

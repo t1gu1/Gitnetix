@@ -6,6 +6,7 @@ import { Icon } from "../components/Icon";
 import { Modal, releaseTagLabel, Seg } from "../components/ui";
 import { KINDS, kindNoun, kindOfBranch, withPrefix, withTicket, type Kind } from "../lib/kinds";
 import { useNav, type NewItemDraft } from "../lib/nav";
+import { revealBranch } from "./BranchTree";
 
 export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () => void }) {
   const nav = useNav();
@@ -94,6 +95,7 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
                   { projectId: pid, version: v, kind: relKind },
                   {
                     onSuccess: () => {
+                      revealBranch(pid, `release/${v}`);
                       nav.selectBranch(`release/${v}`);
                       nav.go({ name: "workspace" });
                       onClose();
@@ -144,6 +146,7 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
                 { projectId: pid, release: rel?.version ?? "", from: rel ? undefined : from, kind, description: agent ? desc : "", branchName: branch || undefined, ticket: ticket || undefined, where, startAgent: agent },
                 {
                   onSuccess: (r) => {
+                    revealBranch(pid, r.branch);
                     nav.selectBranch(r.branch);
                     nav.go({ name: "workspace" });
                     onClose();

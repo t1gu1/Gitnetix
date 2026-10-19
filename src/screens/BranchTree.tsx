@@ -1,4 +1,4 @@
-import { useMemo, useReducer, useState, type CSSProperties, type MouseEvent, type ReactNode } from "react";
+import { useLayoutEffect, useMemo, useReducer, useRef, useState, type MouseEvent, type ReactNode } from "react";
 
 import { useAction } from "../api/hooks";
 import type { BranchView, Overview, ReleaseView } from "../api/types";
@@ -10,11 +10,28 @@ import { BranchSplit, type BranchActions, type BranchTarget } from "./BranchMenu
 
 /** Branches this many commits behind the default branch count as falling behind. */
 const BEHIND_LIMIT = 25;
+/** The tree's looping animations: the pulse down the orange path, the glow fading on the checked-out row, and the shines. */
+const SYNCED_ANIMATIONS = new Set(["path-pulse", "path-glow-fade", "shine"]);
+/** The pieces of the orange path, in document order (top to bottom), and which of them are its 7px elbows. */
+const PATH_PIECES = ".tree-row[data-path], .tree-merged + .tree-kids[data-path], .tree-toggle[data-path] + .tree-open";
+const PATH_ELBOW = '.tree-open, .tree-kids[data-path="in"]';
+const ELBOW_LENGTH = 7;
+/** Length of one pulse loop, in seconds: the path-pulse animations in app.css run this long. */
+const PULSE_LOOP = 4;
+/** The pulse covers at least this many pixels of path per loop, so it keeps its pace (90px/s) on short paths. */
+const PULSE_MIN_RUN = 360;
 /** The Falling behind section shows once more than this many branches fall behind. */
 const BEHIND_MIN_BRANCHES = 2;
 
 /** Open sections per project, for this run of the app. */
 const openSections = new Map<string, Set<string>>();
+/** Per project, a branch whose sections open once it shows in the tree (one just created). */
+const toReveal = new Map<string, string>();
+
+/** Open the sections down to `branch` the next time the tree shows it, e.g. right after creating it. */
+export function revealBranch(pid: string, branch: string) {
+  toReveal.set(pid, branch);
+}
 
 /**
  * Open sections of a project. The first time it shows in a run of the app, everything starts
@@ -31,7 +48,9 @@ function useToggles(pid: string, initial: () => Set<string>) {
     openSections.set(pid, next);
     rerender();
   };
-  return { isOpen, toggle };
+  // Called while rendering: the sections are open in this same render, no rerender needed.
+  const openAll = (ids: string[]) => openSections.set(pid, new Set([...openSections.get(pid)!, ...ids]));
+  return { isOpen, toggle, openAll };
 }
 
 /**
@@ -86,6 +105,7 @@ export function BranchTree({
   onHide,
   onCleanup,
   onCleanupBehind,
+  isCleaning,
   tagItems,
   onStashes,
 }: {
@@ -101,6 +121,8 @@ export function BranchTree({
   onCleanup: (parent: string, label: string, branches: BranchView[]) => void;
   /** Clean up (delete) the branches falling behind the default branch. */
   onCleanupBehind: (branches: BranchView[]) => void;
+  /** Whether a cleanup is running on a section ("merged:<parent>" or "behind"); it stays locked until done. */
+  isCleaning: (section: string) => boolean;
   /** Actions for a shipped release's tag; the first one (check out) also runs on double-click. */
   tagItems: (tag: string, checkedOut: boolean) => MenuItem[];
   /** Opens every stash of the project. */
@@ -161,23 +183,35 @@ export function BranchTree({
     tops.forEach(walk);
     return on;
   }, [tops, kids, o.currentBranch]);
+  // Shipped holds the checked-out release tag, or a shipped branch the path runs through.
+  const shippedActive = shipped.some((r) => r.checkedOut || path.has(shippedBranches.get(r.version)?.name ?? ""));
   // Only the groups the path runs through start open: live children or the merged ones.
-  const { isOpen, toggle } = useToggles(pid, () => {
+  const { isOpen, toggle, openAll } = useToggles(pid, () => {
     const open = new Set<string>();
     for (const name of path) {
       for (const c of kids(name)) if (path.has(c.name)) open.add(c.merged ? `merged:${name}` : name);
     }
     return open;
   });
+  // A branch just created: open every section above it once the overview lists it.
+  const reveal = toReveal.get(pid);
+  if (reveal && o.branches.some((b) => b.name === reveal)) {
+    toReveal.delete(pid);
+    const sections: string[] = [];
+    const walk = (b: BranchView): boolean =>
+      kids(b.name).some((c) => {
+        const hit = c.name === reveal || walk(c);
+        if (hit) sections.push(c.merged ? `merged:${b.name}` : b.name);
+        return hit;
+      });
+    tops.some(walk);
+    openAll(sections);
+  }
 
   // Uncommitted files anywhere below a branch, surfaced on its toggle while its children are hidden.
   const hiddenWip = (b: BranchView): number => kids(b.name).reduce((n, c) => n + c.wip + hiddenWip(c), 0);
 
-  /** Order of a piece of the orange path, top to bottom: its pulse runs after the pieces above it. */
-  const stepStyle = (on: boolean, step: number): CSSProperties | undefined => (on ? ({ "--step": step } as CSSProperties) : undefined);
-
-  // `step` numbers this branch's row along the orange path; the pieces below it count on from there.
-  const node = (b: BranchView, step = 0): ReactNode => {
+  const node = (b: BranchView): ReactNode => {
     if (!shown(b)) return null;
     const children = kids(b.name).filter(shown);
     const live = children.filter((c) => !c.merged);
@@ -187,6 +221,7 @@ export function BranchTree({
     const wipBelow = open ? 0 : live.reduce((n, c) => n + c.wip + hiddenWip(c), 0);
     const mergedKey = `merged:${b.name}`;
     const mergedOpen = !!q || isOpen(mergedKey);
+    const cleaning = isCleaning(mergedKey);
     const version = b.role === "release" ? b.release : b.shipped;
     const mergedLabel = version ? `v${version}` : b.name;
     // Protected and checked-out branches stay put.
@@ -194,7 +229,6 @@ export function BranchTree({
     // Where the orange path leaves this branch: into a merged child, or past the merged group to a live one.
     const pathLive = live.some((c) => path.has(c.name));
     const pathMerged = merged.some((c) => path.has(c.name));
-    const toggleStep = step + (merged.length > 0 ? (mergedOpen ? 3 : 2) : 1);
     return (
       <div key={b.name} role="group" className="tree-node">
         <Row
@@ -206,7 +240,6 @@ export function BranchTree({
           selected={b.name === selected}
           current={b.name === o.currentBranch}
           onPath={path.has(b.name)}
-          step={step}
           actions={actions}
           onSelect={() => onSelect(b.name)}
         />
@@ -215,32 +248,32 @@ export function BranchTree({
           <div className="tree-sub">
             {merged.length > 0 && (
               <>
-                <div className="tree-row tree-group tree-merged" data-path={pathLive || pathMerged || undefined} style={stepStyle(pathLive || pathMerged, step + 1)}>
+                <div className="tree-row tree-group tree-merged" data-path={pathLive || pathMerged || undefined}>
                   <button className="tree-merged-toggle" aria-expanded={mergedOpen} onClick={() => toggle(mergedKey)}>
                     <span className="tree-twist"><Icon name="chevronDown" size={12} className="chev" /></span>
-                    <span>Merged into {mergedLabel}</span>
+                    <span className="group-label" data-active={pathMerged || undefined}>Merged into {mergedLabel}</span>
                     <span className="faint">{merged.length}</span>
                   </button>
-                  {removable.length > 0 && (
-                    <button className="btn btn-sm tree-cleanup" title={`Delete the ${removable.length} merged branch${removable.length === 1 ? "" : "es"} under ${mergedLabel}, locally and on origin`} onClick={() => onCleanup(b.name, mergedLabel, removable)}>
-                      Clean up
-                    </button>
-                  )}
+                  {(removable.length > 0 || cleaning) && <CleanupButton busy={cleaning} title={`Delete the ${removable.length} merged branch${removable.length === 1 ? "" : "es"} under ${mergedLabel}, locally and on origin`} onClick={() => onCleanup(b.name, mergedLabel, removable)} />}
                 </div>
-                {mergedOpen && <div className="tree-kids" data-path={pathMerged ? "in" : pathLive ? "past" : undefined} style={stepStyle(pathLive || pathMerged, step + 2)}>{merged.map((c) => node(c, step + 3))}</div>}
+                {mergedOpen && (
+                  <div className="tree-kids" data-path={pathMerged ? "in" : pathLive ? "past" : undefined} aria-busy={cleaning || undefined} inert={cleaning}>
+                    {merged.map((c) => node(c))}
+                  </div>
+                )}
               </>
             )}
             {live.length > 0 && !q && (
-              <button className="tree-row tree-group tree-toggle" data-path={pathLive || undefined} style={stepStyle(pathLive, toggleStep)} aria-expanded={open} aria-label={`${open ? "Hide" : "Show"} the child branches of ${b.name}`} onClick={() => toggle(b.name)}>
+              <button className="tree-row tree-group tree-toggle" data-path={pathLive || undefined} aria-expanded={open} aria-label={`${open ? "Hide" : "Show"} the child branches of ${b.name}`} onClick={() => toggle(b.name)}>
                 <span className="tree-twist"><Icon name="chevronDown" size={12} className="chev" /></span>
-                <span className="child-label">Child branches</span>
+                <span className="child-label" data-active={pathLive || undefined}>Child branches</span>
                 <span className="faint">{live.length}</span>
                 {wipBelow > 0 && <span className="wip-badge" title={`${plural(wipBelow, "file")} with uncommitted changes in hidden branches`}>(WIP {wipBelow})</span>}
               </button>
             )}
             {live.length > 0 && open && (
-              <div className="tree-open" style={stepStyle(pathLive, toggleStep + 1)}>
-                <div className="tree-kids">{live.map((c) => node(c, toggleStep + 2))}</div>
+              <div className="tree-open">
+                <div className="tree-kids">{live.map((c) => node(c))}</div>
               </div>
             )}
           </div>
@@ -249,8 +282,49 @@ export function BranchTree({
     );
   };
 
+  // One pulse runs the whole orange path at a steady pace: each piece is told how far down the path it starts (--pulse-off),
+  // and draws the pulse where it falls inside it. The checked-out row also learns when the pulse reaches its middle (--pulse-arrive).
+  // Rows mounted later (a group opened again, a branch checked out) would start their loops then, out of step with the rest,
+  // so every loop is pinned to the start of the page's timeline instead, and they all run on one clock.
+  const pane = useRef<HTMLElement>(null);
+  useLayoutEffect(() => {
+    const root = pane.current;
+    if (!root) return;
+    const sync = () => {
+      const pieces = [...root.querySelectorAll<HTMLElement>(PATH_PIECES)];
+      const top = pieces[0]?.getBoundingClientRect().top ?? 0;
+      let elbows = 0;
+      let end = 0;
+      const arrivals: [HTMLElement, number][] = [];
+      for (const el of pieces) {
+        const r = el.getBoundingClientRect();
+        const off = r.top - top + elbows * ELBOW_LENGTH;
+        el.style.setProperty("--pulse-off", `${off}px`);
+        if (el.matches(PATH_ELBOW)) {
+          elbows++;
+          end = Math.max(end, off + ELBOW_LENGTH);
+        } else {
+          end = Math.max(end, off + r.height);
+        }
+        if (el.matches(".tree-row[data-current]")) arrivals.push([el, off + r.height / 2 + 6]);
+      }
+      // Past the end of the path the pulse runs on out of sight until the loop starts over.
+      const run = Math.max(PULSE_MIN_RUN, end + 12);
+      root.style.setProperty("--pulse-run", `${run}px`);
+      for (const [el, at] of arrivals) el.style.setProperty("--pulse-arrive", `${(at / run) * PULSE_LOOP}s`);
+      for (const a of root.getAnimations({ subtree: true })) {
+        if (a instanceof CSSAnimation && SYNCED_ANIMATIONS.has(a.animationName) && a.startTime !== 0) a.startTime = 0;
+      }
+    };
+    sync();
+    // Rows change height as the pane is resized and their text wraps.
+    const ro = new ResizeObserver(sync);
+    ro.observe(root);
+    return () => ro.disconnect();
+  });
+
   return (
-    <section aria-label="Branches" className="ws-releases" data-pane data-active={active}>
+    <section ref={pane} aria-label="Branches" className="ws-releases" data-pane data-active={active}>
       <div className="pane-head">
         <span className="row" style={{ gap: 6 }}>
           <button className="btn btn-sm btn-icon hide-narrow pane-toggle" aria-label="Hide branches" onClick={onHide}>
@@ -288,38 +362,38 @@ export function BranchTree({
             <div className="tree-row tree-group tree-merged tree-behind" style={{ marginTop: 8 }}>
               <button className="tree-merged-toggle" aria-expanded={isOpen("behind")} title={`Branches ${BEHIND_LIMIT} or more commits behind ${o.defaultBranch}. Update or rebase them to catch up.`} onClick={() => toggle("behind")}>
                 <span className="tree-twist"><Icon name="chevronDown" size={12} className="chev" /></span>
-                <span>Branches falling behind</span>
+                <span className="group-label" data-active={behind.some((b) => b.name === o.currentBranch) || undefined}>Branches falling behind</span>
                 <span className="faint">{behind.length}</span>
               </button>
-              {behindRemovable.length > 0 && (
-                <button className="btn btn-sm tree-cleanup" title={`Pick which of the ${plural(behindRemovable.length, "branch")} falling behind ${o.defaultBranch} to delete`} onClick={() => onCleanupBehind(behindRemovable)}>
-                  Clean up
-                </button>
+              {(behindRemovable.length > 0 || isCleaning("behind")) && (
+                <CleanupButton busy={isCleaning("behind")} title={`Pick which of the ${plural(behindRemovable.length, "branch")} falling behind ${o.defaultBranch} to delete`} onClick={() => onCleanupBehind(behindRemovable)} />
               )}
             </div>
-            {isOpen("behind") &&
-              behind.map((b) => (
-                <Row
-                  key={`behind:${b.name}`}
-                  b={b}
-                  t={target(b.name)}
-                  isDefault={false}
-                  tag={releaseTag(o.releases, b)}
-                  selected={b.name === selected}
-                  current={b.name === o.currentBranch}
-                  onPath={false}
-                  step={0}
-                  actions={actions}
-                  onSelect={() => onSelect(b.name)}
-                />
-              ))}
+            {isOpen("behind") && (
+              <div aria-busy={isCleaning("behind") || undefined} inert={isCleaning("behind")}>
+                {behind.map((b) => (
+                  <Row
+                    key={`behind:${b.name}`}
+                    b={b}
+                    t={target(b.name)}
+                    isDefault={false}
+                    tag={releaseTag(o.releases, b)}
+                    selected={b.name === selected}
+                    current={b.name === o.currentBranch}
+                    onPath={false}
+                    actions={actions}
+                    onSelect={() => onSelect(b.name)}
+                  />
+                ))}
+              </div>
+            )}
           </>
         )}
         {shipped.length > 0 && !q && (
           <>
             <button className="tree-row tree-group" style={{ marginTop: 8 }} aria-expanded={isOpen("shipped")} onClick={() => toggle("shipped")}>
               <span className="tree-twist"><Icon name="chevronDown" size={12} className="chev" /></span>
-              <span className="shipped-label">Shipped</span>
+              <span className="shipped-label" data-active={shippedActive || undefined}>Shipped</span>
               <span className="faint">{shipped.length}</span>
             </button>
             {isOpen("shipped") &&
@@ -379,6 +453,16 @@ function releaseTag(releases: ReleaseView[], b: BranchView) {
   return r ? <span className={`tag${r.tag === "next" ? " accent" : ""}`}>{releaseTagLabel(r.tag)}</span> : null;
 }
 
+/** A section's "Clean up": a spinner while its cleanup runs in the background. */
+function CleanupButton({ busy, title, onClick }: { busy: boolean; title: string; onClick: () => void }) {
+  return (
+    <button className="btn btn-sm tree-cleanup" title={busy ? "Deleting branches…" : title} disabled={busy} aria-busy={busy || undefined} onClick={onClick}>
+      {busy && <span className="spinner" />}
+      {busy ? "Cleaning up" : "Clean up"}
+    </button>
+  );
+}
+
 /** One branch, laid out the same whatever its role: icon, name + status line, actions. */
 function Row({
   b,
@@ -389,7 +473,6 @@ function Row({
   selected,
   current,
   onPath,
-  step,
   actions,
   onSelect,
 }: {
@@ -403,8 +486,6 @@ function Row({
   current: boolean;
   /** It is, or holds somewhere below it, the checked-out branch. */
   onPath: boolean;
-  /** Its place along the orange path, for the pulse running down it. */
-  step: number;
   actions: BranchActions;
   onSelect: () => void;
 }) {
@@ -415,7 +496,6 @@ function Row({
       className="tree-row"
       data-current={current || undefined}
       data-path={onPath || undefined}
-      style={onPath ? ({ "--step": step } as CSSProperties) : undefined}
       data-dim={b.merged || !b.exists || undefined}
       data-role={shipped ? "release" : b.role}
       onContextMenu={(e) => actions.openMenu(t, e)}
