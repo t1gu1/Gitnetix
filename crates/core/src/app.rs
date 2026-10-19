@@ -1544,11 +1544,11 @@ impl Gitnetix {
         Ok(())
     }
 
-    /// Delete several merged branches (never forced), carrying on past the ones that can't go.
-    pub async fn cleanup_branches(&self, project_id: &str, branches: &[String], remote: bool) -> Result<CleanupResult> {
+    /// Delete several branches (merged ones only unless `force`), carrying on past the ones that can't go.
+    pub async fn cleanup_branches(&self, project_id: &str, branches: &[String], force: bool, remote: bool) -> Result<CleanupResult> {
         let mut out = CleanupResult::default();
         for b in branches {
-            match self.delete_branch(project_id, b, false, remote).await {
+            match self.delete_branch(project_id, b, force, remote).await {
                 Ok(()) => out.deleted.push(b.clone()),
                 Err(e) => out.skipped.push(Skipped { branch: b.clone(), reason: e.to_string() }),
             }

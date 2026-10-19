@@ -12,6 +12,11 @@ import { BranchSplit, type BranchActions, type BranchTarget } from "./BranchMenu
 /** Sections that start closed; every other section starts open. */
 const CLOSED_BY_DEFAULT = new Set(["shipped"]);
 
+/** Branches this many commits behind the default branch count as falling behind. */
+const BEHIND_LIMIT = 25;
+/** The Falling behind section shows once more than this many branches fall behind. */
+const BEHIND_MIN_BRANCHES = 2;
+
 /** Collapsed sections, remembered per project between sessions. */
 function useToggles(pid: string) {
   const [flipped, setFlipped] = useStored<Record<string, boolean>>(`gnx.tree.${pid}`, {});
@@ -71,6 +76,7 @@ export function BranchTree({
   onNewRelease,
   onHide,
   onCleanup,
+  onCleanupBehind,
   tagItems,
 }: {
   active: boolean;
@@ -83,6 +89,8 @@ export function BranchTree({
   onHide: () => void;
   /** Clean up the merged children of `parent`, shown as `label`. */
   onCleanup: (parent: string, label: string, branches: BranchView[]) => void;
+  /** Clean up (delete) the branches falling behind the default branch. */
+  onCleanupBehind: (branches: BranchView[]) => void;
   /** Actions for a shipped release's tag; the first one (check out) also runs on double-click. */
   tagItems: (tag: string, checkedOut: boolean) => MenuItem[];
 }) {
@@ -104,6 +112,18 @@ export function BranchTree({
   // Shipped releases: the branch row (with what merged into it) while it is still around, else a plain entry.
   const shipped = o.releases.filter((r) => !r.open);
   const tops = useMemo(() => [...roots, ...shippedBranches.values()], [roots, shippedBranches]);
+
+  // Live branches off the default branch that have drifted far from it, furthest behind first.
+  const behind = useMemo(() => {
+    const names = new Set(o.branches.map((b) => b.name));
+    const list = o.branches.filter((b) => {
+      const parent = b.parent && names.has(b.parent) ? b.parent : o.defaultBranch;
+      return b.name !== o.defaultBranch && parent === o.defaultBranch && b.exists && !b.merged && b.behind >= BEHIND_LIMIT;
+    });
+    return list.length > BEHIND_MIN_BRANCHES ? list.sort((a, b) => b.behind - a.behind || a.name.localeCompare(b.name)) : [];
+  }, [o]);
+  // Protected, checked-out, busy or dirty branches stay put.
+  const behindRemovable = behind.filter((b) => !b.protected && !b.checkedOut && !b.running && b.wip === 0);
 
   const q = query.trim().toLowerCase();
   const matches = useMemo(() => {
@@ -232,6 +252,37 @@ export function BranchTree({
       <div className="scroll tree" style={{ flex: "1 1 auto" }}>
         {(q ? tops : roots).map((b) => node(b))}
         {matches?.size === 0 && <Empty>No branch matches “{query}”.</Empty>}
+        {behind.length > 0 && !q && (
+          <>
+            <div className="tree-row tree-group tree-merged tree-behind" style={{ marginTop: 8 }}>
+              <button className="tree-merged-toggle" aria-expanded={isOpen("behind")} title={`Branches ${BEHIND_LIMIT} or more commits behind ${o.defaultBranch}. Update or rebase them to catch up.`} onClick={() => toggle("behind")}>
+                <span className="tree-twist"><Icon name="chevronDown" size={12} className="chev" /></span>
+                <span>Branches falling behind</span>
+                <span className="faint">{behind.length}</span>
+              </button>
+              {behindRemovable.length > 0 && (
+                <button className="btn btn-sm tree-cleanup" title={`Pick which of the ${plural(behindRemovable.length, "branch")} falling behind ${o.defaultBranch} to delete`} onClick={() => onCleanupBehind(behindRemovable)}>
+                  Clean up
+                </button>
+              )}
+            </div>
+            {isOpen("behind") &&
+              behind.map((b) => (
+                <Row
+                  key={`behind:${b.name}`}
+                  b={b}
+                  t={target(b.name)}
+                  isDefault={false}
+                  tag={releaseTag(o.releases, b)}
+                  selected={b.name === selected}
+                  current={b.name === o.currentBranch}
+                  onPath={false}
+                  actions={actions}
+                  onSelect={() => onSelect(b.name)}
+                />
+              ))}
+          </>
+        )}
         {shipped.length > 0 && !q && (
           <>
             <button className="tree-row tree-group" style={{ marginTop: 8 }} aria-expanded={isOpen("shipped")} onClick={() => toggle("shipped")}>
@@ -396,15 +447,18 @@ function BranchMeta({ b, parent, current, showName, onCommits }: { b: BranchView
           ↓{b.behind} from {parent}
         </span>
       )}
-      {(b.upstreamAhead > 0 || b.upstreamBehind > 0) && (
-        <span className="mono" title={`${b.upstreamAhead} to push, ${b.upstreamBehind} to pull`}>
-          {b.upstreamAhead > 0 && `↑${b.upstreamAhead}`}
-          {b.upstreamAhead > 0 && b.upstreamBehind > 0 && " "}
-          {b.upstreamBehind > 0 && `↓${b.upstreamBehind}`}
+      {b.local && !b.remote && <span className="tag" title={`${b.name} doesn't exist on origin. Push it to share it.`}>local</span>}
+      {b.remote && !b.local && <span className="tag" title={`${b.name} was never fetched into a local branch. Check it out to work on it locally.`}>origin</span>}
+      {b.upstreamBehind > 0 && (
+        <span className="tag c-warn" title={`${plural(b.upstreamBehind, "commit")} on origin not in the local ${b.name}. Pull to catch up.`}>
+          local ↓{b.upstreamBehind}
         </span>
       )}
-      {b.remote && !b.local && <span className="tag" title="Only on origin. Check it out to work on it locally.">origin</span>}
-      {b.local && !b.upstream && b.role === "branch" && b.ahead > 0 && <span title="Not pushed to origin yet">local</span>}
+      {b.upstreamAhead > 0 && (
+        <span className="tag c-warn" title={`${plural(b.upstreamAhead, "local commit")} never pushed: origin is behind. Push to update it.`}>
+          origin ↓{b.upstreamAhead}
+        </span>
+      )}
       {b.ticket && <span className="mono">{b.ticket}</span>}
     </span>
   );

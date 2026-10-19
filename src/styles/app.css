@@ -149,6 +149,7 @@ body.dragging-tab, body.dragging-tab * { cursor: grabbing !important; }
 .tag { font-size: 10.5px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; padding: 1px 6px; border: 1px solid var(--line); border-radius: 3px; color: var(--muted); }
 .tag.accent { color: var(--accent-fg); border-color: var(--accent); }
 .tag.released { color: var(--add-fg); border-color: color-mix(in srgb, var(--add-fg) 45%, transparent); }
+.tag.c-warn { color: var(--warn-fg); border-color: color-mix(in srgb, var(--warn-fg) 45%, transparent); }
 .c-add { color: var(--add-fg); }
 .c-del { color: var(--del-fg); }
 .c-mod { color: var(--mod-fg); }
@@ -220,6 +221,8 @@ body.resizing iframe, body.resizing .term { pointer-events: none; }
    nested under a left border; only the icon, tags and suggested action change with its role. */
 /* 6px extra on the left: top-level rows keep the same gap to their orange marker as nested ones. */
 .tree { display: flex; flex-direction: column; padding: 6px 0 6px 6px; }
+/* Rows set their own min-height, so as flex items they'd shrink below their content once the list scrolls. */
+.tree > * { flex-shrink: 0; }
 .tree-row { position: relative; display: flex; align-items: flex-start; gap: 4px; min-height: 44px; margin: 0 6px 1px; padding: 6px; border-radius: 4px; }
 /* An open branch's line starts below its show/hide toggle and runs down past its children, so they read as under it.
    Children step in 6px; the line sits on the parent row's left edge, 6px left of each child row. */
@@ -276,6 +279,8 @@ button.tree-twist:hover { color: var(--fg); }
 /* The merged group's toggle fills its row (the Clean up button aside), so the whole row still opens it. */
 .tree-merged-toggle { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 6px; align-self: stretch; margin: -6px 0; padding: 6px 0; border: 0; background: transparent; color: inherit; font: inherit; letter-spacing: inherit; text-transform: inherit; text-align: left; cursor: pointer; }
 .tree-merged-toggle:hover { color: color-mix(in srgb, var(--add-fg) 70%, var(--fg)); }
+.tree-behind, .tree-behind:hover { color: var(--warn-fg); }
+.tree-behind .tree-merged-toggle:hover { color: color-mix(in srgb, var(--warn-fg) 70%, var(--fg)); }
 .tree-cleanup { flex: 0 0 auto; height: 22px; text-transform: none; letter-spacing: normal; font-weight: 500; }
 .tree-filter { display: flex; align-items: center; gap: 8px; padding: 8px 12px 8px 16px; border-bottom: 1px solid var(--line); }
 .tree-filter .input { flex: 1 1 auto; min-width: 0; height: 28px; font-size: 12.5px; }

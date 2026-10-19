@@ -34,6 +34,7 @@ export function Workspace() {
   const [deletingTag, setDeletingTag] = useState<string | null>(null);
   const checkoutTag = useAction<unknown, { projectId: string; name: string }>("tags.checkout", { invalidate: [["overview", pid], ["files", pid], ["diff", pid], ["commits", pid]] });
   const [cleanup, setCleanup] = useState<{ parent: string; label: string; branches: BranchView[] } | null>(null);
+  const [cleanupBehind, setCleanupBehind] = useState<BranchView[] | null>(null);
   // Branch whose commits replace the tree, and the commit picked there (none = all changes).
   const [history, setHistory] = useState<string | null>(null);
   const [commit, setCommit] = useState<Commit | undefined>();
@@ -193,6 +194,7 @@ export function Workspace() {
               }}
               onNewRelease={() => nav.openNewItem({ kind: "release" })}
               onCleanup={(parent, label, branches) => setCleanup({ parent, label, branches })}
+              onCleanupBehind={setCleanupBehind}
               tagItems={tagItems}
             />
           )}
@@ -321,6 +323,15 @@ export function Workspace() {
           pid={pid}
           {...cleanup}
           onClose={() => setCleanup(null)}
+          onDeleted={(gone) => branch && gone.includes(branch) && nav.selectBranch(undefined)}
+        />
+      )}
+      {cleanupBehind && ov.data && (
+        <BehindCleanupModal
+          pid={pid}
+          base={ov.data.defaultBranch}
+          branches={cleanupBehind}
+          onClose={() => setCleanupBehind(null)}
           onDeleted={(gone) => branch && gone.includes(branch) && nav.selectBranch(undefined)}
         />
       )}
@@ -923,6 +934,105 @@ function CleanupModal({
           </li>
         ))}
       </ul>
+      {run.error && <ErrorBox error={run.error} />}
+      {skipped.length > 0 && (
+        <div className="col" style={{ gap: 4 }}>
+          <span className="c-warn">Kept {skipped.length}:</span>
+          {skipped.map((s) => (
+            <span key={s.branch} style={{ lineHeight: 1.45 }}><span className="mono">{s.branch}</span>: {s.reason}</span>
+          ))}
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+/** Delete branches that fell far behind `base`, unmerged commits and all: the user picks which. */
+function BehindCleanupModal({
+  pid,
+  base,
+  branches,
+  onClose,
+  onDeleted,
+}: {
+  pid: string;
+  base: string;
+  branches: BranchView[];
+  onClose: () => void;
+  onDeleted: (branches: string[]) => void;
+}) {
+  // Nothing is picked up front: these hold work that isn't merged anywhere.
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [remote, setRemote] = useState(true);
+  const [skipped, setSkipped] = useState<CleanupResult["skipped"]>([]);
+  const run = useAction<CleanupResult>("branches.cleanup", {
+    invalidate: [["overview", pid], ["files", pid], ["worktrees"]],
+    success: (r) => `Deleted ${r.deleted.length} branch${r.deleted.length === 1 ? "" : "es"}`,
+  });
+  const flip = (name: string) => {
+    const next = new Set(picked);
+    if (next.has(name)) next.delete(name);
+    else next.add(name);
+    setPicked(next);
+  };
+  const all = picked.size === branches.length;
+  const lost = branches.filter((b) => picked.has(b.name)).reduce((n, b) => n + b.ahead, 0);
+  return (
+    <Modal
+      title="Clean up branches falling behind"
+      sub={<>far behind <span className="mono">{base}</span></>}
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn btn-md" onClick={onClose}>{skipped.length ? "Close" : "Cancel"}</button>
+          <button
+            className="btn btn-md btn-danger"
+            disabled={run.isPending || !picked.size}
+            onClick={() =>
+              run.mutate(
+                { projectId: pid, branches: [...picked], force: true, remote },
+                {
+                  onSuccess: (r) => {
+                    onDeleted(r.deleted);
+                    if (r.skipped.length) setSkipped(r.skipped);
+                    else onClose();
+                  },
+                },
+              )
+            }
+          >
+            {run.isPending && <span className="spinner" />}
+            Delete {picked.size} branch{picked.size === 1 ? "" : "es"}
+          </button>
+        </>
+      }
+    >
+      <p style={{ margin: 0, lineHeight: 1.55 }}>
+        These branches are not merged: deleting them throws away their commits{remote ? ", on origin too" : ""}. Worktrees they have go too. Pick the ones you no longer need.
+      </p>
+      <label className="check">
+        <input type="checkbox" checked={all} onChange={() => setPicked(all ? new Set() : new Set(branches.map((b) => b.name)))} />
+        <span>All {branches.length}</span>
+      </label>
+      <ul className="col" style={{ margin: 0, padding: 0, listStyle: "none", gap: 4 }}>
+        {branches.map((b) => (
+          <li key={b.name}>
+            <label className="check">
+              <input type="checkbox" checked={picked.has(b.name)} onChange={() => flip(b.name)} />
+              <span className="mono ellipsis">{b.name}</span>
+              <span className="c-warn">↓{b.behind}</span>
+              {b.ahead > 0 && <span className="c-del">{plural(b.ahead, "commit")} lost</span>}
+              {!b.local && <span className="tag" title="Only on origin">origin</span>}
+              {!b.remote && <span className="tag" title="Not on origin">local</span>}
+            </label>
+          </li>
+        ))}
+      </ul>
+      <label className="check">
+        <input type="checkbox" checked={remote} onChange={() => setRemote(!remote)} />
+        <span>Delete them on origin too</span>
+      </label>
+      {lost > 0 && <span className="c-del">{plural(lost, "unmerged commit")} will be deleted{remote ? "" : " locally"}.</span>}
       {run.error && <ErrorBox error={run.error} />}
       {skipped.length > 0 && (
         <div className="col" style={{ gap: 4 }}>
