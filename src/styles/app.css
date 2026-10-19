@@ -246,9 +246,20 @@ body.resizing iframe, body.resizing .term { pointer-events: none; }
 /* Checked-out branch and every branch above it: their stretch of the parent's line turns orange (6px left of the row, top level included).
    Rows isolate their layers, so these are lifted above the nesting lines for their orange to show over them. */
 .tree-row[data-path] { z-index: 2; }
-.tree-row[data-path]::before { content: ""; position: absolute; z-index: 2; top: 0; bottom: 0; left: -6px; width: 1px; background: var(--trunk-fg); pointer-events: none; }
-/* Above it (parents, and their show/hide toggles), the orange is dotted: the path leads further down. */
-.tree-row[data-path]:not([data-current])::before { background: repeating-linear-gradient(to bottom, var(--trunk-fg) 0 1px, transparent 1px 3px); }
+.tree-row[data-path]::before { content: ""; position: absolute; z-index: 2; top: 0; bottom: 0; left: -6px; width: 1px; background: repeating-linear-gradient(to bottom, var(--trunk-fg) 0 1px, transparent 1px 3px); pointer-events: none; }
+/* The checked-out row itself: a solid stretch over the dots, full in its middle 24%, fading out across the rest to 45% at either end. */
+.tree-row[data-path][data-current]::before { background: linear-gradient(to bottom, color-mix(in srgb, var(--trunk-fg) 45%, transparent), var(--trunk-fg) 38% 62%, color-mix(in srgb, var(--trunk-fg) 45%, transparent)), repeating-linear-gradient(to bottom, var(--trunk-fg) 0 1px, transparent 1px 3px); }
+/* A pulse runs down the orange path toward the checked-out branch: a short solid streak, a layer over the dots, which stay put.
+   Each piece of the path (numbered top to bottom in --step) waits for the ones above it, then the whole run repeats.
+   The streak rests off the piece's start until its turn. On the checked-out row it stops in the middle, into the solid stretch. */
+.tree-row[data-path]::before, .tree-merged + .tree-kids[data-path]::after { background: var(--path-pulse-v) 0 -12px / 1px 12px no-repeat, repeating-linear-gradient(to bottom, var(--trunk-fg) 0 1px, transparent 1px 3px); animation: path-pulse-down 3s linear calc(var(--step, 0) * 0.3s) infinite; }
+.tree-row[data-path][data-current]::before { background: var(--path-pulse-v) 0 -12px / 1px 12px no-repeat, linear-gradient(to bottom, color-mix(in srgb, var(--trunk-fg) 45%, transparent), var(--trunk-fg) 38% 62%, color-mix(in srgb, var(--trunk-fg) 45%, transparent)), repeating-linear-gradient(to bottom, var(--trunk-fg) 0 1px, transparent 1px 3px); animation-name: path-pulse-down-current; }
+.tree-toggle[data-path] + .tree-open::after, .tree-merged + .tree-kids[data-path="in"]::after { background: var(--path-pulse-h) -4px 0 / 4px 1px no-repeat, repeating-linear-gradient(to right, var(--trunk-fg) 0 1px, transparent 1px 3px); animation: path-pulse-right 3s linear calc(var(--step, 0) * 0.3s) infinite; }
+.tree { --path-pulse-v: linear-gradient(to bottom, transparent, var(--trunk-fg) 40% 60%, transparent); --path-pulse-h: linear-gradient(to right, transparent, var(--trunk-fg), transparent); }
+@keyframes path-pulse-down { 0% { background-position: 0 -12px, 0 0; } 10%, 100% { background-position: 0 calc(100% + 12px), 0 0; } }
+@keyframes path-pulse-down-current { 0% { background-position: 0 -12px, 0 0, 0 0; } 5%, 100% { background-position: 0 50%, 0 0, 0 0; } }
+@keyframes path-pulse-right { 0% { background-position: -4px 0, 0 0; } 10%, 100% { background-position: calc(100% + 4px) 0, 0 0; } }
+@media (prefers-reduced-motion: reduce) { .tree-row[data-path]::before, .tree-row[data-path][data-current]::before, .tree-toggle[data-path] + .tree-open::after, .tree-merged + .tree-kids[data-path]::after { animation: none; } }
 .tree-twist { flex: 0 0 16px; width: 16px; height: 20px; display: inline-flex; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: 3px; background: transparent; color: var(--faint); }
 button.tree-twist { cursor: pointer; }
 button.tree-twist:hover { color: var(--fg); }

@@ -1,4 +1,4 @@
-import { useMemo, useReducer, useState, type MouseEvent, type ReactNode } from "react";
+import { useMemo, useReducer, useState, type CSSProperties, type MouseEvent, type ReactNode } from "react";
 
 import { useAction } from "../api/hooks";
 import type { BranchView, Overview, ReleaseView } from "../api/types";
@@ -173,7 +173,11 @@ export function BranchTree({
   // Uncommitted files anywhere below a branch, surfaced on its toggle while its children are hidden.
   const hiddenWip = (b: BranchView): number => kids(b.name).reduce((n, c) => n + c.wip + hiddenWip(c), 0);
 
-  const node = (b: BranchView): ReactNode => {
+  /** Order of a piece of the orange path, top to bottom: its pulse runs after the pieces above it. */
+  const stepStyle = (on: boolean, step: number): CSSProperties | undefined => (on ? ({ "--step": step } as CSSProperties) : undefined);
+
+  // `step` numbers this branch's row along the orange path; the pieces below it count on from there.
+  const node = (b: BranchView, step = 0): ReactNode => {
     if (!shown(b)) return null;
     const children = kids(b.name).filter(shown);
     const live = children.filter((c) => !c.merged);
@@ -190,6 +194,7 @@ export function BranchTree({
     // Where the orange path leaves this branch: into a merged child, or past the merged group to a live one.
     const pathLive = live.some((c) => path.has(c.name));
     const pathMerged = merged.some((c) => path.has(c.name));
+    const toggleStep = step + (merged.length > 0 ? (mergedOpen ? 3 : 2) : 1);
     return (
       <div key={b.name} role="group" className="tree-node">
         <Row
@@ -201,6 +206,7 @@ export function BranchTree({
           selected={b.name === selected}
           current={b.name === o.currentBranch}
           onPath={path.has(b.name)}
+          step={step}
           actions={actions}
           onSelect={() => onSelect(b.name)}
         />
@@ -209,7 +215,7 @@ export function BranchTree({
           <div className="tree-sub">
             {merged.length > 0 && (
               <>
-                <div className="tree-row tree-group tree-merged" data-path={pathLive || pathMerged || undefined}>
+                <div className="tree-row tree-group tree-merged" data-path={pathLive || pathMerged || undefined} style={stepStyle(pathLive || pathMerged, step + 1)}>
                   <button className="tree-merged-toggle" aria-expanded={mergedOpen} onClick={() => toggle(mergedKey)}>
                     <span className="tree-twist"><Icon name="chevronDown" size={12} className="chev" /></span>
                     <span>Merged into {mergedLabel}</span>
@@ -221,11 +227,11 @@ export function BranchTree({
                     </button>
                   )}
                 </div>
-                {mergedOpen && <div className="tree-kids" data-path={pathMerged ? "in" : pathLive ? "past" : undefined}>{merged.map((c) => node(c))}</div>}
+                {mergedOpen && <div className="tree-kids" data-path={pathMerged ? "in" : pathLive ? "past" : undefined} style={stepStyle(pathLive || pathMerged, step + 2)}>{merged.map((c) => node(c, step + 3))}</div>}
               </>
             )}
             {live.length > 0 && !q && (
-              <button className="tree-row tree-group tree-toggle" data-path={pathLive || undefined} aria-expanded={open} aria-label={`${open ? "Hide" : "Show"} the child branches of ${b.name}`} onClick={() => toggle(b.name)}>
+              <button className="tree-row tree-group tree-toggle" data-path={pathLive || undefined} style={stepStyle(pathLive, toggleStep)} aria-expanded={open} aria-label={`${open ? "Hide" : "Show"} the child branches of ${b.name}`} onClick={() => toggle(b.name)}>
                 <span className="tree-twist"><Icon name="chevronDown" size={12} className="chev" /></span>
                 <span className="child-label">Child branches</span>
                 <span className="faint">{live.length}</span>
@@ -233,8 +239,8 @@ export function BranchTree({
               </button>
             )}
             {live.length > 0 && open && (
-              <div className="tree-open">
-                <div className="tree-kids">{live.map((c) => node(c))}</div>
+              <div className="tree-open" style={stepStyle(pathLive, toggleStep + 1)}>
+                <div className="tree-kids">{live.map((c) => node(c, toggleStep + 2))}</div>
               </div>
             )}
           </div>
@@ -302,6 +308,7 @@ export function BranchTree({
                   selected={b.name === selected}
                   current={b.name === o.currentBranch}
                   onPath={false}
+                  step={0}
                   actions={actions}
                   onSelect={() => onSelect(b.name)}
                 />
@@ -382,6 +389,7 @@ function Row({
   selected,
   current,
   onPath,
+  step,
   actions,
   onSelect,
 }: {
@@ -395,6 +403,8 @@ function Row({
   current: boolean;
   /** It is, or holds somewhere below it, the checked-out branch. */
   onPath: boolean;
+  /** Its place along the orange path, for the pulse running down it. */
+  step: number;
   actions: BranchActions;
   onSelect: () => void;
 }) {
@@ -405,6 +415,7 @@ function Row({
       className="tree-row"
       data-current={current || undefined}
       data-path={onPath || undefined}
+      style={onPath ? ({ "--step": step } as CSSProperties) : undefined}
       data-dim={b.merged || !b.exists || undefined}
       data-role={shipped ? "release" : b.role}
       onContextMenu={(e) => actions.openMenu(t, e)}
