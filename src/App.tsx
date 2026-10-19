@@ -5,6 +5,7 @@ import { currentRemote, isLocal } from "./api/transport";
 import { Icon } from "./components/Icon";
 import { TooltipLayer } from "./components/Tooltip";
 import { isPageRoute, TopBar } from "./components/TopBar";
+import { UpdatePrompt } from "./components/UpdatePrompt";
 import { Loading } from "./components/ui";
 import { NavProvider, useNav, type Route } from "./lib/nav";
 import { Toasts } from "./lib/toast";
@@ -108,6 +109,7 @@ function Shell({ onUnpair }: { onUnpair: () => void }) {
         </nav>
       )}
       {nav.newItem && <NewItem draft={nav.newItem} onClose={nav.closeNewItem} />}
+      <UpdatePrompt />
       <Toasts />
       <TooltipLayer />
     </div>

@@ -27,3 +27,5 @@ tracing-subscriber.workspace = true
 gitnetix-core.workspace = true
 gitnetix-server.workspace = true
 tokio.workspace = true
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
