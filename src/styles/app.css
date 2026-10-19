@@ -39,8 +39,8 @@
   --fg: #16171a;
   --muted: #575c65;
   --faint: #787d86;
-  --accent: #ee9b2f;
-  --accent-fg: #965700;
+  --accent: #f6b860;
+  --accent-fg: #f6b860;
   --on-accent: #1b1205;
   --add-bg: #e2f4eb;
   --add-fg: #17744d;
@@ -131,6 +131,8 @@ body.dragging-tab, body.dragging-tab * { cursor: grabbing !important; }
 .btn-raised { background: var(--raised); font-weight: 500; }
 .btn-primary { border: 0; background: var(--accent); color: var(--on-accent); font-weight: 600; }
 .btn-primary:hover:not(:disabled) { background: var(--accent-fg); color: var(--on-accent); }
+/* Light mode: --accent-fg matches the fill, so the hover deepens it a touch instead. */
+[data-theme="light"] .btn-primary:hover:not(:disabled) { background: #f2a940; }
 .btn-ghost { border-color: transparent; background: transparent; color: var(--muted); }
 .btn-ghost:hover:not(:disabled) { background: var(--raised); color: var(--fg); }
 .btn-danger { color: var(--del-fg); }
@@ -153,6 +155,9 @@ body.dragging-tab, body.dragging-tab * { cursor: grabbing !important; }
 .pill { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; padding: 1px 7px; border: 1px solid currentColor; border-radius: 3px; white-space: nowrap; }
 .tag { font-size: 10.5px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; padding: 1px 6px; border: 1px solid var(--line); border-radius: 3px; color: var(--muted); }
 .tag.accent { color: var(--accent-fg); border-color: var(--accent); }
+/* Light mode: plain tags (origin, local, likely) and the Next tag get a deeper colour and a soft tint so they pop on white. */
+[data-theme="light"] .tag:not(.accent, .released, .c-warn) { color: #4b5160; border-color: #4b5160; background: color-mix(in srgb, #4b5160 8%, transparent); }
+[data-theme="light"] .tag.accent { color: #f08a00; border-color: #f08a00; background: color-mix(in srgb, #f08a00 12%, transparent); }
 .tag.released { color: var(--add-fg); border-color: color-mix(in srgb, var(--add-fg) 45%, transparent); }
 .tag.c-warn { color: var(--warn-fg); border-color: color-mix(in srgb, var(--warn-fg) 45%, transparent); }
 .c-add { color: var(--add-fg); }
@@ -160,6 +165,7 @@ body.dragging-tab, body.dragging-tab * { cursor: grabbing !important; }
 .c-mod { color: var(--mod-fg); }
 .c-warn { color: var(--warn-fg); }
 .c-current { color: var(--trunk-fg); }
+[data-theme="light"] .c-current { color: #f08a00; font-weight: 600; }
 .c-acc { color: var(--accent-fg); }
 
 .label { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin: 0; }
@@ -189,6 +195,10 @@ body.dragging-tab, body.dragging-tab * { cursor: grabbing !important; }
 .empty { padding: 40px 24px; text-align: center; color: var(--muted); font-size: 12.5px; line-height: 1.5; }
 .err-box { padding: 10px 12px; border: 1px solid var(--del-fg); border-radius: 4px; color: var(--del-fg); background: var(--del-bg); font-size: 12.5px; line-height: 1.45; white-space: pre-wrap; }
 .note-box { padding: 10px 12px; border: 1px solid var(--line); border-radius: 4px; background: var(--raised); font-size: 12.5px; line-height: 1.45; }
+.empty-state { flex: 1 1 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 48px 24px; text-align: center; }
+.empty-state-icon { display: grid; place-items: center; width: 52px; height: 52px; margin-bottom: 6px; border: 1px solid var(--line); border-radius: 50%; background: var(--raised); color: var(--muted); }
+.empty-state h2 { margin: 0; font-size: 15px; font-weight: 600; color: var(--fg); }
+.empty-state p { margin: 0 0 8px; max-width: 380px; color: var(--muted); font-size: 12.5px; line-height: 1.5; }
 
 /* side nav (settings, templates, AI setup) */
 .sidenav { flex: 0 0 260px; display: flex; flex-direction: column; gap: 4px; padding: 16px 12px; background: var(--panel); border-right: 1px solid var(--line); overflow-y: auto; }
@@ -241,37 +251,40 @@ body.resizing iframe, body.resizing .term { pointer-events: none; }
    which starts right there. Only where there is a line beside it: nested, or the orange path at the top level. */
 .tree-toggle + .tree-open::before { top: 0; }
 .tree-kids .tree-toggle + .tree-open::after, .tree-toggle[data-path] + .tree-open::after { content: ""; position: absolute; z-index: 1; top: 0; left: 0; width: 7px; height: 1px; background: repeating-linear-gradient(to right, var(--line) 0 1px, transparent 1px 3px); pointer-events: none; }
-.tree-toggle[data-path] + .tree-open::after { z-index: 2; background: repeating-linear-gradient(to right, var(--trunk-fg) 0 1px, transparent 1px 3px); }
+.tree-toggle[data-path] + .tree-open::after { z-index: 2; background: repeating-linear-gradient(to right, var(--path-fg) 0 1px, transparent 1px 3px); }
 /* An open merged group on the orange path: the parent's line (6px left of it) runs on past it to a live child,
    or an elbow steps over to the merged children's line when the path goes into one of them. */
-.tree-merged + .tree-kids[data-path]::after { content: ""; position: absolute; z-index: 2; top: 0; bottom: 0; left: -6px; width: 1px; background: repeating-linear-gradient(to bottom, var(--trunk-fg) 0 1px, transparent 1px 3px); pointer-events: none; }
-.tree-merged + .tree-kids[data-path="in"]::after { bottom: auto; width: 7px; height: 1px; background: repeating-linear-gradient(to right, var(--trunk-fg) 0 1px, transparent 1px 3px); }
+.tree-merged + .tree-kids[data-path]::after { content: ""; position: absolute; z-index: 2; top: 0; bottom: 0; left: -6px; width: 1px; background: repeating-linear-gradient(to bottom, var(--path-fg) 0 1px, transparent 1px 3px); pointer-events: none; }
+.tree-merged + .tree-kids[data-path="in"]::after { bottom: auto; width: 7px; height: 1px; background: repeating-linear-gradient(to right, var(--path-fg) 0 1px, transparent 1px 3px); }
 /* Background, hover and selection: a layer under the row's content, so the nesting lines stay drawn on top.
    Every row sits on the raised background, so it reads as a block at rest; hover and selection lift it further toward the text colour. */
 .tree-row { isolation: isolate; }
 .tree-row::after { content: ""; position: absolute; z-index: -1; inset: 0; border-radius: 4px; background: var(--raised); pointer-events: none; }
 .tree-row:hover::after { background: color-mix(in srgb, var(--raised), var(--fg) 6%); }
 .tree-row:has(> .tree-btn[aria-pressed="true"])::after { background: color-mix(in srgb, var(--sel), var(--fg) 9%); }
+[data-theme="light"] .tree-row:has(> .tree-btn[aria-pressed="true"])::after { background: color-mix(in srgb, var(--sel), var(--fg) 4%); }
 /* Checked-out branch and every branch above it: their stretch of the parent's line turns orange (6px left of the row, top level included).
    Rows isolate their layers, so these are lifted above the nesting lines for their orange to show over them. */
 .tree-row[data-path] { z-index: 2; }
-.tree-row[data-path]::before { content: ""; position: absolute; z-index: 2; top: 0; bottom: 0; left: -6px; width: 1px; background: repeating-linear-gradient(to bottom, var(--trunk-fg) 0 1px, transparent 1px 3px); pointer-events: none; }
+.tree-row[data-path]::before { content: ""; position: absolute; z-index: 2; top: 0; bottom: 0; left: -6px; width: 1px; background: repeating-linear-gradient(to bottom, var(--path-fg) 0 1px, transparent 1px 3px); pointer-events: none; }
 /* The checked-out row itself: a solid stretch over the dots, full in its middle 24%, fading out across the rest to 45% at the top and to nothing at the bottom; the dots under it stop at its middle,
    and its lower half hides the parent's grey line behind it. */
-.tree-row[data-path][data-current]::before { background: linear-gradient(to bottom, color-mix(in srgb, var(--trunk-fg) 45%, transparent), var(--trunk-fg) 38% 62%, transparent), repeating-linear-gradient(to bottom, var(--trunk-fg) 0 1px, transparent 1px 3px) 0 0 / 1px 50% no-repeat, linear-gradient(var(--panel), var(--panel)) 0 100% / 1px 50% no-repeat; }
+.tree-row[data-path][data-current]::before { background: linear-gradient(to bottom, color-mix(in srgb, var(--path-fg) 45%, transparent), var(--path-fg) 38% 62%, transparent), repeating-linear-gradient(to bottom, var(--path-fg) 0 1px, transparent 1px 3px) 0 0 / 1px 50% no-repeat, linear-gradient(var(--panel), var(--panel)) 0 100% / 1px 50% no-repeat; }
 /* A pulse runs down the orange path toward the checked-out branch: a short solid streak, a layer over the dots, which stay put.
    It runs the whole path at one pace: --pulse is how far down the path it is (0 to --pulse-run each 4s loop), and each piece draws it
    that far below --pulse-off, where the piece starts along the path (set from the tree, elbows counting their 7px across).
    On the checked-out row it stops in the middle, into the solid stretch.
    A soft glow rides under the streak, 2px past the line on each side, so these pieces are 5px across with the line drawn down their middle. */
 @property --pulse { syntax: "<length>"; inherits: false; initial-value: -100px; }
-.tree-row[data-path]::before, .tree-merged + .tree-kids[data-path]::after { --pulse-y: calc(var(--pulse) - 12px - var(--pulse-off, 0px)); left: -8px; width: 5px; background: var(--path-pulse-v) 2px var(--pulse-y) / 1px 12px no-repeat, var(--path-glow) 0 var(--pulse-y) / 5px 12px no-repeat, repeating-linear-gradient(to bottom, var(--trunk-fg) 0 1px, transparent 1px 3px) 2px 0 / 1px 100% no-repeat; animation: path-pulse 4s linear infinite; }
+.tree-row[data-path]::before, .tree-merged + .tree-kids[data-path]::after { --pulse-y: calc(var(--pulse) - 12px - var(--pulse-off, 0px)); left: -8px; width: 5px; background: var(--path-pulse-v) 2px var(--pulse-y) / 1px 12px no-repeat, var(--path-glow) 0 var(--pulse-y) / 5px 12px no-repeat, repeating-linear-gradient(to bottom, var(--path-fg) 0 1px, transparent 1px 3px) 2px 0 / 1px 100% no-repeat; animation: path-pulse 4s linear infinite; }
 /* On the checked-out row the streak and a glow of its own stop at the middle; that glow shows from the moment the pulse arrives
    (--pulse-arrive, from the tree) and fades out over 1s. The riding glow runs on underneath, hidden in the lower half like the parent's line. */
-.tree-row[data-path][data-current]::before { --path-glow-a: 0%; background: var(--path-pulse-v) 2px min(var(--pulse-y), 50%) / 1px 12px no-repeat, radial-gradient(closest-side, color-mix(in srgb, var(--trunk-fg) var(--path-glow-a), transparent), transparent) 0 min(var(--pulse-y), 50%) / 5px 12px no-repeat, linear-gradient(to bottom, color-mix(in srgb, var(--trunk-fg) 45%, transparent), var(--trunk-fg) 38% 62%, transparent) 2px 0 / 1px 100% no-repeat, repeating-linear-gradient(to bottom, var(--trunk-fg) 0 1px, transparent 1px 3px) 2px 0 / 1px 50% no-repeat, linear-gradient(var(--panel), var(--panel)) 0 100% / 5px 50% no-repeat, var(--path-glow) 0 var(--pulse-y) / 5px 12px no-repeat; animation: path-pulse 4s linear infinite, path-glow-fade 4s linear var(--pulse-arrive, 0s) infinite; }
-.tree-toggle[data-path] + .tree-open::after, .tree-merged + .tree-kids[data-path="in"]::after { --pulse-x: calc(var(--pulse) - 4px - var(--pulse-off, 0px)); top: -2px; left: -6px; width: 7px; height: 5px; background: var(--path-pulse-h) var(--pulse-x) 2px / 4px 1px no-repeat, var(--path-glow) var(--pulse-x) 0 / 4px 5px no-repeat, repeating-linear-gradient(to right, var(--trunk-fg) 0 1px, transparent 1px 3px) 0 2px / 100% 1px no-repeat; animation: path-pulse 4s linear infinite; }
+.tree-row[data-path][data-current]::before { --path-glow-a: 0%; background: var(--path-pulse-v) 2px min(var(--pulse-y), 50%) / 1px 12px no-repeat, radial-gradient(closest-side, color-mix(in srgb, var(--path-fg) var(--path-glow-a), transparent), transparent) 0 min(var(--pulse-y), 50%) / 5px 12px no-repeat, linear-gradient(to bottom, color-mix(in srgb, var(--path-fg) 45%, transparent), var(--path-fg) 38% 62%, transparent) 2px 0 / 1px 100% no-repeat, repeating-linear-gradient(to bottom, var(--path-fg) 0 1px, transparent 1px 3px) 2px 0 / 1px 50% no-repeat, linear-gradient(var(--panel), var(--panel)) 0 100% / 5px 50% no-repeat, var(--path-glow) 0 var(--pulse-y) / 5px 12px no-repeat; animation: path-pulse 4s linear infinite, path-glow-fade 4s linear var(--pulse-arrive, 0s) infinite; }
+.tree-toggle[data-path] + .tree-open::after, .tree-merged + .tree-kids[data-path="in"]::after { --pulse-x: calc(var(--pulse) - 4px - var(--pulse-off, 0px)); top: -2px; left: -6px; width: 7px; height: 5px; background: var(--path-pulse-h) var(--pulse-x) 2px / 4px 1px no-repeat, var(--path-glow) var(--pulse-x) 0 / 4px 5px no-repeat, repeating-linear-gradient(to right, var(--path-fg) 0 1px, transparent 1px 3px) 0 2px / 100% 1px no-repeat; animation: path-pulse 4s linear infinite; }
 .tree-toggle[data-path] + .tree-open::after { left: 0; }
-.tree { --path-pulse-v: linear-gradient(to bottom, transparent, var(--trunk-fg) 40% 60%, transparent); --path-pulse-h: linear-gradient(to right, transparent, var(--trunk-fg), transparent); --path-glow: radial-gradient(closest-side, color-mix(in srgb, var(--trunk-fg) 55%, transparent), transparent); }
+.tree { --path-fg: var(--trunk-fg); --path-pulse-v: linear-gradient(to bottom, transparent, var(--path-fg) 40% 60%, transparent); --path-pulse-h: linear-gradient(to right, transparent, var(--path-fg), transparent); --path-glow: radial-gradient(closest-side, color-mix(in srgb, var(--path-fg) 55%, transparent), transparent); }
+/* Light mode: the path and its pulse take a lighter tint of the primary button's yellow rather than the darker trunk orange. */
+[data-theme="light"] .tree { --path-fg: color-mix(in srgb, var(--accent), #fff 30%); }
 @keyframes path-pulse { from { --pulse: 0px; } to { --pulse: var(--pulse-run, 600px); } }
 @property --path-glow-a { syntax: "<percentage>"; inherits: true; initial-value: 55%; }
 @keyframes path-glow-fade { 0% { --path-glow-a: 55%; } 25%, 100% { --path-glow-a: 0%; } }
@@ -295,6 +308,19 @@ button.tree-twist:hover { color: var(--fg); }
 /* Shared branches read apart from work: trunks (main, dev…) orange, releases (open or shipped) purple. */
 .tree-row[data-role="trunk"] .tree-name > .mono { color: var(--trunk-fg); font-weight: 600; }
 .tree-row[data-role="release"] .tree-name > .mono { color: var(--release-fg); }
+/* Light mode uses punchier takes on the dark theme's text colours inside a branch row (icon, name, tags, kind, status line); --fg stays dark so plain names read on white.
+   The path lines and the rest of the app stay on the light tokens. */
+[data-theme="light"] .tree-btn {
+  --muted: #8a909a;
+  --faint: #6e747e;
+  --line: #272a30;
+  --add-fg: #1fc48c;
+  --warn-fg: #e0a01f;
+  --del-fg: #ff5a50;
+  --mod-fg: #4f86ff;
+  --trunk-fg: #f5a04a;
+  --release-fg: #a57bff;
+}
 /* A shine sweeps left to right across the checked-out branch's name every few seconds: a soft white band over the name's colour, resting off its left end between runs.
    The colour is drawn as a background clipped to the text, so it comes from --name-fg. */
 .tree-row[data-current] .tree-name > .mono { --name-fg: var(--fg); background: linear-gradient(100deg, transparent 40%, color-mix(in srgb, white 60%, transparent) 50%, transparent 60%) 100% 0 / 250% 100% no-repeat, linear-gradient(var(--name-fg), var(--name-fg)); -webkit-background-clip: text; background-clip: text; color: transparent; animation: shine 6s ease-in-out infinite; }
@@ -325,6 +351,9 @@ button.tree-twist:hover { color: var(--fg); }
 .tree-behind .tree-merged-toggle { --label-from: var(--warn-fg); --label-fg: color-mix(in srgb, var(--warn-fg) 55%, #e07020); }
 .tree-behind .tree-merged-toggle:hover { color: color-mix(in srgb, var(--warn-fg) 70%, var(--fg)); --label-from: color-mix(in srgb, var(--warn-fg) 70%, var(--fg)); --label-fg: color-mix(in srgb, color-mix(in srgb, var(--warn-fg) 55%, #e07020) 70%, var(--fg)); }
 .shipped-label { --label-from: var(--release-fg); --label-fg: var(--add-fg); }
+/* Light mode uses punchier takes on the dark theme's label gradients. */
+[data-theme="light"] .child-label { --label-from: #e0a01f; --label-fg: #da659f; }
+[data-theme="light"] .shipped-label { --label-from: #a57bff; --label-fg: #1fc48c; }
 /* A section being cleaned up: faded and out of reach until its branches are gone. */
 .tree [aria-busy="true"]:not(.tree-cleanup) { opacity: .45; pointer-events: none; transition: opacity .15s; }
 .tree-filter { display: flex; align-items: center; gap: 8px; padding: 8px 12px 8px 16px; border-bottom: 1px solid var(--line); }
@@ -402,8 +431,11 @@ button.tree-twist:hover { color: var(--fg); }
 .diff-pane-scroll::-webkit-scrollbar { display: none; }
 .diff-heatmap { position: relative; flex: 0 0 28px; border-left: 1px solid var(--line); background: var(--raised); cursor: pointer; touch-action: none; }
 .diff-heatmap .hm { position: absolute; left: 2px; right: 2px; min-height: 4px; border-radius: 2px; pointer-events: none; }
-.diff-heatmap .hm.add { background: var(--add-fg); }
-.diff-heatmap .hm.del { background: var(--del-fg); }
+.diff-heatmap .hm.add { background: color-mix(in srgb, var(--add-fg) 80%, #000); }
+.diff-heatmap .hm.del { background: color-mix(in srgb, var(--del-fg) 80%, #000); }
+/* Light mode: brighter marks than the dark text colours of the light theme. */
+[data-theme="light"] .diff-heatmap .hm.add { background: #4fd6a4; }
+[data-theme="light"] .diff-heatmap .hm.del { background: #ff7d74; }
 .diff-heatmap.split .hm.del { right: 50%; margin-right: 1px; }
 .diff-heatmap.split .hm.add { left: 50%; margin-left: 1px; }
 .diff-heatmap .hm-view { position: absolute; left: 0; right: 0; min-height: 16px; background: color-mix(in srgb, var(--fg) 16%, transparent); border-block: 1px solid color-mix(in srgb, var(--fg) 35%, transparent); pointer-events: none; }

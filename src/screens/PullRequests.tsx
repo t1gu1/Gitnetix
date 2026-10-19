@@ -1,7 +1,7 @@
 import { useEffect, useState, type CSSProperties } from "react";
 
 import { useAction, useOverview, usePendingBranches, usePr, usePrs } from "../api/hooks";
-import { openExternal } from "../api/transport";
+import { openExternal, RpcError } from "../api/transport";
 import type { PrDetail, PrSummary, PrThread } from "../api/types";
 import { Icon } from "../components/Icon";
 import { ago, Busy, Empty, ErrorBox, Header, initials, Loading, Markdown, Modal, Seg } from "../components/ui";
@@ -49,7 +49,14 @@ export function PullRequests({ initial }: { initial?: number }) {
   return (
     <>
       <Header title="Pull requests" sub={`${ov?.project.name ?? ""}${prs.data ? ` · GitHub ${prs.data.repo.owner}/${prs.data.repo.repo}` : ""}`} />
-      {prs.error ? (
+      {prs.error instanceof RpcError && (prs.error.code === "not_connected" || prs.error.code === "unsupported") ? (
+        <div className="empty-state">
+          <span className="empty-state-icon" aria-hidden="true"><Icon name="pr" size={22} /></span>
+          <h2>{prs.error.code === "unsupported" ? "Git provider not supported" : "No Git provider connected"}</h2>
+          <p>{prs.error.message}</p>
+          <button className="btn btn-primary" onClick={() => nav.go({ name: "settings", section: "git" })}>Open Git providers</button>
+        </div>
+      ) : prs.error ? (
         <div className="page">
           <div className="page-inner">
             <ErrorBox error={prs.error} />
