@@ -11,6 +11,17 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+### Changed
+- Path dots on branches the path only passes through are now dimmed.
+- Dimmed path runs now fade in and out at their ends.
+
+### Fixed
+- Branch path line now runs past the sibling branches above it.
+- Path line now runs through the Shipped separator.
+- Path pulse now stays in sync on WebKit.
+- Path pulse now keeps its pace as the path length changes.
+- Path pulse now carries across layout changes.
+
 ## [0.1.1] - 2026-10-19
 
 ### Added

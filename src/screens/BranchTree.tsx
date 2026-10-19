@@ -10,15 +10,19 @@ import { BranchSplit, type BranchActions, type BranchTarget } from "./BranchMenu
 
 /** Branches this many commits behind the default branch count as falling behind. */
 const BEHIND_LIMIT = 25;
-/** The tree's looping animations: the pulse down the orange path, the glow fading on the checked-out row, and the shines. */
-const SYNCED_ANIMATIONS = new Set(["path-pulse", "path-glow-fade", "shine"]);
+/** The tree's looping animations: the pulse down the orange path and the glow fading on the checked-out row, on the pulse's clock; the shines, on the page's. */
+const PULSE_ANIMATIONS = new Set(["path-pulse", "path-glow-fade"]);
+const SHINE_ANIMATIONS = new Set(["shine"]);
 /** The pieces of the orange path, in document order (top to bottom), and which of them are its 7px elbows. */
-const PATH_PIECES = ".tree-row[data-path], .tree-merged + .tree-kids[data-path], .tree-toggle[data-path] + .tree-open";
+const PATH_PIECES = ".tree-row[data-path], .tree-node[data-path], .tree-sep[data-path], .tree-merged + .tree-kids[data-path], .tree-toggle[data-path] + .tree-open";
 const PATH_ELBOW = '.tree-open, .tree-kids[data-path="in"]';
 const ELBOW_LENGTH = 7;
-/** Length of one pulse loop, in seconds: the path-pulse animations in app.css run this long. */
-const PULSE_LOOP = 4;
-/** The pulse covers at least this many pixels of path per loop, so it keeps its pace (90px/s) on short paths. */
+/** Pieces where the path only runs past (sibling branches, groups it skips), drawn dimmer; and how far, in pixels, their run fades in and out of it. */
+const PATH_PAST = '.tree-node[data-path], .tree-row[data-path="past"], .tree-kids[data-path="past"]';
+const PAST_FADE = 24;
+/** Pace of the pulse down the path, in pixels per second, however long the path: each loop lasts as long as its run takes (--pulse-loop). */
+const PULSE_SPEED = 90;
+/** The pulse covers at least this many pixels of path per loop, so a short path still gets a pause between pulses. */
 const PULSE_MIN_RUN = 360;
 /** The Falling behind section shows once more than this many branches fall behind. */
 const BEHIND_MIN_BRANCHES = 2;
@@ -197,8 +201,11 @@ export function BranchTree({
     tops.forEach(walk);
     return on;
   }, [tops, kids, o.currentBranch]);
-  // Shipped holds the checked-out release tag, or a shipped branch the path runs through.
-  const shippedActive = shipped.some((r) => r.checkedOut || path.has(shippedBranches.get(r.version)?.name ?? ""));
+  // Shipped holds the checked-out release tag, or a shipped branch the path runs through: the path then runs down past
+  // everything above it, into Shipped and to that release.
+  const shippedOnPath = shipped.findIndex((r) => r.checkedOut || path.has(shippedBranches.get(r.version)?.name ?? ""));
+  const shippedActive = shippedOnPath >= 0;
+  const pastShipped = shippedActive && !q;
   // Only the groups the path runs through start open: live children or the merged ones.
   const { isOpen, toggle, openAll } = useToggles(pid, () => {
     const open = new Set<string>();
@@ -225,7 +232,13 @@ export function BranchTree({
   // Uncommitted files anywhere below a branch, surfaced on its toggle while its children are hidden.
   const hiddenWip = (b: BranchView): number => kids(b.name).reduce((n, c) => n + c.wip + hiddenWip(c), 0);
 
-  const node = (b: BranchView): ReactNode => {
+  // Siblings listed above the one the path runs into: the path runs down past them.
+  const pastPath = (list: BranchView[]) => {
+    const i = list.findIndex((c) => path.has(c.name));
+    return (c: BranchView) => node(c, list.indexOf(c) < i);
+  };
+
+  const node = (b: BranchView, past = false): ReactNode => {
     if (!shown(b)) return null;
     const children = kids(b.name).filter(shown);
     const lagging = (behindOf.get(b.name) ?? []).filter(shown);
@@ -250,7 +263,7 @@ export function BranchTree({
     const pathMerged = merged.some((c) => path.has(c.name));
     const pathBehind = lagging.some((c) => path.has(c.name));
     return (
-      <div key={b.name} role="group" className="tree-node">
+      <div key={b.name} role="group" className="tree-node" data-path={past ? "past" : undefined}>
         <Row
           b={b}
           t={target(b.name)}
@@ -268,7 +281,7 @@ export function BranchTree({
           <div className="tree-sub">
             {merged.length > 0 && (
               <>
-                <div className="tree-row tree-group tree-merged" data-path={pathLive || pathBehind || pathMerged || undefined}>
+                <div className="tree-row tree-group tree-merged" data-path={pathMerged ? "in" : pathLive || pathBehind ? "past" : undefined}>
                   <button className="tree-merged-toggle" aria-expanded={mergedOpen} onClick={() => toggle(mergedKey)}>
                     <span className="tree-twist"><Icon name="chevronDown" size={12} className="chev" /></span>
                     <span className="group-label" data-active={pathMerged || undefined}>Merged into {mergedLabel}</span>
@@ -278,14 +291,14 @@ export function BranchTree({
                 </div>
                 {mergedOpen && (
                   <div className="tree-kids" data-path={pathMerged ? "in" : pathLive || pathBehind ? "past" : undefined} aria-busy={cleaning || undefined} inert={cleaning}>
-                    {merged.map((c) => node(c))}
+                    {merged.map(pastPath(merged))}
                   </div>
                 )}
               </>
             )}
             {lagging.length > 0 && (
               <>
-                <div className="tree-row tree-group tree-merged tree-behind" data-path={pathLive || pathBehind || undefined}>
+                <div className="tree-row tree-group tree-merged tree-behind" data-path={pathBehind ? "in" : pathLive ? "past" : undefined}>
                   <button className="tree-merged-toggle" aria-expanded={behindOpen} title={`Branches ${BEHIND_LIMIT} or more commits behind ${mergedLabel}. Update or rebase them to catch up.`} onClick={() => toggle(behindKey)}>
                     <span className="tree-twist"><Icon name="chevronDown" size={12} className="chev" /></span>
                     <span className="group-label" data-active={pathBehind || undefined}>Falling behind {mergedLabel}</span>
@@ -297,7 +310,7 @@ export function BranchTree({
                 </div>
                 {behindOpen && (
                   <div className="tree-kids" data-path={pathBehind ? "in" : pathLive ? "past" : undefined} aria-busy={isCleaning(behindKey) || undefined} inert={isCleaning(behindKey)}>
-                    {lagging.map((c) => node(c))}
+                    {lagging.map(pastPath(lagging))}
                   </div>
                 )}
               </>
@@ -312,7 +325,7 @@ export function BranchTree({
             )}
             {live.length > 0 && open && (
               <div className="tree-open">
-                <div className="tree-kids">{live.map((c) => node(c))}</div>
+                <div className="tree-kids">{live.map(pastPath(live))}</div>
               </div>
             )}
           </div>
@@ -324,42 +337,89 @@ export function BranchTree({
   // One pulse runs the whole orange path at a steady pace: each piece is told how far down the path it starts (--pulse-off),
   // and draws the pulse where it falls inside it. The checked-out row also learns when the pulse reaches its middle (--pulse-arrive).
   // Rows mounted later (a group opened again, a branch checked out) would start their loops then, out of step with the rest,
-  // so every loop is pinned to the start of the page's timeline instead, and they all run on one clock.
+  // so every loop is pinned to one start time instead, and they all run on one clock. When the path changes (a group opened
+  // or closed), the clock moves so the pulse goes on from the same spot on the same piece, and the loop's length follows to keep the pace.
   const pane = useRef<HTMLElement>(null);
+  const clock = useRef<PulseClock | null>(null);
+  /** Where each piece sat along the path at the last sync, gaps included. */
+  const layout = useRef(new Map<Element, PathPiece>());
   useLayoutEffect(() => {
     const root = pane.current;
     if (!root) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const sync = () => {
+      clearTimeout(timer);
       const pieces = [...root.querySelectorAll<HTMLElement>(PATH_PIECES)];
       const top = pieces[0]?.getBoundingClientRect().top ?? 0;
       let elbows = 0;
+      const past = pieces.map((el) => el.matches(PATH_PAST));
+      const laid = pieces.map((el, i) => {
+        const r = el.getBoundingClientRect();
+        // A run of dim pieces fades in from the bright path at its top and back out at its bottom; a lone one does both.
+        if (past[i]) {
+          const first = !past[i - 1];
+          const last = !past[i + 1];
+          const fade = `${Math.min(PAST_FADE, first && last ? r.height / 2 : r.height)}px`;
+          el.style.setProperty("--dim-in", first ? fade : "0px");
+          el.style.setProperty("--dim-out", last ? fade : "0px");
+        }
+        const off = r.top - top + elbows * ELBOW_LENGTH;
+        const elbow = el.matches(PATH_ELBOW);
+        if (elbow) elbows++;
+        return { el, off, len: elbow ? ELBOW_LENGTH : r.height, height: r.height };
+      });
+
+      // Where the pulse is now, carried over to the new layout.
+      const now = Number(document.timeline.currentTime ?? 0);
+      const prev = clock.current;
+      const was = prev ? (((now - prev.start) % prev.loop) + prev.loop) % prev.loop / 1000 * PULSE_SPEED : 0;
+      const kept = laid.flatMap((p) => {
+        const old = layout.current.get(p.el);
+        return old ? [{ ...p, old }] : [];
+      });
+      const { along, gap } = prev ? carryPulse(kept, was) : { along: 0, gap: null };
+
       let end = 0;
       const arrivals: [HTMLElement, number][] = [];
-      for (const el of pieces) {
-        const r = el.getBoundingClientRect();
-        const off = r.top - top + elbows * ELBOW_LENGTH;
-        el.style.setProperty("--pulse-off", `${off}px`);
-        if (el.matches(PATH_ELBOW)) {
-          elbows++;
-          end = Math.max(end, off + ELBOW_LENGTH);
-        } else {
-          end = Math.max(end, off + r.height);
-        }
-        if (el.matches(".tree-row[data-current]")) arrivals.push([el, off + r.height / 2 + 6]);
+      const next = new Map<Element, PathPiece>();
+      for (const p of laid) {
+        const off = gap && p.off >= gap.at - 0.5 ? p.off + gap.len : p.off;
+        p.el.style.setProperty("--pulse-off", `${off}px`);
+        next.set(p.el, { off, len: p.len });
+        end = Math.max(end, off + p.len);
+        if (p.el.matches(".tree-row[data-current]")) arrivals.push([p.el, off + p.height / 2 + 6]);
       }
+      if (gap) end = Math.max(end, gap.at + gap.len);
+      layout.current = next;
       // Past the end of the path the pulse runs on out of sight until the loop starts over.
       const run = Math.max(PULSE_MIN_RUN, end + 12);
+      const loop = (run / PULSE_SPEED) * 1000;
+      // Already past the end of the new loop: the next one starts.
+      const at = along < run ? along : 0;
+      if (!prev) clock.current = { start: 0, loop };
+      else if (prev.loop !== loop || Math.abs(at - was) > 0.5) clock.current = { start: now - (at / PULSE_SPEED) * 1000, loop };
+      // Once the pulse is through the gap, sync again so the gap closes behind it.
+      if (gap) timer = setTimeout(sync, ((gap.at + gap.len - at) / PULSE_SPEED) * 1000 + 50);
+      const { start } = clock.current!;
       root.style.setProperty("--pulse-run", `${run}px`);
-      for (const [el, at] of arrivals) el.style.setProperty("--pulse-arrive", `${(at / run) * PULSE_LOOP}s`);
-      for (const a of root.getAnimations({ subtree: true })) {
-        if (a instanceof CSSAnimation && SYNCED_ANIMATIONS.has(a.animationName) && a.startTime !== 0) a.startTime = 0;
+      root.style.setProperty("--pulse-loop", `${loop}ms`);
+      for (const [el, at] of arrivals) el.style.setProperty("--pulse-arrive", `${(at / PULSE_SPEED) * 1000}ms`);
+      // From the document: WebKit can leave the pseudo-elements' animations out of an element's subtree.
+      for (const a of document.getAnimations()) {
+        if (!(a instanceof CSSAnimation)) continue;
+        const at = PULSE_ANIMATIONS.has(a.animationName) ? start : SHINE_ANIMATIONS.has(a.animationName) ? 0 : null;
+        const target = a.effect instanceof KeyframeEffect ? a.effect.target : null;
+        if (at !== null && a.startTime !== at && target && root.contains(target)) a.startTime = at;
       }
     };
     sync();
     // Rows change height as the pane is resized and their text wraps.
     const ro = new ResizeObserver(sync);
     ro.observe(root);
-    return () => ro.disconnect();
+    return () => {
+      ro.disconnect();
+      clearTimeout(timer);
+    };
   });
 
   return (
@@ -394,11 +454,11 @@ export function BranchTree({
         </div>
       )}
       <div className="scroll tree" style={{ flex: "1 1 auto" }}>
-        {(q ? tops : roots).map((b) => node(b))}
+        {(q ? tops : roots).map((b) => node(b, pastShipped))}
         {matches?.size === 0 && <Empty>No branch matches “{query}”.</Empty>}
         {behind.length > 0 && !q && (
           <>
-            <div className="tree-row tree-group tree-merged tree-behind">
+            <div className="tree-row tree-group tree-merged tree-behind" data-path={pastShipped ? "past" : undefined}>
               <button className="tree-merged-toggle" aria-expanded={isOpen("behind")} title={`Branches ${BEHIND_LIMIT} or more commits behind their base (${o.defaultBranch}, or a release with few of them). Update or rebase them to catch up.`} onClick={() => toggle("behind")}>
                 <span className="tree-twist"><Icon name="chevronDown" size={12} className="chev" /></span>
                 <span className="group-label" data-active={behind.some((b) => b.name === o.currentBranch) || undefined}>Branches falling behind</span>
@@ -409,7 +469,7 @@ export function BranchTree({
               )}
             </div>
             {isOpen("behind") && (
-              <div aria-busy={isCleaning("behind") || undefined} inert={isCleaning("behind")}>
+              <div className="tree-node" data-path={pastShipped ? "past" : undefined} aria-busy={isCleaning("behind") || undefined} inert={isCleaning("behind")}>
                 {behind.map((b) => (
                   <Row
                     key={`behind:${b.name}`}
@@ -430,16 +490,16 @@ export function BranchTree({
         )}
         {shipped.length > 0 && !q && (
           <>
-            <div className="tree-sep" role="separator" />
-            <button className="tree-row tree-group" aria-expanded={isOpen("shipped")} onClick={() => toggle("shipped")}>
+            <div className="tree-sep" role="separator" data-path={shippedActive || undefined} />
+            <button className="tree-row tree-group" data-path={shippedActive || undefined} aria-expanded={isOpen("shipped")} onClick={() => toggle("shipped")}>
               <span className="tree-twist"><Icon name="chevronDown" size={12} className="chev" /></span>
               <span className="shipped-label" data-active={shippedActive || undefined}>Shipped</span>
               <span className="faint">{shipped.length}</span>
             </button>
             {isOpen("shipped") &&
-              shipped.map((r) => {
+              shipped.map((r, i) => {
                 const b = shippedBranches.get(r.version);
-                if (b) return node(b);
+                if (b) return node(b, i < shippedOnPath);
                 const tag = r.tagName;
                 const checkout = tag ? tagItems(tag, r.checkedOut)[0] : undefined;
                 return (
@@ -448,6 +508,7 @@ export function BranchTree({
                     className="tree-row tree-static"
                     data-role="release"
                     data-current={r.checkedOut || undefined}
+                    data-path={i < shippedOnPath ? "past" : r.checkedOut || undefined}
                     onContextMenu={tag ? (e) => openTagMenu(tag, r.checkedOut, e) : undefined}
                     onDoubleClick={checkout && checkout !== "sep" && !checkout.disabled ? checkout.run : undefined}
                   >
@@ -486,6 +547,33 @@ export function BranchTree({
       <div className="hint" style={{ padding: "10px 16px", borderTop: "1px solid var(--line)" }}>Double-click a branch to switch to it, right-click for every action, click its commit count (or "all commits" on main) to browse them. Your uncommitted work comes along.</div>
     </section>
   );
+}
+
+type PathPiece = { off: number; len: number };
+type PulseClock = { start: number; loop: number };
+
+/**
+ * Where the pulse goes on in a new layout of the path, `was` pixels down the old one: on the piece it was on (kept from both
+ * layouts, in order, with where it sat before), as far into it. Out of a part that just closed (its pieces gone, or the bottom of a
+ * piece that shrank), it goes on through a gap left where that part was, as long as the part, out of sight, and comes out below it.
+ */
+function carryPulse(kept: (PathPiece & { old: PathPiece })[], was: number): { along: number; gap: { at: number; len: number } | null } {
+  let i = -1;
+  while (i + 1 < kept.length && kept[i + 1].old.off <= was) i++;
+  if (i < 0) return { along: was, gap: null };
+  const a = kept[i];
+  const b = kept[i + 1];
+  const into = was - a.old.off;
+  if (into <= a.len) return { along: a.off + into, gap: null };
+  if (!b) {
+    // Nothing kept below: past the end, with the closed part's length still to run before the loop starts over.
+    const hidden = Math.min(into, a.old.len) - a.len;
+    return { along: a.off + into, gap: hidden > 0.5 ? { at: a.off + a.len, len: hidden } : null };
+  }
+  // Between two kept pieces: the stretch between them was this long, and now is that long; the gap makes up the difference.
+  const from = a.off + a.len;
+  const len = b.old.off - (a.old.off + a.len) - (b.off - from);
+  return { along: from + (was - a.old.off - a.len), gap: len > 0.5 ? { at: b.off, len } : null };
 }
 
 function releaseTag(releases: ReleaseView[], b: BranchView) {
