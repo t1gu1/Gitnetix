@@ -105,7 +105,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("prs.reply", "Reply in a review thread", "projectId, number, commentId, body"),
     ("prs.resolve", "Resolve or reopen a review thread", "projectId, threadId, resolved"),
     ("prs.react", "Add or remove a reaction", "projectId, subjectId, content, add"),
-    ("prs.draftReply", "AI-drafted reply for a thread", "projectId, number, threadId"),
+    ("prs.draftReply", "AI-drafted reply for a thread; with draft, that started reply polished instead", "projectId, number, threadId, draft?"),
     ("prs.draftReview", "AI-drafted review summary", "projectId, number"),
     ("tickets.list", "Tickets from Jira, Trello, Asana with their release", "projectId"),
     ("tickets.setRelease", "Plan a ticket into a release", "projectId, key, release"),
@@ -654,7 +654,7 @@ pub async fn call(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
             gh.react(&s(&p, "subjectId")?, &s(&p, "content")?, b(&p, "add")).await?;
             ok()
         }
-        "prs.draftReply" => to(json!({ "text": k.draft_reply(&s(&p, "projectId")?, u(&p, "number")?, &s(&p, "threadId")?).await? })),
+        "prs.draftReply" => to(json!({ "text": k.draft_reply(&s(&p, "projectId")?, u(&p, "number")?, &s(&p, "threadId")?, os(&p, "draft").as_deref()).await? })),
         "prs.draftReview" => to(json!({ "text": k.draft_review(&s(&p, "projectId")?, u(&p, "number")?).await? })),
 
         // ---- tickets & integrations ----

@@ -448,9 +448,14 @@ function ThreadView({ pid, number, t }: { pid: string; number: number; t: PrThre
         <label htmlFor={`reply-${t.id}`} className="sr-only">Reply</label>
         <textarea id={`reply-${t.id}`} className="textarea" rows={2} placeholder="Reply…" value={draft} onChange={(e) => setDraft(e.target.value)} />
         <div className="row wrap">
-          <button className="btn btn-sm" disabled={ai.isPending} onClick={() => ai.mutate({ projectId: pid, number, threadId: t.id }, { onSuccess: (r) => setDraft(r.text) })}>
+          <button
+            className="btn btn-sm"
+            disabled={ai.isPending}
+            title={draft.trim() ? "Fix spelling and grammar and smooth the wording of your reply" : undefined}
+            onClick={() => ai.mutate({ projectId: pid, number, threadId: t.id, draft }, { onSuccess: (r) => setDraft(r.text) })}
+          >
             <Busy on={ai.isPending}><Icon name="sparkle" size={11} className="c-acc" /></Busy>
-            Draft reply
+            {draft.trim() ? "Improve reply" : "Draft reply"}
           </button>
           <span className="grow" />
           {t.resolvable && !t.resolved && (

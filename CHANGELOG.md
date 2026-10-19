@@ -12,6 +12,7 @@ release notes and the in-app update prompt.
 ## [Unreleased]
 
 ### Added
+- "Improve reply" on PR conversations: AI fixes spelling and grammar and smooths the wording of a reply you started.
 - Sign in with GitHub from Settings › Git providers, no token to create; personal access tokens still work.
 - macOS (universal `.dmg`) and Windows (`-setup.exe`) builds on every release, next to the AppImage.
 - Prompt to install new releases on launch.
