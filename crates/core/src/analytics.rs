@@ -93,7 +93,7 @@ pub async fn compute(input: Input<'_>) -> Result<Analytics> {
         for rec in raw.split('\x1e') {
             let f: Vec<&str> = rec.trim_start_matches('\n').splitn(6, '\x1f').collect();
             if f.len() == 6 {
-                let c = Commit { sha: f[0].into(), author: f[1].into(), email: f[2].into(), date: f[3].into(), subject: f[4].into(), body: f[5].into(), tags: Vec::new() };
+                let c = Commit { sha: f[0].into(), author: f[1].into(), email: f[2].into(), date: f[3].into(), subject: f[4].into(), body: f[5].into(), tags: Vec::new(), local: false, origin: false, unpulled: false };
                 let is_ai = ai.contains(&c.sha);
                 commits.push((c, is_ai));
             }

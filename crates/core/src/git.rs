@@ -72,6 +72,15 @@ pub struct Commit {
     /// Tags pointing at it.
     #[serde(default)]
     pub tags: Vec<String>,
+    /// Tip of the listed branch's local copy (set for one branch's commit list only).
+    #[serde(default)]
+    pub local: bool,
+    /// Tip of the listed branch's copy on origin (set for one branch's commit list only).
+    #[serde(default)]
+    pub origin: bool,
+    /// On origin but not pulled into the local branch yet.
+    #[serde(default)]
+    pub unpulled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -295,6 +304,11 @@ impl Git {
                 })
             })
             .collect())
+    }
+
+    /// Commit SHAs in `range`, newest first.
+    pub async fn rev_list(&self, range: &str) -> Result<Vec<String>> {
+        Ok(self.run(&["rev-list", range]).await?.lines().map(Into::into).collect())
     }
 
     pub async fn count(&self, range: &str) -> Result<u32> {
@@ -905,12 +919,18 @@ impl Git {
 
     /// `range` like "v2.3.0..release/2.4.0", or "--all", or a branch.
     pub async fn log(&self, range: &str, limit: Option<u32>) -> Result<Vec<Commit>> {
+        self.log_revs(&[range], limit).await
+    }
+
+    /// Commits reachable from any of `revs` (`^rev` excludes), newest first.
+    pub async fn log_revs(&self, revs: &[&str], limit: Option<u32>) -> Result<Vec<Commit>> {
         // %D limited to tags reads "tag: v1.0, tag: latest".
         let mut args = vec!["log".to_string(), "--decorate-refs=refs/tags/".to_string(), "--format=%H%x1f%an%x1f%ae%x1f%aI%x1f%D%x1f%s%x1f%b%x1e".to_string()];
         if let Some(n) = limit {
             args.push(format!("-n{n}"));
         }
-        args.push(range.to_string());
+        args.extend(revs.iter().map(|r| r.to_string()));
+        args.push("--".to_string());
         let refs: Vec<&str> = args.iter().map(String::as_str).collect();
         let out = self.run(&refs).await?;
         Ok(out
@@ -926,6 +946,9 @@ impl Git {
                     subject: f[5].into(),
                     body: f[6].trim().into(),
                     tags: f[4].split(", ").filter_map(|d| d.strip_prefix("tag: ")).map(Into::into).collect(),
+                    local: false,
+                    origin: false,
+                    unpulled: false,
                 })
             })
             .collect())

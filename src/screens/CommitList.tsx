@@ -41,6 +41,8 @@ export function CommitList({
 }) {
   const commits = useCommits(pid, branch);
   const list = commits.data ?? [];
+  // Commits of the local branch; origin's unpulled ones are listed too, but can't be reverted or reset to.
+  const local = list.filter((c) => !c.unpulled);
   const [menu, setMenu] = useState<{ x: number; y: number; c: Commit } | null>(null);
   const [reset, setReset] = useState<{ c: Commit; mode: ResetMode } | null>(null);
   const inv = [["overview", pid], ["files", pid], ["diff", pid], ["commits", pid]];
@@ -57,12 +59,12 @@ export function CommitList({
 
   const items = (c: Commit): MenuItem[] => {
     const short = c.sha.slice(0, 7);
-    const needCheckout = checkedOut ? undefined : "check out first";
+    const needCheckout = c.unpulled ? "pull first" : checkedOut ? undefined : "check out first";
     const onto = !current ? "nothing checked out" : current === branch ? "already on it" : undefined;
     return [
       { id: "copy", label: "Copy SHA", icon: "edit", hint: short, run: () => copyToClipboard(c.sha) },
       "sep",
-      { id: "revert", label: "Revert commit", icon: "undo", hint: needCheckout, disabled: !checkedOut, run: () => revert.mutate({ projectId: pid, branch, sha: c.sha }) },
+      { id: "revert", label: "Revert commit", icon: "undo", hint: needCheckout, disabled: !!needCheckout, run: () => revert.mutate({ projectId: pid, branch, sha: c.sha }) },
       {
         id: "pick",
         label: <>Cherry-pick onto <span className="mono">{current ?? "…"}</span></>,
@@ -72,9 +74,9 @@ export function CommitList({
         run: () => pick.mutate({ projectId: pid, onto: current, sha: c.sha }),
       },
       "sep",
-      { id: "soft", label: "Reset here · soft", icon: "back", hint: needCheckout ?? "keep staged", disabled: !checkedOut, run: () => setReset({ c, mode: "soft" }) },
-      { id: "mixed", label: "Reset here · mixed", icon: "back", hint: needCheckout ?? "keep unstaged", disabled: !checkedOut, run: () => setReset({ c, mode: "mixed" }) },
-      { id: "hard", label: "Reset here · hard", icon: "trash", hint: needCheckout ?? "discard", danger: true, disabled: !checkedOut, run: () => setReset({ c, mode: "hard" }) },
+      { id: "soft", label: "Reset here · soft", icon: "back", hint: needCheckout ?? "keep staged", disabled: !!needCheckout, run: () => setReset({ c, mode: "soft" }) },
+      { id: "mixed", label: "Reset here · mixed", icon: "back", hint: needCheckout ?? "keep unstaged", disabled: !!needCheckout, run: () => setReset({ c, mode: "mixed" }) },
+      { id: "hard", label: "Reset here · hard", icon: "trash", hint: needCheckout ?? "discard", danger: true, disabled: !!needCheckout, run: () => setReset({ c, mode: "hard" }) },
     ];
   };
 
@@ -103,18 +105,20 @@ export function CommitList({
       <div className="scroll commits" style={{ flex: "1 1 auto" }}>
         {commits.isLoading && <Loading />}
         {commits.error && <div style={{ padding: 12 }}><ErrorBox error={commits.error} /></div>}
-        {base && list.length > 0 && (
+        {base && local.length > 0 && (
           <button className="commit-row" aria-pressed={!selected} onClick={() => onPick(undefined)}>
             <span className="commit-subject">All changes</span>
             <span className="commit-meta">
-              {plural(list.length, "commit")} combined, since <span className="mono">{base}</span>
+              {plural(local.length, "commit")} combined, since <span className="mono">{base}</span>
             </span>
           </button>
         )}
         {list.map((c) => (
           <button key={c.sha} className="commit-row" aria-pressed={c.sha === selected} onClick={() => onPick(c)} onContextMenu={(e) => openMenu(c, e)}>
-            {c.tags.length > 0 && (
+            {(c.tags.length > 0 || c.local || c.origin) && (
               <span className="commit-tags">
+                {c.local && <span className="tag" title={`${branch} is here locally`}>local</span>}
+                {c.origin && <span className="tag" title={`${branch} is here on origin`}>origin</span>}
                 {c.tags.map((t) => (
                   <span key={t} className="commit-tag mono" title={`Tag ${t}`}>
                     <Icon name="tag" size={10} stroke={1.6} />
@@ -140,7 +144,7 @@ export function CommitList({
           pid={pid}
           branch={branch}
           commit={reset.c}
-          dropped={list.findIndex((c) => c.sha === reset.c.sha)}
+          dropped={local.findIndex((c) => c.sha === reset.c.sha)}
           mode={reset.mode}
           onMode={(mode) => setReset({ ...reset, mode })}
           onDone={() => onPick(undefined)}

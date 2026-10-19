@@ -140,6 +140,12 @@ export interface Commit {
   body: string;
   /** Tags pointing at it. */
   tags: string[];
+  /** Tip of the branch's local copy (a branch's commit list only). */
+  local?: boolean;
+  /** Tip of the branch's copy on origin (a branch's commit list only). */
+  origin?: boolean;
+  /** On origin, not pulled into the local branch yet. */
+  unpulled?: boolean;
 }
 
 export interface CleanupResult {

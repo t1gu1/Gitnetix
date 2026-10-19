@@ -68,6 +68,9 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
   const rel = open.find((r) => r.branch === from);
   const types = [...KINDS.map((k) => ({ value: k.id as Kind | "release", label: k.label })), { value: "release" as const, label: "Release" }];
 
+  // A hook: called on every render, so above the release dialog's early return.
+  const aiOn = useAiOn("branch");
+
   // Switching type rewrites a known type prefix (feature/x → fix/x); a custom prefix is left alone.
   const pickKind = (k: Kind | "release") => {
     setKind(k);
@@ -119,7 +122,6 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
   const branch = withTicket(withPrefix(name, kind), ticket);
   // Switching brings the uncommitted changes along: with no name, AI names the branch after them.
   const wip = ov.data?.branches.find((b) => b.name === ov.data?.currentBranch)?.wip ?? 0;
-  const aiOn = useAiOn("branch");
   const nameFromWip = aiOn && !agent && where === "switch" && wip > 0;
 
   return (

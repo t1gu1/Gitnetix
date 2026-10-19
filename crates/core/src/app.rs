@@ -974,11 +974,31 @@ impl Gitnetix {
         let git = self.git(&p);
         let default = git.default_branch().await?;
         let base = self.base_of(&p, branch, &default).await;
-        let (base_rev, rev) = tokio::join!(git.rev_of(&base), git.rev_of(branch));
-        if base == branch {
-            return git.log(&rev, Some(200)).await;
+        let (local_ref, origin_ref) = (format!("refs/heads/{branch}"), format!("refs/remotes/origin/{branch}"));
+        let (local, origin) = tokio::join!(git.rev_parse(&local_ref), git.rev_parse(&origin_ref));
+        let (local, origin) = (local.ok(), origin.ok());
+        // Both copies' commits, so origin's not-yet-pulled ones show above the local tip.
+        let mut revs: Vec<String> = [&local, &origin].into_iter().flatten().cloned().collect();
+        if revs.is_empty() {
+            revs.push(git.rev_of(branch).await);
         }
-        git.log(&format!("{base_rev}..{rev}"), Some(500)).await
+        let limit = if base == branch {
+            200
+        } else {
+            revs.push(format!("^{}", git.rev_of(&base).await));
+            500
+        };
+        let mut list = git.log_revs(&revs.iter().map(String::as_str).collect::<Vec<_>>(), Some(limit)).await?;
+        let unpulled = match (&local, &origin) {
+            (Some(l), Some(o)) if l != o => git.rev_list(&format!("{l}..{o}")).await.unwrap_or_default(),
+            _ => Vec::new(),
+        };
+        for c in &mut list {
+            c.local = local.as_deref() == Some(c.sha.as_str());
+            c.origin = origin.as_deref() == Some(c.sha.as_str());
+            c.unpulled = unpulled.contains(&c.sha);
+        }
+        Ok(list)
     }
 
     /// Files one commit changed, against its first parent.

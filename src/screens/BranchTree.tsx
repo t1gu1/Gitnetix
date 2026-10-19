@@ -208,7 +208,7 @@ export function BranchTree({
             {live.length > 0 && !q && (
               <button className="tree-row tree-group tree-toggle" data-path={pathLive || undefined} aria-expanded={open} aria-label={`${open ? "Hide" : "Show"} the child branches of ${b.name}`} onClick={() => toggle(b.name)}>
                 <span className="tree-twist"><Icon name="chevronDown" size={12} className="chev" /></span>
-                <span>{open ? "Hide" : "Show"} child branches</span>
+                <span className="child-label">Child branches</span>
                 <span className="faint">{live.length}</span>
                 {wipBelow > 0 && <span className="wip-badge" title={`${plural(wipBelow, "file")} with uncommitted changes in hidden branches`}>(WIP {wipBelow})</span>}
               </button>
@@ -287,7 +287,7 @@ export function BranchTree({
           <>
             <button className="tree-row tree-group" style={{ marginTop: 8 }} aria-expanded={isOpen("shipped")} onClick={() => toggle("shipped")}>
               <span className="tree-twist"><Icon name="chevronDown" size={12} className="chev" /></span>
-              <span>Shipped</span>
+              <span className="shipped-label">Shipped</span>
               <span className="faint">{shipped.length}</span>
             </button>
             {isOpen("shipped") &&
