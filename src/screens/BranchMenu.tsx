@@ -1,7 +1,7 @@
 import { useState, type MouseEvent } from "react";
 
-import { useAction, useAiOn, useOverview, usePendingBranches } from "../api/hooks";
-import type { BranchView, RebaseResult, Stash, StashApplied } from "../api/types";
+import { switchedOverview, useAction, useAiOn, useOverview, usePendingBranches } from "../api/hooks";
+import type { BranchView, Overview, RebaseResult, Stash, StashApplied } from "../api/types";
 import { ContextMenu, type MenuItem } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
 import { plural } from "../lib/format";
@@ -59,7 +59,11 @@ const isDiverged = (v: BranchView) => !!v.upstream && v.upstreamAhead > 0 && v.u
 export function useBranchActions(pid: string, openDialog: (d: BranchDialog, branch: string) => void) {
   const nav = useNav();
   const inv = [["overview", pid], ["files", pid], ["diff", pid], ["commits", pid]];
-  const sw = useAction<unknown, { projectId: string; branch: string }>("workspace.switch", { invalidate: inv });
+  const sw = useAction<unknown, { projectId: string; branch: string }>("workspace.switch", {
+    invalidate: inv,
+    // The tree follows the checkout at once instead of waiting for the full overview.
+    patch: (qc, v) => qc.setQueryData<Overview>(["overview", pid], (o) => o && switchedOverview(o, v.branch)),
+  });
   const wt = useAction<{ path: string }, { projectId: string; branch: string }>("worktrees.create", { invalidate: [...inv, ["worktrees"]], success: (r) => `Worktree at ${r.path}` });
   const pull = useAction<{ output: string }, { projectId: string; branch: string }>("branches.pull", { invalidate: inv });
   const push = useAction<{ output: string }, { projectId: string; branch: string }>("workspace.push", { invalidate: inv });

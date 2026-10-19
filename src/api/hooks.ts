@@ -7,6 +7,7 @@ import type {
   AiCatalog,
   Analytics,
   Blobs,
+  BranchView,
   Commit,
   CommitPrefs,
   Config,
@@ -104,6 +105,25 @@ export function useProjectPrefs(projectId?: string) {
 
 export const useConfig = () => useQuery({ queryKey: ["config"], queryFn: () => rpc<Config>("config.get") });
 export const useProjects = () => useQuery({ queryKey: ["projects"], queryFn: () => rpc<ProjectSummary[]>("projects.list") });
+
+/**
+ * The overview right after switching to `branch`, or to `tag` (detached HEAD, `branch` null): it is the
+ * checked-out one now and the uncommitted work came along. Counts and the rest wait for the engine's full answer, which can take a while on a big repository.
+ */
+export function switchedOverview(o: Overview, branch: string | null, tag?: string): Overview {
+  const from = o.currentBranch;
+  const wip = o.branches.find((b) => b.name === from && !b.worktree)?.wip ?? 0;
+  const mark = (b: BranchView): BranchView =>
+    b.name === branch ? { ...b, checkedOut: true, wip: b.wip + wip } : b.name === from && !b.worktree ? { ...b, checkedOut: false, wip: 0 } : b;
+  return {
+    ...o,
+    currentBranch: branch,
+    branches: o.branches.map(mark),
+    otherBranches: o.otherBranches.map(mark),
+    defaultView: o.defaultView && mark(o.defaultView),
+    releases: o.releases.map((r) => ({ ...r, checkedOut: !!tag && r.tagName === tag, view: r.view && mark(r.view) })),
+  };
+}
 
 export const useOverview = (projectId?: string) => {
   const qc = useQueryClient();
@@ -255,14 +275,24 @@ export function usePendingBranches(method: string, projectId: string): string[] 
 
 export function useAction<T = unknown, V extends Record<string, unknown> = Record<string, unknown>>(
   method: string,
-  opts: { invalidate?: unknown[][]; success?: string | ((r: T) => string | undefined) } = {},
+  opts: {
+    invalidate?: unknown[][];
+    success?: string | ((r: T) => string | undefined);
+    /** Updates the cache with what is already known, so it shows before the invalidated queries come back. */
+    patch?: (qc: QueryClient, vars: V, r: T) => void;
+  } = {},
 ) {
   const qc = useQueryClient();
   return useMutation<T, Error, V>({
     // Keyed by method so other screens can tell it is running (e.g. a push started from the commit box).
     mutationKey: [method],
     mutationFn: (vars) => rpc<T>(method, vars),
-    onSuccess: (r) => {
+    onSuccess: async (r, vars) => {
+      if (opts.patch) {
+        // A fetch started before the action would land after the patch and undo it.
+        await Promise.all((opts.invalidate ?? []).map((k) => qc.cancelQueries({ queryKey: k })));
+        opts.patch(qc, vars, r);
+      }
       for (const k of opts.invalidate ?? []) qc.invalidateQueries({ queryKey: k });
       const msg = typeof opts.success === "function" ? opts.success(r) : opts.success;
       if (msg) toast(msg, "ok");

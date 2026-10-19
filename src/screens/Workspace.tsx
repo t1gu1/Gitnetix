@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 
-import { useAction, useAgents, useAiOn, useBlobs, useDiff, useFiles, useOverview, useProjectPrefs } from "../api/hooks";
-import type { BranchView, Commit, FileChange, MergeResult, ReleaseView, Stash } from "../api/types";
+import { switchedOverview, useAction, useAgents, useAiOn, useBlobs, useDiff, useFiles, useOverview, useProjectPrefs } from "../api/hooks";
+import type { BranchView, Commit, FileChange, MergeResult, Overview, ReleaseView, Stash } from "../api/types";
 import { AgentLog } from "../components/AgentLog";
 import { DiffView, type DiffMode } from "../components/DiffView";
 import { ImageDiff, isImage } from "../components/ImageDiff";
@@ -35,7 +35,10 @@ export function Workspace() {
   const [shipping, setShipping] = useState<ReleaseView | null>(null);
   const [dialog, setDialog] = useState<{ kind: BranchDialog; branch: string } | null>(null);
   const [deletingTag, setDeletingTag] = useState<string | null>(null);
-  const checkoutTag = useAction<unknown, { projectId: string; name: string }>("tags.checkout", { invalidate: [["overview", pid], ["files", pid], ["diff", pid], ["commits", pid]] });
+  const checkoutTag = useAction<unknown, { projectId: string; name: string }>("tags.checkout", {
+    invalidate: [["overview", pid], ["files", pid], ["diff", pid], ["commits", pid]],
+    patch: (qc, v) => qc.setQueryData<Overview>(["overview", pid], (o) => o && switchedOverview(o, null, v.name)),
+  });
   const [cleanup, setCleanup] = useState<{ parent: string; label: string; branches: BranchView[] } | null>(null);
   const [cleanupBehind, setCleanupBehind] = useState<{ section: string; base: string; branches: BranchView[] } | null>(null);
   const isCleaning = useCleaning(pid);

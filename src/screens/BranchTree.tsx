@@ -1,3 +1,4 @@
+import { useIsMutating } from "@tanstack/react-query";
 import { useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type MouseEvent, type ReactNode } from "react";
 
 import { useAction } from "../api/hooks";
@@ -645,14 +646,33 @@ function Row({
   );
 }
 
-/** Counts each time `value` grows past what was last seen (0 until then), so a key from it replays a CSS animation. Never fires on mount. */
-function useGrowth(value: number): number {
+/** How long after a merge ends the commit animations it held back play, so they land once the dialog is gone and the tree has settled. */
+const MERGE_SETTLE_MS = 450;
+
+/**
+ * Counts each time `value` grows past what was last seen (0 until then), so a key from it replays a CSS animation. Never fires on mount.
+ * While `hold` is on, growth is kept back and counted once it turns off, after MERGE_SETTLE_MS.
+ */
+function useGrowth(value: number, hold: boolean): number {
   const last = useRef(value);
+  const held = useRef(false);
   const [grew, setGrew] = useState(0);
   useEffect(() => {
-    if (value > last.current) setGrew((n) => n + 1);
+    if (value > last.current) {
+      // Still settling: the pending replay covers it too.
+      if (hold || held.current) held.current = true;
+      else setGrew((n) => n + 1);
+    }
     last.current = value;
-  }, [value]);
+  }, [value, hold]);
+  useEffect(() => {
+    if (hold || !held.current) return;
+    const id = setTimeout(() => {
+      held.current = false;
+      setGrew((n) => n + 1);
+    }, MERGE_SETTLE_MS);
+    return () => clearTimeout(id);
+  }, [hold]);
   return grew;
 }
 
@@ -674,7 +694,9 @@ function BranchMeta({
 }) {
   const tracked = b.exists && !b.merged && !!parent;
   // A new commit landed: the commit link pops and glows. Ahead counts for a tracked branch, the tip's date for a trunk.
-  const grew = useGrowth(parent ? b.ahead : Date.parse(b.date) || 0);
+  // A merge refreshes the tree several times as it goes: the animation waits for it to finish.
+  const merging = useIsMutating({ mutationKey: ["branches.merge"] }) > 0;
+  const grew = useGrowth(parent ? b.ahead : Date.parse(b.date) || 0, merging);
   const growCls = grew > 0 ? " meta-link-grow" : "";
   return (
     <span className="branch-meta">

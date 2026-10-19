@@ -14,6 +14,7 @@ release notes and the in-app update prompt.
 ### Changed
 - Path dots on branches the path only passes through are now dimmed.
 - Dimmed path runs now fade in and out at their ends.
+- Tree now shows the checked-out branch or tag as soon as a switch completes.
 
 ### Fixed
 - Branch path line now runs past the sibling branches above it.

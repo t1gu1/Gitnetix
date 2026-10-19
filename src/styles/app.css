@@ -262,6 +262,11 @@ body.resizing iframe, body.resizing .term { pointer-events: none; }
 .tree-row { isolation: isolate; }
 .tree-row::after { content: ""; position: absolute; z-index: -1; inset: 0; border-radius: 4px; background: var(--raised); pointer-events: none; }
 .tree-row:hover::after { background: color-mix(in srgb, var(--raised), var(--fg) 6%); }
+/* The checked-out row always looks hovered, with a faint yellow tint (a bit stronger in light mode, where it washes out). */
+[data-theme="light"] .tree-row[data-current]::after { background: color-mix(in srgb, color-mix(in srgb, var(--raised), var(--fg) 6%), var(--warn-fg) 11%); }
+[data-theme="light"] .tree-row[data-current]:hover::after, [data-theme="light"] .tree-row.tree-row[data-current]:has(> .tree-btn[aria-pressed="true"])::after { background: color-mix(in srgb, color-mix(in srgb, var(--raised), var(--fg) 9%), var(--warn-fg) 14%); }
+.tree-row[data-current]::after { background: color-mix(in srgb, color-mix(in srgb, var(--raised), var(--fg) 6%), var(--warn-fg) 6%); }
+.tree-row[data-current]:hover::after, .tree-row.tree-row[data-current]:has(> .tree-btn[aria-pressed="true"])::after { background: color-mix(in srgb, color-mix(in srgb, var(--raised), var(--fg) 9%), var(--warn-fg) 8%); }
 .tree-row:has(> .tree-btn[aria-pressed="true"])::after { background: color-mix(in srgb, var(--sel), var(--fg) 9%); }
 [data-theme="light"] .tree-row:has(> .tree-btn[aria-pressed="true"])::after { background: color-mix(in srgb, var(--sel), var(--fg) 4%); }
 /* Checked-out branch and every branch above it: their stretch of the parent's line turns orange (6px left of the row, top level included).
