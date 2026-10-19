@@ -63,6 +63,8 @@ pub struct Comment {
     pub body: String,
     pub created_at: String,
     pub reactions: Vec<Reaction>,
+    /// The signed-in user may edit it (usually: they wrote it).
+    pub can_edit: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -105,7 +107,7 @@ pub const EMOJI: &[(&str, &str)] = &[
 ];
 
 /// Fields of a comment, a review or a review thread's comment.
-const COMMENT: &str = "id databaseId author{login} body createdAt reactionGroups{content viewerHasReacted reactors{totalCount}}";
+const COMMENT: &str = "id databaseId author{login} body createdAt viewerCanUpdate reactionGroups{content viewerHasReacted reactors{totalCount}}";
 
 fn emoji(content: &str) -> String {
     EMOJI.iter().find(|(c, _)| *c == content).map(|(_, e)| e.to_string()).unwrap_or_else(|| content.into())
@@ -302,6 +304,7 @@ impl GitHub {
             author: c["author"]["login"].as_str().unwrap_or("ghost").into(),
             body: c["body"].as_str().unwrap_or("").into(),
             created_at: c["createdAt"].as_str().unwrap_or("").into(),
+            can_edit: c["viewerCanUpdate"] == true,
             reactions: c["reactionGroups"]
                 .as_array()
                 .into_iter()
@@ -447,6 +450,20 @@ impl GitHub {
         )
         .await
         .map(|_| ())
+    }
+
+    /// Replace the text of a PR comment, review thread comment or review summary.
+    pub async fn edit_comment(&self, id: &str, body: &str) -> Result<()> {
+        let kind = self.gql("query($id:ID!){node(id:$id){__typename}}", json!({ "id": id })).await?;
+        let m = match kind["node"]["__typename"].as_str() {
+            Some("IssueComment") => "mutation($id:ID!,$b:String!){updateIssueComment(input:{id:$id,body:$b}){issueComment{id}}}",
+            Some("PullRequestReviewComment") => {
+                "mutation($id:ID!,$b:String!){updatePullRequestReviewComment(input:{pullRequestReviewCommentId:$id,body:$b}){pullRequestReviewComment{id}}}"
+            }
+            Some("PullRequestReview") => "mutation($id:ID!,$b:String!){updatePullRequestReview(input:{pullRequestReviewId:$id,body:$b}){pullRequestReview{id}}}",
+            _ => return Err(Error::NotFound("comment".into())),
+        };
+        self.gql(m, json!({ "id": id, "b": body })).await.map(|_| ())
     }
 
     pub async fn set_resolved(&self, thread_id: &str, resolved: bool) -> Result<()> {

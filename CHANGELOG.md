@@ -12,6 +12,7 @@ release notes and the in-app update prompt.
 ## [Unreleased]
 
 ### Added
+- Edit your own PR comments, review thread replies and review summaries, with "Improve" to polish the wording.
 - "Improve reply" on PR conversations: AI fixes spelling and grammar and smooths the wording of a reply you started.
 - Sign in with GitHub from Settings › Git providers, no token to create; personal access tokens still work.
 - macOS (universal `.dmg`) and Windows (`-setup.exe`) builds on every release, next to the AppImage.

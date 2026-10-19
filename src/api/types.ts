@@ -394,6 +394,7 @@ export interface PrComment {
   body: string;
   createdAt: string;
   reactions: Reaction[];
+  canEdit: boolean;
 }
 
 export interface PrThread {

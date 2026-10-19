@@ -2403,7 +2403,8 @@ impl Gitnetix {
     }
 
     /// A reply for a review conversation; with `draft`, the author's started reply polished instead.
-    pub async fn draft_reply(&self, project_id: &str, number: u64, thread_id: &str, draft: Option<&str>) -> Result<String> {
+    /// `editing` is the comment the draft rewrites: the conversation then stops before it.
+    pub async fn draft_reply(&self, project_id: &str, number: u64, thread_id: &str, draft: Option<&str>, editing: Option<&str>) -> Result<String> {
         let gh = self.github(project_id).await?;
         let d = gh.detail(number).await?;
         let th = d.threads.iter().find(|t| t.id == thread_id).ok_or_else(|| Error::NotFound("thread".into()))?;
@@ -2411,7 +2412,7 @@ impl Gitnetix {
         if let Some(path) = &th.path {
             convo.push_str(&format!("File: {path}:{}\n{}\n\n", th.line.unwrap_or(0), th.snippet.join("\n")));
         }
-        for c in &th.comments {
+        for c in th.comments.iter().take_while(|c| Some(c.id.as_str()) != editing) {
             convo.push_str(&format!("{}: {}\n\n", c.author, c.body));
         }
         let p = self.store.project(project_id)?;
