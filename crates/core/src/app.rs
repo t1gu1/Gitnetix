@@ -485,6 +485,19 @@ impl Refs {
     }
 }
 
+/// Whether branch `rev` landed in `base`, given its (behind, ahead) counts against it.
+async fn landed(git: &Git, rev: &str, base: &str, (behind, ahead): (u32, u32), origin_only: bool) -> bool {
+    if ahead == 0 {
+        // Origin-only branches have no creation reflog: fully contained and left behind counts.
+        git.is_merged_into(rev, base).await.unwrap_or(false) || (origin_only && behind > 0)
+    } else if behind > 0 {
+        // Squashed or rebased in: the base gained commits carrying the branch's changes.
+        git.is_squash_merged(rev, base).await.unwrap_or(false)
+    } else {
+        false
+    }
+}
+
 /// Branches work can merge into, most specific first: open releases, dev branches, the default branch.
 fn merge_targets(p: &Project, refs: &Refs, default: &str) -> Vec<String> {
     let mut t: Vec<String> = p.releases.iter().filter(|r| r.shipped_at.is_none() && refs.rev(&r.branch).is_some()).map(|r| r.branch.clone()).collect();
@@ -888,12 +901,22 @@ impl Gitnetix {
         };
         // Trunks and open releases live on; only work gets merged away.
         let merged = match (&rev, &base_rev) {
-            (Some(r), Some(b)) if ahead == 0 && role == "branch" => {
-                // Origin-only branches have no creation reflog: fully contained and left behind counts.
-                git.is_merged_into(r, b).await.unwrap_or(false) || (info.is_none() && behind > 0)
+            (Some(r), Some(b)) if role == "branch" => {
+                landed(git, r, b, (behind, ahead), info.is_none()).await || {
+                    // Merged on the host (a PR) while the local base lags behind origin's copy.
+                    let base = parent.as_deref().unwrap_or_default();
+                    match (refs.local(base), refs.remote(base)) {
+                        (Some(l), Some(o)) if l.sha != o.sha => {
+                            let ob = format!("origin/{base}");
+                            match git.left_right(&ob, r).await {
+                                Ok(counts) => landed(git, r, &ob, counts, info.is_none()).await,
+                                Err(_) => false,
+                            }
+                        }
+                        _ => false,
+                    }
+                }
             }
-            // Squashed or rebased in: the base gained commits carrying the branch's changes.
-            (Some(r), Some(b)) if behind > 0 && role == "branch" => git.is_squash_merged(r, b).await.unwrap_or(false),
             _ => false,
         };
         let meta = p.branches.get(name);
@@ -1594,7 +1617,17 @@ impl Gitnetix {
         if local || on_origin {
             let rev = if local { branch.to_string() } else { format!("origin/{branch}") };
             let base = self.base_of(&p, branch, &default).await;
-            let base_rev = git.rev_of(&base).await;
+            let local_base = git.rev_of(&base).await;
+            // Merged on the host while the local base lags behind: origin's copy has it.
+            let origin_base = format!("origin/{base}");
+            let base_rev = if !git.is_ancestor(&rev, &local_base).await?
+                && git.ref_exists(&format!("refs/remotes/{origin_base}")).await?
+                && (git.is_ancestor(&rev, &origin_base).await? || git.is_squash_merged(&rev, &origin_base).await.unwrap_or(false))
+            {
+                origin_base
+            } else {
+                local_base
+            };
             if !force && !git.is_ancestor(&rev, &base_rev).await? && !git.is_squash_merged(&rev, &base_rev).await.unwrap_or(false) {
                 let n = git.count(&format!("{base_rev}..{rev}")).await?;
                 return Err(Error::Invalid(format!(

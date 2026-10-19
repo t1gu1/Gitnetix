@@ -999,3 +999,43 @@ async fn ship_dates_the_changelog() {
     call(&k, "releases.ship", json!({ "projectId": pid, "version": "0.3.0" })).await;
     assert_eq!(rev(&repo, "v0.3.0^{commit}"), before);
 }
+
+#[tokio::test]
+async fn merged_on_origin_while_local_base_lags() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("lag");
+    init_repo(&repo);
+    let origin = tmp.path().join("origin.git");
+    sh(tmp.path(), &["init", "-q", "--bare", "-b", "main", origin.to_str().unwrap()]);
+    sh(&repo, &["remote", "add", "origin", origin.to_str().unwrap()]);
+    for b in ["via-pr", "via-squash"] {
+        sh(&repo, &["switch", "-qc", &format!("feat/{b}"), "main"]);
+        commit_file(&repo, &format!("{b}.txt"), "x\n");
+        commit_file(&repo, &format!("{b}-2.txt"), "y\n");
+    }
+    sh(&repo, &["switch", "-q", "main"]);
+    sh(&repo, &["push", "-q", "origin", "main", "feat/via-pr", "feat/via-squash"]);
+
+    // The host merges both PRs; the local main never pulls them.
+    let other = tmp.path().join("other");
+    sh(tmp.path(), &["clone", "-q", origin.to_str().unwrap(), other.to_str().unwrap()]);
+    sh(&other, &["config", "user.email", "o@x"]);
+    sh(&other, &["config", "user.name", "o"]);
+    sh(&other, &["merge", "-q", "--no-ff", "origin/feat/via-pr", "-m", "Merge pull request #1"]);
+    sh(&other, &["merge", "-q", "--squash", "origin/feat/via-squash"]);
+    sh(&other, &["commit", "-qm", "squash via-squash"]);
+    sh(&other, &["push", "-q", "origin", "main"]);
+    sh(&repo, &["fetch", "-q", "origin"]);
+
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let added = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await;
+    let pid = added[0]["id"].as_str().unwrap().to_string();
+    let ov = call(&k, "workspace.overview", json!({ "projectId": pid })).await;
+    let merged = |n: &str| ov["branches"].as_array().unwrap().iter().find(|b| b["name"] == n).unwrap()["merged"].as_bool().unwrap();
+    assert!(merged("feat/via-pr"));
+    assert!(merged("feat/via-squash"));
+    // They go without forcing, though the local main lacks them.
+    call(&k, "branches.cleanup", json!({ "projectId": pid, "branches": ["feat/via-pr", "feat/via-squash"] })).await;
+    assert!(!repo.join(".git/refs/heads/feat/via-pr").exists());
+    assert!(!repo.join(".git/refs/heads/feat/via-squash").exists());
+}
