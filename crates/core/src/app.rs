@@ -1959,12 +1959,34 @@ impl Gitnetix {
         Ok(tag)
     }
 
+    /// Move the `Unreleased` entries of an open release's CHANGELOG.md into its version's
+    /// section, committed on the release branch, ahead of shipping it.
+    pub async fn release_changelog(&self, project_id: &str, version: &str) -> Result<String> {
+        let p = self.store.project(project_id)?;
+        let r = p
+            .releases
+            .iter()
+            .find(|r| r.version == version && r.shipped_at.is_none())
+            .cloned()
+            .ok_or_else(|| Error::NotFound(format!("open release v{version}")))?;
+        let git = self.git(&p);
+        let text = git.show_file(&r.branch, CHANGELOG).await?.ok_or_else(|| Error::Invalid(format!("{} has no {CHANGELOG}", r.branch)))?;
+        if text.lines().any(|l| l.trim_start().starts_with(&format!("## [{version}]"))) {
+            return Ok(format!("{CHANGELOG} already has a {version} section"));
+        }
+        if !self.stamp_release_changelog(&p, &git, &r.branch, version).await? {
+            return Ok(format!("Nothing under Unreleased to move into {version}"));
+        }
+        self.changed(project_id);
+        Ok(format!("Unreleased changes moved into {version} on {}", r.branch))
+    }
+
     /// Turn the `Unreleased` section of the release branch's CHANGELOG.md into this
-    /// version's, and commit that on the branch. No-op without a changelog or entries.
-    async fn stamp_release_changelog(&self, p: &Project, git: &Git, branch: &str, version: &str) -> Result<()> {
-        let Some(text) = git.show_file(branch, CHANGELOG).await? else { return Ok(()) };
+    /// version's, and commit that on the branch. False (no-op) without a changelog or entries.
+    async fn stamp_release_changelog(&self, p: &Project, git: &Git, branch: &str, version: &str) -> Result<bool> {
+        let Some(text) = git.show_file(branch, CHANGELOG).await? else { return Ok(false) };
         let date = chrono::Local::now().format("%Y-%m-%d").to_string();
-        let Some(stamped) = stamp_changelog(&text, version, &date) else { return Ok(()) };
+        let Some(stamped) = stamp_changelog(&text, version, &date) else { return Ok(false) };
         let message = format!("docs(changelog): release v{version}");
         match self.checkout_dir(p, branch).await? {
             Some(dir) => {
@@ -1979,7 +2001,7 @@ impl Gitnetix {
                 git.commit_root_file(branch, CHANGELOG, &stamped, &message).await?;
             }
         }
-        Ok(())
+        Ok(true)
     }
 
     pub fn delete_release(&self, project_id: &str, version: &str) -> Result<()> {

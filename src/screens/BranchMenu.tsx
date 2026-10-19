@@ -72,12 +72,14 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
   });
   const pr = useAction<{ number: number }, { projectId: string; branch: string }>("prs.create", { invalidate: [["prs", pid]], success: (r) => `Opened PR #${r.number}` });
   const changelog = useAction<{ message: string }, { projectId: string; branch: string }>("changelog.update", { invalidate: inv, success: (r) => r.message });
+  const stampChangelog = useAction<{ message: string }, { projectId: string; branch: string; version: string }>("changelog.release", { invalidate: inv, success: (r) => r.message });
+  const hasChangelog = !!useOverview(pid).data?.hasChangelog;
   // Changelog entries are written by the AI that writes release notes.
-  const canChangelog = useAiOn("release") && !!useOverview(pid).data?.hasChangelog;
+  const canChangelog = useAiOn("release") && hasChangelog;
   const move = useAction("branches.setParent", { invalidate: inv });
   const [menu, setMenu] = useState<{ x: number; y: number; alignRight: boolean; t: BranchTarget } | null>(null);
 
-  const mutations = [sw, wt, pull, push, rebase, sync, stash, unstash, pr, changelog];
+  const mutations = [sw, wt, pull, push, rebase, sync, stash, unstash, pr, changelog, stampChangelog];
   // Pushes started elsewhere count too: the commit box's auto push spins the branch's Push button.
   const pushing = usePendingBranches("workspace.push", pid);
   const busy = new Set([...mutations.flatMap((m) => (m.isPending && m.variables?.branch ? [m.variables.branch] : [])), ...pushing]);
@@ -217,6 +219,13 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
         icon: "sparkle",
         run: () => changelog.mutate({ projectId: pid, branch: b }),
       },
+      stampChangelog: {
+        id: "stampChangelog",
+        label: `Move unreleased changelog into ${v.release}`,
+        tip: `Rename the Unreleased section of CHANGELOG.md to ${v.release}, dated today, committed on ${b}`,
+        icon: "tag",
+        run: () => v.release && stampChangelog.mutate({ projectId: pid, branch: b, version: v.release }),
+      },
       tag: { id: "tag", label: "Create tag…", tip: `Tag the tip of ${b}`, icon: "tag", run: () => openDialog("tag", b) },
       copy: { id: "copy", label: "Copy branch name", icon: "edit", run: () => copyToClipboard(b) },
       delete: {
@@ -258,6 +267,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
     }
     if (t.base) list.push(a.pr);
     if (v.local && canChangelog) list.push(a.changelog);
+    if (v.local && hasChangelog && v.role === "release" && v.release) list.push(a.stampChangelog);
     if (t.moveTo?.length || t.pickTarget) {
       list.push("sep");
       for (const m of t.moveTo ?? []) {

@@ -19,6 +19,7 @@ release notes and the in-app update prompt.
 - The push button wiggles when commits are waiting to go to origin.
 - The commit link animates when new commits land.
 - An empty state is shown when no pull request provider is connected.
+- "Move unreleased changelog into x.y.z" release branch action: renames the `Unreleased` section of `CHANGELOG.md` to the release's version, dated today, and commits it on the branch before shipping.
 
 ### Changed
 - Open releases are sorted newest version first.
