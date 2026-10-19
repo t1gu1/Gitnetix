@@ -334,9 +334,12 @@ export function BranchSplit({ t, actions }: { t: BranchTarget; actions: BranchAc
   const busy = actions.busy.has(t.view.name);
   const tip = p.tip ?? (typeof p.label === "string" ? p.label : undefined);
   const more = `More actions for ${t.view.name}`;
+  // Commits waiting to go to origin: the Push button shakes now and then so they aren't forgotten.
+  const v = t.view;
+  const nudge = p.id === "push" && !busy && !p.disabled && (v.upstreamAhead > 0 || (!v.upstream && v.ahead > 0));
   return (
     <span className="acts" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
-      <button className={`act act-main${p.danger ? " btn-danger" : ""}`} disabled={p.disabled || busy} aria-label={tip} data-tip={tip} onClick={p.run}>
+      <button className={`act act-main${p.danger ? " btn-danger" : ""}${nudge ? " act-nudge" : ""}`} disabled={p.disabled || busy} aria-label={tip} data-tip={tip} onClick={p.run}>
         {busy ? <span className="spinner" /> : <Icon name={p.icon ?? "check"} size={14} />}
       </button>
       <span className="act-stack">

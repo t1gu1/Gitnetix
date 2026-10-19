@@ -30,7 +30,7 @@ export function Workspace() {
   const [mode, setMode] = useState<Mode>("wip");
   const [file, setFile] = useState<string | undefined>();
   const [diffMode, setDiffMode] = useState<DiffMode>("unified");
-  const [termOpen, setTermOpen] = useState(true);
+  const [termOpen, setTermOpen] = useState(false);
   const [pane, setPane] = useState<Pane>("releases");
   const [shipping, setShipping] = useState<ReleaseView | null>(null);
   const [dialog, setDialog] = useState<{ kind: BranchDialog; branch: string } | null>(null);

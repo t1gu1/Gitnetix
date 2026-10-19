@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useReducer, useRef, useState, type MouseEvent, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type MouseEvent, type ReactNode } from "react";
 
 import { useAction } from "../api/hooks";
 import type { BranchView, Overview, ReleaseView } from "../api/types";
@@ -557,6 +557,17 @@ function Row({
   );
 }
 
+/** Counts each time `value` grows past what was last seen (0 until then), so a key from it replays a CSS animation. Never fires on mount. */
+function useGrowth(value: number): number {
+  const last = useRef(value);
+  const [grew, setGrew] = useState(0);
+  useEffect(() => {
+    if (value > last.current) setGrew((n) => n + 1);
+    last.current = value;
+  }, [value]);
+  return grew;
+}
+
 /** Status line under a branch, same order for every role. */
 function BranchMeta({
   b,
@@ -574,6 +585,9 @@ function BranchMeta({
   onStashes?: () => void;
 }) {
   const tracked = b.exists && !b.merged && !!parent;
+  // A new commit landed: the commit link pops and glows. Ahead counts for a tracked branch, the tip's date for a trunk.
+  const grew = useGrowth(parent ? b.ahead : Date.parse(b.date) || 0);
+  const growCls = grew > 0 ? " meta-link-grow" : "";
   return (
     <span className="branch-meta">
       {b.role === "branch" && b.kind && <span className={`kind-chip ${b.kind === "fix" ? "c-del" : "c-mod"}`}>{b.kind}</span>}
@@ -593,7 +607,8 @@ function BranchMeta({
       {tracked && b.ahead > 0 && (
         // Inside the row's button, so a span: the context menu offers the same for keyboards.
         <span
-          className={onCommits ? "meta-link" : undefined}
+          key={grew}
+          className={`${onCommits ? "meta-link" : ""}${growCls}`.trim() || undefined}
           data-tip={`${plural(b.ahead, "commit")} not in ${parent} yet${onCommits ? ". Click to list them." : ""}`}
           onClick={onCommits && ((e) => { e.stopPropagation(); onCommits(); })}
           onDoubleClick={(e) => e.stopPropagation()}
@@ -605,7 +620,8 @@ function BranchMeta({
       {b.exists && !parent && onCommits && (
         // A trunk has no base to count against: offer its recent history instead.
         <span
-          className="meta-link"
+          key={grew}
+          className={`meta-link${growCls}`}
           data-tip={`Browse the recent commits of ${b.name}`}
           onClick={(e) => { e.stopPropagation(); onCommits(); }}
           onDoubleClick={(e) => e.stopPropagation()}

@@ -16,11 +16,14 @@ release notes and the in-app update prompt.
 - Branches falling behind are grouped under their parent branch.
 - Azure DevOps pull requests are read to place merged branches under the release that shipped them.
 - Branches whose ticket key appears in a later pull request squash are shown with a "likely" tag. They are never deleted or cleaned up as merged.
+- The push button wiggles when commits are waiting to go to origin.
+- The commit link animates when new commits land.
 
 ### Changed
 - Open releases are sorted newest version first.
 - Branch views are cached per project, and a quick overview shows first when nothing is cached, so reopening a project is faster.
 - Squash merge checks are persisted per commit pair, so they are not repeated.
+- The terminal panel is hidden by default.
 
 ### Fixed
 - Branches squashed by pull requests are now detected, including squashes not titled with the branch name.

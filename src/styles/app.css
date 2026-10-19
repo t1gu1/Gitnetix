@@ -597,5 +597,15 @@ button.app-row:hover { background: var(--raised); }
 .meta-link { cursor: pointer; text-decoration: underline dotted; text-underline-offset: 2px; }
 .meta-link:hover { color: var(--fg); text-decoration-style: solid; }
 /* Text underlines skip icons: a border runs under both. */
+/* Unpushed commits: the Push icon gives a quick wiggle every 10 seconds, then rests. Calm while hovered. */
+.act-nudge > svg { animation: push-nudge 10s ease-in-out 1.5s infinite; transform-origin: 50% 80%; }
+.act-nudge:hover > svg { animation-play-state: paused; }
+@keyframes push-nudge { 0%, 7%, 100% { transform: none; } 1% { transform: translateY(-2px) rotate(-12deg); } 2% { transform: translateY(-2px) rotate(10deg); } 3% { transform: translateY(-1px) rotate(-8deg); } 4% { transform: rotate(6deg); } 5% { transform: rotate(-3deg); } }
+@media (prefers-reduced-motion: reduce) { .act-nudge > svg { animation: none; } }
+/* A commit just landed: the link zooms in and settles while an accent glow sweeps its text left to right, once. */
+.meta-link-grow { display: inline-block; background: linear-gradient(100deg, transparent 35%, var(--accent-fg) 50%, transparent 65%) 100% 0 / 300% 100% no-repeat, linear-gradient(currentColor, currentColor); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; animation: commit-pop .55s cubic-bezier(.34, 1.56, .64, 1), commit-glow 1.4s ease-out .15s both; }
+@keyframes commit-pop { 0% { transform: scale(.6); opacity: 0; } 60% { transform: scale(1.15); opacity: 1; } 100% { transform: none; } }
+@keyframes commit-glow { 0% { background-position: 100% 0, 0 0; filter: drop-shadow(0 0 0 transparent); } 50% { filter: drop-shadow(0 0 4px color-mix(in srgb, var(--accent-fg) 70%, transparent)); } 100% { background-position: 0 0, 0 0; filter: none; } }
+@media (prefers-reduced-motion: reduce) { .meta-link-grow { animation: none; } }
 .meta-link-icon { text-decoration: none; border-bottom: 1px dotted; line-height: 1.2; }
 .meta-link-icon:hover { text-decoration: none; border-bottom-style: solid; }
