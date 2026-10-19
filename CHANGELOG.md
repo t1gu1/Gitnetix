@@ -11,6 +11,8 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-19
+
 ### Added
 - Release branches can change the branch they were cut from. Trunks can take a parent, and work branches can target any existing branch.
 - Branches falling behind are grouped under their parent branch.
