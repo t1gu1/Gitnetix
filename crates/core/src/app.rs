@@ -13,10 +13,12 @@ use tokio::sync::{broadcast, OnceCell};
 
 use crate::agents::{AgentManager, AgentSession, AgentStatus, StartArgs};
 use crate::ai::{self, Resolved};
+use crate::cache::{key_of, CommitCache, ViewCache};
 use crate::error::{Error, Result};
 use crate::events::Event;
-use crate::git::{Blobs, BranchInfo, Commit, FileChange, Git, Hunk, Side, Identity, StashInfo, TagInfo, WorktreeInfo};
-use crate::providers::{github::GitHub, parse_remote};
+use crate::git::{ticket_keys, Blobs, BranchInfo, Commit, FileChange, Git, Hunk, PrSquash, Side, Identity, StashInfo, TagInfo, WorktreeInfo};
+use crate::providers::azure::{self, MergedPr};
+use crate::providers::{azure_auth, github::GitHub, parse_remote};
 use crate::secrets;
 use crate::store::{new_id, now, BranchMeta, GitProfile, Project, Release, ReleaseKind, Store};
 use crate::submodules::{self, FetchReport, Submodule};
@@ -32,7 +34,25 @@ pub struct Gitnetix {
     protected: std::sync::Mutex<HashMap<String, (Instant, Vec<String>)>>,
     /// Watches the projects' git dirs for changes made outside Gitnetix.
     watcher: std::sync::Mutex<Option<notify::RecommendedWatcher>>,
+    /// Merge checks already answered, by commit.
+    commits: CommitCache,
+    /// Every project's branch views as last built, with the refs they were built from.
+    views: ViewCache<Vec<BranchView>>,
+    /// What the git host said about each project's branch tips.
+    hosted: std::sync::Mutex<HashMap<String, HostedPrs>>,
 }
+
+/// Completed pull requests the git host says took in a project's branch tips.
+#[derive(Default)]
+struct HostedPrs {
+    /// By commit. A commit a pull request took stays taken: only the others are asked about again.
+    merged: HashMap<String, Vec<MergedPr>>,
+    /// When each commit was last asked about.
+    asked: HashMap<String, Instant>,
+}
+
+/// How long the git host's "no pull request took it" is trusted before asking again.
+const HOSTED_TTL: std::time::Duration = std::time::Duration::from_secs(300);
 
 /// How long the git host's protected branches are trusted before asking again.
 const PROTECTED_TTL: std::time::Duration = std::time::Duration::from_secs(300);
@@ -74,7 +94,7 @@ pub struct ProjectSummary {
     pub hidden: bool,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BranchView {
     pub name: String,
@@ -103,6 +123,9 @@ pub struct BranchView {
     pub exists: bool,
     /// Its commits are all in the base (merged, nothing new since).
     pub merged: bool,
+    /// `merged` by the look of it, not by proof: a pull request squash carrying its ticket
+    /// key came after its last commit. Never deleted as merged.
+    pub likely_merged: bool,
     /// Branch it merges into; None for the default branch.
     pub parent: Option<String>,
     /// trunk (default or dev branch) | release (open release branch) | branch
@@ -475,17 +498,111 @@ fn is_trunk(name: &str) -> bool {
     DEV_TRUNKS.contains(&name) || matches!(name, "main" | "master")
 }
 
+/// A pair of commit counts per branch.
+type Counts = HashMap<String, (u32, u32)>;
+
 /// Local and origin branches, looked up by name, plus what recent merge commits say.
 struct Refs {
     local: Vec<BranchInfo>,
     remote: Vec<BranchInfo>,
+    /// Position of each branch in `local` and `remote`, by name.
+    local_at: HashMap<String, usize>,
+    remote_at: HashMap<String, usize>,
     /// Merge commit subject, keyed by the tip it merged in; read on first use (a long history walk).
     merges: OnceCell<HashMap<String, String>>,
+    /// Set when most branches get compared: counts then come from one ref scan per base.
+    batch: bool,
+    /// `left_right` of every branch against a base, keyed by base, read on first use.
+    counts: std::sync::Mutex<HashMap<String, Arc<OnceCell<Counts>>>>,
+    /// (ahead, behind) of local branches against their upstream, read on first use.
+    upstream: OnceCell<Counts>,
+    /// Patch id of each commit only shipped releases hold (not the default branch), to the
+    /// lowest version holding it; read on first use.
+    shipped_patches: OnceCell<HashMap<String, ([u64; 3], String)>>,
+    /// Pull request squashes ([`Git::pr_squashes`]), read on first use.
+    squashes: OnceCell<Vec<PrSquash>>,
+    /// Completed pull requests that took in branch tips, by tip, as the git host said.
+    hosted: HashMap<String, Vec<MergedPr>>,
 }
 
 impl Refs {
     async fn load(git: &Git, local: Vec<BranchInfo>) -> Refs {
-        Refs { local, remote: git.remote_branches().await.unwrap_or_default(), merges: OnceCell::new() }
+        Refs::new(local, git.remote_branches().await.unwrap_or_default())
+    }
+
+    fn new(local: Vec<BranchInfo>, remote: Vec<BranchInfo>) -> Refs {
+        let at = |list: &[BranchInfo]| list.iter().enumerate().map(|(i, b)| (b.name.clone(), i)).collect();
+        Refs {
+            local_at: at(&local),
+            remote_at: at(&remote),
+            local,
+            remote,
+            merges: OnceCell::new(),
+            batch: false,
+            counts: Default::default(),
+            upstream: OnceCell::new(),
+            shipped_patches: OnceCell::new(),
+            squashes: OnceCell::new(),
+            hosted: HashMap::new(),
+        }
+    }
+
+    /// With what the git host said about the tips.
+    fn with_hosted(self, hosted: HashMap<String, Vec<MergedPr>>) -> Refs {
+        Refs { hosted, ..self }
+    }
+
+    /// Every distinct branch tip, local and on origin.
+    fn tips(&self) -> Vec<String> {
+        let mut tips: Vec<String> = self.local.iter().chain(&self.remote).map(|b| b.sha.clone()).collect();
+        tips.sort();
+        tips.dedup();
+        tips
+    }
+
+    /// Answer `left_right` from batched ref scans: for views comparing every branch.
+    fn batched(self) -> Refs {
+        Refs { batch: true, ..self }
+    }
+
+    /// `git.left_right(base, rev)`, both revisions as [`Refs::rev`] spells them.
+    async fn left_right(&self, git: &Git, base: &str, rev: &str) -> Result<(u32, u32)> {
+        if self.batch {
+            if let Some(c) = self.counts_against(git, base).await.get().and_then(|all| all.get(rev)) {
+                return Ok(*c);
+            }
+        }
+        git.left_right(base, rev).await
+    }
+
+    /// Every branch's counts against `base`, scanned on first use.
+    async fn counts_against(&self, git: &Git, base: &str) -> Arc<OnceCell<Counts>> {
+        let cell = self.counts.lock().unwrap().entry(base.to_string()).or_default().clone();
+        cell.get_or_init(|| async { git.left_right_all(base).await.unwrap_or_default() }).await;
+        cell
+    }
+
+    /// Scan several bases at once, ahead of the branches that all wait on them.
+    async fn prefetch(&self, git: &Git, bases: &[String]) {
+        stream::iter(bases)
+            .for_each_concurrent(8, |b| async move {
+                self.counts_against(git, b).await;
+            })
+            .await;
+    }
+
+    /// Commit a revision spelled like [`Refs::rev`] points at.
+    fn sha(&self, rev: &str) -> Option<&str> {
+        match self.local(rev) {
+            Some(b) => Some(&b.sha),
+            None => self.remote(rev.strip_prefix("origin/")?).map(|b| b.sha.as_str()),
+        }
+    }
+
+    /// (ahead, behind) of local branch `name` against its upstream; zeros when it has none on a remote.
+    async fn upstream_counts(&self, git: &Git, name: &str) -> (u32, u32) {
+        let all = self.upstream.get_or_init(|| async { git.upstream_counts().await.unwrap_or_default() }).await;
+        all.get(name).copied().unwrap_or((0, 0))
     }
 
     /// Branch a merge commit of `name` says it went into (`Merge branch 'name' into y`);
@@ -503,12 +620,56 @@ impl Refs {
         Some(tail.rsplit_once(" into ").map(|(_, t)| t.trim().to_string()).unwrap_or_else(|| default.to_string()))
     }
 
+    /// Tip of `name` (the local branch, else origin's) and its commit time.
+    fn tip(&self, name: &str) -> Option<(&str, Option<i64>)> {
+        let b = self.local(name).or_else(|| self.remote(name))?;
+        Some((&b.sha, chrono::DateTime::parse_from_rfc3339(&b.date).ok().map(|d| d.timestamp())))
+    }
+
+    async fn squashes(&self, git: &Git) -> &[PrSquash] {
+        self.squashes.get_or_init(|| async { git.pr_squashes(5000).await.unwrap_or_default() }).await
+    }
+
+    /// Commits pull requests of `name` landed as: the ones the git host says took its tip,
+    /// and squashes titled with its name made after its last commit.
+    async fn pr_merges(&self, git: &Git, name: &str) -> Vec<String> {
+        let Some((sha, time)) = self.tip(name) else { return vec![] };
+        let mut out: Vec<String> = self.hosted.get(sha).into_iter().flatten().map(|m| m.merge_commit.clone()).collect();
+        if let Some(time) = time {
+            out.extend(self.squashes(git).await.iter().filter(|s| s.source() == Some(name) && s.time >= time).map(|s| s.sha.clone()));
+        }
+        out
+    }
+
+    /// Branches the git host says pull requests took `name`'s tip into.
+    fn hosted_targets(&self, name: &str) -> Vec<String> {
+        self.tip(name).and_then(|(sha, _)| self.hosted.get(sha)).into_iter().flatten().map(|m| m.target.clone()).collect()
+    }
+
+    /// Pull request squashes carrying one of `keys` (the branch's ticket) in their title, made
+    /// after `name`'s last commit and not already in it: likely where its work went, not proof.
+    async fn ticket_squashes(&self, git: &Git, keys: &[String], name: &str) -> Vec<String> {
+        let (Some((sha, Some(time))), false) = (self.tip(name), keys.is_empty()) else { return vec![] };
+        let mut out = Vec::new();
+        for s in self.squashes(git).await.iter().filter(|s| s.time >= time && ticket_keys(&s.title, false).iter().any(|k| keys.contains(k))) {
+            if !git.is_ancestor(&s.sha, sha).await.unwrap_or(true) {
+                out.push(s.sha.clone());
+            }
+        }
+        out
+    }
+
+    /// Whether `base` holds a pull request squash of `name`.
+    async fn pr_landed(&self, git: &Git, name: &str, base: &str) -> bool {
+        any_in(git, &self.pr_merges(git, name).await, base).await
+    }
+
     fn local(&self, name: &str) -> Option<&BranchInfo> {
-        self.local.iter().find(|b| b.name == name)
+        self.local_at.get(name).map(|&i| &self.local[i])
     }
 
     fn remote(&self, name: &str) -> Option<&BranchInfo> {
-        self.remote.iter().find(|b| b.name == name)
+        self.remote_at.get(name).map(|&i| &self.remote[i])
     }
 
     /// Revision to read the branch from: the local branch, else its origin copy.
@@ -522,19 +683,243 @@ impl Refs {
 }
 
 /// Whether branch `rev` landed in `base`, given its (behind, ahead) counts against it.
-async fn landed(git: &Git, rev: &str, base: &str, (behind, ahead): (u32, u32), origin_only: bool) -> bool {
+async fn landed(git: &Git, refs: &Refs, cache: &CommitCache, rev: &str, base: &str, (behind, ahead): (u32, u32), origin_only: bool) -> bool {
+    let shas = refs.sha(rev).zip(refs.sha(base));
     if ahead == 0 {
+        let merged = match shas {
+            Some((tip, base_tip)) => merged_in(git, cache, rev, tip, base_tip).await,
+            None => git.is_merged_into(rev, base).await.unwrap_or(false),
+        };
         // Origin-only branches have no creation reflog: fully contained and left behind counts.
-        git.is_merged_into(rev, base).await.unwrap_or(false) || (origin_only && behind > 0)
+        merged || (origin_only && behind > 0)
     } else if behind > 0 {
         // Squashed or rebased in: the base gained commits carrying the branch's changes.
-        git.is_squash_merged(rev, base).await.unwrap_or(false)
+        // Slow (patch ids), and fixed for a pair of commits: answered once per pair.
+        if let Some(hit) = shas.and_then(|(t, b)| cache.get("squash2", t, b)) {
+            return hit;
+        }
+        let Ok(squashed) = git.is_squash_merged(rev, base).await else { return false };
+        if let Some((t, b)) = shas {
+            cache.insert("squash2", t, b, squashed);
+        }
+        squashed
     } else {
         false
     }
 }
 
+/// [`Git::is_merged_into`] for known tips, answering the part fixed for the pair of commits once.
+async fn merged_in(git: &Git, cache: &CommitCache, rev: &str, tip: &str, base_tip: &str) -> bool {
+    if tip == base_tip {
+        return false;
+    }
+    let evidence = match (cache.get("ancestor", tip, base_tip), cache.get("merge-commit", tip, base_tip)) {
+        (Some(a), Some(m)) => (a, m),
+        _ => match git.merge_evidence(tip, base_tip).await {
+            Ok((a, m)) => {
+                cache.insert("ancestor", tip, base_tip, a);
+                cache.insert("merge-commit", tip, base_tip, m);
+                (a, m)
+            }
+            Err(_) => return false,
+        },
+    };
+    match evidence {
+        (false, _) => false,
+        (true, true) => true,
+        (true, false) => git.moved_since_created(rev, tip).await.unwrap_or(false),
+    }
+}
+
+/// The parent of `name` that needs no history: the default branch has none; release
+/// branches, trunks and branches given a release or parent say where they go.
+/// None when only history can tell (see `Gitnetix::parent_of`).
+fn declared_parent(p: &Project, refs: &Refs, default: &str, name: &str) -> Option<Option<String>> {
+    if name == default {
+        return Some(None);
+    }
+    let exists = |x: &&String| *x != name && refs.rev(x).is_some();
+    // Given a parent before Gitnetix knew it as a release (see `set_parent`).
+    let given = p.branches.get(name).and_then(|m| m.parent.as_ref()).filter(exists);
+    // Release branches, open or shipped, sit under the branch they were cut from (or were given).
+    if let Some(r) = p.releases.iter().find(|r| r.branch == name) {
+        return Some(Some(given.or(Some(&r.base).filter(exists)).cloned().unwrap_or_else(|| default.to_string())));
+    }
+    // Trunks sit under the default branch, unless given another parent.
+    if name.starts_with("release/") || is_trunk(name) {
+        return Some(Some(given.cloned().unwrap_or_else(|| default.to_string())));
+    }
+    let m = p.branches.get(name)?;
+    // Its release, as long as the release branch is still around.
+    if let Some(r) = m.release.as_ref().and_then(|v| p.releases.iter().find(|r| &r.version == v)) {
+        if refs.rev(&r.branch).is_some() {
+            return Some(Some(r.branch.clone()));
+        }
+    }
+    given.map(|x| Some(x.clone()))
+}
+
+/// Every branch once: local, origin-only, and the ones Gitnetix tracks that are gone.
+/// An origin branch a local one tracks under another name is that local branch.
+fn branch_names(p: &Project, refs: &Refs) -> Vec<String> {
+    let tracked: Vec<&str> = refs.local.iter().filter_map(|b| b.upstream.as_deref()?.strip_prefix("origin/")).collect();
+    let remote_only = refs.remote.iter().filter(|b| !tracked.contains(&b.name.as_str()));
+    let mut names: Vec<String> = refs.local.iter().chain(remote_only).map(|b| b.name.clone()).collect();
+    names.extend(p.branches.keys().cloned());
+    names.extend(p.releases.iter().filter(|r| r.shipped_at.is_none()).map(|r| r.branch.clone()));
+    names.sort();
+    names.dedup();
+    names
+}
+
+/// What a branch view says without looking at history: no counts, not merged,
+/// no checkout (see `Gitnetix::decorate`).
+fn plain_view(p: &Project, refs: &Refs, name: &str, parent: Option<String>) -> BranchView {
+    let info = refs.local(name);
+    let own_release = p.releases.iter().find(|r| r.branch == name);
+    let role = if own_release.is_some_and(|r| r.shipped_at.is_none()) {
+        "release"
+    } else if parent.is_none() || is_trunk(name) {
+        "trunk"
+    } else {
+        "branch"
+    };
+    let meta = p.branches.get(name);
+    let open_release = |v: &str| p.releases.iter().any(|r| r.version == v && r.shipped_at.is_none());
+    let kind = match meta.map(|m| m.kind.as_str()).filter(|k| !k.is_empty()) {
+        Some(k) => k.to_string(),
+        None if role == "branch" => kind_of_branch(name).unwrap_or("").to_string(),
+        None => String::new(),
+    };
+    BranchView {
+        short: name.split_once('/').map(|(_, b)| b.to_string()).unwrap_or_else(|| name.to_string()),
+        name: name.to_string(),
+        kind,
+        worktree: None,
+        checked_out: false,
+        running: false,
+        conflict: false,
+        wip: 0,
+        stashes: 0,
+        ahead: 0,
+        behind: 0,
+        upstream: info.and_then(|b| b.upstream.clone()),
+        upstream_ahead: 0,
+        upstream_behind: 0,
+        rewritten: false,
+        likely_merged: false,
+        ticket: meta.and_then(|m| m.ticket.clone()),
+        exists: refs.rev(name).is_some(),
+        merged: false,
+        parent,
+        role: role.into(),
+        release: own_release.filter(|r| r.shipped_at.is_none()).map(|r| r.version.clone()).or_else(|| meta.and_then(|m| m.release.clone()).filter(|v| open_release(v))),
+        shipped: own_release.filter(|r| r.shipped_at.is_some()).map(|r| r.version.clone()),
+        local: info.is_some(),
+        remote: refs.remote(name).is_some(),
+        protected: false,
+        date: info.or_else(|| refs.remote(name)).map(|b| b.date.clone()).unwrap_or_default(),
+    }
+}
+
+/// Bump when branch views are built differently, so saved ones are not reused.
+const VIEW_CACHE_VERSION: &str = "5";
+
+/// What a project's branch views are built from: its refs, its default branch,
+/// what Gitnetix knows about its releases and branches, and what the git host said.
+fn view_key(p: &Project, default: &str, fingerprint: &str, hosted: &str) -> u64 {
+    let releases = serde_json::to_string(&p.releases).unwrap_or_default();
+    let branches = serde_json::to_string(&p.branches).unwrap_or_default();
+    key_of(&[VIEW_CACHE_VERSION, env!("CARGO_PKG_VERSION"), default, fingerprint, &releases, &branches, hosted])
+}
+
+/// Mark open releases whose version is tagged as shipped: they went out without
+/// Gitnetix (or before it knew them). Returns whether any were.
+fn ship_tagged_releases(p: &mut Project, tags: &[TagInfo]) -> bool {
+    let mut shipped = false;
+    for r in p.releases.iter_mut().filter(|r| r.shipped_at.is_none()) {
+        if let Some(t) = tags.iter().find(|t| t.name.strip_prefix('v').unwrap_or(&t.name) == r.version) {
+            r.shipped_at = Some(t.date.clone());
+            r.tag = Some(t.name.clone());
+            shipped = true;
+        } else if let Some(t) = later_patch(tags, &r.version) {
+            // Never tagged itself, but its line moved on (8.17.1 for 8.17.0): it went out with that one.
+            r.shipped_at = Some(t.date.clone());
+            shipped = true;
+        }
+    }
+    shipped
+}
+
+/// The first tagged patch after `version` in its line: 8.17.1 (or 8.17.2) for 8.17.0.
+fn later_patch<'a>(tags: &'a [TagInfo], version: &str) -> Option<&'a TagInfo> {
+    let want = parse_version(version)?;
+    tags.iter().filter_map(|t| parse_version(&t.name).map(|v| (v, t))).filter(|(v, _)| v[..2] == want[..2] && v[2] > want[2]).min_by_key(|(v, _)| *v).map(|(_, t)| t)
+}
+
 /// Branches work can merge into, most specific first: open releases, dev branches, the default branch.
+/// Shipped release branches still around, with their version, lowest first.
+fn shipped_branches(p: &Project, refs: &Refs) -> Vec<([u64; 3], String)> {
+    let mut v: Vec<([u64; 3], String)> = p
+        .releases
+        .iter()
+        .filter(|r| r.shipped_at.is_some() && refs.rev(&r.branch).is_some())
+        .filter_map(|r| Some((parse_version(&r.version)?, r.branch.clone())))
+        .collect();
+    v.sort();
+    v
+}
+
+/// [`Refs::shipped_patches`]: each shipped release branch still around, lowest version first.
+async fn shipped_patches(p: &Project, git: &Git, refs: &Refs, default_rev: &str) -> HashMap<String, ([u64; 3], String)> {
+    let shipped = shipped_branches(p, refs);
+    // Owned items: futures borrowing from the stream's items are not provably Send.
+    let not_default = format!("^{default_rev}");
+    let revs: Vec<String> = shipped.iter().map(|(_, b)| refs.rev(b).unwrap_or_default()).collect();
+    let lists: Vec<_> = stream::iter(revs)
+        .map(|rev| {
+            let not_default = not_default.clone();
+            async move { git.patch_ids(&[&rev, &not_default]).await.unwrap_or_default() }
+        })
+        .buffered(8)
+        .collect()
+        .await;
+    let mut index = HashMap::new();
+    for (release, list) in shipped.iter().zip(lists) {
+        for (id, _) in list {
+            index.entry(id).or_insert_with(|| release.clone());
+        }
+    }
+    index
+}
+
+/// Whether `base` holds any of `commits`.
+async fn any_in(git: &Git, commits: &[String], base: &str) -> bool {
+    for sha in commits {
+        if git.is_ancestor(sha, base).await.unwrap_or(false) {
+            return true;
+        }
+    }
+    false
+}
+
+/// Ticket keys of a branch: the one it was created for, and any in its name.
+fn branch_tickets(p: &Project, name: &str) -> Vec<String> {
+    let mut keys = ticket_keys(name, true);
+    keys.extend(p.branches.get(name).and_then(|m| m.ticket.as_deref()).map(str::to_ascii_uppercase));
+    keys
+}
+
+/// Branch to file `name` under among the branches holding its work (`holders`, spelled as
+/// [`Refs::rev`] does): the release that shipped it (the lowest version), else the trunk or default branch.
+fn home_among(p: &Project, refs: &Refs, default: &str, name: &str, holders: &std::collections::HashSet<String>) -> Option<String> {
+    let mut releases: Vec<([u64; 3], String)> =
+        p.releases.iter().filter(|r| refs.rev(&r.branch).is_some()).filter_map(|r| Some((parse_version(&r.version)?, r.branch.clone()))).collect();
+    releases.sort();
+    let rest = merge_targets(p, refs, default).into_iter().filter(|t| !releases.iter().any(|(_, b)| b == t)).collect::<Vec<_>>();
+    releases.into_iter().map(|(_, b)| b).chain(rest).find(|t| t != name && refs.rev(t).is_some_and(|r| holders.contains(&r)))
+}
+
 fn merge_targets(p: &Project, refs: &Refs, default: &str) -> Vec<String> {
     let mut t: Vec<String> = p.releases.iter().filter(|r| r.shipped_at.is_none() && refs.rev(&r.branch).is_some()).map(|r| r.branch.clone()).collect();
     t.extend(DEV_TRUNKS.iter().filter(|d| **d != default && refs.rev(d).is_some()).map(|d| d.to_string()));
@@ -547,7 +932,7 @@ impl Gitnetix {
         let store = Store::open(dir)?;
         let (events, _) = broadcast::channel(1024);
         let agents = AgentManager::new(events.clone(), dir);
-        let k = Arc::new(Gitnetix { store, agents, events, dir: dir.to_path_buf(), protected: Default::default(), watcher: Default::default() });
+        let k = Arc::new(Gitnetix { store, agents, events, dir: dir.to_path_buf(), protected: Default::default(), watcher: Default::default(), commits: CommitCache::open(dir), views: ViewCache::open(dir.join("overview-cache")), hosted: Default::default() });
         k.rewatch();
         Ok(k)
     }
@@ -622,8 +1007,18 @@ impl Gitnetix {
     /// Branch `branch` merges into (rebases onto, diffs against); the default branch maps to itself.
     async fn base_of(&self, p: &Project, branch: &str, default: &str) -> String {
         let git = self.git(p);
+        if let Some(parent) = self.cached_parent(p, &git, branch, default).await {
+            return parent.unwrap_or_else(|| default.to_string());
+        }
         let refs = Refs::load(&git, git.branches().await.unwrap_or_default()).await;
         self.base_in(p, &git, &refs, branch, default).await
+    }
+
+    /// Parent of `branch` as the last overview found it, as long as no ref moved since.
+    async fn cached_parent(&self, p: &Project, git: &Git, branch: &str, default: &str) -> Option<Option<String>> {
+        let key = view_key(p, default, &git.ref_fingerprint().await.ok()?, &self.hosted_digest(&p.id));
+        let saved = self.views.get(&p.id, key)?;
+        saved.value().iter().find(|b| b.name == branch).map(|b| b.parent.clone())
     }
 
     /// `base_of` with the refs already loaded.
@@ -635,29 +1030,22 @@ impl Gitnetix {
     /// it is attached to, the parent it was given, else the closest target by
     /// history (fewest commits of its own, then fewest missing). None for the default branch.
     async fn parent_of(&self, p: &Project, git: &Git, refs: &Refs, default: &str, name: &str) -> Option<String> {
-        if name == default {
-            return None;
-        }
-        // Release branches, open or shipped, sit under the branch they were cut from.
-        if let Some(r) = p.releases.iter().find(|r| r.branch == name) {
-            return Some(r.base.clone());
-        }
-        if name.starts_with("release/") || is_trunk(name) {
-            return Some(default.to_string());
-        }
-        if let Some(m) = p.branches.get(name) {
-            // Its release, as long as the release branch is still around.
-            if let Some(r) = m.release.as_ref().and_then(|v| p.releases.iter().find(|r| &r.version == v)) {
-                if refs.rev(&r.branch).is_some() {
-                    return Some(r.branch.clone());
-                }
-            }
-            if let Some(parent) = m.parent.as_ref().filter(|x| *x != name && refs.rev(x).is_some()) {
-                return Some(parent.clone());
-            }
+        if let Some(parent) = declared_parent(p, refs, default, name) {
+            return parent;
         }
         // Merged by hand: the merge commit names where it went.
         if let Some(t) = refs.merged_into(git, name, default).await.filter(|t| t != name && refs.rev(t).is_some()) {
+            return Some(t);
+        }
+        // Taken in by a pull request (the git host says so, or the squash names it): under the
+        // release that shipped it, else the trunk or default branch holding it.
+        let mut holders = std::collections::HashSet::new();
+        for sha in refs.pr_merges(git, name).await {
+            holders.extend(git.branches_containing(&sha).await.unwrap_or_default());
+        }
+        // Where the host says it went, even before its squash is fetched.
+        holders.extend(refs.hosted_targets(name).iter().filter_map(|t| refs.rev(t)));
+        if let Some(t) = home_among(p, refs, default, name, &holders) {
             return Some(t);
         }
         let (Some(rev), targets) = (refs.rev(name), merge_targets(p, refs, default)) else {
@@ -667,7 +1055,7 @@ impl Gitnetix {
         if targets.len() > 1 {
             for (i, t) in targets.into_iter().enumerate().filter(|(_, t)| t != name) {
                 let Some(trev) = refs.rev(&t) else { continue };
-                let Ok((behind, ahead)) = git.left_right(&trev, &rev).await else { continue };
+                let Ok((behind, ahead)) = refs.left_right(git, &trev, &rev).await else { continue };
                 // On a tie, work in progress belongs to the most specific target; a branch that
                 // already landed everywhere belongs to the most upstream one (shipped to main).
                 let key = (ahead, behind, if ahead == 0 { usize::MAX - i } else { i });
@@ -676,7 +1064,54 @@ impl Gitnetix {
                 }
             }
         }
-        Some(best.map(|(_, t)| t).unwrap_or_else(|| default.to_string()))
+        let target = best.map(|(_, t)| t).unwrap_or_else(|| default.to_string());
+        Some(self.shipped_home(p, git, refs, default, name, &rev, &target).await.unwrap_or(target))
+    }
+
+    /// Where `name` landed (squashed by a PR, say) while it has not landed in `target`: the default
+    /// branch, else the lowest shipped release holding one of its changes, or its whole squash,
+    /// else where a pull request carrying its ticket key went.
+    async fn shipped_home(&self, p: &Project, git: &Git, refs: &Refs, default: &str, name: &str, rev: &str, target: &str) -> Option<String> {
+        let trev = refs.rev(target)?;
+        let counts = refs.left_right(git, &trev, rev).await.ok()?;
+        if counts.1 == 0 || landed(git, refs, &self.commits, rev, &trev, counts, false).await {
+            return None;
+        }
+        let drev = refs.rev(default)?;
+        // Picked or squashed into the default branch, past the target (a dev trunk, say).
+        if target != default {
+            if let Ok(counts) = refs.left_right(git, &drev, rev).await {
+                if landed(git, refs, &self.commits, rev, &drev, counts, false).await {
+                    return Some(default.to_string());
+                }
+            }
+        }
+        let index = refs.shipped_patches.get_or_init(|| shipped_patches(p, git, refs, &drev)).await;
+        if !index.is_empty() {
+            let mut ids: Vec<String> = git.patch_ids(&[rev, &format!("^{drev}")]).await.unwrap_or_default().into_iter().map(|(id, _)| id).collect();
+            if let Ok(fork) = git.merge_base(&drev, rev).await {
+                ids.extend(git.diff_patch_id(&fork, rev).await.ok().flatten());
+            }
+            let mut hits: Vec<&([u64; 3], String)> = ids.iter().filter_map(|id| index.get(id)).collect();
+            hits.sort();
+            hits.dedup();
+            for (_, branch) in hits {
+                if branch == name {
+                    continue;
+                }
+                let Some(rrev) = refs.rev(branch) else { continue };
+                let Ok(counts) = refs.left_right(git, &rrev, rev).await else { continue };
+                if landed(git, refs, &self.commits, rev, &rrev, counts, false).await {
+                    return Some(branch.clone());
+                }
+            }
+        }
+        // Last, a guess: a pull request squash carrying its ticket key (see `BranchView::likely_merged`).
+        let mut holders = std::collections::HashSet::new();
+        for sha in refs.ticket_squashes(git, &branch_tickets(p, name), name).await {
+            holders.extend(git.branches_containing(&sha).await.unwrap_or_default());
+        }
+        home_among(p, refs, default, name, &holders)
     }
 
     fn template(&self, kind: &str, id: Option<&str>, project_id: Option<&str>) -> Result<Template> {
@@ -769,6 +1204,7 @@ impl Gitnetix {
         let default = git.default_branch().await.unwrap_or_else(|_| "main".into());
         let branches = git.branches().await.unwrap_or_default();
         import_release_branches(p, &branches, &default);
+        ship_tagged_releases(p, &git.tags().await.unwrap_or_default());
     }
 
     /// Close or reopen a project's tab; its data is kept either way.
@@ -803,50 +1239,75 @@ impl Gitnetix {
 
     // ---------- workspace ----------
 
-    pub async fn overview(&self, project_id: &str) -> Result<Overview> {
+    /// `quick`: when the branches changed since the last overview, answer at once with
+    /// what needs no history (no counts, merge state or inferred parents) instead of building them.
+    pub async fn overview(&self, project_id: &str, quick: bool) -> Result<Overview> {
         let mut p = self.store.project(project_id)?;
         let git = self.git(&p);
-        let default = git.default_branch().await?;
-        let current = git.current_branch().await?;
-        let branches = git.branches().await?;
-        // Release branches created outside Gitnetix (or after the project was added).
-        if import_release_branches(&mut p.clone(), &branches, &default) {
+        let (default, current, branches, remote_branches, wts, rebasing, tags, remote, fingerprint) = tokio::join!(
+            git.default_branch(),
+            git.current_branch(),
+            git.branches(),
+            git.remote_branches(),
+            git.worktrees(),
+            git.is_rebasing(),
+            git.tags(),
+            git.remote_url("origin"),
+            git.ref_fingerprint(),
+        );
+        let (default, current, branches, wts) = (default?, current?, branches?, wts?);
+        let tags = tags.unwrap_or_default();
+        // Release branches created outside Gitnetix (or after the project was added), and releases tagged without it.
+        let mut probe = p.clone();
+        let imported = import_release_branches(&mut probe, &branches, &default);
+        let shipped = ship_tagged_releases(&mut probe, &tags);
+        if imported || shipped {
             p = self.store.with_project(project_id, |p| {
                 import_release_branches(p, &branches, &default);
+                ship_tagged_releases(p, &tags);
                 Ok(p.clone())
             })?;
         }
-        let wts = git.worktrees().await?;
         let agents = self.agents.list();
-        let rebasing = git.is_rebasing().await.unwrap_or(false);
+        let rebasing = rebasing.unwrap_or(false);
         let conflicts = if rebasing { git.conflicted_files().await.unwrap_or_default() } else { Vec::new() };
 
-        let refs = Refs::load(&git, branches).await;
-        let open: Vec<&Release> = p.releases.iter().filter(|r| r.shipped_at.is_none()).collect();
-        // Every branch once: local, origin-only, and the ones Gitnetix tracks that are gone.
-        // An origin branch a local one tracks under another name is that local branch.
-        let tracked: Vec<&str> = refs.local.iter().filter_map(|b| b.upstream.as_deref()?.strip_prefix("origin/")).collect();
-        let remote_only = refs.remote.iter().filter(|b| !tracked.contains(&b.name.as_str()));
-        let mut names: Vec<String> = refs.local.iter().chain(remote_only).map(|b| b.name.clone()).collect();
-        names.extend(p.branches.keys().cloned());
-        names.extend(open.iter().map(|r| r.branch.clone()));
-        names.sort();
-        names.dedup();
-        // A few git calls per branch: run several branches at once, keeping the order.
-        let (pr, g, r, d, w, a) = (&p, &git, &refs, default.as_str(), wts.as_slice(), agents.as_slice());
-        let views = stream::iter(names)
-            .map(|n| async move {
-                let parent = self.parent_of(pr, g, r, d, &n).await;
-                self.branch_view(pr, g, r, &n, parent, w, a).await
-            })
-            .buffered(8)
-            .collect::<Vec<BranchView>>();
-        let (mut all, protected, stashes) = tokio::join!(views, self.protected_branches(project_id, false), git.stashes());
+        let refs = Refs::new(branches, remote_branches.unwrap_or_default()).batched();
+        // Never wait on the git host for a first look.
+        let hosted = self.hosted_prs(&p, &git, &refs.tips(), !quick).await;
+        let refs = refs.with_hosted(hosted);
+        let key = fingerprint.ok().map(|f| view_key(&p, &default, &f, &self.hosted_digest(&p.id)));
+        let mut all = match key.and_then(|k| self.views.get(project_id, k)) {
+            Some(saved) => saved.value().clone(),
+            None if quick => branch_names(&p, &refs)
+                .iter()
+                .map(|n| plain_view(&p, &refs, n, declared_parent(&p, &refs, &default, n).unwrap_or_else(|| Some(default.clone()))))
+                .collect(),
+            None => {
+                let views = self.branch_views(&p, &git, &refs, &default).await;
+                self.commits.save();
+                if let Some(k) = key {
+                    self.views.insert(project_id, k, views.clone());
+                }
+                views
+            }
+        };
+        let protected = async {
+            match quick {
+                // Never wait on the git host for a first look.
+                true => self.protected.lock().unwrap().get(project_id).map(|(_, l)| l.clone()).unwrap_or_default(),
+                false => self.protected_branches(project_id, false).await,
+            }
+        };
+        let (_, protected, stashes) = tokio::join!(self.decorate(&p, &mut all, &wts, &agents), protected, git.stashes());
         let stashes = stashes.unwrap_or_default();
         for b in &mut all {
             b.protected = protected.contains(&b.name);
             b.stashes = stashes.iter().filter(|s| s.branch.as_deref() == Some(b.name.as_str())).count() as u32;
         }
+        let mut open: Vec<&Release> = p.releases.iter().filter(|r| r.shipped_at.is_none()).collect();
+        // Newest version first; stable sort keeps unparseable versions in registration order, last.
+        open.sort_by_key(|r| std::cmp::Reverse(parse_version(&r.version)));
         let find = |n: &str| all.iter().find(|b| b.name == n).cloned();
 
         let mut releases = Vec::new();
@@ -868,10 +1329,16 @@ impl Gitnetix {
                 checked_out: false,
             });
         }
-        // Last shipped releases, from tags.
+        // Last shipped releases, from tags, plus older ones whose release branch is still around
+        // (so it files under Shipped instead of lingering in the tree).
         let detached = if current.is_none() { git.rev_parse("HEAD").await.ok() } else { None };
-        for t in git.tags().await.unwrap_or_default().into_iter().take(3) {
+        let branch_left = |v: &str| p.releases.iter().any(|r| r.version == v && r.shipped_at.is_some() && all.iter().any(|b| b.name == r.branch && b.exists));
+        let tag_list = tags.clone();
+        for (i, t) in tags.into_iter().enumerate() {
             let v = t.name.trim_start_matches('v').to_string();
+            if i >= 3 && !branch_left(&v) {
+                continue;
+            }
             let shipped = p.branches.values().filter(|m| m.release.as_deref() == Some(v.as_str())).count();
             let date = t.date.get(..10).unwrap_or("").to_string();
             releases.push(ReleaseView {
@@ -887,66 +1354,109 @@ impl Gitnetix {
                 tag_name: Some(t.name),
             });
         }
+        // Releases that went out with a later patch of their line, while their branch is around.
+        for r in p.releases.iter().filter(|r| r.shipped_at.is_some() && r.tag.is_none() && branch_left(&r.version)) {
+            let Some(with) = later_patch(&tag_list, &r.version).map(|t| t.name.clone()) else { continue };
+            if releases.iter().any(|x| !x.open && x.version == r.version) {
+                continue;
+            }
+            releases.push(ReleaseView {
+                branch: r.branch.clone(),
+                version: r.version.clone(),
+                tag: "released".into(),
+                base: format!("{default} · went out as {with}"),
+                open: false,
+                items: vec![],
+                view: None,
+                note: String::new(),
+                checked_out: false,
+                tag_name: None,
+            });
+        }
+        // Shipped ones newest version first, like the open ones.
+        let first_shipped = releases.iter().position(|r| !r.open).unwrap_or(releases.len());
+        releases[first_shipped..].sort_by_key(|r| std::cmp::Reverse(parse_version(&r.version)));
         let other_branches = all
             .iter()
             .filter(|b| b.local && b.name != default && !p.releases.iter().any(|r| r.branch == b.name) && !p.branches.contains_key(&b.name))
             .cloned()
             .collect();
         let default_view = find(&default);
-        let remote = git.remote_url("origin").await.ok().flatten();
+        let remote = remote.ok().flatten();
         let has_changelog = Path::new(&p.path).join(CHANGELOG).is_file();
         Ok(Overview { project: p, current_branch: current, default_branch: default, releases, other_branches, default_view, branches: all, rebasing, conflicts, remote, stashes, has_changelog })
     }
 
-    #[allow(clippy::too_many_arguments)]
-    async fn branch_view(&self, p: &Project, git: &Git, refs: &Refs, name: &str, parent: Option<String>, wts: &[WorktreeInfo], agents: &[AgentSession]) -> BranchView {
-        let wt = wts.iter().find(|w| w.branch.as_deref() == Some(name));
+    /// Every branch's view with counts, merge state and parent: a few git calls per branch.
+    async fn branch_views(&self, p: &Project, git: &Git, refs: &Refs, default: &str) -> Vec<BranchView> {
+        // The bases every branch is weighed against, scanned up front and side by side.
+        let bases: Vec<String> = merge_targets(p, refs, default).iter().filter_map(|t| refs.rev(t)).collect();
+        refs.prefetch(git, &bases).await;
+        // Several branches at once, keeping the order.
+        stream::iter(branch_names(p, refs))
+            .map(|n| async move {
+                let parent = self.parent_of(p, git, refs, default, &n).await;
+                self.branch_view(p, git, refs, &n, parent).await
+            })
+            .buffered(8)
+            .collect()
+            .await
+    }
+
+    /// Fill in what comes from checkouts and agents rather than refs.
+    async fn decorate(&self, p: &Project, views: &mut [BranchView], wts: &[WorktreeInfo], agents: &[AgentSession]) {
+        let checkouts: Vec<Option<&WorktreeInfo>> = views.iter().map(|b| wts.iter().find(|w| w.branch.as_deref() == Some(b.name.as_str()))).collect();
+        let dirs: Vec<Option<String>> = checkouts.iter().map(|w| w.map(|w| w.path.clone())).collect();
+        let state: Vec<(bool, u32)> = stream::iter(dirs)
+            .map(|dir| async move {
+                let Some(dir) = dir else { return (false, 0) };
+                let g = Git::new(&dir);
+                let conflict = g.is_rebasing().await.unwrap_or(false) && !g.conflicted_files().await.unwrap_or_default().is_empty();
+                (conflict, g.wip_count().await.unwrap_or(0))
+            })
+            .buffered(8)
+            .collect()
+            .await;
+        for ((b, wt), (conflict, wip)) in views.iter_mut().zip(checkouts).zip(state) {
+            b.worktree = wt.filter(|w| !w.main).map(|w| w.path.clone());
+            b.checked_out = wt.is_some();
+            b.running = agents.iter().any(|a| a.branch == b.name && a.project_id == p.id && a.status == AgentStatus::Running);
+            b.conflict = conflict;
+            b.wip = wip;
+        }
+    }
+
+    /// [`plain_view`] with its counts against the parent and upstream, and whether it landed.
+    async fn branch_view(&self, p: &Project, git: &Git, refs: &Refs, name: &str, parent: Option<String>) -> BranchView {
+        let mut v = plain_view(p, refs, name, parent);
         let info = refs.local(name);
         let rev = refs.rev(name);
-        let base_rev = parent.as_deref().and_then(|b| refs.rev(b));
-        let (behind, ahead) = match (&rev, &base_rev) {
-            (Some(r), Some(b)) => git.left_right(b, r).await.unwrap_or((0, 0)),
+        let base_rev = v.parent.as_deref().and_then(|b| refs.rev(b));
+        (v.behind, v.ahead) = match (&rev, &base_rev) {
+            (Some(r), Some(b)) => refs.left_right(git, b, r).await.unwrap_or((0, 0)),
             _ => (0, 0),
         };
-        let upstream = info.and_then(|b| b.upstream.clone());
-        let (upstream_ahead, upstream_behind) = match &upstream {
-            Some(u) if git.ref_exists(&format!("refs/remotes/{u}")).await.unwrap_or(false) => git.left_right(name, u).await.unwrap_or((0, 0)),
-            _ => (0, 0),
-        };
-        let rewritten = match &upstream {
-            Some(u) if upstream_ahead > 0 && upstream_behind > 0 => match git.rev_parse(u).await {
+        if v.upstream.is_some() {
+            (v.upstream_ahead, v.upstream_behind) = refs.upstream_counts(git, name).await;
+        }
+        v.rewritten = match &v.upstream {
+            Some(u) if v.upstream_ahead > 0 && v.upstream_behind > 0 => match git.rev_parse(u).await {
                 Ok(sha) => git.in_reflog(name, &sha).await.unwrap_or(false),
                 Err(_) => false,
             },
             _ => false,
         };
-        let (conflict, wip) = match wt {
-            Some(w) => {
-                let g = Git::new(&w.path);
-                let conflict = g.is_rebasing().await.unwrap_or(false) && !g.conflicted_files().await.unwrap_or_default().is_empty();
-                (conflict, g.wip_count().await.unwrap_or(0))
-            }
-            None => (false, 0),
-        };
-        let own_release = p.releases.iter().find(|r| r.branch == name);
-        let role = if own_release.is_some_and(|r| r.shipped_at.is_none()) {
-            "release"
-        } else if parent.is_none() || is_trunk(name) {
-            "trunk"
-        } else {
-            "branch"
-        };
         // Trunks and open releases live on; only work gets merged away.
-        let merged = match (&rev, &base_rev) {
-            (Some(r), Some(b)) if role == "branch" => {
-                landed(git, r, b, (behind, ahead), info.is_none()).await || {
+        v.merged = match (&rev, &base_rev) {
+            (Some(r), Some(b)) if v.role == "branch" => {
+                landed(git, refs, &self.commits, r, b, (v.behind, v.ahead), info.is_none()).await || refs.pr_landed(git, name, b).await || {
                     // Merged on the host (a PR) while the local base lags behind origin's copy.
-                    let base = parent.as_deref().unwrap_or_default();
+                    let base = v.parent.as_deref().unwrap_or_default();
                     match (refs.local(base), refs.remote(base)) {
                         (Some(l), Some(o)) if l.sha != o.sha => {
                             let ob = format!("origin/{base}");
-                            match git.left_right(&ob, r).await {
-                                Ok(counts) => landed(git, r, &ob, counts, info.is_none()).await,
+                            match refs.left_right(git, &ob, r).await {
+                                Ok(counts) => landed(git, refs, &self.commits, r, &ob, counts, info.is_none()).await || refs.pr_landed(git, name, &ob).await,
                                 Err(_) => false,
                             }
                         }
@@ -956,41 +1466,12 @@ impl Gitnetix {
             }
             _ => false,
         };
-        let meta = p.branches.get(name);
-        let open_release = |v: &str| p.releases.iter().any(|r| r.version == v && r.shipped_at.is_none());
-        let kind = match meta.map(|m| m.kind.as_str()).filter(|k| !k.is_empty()) {
-            Some(k) => k.to_string(),
-            None if role == "branch" => kind_of_branch(name).unwrap_or("").to_string(),
-            None => String::new(),
-        };
-        BranchView {
-            short: name.split_once('/').map(|(_, b)| b.to_string()).unwrap_or_else(|| name.to_string()),
-            name: name.to_string(),
-            kind,
-            worktree: wt.filter(|w| !w.main).map(|w| w.path.clone()),
-            checked_out: wt.is_some(),
-            running: agents.iter().any(|a| a.branch == name && a.project_id == p.id && a.status == AgentStatus::Running),
-            conflict,
-            wip,
-            stashes: 0,
-            ahead,
-            behind,
-            upstream,
-            upstream_ahead,
-            upstream_behind,
-            rewritten,
-            ticket: meta.and_then(|m| m.ticket.clone()),
-            exists: rev.is_some(),
-            merged,
-            parent,
-            role: role.into(),
-            release: own_release.filter(|r| r.shipped_at.is_none()).map(|r| r.version.clone()).or_else(|| meta.and_then(|m| m.release.clone()).filter(|v| open_release(v))),
-            shipped: own_release.filter(|r| r.shipped_at.is_some()).map(|r| r.version.clone()),
-            local: info.is_some(),
-            remote: refs.remote(name).is_some(),
-            protected: false,
-            date: info.or_else(|| refs.remote(name)).map(|b| b.date.clone()).unwrap_or_default(),
+        // No proof, but a pull request carrying its ticket key went into the base after its last commit.
+        if let (false, "branch", true, Some(b)) = (v.merged, v.role.as_str(), v.ahead > 0, &base_rev) {
+            v.likely_merged = any_in(git, &refs.ticket_squashes(git, &branch_tickets(p, name), name).await, b).await;
+            v.merged = v.likely_merged;
         }
+        v
     }
 
     pub async fn files(&self, project_id: &str, branch: &str, mode: ViewMode) -> Result<Vec<FileChange>> {
@@ -1648,12 +2129,19 @@ impl Gitnetix {
             return Err(Error::Invalid(format!("{branch} cannot merge into itself")));
         }
         self.store.with_project(project_id, |p| {
-            if p.releases.iter().any(|r| r.branch == branch && r.shipped_at.is_none()) {
-                return Err(Error::Invalid(format!("{branch} is a release branch")));
+            // A release branch keeps its version: what changes is where it was cut from.
+            if let Some(r) = p.releases.iter_mut().find(|r| r.branch == branch) {
+                r.base = parent.to_string();
+                if let Some(m) = p.branches.get_mut(branch) {
+                    m.parent = None;
+                }
+                return Ok(());
             }
-            let release = p.releases.iter().find(|r| r.branch == parent && r.shipped_at.is_none()).map(|r| r.version.clone());
+            // Trunks only take a parent; work branches targeting an open release join it.
+            let trunk = branch.starts_with("release/") || is_trunk(branch);
+            let release = p.releases.iter().find(|r| !trunk && r.branch == parent && r.shipped_at.is_none()).map(|r| r.version.clone());
             let m = p.branches.entry(branch.to_string()).or_insert_with(|| BranchMeta { created_at: now(), ..Default::default() });
-            if m.kind.is_empty() {
+            if m.kind.is_empty() && !trunk {
                 m.kind = kind_of_branch(branch).unwrap_or("feat").into();
             }
             m.parent = release.is_none().then(|| parent.to_string());
@@ -1699,15 +2187,24 @@ impl Gitnetix {
             let local_base = git.rev_of(&base).await;
             // Merged on the host while the local base lags behind: origin's copy has it.
             let origin_base = format!("origin/{base}");
+            let tip = git.rev_parse(&rev).await?;
             let base_rev = if !git.is_ancestor(&rev, &local_base).await?
                 && git.ref_exists(&format!("refs/remotes/{origin_base}")).await?
-                && (git.is_ancestor(&rev, &origin_base).await? || git.is_squash_merged(&rev, &origin_base).await.unwrap_or(false))
+                && (git.is_ancestor(&rev, &origin_base).await?
+                    || git.is_squash_merged(&rev, &origin_base).await.unwrap_or(false)
+                    || git.pr_merged_into(branch, &rev, &origin_base).await.unwrap_or(false)
+                    || self.hosted_landed(project_id, &git, &tip, &origin_base).await)
             {
                 origin_base
             } else {
                 local_base
             };
-            if !force && !git.is_ancestor(&rev, &base_rev).await? && !git.is_squash_merged(&rev, &base_rev).await.unwrap_or(false) {
+            if !force
+                && !git.is_ancestor(&rev, &base_rev).await?
+                && !git.is_squash_merged(&rev, &base_rev).await.unwrap_or(false)
+                && !git.pr_merged_into(branch, &rev, &base_rev).await.unwrap_or(false)
+                && !self.hosted_landed(project_id, &git, &tip, &base_rev).await
+            {
                 let n = git.count(&format!("{base_rev}..{rev}")).await?;
                 return Err(Error::Invalid(format!(
                     "{branch} has {n} commit{} not merged into {base}. Merge it first or force the delete.",
@@ -1783,6 +2280,53 @@ impl Gitnetix {
 
     /// Branches the git host protects, looked up again after a few minutes or on `refresh`.
     /// Empty without a connected GitHub, or when the host can't be reached.
+    /// Completed pull requests that took in any of `tips`, as the git host says (Azure DevOps
+    /// for now; nothing without sign-in). `ask`: look up the tips not asked about lately first.
+    async fn hosted_prs(&self, p: &Project, git: &Git, tips: &[String], ask: bool) -> HashMap<String, Vec<MergedPr>> {
+        if ask {
+            let due: Vec<String> = {
+                let all = self.hosted.lock().unwrap();
+                let h = all.get(&p.id);
+                let due = |t: &&String| h.is_none_or(|h| !h.merged.contains_key(*t) && h.asked.get(*t).is_none_or(|at| at.elapsed() >= HOSTED_TTL));
+                tips.iter().filter(due).cloned().collect()
+            };
+            if !due.is_empty() {
+                let lookup = async {
+                    let url = git.remote_url("origin").await?.ok_or_else(|| Error::NotConnected("no origin remote".into()))?;
+                    let repo = azure::parse_remote(&url).ok_or_else(|| Error::Unsupported(url))?;
+                    azure::merged_prs(&repo, &azure_auth::access_token().await?, &due).await
+                };
+                let found = tokio::time::timeout(std::time::Duration::from_secs(10), lookup).await.ok().and_then(|r| r.ok());
+                let mut all = self.hosted.lock().unwrap();
+                let h = all.entry(p.id.clone()).or_default();
+                let now = Instant::now();
+                h.asked.extend(due.into_iter().map(|t| (t, now)));
+                h.merged.extend(found.unwrap_or_default());
+            }
+        }
+        let all = self.hosted.lock().unwrap();
+        let Some(h) = all.get(&p.id) else { return HashMap::new() };
+        tips.iter().filter_map(|t| Some((t.clone(), h.merged.get(t)?.clone()))).collect()
+    }
+
+    /// What the git host said so far about a project, for view keys.
+    fn hosted_digest(&self, project_id: &str) -> String {
+        let all = self.hosted.lock().unwrap();
+        let Some(h) = all.get(project_id) else { return String::new() };
+        let mut v: Vec<String> = h.merged.iter().map(|(tip, prs)| format!("{tip}>{}", prs.iter().map(|m| m.merge_commit.as_str()).collect::<Vec<_>>().join(","))).collect();
+        v.sort();
+        v.join(";")
+    }
+
+    /// Whether the git host says a pull request took commit `tip` into `base`.
+    async fn hosted_landed(&self, project_id: &str, git: &Git, tip: &str, base: &str) -> bool {
+        let commits: Vec<String> = {
+            let all = self.hosted.lock().unwrap();
+            all.get(project_id).and_then(|h| h.merged.get(tip)).into_iter().flatten().map(|m| m.merge_commit.clone()).collect()
+        };
+        any_in(git, &commits, base).await
+    }
+
     async fn protected_branches(&self, project_id: &str, refresh: bool) -> Vec<String> {
         if !refresh {
             if let Some((at, list)) = self.protected.lock().unwrap().get(project_id) {
@@ -2236,6 +2780,10 @@ impl Gitnetix {
         let p = self.store.project(project_id)?;
         self.git(&p).fetch().await?;
         self.protected_branches(project_id, true).await;
+        // Ask the host again about every tip still without a pull request.
+        if let Some(h) = self.hosted.lock().unwrap().get_mut(project_id) {
+            h.asked.clear();
+        }
         self.changed(project_id);
         Ok(())
     }
@@ -2974,6 +3522,43 @@ fn squash_title(branch: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn host_says_which_pull_request_took_a_tip() {
+        let tmp = tempfile::tempdir().unwrap();
+        let git = Git::new(tmp.path().to_str().unwrap());
+        git.run(&["init", "-q"]).await.unwrap();
+        let info = |name: &str, sha: &str| BranchInfo { name: name.into(), sha: sha.into(), upstream: None, date: "2026-09-18T13:14:52-04:00".into() };
+        let pr = MergedPr { id: 119772, target: "release/8.23.0".into(), merge_commit: "f28".into() };
+        let refs = Refs::new(vec![info("feature/MNC-7187", "913")], vec![info("feature/other", "aaa")]).with_hosted(HashMap::from([("913".to_string(), vec![pr])]));
+        assert_eq!(refs.tips(), ["913", "aaa"]);
+        assert_eq!(refs.pr_merges(&git, "feature/MNC-7187").await, ["f28"]);
+        assert_eq!(refs.hosted_targets("feature/MNC-7187"), ["release/8.23.0"]);
+        assert!(refs.pr_merges(&git, "feature/other").await.is_empty());
+    }
+
+    #[test]
+    fn tagged_releases_ship() {
+        let release = |v: &str| Release { version: v.into(), branch: format!("release/{v}"), ..Default::default() };
+        let mut p = Project { releases: vec![release("1.0.0"), release("1.1.0"), release("2.0.0")], ..Default::default() };
+        let tags = [("v1.0.0", "2026-01-01"), ("1.1.0", "2026-02-01")].map(|(n, d)| TagInfo { name: n.into(), date: d.into(), sha: String::new() });
+        assert!(ship_tagged_releases(&mut p, &tags));
+        let state: Vec<_> = p.releases.iter().map(|r| (r.shipped_at.as_deref(), r.tag.as_deref())).collect();
+        assert_eq!(state, [(Some("2026-01-01"), Some("v1.0.0")), (Some("2026-02-01"), Some("1.1.0")), (None, None)]);
+        assert!(!ship_tagged_releases(&mut p, &tags));
+    }
+
+    #[test]
+    fn releases_passed_by_a_later_patch_ship() {
+        let release = |v: &str| Release { version: v.into(), branch: format!("release/{v}"), ..Default::default() };
+        let mut p = Project { releases: vec![release("8.17.0"), release("8.5.5"), release("9.0.0"), release("8.23.2")], ..Default::default() };
+        let tags = [("8.17.1", "2026-06-22"), ("8.5.6", "2026-01-10"), ("8.24.0", "2026-10-16"), ("8.23.1", "2026-10-15")]
+            .map(|(n, d)| TagInfo { name: n.into(), date: d.into(), sha: String::new() });
+        assert!(ship_tagged_releases(&mut p, &tags));
+        let state: Vec<_> = p.releases.iter().map(|r| (r.version.as_str(), r.shipped_at.as_deref(), r.tag.as_deref())).collect();
+        // A later minor (8.24.0) passes neither 9.0.0 nor a hotfix still to come for 8.23.
+        assert_eq!(state, [("8.17.0", Some("2026-06-22"), None), ("8.5.5", Some("2026-01-10"), None), ("9.0.0", None, None), ("8.23.2", None, None)]);
+    }
 
     #[test]
     fn slugs() {

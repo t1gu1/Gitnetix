@@ -11,6 +11,24 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+### Added
+- Release branches can change the branch they were cut from. Trunks can take a parent, and work branches can target any existing branch.
+- Branches falling behind are grouped under their parent branch.
+- Azure DevOps pull requests are read to place merged branches under the release that shipped them.
+- Branches whose ticket key appears in a later pull request squash are shown with a "likely" tag. They are never deleted or cleaned up as merged.
+
+### Changed
+- Open releases are sorted newest version first.
+- Branch views are cached per project, and a quick overview shows first when nothing is cached, so reopening a project is faster.
+- Squash merge checks are persisted per commit pair, so they are not repeated.
+
+### Fixed
+- Branches squashed by pull requests are now detected, including squashes not titled with the branch name.
+- Squashed branches are placed under the release that shipped them.
+- Releases shipped by a later patch of their line are marked as shipped.
+- Older releases whose branch still exists are now listed.
+- Ahead/behind counts are batched per base branch, so they load faster.
+
 ## [0.1.0] - 2026-10-19
 
 ### Added

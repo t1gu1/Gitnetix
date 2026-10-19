@@ -29,7 +29,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("projects.setProfile", "Git profile used for commits in a project", "projectId, profileId"),
     ("profiles.save", "Create or update a Git profile", "profile: {id?, label, name, email, sign, signingKey?}"),
     ("profiles.delete", "Delete a Git profile", "id"),
-    ("workspace.overview", "Releases, their branches and repo state", "projectId"),
+    ("workspace.overview", "Releases, their branches and repo state; `quick` skips history checks when nothing is cached", "projectId, quick?"),
     ("workspace.files", "Changed files of a branch, or of one commit when `commit` is given", "projectId, branch, mode: branch|wip|project, commit?"),
     ("workspace.diff", "Diff of one file; in wip mode `staged` picks the side; `commit` diffs that commit; `full` keeps the whole file", "projectId, branch, mode, path, staged?, commit?, full?"),
     ("workspace.blobs", "Old and new contents of one file, base64 (image previews); same picking as workspace.diff", "projectId, branch, mode, path, staged?, commit?"),
@@ -71,7 +71,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("branches.reset", "Hard-reset a branch to its upstream, dropping local commits (and uncommitted changes when checked out)", "projectId, branch"),
     ("branches.merge", "Merge a branch into its release (or parent branch, or `into`): a merge commit, or rebase = rebase it onto the target and fast-forward; squash = collapse its commits first (\"squash | <branch>\", or squashAi = AI writes the message); deleteBranch = delete it last, locally and on origin; push = push the target after", "projectId, branch, into?, deleteBranch?, squash?, squashAi?, rebase?, push?"),
     ("branches.sync", "Merge a branch's base into it to bring it up to date", "projectId, branch"),
-    ("branches.setParent", "Choose what a branch merges into (an open release branch attaches it to that release)", "projectId, branch, parent"),
+    ("branches.setParent", "Choose what a branch merges into (an open release branch attaches it to that release; a release branch changes the branch it was cut from)", "projectId, branch, parent"),
     ("branches.fetch", "Fetch origin, pruning deleted branches", "projectId"),
     ("branches.cleanup", "Delete branches, skipping the ones that can't go; force = even if unmerged, remote = on origin too", "projectId, branches: string[], force?, remote?"),
     ("branches.delete", "Delete a local branch and its worktree; force = even if unmerged, remote = on origin too. Not the default or a host-protected branch", "projectId, branch, force?, remote?"),
@@ -337,7 +337,7 @@ pub async fn call(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
         }
 
         // ---- workspace ----
-        "workspace.overview" => to(k.overview(&s(&p, "projectId")?).await?),
+        "workspace.overview" => to(k.overview(&s(&p, "projectId")?, b(&p, "quick")).await?),
         "workspace.files" => match os(&p, "commit") {
             Some(sha) => to(k.commit_files(&s(&p, "projectId")?, &sha).await?),
             None => to(k.files(&s(&p, "projectId")?, &s(&p, "branch")?, mode(&p)?).await?),

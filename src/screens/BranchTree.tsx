@@ -119,9 +119,9 @@ export function BranchTree({
   onHide: () => void;
   /** Clean up the merged children of `parent`, shown as `label`. */
   onCleanup: (parent: string, label: string, branches: BranchView[]) => void;
-  /** Clean up (delete) the branches falling behind the default branch. */
-  onCleanupBehind: (branches: BranchView[]) => void;
-  /** Whether a cleanup is running on a section ("merged:<parent>" or "behind"); it stays locked until done. */
+  /** Clean up (delete) branches falling behind: the ones in `section`, far behind `base`. */
+  onCleanupBehind: (section: string, base: string, branches: BranchView[]) => void;
+  /** Whether a cleanup is running on a section ("merged:<parent>", "behind:<parent>" or "behind"); it stays locked until done. */
   isCleaning: (section: string) => boolean;
   /** Actions for a shipped release's tag; the first one (check out) also runs on double-click. */
   tagItems: (tag: string, checkedOut: boolean) => MenuItem[];
@@ -146,17 +146,31 @@ export function BranchTree({
   const shipped = o.releases.filter((r) => !r.open);
   const tops = useMemo(() => [...roots, ...shippedBranches.values()], [roots, shippedBranches]);
 
-  // Live branches off the default branch that have drifted far from it, furthest behind first.
-  const behind = useMemo(() => {
+  // Live branches that drifted far from their base, furthest behind first. A release or trunk with
+  // enough of them groups its own (`behindOf`); the rest fall back to the section after the tree.
+  const { behind, behindOf } = useMemo(() => {
     const names = new Set(o.branches.map((b) => b.name));
-    const list = o.branches.filter((b) => {
+    const byParent = new Map<string, BranchView[]>();
+    for (const b of o.branches) {
       const parent = b.parent && names.has(b.parent) ? b.parent : o.defaultBranch;
-      return b.name !== o.defaultBranch && parent === o.defaultBranch && b.exists && !b.merged && b.behind >= BEHIND_LIMIT;
-    });
-    return list.length > BEHIND_MIN_BRANCHES ? list.sort((a, b) => b.behind - a.behind || a.name.localeCompare(b.name)) : [];
+      if (b.name === o.defaultBranch || !b.exists || b.merged || b.behind < BEHIND_LIMIT) continue;
+      byParent.set(parent, [...(byParent.get(parent) ?? []), b]);
+    }
+    const furthest = (list: BranchView[]) => list.sort((a, b) => b.behind - a.behind || a.name.localeCompare(b.name));
+    const behindOf = new Map<string, BranchView[]>();
+    const rest: BranchView[] = [];
+    for (const [parent, list] of byParent) {
+      if (parent !== o.defaultBranch && list.length > BEHIND_MIN_BRANCHES) behindOf.set(parent, furthest(list));
+      else rest.push(...list);
+    }
+    return { behind: rest.length > BEHIND_MIN_BRANCHES ? furthest(rest) : [], behindOf };
   }, [o]);
+  /** Section of the tree child `c` of `parent` sits in. */
+  const sectionOf = (parent: string, c: BranchView) =>
+    c.merged ? `merged:${parent}` : behindOf.get(parent)?.includes(c) ? `behind:${parent}` : behind.includes(c) ? "behind" : parent;
   // Protected, checked-out, busy or dirty branches stay put.
-  const behindRemovable = behind.filter((b) => !b.protected && !b.checkedOut && !b.running && b.wip === 0);
+  const cleanable = (b: BranchView) => !b.protected && !b.checkedOut && !b.running && b.wip === 0;
+  const behindRemovable = behind.filter(cleanable);
 
   const q = query.trim().toLowerCase();
   const matches = useMemo(() => {
@@ -189,7 +203,7 @@ export function BranchTree({
   const { isOpen, toggle, openAll } = useToggles(pid, () => {
     const open = new Set<string>();
     for (const name of path) {
-      for (const c of kids(name)) if (path.has(c.name)) open.add(c.merged ? `merged:${name}` : name);
+      for (const c of kids(name)) if (path.has(c.name)) open.add(sectionOf(name, c));
     }
     return open;
   });
@@ -201,7 +215,7 @@ export function BranchTree({
     const walk = (b: BranchView): boolean =>
       kids(b.name).some((c) => {
         const hit = c.name === reveal || walk(c);
-        if (hit) sections.push(c.merged ? `merged:${b.name}` : b.name);
+        if (hit) sections.push(sectionOf(b.name, c));
         return hit;
       });
     tops.some(walk);
@@ -214,7 +228,9 @@ export function BranchTree({
   const node = (b: BranchView): ReactNode => {
     if (!shown(b)) return null;
     const children = kids(b.name).filter(shown);
-    const live = children.filter((c) => !c.merged);
+    const lagging = (behindOf.get(b.name) ?? []).filter(shown);
+    // Branches falling behind sit in their group, or in the section after the tree, not among the live ones.
+    const live = children.filter((c) => !c.merged && !lagging.includes(c) && (!!q || !behind.includes(c)));
     const merged = children.filter((c) => c.merged);
     const hasKids = children.length > 0;
     const open = !!q || isOpen(b.name);
@@ -224,11 +240,15 @@ export function BranchTree({
     const cleaning = isCleaning(mergedKey);
     const version = b.role === "release" ? b.release : b.shipped;
     const mergedLabel = version ? `v${version}` : b.name;
-    // Protected and checked-out branches stay put.
-    const removable = merged.filter((c) => !c.protected && !c.checkedOut);
-    // Where the orange path leaves this branch: into a merged child, or past the merged group to a live one.
+    // Protected and checked-out branches stay put, and so do the ones only likely merged.
+    const removable = merged.filter((c) => !c.protected && !c.checkedOut && !c.likelyMerged);
+    const behindKey = `behind:${b.name}`;
+    const behindOpen = !!q || isOpen(behindKey);
+    const laggingRemovable = lagging.filter(cleanable);
+    // Where the orange path leaves this branch: into a merged or lagging child, or past those groups to a live one.
     const pathLive = live.some((c) => path.has(c.name));
     const pathMerged = merged.some((c) => path.has(c.name));
+    const pathBehind = lagging.some((c) => path.has(c.name));
     return (
       <div key={b.name} role="group" className="tree-node">
         <Row
@@ -248,7 +268,7 @@ export function BranchTree({
           <div className="tree-sub">
             {merged.length > 0 && (
               <>
-                <div className="tree-row tree-group tree-merged" data-path={pathLive || pathMerged || undefined}>
+                <div className="tree-row tree-group tree-merged" data-path={pathLive || pathBehind || pathMerged || undefined}>
                   <button className="tree-merged-toggle" aria-expanded={mergedOpen} onClick={() => toggle(mergedKey)}>
                     <span className="tree-twist"><Icon name="chevronDown" size={12} className="chev" /></span>
                     <span className="group-label" data-active={pathMerged || undefined}>Merged into {mergedLabel}</span>
@@ -257,8 +277,27 @@ export function BranchTree({
                   {(removable.length > 0 || cleaning) && <CleanupButton busy={cleaning} title={`Delete the ${removable.length} merged branch${removable.length === 1 ? "" : "es"} under ${mergedLabel}, locally and on origin`} onClick={() => onCleanup(b.name, mergedLabel, removable)} />}
                 </div>
                 {mergedOpen && (
-                  <div className="tree-kids" data-path={pathMerged ? "in" : pathLive ? "past" : undefined} aria-busy={cleaning || undefined} inert={cleaning}>
+                  <div className="tree-kids" data-path={pathMerged ? "in" : pathLive || pathBehind ? "past" : undefined} aria-busy={cleaning || undefined} inert={cleaning}>
                     {merged.map((c) => node(c))}
+                  </div>
+                )}
+              </>
+            )}
+            {lagging.length > 0 && (
+              <>
+                <div className="tree-row tree-group tree-merged tree-behind" data-path={pathLive || pathBehind || undefined}>
+                  <button className="tree-merged-toggle" aria-expanded={behindOpen} title={`Branches ${BEHIND_LIMIT} or more commits behind ${mergedLabel}. Update or rebase them to catch up.`} onClick={() => toggle(behindKey)}>
+                    <span className="tree-twist"><Icon name="chevronDown" size={12} className="chev" /></span>
+                    <span className="group-label" data-active={pathBehind || undefined}>Falling behind {mergedLabel}</span>
+                    <span className="faint">{lagging.length}</span>
+                  </button>
+                  {(laggingRemovable.length > 0 || isCleaning(behindKey)) && (
+                    <CleanupButton busy={isCleaning(behindKey)} title={`Pick which of the ${plural(laggingRemovable.length, "branch")} falling behind ${mergedLabel} to delete`} onClick={() => onCleanupBehind(behindKey, mergedLabel, laggingRemovable)} />
+                  )}
+                </div>
+                {behindOpen && (
+                  <div className="tree-kids" data-path={pathBehind ? "in" : pathLive ? "past" : undefined} aria-busy={isCleaning(behindKey) || undefined} inert={isCleaning(behindKey)}>
+                    {lagging.map((c) => node(c))}
                   </div>
                 )}
               </>
@@ -360,13 +399,13 @@ export function BranchTree({
         {behind.length > 0 && !q && (
           <>
             <div className="tree-row tree-group tree-merged tree-behind" style={{ marginTop: 8 }}>
-              <button className="tree-merged-toggle" aria-expanded={isOpen("behind")} title={`Branches ${BEHIND_LIMIT} or more commits behind ${o.defaultBranch}. Update or rebase them to catch up.`} onClick={() => toggle("behind")}>
+              <button className="tree-merged-toggle" aria-expanded={isOpen("behind")} title={`Branches ${BEHIND_LIMIT} or more commits behind their base (${o.defaultBranch}, or a release with few of them). Update or rebase them to catch up.`} onClick={() => toggle("behind")}>
                 <span className="tree-twist"><Icon name="chevronDown" size={12} className="chev" /></span>
                 <span className="group-label" data-active={behind.some((b) => b.name === o.currentBranch) || undefined}>Branches falling behind</span>
                 <span className="faint">{behind.length}</span>
               </button>
               {(behindRemovable.length > 0 || isCleaning("behind")) && (
-                <CleanupButton busy={isCleaning("behind")} title={`Pick which of the ${plural(behindRemovable.length, "branch")} falling behind ${o.defaultBranch} to delete`} onClick={() => onCleanupBehind(behindRemovable)} />
+                <CleanupButton busy={isCleaning("behind")} title={`Pick which of the ${plural(behindRemovable.length, "branch")} falling behind to delete`} onClick={() => onCleanupBehind("behind", o.defaultBranch, behindRemovable)} />
               )}
             </div>
             {isOpen("behind") && (
@@ -506,6 +545,7 @@ function Row({
           <span className="tree-name">
             <span className="mono ellipsis">{name}</span>
             {shipped ? <span className="tag released">{releaseTagLabel("released")}</span> : tag}
+            {b.likelyMerged && <span className="tag" title={`A pull request carrying its ticket went into ${t.baseLabel} after its last commit. Not proof: it is never cleaned up as merged.`}>likely</span>}
           </span>
           <BranchMeta b={b} parent={t.baseLabel} current={current} showName={!!shipped} onCommits={t.showCommits} onStashes={t.showStashes} />
         </span>

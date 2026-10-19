@@ -14,6 +14,71 @@ use crate::error::{Error, Result};
 /// Git's empty tree: the base to diff a root commit (or a stash's untracked files) against.
 const EMPTY_TREE: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 
+/// `git log -E` filter for pull request squashes named after their branch.
+const PR_GREP: &str = "--grep=^Merged PR [0-9]+: [^ ]+$";
+
+/// `git log -E` filter for every pull request squash.
+const PR_ANY_GREP: &str = "--grep=^Merged PR [0-9]+: ";
+
+/// Branch a pull request squash came from: `Merged PR 12: feature/x` → `feature/x`.
+/// An edited title (spaces in it) names no branch.
+fn pr_source(subject: &str) -> Option<&str> {
+    let rest = subject.strip_prefix("Merged PR ")?;
+    let (n, source) = rest.split_once(": ")?;
+    let source = source.trim();
+    (!n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()) && source_name(source)).then_some(source)
+}
+
+/// Whether a pull request title is the bare name of its branch.
+fn source_name(title: &str) -> bool {
+    !title.is_empty() && !title.contains(char::is_whitespace)
+}
+
+/// A pull request squash commit.
+#[derive(Debug, Clone)]
+pub struct PrSquash {
+    pub sha: String,
+    /// Commit time, Unix seconds.
+    pub time: i64,
+    pub title: String,
+}
+
+impl PrSquash {
+    /// The branch its title names, when the title was left as the branch name.
+    pub fn source(&self) -> Option<&str> {
+        source_name(&self.title).then_some(self.title.as_str())
+    }
+}
+
+/// Ticket keys in `s`, upper-cased: `feature/MNC-7187-x` → MNC-7187; `MNC-7187_&_MNC-7185` → both.
+/// Unless `any_case`, only keys written in capitals (`expo-54` is no ticket in a title).
+pub fn ticket_keys(s: &str, any_case: bool) -> Vec<String> {
+    let b = s.as_bytes();
+    let mut keys = Vec::new();
+    let mut i = 0;
+    while i < b.len() {
+        if !b[i].is_ascii_alphabetic() || (i > 0 && b[i - 1].is_ascii_alphanumeric()) {
+            i += 1;
+            continue;
+        }
+        let start = i;
+        while i < b.len() && b[i].is_ascii_alphabetic() {
+            i += 1;
+        }
+        let letters = i - start;
+        if !(2..=10).contains(&letters) || b.get(i) != Some(&b'-') {
+            continue;
+        }
+        let digits = b[i + 1..].iter().take_while(|c| c.is_ascii_digit()).count();
+        if digits == 0 || b.get(i + 1 + digits).is_some_and(|c| c.is_ascii_alphabetic()) || !(any_case || b[start..i].iter().all(u8::is_ascii_uppercase)) {
+            continue;
+        }
+        keys.push(s[start..i + 1 + digits].to_ascii_uppercase());
+        i += 1 + digits;
+    }
+    keys
+}
+
 #[derive(Debug, Clone)]
 pub struct Git {
     cwd: PathBuf,
@@ -318,6 +383,37 @@ impl Git {
         Ok(map)
     }
 
+    /// Pull requests squashed in (Azure DevOps: `Merged PR 12: <title>`), newest first:
+    /// commit, commit time and the title.
+    pub async fn pr_squashes(&self, limit: u32) -> Result<Vec<PrSquash>> {
+        let max = format!("--max-count={limit}");
+        let out = self.run(&["log", "--all", "--no-merges", &max, "-E", PR_ANY_GREP, "--format=%H%x1f%ct%x1f%s"]).await?;
+        Ok(out
+            .lines()
+            .filter_map(|l| {
+                let mut f = l.split('\x1f');
+                let (sha, time, subject) = (f.next()?, f.next()?.parse().ok()?, f.next()?);
+                let title = subject.strip_prefix("Merged PR ")?.split_once(": ")?.1;
+                Some(PrSquash { sha: sha.into(), time, title: title.trim().into() })
+            })
+            .collect())
+    }
+
+    /// Local and origin branches holding `sha`, spelled `x` and `origin/x`.
+    pub async fn branches_containing(&self, sha: &str) -> Result<Vec<String>> {
+        let contains = format!("--contains={sha}");
+        let out = self.run(&["for-each-ref", &contains, "--format=%(refname:short)", "refs/heads", "refs/remotes/origin"]).await?;
+        Ok(out.lines().map(str::to_string).collect())
+    }
+
+    /// Whether `base` holds a pull request of branch `name` (tip `rev`) squashed in after its last commit.
+    pub async fn pr_merged_into(&self, name: &str, rev: &str, base: &str) -> Result<bool> {
+        let tip: i64 = self.run(&["log", "-1", "--format=%ct", rev]).await?.trim().parse().unwrap_or(i64::MAX);
+        let not_rev = format!("^{rev}");
+        let out = self.run(&["log", "--no-merges", "-E", PR_GREP, "--format=%ct%x1f%s", base, &not_rev, "--"]).await?;
+        Ok(out.lines().filter_map(|l| l.split_once('\x1f')).any(|(t, s)| pr_source(s) == Some(name) && t.parse::<i64>().is_ok_and(|t| t >= tip)))
+    }
+
     pub async fn tags(&self) -> Result<Vec<TagInfo>> {
         let out = self
             .run(&[
@@ -358,6 +454,46 @@ impl Git {
         Ok((n.next().unwrap_or(0), n.next().unwrap_or(0)))
     }
 
+    /// `left_right(base, b)` for every local and origin branch `b` at once, keyed
+    /// like a revision (`x` for a local branch, `origin/x` for an origin one).
+    pub async fn left_right_all(&self, base: &str) -> Result<HashMap<String, (u32, u32)>> {
+        let format = format!("--format=%(refname)%1f%(ahead-behind:{base})");
+        let out = self.run(&["for-each-ref", &format, "refs/heads", "refs/remotes/origin"]).await?;
+        Ok(out
+            .lines()
+            .filter_map(|l| {
+                let (r, counts) = l.split_once('\x1f')?;
+                let name = r.strip_prefix("refs/heads/").map(String::from).or_else(|| r.strip_prefix("refs/remotes/").map(String::from))?;
+                let (ahead, behind) = counts.split_once(' ')?;
+                Some((name, (behind.parse().ok()?, ahead.parse().ok()?)))
+            })
+            .collect())
+    }
+
+    /// `left_right(branch, upstream)` for every local branch whose upstream is a
+    /// remote-tracking branch that still exists.
+    pub async fn upstream_counts(&self) -> Result<HashMap<String, (u32, u32)>> {
+        let out = self.run(&["for-each-ref", "refs/heads", "--format=%(refname:short)%1f%(upstream)%1f%(upstream:track,nobracket)"]).await?;
+        Ok(out
+            .lines()
+            .filter_map(|l| {
+                let f: Vec<&str> = l.split('\x1f').collect();
+                if f.len() != 3 || !f[1].starts_with("refs/remotes/") || f[2] == "gone" {
+                    return None;
+                }
+                let (mut ahead, mut behind) = (0, 0);
+                for part in f[2].split(", ") {
+                    match part.split_once(' ') {
+                        Some(("ahead", n)) => ahead = n.parse().ok()?,
+                        Some(("behind", n)) => behind = n.parse().ok()?,
+                        _ => {}
+                    }
+                }
+                Some((f[0].to_string(), (ahead, behind)))
+            })
+            .collect())
+    }
+
     /// Configured upstream of `branch` (`origin/x`), if any.
     pub async fn upstream(&self, branch: &str) -> Result<Option<String>> {
         let (ok, out, _) = self.try_run(&["rev-parse", "--abbrev-ref", &format!("{branch}@{{upstream}}")]).await?;
@@ -383,17 +519,38 @@ impl Git {
     /// remote-tracking name (`origin/x`).
     pub async fn is_merged_into(&self, branch: &str, base: &str) -> Result<bool> {
         let (tip, base_tip) = (self.rev_parse(branch).await?, self.rev_parse(base).await?);
-        if tip == base_tip || !self.is_ancestor(&tip, &base_tip).await? {
+        if tip == base_tip {
             return Ok(false);
         }
-        let merges = self.run(&["rev-list", "--merges", "--parents", "--ancestry-path", &format!("{tip}..{base_tip}")]).await?;
-        if merges.lines().any(|l| l.split_whitespace().skip(2).any(|p| p == tip)) {
-            return Ok(true);
+        match self.merge_evidence(&tip, &base_tip).await? {
+            (false, _) => Ok(false),
+            (true, true) => Ok(true),
+            (true, false) => self.moved_since_created(branch, &tip).await,
         }
+    }
+
+    /// The part of [`Git::is_merged_into`] fixed for a pair of commits:
+    /// (`tip` is in `base_tip`, a merge commit there has `tip` as a parent).
+    pub async fn merge_evidence(&self, tip: &str, base_tip: &str) -> Result<(bool, bool)> {
+        if !self.is_ancestor(tip, base_tip).await? {
+            return Ok((false, false));
+        }
+        let merges = self.run(&["rev-list", "--merges", "--parents", "--ancestry-path", &format!("{tip}..{base_tip}")]).await?;
+        Ok((true, merges.lines().any(|l| l.split_whitespace().skip(2).any(|p| p == tip))))
+    }
+
+    /// The branch moved since it was created: its oldest reflog entry is not `tip`.
+    /// `branch` may be a remote-tracking name (`origin/x`).
+    pub async fn moved_since_created(&self, branch: &str, tip: &str) -> Result<bool> {
         let local = format!("refs/heads/{branch}");
         let r = if self.ref_exists(&local).await? { local } else { format!("refs/remotes/{branch}") };
         let (ok, log, _) = self.try_run(&["reflog", "show", "--format=%H", &r]).await?;
         Ok(ok && log.lines().last().is_some_and(|created| created.trim() != tip))
+    }
+
+    /// Every branch, origin branch and tag with its commit and upstream: changes whenever any of them moves.
+    pub async fn ref_fingerprint(&self) -> Result<String> {
+        self.run(&["for-each-ref", "--format=%(refname) %(objectname) %(upstream)", "refs/heads", "refs/remotes", "refs/tags"]).await
     }
 
     /// True when `branch` landed in `base` as new commits rather than its own:
@@ -402,13 +559,21 @@ impl Git {
     /// the squash check builds a throwaway commit holding the whole branch diff.
     pub async fn is_squash_merged(&self, branch: &str, base: &str) -> Result<bool> {
         let picked = |out: &str| !out.trim().is_empty() && out.lines().all(|l| l.starts_with('-'));
-        if picked(&self.run(&["cherry", base, branch]).await?) {
+        let cherry = self.run(&["cherry", base, branch]).await?;
+        if picked(&cherry) {
             return Ok(true);
         }
-        let fork = self.run(&["merge-base", base, branch]).await?;
+        // Oldest commits already upstream (other work the branch pulled in) were not part of its
+        // squash: squash from the last of them. Otherwise from where the branch forked.
+        let lines: Vec<&str> = cherry.lines().collect();
+        let upstream = lines.iter().take_while(|l| l.starts_with('-')).count();
+        let parent = match upstream {
+            n if n > 0 && lines[n..].iter().all(|l| l.starts_with('+')) => lines[n - 1][1..].trim().to_string(),
+            _ => self.run(&["merge-base", base, branch]).await?.trim().to_string(),
+        };
         let tree = format!("{branch}^{{tree}}");
         let out = self
-            .command(&["commit-tree", &tree, "-p", fork.trim(), "-m", "squash"])
+            .command(&["commit-tree", &tree, "-p", &parent, "-m", "squash"])
             .env("GIT_AUTHOR_NAME", "gitnetix")
             .env("GIT_AUTHOR_EMAIL", "gitnetix@localhost")
             .env("GIT_COMMITTER_NAME", "gitnetix")
@@ -1067,6 +1232,29 @@ impl Git {
         Ok(self.run(&args).await?.trim().to_string())
     }
 
+    /// Stable patch id of each non-merge commit in `revs` (rev-list syntax), with its commit.
+    pub async fn patch_ids(&self, revs: &[&str]) -> Result<Vec<(String, String)>> {
+        let mut args = vec!["log", "-p", "--no-merges", "--no-color", "--no-ext-diff", "--format=commit %H"];
+        args.extend_from_slice(revs);
+        args.push("--");
+        let log = self.run(&args).await?;
+        if log.trim().is_empty() {
+            return Ok(vec![]);
+        }
+        let out = self.run_stdin(&["patch-id", "--stable"], &log).await?;
+        Ok(out.lines().filter_map(|l| l.split_once(' ')).map(|(id, c)| (id.to_string(), c.to_string())).collect())
+    }
+
+    /// Stable patch id of the whole change from `from` to `to`; None when nothing changed.
+    pub async fn diff_patch_id(&self, from: &str, to: &str) -> Result<Option<String>> {
+        let diff = self.run(&["diff", "--no-color", "--no-ext-diff", from, to, "--"]).await?;
+        if diff.trim().is_empty() {
+            return Ok(None);
+        }
+        let out = self.run_stdin(&["patch-id", "--stable"], &diff).await?;
+        Ok(out.split_whitespace().next().map(str::to_string))
+    }
+
     pub async fn merge_base(&self, a: &str, b: &str) -> Result<String> {
         Ok(self.run(&["merge-base", a, b]).await?.trim().to_string())
     }
@@ -1316,6 +1504,17 @@ pub fn truncate_utf8(s: &mut String, max: usize) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reads_ticket_keys() {
+        assert_eq!(ticket_keys("feature/MNC-7187-integrer-nouveau-parcours", true), ["MNC-7187"]);
+        assert_eq!(ticket_keys("MNC-7187_&_MNC-7185-integration nouveau parcours", false), ["MNC-7187", "MNC-7185"]);
+        assert_eq!(ticket_keys("fix/mnc-7315-7318-adjust", true), ["MNC-7315"]);
+        assert_eq!(ticket_keys("bugfix/MNC-6771-android-crash-expo-54", false), ["MNC-6771"]);
+        assert!(ticket_keys("Feature/MNC 7322 button transition", true).is_empty());
+        assert!(ticket_keys("release/8.17.0", true).is_empty());
+        assert!(ticket_keys("feat/x-12abc", true).is_empty());
+    }
 
     #[test]
     fn stash_subjects() {

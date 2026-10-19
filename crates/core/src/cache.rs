@@ -1,0 +1,118 @@
+//! Results of slow git work, kept on disk so the next overview (and the next launch) skips it.
+
+use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+
+use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
+
+/// Past this many answers the commit cache starts over, keeping the file small.
+const MAX_ENTRIES: usize = 20_000;
+
+/// Checks whose answer is fixed for a pair of commits, so it stays true for good.
+/// Keyed by the check's name and both SHAs.
+pub struct CommitCache {
+    file: PathBuf,
+    map: Mutex<HashMap<String, bool>>,
+    dirty: AtomicBool,
+}
+
+impl CommitCache {
+    /// Load the answers saved under `dir`; a missing or unreadable file starts empty.
+    pub fn open(dir: &Path) -> CommitCache {
+        let file = dir.join("commit-cache.json");
+        let map = std::fs::read(&file).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+        CommitCache { file, map: Mutex::new(map), dirty: AtomicBool::new(false) }
+    }
+
+    pub fn get(&self, check: &str, tip: &str, base: &str) -> Option<bool> {
+        self.map.lock().unwrap().get(&format!("{check}:{tip}:{base}")).copied()
+    }
+
+    pub fn insert(&self, check: &str, tip: &str, base: &str, answer: bool) {
+        let mut map = self.map.lock().unwrap();
+        if map.len() >= MAX_ENTRIES {
+            map.clear();
+        }
+        map.insert(format!("{check}:{tip}:{base}"), answer);
+        self.dirty.store(true, Ordering::Relaxed);
+    }
+
+    /// Write new answers to disk, if there are any.
+    pub fn save(&self) {
+        if !self.dirty.swap(false, Ordering::Relaxed) {
+            return;
+        }
+        let Ok(json) = serde_json::to_string(&*self.map.lock().unwrap()) else { return };
+        write_atomic(&self.file, json);
+    }
+}
+
+/// The last value built per project, with the key it was built for; a different key is a miss.
+pub struct ViewCache<T> {
+    dir: PathBuf,
+    map: Mutex<HashMap<String, Arc<Saved<T>>>>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct Saved<T> {
+    key: u64,
+    value: T,
+}
+
+impl<T: Serialize + DeserializeOwned> ViewCache<T> {
+    /// Values live in `dir`, one file per project, read on first use.
+    pub fn open(dir: PathBuf) -> ViewCache<T> {
+        ViewCache { dir, map: Mutex::default() }
+    }
+
+    pub fn get(&self, project_id: &str, key: u64) -> Option<Arc<Saved<T>>> {
+        let mut map = self.map.lock().unwrap();
+        if !map.contains_key(project_id) {
+            let saved: Saved<T> = std::fs::read(self.file(project_id)).ok().and_then(|b| serde_json::from_slice(&b).ok())?;
+            map.insert(project_id.into(), Arc::new(saved));
+        }
+        map.get(project_id).filter(|s| s.key == key).cloned()
+    }
+
+    pub fn insert(&self, project_id: &str, key: u64, value: T) {
+        let saved = Arc::new(Saved { key, value });
+        if let Ok(json) = serde_json::to_string(&*saved) {
+            let _ = std::fs::create_dir_all(&self.dir);
+            write_atomic(&self.file(project_id), json);
+        }
+        self.map.lock().unwrap().insert(project_id.into(), saved);
+    }
+
+    fn file(&self, project_id: &str) -> PathBuf {
+        // Ids are generated hex, but never let one reach outside the folder.
+        let safe: String = project_id.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').collect();
+        self.dir.join(format!("{safe}.json"))
+    }
+}
+
+impl<T> Saved<T> {
+    pub fn value(&self) -> &T {
+        &self.value
+    }
+}
+
+/// Stable hash of the parts a cached value was built from.
+pub fn key_of(parts: &[&str]) -> u64 {
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    for p in parts {
+        p.hash(&mut h);
+    }
+    h.finish()
+}
+
+/// Temp file and rename so a reader never sees a torn file.
+fn write_atomic(file: &Path, contents: String) {
+    let tmp = file.with_extension("json.tmp");
+    if std::fs::write(&tmp, contents).is_ok() {
+        let _ = std::fs::rename(&tmp, file);
+    }
+}

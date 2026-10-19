@@ -1076,3 +1076,146 @@ async fn blobs_pick_both_versions_of_a_file() {
     assert_eq!(blobs(wip(false)).await, (Some(png(2)), Some(png(3))));
     assert_eq!(blobs(json!({ "projectId": pid, "branch": "main", "mode": "project", "path": "logo.png" })).await, (Some(png(1)), Some(png(3))));
 }
+
+#[tokio::test]
+async fn squash_merged_branch_that_pulled_in_upstream_work_reads_as_merged() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("atlas-api");
+    init_repo(&repo);
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let added = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await;
+    let pid = added[0]["id"].as_str().unwrap().to_string();
+
+    // The branch carries a fix that reached main on its own, then its own work.
+    sh(&repo, &["switch", "-qc", "feat/button"]);
+    commit_file(&repo, "fix.txt", "fix\n");
+    commit_file(&repo, "f1.txt", "1\n");
+    commit_file(&repo, "f2.txt", "2\n");
+    sh(&repo, &["switch", "-q", "main"]);
+    std::fs::write(repo.join("fix.txt"), "fix\n").unwrap();
+    sh(&repo, &["add", "."]);
+    sh(&repo, &["commit", "-qm", "Merged PR 0: fix"]);
+    // Squashed on the host: only the branch's own work, on top of the fix.
+    sh(&repo, &["merge", "-q", "--squash", "feat/button"]);
+    sh(&repo, &["commit", "-qm", "Merged PR 1: Feat/button"]);
+
+    let o = call(&k, "workspace.overview", json!({ "projectId": pid })).await;
+    let b = o["branches"].as_array().unwrap().iter().find(|b| b["name"] == "feat/button").cloned().unwrap();
+    assert_eq!(b["merged"], true, "{b}");
+}
+
+#[tokio::test]
+async fn branch_squashed_into_a_shipped_release_sits_under_it() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("atlas-api");
+    init_repo(&repo);
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let added = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await;
+    let pid = added[0]["id"].as_str().unwrap().to_string();
+
+    sh(&repo, &["switch", "-qc", "release/1.0.0"]);
+    commit_file(&repo, "r.txt", "r\n");
+    sh(&repo, &["switch", "-qc", "feat/x", "main"]);
+    commit_file(&repo, "x1.txt", "1\n");
+    commit_file(&repo, "x2.txt", "2\n");
+    // Squashed into the release by a PR, then shipped; main never got it.
+    sh(&repo, &["switch", "-q", "release/1.0.0"]);
+    sh(&repo, &["merge", "-q", "--squash", "feat/x"]);
+    sh(&repo, &["commit", "-qm", "Merged PR 2: Feat/x"]);
+    sh(&repo, &["tag", "1.0.0"]);
+    sh(&repo, &["switch", "-q", "main"]);
+
+    let o = call(&k, "workspace.overview", json!({ "projectId": pid })).await;
+    let b = o["branches"].as_array().unwrap().iter().find(|b| b["name"] == "feat/x").cloned().unwrap();
+    assert_eq!(b["parent"], "release/1.0.0", "{b}");
+    assert_eq!(b["merged"], true, "{b}");
+}
+
+#[tokio::test]
+async fn pull_request_squash_naming_the_branch_counts_as_merged() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("atlas-api");
+    init_repo(&repo);
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let added = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await;
+    let pid = added[0]["id"].as_str().unwrap().to_string();
+
+    sh(&repo, &["switch", "-qc", "release/2.0.0"]);
+    commit_file(&repo, "r.txt", "r\n");
+    sh(&repo, &["switch", "-qc", "feat/t", "main"]);
+    commit_file(&repo, "t.txt", "t\n");
+    // The pull request landed with a conflict fixed on the way: not the branch's exact change.
+    sh(&repo, &["switch", "-q", "release/2.0.0"]);
+    std::fs::write(repo.join("t.txt"), "t, resolved\n").unwrap();
+    sh(&repo, &["add", "."]);
+    sh(&repo, &["commit", "-qm", "Merged PR 7: feat/t"]);
+    sh(&repo, &["switch", "-q", "main"]);
+
+    let o = call(&k, "workspace.overview", json!({ "projectId": pid })).await;
+    let b = o["branches"].as_array().unwrap().iter().find(|b| b["name"] == "feat/t").cloned().unwrap();
+    assert_eq!(b["parent"], "release/2.0.0", "{b}");
+    assert_eq!(b["merged"], true, "{b}");
+    call(&k, "branches.delete", json!({ "projectId": pid, "branch": "feat/t" })).await;
+    assert!(rev(&repo, "refs/heads/feat/t").is_empty());
+}
+
+#[tokio::test]
+async fn squash_carrying_the_ticket_reads_as_likely_merged() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("atlas-api");
+    init_repo(&repo);
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let added = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await;
+    let pid = added[0]["id"].as_str().unwrap().to_string();
+
+    sh(&repo, &["switch", "-qc", "release/3.0.0"]);
+    commit_file(&repo, "r.txt", "r\n");
+    sh(&repo, &["switch", "-qc", "feature/ABC-12-new-path", "main"]);
+    commit_file(&repo, "path.txt", "draft\n");
+    // The work went on elsewhere; that pull request's title names the ticket, not this branch.
+    sh(&repo, &["switch", "-q", "release/3.0.0"]);
+    std::fs::write(repo.join("path.txt"), "final\n").unwrap();
+    sh(&repo, &["add", "."]);
+    sh(&repo, &["commit", "-qm", "Merged PR 9: ABC-12_&_ABC-13 new path"]);
+    sh(&repo, &["switch", "-q", "main"]);
+
+    let o = call(&k, "workspace.overview", json!({ "projectId": pid })).await;
+    let b = o["branches"].as_array().unwrap().iter().find(|b| b["name"] == "feature/ABC-12-new-path").cloned().unwrap();
+    assert_eq!(b["parent"], "release/3.0.0", "{b}");
+    assert_eq!((b["merged"].clone(), b["likelyMerged"].clone()), (json!(true), json!(true)), "{b}");
+    // A guess is not proof: the branch is not deleted as merged.
+    let err = rpc::call(&k, "branches.delete", json!({ "projectId": pid, "branch": "feature/ABC-12-new-path" })).await.unwrap_err();
+    assert!(err.to_string().contains("not merged"), "{err}");
+}
+
+#[tokio::test]
+async fn a_branch_can_target_any_branch() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("atlas-api");
+    init_repo(&repo);
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let added = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await;
+    let pid = added[0]["id"].as_str().unwrap().to_string();
+
+    sh(&repo, &["switch", "-qc", "feature/base"]);
+    commit_file(&repo, "a.txt", "a\n");
+    sh(&repo, &["switch", "-qc", "feature/on-top"]);
+    commit_file(&repo, "b.txt", "b\n");
+    sh(&repo, &["switch", "-q", "main"]);
+
+    call(&k, "branches.setParent", json!({ "projectId": pid, "branch": "feature/on-top", "parent": "feature/base" })).await;
+    let o = call(&k, "workspace.overview", json!({ "projectId": pid })).await;
+    let b = o["branches"].as_array().unwrap().iter().find(|b| b["name"] == "feature/on-top").cloned().unwrap();
+    assert_eq!((b["parent"].clone(), b["ahead"].clone(), b["merged"].clone()), (json!("feature/base"), json!(1), json!(false)), "{b}");
+
+    // Release branches and trunks can be re-targeted too.
+    sh(&repo, &["branch", "release/5.0.0"]);
+    sh(&repo, &["branch", "dev"]);
+    call(&k, "branches.setParent", json!({ "projectId": pid, "branch": "release/5.0.0", "parent": "feature/base" })).await;
+    call(&k, "branches.setParent", json!({ "projectId": pid, "branch": "dev", "parent": "release/5.0.0" })).await;
+    let o = call(&k, "workspace.overview", json!({ "projectId": pid })).await;
+    let parent = |n: &str| o["branches"].as_array().unwrap().iter().find(|b| b["name"] == n).map(|b| b["parent"].clone()).unwrap();
+    assert_eq!((parent("release/5.0.0"), parent("dev")), (json!("feature/base"), json!("release/5.0.0")));
+    let rel = o["releases"].as_array().unwrap().iter().find(|r| r["version"] == "5.0.0").cloned().unwrap();
+    assert_eq!(rel["open"], true, "still an open release: {rel}");
+}

@@ -105,12 +105,23 @@ export function useProjectPrefs(projectId?: string) {
 export const useConfig = () => useQuery({ queryKey: ["config"], queryFn: () => rpc<Config>("config.get") });
 export const useProjects = () => useQuery({ queryKey: ["projects"], queryFn: () => rpc<ProjectSummary[]>("projects.list") });
 
-export const useOverview = (projectId?: string) =>
-  useQuery({
+export const useOverview = (projectId?: string) => {
+  const qc = useQueryClient();
+  // First look at a project: a quick answer (no counts or merge state yet) shows its
+  // branches while the full one builds. Only asked until the full one has arrived once.
+  const quick = useQuery({
+    queryKey: ["overviewQuick", projectId],
+    queryFn: () => rpc<Overview>("workspace.overview", { projectId, quick: true }),
+    enabled: !!projectId && qc.getQueryData(["overview", projectId]) === undefined,
+    staleTime: Infinity,
+  });
+  return useQuery({
     queryKey: ["overview", projectId],
     queryFn: () => rpc<Overview>("workspace.overview", { projectId }),
     enabled: !!projectId,
+    placeholderData: quick.data,
   });
+};
 
 /** Version for a new release: the next one after the latest tag or release branch. */
 export const useSuggestedVersion = (projectId: string, kind: "next" | "hotfix", enabled: boolean) =>

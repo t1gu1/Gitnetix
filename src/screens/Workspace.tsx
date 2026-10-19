@@ -37,7 +37,7 @@ export function Workspace() {
   const [deletingTag, setDeletingTag] = useState<string | null>(null);
   const checkoutTag = useAction<unknown, { projectId: string; name: string }>("tags.checkout", { invalidate: [["overview", pid], ["files", pid], ["diff", pid], ["commits", pid]] });
   const [cleanup, setCleanup] = useState<{ parent: string; label: string; branches: BranchView[] } | null>(null);
-  const [cleanupBehind, setCleanupBehind] = useState<BranchView[] | null>(null);
+  const [cleanupBehind, setCleanupBehind] = useState<{ section: string; base: string; branches: BranchView[] } | null>(null);
   const isCleaning = useCleaning(pid);
   // Branch whose commits replace the tree, and the commit picked there (none = all changes).
   const [history, setHistory] = useState<string | null>(null);
@@ -90,6 +90,7 @@ export function Workspace() {
         v.role === "branch" && v.exists && !b.startsWith("release/")
           ? targets.filter((x) => x.name !== base && x.name !== b).map((x) => ({ branch: x.name, label: labelOf(x.name) }))
           : undefined,
+      pickTarget: v.exists && b !== o?.defaultBranch,
     };
   };
   const tagItems = (tag: string, checkedOut: boolean): MenuItem[] => [
@@ -242,7 +243,7 @@ export function Workspace() {
               }}
               onNewRelease={() => nav.openNewItem({ kind: "release" })}
               onCleanup={(parent, label, branches) => setCleanup({ parent, label, branches })}
-              onCleanupBehind={setCleanupBehind}
+              onCleanupBehind={(section, base, branches) => setCleanupBehind({ section, base, branches })}
               isCleaning={isCleaning}
               tagItems={tagItems}
               onStashes={() => openStashes()}
@@ -254,8 +255,8 @@ export function Workspace() {
             <div className="col" style={{ gap: 10, padding: "12px 14px", borderBottom: "1px solid var(--line)" }}>
               <div className="row" style={{ alignItems: "baseline", minWidth: 0 }}>
                 <span className="mono ellipsis" style={{ fontSize: 13, fontWeight: 500 }}>{branch ?? "No branch"}</span>
-                {base && branch !== base && <span className="faint" style={{ fontSize: 11.5, whiteSpace: "nowrap" }}>{view?.merged ? "merged into" : "from"} {base}</span>}
-                {view?.merged && <span className="c-add row" style={{ marginLeft: 6, flex: "0 0 auto" }} title={`All commits are in ${base}`}><Icon name="merged" size={12} stroke={1.6} label="merged" /></span>}
+                {base && branch !== base && <span className="faint" style={{ fontSize: 11.5, whiteSpace: "nowrap" }}>{view?.likelyMerged ? "likely merged into" : view?.merged ? "merged into" : "from"} {base}</span>}
+                {view?.merged && <span className="c-add row" style={{ marginLeft: 6, flex: "0 0 auto" }} title={view.likelyMerged ? `A pull request carrying its ticket went into ${base} after its last commit` : `All commits are in ${base}`}><Icon name="merged" size={12} stroke={1.6} label="merged" /></span>}
               </div>
               {stash ? (
                 <div className="commit-head">
@@ -391,12 +392,12 @@ export function Workspace() {
           onConfirm={(names) => cleanUp(`merged:${cleanup.parent}`, names, { remote: true }, "merged branch")}
         />
       )}
-      {cleanupBehind && ov.data && (
+      {cleanupBehind && (
         <BehindCleanupModal
-          base={ov.data.defaultBranch}
-          branches={cleanupBehind}
+          base={cleanupBehind.base}
+          branches={cleanupBehind.branches}
           onClose={() => setCleanupBehind(null)}
-          onConfirm={(names, remote) => cleanUp("behind", names, { force: true, remote }, "branch")}
+          onConfirm={(names, remote) => cleanUp(cleanupBehind.section, names, { force: true, remote }, "branch")}
         />
       )}
       {dialog?.kind === "forcePush" && dialogView?.upstream && (
@@ -407,6 +408,7 @@ export function Workspace() {
       )}
       {deletingTag && <DeleteTagModal pid={pid} tag={deletingTag} onClose={() => setDeletingTag(null)} />}
       {dialog?.kind === "tag" && <TagBranchModal pid={pid} branch={dialog.branch} onClose={() => setDialog(null)} />}
+      {dialog?.kind === "target" && o && <TargetBranchModal pid={pid} branch={dialog.branch} branches={o.branches} labelOf={labelOf} onClose={() => setDialog(null)} />}
       {dialog?.kind === "delete" && dialogView && (
         <DeleteBranchModal
           pid={pid}
@@ -440,6 +442,7 @@ function synthetic(name: string, checkedOut: boolean): BranchView {
     rewritten: false,
     exists: true,
     merged: false,
+    likelyMerged: false,
     role: "branch",
     local: true,
     remote: false,
@@ -832,6 +835,79 @@ function TagBranchModal({ pid, branch, onClose }: { pid: string; branch: string;
         </div>
       </form>
       {tag.error && <ErrorBox error={tag.error} />}
+    </Modal>
+  );
+}
+
+/** Pick any branch for `branch` to merge into: not itself, its current base, or a branch below it. */
+function TargetBranchModal({
+  pid,
+  branch,
+  branches,
+  labelOf,
+  onClose,
+}: {
+  pid: string;
+  branch: string;
+  branches: BranchView[];
+  labelOf: (b: string) => string;
+  onClose: () => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [picked, setPicked] = useState<string | null>(null);
+  const move = useAction("branches.setParent", { invalidate: [["overview", pid], ["files", pid], ["diff", pid], ["commits", pid]], success: () => `${branch} now targets ${labelOf(picked ?? "")}` });
+  const base = branches.find((b) => b.name === branch)?.parent ?? "";
+  const choices = useMemo(() => {
+    const parentOf = new Map(branches.map((b) => [b.name, b.parent ?? null]));
+    // Under `branch` somewhere: targeting it would loop the tree.
+    const below = (name: string) => {
+      const seen = new Set<string>();
+      for (let p = parentOf.get(name); p && !seen.has(p); p = parentOf.get(p)) {
+        if (p === branch) return true;
+        seen.add(p);
+      }
+      return false;
+    };
+    const rank = (b: BranchView) => (b.role === "trunk" ? 0 : b.role === "release" ? 1 : 2);
+    return branches
+      .filter((b) => b.exists && b.name !== branch && b.name !== base && !below(b.name))
+      .sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
+  }, [branches, branch, base]);
+  const q = query.trim().toLowerCase();
+  const shown = q ? choices.filter((b) => b.name.toLowerCase().includes(q) || labelOf(b.name).toLowerCase().includes(q)) : choices;
+  const submit = () => picked && move.mutate({ projectId: pid, branch, parent: picked }, { onSuccess: onClose });
+  return (
+    <Modal
+      title="Target a specific branch"
+      sub={<><span className="mono">{labelOf(branch)}</span> merges into it from now on</>}
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn btn-md" onClick={onClose}>Cancel</button>
+          <button className="btn btn-md btn-primary" disabled={!picked || move.isPending} onClick={submit}>
+            {move.isPending && <span className="spinner" />}
+            Target {picked ? labelOf(picked) : "it"}
+          </button>
+        </>
+      }
+    >
+      <input className="input" placeholder="Filter branches" autoFocus value={query} onChange={(e) => setQuery(e.target.value)} />
+      <ul className="col" style={{ margin: 0, padding: 0, listStyle: "none", gap: 4, maxHeight: 320, overflowY: "auto" }}>
+        {shown.map((b) => (
+          <li key={b.name}>
+            <label className="check">
+              <input type="radio" name="target" checked={picked === b.name} onChange={() => setPicked(b.name)} />
+              <span className="mono ellipsis">{labelOf(b.name)}</span>
+              {b.role === "trunk" && <span className="tag">trunk</span>}
+              {b.role === "release" && <span className="tag">release</span>}
+              {b.shipped && <span className="tag released">released</span>}
+              {!b.local && <span className="tag" title="Only on origin">origin</span>}
+            </label>
+          </li>
+        ))}
+        {!shown.length && <li className="faint">No branch matches “{query}”.</li>}
+      </ul>
+      {move.error && <ErrorBox error={move.error} />}
     </Modal>
   );
 }

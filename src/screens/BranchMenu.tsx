@@ -8,7 +8,7 @@ import { plural } from "../lib/format";
 import { useNav } from "../lib/nav";
 import { copyToClipboard, toast } from "../lib/toast";
 
-export type BranchDialog = "merge" | "delete" | "conflicts" | "reset" | "forcePush" | "tag";
+export type BranchDialog = "merge" | "delete" | "conflicts" | "reset" | "forcePush" | "tag" | "target";
 
 export interface BranchTarget {
   view: BranchView;
@@ -24,6 +24,8 @@ export interface BranchTarget {
   next?: Action;
   /** Other branches it could merge into instead. */
   moveTo?: { branch: string; label: string }[];
+  /** Any branch can be picked as its target instead (every branch but the default one). */
+  pickTarget?: boolean;
   /** Opens the branch's commit list. */
   showCommits?: () => void;
   /** Opens the stashes made on the branch (none: it has none). */
@@ -221,7 +223,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
         id: "delete",
         label: v.exists ? "Delete branch…" : "Forget branch…",
         short: v.exists ? "Delete" : "Forget",
-        tip: !v.exists ? `${b} no longer exists: remove it from the list` : originOnly ? `Delete ${b} on origin` : v.merged ? `${b} is merged into ${parent}: delete the local branch` : `Delete ${b}`,
+        tip: !v.exists ? `${b} no longer exists: remove it from the list` : originOnly ? `Delete ${b} on origin` : v.merged && !v.likelyMerged ? `${b} is merged into ${parent}: delete the local branch` : `Delete ${b}`,
         icon: "trash",
         danger: true,
         run: () => openDialog("delete", b),
@@ -256,11 +258,12 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
     }
     if (t.base) list.push(a.pr);
     if (v.local && canChangelog) list.push(a.changelog);
-    if (t.moveTo?.length) {
+    if (t.moveTo?.length || t.pickTarget) {
       list.push("sep");
-      for (const m of t.moveTo) {
+      for (const m of t.moveTo ?? []) {
         list.push({ id: `move-${m.branch}`, label: <>Target <span className="mono">{m.label}</span></>, icon: "merged", run: () => move.mutate({ projectId: pid, branch: v.name, parent: m.branch }) });
       }
+      if (t.pickTarget) list.push({ id: "move-any", label: "Target a specific branch…", icon: "merged", run: () => openDialog("target", v.name) });
     }
     list.push("sep");
     if (t.showCommits) list.push({ id: "commits", label: "Show commits", icon: "commit", run: t.showCommits });
@@ -291,7 +294,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
       if (!v.checkedOut) return a.switch;
       return v.upstream ? a.pull : a.push;
     }
-    if (v.merged && !v.checkedOut && !v.protected) return a.delete;
+    if (v.merged && !v.likelyMerged && !v.checkedOut && !v.protected) return a.delete;
     if (!v.checkedOut) return a.switch;
     if (needsPush) return a.push;
     if (v.behind > 0) return a.rebase;

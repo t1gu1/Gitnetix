@@ -1,3 +1,4 @@
+pub mod azure;
 pub mod azure_auth;
 pub mod github;
 pub mod github_auth;

@@ -122,6 +122,8 @@ export interface BranchView {
   exists: boolean;
   /** All its commits are in the base: merged, nothing new since. */
   merged: boolean;
+  /** `merged` by the look of it, not by proof: a pull request carrying its ticket key went into the base after its last commit. Never deleted as merged. */
+  likelyMerged: boolean;
   /** Branch it merges into; null for the default branch. */
   parent?: string | null;
   role: "trunk" | "release" | "branch";

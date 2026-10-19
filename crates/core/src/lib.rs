@@ -6,6 +6,7 @@ pub mod agents;
 pub mod ai;
 pub mod analytics;
 pub mod app;
+pub mod cache;
 pub mod error;
 pub mod events;
 pub mod git;
