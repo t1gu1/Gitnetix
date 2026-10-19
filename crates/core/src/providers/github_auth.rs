@@ -7,9 +7,8 @@ use serde_json::{json, Value};
 
 use crate::error::{Error, Result};
 
-/// Client ID of the Gitnetix OAuth App (Device Flow enabled). Public, not a
-/// secret; set at build time with `GITNETIX_GITHUB_CLIENT_ID`.
-const CLIENT_ID: Option<&str> = option_env!("GITNETIX_GITHUB_CLIENT_ID");
+/// Client ID of the Gitnetix OAuth App (Device Flow enabled). Public, not a secret.
+const CLIENT_ID: &str = "Ov23liwKERI7iyaZzzMf";
 
 /// PRs, reviews, checks, contents and releases on public and private repos.
 const SCOPE: &str = "repo";
@@ -34,16 +33,6 @@ pub enum Poll {
     Token(String),
 }
 
-fn client_id() -> Result<&'static str> {
-    CLIENT_ID.filter(|s| !s.is_empty()).ok_or_else(|| {
-        Error::Unsupported("this build has no GitHub sign-in (GITNETIX_GITHUB_CLIENT_ID unset) — use a personal access token".into())
-    })
-}
-
-pub fn available() -> bool {
-    client_id().is_ok()
-}
-
 async fn post(path: &str, body: Value) -> Result<Value> {
     let res = reqwest::Client::builder()
         .user_agent(concat!("Gitnetix/", env!("CARGO_PKG_VERSION")))
@@ -62,7 +51,7 @@ async fn post(path: &str, body: Value) -> Result<Value> {
 }
 
 pub async fn start() -> Result<DeviceCode> {
-    let v = post("/login/device/code", json!({ "client_id": client_id()?, "scope": SCOPE })).await?;
+    let v = post("/login/device/code", json!({ "client_id": CLIENT_ID, "scope": SCOPE })).await?;
     if let Some(e) = v["error"].as_str() {
         return Err(Error::Http(format!("GitHub sign-in: {}", v["error_description"].as_str().unwrap_or(e))));
     }
@@ -78,7 +67,7 @@ pub async fn start() -> Result<DeviceCode> {
 pub async fn poll(device_code: &str) -> Result<Poll> {
     let v = post(
         "/login/oauth/access_token",
-        json!({ "client_id": client_id()?, "device_code": device_code, "grant_type": "urn:ietf:params:oauth:grant-type:device_code" }),
+        json!({ "client_id": CLIENT_ID, "device_code": device_code, "grant_type": "urn:ietf:params:oauth:grant-type:device_code" }),
     )
     .await?;
     parse_poll(&v)
