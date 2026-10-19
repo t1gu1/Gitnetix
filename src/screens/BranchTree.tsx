@@ -398,7 +398,7 @@ export function BranchTree({
         {matches?.size === 0 && <Empty>No branch matches “{query}”.</Empty>}
         {behind.length > 0 && !q && (
           <>
-            <div className="tree-row tree-group tree-merged tree-behind" style={{ marginTop: 8 }}>
+            <div className="tree-row tree-group tree-merged tree-behind">
               <button className="tree-merged-toggle" aria-expanded={isOpen("behind")} title={`Branches ${BEHIND_LIMIT} or more commits behind their base (${o.defaultBranch}, or a release with few of them). Update or rebase them to catch up.`} onClick={() => toggle("behind")}>
                 <span className="tree-twist"><Icon name="chevronDown" size={12} className="chev" /></span>
                 <span className="group-label" data-active={behind.some((b) => b.name === o.currentBranch) || undefined}>Branches falling behind</span>
@@ -430,7 +430,8 @@ export function BranchTree({
         )}
         {shipped.length > 0 && !q && (
           <>
-            <button className="tree-row tree-group" style={{ marginTop: 8 }} aria-expanded={isOpen("shipped")} onClick={() => toggle("shipped")}>
+            <div className="tree-sep" role="separator" />
+            <button className="tree-row tree-group" aria-expanded={isOpen("shipped")} onClick={() => toggle("shipped")}>
               <span className="tree-twist"><Icon name="chevronDown" size={12} className="chev" /></span>
               <span className="shipped-label" data-active={shippedActive || undefined}>Shipped</span>
               <span className="faint">{shipped.length}</span>
@@ -495,9 +496,8 @@ function releaseTag(releases: ReleaseView[], b: BranchView) {
 /** A section's "Clean up": a spinner while its cleanup runs in the background. */
 function CleanupButton({ busy, title, onClick }: { busy: boolean; title: string; onClick: () => void }) {
   return (
-    <button className="btn btn-sm tree-cleanup" title={busy ? "Deleting branches…" : title} disabled={busy} aria-busy={busy || undefined} onClick={onClick}>
-      {busy && <span className="spinner" />}
-      {busy ? "Cleaning up" : "Clean up"}
+    <button className="act act-main tree-cleanup" aria-label={busy ? "Cleaning up" : "Clean up"} title={busy ? "Deleting branches…" : title} disabled={busy} aria-busy={busy || undefined} onClick={onClick}>
+      {busy ? <span className="spinner" /> : <Icon name="brush" size={14} />}
     </button>
   );
 }

@@ -121,7 +121,7 @@ export function StashList({
           <span className="row" style={{ gap: 8 }}>
             <span className="faint" style={{ fontSize: 11.5, whiteSpace: "nowrap" }}>{stashCount(stashes.length)}</span>
             {!branch && stashes.length > 0 && (
-              <button className="btn btn-sm tree-cleanup" title="Pick which stashes to drop" onClick={() => setCleaning(true)}>
+              <button className="btn btn-sm" title="Pick which stashes to drop" onClick={() => setCleaning(true)}>
                 Clean up
               </button>
             )}

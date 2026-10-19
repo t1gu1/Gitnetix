@@ -228,7 +228,9 @@ body.resizing iframe, body.resizing .term { pointer-events: none; }
 .tree { display: flex; flex-direction: column; padding: 6px 0 6px 6px; }
 /* Rows set their own min-height, so as flex items they'd shrink below their content once the list scrolls. */
 .tree > * { flex-shrink: 0; }
-.tree-row { position: relative; display: flex; align-items: flex-start; gap: 4px; min-height: 44px; margin: 0 6px 1px; padding: 6px; border-radius: 4px; }
+/* Sets Shipped apart from the live branches: a hairline centred in the gap above it. */
+.tree-sep { height: 1px; margin: 3px 12px 5px; background: var(--line); }
+.tree-row { position: relative; display: flex; align-items: flex-start; gap: 4px; min-height: 44px; margin: 0 6px 2px; padding: 6px; border-radius: 4px; }
 /* An open branch's line starts below its show/hide toggle and runs down past its children, so they read as under it.
    Children step in 6px; the line sits on the parent row's left edge, 6px left of each child row. */
 .tree-sub, .tree-open, .tree-kids { position: relative; }
@@ -244,10 +246,12 @@ body.resizing iframe, body.resizing .term { pointer-events: none; }
    or an elbow steps over to the merged children's line when the path goes into one of them. */
 .tree-merged + .tree-kids[data-path]::after { content: ""; position: absolute; z-index: 2; top: 0; bottom: 0; left: -6px; width: 1px; background: repeating-linear-gradient(to bottom, var(--trunk-fg) 0 1px, transparent 1px 3px); pointer-events: none; }
 .tree-merged + .tree-kids[data-path="in"]::after { bottom: auto; width: 7px; height: 1px; background: repeating-linear-gradient(to right, var(--trunk-fg) 0 1px, transparent 1px 3px); }
-/* Hover and selection: a layer under the row's content, so the nesting lines stay drawn on top. */
+/* Background, hover and selection: a layer under the row's content, so the nesting lines stay drawn on top.
+   Every row sits on the raised background, so it reads as a block at rest; hover and selection lift it further toward the text colour. */
 .tree-row { isolation: isolate; }
-.tree-row:hover::after, .tree-row:has(> .tree-btn[aria-pressed="true"])::after { content: ""; position: absolute; z-index: -1; inset: 0; border-radius: 4px; background: var(--raised); pointer-events: none; }
-.tree-row:has(> .tree-btn[aria-pressed="true"])::after { background: var(--sel); }
+.tree-row::after { content: ""; position: absolute; z-index: -1; inset: 0; border-radius: 4px; background: var(--raised); pointer-events: none; }
+.tree-row:hover::after { background: color-mix(in srgb, var(--raised), var(--fg) 6%); }
+.tree-row:has(> .tree-btn[aria-pressed="true"])::after { background: color-mix(in srgb, var(--sel), var(--fg) 9%); }
 /* Checked-out branch and every branch above it: their stretch of the parent's line turns orange (6px left of the row, top level included).
    Rows isolate their layers, so these are lifted above the nesting lines for their orange to show over them. */
 .tree-row[data-path] { z-index: 2; }
@@ -321,7 +325,6 @@ button.tree-twist:hover { color: var(--fg); }
 .tree-behind .tree-merged-toggle { --label-from: var(--warn-fg); --label-fg: color-mix(in srgb, var(--warn-fg) 55%, #e07020); }
 .tree-behind .tree-merged-toggle:hover { color: color-mix(in srgb, var(--warn-fg) 70%, var(--fg)); --label-from: color-mix(in srgb, var(--warn-fg) 70%, var(--fg)); --label-fg: color-mix(in srgb, color-mix(in srgb, var(--warn-fg) 55%, #e07020) 70%, var(--fg)); }
 .shipped-label { --label-from: var(--release-fg); --label-fg: var(--add-fg); }
-.tree-cleanup { flex: 0 0 auto; height: 22px; text-transform: none; letter-spacing: normal; font-weight: 500; }
 /* A section being cleaned up: faded and out of reach until its branches are gone. */
 .tree [aria-busy="true"]:not(.tree-cleanup) { opacity: .45; pointer-events: none; transition: opacity .15s; }
 .tree-filter { display: flex; align-items: center; gap: 8px; padding: 8px 12px 8px 16px; border-bottom: 1px solid var(--line); }
@@ -334,6 +337,8 @@ button.tree-twist:hover { color: var(--fg); }
 .act:disabled { opacity: .4; cursor: default; }
 .act-main { width: 34px; color: var(--fg); }
 .act.btn-danger { color: var(--del-fg); }
+/* A section's Clean up: an act filling its group row's height, flush with its right edge. */
+.act.tree-cleanup { flex: 0 0 auto; align-self: stretch; margin: -6px -6px -6px 0; border-left: 1px solid color-mix(in srgb, var(--fg) 3%, transparent); border-radius: 0 4px 4px 0; color: var(--muted); }
 .act-stack { display: flex; flex-direction: column; border-left: 1px solid var(--act-line); }
 .act-stack > .act { flex: 1 1 0; min-height: 0; }
 .act-stack > .act + .act { border-top: 1px solid var(--act-line); }
