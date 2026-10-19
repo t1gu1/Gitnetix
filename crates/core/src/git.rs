@@ -670,17 +670,18 @@ impl Git {
         Ok(out.split('\0').filter(|s| !s.is_empty()).map(String::from).collect())
     }
 
-    /// Diff of one file. `range` None = working tree vs HEAD.
-    pub async fn file_diff(&self, path: &str, range: Option<&str>) -> Result<Vec<Hunk>> {
+    /// Diff of one file. `range` None = working tree vs HEAD. `full` keeps the whole file as context.
+    pub async fn file_diff(&self, path: &str, range: Option<&str>, full: bool) -> Result<Vec<Hunk>> {
+        let ctx = context_flag(full);
         let out = match range {
-            Some(r) => self.run(&["diff", "-M", r, "--", path]).await?,
+            Some(r) => self.run(&["diff", ctx, "-M", r, "--", path]).await?,
             None => {
                 let tracked = self.try_run(&["ls-files", "--error-unmatch", "--", path]).await?.0;
                 if tracked && self.ref_exists("HEAD").await? {
-                    self.run(&["diff", "HEAD", "--", path]).await?
+                    self.run(&["diff", ctx, "HEAD", "--", path]).await?
                 } else {
                     // Untracked: diff against nothing. Exit code 1 = "differences".
-                    self.try_run(&["diff", "--no-index", "--", "/dev/null", path]).await?.1
+                    self.try_run(&["diff", ctx, "--no-index", "--", "/dev/null", path]).await?.1
                 }
             }
         };
@@ -688,13 +689,14 @@ impl Git {
     }
 
     /// Diff of one side of a file's uncommitted work.
-    pub async fn file_diff_side(&self, path: &str, staged: bool) -> Result<Vec<Hunk>> {
+    pub async fn file_diff_side(&self, path: &str, staged: bool, full: bool) -> Result<Vec<Hunk>> {
+        let ctx = context_flag(full);
         let out = if staged {
-            self.run(&["diff", "--cached", "-M", "--", path]).await?
+            self.run(&["diff", ctx, "--cached", "-M", "--", path]).await?
         } else if self.is_tracked(path).await? {
-            self.run(&["diff", "--", path]).await?
+            self.run(&["diff", ctx, "--", path]).await?
         } else {
-            self.try_run(&["diff", "--no-index", "--", "/dev/null", path]).await?.1
+            self.try_run(&["diff", ctx, "--no-index", "--", "/dev/null", path]).await?.1
         };
         Ok(parse_unified(&out))
     }
@@ -1251,6 +1253,12 @@ pub fn parse_numstat_z(s: &str) -> HashMap<String, (u32, u32)> {
         map.insert(path, (a, d));
     }
     map
+}
+
+/// Context flag for a file diff: enough lines to cover any file, or git's default
+/// (`--inter-hunk-context=0` is a no-op, so the arg list keeps one shape).
+fn context_flag(full: bool) -> &'static str {
+    if full { "-U1000000" } else { "--inter-hunk-context=0" }
 }
 
 pub fn parse_unified(s: &str) -> Vec<Hunk> {

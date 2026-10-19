@@ -382,7 +382,7 @@ button.tree-twist:hover { color: var(--fg); }
 .btn-act.btn-danger:hover:not(:disabled) { color: var(--del-fg); }
 .file-st { font-family: var(--mono); font-size: 11px; font-weight: 500; width: 14px; flex: 0 0 14px; }
 
-.diff { flex: 1 1 auto; min-height: 0; min-width: 0; overflow-x: hidden; overflow-y: auto; font-family: var(--mono); font-size: 12.5px; line-height: 21px; }
+.diff { position: relative; flex: 1 1 auto; min-height: 0; min-width: 0; overflow-x: hidden; overflow-y: auto; font-family: var(--mono); font-size: 12.5px; line-height: 21px; }
 .diff-u { display: flex; flex-direction: column; padding: 8px 0; }
 .diff-row { display: grid; grid-template-columns: 52px 52px 20px minmax(0, 1fr); }
 .diff-row .ln { padding: 0 8px; text-align: right; color: var(--faint); user-select: none; }
@@ -392,6 +392,17 @@ button.tree-twist:hover { color: var(--fg); }
 .diff-row.del { background: var(--del-bg); } .diff-row.del .sg { color: var(--del-fg); }
 .diff-row.hunk { background: var(--hunk-bg); color: var(--muted); }
 .diff-row.marker .tx { color: var(--accent-fg); font-weight: 500; }
+.diff-pane { position: absolute; inset: 0; display: flex; }
+.diff-pane-scroll { position: relative; flex: 1 1 auto; min-width: 0; overflow-x: hidden; overflow-y: auto; scrollbar-width: none; }
+.diff-pane-scroll::-webkit-scrollbar { display: none; }
+.diff-heatmap { position: relative; flex: 0 0 28px; border-left: 1px solid var(--line); background: var(--raised); cursor: pointer; touch-action: none; }
+.diff-heatmap .hm { position: absolute; left: 2px; right: 2px; min-height: 4px; border-radius: 2px; pointer-events: none; }
+.diff-heatmap .hm.add { background: var(--add-fg); }
+.diff-heatmap .hm.del { background: var(--del-fg); }
+.diff-heatmap.split .hm.del { right: 50%; margin-right: 1px; }
+.diff-heatmap.split .hm.add { left: 50%; margin-left: 1px; }
+.diff-heatmap .hm-view { position: absolute; left: 0; right: 0; min-height: 16px; background: color-mix(in srgb, var(--fg) 16%, transparent); border-block: 1px solid color-mix(in srgb, var(--fg) 35%, transparent); pointer-events: none; }
+.diff-heatmap:hover .hm-view { background: color-mix(in srgb, var(--fg) 22%, transparent); }
 .img-diff { display: flex; flex-direction: column; gap: 12px; padding: 12px 16px 16px; font-family: var(--sans); border-bottom: 1px solid var(--line); }
 .img-diff-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; font-size: 12px; }
 .img-meta { display: inline-flex; gap: 6px; white-space: nowrap; }

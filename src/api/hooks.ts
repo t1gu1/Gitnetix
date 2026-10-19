@@ -135,13 +135,14 @@ export const useFiles = (projectId?: string, branch?: string, mode = "branch", c
     refetchInterval: mode === "wip" && !commit && !stash ? 4_000 : false,
   });
 
-export const useDiff = (projectId?: string, branch?: string, mode = "branch", path?: string, staged?: boolean, commit?: string, stash?: string) =>
+/** `full` keeps the whole file as context. */
+export const useDiff = (projectId?: string, branch?: string, mode = "branch", path?: string, staged?: boolean, commit?: string, stash?: string, full = false) =>
   useQuery({
-    queryKey: ["diff", projectId, branch, mode, path, staged, commit, stash],
+    queryKey: ["diff", projectId, branch, mode, path, staged, commit, stash, full],
     queryFn: () =>
       stash
-        ? rpc<Hunk[]>("stashes.diff", { projectId, sha: stash, path })
-        : rpc<Hunk[]>("workspace.diff", { projectId, branch, mode, path, staged, commit }),
+        ? rpc<Hunk[]>("stashes.diff", { projectId, sha: stash, path, full })
+        : rpc<Hunk[]>("workspace.diff", { projectId, branch, mode, path, staged, commit, full }),
     enabled: !!projectId && (!!branch || !!stash) && !!path,
   });
 

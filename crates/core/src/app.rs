@@ -1045,18 +1045,18 @@ impl Gitnetix {
     }
 
     /// `staged` picks the side of a WIP file (None = working tree vs HEAD).
-    pub async fn diff(&self, project_id: &str, branch: &str, mode: ViewMode, path: &str, staged: Option<bool>) -> Result<Vec<Hunk>> {
+    pub async fn diff(&self, project_id: &str, branch: &str, mode: ViewMode, path: &str, staged: Option<bool>, full: bool) -> Result<Vec<Hunk>> {
         let p = self.store.project(project_id)?;
         if let (ViewMode::Wip, Some(staged)) = (mode, staged) {
             return match self.checkout_dir(&p, branch).await? {
-                Some(dir) => Git::new(dir).file_diff_side(path, staged).await,
+                Some(dir) => Git::new(dir).file_diff_side(path, staged, full).await,
                 None => Ok(Vec::new()),
             };
         }
         if mode != ViewMode::Branch {
             match self.checkout_dir(&p, branch).await? {
                 Some(dir) => {
-                    let wip = Git::new(&dir).file_diff(path, None).await?;
+                    let wip = Git::new(&dir).file_diff(path, None, full).await?;
                     if !wip.is_empty() || mode == ViewMode::Wip {
                         return Ok(wip);
                     }
@@ -1073,7 +1073,7 @@ impl Gitnetix {
             return Ok(Vec::new());
         }
         let (base_rev, rev) = tokio::join!(git.rev_of(&base), git.rev_of(branch));
-        git.file_diff(path, Some(&format!("{base_rev}...{rev}"))).await
+        git.file_diff(path, Some(&format!("{base_rev}...{rev}")), full).await
     }
 
     /// Old and new contents of one file, picked like `diff` (for image previews).
@@ -1157,9 +1157,9 @@ impl Gitnetix {
         git.range_changes(&git.commit_range(check_sha(sha)?).await?).await
     }
 
-    pub async fn commit_diff(&self, project_id: &str, sha: &str, path: &str) -> Result<Vec<Hunk>> {
+    pub async fn commit_diff(&self, project_id: &str, sha: &str, path: &str, full: bool) -> Result<Vec<Hunk>> {
         let git = self.git(&self.store.project(project_id)?);
-        git.file_diff(path, Some(&git.commit_range(check_sha(sha)?).await?)).await
+        git.file_diff(path, Some(&git.commit_range(check_sha(sha)?).await?), full).await
     }
 
     /// Revert one commit of `branch` with a new commit on it.
@@ -1830,12 +1830,12 @@ impl Gitnetix {
         Ok(files)
     }
 
-    pub async fn stash_diff(&self, project_id: &str, sha: &str, path: &str) -> Result<Vec<Hunk>> {
+    pub async fn stash_diff(&self, project_id: &str, sha: &str, path: &str, full: bool) -> Result<Vec<Hunk>> {
         let git = self.git(&self.store.project(project_id)?);
         let (tracked, untracked) = git.stash_ranges(check_sha(sha)?).await?;
-        let hunks = git.file_diff(path, Some(&tracked)).await?;
+        let hunks = git.file_diff(path, Some(&tracked), full).await?;
         match untracked {
-            Some(r) if hunks.is_empty() => git.file_diff(path, Some(&r)).await,
+            Some(r) if hunks.is_empty() => git.file_diff(path, Some(&r), full).await,
             _ => Ok(hunks),
         }
     }

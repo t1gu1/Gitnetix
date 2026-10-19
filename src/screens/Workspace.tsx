@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from
 import { useAction, useAgents, useAiOn, useBlobs, useDiff, useFiles, useOverview, useProjectPrefs } from "../api/hooks";
 import type { BranchView, Commit, FileChange, MergeResult, ReleaseView, Stash } from "../api/types";
 import { AgentLog } from "../components/AgentLog";
-import { DiffView } from "../components/DiffView";
+import { DiffView, type DiffMode } from "../components/DiffView";
 import { ImageDiff, isImage } from "../components/ImageDiff";
 import { ContextMenu, type MenuItem } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
@@ -29,7 +29,7 @@ export function Workspace() {
   const ov = useOverview(pid);
   const [mode, setMode] = useState<Mode>("wip");
   const [file, setFile] = useState<string | undefined>();
-  const [diffMode, setDiffMode] = useState<"unified" | "split">("unified");
+  const [diffMode, setDiffMode] = useState<DiffMode>("unified");
   const [termOpen, setTermOpen] = useState(true);
   const [pane, setPane] = useState<Pane>("releases");
   const [shipping, setShipping] = useState<ReleaseView | null>(null);
@@ -141,7 +141,7 @@ export function Workspace() {
   const list = files.data ?? [];
   const fileCount = new Set(list.map((f) => f.path)).size;
   const current = list.find((f) => fileKey(f) === file) ?? list[0];
-  const diff = useDiff(pid, branch, mode, current?.path, current?.staged, commit?.sha, stash?.sha);
+  const diff = useDiff(pid, branch, mode, current?.path, current?.staged, commit?.sha, stash?.sha, diffMode === "full");
   const image = isImage(current?.path);
   const blobs = useBlobs(pid, branch, mode, current?.path, current?.staged, commit?.sha, stash?.sha, image);
   const [discarding, setDiscarding] = useState<{ staged: boolean; paths: string[] } | null>(null);
@@ -347,7 +347,7 @@ export function Workspace() {
                 {current?.deletions ? <span className="c-del">−{current.deletions}</span> : null}
               </span>
               <span className="grow" />
-              <Seg value={diffMode} onChange={setDiffMode} label="Diff mode" options={[{ value: "unified", label: "Unified" }, { value: "split", label: "Split" }]} />
+              <Seg value={diffMode} onChange={setDiffMode} label="Diff mode" options={[{ value: "split", label: "Split" }, { value: "unified", label: "Unified" }, { value: "full", label: "Full" }]} />
             </div>
             <div className="diff">
               {diff.isLoading && current && <Loading />}

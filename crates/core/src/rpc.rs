@@ -31,7 +31,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("profiles.delete", "Delete a Git profile", "id"),
     ("workspace.overview", "Releases, their branches and repo state", "projectId"),
     ("workspace.files", "Changed files of a branch, or of one commit when `commit` is given", "projectId, branch, mode: branch|wip|project, commit?"),
-    ("workspace.diff", "Diff of one file; in wip mode `staged` picks the side; `commit` diffs that commit", "projectId, branch, mode, path, staged?, commit?"),
+    ("workspace.diff", "Diff of one file; in wip mode `staged` picks the side; `commit` diffs that commit; `full` keeps the whole file", "projectId, branch, mode, path, staged?, commit?, full?"),
     ("workspace.blobs", "Old and new contents of one file, base64 (image previews); same picking as workspace.diff", "projectId, branch, mode, path, staged?, commit?"),
     ("workspace.commits", "Commits a branch has that its base does not (a trunk: recent history)", "projectId, branch"),
     ("commits.revert", "Revert a commit with a new commit on its branch", "projectId, branch, sha"),
@@ -60,7 +60,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("branches.stash", "Stash a checked-out branch's uncommitted changes, untracked files included", "projectId, branch"),
     ("stashes.list", "Every stash of the project, newest first, with the branch it was made on", "projectId"),
     ("stashes.files", "Files a stash holds, untracked ones included", "projectId, sha"),
-    ("stashes.diff", "Diff of one file of a stash", "projectId, sha, path"),
+    ("stashes.diff", "Diff of one file of a stash; `full` keeps the whole file", "projectId, sha, path, full?"),
     ("stashes.blobs", "Old and new contents of one file of a stash, base64", "projectId, sha, path"),
     ("stashes.apply", "Apply a stash onto a checked-out branch; pop = drop it once applied cleanly (kept on conflicts, which are returned)", "projectId, branch, sha, pop?"),
     ("stashes.drop", "Delete a stash for good", "projectId, sha"),
@@ -343,8 +343,8 @@ pub async fn call(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
             None => to(k.files(&s(&p, "projectId")?, &s(&p, "branch")?, mode(&p)?).await?),
         },
         "workspace.diff" => match os(&p, "commit") {
-            Some(sha) => to(k.commit_diff(&s(&p, "projectId")?, &sha, &s(&p, "path")?).await?),
-            None => to(k.diff(&s(&p, "projectId")?, &s(&p, "branch")?, mode(&p)?, &s(&p, "path")?, p.get("staged").and_then(Value::as_bool)).await?),
+            Some(sha) => to(k.commit_diff(&s(&p, "projectId")?, &sha, &s(&p, "path")?, b(&p, "full")).await?),
+            None => to(k.diff(&s(&p, "projectId")?, &s(&p, "branch")?, mode(&p)?, &s(&p, "path")?, p.get("staged").and_then(Value::as_bool), b(&p, "full")).await?),
         },
         "workspace.blobs" => match os(&p, "commit") {
             Some(sha) => to(k.commit_blobs(&s(&p, "projectId")?, &sha, &s(&p, "path")?).await?),
@@ -423,7 +423,7 @@ pub async fn call(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
         "stashes.list" => to(k.stashes(&s(&p, "projectId")?).await?),
         "stashes.files" => to(k.stash_files(&s(&p, "projectId")?, &s(&p, "sha")?).await?),
         "stashes.blobs" => to(k.stash_blobs(&s(&p, "projectId")?, &s(&p, "sha")?, &s(&p, "path")?).await?),
-        "stashes.diff" => to(k.stash_diff(&s(&p, "projectId")?, &s(&p, "sha")?, &s(&p, "path")?).await?),
+        "stashes.diff" => to(k.stash_diff(&s(&p, "projectId")?, &s(&p, "sha")?, &s(&p, "path")?, b(&p, "full")).await?),
         "stashes.apply" => to(k.apply_stash(&s(&p, "projectId")?, &s(&p, "branch")?, &s(&p, "sha")?, b(&p, "pop")).await?),
         "stashes.drop" => {
             k.drop_stash(&s(&p, "projectId")?, &s(&p, "sha")?).await?;
