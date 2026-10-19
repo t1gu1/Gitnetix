@@ -76,6 +76,8 @@ pub struct Thread {
     pub resolvable: bool,
     pub snippet: Vec<String>,
     pub comments: Vec<Comment>,
+    /// A review's summary text: approve | changes | comment.
+    pub review: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -101,6 +103,9 @@ pub const EMOJI: &[(&str, &str)] = &[
     ("EYES", "👀"),
     ("CONFUSED", "😕"),
 ];
+
+/// Fields of a comment, a review or a review thread's comment.
+const COMMENT: &str = "id databaseId author{login} body createdAt reactionGroups{content viewerHasReacted reactors{totalCount}}";
 
 fn emoji(content: &str) -> String {
     EMOJI.iter().find(|(c, _)| *c == content).map(|(_, e)| e.to_string()).unwrap_or_else(|| content.into())
@@ -164,6 +169,21 @@ impl GitHub {
             }
         }
         Ok(v["data"].clone())
+    }
+
+    /// Nodes of a paginated connection found at `path` in the query's data,
+    /// following `$after` until the last page.
+    async fn all_pages(&self, query: &str, mut vars: Value, path: &[&str]) -> Result<Vec<Value>> {
+        let mut out = Vec::new();
+        loop {
+            let d = self.gql(query, vars.clone()).await?;
+            let conn = path.iter().fold(&d, |v, k| &v[*k]);
+            out.extend(conn["nodes"].as_array().into_iter().flatten().cloned());
+            if conn["pageInfo"]["hasNextPage"] != true {
+                return Ok(out);
+            }
+            vars["after"] = conn["pageInfo"]["endCursor"].clone();
+        }
     }
 
     fn rp(&self) -> String {
@@ -247,16 +267,34 @@ impl GitHub {
             Err(_) => Vec::new(),
         };
 
-        let q = r#"query($o:String!,$r:String!,$n:Int!){repository(owner:$o,name:$r){pullRequest(number:$n){
-          reviewThreads(first:60){nodes{id isResolved path line comments(first:60){nodes{id databaseId author{login} body createdAt diffHunk reactionGroups{content viewerHasReacted reactors{totalCount}}}}}}
-          comments(first:60){nodes{id databaseId author{login} body createdAt reactionGroups{content viewerHasReacted reactors{totalCount}}}}
-          reviews(last:60){nodes{author{login} state}}
-          reviewRequests(first:20){nodes{requestedReviewer{... on User{login} ... on Team{name}}}}
-        }}}"#;
-        let d = self
-            .gql(q, json!({ "o": self.repo.owner, "r": self.repo.repo, "n": number }))
-            .await?;
-        let pr = &d["repository"]["pullRequest"];
+        // Every connection is read to the end, a page of 100 at a time.
+        let vars = json!({ "o": self.repo.owner, "r": self.repo.repo, "n": number });
+        let pr_conn = |conn: &str, fields: &str| {
+            format!(
+                "query($o:String!,$r:String!,$n:Int!,$after:String){{repository(owner:$o,name:$r){{pullRequest(number:$n){{{conn}(first:100,after:$after){{pageInfo{{hasNextPage endCursor}} nodes{{{fields}}}}}}}}}}}"
+            )
+        };
+        let threads_q = pr_conn("reviewThreads", &format!("id isResolved path line comments(first:100){{pageInfo{{hasNextPage endCursor}} nodes{{{COMMENT} diffHunk}}}}"));
+        let comments_q = pr_conn("comments", COMMENT);
+        let reviews_q = pr_conn("reviews", &format!("{COMMENT} state"));
+        let requests_q = pr_conn("reviewRequests", "requestedReviewer{... on User{login} ... on Team{name}}");
+        let (mut thread_nodes, comment_nodes, review_nodes, request_nodes) = futures_util::try_join!(
+            self.all_pages(&threads_q, vars.clone(), &["repository", "pullRequest", "reviewThreads"]),
+            self.all_pages(&comments_q, vars.clone(), &["repository", "pullRequest", "comments"]),
+            self.all_pages(&reviews_q, vars.clone(), &["repository", "pullRequest", "reviews"]),
+            self.all_pages(&requests_q, vars.clone(), &["repository", "pullRequest", "reviewRequests"]),
+        )?;
+        let more_q = format!(
+            "query($id:ID!,$after:String){{node(id:$id){{... on PullRequestReviewThread{{comments(first:100,after:$after){{pageInfo{{hasNextPage endCursor}} nodes{{{COMMENT} diffHunk}}}}}}}}}}"
+        );
+        for t in thread_nodes.iter_mut().filter(|t| t["comments"]["pageInfo"]["hasNextPage"] == true) {
+            let mut rest = self
+                .all_pages(&more_q, json!({ "id": t["id"], "after": t["comments"]["pageInfo"]["endCursor"] }), &["node", "comments"])
+                .await?;
+            if let Some(nodes) = t["comments"]["nodes"].as_array_mut() {
+                nodes.append(&mut rest);
+            }
+        }
 
         let comment = |c: &Value| Comment {
             id: c["id"].as_str().unwrap_or("").into(),
@@ -281,10 +319,8 @@ impl GitHub {
                 .collect(),
         };
 
-        let mut threads: Vec<Thread> = pr["reviewThreads"]["nodes"]
-            .as_array()
-            .into_iter()
-            .flatten()
+        let mut threads: Vec<Thread> = thread_nodes
+            .iter()
             .map(|t| {
                 let comments: Vec<Comment> = t["comments"]["nodes"].as_array().into_iter().flatten().map(comment).collect();
                 let hunk = t["comments"]["nodes"][0]["diffHunk"].as_str().unwrap_or("");
@@ -297,12 +333,22 @@ impl GitHub {
                     resolvable: true,
                     snippet,
                     comments,
+                    review: None,
                 }
             })
             .collect();
-        for c in pr["comments"]["nodes"].as_array().into_iter().flatten() {
-            let cm = comment(c);
-            threads.push(Thread { id: cm.id.clone(), path: None, line: None, resolved: false, resolvable: false, snippet: vec![], comments: vec![cm] });
+        let plain = |cm: Comment, review: Option<String>| Thread { id: cm.id.clone(), path: None, line: None, resolved: false, resolvable: false, snippet: vec![], comments: vec![cm], review };
+        for c in &comment_nodes {
+            threads.push(plain(comment(c), None));
+        }
+        // The text a reviewer submits with their vote; inline comments are already in their threads.
+        for r in review_nodes.iter().filter(|r| !r["body"].as_str().unwrap_or("").trim().is_empty()) {
+            let vote = match r["state"].as_str() {
+                Some("APPROVED") => "approve",
+                Some("CHANGES_REQUESTED") => "changes",
+                _ => "comment",
+            };
+            threads.push(plain(comment(r), Some(vote.into())));
         }
         threads.sort_by(|a, b| {
             let da = a.comments.first().map(|c| c.created_at.as_str()).unwrap_or("");
@@ -312,7 +358,7 @@ impl GitHub {
 
         // Latest meaningful review per reviewer, plus pending requests.
         let mut reviewers: Vec<Reviewer> = Vec::new();
-        for r in pr["reviews"]["nodes"].as_array().into_iter().flatten() {
+        for r in &review_nodes {
             let login = r["author"]["login"].as_str().unwrap_or("").to_string();
             let vote = match r["state"].as_str() {
                 Some("APPROVED") => "approve",
@@ -329,7 +375,7 @@ impl GitHub {
                 None => reviewers.push(Reviewer { login, vote: vote.into() }),
             }
         }
-        for rr in pr["reviewRequests"]["nodes"].as_array().into_iter().flatten() {
+        for rr in &request_nodes {
             let rv = &rr["requestedReviewer"];
             let login = rv["login"].as_str().or(rv["name"].as_str()).unwrap_or("").to_string();
             if !login.is_empty() && !reviewers.iter().any(|x| x.login == login) {

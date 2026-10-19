@@ -413,6 +413,11 @@ function ThreadView({ pid, number, t }: { pid: string; number: number; t: PrThre
           <div className="col grow" style={{ gap: 6, minWidth: 0 }}>
             <div className="row" style={{ gap: 8 }}>
               <span style={{ fontWeight: 500 }}>{c.author}</span>
+              {t.review && (
+                <span className={`pill ${t.review === "approve" ? "c-add" : t.review === "changes" ? "c-acc" : "faint"}`}>
+                  {{ approve: "Approved", changes: "Requested changes", comment: "Reviewed" }[t.review]}
+                </span>
+              )}
               <span className="faint" style={{ fontSize: 12 }}>{ago(c.createdAt)}</span>
             </div>
             <div className="comment-body">{c.body}</div>

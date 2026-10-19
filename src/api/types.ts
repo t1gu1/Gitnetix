@@ -404,6 +404,8 @@ export interface PrThread {
   resolvable: boolean;
   snippet: string[];
   comments: PrComment[];
+  /** A review's summary text, with the vote it came with. */
+  review?: "approve" | "changes" | "comment" | null;
 }
 
 export interface PrDetail extends PrSummary {

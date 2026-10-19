@@ -21,6 +21,7 @@ release notes and the in-app update prompt.
 - Branch commit list marks the local and origin tips.
 
 ### Changed
+- Pull request conversations show the text reviewers submit with their vote, and load every thread and comment instead of the first 60.
 - Branch tree opens only the sections on the checked-out path.
 - Branch row actions are icon-only and fill the row height.
 - Cleanup deletes branches four at a time.

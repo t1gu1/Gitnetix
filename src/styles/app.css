@@ -332,7 +332,7 @@ button.tree-twist:hover { color: var(--fg); }
 .act-stack { display: flex; flex-direction: column; border-left: 1px solid var(--act-line); }
 .act-stack > .act { flex: 1 1 0; min-height: 0; }
 .act-stack > .act + .act { border-top: 1px solid var(--act-line); }
-.split { display: inline-flex; flex: 0 0 auto; }
+.split-btn { display: inline-flex; flex: 0 0 auto; }
 .split-main { border-top-right-radius: 0; border-bottom-right-radius: 0; }
 .split-mid { margin-left: -1px; border-radius: 0; }
 .split-more { margin-left: -1px; border-top-left-radius: 0; border-bottom-left-radius: 0; }
