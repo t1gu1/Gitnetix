@@ -11,14 +11,6 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
-### Added
-- Image and SVG previews in the file diff. A replaced image can be compared side by side, with a swipe slider, as an onion skin or as a pixel difference.
-- Submodules page: every submodule of the project with its pinned and checked-out commits, uncommitted files and new commits on its remote. Add, clone, update to the pin or pull the latest, pin the checked-out commit, sync or edit the URL and tracked branch, open its repository page on GitHub, GitLab or Azure DevOps, open one as a project, or remove it. "Update all" clones missing submodules and checks each out at its pin; its menu pulls the latest for all, syncs every URL or checks remotes for updates.
-- Row actions on stashes and a bulk cleanup to drop several stashes at once.
-
-### Changed
-- Analytics remembers the selected time range and defaults to 14 days.
-
 ## [0.1.0] - 2026-10-19
 
 ### Added
@@ -30,6 +22,10 @@ release notes and the in-app update prompt.
 - "Update changelog" branch action: AI adds the branch's changes to the `Unreleased` section of `CHANGELOG.md` and commits it on the branch, falling back to the latest tag when the branch has no diff. Shown when the project has a changelog and AI is set up.
 - Shipping a release dates the `Unreleased` section of the project's `CHANGELOG.md` and commits it before tagging.
 - Stash management: list stashes per branch or project-wide, view their files and diffs, then pop, apply or drop them.
+- Image and SVG previews in the file diff. A replaced image can be compared side by side, with a swipe slider, as an onion skin or as a pixel difference.
+- Full mode in the file diff to show the whole file around the changes, next to Split and Unified, and a change heatmap beside the diff that doubles as a draggable scrollbar.
+- Submodules page: every submodule of the project with its pinned and checked-out commits, uncommitted files and new commits on its remote. Add, clone, update to the pin or pull the latest, pin the checked-out commit, sync or edit the URL and tracked branch, open its repository page on GitHub, GitLab or Azure DevOps, open one as a project, or remove it. "Update all" clones missing submodules and checks each out at its pin; its menu pulls the latest for all, syncs every URL or checks remotes for updates.
+- Row actions on stashes and a bulk cleanup to drop several stashes at once.
 - "Branches falling behind" group in the branch tree for branches 25 or more commits behind the default branch, with a Clean up action to pick which ones to delete.
 - Branch commit list shows origin's commits next to the local branch, with local and origin tips tagged. Unpulled commits can't be reverted or reset until pulled.
 - Local-only and origin-only branches get labels in the branch tree.
@@ -43,6 +39,7 @@ release notes and the in-app update prompt.
 - Branch tree opens only the sections on the checked-out path. Row actions are now icon-only and fill the row height.
 - Analytics, Tickets empty state and worktree detail are centered, and the detail column is capped at 1040px.
 - The PR list pane has a fixed width.
+- Analytics remembers the selected time range and defaults to 14 days.
 
 ### Fixed
 - Tab and segment labels no longer widen and shift nearby controls when they turn bold.
