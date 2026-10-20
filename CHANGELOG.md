@@ -11,6 +11,17 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+### Added
+- Show the contents of unchanged files in the project view.
+- Show +/- totals on folder rows in the changed files list.
+- Offer a rebase after changing a branch target.
+- Right-click a changed file or folder for a menu with copy path, open in file explorer (desktop only) and add to .gitignore. Folder rows and the staged/unstaged lists also gain stage and unstage actions.
+
+### Changed
+- Large diffs scroll faster because off-screen rows are skipped.
+- The branch commit list always has a commit selected.
+- Tune the tree row tints and the commit list separator.
+
 ## [0.2.0] - 2026-10-20
 
 ### Added
