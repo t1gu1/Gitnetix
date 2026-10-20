@@ -1277,3 +1277,40 @@ async fn a_branch_can_target_any_branch() {
     let rel = o["releases"].as_array().unwrap().iter().find(|r| r["version"] == "5.0.0").cloned().unwrap();
     assert_eq!(rel["open"], true, "still an open release: {rel}");
 }
+
+#[tokio::test]
+async fn overview_after_a_commit_matches_a_fresh_build() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("atlas-api");
+    init_repo(&repo);
+    for b in ["feature/a", "feature/b"] {
+        sh(&repo, &["checkout", "-qb", b, "main"]);
+        commit_file(&repo, &format!("{}.txt", &b[8..]), "1\n");
+    }
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let pid = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await[0]["id"].as_str().unwrap().to_string();
+    call(&k, "workspace.overview", json!({ "projectId": pid })).await;
+    let fresh = |home: &str| {
+        let (repo, home) = (repo.clone(), tmp.path().join(home));
+        async move {
+            let k = Gitnetix::open(&home).unwrap();
+            let pid = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await[0]["id"].as_str().unwrap().to_string();
+            call(&k, "workspace.overview", json!({ "projectId": pid })).await["branches"].clone()
+        }
+    };
+
+    // Only feature/b moved: the rest comes from the last build.
+    commit_file(&repo, "b.txt", "2\n");
+    let o = call(&k, "workspace.overview", json!({ "projectId": pid })).await;
+    assert_eq!(o["branches"], fresh("home2").await);
+    let b = o["branches"].as_array().unwrap().iter().find(|b| b["name"] == "feature/b").cloned().unwrap();
+    assert_eq!(b["ahead"], 2);
+
+    // The base moved: every branch is weighed again.
+    sh(&repo, &["checkout", "-q", "main"]);
+    commit_file(&repo, "main.txt", "1\n");
+    let o = call(&k, "workspace.overview", json!({ "projectId": pid })).await;
+    assert_eq!(o["branches"], fresh("home3").await);
+    let a = o["branches"].as_array().unwrap().iter().find(|b| b["name"] == "feature/a").cloned().unwrap();
+    assert_eq!(a["behind"], 1);
+}

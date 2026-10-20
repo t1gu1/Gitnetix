@@ -298,6 +298,7 @@ export function Workspace() {
               cleanupLeft={cleanupLeft}
               tagItems={tagItems}
               onStashes={() => openStashes()}
+              building={ov.isPlaceholderData}
             />
           )}
 
@@ -1408,8 +1409,17 @@ function CommitBox({ pid, branch, enabled, staged, changed }: { pid: string; bra
   const message = summary.trim() ? [summary.trim(), body.trim()].filter(Boolean).join("\n\n") : "";
   const clear = () => { setSummary(""); setBody(""); };
   const inv = [["overview", pid], ["files", pid], ["diff", pid], ["commits", pid]];
-  const commit = useAction<{ sha: string; message: string; aiWritten: boolean }>("workspace.commit", {
+  const commit = useAction<{ sha: string; message: string; aiWritten: boolean }, { projectId: string; branch: string; message: string; all: boolean }>("workspace.commit", {
     invalidate: inv,
+    // The WIP list and badge drop the committed files at once instead of waiting for the full overview.
+    patch: (qc, v) => {
+      const key = ["files", pid, v.branch, "wip", undefined, undefined];
+      const left = v.all ? [] : (qc.getQueryData<FileChange[]>(key) ?? []).filter((f) => !f.staged);
+      qc.setQueryData(key, left);
+      const wip = new Set(left.map((f) => f.path)).size;
+      const mark = (b: BranchView): BranchView => (b.name === v.branch ? { ...b, wip } : b);
+      qc.setQueryData<Overview>(["overview", pid], (o) => o && { ...o, branches: o.branches.map(mark), otherBranches: o.otherBranches.map(mark), defaultView: o.defaultView && mark(o.defaultView) });
+    },
     success: (r) => `${r.aiWritten ? "AI wrote: " : "Committed: "}${r.message.split("\n")[0]}`,
   });
   const draft = useAction<{ message: string }>("workspace.commitMessage");

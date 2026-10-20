@@ -114,6 +114,7 @@ export function BranchTree({
   cleanupLeft,
   tagItems,
   onStashes,
+  building,
 }: {
   active: boolean;
   o: Overview;
@@ -135,6 +136,8 @@ export function BranchTree({
   tagItems: (tag: string, checkedOut: boolean) => MenuItem[];
   /** Opens every stash of the project. */
   onStashes: () => void;
+  /** First look at the project: branches are not filed under their parents yet. */
+  building?: boolean;
 }) {
   const pid = o.project.id;
   const [query, setQuery] = useState("");
@@ -427,7 +430,13 @@ export function BranchTree({
   });
 
   return (
-    <section ref={pane} aria-label="Branches" className="ws-releases" data-pane data-active={active}>
+    <section ref={pane} aria-label="Branches" className="ws-releases" data-pane data-active={active} aria-busy={building || undefined}>
+      {building && (
+        <div className="tree-building" role="status">
+          <span className="spinner" />
+          <span>Sorting branches…</span>
+        </div>
+      )}
       <div className="pane-head">
         <span className="row" style={{ gap: 6 }}>
           <button className="btn btn-sm btn-icon hide-narrow pane-toggle" aria-label="Hide branches" onClick={onHide}>

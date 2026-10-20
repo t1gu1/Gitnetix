@@ -70,12 +70,17 @@ impl<T: Serialize + DeserializeOwned> ViewCache<T> {
     }
 
     pub fn get(&self, project_id: &str, key: u64) -> Option<Arc<Saved<T>>> {
+        self.last(project_id).filter(|s| s.key == key)
+    }
+
+    /// The last value built, whatever key it was built for.
+    pub fn last(&self, project_id: &str) -> Option<Arc<Saved<T>>> {
         let mut map = self.map.lock().unwrap();
         if !map.contains_key(project_id) {
             let saved: Saved<T> = std::fs::read(self.file(project_id)).ok().and_then(|b| serde_json::from_slice(&b).ok())?;
             map.insert(project_id.into(), Arc::new(saved));
         }
-        map.get(project_id).filter(|s| s.key == key).cloned()
+        map.get(project_id).cloned()
     }
 
     pub fn insert(&self, project_id: &str, key: u64, value: T) {

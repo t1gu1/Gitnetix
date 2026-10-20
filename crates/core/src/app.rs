@@ -37,7 +37,7 @@ pub struct Gitnetix {
     /// Merge checks already answered, by commit.
     commits: CommitCache,
     /// Every project's branch views as last built, with the refs they were built from.
-    views: ViewCache<Vec<BranchView>>,
+    views: ViewCache<BuiltViews>,
     /// What the git host said about each project's branch tips.
     hosted: std::sync::Mutex<HashMap<String, HostedPrs>>,
 }
@@ -623,8 +623,7 @@ impl Refs {
     /// another branch sitting on the same commit was not the one merged.
     async fn merged_into(&self, git: &Git, name: &str, default: &str) -> Option<String> {
         let sha = &self.local(name).or_else(|| self.remote(name))?.sha;
-        let merges = self.merges.get_or_init(|| async { git.merge_subjects(5000).await.unwrap_or_default() }).await;
-        let subject = merges.get(sha)?;
+        let subject = self.merges(git).await.get(sha)?;
         let rest = subject.strip_prefix("Merge branch '").or_else(|| subject.strip_prefix("Merge remote-tracking branch '"))?;
         let (merged, tail) = rest.split_once('\'')?;
         if merged != name && merged.strip_prefix("origin/") != Some(name) {
@@ -639,8 +638,20 @@ impl Refs {
         Some((&b.sha, chrono::DateTime::parse_from_rfc3339(&b.date).ok().map(|d| d.timestamp())))
     }
 
+    async fn merges(&self, git: &Git) -> &HashMap<String, String> {
+        self.merges.get_or_init(|| async { git.merge_subjects(5000).await.unwrap_or_default() }).await
+    }
+
     async fn squashes(&self, git: &Git) -> &[PrSquash] {
         self.squashes.get_or_init(|| async { git.pr_squashes(5000).await.unwrap_or_default() }).await
+    }
+
+    /// The merges and pull request squashes seen, for view keys: a new one can move any branch.
+    async fn history_digest(&self, git: &Git) -> String {
+        let mut seen: Vec<String> = self.merges(git).await.iter().map(|(tip, subject)| format!("{tip} {subject}")).collect();
+        seen.sort_unstable();
+        seen.extend(self.squashes(git).await.iter().map(|s| s.sha.clone()));
+        seen.join("\n")
     }
 
     /// Commits pull requests of `name` landed as: the ones the git host says took its tip,
@@ -836,7 +847,7 @@ fn plain_view(p: &Project, refs: &Refs, name: &str, parent: Option<String>) -> B
 }
 
 /// Bump when branch views are built differently, so saved ones are not reused.
-const VIEW_CACHE_VERSION: &str = "6";
+const VIEW_CACHE_VERSION: &str = "7";
 
 /// What a project's branch views are built from: its refs, its default branch,
 /// what Gitnetix knows about its releases and branches, and what the git host said.
@@ -844,6 +855,42 @@ fn view_key(p: &Project, default: &str, fingerprint: &str, hosted: &str) -> u64 
     let releases = serde_json::to_string(&p.releases).unwrap_or_default();
     let branches = serde_json::to_string(&p.branches).unwrap_or_default();
     key_of(&[VIEW_CACHE_VERSION, env!("CARGO_PKG_VERSION"), default, fingerprint, &releases, &branches, hosted])
+}
+
+/// Branch views as last built, with what they were built from, so a build after a commit or
+/// a push redoes only the branches it moved (see [`unmoved_views`]).
+#[derive(Serialize, Deserialize)]
+struct BuiltViews {
+    /// [`Git::ref_fingerprint`] they were built at.
+    refs: String,
+    /// [`view_key`] of the rest they hang on, with [`Refs::history_digest`] in place of the refs.
+    shared: u64,
+    views: Vec<BranchView>,
+}
+
+/// The views in `built` still right at refs `now`: branches whose refs did not move, nor their
+/// parent's. Empty when a ref every branch is weighed against moved (a trunk, a release, a tag).
+fn unmoved_views(p: &Project, default: &str, built: &BuiltViews, now: &str) -> HashMap<String, BranchView> {
+    let lines = |s: &str| s.lines().map(str::to_string).collect::<std::collections::HashSet<String>>();
+    let (before, after) = (lines(&built.refs), lines(now));
+    let mut moved = std::collections::HashSet::new();
+    for line in before.symmetric_difference(&after) {
+        let r = line.split(' ').next().unwrap_or_default();
+        match r.strip_prefix("refs/heads/").or_else(|| r.strip_prefix("refs/remotes/origin/")) {
+            Some(name) => moved.insert(name.to_string()),
+            None => return HashMap::new(),
+        };
+    }
+    let mut shared = DEV_TRUNKS.iter().map(|t| t.to_string()).chain([default.to_string()]).chain(p.releases.iter().map(|r| r.branch.clone()));
+    if shared.any(|b| moved.contains(&b)) {
+        return HashMap::new();
+    }
+    built
+        .views
+        .iter()
+        .filter(|v| !moved.contains(&v.name) && v.parent.as_ref().is_none_or(|b| !moved.contains(b)))
+        .map(|v| (v.name.clone(), v.clone()))
+        .collect()
 }
 
 /// Mark open releases whose version is tagged as shipped: they went out without
@@ -1031,7 +1078,7 @@ impl Gitnetix {
     async fn cached_parent(&self, p: &Project, git: &Git, branch: &str, default: &str) -> Option<Option<String>> {
         let key = view_key(p, default, &git.ref_fingerprint().await.ok()?, &self.hosted_digest(&p.id));
         let saved = self.views.get(&p.id, key)?;
-        saved.value().iter().find(|b| b.name == branch).map(|b| b.parent.clone())
+        saved.value().views.iter().find(|b| b.name == branch).map(|b| b.parent.clone())
     }
 
     /// `base_of` with the refs already loaded.
@@ -1291,18 +1338,29 @@ impl Gitnetix {
         // Never wait on the git host for a first look.
         let hosted = self.hosted_prs(&p, &git, &refs.tips(), !quick).await;
         let refs = refs.with_hosted(hosted);
-        let key = fingerprint.ok().map(|f| view_key(&p, &default, &f, &self.hosted_digest(&p.id)));
+        let fingerprint = fingerprint.ok();
+        let digest = self.hosted_digest(&p.id);
+        let key = fingerprint.as_deref().map(|f| view_key(&p, &default, f, &digest));
         let mut all = match key.and_then(|k| self.views.get(project_id, k)) {
-            Some(saved) => saved.value().clone(),
-            None if quick => branch_names(&p, &refs)
-                .iter()
-                .map(|n| plain_view(&p, &refs, n, declared_parent(&p, &refs, &default, n).unwrap_or_else(|| Some(default.clone()))))
-                .collect(),
+            Some(saved) => saved.value().views.clone(),
+            None if quick => match self.views.last(project_id) {
+                // The last build's views, a little behind but already filed under their parents.
+                Some(saved) => saved.value().views.clone(),
+                None => branch_names(&p, &refs)
+                    .iter()
+                    .map(|n| plain_view(&p, &refs, n, declared_parent(&p, &refs, &default, n).unwrap_or_else(|| Some(default.clone()))))
+                    .collect(),
+            },
             None => {
-                let views = self.branch_views(&p, &git, &refs, &default).await;
+                let shared = view_key(&p, &default, &refs.history_digest(&git).await, &digest);
+                let keep = match (self.views.last(project_id), &fingerprint) {
+                    (Some(saved), Some(f)) if saved.value().shared == shared => unmoved_views(&p, &default, saved.value(), f),
+                    _ => HashMap::new(),
+                };
+                let views = self.branch_views(&p, &git, &refs, &default, &keep).await;
                 self.commits.save();
-                if let Some(k) = key {
-                    self.views.insert(project_id, k, views.clone());
+                if let (Some(k), Some(refs)) = (key, fingerprint) {
+                    self.views.insert(project_id, k, BuiltViews { refs, shared, views: views.clone() });
                 }
                 views
             }
@@ -1402,14 +1460,18 @@ impl Gitnetix {
         Ok(Overview { project: p, current_branch: current, default_branch: default, releases, other_branches, default_view, branches: all, rebasing, conflicts, remote, stashes, has_changelog })
     }
 
-    /// Every branch's view with counts, merge state and parent: a few git calls per branch.
-    async fn branch_views(&self, p: &Project, git: &Git, refs: &Refs, default: &str) -> Vec<BranchView> {
+    /// Every branch's view with counts, merge state and parent: a few git calls per branch,
+    /// except those in `keep`, still right from the last build.
+    async fn branch_views(&self, p: &Project, git: &Git, refs: &Refs, default: &str, keep: &HashMap<String, BranchView>) -> Vec<BranchView> {
         // The bases every branch is weighed against, scanned up front and side by side.
         let bases: Vec<String> = merge_targets(p, refs, default).iter().filter_map(|t| refs.rev(t)).collect();
         refs.prefetch(git, &bases).await;
         // Several branches at once, keeping the order.
         stream::iter(branch_names(p, refs))
             .map(|n| async move {
+                if let Some(v) = keep.get(&n) {
+                    return v.clone();
+                }
                 let parent = self.parent_of(p, git, refs, default, &n).await;
                 self.branch_view(p, git, refs, &n, parent).await
             })

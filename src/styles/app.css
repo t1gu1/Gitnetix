@@ -217,7 +217,8 @@ body.dragging-tab, body.dragging-tab * { cursor: grabbing !important; }
 
 /* ---------- workspace ---------- */
 .ws { flex: 1 1 auto; display: flex; min-height: 0; overflow: hidden; }
-.ws-releases { flex: 0 0 var(--branches-w, 300px); width: var(--branches-w, 300px); min-width: 0; display: flex; flex-direction: column; min-height: 0; background: var(--panel); border-right: 1px solid var(--line); }
+.ws-releases { flex: 0 0 var(--branches-w, 300px); width: var(--branches-w, 300px); min-width: 0; display: flex; flex-direction: column; min-height: 0; background: var(--panel); border-right: 1px solid var(--line); position: relative; }
+.tree-building { position: absolute; inset: 0; z-index: 5; display: flex; align-items: center; justify-content: center; gap: 8px; background: color-mix(in srgb, var(--panel) 75%, transparent); color: var(--muted); font-size: 12px; }
 .ws-files { flex: 0 0 var(--files-w, 320px); width: var(--files-w, 320px); min-width: 0; display: flex; flex-direction: column; min-height: 0; background: var(--panel); border-right: 1px solid var(--line); }
 .ws-diff { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; min-height: 0; background: var(--bg); }
 /* The branches show/hide toggle sits at the same spot open (pane head) or closed (rail). */
@@ -350,7 +351,7 @@ button.tree-twist:hover { color: var(--fg); }
 @media (prefers-reduced-motion: reduce) { .tree-row[data-current] .tree-name > .mono, :is(.child-label, .group-label, .shipped-label)[data-active] { animation: none; } }
 /* Row actions fill the row's height, flush with its right edge, over its own background. */
 .tree-acts { flex: 0 0 auto; display: flex; align-self: stretch; margin: -6px -6px -6px 0; opacity: 0; pointer-events: none; transition: opacity .12s; }
-.tree-row:hover .tree-acts, .tree-row:focus-within .tree-acts, .tree-row:has(> .tree-btn[aria-pressed="true"]) .tree-acts { opacity: 1; pointer-events: auto; }
+.tree-row:hover .tree-acts, .tree-row:focus-within .tree-acts, .tree-row:has(> .tree-btn[aria-pressed="true"]) .tree-acts, .tree-row[data-current] .tree-acts { opacity: 1; pointer-events: auto; }
 @media (hover: none) { .tree-acts { opacity: 1; pointer-events: auto; } }
 .tree-group { width: calc(100% - 12px); min-height: 30px; align-items: center; border: 0; background: transparent; font: inherit; text-align: left; cursor: pointer; }
 .tree-group { gap: 6px; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
