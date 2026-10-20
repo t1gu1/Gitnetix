@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useAction, useConfig, useProjectPrefs } from "../api/hooks";
-import { currentRemote, isLocal, saveRemote } from "../api/transport";
+import { currentRemote, isLocal, isTauri, saveRemote } from "../api/transport";
 import type { GitProfile } from "../api/types";
 import { Icon } from "../components/Icon";
 import { LANGS, Seg } from "../components/ui";
@@ -32,6 +32,12 @@ export function Menu({ onUnpair }: { onUnpair: () => void }) {
   const open = (v: View) => setViews((vs) => [...vs, v]);
   const back = () => setViews((vs) => vs.slice(0, -1));
   const closeBtn = useRef<HTMLButtonElement>(null);
+  // The app's own version; a plain browser has no app to ask.
+  const [version, setVersion] = useState<string | null>(null);
+  useEffect(() => {
+    if (!isTauri) return;
+    import("@tauri-apps/api/app").then(({ getVersion }) => getVersion()).then(setVersion, () => {});
+  }, []);
   // Slide out before unmounting; skip the animation when the user prefers reduced motion.
   const close = useCallback(() => {
     if (matchMedia("(prefers-reduced-motion: reduce)").matches) nav.closeMenu();
@@ -81,6 +87,11 @@ export function Menu({ onUnpair }: { onUnpair: () => void }) {
               </>
             )}
           </div>
+          {!view && version && (
+            <div className="hdr-tools">
+              <span className="mono faint" style={{ fontSize: 11.5 }}>v{version}</span>
+            </div>
+          )}
         </header>
         <div className="menu-wrap">
           {view ? (

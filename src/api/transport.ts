@@ -20,7 +20,7 @@ export interface Remote {
 
 const REMOTE_KEY = "gitnetix.remote";
 
-const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+export const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 const isMobileUA = typeof navigator !== "undefined" && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 
 /** Desktop Tauri window: the engine is in-process. */
