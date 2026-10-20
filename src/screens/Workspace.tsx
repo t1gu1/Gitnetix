@@ -2,14 +2,14 @@ import { useEffect, useMemo, useState, type CSSProperties, type MouseEvent, type
 
 import { switchedOverview, useAction, useAgents, useAiOn, useBlobs, useDiff, useFiles, useOverview, useProjectPrefs, useProjects } from "../api/hooks";
 import { isLocal, revealPath } from "../api/transport";
-import type { BranchView, Commit, FileChange, MergeResult, Overview, RebaseResult, ReleaseView, Stash } from "../api/types";
+import type { BranchView, Commit, FileChange, Hunk, MergeResult, Overview, RebaseResult, ReleaseView, Stash } from "../api/types";
 import { AgentLog } from "../components/AgentLog";
 import { DiffView, type DiffMode } from "../components/DiffView";
 import { IMAGE_MODES, ImageDiff, comparable, isImage, useImageMode } from "../components/ImageDiff";
 import { ContextMenu, type MenuItem } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
 import { Resizer, usePaneWidth } from "../components/Resizer";
-import { Busy, ErrorBox, Loading, Modal, Seg } from "../components/ui";
+import { Busy, ErrorBox, Loading, Markdown, Modal, Seg } from "../components/ui";
 import { ago, plural } from "../lib/format";
 import { startCleanup, useCleaning } from "../lib/cleanups";
 import { useNav } from "../lib/nav";
@@ -31,6 +31,7 @@ export function Workspace() {
   const [mode, setMode] = useState<Mode>("wip");
   const [file, setFile] = useState<string | undefined>();
   const [diffMode, setDiffMode] = useState<DiffMode>("unified");
+  const [preview, setPreview] = useState(false);
   const [imageMode, setImageMode] = useImageMode();
   const [termOpen, setTermOpen] = useState(false);
   const [pane, setPane] = useState<Pane>("releases");
@@ -150,9 +151,15 @@ export function Workspace() {
   const list = files.data ?? [];
   const fileCount = new Set(list.map((f) => f.path)).size;
   const current = list.find((f) => fileKey(f) === file) ?? list[0];
-  const diff = useDiff(pid, branch, mode, current?.path, current?.staged, commit?.sha, stash?.sha, diffMode === "full");
+  // Project view lists untouched files too: those show as the plain file, no diff.
+  const unchanged = mode === "project" && !commit && !stash && current?.status === " ";
+  const markdown = /\.(md|markdown|mdx)$/i.test(current?.path ?? "");
+  const diff = useDiff(pid, branch, mode, unchanged ? undefined : current?.path, current?.staged, commit?.sha, stash?.sha, diffMode === "full");
   const image = isImage(current?.path);
-  const blobs = useBlobs(pid, branch, mode, current?.path, current?.staged, commit?.sha, stash?.sha, image);
+  const blobs = useBlobs(pid, branch, mode, current?.path, current?.staged, commit?.sha, stash?.sha, image || unchanged || markdown);
+  const text = useMemo(() => !image && decodeText(blobs.data?.new ?? blobs.data?.old), [blobs.data, image]);
+  const raw: Hunk[] | undefined = unchanged && typeof text === "string" ? [{ header: "", oldStart: 1, newStart: 1, lines: text.replace(/\n$/, "").split("\n").map((t) => ({ kind: " ", text: t })) }] : undefined;
+  const showPreview = markdown && preview && typeof text === "string";
   const [discarding, setDiscarding] = useState<{ staged: boolean; paths: string[] } | null>(null);
   // The main checkout has no worktree path: it lives at the project's own path.
   const projects = useProjects().data;
@@ -407,18 +414,42 @@ export function Workspace() {
               {image ? (
                 comparable(blobs.data) && <Seg value={imageMode} onChange={setImageMode} label="Image comparison" options={IMAGE_MODES} />
               ) : (
-                <Seg value={diffMode} onChange={setDiffMode} label="Diff mode" options={[{ value: "split", label: "Split" }, { value: "unified", label: "Unified" }, { value: "full", label: "Full" }]} />
+                (!unchanged || markdown) && (
+                  <Seg<DiffMode | "raw" | "preview">
+                    value={markdown && preview ? "preview" : unchanged ? "raw" : diffMode}
+                    onChange={(v) => {
+                      setPreview(v === "preview");
+                      if (v !== "preview" && v !== "raw") setDiffMode(v);
+                    }}
+                    label="Diff mode"
+                    options={[
+                      ...(unchanged
+                        ? [{ value: "raw" as const, label: "Raw" }]
+                        : [{ value: "split" as const, label: "Split" }, { value: "unified" as const, label: "Unified" }, { value: "full" as const, label: "Full" }]),
+                      ...(markdown ? [{ value: "preview" as const, label: "Preview" }] : []),
+                    ]}
+                  />
+                )
               )}
             </div>
             <div className="diff">
-              {diff.isLoading && current && <Loading />}
+              {(diff.isLoading || (unchanged && blobs.isLoading)) && current && <Loading />}
               {diff.error && <div style={{ padding: 16 }}><ErrorBox error={diff.error} /></div>}
               {image && current && blobs.data && <ImageDiff path={current.path} blobs={blobs.data} mode={imageMode} />}
-              {blobs.error && image && <div style={{ padding: 16 }}><ErrorBox error={blobs.error} /></div>}
-              {diff.data && diff.data.length > 0 && <DiffView hunks={diff.data} mode={diffMode} />}
-              {(!current || (diff.data && diff.data.length === 0 && !image)) && (
+              {blobs.error && (image || unchanged) && <div style={{ padding: 16 }}><ErrorBox error={blobs.error} /></div>}
+              {showPreview ? (
+                <article style={{ maxWidth: 760, margin: "0 auto", padding: "24px 24px 48px", fontFamily: "var(--sans)", fontSize: 14, lineHeight: 1.6 }}>
+                  <Markdown text={text} />
+                </article>
+              ) : (
+                <>
+                  {raw && <DiffView hunks={raw} mode="full" />}
+                  {diff.data && diff.data.length > 0 && <DiffView hunks={diff.data} mode={diffMode} />}
+                </>
+              )}
+              {(!current || (diff.data && diff.data.length === 0 && !image) || (unchanged && !image && blobs.data && text === null)) && (
                 <div className="empty" style={{ fontFamily: "var(--sans)" }}>
-                  {list.length === 0 ? "Nothing to show — working tree is clean." : "No textual changes in this file."}
+                  {list.length === 0 ? "Nothing to show — working tree is clean." : unchanged ? "Binary file." : "No textual changes in this file."}
                 </div>
               )}
             </div>
@@ -1580,4 +1611,11 @@ function ShipModal({ pid, release, defaultBranch, onClose }: { pid: string; rele
       </label>
     </Modal>
   );
+}
+
+/** A base64 blob as UTF-8 text; null when it is binary (holds a NUL byte). */
+function decodeText(b64: string | null | undefined): string | null | undefined {
+  if (b64 == null) return b64;
+  const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+  return bytes.includes(0) ? null : new TextDecoder().decode(bytes);
 }

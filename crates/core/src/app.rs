@@ -1594,7 +1594,12 @@ impl Gitnetix {
         let default = git.default_branch().await?;
         let base = self.base_of(&p, branch, &default).await;
         if base == branch {
-            return Ok(Blobs::default());
+            // Project view still shows an unchanged file's contents on a trunk.
+            if mode != ViewMode::Project {
+                return Ok(Blobs::default());
+            }
+            let rev = git.rev_of(branch).await;
+            return git.blobs(Side::Rev(&rev), Side::Rev(&rev), path).await;
         }
         let (base_rev, rev) = tokio::join!(git.rev_of(&base), git.rev_of(branch));
         git.range_blobs(&format!("{base_rev}...{rev}"), path).await
