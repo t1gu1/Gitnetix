@@ -11,6 +11,8 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-10-19
+
 ### Changed
 - Image diff comparison mode switch moved into the diff header, with the "Before"/"After" meta on the left of the swipe, onion and difference controls
 
