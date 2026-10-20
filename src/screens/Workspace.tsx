@@ -4,7 +4,7 @@ import { switchedOverview, useAction, useAgents, useAiOn, useBlobs, useDiff, use
 import type { BranchView, Commit, FileChange, MergeResult, Overview, ReleaseView, Stash } from "../api/types";
 import { AgentLog } from "../components/AgentLog";
 import { DiffView, type DiffMode } from "../components/DiffView";
-import { ImageDiff, isImage } from "../components/ImageDiff";
+import { IMAGE_MODES, ImageDiff, comparable, isImage, useImageMode } from "../components/ImageDiff";
 import { ContextMenu, type MenuItem } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
 import { Resizer, usePaneWidth } from "../components/Resizer";
@@ -30,6 +30,7 @@ export function Workspace() {
   const [mode, setMode] = useState<Mode>("wip");
   const [file, setFile] = useState<string | undefined>();
   const [diffMode, setDiffMode] = useState<DiffMode>("unified");
+  const [imageMode, setImageMode] = useImageMode();
   const [termOpen, setTermOpen] = useState(false);
   const [pane, setPane] = useState<Pane>("releases");
   const [shipping, setShipping] = useState<ReleaseView | null>(null);
@@ -351,12 +352,16 @@ export function Workspace() {
                 {current?.deletions ? <span className="c-del">−{current.deletions}</span> : null}
               </span>
               <span className="grow" />
-              <Seg value={diffMode} onChange={setDiffMode} label="Diff mode" options={[{ value: "split", label: "Split" }, { value: "unified", label: "Unified" }, { value: "full", label: "Full" }]} />
+              {image ? (
+                comparable(blobs.data) && <Seg value={imageMode} onChange={setImageMode} label="Image comparison" options={IMAGE_MODES} />
+              ) : (
+                <Seg value={diffMode} onChange={setDiffMode} label="Diff mode" options={[{ value: "split", label: "Split" }, { value: "unified", label: "Unified" }, { value: "full", label: "Full" }]} />
+              )}
             </div>
             <div className="diff">
               {diff.isLoading && current && <Loading />}
               {diff.error && <div style={{ padding: 16 }}><ErrorBox error={diff.error} /></div>}
-              {image && current && blobs.data && <ImageDiff path={current.path} blobs={blobs.data} />}
+              {image && current && blobs.data && <ImageDiff path={current.path} blobs={blobs.data} mode={imageMode} />}
               {blobs.error && image && <div style={{ padding: 16 }}><ErrorBox error={blobs.error} /></div>}
               {diff.data && diff.data.length > 0 && <DiffView hunks={diff.data} mode={diffMode} />}
               {(!current || (diff.data && diff.data.length === 0 && !image)) && (

@@ -2,7 +2,6 @@ import { useEffect, useRef, useState, type CSSProperties, type PointerEvent } fr
 
 import type { Blobs } from "../api/types";
 import { useStored } from "../lib/stored";
-import { Seg } from "./ui";
 
 const MIME: Record<string, string> = {
   png: "image/png",
@@ -20,14 +19,21 @@ const ext = (path: string) => path.slice(path.lastIndexOf(".") + 1).toLowerCase(
 
 export const isImage = (path?: string) => !!path && ext(path) in MIME;
 
-type Mode = "side" | "swipe" | "onion" | "difference";
+export type ImageMode = "side" | "swipe" | "onion" | "difference";
 
-const MODES: { value: Mode; label: string }[] = [
+export const IMAGE_MODES: { value: ImageMode; label: string }[] = [
   { value: "side", label: "Side by side" },
   { value: "swipe", label: "Swipe" },
   { value: "onion", label: "Onion skin" },
   { value: "difference", label: "Difference" },
 ];
+
+/** Remembered comparison mode, shared by the diff header's switch and the preview. */
+export const useImageMode = () =>
+  useStored<ImageMode>("gnx.diff.imageMode", "side", (s) => (IMAGE_MODES.some((m) => m.value === s) ? (s as ImageMode) : "side"), String);
+
+/** Both sides present and different, so there is something to compare. */
+export const comparable = (blobs?: Blobs) => !!blobs?.old && !!blobs.new && blobs.old !== blobs.new;
 
 interface Loaded {
   src: string;
@@ -63,10 +69,10 @@ function Meta({ img, label, cls }: { img: Loaded; label: string; cls: string }) 
 }
 
 /** Preview of an image file's change: one side alone when added or deleted, else both with a few ways to compare. */
-export function ImageDiff({ path, blobs }: { path: string; blobs: Blobs }) {
+export function ImageDiff({ path, blobs, mode }: { path: string; blobs: Blobs; mode: ImageMode }) {
   const old = useImage(path, blobs.old);
   const next = useImage(path, blobs.new);
-  const [mode, setMode] = useStored<Mode>("gnx.diff.imageMode", "side", (s) => (MODES.some((m) => m.value === s) ? (s as Mode) : "side"), String);
+  const [pos, setPos] = useState(50);
 
   if (old === undefined || next === undefined) return null;
   if (!old && !next) return <div className="empty" style={{ fontFamily: "var(--sans)" }}>This image can't be previewed.</div>;
@@ -83,10 +89,20 @@ export function ImageDiff({ path, blobs }: { path: string; blobs: Blobs }) {
   return (
     <div className="img-diff">
       <div className="img-diff-bar">
-        <Seg label="Image comparison" value={mode} onChange={setMode} options={MODES} />
-        <span className="grow" />
         <Meta img={old} label="Before" cls="c-del" />
         <Meta img={next} label="After" cls="c-add" />
+        <span className="grow" />
+        {mode === "swipe" && (
+          <input className="img-slider" type="range" min={0} max={100} value={pos} onChange={(e) => setPos(Number(e.target.value))} aria-label="Swipe position" />
+        )}
+        {mode === "onion" && (
+          <label className="img-slider">
+            <span className="c-del">Before</span>
+            <input type="range" min={0} max={100} value={pos} onChange={(e) => setPos(Number(e.target.value))} aria-label="After opacity" />
+            <span className="c-add">After</span>
+          </label>
+        )}
+        {mode === "difference" && <span className="faint">Unchanged pixels show black; changes light up.</span>}
       </div>
       {mode === "side" ? (
         <div className="img-side">
@@ -94,7 +110,7 @@ export function ImageDiff({ path, blobs }: { path: string; blobs: Blobs }) {
           <div className="img-frame after"><img src={next.src} alt={`${path} after`} style={fit(next)} /></div>
         </div>
       ) : (
-        <Stacked old={old} next={next} mode={mode} />
+        <Stacked old={old} next={next} mode={mode} pos={pos} setPos={setPos} />
       )}
     </div>
   );
@@ -104,8 +120,7 @@ export function ImageDiff({ path, blobs }: { path: string; blobs: Blobs }) {
 const fit = (img: Loaded): CSSProperties => ({ width: img.w, maxWidth: "100%", height: "auto" });
 
 /** Both images on one canvas the size of the larger, anchored top-left like git would align them. */
-function Stacked({ old, next, mode }: { old: Loaded; next: Loaded; mode: Exclude<Mode, "side"> }) {
-  const [pos, setPos] = useState(50);
+function Stacked({ old, next, mode, pos, setPos }: { old: Loaded; next: Loaded; mode: Exclude<ImageMode, "side">; pos: number; setPos: (n: number) => void }) {
   const stage = useRef<HTMLDivElement>(null);
   const w = Math.max(old.w, next.w);
   const h = Math.max(old.h, next.h);
@@ -146,17 +161,6 @@ function Stacked({ old, next, mode }: { old: Loaded; next: Loaded; mode: Exclude
           </>
         )}
       </div>
-      {mode === "swipe" && (
-        <input className="img-slider" type="range" min={0} max={100} value={pos} onChange={(e) => setPos(Number(e.target.value))} aria-label="Swipe position" />
-      )}
-      {mode === "onion" && (
-        <label className="img-slider">
-          <span className="c-del">Before</span>
-          <input type="range" min={0} max={100} value={pos} onChange={(e) => setPos(Number(e.target.value))} aria-label="After opacity" />
-          <span className="c-add">After</span>
-        </label>
-      )}
-      {mode === "difference" && <span className="faint" style={{ fontSize: 12 }}>Unchanged pixels show black; changes light up.</span>}
     </div>
   );
 }

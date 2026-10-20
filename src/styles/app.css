@@ -477,8 +477,9 @@ button.tree-twist:hover { color: var(--fg); }
 .img-handle { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--accent); box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35); pointer-events: none; }
 .img-tag { position: absolute; top: 6px; padding: 1px 6px; border-radius: 3px; background: rgba(0, 0, 0, 0.6); color: #fff; font-size: 11px; pointer-events: none; }
 .img-tag.before { left: 6px; } .img-tag.after { right: 6px; }
-.img-slider { display: flex; align-items: center; gap: 10px; width: min(360px, 100%); font-size: 12px; }
+.img-slider { display: flex; align-items: center; gap: 10px; width: min(280px, 100%); font-size: 12px; }
 .img-slider input, input.img-slider { flex: 1 1 auto; accent-color: var(--accent); }
+input.img-slider { flex: 0 1 auto; }
 @media (max-width: 900px) { .img-side { grid-template-columns: minmax(0, 1fr); } }
 .diff-split { display: flex; flex-direction: column; padding: 8px 0; }
 .diff-split-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
