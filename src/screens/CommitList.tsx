@@ -129,14 +129,12 @@ export function CommitList({
                 {c.origin && <span className="tag accent" title={`${branch} is here on origin`}>origin</span>}
               </span>
             )}
-            <span className="commit-head">
-              <Avatar name={c.author} email={c.email} />
-              <span className="commit-subject">{c.subject}</span>
-            </span>
+            <span className="commit-subject">{c.subject}</span>
             {c.body && <span className="commit-body">{c.body}</span>}
             <span className="commit-meta">
-              <span className="mono">{c.sha.slice(0, 7)}</span>
+              <Avatar name={c.author} email={c.email} size={14} />
               <span className="ellipsis">{c.author}</span>
+              <span className="mono">{c.sha.slice(0, 7)}</span>
               <span title={new Date(c.date).toLocaleString()} style={{ whiteSpace: "nowrap" }}>{ago(c.date)}</span>
             </span>
           </button>
