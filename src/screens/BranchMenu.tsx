@@ -8,7 +8,7 @@ import { plural } from "../lib/format";
 import { useNav } from "../lib/nav";
 import { copyToClipboard, toast } from "../lib/toast";
 
-export type BranchDialog = "merge" | "delete" | "conflicts" | "reset" | "forcePush" | "tag" | "target";
+export type BranchDialog = "merge" | "delete" | "conflicts" | "reset" | "forcePush" | "tag" | "target" | "rebase";
 
 export interface BranchTarget {
   view: BranchView;
@@ -49,6 +49,9 @@ export const rebaseMessage = (r: RebaseResult) =>
       ? `Rebased. Force push to update ${r.forcePushTo}`
       : "Rebased, no conflicts";
 
+/** After a target change: offer to rebase onto the new target (only checked-out work branches get rebased). */
+export const offersRebase = (v?: BranchView) => !!v && v.role === "branch" && v.checkedOut;
+
 /** Origin and local each have commits the other lacks (e.g. rebased): origin only takes it forced. */
 const isDiverged = (v: BranchView) => !!v.upstream && v.upstreamAhead > 0 && v.upstreamBehind > 0;
 
@@ -56,7 +59,7 @@ const isDiverged = (v: BranchView) => !!v.upstream && v.upstreamAhead > 0 && v.u
  * Every branch action in one place: the context menu, and the primary
  * action the split button offers for the branch's role and state.
  */
-export function useBranchActions(pid: string, openDialog: (d: BranchDialog, branch: string) => void) {
+export function useBranchActions(pid: string, openDialog: (d: BranchDialog, branch: string, onto?: string) => void) {
   const nav = useNav();
   const inv = [["overview", pid], ["files", pid], ["diff", pid], ["commits", pid]];
   const sw = useAction<unknown, { projectId: string; branch: string }>("workspace.switch", {
@@ -275,7 +278,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
     if (t.moveTo?.length || t.pickTarget) {
       list.push("sep");
       for (const m of t.moveTo ?? []) {
-        list.push({ id: `move-${m.branch}`, label: <>Target <span className="mono">{m.label}</span></>, icon: "merged", run: () => move.mutate({ projectId: pid, branch: v.name, parent: m.branch }) });
+        list.push({ id: `move-${m.branch}`, label: <>Target <span className="mono">{m.label}</span></>, icon: "merged", run: () => move.mutate({ projectId: pid, branch: v.name, parent: m.branch }, { onSuccess: () => offersRebase(v) && openDialog("rebase", v.name, m.branch) }) });
       }
       if (t.pickTarget) list.push({ id: "move-any", label: "Target a specific branch…", icon: "merged", run: () => openDialog("target", v.name) });
     }

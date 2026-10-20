@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type CSSProperties, type MouseEvent, type
 
 import { switchedOverview, useAction, useAgents, useAiOn, useBlobs, useDiff, useFiles, useOverview, useProjectPrefs, useProjects } from "../api/hooks";
 import { isLocal, revealPath } from "../api/transport";
-import type { BranchView, Commit, FileChange, MergeResult, Overview, ReleaseView, Stash } from "../api/types";
+import type { BranchView, Commit, FileChange, MergeResult, Overview, RebaseResult, ReleaseView, Stash } from "../api/types";
 import { AgentLog } from "../components/AgentLog";
 import { DiffView, type DiffMode } from "../components/DiffView";
 import { IMAGE_MODES, ImageDiff, comparable, isImage, useImageMode } from "../components/ImageDiff";
@@ -15,7 +15,7 @@ import { startCleanup, useCleaning } from "../lib/cleanups";
 import { useNav } from "../lib/nav";
 import { useStoredChoice, useStoredFlag } from "../lib/stored";
 import { copyToClipboard, toast } from "../lib/toast";
-import { useBranchActions, type BranchDialog, type BranchTarget } from "./BranchMenu";
+import { offersRebase, rebaseMessage, useBranchActions, type BranchDialog, type BranchTarget } from "./BranchMenu";
 import { BranchTree } from "./BranchTree";
 import { CommitList } from "./CommitList";
 import { ConflictModal } from "./ConflictModal";
@@ -35,7 +35,7 @@ export function Workspace() {
   const [termOpen, setTermOpen] = useState(false);
   const [pane, setPane] = useState<Pane>("releases");
   const [shipping, setShipping] = useState<ReleaseView | null>(null);
-  const [dialog, setDialog] = useState<{ kind: BranchDialog; branch: string } | null>(null);
+  const [dialog, setDialog] = useState<{ kind: BranchDialog; branch: string; onto?: string } | null>(null);
   const [deletingTag, setDeletingTag] = useState<string | null>(null);
   const checkoutTag = useAction<unknown, { projectId: string; name: string }>("tags.checkout", {
     invalidate: [["overview", pid], ["files", pid], ["diff", pid], ["commits", pid]],
@@ -56,7 +56,7 @@ export function Workspace() {
   const [asTree, setAsTree] = useStoredFlag("gnx.files.tree");
   // Collapse/expand all: a new `n` remounts the file lists, dropping per-folder toggles.
   const [fold, setFold] = useState({ closed: false, n: 0 });
-  const actions = useBranchActions(pid, (kind, branch) => setDialog({ kind, branch }));
+  const actions = useBranchActions(pid, (kind, branch, onto) => setDialog({ kind, branch, onto }));
 
   const o = ov.data;
   const byName = useMemo(() => new Map((o?.branches ?? []).map((b) => [b.name, b])), [o]);
@@ -471,7 +471,17 @@ export function Workspace() {
       )}
       {deletingTag && <DeleteTagModal pid={pid} tag={deletingTag} onClose={() => setDeletingTag(null)} />}
       {dialog?.kind === "tag" && <TagBranchModal pid={pid} branch={dialog.branch} onClose={() => setDialog(null)} />}
-      {dialog?.kind === "target" && o && <TargetBranchModal pid={pid} branch={dialog.branch} branches={o.branches} labelOf={labelOf} onClose={() => setDialog(null)} />}
+      {dialog?.kind === "target" && o && (
+        <TargetBranchModal
+          pid={pid}
+          branch={dialog.branch}
+          branches={o.branches}
+          labelOf={labelOf}
+          onClose={() => setDialog(null)}
+          onTargeted={(onto) => setDialog(offersRebase(byName.get(dialog.branch)) ? { kind: "rebase", branch: dialog.branch, onto } : null)}
+        />
+      )}
+      {dialog?.kind === "rebase" && dialog.onto && <RebaseOntoModal pid={pid} branch={dialog.branch} onto={labelOf(dialog.onto)} onClose={() => setDialog(null)} />}
       {dialog?.kind === "delete" && dialogView && (
         <DeleteBranchModal
           pid={pid}
@@ -1022,12 +1032,14 @@ function TargetBranchModal({
   branches,
   labelOf,
   onClose,
+  onTargeted,
 }: {
   pid: string;
   branch: string;
   branches: BranchView[];
   labelOf: (b: string) => string;
   onClose: () => void;
+  onTargeted: (parent: string) => void;
 }) {
   const [query, setQuery] = useState("");
   const [picked, setPicked] = useState<string | null>(null);
@@ -1051,7 +1063,7 @@ function TargetBranchModal({
   }, [branches, branch, base]);
   const q = query.trim().toLowerCase();
   const shown = q ? choices.filter((b) => b.name.toLowerCase().includes(q) || labelOf(b.name).toLowerCase().includes(q)) : choices;
-  const submit = () => picked && move.mutate({ projectId: pid, branch, parent: picked }, { onSuccess: onClose });
+  const submit = () => picked && move.mutate({ projectId: pid, branch, parent: picked }, { onSuccess: () => onTargeted(picked) });
   return (
     <Modal
       title="Target a specific branch"
@@ -1084,6 +1096,33 @@ function TargetBranchModal({
         {!shown.length && <li className="faint">No branch matches “{query}”.</li>}
       </ul>
       {move.error && <ErrorBox error={move.error} />}
+    </Modal>
+  );
+}
+
+/** Asked right after `branch` got a new target: replay it on top of that target now? */
+function RebaseOntoModal({ pid, branch, onto, onClose }: { pid: string; branch: string; onto: string; onClose: () => void }) {
+  const rebase = useAction<RebaseResult, { projectId: string; branch: string }>("workspace.rebase", {
+    invalidate: [["overview", pid], ["files", pid], ["diff", pid], ["commits", pid]],
+    success: rebaseMessage,
+  });
+  return (
+    <Modal
+      title="Rebase onto the new target?"
+      sub={<><span className="mono">{branch}</span> now targets <span className="mono">{onto}</span></>}
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn btn-md" onClick={onClose}>Not now</button>
+          <button className="btn btn-md btn-primary" autoFocus disabled={rebase.isPending} onClick={() => rebase.mutate({ projectId: pid, branch }, { onSuccess: onClose })}>
+            {rebase.isPending && <span className="spinner" />}
+            Rebase onto {onto}
+          </button>
+        </>
+      }
+    >
+      <p className="muted" style={{ margin: 0 }}>Replays the commits of {branch} on top of {onto}. Already pushed: it then needs a force push.</p>
+      {rebase.error && <ErrorBox error={rebase.error} />}
     </Modal>
   );
 }
