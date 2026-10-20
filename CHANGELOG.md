@@ -17,6 +17,9 @@ release notes and the in-app update prompt.
 - Folder rows in the file list now show +/- totals.
 - After changing a branch target, the workspace offers to rebase.
 
+### Changed
+- The branch commit list in the workspace always has a commit selected.
+
 ## [0.1.3] - 2026-10-19
 
 ### Changed
