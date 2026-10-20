@@ -5,9 +5,6 @@
 - Create a custom terminal emulator using a Nerd Font.
 - Rework the worktrees & agent section and how it works.
 - Add Undo
-- Add some checkbox in modales for automations (Like checkout branch on branch creation)
-- Add one place in settings to edit all checkbox preset
-- Add the possibility to disable animations separatly (And a toggle to enable/disabl them all)
 - Add a place to set and edit shortcuts
 - Add a conflict manager and resolver (If AI, simply fix the conflit automatically with AI)
 - Add more analytics (Possibility to target one of few person)
