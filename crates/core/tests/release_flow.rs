@@ -577,6 +577,34 @@ async fn merge_and_delete_the_checked_out_branch_switches_to_its_base() {
 }
 
 #[tokio::test]
+async fn shipped_release_left_only_on_origin_files_under_shipped() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("ff");
+    init_repo(&repo);
+    let origin = tmp.path().join("origin.git");
+    sh(tmp.path(), &["init", "-q", "--bare", "-b", "main", origin.to_str().unwrap()]);
+    sh(&repo, &["remote", "add", "origin", origin.to_str().unwrap()]);
+
+    // Shipped outside Gitnetix: fast-forwarded into main, tagged, local branch deleted.
+    sh(&repo, &["switch", "-qc", "release/1.4.0"]);
+    commit_file(&repo, "r.txt", "r\n");
+    sh(&repo, &["switch", "-q", "main"]);
+    sh(&repo, &["merge", "-q", "--ff-only", "release/1.4.0"]);
+    sh(&repo, &["tag", "-a", "v1.4.0", "-m", "v1.4.0"]);
+    sh(&repo, &["push", "-q", "origin", "main", "release/1.4.0", "v1.4.0"]);
+    sh(&repo, &["branch", "-qD", "release/1.4.0"]);
+
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let added = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await;
+    let pid = added[0]["id"].as_str().unwrap().to_string();
+    let ov = call(&k, "workspace.overview", json!({ "projectId": pid })).await;
+    let r = ov["releases"].as_array().unwrap().iter().find(|r| r["version"] == "1.4.0").cloned().unwrap();
+    assert_eq!((r["open"].as_bool(), r["branch"].as_str()), (Some(false), Some("release/1.4.0")));
+    let b = ov["branches"].as_array().unwrap().iter().find(|b| b["name"] == "release/1.4.0").cloned().unwrap();
+    assert_eq!(b["shipped"], "1.4.0");
+}
+
+#[tokio::test]
 async fn origin_only_branches_and_gitflow() {
     let tmp = tempfile::tempdir().unwrap();
     let repo = tmp.path().join("flow");

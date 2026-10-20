@@ -467,10 +467,11 @@ fn hotfix_base(tags: &[TagInfo], version: &str) -> Option<String> {
     line.or_else(|| versioned().max_by_key(|(v, _)| *v)).map(|(_, t)| t).or(tags.first()).map(|t| t.name.clone())
 }
 
-/// Register `release/x.y.z` branches Gitnetix does not know yet. Returns whether any were added.
-fn import_release_branches(p: &mut Project, branches: &[BranchInfo], default: &str) -> bool {
+/// Register `release/x.y.z` branches Gitnetix does not know yet, local or only on origin
+/// (a shipped release whose local branch is gone). Returns whether any were added.
+fn import_release_branches(p: &mut Project, branches: &[BranchInfo], remote: &[BranchInfo], default: &str) -> bool {
     let mut added = false;
-    for b in branches {
+    for b in branches.iter().chain(remote) {
         let Some(v) = b.name.strip_prefix("release/") else { continue };
         if p.releases.iter().any(|r| r.version == v || r.branch == b.name) || p.forgotten_releases.iter().any(|f| f == v) {
             continue;
@@ -1203,7 +1204,8 @@ impl Gitnetix {
         let git = Git::new(&p.path);
         let default = git.default_branch().await.unwrap_or_else(|_| "main".into());
         let branches = git.branches().await.unwrap_or_default();
-        import_release_branches(p, &branches, &default);
+        let remote = git.remote_branches().await.unwrap_or_default();
+        import_release_branches(p, &branches, &remote, &default);
         ship_tagged_releases(p, &git.tags().await.unwrap_or_default());
     }
 
@@ -1257,13 +1259,14 @@ impl Gitnetix {
         );
         let (default, current, branches, wts) = (default?, current?, branches?, wts?);
         let tags = tags.unwrap_or_default();
+        let remote_branches = remote_branches.unwrap_or_default();
         // Release branches created outside Gitnetix (or after the project was added), and releases tagged without it.
         let mut probe = p.clone();
-        let imported = import_release_branches(&mut probe, &branches, &default);
+        let imported = import_release_branches(&mut probe, &branches, &remote_branches, &default);
         let shipped = ship_tagged_releases(&mut probe, &tags);
         if imported || shipped {
             p = self.store.with_project(project_id, |p| {
-                import_release_branches(p, &branches, &default);
+                import_release_branches(p, &branches, &remote_branches, &default);
                 ship_tagged_releases(p, &tags);
                 Ok(p.clone())
             })?;
@@ -1272,7 +1275,7 @@ impl Gitnetix {
         let rebasing = rebasing.unwrap_or(false);
         let conflicts = if rebasing { git.conflicted_files().await.unwrap_or_default() } else { Vec::new() };
 
-        let refs = Refs::new(branches, remote_branches.unwrap_or_default()).batched();
+        let refs = Refs::new(branches, remote_branches).batched();
         // Never wait on the git host for a first look.
         let hosted = self.hosted_prs(&p, &git, &refs.tips(), !quick).await;
         let refs = refs.with_hosted(hosted);
