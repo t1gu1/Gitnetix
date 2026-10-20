@@ -44,7 +44,7 @@ export function Workspace() {
   });
   const [cleanup, setCleanup] = useState<{ parent: string; label: string; branches: BranchView[] } | null>(null);
   const [cleanupBehind, setCleanupBehind] = useState<{ section: string; base: string; branches: BranchView[] } | null>(null);
-  const isCleaning = useCleaning(pid);
+  const cleanupLeft = useCleaning(pid);
   // Branch whose commits replace the tree, and the commit picked there (none = all changes).
   const [history, setHistory] = useState<string | null>(null);
   const [commit, setCommit] = useState<Commit | undefined>();
@@ -294,7 +294,8 @@ export function Workspace() {
               onNewRelease={() => nav.openNewItem({ kind: "release" })}
               onCleanup={(parent, label, branches) => setCleanup({ parent, label, branches })}
               onCleanupBehind={(section, base, branches) => setCleanupBehind({ section, base, branches })}
-              isCleaning={isCleaning}
+              isCleaning={(s) => cleanupLeft(s) !== undefined}
+              cleanupLeft={cleanupLeft}
               tagItems={tagItems}
               onStashes={() => openStashes()}
             />

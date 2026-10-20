@@ -836,7 +836,7 @@ fn plain_view(p: &Project, refs: &Refs, name: &str, parent: Option<String>) -> B
 }
 
 /// Bump when branch views are built differently, so saved ones are not reused.
-const VIEW_CACHE_VERSION: &str = "5";
+const VIEW_CACHE_VERSION: &str = "6";
 
 /// What a project's branch views are built from: its refs, its default branch,
 /// what Gitnetix knows about its releases and branches, and what the git host said.
@@ -2250,8 +2250,13 @@ impl Gitnetix {
         }
         let local = git.ref_exists(&format!("refs/heads/{branch}")).await?;
         let on_origin = remote && git.ref_exists(&format!("refs/remotes/origin/{branch}")).await?;
-        if local || on_origin {
-            let rev = if local { branch.to_string() } else { format!("origin/{branch}") };
+        if !local && !on_origin {
+            let only_origin = !remote && git.ref_exists(&format!("refs/remotes/origin/{branch}")).await?;
+            return Err(Error::Invalid(if only_origin { format!("{branch} is only on origin") } else { format!("{branch} not found") }));
+        }
+        {
+            // Full refs: a bare name resolves to a tag of the same name first.
+            let rev = if local { format!("refs/heads/{branch}") } else { format!("refs/remotes/origin/{branch}") };
             let base = match base {
                 Some(b) => b,
                 None => self.base_of(&p, branch, &default).await,
@@ -2343,6 +2348,7 @@ impl Gitnetix {
         let results = stream::iter(bases)
             .map(|(b, base)| async move {
                 let r = self.delete_branch_onto(project_id, &b, Some(base), force, remote).await;
+                let _ = self.events.send(Event::CleanupStep { project_id: project_id.into(), branch: b.clone() });
                 (b, r)
             })
             .buffered(4)

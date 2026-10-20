@@ -188,6 +188,36 @@ async fn merge_and_delete_branches() {
 }
 
 #[tokio::test]
+async fn cleanup_branch_named_like_a_tag() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("atlas-api");
+    init_repo(&repo);
+    let origin = tmp.path().join("origin.git");
+    sh(tmp.path(), &["init", "-q", "--bare", "-b", "main", origin.to_str().unwrap()]);
+    sh(&repo, &["remote", "add", "origin", origin.to_str().unwrap()]);
+    sh(&repo, &["tag", "2.13.0"]);
+    sh(&repo, &["switch", "-qc", "2.13.0"]);
+    commit_file(&repo, "old.txt", "old\n");
+    sh(&repo, &["switch", "-q", "main"]);
+    sh(&repo, &["push", "-q", "origin", "main", "refs/heads/2.13.0", "refs/tags/2.13.0"]);
+    sh(&repo, &["fetch", "-q", "origin"]);
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let added = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await;
+    let pid = added[0]["id"].as_str().unwrap().to_string();
+
+    // Listed by its own name, not git's disambiguated "heads/2.13.0".
+    let ov = call(&k, "workspace.overview", json!({ "projectId": pid })).await;
+    assert!(ov["branches"].as_array().unwrap().iter().any(|b| b["name"] == "2.13.0"), "{}", ov["branches"]);
+
+    let r = call(&k, "branches.cleanup", json!({ "projectId": pid, "branches": ["2.13.0", "nope"], "force": true, "remote": true })).await;
+    assert_eq!(r["deleted"], json!(["2.13.0"]), "{r}");
+    assert_eq!(r["skipped"][0]["branch"], "nope");
+    assert!(rev(&repo, "refs/heads/2.13.0").is_empty());
+    assert!(git_out(&origin, &["for-each-ref", "refs/heads/2.13.0"]).is_empty());
+    assert!(!rev(&repo, "refs/tags/2.13.0").is_empty(), "tag kept");
+}
+
+#[tokio::test]
 async fn delete_release_branch_before_its_items() {
     let tmp = tempfile::tempdir().unwrap();
     let repo = tmp.path().join("atlas-api");

@@ -505,4 +505,5 @@ export type GitnetixEvent =
   | { type: "agentLine"; sessionId: string; line: LogLine }
   | { type: "agentStatus"; sessionId: string; status: AgentStatus }
   | { type: "projectChanged"; projectId: string }
-  | { type: "configChanged" };
+  | { type: "configChanged" }
+  | { type: "cleanupStep"; projectId: string; branch: string };

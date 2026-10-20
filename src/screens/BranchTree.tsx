@@ -111,6 +111,7 @@ export function BranchTree({
   onCleanup,
   onCleanupBehind,
   isCleaning,
+  cleanupLeft,
   tagItems,
   onStashes,
 }: {
@@ -128,6 +129,8 @@ export function BranchTree({
   onCleanupBehind: (section: string, base: string, branches: BranchView[]) => void;
   /** Whether a cleanup is running on a section ("merged:<parent>", "behind:<parent>" or "behind"); it stays locked until done. */
   isCleaning: (section: string) => boolean;
+  /** Branches a running cleanup has left on a section; undefined when none runs. */
+  cleanupLeft: (section: string) => number | undefined;
   /** Actions for a shipped release's tag; the first one (check out) also runs on double-click. */
   tagItems: (tag: string, checkedOut: boolean) => MenuItem[];
   /** Opens every stash of the project. */
@@ -288,7 +291,7 @@ export function BranchTree({
                     <span className="group-label" data-active={pathMerged || undefined}>Merged into {mergedLabel}</span>
                     <span className="faint">{merged.length}</span>
                   </button>
-                  {(removable.length > 0 || cleaning) && <CleanupButton busy={cleaning} title={`Delete the ${removable.length} merged branch${removable.length === 1 ? "" : "es"} under ${mergedLabel}, locally and on origin`} onClick={() => onCleanup(b.name, mergedLabel, removable)} />}
+                  {(removable.length > 0 || cleaning) && <CleanupButton left={cleanupLeft(mergedKey)} title={`Delete the ${removable.length} merged branch${removable.length === 1 ? "" : "es"} under ${mergedLabel}, locally and on origin`} onClick={() => onCleanup(b.name, mergedLabel, removable)} />}
                 </div>
                 {mergedOpen && (
                   <div className="tree-kids" data-path={pathMerged ? "in" : pathLive || pathBehind ? "past" : undefined} aria-busy={cleaning || undefined} inert={cleaning}>
@@ -306,7 +309,7 @@ export function BranchTree({
                     <span className="faint">{lagging.length}</span>
                   </button>
                   {(laggingRemovable.length > 0 || isCleaning(behindKey)) && (
-                    <CleanupButton busy={isCleaning(behindKey)} title={`Pick which of the ${plural(laggingRemovable.length, "branch")} falling behind ${mergedLabel} to delete`} onClick={() => onCleanupBehind(behindKey, mergedLabel, laggingRemovable)} />
+                    <CleanupButton left={cleanupLeft(behindKey)} title={`Pick which of the ${plural(laggingRemovable.length, "branch")} falling behind ${mergedLabel} to delete`} onClick={() => onCleanupBehind(behindKey, mergedLabel, laggingRemovable)} />
                   )}
                 </div>
                 {behindOpen && (
@@ -466,7 +469,7 @@ export function BranchTree({
                 <span className="faint">{behind.length}</span>
               </button>
               {(behindRemovable.length > 0 || isCleaning("behind")) && (
-                <CleanupButton busy={isCleaning("behind")} title={`Pick which of the ${plural(behindRemovable.length, "branch")} falling behind to delete`} onClick={() => onCleanupBehind("behind", o.defaultBranch, behindRemovable)} />
+                <CleanupButton left={cleanupLeft("behind")} title={`Pick which of the ${plural(behindRemovable.length, "branch")} falling behind to delete`} onClick={() => onCleanupBehind("behind", o.defaultBranch, behindRemovable)} />
               )}
             </div>
             {isOpen("behind") && (
@@ -583,10 +586,18 @@ function releaseTag(releases: ReleaseView[], b: BranchView) {
 }
 
 /** A section's "Clean up": a spinner while its cleanup runs in the background. */
-function CleanupButton({ busy, title, onClick }: { busy: boolean; title: string; onClick: () => void }) {
+function CleanupButton({ left, title, onClick }: { left: number | undefined; title: string; onClick: () => void }) {
+  const busy = left !== undefined;
   return (
-    <button className="act act-main tree-cleanup" aria-label={busy ? "Cleaning up" : "Clean up"} title={busy ? "Deleting branches…" : title} disabled={busy} aria-busy={busy || undefined} onClick={onClick}>
-      {busy ? <span className="spinner" /> : <Icon name="brush" size={14} />}
+    <button className="act act-main tree-cleanup" aria-label={busy ? `Cleaning up, ${plural(left, "branch")} left` : "Clean up"} title={busy ? `Deleting branches… ${plural(left, "branch")} left` : title} disabled={busy} aria-busy={busy || undefined} onClick={onClick}>
+      {busy ? (
+        <>
+          <span className="spinner" />
+          <span className="tree-cleanup-left">{left}</span>
+        </>
+      ) : (
+        <Icon name="brush" size={14} />
+      )}
     </button>
   );
 }

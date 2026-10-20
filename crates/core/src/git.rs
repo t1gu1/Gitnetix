@@ -338,7 +338,8 @@ impl Git {
             .run(&[
                 "for-each-ref",
                 "refs/heads",
-                "--format=%(refname:short)%1f%(objectname)%1f%(upstream:short)%1f%(committerdate:iso-strict)",
+                // Not refname:short: a branch named like a tag would come out as "heads/<name>".
+                "--format=%(refname:lstrip=2)%1f%(objectname)%1f%(upstream:short)%1f%(committerdate:iso-strict)",
             ])
             .await?;
         Ok(out
@@ -358,7 +359,7 @@ impl Git {
     /// Branches on origin (names without the `origin/` prefix, `HEAD` left out).
     pub async fn remote_branches(&self) -> Result<Vec<BranchInfo>> {
         let out = self
-            .run(&["for-each-ref", "refs/remotes/origin", "--format=%(refname:short)%1f%(objectname)%1f%(committerdate:iso-strict)%1f%(symref)"])
+            .run(&["for-each-ref", "refs/remotes/origin", "--format=%(refname:lstrip=2)%1f%(objectname)%1f%(committerdate:iso-strict)%1f%(symref)"])
             .await?;
         Ok(out
             .lines()
@@ -402,7 +403,7 @@ impl Git {
     /// Local and origin branches holding `sha`, spelled `x` and `origin/x`.
     pub async fn branches_containing(&self, sha: &str) -> Result<Vec<String>> {
         let contains = format!("--contains={sha}");
-        let out = self.run(&["for-each-ref", &contains, "--format=%(refname:short)", "refs/heads", "refs/remotes/origin"]).await?;
+        let out = self.run(&["for-each-ref", &contains, "--format=%(refname:lstrip=2)", "refs/heads", "refs/remotes/origin"]).await?;
         Ok(out.lines().map(str::to_string).collect())
     }
 
@@ -473,7 +474,7 @@ impl Git {
     /// `left_right(branch, upstream)` for every local branch whose upstream is a
     /// remote-tracking branch that still exists.
     pub async fn upstream_counts(&self) -> Result<HashMap<String, (u32, u32)>> {
-        let out = self.run(&["for-each-ref", "refs/heads", "--format=%(refname:short)%1f%(upstream)%1f%(upstream:track,nobracket)"]).await?;
+        let out = self.run(&["for-each-ref", "refs/heads", "--format=%(refname:lstrip=2)%1f%(upstream)%1f%(upstream:track,nobracket)"]).await?;
         Ok(out
             .lines()
             .filter_map(|l| {
@@ -612,7 +613,9 @@ impl Git {
 
     pub async fn delete_remote_branch(&self, name: &str) -> Result<()> {
         // Lease on the last fetched tip: a push made since then is never deleted unseen.
-        self.run(&["push", "--force-with-lease", "origin", "--delete", name]).await.map(|_| ())
+        // Full ref: a bare name also matching a tag on origin is refused as ambiguous.
+        let r = format!("refs/heads/{name}");
+        self.run(&["push", "--force-with-lease", "origin", "--delete", &r]).await.map(|_| ())
     }
 
     pub async fn tag(&self, name: &str, target: &str, message: &str) -> Result<()> {

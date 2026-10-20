@@ -14,4 +14,7 @@ pub enum Event {
     ProjectChanged { project_id: String },
     #[serde(rename_all = "camelCase")]
     ConfigChanged {},
+    /// One branch of a running cleanup is done with (deleted or kept).
+    #[serde(rename_all = "camelCase")]
+    CleanupStep { project_id: String, branch: String },
 }

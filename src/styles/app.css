@@ -388,6 +388,8 @@ button.tree-twist:hover { color: var(--fg); }
 .act.btn-danger { color: var(--del-fg); }
 /* A section's Clean up: an act filling its group row's height, flush with its right edge. */
 .act.tree-cleanup { flex: 0 0 auto; align-self: stretch; margin: -6px -6px -6px 0; border-left: 1px solid color-mix(in srgb, var(--fg) 3%, transparent); border-radius: 0 4px 4px 0; color: var(--muted); }
+.act.tree-cleanup[aria-busy="true"] { width: auto; min-width: 26px; padding: 0 6px; gap: 5px; }
+.tree-cleanup-left { font-size: 11px; font-variant-numeric: tabular-nums; }
 .act-stack { display: flex; flex-direction: column; border-left: 1px solid var(--act-line); }
 .act-stack > .act { flex: 1 1 0; min-height: 0; }
 .act-stack > .act + .act { border-top: 1px solid var(--act-line); }
