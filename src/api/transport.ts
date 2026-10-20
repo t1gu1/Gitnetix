@@ -159,6 +159,12 @@ export async function openExternal(url: string) {
   }
 }
 
+/** Show a file or folder in the system file manager (desktop only). */
+export async function revealPath(path: string) {
+  const { revealItemInDir } = await import("@tauri-apps/plugin-opener");
+  await revealItemInDir(path);
+}
+
 /** Folder drops onto the desktop window. */
 export function onFolderDrop(handler: (paths: string[]) => void, onHover?: (over: boolean) => void): () => void {
   if (!isLocal) return () => {};

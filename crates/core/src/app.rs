@@ -94,6 +94,18 @@ pub struct ProjectSummary {
     pub hidden: bool,
 }
 
+/// .gitignore line matching exactly `path` from the repo root; glob characters are escaped.
+fn ignore_line(path: &str, dir: bool) -> String {
+    let mut out = String::from("/");
+    for c in path.chars() {
+        if matches!(c, '*' | '?' | '[' | '\\') {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+    out + if dir { "/\n" } else { "\n" }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BranchView {
@@ -1726,6 +1738,28 @@ impl Gitnetix {
         } else {
             git.discard_unstaged(&paths).await?;
         }
+        self.changed(project_id);
+        Ok(())
+    }
+
+    /// Add `path` (a folder when `dir`) to the root .gitignore of the branch's checkout.
+    pub async fn ignore(&self, project_id: &str, branch: &str, path: &str, dir: bool) -> Result<()> {
+        let path = path.trim_matches('/');
+        if path.is_empty() || path.contains(['\n', '\r']) {
+            return Err(Error::Invalid(format!("cannot ignore {path:?}")));
+        }
+        let p = self.store.project(project_id)?;
+        let file = self.require_checkout(&p, branch).await?.cwd().join(".gitignore");
+        let mut text = match tokio::fs::read_to_string(&file).await {
+            Ok(t) => t,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+            Err(e) => return Err(e.into()),
+        };
+        if !text.is_empty() && !text.ends_with('\n') {
+            text.push('\n');
+        }
+        text.push_str(&ignore_line(path, dir));
+        tokio::fs::write(&file, text).await?;
         self.changed(project_id);
         Ok(())
     }
@@ -3549,6 +3583,13 @@ fn squash_title(branch: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ignore_line_anchors_and_escapes() {
+        assert_eq!(ignore_line("src/a.log", false), "/src/a.log\n");
+        assert_eq!(ignore_line("build", true), "/build/\n");
+        assert_eq!(ignore_line("x[1]*.txt", false), "/x\\[1]\\*.txt\n");
+    }
 
     #[tokio::test]
     async fn host_says_which_pull_request_took_a_tip() {

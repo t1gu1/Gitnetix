@@ -41,6 +41,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("workspace.stage", "Stage files (all when paths is empty)", "projectId, branch, paths?"),
     ("workspace.unstage", "Unstage files (all when paths is empty)", "projectId, branch, paths?"),
     ("workspace.discard", "Discard staged or unstaged changes (all on that side when paths is empty)", "projectId, branch, staged, paths?"),
+    ("workspace.ignore", "Add a file or folder (dir = true) to the checkout's root .gitignore", "projectId, branch, path, dir?"),
     ("workspace.commitMessage", "AI-written commit message for the staged changes", "projectId, branch"),
     ("workspace.commit", "Commit staged changes (all = stage everything first); empty message = AI writes it", "projectId, branch, message?, all?"),
     ("workspace.push", "Push a branch to origin; force = replace its upstream after a rebase (--force-with-lease --force-if-includes)", "projectId, branch, force?"),
@@ -373,6 +374,10 @@ pub async fn call(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
         }
         "workspace.discard" => {
             k.discard(&s(&p, "projectId")?, &s(&p, "branch")?, b(&p, "staged"), &paths(&p)?).await?;
+            ok()
+        }
+        "workspace.ignore" => {
+            k.ignore(&s(&p, "projectId")?, &s(&p, "branch")?, &s(&p, "path")?, b(&p, "dir")).await?;
             ok()
         }
         "workspace.commit" => to(k.commit(&s(&p, "projectId")?, &s(&p, "branch")?, os(&p, "message"), b(&p, "all")).await?),

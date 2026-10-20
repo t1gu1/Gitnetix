@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type CSSProperties, type MouseEvent, type ReactNode } from "react";
 
-import { switchedOverview, useAction, useAgents, useAiOn, useBlobs, useDiff, useFiles, useOverview, useProjectPrefs } from "../api/hooks";
+import { switchedOverview, useAction, useAgents, useAiOn, useBlobs, useDiff, useFiles, useOverview, useProjectPrefs, useProjects } from "../api/hooks";
+import { isLocal, revealPath } from "../api/transport";
 import type { BranchView, Commit, FileChange, MergeResult, Overview, ReleaseView, Stash } from "../api/types";
 import { AgentLog } from "../components/AgentLog";
 import { DiffView, type DiffMode } from "../components/DiffView";
@@ -53,6 +54,8 @@ export function Workspace() {
   const filesW = usePaneWidth("gnx.pane.files", 320, 220, 640);
   const [branchesHidden, setBranchesHidden] = useStoredFlag("gnx.pane.branchesHidden");
   const [asTree, setAsTree] = useStoredFlag("gnx.files.tree");
+  // Collapse/expand all: a new `n` remounts the file lists, dropping per-folder toggles.
+  const [fold, setFold] = useState({ closed: false, n: 0 });
   const actions = useBranchActions(pid, (kind, branch) => setDialog({ kind, branch }));
 
   const o = ov.data;
@@ -151,6 +154,37 @@ export function Workspace() {
   const image = isImage(current?.path);
   const blobs = useBlobs(pid, branch, mode, current?.path, current?.staged, commit?.sha, stash?.sha, image);
   const [discarding, setDiscarding] = useState<{ staged: boolean; paths: string[] } | null>(null);
+  // The main checkout has no worktree path: it lives at the project's own path.
+  const projects = useProjects().data;
+  const root = view?.worktree ?? projects?.find((p) => p.id === pid)?.path;
+  const ignore = useAction<unknown, { projectId: string; branch: string; path: string; dir: boolean }>("workspace.ignore", {
+    invalidate: [["files", pid], ["diff", pid], ["overview", pid]],
+    success: "Added to .gitignore",
+  });
+  const fileMenu = (t: FileTarget): MenuItem[] => {
+    const notOut = checkedOut ? undefined : "check out first";
+    return [
+      { id: "copy", label: "Copy path", icon: "copy", run: () => copyToClipboard(t.path) },
+      ...(isLocal
+        ? [{
+            id: "reveal",
+            label: "Open in file explorer",
+            icon: "folder",
+            hint: notOut,
+            disabled: !checkedOut || !root || t.files.every((f) => f.status === "D"),
+            run: () => revealPath(`${root}/${t.path}`).catch((e) => toast(String(e), "error")),
+          }]
+        : []),
+      {
+        id: "ignore",
+        label: "Add to .gitignore",
+        icon: "edit",
+        hint: notOut,
+        disabled: !checkedOut || !branch || ignore.isPending,
+        run: () => branch && ignore.mutate({ projectId: pid, branch, path: t.path, dir: t.dir }),
+      },
+    ];
+  };
 
   useEffect(() => setFile(undefined), [branch, mode, commit, stash]);
   // Picking another branch (e.g. from a ticket) leaves its commit or stash list.
@@ -262,9 +296,21 @@ export function Workspace() {
                 <span className="mono ellipsis" style={{ fontSize: 13, fontWeight: 500 }}>{branch ?? "No branch"}</span>
                 {base && branch !== base && <span className="faint" style={{ fontSize: 11.5, whiteSpace: "nowrap" }}>{view?.likelyMerged ? "likely merged into" : view?.merged ? "merged into" : "from"} {base}</span>}
                 {view?.merged && <span className="c-add row" style={{ marginLeft: 6, flex: "0 0 auto" }} title={view.likelyMerged ? `A pull request carrying its ticket went into ${base} after its last commit` : `All commits are in ${base}`}><Icon name="merged" size={12} stroke={1.6} label="merged" /></span>}
+                {asTree && (
+                  <button
+                    className="btn btn-sm btn-icon"
+                    style={{ marginLeft: "auto", flex: "0 0 auto", alignSelf: "center" }}
+                    aria-label={fold.closed ? "Expand all folders" : "Collapse all folders"}
+                    data-tip={fold.closed ? "Expand all" : "Collapse all"}
+                    aria-expanded={!fold.closed}
+                    onClick={() => setFold((f) => ({ closed: !f.closed, n: f.n + 1 }))}
+                  >
+                    <Icon name="chevronDown" size={12} className="chev" />
+                  </button>
+                )}
                 <button
                   className="btn btn-sm btn-icon"
-                  style={{ marginLeft: "auto", flex: "0 0 auto", alignSelf: "center" }}
+                  style={{ marginLeft: asTree ? 0 : "auto", flex: "0 0 auto", alignSelf: "center" }}
                   aria-label={asTree ? "Show files as a list" : "Show files as a tree"}
                   data-tip={asTree ? "List view" : "Tree view"}
                   onClick={() => setAsTree(!asTree)}
@@ -336,12 +382,14 @@ export function Workspace() {
                   list={list}
                   current={current}
                   tree={asTree}
+                  fold={fold}
+                  menu={fileMenu}
                   onPick={(f) => { setFile(fileKey(f)); setPane("diff"); }}
                   onMoved={(f) => current && fileKey(current) === fileKey(f) && setFile(fileKey({ ...f, staged: !f.staged }))}
                   onDiscard={(staged, paths) => setDiscarding({ staged, paths })}
                 />
               ) : (
-                <FileList list={list} current={current} tree={asTree} onPick={(f) => { setFile(fileKey(f)); setPane("diff"); }} />
+                <FileList key={fold.n} allClosed={fold.closed} list={list} current={current} tree={asTree} menu={fileMenu} onPick={(f) => { setFile(fileKey(f)); setPane("diff"); }} />
               )}
               {!files.isLoading && list.length === 0 && (
                 <li className="empty">{stash ? "This stash holds no files." : commit ? "This commit changes no files." : mode === "wip" ? (checkedOut ? "No uncommitted changes." : "This branch is not checked out.") : "No changes on this branch yet."}</li>
@@ -477,6 +525,8 @@ function WipList({
   list,
   current,
   tree,
+  fold,
+  menu,
   onPick,
   onMoved,
   onDiscard,
@@ -486,6 +536,8 @@ function WipList({
   list: FileChange[];
   current?: FileChange;
   tree: boolean;
+  fold: { closed: boolean; n: number };
+  menu: (t: FileTarget) => MenuItem[];
   onPick: (f: FileChange) => void;
   onMoved: (f: FileChange) => void;
   onDiscard: (staged: boolean, paths: string[]) => void;
@@ -495,8 +547,9 @@ function WipList({
   const unstage = useAction("workspace.unstage", { invalidate: inv });
   const busy = stage.isPending || unstage.isPending;
   const [closed, setClosed] = useState<Record<string, boolean>>({});
-  const move = (staged: boolean, f?: FileChange) =>
-    (staged ? unstage : stage).mutate({ projectId: pid, branch, paths: f ? [f.path] : [] }, { onSuccess: () => f && onMoved(f) });
+  // No files = the whole side.
+  const move = (staged: boolean, fs: FileChange[] = []) =>
+    (staged ? unstage : stage).mutate({ projectId: pid, branch, paths: fs.map((f) => f.path) }, { onSuccess: () => fs.forEach(onMoved) });
 
   return (
     <>
@@ -534,27 +587,35 @@ function WipList({
             </div>
             <ul style={{ listStyle: "none", margin: 0, padding: 0 }} hidden={closed[String(staged)]}>
               <FileList
+                key={fold.n}
+                allClosed={fold.closed}
                 list={side}
                 current={current}
                 tree={tree}
                 onPick={onPick}
-                actions={(f) => (
+                menu={(t) => [
+                  { id: "move", label: `${staged ? "Unstage" : "Stage"} ${t.dir ? "folder" : "file"}`, icon: staged ? "minus" : "plus", disabled: busy, run: () => move(staged, t.files) },
+                  { id: "discard", label: `Discard ${t.dir ? "folder" : "file"}`, icon: "undo", danger: true, disabled: busy, run: () => onDiscard(staged, t.files.map((f) => f.path)) },
+                  "sep",
+                  ...menu(t),
+                ]}
+                actions={(t) => (
                   <>
                     <button
                       className="btn btn-ghost btn-act"
                       title={staged ? "Unstage" : "Stage"}
-                      aria-label={`${staged ? "Unstage" : "Stage"} ${f.path}`}
+                      aria-label={`${staged ? "Unstage" : "Stage"} ${t.path}`}
                       disabled={busy}
-                      onClick={() => move(staged, f)}
+                      onClick={() => move(staged, t.files)}
                     >
                       <Icon name={staged ? "minus" : "plus"} size={12} />
                     </button>
                     <button
                       className="btn btn-ghost btn-act btn-danger"
                       title="Discard changes"
-                      aria-label={`Discard ${staged ? "staged" : "unstaged"} changes to ${f.path}`}
+                      aria-label={`Discard ${staged ? "staged" : "unstaged"} changes to ${t.path}`}
                       disabled={busy}
-                      onClick={() => onDiscard(staged, [f.path])}
+                      onClick={() => onDiscard(staged, t.files.map((f) => f.path))}
                     >
                       <Icon name="undo" size={12} />
                     </button>
@@ -618,15 +679,49 @@ function buildTree(list: FileChange[]) {
   return root;
 }
 
+const filesUnder = (d: Dir): FileChange[] => [...d.files, ...[...d.dirs.values()].flatMap(filesUnder)];
+
+/** What a right click landed on: one file, or a folder and every listed file under it. */
+type FileTarget = { path: string; dir: boolean; files: FileChange[] };
+
 /** Changed files as a flat list, or nested under their folders. */
-function FileList({ list, current, tree, onPick, actions }: { list: FileChange[]; current?: FileChange; tree: boolean; onPick: (f: FileChange) => void; actions?: (f: FileChange) => ReactNode }) {
+function FileList({
+  list,
+  current,
+  tree,
+  allClosed,
+  onPick,
+  actions,
+  menu,
+}: {
+  list: FileChange[];
+  current?: FileChange;
+  tree: boolean;
+  allClosed: boolean;
+  onPick: (f: FileChange) => void;
+  actions?: (t: FileTarget) => ReactNode;
+  menu?: (t: FileTarget) => MenuItem[];
+}) {
   const [closed, setClosed] = useState<Record<string, boolean>>({});
-  const row = (f: FileChange, depth?: number) => (
-    <li key={fileKey(f)}>
-      <FileRow f={f} depth={depth} active={f === current} onPick={() => onPick(f)} actions={actions?.(f)} />
-    </li>
-  );
-  if (!tree) return <>{list.map((f) => row(f))}</>;
+  const [ctx, setCtx] = useState<{ x: number; y: number; t: FileTarget } | null>(null);
+  const openMenu = (t: FileTarget, e: MouseEvent) => {
+    if (!menu) return;
+    e.preventDefault();
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    // Keyboard-opened context menus report (0, 0): anchor to the row instead.
+    const fromKey = e.clientX === 0 && e.clientY === 0;
+    setCtx({ x: fromKey ? r.left : e.clientX, y: fromKey ? r.bottom + 2 : e.clientY, t });
+  };
+  const row = (f: FileChange, depth?: number) => {
+    const t: FileTarget = { path: f.path, dir: false, files: [f] };
+    return (
+      <li key={fileKey(f)} onContextMenu={(e) => openMenu(t, e)}>
+        <FileRow f={f} depth={depth} active={f === current} onPick={() => onPick(f)} actions={actions?.(t)} />
+      </li>
+    );
+  };
+  const ctxMenu = ctx && menu && <ContextMenu x={ctx.x} y={ctx.y} label={ctx.t.path} items={menu(ctx.t)} onClose={() => setCtx(null)} />;
+  if (!tree) return <>{list.map((f) => row(f))}{ctxMenu}</>;
   const walk = (d: Dir, path: string, depth: number): ReactNode[] => [
     ...[...d.dirs].sort(([a], [b]) => a.localeCompare(b)).map(([name, sub]) => {
       // Fold folders holding a single folder into one row, like "src/api".
@@ -636,19 +731,36 @@ function FileList({ list, current, tree, onPick, actions }: { list: FileChange[]
         sub = s;
       }
       const key = `${path}${name}/`;
+      const t: FileTarget = { path: key.slice(0, -1), dir: true, files: filesUnder(sub) };
+      const btn = (
+        <button
+          className="file-btn"
+          // Room for the stage/discard icons, like file rows keep for their counts.
+          style={{ paddingLeft: 14 + depth * 14, paddingRight: actions ? 60 : undefined }}
+          aria-expanded={!(closed[key] ?? allClosed)}
+          onClick={() => setClosed((c) => ({ ...c, [key]: !(c[key] ?? allClosed) }))}
+        >
+          <Icon name="chevronDown" size={12} className="chev" />
+          <span className="grow ellipsis faint" data-tip={key} data-tip-overflow>{name}</span>
+        </button>
+      );
       return (
         <li key={key}>
-          <button className="file-btn" style={{ paddingLeft: 14 + depth * 14 }} aria-expanded={!closed[key]} onClick={() => setClosed((c) => ({ ...c, [key]: !c[key] }))}>
-            <Icon name="chevronDown" size={12} className="chev" />
-            <span className="grow ellipsis faint" data-tip={key} data-tip-overflow>{name}</span>
-          </button>
-          <ul style={{ listStyle: "none", margin: 0, padding: 0 }} hidden={closed[key]}>{walk(sub, key, depth + 1)}</ul>
+          <div onContextMenu={(e) => openMenu(t, e)}>
+            {actions ? (
+              <div className="file-row">
+                {btn}
+                <span className="file-acts">{actions(t)}</span>
+              </div>
+            ) : btn}
+          </div>
+          <ul style={{ listStyle: "none", margin: 0, padding: 0 }} hidden={closed[key] ?? allClosed}>{walk(sub, key, depth + 1)}</ul>
         </li>
       );
     }),
     ...d.files.map((f) => row(f, depth)),
   ];
-  return <>{walk(buildTree(list), "", 0)}</>;
+  return <>{walk(buildTree(list), "", 0)}{ctxMenu}</>;
 }
 
 /** `depth` set = shown in a tree, where the folder rows already name the directory. */
