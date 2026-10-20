@@ -11,11 +11,18 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+### Added
+- App version now shows in the menu header.
+- Analytics can now be filtered by project; no selection means all projects.
+
 ### Changed
 - Path dots on branches the path only passes through are now dimmed.
 - Dimmed path runs now fade in and out at their ends.
 - Tree now shows the checked-out branch or tag as soon as a switch completes.
 - Switching projects now returns you to where you left each one: same page, open dialogs and menu, selected branch, and that project's analytics.
+- Checked-out row in the tree now has a faint yellow tint.
+- Analytics now show lead time in hours.
+- Analytics now show total commits in place of the AI-share KPI.
 
 ### Fixed
 - Branch path line now runs past the sibling branches above it.
@@ -23,6 +30,8 @@ release notes and the in-app update prompt.
 - Path pulse now stays in sync on WebKit.
 - Path pulse now keeps its pace as the path length changes.
 - Path pulse now carries across layout changes.
+- Analytics now count merges into release branches and squashed PRs.
+- Commit animations now wait for a merge to end before playing.
 
 ## [0.1.1] - 2026-10-19
 
