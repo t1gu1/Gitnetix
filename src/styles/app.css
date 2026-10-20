@@ -267,8 +267,8 @@ body.resizing iframe, body.resizing .term { pointer-events: none; }
 [data-theme="light"] .tree-row[data-current]::after { background: color-mix(in srgb, color-mix(in srgb, var(--raised), var(--fg) 6%), var(--warn-fg) 11%); }
 [data-theme="light"] .tree-row[data-current]:hover::after, [data-theme="light"] .tree-row.tree-row[data-current]:has(> .tree-btn[aria-pressed="true"])::after { background: color-mix(in srgb, color-mix(in srgb, var(--raised), var(--fg) 9%), var(--warn-fg) 14%); }
 .tree-row[data-current]::after { background: color-mix(in srgb, color-mix(in srgb, var(--raised), var(--fg) 6%), var(--warn-fg) 6%); }
-.tree-row[data-current]:hover::after, .tree-row.tree-row[data-current]:has(> .tree-btn[aria-pressed="true"])::after { background: color-mix(in srgb, color-mix(in srgb, var(--raised), var(--fg) 9%), var(--warn-fg) 8%); }
-.tree-row:has(> .tree-btn[aria-pressed="true"])::after { background: color-mix(in srgb, var(--sel), var(--fg) 9%); }
+.tree-row[data-current]:hover::after, .tree-row.tree-row[data-current]:has(> .tree-btn[aria-pressed="true"])::after { background: color-mix(in srgb, color-mix(in srgb, var(--raised), var(--fg) 5%), var(--warn-fg) 8%); }
+.tree-row:has(> .tree-btn[aria-pressed="true"])::after { background: color-mix(in srgb, var(--sel), var(--fg) 4%); }
 [data-theme="light"] .tree-row:has(> .tree-btn[aria-pressed="true"])::after { background: color-mix(in srgb, var(--sel), var(--fg) 4%); }
 /* Checked-out branch and every branch above it: their stretch of the parent's line turns orange (6px left of the row, top level included).
    Rows isolate their layers, so these are lifted above the nesting lines for their orange to show over them. */
@@ -637,8 +637,12 @@ button.app-row:hover { background: var(--raised); }
 .commit-row { display: flex; flex-direction: column; gap: 3px; margin: 0 6px; padding: 8px 10px; border: 0; border-radius: 4px; background: transparent; color: var(--fg); font: inherit; text-align: left; cursor: pointer; }
 .commit-row:hover { background: var(--raised); }
 .commit-row[aria-pressed="true"] { background: var(--sel); }
-.commit-list > .commit-row { border-radius: 0; }
-.commit-list > .commit-row + .commit-row { border-top: 1px solid color-mix(in srgb, var(--accent) 35%, transparent); }
+.commit-list > .commit-row { position: relative; }
+/* Gold separator drawn in the 7px gap, so it sits 3px clear of both rows. */
+.commit-list > .commit-row + .commit-row { margin-top: 7px; }
+.commit-list > .commit-row + .commit-row::before { content: ""; position: absolute; left: 0; right: 0; top: -4px; height: 1px; background: linear-gradient(90deg, transparent, var(--warn-fg) 15%, var(--warn-fg) 85%, transparent); opacity: .6; pointer-events: none; }
+/* Light --warn-fg reads brown; use a brighter gold for the line. */
+[data-theme="light"] .commit-list > .commit-row + .commit-row::before { background: linear-gradient(90deg, transparent, #c8960c 12%, #f5c518 50%, #c8960c 88%, transparent); }
 .commit-list > .commit-row[aria-pressed="true"] { background: color-mix(in srgb, var(--raised), var(--warn-fg) 5%); }
 [data-theme="light"] .commit-list > .commit-row[aria-pressed="true"] { background: color-mix(in srgb, var(--raised), var(--warn-fg) 9%); }
 /* A stash: the row's button beside its actions (same split as a branch), sharing one hover and selection background. */
