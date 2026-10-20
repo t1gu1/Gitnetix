@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type CSSProperties, type MouseEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type ReactNode } from "react";
 
 import { switchedOverview, useAction, useAgents, useAiOn, useBlobs, useDiff, useFiles, useOverview, useProjectPrefs, useProjects } from "../api/hooks";
 import { isLocal, revealPath } from "../api/transport";
@@ -48,6 +48,8 @@ export function Workspace() {
   // Branch whose commits replace the tree, and the commit picked there (none = all changes).
   const [history, setHistory] = useState<string | null>(null);
   const [commit, setCommit] = useState<Commit | undefined>();
+  // File view picked before the commit list took over, put back when it closes.
+  const modeBeforeHistory = useRef<Mode>(mode);
   // Stash list in place of the tree: one branch's ("" = every stash), and the stash picked there.
   const [stashesOf, setStashesOf] = useState<string | null>(null);
   const [stash, setStash] = useState<Stash | undefined>();
@@ -119,6 +121,7 @@ export function Workspace() {
   const openHistory = (b: string) => {
     closeStashes();
     nav.selectBranch(b);
+    if (!history) modeBeforeHistory.current = mode;
     setHistory(b);
     setCommit(undefined);
     setMode("branch");
@@ -135,6 +138,7 @@ export function Workspace() {
     setStash(undefined);
   };
   const closeHistory = () => {
+    if (history) setMode(modeBeforeHistory.current);
     setHistory(null);
     setCommit(undefined);
   };
