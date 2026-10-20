@@ -742,16 +742,21 @@ function FileList({
       }
       const key = `${path}${name}/`;
       const t: FileTarget = { path: key.slice(0, -1), dir: true, files: filesUnder(sub) };
+      const adds = t.files.reduce((n, f) => n + f.additions, 0);
+      const dels = t.files.reduce((n, f) => n + f.deletions, 0);
       const btn = (
         <button
           className="file-btn"
-          // Room for the stage/discard icons, like file rows keep for their counts.
-          style={{ paddingLeft: 14 + depth * 14, paddingRight: actions ? 60 : undefined }}
+          style={{ paddingLeft: 14 + depth * 14 }}
           aria-expanded={!(closed[key] ?? allClosed)}
           onClick={() => setClosed((c) => ({ ...c, [key]: !(c[key] ?? allClosed) }))}
         >
           <Icon name="chevronDown" size={12} className="chev" />
           <span className="grow ellipsis faint" data-tip={key} data-tip-overflow>{name}</span>
+          <span className="row mono file-nums">
+            <span className="c-add">{adds > 0 && `+${adds}`}</span>
+            <span className="c-del">{dels > 0 && `−${dels}`}</span>
+          </span>
         </button>
       );
       return (
@@ -785,9 +790,9 @@ function FileRow({ f, active, onPick, actions, depth }: { f: FileChange; active:
       <span className="grow ellipsis" data-tip={f.path} data-tip-overflow>
         <span style={{ color: f.status === " " ? "var(--muted)" : "var(--fg)" }}>{base}</span> <span className="faint" style={{ fontSize: 11.5 }}>{dir}</span>
       </span>
-      <span className="row mono file-nums" style={{ gap: 6, fontSize: 11 }}>
-        {f.additions > 0 && <span className="c-add">+{f.additions}</span>}
-        {f.deletions > 0 && <span className="c-del">−{f.deletions}</span>}
+      <span className="row mono file-nums">
+        <span className="c-add">{f.additions > 0 && `+${f.additions}`}</span>
+        <span className="c-del">{f.deletions > 0 && `−${f.deletions}`}</span>
       </span>
     </button>
   );

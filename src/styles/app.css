@@ -416,12 +416,15 @@ button.tree-twist:hover { color: var(--fg); }
 .file-btn[aria-pressed="true"] { background: var(--sel); }
 .file-btn:hover { background: var(--raised); }
 .file-row { position: relative; display: flex; align-items: center; min-width: 0; }
-.file-row .file-btn { min-width: 0; }
+.file-row .file-btn { min-width: 0; padding-right: 8px; }
 .file-row:hover .file-btn { background: var(--raised); }
-.file-row .file-nums { min-width: 46px; justify-content: flex-end; }
+.file-nums { gap: 6px; font-size: 11px; }
+/* Each count centred under its button: + under stage, − under discard. */
+.file-row .file-nums { gap: 2px; }
+.file-row .file-nums > span { width: 22px; display: flex; justify-content: center; }
 .file-acts { position: absolute; right: 8px; display: flex; gap: 2px; opacity: 0; }
-.file-row:hover .file-acts, .file-row:focus-within .file-acts { opacity: 1; }
-.file-row:hover .file-nums, .file-row:focus-within .file-nums { visibility: hidden; }
+.file-row:hover .file-acts, .file-row:has(:focus-visible) .file-acts { opacity: 1; }
+.file-row:hover .file-nums, .file-row:has(:focus-visible) .file-nums { visibility: hidden; }
 @media (hover: none) { .file-acts { opacity: 1; } .file-row .file-nums { visibility: hidden; } }
 .file-sec { display: flex; position: sticky; top: 0; z-index: 1; align-items: center; gap: 6px; height: 30px; padding: 0 8px 0 0; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); background: var(--bg); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 .file-sec-toggle { flex: 1 1 auto; min-width: 0; align-self: stretch; display: flex; align-items: center; gap: 6px; padding: 0 6px 0 14px; border: 0; background: transparent; color: inherit; font: inherit; letter-spacing: inherit; text-transform: inherit; cursor: pointer; }
