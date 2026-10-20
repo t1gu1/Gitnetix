@@ -46,10 +46,10 @@ export function revealBranch(pid: string, branch: string) {
 function useToggles(pid: string, initial: () => Set<string>) {
   const [, rerender] = useReducer((n: number) => n + 1, 0);
   if (!openSections.has(pid)) openSections.set(pid, initial());
-  const open = openSections.get(pid)!;
-  const isOpen = (id: string) => open.has(id);
+  // Read the map on each call: `openAll` swaps the set mid-render.
+  const isOpen = (id: string) => openSections.get(pid)!.has(id);
   const toggle = (id: string) => {
-    const next = new Set(open);
+    const next = new Set(openSections.get(pid)!);
     if (!next.delete(id)) next.add(id);
     openSections.set(pid, next);
     rerender();

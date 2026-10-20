@@ -1,5 +1,11 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState, type CSSProperties, type PointerEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type PointerEvent,
+} from "react";
 import { createPortal } from "react-dom";
 
 import { useAction, useAgents, useProjects } from "../api/hooks";
@@ -20,7 +26,8 @@ export const PAGES: { label: string; icon: string; route: Route }[] = [
   { label: "Analytics", icon: "chart", route: { name: "analytics" } },
 ];
 
-export const isPageRoute = (r: Route) => PAGES.some((p) => p.route.name === r.name);
+export const isPageRoute = (r: Route) =>
+  PAGES.some((p) => p.route.name === r.name);
 
 /** Pointer travel before a press on a project tab becomes a drag; until then the tab stretches toward the pointer. */
 const DRAG_THRESHOLD = 32;
@@ -46,7 +53,11 @@ interface Drag {
   active: boolean;
 }
 
-function moveTo<T extends { id: string }>(list: T[], id: string, index: number): T[] {
+function moveTo<T extends { id: string }>(
+  list: T[],
+  id: string,
+  index: number,
+): T[] {
   const item = list.find((x) => x.id === id);
   if (!item) return list;
   const rest = list.filter((x) => x.id !== id);
@@ -58,13 +69,19 @@ export function TopBar() {
   const nav = useNav();
   const projects = useProjects();
   const agents = useAgents();
-  const runningAll = (agents.data ?? []).filter((a) => a.status === "running").length;
-  const hide = useAction("projects.setHidden", { invalidate: [["projects"], ["config"]] });
+  const runningAll = (agents.data ?? []).filter(
+    (a) => a.status === "running",
+  ).length;
+  const hide = useAction("projects.setHidden", {
+    invalidate: [["projects"], ["config"]],
+  });
   const open = (projects.data ?? []).filter((p) => !p.hidden);
 
   // Tabs are reordered with pointer events: HTML5 drag-and-drop clashes with the webview's folder drop.
   const qc = useQueryClient();
-  const reorder = useAction("projects.reorder", { invalidate: [["projects"], ["config"]] });
+  const reorder = useAction("projects.reorder", {
+    invalidate: [["projects"], ["config"]],
+  });
   const [drag, setDrag] = useState<Drag | null>(null);
   const [landed, setLanded] = useState<string>();
   const tabs = useRef(new Map<string, HTMLElement>());
@@ -81,9 +98,11 @@ export function TopBar() {
   const onDragMove = (e: PointerEvent) => {
     if (!drag) return;
     const x = e.clientX;
-    if (!drag.active && Math.abs(x - drag.x0) < DRAG_THRESHOLD) return setDrag({ ...drag, x });
+    if (!drag.active && Math.abs(x - drag.x0) < DRAG_THRESHOLD)
+      return setDrag({ ...drag, x });
     const index = shown.filter((p) => {
-      const r = p.id !== drag.id && tabs.current.get(p.id)?.getBoundingClientRect();
+      const r =
+        p.id !== drag.id && tabs.current.get(p.id)?.getBoundingClientRect();
       return r && r.left + r.width / 2 < e.clientX;
     }).length;
     setDrag({ ...drag, x, index, active: true });
@@ -91,10 +110,22 @@ export function TopBar() {
 
   /** Rubber-band pull toward the pointer while pressed; springs back (CSS transition) once released or dragging. */
   const stretch = (id: string): CSSProperties | undefined => {
-    if (!drag || drag.id !== id || drag.active || drag.x === drag.x0 || !animates("tabs")) return undefined;
+    if (
+      !drag ||
+      drag.id !== id ||
+      drag.active ||
+      drag.x === drag.x0 ||
+      !animates("tabs")
+    )
+      return undefined;
     const pull = (drag.x - drag.x0) * STRETCH;
     const k = Math.abs(pull) / (tabs.current.get(id)?.offsetWidth || 100);
-    return { transform: `translateX(${pull / 2}px) scale(${1 + k}, ${1 - k * 0.25})`, transition: "none", zIndex: 1, background: "var(--raised)" };
+    return {
+      transform: `translateX(${pull / 2}px) scale(${1 + k}, ${1 - k * 0.25})`,
+      transition: "none",
+      zIndex: 1,
+      background: "var(--raised)",
+    };
   };
 
   const onDragEnd = () => {
@@ -106,10 +137,21 @@ export function TopBar() {
     if (drag?.active) {
       setLanded(drag.id);
       setTimeout(() => setLanded(undefined), 400);
-      const ids = [...shown, ...(projects.data ?? []).filter((p) => p.hidden)].map((p) => p.id);
+      const ids = [
+        ...shown,
+        ...(projects.data ?? []).filter((p) => p.hidden),
+      ].map((p) => p.id);
       if (ids.join() !== (projects.data ?? []).map((p) => p.id).join()) {
-        qc.setQueryData<ProjectSummary[]>(["projects"], (old) => old && ids.map((id) => old.find((p) => p.id === id)!).filter(Boolean));
-        reorder.mutate({ ids }, { onError: () => qc.invalidateQueries({ queryKey: ["projects"] }) });
+        qc.setQueryData<ProjectSummary[]>(
+          ["projects"],
+          (old) =>
+            old &&
+            ids.map((id) => old.find((p) => p.id === id)!).filter(Boolean),
+        );
+        reorder.mutate(
+          { ids },
+          { onError: () => qc.invalidateQueries({ queryKey: ["projects"] }) },
+        );
       }
     }
     setDrag(null);
@@ -133,7 +175,11 @@ export function TopBar() {
   return (
     <>
       <header className="hdr">
-        <button className="hdr-icon" aria-label="Open menu" onClick={() => nav.go({ name: "menu" })}>
+        <button
+          className="hdr-icon"
+          aria-label="Open menu"
+          onClick={() => nav.go({ name: "menu" })}
+        >
           <Icon name="menu" size={18} stroke={1.4} />
         </button>
         <nav
@@ -148,7 +194,11 @@ export function TopBar() {
           {shown.map((p) => (
             <div
               key={p.id}
-              ref={(el) => void (el ? tabs.current.set(p.id, el) : tabs.current.delete(p.id))}
+              ref={(el) =>
+                void (el
+                  ? tabs.current.set(p.id, el)
+                  : tabs.current.delete(p.id))
+              }
               className="tab-project"
               data-active={p.id === nav.projectId || undefined}
               data-dragging={(drag?.active && drag.id === p.id) || undefined}
@@ -165,29 +215,66 @@ export function TopBar() {
                   const r = tabs.current.get(p.id)!.getBoundingClientRect();
                   const b = bar.current!.getBoundingClientRect();
                   const x = e.clientX;
-                  setDrag({ id: p.id, x0: x, x, ox: x - r.left, top: r.top, w: r.width, h: r.height, minLeft: b.left, maxLeft: b.right - r.width, index: 0, active: false });
+                  setDrag({
+                    id: p.id,
+                    x0: x,
+                    x,
+                    ox: x - r.left,
+                    top: r.top,
+                    w: r.width,
+                    h: r.height,
+                    minLeft: b.left,
+                    maxLeft: b.right - r.width,
+                    index: 0,
+                    active: false,
+                  });
                 }}
                 // Mouse clicks are handled on release (onDragEnd); this covers keyboard activation.
                 onClick={(e) => e.detail === 0 && nav.setProject(p.id)}
               >
-                {p.runningAgents > 0 && <span className="pulse" title="AI task running" />}
+                {p.runningAgents > 0 && (
+                  <span className="pulse" title="AI task running" />
+                )}
                 <FixedWidth>{p.name}</FixedWidth>
               </button>
-              <button className="tab-project-close" aria-label={`Close ${p.name}`} title="Close tab (project stays saved)" disabled={hide.isPending} onClick={() => close(p.id)}>
+              <button
+                className="tab-project-close"
+                aria-label={`Close ${p.name}`}
+                title="Close tab (project stays saved)"
+                disabled={hide.isPending}
+                onClick={() => close(p.id)}
+              >
                 <Icon name="close" size={12} />
               </button>
             </div>
           ))}
-          {drag?.active && <DragGhost drag={drag} project={open.find((p) => p.id === drag.id)} active={drag.id === nav.projectId} />}
-          <button className="btn btn-ghost btn-icon" style={{ height: "auto", width: 40, border: 0, borderRadius: 0 }} aria-label="Add project" onClick={() => nav.go({ name: "home" })}>
+          {drag?.active && (
+            <DragGhost
+              drag={drag}
+              project={open.find((p) => p.id === drag.id)}
+              active={drag.id === nav.projectId}
+            />
+          )}
+          <button
+            className="btn btn-ghost btn-icon"
+            style={{ height: "auto", width: 42, border: 0, borderRadius: 0 }}
+            aria-label="Add project"
+            onClick={() => nav.go({ name: "home" })}
+          >
             <Icon name="plus" />
           </button>
         </nav>
         <div className="hdr-tools">
           {runningAll > 0 && (
-            <button className="btn hide-narrow" style={{ height: 28 }} onClick={() => nav.go({ name: "worktrees" })}>
+            <button
+              className="btn hide-narrow"
+              style={{ height: 28 }}
+              onClick={() => nav.go({ name: "worktrees" })}
+            >
               <span className="pulse" />
-              <span className="muted">{runningAll} {runningAll === 1 ? "agent" : "agents"} running</span>
+              <span className="muted">
+                {runningAll} {runningAll === 1 ? "agent" : "agents"} running
+              </span>
             </button>
           )}
           <ThemeToggle />
@@ -197,7 +284,12 @@ export function TopBar() {
         {PAGES.map((p) => {
           const active = nav.route.name === p.route.name;
           return (
-            <button key={p.label} className="tab-page" aria-current={active ? "page" : undefined} onClick={() => nav.go(p.route)}>
+            <button
+              key={p.label}
+              className="tab-page"
+              aria-current={active ? "page" : undefined}
+              onClick={() => nav.go(p.route)}
+            >
               <Icon name={p.icon} size={14} />
               <FixedWidth>{p.label}</FixedWidth>
             </button>
@@ -209,12 +301,33 @@ export function TopBar() {
 }
 
 /** The tab held in the hand while dragging: slides along the bar only, its slot stays as a placeholder. */
-function DragGhost({ drag, project, active }: { drag: Drag; project?: ProjectSummary; active: boolean }) {
+function DragGhost({
+  drag,
+  project,
+  active,
+}: {
+  drag: Drag;
+  project?: ProjectSummary;
+  active: boolean;
+}) {
   if (!project) return null;
-  const left = Math.min(Math.max(drag.x - drag.ox, drag.minLeft), Math.max(drag.minLeft, drag.maxLeft));
-  const style: CSSProperties = { left, top: drag.top, width: drag.w, height: drag.h };
+  const left = Math.min(
+    Math.max(drag.x - drag.ox, drag.minLeft),
+    Math.max(drag.minLeft, drag.maxLeft),
+  );
+  const style: CSSProperties = {
+    left,
+    top: drag.top,
+    width: drag.w,
+    height: drag.h,
+  };
   return createPortal(
-    <div className="tab-project tab-ghost" data-active={active || undefined} style={style} aria-hidden>
+    <div
+      className="tab-project tab-ghost"
+      data-active={active || undefined}
+      style={style}
+      aria-hidden
+    >
       <span className="tab-project-open">
         {project.runningAgents > 0 && <span className="pulse" />}
         <FixedWidth>{project.name}</FixedWidth>
