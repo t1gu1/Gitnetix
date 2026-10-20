@@ -11,6 +11,12 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+### Added
+- Right-click a changed file or folder in the workspace to copy its path, open it in the file explorer (desktop only), or add it to .gitignore.
+- Stage and unstage actions on folder rows and in the staged/unstaged lists.
+- Folder rows in the file list now show +/- totals.
+- After changing a branch target, the workspace offers to rebase.
+
 ## [0.1.3] - 2026-10-19
 
 ### Changed
