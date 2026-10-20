@@ -271,6 +271,7 @@ export function Workspace() {
               base={baseFor(history) === history ? "" : labelOf(baseFor(history))}
               selected={commit?.sha}
               checkedOut={byName.get(history)?.checkedOut ?? history === o.currentBranch}
+              upstream={!!byName.get(history)?.upstream}
               current={o.currentBranch ?? undefined}
               onPick={(c, auto) => {
                 setCommit(c);
@@ -1212,8 +1213,8 @@ function DeleteBranchModal({
   onDeleted: () => void;
 }) {
   const [force, setForce] = useState(false);
-  // Origin-only branches can only go from origin; otherwise origin keeps its copy unless asked.
-  const [alsoOrigin, setAlsoOrigin] = useState(false);
+  // Origin-only branches can only go from origin; otherwise origin keeps its copy unless asked (remembered).
+  const [alsoOrigin, setAlsoOrigin] = useStoredFlag("gnx.delete.alsoOrigin");
   const onOrigin = remote && (!local || alsoOrigin);
   const exists = local || remote;
   const del = useAction("branches.delete", { invalidate: [["overview", pid], ["files", pid], ["worktrees"]], success: `Deleted ${branch}` });

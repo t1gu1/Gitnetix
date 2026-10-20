@@ -21,6 +21,7 @@ export function CommitList({
   base,
   selected,
   checkedOut,
+  upstream,
   current,
   onPick,
   onBack,
@@ -34,6 +35,8 @@ export function CommitList({
   selected?: string;
   /** The branch has a checkout: needed to revert or reset. */
   checkedOut: boolean;
+  /** The branch tracks one on origin: a reset can be force pushed there. */
+  upstream: boolean;
   /** Branch of the main checkout, where cherry-picks land. */
   current?: string;
   /** `auto` = picked on opening, not by the user. */
@@ -144,6 +147,7 @@ export function CommitList({
           commit={reset.c}
           dropped={local.findIndex((c) => c.sha === reset.c.sha)}
           mode={reset.mode}
+          upstream={upstream}
           onMode={(mode) => setReset({ ...reset, mode })}
           onDone={() => onPick(undefined)}
           onClose={() => setReset(null)}
@@ -165,6 +169,7 @@ function ResetModal({
   commit,
   dropped,
   mode,
+  upstream,
   onMode,
   onDone,
   onClose,
@@ -175,6 +180,7 @@ function ResetModal({
   /** Newer commits that leave the branch. */
   dropped: number;
   mode: ResetMode;
+  upstream: boolean;
   onMode: (m: ResetMode) => void;
   onDone: () => void;
   onClose: () => void;
@@ -184,6 +190,10 @@ function ResetModal({
     invalidate: [["overview", pid], ["files", pid], ["diff", pid], ["commits", pid]],
     success: `Reset ${branch} to ${short} (${mode})`,
   });
+  const [forcePush, setForcePush] = useState(false);
+  const push = useAction("workspace.push", { invalidate: [["overview", pid], ["commits", pid]], success: `Force pushed ${branch}` });
+  const done = () => { onDone(); onClose(); };
+  const pending = reset.isPending || push.isPending;
   return (
     <Modal
       title={`Reset ${branch}`}
@@ -194,11 +204,17 @@ function ResetModal({
           <button className="btn btn-md" onClick={onClose}>Cancel</button>
           <button
             className={`btn btn-md ${mode === "hard" ? "btn-danger" : "btn-primary"}`}
-            disabled={reset.isPending}
-            onClick={() => reset.mutate({ projectId: pid, branch, sha: commit.sha, mode }, { onSuccess: () => { onDone(); onClose(); } })}
+            disabled={pending}
+            onClick={() =>
+              reset.mutate(
+                { projectId: pid, branch, sha: commit.sha, mode },
+                // A failed push keeps the modal open on its error; the reset already happened.
+                { onSuccess: () => (forcePush && upstream ? push.mutate({ projectId: pid, branch, force: true }, { onSuccess: done }) : done()) },
+              )
+            }
           >
-            {reset.isPending && <span className="spinner" />}
-            Reset ({mode})
+            {pending && <span className="spinner" />}
+            Reset ({mode}){forcePush && upstream && " & force push"}
           </button>
         </>
       }
@@ -218,7 +234,14 @@ function ResetModal({
           </button>
         ))}
       </div>
+      {upstream && (
+        <label className="check">
+          <input type="checkbox" checked={forcePush} onChange={() => setForcePush(!forcePush)} />
+          <span>Force push to origin after the reset</span>
+        </label>
+      )}
       {reset.error && <ErrorBox error={reset.error} />}
+      {push.error && <ErrorBox error={push.error} />}
     </Modal>
   );
 }
