@@ -156,9 +156,10 @@ body.dragging-tab, body.dragging-tab * { cursor: grabbing !important; }
 .tag { font-size: 10.5px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; padding: 1px 6px; border: 1px solid var(--line); border-radius: 3px; color: var(--muted); }
 .tag.accent { color: var(--accent-fg); border-color: var(--accent); }
 /* Light mode: plain tags (origin, local, likely) and the Next tag get a deeper colour and a soft tint so they pop on white. */
-[data-theme="light"] .tag:not(.accent, .released, .c-warn) { color: #4b5160; border-color: #4b5160; background: color-mix(in srgb, #4b5160 8%, transparent); }
+[data-theme="light"] .tag:not(.accent, .released, .c-warn, .local) { color: #4b5160; border-color: #4b5160; background: color-mix(in srgb, #4b5160 8%, transparent); }
 [data-theme="light"] .tag.accent { color: #f08a00; border-color: #f08a00; background: color-mix(in srgb, #f08a00 12%, transparent); }
 .tag.released { color: var(--add-fg); border-color: color-mix(in srgb, var(--add-fg) 45%, transparent); }
+.tag.local { color: var(--mod-fg); border-color: color-mix(in srgb, var(--mod-fg) 45%, transparent); }
 .tag.c-warn { color: var(--warn-fg); border-color: color-mix(in srgb, var(--warn-fg) 45%, transparent); }
 .c-add { color: var(--add-fg); }
 .c-del { color: var(--del-fg); }
@@ -635,6 +636,10 @@ button.app-row:hover { background: var(--raised); }
 .commit-row { display: flex; flex-direction: column; gap: 3px; margin: 0 6px; padding: 8px 10px; border: 0; border-radius: 4px; background: transparent; color: var(--fg); font: inherit; text-align: left; cursor: pointer; }
 .commit-row:hover { background: var(--raised); }
 .commit-row[aria-pressed="true"] { background: var(--sel); }
+.commit-list > .commit-row { border-radius: 0; }
+.commit-list > .commit-row + .commit-row { border-top: 1px solid color-mix(in srgb, var(--accent) 35%, transparent); }
+.commit-list > .commit-row[aria-pressed="true"] { background: color-mix(in srgb, var(--raised), var(--warn-fg) 5%); }
+[data-theme="light"] .commit-list > .commit-row[aria-pressed="true"] { background: color-mix(in srgb, var(--raised), var(--warn-fg) 9%); }
 /* A stash: the row's button beside its actions (same split as a branch), sharing one hover and selection background. */
 .stash-row { display: flex; align-items: stretch; margin: 0 6px; border-radius: 4px; }
 .stash-row:hover { background: var(--raised); }
@@ -644,8 +649,10 @@ button.app-row:hover { background: var(--raised); }
 .stash-row:hover > .tree-acts, .stash-row:focus-within > .tree-acts, .stash-row:has(> .commit-row[aria-pressed="true"]) > .tree-acts { opacity: 1; pointer-events: auto; }
 .commit-subject { font-size: 12.5px; font-weight: 500; line-height: 1.4; overflow-wrap: anywhere; }
 .commit-body { font-size: 11.5px; line-height: 1.45; color: var(--muted); white-space: pre-line; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow-wrap: anywhere; }
-.commit-row[aria-pressed="true"] .commit-body { -webkit-line-clamp: unset; }
+.commit-row[aria-pressed="true"] .commit-body, .commit-list .commit-body { -webkit-line-clamp: unset; }
 .commit-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+/* Same box as .commit-tag beside it, so both sit on one line, text centred. */
+.commit-tags .tag { display: inline-flex; align-items: center; height: 18px; padding: 0 5px; line-height: 1; }
 .commit-tag { display: inline-flex; align-items: center; gap: 3px; padding: 0 5px; border: 1px solid color-mix(in srgb, var(--add-fg) 45%, transparent); border-radius: 3px; font-size: 10.5px; line-height: 16px; color: var(--add-fg); }
 .commit-meta { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 11px; color: var(--faint); }
 .commit-head { display: flex; align-items: flex-start; gap: 8px; min-width: 0; }

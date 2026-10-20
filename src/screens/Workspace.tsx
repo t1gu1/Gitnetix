@@ -261,10 +261,10 @@ export function Workspace() {
               selected={commit?.sha}
               checkedOut={byName.get(history)?.checkedOut ?? history === o.currentBranch}
               current={o.currentBranch ?? undefined}
-              onPick={(c) => {
+              onPick={(c, auto) => {
                 setCommit(c);
                 setMode("branch");
-                setPane("files");
+                if (!auto) setPane("files");
               }}
               onBack={closeHistory}
             />
@@ -342,9 +342,6 @@ export function Workspace() {
                       <span style={{ whiteSpace: "nowrap" }}>{ago(commit.date)}</span>
                     </span>
                   </div>
-                  <button className="btn btn-sm btn-icon" aria-label="Show all branch changes" data-tip="Back to all changes" onClick={() => setCommit(undefined)}>
-                    <Icon name="close" size={12} />
-                  </button>
                 </div>
               ) : (
                 <Seg<Mode>
@@ -395,7 +392,7 @@ export function Workspace() {
                 <li className="empty">{stash ? "This stash holds no files." : commit ? "This commit changes no files." : mode === "wip" ? (checkedOut ? "No uncommitted changes." : "This branch is not checked out.") : "No changes on this branch yet."}</li>
               )}
             </ul>
-            {branch && <CommitBox pid={pid} branch={branch} enabled={checkedOut} staged={stagedCount} changed={wipCount} />}
+            {branch && !history && <CommitBox pid={pid} branch={branch} enabled={checkedOut} staged={stagedCount} changed={wipCount} />}
           </section>
 
           <Resizer pane={filesW} label="Resize files panel" />

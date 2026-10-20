@@ -11,8 +11,8 @@ import { copyToClipboard } from "../lib/toast";
 type ResetMode = "soft" | "mixed" | "hard";
 
 /**
- * A branch's own commits, in place of the branch tree. "All changes" on top is
- * the branch's combined diff; picking a commit shows just its files.
+ * A branch's own commits, in place of the branch tree. One is always picked,
+ * and the files show just its changes.
  */
 export function CommitList({
   active,
@@ -36,7 +36,8 @@ export function CommitList({
   checkedOut: boolean;
   /** Branch of the main checkout, where cherry-picks land. */
   current?: string;
-  onPick: (c?: Commit) => void;
+  /** `auto` = picked on opening, not by the user. */
+  onPick: (c?: Commit, auto?: boolean) => void;
   onBack: () => void;
 }) {
   const commits = useCommits(pid, branch);
@@ -80,6 +81,11 @@ export function CommitList({
     ];
   };
 
+  // A commit is always picked: the newest one on opening, or when the picked one leaves the list (reset, revert).
+  useEffect(() => {
+    if (list[0] && !list.some((c) => c.sha === selected)) onPick(list[0], true);
+  }, [list, selected, onPick]);
+
   // Escape goes back to the branches, unless it is closing something else or typing.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -102,29 +108,21 @@ export function CommitList({
         </span>
         {commits.data && <span className="faint" style={{ fontSize: 11.5, whiteSpace: "nowrap" }}>{plural(list.length, "commit")}</span>}
       </div>
-      <div className="scroll commits" style={{ flex: "1 1 auto" }}>
+      <div className="scroll commits commit-list" style={{ flex: "1 1 auto" }}>
         {commits.isLoading && <Loading />}
         {commits.error && <div style={{ padding: 12 }}><ErrorBox error={commits.error} /></div>}
-        {base && local.length > 0 && (
-          <button className="commit-row" aria-pressed={!selected} onClick={() => onPick(undefined)}>
-            <span className="commit-subject">All changes</span>
-            <span className="commit-meta">
-              {plural(local.length, "commit")} combined, since <span className="mono">{base}</span>
-            </span>
-          </button>
-        )}
         {list.map((c) => (
           <button key={c.sha} className="commit-row" aria-pressed={c.sha === selected} onClick={() => onPick(c)} onContextMenu={(e) => openMenu(c, e)}>
             {(c.tags.length > 0 || c.local || c.origin) && (
               <span className="commit-tags">
-                {c.local && <span className="tag" title={`${branch} is here locally`}>local</span>}
-                {c.origin && <span className="tag" title={`${branch} is here on origin`}>origin</span>}
                 {c.tags.map((t) => (
                   <span key={t} className="commit-tag mono" title={`Tag ${t}`}>
                     <Icon name="tag" size={10} stroke={1.6} />
                     {t}
                   </span>
                 ))}
+                {c.local && <span className="tag local" title={`${branch} is here locally`}>local</span>}
+                {c.origin && <span className="tag accent" title={`${branch} is here on origin`}>origin</span>}
               </span>
             )}
             <span className="commit-subject">{c.subject}</span>
