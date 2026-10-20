@@ -158,7 +158,11 @@ export function Workspace() {
   const image = isImage(current?.path);
   const blobs = useBlobs(pid, branch, mode, current?.path, current?.staged, commit?.sha, stash?.sha, image || unchanged || markdown);
   const text = useMemo(() => !image && decodeText(blobs.data?.new ?? blobs.data?.old), [blobs.data, image]);
-  const raw: Hunk[] | undefined = unchanged && typeof text === "string" ? [{ header: "", oldStart: 1, newStart: 1, lines: text.replace(/\n$/, "").split("\n").map((t) => ({ kind: " ", text: t })) }] : undefined;
+  // Memoized: a new array would re-render every row and re-measure the heatmap.
+  const raw = useMemo<Hunk[] | undefined>(
+    () => (unchanged && typeof text === "string" ? [{ header: "", oldStart: 1, newStart: 1, lines: text.replace(/\n$/, "").split("\n").map((t) => ({ kind: " ", text: t })) }] : undefined),
+    [unchanged, text],
+  );
   const showPreview = markdown && preview && typeof text === "string";
   const [discarding, setDiscarding] = useState<{ staged: boolean; paths: string[] } | null>(null);
   // The main checkout has no worktree path: it lives at the project's own path.

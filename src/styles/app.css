@@ -441,6 +441,7 @@ button.tree-twist:hover { color: var(--fg); }
 
 .diff { position: relative; flex: 1 1 auto; min-height: 0; min-width: 0; overflow-x: hidden; overflow-y: auto; font-family: var(--mono); font-size: 12.5px; line-height: 21px; }
 .diff-u { display: flex; flex-direction: column; padding: 8px 0; }
+.diff-chunk { content-visibility: auto; }
 .diff-row { display: grid; grid-template-columns: 52px 52px 20px minmax(0, 1fr); }
 .diff-row .ln { padding: 0 8px; text-align: right; color: var(--faint); user-select: none; }
 .diff-row .sg { text-align: center; color: var(--faint); user-select: none; }

@@ -44,7 +44,20 @@ function Unified({ hunks, headers = true }: { hunks: Hunk[]; headers?: boolean }
       if (l.kind !== "-") n++;
     });
   });
-  return <div className="diff-u">{rows}</div>;
+  return <div className="diff-u">{chunked(rows)}</div>;
+}
+
+const CHUNK = 200;
+
+/** Rows in blocks the browser skips laying out while off screen, so big files open fast. */
+function chunked(rows: ReactElement[]) {
+  const out: ReactElement[] = [];
+  for (let i = 0; i < rows.length; i += CHUNK) {
+    const part = rows.slice(i, i + CHUNK);
+    // Rows are 21px (the .diff line-height) until wrapped; `auto` keeps the real size once seen.
+    out.push(<div key={i} className="diff-chunk" style={{ containIntrinsicBlockSize: `auto ${part.length * 21}px` }}>{part}</div>);
+  }
+  return out;
 }
 
 interface Half {
@@ -85,7 +98,7 @@ function Split({ hunks }: { hunks: Hunk[] }) {
   }
   return (
     <div className="diff-split">
-      {rows.map(([l, r], i) => (
+      {chunked(rows.map(([l, r], i) => (
         <div key={i} className="diff-split-row">
           {[l, r].map((x, j) => (
             <div key={j} className={`diff-half ${x.cls}`}>
@@ -95,7 +108,7 @@ function Split({ hunks }: { hunks: Hunk[] }) {
             </div>
           ))}
         </div>
-      ))}
+      )))}
     </div>
   );
 }
@@ -120,13 +133,16 @@ function Heatmapped({ hunks, split, children }: { hunks: Hunk[]; split: boolean;
     if (!el) return;
     const measure = () => {
       const total = el.scrollHeight || 1;
+      // Rows sit inside contained chunks, so offsetTop would be chunk-relative.
+      const origin = el.getBoundingClientRect().top - el.scrollTop;
       const out: Mark[] = [];
       // Split rows can hold a removal and an addition, so each kind merges on its own.
       const last: Partial<Record<Mark["kind"], Mark>> = {};
       el.querySelectorAll<HTMLElement>(".diff-row.add, .diff-row.del, .diff-half.add, .diff-half.del").forEach((r) => {
         const kind = r.classList.contains("add") ? "add" : "del";
-        const top = r.offsetTop / total;
-        const height = r.offsetHeight / total;
+        const box = r.getBoundingClientRect();
+        const top = (box.top - origin) / total;
+        const height = box.height / total;
         const prev = last[kind];
         if (prev && Math.abs(prev.top + prev.height - top) < 1e-6) prev.height += height;
         else out.push((last[kind] = { kind, top, height }));
