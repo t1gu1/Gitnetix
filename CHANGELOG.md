@@ -11,6 +11,8 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-10-19
+
 ### Added
 - App version now shows in the menu header.
 - Analytics can now be filtered by project; no selection means all projects.
