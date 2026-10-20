@@ -4,13 +4,15 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useAction, useConfig } from "../api/hooks";
 import { companionInfo, isLocal, openExternal, rpc, type CompanionInfo } from "../api/transport";
 import type { Config, GitProfile } from "../api/types";
+import { GRAVATAR_KEY } from "../components/Avatar";
 import { Header } from "../components/ui";
 import { ANIMATIONS, useAnimations } from "../lib/motion";
 import { useNav } from "../lib/nav";
+import { useStoredFlag } from "../lib/stored";
 import { copyToClipboard, toast } from "../lib/toast";
 
 const GROUPS: [string, [string, string][]][] = [
-  ["General", [["project", "Project"], ["animations", "Animations"]]],
+  ["General", [["project", "Project"], ["animations", "Animations"], ["avatars", "Avatars"]]],
   ["AI", [["ai", "AI setup"], ["templates", "Templates"]]],
   ["Git", [["profiles", "Git profiles"], ["git", "Git providers"]]],
   ["Integrations", [["tools", "Jira, Trello, Asana"], ["companion", "Companion & MCP"]]],
@@ -60,6 +62,7 @@ export function SettingsPanes({ section, onAi, onTemplates }: { section?: string
           <div className="page-inner">
             {sec === "project" && <ProjectSection cfg={cfg} />}
             {sec === "animations" && <Animations />}
+            {sec === "avatars" && <Avatars />}
             {sec === "profiles" && <Profiles cfg={cfg} />}
             {sec === "git" && <GitProviders cfg={cfg} />}
             {sec === "tools" && <Integrations cfg={cfg} />}
@@ -135,6 +138,29 @@ function Animations() {
         <button className="btn" disabled={off.length === 0} onClick={() => setAll(true)}>Turn all on</button>
         <button className="btn" disabled={off.length === ANIMATIONS.length} onClick={() => setAll(false)}>Turn all off</button>
       </div>
+    </>
+  );
+}
+
+function Avatars() {
+  const [gravatar, setGravatar] = useStoredFlag(GRAVATAR_KEY);
+  return (
+    <>
+      <div className="col" style={{ gap: 6 }}>
+        <h1>Avatars</h1>
+        <p className="muted" style={{ margin: 0 }}>Authors on branches and commits show as their initials.</p>
+      </div>
+      <ul className="list">
+        <li className="list-row">
+          <label className="check grow">
+            <input type="checkbox" checked={gravatar} onChange={() => setGravatar(!gravatar)} />
+            <span className="col" style={{ gap: 2 }}>
+              <span style={{ fontWeight: 500 }}>Use Gravatar</span>
+              <span className="hint">Show the author's Gravatar picture when they have one. Sends a hash of each author's email to gravatar.com.</span>
+            </span>
+          </label>
+        </li>
+      </ul>
     </>
   );
 }

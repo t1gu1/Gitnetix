@@ -135,6 +135,9 @@ pub struct BranchInfo {
     pub sha: String,
     pub upstream: Option<String>,
     pub date: String,
+    /// Author of its tip commit.
+    pub author: String,
+    pub email: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -339,18 +342,20 @@ impl Git {
                 "for-each-ref",
                 "refs/heads",
                 // Not refname:short: a branch named like a tag would come out as "heads/<name>".
-                "--format=%(refname:lstrip=2)%1f%(objectname)%1f%(upstream:short)%1f%(committerdate:iso-strict)",
+                "--format=%(refname:lstrip=2)%1f%(objectname)%1f%(upstream:short)%1f%(committerdate:iso-strict)%1f%(authorname)%1f%(authoremail)",
             ])
             .await?;
         Ok(out
             .lines()
             .filter_map(|l| {
                 let f: Vec<&str> = l.split('\x1f').collect();
-                (f.len() == 4).then(|| BranchInfo {
+                (f.len() == 6).then(|| BranchInfo {
                     name: f[0].into(),
                     sha: f[1].into(),
                     upstream: (!f[2].is_empty()).then(|| f[2].to_string()),
                     date: f[3].into(),
+                    author: f[4].into(),
+                    email: f[5].trim_matches(['<', '>']).into(),
                 })
             })
             .collect())
@@ -359,14 +364,21 @@ impl Git {
     /// Branches on origin (names without the `origin/` prefix, `HEAD` left out).
     pub async fn remote_branches(&self) -> Result<Vec<BranchInfo>> {
         let out = self
-            .run(&["for-each-ref", "refs/remotes/origin", "--format=%(refname:lstrip=2)%1f%(objectname)%1f%(committerdate:iso-strict)%1f%(symref)"])
+            .run(&["for-each-ref", "refs/remotes/origin", "--format=%(refname:lstrip=2)%1f%(objectname)%1f%(committerdate:iso-strict)%1f%(symref)%1f%(authorname)%1f%(authoremail)"])
             .await?;
         Ok(out
             .lines()
             .filter_map(|l| {
                 let f: Vec<&str> = l.split('\x1f').collect();
                 let name = f.first()?.strip_prefix("origin/")?;
-                (f.len() == 4 && f[3].is_empty() && name != "HEAD").then(|| BranchInfo { name: name.into(), sha: f[1].into(), upstream: None, date: f[2].into() })
+                (f.len() == 6 && f[3].is_empty() && name != "HEAD").then(|| BranchInfo {
+                    name: name.into(),
+                    sha: f[1].into(),
+                    upstream: None,
+                    date: f[2].into(),
+                    author: f[4].into(),
+                    email: f[5].trim_matches(['<', '>']).into(),
+                })
             })
             .collect())
     }

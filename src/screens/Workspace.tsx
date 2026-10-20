@@ -556,6 +556,8 @@ function synthetic(name: string, checkedOut: boolean): BranchView {
     remote: false,
     protected: false,
     date: "",
+    author: "",
+    email: "",
   };
 }
 

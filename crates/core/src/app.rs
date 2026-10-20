@@ -153,6 +153,9 @@ pub struct BranchView {
     pub protected: bool,
     /// Date of its last commit (ISO 8601).
     pub date: String,
+    /// Author of its last commit.
+    pub author: String,
+    pub email: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -800,6 +803,7 @@ fn branch_names(p: &Project, refs: &Refs) -> Vec<String> {
 /// no checkout (see `Gitnetix::decorate`).
 fn plain_view(p: &Project, refs: &Refs, name: &str, parent: Option<String>) -> BranchView {
     let info = refs.local(name);
+    let tip = info.or_else(|| refs.remote(name));
     let own_release = p.releases.iter().find(|r| r.branch == name);
     let role = if own_release.is_some_and(|r| r.shipped_at.is_none()) {
         "release"
@@ -842,12 +846,14 @@ fn plain_view(p: &Project, refs: &Refs, name: &str, parent: Option<String>) -> B
         local: info.is_some(),
         remote: refs.remote(name).is_some(),
         protected: false,
-        date: info.or_else(|| refs.remote(name)).map(|b| b.date.clone()).unwrap_or_default(),
+        date: tip.map(|b| b.date.clone()).unwrap_or_default(),
+        author: tip.map(|b| b.author.clone()).unwrap_or_default(),
+        email: tip.map(|b| b.email.clone()).unwrap_or_default(),
     }
 }
 
 /// Bump when branch views are built differently, so saved ones are not reused.
-const VIEW_CACHE_VERSION: &str = "7";
+const VIEW_CACHE_VERSION: &str = "8";
 
 /// What a project's branch views are built from: its refs, its default branch,
 /// what Gitnetix knows about its releases and branches, and what the git host said.
@@ -3685,7 +3691,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let git = Git::new(tmp.path().to_str().unwrap());
         git.run(&["init", "-q"]).await.unwrap();
-        let info = |name: &str, sha: &str| BranchInfo { name: name.into(), sha: sha.into(), upstream: None, date: "2026-09-18T13:14:52-04:00".into() };
+        let info = |name: &str, sha: &str| BranchInfo { name: name.into(), sha: sha.into(), upstream: None, date: "2026-09-18T13:14:52-04:00".into(), author: String::new(), email: String::new() };
         let pr = MergedPr { id: 119772, target: "release/8.23.0".into(), merge_commit: "f28".into() };
         let refs = Refs::new(vec![info("feature/MNC-7187", "913")], vec![info("feature/other", "aaa")]).with_hosted(HashMap::from([("913".to_string(), vec![pr])]));
         assert_eq!(refs.tips(), ["913", "aaa"]);

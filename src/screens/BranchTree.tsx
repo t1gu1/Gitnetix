@@ -3,6 +3,7 @@ import { useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type
 
 import { useAction } from "../api/hooks";
 import type { BranchView, Overview, ReleaseView } from "../api/types";
+import { Avatar } from "../components/Avatar";
 import { ContextMenu, type MenuItem } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
 import { Empty, releaseTagLabel } from "../components/ui";
@@ -649,7 +650,10 @@ function Row({
       onContextMenu={(e) => actions.openMenu(t, e)}
     >
       <button className="tree-btn" aria-pressed={selected} onClick={onSelect} onDoubleClick={() => b.exists && !b.checkedOut && actions.switchTo(b.name)}>
-        <span className={`tree-icon ${cls}`}><Icon name={icon} size={13} stroke={1.5} /></span>
+        <span className="tree-lead">
+          <span className={`tree-icon ${cls}`}><Icon name={icon} size={13} stroke={1.5} /></span>
+          <Avatar name={b.author} email={b.email} />
+        </span>
         <span className="tree-main">
           <span className="tree-name">
             <span className="mono ellipsis">{name}</span>

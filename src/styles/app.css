@@ -315,6 +315,10 @@ button.tree-twist { cursor: pointer; }
 button.tree-twist:hover { color: var(--fg); }
 .tree-btn { flex: 1 1 auto; min-width: 0; display: flex; align-items: flex-start; gap: 8px; margin: -6px 0; padding: 6px 0; border: 0; background: transparent; color: var(--fg); font: inherit; text-align: left; cursor: pointer; }
 .tree-static .tree-btn { cursor: default; }
+.tree-lead { flex: 0 0 16px; align-self: stretch; display: flex; flex-direction: column; justify-content: space-between; align-items: center; }
+/* Author's initial or picture, round; see Avatar.tsx. */
+.user-avatar { flex: none; display: inline-flex; align-items: center; justify-content: center; overflow: hidden; border-radius: 50%; letter-spacing: -.02em; color: #fff; font-weight: 600; line-height: 1; user-select: none; }
+.user-avatar > img { display: block; object-fit: cover; }
 .tree-icon { flex: 0 0 14px; height: 20px; display: inline-flex; align-items: center; color: var(--faint); }
 .tree-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .tree-name { display: flex; align-items: center; gap: 6px; min-width: 0; height: 20px; font-size: 12.5px; }
@@ -658,7 +662,7 @@ button.app-row:hover { background: var(--raised); }
 .commit-subject { font-size: 12.5px; font-weight: 500; line-height: 1.4; overflow-wrap: anywhere; }
 .commit-body { font-size: 11.5px; line-height: 1.45; color: var(--muted); white-space: pre-line; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow-wrap: anywhere; }
 .commit-row[aria-pressed="true"] .commit-body, .commit-list .commit-body { -webkit-line-clamp: unset; }
-.commit-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+.commit-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
 /* Same box as .commit-tag beside it, so both sit on one line, text centred. */
 .commit-tags .tag { display: inline-flex; align-items: center; height: 18px; padding: 0 5px; line-height: 1; }
 .commit-tag { display: inline-flex; align-items: center; gap: 3px; padding: 0 5px; border: 1px solid color-mix(in srgb, var(--add-fg) 45%, transparent); border-radius: 3px; font-size: 10.5px; line-height: 16px; color: var(--add-fg); }

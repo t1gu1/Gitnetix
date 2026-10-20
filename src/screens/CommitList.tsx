@@ -2,6 +2,7 @@ import { useEffect, useState, type MouseEvent } from "react";
 
 import { useAction, useCommits } from "../api/hooks";
 import type { Commit } from "../api/types";
+import { Avatar } from "../components/Avatar";
 import { ContextMenu, type MenuItem } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
 import { Empty, ErrorBox, Loading, Modal } from "../components/ui";
@@ -128,7 +129,10 @@ export function CommitList({
                 {c.origin && <span className="tag accent" title={`${branch} is here on origin`}>origin</span>}
               </span>
             )}
-            <span className="commit-subject">{c.subject}</span>
+            <span className="commit-head">
+              <Avatar name={c.author} email={c.email} />
+              <span className="commit-subject">{c.subject}</span>
+            </span>
             {c.body && <span className="commit-body">{c.body}</span>}
             <span className="commit-meta">
               <span className="mono">{c.sha.slice(0, 7)}</span>

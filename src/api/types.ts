@@ -138,6 +138,9 @@ export interface BranchView {
   protected: boolean;
   /** Date of its last commit (ISO 8601). */
   date: string;
+  /** Author of its last commit. */
+  author: string;
+  email: string;
 }
 
 export interface Commit {
