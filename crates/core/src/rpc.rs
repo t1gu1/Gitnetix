@@ -16,7 +16,7 @@ use crate::{ai, secrets};
 pub const METHODS: &[(&str, &str, &str)] = &[
     ("app.info", "App version and companion server address", ""),
     ("config.get", "Full app configuration (no secrets)", ""),
-    ("ui.set", "Save UI preferences", "language?, theme?, lastProject?"),
+    ("ui.set", "Save UI preferences", "language?, theme?, lastProject?, animationsOff?"),
     ("ui.setView", "Remember how a screen was left (pane width, collapsed section…); no value forgets it", "key, value?"),
     ("server.set", "Configure the companion API", "enabled?, lan?, port?, regenerateToken?"),
     ("projects.list", "List saved projects", ""),
@@ -215,6 +215,9 @@ pub async fn call(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
                 }
                 if let Some(x) = os(&p, "lastProject") {
                     c.ui.last_project = Some(x);
+                }
+                if let Some(x) = p.get("animationsOff").and_then(Value::as_array) {
+                    c.ui.animations_off = x.iter().filter_map(|v| v.as_str().map(String::from)).collect();
                 }
                 Ok(())
             })?;

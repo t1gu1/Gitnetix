@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 
 import { useAction, useAgents, useProjects } from "../api/hooks";
 import type { ProjectSummary } from "../api/types";
+import { animates } from "../lib/motion";
 import { useNav, type Route } from "../lib/nav";
 import { Icon } from "./Icon";
 import { ThemeToggle } from "./ThemeToggle";
@@ -90,7 +91,7 @@ export function TopBar() {
 
   /** Rubber-band pull toward the pointer while pressed; springs back (CSS transition) once released or dragging. */
   const stretch = (id: string): CSSProperties | undefined => {
-    if (!drag || drag.id !== id || drag.active || drag.x === drag.x0) return undefined;
+    if (!drag || drag.id !== id || drag.active || drag.x === drag.x0 || !animates("tabs")) return undefined;
     const pull = (drag.x - drag.x0) * STRETCH;
     const k = Math.abs(pull) / (tabs.current.get(id)?.offsetWidth || 100);
     return { transform: `translateX(${pull / 2}px) scale(${1 + k}, ${1 - k * 0.25})`, transition: "none", zIndex: 1, background: "var(--raised)" };

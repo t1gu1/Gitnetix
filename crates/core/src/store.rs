@@ -272,11 +272,13 @@ pub struct UiPrefs {
     pub last_project: Option<String>,
     /// How the screens were left (pane widths, collapsed sections…), by key, as the UI wrote them.
     pub view: BTreeMap<String, String>,
+    /// Animations the user turned off, by id (see the UI's list); every other one plays.
+    pub animations_off: Vec<String>,
 }
 
 impl Default for UiPrefs {
     fn default() -> Self {
-        UiPrefs { language: "en".into(), theme: "system".into(), last_project: None, view: BTreeMap::new() }
+        UiPrefs { language: "en".into(), theme: "system".into(), last_project: None, view: BTreeMap::new(), animations_off: Vec::new() }
     }
 }
 

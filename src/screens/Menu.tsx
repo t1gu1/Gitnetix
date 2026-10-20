@@ -5,6 +5,7 @@ import { currentRemote, isLocal, isTauri, saveRemote } from "../api/transport";
 import type { GitProfile } from "../api/types";
 import { Icon } from "../components/Icon";
 import { LANGS, Seg } from "../components/ui";
+import { animates } from "../lib/motion";
 import { useNav } from "../lib/nav";
 import { AISetupPanes } from "./AISetup";
 import { SettingsPanes } from "./Settings";
@@ -38,9 +39,9 @@ export function Menu({ onUnpair }: { onUnpair: () => void }) {
     if (!isTauri) return;
     import("@tauri-apps/api/app").then(({ getVersion }) => getVersion()).then(setVersion, () => {});
   }, []);
-  // Slide out before unmounting; skip the animation when the user prefers reduced motion.
+  // Slide out before unmounting; skip the animation when it is off or the user prefers reduced motion.
   const close = useCallback(() => {
-    if (matchMedia("(prefers-reduced-motion: reduce)").matches) nav.closeMenu();
+    if (!animates("menu")) nav.closeMenu();
     else setClosing(true);
   }, [nav.closeMenu]);
 
@@ -274,7 +275,7 @@ export function Menu({ onUnpair }: { onUnpair: () => void }) {
                     <button className="app-row" onClick={() => open({ name: "settings" })}>
                       <Icon name="gear" size={16} />
                       <span className="app-row-label">Settings</span>
-                      <span className="app-row-sub">Git providers, integrations, companion &amp; MCP</span>
+                      <span className="app-row-sub">Animations, Git providers, integrations, companion &amp; MCP</span>
                     </button>
                     <div className="app-row">
                       <span className="app-row-label">Language</span>
@@ -295,6 +296,10 @@ export function Menu({ onUnpair }: { onUnpair: () => void }) {
                         onChange={nav.setThemePref}
                       />
                     </div>
+                    <button className="app-row" onClick={() => open({ name: "settings", section: "animations" })}>
+                      <span className="app-row-label">Animations</span>
+                      <span className="app-row-sub">Turn each one on or off</span>
+                    </button>
                     <button className="app-row" onClick={() => open({ name: "settings", section: "companion" })}>
                       <span className="app-row-label">{isLocal ? "Companion & MCP" : "Connected desktop"}</span>
                       <span className="app-row-sub row" style={{ gap: 8, justifyContent: "flex-end" }}>

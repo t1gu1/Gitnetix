@@ -2234,6 +2234,11 @@ impl Gitnetix {
     /// the one on origin. Without `force`, refuses when it has commits not in its base.
     /// The default branch and branches the git host protects are never deleted.
     pub async fn delete_branch(&self, project_id: &str, branch: &str, force: bool, remote: bool) -> Result<()> {
+        self.delete_branch_onto(project_id, branch, None, force, remote).await
+    }
+
+    /// `delete_branch` with the branch's base already known (`None`: work it out).
+    async fn delete_branch_onto(&self, project_id: &str, branch: &str, base: Option<String>, force: bool, remote: bool) -> Result<()> {
         let p = self.store.project(project_id)?;
         let git = self.git(&p);
         let default = git.default_branch().await?;
@@ -2247,7 +2252,10 @@ impl Gitnetix {
         let on_origin = remote && git.ref_exists(&format!("refs/remotes/origin/{branch}")).await?;
         if local || on_origin {
             let rev = if local { branch.to_string() } else { format!("origin/{branch}") };
-            let base = self.base_of(&p, branch, &default).await;
+            let base = match base {
+                Some(b) => b,
+                None => self.base_of(&p, branch, &default).await,
+            };
             let local_base = git.rev_of(&base).await;
             // Merged on the host while the local base lags behind: origin's copy has it.
             let origin_base = format!("origin/{base}");
@@ -2323,10 +2331,18 @@ impl Gitnetix {
 
     /// Delete several branches (merged ones only unless `force`), a few at a time, carrying on past the ones that can't go.
     pub async fn cleanup_branches(&self, project_id: &str, branches: &[String], force: bool, remote: bool) -> Result<CleanupResult> {
+        // Bases first, while the refs still match the last overview: once a delete moves them,
+        // `base_of` misses its cache and works the whole tree out again, for every branch left.
+        let p = self.store.project(project_id)?;
+        let default = self.git(&p).default_branch().await?;
+        let mut bases = Vec::with_capacity(branches.len());
+        for b in branches {
+            bases.push((b.clone(), self.base_of(&p, b, &default).await));
+        }
         // Kept small: deletes share git's packed-refs lock, and remote ones a connection to origin.
-        let results = stream::iter(branches.iter().cloned())
-            .map(|b| async move {
-                let r = self.delete_branch(project_id, &b, force, remote).await;
+        let results = stream::iter(bases)
+            .map(|(b, base)| async move {
+                let r = self.delete_branch_onto(project_id, &b, Some(base), force, remote).await;
                 (b, r)
             })
             .buffered(4)

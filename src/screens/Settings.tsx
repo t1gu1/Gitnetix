@@ -5,11 +5,12 @@ import { useAction, useConfig } from "../api/hooks";
 import { companionInfo, isLocal, openExternal, rpc, type CompanionInfo } from "../api/transport";
 import type { Config, GitProfile } from "../api/types";
 import { Header } from "../components/ui";
+import { ANIMATIONS, useAnimations } from "../lib/motion";
 import { useNav } from "../lib/nav";
 import { copyToClipboard, toast } from "../lib/toast";
 
 const GROUPS: [string, [string, string][]][] = [
-  ["General", [["project", "Project"]]],
+  ["General", [["project", "Project"], ["animations", "Animations"]]],
   ["AI", [["ai", "AI setup"], ["templates", "Templates"]]],
   ["Git", [["profiles", "Git profiles"], ["git", "Git providers"]]],
   ["Integrations", [["tools", "Jira, Trello, Asana"], ["companion", "Companion & MCP"]]],
@@ -58,6 +59,7 @@ export function SettingsPanes({ section, onAi, onTemplates }: { section?: string
         {cfg && (
           <div className="page-inner">
             {sec === "project" && <ProjectSection cfg={cfg} />}
+            {sec === "animations" && <Animations />}
             {sec === "profiles" && <Profiles cfg={cfg} />}
             {sec === "git" && <GitProviders cfg={cfg} />}
             {sec === "tools" && <Integrations cfg={cfg} />}
@@ -103,6 +105,35 @@ function ProjectSection({ cfg }: { cfg: Config }) {
         >
           Remove from Gitnetix (files stay on disk)
         </button>
+      </div>
+    </>
+  );
+}
+
+function Animations() {
+  const { off, toggle, setAll } = useAnimations();
+  return (
+    <>
+      <div className="col" style={{ gap: 6 }}>
+        <h1>Animations</h1>
+        <p className="muted" style={{ margin: 0 }}>For every project. With reduced motion on in your system settings, they all stay off.</p>
+      </div>
+      <ul className="list">
+        {ANIMATIONS.map((a) => (
+          <li key={a.id} className="list-row">
+            <label className="check grow">
+              <input type="checkbox" checked={!off.includes(a.id)} onChange={() => toggle(a.id)} />
+              <span className="col" style={{ gap: 2 }}>
+                <span style={{ fontWeight: 500 }}>{a.label}</span>
+                <span className="hint">{a.hint}</span>
+              </span>
+            </label>
+          </li>
+        ))}
+      </ul>
+      <div className="row">
+        <button className="btn" disabled={off.length === 0} onClick={() => setAll(true)}>Turn all on</button>
+        <button className="btn" disabled={off.length === ANIMATIONS.length} onClick={() => setAll(false)}>Turn all off</button>
       </div>
     </>
   );

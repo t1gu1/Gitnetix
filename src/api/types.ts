@@ -346,6 +346,8 @@ export interface Config {
     lastProject?: string | null;
     /** How the screens were left (pane widths, collapsed sections…), by key. */
     view: Record<string, string>;
+    /** Animations turned off, by id (see `ANIMATIONS`). */
+    animationsOff: string[];
   };
   server: { enabled: boolean; port: number; lan: boolean; token: string };
 }

@@ -676,3 +676,16 @@ button.app-row:hover { background: var(--raised); }
 @media (prefers-reduced-motion: reduce) { .meta-link-grow { animation: none; } }
 .meta-link-icon { text-decoration: none; border-bottom: 1px dotted; line-height: 1.2; }
 .meta-link-icon:hover { text-decoration: none; border-bottom-style: solid; }
+
+/* Animations turned off in Settings › Animations, one by one (ids from src/lib/motion.ts). */
+:root[data-anim-off~="path"] .tree-row[data-path]::before, :root[data-anim-off~="path"] .tree-node[data-path]::before, :root[data-anim-off~="path"] .tree-sep[data-path]::before,
+:root[data-anim-off~="path"] .tree-toggle[data-path] + .tree-open::after, :root[data-anim-off~="path"] .tree-merged + .tree-kids[data-path]::after { animation: none !important; }
+:root[data-anim-off~="shine"] :is(.tree-row[data-current] .tree-name > .mono, :is(.child-label, .group-label, .shipped-label)[data-active]) { animation: none !important; }
+:root[data-anim-off~="commit"] .meta-link-grow { animation: none !important; }
+:root[data-anim-off~="nudge"] .act-nudge > svg { animation: none !important; }
+:root[data-anim-off~="wip"] .wip-badge { animation: none !important; }
+:root[data-anim-off~="activity"] :is(.pulse, .l-wait) { animation: none !important; }
+:root[data-anim-off~="tabs"] .tab-project { transform: none !important; transition: none !important; animation: none !important; }
+:root[data-anim-off~="menu"] :is(.menu-panel, .menu-scrim) { animation: none !important; }
+:root[data-anim-off~="tooltips"] .tip { animation: none !important; }
+:root[data-anim-off~="chevrons"] .chev { transition: none !important; }

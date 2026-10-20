@@ -7,6 +7,7 @@ import { TooltipLayer } from "./components/Tooltip";
 import { isPageRoute, TopBar } from "./components/TopBar";
 import { UpdatePrompt } from "./components/UpdatePrompt";
 import { Loading } from "./components/ui";
+import { useApplyAnimations } from "./lib/motion";
 import { NavProvider, ProjectView, useNav, useVisited, type Route } from "./lib/nav";
 import { Toasts } from "./lib/toast";
 import { AISetup } from "./screens/AISetup";
@@ -33,6 +34,7 @@ export function App() {
 function Engine({ onUnpair }: { onUnpair: () => void }) {
   const cfg = useConfig();
   useEngineEvents();
+  useApplyAnimations(cfg.data?.ui.animationsOff);
   if (cfg.isLoading) return <Loading />;
   if (cfg.error && !isLocal) return <Pair onPaired={() => cfg.refetch()} error={cfg.error.message} />;
   const c = cfg.data;
