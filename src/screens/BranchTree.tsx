@@ -34,6 +34,8 @@ const BEHIND_MIN_BRANCHES = 2;
 const openSections = new Map<string, Set<string>>();
 /** Per project, a branch whose sections open once it shows in the tree (one just created). */
 const toReveal = new Map<string, string>();
+/** Per project, the sections down to the checked-out branch when the tree last opened them. */
+const pathOpened = new Map<string, string>();
 
 /** Open the sections down to `branch` the next time the tree shows it, e.g. right after creating it. */
 export function revealBranch(pid: string, branch: string) {
@@ -232,13 +234,15 @@ export function BranchTree({
   const shippedActive = shippedOnPath >= 0;
   const pastShipped = shippedActive;
   // Only the groups the path runs through start open: live children or the merged ones.
-  const { isOpen, toggle, openAll } = useToggles(pid, () => {
-    const open = new Set<string>();
-    for (const name of path) {
-      for (const c of kids(name)) if (path.has(c.name)) open.add(sectionOf(name, c));
-    }
-    return open;
-  });
+  const pathSections: string[] = [];
+  for (const name of path) for (const c of kids(name)) if (path.has(c.name)) pathSections.push(sectionOf(name, c));
+  const { isOpen, toggle, openAll } = useToggles(pid, () => new Set(pathSections));
+  // The path moved to other groups (a pull merged the branch, a checkout, branches filed under their parents): open them too.
+  const pathKey = pathSections.join("\n");
+  if (!matches && pathOpened.get(pid) !== pathKey) {
+    pathOpened.set(pid, pathKey);
+    openAll(pathSections);
+  }
   // While searching, every group holding a match is open; what the user closes then is kept apart, and forgotten with the search.
   const [shut, setShut] = useState<{ q: string; keys: Set<string> }>({ q: "", keys: new Set() });
   const opened = (key: string) => (q ? !(shut.q === q && shut.keys.has(key)) : isOpen(key));
