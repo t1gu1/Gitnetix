@@ -16,11 +16,29 @@ release notes and the in-app update prompt.
 - Show +/- totals on folder rows in the changed files list.
 - Offer a rebase after changing a branch target.
 - Right-click a changed file or folder for a menu with copy path, open in file explorer (desktop only) and add to .gitignore. Folder rows and the staged/unstaged lists also gain stage and unstage actions.
+- Pick the provider, model and effort for each agent session. Agents on a branch always run in that branch's own worktree.
+- Close agent sessions from a button on each agent tab. Worktree sessions ask whether to delete the worktree, or merge it first and then delete it.
+- Filter branches and commits by author.
+- Search the commit list, with matches highlighted in branch names and commit text.
+- Show author avatars on branch and commit rows. Gravatar pictures are optional and off by default, in Settings > Avatars.
+- Force push when resetting a branch, and remember the delete-origin choice.
+- Show progress while cleaning up branches.
+- Add motion preferences in Settings.
 
 ### Changed
 - Large diffs scroll faster because off-screen rows are skipped.
 - The branch commit list always has a commit selected.
 - Tune the tree row tints and the commit list separator.
+- After a commit or push, only the branches that changed are rebuilt, so the branch tree updates faster. The WIP list and badge update at once.
+- Removing a worktree stops its agent.
+- Tweak the top bar borders and tab padding, and center the changed files header row.
+
+### Fixed
+- Branches named like a tag are listed and resolved as branches, so cleanup no longer fails or hits the wrong ref.
+- Closing branch history restores the file view.
+- Removing a worktree whose folder was already deleted by hand no longer fails.
+
+Skipped: the TODO, graphify and avatar-placement refactor commits. I did not check the code. The commit messages were partly mismatched (e7647dd, 14d89a0), so some entries may be off.
 
 ## [0.2.0] - 2026-10-20
 
