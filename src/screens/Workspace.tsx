@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type ReactNode } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type ReactNode } from "react";
 
 import { switchedOverview, useAction, useAgents, useAiOn, useBlobs, useDiff, useFiles, useOverview, useProjectPrefs, useProjects } from "../api/hooks";
 import { isLocal, revealPath } from "../api/transport";
-import type { BranchView, Commit, FileChange, Hunk, MergeResult, Overview, RebaseResult, ReleaseView, Stash } from "../api/types";
+import type { AgentSession, BranchView, Commit, FileChange, Hunk, MergeResult, Overview, RebaseResult, ReleaseView, Stash } from "../api/types";
 import { AgentLog } from "../components/AgentLog";
 import { DiffView, type DiffMode } from "../components/DiffView";
 import { IMAGE_MODES, ImageDiff, comparable, isImage, useImageMode } from "../components/ImageDiff";
@@ -36,7 +36,13 @@ export function Workspace() {
   const [termOpen, setTermOpen] = useState(false);
   const [pane, setPane] = useState<Pane>("releases");
   const [shipping, setShipping] = useState<ReleaseView | null>(null);
-  const [dialog, setDialog] = useState<{ kind: BranchDialog; branch: string; onto?: string } | null>(null);
+  // `then` runs once the merge is done (closing a worktree session after merging it).
+  const [dialog, setDialog] = useState<{ kind: BranchDialog; branch: string; onto?: string; then?: () => void } | null>(null);
+  const [closingSession, setClosingSession] = useState<AgentSession | null>(null);
+  const removeWt = useAction("worktrees.remove", { invalidate: [["agents"], ["worktrees"], ["overview", pid]], success: "Worktree removed" });
+  const removeAgent = useAction("agents.remove", { invalidate: [["agents"]] });
+  // Removing the worktree stops its agent; the session goes once the folder is gone.
+  const dropWorktree = (s: AgentSession) => removeWt.mutate({ projectId: s.projectId, path: s.cwd }, { onSuccess: () => removeAgent.mutate({ id: s.id }) });
   const [deletingTag, setDeletingTag] = useState<string | null>(null);
   const checkoutTag = useAction<unknown, { projectId: string; name: string }>("tags.checkout", {
     invalidate: [["overview", pid], ["files", pid], ["diff", pid], ["commits", pid]],
@@ -464,7 +470,7 @@ export function Workspace() {
                 </div>
               )}
             </div>
-            <Terminal pid={pid} branch={branch} checkedOut={checkedOut} open={termOpen} setOpen={setTermOpen} />
+            <Terminal pid={pid} branch={branch} checkedOut={checkedOut} open={termOpen} setOpen={setTermOpen} onCloseWorktree={setClosingSession} />
           </section>
         </main>
       )}
@@ -485,7 +491,15 @@ export function Workspace() {
             .filter((x) => x.local && x.name !== dialog.branch)
             .sort((a, b) => ["release", "trunk", "branch"].indexOf(a.role) - ["release", "trunk", "branch"].indexOf(b.role))
             .map((x) => x.name)}
-          onClose={() => setDialog(null)} onDeleted={(into) => dialog.branch === branch && nav.selectBranch(into)} />
+          onClose={() => setDialog(null)} onDeleted={(into) => dialog.branch === branch && nav.selectBranch(into)} onMerged={dialog.then} />
+      )}
+      {closingSession && (
+        <CloseWorktreeModal
+          session={closingSession}
+          onDelete={() => dropWorktree(closingSession)}
+          onMerge={() => setDialog({ kind: "merge", branch: closingSession.branch, then: () => dropWorktree(closingSession) })}
+          onClose={() => setClosingSession(null)}
+        />
       )}
       {cleanup && (
         <CleanupModal
@@ -853,6 +867,7 @@ function MergeModal({
   others,
   onClose,
   onDeleted,
+  onMerged,
 }: {
   pid: string;
   branch: string;
@@ -861,6 +876,7 @@ function MergeModal({
   others: string[];
   onClose: () => void;
   onDeleted: (into: string) => void;
+  onMerged?: () => void;
 }) {
   // The options picked last time, saved with the project.
   const { merge: opts, setMerge: set } = useProjectPrefs(pid);
@@ -880,6 +896,7 @@ function MergeModal({
           if (r.tagError) toast(`Merged, but moving its release tag failed: ${r.tagError}`, "error");
           if (r.deleteError) toast(`Merged, but deleting ${branch} failed: ${r.deleteError}`, "error");
           if (r.deleted || r.switched) onDeleted(r.into);
+          onMerged?.();
           onClose();
         },
       },
@@ -1514,7 +1531,7 @@ function CommitBox({ pid, branch, enabled, staged, changed }: { pid: string; bra
   );
 }
 
-function Terminal({ pid, branch, checkedOut, open, setOpen }: { pid: string; branch?: string; checkedOut: boolean; open: boolean; setOpen: (b: boolean) => void }) {
+function Terminal({ pid, branch, checkedOut, open, setOpen, onCloseWorktree }: { pid: string; branch?: string; checkedOut: boolean; open: boolean; setOpen: (b: boolean) => void; onCloseWorktree: (s: AgentSession) => void }) {
   const agents = useAgents();
   const sessions = (agents.data ?? []).filter((a) => a.projectId === pid);
   const [active, setActive] = useState<string | "new" | undefined>();
@@ -1523,6 +1540,7 @@ function Terminal({ pid, branch, checkedOut, open, setOpen }: { pid: string; bra
   const cur = active === "new" ? undefined : sessions.find((s) => s.id === active) ?? forBranch ?? sessions[0];
   const start = useAction<{ id: string }>("agents.start", { invalidate: [["agents"]] });
   const message = useAction("agents.message", { invalidate: [["agents"]] });
+  const remove = useAction("agents.remove", { invalidate: [["agents"]] });
   const running = sessions.filter((s) => s.status === "running").length;
 
   if (!open) {
@@ -1554,11 +1572,21 @@ function Terminal({ pid, branch, checkedOut, open, setOpen }: { pid: string; bra
           <Icon name="terminal" label="Agents" />
         </div>
         {sessions.map((s) => (
-          <button key={s.id} className="term-tab" aria-pressed={s.id === cur?.id} onClick={() => setActive(s.id)}>
-            {s.status === "running" && <span className="pulse" />}
-            <span className="mono" style={{ fontSize: 11.5 }}>{s.branch}</span>
-            <span className="faint" style={{ fontSize: 11 }}>{s.worktree ? "worktree" : "branch"}</span>
-          </button>
+          <Fragment key={s.id}>
+            <button className="term-tab" aria-pressed={s.id === cur?.id} onClick={() => setActive(s.id)}>
+              {s.status === "running" && <span className="pulse" />}
+              <span className="mono" style={{ fontSize: 11.5 }}>{s.branch}</span>
+              <span className="faint" style={{ fontSize: 11 }}>{s.worktree ? "worktree" : "branch"}</span>
+            </button>
+            <button
+              className="term-tab term-tab-x"
+              aria-pressed={s.id === cur?.id}
+              aria-label={`Close ${s.branch} session`}
+              onClick={() => (s.worktree ? onCloseWorktree(s) : remove.mutate({ id: s.id }))}
+            >
+              <Icon name="close" size={11} />
+            </button>
+          </Fragment>
         ))}
         <button className="term-tab" aria-label="New agent session" aria-pressed={active === "new"} onClick={() => setActive("new")}>
           <Icon name="plus" size={12} stroke={1.6} />
@@ -1598,6 +1626,28 @@ function Terminal({ pid, branch, checkedOut, open, setOpen }: { pid: string; bra
         {(start.isPending || message.isPending) && <span className="spinner" />}
       </form>
     </div>
+  );
+}
+
+function CloseWorktreeModal({ session: s, onDelete, onMerge, onClose }: { session: AgentSession; onDelete: () => void; onMerge: () => void; onClose: () => void }) {
+  return (
+    <Modal
+      title="Close worktree session"
+      sub={<span className="mono">{s.branch}</span>}
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn btn-md" onClick={onClose}>Cancel</button>
+          <button className="btn btn-md btn-danger" onClick={() => { onDelete(); onClose(); }}>Delete worktree</button>
+          <button className="btn btn-md btn-primary" onClick={() => { onMerge(); onClose(); }}>Merge &amp; delete worktree…</button>
+        </>
+      }
+    >
+      <p style={{ margin: 0, lineHeight: 1.55 }}>
+        Merge <span className="mono">{s.branch}</span> into another branch first, or only delete the folder <span className="mono">{s.cwd}</span>.
+        Either way the agent stops. Deleting refuses if the worktree has uncommitted changes; the branch and its commits stay.
+      </p>
+    </Modal>
   );
 }
 

@@ -2428,6 +2428,16 @@ input.img-slider {
   color: var(--muted);
   white-space: nowrap;
 }
+.term-tab:has(+ .term-tab-x) {
+  padding-right: 4px;
+}
+.term-tab-x {
+  padding: 0 8px 0 2px;
+  border-left: 0;
+}
+.term-tab-x:hover {
+  color: var(--fg);
+}
 .term-tab[aria-pressed="true"] {
   background: var(--term);
   color: var(--fg);

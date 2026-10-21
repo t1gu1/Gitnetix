@@ -2,15 +2,12 @@
 
 ## What's next
 
-- Create a custom terminal emulator using a Nerd Font.
 - Rework the worktrees & agent section and how it works.
 - Add Undo
 - Add a place to set and edit shortcuts
 - Add a conflict manager and resolver (If AI, simply fix the conflit automatically with AI)
 - Add more analytics (Possibility to target one of few person)
 - Add Launchpad(Dashboard) a Cross-repo dashboard to manage PRs and get some analytics
-- Add user on branches
-- Add filter to commits to only show our branches
 
 ## Code signing
 

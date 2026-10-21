@@ -694,6 +694,11 @@ impl Git {
     }
 
     pub async fn worktree_remove(&self, path: &Path, force: bool) -> Result<()> {
+        // Folder already deleted by hand: drop git's stale record instead of failing.
+        if !path.exists() {
+            self.run(&["worktree", "prune"]).await?;
+            return Ok(());
+        }
         let p = path.to_string_lossy();
         if force {
             self.run(&["worktree", "remove", "--force", &p]).await?;
