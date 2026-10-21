@@ -70,7 +70,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("tags.checkout", "Check out a tag's commit (detached HEAD; uncommitted work comes along)", "projectId, name"),
     ("tags.delete", "Delete a tag, locally and on origin", "projectId, name"),
     ("branches.reset", "Hard-reset a branch to its upstream, dropping local commits (and uncommitted changes when checked out)", "projectId, branch"),
-    ("branches.merge", "Merge a branch into its release (or parent branch, or `into`): a merge commit, or rebase = rebase it onto the target and fast-forward; squash = collapse its commits first (\"squash | <branch>\", or squashAi = AI writes the message); deleteBranch = delete it last, locally and on origin; push = push the target after", "projectId, branch, into?, deleteBranch?, squash?, squashAi?, rebase?, push?"),
+    ("branches.merge", "Merge a branch into its release (or parent branch, or `into`): a merge commit, or rebase = rebase it onto the target and fast-forward; squash = collapse its commits first (\"squash | <branch>\", or squashAi = AI writes the message); deleteBranch = delete it last, locally and on origin; push = push the target after; stay = don't switch the main checkout to the target", "projectId, branch, into?, deleteBranch?, squash?, squashAi?, rebase?, push?, stay?"),
     ("branches.sync", "Merge a branch's base into it to bring it up to date", "projectId, branch"),
     ("branches.setParent", "Choose what a branch merges into (an open release branch attaches it to that release; a release branch changes the branch it was cut from)", "projectId, branch, parent"),
     ("branches.fetch", "Fetch origin, pruning deleted branches", "projectId"),
@@ -89,7 +89,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("worktrees.remove", "Remove a worktree", "projectId, path, force?"),
     ("agents.list", "Agent sessions", ""),
     ("agents.get", "One agent session with its log", "id"),
-    ("agents.start", "Start an agent on a branch (or main checkout)", "projectId, branch?, request"),
+    ("agents.start", "Start an agent on a branch (or main checkout)", "projectId, branch?, request, provider?, model?, effort?"),
     ("agents.message", "Send a follow-up message to an agent", "id, text"),
     ("agents.pause", "Pause an agent", "id"),
     ("agents.resume", "Resume an agent", "id"),
@@ -456,7 +456,7 @@ pub async fn call(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
             ok()
         }
         "branches.merge" => {
-            let opts = MergeOptions { squash: b(&p, "squash"), squash_ai: b(&p, "squashAi"), rebase: b(&p, "rebase"), delete_after: b(&p, "deleteBranch"), push: b(&p, "push") };
+            let opts = MergeOptions { squash: b(&p, "squash"), squash_ai: b(&p, "squashAi"), rebase: b(&p, "rebase"), delete_after: b(&p, "deleteBranch"), push: b(&p, "push"), stay: b(&p, "stay") };
             to(k.merge_branch(&s(&p, "projectId")?, &s(&p, "branch")?, os(&p, "into").as_deref(), opts).await?)
         }
         "branches.sync" => to(k.sync_branch(&s(&p, "projectId")?, &s(&p, "branch")?).await?),
@@ -505,7 +505,14 @@ pub async fn call(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
         }
         "agents.list" => to(k.agents.list()),
         "agents.get" => to(k.agents.get(&s(&p, "id")?)?),
-        "agents.start" => to(k.start_agent_on(&s(&p, "projectId")?, os(&p, "branch"), &s(&p, "request")?).await?),
+        "agents.start" => {
+            let pick = Route { provider: os(&p, "provider"), model: os(&p, "model"), effort: os(&p, "effort") };
+            to(k.start_agent_on(&s(&p, "projectId")?, os(&p, "branch"), &s(&p, "request")?, pick).await?)
+        }
+        "agents.configure" => {
+            let pick = Route { provider: os(&p, "provider"), model: os(&p, "model"), effort: os(&p, "effort") };
+            to(k.agent_configure(&s(&p, "id")?, pick)?)
+        }
         "agents.message" => {
             k.agent_message(&s(&p, "id")?, &s(&p, "text")?)?;
             ok()

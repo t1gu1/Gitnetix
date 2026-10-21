@@ -375,6 +375,8 @@ export interface AgentSession {
   startedAt: string;
   updatedAt: string;
   resumeId?: string | null;
+  /** What the session runs on; missing on sessions from before routing. */
+  ai?: { provider: string; model: string; effort: string } | null;
 }
 
 export interface WorktreeView {

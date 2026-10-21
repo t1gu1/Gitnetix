@@ -18,12 +18,19 @@ export type MenuItem =
       run: () => void;
     };
 
+const TRIGGER = '[aria-haspopup="menu"]';
+// WebKit doesn't focus clicked buttons, so the last pressed trigger stands in for the focused one.
+let lastDown: Element | null = null;
+window.addEventListener("mousedown", (e) => (lastDown = (e.target as Element).closest?.(TRIGGER) ?? null), true);
+
 /** Floating menu at a viewport point; closes on outside click, Escape, scroll or resize. */
 export function ContextMenu({ x, y, items, label, alignRight, onClose }: { x: number; y: number; items: MenuItem[]; label: string; alignRight?: boolean; onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState({ left: x, top: y });
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
+  // The button that opened the menu: pressing it again closes the menu instead of reopening it.
+  const [opener] = useState(() => (document.activeElement as Element | null)?.closest(TRIGGER) ?? lastDown);
 
   useLayoutEffect(() => {
     const el = ref.current;
@@ -39,7 +46,14 @@ export function ContextMenu({ x, y, items, label, alignRight, onClose }: { x: nu
   useEffect(() => {
     const onClose = () => closeRef.current();
     const prev = document.activeElement as HTMLElement | null;
-    const down = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && onClose();
+    const down = (e: MouseEvent) => {
+      if (ref.current?.contains(e.target as Node)) return;
+      if (opener?.contains(e.target as Node)) {
+        const swallow = (c: MouseEvent) => opener.contains(c.target as Node) && (c.stopPropagation(), c.preventDefault());
+        window.addEventListener("click", swallow, { capture: true, once: true });
+      }
+      onClose();
+    };
     const key = (e: KeyboardEvent) => {
       if (e.key === "Escape") return onClose();
       if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;

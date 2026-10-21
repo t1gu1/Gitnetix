@@ -19,40 +19,45 @@ export function usePaneWidth(key: string, def: number, min: number, max: number)
 
 export type PaneWidth = ReturnType<typeof usePaneWidth>;
 
-/** Vertical drag handle on a pane's right edge. Double-click resets; arrow keys nudge. */
-export function Resizer({ pane, label }: { pane: PaneWidth; label: string }) {
+/**
+ * Vertical drag handle on a pane's right edge, or with `top` a horizontal one
+ * on a bottom pane's top edge (the value is then its height). Double-click
+ * resets; arrow keys nudge.
+ */
+export function Resizer({ pane, label, top }: { pane: PaneWidth; label: string; top?: boolean }) {
   const start = useRef<{ x: number; w: number } | null>(null);
+  const pos = (e: PointerEvent) => (top ? -e.clientY : e.clientX);
   const end = () => {
     if (!start.current) return;
     start.current = null;
-    document.body.classList.remove("resizing");
+    document.body.classList.remove("resizing", "resizing-rows");
     pane.save();
   };
   return (
     <div
       role="separator"
-      aria-orientation="vertical"
+      aria-orientation={top ? "horizontal" : "vertical"}
       aria-label={label}
       aria-valuenow={pane.width}
       aria-valuemin={pane.min}
       aria-valuemax={pane.max}
       tabIndex={0}
-      className="resizer hide-narrow"
+      className={top ? "resizer resizer-top hide-narrow" : "resizer hide-narrow"}
       onPointerDown={(e: PointerEvent<HTMLDivElement>) => {
         if (e.button !== 0) return;
         e.preventDefault();
         e.currentTarget.setPointerCapture(e.pointerId);
-        start.current = { x: e.clientX, w: pane.width };
-        document.body.classList.add("resizing");
+        start.current = { x: pos(e), w: pane.width };
+        document.body.classList.add("resizing", ...(top ? ["resizing-rows"] : []));
       }}
-      onPointerMove={(e) => start.current && pane.set(start.current.w + e.clientX - start.current.x)}
+      onPointerMove={(e) => start.current && pane.set(start.current.w + pos(e) - start.current.x)}
       onPointerUp={end}
       onLostPointerCapture={end}
       onDoubleClick={() => pane.set(pane.def, true)}
       onKeyDown={(e: KeyboardEvent) => {
         const step = e.shiftKey ? 64 : 16;
-        if (e.key === "ArrowLeft") pane.set(pane.width - step, true);
-        else if (e.key === "ArrowRight") pane.set(pane.width + step, true);
+        if (e.key === (top ? "ArrowDown" : "ArrowLeft")) pane.set(pane.width - step, true);
+        else if (e.key === (top ? "ArrowUp" : "ArrowRight")) pane.set(pane.width + step, true);
         else return;
         e.preventDefault();
       }}

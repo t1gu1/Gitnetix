@@ -917,6 +917,11 @@ impl Git {
         self.blobs(Side::Rev(&old), Side::Rev(&new), path).await
     }
 
+    /// Whether tracked files have uncommitted changes in this checkout.
+    pub async fn has_uncommitted(&self) -> Result<bool> {
+        Ok(!self.run(&["status", "--porcelain", "--untracked-files=no"]).await?.trim().is_empty())
+    }
+
     /// Whether `path` has uncommitted changes in this checkout.
     pub async fn is_dirty(&self, path: &str) -> Result<bool> {
         Ok(!self.run(&["status", "--porcelain", "--", path]).await?.trim().is_empty())

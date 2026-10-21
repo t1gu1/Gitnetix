@@ -13,7 +13,7 @@ use tokio::process::Command;
 
 use crate::error::{Error, Result};
 use crate::secrets;
-use crate::store::{AiConfig, ConnectMethod};
+use crate::store::{AiConfig, ConnectMethod, ProviderConf, Route};
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -107,12 +107,19 @@ impl Resolved {
 }
 
 pub fn resolve(cfg: &AiConfig, task: &str, template_model: Option<&str>) -> Result<Resolved> {
-    let route = cfg.routing.get(task).cloned().unwrap_or_default();
+    resolve_route(cfg, cfg.routing.get(task).cloned().unwrap_or_default(), template_model)
+}
+
+/// Like `resolve`, with an explicit route instead of the task's routing.
+pub fn resolve_route(cfg: &AiConfig, route: Route, template_model: Option<&str>) -> Result<Resolved> {
     let provider = route.provider.clone().unwrap_or_else(|| cfg.default_provider.clone());
+    // A CLI found on this computer works without setup: it uses its own sign-in.
+    let detected = || provider_info(&provider).ok().and_then(|i| i.bin).and_then(which).map(|_| ProviderConf::default());
     let conf = cfg
         .providers
         .get(&provider)
         .cloned()
+        .or_else(detected)
         .ok_or_else(|| Error::NotConnected(format!("AI provider {provider} is not set up")))?;
     let model = template_model
         .filter(|s| !s.is_empty())

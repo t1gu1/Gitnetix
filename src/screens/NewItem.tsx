@@ -215,7 +215,7 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
             ["worktree", "Open in a new worktree", "Runs alongside your current branch — good for parallel AI work"],
           ] as const
         ).map(([v, t, s]) => (
-          <button key={v} type="button" className="radio-card" aria-pressed={where === v} onClick={() => setWhere(v)}>
+          <button key={v} type="button" className="radio-card" aria-pressed={where === v} disabled={agent && v === "switch"} onClick={() => setWhere(v)}>
             <span className="radio-dot" />
             <span className="col" style={{ gap: 2 }}>
               <span style={{ fontWeight: 500 }}>{t}</span>
@@ -225,7 +225,15 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
         ))}
       </fieldset>
       <label className="check">
-        <input type="checkbox" checked={agent} onChange={() => setAgent(!agent)} />
+        <input
+          type="checkbox"
+          checked={agent}
+          onChange={() => {
+            // An agent always gets its own worktree.
+            if (!agent) setWhere("worktree");
+            setAgent(!agent);
+          }}
+        />
         <span>Start an AI agent on it right away</span>
       </label>
       {agent && (

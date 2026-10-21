@@ -20,7 +20,7 @@ use crate::git::{ticket_keys, Blobs, BranchInfo, Commit, FileChange, Git, Hunk, 
 use crate::providers::azure::{self, MergedPr};
 use crate::providers::{azure_auth, github::GitHub, parse_remote};
 use crate::secrets;
-use crate::store::{new_id, now, BranchMeta, GitProfile, Project, Release, ReleaseKind, Store};
+use crate::store::{new_id, now, BranchMeta, GitProfile, Project, Release, ReleaseKind, Route, Store};
 use crate::submodules::{self, FetchReport, Submodule};
 use crate::templates::{self, Template};
 use crate::tickets::{self, Ticket};
@@ -300,6 +300,8 @@ pub struct MergeOptions {
     pub delete_after: bool,
     /// Push the target to origin afterwards.
     pub push: bool,
+    /// Keep the main checkout where it is instead of switching to the target (unless deleting the branch moves it).
+    pub stay: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1822,7 +1824,8 @@ impl Gitnetix {
             return Err(Error::Invalid(format!("cannot ignore {path:?}")));
         }
         let p = self.store.project(project_id)?;
-        let file = self.require_checkout(&p, branch).await?.cwd().join(".gitignore");
+        let git = self.require_checkout(&p, branch).await?;
+        let file = git.cwd().join(".gitignore");
         let mut text = match tokio::fs::read_to_string(&file).await {
             Ok(t) => t,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
@@ -1833,6 +1836,8 @@ impl Gitnetix {
         }
         text.push_str(&ignore_line(path, dir));
         tokio::fs::write(&file, text).await?;
+        // .gitignore only hides untracked files: stop tracking it too (kept on disk) so it leaves the WIP once committed.
+        git.run(&["rm", "-r", "--cached", "--quiet", "--ignore-unmatch", "--", path]).await?;
         self.changed(project_id);
         Ok(())
     }
@@ -2205,7 +2210,8 @@ impl Gitnetix {
             return Err(Error::Invalid(format!("{branch} already exists")));
         }
         let mut worktree = None;
-        let cwd = if req.r#where == "worktree" {
+        // An agent always gets its own worktree, so it keeps working while the main checkout moves on.
+        let cwd = if req.r#where == "worktree" || req.start_agent {
             let path = worktree_path(&p, &branch);
             git.worktree_add(&path, &branch, Some(&start)).await?;
             worktree = Some(path.to_string_lossy().to_string());
@@ -2236,7 +2242,7 @@ impl Gitnetix {
             if let Some(t) = req.ticket.as_ref().filter(|t| !t.is_empty()) {
                 request = format!("{request} (ticket {t})");
             }
-            let s = self.start_agent(project_id, Some(&branch), &cwd, worktree.is_some(), &request).await?;
+            let s = self.start_agent(project_id, Some(&branch), &cwd, worktree.is_some(), &request, Route::default()).await?;
             agent_session = Some(s.id);
         }
         self.changed(project_id);
@@ -2713,6 +2719,7 @@ impl Gitnetix {
                 stayed = Some(format!("{into} is open in a worktree at {}", dir.display()));
                 false
             }
+            None if opts.stay && !must_switch => false,
             None => match git.switch(&into).await {
                 Ok(()) => true,
                 Err(e) if must_switch => return Err(Error::Invalid(format!("Merged into {into}, but switching to it failed, so {branch} was kept: {e}"))),
@@ -2984,12 +2991,15 @@ impl Gitnetix {
     pub async fn create_worktree(&self, project_id: &str, branch: &str) -> Result<String> {
         let p = self.store.project(project_id)?;
         let git = self.git(&p);
+        let default = git.default_branch().await?;
+        if branch == default {
+            return Err(Error::Invalid(format!("{default} is reserved: create a new branch for the worktree.")));
+        }
         let path = worktree_path(&p, branch);
         // A branch only on origin is checked out tracking it (git's DWIM).
         if git.branch_rev(branch).await?.is_some() {
             git.worktree_add(&path, branch, None).await?;
         } else {
-            let default = git.default_branch().await?;
             git.worktree_add(&path, branch, Some(&default)).await?;
         }
         self.store.with_project(project_id, |p| {
@@ -3007,10 +3017,15 @@ impl Gitnetix {
         if Path::new(path) == Path::new(&p.path) {
             return Err(Error::Invalid("That is the main checkout".into()));
         }
-        for a in self.agents.list().into_iter().filter(|a| a.cwd == path) {
-            let _ = self.agents.stop(&a.id);
+        let agents: Vec<String> = self.agents.list().into_iter().filter(|a| a.cwd == path).map(|a| a.id).collect();
+        for id in &agents {
+            let _ = self.agents.stop(id);
         }
         self.git(&p).worktree_remove(Path::new(path), force).await?;
+        // Their folder is gone, so the sessions cannot run again.
+        for id in &agents {
+            let _ = self.agents.remove(id);
+        }
         self.store.with_project(project_id, |p| {
             for m in p.branches.values_mut() {
                 if m.worktree.as_deref() == Some(path) {
@@ -3023,10 +3038,16 @@ impl Gitnetix {
         Ok(())
     }
 
-    pub async fn start_agent(&self, project_id: &str, branch: Option<&str>, cwd: &Path, worktree: bool, request: &str) -> Result<AgentSession> {
+    /// `pick` overrides the "agent" routing when it names a provider.
+    pub async fn start_agent(&self, project_id: &str, branch: Option<&str>, cwd: &Path, worktree: bool, request: &str, pick: Route) -> Result<AgentSession> {
         let p = self.store.project(project_id)?;
         let t = self.template("agent", None, Some(&p.id))?;
-        let r = self.route("agent", Some(&t))?;
+        let r = if pick.provider.as_deref().is_some_and(|s| !s.is_empty()) {
+            let tm = if pick.model.as_deref().is_some_and(|s| !s.is_empty()) { None } else { t.model.as_deref() };
+            self.store.read(|c| ai::resolve_route(&c.ai, pick, tm))?
+        } else {
+            self.route("agent", Some(&t))?
+        };
         let branch = match branch {
             Some(b) => b.to_string(),
             None => Git::new(cwd).current_branch().await?.unwrap_or_else(|| "HEAD".into()),
@@ -3051,22 +3072,66 @@ impl Gitnetix {
         })
     }
 
-    pub async fn start_agent_on(&self, project_id: &str, branch: Option<String>, request: &str) -> Result<AgentSession> {
+    /// An agent on a branch always works in that branch's own worktree, made
+    /// here if needed, so it keeps going while the main checkout moves on.
+    /// Without a branch it runs on the main checkout.
+    pub async fn start_agent_on(&self, project_id: &str, branch: Option<String>, request: &str, pick: Route) -> Result<AgentSession> {
         let p = self.store.project(project_id)?;
         let (cwd, b) = match branch {
-            Some(b) => {
-                let dir = self.checkout_dir(&p, &b).await?.ok_or_else(|| Error::Invalid(format!("{b} is not checked out")))?;
-                (dir, Some(b))
-            }
+            Some(b) => (self.agent_worktree(&p, &b).await?, Some(b)),
             None => (top_path(&p), None),
         };
         let wt = cwd != Path::new(&p.path);
-        self.start_agent(project_id, b.as_deref(), &cwd, wt, request).await
+        self.start_agent(project_id, b.as_deref(), &cwd, wt, request, pick).await
+    }
+
+    async fn agent_worktree(&self, p: &Project, branch: &str) -> Result<PathBuf> {
+        let top = top_path(p);
+        let git = self.git(p);
+        let default = git.default_branch().await?;
+        // Checked before the main checkout gets switched off it below; create_worktree refuses it too.
+        if branch == default {
+            return Err(Error::Invalid(format!("{default} is reserved: create a new branch for the agent.")));
+        }
+        match self.checkout_dir(p, branch).await? {
+            Some(dir) if dir != top => return Ok(dir),
+            Some(_) => {
+                // Checked out in the main checkout: move the main checkout off it first.
+                if git.has_uncommitted().await? {
+                    return Err(Error::Invalid(format!(
+                        "{branch} has uncommitted changes in the main checkout. Commit or stash them first: the agent gets its own worktree."
+                    )));
+                }
+                let base = self.base_of(p, branch, &default).await;
+                if base == branch || git.switch(&base).await.is_err() {
+                    git.switch_detach("HEAD").await?;
+                }
+            }
+            None => {}
+        }
+        Ok(PathBuf::from(self.create_worktree(&p.id, branch).await?))
     }
 
     pub fn agent_message(&self, id: &str, text: &str) -> Result<()> {
-        let r = self.route("agent", None)?;
+        let r = match self.agents.get(id)?.ai {
+            Some(r) => r,
+            None => self.route("agent", None)?,
+        };
         self.agents.message(id, text, &r)
+    }
+
+    /// Applies from the next message on. A different provider is resolved
+    /// like a new session's pick.
+    pub fn agent_configure(&self, id: &str, pick: Route) -> Result<AgentSession> {
+        let cur = match self.agents.get(id)?.ai {
+            Some(r) => r,
+            None => self.route("agent", None)?,
+        };
+        let r = match pick.provider.as_deref().filter(|p| !p.is_empty() && *p != cur.provider) {
+            Some(_) => self.store.read(|c| ai::resolve_route(&c.ai, pick, None))?,
+            None => Resolved { model: pick.model.unwrap_or_default(), effort: pick.effort.unwrap_or_default(), ..cur },
+        };
+        self.agents.set_ai(id, r)
     }
 
     // ---------- AI setup ----------

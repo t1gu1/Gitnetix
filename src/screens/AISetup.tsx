@@ -2,6 +2,7 @@ import { type ReactNode, useEffect, useState } from "react";
 
 import { useAction, useAiCatalog } from "../api/hooks";
 import type { AiCatalog, ConnectMethod } from "../api/types";
+import { EFFORTS } from "../components/AgentPicker";
 import { Header, Loading, Seg } from "../components/ui";
 
 const TASKS: [string, string][] = [
@@ -13,8 +14,6 @@ const TASKS: [string, string][] = [
   ["agent", "Free-form agent"],
   ["triage", "Ticket triage"],
 ];
-
-const EFFORTS = ["low", "medium", "high", "xhigh"];
 
 const METHOD_TEXT: Record<ConnectMethod, [string, string]> = {
   cli: ["Local CLI", "Uses the CLI installed on this computer and its own sign-in. No key stored in Gitnetix."],

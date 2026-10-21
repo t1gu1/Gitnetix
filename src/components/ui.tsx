@@ -152,27 +152,29 @@ export function ago(iso?: string | null) {
   return new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
 
+/** Inline Markdown: `code` and **bold**. */
+export function inline(s: string, key?: string) {
+  const parts = s.split(/(`[^`]+`|\*\*[^*]+\*\*)/g);
+  return (
+    <span key={key}>
+      {parts.map((p, j) =>
+        p.startsWith("`") && p.endsWith("`") ? (
+          <code key={j}>{p.slice(1, -1)}</code>
+        ) : p.startsWith("**") && p.endsWith("**") ? (
+          <strong key={j}>{p.slice(2, -2)}</strong>
+        ) : (
+          p
+        ),
+      )}
+    </span>
+  );
+}
+
 /** Tiny Markdown renderer for PR bodies and notes: headings, lists, code, paragraphs. */
 export function Markdown({ text }: { text: string }) {
   const blocks: ReactNode[] = [];
   const lines = text.replace(/\r/g, "").split("\n");
   let i = 0;
-  const inline = (s: string, key: string) => {
-    const parts = s.split(/(`[^`]+`|\*\*[^*]+\*\*)/g);
-    return (
-      <span key={key}>
-        {parts.map((p, j) =>
-          p.startsWith("`") && p.endsWith("`") ? (
-            <code key={j}>{p.slice(1, -1)}</code>
-          ) : p.startsWith("**") && p.endsWith("**") ? (
-            <strong key={j}>{p.slice(2, -2)}</strong>
-          ) : (
-            p
-          ),
-        )}
-      </span>
-    );
-  };
   while (i < lines.length) {
     const l = lines[i];
     if (!l.trim()) {

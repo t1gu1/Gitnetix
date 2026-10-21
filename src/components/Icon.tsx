@@ -12,6 +12,7 @@ const PATHS: Record<string, { d: string[]; fill?: boolean; circles?: [number, nu
   tag: { d: ["M2 2.5h5.5L14 9l-5 5-6.5-6.5z"], circles: [[5.3, 5.3, 1]] },
   ship: { d: ["M8 13.5V3M4 7l4-4 4 4M3 14h10"] },
   push: { d: ["M8 13V3M4 7l4-4 4 4"] },
+  send: { d: ["M14 2L2 7l5 2 2 5z", "M14 2L7 9"] },
   stash: { d: ["M2.5 9.5v3.5h11V9.5", "M8 2.5v7M5 6.5l3 3 3-3"] },
   unstash: { d: ["M2.5 9.5v3.5h11V9.5", "M8 9.5v-7M5 5.5l3-3 3 3"] },
   box: { d: ["M8 1.5l5.5 3v7L8 14.5l-5.5-3v-7z", "M2.5 4.5L8 7.5l5.5-3M8 7.5v7"] },

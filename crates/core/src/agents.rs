@@ -57,6 +57,9 @@ pub struct AgentSession {
     pub updated_at: String,
     /// Claude Code session id, used to resume the conversation.
     pub resume_id: Option<String>,
+    /// What the session was started on; follow-ups reuse it.
+    #[serde(default)]
+    pub ai: Option<Resolved>,
     #[serde(skip)]
     pub pid: Option<u32>,
 }
@@ -77,6 +80,10 @@ pub struct AgentManager {
 }
 
 const MAX_LINES: usize = 2000;
+
+fn agent_label(r: &Resolved) -> Result<String> {
+    Ok(format!("{} CLI · {}", ai::provider_info(&r.provider)?.name, r.label()))
+}
 
 pub struct StartArgs {
     pub project_id: String,
@@ -112,7 +119,8 @@ impl AgentManager {
 
     pub fn list(&self) -> Vec<AgentSession> {
         let g = self.inner.lock().unwrap();
-        let mut v: Vec<AgentSession> = g.sessions.values().cloned().collect();
+        // A worktree removed outside Gitnetix takes its session with it.
+        let mut v: Vec<AgentSession> = g.sessions.values().filter(|s| !s.worktree || std::path::Path::new(&s.cwd).exists()).cloned().collect();
         v.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
         v
     }
@@ -180,16 +188,47 @@ impl AgentManager {
             worktree: args.worktree,
             status: AgentStatus::Running,
             request: args.request.clone(),
-            agent_label: format!("{} CLI · {}", ai::provider_info(&args.ai.provider)?.name, args.ai.label()),
+            agent_label: agent_label(&args.ai)?,
             lines: vec![LogLine::new("cmd", format!("$ {} · {}", args.ai.provider, args.request))],
             started_at: now(),
             updated_at: now(),
             resume_id: None,
+            ai: Some(args.ai.clone()),
             pid: None,
         };
         self.inner.lock().unwrap().sessions.insert(id.clone(), session.clone());
         self.spawn_or_fail(&id, &args.cwd, &args.ai, &args.prompt, None)?;
         Ok(session)
+    }
+
+    /// Change what the next follow-up runs on. A new provider cannot resume
+    /// the old conversation, so it starts a fresh one in the same directory.
+    pub fn set_ai(&self, id: &str, r: Resolved) -> Result<AgentSession> {
+        if r.method != ConnectMethod::Cli {
+            return Err(Error::Unsupported(format!("{} is not set up as a local CLI, so it cannot run agents.", r.provider)));
+        }
+        let label = agent_label(&r)?;
+        let name = ai::provider_info(&r.provider)?.name;
+        let switched = {
+            let mut g = self.inner.lock().unwrap();
+            let s = g.sessions.get_mut(id).ok_or_else(|| Error::NotFound(format!("agent session {id}")))?;
+            let switched = s.ai.as_ref().is_some_and(|old| old.provider != r.provider);
+            // A running Claude turn would store its resume id after the switch.
+            if switched && matches!(s.status, AgentStatus::Running | AgentStatus::Paused) {
+                return Err(Error::Invalid("Wait for the agent to finish or stop it before switching provider.".into()));
+            }
+            if switched {
+                s.resume_id = None;
+            }
+            s.agent_label = label;
+            s.ai = Some(r);
+            switched
+        };
+        if switched {
+            self.push(id, LogLine::new("dim", format!("  ↻ Switched to {name} · starts without the earlier conversation")));
+        }
+        self.persist();
+        self.get(id)
     }
 
     /// Send a follow-up message. Claude Code resumes the same conversation;
@@ -198,6 +237,9 @@ impl AgentManager {
         let s = self.get(id)?;
         if s.status == AgentStatus::Running || s.status == AgentStatus::Paused {
             return Err(Error::Invalid("The agent is still working. Wait for it or stop it first.".into()));
+        }
+        if !std::path::Path::new(&s.cwd).exists() {
+            return Err(Error::Invalid(format!("{} no longer exists. Start a new session.", s.cwd)));
         }
         self.push(id, LogLine::new("cmd", format!("› {text}")));
         self.set_status(id, AgentStatus::Running);
@@ -263,17 +305,19 @@ impl AgentManager {
         let mut stdin_prompt = true;
         match r.provider.as_str() {
             "claude" => {
-                cmd.args(["-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "acceptEdits"]);
-                cmd.args(["--allowedTools", "Read,Edit,Write,Glob,Grep,Bash(git:*),Bash(npm:*),Bash(pnpm:*),Bash(yarn:*),Bash(cargo:*),Bash(make:*),Bash(ls:*)"]);
+                cmd.args(["-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "bypassPermissions"]);
                 if !r.model.is_empty() {
                     cmd.args(["--model", &r.model]);
+                }
+                if !r.effort.is_empty() {
+                    cmd.args(["--effort", &r.effort]);
                 }
                 if let Some(rid) = resume {
                     cmd.args(["--resume", rid]);
                 }
             }
             "codex" => {
-                cmd.args(["exec", "--full-auto", "-"]);
+                cmd.args(["exec", "--dangerously-bypass-approvals-and-sandbox", "-"]);
             }
             "gemini" => {
                 cmd.args(["--yolo", "-p", prompt]);
@@ -384,10 +428,10 @@ impl AgentManager {
                 for block in v["message"]["content"].as_array().into_iter().flatten() {
                     match block["type"].as_str() {
                         Some("text") => {
+                            // One line per reply, blank lines kept, so the UI can render it as Markdown.
                             let text = block["text"].as_str().unwrap_or("").trim();
-                            for (i, l) in text.lines().filter(|l| !l.trim().is_empty()).enumerate() {
-                                let prefix = if i == 0 { "✦ " } else { "  " };
-                                self.push(id, LogLine::new("ai", format!("{prefix}{l}")));
+                            if !text.is_empty() {
+                                self.push(id, LogLine::new("ai", format!("✦ {text}")));
                             }
                         }
                         Some("tool_use") => {
@@ -434,5 +478,39 @@ impl AgentManager {
             }
             _ => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cli(provider: &str) -> Resolved {
+        Resolved { provider: provider.into(), method: ConnectMethod::Cli, model: String::new(), effort: String::new(), base_url: None }
+    }
+
+    #[test]
+    fn switching_provider_drops_the_claude_conversation() {
+        let dir = tempfile::tempdir().unwrap();
+        let m = AgentManager::new(broadcast::channel(8).0, dir.path());
+        let s = AgentSession {
+            id: "a".into(), project_id: "p".into(), branch: "b".into(), cwd: ".".into(), worktree: false,
+            status: AgentStatus::Waiting, request: "r".into(), agent_label: String::new(), lines: vec![],
+            started_at: now(), updated_at: now(), resume_id: Some("rid".into()), ai: Some(cli("claude")), pid: None,
+        };
+        m.inner.lock().unwrap().sessions.insert("a".into(), s);
+
+        // Same provider: only the model changes, the conversation is kept.
+        let mut r = cli("claude");
+        r.model = "opus".into();
+        assert_eq!(m.set_ai("a", r).unwrap().resume_id.as_deref(), Some("rid"));
+
+        let s = m.set_ai("a", cli("gemini")).unwrap();
+        assert_eq!(s.resume_id, None);
+        assert!(s.lines.last().unwrap().text.contains("Switched to"));
+
+        // Not while a turn runs: it would store a resume id after the switch.
+        m.inner.lock().unwrap().sessions.get_mut("a").unwrap().status = AgentStatus::Running;
+        assert!(m.set_ai("a", cli("claude")).is_err());
     }
 }

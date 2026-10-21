@@ -1,15 +1,18 @@
 import { useMemo, useState } from "react";
 
-import { useAction, useAgents, useProjects, useWorktrees } from "../api/hooks";
+import { useAction, useAgents, useFiles, useOverview, useProjects, useWorktrees } from "../api/hooks";
 import type { AgentSession, AgentStatus, WorktreeView } from "../api/types";
 import { AgentLog } from "../components/AgentLog";
+import { AgentPicker, MenuChoice, useAgentPick } from "../components/AgentPicker";
 import { Icon } from "../components/Icon";
-import { ago, Empty, Header, Loading, Modal, Seg } from "../components/ui";
+import { ago, Busy, Empty, Header, Loading, Modal, Seg } from "../components/ui";
 import { useNav } from "../lib/nav";
+import { useBranchActions } from "./BranchMenu";
+import { MergeModal, mergeTargets, useFinishHandlers } from "./Workspace";
 
 const STATUS: Record<AgentStatus | "idle", [string, string]> = {
   running: ["Running", "c-acc"],
-  waiting: ["Waiting for you", "c-acc"],
+  waiting: ["Waiting for you", "c-add"],
   paused: ["Paused", "muted"],
   failed: ["Failed", "c-del"],
   done: ["Done", "c-add"],
@@ -17,7 +20,7 @@ const STATUS: Record<AgentStatus | "idle", [string, string]> = {
   idle: ["No agent", "faint"],
 };
 
-type Filter = "all" | "running" | "needs" | "quiet";
+type Filter = "all" | "running" | "needs";
 
 interface Row {
   key: string;
@@ -30,14 +33,11 @@ interface Row {
   status: AgentStatus | "idle";
 }
 
-const GROUP: Record<Row["status"], Exclude<Filter, "all">> = {
+// Statuses left out only show under "All".
+const GROUP: Partial<Record<Row["status"], Exclude<Filter, "all">>> = {
   running: "running",
   waiting: "needs",
   failed: "needs",
-  idle: "quiet",
-  done: "quiet",
-  paused: "quiet",
-  stopped: "quiet",
 };
 
 const match = (s: Row["status"], f: Filter) => f === "all" || GROUP[s] === f;
@@ -52,16 +52,17 @@ export function Worktrees({ initial }: { initial?: string }) {
   const [pane, setPane] = useState<"list" | "detail">(initial ? "detail" : "list");
   const [starting, setStarting] = useState(false);
 
-  // One row per worktree; agents whose directory is gone still show up.
+  // One row per linked worktree; agents elsewhere (main checkout, removed directory) still show up.
   const rows: Row[] = useMemo(() => {
-    const list: Row[] = (wts.data ?? []).map((w) => {
+    const list: Row[] = (wts.data ?? []).filter((w) => !w.main).map((w) => {
       const a = (agents.data ?? []).find((x) => x.cwd === w.path) ?? w.agent ?? undefined;
       return { key: w.path, wt: w, agent: a, projectId: w.projectId, projectName: w.projectName, branch: w.branch ?? "(detached)", path: w.path, status: a?.status ?? "idle" };
     });
     for (const a of agents.data ?? []) {
       if (!list.some((r) => r.agent?.id === a.id)) {
         const p = projects.find((x) => x.id === a.projectId);
-        list.push({ key: a.id, agent: a, projectId: a.projectId, projectName: p?.name ?? "?", branch: a.branch, path: a.cwd, status: a.status });
+        const w = wts.data?.find((x) => x.path === a.cwd);
+        list.push({ key: a.id, wt: w, agent: a, projectId: a.projectId, projectName: p?.name ?? "?", branch: a.branch, path: a.cwd, status: a.status });
       }
     }
     return list;
@@ -71,7 +72,7 @@ export function Worktrees({ initial }: { initial?: string }) {
   const needs = rows.filter((r) => match(r.status, "needs")).length;
   const wtCount = rows.filter((r) => r.wt && !r.wt.main).length;
   const cur = rows.find((r) => r.key === sel) ?? rows[0];
-  const names = [...new Set(rows.map((r) => r.projectName))];
+  const names = [...new Set([...projects.map((p) => p.name), ...rows.map((r) => r.projectName)])];
 
   return (
     <>
@@ -84,14 +85,13 @@ export function Worktrees({ initial }: { initial?: string }) {
               label="Filter"
               value={filter}
               onChange={setFilter}
-              options={(["all", "running", "needs", "quiet"] as Filter[]).map((f) => ({
+              options={(["all", "running", "needs"] as Filter[]).map((f) => ({
                 value: f,
-                label: <>{{ all: "All", running: "Running", needs: "Needs you", quiet: "Idle" }[f]} <span className="faint">{rows.filter((r) => match(r.status, f)).length}</span></>,
+                label: <>{{ all: "All", running: "Running", needs: "Needs you" }[f]} <span className="faint">{rows.filter((r) => match(r.status, f)).length}</span></>,
               }))}
             />
             <span className="hint">{running} running · {needs} need you · {wtCount} worktrees</span>
-            <button className="btn" disabled={!nav.projectId} onClick={() => setStarting(true)}>
-              <Icon name="plus" size={12} />
+            <button className="btn btn-primary" style={{ height: 48, fontSize: 13.5 }} disabled={!projects.length} onClick={() => setStarting(true)}>
               New agent session
             </button>
           </div>
@@ -99,25 +99,21 @@ export function Worktrees({ initial }: { initial?: string }) {
             {(wts.isLoading || agents.isLoading) && <Loading />}
             {names.map((name) => {
               const items = rows.filter((r) => r.projectName === name && match(r.status, filter));
-              if (!items.length) return null;
               const n = rows.filter((r) => r.projectName === name && r.wt && !r.wt.main).length;
               return (
                 <div key={name}>
-                  <div className="group-head">
+                  <div className="group-head" style={{ padding: "22px 14px 6px" }}>
                     <span>{name}</span>
                     <span style={{ textTransform: "none", letterSpacing: 0, fontWeight: 400 }} className="faint">{n === 1 ? "1 worktree" : `${n} worktrees`}</span>
                   </div>
+                  {!items.length && <p className="hint" style={{ padding: "0 14px 4px" }}>None currently running</p>}
                   <div className="col" style={{ gap: 2 }}>
                     {items.map((r) => (
-                      <button key={r.key} className="item-btn" aria-pressed={r.key === cur?.key} onClick={() => { setSel(r.key); setPane("detail"); }}>
-                        <span className="row">
-                          {r.status === "running" ? <span className="pulse" /> : <span style={{ width: 6 }} />}
-                          <span className="mono ellipsis grow" style={{ fontSize: 12.5 }}>{r.branch}</span>
-                          <span className="faint" style={{ fontSize: 11 }}>{r.wt ? (r.wt.main ? "main checkout" : "worktree") : "gone"}</span>
-                        </span>
-                        <span className="row" style={{ gap: 8, fontSize: 11.5, paddingLeft: 14 }}>
-                          <span className={STATUS[r.status][1]}>{STATUS[r.status][0]}</span>
-                          <span className="faint ellipsis grow">{r.agent?.lines.at(-1)?.text.trim() ?? r.path}</span>
+                      <button key={r.key} className="item-btn" style={{ width: "100%", margin: 0, borderRadius: 0, padding: "10px 14px" }} aria-pressed={r.key === cur?.key} title={`${STATUS[r.status][0]} · ${r.path}`} onClick={() => { setSel(r.key); setPane("detail"); }}>
+                        <span className="row" style={{ gap: 8, fontSize: 11.5 }}>
+                          {r.status === "running" ? <span className="pulse" style={{ flex: "0 0 8px", width: 8, height: 8, borderRadius: 4 }} /> : <span className={STATUS[r.status][1]} style={{ flex: "0 0 8px", height: 8, borderRadius: 4, background: "currentColor" }} />}
+                          <span className="sr-only">{STATUS[r.status][0]}</span>
+                          <span className={`mono ellipsis grow${r.wt ? "" : " faint"}`} style={{ fontSize: 12.5 }}>{r.branch}</span>
                           {r.wt && (r.wt.additions > 0 || r.wt.deletions > 0) && (
                             <span className="mono"><span className="c-add">+{r.wt.additions}</span> <span className="c-del">−{r.wt.deletions}</span></span>
                           )}
@@ -129,7 +125,7 @@ export function Worktrees({ initial }: { initial?: string }) {
                 </div>
               );
             })}
-            {!wts.isLoading && rows.length === 0 && <Empty>Nothing here right now.</Empty>}
+            {!wts.isLoading && names.length === 0 && <Empty>Nothing here right now.</Empty>}
           </div>
         </section>
         <main className="detail" data-pane data-active={pane === "detail"} style={{ display: "flex", flexDirection: "column" }}>
@@ -140,7 +136,7 @@ export function Worktrees({ initial }: { initial?: string }) {
           {cur ? <Detail key={cur.key} r={cur} /> : <Empty>Select a worktree.</Empty>}
         </main>
       </div>
-      {starting && nav.projectId && <StartModal pid={nav.projectId} onClose={() => setStarting(false)} />}
+      {starting && <StartModal initial={cur?.projectId ?? nav.projectId ?? projects[0]?.id} onClose={() => setStarting(false)} />}
     </>
   );
 }
@@ -153,18 +149,35 @@ function Detail({ r }: { r: Row }) {
   const resume = useAction("agents.resume", { invalidate: inv });
   const stop = useAction("agents.stop", { invalidate: inv });
   const msg = useAction("agents.message", { invalidate: inv });
+  const configure = useAction("agents.configure", { invalidate: inv });
   const start = useAction("agents.start", { invalidate: inv });
-  const removeWt = useAction("worktrees.remove", { invalidate: inv, success: "Worktree removed" });
   const removeAgent = useAction("agents.remove", { invalidate: inv });
   const [text, setText] = useState("");
-  const [confirm, setConfirm] = useState(false);
+  const actions = useBranchActions(r.projectId, () => {});
+  const ov = useOverview(r.projectId);
+  // Merging closes the worktree once done (`then`); `stay` leaves the main checkout where it is.
+  const [merging, setMerging] = useState<{ then: () => void; stay: boolean } | null>(null);
+  const finish = useFinishHandlers(r.projectId, actions.continueOn, (_, then, stay) => setMerging({ then, stay }));
+  const isWorktree = !!r.wt && !r.wt.main;
+  const session = { projectId: r.projectId, branch: r.branch, cwd: r.path };
+  // Commits like the Workspace commit box with an empty summary: AI writes the message, staged files only if any, else everything.
+  const wip = useFiles(r.projectId, r.wt ? r.branch : undefined, "wip").data ?? [];
+  const changed = new Set(wip.map((f) => f.path)).size;
+  const staged = wip.filter((f) => f.staged).length;
+  const commitInv = [["overview", r.projectId], ["files", r.projectId], ["diff", r.projectId], ["commits", r.projectId]];
+  const commit = useAction<{ message: string; aiWritten: boolean }>("workspace.commit", {
+    invalidate: commitInv,
+    success: (c) => `${c.aiWritten ? "AI wrote: " : "Committed: "}${c.message.split("\n")[0]}`,
+  });
+  const push = useAction("workspace.push", { invalidate: commitInv, success: `Pushed ${r.branch}` });
+  const [pick, setPick] = useAgentPick(r.projectId);
   const busy = a?.status === "running" || a?.status === "paused";
   const send = () => {
     const t = text.trim();
     if (!t) return;
     const done = { onSuccess: () => setText("") };
     if (a && !busy) msg.mutate({ id: a.id, text: t }, done);
-    else if (!a) start.mutate({ projectId: r.projectId, branch: r.wt?.branch ?? undefined, request: t }, done);
+    else if (!a) start.mutate({ projectId: r.projectId, branch: r.wt?.branch ?? undefined, request: t, ...pick }, done);
   };
   const [label, cls] = STATUS[r.status];
   return (
@@ -187,13 +200,11 @@ function Detail({ r }: { r: Row }) {
         {a?.status === "waiting" && r.wt && (
           <button
             className="btn btn-primary"
-            onClick={() => {
-              nav.setProject(r.projectId);
-              nav.selectBranch(r.branch);
-              nav.go({ name: "workspace" });
-            }}
+            disabled={!changed || commit.isPending || push.isPending}
+            onClick={() => commit.mutate({ projectId: r.projectId, branch: r.branch, message: "", all: !staged }, { onSuccess: () => push.mutate({ projectId: r.projectId, branch: r.branch }) })}
           >
-            Review &amp; commit
+            <Busy on={commit.isPending || push.isPending}><Icon name="sparkle" size={12} /></Busy>
+            <span>Commit &amp; Push changes<span style={{ fontWeight: 400, opacity: 0.75, marginLeft: 6 }}>{staged || changed}</span></span>
           </button>
         )}
         {a?.status === "failed" && (
@@ -218,17 +229,33 @@ function Detail({ r }: { r: Row }) {
           </button>
         )}
         <span className="grow" />
-        {a && !busy && <button className="btn btn-ghost" onClick={() => removeAgent.mutate({ id: a.id })}>Clear session</button>}
-        {r.wt && !r.wt.main && <button className="btn btn-danger" onClick={() => setConfirm(true)}><Icon name="trash" size={12} />Remove worktree</button>}
+        {a && !busy && !isWorktree && <button className="btn btn-ghost" onClick={() => removeAgent.mutate({ id: a.id })}>Clear session</button>}
+        {isWorktree && (
+          <>
+            <button className="btn" data-tip={`Delete the worktree and switch to ${r.branch}; refused with uncommitted changes`} onClick={() => finish.continue(session, true)}>Continue on branch</button>
+            <button className="btn" data-tip="Pick the merge options; the worktree is deleted once merged" onClick={() => finish.merge(session, true)}>Merge…</button>
+            <button className="btn btn-danger" data-tip={`Delete the worktree, its uncommitted changes and the local ${r.branch} branch`} onClick={() => finish.discard(session)}>
+              <Icon name="trash" size={12} />
+              Cancel and Delete all
+            </button>
+          </>
+        )}
       </div>
       <div className="col card" style={{ flex: "1 1 320px", minHeight: 280, gap: 0, overflow: "hidden", background: "var(--term)" }}>
-        <div className="row" style={{ height: 34, padding: "0 14px", borderBottom: "1px solid var(--line)", background: "var(--panel)" }}>
+        <div className="row" style={{ height: 34, margin: 0, padding: "0 14px", borderBottom: "1px solid var(--line)", background: "var(--panel)" }}>
           <Icon name="terminal" />
-          <span className="muted">Session log</span>
-          <span className="grow" />
-          <span className="hint">Keeps running when you switch project</span>
+          {a?.ai ? (
+            <span style={{ alignSelf: "stretch", display: "flex" }}><AgentPicker value={a.ai} onChange={(p) => configure.mutate({ id: a.id, ...p })} compact /></span>
+          ) : !a && r.wt ? (
+            <span style={{ alignSelf: "stretch", display: "flex" }}><AgentPicker value={pick} onChange={setPick} compact /></span>
+          ) : (
+            <>
+              <span className="grow" />
+              <span className="hint">Keeps running when you switch project</span>
+            </>
+          )}
         </div>
-        <AgentLog lines={a?.lines ?? []} empty={r.wt ? "No agent session on this checkout." : "Directory removed."} />
+        <AgentLog lines={a?.lines ?? []} projectId={r.projectId} provider={a ? a.ai?.provider : pick.provider} thinking={a?.status === "running" || msg.isPending || start.isPending} onAnswer={a && ((t) => msg.mutate({ id: a.id, text: t }))} empty={r.wt ? "No agent session on this checkout." : "Directory removed."} />
         <form className="term-input" onSubmit={(e) => { e.preventDefault(); send(); }}>
           <span className="mono c-acc" aria-hidden="true">›</span>
           <label htmlFor="wt-ask" className="sr-only">Message the agent</label>
@@ -239,50 +266,91 @@ function Detail({ r }: { r: Row }) {
             onChange={(e) => setText(e.target.value)}
             placeholder={busy ? "Agent is working…" : a ? `Message the agent on ${r.branch}…` : "Start a session: describe what the agent should do…"}
           />
-          {(msg.isPending || start.isPending) && <span className="spinner" />}
+          <button type="submit" className="btn btn-sm btn-primary btn-icon" aria-label="Send" data-tip="Send" disabled={busy || (!a && !r.wt) || !text.trim() || msg.isPending || start.isPending}>
+            {msg.isPending || start.isPending ? <span className="spinner" /> : <Icon name="send" size={13} />}
+          </button>
         </form>
       </div>
-      {confirm && r.wt && (
-        <Modal
-          title="Remove worktree?"
-          onClose={() => setConfirm(false)}
-          footer={
-            <>
-              <button className="btn btn-md" onClick={() => setConfirm(false)}>Cancel</button>
-              <button className="btn btn-md btn-danger" onClick={() => removeWt.mutate({ projectId: r.projectId, path: r.path, force: true }, { onSuccess: () => setConfirm(false) })}>Remove, discard uncommitted changes</button>
-              <button className="btn btn-md btn-primary" onClick={() => removeWt.mutate({ projectId: r.projectId, path: r.path }, { onSuccess: () => setConfirm(false) })}>Remove</button>
-            </>
-          }
-        >
-          <p style={{ margin: 0, lineHeight: 1.55 }}>
-            Deletes the folder <span className="mono">{r.path}</span>. The branch <span className="mono">{r.branch}</span> and its commits stay. “Remove” refuses if there are uncommitted changes.
-          </p>
-        </Modal>
+      {merging && (
+        <MergeModal
+          pid={r.projectId}
+          branch={r.branch}
+          base={ov.data?.branches.find((x) => x.name === r.branch)?.parent ?? ""}
+          others={mergeTargets(ov.data?.branches ?? [], r.branch)}
+          stay={merging.stay}
+          onClose={() => setMerging(null)}
+          onDeleted={(into) => nav.projectId === r.projectId && nav.selectedBranch === r.branch && nav.selectBranch(into)}
+          onMerged={merging.then}
+        />
       )}
     </div>
   );
 }
 
-function StartModal({ pid, onClose }: { pid: string; onClose: () => void }) {
+function StartModal({ initial, onClose }: { initial?: string; onClose: () => void }) {
+  const projects = useProjects().data ?? [];
+  const [pid, setPid] = useState(initial ?? "");
+  // Each session gets its own worktree (made by the backend if needed); the default branch is reserved.
+  const [picked, setBranch] = useState("");
   const [request, setRequest] = useState("");
-  const start = useAction("agents.start", { invalidate: [["agents"]], success: "Agent started" });
+  const [pick, setPick] = useAgentPick(pid);
+  const ov = useOverview(pid).data;
+  const branches = (ov?.branches ?? []).filter((b) => b.exists && b.name !== ov?.defaultBranch);
+  const branch = branches.find((b) => b.name === picked)?.name ?? branches[0]?.name ?? "";
+  const start = useAction("agents.start", { invalidate: [["agents"], ["worktrees"]], success: "Agent started" });
+  const go = () => start.mutate({ projectId: pid, branch, request, ...pick }, { onSuccess: onClose });
   return (
     <Modal
       title="New agent session"
-      sub="Runs on the main checkout of the current project"
+      sub={branch && `Runs in its own worktree on ${branch}`}
       onClose={onClose}
       footer={
         <>
           <button className="btn btn-md" onClick={onClose}>Cancel</button>
-          <button className="btn btn-primary btn-md" disabled={!request.trim() || start.isPending} onClick={() => start.mutate({ projectId: pid, request }, { onSuccess: onClose })}>Start</button>
+          <button className="btn btn-primary btn-md" disabled={!pid || !branch || !request.trim() || start.isPending} onClick={go}>
+            <Busy on={start.isPending}><Icon name="play" size={12} /></Busy>
+            Start
+          </button>
         </>
       }
     >
+      <div className="row" style={{ gap: 10, alignItems: "flex-start" }}>
+        <div className="field grow">
+          <span>Project</span>
+          <MenuChoice className="select menu-select" label="Project" value={pid} options={projects.map((p) => ({ value: p.id, label: p.name }))} onChange={(v) => { setPid(v); setBranch(""); }} />
+        </div>
+        <div className="field grow">
+          <span>Branch</span>
+          <MenuChoice
+            className="select menu-select"
+            label="Branch"
+            value={branch}
+            options={branches.map((b) => ({ value: b.name, label: b.local ? b.name : `${b.name} (origin)` }))}
+            onChange={setBranch}
+          />
+        </div>
+      </div>
+      {ov && !branches.length && <p className="hint c-del">{ov.defaultBranch} is reserved: create a new branch to start an agent session.</p>}
+      {branch && branch === ov?.currentBranch && (
+        <p className="hint">{branch} is checked out in the main checkout: it is switched off it first, which needs no uncommitted changes there.</p>
+      )}
+      <div className="field">
+        <span>Agent</span>
+        <AgentPicker value={pick} onChange={setPick} />
+      </div>
       <div className="field">
         <label htmlFor="ag-req">What should the agent do?</label>
-        <textarea id="ag-req" className="textarea" rows={4} value={request} onChange={(e) => setRequest(e.target.value)} placeholder="Squash my last 3 commits on this branch" autoFocus />
+        <textarea
+          id="ag-req"
+          className="textarea"
+          rows={5}
+          value={request}
+          onChange={(e) => setRequest(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && pid && branch && request.trim() && !start.isPending) go(); }}
+          autoFocus
+        />
+        <span className="hint">⌘↵ to start</span>
       </div>
-      <p className="hint">To give an agent its own folder, create the feature with “Open in a new worktree” or open a branch in a worktree from the workspace.</p>
     </Modal>
   );
 }

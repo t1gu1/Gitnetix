@@ -49,8 +49,8 @@ export const rebaseMessage = (r: RebaseResult) =>
       ? `Rebased. Force push to update ${r.forcePushTo}`
       : "Rebased, no conflicts";
 
-/** After a target change: offer to rebase onto the new target (only checked-out work branches get rebased). */
-export const offersRebase = (v?: BranchView) => !!v && v.role === "branch" && v.checkedOut;
+/** After a target change: offer to rebase onto the new target (only checked-out work branches get rebased; a worktree's branch catches up by merging). */
+export const offersRebase = (v?: BranchView) => !!v && v.role === "branch" && v.checkedOut && !v.worktree;
 
 /** Origin and local each have commits the other lacks (e.g. rebased): origin only takes it forced. */
 const isDiverged = (v: BranchView) => !!v.upstream && v.upstreamAhead > 0 && v.upstreamBehind > 0;
@@ -68,6 +68,8 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
     patch: (qc, v) => qc.setQueryData<Overview>(["overview", pid], (o) => o && switchedOverview(o, v.branch)),
   });
   const wt = useAction<{ path: string }, { projectId: string; branch: string }>("worktrees.create", { invalidate: [...inv, ["worktrees"]], success: (r) => `Worktree at ${r.path}` });
+  // `branch` only marks the row busy; the worktree is found by its path.
+  const removeWt = useAction<unknown, { projectId: string; branch: string; path: string }>("worktrees.remove", { invalidate: [...inv, ["worktrees"], ["agents"]] });
   const pull = useAction<{ output: string }, { projectId: string; branch: string }>("branches.pull", { invalidate: inv });
   const push = useAction<{ output: string }, { projectId: string; branch: string }>("workspace.push", { invalidate: inv });
   const rebase = useAction<RebaseResult, { projectId: string; branch: string }>("workspace.rebase", { invalidate: inv, success: rebaseMessage });
@@ -86,11 +88,13 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
   const move = useAction("branches.setParent", { invalidate: inv });
   const [menu, setMenu] = useState<{ x: number; y: number; alignRight: boolean; t: BranchTarget } | null>(null);
 
-  const mutations = [sw, wt, pull, push, rebase, sync, stash, unstash, pr, changelog, stampChangelog];
+  const mutations = [sw, wt, removeWt, pull, push, rebase, sync, stash, unstash, pr, changelog, stampChangelog];
   // Pushes started elsewhere count too: the commit box's auto push spins the branch's Push button.
   const pushing = usePendingBranches("workspace.push", pid);
   const busy = new Set([...mutations.flatMap((m) => (m.isPending && m.variables?.branch ? [m.variables.branch] : [])), ...pushing]);
   const run = (m: BranchMutation, branch: string, ok: string) => m.mutate({ projectId: pid, branch }, { onSuccess: () => toast(ok, "ok") });
+  /** Deletes the worktree (refused with uncommitted changes there), then checks its branch out here. */
+  const continueOn = (branch: string, path: string) => removeWt.mutate({ projectId: pid, branch, path }, { onSuccess: () => run(sw, branch, `Worktree deleted, continuing on ${branch}`) });
 
   const all = (t: BranchTarget) => {
     const v = t.view;
@@ -106,6 +110,14 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
         tip: originOnly ? `Only on origin: create a local ${b} that tracks it and switch to it` : `Check out ${b}`,
         icon: "swap",
         run: () => run(sw, b, `Switched to ${b}`),
+      },
+      continue: {
+        id: "continue",
+        label: "Continue on branch & delete worktree",
+        short: "Continue",
+        tip: `Delete the worktree of ${b} and check ${b} out here. Refused if the worktree has uncommitted changes`,
+        icon: "swap",
+        run: () => v.worktree && continueOn(b, v.worktree),
       },
       worktree: { id: "worktree", label: "Open in worktree", tip: `Open ${b} in its own worktree`, icon: "layers", run: () => wt.mutate({ projectId: pid, branch: b }) },
       pull: {
@@ -254,6 +266,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
     const list: MenuItem[] = t.extra?.length ? [...t.extra, "sep"] : [];
     if (v.conflict) list.push(a.conflicts, "sep");
     if (!v.checkedOut) list.push(a.switch, a.worktree);
+    else if (v.worktree) list.push(a.continue);
     list.push(a.create, "sep");
     if (v.local) {
       list.push(a.pull);
@@ -266,8 +279,8 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
       if (v.checkedOut && t.latestStash) list.push(a.unstash);
       if (t.base) {
         list.push("sep");
-        // Shared branches (releases, dev) catch up by merging; work branches can also be rebased.
-        if (v.role === "branch") list.push(a.rebase);
+        // Shared branches (releases, dev) and worktrees catch up by merging; other work branches can also be rebased.
+        if (v.role === "branch" && !v.worktree) list.push(a.rebase);
         list.push(a.sync);
         if (v.role !== "release") list.push(a.merge);
       }
@@ -313,6 +326,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
     }
     if (v.merged && !v.likelyMerged && !v.checkedOut && !v.protected) return a.delete;
     if (!v.checkedOut) return a.switch;
+    if (v.worktree) return a.continue;
     if (needsPush) return a.push;
     if (v.behind > 0) return a.rebase;
     if (v.ahead > 0) return a.merge;
@@ -336,7 +350,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
 
   const menuEl = menu && <ContextMenu x={menu.x} y={menu.y} alignRight={menu.alignRight} label={`Actions for ${menu.t.view.name}`} items={items(menu.t)} onClose={() => setMenu(null)} />;
 
-  return { primary, create, openMenu, menuEl, busy, switchTo };
+  return { primary, create, openMenu, menuEl, busy, switchTo, continueOn };
 }
 
 export type BranchActions = ReturnType<typeof useBranchActions>;

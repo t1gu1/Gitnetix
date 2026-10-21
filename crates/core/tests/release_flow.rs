@@ -856,6 +856,26 @@ async fn outside_git_changes_refresh_the_project() {
 }
 
 #[tokio::test]
+async fn ignore_untracks_committed_files() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("atlas-api");
+    init_repo(&repo);
+    std::fs::create_dir(repo.join("build")).unwrap();
+    commit_file(&repo, "build/out.js", "x\n");
+    std::fs::write(repo.join("build/out.js"), "y\n").unwrap();
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let added = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await;
+    let pid = added[0]["id"].as_str().unwrap().to_string();
+
+    call(&k, "workspace.ignore", json!({ "projectId": pid, "branch": "main", "path": "build", "dir": true })).await;
+    sh(&repo, &["add", ".gitignore"]);
+    sh(&repo, &["commit", "-qm", "ignore build"]);
+    let wip = call(&k, "workspace.files", json!({ "projectId": pid, "branch": "main", "mode": "wip" })).await;
+    assert_eq!(wip, json!([]), "ignored folder still in WIP");
+    assert!(repo.join("build/out.js").exists(), "untracking deleted the file");
+}
+
+#[tokio::test]
 async fn suggest_version() {
     let tmp = tempfile::tempdir().unwrap();
     let repo = tmp.path().join("atlas-api");

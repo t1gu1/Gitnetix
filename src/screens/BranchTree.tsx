@@ -698,6 +698,8 @@ function Row({
             <span className="mono ellipsis">{marked(name, b, hit)}</span>
             {shipped ? <span className="tag released">{releaseTagLabel("released")}</span> : tag}
             {b.likelyMerged && <span className="tag" title={`A pull request carrying its ticket went into ${t.baseLabel} after its last commit. Not proof: it is never cleaned up as merged.`}>likely</span>}
+            {b.local && !b.remote && <span className="tag local" title={`${b.name} doesn't exist on origin. Push it to share it.`}>local</span>}
+            {b.remote && !b.local && <span className="tag accent" title={`${b.name} was never fetched into a local branch. Check it out to work on it locally.`}>origin</span>}
           </span>
           <BranchMeta b={b} parent={t.baseLabel} current={current} showName={!!shipped} onCommits={t.showCommits} onStashes={t.showStashes} />
         </span>
@@ -761,15 +763,20 @@ function BranchMeta({
   const merging = useIsMutating({ mutationKey: ["branches.merge"] }) > 0;
   const grew = useGrowth(parent ? b.ahead : Date.parse(b.date) || 0, merging);
   const growCls = grew > 0 ? " meta-link-grow" : "";
+  // A typed branch shows WIP in place of its type chip.
+  const typed = b.role === "branch" && !!b.kind;
+  const wip = b.wip > 0 && <span className="wip-badge" title={`${plural(b.wip, "file")} with uncommitted changes`}>WIP {b.wip}</span>;
+  const conflict = b.conflict && <span className="c-del">conflict</span>;
   return (
+    <>
     <span className="branch-meta">
-      {b.role === "branch" && b.kind && <span className={`kind-chip ${b.kind === "fix" ? "c-del" : "c-mod"}`}>{b.kind}</span>}
+      {typed && wip}
+      {typed && !wip && <span className={`kind-chip ${b.kind === "fix" ? "c-del" : "c-mod"}`}>{b.kind}</span>}
       {(b.role === "release" || showName) && <span className="mono">{b.name}</span>}
       {current && <span className="c-current">checked out</span>}
-      {b.worktree && <span className="row" style={{ gap: 4 }}><Icon name="layers" size={11} stroke={1.4} />worktree</span>}
-      {b.running && <span className="row c-acc" style={{ gap: 4 }}><span className="pulse" style={{ width: 5, height: 5 }} />AI working</span>}
-      {b.conflict && <span className="c-del">conflict</span>}
-      {b.wip > 0 && <span className="wip-badge" title={`${plural(b.wip, "file")} with uncommitted changes`}>WIP {b.wip}</span>}
+      {!b.worktree && b.running && <span className="row c-acc" style={{ gap: 4 }}><span className="pulse" style={{ width: 5, height: 5 }} />AI working</span>}
+      {!b.worktree && conflict}
+      {!typed && !b.worktree && wip}
       {!b.exists && <span className="c-del">branch deleted</span>}
       {b.merged && (
         <span className="pill c-add" title={`All its commits are in ${parent}`}>
@@ -819,19 +826,26 @@ function BranchMeta({
           ↓{b.behind} from {parent}
         </span>
       )}
-      {b.local && !b.remote && <span className="tag" title={`${b.name} doesn't exist on origin. Push it to share it.`}>local</span>}
-      {b.remote && !b.local && <span className="tag" title={`${b.name} was never fetched into a local branch. Check it out to work on it locally.`}>origin</span>}
       {b.upstreamBehind > 0 && (
-        <span className="tag c-warn" title={`${plural(b.upstreamBehind, "commit")} on origin not in the local ${b.name}. Pull to catch up.`}>
+        <span className="tag local" title={`${plural(b.upstreamBehind, "commit")} on origin not in the local ${b.name}. Pull to catch up.`}>
           local ↓{b.upstreamBehind}
         </span>
       )}
       {b.upstreamAhead > 0 && (
-        <span className="tag c-warn" title={`${plural(b.upstreamAhead, "local commit")} never pushed: origin is behind. Push to update it.`}>
+        <span className="tag accent" title={`${plural(b.upstreamAhead, "local commit")} never pushed: origin is behind. Push to update it.`}>
           origin ↓{b.upstreamAhead}
         </span>
       )}
       {b.ticket && <span className="mono">{b.ticket}</span>}
     </span>
+    {b.worktree && (
+      <span className="branch-meta">
+        {/* Its checkout's state: the worktree tag says when the AI works there. */}
+        <span className={`row${b.running ? " c-acc" : ""}`} style={{ gap: 4 }} title={b.worktree}><Icon name="layers" size={11} stroke={1.4} />{b.running ? "AI working" : "worktree"}</span>
+        {conflict}
+        {!typed && wip}
+      </span>
+    )}
+    </>
   );
 }
