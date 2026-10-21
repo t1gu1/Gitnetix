@@ -463,7 +463,7 @@ export function Workspace() {
                 </>
               )}
               {(!current || (diff.data && diff.data.length === 0 && !image) || (unchanged && !image && blobs.data && text === null)) && (
-                <div className="empty" style={{ fontFamily: "var(--sans)" }}>
+                <div className="empty" style={{ fontFamily: "var(--sans)", ...(list.length === 0 && { height: "100%", display: "grid", placeItems: "center", fontSize: 15 }) }}>
                   {list.length === 0 ? "Nothing to show — working tree is clean." : unchanged ? "Binary file." : "No textual changes in this file."}
                 </div>
               )}
