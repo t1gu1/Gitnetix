@@ -11,6 +11,8 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-21
+
 ### Added
 - Show the contents of unchanged files in the project view.
 - Show +/- totals on folder rows in the changed files list.
