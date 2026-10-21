@@ -411,7 +411,7 @@ export function Workspace() {
                 <FileList key={fold.n} allClosed={fold.closed} list={list} current={current} tree={asTree} menu={fileMenu} onPick={(f) => { setFile(fileKey(f)); setPane("diff"); }} />
               )}
               {!files.isLoading && list.length === 0 && (
-                <li className="empty">{stash ? "This stash holds no files." : commit ? "This commit changes no files." : mode === "wip" ? (checkedOut ? "No uncommitted changes." : "This branch is not checked out.") : "No changes on this branch yet."}</li>
+                <li className="empty engraved" style={{ height: "100%", display: "grid", placeItems: "center", fontSize: 13.5 }}>{stash ? "This stash holds no files." : commit ? "This commit changes no files." : mode === "wip" ? (checkedOut ? "No uncommitted changes." : "This branch is not checked out.") : "No changes on this branch yet."}</li>
               )}
             </ul>
             {branch && !history && <CommitBox pid={pid} branch={branch} enabled={checkedOut} staged={stagedCount} changed={wipCount} />}
@@ -463,7 +463,7 @@ export function Workspace() {
                 </>
               )}
               {(!current || (diff.data && diff.data.length === 0 && !image) || (unchanged && !image && blobs.data && text === null)) && (
-                <div className="empty" style={{ fontFamily: "var(--sans)", ...(list.length === 0 && { height: "100%", display: "grid", placeItems: "center", fontSize: 15 }) }}>
+                <div className={list.length === 0 ? "empty engraved" : "empty"} style={{ fontFamily: "var(--sans)", ...(list.length === 0 && { height: "100%", display: "grid", placeItems: "center", fontSize: 15 }) }}>
                   {list.length === 0 ? "Nothing to show — working tree is clean." : unchanged ? "Binary file." : "No textual changes in this file."}
                 </div>
               )}
