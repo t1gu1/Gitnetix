@@ -5,6 +5,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import "@fontsource/instrument-sans/400.css";
 import "@fontsource/instrument-sans/500.css";
 import "@fontsource/instrument-sans/600.css";
+import "@fontsource/instrument-sans/700.css";
 import "@fontsource/jetbrains-mono/400.css";
 import "@fontsource/jetbrains-mono/500.css";
 import "./styles/app.css";

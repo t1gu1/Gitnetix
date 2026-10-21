@@ -765,6 +765,9 @@ body.dragging-tab * {
   color: color-mix(in srgb, var(--bg), #000 30%);
   text-shadow: 0 1px 0 color-mix(in srgb, var(--fg) 10%, transparent);
 }
+.ws-diff .empty.engraved {
+  color: color-mix(in srgb, var(--bg), #000 50%);
+}
 .empty-state {
   flex: 1 1 auto;
   display: flex;
