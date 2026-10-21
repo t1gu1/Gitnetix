@@ -1,7 +1,8 @@
-import { useEffect, useState, type MouseEvent } from "react";
+import { useEffect, useMemo, useState, type MouseEvent, type ReactNode } from "react";
 
 import { useAction, useCommits } from "../api/hooks";
 import type { Commit } from "../api/types";
+import { AuthorFilter, authorsOf } from "../components/AuthorFilter";
 import { Avatar } from "../components/Avatar";
 import { ContextMenu, type MenuItem } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
@@ -48,6 +49,17 @@ export function CommitList({
   const list = commits.data ?? [];
   // Commits of the local branch; origin's unpulled ones are listed too, but can't be reverted or reset to.
   const local = list.filter((c) => !c.unpulled);
+  const [query, setQuery] = useState("");
+  const q = query.trim().toLowerCase();
+  const authors = useMemo(() => authorsOf(list), [list]);
+  const [who, setWho] = useState<string[]>([]);
+  // Picked authors still listed: one gone from the list (another branch) filters nothing.
+  const mine = who.filter((e) => authors.some((a) => a.email === e));
+  const shown = list.filter(
+    (c) =>
+      (!q || [c.subject, c.body, c.author, c.email, ...c.tags].some((t) => t.toLowerCase().includes(q)) || c.sha.startsWith(q)) &&
+      (mine.length === 0 || mine.includes(c.email.toLowerCase())),
+  );
   const [menu, setMenu] = useState<{ x: number; y: number; c: Commit } | null>(null);
   const [reset, setReset] = useState<{ c: Commit; mode: ResetMode } | null>(null);
   const inv = [["overview", pid], ["files", pid], ["diff", pid], ["commits", pid]];
@@ -112,10 +124,15 @@ export function CommitList({
         </span>
         {commits.data && <span className="faint" style={{ fontSize: 11.5, whiteSpace: "nowrap" }}>{plural(list.length, "commit")}</span>}
       </div>
+      <div className="tree-filter">
+        <Icon name="search" size={12} className="faint" />
+        <input type="search" className="input" placeholder="Filter commits" aria-label="Filter commits" value={query} onChange={(e) => setQuery(e.target.value)} />
+        <AuthorFilter authors={authors} who={who} onChange={setWho} tip="Show only the commits of these authors" />
+      </div>
       <div className="scroll commits commit-list" style={{ flex: "1 1 auto" }}>
         {commits.isLoading && <Loading />}
         {commits.error && <div style={{ padding: 12 }}><ErrorBox error={commits.error} /></div>}
-        {list.map((c) => (
+        {shown.map((c) => (
           <button key={c.sha} className="commit-row" aria-pressed={c.sha === selected} onClick={() => onPick(c)} onContextMenu={(e) => openMenu(c, e)}>
             {(c.tags.length > 0 || c.local || c.origin) && (
               <span className="commit-tags">
@@ -129,16 +146,17 @@ export function CommitList({
                 {c.origin && <span className="tag accent" title={`${branch} is here on origin`}>origin</span>}
               </span>
             )}
-            <span className="commit-subject">{c.subject}</span>
-            {c.body && <span className="commit-body">{c.body}</span>}
+            <span className="commit-subject">{marked(c.subject, q)}</span>
+            {c.body && <span className="commit-body">{marked(c.body, q)}</span>}
             <span className="commit-meta">
               <Avatar name={c.author} email={c.email} size={14} />
-              <span className="ellipsis">{c.author}</span>
+              <span className="ellipsis">{marked(c.author, q)}</span>
               <span className="mono">{c.sha.slice(0, 7)}</span>
               <span title={new Date(c.date).toLocaleString()} style={{ whiteSpace: "nowrap" }}>{ago(c.date)}</span>
             </span>
           </button>
         ))}
+        {list.length > 0 && shown.length === 0 && <Empty>{q ? <>No commit matches “{query}”{mine.length > 0 && " by them"}.</> : "No commit by them."}</Empty>}
         {commits.data && list.length === 0 && <Empty>{base ? <>No commits that <span className="mono">{base}</span> doesn't have.</> : "No commits yet."}</Empty>}
       </div>
       {menu && <ContextMenu x={menu.x} y={menu.y} label={`Actions for ${menu.c.sha.slice(0, 7)}`} items={items(menu.c)} onClose={() => setMenu(null)} />}
@@ -164,6 +182,13 @@ const RESET_MODES: { mode: ResetMode; label: string; hint: string }[] = [
   { mode: "mixed", label: "Mixed", hint: "Their changes stay in your files, unstaged" },
   { mode: "hard", label: "Hard", hint: "Their changes and any uncommitted work are thrown away" },
 ];
+
+/** `text` with the search marked in it (first match). */
+function marked(text: string, q: string): ReactNode {
+  const i = q ? text.toLowerCase().indexOf(q) : -1;
+  if (i < 0) return text;
+  return <>{text.slice(0, i)}<mark className="tree-hit">{text.slice(i, i + q.length)}</mark>{text.slice(i + q.length)}</>;
+}
 
 function ResetModal({
   pid,

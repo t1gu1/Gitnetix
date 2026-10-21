@@ -10,7 +10,6 @@
 - Add more analytics (Possibility to target one of few person)
 - Add Launchpad(Dashboard) a Cross-repo dashboard to manage PRs and get some analytics
 - Add user on branches
-- Add filter to branches to show only our branches
 - Add filter to commits to only show our branches
 
 ## Code signing

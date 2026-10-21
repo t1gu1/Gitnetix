@@ -8,10 +8,13 @@ export type MenuItem =
   | {
       id: string;
       label: ReactNode;
-      icon?: string;
+      /** null: no icon column, e.g. when the label brings its own picture. */
+      icon?: string | null;
       hint?: ReactNode;
       danger?: boolean;
       disabled?: boolean;
+      /** Leaves the menu open, e.g. to toggle several options in a row. */
+      keep?: boolean;
       run: () => void;
     };
 
@@ -71,11 +74,11 @@ export function ContextMenu({ x, y, items, label, alignRight, onClose }: { x: nu
             className={`ctx-item${it.danger ? " c-del" : ""}`}
             disabled={it.disabled}
             onClick={() => {
-              closeRef.current();
+              if (!it.keep) closeRef.current();
               it.run();
             }}
           >
-            <span className="ctx-icon">{it.icon && <Icon name={it.icon} size={13} />}</span>
+            {it.icon !== null && <span className="ctx-icon">{it.icon && <Icon name={it.icon} size={13} />}</span>}
             <span className="grow ellipsis">{it.label}</span>
             {it.hint && <span className="ctx-hint">{it.hint}</span>}
           </button>

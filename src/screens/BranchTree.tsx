@@ -3,6 +3,7 @@ import { useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type
 
 import { useAction } from "../api/hooks";
 import type { BranchView, Overview, ReleaseView } from "../api/types";
+import { AuthorFilter, authorsOf } from "../components/AuthorFilter";
 import { Avatar } from "../components/Avatar";
 import { ContextMenu, type MenuItem } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
@@ -142,6 +143,9 @@ export function BranchTree({
 }) {
   const pid = o.project.id;
   const [query, setQuery] = useState("");
+  // Everyone who authored a branch tip; the ones picked are shown, none picked = all.
+  const authors = useMemo(() => authorsOf(o.branches), [o.branches]);
+  const [who, setWho] = useState<string[]>([]);
   const [tagMenu, setTagMenu] = useState<{ x: number; y: number; alignRight: boolean; tag: string; checkedOut: boolean } | null>(null);
   const openTagMenu = (tag: string, checkedOut: boolean, e: MouseEvent) => {
     e.preventDefault();
@@ -182,38 +186,51 @@ export function BranchTree({
     c.merged ? `merged:${parent}` : behindOf.get(parent)?.includes(c) ? `behind:${parent}` : behind.includes(c) ? "behind" : parent;
   // Protected, checked-out, busy or dirty branches stay put.
   const cleanable = (b: BranchView) => !b.protected && !b.checkedOut && !b.running && b.wip === 0;
-  const behindRemovable = behind.filter(cleanable);
 
   const q = query.trim().toLowerCase();
+  const picked = authors.filter((a) => who.includes(a.email));
+  const emails = picked.map((a) => a.email).join("\n");
   const matches = useMemo(() => {
-    if (!q) return null;
+    if (!q && !emails) return null;
+    const mine = new Set(emails.split("\n"));
     const hit = new Set<string>();
     const walk = (b: BranchView): boolean => {
-      const child = kids(b.name).map(walk).some(Boolean);
-      const self = b.name.toLowerCase().includes(q) || (b.release ?? "").includes(q);
+      // Branches falling behind show in their own section (alone, without children): a match there keeps no parent, and only one of their own keeps them.
+      const child = !behind.includes(b) && kids(b.name).map((c) => walk(c) && !behind.includes(c)).some(Boolean);
+      if (behind.includes(b)) kids(b.name).forEach(walk);
+      const self = (!q || b.name.toLowerCase().includes(q) || (b.release ?? "").includes(q)) && (!emails || b.role !== "branch" || !!b.shipped || mine.has(b.email.toLowerCase()));
       if (self || child) hit.add(b.name);
       return self || child;
     };
     tops.forEach(walk);
     return hit;
-  }, [q, tops, kids]);
+  }, [q, emails, tops, kids, behind]);
+  // Picking authors only hides branches: trunks and releases stay, and so does the tree's layout (unlike a search).
   const shown = (b: BranchView) => !matches || matches.has(b.name);
+  const behindShown = behind.filter(shown);
+  const behindRemovable = behindShown.filter(cleanable);
   // The checked-out branch and every branch above it, marked whether or not their children are showing.
   const path = useMemo(() => {
     const on = new Set<string>();
     const walk = (b: BranchView): boolean => {
+      if (matches && !matches.has(b.name)) return false;
       const hit = kids(b.name).map(walk).some(Boolean) || b.name === o.currentBranch;
       if (hit) on.add(b.name);
       return hit;
     };
     tops.forEach(walk);
     return on;
-  }, [tops, kids, o.currentBranch]);
+  }, [tops, kids, o.currentBranch, matches]);
   // Shipped holds the checked-out release tag, or a shipped branch the path runs through: the path then runs down past
   // everything above it, into Shipped and to that release.
-  const shippedOnPath = shipped.findIndex((r) => r.checkedOut || path.has(shippedBranches.get(r.version)?.name ?? ""));
+  // A shipped release without its branch any more: kept by an author pick, by a search only when its version matches.
+  const shippedShown = (r: ReleaseView) => {
+    const b = shippedBranches.get(r.version);
+    return b ? shown(b) : !q || `v${r.version}`.includes(q);
+  };
+  const shippedOnPath = shipped.findIndex((r) => shippedShown(r) && (r.checkedOut || path.has(shippedBranches.get(r.version)?.name ?? "")));
   const shippedActive = shippedOnPath >= 0;
-  const pastShipped = shippedActive && !q;
+  const pastShipped = shippedActive;
   // Only the groups the path runs through start open: live children or the merged ones.
   const { isOpen, toggle, openAll } = useToggles(pid, () => {
     const open = new Set<string>();
@@ -222,6 +239,15 @@ export function BranchTree({
     }
     return open;
   });
+  // While searching, every group holding a match is open; what the user closes then is kept apart, and forgotten with the search.
+  const [shut, setShut] = useState<{ q: string; keys: Set<string> }>({ q: "", keys: new Set() });
+  const opened = (key: string) => (q ? !(shut.q === q && shut.keys.has(key)) : isOpen(key));
+  const flip = (key: string) => {
+    if (!q) return toggle(key);
+    const keys = new Set(shut.q === q ? shut.keys : []);
+    if (!keys.delete(key)) keys.add(key);
+    setShut({ q, keys });
+  };
   // A branch just created: open every section above it once the overview lists it.
   const reveal = toReveal.get(pid);
   if (reveal && o.branches.some((b) => b.name === reveal)) {
@@ -251,20 +277,20 @@ export function BranchTree({
     const children = kids(b.name).filter(shown);
     const lagging = (behindOf.get(b.name) ?? []).filter(shown);
     // Branches falling behind sit in their group, or in the section after the tree, not among the live ones.
-    const live = children.filter((c) => !c.merged && !lagging.includes(c) && (!!q || !behind.includes(c)));
+    const live = children.filter((c) => !c.merged && !lagging.includes(c) && !behind.includes(c));
     const merged = children.filter((c) => c.merged);
     const hasKids = children.length > 0;
-    const open = !!q || isOpen(b.name);
+    const open = opened(b.name);
     const wipBelow = open ? 0 : live.reduce((n, c) => n + c.wip + hiddenWip(c), 0);
     const mergedKey = `merged:${b.name}`;
-    const mergedOpen = !!q || isOpen(mergedKey);
+    const mergedOpen = opened(mergedKey);
     const cleaning = isCleaning(mergedKey);
     const version = b.role === "release" ? b.release : b.shipped;
     const mergedLabel = version ? `v${version}` : b.name;
     // Protected and checked-out branches stay put, and so do the ones only likely merged.
     const removable = merged.filter((c) => !c.protected && !c.checkedOut && !c.likelyMerged);
     const behindKey = `behind:${b.name}`;
-    const behindOpen = !!q || isOpen(behindKey);
+    const behindOpen = opened(behindKey);
     const laggingRemovable = lagging.filter(cleanable);
     // Where the orange path leaves this branch: into a merged or lagging child, or past those groups to a live one.
     const pathLive = live.some((c) => path.has(c.name));
@@ -281,6 +307,7 @@ export function BranchTree({
           selected={b.name === selected}
           current={b.name === o.currentBranch}
           onPath={path.has(b.name)}
+          hit={q}
           actions={actions}
           onSelect={() => onSelect(b.name)}
         />
@@ -290,7 +317,7 @@ export function BranchTree({
             {merged.length > 0 && (
               <>
                 <div className="tree-row tree-group tree-merged" data-path={pathMerged ? "in" : pathLive || pathBehind ? "past" : undefined}>
-                  <button className="tree-merged-toggle" aria-expanded={mergedOpen} onClick={() => toggle(mergedKey)}>
+                  <button className="tree-merged-toggle" aria-expanded={mergedOpen} onClick={() => flip(mergedKey)}>
                     <span className="tree-twist"><Icon name="chevronDown" size={12} className="chev" /></span>
                     <span className="group-label" data-active={pathMerged || undefined}>Merged into {mergedLabel}</span>
                     <span className="faint">{merged.length}</span>
@@ -307,7 +334,7 @@ export function BranchTree({
             {lagging.length > 0 && (
               <>
                 <div className="tree-row tree-group tree-merged tree-behind" data-path={pathBehind ? "in" : pathLive ? "past" : undefined}>
-                  <button className="tree-merged-toggle" aria-expanded={behindOpen} title={`Branches ${BEHIND_LIMIT} or more commits behind ${mergedLabel}. Update or rebase them to catch up.`} onClick={() => toggle(behindKey)}>
+                  <button className="tree-merged-toggle" aria-expanded={behindOpen} title={`Branches ${BEHIND_LIMIT} or more commits behind ${mergedLabel}. Update or rebase them to catch up.`} onClick={() => flip(behindKey)}>
                     <span className="tree-twist"><Icon name="chevronDown" size={12} className="chev" /></span>
                     <span className="group-label" data-active={pathBehind || undefined}>Falling behind {mergedLabel}</span>
                     <span className="faint">{lagging.length}</span>
@@ -323,8 +350,8 @@ export function BranchTree({
                 )}
               </>
             )}
-            {live.length > 0 && !q && (
-              <button className="tree-row tree-group tree-toggle" data-path={pathLive || undefined} aria-expanded={open} aria-label={`${open ? "Hide" : "Show"} the child branches of ${b.name}`} onClick={() => toggle(b.name)}>
+            {live.length > 0 && (
+              <button className="tree-row tree-group tree-toggle" data-path={pathLive || undefined} aria-expanded={open} aria-label={`${open ? "Hide" : "Show"} the child branches of ${b.name}`} onClick={() => flip(b.name)}>
                 <span className="tree-twist"><Icon name="chevronDown" size={12} className="chev" /></span>
                 <span className="child-label" data-active={pathLive || undefined}>Child branches</span>
                 <span className="faint">{live.length}</span>
@@ -461,30 +488,29 @@ export function BranchTree({
           </button>
         </span>
       </div>
-      {(o.branches.length > 6 || query) && (
-        <div className="tree-filter">
-          <Icon name="search" size={12} className="faint" />
-          <input type="search" className="input" placeholder="Filter branches" aria-label="Filter branches" value={query} onChange={(e) => setQuery(e.target.value)} />
-        </div>
-      )}
+      <div className="tree-filter">
+        <Icon name="search" size={12} className="faint" />
+        <input type="search" className="input" placeholder="Filter branches" aria-label="Filter branches" value={query} onChange={(e) => setQuery(e.target.value)} />
+        <AuthorFilter authors={authors} who={who} onChange={setWho} tip="Show only the branches of these authors" />
+      </div>
       <div className="scroll tree" style={{ flex: "1 1 auto" }}>
-        {(q ? tops : roots).map((b) => node(b, pastShipped))}
-        {matches?.size === 0 && <Empty>No branch matches “{query}”.</Empty>}
-        {behind.length > 0 && !q && (
+        {roots.map((b) => node(b, pastShipped))}
+        {matches?.size === 0 && !shipped.some(shippedShown) && <Empty>{q ? <>No branch matches “{query}”{picked.length > 0 && " by them"}.</> : "No branch by them."}</Empty>}
+        {behindShown.length > 0 && (
           <>
             <div className="tree-row tree-group tree-merged tree-behind" data-path={pastShipped ? "past" : undefined}>
-              <button className="tree-merged-toggle" aria-expanded={isOpen("behind")} title={`Branches ${BEHIND_LIMIT} or more commits behind their base (${o.defaultBranch}, or a release with few of them). Update or rebase them to catch up.`} onClick={() => toggle("behind")}>
+              <button className="tree-merged-toggle" aria-expanded={opened("behind")} title={`Branches ${BEHIND_LIMIT} or more commits behind their base (${o.defaultBranch}, or a release with few of them). Update or rebase them to catch up.`} onClick={() => flip("behind")}>
                 <span className="tree-twist"><Icon name="chevronDown" size={12} className="chev" /></span>
-                <span className="group-label" data-active={behind.some((b) => b.name === o.currentBranch) || undefined}>Branches falling behind</span>
-                <span className="faint">{behind.length}</span>
+                <span className="group-label" data-active={behindShown.some((b) => b.name === o.currentBranch) || undefined}>Branches falling behind</span>
+                <span className="faint">{behindShown.length}</span>
               </button>
               {(behindRemovable.length > 0 || isCleaning("behind")) && (
                 <CleanupButton left={cleanupLeft("behind")} title={`Pick which of the ${plural(behindRemovable.length, "branch")} falling behind to delete`} onClick={() => onCleanupBehind("behind", o.defaultBranch, behindRemovable)} />
               )}
             </div>
-            {isOpen("behind") && (
+            {opened("behind") && (
               <div className="tree-node" data-path={pastShipped ? "past" : undefined} aria-busy={isCleaning("behind") || undefined} inert={isCleaning("behind")}>
-                {behind.map((b) => (
+                {behindShown.map((b) => (
                   <Row
                     key={`behind:${b.name}`}
                     b={b}
@@ -494,6 +520,7 @@ export function BranchTree({
                     selected={b.name === selected}
                     current={b.name === o.currentBranch}
                     onPath={false}
+                    hit={q}
                     actions={actions}
                     onSelect={() => onSelect(b.name)}
                   />
@@ -502,16 +529,17 @@ export function BranchTree({
             )}
           </>
         )}
-        {shipped.length > 0 && !q && (
+        {shipped.some(shippedShown) && (
           <>
             <div className="tree-sep" role="separator" data-path={shippedActive || undefined} />
-            <button className="tree-row tree-group" data-path={shippedActive || undefined} aria-expanded={isOpen("shipped")} onClick={() => toggle("shipped")}>
+            <button className="tree-row tree-group" data-path={shippedActive || undefined} aria-expanded={opened("shipped")} onClick={() => flip("shipped")}>
               <span className="tree-twist"><Icon name="chevronDown" size={12} className="chev" /></span>
               <span className="shipped-label" data-active={shippedActive || undefined}>Shipped</span>
-              <span className="faint">{shipped.length}</span>
+              <span className="faint">{shipped.filter(shippedShown).length}</span>
             </button>
-            {isOpen("shipped") &&
+            {opened("shipped") &&
               shipped.map((r, i) => {
+                if (!shippedShown(r)) return null;
                 const b = shippedBranches.get(r.version);
                 if (b) return node(b, i < shippedOnPath);
                 const tag = r.tagName;
@@ -612,6 +640,14 @@ function CleanupButton({ left, title, onClick }: { left: number | undefined; tit
   );
 }
 
+/** `name` with the search marked in it; all of it when the search only matches the full branch name or release. */
+function marked(name: string, b: BranchView, hit?: string): ReactNode {
+  if (!hit) return name;
+  const i = name.toLowerCase().indexOf(hit);
+  if (i >= 0) return <>{name.slice(0, i)}<mark className="tree-hit">{name.slice(i, i + hit.length)}</mark>{name.slice(i + hit.length)}</>;
+  return b.name.toLowerCase().includes(hit) || (b.release ?? "").includes(hit) ? <mark className="tree-hit">{name}</mark> : name;
+}
+
 /** One branch, laid out the same whatever its role: icon, name + status line, actions. */
 function Row({
   b,
@@ -622,6 +658,7 @@ function Row({
   selected,
   current,
   onPath,
+  hit,
   actions,
   onSelect,
 }: {
@@ -635,6 +672,8 @@ function Row({
   current: boolean;
   /** It is, or holds somewhere below it, the checked-out branch. */
   onPath: boolean;
+  /** Search being typed: the part of the name it matches is highlighted. */
+  hit?: string;
   actions: BranchActions;
   onSelect: () => void;
 }) {
@@ -656,7 +695,7 @@ function Row({
         </span>
         <span className="tree-main">
           <span className="tree-name">
-            <span className="mono ellipsis">{name}</span>
+            <span className="mono ellipsis">{marked(name, b, hit)}</span>
             {shipped ? <span className="tag released">{releaseTagLabel("released")}</span> : tag}
             {b.likelyMerged && <span className="tag" title={`A pull request carrying its ticket went into ${t.baseLabel} after its last commit. Not proof: it is never cleaned up as merged.`}>likely</span>}
           </span>
