@@ -759,14 +759,14 @@ body.dragging-tab * {
   font-size: 12.5px;
   line-height: 1.45;
 }
-/* Text cut into the surface: darker than --bg (and so --panel) in both themes. */
+/* Text raised off the surface: lighter than --bg in both themes. */
 .empty.engraved {
   font-weight: 700;
-  color: color-mix(in srgb, var(--bg), #000 30%);
-  text-shadow: 0 1px 0 color-mix(in srgb, var(--fg) 10%, transparent);
+  color: color-mix(in srgb, var(--bg), #fff 30%);
+  text-shadow: 0 1px 0 color-mix(in srgb, #000 25%, transparent);
 }
 .ws-diff .empty.engraved {
-  color: color-mix(in srgb, var(--bg), #000 50%);
+  color: color-mix(in srgb, var(--bg), #fff 40%);
 }
 .empty-state {
   flex: 1 1 auto;
