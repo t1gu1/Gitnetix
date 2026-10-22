@@ -11,6 +11,17 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+### Added
+- Publishing a branch now returns checkout to its parent branch.
+
+### Fixed
+- Deleting a release tag now reopens that release.
+- An untagged shipped release that is ahead of main is now reopened.
+
+### Removed
+- Removed the hide-branches toggle from the workspace; the branches pane is always shown.
+- Removed status counts from worktrees and moved the session button down.
+
 ## [0.4.0] - 2026-10-22
 
 ### Added
