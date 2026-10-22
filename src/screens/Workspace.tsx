@@ -1470,7 +1470,7 @@ function CommitBox({ pid, branch, enabled, staged, changed }: { pid: string; bra
   return (
     <div className="col" style={{ padding: "6px 12px 10px", gap: 6, borderTop: "1px solid var(--line)" }}>
       <div className="row faint" style={{ justifyContent: "space-between", fontSize: 11, margin: 0 }}>
-        <button className="row" style={{ gap: 6, padding: 0, border: 0, background: "transparent", color: "inherit", font: "inherit", cursor: "pointer" }} aria-expanded={open} aria-controls="ag-msg" onClick={toggle}>
+        <button className="row" style={{ gap: 6, margin: "1px 0", padding: 0, border: 0, background: "transparent", color: "inherit", font: "inherit", cursor: "pointer" }} aria-expanded={open} aria-controls="ag-msg" onClick={toggle}>
           <Icon name="chevronDown" size={12} className="chev" />
           <span>Commit message</span>
         </button>
