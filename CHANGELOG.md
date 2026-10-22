@@ -29,7 +29,6 @@ release notes and the in-app update prompt.
 - The agent input has a Stop button while the agent works, and Up and Down recall earlier messages.
 - Suggestion choices in the agent log allow multiple selections.
 - The worktrees screen has a narrow layout, and the window can be made narrower.
-- Publishing a branch now returns your checkout to its parent branch.
 - Publishing a branch now returns checkout to its parent branch.
 
 ### Changed
