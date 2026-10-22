@@ -1697,7 +1697,7 @@ function Terminal({ pid, branch, cwd, open, setOpen, onCloseWorktree, finish }: 
           </div>
         </div>
         {shell ? (
-          <ShellPane id="ws-sh" projectId={pid} path={cwd} />
+          <ShellPane projectId={pid} path={cwd} />
         ) : (
           <>
             <AgentLog

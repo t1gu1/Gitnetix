@@ -256,7 +256,7 @@ function Detail({ r }: { r: Row }) {
           <span className="hint row" style={{ padding: "0 14px" }}>Keeps running when you switch project</span>
         </div>
         {termView === "shell" ? (
-          <ShellPane id="wt-sh" projectId={r.projectId} path={r.wt ? r.path : undefined} />
+          <ShellPane projectId={r.projectId} path={r.wt ? r.path : undefined} />
         ) : (
           <>
             <AgentLog lines={a?.lines ?? []} projectId={r.projectId} provider={a ? a.ai?.provider : pick.provider} thinking={a?.status === "running" || msg.isPending || start.isPending} actions={isWorktree && <FinishWorktreeCard session={session} finish={finish} />} onAnswer={a && ((t) => msg.mutate({ id: a.id, text: t }))} empty={r.wt ? "No agent session on this checkout." : "Directory removed."} />

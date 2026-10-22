@@ -2589,6 +2589,38 @@ button.picker-act {
   background: var(--term);
   color: var(--fg);
 }
+/* Nerd Font icons for the shell (prompts, ls icons); fetched only when a terminal draws one. */
+@font-face {
+  font-family: "Symbols Nerd Font Mono";
+  src: url("../assets/fonts/SymbolsNerdFontMono-Regular.ttf") format("truetype");
+  font-display: block;
+}
+.shell-pane {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 8px 4px 4px 12px;
+  background: var(--term);
+  position: relative;
+}
+.shell-find {
+  position: absolute;
+  top: 6px;
+  right: 18px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+.shell-find .input {
+  width: 180px;
+  height: 26px;
+  padding: 0 8px;
+}
 .term-log {
   flex: 1 1 auto;
   min-height: 0;
