@@ -760,6 +760,11 @@ body.dragging-tab * {
   line-height: 1.45;
   white-space: pre-wrap;
 }
+.err-box.warn {
+  border-color: var(--warn-fg);
+  color: var(--warn-fg);
+  background: color-mix(in srgb, var(--warn-fg) 12%, transparent);
+}
 .note-box {
   padding: 10px 12px;
   border: 1px solid var(--line);

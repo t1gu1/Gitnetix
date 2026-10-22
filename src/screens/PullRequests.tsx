@@ -45,6 +45,9 @@ export function PullRequests({ initial }: { initial?: number }) {
   const branch = nav.selectedBranch ?? ov?.currentBranch;
   // From the mutation cache, so it still shows after leaving the page and coming back.
   const creating = usePendingBranches("prs.create", pid).includes(branch ?? "");
+  const bv = ov?.branches.find((b) => b.name === branch);
+  // Pushed commits = commits ahead of its base that origin already has.
+  const unpushed = bv && (!bv.remote || bv.ahead - bv.upstreamAhead <= 0) ? `Push commits to ${branch} before opening a pull request.` : undefined;
 
   return (
     <>
@@ -79,7 +82,8 @@ export function PullRequests({ initial }: { initial?: number }) {
                   label: <>{t === "open" ? "Open" : t === "review" ? "To review" : "Closed"} <span className="faint">{items.filter((p) => inTab(p, t)).length}</span></>,
                 }))}
               />
-              <button className="btn" disabled={!branch || creating} onClick={() => branch && create.mutate({ projectId: pid, branch }, { onSuccess: (r) => { setSel(r.number); setPane("detail"); } })}>
+              {unpushed && <div className="err-box warn">{unpushed}</div>}
+              <button className="btn" disabled={!branch || creating || !!unpushed} onClick={() => branch && create.mutate({ projectId: pid, branch }, { onSuccess: (r) => { setSel(r.number); setPane("detail"); } })}>
                 <Busy on={creating}><Icon name="sparkle" size={12} className="c-acc" /></Busy>
                 <span className="ellipsis">New PR from {branch ?? "current branch"}</span>
               </button>
