@@ -1358,3 +1358,34 @@ async fn overview_after_a_commit_matches_a_fresh_build() {
     let a = o["branches"].as_array().unwrap().iter().find(|b| b["name"] == "feature/a").cloned().unwrap();
     assert_eq!(a["behind"], 1);
 }
+
+#[tokio::test]
+async fn untagged_release_ahead_of_main_reopens() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("reopen");
+    init_repo(&repo);
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let added = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await;
+    let pid = added[0]["id"].as_str().unwrap().to_string();
+
+    call(&k, "releases.create", json!({ "projectId": pid, "version": "0.0.1", "kind": "next" })).await;
+    sh(&repo, &["switch", "-q", "release/0.0.1"]);
+    commit_file(&repo, "one.txt", "1\n");
+    sh(&repo, &["switch", "-q", "main"]);
+    call(&k, "releases.ship", json!({ "projectId": pid, "version": "0.0.1" })).await;
+    let release = |ov: &Value| ov["branches"].as_array().unwrap().iter().find(|b| b["name"] == "release/0.0.1").cloned().unwrap();
+
+    // Tag deleted outside Gitnetix, branch still level with main: it did go out.
+    sh(&repo, &["tag", "-d", "v0.0.1"]);
+    let ov = call(&k, "workspace.overview", json!({ "projectId": pid })).await;
+    assert_eq!(release(&ov)["shipped"], "0.0.1");
+
+    // New work on it that main lacks: back to an open release.
+    sh(&repo, &["switch", "-q", "release/0.0.1"]);
+    commit_file(&repo, "two.txt", "2\n");
+    sh(&repo, &["switch", "-q", "main"]);
+    let ov = call(&k, "workspace.overview", json!({ "projectId": pid })).await;
+    assert!(release(&ov)["shipped"].is_null());
+    assert_eq!(release(&ov)["role"], "release");
+    assert!(ov["releases"].as_array().unwrap().iter().any(|r| r["version"] == "0.0.1" && r["open"] == true && r["tag"] == "next"));
+}

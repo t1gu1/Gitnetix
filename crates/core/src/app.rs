@@ -935,6 +935,29 @@ fn ship_tagged_releases(p: &mut Project, tags: &[TagInfo]) -> bool {
     shipped
 }
 
+/// Shipped releases with neither their own tag nor a later patch of their line: their tag
+/// was deleted, so they may not have gone out after all. The caller checks the branch.
+fn untagged_shipped(p: &Project, tags: &[TagInfo]) -> Vec<(String, String)> {
+    let open = |v: &str| p.releases.iter().any(|r| r.version == v && r.shipped_at.is_none());
+    p.releases
+        .iter()
+        .filter(|r| r.shipped_at.is_some() && !open(&r.version))
+        .filter(|r| !tags.iter().any(|t| t.name.strip_prefix('v').unwrap_or(&t.name) == r.version) && later_patch(tags, &r.version).is_none())
+        .map(|r| (r.version.clone(), r.branch.clone()))
+        .collect()
+}
+
+/// Reopen shipped releases listed in `versions`. Returns whether any were.
+fn reopen_releases(p: &mut Project, versions: &[String]) -> bool {
+    let mut reopened = false;
+    for r in p.releases.iter_mut().filter(|r| r.shipped_at.is_some() && versions.contains(&r.version)) {
+        r.shipped_at = None;
+        r.tag = None;
+        reopened = true;
+    }
+    reopened
+}
+
 /// The first tagged patch after `version` in its line: 8.17.1 (or 8.17.2) for 8.17.0.
 fn later_patch<'a>(tags: &'a [TagInfo], version: &str) -> Option<&'a TagInfo> {
     let want = parse_version(version)?;
@@ -1348,10 +1371,20 @@ impl Gitnetix {
         let mut probe = p.clone();
         let imported = import_release_branches(&mut probe, &branches, &remote_branches, &default);
         let shipped = ship_tagged_releases(&mut probe, &tags);
-        if imported || shipped {
+        // Shipped but untagged with commits main lacks: it never went out, back to open.
+        let mut unshipped = Vec::new();
+        for (v, branch) in untagged_shipped(&probe, &tags) {
+            if let Some(rev) = git.branch_rev(&branch).await.ok().flatten() {
+                if !git.is_ancestor(&rev, &default).await.unwrap_or(true) {
+                    unshipped.push(v);
+                }
+            }
+        }
+        if imported || shipped || !unshipped.is_empty() {
             p = self.store.with_project(project_id, |p| {
                 import_release_branches(p, &branches, &remote_branches, &default);
                 ship_tagged_releases(p, &tags);
+                reopen_releases(p, &unshipped);
                 Ok(p.clone())
             })?;
         }
