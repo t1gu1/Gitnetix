@@ -115,13 +115,7 @@ fn emoji(content: &str) -> String {
 
 impl GitHub {
     pub fn new(repo: RepoRef, token: String, api: Option<String>) -> Self {
-        let api = api.filter(|s| !s.is_empty()).unwrap_or_else(|| {
-            if repo.host == "github.com" {
-                "https://api.github.com".into()
-            } else {
-                format!("https://{}/api/v3", repo.host)
-            }
-        });
+        let api = api.filter(|s| !s.is_empty()).unwrap_or_else(|| "https://api.github.com".into());
         let http = reqwest::Client::builder()
             .user_agent(concat!("Gitnetix/", env!("CARGO_PKG_VERSION")))
             .build()

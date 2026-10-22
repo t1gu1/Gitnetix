@@ -366,6 +366,12 @@ pub fn slugify(s: &str, max_words: usize) -> String {
     }
 }
 
+/// The GitHub token may only reach github.com or the Enterprise API the user set: an API URL derived
+/// from origin would hand it to any host with "github" in its name.
+fn github_host_ok(host: &str, api_set: bool) -> bool {
+    host == "github.com" || (api_set && host.contains("github"))
+}
+
 fn valid_branch_name(s: &str) -> bool {
     !s.is_empty()
         && !s.starts_with('-')
@@ -3233,14 +3239,14 @@ impl Gitnetix {
         let p = self.store.project(project_id)?;
         let url = self.git(&p).remote_url("origin").await?.ok_or_else(|| Error::NotConnected("This repository has no origin remote".into()))?;
         let repo = parse_remote(&url).ok_or_else(|| Error::Unsupported(format!("remote {url}")))?;
-        if !repo.host.contains("github") {
+        let api = self.store.read(|c| c.integrations.github_api.clone()).filter(|s| !s.is_empty());
+        if !github_host_ok(&repo.host, api.is_some()) {
             return Err(Error::Unsupported(format!(
-                "{} remotes are not supported yet — GitHub only for now",
+                "{} remotes need a GitHub Enterprise API URL in Settings › Git providers — github.com only otherwise",
                 repo.host
             )));
         }
         let token = secrets::require("github", "Connect GitHub in Settings › Git providers")?;
-        let api = self.store.read(|c| c.integrations.github_api.clone());
         Ok(GitHub::new(repo, token, api))
     }
 
@@ -3762,6 +3768,15 @@ mod tests {
         assert_eq!(req.pick.provider.as_deref(), Some("codex"));
         assert_eq!(req.pick.effort.as_deref(), Some("high"));
         assert!(req.pick.model.is_none());
+    }
+
+    #[test]
+    fn github_token_stays_on_trusted_hosts() {
+        assert!(github_host_ok("github.com", false));
+        assert!(!github_host_ok("github.evil.io", false));
+        assert!(!github_host_ok("notgithub.com", false));
+        assert!(github_host_ok("github.corp.com", true));
+        assert!(!github_host_ok("gitlab.com", true));
     }
 
     #[test]
