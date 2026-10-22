@@ -38,9 +38,12 @@ export function ContextMenu({ x, y, items, label, alignRight, onClose }: { x: nu
     const el = ref.current;
     if (!el) return;
     const { width, height } = el.getBoundingClientRect();
+    // Anchored under its button, the menu flips above the button rather than over it.
+    const btn = opener?.getBoundingClientRect();
+    const flip = btn && y >= btn.bottom ? btn.top - 2 : y;
     setPos({
       left: Math.max(8, Math.min(alignRight ? x - width : x, window.innerWidth - width - 8)),
-      top: Math.max(8, y + height > window.innerHeight - 8 ? y - height : y),
+      top: Math.max(8, y + height > window.innerHeight - 8 ? flip - height : y),
     });
     el.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
   }, [x, y, alignRight]);
