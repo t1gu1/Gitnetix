@@ -50,22 +50,36 @@ export function blocks(lines: LogLine[]): Block[] {
   return out;
 }
 
-/** Numbered options ("1. **Foo:** bar") in the agent's last reply, when it now waits for you. */
+/** Numbered options ("1. **Foo:** bar") in the agent's last reply, when it now waits for you to pick one. */
 export function choices(lines: LogLine[]): { n: string; label: string }[] {
   const b = blocks(lines);
   if (b.at(-1)?.kind !== "wait") return [];
   const reply = [...b].reverse().find((x) => x.kind === "ai" || x.kind === "you");
   if (reply?.kind !== "ai") return [];
-  let out: { n: string; label: string }[] = [];
-  for (const line of reply.text.split("\n").reverse()) {
-    const m = /^\s*(\d+)[.)]\s+(.+)$/.exec(line);
+  const rows = reply.text.split("\n");
+  const out: { n: string; label: string }[] = [];
+  let start = -1;
+  let end = rows.length;
+  for (let i = rows.length - 1; i >= 0; i--) {
+    // The number may sit inside the bold: "**1. Foo** bar".
+    const m = /^\s*(?:\*\*)?(\d+)[.)]\s+(.+)$/.exec(rows[i]);
     if (!m) continue;
+    if (!out.length) end = i + 1;
     out.unshift({ n: m[1], label: m[2].replace(/\*\*|`/g, "") });
     // Keep only the last list of the reply.
-    if (m[1] === "1") break;
+    if (m[1] === "1") {
+      start = i;
+      break;
+    }
   }
-  if (out[0]?.n !== "1") out = [];
-  return out;
+  if (start < 0) return [];
+  // Items that are questions ("What text? …") ask you to answer each one, not to pick one.
+  if (out.some((o) => o.label.includes("?"))) return [];
+  // A plain list (steps, findings, changes) is not a question: only offer it when the text around it asks you to pick.
+  const intro = rows.slice(0, start).filter((l) => l.trim()).at(-1) ?? "";
+  const after = rows.slice(end).join("\n");
+  const asks = /\?\s*$|\b(which|prefer|choose|pick|options?)\b/i.test(intro) || /\b(which|prefer|choose|pick)\b|\b\d+\s+or\s+\d+\b/i.test(after);
+  return asks ? out : [];
 }
 
 /** "Read ×3 · Edit · Bash ×2" */

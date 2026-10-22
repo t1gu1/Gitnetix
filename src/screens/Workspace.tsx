@@ -984,7 +984,7 @@ export function MergeModal({
               onChange={(v) => set({ squashMessage: v })}
               options={[
                 { value: "branch", label: <span className="mono ellipsis">squash | {branch.replace(/-/g, " ")}</span> },
-                { value: "ai", label: <span className="row" style={{ gap: 6, justifyContent: "center" }}><Icon name="sparkle" size={11} />AI writes it</span> },
+                { value: "ai", label: <span className="row" style={{ gap: 6, margin: 0, justifyContent: "center" }}><Icon name="sparkle" size={11} />AI writes it</span> },
               ]}
             />
           </div>
@@ -1672,10 +1672,14 @@ export function useFinishHandlers(
   // Removing the worktree also removes its agent session.
   const drop = (s: WtSession) => removeWt.mutate({ projectId: s.projectId, path: s.cwd });
   const deleteBranch = useAction("branches.delete", { invalidate: [["overview", pid], ["commits", pid]], success: "Branch deleted" });
+  const nav = useNav();
   return {
     // Throws the session's work away: the worktree even with uncommitted changes, then its local branch even unmerged (origin's copy stays).
     discard: (s) =>
-      removeWt.mutate({ projectId: s.projectId, path: s.cwd, force: true }, { onSuccess: () => deleteBranch.mutate({ projectId: s.projectId, branch: s.branch, force: true }) }),
+      removeWt.mutate(
+        { projectId: s.projectId, path: s.cwd, force: true },
+        { onSuccess: () => deleteBranch.mutate({ projectId: s.projectId, branch: s.branch, force: true }, { onSuccess: () => nav.forgetBranches(s.projectId, [s.branch]) }) },
+      ),
     continue: (s, sw) => (sw ? continueOn(s.branch, s.cwd) : drop(s)),
     merge: (s, sw) => openMerge(s.branch, () => drop(s), !sw),
   };
@@ -1742,6 +1746,9 @@ export function FinishWorktreeCard({ session: s, finish }: { session: WtSession;
   const branches = useOverview(s.projectId).data?.branches;
   // MergeModal reads its base once, on mount: wait for the branches.
   if (!branches) return null;
+  const b = branches.find((x) => x.name === s.branch);
+  // Nothing committed or edited yet (the agent only answered or asked): nothing to merge.
+  if (b && !b.ahead && !b.wip) return null;
   return (
     <MergeModal
       pid={s.projectId}

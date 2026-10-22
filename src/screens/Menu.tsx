@@ -157,7 +157,7 @@ export function Menu({ onUnpair }: { onUnpair: () => void }) {
                               onChange={(v) => prefs.setMerge({ squashMessage: v })}
                               options={[
                                 { value: "branch", label: <span className="mono">squash | branch name</span> },
-                                { value: "ai", label: <span className="row" style={{ gap: 6, justifyContent: "center" }}><Icon name="sparkle" size={11} />AI writes it</span> },
+                                { value: "ai", label: <span className="row" style={{ gap: 6, margin: 0, justifyContent: "center" }}><Icon name="sparkle" size={11} />AI writes it</span> },
                               ]}
                             />
                           </div>
