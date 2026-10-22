@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 
 import { useAction, useConfig, useTemplates } from "../api/hooks";
 import type { Template } from "../api/types";
 import { MenuChoice } from "../components/AgentPicker";
 import { Icon } from "../components/Icon";
+import { Resizer, usePaneWidth } from "../components/Resizer";
 import { Busy, Header, LANGS, Loading, Seg } from "../components/ui";
 import { useNav } from "../lib/nav";
 
@@ -27,6 +28,7 @@ export function TemplatesPanes() {
   const cfg = useConfig().data;
   const project = cfg?.projects.find((p) => p.id === nav.projectId);
   const [sel, setSel] = useState<string | undefined>();
+  const navW = usePaneWidth("gnx.pane.templates", 300, 220, 520);
   const [draft, setDraft] = useState<Template | null>(null);
   const [lang, setLang] = useState("en");
   const [preview, setPreview] = useState<{ output: string; source: string } | null>(null);
@@ -58,7 +60,7 @@ export function TemplatesPanes() {
 
   return (
     <>
-      <nav aria-label="Templates" className="sidenav" data-pane data-active={!sel} style={{ flexBasis: 300 }}>
+      <nav aria-label="Templates" className="sidenav" data-pane data-active={!sel} style={{ "--sidenav-w": `${navW.width}px` } as CSSProperties}>
         <div className="row" style={{ justifyContent: "space-between", padding: "0 6px 6px" }}>
           <span className="faint" style={{ fontSize: 12 }}>{list.length} templates</span>
           <button className="btn btn-sm" onClick={newTemplate}>
@@ -81,6 +83,7 @@ export function TemplatesPanes() {
           </div>
         ))}
       </nav>
+      <Resizer pane={navW} label="Resize template list" />
       {draft && (
         <main className="page" data-pane data-active={!!sel} style={{ padding: 0, display: "flex", flexWrap: "wrap", alignContent: "flex-start" }}>
           <div className="row wrap" style={{ width: "100%", padding: "12px 24px", borderBottom: "1px solid var(--line)" }}>

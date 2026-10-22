@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { useAction, useConfig } from "../api/hooks";
@@ -6,6 +6,7 @@ import { companionInfo, isLocal, openExternal, rpc, type CompanionInfo } from ".
 import type { Config, GitProfile } from "../api/types";
 import { MenuChoice } from "../components/AgentPicker";
 import { GRAVATAR_KEY } from "../components/Avatar";
+import { Resizer, usePaneWidth } from "../components/Resizer";
 import { Header } from "../components/ui";
 import { ANIMATIONS, useAnimations } from "../lib/motion";
 import { useNav } from "../lib/nav";
@@ -34,6 +35,7 @@ export function Settings({ section }: { section?: string }) {
 /** Section list and content panes, also shown inside the menu panel; `onAi` / `onTemplates` open those pages wherever the host shows them. */
 export function SettingsPanes({ section, onAi, onTemplates }: { section?: string; onAi: () => void; onTemplates: () => void }) {
   const [sec, setSec] = useState(section ?? "git");
+  const navW = usePaneWidth("gnx.pane.settings", 260, 200, 480);
   const cfg = useConfig().data;
   const pick = (id: string) => {
     if (id === "ai") onAi();
@@ -42,7 +44,7 @@ export function SettingsPanes({ section, onAi, onTemplates }: { section?: string
   };
   return (
     <>
-      <nav aria-label="Settings sections" className="sidenav hide-narrow">
+      <nav aria-label="Settings sections" className="sidenav hide-narrow" style={{ "--sidenav-w": `${navW.width}px` } as CSSProperties}>
         {GROUPS.map(([g, items]) => (
           <div key={g} className="col" style={{ gap: 2 }}>
             <span className="group-label">{g}</span>
@@ -52,6 +54,7 @@ export function SettingsPanes({ section, onAi, onTemplates }: { section?: string
           </div>
         ))}
       </nav>
+      <Resizer pane={navW} label="Resize settings sections" />
       <main className="page">
         <div className="show-narrow" style={{ marginBottom: 16 }}>
           <label htmlFor="st-sec" className="sr-only">Section</label>

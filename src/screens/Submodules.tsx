@@ -1,10 +1,11 @@
-import { useState, type MouseEvent, type ReactNode } from "react";
+import { useState, type CSSProperties, type MouseEvent, type ReactNode } from "react";
 
 import { useAction, useProjects, useSubmodules } from "../api/hooks";
 import { openExternal } from "../api/transport";
 import type { Project, Submodule } from "../api/types";
 import { ContextMenu, type MenuItem } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
+import { Resizer, usePaneWidth } from "../components/Resizer";
 import { ago, Empty, ErrorBox, Header, Loading, Modal, Seg } from "../components/ui";
 import { plural } from "../lib/format";
 import { useNav } from "../lib/nav";
@@ -59,6 +60,7 @@ export function Submodules() {
   const [filter, setFilter] = useState<Filter>("all");
   const [sel, setSel] = useState<string>();
   const [pane, setPane] = useState<"list" | "detail">("list");
+  const listW = usePaneWidth("gnx.pane.submodules", 400, 280, 720);
   const [adding, setAdding] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [output, setOutput] = useState<Output>();
@@ -110,7 +112,7 @@ export function Submodules() {
     <>
       <Header title="Submodules" sub={project?.name} />
       <div className="body split">
-        <section className="master" data-pane data-active={pane === "list"} aria-label="Submodules">
+        <section className="master" style={{ "--master-w": `${listW.width}px` } as CSSProperties} data-pane data-active={pane === "list"} aria-label="Submodules">
           <div className="master-tools">
             <div className="row" style={{ gap: 6 }}>
               <span className="split-btn" style={{ display: "flex", flex: "1 1 auto" }}>
@@ -190,6 +192,7 @@ export function Submodules() {
             {list.length > 0 && shown.length === 0 && <Empty>Every submodule is up to date.</Empty>}
           </div>
         </section>
+        <Resizer pane={listW} label="Resize submodule list" />
         <main className="detail" data-pane data-active={pane === "detail"}>
           <button className="btn btn-sm show-narrow" style={{ marginBottom: 12 }} onClick={() => setPane("list")}>
             <Icon name="back" size={12} />

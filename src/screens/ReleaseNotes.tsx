@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import { useAction, useConfig, useOverview } from "../api/hooks";
 import { rpc } from "../api/transport";
 import { MenuChoice } from "../components/AgentPicker";
 import { Icon } from "../components/Icon";
+import { Resizer, usePaneWidth } from "../components/Resizer";
 import { Busy, Empty, Header, LANGS, Loading, Markdown, Seg } from "../components/ui";
 import { useNav } from "../lib/nav";
 import { copyToClipboard } from "../lib/toast";
@@ -20,6 +21,7 @@ export function ReleaseNotes() {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [tpl, setTpl] = useState("");
+  const optsW = usePaneWidth("gnx.pane.notes", 420, 300, 720);
   const [lang, setLang] = useState(project?.genLang.release ?? "en");
   const [inc, setInc] = useState({ feat: true, fix: true, internal: true, tickets: true });
   const [view, setView] = useState<"preview" | "markdown">("preview");
@@ -54,7 +56,7 @@ export function ReleaseNotes() {
     <>
       <Header title="Release notes" sub={project?.name} />
       <div className="body split">
-        <aside aria-label="Options" className="sidenav" data-pane data-active={!md} style={{ flexBasis: 420, gap: 24, padding: 24 }}>
+        <aside aria-label="Options" className="sidenav" data-pane data-active={!md} style={{ "--sidenav-w": `${optsW.width}px`, gap: 24, padding: 24 } as CSSProperties}>
           <section className="col" style={{ gap: 10 }}>
             <h2 className="label">Range</h2>
             <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 32px minmax(0,1fr)", gap: 6, alignItems: "end" }}>
@@ -117,6 +119,7 @@ export function ReleaseNotes() {
             <span>Generate notes</span>
           </button>
         </aside>
+        <Resizer pane={optsW} label="Resize release notes options" />
         <main className="col grow" data-pane data-active={!!md} style={{ gap: 0, minWidth: 0, minHeight: 0 }}>
           <div className="row wrap" style={{ minHeight: 56, margin: 0, padding: "8px 24px", borderBottom: "1px solid var(--line)", gap: 12 }}>
             <button className="btn btn-sm show-narrow" onClick={() => setMd("")}>Options</button>

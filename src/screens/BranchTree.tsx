@@ -590,7 +590,6 @@ export function BranchTree({
         )}
       </div>
       {tagMenu && <ContextMenu x={tagMenu.x} y={tagMenu.y} alignRight={tagMenu.alignRight} label={`Actions for ${tagMenu.tag}`} items={tagItems(tagMenu.tag, tagMenu.checkedOut)} onClose={() => setTagMenu(null)} />}
-      <div className="hint" style={{ padding: "10px 16px", borderTop: "1px solid var(--line)" }}>Double-click a branch to switch to it, right-click for every action, click its commit count (or "all commits" on main) to browse them. Your uncommitted work comes along.</div>
     </section>
   );
 }

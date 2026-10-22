@@ -458,6 +458,17 @@ body.dragging-tab * {
 .btn-danger {
   color: var(--del-fg);
 }
+/* Solid red, one shade for both themes: white text stays readable on it. Ghost icon buttons keep the red text only. */
+.btn.btn-danger:not(.btn-ghost) {
+  border-color: transparent;
+  background: #d23a31;
+  color: #fff;
+  font-weight: 600;
+}
+.btn.btn-danger:not(.btn-ghost):hover:not(:disabled) {
+  background: #b8302a;
+  color: #fff;
+}
 .btn-lg {
   height: 40px;
   padding: 0 18px;
@@ -833,7 +844,7 @@ body.dragging-tab * {
 
 /* side nav (settings, templates, AI setup) */
 .sidenav {
-  flex: 0 0 260px;
+  flex: 0 0 var(--sidenav-w, 260px);
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -925,15 +936,24 @@ body.dragging-tab * {
   min-height: 0;
   overflow: hidden;
 }
-.ws-releases {
-  flex: 0 0 var(--branches-w, 300px);
-  width: var(--branches-w, 300px);
+/* Branches, or the diff over them, above the agent terminal. */
+.ws-left {
+  flex: 0 0 var(--branches-w, 67%);
+  width: var(--branches-w, 67%);
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--line);
+}
+.ws-releases,
+.ws-diff {
+  flex: 1 1 0;
   min-width: 0;
   display: flex;
   flex-direction: column;
   min-height: 0;
   background: var(--panel);
-  border-right: 1px solid var(--line);
   position: relative;
 }
 .tree-building {
@@ -949,21 +969,14 @@ body.dragging-tab * {
   font-size: 12px;
 }
 .ws-files {
-  flex: 0 0 var(--files-w, 320px);
-  width: var(--files-w, 320px);
+  flex: 1 1 0;
   min-width: 0;
   display: flex;
   flex-direction: column;
   min-height: 0;
   background: var(--panel);
-  border-right: 1px solid var(--line);
 }
 .ws-diff {
-  flex: 1 1 auto;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
   background: var(--bg);
 }
 /* The branches show/hide toggle sits at the same spot open (pane head) or closed (rail). */
@@ -1036,7 +1049,12 @@ body.resizing .term {
   pointer-events: none;
 }
 @media (min-width: 901px) {
-  .ws[data-branches-hidden] > .ws-releases {
+  /* A picked file's diff takes the branches' and the terminal's place until closed. */
+  .ws[data-branches-hidden] .ws-releases,
+  .ws[data-file-open] .ws-releases,
+  .ws:not([data-file-open]) .ws-diff,
+  .ws[data-branches-hidden]:not([data-file-open]) > .ws-left,
+  .ws[data-file-open] .ws-left > :is(.term, .term-bar, .resizer-top) {
     display: none;
   }
 }
@@ -2853,6 +2871,9 @@ button.picker-act {
   padding: 0 12px;
   gap: 8px;
 }
+.ag-choices .btn-icon {
+  padding: 0;
+}
 /* The merge options inline in the chat, as in their modal. */
 .ag-finish {
   width: min(100%, 520px);
@@ -2887,6 +2908,7 @@ button.picker-act {
   height: auto;
   margin-right: -16px;
   border: 0;
+  border-left: 1px solid color-mix(in srgb, white 35%, transparent);
   border-radius: 0;
 }
 /* Picker sits flush against the send button. */
@@ -3492,9 +3514,8 @@ button.app-row:hover {
   body {
     font-size: 14px;
   }
-  .ws-releases,
+  .ws-left,
   .ws-files,
-  .ws-diff,
   .master,
   .detail,
   .sidenav,
@@ -3504,6 +3525,7 @@ button.app-row:hover {
     border-right: 0;
   }
   .ws > [data-pane]:not([data-active="true"]),
+  .ws-left > [data-pane]:not([data-active="true"]),
   .split > [data-pane]:not([data-active="true"]) {
     display: none;
   }

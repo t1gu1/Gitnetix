@@ -4,6 +4,7 @@ import { useAction, useOverview, usePendingBranches, usePr, usePrs } from "../ap
 import { openExternal, RpcError } from "../api/transport";
 import type { PrDetail, PrSummary, PrThread } from "../api/types";
 import { Icon } from "../components/Icon";
+import { Resizer, usePaneWidth } from "../components/Resizer";
 import { ago, Busy, Empty, ErrorBox, Header, initials, Loading, Markdown, Modal, Seg } from "../components/ui";
 import { useNav } from "../lib/nav";
 import { toast } from "../lib/toast";
@@ -36,6 +37,7 @@ export function PullRequests({ initial }: { initial?: number }) {
   const [tab, setTab] = useState<Tab>("open");
   const [sel, setSel] = useState<number | undefined>(initial);
   const [pane, setPane] = useState<"list" | "detail">(initial ? "detail" : "list");
+  const listW = usePaneWidth("gnx.pane.prs", 460, 280, 720);
   const items = prs.data?.items ?? [];
   const inTab = (p: PrSummary, t: Tab) =>
     t === "closed" ? p.state === "merged" || (p.mine && p.state === "closed") : t === "review" ? p.reviewRequested && p.state !== "merged" && p.state !== "closed" : p.mine && (p.state === "open" || p.state === "draft");
@@ -76,7 +78,7 @@ export function PullRequests({ initial }: { initial?: number }) {
         </div>
       ) : (
         <div className="body split">
-          <section aria-label="Pull request list" className="master" style={{ "--master-w": "460px" } as CSSProperties} data-pane data-active={pane === "list"}>
+          <section aria-label="Pull request list" className="master" style={{ "--master-w": `${listW.width}px` } as CSSProperties} data-pane data-active={pane === "list"}>
             <div className="master-tools">
               <Seg<Tab>
                 grid
@@ -114,6 +116,7 @@ export function PullRequests({ initial }: { initial?: number }) {
               })}
             </div>
           </section>
+          <Resizer pane={listW} label="Resize pull request list" />
           <main className="detail" data-pane data-active={pane === "detail"}>
             <button className="btn btn-sm show-narrow" style={{ marginBottom: 12 }} onClick={() => setPane("list")}>
               <Icon name="back" size={12} />

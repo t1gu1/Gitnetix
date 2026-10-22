@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useState, type CSSProperties } from "react";
 
 import { useAction, useOverview, useTickets } from "../api/hooks";
 import { openExternal } from "../api/transport";
 import type { Suggestion, Ticket } from "../api/types";
 import { MenuChoice } from "../components/AgentPicker";
 import { Icon } from "../components/Icon";
+import { Resizer, usePaneWidth } from "../components/Resizer";
 import { ago, Busy, Empty, ErrorBox, Header, Loading, releaseTagLabel, Seg } from "../components/ui";
 import { useNav } from "../lib/nav";
 
@@ -28,6 +29,7 @@ export function Tickets() {
   const [search, setSearch] = useState("");
   const [sel, setSel] = useState<string | undefined>();
   const [pane, setPane] = useState<"list" | "detail">("list");
+  const listW = usePaneWidth("gnx.pane.tickets", 400, 280, 720);
   const [suggestions, setSuggestions] = useState<Record<string, Suggestion>>({});
   const setRel = useAction("tickets.setRelease", { invalidate: [["tickets", pid], ["overview", pid]] });
   const triage = useAction<Suggestion[]>("tickets.triage", {
@@ -86,7 +88,7 @@ export function Tickets() {
         <div className="page"><div className="page-inner"><ErrorBox error={q.error} /></div></div>
       ) : (
         <div className="body split">
-          <section className="master" data-pane data-active={pane === "list"} aria-label="Ticket list">
+          <section className="master" style={{ "--master-w": `${listW.width}px` } as CSSProperties} data-pane data-active={pane === "list"} aria-label="Ticket list">
             <div className="master-tools">
               <label htmlFor="tk-q" className="sr-only">Search tickets</label>
               <input id="tk-q" className="input" placeholder="Search by key or title" value={search} onChange={(e) => setSearch(e.target.value)} />
@@ -147,6 +149,7 @@ export function Tickets() {
               {grouped.length === 0 && <Empty>No tickets match these filters.</Empty>}
             </div>
           </section>
+          <Resizer pane={listW} label="Resize ticket list" />
           <main className="detail" data-pane data-active={pane === "detail"}>
             <button className="btn btn-sm show-narrow" style={{ marginBottom: 12 }} onClick={() => setPane("list")}>
               <Icon name="back" size={12} />

@@ -22,10 +22,11 @@ export type PaneWidth = ReturnType<typeof usePaneWidth>;
 /**
  * Vertical drag handle on a pane's right edge, or with `top` a horizontal one
  * on a bottom pane's top edge (the value is then its height). Double-click
- * resets; arrow keys nudge.
+ * resets; arrow keys nudge. With `percent` the value is a percent of the parent's width.
  */
-export function Resizer({ pane, label, top }: { pane: PaneWidth; label: string; top?: boolean }) {
-  const start = useRef<{ x: number; w: number } | null>(null);
+export function Resizer({ pane, label, top, percent }: { pane: PaneWidth; label: string; top?: boolean; percent?: boolean }) {
+  // `k` turns dragged pixels into the value's unit.
+  const start = useRef<{ x: number; w: number; k: number } | null>(null);
   const pos = (e: PointerEvent) => (top ? -e.clientY : e.clientX);
   const end = () => {
     if (!start.current) return;
@@ -47,15 +48,15 @@ export function Resizer({ pane, label, top }: { pane: PaneWidth; label: string; 
         if (e.button !== 0) return;
         e.preventDefault();
         e.currentTarget.setPointerCapture(e.pointerId);
-        start.current = { x: pos(e), w: pane.width };
+        start.current = { x: pos(e), w: pane.width, k: percent ? 100 / e.currentTarget.parentElement!.clientWidth : 1 };
         document.body.classList.add("resizing", ...(top ? ["resizing-rows"] : []));
       }}
-      onPointerMove={(e) => start.current && pane.set(start.current.w + pos(e) - start.current.x)}
+      onPointerMove={(e) => start.current && pane.set(start.current.w + (pos(e) - start.current.x) * start.current.k)}
       onPointerUp={end}
       onLostPointerCapture={end}
       onDoubleClick={() => pane.set(pane.def, true)}
       onKeyDown={(e: KeyboardEvent) => {
-        const step = e.shiftKey ? 64 : 16;
+        const step = (e.shiftKey ? 64 : 16) / (percent ? 8 : 1);
         if (e.key === (top ? "ArrowDown" : "ArrowLeft")) pane.set(pane.width - step, true);
         else if (e.key === (top ? "ArrowUp" : "ArrowRight")) pane.set(pane.width + step, true);
         else return;

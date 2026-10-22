@@ -1,8 +1,9 @@
-import { type ReactNode, useEffect, useState } from "react";
+import { type CSSProperties, type ReactNode, useEffect, useState } from "react";
 
 import { useAction, useAiCatalog } from "../api/hooks";
 import type { AiCatalog, ConnectMethod } from "../api/types";
 import { EFFORTS, MenuChoice } from "../components/AgentPicker";
+import { Resizer, usePaneWidth } from "../components/Resizer";
 import { Header, Loading, Seg } from "../components/ui";
 
 const TASKS: [string, string][] = [
@@ -40,11 +41,12 @@ export function AISetup() {
 export function AISetupPanes({ top }: { top?: ReactNode }) {
   const cat = useAiCatalog();
   const [sel, setSel] = useState("claude");
+  const navW = usePaneWidth("gnx.pane.ai", 300, 220, 520);
   if (!cat.data) return <Loading />;
   const c = cat.data;
   return (
     <>
-      <nav aria-label="AI providers" className="sidenav hide-narrow" style={{ flexBasis: 300 }}>
+      <nav aria-label="AI providers" className="sidenav hide-narrow" style={{ "--sidenav-w": `${navW.width}px` } as CSSProperties}>
         <div className="group-label">Providers</div>
         {c.providers.map((p) => (
           <button key={p.info.id} className="nav-item" style={{ minHeight: 56 }} aria-pressed={p.info.id === sel} onClick={() => setSel(p.info.id)}>
@@ -60,6 +62,7 @@ export function AISetupPanes({ top }: { top?: ReactNode }) {
         ))}
         <div className="hint" style={{ padding: "12px 10px" }}>Connect as many as you like, then choose which one does what in Task routing.</div>
       </nav>
+      <Resizer pane={navW} label="Resize AI providers" />
       <main className="page">
         {top}
         <div className="show-narrow" style={{ marginBottom: 16 }}>

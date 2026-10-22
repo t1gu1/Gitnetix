@@ -39,7 +39,7 @@ export function Workspace() {
   const [pane, setPane] = useState<Pane>("releases");
   const [shipping, setShipping] = useState<ReleaseView | null>(null);
   // `then` runs once the merge is done (closing a worktree session after merging it).
-  const [dialog, setDialog] = useState<{ kind: BranchDialog; branch: string; onto?: string; then?: () => void; stay?: boolean } | null>(null);
+  const [dialog, setDialog] = useState<{ kind: BranchDialog; branch: string; onto?: string; then?: () => void; stay?: boolean; into?: string } | null>(null);
   const [closingSession, setClosingSession] = useState<AgentSession | null>(null);
   const [deletingTag, setDeletingTag] = useState<string | null>(null);
   const checkoutTag = useAction<unknown, { projectId: string; name: string }>("tags.checkout", {
@@ -57,14 +57,14 @@ export function Workspace() {
   // Stash list in place of the tree: one branch's ("" = every stash), and the stash picked there.
   const [stashesOf, setStashesOf] = useState<string | null>(null);
   const [stash, setStash] = useState<Stash | undefined>();
-  const branchesW = usePaneWidth("gnx.pane.branches", 300, 220, 560);
-  const filesW = usePaneWidth("gnx.pane.files", 320, 220, 640);
+  // Left pane (branches, or the diff over them) as a percent of the workspace: two thirds by default.
+  const leftW = usePaneWidth("gnx.pane.left", 67, 20, 80);
   const [branchesHidden, setBranchesHidden] = useStoredFlag("gnx.pane.branchesHidden");
   const [asTree, setAsTree] = useStoredFlag("gnx.files.tree");
   // Collapse/expand all: a new `n` remounts the file lists, dropping per-folder toggles.
   const [fold, setFold] = useState({ closed: false, n: 0 });
   const actions = useBranchActions(pid, (kind, branch, onto) => setDialog({ kind, branch, onto }));
-  const finish = useFinishHandlers(pid, actions.continueOn, (branch, then, stay) => setDialog({ kind: "merge", branch, then, stay }));
+  const finish = useFinishHandlers(pid, actions.continueOn, (branch, then, stay, into) => setDialog({ kind: "merge", branch, then, stay, into }));
 
   const o = ov.data;
   const byName = useMemo(() => new Map((o?.branches ?? []).map((b) => [b.name, b])), [o]);
@@ -159,7 +159,7 @@ export function Workspace() {
   const branchCount = useFiles(pid, branch, "branch").data?.length ?? 0;
   const list = files.data ?? [];
   const fileCount = new Set(list.map((f) => f.path)).size;
-  const current = list.find((f) => fileKey(f) === file) ?? list[0];
+  const current = list.find((f) => fileKey(f) === file);
   // Project view lists untouched files too: those show as the plain file, no diff.
   const unchanged = mode === "project" && !commit && !stash && current?.status === " ";
   const markdown = /\.(md|markdown|mdx)$/i.test(current?.path ?? "");
@@ -207,6 +207,20 @@ export function Workspace() {
   };
 
   useEffect(() => setFile(undefined), [branch, mode, commit, stash]);
+  // Escape closes the diff, unless it is closing something else or typing; captured so the commit or stash list under it stays open.
+  const fileOpen = !!current;
+  useEffect(() => {
+    if (!fileOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || (e.target as HTMLElement).closest("input, textarea")) return;
+      if (document.querySelector("[role=dialog], [role=menu]")) return;
+      e.stopImmediatePropagation();
+      setFile(undefined);
+      setPane("files");
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [fileOpen]);
   // Picking another branch (e.g. from a ticket) leaves its commit or stash list.
   useEffect(() => {
     if (history && branch !== history) closeHistory();
@@ -245,8 +259,9 @@ export function Workspace() {
       {o && (
         <main
           className="ws"
-          style={{ "--branches-w": `${branchesW.width}px`, "--files-w": `${filesW.width}px` } as CSSProperties}
+          style={{ "--branches-w": `${leftW.width}%` } as CSSProperties}
           data-branches-hidden={branchesHidden || undefined}
+          data-file-open={current ? true : undefined}
         >
           {branchesHidden && (
             <div className="ws-rail hide-narrow">
@@ -255,64 +270,130 @@ export function Workspace() {
               </button>
             </div>
           )}
-          {stashesOf !== null ? (
-            <StashList
-              active={pane === "releases"}
-              pid={pid}
-              stashes={stashesOf ? o.stashes.filter((s) => s.branch === stashesOf) : o.stashes}
-              branch={stashesOf || undefined}
-              total={o.stashes.length}
-              selected={stash?.sha}
-              // Back onto its own branch when that is checked out, else onto the main checkout's.
-              targetOf={(s) => (s.branch && byName.get(s.branch)?.checkedOut ? s.branch : o.currentBranch ?? undefined)}
-              onPick={(s) => {
-                setStash(s);
-                if (s) setPane("files");
-              }}
-              onShowAll={() => openStashes()}
-              onBack={closeStashes}
-            />
-          ) : history ? (
-            <CommitList
-              active={pane === "releases"}
-              pid={pid}
-              branch={history}
-              base={baseFor(history) === history ? "" : labelOf(baseFor(history))}
-              selected={commit?.sha}
-              checkedOut={byName.get(history)?.checkedOut ?? history === o.currentBranch}
-              upstream={!!byName.get(history)?.upstream}
-              current={o.currentBranch ?? undefined}
-              onPick={(c, auto) => {
-                setCommit(c);
-                setMode("branch");
-                if (!auto) setPane("files");
-              }}
-              onBack={closeHistory}
-            />
-          ) : (
-            <BranchTree
-              onHide={() => setBranchesHidden(true)}
-              active={pane === "releases"}
-              o={o}
-              selected={branch}
-              actions={actions}
-              target={target}
-              onSelect={(b) => {
-                nav.selectBranch(b);
-                setPane("files");
-              }}
-              onNewRelease={() => nav.openNewItem({ kind: "release" })}
-              onCleanup={(parent, label, branches) => setCleanup({ parent, label, branches })}
-              onCleanupBehind={(section, base, branches) => setCleanupBehind({ section, base, branches })}
-              isCleaning={(s) => cleanupLeft(s) !== undefined}
-              cleanupLeft={cleanupLeft}
-              tagItems={tagItems}
-              onStashes={() => openStashes()}
-              building={ov.isPlaceholderData}
-            />
-          )}
+          <div className="ws-left" data-pane data-active={pane !== "files"}>
+            {stashesOf !== null ? (
+              <StashList
+                active={pane === "releases"}
+                pid={pid}
+                stashes={stashesOf ? o.stashes.filter((s) => s.branch === stashesOf) : o.stashes}
+                branch={stashesOf || undefined}
+                total={o.stashes.length}
+                selected={stash?.sha}
+                // Back onto its own branch when that is checked out, else onto the main checkout's.
+                targetOf={(s) => (s.branch && byName.get(s.branch)?.checkedOut ? s.branch : o.currentBranch ?? undefined)}
+                onPick={(s) => {
+                  setStash(s);
+                  if (s) setPane("files");
+                }}
+                onShowAll={() => openStashes()}
+                onBack={closeStashes}
+              />
+            ) : history ? (
+              <CommitList
+                active={pane === "releases"}
+                pid={pid}
+                branch={history}
+                base={baseFor(history) === history ? "" : labelOf(baseFor(history))}
+                selected={commit?.sha}
+                checkedOut={byName.get(history)?.checkedOut ?? history === o.currentBranch}
+                upstream={!!byName.get(history)?.upstream}
+                current={o.currentBranch ?? undefined}
+                onPick={(c, auto) => {
+                  setCommit(c);
+                  setMode("branch");
+                  if (!auto) setPane("files");
+                }}
+                onBack={closeHistory}
+              />
+            ) : (
+              <BranchTree
+                onHide={() => setBranchesHidden(true)}
+                active={pane === "releases"}
+                o={o}
+                selected={branch}
+                actions={actions}
+                target={target}
+                onSelect={(b) => {
+                  nav.selectBranch(b);
+                  setPane("files");
+                }}
+                onNewRelease={() => nav.openNewItem({ kind: "release" })}
+                onCleanup={(parent, label, branches) => setCleanup({ parent, label, branches })}
+                onCleanupBehind={(section, base, branches) => setCleanupBehind({ section, base, branches })}
+                isCleaning={(s) => cleanupLeft(s) !== undefined}
+                cleanupLeft={cleanupLeft}
+                tagItems={tagItems}
+                onStashes={() => openStashes()}
+                building={ov.isPlaceholderData}
+              />
+            )}
 
-          {!branchesHidden && <Resizer pane={branchesW} label="Resize branches panel" />}
+            <section aria-label="Diff" className="ws-diff" data-pane data-active={pane === "diff"}>
+              <div className="pane-head" style={{ background: "var(--panel)" }}>
+                <span className="mono ellipsis" style={{ fontSize: 12.5 }}>{current?.path ?? "No file selected"}</span>
+                <span className="row mono" style={{ fontSize: 11.5, gap: 6 }}>
+                  {current?.additions ? <span className="c-add">+{current.additions}</span> : null}
+                  {current?.deletions ? <span className="c-del">−{current.deletions}</span> : null}
+                </span>
+                <span className="grow" />
+                {image ? (
+                  comparable(blobs.data) && <Seg value={imageMode} onChange={setImageMode} label="Image comparison" options={IMAGE_MODES} />
+                ) : (
+                  (!unchanged || markdown) && (
+                    <Seg<DiffMode | "raw" | "preview">
+                      value={markdown && preview ? "preview" : unchanged ? "raw" : diffMode}
+                      onChange={(v) => {
+                        setPreview(v === "preview");
+                        if (v !== "preview" && v !== "raw") setDiffMode(v);
+                      }}
+                      label="Diff mode"
+                      options={[
+                        ...(unchanged
+                          ? [{ value: "raw" as const, label: "Raw" }]
+                          : [{ value: "split" as const, label: "Split" }, { value: "unified" as const, label: "Unified" }, { value: "full" as const, label: "Full" }]),
+                        ...(markdown ? [{ value: "preview" as const, label: "Preview" }] : []),
+                      ]}
+                    />
+                  )
+                )}
+                {current && (
+                  <button className="btn btn-sm btn-icon" style={{ marginLeft: 8 }} aria-label="Close file" data-tip="Back to branches" onClick={() => { setFile(undefined); setPane("files"); }}>
+                    <Icon name="close" size={13} />
+                  </button>
+                )}
+              </div>
+              <div className="diff">
+                {(diff.isLoading || (unchanged && blobs.isLoading)) && current && <Loading />}
+                {diff.error && <div style={{ padding: 16 }}><ErrorBox error={diff.error} /></div>}
+                {image && current && blobs.data && <ImageDiff path={current.path} blobs={blobs.data} mode={imageMode} />}
+                {blobs.error && (image || unchanged) && <div style={{ padding: 16 }}><ErrorBox error={blobs.error} /></div>}
+                {showPreview ? (
+                  <article style={{ maxWidth: 760, margin: "0 auto", padding: "24px 24px 48px", fontFamily: "var(--sans)", fontSize: 14, lineHeight: 1.6 }}>
+                    <Markdown text={text} />
+                  </article>
+                ) : (
+                  <>
+                    {raw && <DiffView hunks={raw} mode="full" />}
+                    {diff.data && diff.data.length > 0 && <DiffView hunks={diff.data} mode={diffMode} />}
+                  </>
+                )}
+                {(!current || (diff.data && diff.data.length === 0 && !image) || (unchanged && !image && blobs.data && text === null)) && (
+                  <div className={list.length === 0 ? "empty engraved" : "empty"} style={{ fontFamily: "var(--sans)" }}>
+                    {list.length === 0 ? "Nothing to show — working tree is clean." : !current ? "No file selected." : unchanged ? "Binary file." : "No textual changes in this file."}
+                  </div>
+                )}
+              </div>
+            </section>
+            <Terminal
+              pid={pid}
+              branch={branch}
+              open={termOpen}
+              setOpen={setTermOpen}
+              onCloseWorktree={setClosingSession}
+              finish={finish}
+            />
+          </div>
+          {(!branchesHidden || current) && <Resizer pane={leftW} label="Resize panels" percent />}
           <section aria-label="Changed files" className="ws-files" data-pane data-active={pane === "files"}>
             <div className="col" style={{ gap: 10, padding: "12px 14px", borderBottom: "1px solid var(--line)" }}>
               <div className="row" style={{ alignItems: "center", minWidth: 0, margin: 0 }}>
@@ -418,66 +499,6 @@ export function Workspace() {
             {branch && !history && <CommitBox pid={pid} branch={branch} enabled={checkedOut} staged={stagedCount} changed={wipCount} />}
           </section>
 
-          <Resizer pane={filesW} label="Resize files panel" />
-          <section aria-label="Diff" className="ws-diff" data-pane data-active={pane === "diff"}>
-            <div className="pane-head" style={{ background: "var(--panel)" }}>
-              <span className="mono ellipsis" style={{ fontSize: 12.5 }}>{current?.path ?? "No file selected"}</span>
-              <span className="row mono" style={{ fontSize: 11.5, gap: 6 }}>
-                {current?.additions ? <span className="c-add">+{current.additions}</span> : null}
-                {current?.deletions ? <span className="c-del">−{current.deletions}</span> : null}
-              </span>
-              <span className="grow" />
-              {image ? (
-                comparable(blobs.data) && <Seg value={imageMode} onChange={setImageMode} label="Image comparison" options={IMAGE_MODES} />
-              ) : (
-                (!unchanged || markdown) && (
-                  <Seg<DiffMode | "raw" | "preview">
-                    value={markdown && preview ? "preview" : unchanged ? "raw" : diffMode}
-                    onChange={(v) => {
-                      setPreview(v === "preview");
-                      if (v !== "preview" && v !== "raw") setDiffMode(v);
-                    }}
-                    label="Diff mode"
-                    options={[
-                      ...(unchanged
-                        ? [{ value: "raw" as const, label: "Raw" }]
-                        : [{ value: "split" as const, label: "Split" }, { value: "unified" as const, label: "Unified" }, { value: "full" as const, label: "Full" }]),
-                      ...(markdown ? [{ value: "preview" as const, label: "Preview" }] : []),
-                    ]}
-                  />
-                )
-              )}
-            </div>
-            <div className="diff">
-              {(diff.isLoading || (unchanged && blobs.isLoading)) && current && <Loading />}
-              {diff.error && <div style={{ padding: 16 }}><ErrorBox error={diff.error} /></div>}
-              {image && current && blobs.data && <ImageDiff path={current.path} blobs={blobs.data} mode={imageMode} />}
-              {blobs.error && (image || unchanged) && <div style={{ padding: 16 }}><ErrorBox error={blobs.error} /></div>}
-              {showPreview ? (
-                <article style={{ maxWidth: 760, margin: "0 auto", padding: "24px 24px 48px", fontFamily: "var(--sans)", fontSize: 14, lineHeight: 1.6 }}>
-                  <Markdown text={text} />
-                </article>
-              ) : (
-                <>
-                  {raw && <DiffView hunks={raw} mode="full" />}
-                  {diff.data && diff.data.length > 0 && <DiffView hunks={diff.data} mode={diffMode} />}
-                </>
-              )}
-              {(!current || (diff.data && diff.data.length === 0 && !image) || (unchanged && !image && blobs.data && text === null)) && (
-                <div className={list.length === 0 ? "empty engraved" : "empty"} style={{ fontFamily: "var(--sans)" }}>
-                  {list.length === 0 ? "Nothing to show — working tree is clean." : unchanged ? "Binary file." : "No textual changes in this file."}
-                </div>
-              )}
-            </div>
-            <Terminal
-              pid={pid}
-              branch={branch}
-              open={termOpen}
-              setOpen={setTermOpen}
-              onCloseWorktree={setClosingSession}
-              finish={finish}
-            />
-          </section>
         </main>
       )}
 
@@ -491,7 +512,7 @@ export function Workspace() {
         <MergeModal
           pid={pid}
           branch={dialog.branch}
-          base={baseFor(dialog.branch)}
+          base={dialog.into ?? baseFor(dialog.branch)}
           // Any other local branch can take it: releases first, then trunks, then work branches.
           others={mergeTargets(o?.branches ?? [], dialog.branch)}
           stay={dialog.stay}
@@ -937,7 +958,7 @@ export function MergeModal({
             setPick({ x: r.right, y: r.bottom + 2 });
           }}
         >
-          <Icon name="chevronDown" size={13} />
+          <Icon name="chevronDown" size={16} />
         </button>
       </span>
       {pick && (
@@ -1650,13 +1671,13 @@ function Terminal({ pid, branch, open, setOpen, onCloseWorktree, finish }: { pid
 /** The worktree a session runs in; a worktree without an agent closes the same way. */
 type WtSession = Pick<AgentSession, "projectId" | "branch" | "cwd">;
 /** How a worktree session ends; each gets the session and whether to switch to where the code lands. */
-type FinishHandlers = { discard: (s: WtSession) => void; continue: (s: WtSession, sw: boolean) => void; merge: (s: WtSession, sw: boolean) => void };
+type FinishHandlers = { discard: (s: WtSession) => void; continue: (s: WtSession, sw: boolean) => void; merge: (s: WtSession, sw: boolean, into?: string) => void };
 
-/** `continueOn` deletes the worktree and checks its branch out; `openMerge` shows the merge options, `then` running once merged. */
+/** `continueOn` deletes the worktree and checks its branch out; `openMerge` shows the merge options (into `into`, else the base), `then` running once merged. */
 export function useFinishHandlers(
   pid: string,
   continueOn: (branch: string, path: string) => void,
-  openMerge: (branch: string, then: () => void, stay: boolean) => void,
+  openMerge: (branch: string, then: () => void, stay: boolean, into?: string) => void,
 ): FinishHandlers {
   const removeWt = useAction("worktrees.remove", { invalidate: [["agents"], ["worktrees"], ["overview", pid]], success: "Worktree removed" });
   // Removing the worktree also removes its agent session.
@@ -1671,14 +1692,20 @@ export function useFinishHandlers(
         { onSuccess: () => deleteBranch.mutate({ projectId: s.projectId, branch: s.branch, force: true }, { onSuccess: () => nav.forgetBranches(s.projectId, [s.branch]) }) },
       ),
     continue: (s, sw) => (sw ? continueOn(s.branch, s.cwd) : drop(s)),
-    merge: (s, sw) => openMerge(s.branch, () => drop(s), !sw),
+    merge: (s, sw, into) => openMerge(s.branch, () => drop(s), !sw, into),
   };
 }
 
-/** Ends a worktree session: the agent stops and the worktree goes, its branch either kept to continue on or merged first. */
-function CloseWorktreeModal({ session: s, finish, onClose }: { session: AgentSession; finish: FinishHandlers; onClose: () => void }) {
+/** Ends a worktree session: the agent stops and the worktree goes, its branch either kept to continue on or merged first. `inline` shows it in the agent chat instead of a modal. */
+function CloseWorktreeModal({ session: s, finish, onClose, inline }: { session: WtSession; finish: FinishHandlers; onClose: () => void; inline?: boolean }) {
   const [then, setThen] = useState<"continue" | "merge">("continue");
   const [sw, setSw] = useState(true);
+  const branches = useOverview(s.projectId).data?.branches ?? [];
+  const base = branches.find((x) => x.name === s.branch)?.parent ?? "";
+  const others = mergeTargets(branches, s.branch);
+  const [into, setInto] = useState<string | undefined>();
+  const [pick, setPick] = useState<{ x: number; y: number } | null>(null);
+  const target = into ?? base;
   const body = (
     <>
       <p style={{ margin: 0, lineHeight: 1.55 }}>
@@ -1712,12 +1739,42 @@ function CloseWorktreeModal({ session: s, finish, onClose }: { session: AgentSes
   );
   const buttons = (
     <>
-      <button type="button" className="btn btn-md btn-danger" data-tip={`Delete the worktree, its uncommitted changes and the local ${s.branch} branch`} onClick={() => { finish.discard(s); onClose(); }}>Cancel and Delete all</button>
-      <button type="button" className="btn btn-md btn-primary" onClick={() => { finish[then](s, sw); onClose(); }}>
-        Finish with the agent / worktree{then === "merge" ? "…" : ""}
-      </button>
+      <button type="button" className="btn btn-md btn-danger" style={{ flex: "1 1 0" }} data-tip={`Delete the worktree, its uncommitted changes and the local ${s.branch} branch`} onClick={() => { finish.discard(s); onClose(); }}>Cancel and Delete all</button>
+      {/* Each button takes half the footer. */}
+      <span className="split-btn" style={{ display: "flex", flex: "1 1 0" }}>
+        <button type="button" className={`btn btn-md btn-primary${then === "merge" ? " split-main" : ""}`} style={{ flex: "1 1 auto" }} onClick={() => { finish[then](s, sw, into); onClose(); }}>
+          {then === "merge" && target ? `Finish and merge into ${target}…` : `Finish with the agent / worktree${then === "merge" ? "…" : ""}`}
+        </button>
+        {then === "merge" && (
+          <button
+            type="button"
+            className="btn btn-primary btn-md btn-icon split-more"
+            aria-label="Merge into another branch"
+            data-tip="Merge into another branch"
+            aria-haspopup="menu"
+            disabled={!others.length}
+            onClick={(e) => {
+              const r = e.currentTarget.getBoundingClientRect();
+              setPick({ x: r.right, y: r.bottom + 2 });
+            }}
+          >
+            <Icon name="chevronDown" size={16} />
+          </button>
+        )}
+      </span>
+      {pick && (
+        <ContextMenu
+          x={pick.x}
+          y={pick.y}
+          alignRight
+          label="Merge into"
+          items={others.map((b) => ({ id: b, label: <span className="mono">{b}</span>, icon: b === target ? "check" : undefined, hint: b === base ? "its base" : undefined, run: () => setInto(b) }))}
+          onClose={() => setPick(null)}
+        />
+      )}
     </>
   );
+  if (inline) return <div className="ag-finish">{body}<div className="ag-finish-foot">{buttons}</div></div>;
   return (
     <Modal title="Close worktree session" sub={<span className="mono">{s.branch}</span>} width={520} onClose={onClose} footer={buttons}>
       {body}
@@ -1725,34 +1782,15 @@ function CloseWorktreeModal({ session: s, finish, onClose }: { session: AgentSes
   );
 }
 
-/** Under the agent's last reply: proposes merging the worktree's branch, continuing on it or discarding it a click away. */
+/** Under the agent's last reply: the close options for the worktree, a click away. */
 export function FinishWorktreeCard({ session: s, finish }: { session: WtSession; finish: FinishHandlers }) {
-  const nav = useNav();
   const branches = useOverview(s.projectId).data?.branches;
-  // MergeModal reads its base once, on mount: wait for the branches.
   if (!branches) return null;
   const b = branches.find((x) => x.name === s.branch);
   // Nothing committed or edited yet (the agent only answered or asked): nothing to merge.
   // Not in the overview: no base to merge into.
   if (!b || (!b.ahead && !b.wip)) return null;
-  return (
-    <MergeModal
-      pid={s.projectId}
-      branch={s.branch}
-      base={b.parent ?? ""}
-      others={mergeTargets(branches, s.branch)}
-      onClose={() => {}}
-      onDeleted={(into) => nav.projectId === s.projectId && nav.selectedBranch === s.branch && nav.selectBranch(into)}
-      // Not switching, `continue` only deletes the worktree, as `finish.merge` does once merged.
-      onMerged={() => finish.continue(s, false)}
-      inline={
-        <>
-          <button type="button" className="btn btn-md btn-danger" data-tip={`Delete the worktree, its uncommitted changes and the local ${s.branch} branch`} onClick={() => finish.discard(s)}>Cancel and Delete all</button>
-          <button type="button" className="btn btn-md" data-tip={`Delete the worktree and switch to ${s.branch}; refused with uncommitted changes`} onClick={() => finish.continue(s, true)}>Continue on branch</button>
-        </>
-      }
-    />
-  );
+  return <CloseWorktreeModal session={s} finish={finish} onClose={() => {}} inline />;
 }
 
 function ShipModal({ pid, release, defaultBranch, onClose }: { pid: string; release: ReleaseView; defaultBranch: string; onClose: () => void }) {

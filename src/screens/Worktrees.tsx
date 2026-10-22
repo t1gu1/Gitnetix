@@ -1,10 +1,11 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type CSSProperties } from "react";
 
 import { useAction, useAgents, useFiles, useOverview, useProjects, useWorktrees } from "../api/hooks";
 import type { AgentSession, AgentStatus, WorktreeView } from "../api/types";
 import { AgentInput, AgentLog } from "../components/AgentLog";
 import { AgentPicker, MenuChoice, useAgentPick } from "../components/AgentPicker";
 import { Icon } from "../components/Icon";
+import { Resizer, usePaneWidth } from "../components/Resizer";
 import { ago, Busy, Empty, Header, Loading, Modal, Seg } from "../components/ui";
 import { KINDS, kindOfBranch, type Kind } from "../lib/kinds";
 import { useNav } from "../lib/nav";
@@ -51,6 +52,7 @@ export function Worktrees({ initial }: { initial?: string }) {
   const [filter, setFilter] = useState<Filter>("all");
   const [sel, setSel] = useState<string | undefined>(initial);
   const [pane, setPane] = useState<"list" | "detail">(initial ? "detail" : "list");
+  const listW = usePaneWidth("gnx.pane.worktrees", 400, 280, 720);
   const [starting, setStarting] = useState(false);
 
   // One row per linked worktree; agents elsewhere (main checkout, removed directory) still show up.
@@ -79,7 +81,7 @@ export function Worktrees({ initial }: { initial?: string }) {
     <>
       <Header title="Worktrees & agents" sub="All projects" />
       <div className="body split">
-        <section className="master" data-pane data-active={pane === "list"} aria-label="Worktrees">
+        <section className="master" style={{ "--master-w": `${listW.width}px` } as CSSProperties} data-pane data-active={pane === "list"} aria-label="Worktrees">
           <div className="master-tools">
             <Seg<Filter>
               grid
@@ -129,6 +131,7 @@ export function Worktrees({ initial }: { initial?: string }) {
             {!wts.isLoading && names.length === 0 && <Empty>Nothing here right now.</Empty>}
           </div>
         </section>
+        <Resizer pane={listW} label="Resize worktree list" />
         <main className="detail" data-pane data-active={pane === "detail"} style={{ display: "flex", flexDirection: "column" }}>
           <button className="btn btn-sm show-narrow" style={{ marginBottom: 12, alignSelf: "flex-start" }} onClick={() => setPane("list")}>
             <Icon name="back" size={12} />
@@ -157,8 +160,8 @@ function Detail({ r }: { r: Row }) {
   const actions = useBranchActions(r.projectId, () => {});
   const ov = useOverview(r.projectId);
   // Merging closes the worktree once done (`then`); `stay` leaves the main checkout where it is.
-  const [merging, setMerging] = useState<{ then: () => void; stay: boolean } | null>(null);
-  const finish = useFinishHandlers(r.projectId, actions.continueOn, (_, then, stay) => setMerging({ then, stay }));
+  const [merging, setMerging] = useState<{ then: () => void; stay: boolean; into?: string } | null>(null);
+  const finish = useFinishHandlers(r.projectId, actions.continueOn, (_, then, stay, into) => setMerging({ then, stay, into }));
   const isWorktree = !!r.wt && !r.wt.main;
   const session = { projectId: r.projectId, branch: r.branch, cwd: r.path };
   // Commits like the Workspace commit box with an empty summary: AI writes the message, staged files only if any, else everything.
@@ -265,7 +268,7 @@ function Detail({ r }: { r: Row }) {
         <MergeModal
           pid={r.projectId}
           branch={r.branch}
-          base={ov.data?.branches.find((x) => x.name === r.branch)?.parent ?? ""}
+          base={merging.into ?? ov.data?.branches.find((x) => x.name === r.branch)?.parent ?? ""}
           others={mergeTargets(ov.data?.branches ?? [], r.branch)}
           stay={merging.stay}
           onClose={() => setMerging(null)}
