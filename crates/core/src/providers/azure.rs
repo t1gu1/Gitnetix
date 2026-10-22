@@ -228,7 +228,9 @@ impl Azure {
             let c = &e["configuration"];
             let name = c["settings"]["displayName"].as_str().or(c["type"]["displayName"].as_str()).unwrap_or("Policy");
             if let Some(status) = check_status(e["status"].as_str().unwrap_or("")) {
-                checks.push(Check { name: name.into(), status: status.into() });
+                // Build policies point at their pipeline run.
+                let url = e["context"]["buildId"].as_u64().map(|id| format!("https://dev.azure.com/{}/{}/_build/results?buildId={id}", self.repo.org, self.repo.project));
+                checks.push(Check { name: name.into(), status: status.into(), url });
             }
         }
         // Statuses are posted again on each push; the last one per name counts.
@@ -236,7 +238,8 @@ impl Azure {
             let name = st["context"]["name"].as_str().or(st["description"].as_str()).unwrap_or("Status").to_string();
             let Some(status) = check_status(st["state"].as_str().unwrap_or("")) else { continue };
             checks.retain(|c| c.name != name);
-            checks.push(Check { name, status: status.into() });
+            let url = st["targetUrl"].as_str().filter(|u| u.starts_with("http")).map(Into::into);
+            checks.push(Check { name, status: status.into(), url });
         }
 
         let reviewers = p["reviewers"]

@@ -170,6 +170,7 @@ function Detail({ pid, number }: { pid: string; number: number }) {
   const [confirmClose, setConfirmClose] = useState(false);
   const [deleteBranch, setDeleteBranch] = useState(false);
   const [filter, setFilter] = useState<"all" | "open">("all");
+  const [checksOpen, setChecksOpen] = useState(false);
 
   if (q.isLoading) return <Loading />;
   if (q.error) return <ErrorBox error={q.error} />;
@@ -181,6 +182,7 @@ function Detail({ pid, number }: { pid: string; number: number }) {
   const unresolved = d.threads.filter((t) => t.resolvable && !t.resolved).length;
   const approvals = d.reviewers.filter((r) => r.vote === "approve").length;
   const changes = d.reviewers.filter((r) => r.vote === "changes").length;
+  const votes = [approvals && `${approvals} approval${approvals === 1 ? "" : "s"}`, changes && `${changes} changes requested`].filter(Boolean).join(" · ");
   const threads = filter === "open" ? d.threads.filter((t) => t.resolvable && !t.resolved) : d.threads;
   const startEdit = () => {
     setTitle(d.title);
@@ -318,21 +320,50 @@ function Detail({ pid, number }: { pid: string; number: number }) {
 
       {reviewOpen && <ReviewForm pid={pid} d={d} onDone={() => setReviewOpen(false)} />}
 
-      <div className="kv">
-        <div>
-          <span>Checks</span>
-          <span className={failing ? "c-del" : running ? "c-acc" : "c-add"}>
-            {d.checks.length === 0 ? "None" : failing ? `${failing} failing` : running ? `${d.checks.length - running} of ${d.checks.length} passed, ${running} running` : `All ${d.checks.length} passing`}
-          </span>
-        </div>
-        <div>
-          <span>Reviews</span>
-          <span>{d.state === "draft" ? "Draft" : [approvals && `${approvals} approval${approvals === 1 ? "" : "s"}`, changes && `${changes} changes requested`].filter(Boolean).join(" · ") || "No reviews yet"}</span>
-        </div>
-      </div>
+      {d.checks.length > 0 && (
+        <section className="section">
+          <div className="row" style={{ margin: 0 }}>
+            <h2>Checks</h2>
+            <span className={failing ? "c-del" : running ? "c-acc" : "c-add"} style={{ fontSize: 12.5 }}>
+              {failing ? `${failing} failing` : running ? `${d.checks.length - running} of ${d.checks.length} passed, ${running} running` : `All ${d.checks.length} passing`}
+            </span>
+            <span className="grow" />
+            <button className="btn btn-sm" aria-expanded={checksOpen} onClick={() => setChecksOpen(!checksOpen)}>
+              <Icon name="chevronDown" size={12} className="chev" />
+              {checksOpen ? "Hide" : "Show all"}
+            </button>
+          </div>
+          {checksOpen && (
+            <ul className="list">
+              {d.checks.map((c, i) => {
+                const row = (
+                  <>
+                    <span className="pulse" style={{ animation: c.status === "run" ? undefined : "none", background: c.status === "pass" ? "var(--add-fg)" : c.status === "fail" ? "var(--del-fg)" : "var(--accent)" }} />
+                    <span className="grow">{c.name}</span>
+                    {c.url && <Icon name="external" size={12} className="faint" />}
+                    <span className="muted" style={{ fontSize: 12 }}>{c.status === "pass" ? "Passed" : c.status === "fail" ? "Failed" : "Running"}</span>
+                  </>
+                );
+                return (
+                  <li key={i}>
+                    {c.url ? (
+                      <button className="list-row list-link" style={{ minHeight: 40 }} onClick={() => openExternal(c.url!)}>{row}</button>
+                    ) : (
+                      <div className="list-row" style={{ minHeight: 40 }}>{row}</div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
+      )}
 
       <section className="section">
-        <h2>Reviewers</h2>
+        <h2>
+          Reviewers
+          {votes && <span className="faint" style={{ fontSize: 13, fontWeight: 400, marginLeft: 8 }}>({votes})</span>}
+        </h2>
         {d.reviewers.length === 0 ? (
           <span className="muted">No reviewers yet.</span>
         ) : (
@@ -394,20 +425,6 @@ function Detail({ pid, number }: { pid: string; number: number }) {
         <NewComment pid={pid} number={number} />
       </section>
 
-      {d.checks.length > 0 && (
-        <section className="section">
-          <h2>Checks</h2>
-          <ul className="list">
-            {d.checks.map((c, i) => (
-              <li key={i} className="list-row" style={{ minHeight: 40 }}>
-                <span className="pulse" style={{ animation: c.status === "run" ? undefined : "none", background: c.status === "pass" ? "var(--add-fg)" : c.status === "fail" ? "var(--del-fg)" : "var(--accent)" }} />
-                <span className="grow">{c.name}</span>
-                <span className="muted" style={{ fontSize: 12 }}>{c.status === "pass" ? "Passed" : c.status === "fail" ? "Failed" : "Running"}</span>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
     </div>
   );
 }
