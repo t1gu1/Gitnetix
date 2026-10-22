@@ -63,7 +63,12 @@ export function Workspace() {
   const [asTree, setAsTree] = useStoredFlag("gnx.files.tree");
   // Collapse/expand all: a new `n` remounts the file lists, dropping per-folder toggles.
   const [fold, setFold] = useState({ closed: false, n: 0 });
-  const actions = useBranchActions(pid, (kind, branch, onto) => setDialog({ kind, branch, onto }));
+  const actions = useBranchActions(pid, (kind, branch, onto) => {
+    // A worktree's branch goes the way "Cancel and Delete all" does: worktree, changes and local branch.
+    const wt = kind === "delete" ? byName.get(branch)?.worktree : undefined;
+    if (wt) finish.discard({ projectId: pid, branch, cwd: wt });
+    else setDialog({ kind, branch, onto });
+  });
   const finish = useFinishHandlers(pid, actions.continueOn, (branch, then, stay, into) => setDialog({ kind: "merge", branch, then, stay, into }));
 
   const o = ov.data;
