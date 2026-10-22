@@ -627,7 +627,16 @@ impl Git {
         // Lease on the last fetched tip: a push made since then is never deleted unseen.
         // Full ref: a bare name also matching a tag on origin is refused as ambiguous.
         let r = format!("refs/heads/{name}");
-        self.run(&["push", "--force-with-lease", "origin", "--delete", &r]).await.map(|_| ())
+        let (ok, _, err) = self.try_run(&["push", "--force-with-lease", "origin", "--delete", &r]).await?;
+        if ok {
+            return Ok(());
+        }
+        // The lease reads "stale info" when origin already dropped the branch (e.g. deleted on PR merge):
+        // nothing left to delete, only our leftover tracking ref.
+        if err.contains("stale info") && self.run(&["ls-remote", "origin", &r]).await?.trim().is_empty() {
+            return self.run(&["update-ref", "-d", &format!("refs/remotes/origin/{name}")]).await.map(|_| ());
+        }
+        Err(Error::Git { cmd: "push".into(), stderr: err.trim().into() })
     }
 
     pub async fn tag(&self, name: &str, target: &str, message: &str) -> Result<()> {

@@ -195,6 +195,22 @@ export const useCommits = (projectId?: string, branch?: string) =>
     enabled: !!projectId && !!branch,
   });
 
+/** Fetch origin (pruning branches deleted there) when a project opens, then every 5 minutes. Quiet on failure: it runs unasked. */
+export const useAutoFetch = (projectId?: string, enabled = true) => {
+  const qc = useQueryClient();
+  useQuery({
+    queryKey: ["autoFetch", projectId],
+    queryFn: async () => {
+      await rpc("branches.fetch", { projectId }).catch(() => {});
+      qc.invalidateQueries({ queryKey: ["overview", projectId] });
+      return null;
+    },
+    enabled: enabled && !!projectId,
+    staleTime: 60_000,
+    refetchInterval: 5 * 60_000,
+  });
+};
+
 export const useAgents = () =>
   useQuery({ queryKey: ["agents"], queryFn: () => rpc<AgentSession[]>("agents.list"), refetchInterval: 15_000 });
 

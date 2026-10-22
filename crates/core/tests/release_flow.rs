@@ -756,6 +756,23 @@ async fn delete_on_origin_and_release_branches() {
     call(&k, "branches.delete", json!({ "projectId": pid, "branch": "feat/far", "remote": true, "force": true })).await;
     assert!(rev(&origin, "refs/heads/feat/far").is_empty());
 
+    // Already gone from origin (deleted on PR merge) but not fetched yet: only the stale tracking ref goes.
+    sh(&repo, &["push", "-q", "origin", "main:refs/heads/feat/gone"]);
+    sh(&repo, &["fetch", "-q", "origin"]);
+    sh(&origin, &["branch", "-qD", "feat/gone"]);
+    call(&k, "branches.delete", json!({ "projectId": pid, "branch": "feat/gone", "remote": true })).await;
+    assert!(rev(&repo, "refs/remotes/origin/feat/gone").is_empty());
+
+    // Moved on origin since the last fetch: the lease still refuses.
+    sh(&repo, &["switch", "-qc", "feat/moved"]);
+    commit_file(&repo, "moved.txt", "moved\n");
+    sh(&repo, &["push", "-q", "origin", "feat/moved"]);
+    sh(&repo, &["switch", "-q", "main"]);
+    sh(&repo, &["branch", "-qD", "feat/moved"]);
+    sh(&repo, &["update-ref", "refs/remotes/origin/feat/moved", "main"]);
+    let err = rpc::call(&k, "branches.delete", json!({ "projectId": pid, "branch": "feat/moved", "remote": true, "force": true })).await.unwrap_err();
+    assert!(err.to_string().contains("stale info"), "{err}");
+
     // The branch of an open release can go too.
     sh(&repo, &["switch", "-qc", "release/9.0.0"]);
     sh(&repo, &["switch", "-q", "main"]);

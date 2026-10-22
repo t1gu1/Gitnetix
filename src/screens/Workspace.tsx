@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type ReactNode } from "react";
 
-import { switchedOverview, useAction, useAgents, useAiOn, useBlobs, useDiff, useFiles, useOverview, useProjectPrefs, useProjects } from "../api/hooks";
+import { switchedOverview, useAction, useAgents, useAiOn, useAutoFetch, useBlobs, useDiff, useFiles, useOverview, useProjectPrefs, useProjects } from "../api/hooks";
 import { isLocal, revealPath } from "../api/transport";
 import type { AgentSession, BranchView, Commit, FileChange, Hunk, MergeResult, Overview, RebaseResult, ReleaseView, Stash } from "../api/types";
 import { AgentLog } from "../components/AgentLog";
@@ -29,6 +29,7 @@ export function Workspace() {
   const nav = useNav();
   const pid = nav.projectId!;
   const ov = useOverview(pid);
+  useAutoFetch(pid, !!ov.data?.remote);
   const [mode, setMode] = useState<Mode>("wip");
   const [file, setFile] = useState<string | undefined>();
   const [diffMode, setDiffMode] = useState<DiffMode>("unified");
