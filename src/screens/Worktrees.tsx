@@ -6,6 +6,7 @@ import { AgentLog } from "../components/AgentLog";
 import { AgentPicker, MenuChoice, useAgentPick } from "../components/AgentPicker";
 import { Icon } from "../components/Icon";
 import { ago, Busy, Empty, Header, Loading, Modal, Seg } from "../components/ui";
+import { kindOfBranch } from "../lib/kinds";
 import { useNav } from "../lib/nav";
 import { useBranchActions } from "./BranchMenu";
 import { FinishWorktreeCard, MergeModal, mergeTargets, useFinishHandlers } from "./Workspace";
@@ -292,46 +293,82 @@ function StartModal({ initial, onClose }: { initial?: string; onClose: () => voi
   const [pid, setPid] = useState(initial ?? "");
   // Each session gets its own worktree (made by the backend if needed); the default branch is reserved.
   const [picked, setBranch] = useState("");
+  // "new": branch off `from` into a fresh worktree; the default branch can be the base.
+  const [mode, setMode] = useState<"existing" | "new">("existing");
+  const [pickedFrom, setFrom] = useState("");
+  const [name, setName] = useState("");
   const [request, setRequest] = useState("");
   const [pick, setPick] = useAgentPick(pid);
   const ov = useOverview(pid).data;
-  const branches = (ov?.branches ?? []).filter((b) => b.exists && b.name !== ov?.defaultBranch);
+  const all = (ov?.branches ?? []).filter((b) => b.exists);
+  const branches = all.filter((b) => b.name !== ov?.defaultBranch);
   const branch = branches.find((b) => b.name === picked)?.name ?? branches[0]?.name ?? "";
+  const from = all.find((b) => b.name === pickedFrom)?.name ?? ov?.defaultBranch ?? "";
+  const fresh = mode === "new";
+  const label = (b: { name: string; local: boolean }) => (b.local ? b.name : `${b.name} (origin)`);
   const start = useAction("agents.start", { invalidate: [["agents"], ["worktrees"]], success: "Agent started" });
-  const go = () => start.mutate({ projectId: pid, branch, request, ...pick }, { onSuccess: onClose });
+  const create = useAction<{ branch: string }>("items.create", {
+    invalidate: [["overview", pid], ["agents"], ["worktrees"]],
+    success: (r) => `Agent started on ${r.branch}`,
+  });
+  const busy = start.isPending || create.isPending;
+  const ready = !!pid && !!(fresh ? from : branch) && !!request.trim() && !busy;
+  const go = () =>
+    fresh
+      ? create.mutate(
+          // Empty name: the backend names the branch from the request.
+          { projectId: pid, from, kind: kindOfBranch(name) ?? "feat", description: request, branchName: name.trim() || undefined, where: "worktree", startAgent: true, ...pick },
+          { onSuccess: onClose },
+        )
+      : start.mutate({ projectId: pid, branch, request, ...pick }, { onSuccess: onClose });
   return (
     <Modal
       title="New agent session"
-      sub={branch && `Runs in its own worktree on ${branch}`}
+      sub={fresh ? from && `Runs in a new worktree on a branch off ${from}` : branch && `Runs in its own worktree on ${branch}`}
       onClose={onClose}
       footer={
         <>
           <button className="btn btn-md" onClick={onClose}>Cancel</button>
-          <button className="btn btn-primary btn-md" disabled={!pid || !branch || !request.trim() || start.isPending} onClick={go}>
-            <Busy on={start.isPending}><Icon name="play" size={12} /></Busy>
+          <button className="btn btn-primary btn-md" disabled={!ready} onClick={go}>
+            <Busy on={busy}><Icon name="play" size={12} /></Busy>
             Start
           </button>
         </>
       }
     >
+      <Seg<"existing" | "new"> grid label="Branch" value={mode} onChange={setMode} options={[{ value: "existing", label: "Existing branch" }, { value: "new", label: "New branch" }]} />
       <div className="row" style={{ gap: 10, alignItems: "flex-start" }}>
         <div className="field grow">
           <span>Project</span>
-          <MenuChoice className="select menu-select" label="Project" value={pid} options={projects.map((p) => ({ value: p.id, label: p.name }))} onChange={(v) => { setPid(v); setBranch(""); }} />
+          <MenuChoice className="select menu-select" label="Project" value={pid} options={projects.map((p) => ({ value: p.id, label: p.name }))} onChange={(v) => { setPid(v); setBranch(""); setFrom(""); }} />
         </div>
-        <div className="field grow">
-          <span>Branch</span>
-          <MenuChoice
-            className="select menu-select"
-            label="Branch"
-            value={branch}
-            options={branches.map((b) => ({ value: b.name, label: b.local ? b.name : `${b.name} (origin)` }))}
-            onChange={setBranch}
+        {fresh ? (
+          <div className="field grow">
+            <span>Branches off</span>
+            <MenuChoice className="select menu-select" label="Branches off" value={from} options={all.map((b) => ({ value: b.name, label: label(b) }))} onChange={setFrom} />
+          </div>
+        ) : (
+          <div className="field grow">
+            <span>Branch</span>
+            <MenuChoice className="select menu-select" label="Branch" value={branch} options={branches.map((b) => ({ value: b.name, label: label(b) }))} onChange={setBranch} />
+          </div>
+        )}
+      </div>
+      {fresh && (
+        <div className="field">
+          <label htmlFor="ag-name">Branch name <span className="faint" style={{ fontWeight: 400 }}>optional</span></label>
+          <input
+            id="ag-name"
+            className="input mono"
+            placeholder="Leave empty to name it from the request"
+            value={name}
+            // Git names can't hold spaces: each one becomes a dash as you type.
+            onChange={(e) => setName(e.target.value.replace(/\s/g, "-"))}
           />
         </div>
-      </div>
-      {ov && !branches.length && <p className="hint c-del">{ov.defaultBranch} is reserved: create a new branch to start an agent session.</p>}
-      {branch && branch === ov?.currentBranch && (
+      )}
+      {ov && !fresh && !branches.length && <p className="hint c-del">{ov.defaultBranch} is reserved: create a new branch to start an agent session.</p>}
+      {!fresh && branch && branch === ov?.currentBranch && (
         <p className="hint">{branch} is checked out in the main checkout: it is switched off it first, which needs no uncommitted changes there.</p>
       )}
       <div className="field">
@@ -346,7 +383,7 @@ function StartModal({ initial, onClose }: { initial?: string; onClose: () => voi
           rows={5}
           value={request}
           onChange={(e) => setRequest(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && pid && branch && request.trim() && !start.isPending) go(); }}
+          onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && ready) go(); }}
           autoFocus
         />
         <span className="hint">⌘↵ to start</span>

@@ -265,6 +265,9 @@ pub struct NewItem {
     /// switch | worktree
     pub r#where: String,
     pub start_agent: bool,
+    /// Provider, model and effort for the agent when `start_agent`.
+    #[serde(flatten)]
+    pub pick: Route,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -2246,7 +2249,7 @@ impl Gitnetix {
             if let Some(t) = req.ticket.as_ref().filter(|t| !t.is_empty()) {
                 request = format!("{request} (ticket {t})");
             }
-            let s = self.start_agent(project_id, Some(&branch), &cwd, worktree.is_some(), &request, Route::default()).await?;
+            let s = self.start_agent(project_id, Some(&branch), &cwd, worktree.is_some(), &request, req.pick.clone()).await?;
             agent_session = Some(s.id);
         }
         self.changed(project_id);
@@ -3747,6 +3750,16 @@ fn squash_title(branch: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn new_item_takes_the_agent_pick() {
+        let req: NewItem = serde_json::from_value(serde_json::json!({ "from": "dev", "startAgent": true, "provider": "codex", "effort": "high" })).unwrap();
+        assert_eq!(req.from.as_deref(), Some("dev"));
+        assert!(req.start_agent);
+        assert_eq!(req.pick.provider.as_deref(), Some("codex"));
+        assert_eq!(req.pick.effort.as_deref(), Some("high"));
+        assert!(req.pick.model.is_none());
+    }
 
     #[test]
     fn ignore_line_anchors_and_escapes() {
