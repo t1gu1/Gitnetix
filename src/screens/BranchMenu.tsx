@@ -8,7 +8,7 @@ import { plural } from "../lib/format";
 import { useNav } from "../lib/nav";
 import { copyToClipboard, toast } from "../lib/toast";
 
-export type BranchDialog = "merge" | "delete" | "conflicts" | "reset" | "forcePush" | "tag" | "target" | "rebase";
+export type BranchDialog = "merge" | "delete" | "continue" | "conflicts" | "reset" | "forcePush" | "tag" | "target" | "rebase";
 
 export interface BranchTarget {
   view: BranchView;
@@ -117,7 +117,8 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
         short: "Continue",
         tip: `Delete the worktree of ${b} and check ${b} out here. Refused if the worktree has uncommitted changes`,
         icon: "swap",
-        run: () => v.worktree && continueOn(b, v.worktree),
+        warn: true,
+        run: () => openDialog("continue", b),
       },
       worktree: { id: "worktree", label: "Open in worktree", tip: `Open ${b} in its own worktree`, icon: "layers", run: () => wt.mutate({ projectId: pid, branch: b }) },
       pull: {
@@ -285,7 +286,8 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
         if (v.role !== "release") list.push(a.merge);
       }
     }
-    if (t.base) list.push(a.pr);
+    // A worktree's branch ends by merging or deleting it, not through a PR or a tag.
+    if (t.base && !v.worktree) list.push(a.pr);
     if (v.local && canChangelog) list.push(a.changelog);
     if (v.local && hasChangelog && v.role === "release" && v.release) list.push(a.stampChangelog);
     if (t.moveTo?.length || t.pickTarget) {
@@ -298,7 +300,8 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
     list.push("sep");
     if (t.showCommits) list.push({ id: "commits", label: "Show commits", icon: "commit", run: t.showCommits });
     if (t.showStashes) list.push({ id: "stashes", label: "Show stashes", icon: "stash", hint: v.stashes ? String(v.stashes) : undefined, run: t.showStashes });
-    list.push(a.tag, a.copy);
+    if (!v.worktree) list.push(a.tag);
+    list.push(a.copy);
     // Any branch but the default one, unless the git host protects it.
     if (!t.isDefault && !v.protected) list.push("sep", a.delete);
     return list;
@@ -370,7 +373,7 @@ export function BranchSplit({ t, actions }: { t: BranchTarget; actions: BranchAc
   const nudge = p.id === "push" && !busy && !p.disabled && (v.upstreamAhead > 0 || (!v.upstream && v.ahead > 0));
   return (
     <span className="acts" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
-      <button className={`act act-main${p.danger ? " btn-danger" : ""}${nudge ? " act-nudge" : ""}`} disabled={p.disabled || busy} aria-label={tip} data-tip={tip} onClick={p.run}>
+      <button className={`act act-main${p.danger ? " btn-danger" : p.warn ? " act-warn" : ""}${nudge ? " act-nudge" : ""}`} disabled={p.disabled || busy} aria-label={tip} data-tip={tip} onClick={p.run}>
         {busy ? <span className="spinner" /> : <Icon name={p.icon ?? "check"} size={14} />}
       </button>
       <span className="act-stack">

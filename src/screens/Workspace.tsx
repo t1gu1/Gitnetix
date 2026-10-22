@@ -64,9 +64,9 @@ export function Workspace() {
   // Collapse/expand all: a new `n` remounts the file lists, dropping per-folder toggles.
   const [fold, setFold] = useState({ closed: false, n: 0 });
   const actions = useBranchActions(pid, (kind, branch, onto) => {
-    // A worktree's branch goes the way "Cancel and Delete all" does: worktree, changes and local branch.
-    const wt = kind === "delete" ? byName.get(branch)?.worktree : undefined;
-    if (wt) finish.discard({ projectId: pid, branch, cwd: wt });
+    // A worktree's branch ends the way its worktree session does: delete is "Cancel and Delete all", merge drops the worktree once merged.
+    const wt = byName.get(branch)?.worktree;
+    if (wt && kind === "merge") finish.merge({ projectId: pid, branch, cwd: wt }, true);
     else setDialog({ kind, branch, onto });
   });
   const finish = useFinishHandlers(pid, actions.continueOn, (branch, then, stay, into) => setDialog({ kind: "merge", branch, then, stay, into }));
@@ -560,7 +560,13 @@ export function Workspace() {
         />
       )}
       {dialog?.kind === "rebase" && dialog.onto && <RebaseOntoModal pid={pid} branch={dialog.branch} onto={labelOf(dialog.onto)} onClose={() => setDialog(null)} />}
-      {dialog?.kind === "delete" && dialogView && (
+      {dialog?.kind === "delete" && dialogView?.worktree && (
+        <DiscardWorktreeModal branch={dialog.branch} path={dialogView.worktree} onClose={() => setDialog(null)} onConfirm={() => finish.discard({ projectId: pid, branch: dialog.branch, cwd: dialogView.worktree! })} />
+      )}
+      {dialog?.kind === "continue" && dialogView?.worktree && (
+        <ContinueOnBranchModal branch={dialog.branch} path={dialogView.worktree} onClose={() => setDialog(null)} onConfirm={() => actions.continueOn(dialog.branch, dialogView.worktree!)} />
+      )}
+      {dialog?.kind === "delete" && dialogView && !dialogView.worktree && (
         <DeleteBranchModal
           pid={pid}
           branch={dialog.branch}
@@ -1256,6 +1262,54 @@ function DeleteTagModal({ pid, tag, onClose }: { pid: string; tag: string; onClo
   );
 }
 
+/** Confirms "Cancel and Delete all" for a worktree's branch. */
+export function DiscardWorktreeModal({ branch, path, onClose, onConfirm }: { branch: string; path: string; onClose: () => void; onConfirm: () => void }) {
+  return (
+    <Modal
+      title="Delete worktree and branch"
+      sub={<span className="mono">{branch}</span>}
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn btn-md" onClick={onClose}>Cancel</button>
+          <button className="btn btn-md btn-danger" onClick={() => { onConfirm(); onClose(); }}>Cancel and Delete all</button>
+        </>
+      }
+    >
+      <p style={{ margin: 0, lineHeight: 1.55 }}>
+        The agent stops and the worktree at <span className="mono">{path}</span> is deleted with its uncommitted changes, then the local branch <span className="mono">{branch}</span>, even unmerged. The branch on origin is kept.
+      </p>
+    </Modal>
+  );
+}
+
+/** Confirms checking a worktree's branch out here, which deletes the worktree. */
+function ContinueOnBranchModal({ branch, path, onClose, onConfirm }: { branch: string; path: string; onClose: () => void; onConfirm: () => void }) {
+  return (
+    <Modal
+      title="Continue on branch"
+      sub={<span className="mono">{branch}</span>}
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn btn-md" onClick={onClose}>Cancel</button>
+          <button className="btn btn-md btn-primary" onClick={() => { onConfirm(); onClose(); }}>Delete worktree and switch</button>
+        </>
+      }
+    >
+      <p style={{ margin: 0, lineHeight: 1.55 }}>
+        The agent stops and the worktree at <span className="mono">{path}</span> is deleted, then <span className="mono">{branch}</span> is checked out here with all its commits. <span className="c-warn">Refused if the worktree has uncommitted changes.</span>
+      </p>
+      <div className="col" style={{ gap: 6 }}>
+        <h2 className="label">Tip!</h2>
+        <p style={{ margin: 0, lineHeight: 1.55 }}>
+          To keep working on it without switching, select <span className="mono">{branch}</span> in the tree: its changes show here and its agent runs in the panel below, where you can keep asking it for changes.
+        </p>
+      </div>
+    </Modal>
+  );
+}
+
 function DeleteBranchModal({
   pid,
   branch,
@@ -1691,11 +1745,13 @@ export function useFinishHandlers(
   const nav = useNav();
   return {
     // Throws the session's work away: the worktree even with uncommitted changes, then its local branch even unmerged (origin's copy stays).
+    // Chained on promises: `mutate`'s per-call callbacks are dropped once the caller unmounts (the worktree's row or dialog going away).
     discard: (s) =>
-      removeWt.mutate(
-        { projectId: s.projectId, path: s.cwd, force: true },
-        { onSuccess: () => deleteBranch.mutate({ projectId: s.projectId, branch: s.branch, force: true }, { onSuccess: () => nav.forgetBranches(s.projectId, [s.branch]) }) },
-      ),
+      void (async () => {
+        await removeWt.mutateAsync({ projectId: s.projectId, path: s.cwd, force: true });
+        await deleteBranch.mutateAsync({ projectId: s.projectId, branch: s.branch, force: true });
+        nav.forgetBranches(s.projectId, [s.branch]);
+      })().catch(() => {}), // useAction already toasts the error
     continue: (s, sw) => (sw ? continueOn(s.branch, s.cwd) : drop(s)),
     merge: (s, sw, into) => openMerge(s.branch, () => drop(s), !sw, into),
   };
@@ -1705,6 +1761,7 @@ export function useFinishHandlers(
 function CloseWorktreeModal({ session: s, finish, onClose, inline }: { session: WtSession; finish: FinishHandlers; onClose: () => void; inline?: boolean }) {
   const [then, setThen] = useState<"continue" | "merge">("continue");
   const [sw, setSw] = useState(true);
+  const [discarding, setDiscarding] = useState(false);
   const branches = useOverview(s.projectId).data?.branches ?? [];
   const base = branches.find((x) => x.name === s.branch)?.parent ?? "";
   const others = mergeTargets(branches, s.branch);
@@ -1728,7 +1785,7 @@ function CloseWorktreeModal({ session: s, finish, onClose, inline }: { session: 
           </>
         )}
       </p>
-      <p style={{ margin: 0, lineHeight: 1.55 }}>Deleting the folder will be refused if it has uncommitted changes.</p>
+      <p className="c-warn" style={{ margin: 0, lineHeight: 1.55 }}>Deleting the folder will be refused if it has uncommitted changes.</p>
       <Seg
         grid
         label="Then"
@@ -1744,7 +1801,7 @@ function CloseWorktreeModal({ session: s, finish, onClose, inline }: { session: 
   );
   const buttons = (
     <>
-      <button type="button" className="btn btn-md btn-danger" style={{ flex: "1 1 0" }} data-tip={`Delete the worktree, its uncommitted changes and the local ${s.branch} branch`} onClick={() => { finish.discard(s); onClose(); }}>Cancel and Delete all</button>
+      <button type="button" className="btn btn-md btn-danger" style={{ flex: "1 1 0" }} data-tip={`Delete the worktree, its uncommitted changes and the local ${s.branch} branch`} onClick={() => setDiscarding(true)}>Cancel and Delete all</button>
       {/* Each button takes half the footer. */}
       <span className="split-btn" style={{ display: "flex", flex: "1 1 0" }}>
         <button type="button" className={`btn btn-md btn-primary${then === "merge" ? " split-main" : ""}`} style={{ flex: "1 1 auto" }} onClick={() => { finish[then](s, sw, into); onClose(); }}>
@@ -1779,6 +1836,8 @@ function CloseWorktreeModal({ session: s, finish, onClose, inline }: { session: 
       )}
     </>
   );
+  // Cancelling the confirmation brings these close options back.
+  if (discarding) return <DiscardWorktreeModal branch={s.branch} path={s.cwd} onClose={() => setDiscarding(false)} onConfirm={() => { finish.discard(s); onClose(); }} />;
   if (inline) return <div className="ag-finish">{body}<div className="ag-finish-foot">{buttons}</div></div>;
   return (
     <Modal title="Close worktree session" sub={<span className="mono">{s.branch}</span>} width={520} onClose={onClose} footer={buttons}>

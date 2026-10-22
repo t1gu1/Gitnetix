@@ -10,7 +10,7 @@ import { ago, Busy, Empty, Header, Loading, Modal, Seg } from "../components/ui"
 import { KINDS, kindOfBranch, type Kind } from "../lib/kinds";
 import { useNav } from "../lib/nav";
 import { useBranchActions } from "./BranchMenu";
-import { FinishWorktreeCard, MergeModal, mergeTargets, useFinishHandlers } from "./Workspace";
+import { DiscardWorktreeModal, FinishWorktreeCard, MergeModal, mergeTargets, useFinishHandlers } from "./Workspace";
 
 const STATUS: Record<AgentStatus | "idle", [string, string]> = {
   running: ["Running", "c-acc"],
@@ -161,6 +161,7 @@ function Detail({ r }: { r: Row }) {
   const ov = useOverview(r.projectId);
   // Merging closes the worktree once done (`then`); `stay` leaves the main checkout where it is.
   const [merging, setMerging] = useState<{ then: () => void; stay: boolean; into?: string } | null>(null);
+  const [discarding, setDiscarding] = useState(false);
   const finish = useFinishHandlers(r.projectId, actions.continueOn, (_, then, stay, into) => setMerging({ then, stay, into }));
   const isWorktree = !!r.wt && !r.wt.main;
   const session = { projectId: r.projectId, branch: r.branch, cwd: r.path };
@@ -238,10 +239,11 @@ function Detail({ r }: { r: Row }) {
           <>
             <button className="btn" data-tip={`Delete the worktree and switch to ${r.branch}; refused with uncommitted changes`} onClick={() => finish.continue(session, true)}>Continue on branch</button>
             <button className="btn" data-tip="Pick the merge options; the worktree is deleted once merged" onClick={() => finish.merge(session, true)}>Merge…</button>
-            <button className="btn btn-danger" data-tip={`Delete the worktree, its uncommitted changes and the local ${r.branch} branch`} onClick={() => finish.discard(session)}>
+            <button className="btn btn-danger" data-tip={`Delete the worktree, its uncommitted changes and the local ${r.branch} branch`} onClick={() => setDiscarding(true)}>
               <Icon name="trash" size={12} />
               Cancel and Delete all
             </button>
+            {discarding && <DiscardWorktreeModal branch={r.branch} path={r.path} onClose={() => setDiscarding(false)} onConfirm={() => finish.discard(session)} />}
           </>
         )}
       </div>

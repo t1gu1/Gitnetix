@@ -12,6 +12,8 @@ export type MenuItem =
       icon?: string | null;
       hint?: ReactNode;
       danger?: boolean;
+      /** Light red icon: not a delete, but something goes (e.g. a worktree). */
+      warn?: boolean;
       disabled?: boolean;
       /** Leaves the menu open, e.g. to toggle several options in a row. */
       keep?: boolean;
@@ -92,7 +94,7 @@ export function ContextMenu({ x, y, items, label, alignRight, onClose }: { x: nu
               it.run();
             }}
           >
-            {it.icon !== null && <span className="ctx-icon">{it.icon && <Icon name={it.icon} size={13} />}</span>}
+            {it.icon !== null && <span className={`ctx-icon${it.warn ? " ctx-warn" : ""}`}>{it.icon && <Icon name={it.icon} size={13} />}</span>}
             <span className="grow ellipsis">{it.label}</span>
             {it.hint && <span className="ctx-hint">{it.hint}</span>}
           </button>

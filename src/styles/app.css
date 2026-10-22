@@ -1876,6 +1876,10 @@ button.tree-twist:hover {
 .act.btn-danger {
   color: var(--del-fg);
 }
+.act.act-warn,
+.ctx-icon.ctx-warn {
+  color: color-mix(in srgb, var(--del-fg) 60%, var(--muted));
+}
 /* A section's Clean up: an act filling its group row's height, flush with its right edge. */
 .act.tree-cleanup {
   flex: 0 0 auto;
