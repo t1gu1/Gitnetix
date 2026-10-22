@@ -320,6 +320,22 @@ pub fn data_dir() -> PathBuf {
     dirs::config_dir().unwrap_or_else(|| PathBuf::from(".")).join("gitnetix")
 }
 
+/// Write a file only its owner can read: it holds the companion token, agent logs or secrets.
+pub fn write_private(path: &Path, contents: impl AsRef<[u8]>) -> std::io::Result<()> {
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+        opts.mode(0o600);
+        // The mode applies on create only; a file left from an older version keeps its own.
+        if path.exists() {
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+        }
+    }
+    std::io::Write::write_all(&mut opts.open(path)?, contents.as_ref())
+}
+
 pub struct Store {
     path: PathBuf,
     data: RwLock<Config>,
@@ -328,6 +344,12 @@ pub struct Store {
 impl Store {
     pub fn open(dir: &Path) -> Result<Store> {
         std::fs::create_dir_all(dir)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            // Best effort: a GITNETIX_HOME owned by someone else must still open.
+            let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700));
+        }
         let path = dir.join("config.json");
         let data = if path.exists() {
             let raw = std::fs::read_to_string(&path)?;
@@ -368,7 +390,7 @@ impl Store {
     fn save(&self) -> Result<()> {
         let json = self.read(serde_json::to_string_pretty)?;
         let tmp = self.path.with_extension("json.tmp");
-        std::fs::write(&tmp, json)?;
+        write_private(&tmp, json)?;
         std::fs::rename(&tmp, &self.path)?;
         Ok(())
     }
@@ -387,5 +409,21 @@ impl Store {
                 .ok_or_else(|| Error::NotFound(format!("project {id}")))?;
             f(p)
         })
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn write_private_is_owner_only_even_over_an_old_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let f = dir.path().join("config.json");
+        std::fs::write(&f, "old").unwrap();
+        std::fs::set_permissions(&f, std::fs::Permissions::from_mode(0o644)).unwrap();
+        super::write_private(&f, "new").unwrap();
+        assert_eq!(std::fs::metadata(&f).unwrap().permissions().mode() & 0o777, 0o600);
+        assert_eq!(std::fs::read_to_string(&f).unwrap(), "new");
     }
 }

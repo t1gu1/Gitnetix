@@ -138,7 +138,7 @@ impl AgentManager {
         // Write to a temp file and rename so a reader never sees a torn file.
         let _guard = self.write_lock.lock().unwrap();
         let tmp = self.file.with_extension("json.tmp");
-        if std::fs::write(&tmp, json).is_ok() {
+        if crate::store::write_private(&tmp, json).is_ok() {
             let _ = std::fs::rename(&tmp, &self.file);
         }
     }

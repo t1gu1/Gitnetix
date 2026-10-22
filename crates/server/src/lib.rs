@@ -46,7 +46,7 @@ fn token_ok(k: &Gitnetix, given: Option<&str>) -> bool {
     let want = k.store.read(|c| c.server.token.clone());
     match given {
         // Constant-time enough for a 64-char random token compare.
-        Some(g) => g.len() == want.len() && g.bytes().zip(want.bytes()).fold(0u8, |a, (x, y)| a | (x ^ y)) == 0,
+        Some(g) => !want.is_empty() && g.len() == want.len() && g.bytes().zip(want.bytes()).fold(0u8, |a, (x, y)| a | (x ^ y)) == 0,
         None => false,
     }
 }

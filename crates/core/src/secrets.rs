@@ -47,13 +47,7 @@ mod imp {
     }
 
     fn save(m: &BTreeMap<String, String>) -> Result<()> {
-        let p = path();
-        std::fs::write(&p, serde_json::to_string(m)?)?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o600))?;
-        }
+        crate::store::write_private(&path(), serde_json::to_string(m)?)?;
         Ok(())
     }
 

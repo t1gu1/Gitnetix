@@ -28,6 +28,10 @@ mod desktop {
     /// system browser inherits them and fails to start, so launch it without them.
     #[tauri::command]
     pub fn open_url(url: String) -> Result<(), String> {
+        // Links come from tickets and hosts; never hand other schemes (file:, custom handlers) to the OS.
+        if !(url.starts_with("https://") || url.starts_with("http://")) {
+            return Err(format!("Not a web link: {url}"));
+        }
         #[cfg(target_os = "linux")]
         if let Some(appdir) = std::env::var_os("APPDIR").filter(|_| std::env::var_os("APPIMAGE").is_some()) {
             let mut cmd = std::process::Command::new("xdg-open");

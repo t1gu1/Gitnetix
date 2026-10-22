@@ -1965,6 +1965,8 @@ impl Gitnetix {
     }
 
     pub async fn conflict_apply(&self, project_id: &str, branch: &str, path: &str, content: &str) -> Result<()> {
+        // Absolute or `..` paths would write outside the checkout.
+        let path = submodules::check_path(path)?;
         let p = self.store.project(project_id)?;
         let git = self.require_checkout(&p, branch).await?;
         let mut body = content.to_string();
