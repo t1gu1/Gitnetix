@@ -16,16 +16,32 @@ release notes and the in-app update prompt.
 - Escape closes the open diff in the workspace.
 - Resizable panels on the AI setup, pull request, release notes, settings, submodules, templates, tickets and worktrees screens.
 - Origin is fetched and pruned when a project opens and every five minutes, so branches deleted on PR merge disappear without a manual refresh.
+- Pull request list, detail, create, edit, merge, close, review, comment, reply, resolve and react now work on Azure DevOps, with a personal access token as an alternative to Entra sign-in.
+- Jira, Trello and Asana connections can be added several times, each limited to chosen projects. Jira also signs in with Atlassian (OAuth).
+- Tickets gain mine and sprint filters and a place label. Filters are remembered.
+- Ticket status can be changed from the detail pane, and Jira fix versions can be edited there.
+- Jira tickets show rich descriptions, priority, time tracking and parent.
+- Release is guessed from Jira fix versions, and branches are matched to tickets by key, including in other linked projects.
+- Each checkout gets a shell terminal beside the agent, with an Agent/Shell tab switch on the workspace and worktree screens.
+- The terminal can be maximized and restored in the workspace and worktree detail card.
+- The agent input has a Stop button while the agent works, and Up and Down recall earlier messages.
+- Suggestion choices in the agent log allow multiple selections.
+- The worktrees screen has a narrow layout, and the window can be made narrower.
 
 ### Changed
 - Workspace diffs open in the left pane above the terminal, and the branches pane is a resizable panel.
 - Danger buttons are now solid red.
+- Deleting a worktree branch asks for confirmation first, and merging one also removes its worktree.
+- Pull request and tag actions are hidden for worktree branches.
 
 ### Fixed
 - Deleting a remote branch that origin already dropped no longer fails with "stale info".
 - The terminal session label now sits after the agent picker.
-
-I skipped the agent prompt input refactor, since users wouldn't notice it. I didn't check the UI, so the screen list for the resizable panels comes from the commit message only.
+- Commits can run per branch across worktrees.
+- The diff pane no longer bounces when scrolled past its end.
+- The context menu flips above its button instead of running off screen.
+- Choosing an option from the agent input menu no longer submits the prompt form.
+- Azure sign-in requests the user_impersonation scope, so consent is granted when needed.
 
 ## [0.3.0] - 2026-10-21
 
