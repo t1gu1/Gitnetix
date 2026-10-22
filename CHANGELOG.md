@@ -11,17 +11,6 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
-### Added
-- Publishing a branch now returns checkout to its parent branch.
-
-### Fixed
-- Deleting a release tag now reopens that release.
-- An untagged shipped release that is ahead of main is now reopened.
-
-### Removed
-- Removed the hide-branches toggle from the workspace; the branches pane is always shown.
-- Removed status counts from worktrees and moved the session button down.
-
 ## [0.4.0] - 2026-10-22
 
 ### Added
@@ -41,12 +30,17 @@ release notes and the in-app update prompt.
 - Suggestion choices in the agent log allow multiple selections.
 - The worktrees screen has a narrow layout, and the window can be made narrower.
 - Publishing a branch now returns your checkout to its parent branch.
+- Publishing a branch now returns checkout to its parent branch.
 
 ### Changed
 - Workspace diffs open in the left pane above the terminal, and the branches pane is a resizable panel.
 - Danger buttons are now solid red.
 - Deleting a worktree branch asks for confirmation first, and merging one also removes its worktree.
 - Pull request and tag actions are hidden for worktree branches.
+
+### Removed
+- Removed the hide-branches toggle from the workspace; the branches pane is always shown.
+- Removed status counts from worktrees and moved the session button down.
 
 ### Fixed
 - Deleting a remote branch that origin already dropped no longer fails with "stale info".
@@ -58,6 +52,8 @@ release notes and the in-app update prompt.
 - Azure sign-in requests the user_impersonation scope, so consent is granted when needed.
 - Deleting a release's tag now reopens the release.
 - A shipped release without a tag that is ahead of main is now reopened.
+- Deleting a release tag now reopens that release.
+- An untagged shipped release that is ahead of main is now reopened.
 
 ## [0.3.0] - 2026-10-21
 
