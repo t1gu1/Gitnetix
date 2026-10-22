@@ -3,6 +3,7 @@ import { useEffect, useState, type CSSProperties } from "react";
 import { useAction, useOverview, usePendingBranches, usePr, usePrs } from "../api/hooks";
 import { openExternal, RpcError } from "../api/transport";
 import type { PrDetail, PrSummary, PrThread } from "../api/types";
+import { Avatar } from "../components/Avatar";
 import { Icon } from "../components/Icon";
 import { Resizer, usePaneWidth } from "../components/Resizer";
 import { ago, Busy, Empty, ErrorBox, Header, initials, Loading, Markdown, Modal, Seg } from "../components/ui";
@@ -10,6 +11,7 @@ import { useNav } from "../lib/nav";
 import { toast } from "../lib/toast";
 
 type Tab = "open" | "review" | "closed";
+const GROUPS: PrSummary["state"][] = ["open", "draft", "merged", "closed"];
 const EMOJI: [string, string, string][] = [
   ["THUMBS_UP", "👍", "Thumbs up"],
   ["THUMBS_DOWN", "👎", "Thumbs down"],
@@ -18,6 +20,11 @@ const EMOJI: [string, string, string][] = [
   ["HEART", "❤️", "Heart"],
   ["ROCKET", "🚀", "Rocket"],
 ];
+
+/** Name of the host the project's pull requests live on, from the cached list. */
+function useHost(pid: string) {
+  return usePrs(pid).data?.provider === "azure" ? "Azure DevOps" : "GitHub";
+}
 
 function stateOf(p: PrSummary, d?: PrDetail): [string, string] {
   if (p.state === "merged") return ["Merged", "c-mod"];
@@ -59,7 +66,7 @@ export function PullRequests({ initial }: { initial?: number }) {
 
   return (
     <>
-      <Header title="Pull requests" sub={`${ov?.project.name ?? ""}${prs.data ? ` · GitHub ${prs.data.repo.owner}/${prs.data.repo.repo}` : ""}`} />
+      <Header title="Pull requests" sub={`${ov?.project.name ?? ""}${prs.data ? ` · ${prs.data.provider === "azure" ? "Azure DevOps" : "GitHub"} ${prs.data.repo.owner}/${prs.data.repo.repo}` : ""}`} />
       {prs.error instanceof RpcError && (prs.error.code === "not_connected" || prs.error.code === "unsupported") ? (
         <div className="empty-state">
           <span className="empty-state-icon" aria-hidden="true"><Icon name="pr" size={22} /></span>
@@ -96,24 +103,37 @@ export function PullRequests({ initial }: { initial?: number }) {
                 <span className="ellipsis">New PR from {branch ?? "current branch"}</span>
               </button>
             </div>
-            <div className="scroll col" style={{ flex: "1 1 auto", gap: 2, padding: "8px 0" }}>
+            <div className="scroll" style={{ flex: "1 1 auto", paddingBottom: 12 }}>
               {prs.isLoading && <Loading />}
               {!prs.isLoading && list.length === 0 && <Empty>Nothing here.</Empty>}
-              {list.map((p) => {
-                const [label, cls] = stateOf(p);
-                return (
-                  <button key={p.number} className="item-btn" aria-pressed={p.number === current} onClick={() => { setSel(p.number); setPane("detail"); }}>
-                    <span className="row" style={{ alignItems: "baseline" }}>
-                      <span className="mono faint" style={{ fontSize: 12 }}>#{p.number}</span>
-                      <span className="ellipsis" style={{ fontWeight: 500 }}>{p.title}</span>
-                    </span>
-                    <span className="row">
-                      <span className="mono faint ellipsis grow" style={{ fontSize: 11.5 }}>{p.head} → {p.base}</span>
-                      <span className={`pill ${cls}`}>{label}</span>
-                    </span>
-                  </button>
-                );
-              })}
+              {GROUPS.map((s) => ({ s, items: list.filter((p) => p.state === s) }))
+                .filter((g) => g.items.length)
+                .map(({ s, items }) => {
+                  const [label, cls] = stateOf(items[0]);
+                  return (
+                    <div key={s}>
+                      <div className="group-head" style={{ fontSize: 13, fontWeight: 700 }}>
+                        <span className={cls}>{label}</span>
+                        <span>{items.length}</span>
+                      </div>
+                      <div className="col" style={{ gap: 2 }}>
+                        {items.map((p) => (
+                          <button key={p.number} className="item-btn" style={{ gap: 1, padding: "7px 12px" }} aria-pressed={p.number === current} onClick={() => { setSel(p.number); setPane("detail"); }}>
+                            <span className="row" style={{ gap: 8, margin: "0 0 2px", fontSize: 11.5 }}>
+                              <Avatar name={p.author} />
+                              <span className="mono faint">#{p.number}</span>
+                              <span className={cls} style={{ fontSize: 13 }}>{label}</span>
+                              <span className="faint ellipsis grow">{p.mine ? "You" : p.author}</span>
+                              <span className="faint">{ago(p.updatedAt)}</span>
+                            </span>
+                            <span className="ellipsis" style={{ fontWeight: 500 }}>{p.title}</span>
+                            <span className="mono faint ellipsis" style={{ fontSize: 11.5, marginTop: 8 }}>{p.head} → {p.base}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
             </div>
           </section>
           <Resizer pane={listW} label="Resize pull request list" />
@@ -133,9 +153,10 @@ export function PullRequests({ initial }: { initial?: number }) {
 function Detail({ pid, number }: { pid: string; number: number }) {
   const nav = useNav();
   const q = usePr(pid, number);
+  const host = useHost(pid);
   const inv = [["pr", pid, number], ["prs", pid]];
   const merge = useAction("prs.merge", { invalidate: inv, success: `Merged #${number}` });
-  const update = useAction("prs.update", { invalidate: inv, success: "Saved to GitHub" });
+  const update = useAction("prs.update", { invalidate: inv, success: `Saved to ${host}` });
   const close = useAction<{ deleteError: string | null }>("prs.close", {
     invalidate: [...inv, ["overview", pid], ["files", pid], ["worktrees"]],
     success: (r) => (r.deleteError ? undefined : `Closed #${number}`),
@@ -149,6 +170,7 @@ function Detail({ pid, number }: { pid: string; number: number }) {
   const [confirmClose, setConfirmClose] = useState(false);
   const [deleteBranch, setDeleteBranch] = useState(false);
   const [filter, setFilter] = useState<"all" | "open">("all");
+  const [checksOpen, setChecksOpen] = useState(false);
 
   if (q.isLoading) return <Loading />;
   if (q.error) return <ErrorBox error={q.error} />;
@@ -160,6 +182,7 @@ function Detail({ pid, number }: { pid: string; number: number }) {
   const unresolved = d.threads.filter((t) => t.resolvable && !t.resolved).length;
   const approvals = d.reviewers.filter((r) => r.vote === "approve").length;
   const changes = d.reviewers.filter((r) => r.vote === "changes").length;
+  const votes = [approvals && `${approvals} approval${approvals === 1 ? "" : "s"}`, changes && `${changes} changes requested`].filter(Boolean).join(" · ");
   const threads = filter === "open" ? d.threads.filter((t) => t.resolvable && !t.resolved) : d.threads;
   const startEdit = () => {
     setTitle(d.title);
@@ -169,23 +192,24 @@ function Detail({ pid, number }: { pid: string; number: number }) {
 
   return (
     <div className="detail-inner">
-      <div className="col" style={{ gap: 10 }}>
+      {/* Cancels the page's 24px section gap so the action buttons sit right below. */}
+      <div className="col" style={{ gap: 2, marginBottom: -4 }}>
         {editing ? (
           <div className="field">
             <label htmlFor="pr-title">Title</label>
             <input id="pr-title" className="input" value={title} onChange={(e) => setTitle(e.target.value)} />
           </div>
         ) : (
-          <div className="row" style={{ alignItems: "flex-start" }}>
+          <div className="row" style={{ alignItems: "flex-start", margin: 0 }}>
             <h1 className="grow">{d.title}</h1>
             {open && (
-              <button className="btn btn-ghost btn-icon" aria-label="Edit title and description" onClick={startEdit}>
+              <button className="btn btn-ghost btn-icon" style={{ marginBlock: -3 }} aria-label="Edit title and description" onClick={startEdit}>
                 <Icon name="edit" />
               </button>
             )}
           </div>
         )}
-        <div className="row wrap muted" style={{ fontSize: 12.5 }}>
+        <div className="row wrap muted" style={{ fontSize: 12.5, margin: 0 }}>
           <span className={`pill ${cls}`}>{label}</span>
           <span className="mono">#{d.number} · {d.head} → {d.base}</span>
           <span className="faint">·</span>
@@ -193,7 +217,7 @@ function Detail({ pid, number }: { pid: string; number: number }) {
         </div>
       </div>
 
-      <div className="row wrap" style={{ gap: 6 }}>
+      <div className="row wrap" style={{ gap: 6, margin: 0 }}>
         {open && !d.conflict && d.state !== "draft" && (
           <button className="btn btn-primary" disabled={merge.isPending || running > 0} onClick={() => merge.mutate({ projectId: pid, number })}>
             {merge.isPending && <span className="spinner" />}
@@ -238,7 +262,7 @@ function Detail({ pid, number }: { pid: string; number: number }) {
         )}
         <button className="btn" onClick={() => openExternal(d.url)}>
           <Icon name="external" size={12} />
-          Open on GitHub
+          Open on {host}
         </button>
         {open && (
           <button className="btn btn-danger" disabled={close.isPending} onClick={() => setConfirmClose(true)}>
@@ -282,9 +306,9 @@ function Detail({ pid, number }: { pid: string; number: number }) {
         >
           <p style={{ margin: 0, lineHeight: 1.55 }}>
             {deleteBranch ? (
-              <>Abandons the pull request on GitHub and deletes <span className="mono">{d.head}</span> here and on origin, with its worktree. Commits not merged elsewhere are lost.</>
+              <>Abandons the pull request on {host} and deletes <span className="mono">{d.head}</span> here and on origin, with its worktree. Commits not merged elsewhere are lost.</>
             ) : (
-              <>Abandons the pull request on GitHub. The branch <span className="mono">{d.head}</span> and its commits stay, and you can reopen it later.</>
+              <>Abandons the pull request on {host}. The branch <span className="mono">{d.head}</span> and its commits stay, and you can reopen it later.</>
             )}
           </p>
           <label className="check" style={{ marginTop: 12 }}>
@@ -296,27 +320,56 @@ function Detail({ pid, number }: { pid: string; number: number }) {
 
       {reviewOpen && <ReviewForm pid={pid} d={d} onDone={() => setReviewOpen(false)} />}
 
-      <div className="kv">
-        <div>
-          <span>Checks</span>
-          <span className={failing ? "c-del" : running ? "c-acc" : "c-add"}>
-            {d.checks.length === 0 ? "None" : failing ? `${failing} failing` : running ? `${d.checks.length - running} of ${d.checks.length} passed, ${running} running` : `All ${d.checks.length} passing`}
-          </span>
-        </div>
-        <div>
-          <span>Reviews</span>
-          <span>{d.state === "draft" ? "Draft" : [approvals && `${approvals} approval${approvals === 1 ? "" : "s"}`, changes && `${changes} changes requested`].filter(Boolean).join(" · ") || "No reviews yet"}</span>
-        </div>
-      </div>
+      {d.checks.length > 0 && (
+        <section className="section">
+          <div className="row" style={{ margin: 0 }}>
+            <h2>Checks</h2>
+            <span className={failing ? "c-del" : running ? "c-acc" : "c-add"} style={{ fontSize: 12.5 }}>
+              {failing ? `${failing} failing` : running ? `${d.checks.length - running} of ${d.checks.length} passed, ${running} running` : `All ${d.checks.length} passing`}
+            </span>
+            <span className="grow" />
+            <button className="btn btn-sm" aria-expanded={checksOpen} onClick={() => setChecksOpen(!checksOpen)}>
+              <Icon name="chevronDown" size={12} className="chev" />
+              {checksOpen ? "Hide" : "Show all"}
+            </button>
+          </div>
+          {checksOpen && (
+            <ul className="list">
+              {d.checks.map((c, i) => {
+                const row = (
+                  <>
+                    <span className="pulse" style={{ animation: c.status === "run" ? undefined : "none", background: c.status === "pass" ? "var(--add-fg)" : c.status === "fail" ? "var(--del-fg)" : "var(--accent)" }} />
+                    <span className="grow">{c.name}</span>
+                    {c.url && <Icon name="external" size={12} className="faint" />}
+                    <span className="muted" style={{ fontSize: 12 }}>{c.status === "pass" ? "Passed" : c.status === "fail" ? "Failed" : "Running"}</span>
+                  </>
+                );
+                return (
+                  <li key={i}>
+                    {c.url ? (
+                      <button className="list-row list-link" style={{ minHeight: 40 }} onClick={() => openExternal(c.url!)}>{row}</button>
+                    ) : (
+                      <div className="list-row" style={{ minHeight: 40 }}>{row}</div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
+      )}
 
       <section className="section">
-        <h2>Reviewers</h2>
+        <h2>
+          Reviewers
+          {votes && <span className="faint" style={{ fontSize: 13, fontWeight: 400, marginLeft: 8 }}>({votes})</span>}
+        </h2>
         {d.reviewers.length === 0 ? (
           <span className="muted">No reviewers yet.</span>
         ) : (
-          <div className="row wrap" style={{ gap: 12 }}>
+          <div className="row wrap" style={{ gap: 12, margin: "4px 0 0" }}>
             {d.reviewers.map((r) => (
-              <span key={r.login} className="row" style={{ gap: 8 }}>
+              <span key={r.login} className="row" style={{ gap: 8, margin: 0 }}>
                 <span className="avatar" aria-hidden="true">{initials(r.login)}</span>
                 <span>{r.login}</span>
                 <span className={r.vote === "approve" ? "c-add" : r.vote === "changes" ? "c-acc" : "faint"} style={{ fontSize: 12 }}>
@@ -347,7 +400,7 @@ function Detail({ pid, number }: { pid: string; number: number }) {
               <span className="grow" />
               <button className="btn" onClick={() => setEditing(false)}>Cancel</button>
               <button className="btn btn-primary" disabled={!title.trim() || update.isPending} onClick={() => update.mutate({ projectId: pid, number, title, body }, { onSuccess: () => setEditing(false) })}>
-                Save to GitHub
+                Save to {host}
               </button>
             </div>
           </div>
@@ -360,8 +413,8 @@ function Detail({ pid, number }: { pid: string; number: number }) {
         )}
       </section>
 
-      <section className="section" aria-label="Conversation">
-        <div className="row wrap">
+      <section className="section" aria-label="Conversation" style={{ gap: 6 }}>
+        <div className="row wrap" style={{ marginBottom: 6 }}>
           <h2>Conversation</h2>
           <span className="faint" style={{ fontSize: 12 }}>{d.threads.length ? `${unresolved} unresolved · ${d.threads.length} total` : ""}</span>
           <span className="grow" />
@@ -372,26 +425,15 @@ function Detail({ pid, number }: { pid: string; number: number }) {
         <NewComment pid={pid} number={number} />
       </section>
 
-      {d.checks.length > 0 && (
-        <section className="section">
-          <h2>Checks</h2>
-          <ul className="list">
-            {d.checks.map((c, i) => (
-              <li key={i} className="list-row" style={{ minHeight: 40 }}>
-                <span className="pulse" style={{ animation: c.status === "run" ? undefined : "none", background: c.status === "pass" ? "var(--add-fg)" : c.status === "fail" ? "var(--del-fg)" : "var(--accent)" }} />
-                <span className="grow">{c.name}</span>
-                <span className="muted" style={{ fontSize: 12 }}>{c.status === "pass" ? "Passed" : c.status === "fail" ? "Failed" : "Running"}</span>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
     </div>
   );
 }
 
 function ReviewForm({ pid, d, onDone }: { pid: string; d: PrDetail; onDone: () => void }) {
-  const opts: [string, string, string][] = d.mine
+  const host = useHost(pid);
+  // GitHub refuses votes from a PR's author; Azure DevOps takes them.
+  const authorOnly = d.mine && host === "GitHub";
+  const opts: [string, string, string][] = authorOnly
     ? [["comment", "Comment", "General feedback, no explicit approval."]]
     : [
         ["comment", "Comment", "General feedback, no explicit approval."],
@@ -400,13 +442,13 @@ function ReviewForm({ pid, d, onDone }: { pid: string; d: PrDetail; onDone: () =
       ];
   const [vote, setVote] = useState(opts[0][0]);
   const [text, setText] = useState("");
-  const submit = useAction("prs.review", { invalidate: [["pr", pid, d.number]], success: "Review posted to GitHub" });
+  const submit = useAction("prs.review", { invalidate: [["pr", pid, d.number]], success: `Review posted to ${host}` });
   const draft = useAction<{ text: string }>("prs.draftReview");
   return (
     <section aria-label="Submit review" className="col card" style={{ padding: 16, gap: 12 }}>
       <div className="row">
         <h2 className="grow">Submit review</h2>
-        <span className="hint">Posted to GitHub as a review</span>
+        <span className="hint">{host === "GitHub" ? "Posted to GitHub as a review" : "Posted to Azure DevOps as your vote and a comment"}</span>
       </div>
       <div className="field">
         <label htmlFor="pr-review-text">Summary <span className="faint" style={{ fontWeight: 400 }}>optional</span></label>
@@ -424,7 +466,7 @@ function ReviewForm({ pid, d, onDone }: { pid: string; d: PrDetail; onDone: () =
           </button>
         ))}
       </fieldset>
-      {d.mine && <span className="hint">You opened this pull request, so GitHub only lets you comment on it.</span>}
+      {authorOnly && <span className="hint">You opened this pull request, so GitHub only lets you comment on it.</span>}
       <div className="row wrap">
         <button className="btn" disabled={draft.isPending} onClick={() => draft.mutate({ projectId: pid, number: d.number }, { onSuccess: (r) => setText(r.text) })}>
           <Busy on={draft.isPending}><Icon name="sparkle" size={12} className="c-acc" /></Busy>
@@ -441,6 +483,8 @@ function ReviewForm({ pid, d, onDone }: { pid: string; d: PrDetail; onDone: () =
 }
 
 function ThreadView({ pid, number, t }: { pid: string; number: number; t: PrThread }) {
+  // Azure DevOps comments only take likes.
+  const emoji = useHost(pid) === "GitHub" ? EMOJI : EMOJI.slice(0, 1);
   const [open, setOpen] = useState(!t.resolved);
   const [draft, setDraft] = useState("");
   const [picker, setPicker] = useState<string | null>(null);
@@ -555,7 +599,7 @@ function ThreadView({ pid, number, t }: { pid: string; number: number; t: PrThre
               </button>
               {picker === c.id && (
                 <div role="group" aria-label="Pick a reaction" className="row card" style={{ gap: 2, padding: 4 }}>
-                  {EMOJI.map(([content, e, label]) => (
+                  {emoji.map(([content, e, label]) => (
                     <button key={content} className="btn btn-ghost btn-sm" aria-label={label} onClick={() => { react.mutate({ projectId: pid, subjectId: c.id, content, add: true }); setPicker(null); }}>
                       {e}
                     </button>
@@ -603,7 +647,7 @@ function NewComment({ pid, number }: { pid: string; number: number }) {
   const [text, setText] = useState("");
   const comment = useAction("prs.comment", { invalidate: [["pr", pid, number]] });
   return (
-    <div className="col">
+    <div className="col" style={{ marginTop: 10 }}>
       <label htmlFor="pr-new-comment" className="sr-only">New comment</label>
       <textarea id="pr-new-comment" className="textarea" rows={3} placeholder="Leave a comment on this pull request…" value={text} onChange={(e) => setText(e.target.value)} />
       <div className="row" style={{ justifyContent: "flex-end" }}>

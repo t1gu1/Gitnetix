@@ -35,6 +35,9 @@ pub struct Check {
     pub name: String,
     /// pass | fail | run
     pub status: String,
+    /// Where the run's logs live, when the host gives one.
+    #[serde(default)]
+    pub url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -258,6 +261,7 @@ impl GitHub {
                         _ => "run",
                     }
                     .into(),
+                    url: r["html_url"].as_str().map(Into::into),
                 })
                 .collect(),
             Err(_) => Vec::new(),

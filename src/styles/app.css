@@ -758,6 +758,18 @@ body.dragging-tab * {
   min-height: 52px;
   padding: 6px 12px 6px 16px;
 }
+.list-link {
+  width: 100%;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.list-link:hover {
+  background: var(--raised);
+}
 .empty {
   padding: 40px 24px;
   text-align: center;
@@ -3141,7 +3153,7 @@ button.picker-act {
 .comment {
   display: flex;
   gap: 12px;
-  padding: 12px 14px;
+  padding: 8px 14px;
 }
 .comment + .comment {
   border-top: 1px solid var(--line);
@@ -3218,13 +3230,15 @@ button.picker-act {
 .adf h3 { margin: 18px 0 6px; }
 .adf li > p { margin: 2px 0; }
 .adf .pre { margin: 8px 0; white-space: pre-wrap; }
-.adf blockquote {
+.adf blockquote,
+.md blockquote {
   margin: 8px 0;
   padding-left: 12px;
   border-left: 3px solid var(--line);
   color: var(--muted);
 }
-.adf hr {
+.adf hr,
+.md hr {
   border: 0;
   border-top: 1px solid var(--line);
   margin: 14px 0;
@@ -3254,18 +3268,22 @@ button.picker-act {
   overflow-x: auto;
   margin: 8px 0;
 }
-.adf table {
+.adf table,
+.md table {
   border-collapse: collapse;
   font-size: 13px;
 }
 .adf th,
-.adf td {
+.adf td,
+.md th,
+.md td {
   border: 1px solid var(--line);
   padding: 6px 10px;
   text-align: left;
   vertical-align: top;
 }
-.adf th { background: var(--raised); }
+.adf th,
+.md th { background: var(--raised); }
 .adf details { margin: 8px 0; }
 .adf summary { cursor: pointer; font-weight: 500; }
 .adf-chip {

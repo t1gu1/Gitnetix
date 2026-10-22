@@ -18,7 +18,7 @@ use crate::error::{Error, Result};
 use crate::events::Event;
 use crate::git::{ticket_keys, Blobs, BranchInfo, Commit, FileChange, Git, Hunk, PrSquash, Side, Identity, StashInfo, TagInfo, WorktreeInfo};
 use crate::providers::azure::{self, MergedPr};
-use crate::providers::{azure_auth, github::GitHub, parse_remote};
+use crate::providers::{azure_auth, github::GitHub, parse_remote, PrHost};
 use crate::secrets;
 use crate::store::{new_id, now, BranchMeta, Connection, GitProfile, Project, Release, ReleaseKind, Route, Store};
 use crate::submodules::{self, FetchReport, Submodule};
@@ -2475,7 +2475,7 @@ impl Gitnetix {
                 let lookup = async {
                     let url = git.remote_url("origin").await?.ok_or_else(|| Error::NotConnected("no origin remote".into()))?;
                     let repo = azure::parse_remote(&url).ok_or_else(|| Error::Unsupported(url))?;
-                    azure::merged_prs(&repo, &azure_auth::access_token().await?, &due).await
+                    azure::merged_prs(&repo, &azure_auth::authorization().await?, &due).await
                 };
                 let found = tokio::time::timeout(std::time::Duration::from_secs(10), lookup).await.ok().and_then(|r| r.ok());
                 let mut all = self.hosted.lock().unwrap();
@@ -3258,7 +3258,7 @@ impl Gitnetix {
         let p = self.store.project(project_id)?;
         let url = self.git(&p).remote_url("origin").await?.ok_or_else(|| Error::NotConnected("This repository has no origin remote".into()))?;
         let repo = parse_remote(&url).ok_or_else(|| Error::Unsupported(format!("remote {url}")))?;
-        let api = self.store.read(|c| c.integrations.github_api.clone()).filter(|s| !s.is_empty());
+        let api =self.store.read(|c| c.integrations.github_api.clone()).filter(|s| !s.is_empty());
         if !github_host_ok(&repo.host, api.is_some()) {
             return Err(Error::Unsupported(format!(
                 "{} remotes need a GitHub Enterprise API URL in Settings › Git providers — github.com only otherwise",
@@ -3267,6 +3267,17 @@ impl Gitnetix {
         }
         let token = secrets::require("github", "Connect GitHub in Settings › Git providers")?;
         Ok(GitHub::new(repo, token, api))
+    }
+
+    /// Where the project's pull requests live: Azure DevOps for an Azure remote, GitHub otherwise.
+    pub async fn pr_host(&self, project_id: &str) -> Result<PrHost> {
+        let p = self.store.project(project_id)?;
+        if let Some(url) = self.git(&p).remote_url("origin").await? {
+            if let Some(repo) = azure::parse_remote(&url) {
+                return Ok(PrHost::Azure(azure::Azure::new(repo, azure_auth::authorization().await?)));
+            }
+        }
+        Ok(PrHost::GitHub(self.github(project_id).await?))
     }
 
     pub async fn generate_pr(&self, project_id: &str, branch: &str) -> Result<(String, String)> {
@@ -3290,7 +3301,7 @@ impl Gitnetix {
 
     pub async fn create_pr(&self, project_id: &str, branch: &str, draft: bool, title: Option<String>, body: Option<String>) -> Result<crate::providers::github::PrSummary> {
         let p = self.store.project(project_id)?;
-        let gh = self.github(project_id).await?;
+        let gh = self.pr_host(project_id).await?;
         let git = self.git(&p);
         let default = git.default_branch().await?;
         let base = self.base_of(&p, branch, &default).await;
@@ -3319,7 +3330,7 @@ impl Gitnetix {
     /// A reply for a review conversation; with `draft`, the author's started reply polished instead.
     /// `editing` is the comment the draft rewrites: the conversation then stops before it.
     pub async fn draft_reply(&self, project_id: &str, number: u64, thread_id: &str, draft: Option<&str>, editing: Option<&str>) -> Result<String> {
-        let gh = self.github(project_id).await?;
+        let gh = self.pr_host(project_id).await?;
         let d = gh.detail(number).await?;
         let th = d.threads.iter().find(|t| t.id == thread_id).ok_or_else(|| Error::NotFound("thread".into()))?;
         let mut convo = String::new();
@@ -3346,7 +3357,7 @@ impl Gitnetix {
 
     pub async fn draft_review(&self, project_id: &str, number: u64) -> Result<String> {
         let p = self.store.project(project_id)?;
-        let gh = self.github(project_id).await?;
+        let gh = self.pr_host(project_id).await?;
         let d = gh.detail(number).await?;
         let git = self.git(&p);
         let _ = git.fetch().await;

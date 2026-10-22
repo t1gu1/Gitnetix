@@ -132,7 +132,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("tickets.setStatus", "Move a ticket to one of tickets.statuses", "source, conn, id, to"),
     ("jira.versions", "Versions a Jira ticket's fix version can be set to", "id (connection), key"),
     ("jira.setFixVersions", "Set a Jira ticket's fix versions to exactly these version ids; empty clears them", "id (connection), key, versions"),
-    ("integrations.save", "Connect GitHub, Jira, Trello or Asana; a Jira, Trello or Asana config without id adds a connection", "kind, config?, token?"),
+    ("integrations.save", "Connect GitHub, Azure DevOps (token = personal access token, config.org), Jira, Trello or Asana; a Jira, Trello or Asana config without id adds a connection", "kind, config?, token?"),
     ("integrations.checkJira", "Sign in to a Jira connection with its saved token; the user's name, or an error", "id"),
     ("jira.projects", "The Jira projects a connection can see", "id"),
     ("jira.signInStart", "Start \"Sign in with Atlassian\": the URL to open in the browser", ""),
@@ -698,11 +698,11 @@ pub async fn call(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
 
         // ---- pull requests ----
         "prs.list" => {
-            let gh = k.github(&s(&p, "projectId")?).await?;
-            to(json!({ "provider": "github", "repo": gh.repo, "items": gh.list().await? }))
+            let gh = k.pr_host(&s(&p, "projectId")?).await?;
+            to(json!({ "provider": gh.provider(), "repo": gh.repo(), "items": gh.list().await? }))
         }
         "prs.get" => {
-            let gh = k.github(&s(&p, "projectId")?).await?;
+            let gh = k.pr_host(&s(&p, "projectId")?).await?;
             to(gh.detail(u(&p, "number")?).await?)
         }
         "prs.generate" => {
@@ -711,17 +711,17 @@ pub async fn call(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
         }
         "prs.create" => to(k.create_pr(&s(&p, "projectId")?, &s(&p, "branch")?, b(&p, "draft"), os(&p, "title"), os(&p, "body")).await?),
         "prs.update" => {
-            let gh = k.github(&s(&p, "projectId")?).await?;
+            let gh = k.pr_host(&s(&p, "projectId")?).await?;
             gh.update(u(&p, "number")?, &s(&p, "title")?, &os(&p, "body").unwrap_or_default()).await?;
             ok()
         }
         "prs.merge" => {
-            let gh = k.github(&s(&p, "projectId")?).await?;
+            let gh = k.pr_host(&s(&p, "projectId")?).await?;
             gh.merge(u(&p, "number")?, &os(&p, "method").unwrap_or_else(|| "merge".into())).await?;
             ok()
         }
         "prs.close" => {
-            let gh = k.github(&s(&p, "projectId")?).await?;
+            let gh = k.pr_host(&s(&p, "projectId")?).await?;
             gh.set_closed(u(&p, "number")?, !b(&p, "reopen")).await?;
             // The PR is closed either way; a refused delete is reported, not raised.
             let delete_error = match os(&p, "deleteBranch") {
@@ -731,32 +731,32 @@ pub async fn call(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
             to(json!({ "deleteError": delete_error }))
         }
         "prs.review" => {
-            let gh = k.github(&s(&p, "projectId")?).await?;
+            let gh = k.pr_host(&s(&p, "projectId")?).await?;
             gh.review(u(&p, "number")?, &s(&p, "vote")?, &os(&p, "body").unwrap_or_default()).await?;
             ok()
         }
         "prs.comment" => {
-            let gh = k.github(&s(&p, "projectId")?).await?;
+            let gh = k.pr_host(&s(&p, "projectId")?).await?;
             gh.comment(u(&p, "number")?, &s(&p, "body")?).await?;
             ok()
         }
         "prs.reply" => {
-            let gh = k.github(&s(&p, "projectId")?).await?;
+            let gh = k.pr_host(&s(&p, "projectId")?).await?;
             gh.reply(u(&p, "number")?, u(&p, "commentId")?, &s(&p, "body")?).await?;
             ok()
         }
         "prs.resolve" => {
-            let gh = k.github(&s(&p, "projectId")?).await?;
+            let gh = k.pr_host(&s(&p, "projectId")?).await?;
             gh.set_resolved(&s(&p, "threadId")?, b(&p, "resolved")).await?;
             ok()
         }
         "prs.editComment" => {
-            let gh = k.github(&s(&p, "projectId")?).await?;
+            let gh = k.pr_host(&s(&p, "projectId")?).await?;
             gh.edit_comment(&s(&p, "commentId")?, &s(&p, "body")?).await?;
             ok()
         }
         "prs.react" => {
-            let gh = k.github(&s(&p, "projectId")?).await?;
+            let gh = k.pr_host(&s(&p, "projectId")?).await?;
             gh.react(&s(&p, "subjectId")?, &s(&p, "content")?, b(&p, "add")).await?;
             ok()
         }
@@ -851,6 +851,16 @@ pub async fn call(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
                 }
                 return to(json!({ "ok": true, "id": id }));
             }
+            if kind == "azure" {
+                let pat = token.ok_or_else(|| Error::Invalid("missing `token`".into()))?;
+                let user = Some(azure_auth::save_pat(&pat, cfg["org"].as_str().unwrap_or("")).await?).filter(|u| !u.is_empty());
+                k.store.write(|c| {
+                    c.integrations.azure_connected = true;
+                    c.integrations.azure_user = user.clone();
+                    Ok(())
+                })?;
+                return to(json!({ "ok": true, "user": user }));
+            }
             if let Some(t) = &token {
                 secrets::set(&kind, t)?;
             }
@@ -931,7 +941,7 @@ pub async fn call(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
             Poll::Pending => to(json!({ "status": "pending" })),
             Poll::SlowDown(interval) => to(json!({ "status": "pending", "interval": interval })),
             Poll::Token(t) => {
-                let user = azure_auth::login(&t).await.ok().filter(|u| !u.is_empty());
+                let user = azure_auth::login(&azure_auth::bearer(&t)).await.ok().filter(|u| !u.is_empty());
                 k.store.write(|c| {
                     c.integrations.azure_connected = true;
                     c.integrations.azure_user = user.clone();

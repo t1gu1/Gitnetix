@@ -2,8 +2,10 @@
 //! same shape as `github_auth`: the app shows a short code, the user enters it
 //! on microsoft.com/devicelogin, and the app polls until Entra hands over a
 //! token. Entra access tokens last about an hour, so the refresh token is kept
-//! too and `access_token()` renews it when needed.
+//! too and `authorization()` renews it when needed. A personal access token
+//! can be stored instead, for organizations that block the Entra app.
 
+use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -33,6 +35,9 @@ struct Tokens {
     refresh_token: Option<String>,
     /// Unix seconds.
     expires_at: i64,
+    /// `access_token` is a personal access token, sent as Basic auth and never refreshed.
+    #[serde(default)]
+    pat: bool,
 }
 
 async fn post(path: &str, form: &[(&str, &str)]) -> Result<Value> {
@@ -84,12 +89,16 @@ pub async fn poll(device_code: &str) -> Result<Poll> {
     Ok(p)
 }
 
-/// A valid access token, refreshed with the stored refresh token when it is about to expire.
-pub async fn access_token() -> Result<String> {
+/// `Authorization` header value for Azure DevOps; an Entra token is refreshed with
+/// the stored refresh token when it is about to expire.
+pub async fn authorization() -> Result<String> {
     let raw = secrets::require(KEY, "Azure DevOps")?;
     let t: Tokens = serde_json::from_str(&raw).map_err(|_| Error::NotConnected("Azure DevOps".into()))?;
+    if t.pat {
+        return Ok(basic(&t.access_token));
+    }
     if t.expires_at - chrono::Utc::now().timestamp() > 120 {
-        return Ok(t.access_token);
+        return Ok(bearer(&t.access_token));
     }
     let refresh = t.refresh_token.ok_or_else(|| Error::NotConnected("Azure DevOps".into()))?;
     let v = post("/token", &[("client_id", CLIENT_ID), ("grant_type", "refresh_token"), ("refresh_token", &refresh), ("scope", SCOPE)]).await?;
@@ -99,7 +108,39 @@ pub async fn access_token() -> Result<String> {
             v["error_description"].as_str().or(v["error"].as_str()).unwrap_or("session expired")
         )));
     }
-    save(&v, Some(refresh))
+    save(&v, Some(refresh)).map(|t| bearer(&t))
+}
+
+pub fn bearer(token: &str) -> String {
+    format!("Bearer {token}")
+}
+
+/// Azure DevOps takes a personal access token as the password of Basic auth, with an empty user.
+fn basic(pat: &str) -> String {
+    format!("Basic {}", base64::engine::general_purpose::STANDARD.encode(format!(":{pat}")))
+}
+
+/// Store a personal access token; returns the account it belongs to, checked against
+/// `org` because a token scoped to one organization is refused by the global profile API.
+pub async fn save_pat(pat: &str, org: &str) -> Result<String> {
+    let org = org_name(org).ok_or_else(|| Error::Invalid("missing Azure DevOps organization".into()))?;
+    let res = reqwest::Client::builder()
+        .user_agent(concat!("Gitnetix/", env!("CARGO_PKG_VERSION")))
+        .build()?
+        .get(format!("https://dev.azure.com/{org}/_apis/connectionData"))
+        .header("authorization", basic(pat))
+        .header("accept", "application/json")
+        .send()
+        .await?;
+    let status = res.status();
+    let v: Value = res.json().await.unwrap_or(Value::Null);
+    if !status.is_success() {
+        return Err(Error::Http(format!("Azure DevOps {status}: token rejected by {org}")));
+    }
+    let user = v["authenticatedUser"]["providerDisplayName"].as_str().unwrap_or("").to_string();
+    let t = Tokens { access_token: pat.into(), refresh_token: None, expires_at: i64::MAX, pat: true };
+    secrets::set(KEY, &serde_json::to_string(&t)?)?;
+    Ok(user)
 }
 
 /// Store a token response; Entra may rotate the refresh token, else `prev` is kept.
@@ -108,18 +149,19 @@ fn save(v: &Value, prev: Option<String>) -> Result<String> {
         access_token: v["access_token"].as_str().unwrap_or("").into(),
         refresh_token: v["refresh_token"].as_str().map(String::from).or(prev),
         expires_at: chrono::Utc::now().timestamp() + v["expires_in"].as_i64().unwrap_or(3600),
+        pat: false,
     };
     secrets::set(KEY, &serde_json::to_string(&t)?)?;
     Ok(t.access_token)
 }
 
-/// Display name (or email) of the account a token belongs to.
-pub async fn login(token: &str) -> Result<String> {
+/// Display name (or email) of the account an `Authorization` header value belongs to.
+pub async fn login(auth: &str) -> Result<String> {
     let res = reqwest::Client::builder()
         .user_agent(concat!("Gitnetix/", env!("CARGO_PKG_VERSION")))
         .build()?
         .get("https://app.vssps.visualstudio.com/_apis/profile/profiles/me?api-version=7.1")
-        .bearer_auth(token)
+        .header("authorization", auth)
         .header("accept", "application/json")
         .send()
         .await?;
@@ -129,6 +171,14 @@ pub async fn login(token: &str) -> Result<String> {
         return Err(Error::Http(format!("Azure DevOps {status}: {}", v["message"].as_str().unwrap_or("token rejected"))));
     }
     Ok(v["emailAddress"].as_str().or(v["displayName"].as_str()).unwrap_or("").into())
+}
+
+/// `rcmn` from "rcmn", "https://dev.azure.com/rcmn/…" or "rcmn.visualstudio.com".
+fn org_name(s: &str) -> Option<String> {
+    let s = s.trim().trim_start_matches("https://").trim_start_matches("http://");
+    let s = s.strip_prefix("dev.azure.com/").unwrap_or(s);
+    let s = s.split('/').next()?.trim_end_matches(".visualstudio.com");
+    (!s.is_empty()).then(|| s.into())
 }
 
 fn parse_poll(v: &Value) -> Result<Poll> {
@@ -156,5 +206,14 @@ mod tests {
         assert_eq!(parse_poll(&json!({ "access_token": "eyJ0", "refresh_token": "r", "expires_in": 3599 })).unwrap(), Poll::Token("eyJ0".into()));
         assert!(parse_poll(&json!({ "error": "expired_token" })).is_err());
         assert!(parse_poll(&json!({ "error": "authorization_declined" })).is_err());
+    }
+
+    #[test]
+    fn sends_pat_as_basic_auth() {
+        assert_eq!(basic("abc"), "Basic OmFiYw==");
+        for s in ["rcmn", " https://dev.azure.com/rcmn/_usersSettings/tokens", "rcmn.visualstudio.com"] {
+            assert_eq!(org_name(s).as_deref(), Some("rcmn"));
+        }
+        assert_eq!(org_name(" "), None);
     }
 }
