@@ -11,6 +11,22 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+### Added
+- Closing a worktree can merge it into a branch you choose.
+- Escape closes the open diff in the workspace.
+- Resizable panels on the AI setup, pull request, release notes, settings, submodules, templates, tickets and worktrees screens.
+- Origin is fetched and pruned when a project opens and every five minutes, so branches deleted on PR merge disappear without a manual refresh.
+
+### Changed
+- Workspace diffs open in the left pane above the terminal, and the branches pane is a resizable panel.
+- Danger buttons are now solid red.
+
+### Fixed
+- Deleting a remote branch that origin already dropped no longer fails with "stale info".
+- The terminal session label now sits after the agent picker.
+
+I skipped the agent prompt input refactor, since users wouldn't notice it. I didn't check the UI, so the screen list for the resizable panels comes from the commit message only.
+
 ## [0.3.0] - 2026-10-21
 
 ### Added
