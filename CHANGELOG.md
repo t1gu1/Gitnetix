@@ -11,6 +11,8 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-22
+
 ### Added
 - Closing a worktree can merge it into a branch you choose.
 - Escape closes the open diff in the workspace.
