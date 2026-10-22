@@ -72,9 +72,6 @@ export function Worktrees({ initial }: { initial?: string }) {
     return list;
   }, [wts.data, agents.data, projects]);
 
-  const running = rows.filter((r) => r.status === "running").length;
-  const needs = rows.filter((r) => match(r.status, "needs")).length;
-  const wtCount = rows.filter((r) => r.wt && !r.wt.main).length;
   const cur = rows.find((r) => r.key === sel) ?? rows[0];
   const names = [...new Set([...projects.map((p) => p.name), ...rows.map((r) => r.projectName)])];
 
@@ -93,12 +90,7 @@ export function Worktrees({ initial }: { initial?: string }) {
                 value: f,
                 label: <>{{ all: "All", running: "Running", needs: "Needs you" }[f]} <span className="faint">{rows.filter((r) => match(r.status, f)).length}</span></>,
               }))}
-            />
-            <span className="hint">{running} running · {needs} need you · {wtCount} worktrees</span>
-            <button className="btn btn-primary" style={{ height: 48, fontSize: 13.5 }} disabled={!projects.length} onClick={() => setStarting(true)}>
-              New agent session
-            </button>
-          </div>
+            />          </div>
           <div className="scroll" style={{ flex: "1 1 auto", paddingBottom: 12 }}>
             {(wts.isLoading || agents.isLoading) && <Loading />}
             {names.map((name) => {
@@ -130,6 +122,11 @@ export function Worktrees({ initial }: { initial?: string }) {
               );
             })}
             {!wts.isLoading && names.length === 0 && <Empty>Nothing here right now.</Empty>}
+          </div>
+          <div className="master-tools" style={{ borderBottom: 0, borderTop: "1px solid var(--line)" }}>
+            <button className="btn btn-primary" style={{ height: 48, fontSize: 13.5 }} disabled={!projects.length} onClick={() => setStarting(true)}>
+              New agent session
+            </button>
           </div>
         </section>
         <Resizer pane={listW} label="Resize worktree list" />
