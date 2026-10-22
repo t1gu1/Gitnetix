@@ -160,6 +160,15 @@ a:hover {
   animation: agpulse 1.4s ease-in-out infinite;
   flex: 0 0 6px;
 }
+/* A branch's agent label ("AI working", "waiting") fades in and out with the dot. */
+.ai-fade {
+  animation: agpulse 1.4s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ai-fade {
+    animation: none;
+  }
+}
 .spinner {
   width: 12px;
   height: 12px;
@@ -2825,7 +2834,7 @@ button.picker-act {
   padding: 0 12px;
   gap: 8px;
 }
-/* "Close worktree session" inline in the chat, as in its modal. */
+/* The merge options inline in the chat, as in their modal. */
 .ag-finish {
   width: min(100%, 520px);
   display: flex;
@@ -3828,7 +3837,7 @@ button.app-row:hover {
 :root[data-anim-off~="wip"] .wip-badge {
   animation: none !important;
 }
-:root[data-anim-off~="activity"] :is(.pulse, .ag-wait-chip, .ag-dots i) {
+:root[data-anim-off~="activity"] :is(.pulse, .ai-fade, .ag-wait-chip, .ag-dots i) {
   animation: none !important;
 }
 :root[data-anim-off~="tabs"] .tab-project {

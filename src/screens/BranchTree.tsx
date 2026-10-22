@@ -778,7 +778,7 @@ function BranchMeta({
       {typed && !wip && <span className={`kind-chip ${b.kind === "fix" ? "c-del" : "c-mod"}`}>{b.kind}</span>}
       {(b.role === "release" || showName) && <span className="mono">{b.name}</span>}
       {current && <span className="c-current">checked out</span>}
-      {!b.worktree && b.running && <span className="row c-acc" style={{ gap: 4 }}><span className="pulse" style={{ width: 5, height: 5 }} />AI working</span>}
+      {!b.worktree && b.running && <span className="row c-acc" style={{ gap: 4 }}><span className="pulse" style={{ width: 5, height: 5 }} /><span className="ai-fade">AI working</span></span>}
       {!b.worktree && conflict}
       {!typed && !b.worktree && wip}
       {!b.exists && <span className="c-del">branch deleted</span>}
@@ -845,7 +845,8 @@ function BranchMeta({
     {b.worktree && (
       <span className="branch-meta">
         {/* Its checkout's state: the worktree tag says when the AI works there. */}
-        <span className={`row${b.running ? " c-acc" : ""}`} style={{ gap: 4 }} title={b.worktree}><Icon name="layers" size={11} stroke={1.4} />{b.running ? "AI working" : "worktree"}</span>
+        <span className={`row${b.running ? " c-acc" : ""}`} style={{ gap: 4 }} title={b.worktree}><Icon name="layers" size={11} stroke={1.4} />{b.running ? <span className="ai-fade">AI working</span> : "worktree"}</span>
+        {!b.running && b.waiting && <span className="c-add ai-fade">waiting</span>}
         {conflict}
         {!typed && wip}
       </span>

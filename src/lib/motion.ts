@@ -12,7 +12,7 @@ export const ANIMATIONS: { id: string; label: string; hint: string }[] = [
   { id: "commit", label: "New commit pop", hint: "The commit link popping and glowing when a branch gets a new commit" },
   { id: "nudge", label: "Push button nudge", hint: "The push button wiggling while commits wait to be pushed" },
   { id: "wip", label: "WIP badge pulse", hint: "The WIP badge fading in and out while files have uncommitted changes" },
-  { id: "activity", label: "Activity pulse", hint: "The dot pulsing next to running agents, AI work and checks" },
+  { id: "activity", label: "Activity pulse", hint: "The dot pulsing next to running agents, AI work and checks, and a branch's AI working and waiting labels" },
   { id: "tabs", label: "Project tab drag", hint: "The stretch, pop and spring back when reordering project tabs" },
   { id: "menu", label: "Menu slide", hint: "The menu sliding in and out" },
   { id: "tooltips", label: "Tooltip fade", hint: "Tooltips fading in" },

@@ -115,6 +115,8 @@ pub struct BranchView {
     pub worktree: Option<String>,
     pub checked_out: bool,
     pub running: bool,
+    /// An agent on it stopped and waits for the user.
+    pub waiting: bool,
     pub conflict: bool,
     /// Files with uncommitted changes in its checkout (0 when not checked out).
     pub wip: u32,
@@ -828,6 +830,7 @@ fn plain_view(p: &Project, refs: &Refs, name: &str, parent: Option<String>) -> B
         worktree: None,
         checked_out: false,
         running: false,
+        waiting: false,
         conflict: false,
         wip: 0,
         stashes: 0,
@@ -1506,6 +1509,7 @@ impl Gitnetix {
             b.worktree = wt.filter(|w| !w.main).map(|w| w.path.clone());
             b.checked_out = wt.is_some();
             b.running = agents.iter().any(|a| a.branch == b.name && a.project_id == p.id && a.status == AgentStatus::Running);
+            b.waiting = agents.iter().any(|a| a.branch == b.name && a.project_id == p.id && a.status == AgentStatus::Waiting);
             b.conflict = conflict;
             b.wip = wip;
         }

@@ -105,6 +105,8 @@ export interface BranchView {
   worktree?: string | null;
   checkedOut: boolean;
   running: boolean;
+  /** An agent on it stopped and waits for the user. */
+  waiting: boolean;
   conflict: boolean;
   /** Files with uncommitted changes in its checkout (0 when not checked out). */
   wip: number;

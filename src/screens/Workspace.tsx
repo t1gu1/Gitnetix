@@ -556,6 +556,7 @@ function synthetic(name: string, checkedOut: boolean): BranchView {
     short: name,
     checkedOut,
     running: false,
+    waiting: false,
     conflict: false,
     wip: 0,
     stashes: 0,
@@ -874,6 +875,7 @@ export function MergeModal({
   onDeleted,
   onMerged,
   stay,
+  inline,
 }: {
   pid: string;
   branch: string;
@@ -885,6 +887,8 @@ export function MergeModal({
   onMerged?: () => void;
   /** Leave the main checkout where it is after merging. */
   stay?: boolean;
+  /** Show it in the agent chat instead of a modal, these buttons in place of Cancel. */
+  inline?: ReactNode;
 }) {
   // The options picked last time, saved with the project.
   const { merge: opts, setMerge: set } = useProjectPrefs(pid);
@@ -909,50 +913,46 @@ export function MergeModal({
         },
       },
     );
-  return (
-    <Modal
-      title="Merge branch"
-      sub={<span className="mono">{branch} → {base}</span>}
-      onClose={onClose}
-      footer={
-        <>
-          <button className="btn btn-md" onClick={onClose}>Cancel</button>
-          <span className="split-btn">
-            <button
-              className="btn btn-primary btn-md split-main"
-              disabled={merge.isPending}
-              onClick={run}
-            >
-              {merge.isPending && <span className="spinner" />}
-              Merge into {base}
-            </button>
-            <button
-              className="btn btn-primary btn-md btn-icon split-more"
-              aria-label="Merge into another branch"
-              data-tip="Merge into another branch"
-              aria-haspopup="menu"
-              disabled={merge.isPending || !others.length}
-              onClick={(e) => {
-                const r = e.currentTarget.getBoundingClientRect();
-                setPick({ x: r.right, y: r.bottom + 2 });
-              }}
-            >
-              <Icon name="chevronDown" size={13} />
-            </button>
-          </span>
-          {pick && (
-            <ContextMenu
-              x={pick.x}
-              y={pick.y}
-              alignRight
-              label="Merge into"
-              items={others.map((b) => ({ id: b, label: <span className="mono">{b}</span>, icon: b === base ? "check" : undefined, hint: b === defaultBase ? "its base" : undefined, run: () => setBase(b) }))}
-              onClose={() => setPick(null)}
-            />
-          )}
-        </>
-      }
-    >
+  const footer = (
+    <>
+      {inline ?? <button className="btn btn-md" onClick={onClose}>Cancel</button>}
+      <span className="split-btn">
+        <button
+          className="btn btn-primary btn-md split-main"
+          disabled={merge.isPending}
+          onClick={run}
+        >
+          {merge.isPending && <span className="spinner" />}
+          Merge into {base}
+        </button>
+        <button
+          className="btn btn-primary btn-md btn-icon split-more"
+          aria-label="Merge into another branch"
+          data-tip="Merge into another branch"
+          aria-haspopup="menu"
+          disabled={merge.isPending || !others.length}
+          onClick={(e) => {
+            const r = e.currentTarget.getBoundingClientRect();
+            setPick({ x: r.right, y: r.bottom + 2 });
+          }}
+        >
+          <Icon name="chevronDown" size={13} />
+        </button>
+      </span>
+      {pick && (
+        <ContextMenu
+          x={pick.x}
+          y={pick.y}
+          alignRight
+          label="Merge into"
+          items={others.map((b) => ({ id: b, label: <span className="mono">{b}</span>, icon: b === base ? "check" : undefined, hint: b === defaultBase ? "its base" : undefined, run: () => setBase(b) }))}
+          onClose={() => setPick(null)}
+        />
+      )}
+    </>
+  );
+  const body = (
+    <>
       <Seg
         grid
         label="How to merge"
@@ -998,6 +998,12 @@ export function MergeModal({
           <span>Push <span className="mono">{base}</span> to origin after merging</span>
         </label>
       </div>
+    </>
+  );
+  if (inline) return <div className="ag-finish">{body}<div className="ag-finish-foot">{footer}</div></div>;
+  return (
+    <Modal title="Merge branch" sub={<span className="mono">{branch} → {base}</span>} onClose={onClose} footer={footer}>
+      {body}
     </Modal>
   );
 }
@@ -1675,7 +1681,7 @@ export function useFinishHandlers(
   };
 }
 
-/** Ends a worktree session: the agent stops and the worktree goes, its branch either kept to continue on or merged first. Shown as a modal and in the agent chat. */
+/** Ends a worktree session: the agent stops and the worktree goes, its branch either kept to continue on or merged first. */
 function useFinishWorktree(s: WtSession, finish: FinishHandlers, done?: () => void) {
   const [then, setThen] = useState<"continue" | "merge">("continue");
   const [sw, setSw] = useState(true);
@@ -1730,14 +1736,29 @@ function CloseWorktreeModal({ session, finish, onClose }: { session: AgentSessio
   );
 }
 
-/** The same choices inline, under the agent's last reply. */
-export function FinishWorktreeCard({ session, finish }: { session: WtSession; finish: FinishHandlers }) {
-  const f = useFinishWorktree(session, finish);
+/** Under the agent's last reply: proposes merging the worktree's branch, continuing on it or discarding it a click away. */
+export function FinishWorktreeCard({ session: s, finish }: { session: WtSession; finish: FinishHandlers }) {
+  const nav = useNav();
+  const branches = useOverview(s.projectId).data?.branches;
+  // MergeModal reads its base once, on mount: wait for the branches.
+  if (!branches) return null;
   return (
-    <div className="ag-finish">
-      {f.body}
-      <div className="ag-finish-foot">{f.buttons}</div>
-    </div>
+    <MergeModal
+      pid={s.projectId}
+      branch={s.branch}
+      base={branches.find((b) => b.name === s.branch)?.parent ?? ""}
+      others={mergeTargets(branches, s.branch)}
+      onClose={() => {}}
+      onDeleted={(into) => nav.projectId === s.projectId && nav.selectedBranch === s.branch && nav.selectBranch(into)}
+      // Not switching, `continue` only deletes the worktree, as `finish.merge` does once merged.
+      onMerged={() => finish.continue(s, false)}
+      inline={
+        <>
+          <button type="button" className="btn btn-md btn-danger" data-tip={`Delete the worktree, its uncommitted changes and the local ${s.branch} branch`} onClick={() => finish.discard(s)}>Cancel and Delete all</button>
+          <button type="button" className="btn btn-md" data-tip={`Delete the worktree and switch to ${s.branch}; refused with uncommitted changes`} onClick={() => finish.continue(s, true)}>Continue on branch</button>
+        </>
+      }
+    />
   );
 }
 

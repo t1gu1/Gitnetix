@@ -8,7 +8,7 @@ import { Icon } from "../components/Icon";
 import { ago, Busy, Empty, Header, Loading, Modal, Seg } from "../components/ui";
 import { useNav } from "../lib/nav";
 import { useBranchActions } from "./BranchMenu";
-import { MergeModal, mergeTargets, useFinishHandlers } from "./Workspace";
+import { FinishWorktreeCard, MergeModal, mergeTargets, useFinishHandlers } from "./Workspace";
 
 const STATUS: Record<AgentStatus | "idle", [string, string]> = {
   running: ["Running", "c-acc"],
@@ -255,7 +255,7 @@ function Detail({ r }: { r: Row }) {
             </>
           )}
         </div>
-        <AgentLog lines={a?.lines ?? []} projectId={r.projectId} provider={a ? a.ai?.provider : pick.provider} thinking={a?.status === "running" || msg.isPending || start.isPending} onAnswer={a && ((t) => msg.mutate({ id: a.id, text: t }))} empty={r.wt ? "No agent session on this checkout." : "Directory removed."} />
+        <AgentLog lines={a?.lines ?? []} projectId={r.projectId} provider={a ? a.ai?.provider : pick.provider} thinking={a?.status === "running" || msg.isPending || start.isPending} actions={isWorktree && <FinishWorktreeCard session={session} finish={finish} />} onAnswer={a && ((t) => msg.mutate({ id: a.id, text: t }))} empty={r.wt ? "No agent session on this checkout." : "Directory removed."} />
         <form className="term-input" onSubmit={(e) => { e.preventDefault(); send(); }}>
           <span className="mono c-acc" aria-hidden="true">›</span>
           <label htmlFor="wt-ask" className="sr-only">Message the agent</label>
