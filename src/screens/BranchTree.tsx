@@ -111,7 +111,6 @@ export function BranchTree({
   target,
   onSelect,
   onNewRelease,
-  onHide,
   onCleanup,
   onCleanupBehind,
   isCleaning,
@@ -127,7 +126,6 @@ export function BranchTree({
   target: (b: string) => BranchTarget;
   onSelect: (b: string) => void;
   onNewRelease: () => void;
-  onHide: () => void;
   /** Clean up the merged children of `parent`, shown as `label`. */
   onCleanup: (parent: string, label: string, branches: BranchView[]) => void;
   /** Clean up (delete) branches falling behind: the ones in `section`, far behind `base`. */
@@ -471,9 +469,6 @@ export function BranchTree({
       )}
       <div className="pane-head">
         <span className="row" style={{ gap: 6 }}>
-          <button className="btn btn-sm btn-icon hide-narrow pane-toggle" aria-label="Hide branches" onClick={onHide}>
-            <Icon name="sidebar" size={13} />
-          </button>
           <span className="label">Branches</span>
         </span>
         <span className="row" style={{ gap: 4 }}>

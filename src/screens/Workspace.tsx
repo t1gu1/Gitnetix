@@ -313,7 +313,6 @@ export function Workspace() {
               />
             ) : (
               <BranchTree
-                onHide={() => setBranchesHidden(true)}
                 active={pane === "releases"}
                 o={o}
                 selected={branch}
