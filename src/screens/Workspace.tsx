@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type ReactNode } from "react";
 
-import { switchedOverview, useAction, useAgents, useAiOn, useAutoFetch, useBlobs, useDiff, useFiles, useOverview, useProjectPrefs, useProjects } from "../api/hooks";
+import { switchedOverview, useAction, useAgents, useAiOn, useAutoFetch, useBlobs, useDiff, useFiles, useOverview, usePendingBranches, useProjectPrefs, useProjects } from "../api/hooks";
 import { isLocal, revealPath } from "../api/transport";
 import type { AgentSession, BranchView, Commit, FileChange, Hunk, MergeResult, Overview, RebaseResult, ReleaseView, Stash } from "../api/types";
 import { AgentInput, AgentLog } from "../components/AgentLog";
@@ -503,7 +503,7 @@ export function Workspace() {
                 <li className="empty engraved">{stash ? "This stash holds no files." : commit ? "This commit changes no files." : mode === "wip" ? (checkedOut ? "No uncommitted changes." : "This branch is not checked out.") : "No changes on this branch yet."}</li>
               )}
             </ul>
-            {branch && !history && <CommitBox pid={pid} branch={branch} enabled={checkedOut} staged={stagedCount} changed={wipCount} />}
+            {branch && !history && <CommitBox key={branch} pid={pid} branch={branch} enabled={checkedOut} staged={stagedCount} changed={wipCount} />}
           </section>
 
         </main>
@@ -1549,6 +1549,8 @@ function CommitBox({ pid, branch, enabled, staged, changed }: { pid: string; bra
   const { commit: prefs, setCommit } = useProjectPrefs(pid);
   const autoPush = prefs.autoPush;
   const push = useAction("workspace.push", { invalidate: inv, success: `Pushed ${branch}` });
+  // Per branch, from the shared cache: a commit running on another worktree doesn't block this one.
+  const busy = [...usePendingBranches("workspace.commit", pid), ...usePendingBranches("workspace.push", pid)].includes(branch);
   const [more, setMore] = useState<{ x: number; y: number } | null>(null);
   return (
     <div className="col" style={{ padding: "6px 12px 10px", gap: 6, borderTop: "1px solid var(--line)" }}>
@@ -1590,10 +1592,11 @@ function CommitBox({ pid, branch, enabled, staged, changed }: { pid: string; bra
         />
       </div>}
       <span className="split-btn" style={{ display: "flex", width: "100%" }}>
-        <button className="btn btn-primary split-main" style={{ height: 34, flex: "1 1 auto" }} disabled={!canType || orphanBody || commit.isPending || push.isPending}
+        <button className="btn btn-primary split-main" style={{ height: 34, flex: "1 1 auto" }} disabled={!canType || orphanBody || busy}
           title={orphanBody ? "Add a summary to go with the description" : undefined}
-          onClick={() => commit.mutate({ projectId: pid, branch, message, all }, { onSuccess: () => { clear(); if (autoPush) push.mutate({ projectId: pid, branch }); } })}>
-          <Busy on={commit.isPending || push.isPending}><Icon name="sparkle" size={12} /></Busy>
+          // mutateAsync, not mutate callbacks: those are dropped if the user switches branch before the commit ends.
+          onClick={() => commit.mutateAsync({ projectId: pid, branch, message, all }).then(() => { clear(); if (autoPush) push.mutate({ projectId: pid, branch }); }, () => {})}>
+          <Busy on={busy}><Icon name="sparkle" size={12} /></Busy>
           <span>{all ? "Stage all & Commit" : "Commit"}<span style={{ fontWeight: 400, opacity: 0.75, marginLeft: 6 }}>{all ? changed || null : staged}</span></span>
         </button>
         <button
