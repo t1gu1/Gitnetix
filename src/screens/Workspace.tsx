@@ -1642,6 +1642,7 @@ function Terminal({ pid, branch, cwd, open, setOpen, onCloseWorktree, finish }: 
   const message = useAction("agents.message", { invalidate: [["agents"]] });
   const configure = useAction("agents.configure", { invalidate: [["agents"]] });
   const remove = useAction("agents.remove", { invalidate: [["agents"]] });
+  const stop = useAction("agents.stop", { invalidate: [["agents"]] });
   const height = usePaneWidth("gnx.pane.term", 248, 120, 900);
   const [view, setView] = useTermView();
   const shell = view === "shell";
@@ -1731,7 +1732,9 @@ function Terminal({ pid, branch, cwd, open, setOpen, onCloseWorktree, finish }: 
               value={text}
               onChange={setText}
               onSend={send}
-              disabled={busy}
+              onStop={busy && cur ? () => stop.mutate({ id: cur.id }) : undefined}
+              log={cur?.lines}
+              disabled={false}
               pending={start.isPending || message.isPending}
               picker={!cur ? <AgentPicker value={pick} onChange={setPick} compact /> : cur.ai && <AgentPicker value={cur.ai} onChange={(p) => configure.mutate({ id: cur.id, ...p })} compact />}
               placeholder={busy ? "Agent is working…" : cur ? "Reply to the agent…" : "Ask the agent anything…"}

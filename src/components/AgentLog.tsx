@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from "react";
 
 import { useAiCatalog, useConfig } from "../api/hooks";
 import type { LogLine } from "../api/types";
@@ -265,23 +265,59 @@ export function AgentLog({ lines, empty, onAnswer, projectId, actions, thinking,
   );
 }
 
-/** The prompt line under an agent log, shared by the workspace terminal and the worktrees page. */
-export function AgentInput({ id, label, value, onChange, onSend, placeholder, disabled, pending, picker }: { id: string; label: string; value: string; onChange: (v: string) => void; onSend: () => void; placeholder: string; disabled: boolean; pending: boolean; picker?: ReactNode }) {
+/** The prompt line under an agent log, shared by the workspace terminal and the worktrees page.
+ * `onStop` (while the agent works) swaps Send for Stop; Up/Down walk your past messages in `log`. */
+export function AgentInput({ id, label, value, onChange, onSend, onStop, log = [], placeholder, disabled, pending, picker }: { id: string; label: string; value: string; onChange: (v: string) => void; onSend: () => void; onStop?: () => void; log?: LogLine[]; placeholder: string; disabled: boolean; pending: boolean; picker?: ReactNode }) {
+  // Position in the history, and the unsent text it replaced.
+  const [at, setAt] = useState<number | null>(null);
+  const draft = useRef("");
+  const sent = blocks(log).flatMap((b) => (b.kind === "you" ? [b.text] : []));
+  const browse = (e: KeyboardEvent) => {
+    if ((e.key !== "ArrowUp" && e.key !== "ArrowDown") || !sent.length) return;
+    e.preventDefault();
+    if (e.key === "ArrowUp") {
+      if (at === null) draft.current = value;
+      const i = Math.max(0, (at ?? sent.length) - 1);
+      setAt(i);
+      onChange(sent[i]);
+    } else if (at !== null) {
+      const i = at + 1;
+      setAt(i < sent.length ? i : null);
+      onChange(i < sent.length ? sent[i] : draft.current);
+    }
+  };
   return (
     <form
       className="term-input"
       onSubmit={(e) => {
         e.preventDefault();
+        setAt(null);
         onSend();
       }}
     >
       <span className="mono c-acc" aria-hidden="true">›</span>
       <label htmlFor={id} className="sr-only">{label}</label>
-      <input id={id} value={value} disabled={disabled} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} />
+      <input
+        id={id}
+        value={value}
+        disabled={disabled}
+        onKeyDown={browse}
+        onChange={(e) => {
+          setAt(null);
+          onChange(e.target.value);
+        }}
+        placeholder={placeholder}
+      />
       {picker}
-      <button type="submit" className="btn btn-sm btn-primary btn-icon" aria-label="Send" data-tip="Send" disabled={disabled || !value.trim() || pending}>
-        {pending ? <span className="spinner" /> : <Icon name="send" size={20} />}
-      </button>
+      {onStop ? (
+        <button type="button" className="btn btn-sm btn-danger btn-icon" aria-label="Stop the agent" data-tip="Stop" onClick={onStop}>
+          <Icon name="stop" size={16} />
+        </button>
+      ) : (
+        <button type="submit" className="btn btn-sm btn-primary btn-icon" aria-label="Send" data-tip="Send" disabled={disabled || !value.trim() || pending}>
+          {pending ? <span className="spinner" /> : <Icon name="send" size={20} />}
+        </button>
+      )}
     </form>
   );
 }

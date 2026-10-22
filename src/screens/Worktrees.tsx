@@ -275,7 +275,9 @@ function Detail({ r }: { r: Row }) {
               value={text}
               onChange={setText}
               onSend={send}
-              disabled={busy || (!a && !r.wt)}
+              onStop={busy && a ? () => stop.mutate({ id: a.id }) : undefined}
+              log={a?.lines}
+              disabled={!a && !r.wt}
               pending={msg.isPending || start.isPending}
               picker={a?.ai ? <AgentPicker value={a.ai} onChange={(p) => configure.mutate({ id: a.id, ...p })} compact /> : !a && r.wt && <AgentPicker value={pick} onChange={setPick} compact />}
               placeholder={busy ? "Agent is working…" : a ? `Message the agent on ${r.branch}…` : "Start a session: describe what the agent should do…"}

@@ -50,6 +50,7 @@ export function MenuChoice({ label, value, options, onChange, className = "picke
   return (
     <>
       <button
+        type="button"
         id={id}
         className={className}
         style={style}
