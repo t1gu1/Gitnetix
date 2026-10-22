@@ -988,18 +988,6 @@ body.dragging-tab * {
 .ws-diff {
   background: var(--bg);
 }
-/* The branches show/hide toggle sits at the same spot open (pane head) or closed (rail). */
-.ws-rail {
-  flex: 0 0 auto;
-  display: flex;
-  flex-direction: column;
-  padding: 0 8px;
-  background: var(--panel);
-  border-right: 1px solid var(--line);
-}
-.ws-rail > .pane-toggle {
-  margin-top: calc((43px - 26px) / 2);
-} /* centered like in the 44px head (1px bottom border) */
 .ws-releases > .pane-head:has(.pane-toggle) {
   padding-left: 8px;
 }
@@ -1059,10 +1047,8 @@ body.resizing .term {
 }
 @media (min-width: 901px) {
   /* A picked file's diff takes the branches' and the terminal's place until closed. */
-  .ws[data-branches-hidden] .ws-releases,
   .ws[data-file-open] .ws-releases,
   .ws:not([data-file-open]) .ws-diff,
-  .ws[data-branches-hidden]:not([data-file-open]) > .ws-left,
   .ws[data-file-open] .ws-left > :is(.term, .term-bar, .resizer-top) {
     display: none;
   }

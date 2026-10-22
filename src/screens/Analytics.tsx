@@ -41,7 +41,7 @@ export function Analytics() {
   return (
     <>
       <Header title="Analytics & stats" />
-      <div className="row wrap" style={{ padding: "10px 24px", borderBottom: "1px solid var(--line)", gap: 12 }}>
+      <div className="row wrap" style={{ margin: 0, padding: "10px 24px", borderBottom: "1px solid var(--line)", gap: 12 }}>
         <Seg label="Time range" value={days} onChange={setDays} options={RANGES.map((d) => ({ value: d, label: `${d} days` }))} />
         <ProjectPicker projects={projects} value={ids} onChange={setIds} />
         <span className="grow" />

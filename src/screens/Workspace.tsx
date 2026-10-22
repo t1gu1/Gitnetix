@@ -60,7 +60,6 @@ export function Workspace() {
   const [stash, setStash] = useState<Stash | undefined>();
   // Left pane (branches, or the diff over them) as a percent of the workspace: two thirds by default.
   const leftW = usePaneWidth("gnx.pane.left", 67, 20, 80);
-  const [branchesHidden, setBranchesHidden] = useStoredFlag("gnx.pane.branchesHidden");
   const [asTree, setAsTree] = useStoredFlag("gnx.files.tree");
   // Collapse/expand all: a new `n` remounts the file lists, dropping per-folder toggles.
   const [fold, setFold] = useState({ closed: false, n: 0 });
@@ -266,16 +265,8 @@ export function Workspace() {
         <main
           className="ws"
           style={{ "--branches-w": `${leftW.width}%` } as CSSProperties}
-          data-branches-hidden={branchesHidden || undefined}
           data-file-open={current ? true : undefined}
         >
-          {branchesHidden && (
-            <div className="ws-rail hide-narrow">
-              <button className="btn btn-sm btn-icon pane-toggle" aria-label="Show branches" onClick={() => setBranchesHidden(false)}>
-                <Icon name="sidebar" size={13} />
-              </button>
-            </div>
-          )}
           <div className="ws-left" data-pane data-active={pane !== "files"}>
             {stashesOf !== null ? (
               <StashList
@@ -399,7 +390,7 @@ export function Workspace() {
               finish={finish}
             />
           </div>
-          {(!branchesHidden || current) && <Resizer pane={leftW} label="Resize panels" percent />}
+          <Resizer pane={leftW} label="Resize panels" percent />
           <section aria-label="Changed files" className="ws-files" data-pane data-active={pane === "files"}>
             <div className="col" style={{ gap: 10, padding: "12px 14px", borderBottom: "1px solid var(--line)" }}>
               <div className="row" style={{ alignItems: "center", minWidth: 0, margin: 0 }}>
