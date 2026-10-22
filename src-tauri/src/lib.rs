@@ -88,6 +88,19 @@ mod desktop {
             }
         });
         app.manage(Engine(k));
+        // Dev builds show which branch of the source tree they were started from.
+        #[cfg(debug_assertions)]
+        if let Some(win) = app.get_webview_window("main") {
+            let branch = std::process::Command::new("git")
+                .args(["rev-parse", "--abbrev-ref", "HEAD"])
+                .current_dir(env!("CARGO_MANIFEST_DIR"))
+                .output()
+                .ok()
+                .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+                .filter(|b| !b.is_empty())
+                .unwrap_or_else(|| "unknown".into());
+            let _ = win.set_title(&format!("{} | dev - {branch}", win.title().unwrap_or_default()));
+        }
         Ok(())
     }
 }
