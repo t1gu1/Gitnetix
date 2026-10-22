@@ -18,8 +18,6 @@ release notes and the in-app update prompt.
 - Deleting a release's tag now reopens the release.
 - A shipped release without a tag that is ahead of main is now reopened.
 
-Skipped: no diff check, entries based on commit subjects only. Wording of "ahead of main" fix may need a tweak if it differs from the actual behavior.
-
 ## [0.4.0] - 2026-10-22
 
 ### Added
