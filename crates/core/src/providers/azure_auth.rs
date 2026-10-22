@@ -20,8 +20,8 @@ const CLIENT_ID: &str = "5ef51510-93af-4c04-8d2d-4c47cbc9a7af";
 /// Work and school accounts, where Azure DevOps organizations live.
 const TENANT: &str = "organizations";
 
-/// Azure DevOps resource (`499b84ac-…` is its fixed app ID) plus a refresh token.
-const SCOPE: &str = "499b84ac-1321-427f-aa17-267ca6975798/.default offline_access";
+/// Azure DevOps delegated scope (`499b84ac-…` is its fixed app ID) plus a refresh token; explicit scope allows dynamic consent, unlike `.default`.
+const SCOPE: &str = "499b84ac-1321-427f-aa17-267ca6975798/user_impersonation offline_access";
 
 /// Keychain key holding the stored `Tokens` as JSON.
 const KEY: &str = "azure";
