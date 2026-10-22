@@ -3,6 +3,7 @@ import { type ReactNode, useEffect, useRef } from "react";
 import { useAiCatalog, useConfig } from "../api/hooks";
 import type { LogLine } from "../api/types";
 import { Avatar } from "./Avatar";
+import { Icon } from "./Icon";
 import { Markdown } from "./ui";
 
 type Block =
@@ -238,5 +239,26 @@ export function AgentLog({ lines, empty, onAnswer, projectId, actions, thinking,
         </div>
       )}
     </div>
+  );
+}
+
+/** The prompt line under an agent log, shared by the workspace terminal and the worktrees page. */
+export function AgentInput({ id, label, value, onChange, onSend, placeholder, disabled, pending, picker }: { id: string; label: string; value: string; onChange: (v: string) => void; onSend: () => void; placeholder: string; disabled: boolean; pending: boolean; picker?: ReactNode }) {
+  return (
+    <form
+      className="term-input"
+      onSubmit={(e) => {
+        e.preventDefault();
+        onSend();
+      }}
+    >
+      <span className="mono c-acc" aria-hidden="true">›</span>
+      <label htmlFor={id} className="sr-only">{label}</label>
+      <input id={id} value={value} disabled={disabled} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} />
+      {picker}
+      <button type="submit" className="btn btn-sm btn-primary btn-icon" aria-label="Send" data-tip="Send" disabled={disabled || !value.trim() || pending}>
+        {pending ? <span className="spinner" /> : <Icon name="send" size={20} />}
+      </button>
+    </form>
   );
 }

@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEve
 import { switchedOverview, useAction, useAgents, useAiOn, useAutoFetch, useBlobs, useDiff, useFiles, useOverview, useProjectPrefs, useProjects } from "../api/hooks";
 import { isLocal, revealPath } from "../api/transport";
 import type { AgentSession, BranchView, Commit, FileChange, Hunk, MergeResult, Overview, RebaseResult, ReleaseView, Stash } from "../api/types";
-import { AgentLog } from "../components/AgentLog";
+import { AgentInput, AgentLog } from "../components/AgentLog";
 import { AgentPicker, useAgentPick } from "../components/AgentPicker";
 import { DiffView, type DiffMode } from "../components/DiffView";
 import { IMAGE_MODES, ImageDiff, comparable, isImage, useImageMode } from "../components/ImageDiff";
@@ -1589,13 +1589,11 @@ function Terminal({ pid, branch, open, setOpen, onCloseWorktree, finish }: { pid
       <div className="term" style={{ "--term-h": `${height.width}px` } as CSSProperties}>
         {/* Empty parts of the bar collapse it, like the closed bar opens it. */}
         <div className="term-tabs term-bar" style={{ cursor: "pointer" }} onClick={(e) => !(e.target as HTMLElement).closest("button, select, input") && setOpen(false)}>
-          {/* Only the right side grows, so the session label sits left, after the picker. */}
+          {/* Only the right side grows, so the session label sits left, after the icon. */}
           <div className="term-side" style={{ flex: "none" }}>
             <div className="row muted" style={{ padding: "0 10px 0 14px" }}>
               <Icon name="terminal" label="Agents" />
             </div>
-            {!cur && <AgentPicker value={pick} onChange={setPick} compact />}
-            {cur?.ai && <AgentPicker value={cur.ai} onChange={(p) => configure.mutate({ id: cur.id, ...p })} compact />}
           </div>
           {cur && (
             <>
@@ -1633,26 +1631,17 @@ function Terminal({ pid, branch, open, setOpen, onCloseWorktree, finish }: { pid
                 : "Start an agent on the main checkout: describe what it should do below."
           }
         />
-        <form
-          className="term-input"
-          onSubmit={(e) => {
-            e.preventDefault();
-            send();
-          }}
-        >
-          <span className="mono c-acc" aria-hidden="true">›</span>
-          <label htmlFor="ag-ask" className="sr-only">Ask the agent</label>
-          <input
-            id="ag-ask"
-            value={text}
-            disabled={busy}
-            onChange={(e) => setText(e.target.value)}
-            placeholder={busy ? "Agent is working…" : cur ? "Reply to the agent…" : "Ask the agent anything…"}
-          />
-          <button type="submit" className="btn btn-sm btn-primary btn-icon" aria-label="Send" data-tip="Send" disabled={busy || !text.trim() || start.isPending || message.isPending}>
-            {start.isPending || message.isPending ? <span className="spinner" /> : <Icon name="send" size={13} />}
-          </button>
-        </form>
+        <AgentInput
+          id="ag-ask"
+          label="Ask the agent"
+          value={text}
+          onChange={setText}
+          onSend={send}
+          disabled={busy}
+          pending={start.isPending || message.isPending}
+          picker={!cur ? <AgentPicker value={pick} onChange={setPick} compact /> : cur.ai && <AgentPicker value={cur.ai} onChange={(p) => configure.mutate({ id: cur.id, ...p })} compact />}
+          placeholder={busy ? "Agent is working…" : cur ? "Reply to the agent…" : "Ask the agent anything…"}
+        />
       </div>
     </>
   );

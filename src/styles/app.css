@@ -2880,9 +2880,18 @@ button.picker-act {
   flex: 0 0 40px;
   border-top: 1px solid var(--line);
 }
+/* Full-height, flush with the panel's right edge. */
 .term-input .btn-icon {
-  position: relative;
-  top: -1px;
+  align-self: stretch;
+  width: 40px;
+  height: auto;
+  margin-right: -16px;
+  border: 0;
+  border-radius: 0;
+}
+/* Picker sits flush against the send button. */
+.term-input .picker-acts {
+  margin-right: -10px;
 }
 /* The plane's tip points right: nudge it to look centered. */
 .term-input .btn-icon svg {

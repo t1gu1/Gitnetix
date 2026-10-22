@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 
 import { useAction, useAgents, useFiles, useOverview, useProjects, useWorktrees } from "../api/hooks";
 import type { AgentSession, AgentStatus, WorktreeView } from "../api/types";
-import { AgentLog } from "../components/AgentLog";
+import { AgentInput, AgentLog } from "../components/AgentLog";
 import { AgentPicker, MenuChoice, useAgentPick } from "../components/AgentPicker";
 import { Icon } from "../components/Icon";
 import { ago, Busy, Empty, Header, Loading, Modal, Seg } from "../components/ui";
@@ -245,32 +245,21 @@ function Detail({ r }: { r: Row }) {
       <div className="col card" style={{ flex: "1 1 320px", minHeight: 280, gap: 0, overflow: "hidden", background: "var(--term)" }}>
         <div className="row" style={{ height: 34, margin: 0, padding: "0 14px", borderBottom: "1px solid var(--line)", background: "var(--panel)" }}>
           <Icon name="terminal" />
-          {a?.ai ? (
-            <span style={{ alignSelf: "stretch", display: "flex" }}><AgentPicker value={a.ai} onChange={(p) => configure.mutate({ id: a.id, ...p })} compact /></span>
-          ) : !a && r.wt ? (
-            <span style={{ alignSelf: "stretch", display: "flex" }}><AgentPicker value={pick} onChange={setPick} compact /></span>
-          ) : (
-            <>
-              <span className="grow" />
-              <span className="hint">Keeps running when you switch project</span>
-            </>
-          )}
+          <span className="grow" />
+          <span className="hint">Keeps running when you switch project</span>
         </div>
         <AgentLog lines={a?.lines ?? []} projectId={r.projectId} provider={a ? a.ai?.provider : pick.provider} thinking={a?.status === "running" || msg.isPending || start.isPending} actions={isWorktree && <FinishWorktreeCard session={session} finish={finish} />} onAnswer={a && ((t) => msg.mutate({ id: a.id, text: t }))} empty={r.wt ? "No agent session on this checkout." : "Directory removed."} />
-        <form className="term-input" onSubmit={(e) => { e.preventDefault(); send(); }}>
-          <span className="mono c-acc" aria-hidden="true">›</span>
-          <label htmlFor="wt-ask" className="sr-only">Message the agent</label>
-          <input
-            id="wt-ask"
-            value={text}
-            disabled={busy || (!a && !r.wt)}
-            onChange={(e) => setText(e.target.value)}
-            placeholder={busy ? "Agent is working…" : a ? `Message the agent on ${r.branch}…` : "Start a session: describe what the agent should do…"}
-          />
-          <button type="submit" className="btn btn-sm btn-primary btn-icon" aria-label="Send" data-tip="Send" disabled={busy || (!a && !r.wt) || !text.trim() || msg.isPending || start.isPending}>
-            {msg.isPending || start.isPending ? <span className="spinner" /> : <Icon name="send" size={13} />}
-          </button>
-        </form>
+        <AgentInput
+          id="wt-ask"
+          label="Message the agent"
+          value={text}
+          onChange={setText}
+          onSend={send}
+          disabled={busy || (!a && !r.wt)}
+          pending={msg.isPending || start.isPending}
+          picker={a?.ai ? <AgentPicker value={a.ai} onChange={(p) => configure.mutate({ id: a.id, ...p })} compact /> : !a && r.wt && <AgentPicker value={pick} onChange={setPick} compact />}
+          placeholder={busy ? "Agent is working…" : a ? `Message the agent on ${r.branch}…` : "Start a session: describe what the agent should do…"}
+        />
       </div>
       {merging && (
         <MergeModal
