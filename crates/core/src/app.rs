@@ -429,32 +429,87 @@ fn release_branch(version: &str) -> String {
 const CHANGELOG: &str = "CHANGELOG.md";
 
 /// Rename the `## [Unreleased]` section to `## [version] - date` and open a fresh empty
-/// `Unreleased` above it. None when there is no Unreleased section, it has no entries,
-/// or the version already has a section.
+/// `Unreleased` above it. When the version already has a section (entries added after an
+/// earlier move), the Unreleased entries are merged into it instead (see `merge_sections`).
+/// None when there is no Unreleased section or it has no entries.
 fn stamp_changelog(text: &str, version: &str, date: &str) -> Option<String> {
-    let heading = format!("## [{version}]");
-    if text.lines().any(|l| l.trim_start().starts_with(&heading)) {
-        return None;
-    }
-    let start = text.lines().position(|l| l.trim().eq_ignore_ascii_case("## [unreleased]"))?;
-    let has_entries = text
-        .lines()
-        .skip(start + 1)
-        .take_while(|l| !l.trim_start().starts_with("## "))
-        .any(|l| !l.trim().is_empty());
-    if !has_entries {
+    let lines: Vec<&str> = text.split_inclusive('\n').collect();
+    let section_end = |from: usize| lines.iter().skip(from + 1).position(|l| l.trim_start().starts_with("## ")).map_or(lines.len(), |i| from + 1 + i);
+    let start = lines.iter().position(|l| l.trim().eq_ignore_ascii_case("## [unreleased]"))?;
+    let end = section_end(start);
+    if lines[start + 1..end].iter().all(|l| l.trim().is_empty()) {
         return None;
     }
     let eol = if text.contains("\r\n") { "\r\n" } else { "\n" };
-    let mut out = String::with_capacity(text.len() + 64);
-    for (i, line) in text.split_inclusive('\n').enumerate() {
-        if i == start {
-            out.push_str(&format!("## [Unreleased]{eol}{eol}## [{version}] - {date}{eol}"));
-        } else {
-            out.push_str(line);
-        }
+    let heading = format!("## [{version}]");
+    let Some(at) = lines.iter().position(|l| l.trim_start().starts_with(&heading)) else {
+        let mut out = lines[..start].concat();
+        out.push_str(&format!("## [Unreleased]{eol}{eol}## [{version}] - {date}{eol}"));
+        out.push_str(&lines[start + 1..].concat());
+        return Some(out);
+    };
+    if at < start {
+        return None;
+    }
+    let at_end = section_end(at);
+    let mut out = lines[..start].concat();
+    out.push_str(&format!("## [Unreleased]{eol}{eol}"));
+    out.push_str(&lines[end..=at].concat());
+    out.push_str(eol);
+    out.push_str(&merge_sections(&lines[at + 1..at_end], &lines[start + 1..end]).join(eol));
+    out.push_str(eol);
+    if at_end < lines.len() {
+        out.push_str(eol);
+        out.push_str(&lines[at_end..].concat());
     }
     Some(out)
+}
+
+/// Lines of `into` with the entries of `from` added under the matching `### Kind` heading,
+/// new kinds placed in Keep a Changelog order and entries already listed skipped.
+/// shortcut: blank lines inside a section are dropped, fine for one-line bullets; keep them if entries grow paragraphs.
+fn merge_sections(into: &[&str], from: &[&str]) -> Vec<String> {
+    const ORDER: &[&str] = &["added", "changed", "deprecated", "removed", "fixed", "security"];
+    let rank = |h: &Option<String>| h.as_ref().map_or(0, |h| 1 + ORDER.iter().position(|k| h[3..].trim().eq_ignore_ascii_case(k)).unwrap_or(ORDER.len()));
+    let groups = |lines: &[&str]| {
+        let mut out: Vec<(Option<String>, Vec<String>)> = Vec::new();
+        for l in lines.iter().map(|l| l.trim_end()).filter(|l| !l.trim().is_empty()) {
+            if l.starts_with("### ") {
+                out.push((Some(l.to_string()), Vec::new()));
+            } else if let Some(g) = out.last_mut() {
+                g.1.push(l.to_string());
+            } else {
+                out.push((None, vec![l.to_string()]));
+            }
+        }
+        out
+    };
+    let mut merged = groups(into);
+    for (head, entries) in groups(from) {
+        let same = |h: &Option<String>| h.as_deref().map(str::to_lowercase) == head.as_deref().map(str::to_lowercase);
+        let i = match merged.iter().position(|(h, _)| same(h)) {
+            Some(i) => i,
+            None => {
+                let i = merged.iter().position(|(h, _)| rank(h) > rank(&head)).unwrap_or(merged.len());
+                merged.insert(i, (head, Vec::new()));
+                i
+            }
+        };
+        for e in entries {
+            if !merged[i].1.iter().any(|x| x.trim() == e.trim()) {
+                merged[i].1.push(e);
+            }
+        }
+    }
+    let mut out = Vec::new();
+    for (i, (head, entries)) in merged.into_iter().enumerate() {
+        if i > 0 {
+            out.push(String::new());
+        }
+        out.extend(head);
+        out.extend(entries);
+    }
+    out
 }
 
 /// `text` with the body of its `## [Unreleased]` section replaced by `body`. Without
@@ -483,9 +538,10 @@ fn replace_unreleased(text: &str, body: &str) -> String {
     out
 }
 
-/// The body of the `## [Unreleased]` section ("" when there is none).
-fn unreleased_body(text: &str) -> String {
-    let mut lines = text.lines().skip_while(|l| !l.trim().eq_ignore_ascii_case("## [unreleased]")).skip(1);
+/// The body of the `## [name]` section, `name` matched ignoring case ("" when there is none).
+fn section_body(text: &str, name: &str) -> String {
+    let heading = format!("## [{}]", name.to_lowercase());
+    let mut lines = text.lines().skip_while(|l| !l.trim().to_lowercase().starts_with(&heading)).skip(1);
     let body: Vec<&str> = lines.by_ref().take_while(|l| !l.trim_start().starts_with("## ")).collect();
     body.join("\n").trim().to_string()
 }
@@ -2140,14 +2196,13 @@ impl Gitnetix {
             .ok_or_else(|| Error::NotFound(format!("open release v{version}")))?;
         let git = self.git(&p);
         let text = git.show_file(&r.branch, CHANGELOG).await?.ok_or_else(|| Error::Invalid(format!("{} has no {CHANGELOG}", r.branch)))?;
-        if text.lines().any(|l| l.trim_start().starts_with(&format!("## [{version}]"))) {
-            return Ok(format!("{CHANGELOG} already has a {version} section"));
-        }
+        let merging = text.lines().any(|l| l.trim_start().starts_with(&format!("## [{version}]")));
         if !self.stamp_release_changelog(&p, &git, &r.branch, version).await? {
             return Ok(format!("Nothing under Unreleased to move into {version}"));
         }
         self.changed(project_id);
-        Ok(format!("Unreleased changes moved into {version} on {}", r.branch))
+        let verb = if merging { "merged" } else { "moved" };
+        Ok(format!("Unreleased changes {verb} into {version} on {}", r.branch))
     }
 
     /// Turn the `Unreleased` section of the release branch's CHANGELOG.md into this
@@ -3692,10 +3747,13 @@ impl Gitnetix {
             return Err(Error::Invalid(format!("{branch} has no commits since {base}")));
         }
         let t = self.template("changelog", None, Some(&p.id))?;
-        let current = unreleased_body(&text);
+        let current = section_body(&text, "unreleased");
+        // A release branch whose Unreleased entries were already moved under its version.
+        let released = branch.strip_prefix("release/").map(|v| section_body(&text, v)).unwrap_or_default();
         let mut vars = BTreeMap::new();
         vars.insert("commits".into(), commit_lines(&commits));
         vars.insert("unreleased".into(), if current.is_empty() { "(empty)".into() } else { current.clone() });
+        vars.insert("released".into(), if released.is_empty() { "(none)".into() } else { released });
         vars.insert("branch".into(), branch.into());
         vars.insert("base".into(), base);
         let out = self.ask("release", &t, vars, &p.gen_lang.release, Some(Path::new(&p.path))).await?;
@@ -3991,7 +4049,8 @@ mod tests {
     #[test]
     fn changelog_unreleased() {
         let text = "# Changelog\n\n## [Unreleased]\n\n### Added\n- Stash.\n\n## [0.0.6] - 2026-10-18\n\n- Tags.\n";
-        assert_eq!(unreleased_body(text), "### Added\n- Stash.");
+        assert_eq!(section_body(text, "unreleased"), "### Added\n- Stash.");
+        assert_eq!(section_body(text, "0.0.6"), "- Tags.");
         assert_eq!(
             replace_unreleased(text, "### Added\n- Stash.\n- Azure.\n"),
             "# Changelog\n\n## [Unreleased]\n\n### Added\n- Stash.\n- Azure.\n\n## [0.0.6] - 2026-10-18\n\n- Tags.\n"
@@ -4009,8 +4068,13 @@ mod tests {
             stamp_changelog(text, "0.0.7", "2026-10-19").as_deref(),
             Some("# Changelog\n\n## [Unreleased]\n\n## [0.0.7] - 2026-10-19\n\n### Added\n- Stash.\n\n## [0.0.6] - 2026-10-18\n\n- Tags.\n")
         );
-        // Already stamped, nothing unreleased, or no Unreleased section at all.
-        assert_eq!(stamp_changelog(text, "0.0.6", "2026-10-19"), None);
+        // Late entries merge into the existing version section, by kind, keeping its date.
+        let late = "## [Unreleased]\n\n### Fixed\n- Crash.\n\n### Added\n- Stash.\n- Azure.\n\n## [0.0.7] - 2026-10-19\n\n- Misc.\n\n### Added\n- Stash.\n\n### Removed\n- Old.\n\n## [0.0.6]\n- Tags.\n";
+        assert_eq!(
+            stamp_changelog(late, "0.0.7", "2026-10-22").as_deref(),
+            Some("## [Unreleased]\n\n## [0.0.7] - 2026-10-19\n\n- Misc.\n\n### Added\n- Stash.\n- Azure.\n\n### Removed\n- Old.\n\n### Fixed\n- Crash.\n\n## [0.0.6]\n- Tags.\n")
+        );
+        // Nothing unreleased, or no Unreleased section at all.
         assert_eq!(stamp_changelog("## [Unreleased]\n\n## [0.0.6]\n- Tags.\n", "0.0.7", "2026-10-19"), None);
         assert_eq!(stamp_changelog("# Changelog\n", "0.0.7", "2026-10-19"), None);
         assert_eq!(

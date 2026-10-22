@@ -64,7 +64,7 @@ pub fn variables(kind: &str) -> Vec<(&'static str, &'static str)> {
         "branch" => vec![("{description}", "What the user typed"), ("{type}", "feat or fix"), ("{ticket}", "Linked ticket key")],
         "pr" => vec![("{diff}", "Branch diff"), ("{commits}", "Commit list"), ("{branch}", "Head branch"), ("{base}", "Base branch"), ("{ticket}", "Linked ticket")],
         "release" => vec![("{commits}", "Commits in range"), ("{tickets}", "Linked tickets"), ("{from}", "Start ref"), ("{to}", "End ref")],
-        "changelog" => vec![("{commits}", "Commits the branch adds"), ("{unreleased}", "Current Unreleased section"), ("{branch}", "Branch"), ("{base}", "Base branch")],
+        "changelog" => vec![("{commits}", "Commits the branch adds"), ("{unreleased}", "Current Unreleased section"), ("{released}", "Entries already moved under the release version"), ("{branch}", "Branch"), ("{base}", "Base branch")],
         "conflict" => vec![("{conflict}", "Conflicting file"), ("{ours}", "Our branch"), ("{theirs}", "Their branch"), ("{path}", "File path")],
         "agent" => vec![("{request}", "User request"), ("{branch}", "Current branch"), ("{worktree}", "Worktree path")],
         _ => vec![],
@@ -199,7 +199,7 @@ pub fn default_templates() -> Vec<Template> {
             name: "Keep a Changelog".into(),
             is_default: true,
             rules: vec![],
-            body: "Update the Unreleased section of a Keep a Changelog file with the changes {branch} brings over {base}.\n\n- Return the complete new body of the section, without the \"## [Unreleased]\" heading.\n- Keep every existing entry word for word; add one line per user-facing change that is not listed yet.\n- Group under ### Added, ### Changed, ### Fixed, ### Removed, in that order, skipping empty ones.\n- Match the tone and length of the existing entries.\n- Leave out refactors, tests, CI and formatting unless users would notice them.\n- When nothing new is worth listing, return the current section unchanged.\n\nCurrent Unreleased section:\n{unreleased}\n\nCommits:\n{commits}\n\nWrite the result in {language}.".into(),
+            body: "Update the Unreleased section of a Keep a Changelog file with the changes {branch} brings over {base}.\n\n- Return the complete new body of the section, without the \"## [Unreleased]\" heading.\n- Keep every existing entry word for word; add one line per user-facing change that is not listed yet, here or under the release's version.\n- Group under ### Added, ### Changed, ### Fixed, ### Removed, in that order, skipping empty ones.\n- Match the tone and length of the existing entries.\n- Leave out refactors, tests, CI and formatting unless users would notice them.\n- When nothing new is worth listing, return the current section unchanged.\n\nCurrent Unreleased section:\n{unreleased}\n\nAlready listed under this release's version (do not add these again):\n{released}\n\nCommits:\n{commits}\n\nWrite the result in {language}.".into(),
             ..Default::default()
         },
         Template {
