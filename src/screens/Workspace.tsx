@@ -1679,7 +1679,7 @@ function Terminal({ pid, branch, cwd, open, setOpen, onCloseWorktree, finish }: 
           </div>
           {!shell && cur && (
             <>
-              <span className="term-tab" style={{ fontSize: 11.5 }}>
+              <span className="term-tab" style={{ fontSize: 11.5, borderLeft: 0 }}>
                 {cur.status === "running" && <span className="pulse" />}
                 <span className="mono">{cur.branch}</span>
                 <span className="faint">{cur.worktree ? "worktree" : "main checkout"}</span>

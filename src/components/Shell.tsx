@@ -19,7 +19,7 @@ export function TermTabs({ value, onChange }: { value: TermView; onChange: (v: T
         <Icon name="sparkle" size={12} />
         Agent
       </button>
-      <button type="button" className="term-tab" aria-pressed={value === "shell"} onClick={() => onChange("shell")}>
+      <button type="button" className="term-tab" style={{ borderRight: "1px solid var(--line)" }} aria-pressed={value === "shell"} onClick={() => onChange("shell")}>
         <Icon name="terminal" size={12} />
         Shell
       </button>
