@@ -585,6 +585,13 @@ async fn shipped_release_goes_back_under_main() {
         assert_eq!(get(f)["merged"], true, "{f}");
     }
     assert_eq!(get("release/0.0.2")["role"], "release");
+
+    // Deleting its tag takes 0.0.1 back to an open release.
+    call(&k, "tags.delete", json!({ "projectId": pid, "name": "v0.0.1" })).await;
+    let ov = call(&k, "workspace.overview", json!({ "projectId": pid })).await;
+    let b = ov["branches"].as_array().unwrap().iter().find(|b| b["name"] == "release/0.0.1").cloned().unwrap();
+    assert!(b["shipped"].is_null());
+    assert_eq!(b["role"], "release");
 }
 
 #[tokio::test]

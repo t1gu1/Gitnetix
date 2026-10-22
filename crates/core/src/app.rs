@@ -2633,8 +2633,10 @@ impl Gitnetix {
             return Err(Error::NotFound(format!("tag {name}")));
         }
         self.store.with_project(project_id, |p| {
+            // Its release never went out after all: back to open.
             for r in p.releases.iter_mut().filter(|r| r.tag.as_deref() == Some(name)) {
                 r.tag = None;
+                r.shipped_at = None;
             }
             Ok(())
         })?;
