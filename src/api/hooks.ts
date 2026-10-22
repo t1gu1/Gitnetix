@@ -20,6 +20,7 @@ import type {
   ProjectSummary,
   Submodule,
   Template,
+  StatusOption,
   Ticket,
   WorktreeView,
 } from "./types";
@@ -266,6 +267,24 @@ export const useTickets = (projectId?: string, mine = false, sprint = false) =>
     // Toggling a filter keeps the list on screen while it refetches.
     placeholderData: (prev, prevQuery) => (prevQuery?.queryKey[1] === projectId ? prev : undefined),
     enabled: !!projectId,
+    retry: false,
+    staleTime: 60_000,
+  });
+
+export const useTicketStatuses = (t?: Ticket) =>
+  useQuery({
+    queryKey: ["ticketStatuses", t?.source, t?.conn, t?.id, t?.statusLabel],
+    queryFn: () => rpc<StatusOption[]>("tickets.statuses", { source: t!.source, conn: t!.conn, id: t!.id }),
+    enabled: !!t?.id,
+    retry: false,
+    staleTime: 60_000,
+  });
+
+export const useFixVersions = (t?: Ticket) =>
+  useQuery({
+    queryKey: ["fixVersions", t?.conn, t?.key],
+    queryFn: () => rpc<{ id: string; name: string; released: boolean; archived: boolean }[]>("jira.versions", { id: t!.conn, key: t!.key }),
+    enabled: t?.source === "jira",
     retry: false,
     staleTime: 60_000,
   });

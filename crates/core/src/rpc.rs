@@ -128,6 +128,10 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("tickets.list", "Tickets from Jira, Trello, Asana with their release; mine = only the user's Jira tickets, sprint = only Jira tickets in an open sprint", "projectId, mine?, sprint?"),
     ("tickets.setRelease", "Plan a ticket into a release", "projectId, key, release"),
     ("tickets.triage", "AI suggestions for unplanned tickets", "projectId"),
+    ("tickets.statuses", "Statuses a ticket can move to (Jira transitions, Trello lists, Asana sections)", "source, conn, id"),
+    ("tickets.setStatus", "Move a ticket to one of tickets.statuses", "source, conn, id, to"),
+    ("jira.versions", "Versions a Jira ticket's fix version can be set to", "id (connection), key"),
+    ("jira.setFixVersions", "Set a Jira ticket's fix versions to exactly these version ids; empty clears them", "id (connection), key, versions"),
     ("integrations.save", "Connect GitHub, Jira, Trello or Asana; a Jira, Trello or Asana config without id adds a connection", "kind, config?, token?"),
     ("integrations.checkJira", "Sign in to a Jira connection with its saved token; the user's name, or an error", "id"),
     ("jira.projects", "The Jira projects a connection can see", "id"),
@@ -783,6 +787,11 @@ pub async fn call(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
             ok()
         }
         "tickets.triage" => to(k.triage(&s(&p, "projectId")?).await?),
+        "tickets.statuses" => to(k.ticket_status(&s(&p, "source")?, &os(&p, "conn").unwrap_or_default(), &s(&p, "id")?, None).await?),
+        "tickets.setStatus" => {
+            k.ticket_status(&s(&p, "source")?, &os(&p, "conn").unwrap_or_default(), &s(&p, "id")?, Some(&s(&p, "to")?)).await?;
+            ok()
+        }
         "integrations.save" => {
             let kind = s(&p, "kind")?;
             // Pasted credentials often carry stray whitespace, which Jira answers with a 401.
@@ -868,6 +877,16 @@ pub async fn call(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
         "jira.projects" => {
             let conf = jira_conn(k, &p)?;
             to(crate::tickets::jira_projects(&conf, &jira_auth::token(&conf).await?).await?)
+        }
+        "jira.versions" => {
+            let conf = jira_conn(k, &p)?;
+            to(crate::tickets::jira_versions(&conf, &jira_auth::token(&conf).await?, &s(&p, "key")?).await?)
+        }
+        "jira.setFixVersions" => {
+            let conf = jira_conn(k, &p)?;
+            let versions: Vec<String> = serde_json::from_value(p.get("versions").cloned().unwrap_or(json!([])))?;
+            crate::tickets::jira_set_fix_versions(&conf, &jira_auth::token(&conf).await?, &s(&p, "key")?, &versions).await?;
+            ok()
         }
         "jira.signInStart" => to(json!({ "url": jira_auth::start().await? })),
         "jira.signInFinish" => {

@@ -3074,12 +3074,40 @@ button.picker-act {
   gap: 4px;
   min-width: 0;
 }
-.kv > div > span:first-child {
+.kv > div > :first-child {
   font-size: 11px;
   color: var(--faint);
   text-transform: uppercase;
   letter-spacing: 0.06em;
   font-weight: 600;
+}
+/* Detail pane sections: heading close to its content. */
+.detail .section {
+  gap: 10px;
+}
+/* The section's own heading, also when it shares a row with buttons; not headings inside the content. */
+.detail .section > h2,
+.detail .section > .row > h2 {
+  margin: 0;
+  font-size: 22px;
+}
+/* Ticket fields: label beside value, rows lined up with the menus. */
+.kv.tk-kv {
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 6px 28px;
+}
+.tk-kv > div {
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  min-height: 32px;
+}
+.tk-kv > div > :first-child {
+  flex: 0 0 96px;
+}
+.tk-kv > div > :last-child {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .thread {
@@ -3174,6 +3202,77 @@ button.picker-act {
 }
 .md p {
   margin: 6px 0;
+}
+/* Jira descriptions, sized like Jira's own headings. */
+.adf > :first-child {
+  margin-top: 0;
+}
+.adf h1 { font-size: 20px; }
+.adf h2 { font-size: 17px; }
+.adf h3 { font-size: 15px; }
+.adf h4,
+.adf h5,
+.adf h6 { font-size: 14px; margin: 12px 0 4px; }
+.adf h1,
+.adf h2,
+.adf h3 { margin: 18px 0 6px; }
+.adf li > p { margin: 2px 0; }
+.adf .pre { margin: 8px 0; white-space: pre-wrap; }
+.adf blockquote {
+  margin: 8px 0;
+  padding-left: 12px;
+  border-left: 3px solid var(--line);
+  color: var(--muted);
+}
+.adf hr {
+  border: 0;
+  border-top: 1px solid var(--line);
+  margin: 14px 0;
+}
+.adf ul.adf-tasks {
+  list-style: none;
+  padding-left: 0;
+}
+.adf-tasks li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.adf-panel {
+  --p: var(--mod-fg);
+  margin: 8px 0;
+  padding: 8px 12px;
+  border-left: 3px solid var(--p);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--p) 10%, transparent);
+}
+.adf-note { --p: var(--release-fg); }
+.adf-success { --p: var(--add-fg); }
+.adf-warning { --p: var(--warn-fg); }
+.adf-error { --p: var(--del-fg); }
+.adf-table {
+  overflow-x: auto;
+  margin: 8px 0;
+}
+.adf table {
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.adf th,
+.adf td {
+  border: 1px solid var(--line);
+  padding: 6px 10px;
+  text-align: left;
+  vertical-align: top;
+}
+.adf th { background: var(--raised); }
+.adf details { margin: 8px 0; }
+.adf summary { cursor: pointer; font-weight: 500; }
+.adf-chip {
+  padding: 0 5px;
+  border-radius: 3px;
+  background: var(--raised);
+  font-size: 12.5px;
 }
 .md code {
   font-family: var(--mono);

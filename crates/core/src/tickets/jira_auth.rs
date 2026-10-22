@@ -23,7 +23,7 @@ const CLIENT_SECRET: Option<&str> = option_env!("GITNETIX_JIRA_CLIENT_SECRET");
 
 const PORT: u16 = 47821;
 const REDIRECT: &str = "http://localhost:47821/callback";
-const SCOPE: &str = "read:jira-work read:jira-user offline_access";
+const SCOPE: &str = "read:jira-work write:jira-work read:jira-user offline_access";
 
 /// Keychain key holding the stored `Tokens` as JSON. API tokens stay under "jira".
 pub const KEY: &str = "jira_oauth";

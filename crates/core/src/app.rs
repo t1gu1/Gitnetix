@@ -3372,6 +3372,8 @@ impl Gitnetix {
     pub async fn tickets(&self, project_id: &str, mine: bool, sprint: bool) -> Result<Vec<TicketView>> {
         let p = self.store.project(project_id)?;
         let integ = self.store.read(|c| c.integrations.clone());
+        // Sprint is on by default; without Jira it would hide every ticket.
+        let sprint = sprint && integ.jira.iter().any(|j| crate::store::shows_in(&j.repos, project_id));
         // One source failing (missing token, keychain refusal, HTTP error)
         // must not hide tickets from the others.
         let token = |name: String, label: &str| match secrets::get(&name) {
@@ -3465,6 +3467,39 @@ impl Gitnetix {
         })?;
         self.changed(project_id);
         Ok(())
+    }
+
+    /// Statuses ticket `id` of connection `conn` can move to or, with `to`, moves it there (and returns none).
+    pub async fn ticket_status(&self, source: &str, conn: &str, id: &str, to: Option<&str>) -> Result<Vec<tickets::StatusOption>> {
+        let integ = self.store.read(|c| c.integrations.clone());
+        let missing = || Error::NotConnected(source.into());
+        match source {
+            "jira" => {
+                let j = integ.jira.iter().find(|j| j.id == conn).ok_or_else(missing)?;
+                let tok = tickets::jira_auth::token(j).await?;
+                match to {
+                    Some(to) => tickets::jira_set_status(j, &tok, id, to).await.map(|_| vec![]),
+                    None => tickets::jira_statuses(j, &tok, id).await,
+                }
+            }
+            "trello" => {
+                let t = integ.trello.iter().find(|t| t.id == conn).ok_or_else(missing)?;
+                let tok = secrets::require(&t.secret(), "Trello token missing")?;
+                match to {
+                    Some(to) => tickets::trello_set_status(t, &tok, id, to).await.map(|_| vec![]),
+                    None => tickets::trello_statuses(t, &tok, id).await,
+                }
+            }
+            "asana" => {
+                let a = integ.asana.iter().find(|a| a.id == conn).ok_or_else(missing)?;
+                let tok = secrets::require(&a.secret(), "Asana token missing")?;
+                match to {
+                    Some(to) => tickets::asana_set_status(&tok, id, to).await.map(|_| vec![]),
+                    None => tickets::asana_statuses(&tok, id).await,
+                }
+            }
+            other => Err(Error::Invalid(format!("unknown tracker {other}"))),
+        }
     }
 
     pub async fn triage(&self, project_id: &str) -> Result<Vec<Suggestion>> {

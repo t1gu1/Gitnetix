@@ -12,6 +12,12 @@ pub mod jira_auth;
 #[serde(rename_all = "camelCase")]
 pub struct Ticket {
     pub key: String,
+    /// The tracker's own id, for changing it: Jira key, Trello card id, Asana task gid.
+    #[serde(default)]
+    pub id: String,
+    /// Id of the connection it comes from.
+    #[serde(default)]
+    pub conn: String,
     /// jira | trello | asana
     pub source: String,
     pub title: String,
@@ -23,6 +29,9 @@ pub struct Ticket {
     pub assignee: String,
     pub mine: bool,
     pub description: String,
+    /// Jira's description as Atlassian Document Format, to show it formatted as in Jira.
+    #[serde(default, skip_serializing_if = "Value::is_null")]
+    pub doc: Value,
     pub criteria: Vec<Criterion>,
     pub comments: u32,
     pub url: String,
@@ -32,6 +41,29 @@ pub struct Ticket {
     /// Jira fix versions, as named there ("2.4.0", "v2.4.0"), to guess the release from.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub fix_versions: Vec<String>,
+    /// Jira priority name ("High").
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub priority: String,
+    /// Jira time tracking as Jira writes it ("3h", "1d 2h"): time left and the original estimate.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub time_remaining: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub time_estimate: String,
+    /// Jira parent (epic or story) key, title and page.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub parent_key: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub parent_title: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub parent_url: String,
+}
+
+/// A status a ticket can move to: a Jira transition, Trello list or Asana section.
+#[derive(Debug, Clone, Serialize)]
+pub struct StatusOption {
+    pub id: String,
+    pub name: String,
+    pub status: &'static str,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -156,7 +188,7 @@ pub async fn jira_me(conf: &JiraConf, token: &str) -> Result<Value> {
         return Err(Error::Http(if conf.cloud_id.is_some() {
             "Jira session expired or was revoked. Sign in with Atlassian again".into()
         } else {
-            "Jira rejected the email and API token. Check the account email and that the token hasn't expired; a scoped token needs the read:jira-user and read:jira-work scopes".into()
+            "Jira rejected the email and API token. Check the account email and that the token hasn't expired; a scoped token needs the read:jira-user and read:jira-work scopes, and write:jira-work to change a status".into()
         }));
     }
     check(res, "Jira").await
@@ -189,7 +221,7 @@ pub async fn jira(conf: &JiraConf, token: &str, mine: bool, sprint: bool) -> Res
     let mut issues = Vec::new();
     let mut page: Option<String> = None;
     loop {
-        let mut body = json!({ "jql": jql, "maxResults": 100, "fields": ["summary", "status", "issuetype", "assignee", "description", "comment", "project", "fixVersions"] });
+        let mut body = json!({ "jql": jql, "maxResults": 100, "fields": ["summary", "status", "issuetype", "assignee", "description", "comment", "project", "fixVersions", "priority", "timetracking", "parent"] });
         if let Some(t) = &page {
             body["nextPageToken"] = t.as_str().into();
         }
@@ -215,6 +247,8 @@ pub async fn jira(conf: &JiraConf, token: &str, mine: bool, sprint: bool) -> Res
                 url: format!("{base}/browse/{key}"),
                 where_label: format!("Jira · {}", f["project"]["name"].as_str().unwrap_or("")),
                 place: format!("Jira · {}", f["project"]["name"].as_str().unwrap_or("")),
+                id: key.clone(),
+                conn: conf.id.clone(),
                 key,
                 source: "jira".into(),
                 title: f["summary"].as_str().unwrap_or("").into(),
@@ -224,12 +258,65 @@ pub async fn jira(conf: &JiraConf, token: &str, mine: bool, sprint: bool) -> Res
                 assignee: f["assignee"]["displayName"].as_str().unwrap_or("Unassigned").into(),
                 mine: f["assignee"]["accountId"].as_str() == Some(my_id.as_str()),
                 description: desc.trim().into(),
+                doc: f["description"].clone(),
                 criteria,
                 comments: f["comment"]["total"].as_u64().unwrap_or(0) as u32,
                 fix_versions: f["fixVersions"].as_array().into_iter().flatten().filter_map(|v| v["name"].as_str().map(String::from)).collect(),
+                priority: f["priority"]["name"].as_str().unwrap_or("").into(),
+                time_remaining: f["timetracking"]["remainingEstimate"].as_str().unwrap_or("").into(),
+                time_estimate: f["timetracking"]["originalEstimate"].as_str().unwrap_or("").into(),
+                parent_key: f["parent"]["key"].as_str().unwrap_or("").into(),
+                parent_title: f["parent"]["fields"]["summary"].as_str().unwrap_or("").into(),
+                parent_url: f["parent"]["key"].as_str().map(|k| format!("{base}/browse/{k}")).unwrap_or_default(),
             }
         })
         .collect())
+}
+
+/// Where Jira lets ticket `key` go from its current status.
+pub async fn jira_statuses(conf: &JiraConf, token: &str, key: &str) -> Result<Vec<StatusOption>> {
+    let v = check(jira_req(conf, token, reqwest::Method::GET, &format!("/rest/api/3/issue/{key}/transitions")).send().await?, "Jira").await?;
+    Ok(v["transitions"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|t| {
+            let name = t["to"]["name"].as_str().or(t["name"].as_str()).unwrap_or("");
+            StatusOption { id: t["id"].as_str().unwrap_or("").into(), name: name.into(), status: status_from_name(name, t["to"]["statusCategory"]["key"].as_str().unwrap_or("")) }
+        })
+        .collect())
+}
+
+pub async fn jira_set_status(conf: &JiraConf, token: &str, key: &str, transition: &str) -> Result<()> {
+    jira_write(jira_req(conf, token, reqwest::Method::POST, &format!("/rest/api/3/issue/{key}/transitions")).json(&json!({ "transition": { "id": transition } }))).await
+}
+
+/// The versions of ticket `key`'s project, unreleased first and archived last; archived ones
+/// are kept so a ticket's current fix versions can be found by name.
+pub async fn jira_versions(conf: &JiraConf, token: &str, key: &str) -> Result<Vec<Value>> {
+    let project = key.split('-').next().unwrap_or(key);
+    let v = check(jira_req(conf, token, reqwest::Method::GET, &format!("/rest/api/3/project/{project}/versions")).send().await?, "Jira").await?;
+    let mut out: Vec<&Value> = v.as_array().into_iter().flatten().collect();
+    out.sort_by_key(|v| (v["archived"] == true, v["released"] == true));
+    Ok(out
+        .into_iter()
+        .map(|v| json!({ "id": v["id"], "name": v["name"], "released": v["released"] == true, "archived": v["archived"] == true }))
+        .collect())
+}
+
+/// Sets the ticket's fix versions to exactly `versions` (ids); empty clears them.
+pub async fn jira_set_fix_versions(conf: &JiraConf, token: &str, key: &str, versions: &[String]) -> Result<()> {
+    let ids: Vec<Value> = versions.iter().map(|id| json!({ "id": id })).collect();
+    jira_write(jira_req(conf, token, reqwest::Method::PUT, &format!("/rest/api/3/issue/{key}")).json(&json!({ "fields": { "fixVersions": ids } }))).await
+}
+
+async fn jira_write(req: reqwest::RequestBuilder) -> Result<()> {
+    let res = req.send().await?;
+    // Success is an empty 204, which `check` would read as a wrong site.
+    if !res.status().is_success() {
+        check(res, "Jira").await?;
+    }
+    Ok(())
 }
 
 /// `jql` limited to the given project keys, keeping its ORDER BY last.
@@ -296,7 +383,15 @@ pub async fn trello(conf: &TrelloConf, token: &str) -> Result<Vec<Ticket>> {
                 .collect();
             Ticket {
                 fix_versions: Vec::new(),
+                priority: String::new(),
+                time_remaining: String::new(),
+                time_estimate: String::new(),
+                parent_key: String::new(),
+                parent_title: String::new(),
+                parent_url: String::new(),
                 key: format!("#{}", c["idShort"].as_u64().unwrap_or(0)),
+                id: c["id"].as_str().unwrap_or("").into(),
+                conn: conf.id.clone(),
                 source: "trello".into(),
                 title: c["name"].as_str().unwrap_or("").into(),
                 kind: "Card".into(),
@@ -305,6 +400,7 @@ pub async fn trello(conf: &TrelloConf, token: &str) -> Result<Vec<Ticket>> {
                 assignee: c["members"][0]["fullName"].as_str().unwrap_or("Unassigned").into(),
                 mine: true,
                 description: c["desc"].as_str().unwrap_or("").into(),
+                doc: Value::Null,
                 criteria,
                 comments: c["badges"]["comments"].as_u64().unwrap_or(0) as u32,
                 url: c["url"].as_str().unwrap_or("").into(),
@@ -315,7 +411,32 @@ pub async fn trello(conf: &TrelloConf, token: &str) -> Result<Vec<Ticket>> {
         .collect())
 }
 
+/// The open lists of the card's board.
+pub async fn trello_statuses(conf: &TrelloConf, token: &str, card: &str) -> Result<Vec<StatusOption>> {
+    let auth = format!("key={}&token={}", conf.api_key, token);
+    let c = check(http().get(format!("https://api.trello.com/1/cards/{card}?fields=idBoard&{auth}")).send().await?, "Trello").await?;
+    let board = c["idBoard"].as_str().unwrap_or("");
+    let v = check(http().get(format!("https://api.trello.com/1/boards/{board}/lists?filter=open&fields=name&{auth}")).send().await?, "Trello").await?;
+    Ok(v.as_array()
+        .into_iter()
+        .flatten()
+        .map(|l| {
+            let name = l["name"].as_str().unwrap_or("");
+            StatusOption { id: l["id"].as_str().unwrap_or("").into(), name: name.into(), status: status_from_name(name, "") }
+        })
+        .collect())
+}
+
+pub async fn trello_set_status(conf: &TrelloConf, token: &str, card: &str, list: &str) -> Result<()> {
+    let auth = format!("key={}&token={}", conf.api_key, token);
+    check(http().put(format!("https://api.trello.com/1/cards/{card}?idList={list}&{auth}")).send().await?, "Trello").await?;
+    Ok(())
+}
+
 // ---------- Asana ----------
+
+/// The option completing an Asana task, next to its project's sections.
+const ASANA_DONE: &str = "completed";
 
 pub async fn asana(conf: &AsanaConf, token: &str) -> Result<Vec<Ticket>> {
     let fields = "name,notes,completed,permalink_url,assignee.name,memberships.section.name,num_likes";
@@ -343,9 +464,17 @@ pub async fn asana(conf: &AsanaConf, token: &str) -> Result<Vec<Ticket>> {
             let status = if t["completed"] == true { "done" } else { status_from_name(section, "") };
             Ticket {
                 fix_versions: Vec::new(),
+                priority: String::new(),
+                time_remaining: String::new(),
+                time_estimate: String::new(),
+                parent_key: String::new(),
+                parent_title: String::new(),
+                parent_url: String::new(),
                 // Full gid: a suffix collides across tasks, and the prefix
                 // keeps it apart from Trello's `#idShort` keys.
                 key: format!("AS-{}", t["gid"].as_str().unwrap_or("")),
+                id: t["gid"].as_str().unwrap_or("").into(),
+                conn: conf.id.clone(),
                 source: "asana".into(),
                 title: t["name"].as_str().unwrap_or("").into(),
                 kind: "Task".into(),
@@ -354,6 +483,7 @@ pub async fn asana(conf: &AsanaConf, token: &str) -> Result<Vec<Ticket>> {
                 assignee: t["assignee"]["name"].as_str().unwrap_or("Unassigned").into(),
                 mine: true,
                 description: t["notes"].as_str().unwrap_or("").into(),
+                doc: Value::Null,
                 criteria: vec![],
                 comments: 0,
                 url: t["permalink_url"].as_str().unwrap_or("").into(),
@@ -362,6 +492,30 @@ pub async fn asana(conf: &AsanaConf, token: &str) -> Result<Vec<Ticket>> {
             }
         })
         .collect())
+}
+
+/// The sections of the task's first project, the one its status is read from, and completing it.
+pub async fn asana_statuses(token: &str, task: &str) -> Result<Vec<StatusOption>> {
+    let t = check(http().get(format!("https://app.asana.com/api/1.0/tasks/{task}?opt_fields=memberships.project.gid")).bearer_auth(token).send().await?, "Asana").await?;
+    let mut out = Vec::new();
+    if let Some(p) = t["data"]["memberships"][0]["project"]["gid"].as_str() {
+        let v = check(http().get(format!("https://app.asana.com/api/1.0/projects/{p}/sections?opt_fields=name")).bearer_auth(token).send().await?, "Asana").await?;
+        out.extend(v["data"].as_array().into_iter().flatten().map(|s| {
+            let name = s["name"].as_str().unwrap_or("");
+            StatusOption { id: s["gid"].as_str().unwrap_or("").into(), name: name.into(), status: status_from_name(name, "") }
+        }));
+    }
+    out.push(StatusOption { id: ASANA_DONE.into(), name: "Completed".into(), status: "done" });
+    Ok(out)
+}
+
+/// Moves the task to section `to`, reopening it, or completes it.
+pub async fn asana_set_status(token: &str, task: &str, to: &str) -> Result<()> {
+    if to != ASANA_DONE {
+        check(http().post(format!("https://app.asana.com/api/1.0/sections/{to}/addTask")).bearer_auth(token).json(&json!({ "data": { "task": task } })).send().await?, "Asana").await?;
+    }
+    check(http().put(format!("https://app.asana.com/api/1.0/tasks/{task}")).bearer_auth(token).json(&json!({ "data": { "completed": to == ASANA_DONE } })).send().await?, "Asana").await?;
+    Ok(())
 }
 
 /// Ticket keys mentioned in text ("ATL-212", "Refs ATL-212").

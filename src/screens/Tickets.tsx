@@ -1,14 +1,18 @@
 import { useState, type CSSProperties } from "react";
 
-import { useAction, useOverview, useProjects, useTickets } from "../api/hooks";
+import { useAction, useFixVersions, useOverview, useProjects, useTicketStatuses, useTickets } from "../api/hooks";
 import { openExternal } from "../api/transport";
 import type { Suggestion, Ticket } from "../api/types";
 import { MenuChoice } from "../components/AgentPicker";
+import { Adf } from "../components/Adf";
 import { Avatar } from "../components/Avatar";
+import { ContextMenu } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
 import { Resizer, usePaneWidth } from "../components/Resizer";
-import { ago, Busy, Empty, ErrorBox, Header, Loading, releaseTagLabel, Seg } from "../components/ui";
+import { ago, Busy, Empty, ErrorBox, Header, Loading, Markdown, releaseTagLabel, Seg } from "../components/ui";
 import { useNav } from "../lib/nav";
+import { useStored } from "../lib/stored";
+import { toast } from "../lib/toast";
 
 const STATUS: Record<Ticket["status"], [string, string]> = {
   todo: ["To do", "muted"],
@@ -23,15 +27,15 @@ const ADD = "\0add";
 export function Tickets({ initial }: { initial?: string }) {
   const nav = useNav();
   const pid = nav.projectId!;
-  const [mine, setMine] = useState(false);
-  const [sprint, setSprint] = useState(false);
+  const [mine, setMine] = useStored("gnx.tickets.mine", true);
+  const [sprint, setSprint] = useStored("gnx.tickets.sprint", true);
   const q = useTickets(pid, mine, sprint);
   const ov = useOverview(pid).data;
   const projects = useProjects().data ?? [];
   const home = (x: Ticket) => projects.find((p) => p.id === x.branchProject)?.name;
-  const [place, setPlace] = useState<string>("all");
-  const [group, setGroup] = useState<"release" | "status">("release");
-  const [search, setSearch] = useState("");
+  const [place, setPlace] = useStored("gnx.tickets.place", "all");
+  const [group, setGroup] = useStored<"release" | "status">("gnx.tickets.group", "status");
+  const [search, setSearch] = useStored("gnx.tickets.search", "");
   const [sel, setSel] = useState<string | undefined>(initial);
   const [pane, setPane] = useState<"list" | "detail">(initial ? "detail" : "list");
   const listW = usePaneWidth("gnx.pane.tickets", 400, 280, 720);
@@ -105,7 +109,7 @@ export function Tickets({ initial }: { initial?: string }) {
           <section className="master" style={{ "--master-w": `${listW.width}px` } as CSSProperties} data-pane data-active={pane === "list"} aria-label="Ticket list">
             <div className="master-tools">
               <label htmlFor="tk-q" className="sr-only">Search tickets</label>
-              <input id="tk-q" className="input" placeholder="Search by key or title" value={search} onChange={(e) => setSearch(e.target.value)} />
+              <input id="tk-q" className="input" placeholder="Search by key or title" value={search} onChange={(e) => setSearch(e.target.value, false)} onBlur={() => setSearch(search)} />
               <MenuChoice
                 className="select menu-select"
                 style={{ height: 30, width: "100%" }}
@@ -145,8 +149,8 @@ export function Tickets({ initial }: { initial?: string }) {
             <div className="scroll" style={{ flex: "1 1 auto", paddingBottom: 12 }}>
               {grouped.map((g) => (
                 <div key={g.id || "none"}>
-                  <div className="group-head">
-                    <span>{g.label}</span>
+                  <div className="group-head" style={{ fontSize: 13, fontWeight: 700 }}>
+                    <span className={group === "status" ? STATUS[g.id as Ticket["status"]][1] : undefined}>{g.label}</span>
                     <span>{g.items.length}</span>
                   </div>
                   <div className="col" style={{ gap: 2 }}>
@@ -155,7 +159,7 @@ export function Tickets({ initial }: { initial?: string }) {
                         <span className="row" style={{ gap: 8, margin: "0 0 2px", fontSize: 11.5 }}>
                           <Avatar name={x.assignee} />
                           <span className="mono faint">{x.key}</span>
-                          <span className={STATUS[x.status][1]}>{x.statusLabel || STATUS[x.status][0]}</span>
+                          <span className={STATUS[x.status][1]} style={{ fontSize: 13 }}>{x.statusLabel || STATUS[x.status][0]}</span>
                           <span className="faint ellipsis grow">{x.kind}</span>
                           {suggestions[x.key] && !x.release && <Icon name="sparkle" size={11} className="c-acc" />}
                           <span className="faint">{SRC[x.source]}</span>
@@ -225,6 +229,11 @@ function TicketDetail({
   onDismiss: () => void;
 }) {
   const nav = useNav();
+  const statuses = useTicketStatuses(t);
+  const setStatus = useAction<unknown, { source: string; conn: string; id: string; to: string; name: string }>("tickets.setStatus", {
+    invalidate: [["tickets", nav.projectId]],
+    success: "Status changed",
+  });
   const kind = /bug|fix/i.test(t.kind) ? "fix" : "feat";
   const rel = releases.find((r) => r.version === t.release);
   const done = t.criteria.filter((c) => c.done).length;
@@ -232,7 +241,11 @@ function TicketDetail({
     <div className="detail-inner">
       <div className="col" style={{ gap: 8 }}>
         <div className="row wrap muted" style={{ fontSize: 12.5 }}>
+          <span className="row" style={{ gap: 6, color: "var(--fg)" }} title="Assignee"><Avatar name={t.assignee} />{t.assignee}</span>
+          <span className="faint">·</span>
           <span className="mono">{t.key}</span>
+          <span className="faint">·</span>
+          <span>{t.kind}</span>
           <span className="faint">·</span>
           <span>{t.whereLabel}</span>
           <span className="grow" />
@@ -245,14 +258,52 @@ function TicketDetail({
         </div>
         <h1>{t.title}</h1>
       </div>
-      <div className="kv">
-        <div><span>Status</span><span className={STATUS[t.status][1]}>{t.statusLabel || STATUS[t.status][0]}</span></div>
-        <div><span>Type</span><span>{t.kind}</span></div>
-        <div><span>Assignee</span><span>{t.assignee}</span></div>
-        {t.fixVersions?.length ? <div><span>Fix versions</span><span>{t.fixVersions.join(", ")}</span></div> : null}
+      <div className="kv tk-kv">
+        {t.source === "jira" && (
+          <>
+            <div>
+              <span>Parent</span>
+              {t.parentKey ? (
+                <a className="ellipsis" href={t.parentUrl} title={`Open ${t.parentKey} in Jira`} onClick={(e) => { e.preventDefault(); openExternal(t.parentUrl!); }}>
+                  <span className="mono">{t.parentKey}</span> {t.parentTitle}
+                </a>
+              ) : (
+                <span className="faint">None</span>
+              )}
+            </div>
+            <div><span>Priority</span><span className={t.priority ? "" : "faint"}>{t.priority || "None"}</span></div>
+            <div>
+              <span>Time left</span>
+              <span className={t.timeRemaining || t.timeEstimate ? "" : "faint"}>
+                {t.timeRemaining && t.timeEstimate ? `${t.timeRemaining} of ${t.timeEstimate}` : t.timeRemaining || (t.timeEstimate ? `? of ${t.timeEstimate}` : "Not estimated")}
+              </span>
+            </div>
+          </>
+        )}
+        {t.source === "jira" && (
+          <div>
+            <label htmlFor="tk-fix">Fix versions</label>
+            <FixVersions t={t} />
+          </div>
+        )}
         <div>
-          <label htmlFor="tk-rel" style={{ fontSize: 11, color: "var(--faint)", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 600 }}>Release</label>
+          <label htmlFor="tk-rel">Release</label>
           <MenuChoice id="tk-rel" className="select menu-select" style={{ height: 30, width: "100%" }} label="Release" value={rel ? t.release : ""} options={[...releases.map((r) => ({ value: r.version, label: r.label })), { value: "", label: "Unplanned" }]} onChange={onRelease} />
+        </div>
+        <div>
+          <label htmlFor="tk-status">Status</label>
+          <MenuChoice
+            id="tk-status"
+            className="select menu-select"
+            style={{ height: 30, width: "100%" }}
+            label="Status"
+            value=""
+            options={[
+              { value: "", label: setStatus.isPending ? `Moving to ${setStatus.variables?.name}…` : t.statusLabel || STATUS[t.status][0] },
+              ...(statuses.data ?? []).filter((o) => o.name !== t.statusLabel).map((o) => ({ value: o.id, label: o.name })),
+            ]}
+            onChange={(to) => to && setStatus.mutate({ source: t.source, conn: t.conn, id: t.id, to, name: statuses.data?.find((o) => o.id === to)?.name ?? "" })}
+          />
         </div>
       </div>
       {suggestion && (
@@ -309,9 +360,15 @@ function TicketDetail({
       </section>
       <section className="section">
         <h2>Description</h2>
-        <p style={{ margin: 0, lineHeight: 1.6, whiteSpace: "pre-wrap" }} className={t.description ? "" : "muted"}>{t.description || "No description."}</p>
+        {t.doc ? (
+          <Adf doc={t.doc} />
+        ) : t.description ? (
+          <Markdown text={t.description} />
+        ) : (
+          <p style={{ margin: 0, lineHeight: 1.6, whiteSpace: "pre-wrap" }} className={t.description ? "" : "muted"}>{t.description || "No description."}</p>
+        )}
       </section>
-      {t.criteria.length > 0 && (
+      {t.criteria.length > 0 && !t.doc && (
         <section className="section">
           <h2>Acceptance criteria <span className="faint" style={{ fontWeight: 400 }}>{done} of {t.criteria.length}</span></h2>
           <ul className="list">
@@ -327,5 +384,73 @@ function TicketDetail({
       )}
       <div className="hint">{t.comments === 0 ? `No comments in ${SRC[t.source]}.` : `${t.comments} comment${t.comments === 1 ? "" : "s"} in ${SRC[t.source]}.`}</div>
     </div>
+  );
+}
+
+/** Jira fix versions, toggled in a menu that stays open and saved when it closes. */
+function FixVersions({ t }: { t: Ticket }) {
+  const nav = useNav();
+  const versions = useFixVersions(t);
+  const save = useAction<unknown, { id: string; key: string; versions: string[] }>("jira.setFixVersions", {
+    invalidate: [["tickets", nav.projectId], ["overview", nav.projectId]],
+    success: "Fix versions changed",
+  });
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  // Names, as the ticket lists them.
+  const [draft, setDraft] = useState<string[]>([]);
+  const fix = t.fixVersions ?? [];
+  const all = versions.data ?? [];
+  // Archived versions only when the ticket still has them, as in Jira.
+  const offered = all.filter((v) => !v.archived || fix.includes(v.name));
+
+  const close = () => {
+    setMenu(null);
+    if (draft.length === fix.length && draft.every((n) => fix.includes(n))) return;
+    const ids = draft.map((n) => all.find((v) => v.name === n)?.id);
+    // A version missing from the list would be dropped from the ticket.
+    if (ids.some((id) => !id)) return toast("Couldn't find every fix version in the project, nothing changed", "error");
+    save.mutate({ id: t.conn, key: t.key, versions: ids as string[] });
+  };
+
+  return (
+    <>
+      <button
+        id="tk-fix"
+        className="select menu-select"
+        style={{ height: 30, width: "100%" }}
+        aria-haspopup="menu"
+        aria-label="Fix versions"
+        onClick={(e) => {
+          const r = e.currentTarget.getBoundingClientRect();
+          setDraft(fix);
+          setMenu({ x: r.left, y: r.bottom + 2 });
+        }}
+      >
+        <span className="ellipsis">{save.isPending ? "Saving…" : (menu ? draft : fix).join(", ") || "None"}</span>
+        <Icon name="chevronDown" size={10} />
+      </button>
+      {menu && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          label="Fix versions"
+          onClose={close}
+          items={
+            versions.isLoading
+              ? [{ id: "loading", label: "Loading versions…", icon: null, disabled: true, run: () => {} }]
+              : offered.length === 0
+                ? [{ id: "none", label: "No versions in this project", icon: null, disabled: true, run: () => {} }]
+                : offered.map((v) => ({
+                    id: v.id,
+                    label: v.released ? `${v.name} (released)` : v.name,
+                    icon: null,
+                    keep: true,
+                    hint: draft.includes(v.name) && <Icon name="check" size={13} />,
+                    run: () => setDraft((d) => (d.includes(v.name) ? d.filter((n) => n !== v.name) : [...d, v.name])),
+                  }))
+          }
+        />
+      )}
+    </>
   );
 }

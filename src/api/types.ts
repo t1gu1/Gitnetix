@@ -1,3 +1,4 @@
+import type { AdfNode } from "../components/Adf";
 // Mirrors the Rust types serialised by gitnetix-core (camelCase).
 
 export type FileStatus = "A" | "M" | "D" | "R" | "C" | " ";
@@ -503,6 +504,10 @@ export interface PrDetail extends PrSummary {
 
 export interface Ticket {
   key: string;
+  /** The tracker's own id: Jira key, Trello card id, Asana task gid. */
+  id: string;
+  /** Id of the connection it comes from. */
+  conn: string;
   source: "jira" | "trello" | "asana";
   title: string;
   kind: string;
@@ -511,6 +516,8 @@ export interface Ticket {
   assignee: string;
   mine: boolean;
   description: string;
+  /** Jira's description as Atlassian Document Format. */
+  doc?: AdfNode;
   criteria: { text: string; done: boolean }[];
   comments: number;
   url: string;
@@ -519,10 +526,26 @@ export interface Ticket {
   place: string;
   /** Jira fix versions ("Versions corrigées"), as named there. */
   fixVersions?: string[];
+  /** Jira priority name. */
+  priority?: string;
+  /** Jira time left and original estimate, as Jira writes them ("3h", "1d 2h"). */
+  timeRemaining?: string;
+  timeEstimate?: string;
+  /** Jira parent (epic or story). */
+  parentKey?: string;
+  parentTitle?: string;
+  parentUrl?: string;
   release: string;
   branch?: string | null;
   /** Project holding `branch` when it is another one linked to the same tracker. */
   branchProject?: string | null;
+}
+
+/** A status a ticket can move to: a Jira transition, Trello list or Asana section. */
+export interface StatusOption {
+  id: string;
+  name: string;
+  status: Ticket["status"];
 }
 
 export interface Suggestion {
