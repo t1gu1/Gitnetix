@@ -190,23 +190,24 @@ function Detail({ pid, number }: { pid: string; number: number }) {
 
   return (
     <div className="detail-inner">
-      <div className="col" style={{ gap: 10 }}>
+      {/* Cancels the page's 24px section gap so the action buttons sit right below. */}
+      <div className="col" style={{ gap: 2, marginBottom: -4 }}>
         {editing ? (
           <div className="field">
             <label htmlFor="pr-title">Title</label>
             <input id="pr-title" className="input" value={title} onChange={(e) => setTitle(e.target.value)} />
           </div>
         ) : (
-          <div className="row" style={{ alignItems: "flex-start" }}>
+          <div className="row" style={{ alignItems: "flex-start", margin: 0 }}>
             <h1 className="grow">{d.title}</h1>
             {open && (
-              <button className="btn btn-ghost btn-icon" aria-label="Edit title and description" onClick={startEdit}>
+              <button className="btn btn-ghost btn-icon" style={{ marginBlock: -3 }} aria-label="Edit title and description" onClick={startEdit}>
                 <Icon name="edit" />
               </button>
             )}
           </div>
         )}
-        <div className="row wrap muted" style={{ fontSize: 12.5 }}>
+        <div className="row wrap muted" style={{ fontSize: 12.5, margin: 0 }}>
           <span className={`pill ${cls}`}>{label}</span>
           <span className="mono">#{d.number} · {d.head} → {d.base}</span>
           <span className="faint">·</span>
@@ -214,7 +215,7 @@ function Detail({ pid, number }: { pid: string; number: number }) {
         </div>
       </div>
 
-      <div className="row wrap" style={{ gap: 6 }}>
+      <div className="row wrap" style={{ gap: 6, margin: 0 }}>
         {open && !d.conflict && d.state !== "draft" && (
           <button className="btn btn-primary" disabled={merge.isPending || running > 0} onClick={() => merge.mutate({ projectId: pid, number })}>
             {merge.isPending && <span className="spinner" />}
@@ -335,9 +336,9 @@ function Detail({ pid, number }: { pid: string; number: number }) {
         {d.reviewers.length === 0 ? (
           <span className="muted">No reviewers yet.</span>
         ) : (
-          <div className="row wrap" style={{ gap: 12 }}>
+          <div className="row wrap" style={{ gap: 12, margin: "4px 0 0" }}>
             {d.reviewers.map((r) => (
-              <span key={r.login} className="row" style={{ gap: 8 }}>
+              <span key={r.login} className="row" style={{ gap: 8, margin: 0 }}>
                 <span className="avatar" aria-hidden="true">{initials(r.login)}</span>
                 <span>{r.login}</span>
                 <span className={r.vote === "approve" ? "c-add" : r.vote === "changes" ? "c-acc" : "faint"} style={{ fontSize: 12 }}>
@@ -381,8 +382,8 @@ function Detail({ pid, number }: { pid: string; number: number }) {
         )}
       </section>
 
-      <section className="section" aria-label="Conversation">
-        <div className="row wrap">
+      <section className="section" aria-label="Conversation" style={{ gap: 6 }}>
+        <div className="row wrap" style={{ marginBottom: 6 }}>
           <h2>Conversation</h2>
           <span className="faint" style={{ fontSize: 12 }}>{d.threads.length ? `${unresolved} unresolved · ${d.threads.length} total` : ""}</span>
           <span className="grow" />
@@ -629,7 +630,7 @@ function NewComment({ pid, number }: { pid: string; number: number }) {
   const [text, setText] = useState("");
   const comment = useAction("prs.comment", { invalidate: [["pr", pid, number]] });
   return (
-    <div className="col">
+    <div className="col" style={{ marginTop: 10 }}>
       <label htmlFor="pr-new-comment" className="sr-only">New comment</label>
       <textarea id="pr-new-comment" className="textarea" rows={3} placeholder="Leave a comment on this pull request…" value={text} onChange={(e) => setText(e.target.value)} />
       <div className="row" style={{ justifyContent: "flex-end" }}>

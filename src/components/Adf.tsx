@@ -13,7 +13,7 @@ export interface AdfNode {
 }
 
 // Links come from whoever wrote the ticket: only open web and mail ones.
-const link = (href: unknown, body: ReactNode) =>
+export const link = (href: unknown, body: ReactNode) =>
   typeof href === "string" && /^(https?|mailto):/i.test(href) ? (
     <a href={href} onClick={(e) => { e.preventDefault(); openExternal(href); }}>{body}</a>
   ) : (

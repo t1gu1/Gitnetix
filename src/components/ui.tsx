@@ -1,5 +1,6 @@
-import { type ReactNode, useEffect } from "react";
+import { Fragment, type ReactNode, useEffect } from "react";
 
+import { link } from "./Adf";
 import { Icon } from "./Icon";
 import { isPageRoute } from "./TopBar";
 import { useNav } from "../lib/nav";
@@ -152,28 +153,44 @@ export function ago(iso?: string | null) {
   return new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
 
-/** Inline Markdown: `code` and **bold**. */
-export function inline(s: string, key?: string) {
-  const parts = s.split(/(`[^`]+`|\*\*[^*]+\*\*)/g);
-  return (
-    <span key={key}>
-      {parts.map((p, j) =>
-        p.startsWith("`") && p.endsWith("`") ? (
-          <code key={j}>{p.slice(1, -1)}</code>
-        ) : p.startsWith("**") && p.endsWith("**") ? (
-          <strong key={j}>{p.slice(2, -2)}</strong>
-        ) : (
-          p
-        ),
-      )}
-    </span>
-  );
+const INLINE = /(`[^`]+`)|\*\*(.+?)\*\*|~~(.+?)~~|!?\[([^\]]*)\]\(([^)\s]+)[^)]*\)|(https?:\/\/[^\s<>)]*[^\s<>).,;:!?])|(?<![\w*])[*_](?![\s*_])(.+?)[*_](?![\w*])/g;
+
+/** Inline Markdown: `code`, **bold**, *italic*, ~~strike~~ and links. */
+export function inline(s: string, key?: string): ReactNode {
+  const out: ReactNode[] = [];
+  let last = 0;
+  for (const m of s.matchAll(INLINE)) {
+    out.push(s.slice(last, m.index));
+    const [, code, bold, strike, label, href, url, em] = m;
+    const j = m.index;
+    if (code) out.push(<code key={j}>{code.slice(1, -1)}</code>);
+    else if (bold) out.push(<strong key={j}>{inline(bold)}</strong>);
+    else if (strike) out.push(<s key={j}>{inline(strike)}</s>);
+    else if (href) out.push(<Fragment key={j}>{link(href, label ? inline(label) : href)}</Fragment>);
+    else if (url) out.push(<Fragment key={j}>{link(url, url)}</Fragment>);
+    else out.push(<em key={j}>{inline(em)}</em>);
+    last = j + m[0].length;
+  }
+  out.push(s.slice(last));
+  return <span key={key}>{out}</span>;
 }
 
-/** Tiny Markdown renderer for PR bodies and notes: headings, lists, code, paragraphs. */
+const cells = (l: string) => l.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((c) => c.trim());
+const TABLE_SEP = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
+const BLOCK = /^(#{1,6}\s|```|\s*[-*]\s|\s*\d+[.)]\s|>|\s*\||\s*(-{3,}|\*{3,})\s*$)/;
+const item = (t: string, j: number) => {
+  const task = /^\[([ xX])\]\s+(.*)$/.exec(t);
+  return (
+    <li key={j}>
+      {task ? <><input type="checkbox" checked={task[1] !== " "} disabled aria-readonly /> {inline(task[2])}</> : inline(t)}
+    </li>
+  );
+};
+
 export function Markdown({ text }: { text: string }) {
   const blocks: ReactNode[] = [];
-  const lines = text.replace(/\r/g, "").split("\n");
+  // PR templates leave <!-- hints --> behind.
+  const lines = text.replace(/\r/g, "").replace(/<!--[\s\S]*?-->/g, "").split("\n");
   let i = 0;
   while (i < lines.length) {
     const l = lines[i];
@@ -195,20 +212,46 @@ export function Markdown({ text }: { text: string }) {
       blocks.push(<pre key={i} className="pre">{code.join("\n")}</pre>);
       continue;
     }
+    if (/^\s*(-{3,}|\*{3,})\s*$/.test(l)) {
+      blocks.push(<hr key={i} />);
+      i++;
+      continue;
+    }
+    if (l.startsWith(">")) {
+      const quote: string[] = [];
+      while (i < lines.length && lines[i].startsWith(">")) quote.push(lines[i++].replace(/^>\s?/, ""));
+      blocks.push(<blockquote key={i}><Markdown text={quote.join("\n")} /></blockquote>);
+      continue;
+    }
+    if (l.trim().startsWith("|") && TABLE_SEP.test(lines[i + 1] ?? "")) {
+      const head = cells(l);
+      i += 2;
+      const rows: string[][] = [];
+      while (i < lines.length && lines[i].trim().startsWith("|")) rows.push(cells(lines[i++]));
+      blocks.push(
+        <div key={i} className="adf-table">
+          <table>
+            <thead><tr>{head.map((c, j) => <th key={j}>{inline(c)}</th>)}</tr></thead>
+            <tbody>{rows.map((r, k) => <tr key={k}>{head.map((_, j) => <td key={j}>{inline(r[j] ?? "")}</td>)}</tr>)}</tbody>
+          </table>
+        </div>,
+      );
+      continue;
+    }
     if (/^\s*[-*]\s+/.test(l)) {
       const items: string[] = [];
       while (i < lines.length && /^\s*[-*]\s+/.test(lines[i])) items.push(lines[i++].replace(/^\s*[-*]\s+/, ""));
-      blocks.push(<ul key={i}>{items.map((t, j) => <li key={j}>{inline(t, String(j))}</li>)}</ul>);
+      blocks.push(<ul key={i}>{items.map(item)}</ul>);
       continue;
     }
     if (/^\s*\d+[.)]\s+/.test(l)) {
       const items: string[] = [];
       while (i < lines.length && /^\s*\d+[.)]\s+/.test(lines[i])) items.push(lines[i++].replace(/^\s*\d+[.)]\s+/, ""));
-      blocks.push(<ol key={i}>{items.map((t, j) => <li key={j}>{inline(t, String(j))}</li>)}</ol>);
+      blocks.push(<ol key={i}>{items.map(item)}</ol>);
       continue;
     }
     const para: string[] = [];
-    while (i < lines.length && lines[i].trim() && !/^(#{1,6}\s|```|\s*[-*]\s|\s*\d+[.)]\s)/.test(lines[i])) para.push(lines[i++]);
+    while (i < lines.length && lines[i].trim() && !BLOCK.test(lines[i])) para.push(lines[i++]);
     blocks.push(<p key={i}>{inline(para.join(" "), "p")}</p>);
   }
   return <div className="md">{blocks}</div>;
