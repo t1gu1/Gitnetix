@@ -17,4 +17,10 @@ pub enum Event {
     /// One branch of a running cleanup is done with (deleted or kept).
     #[serde(rename_all = "camelCase")]
     CleanupStep { project_id: String, branch: String },
+    /// Output of a checkout's terminal, base64; `end` counts its bytes so far.
+    #[serde(rename_all = "camelCase")]
+    ShellData { cwd: String, data: String, end: u64 },
+    /// A checkout's shell exited or its terminal was removed.
+    #[serde(rename_all = "camelCase")]
+    ShellExit { cwd: String },
 }

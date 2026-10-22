@@ -6,6 +6,7 @@ import { AgentInput, AgentLog } from "../components/AgentLog";
 import { AgentPicker, MenuChoice, useAgentPick } from "../components/AgentPicker";
 import { Icon } from "../components/Icon";
 import { Resizer, usePaneWidth } from "../components/Resizer";
+import { ShellPane, TermTabs, useTermView } from "../components/Shell";
 import { ago, Busy, Empty, Header, Loading, Modal, Seg } from "../components/ui";
 import { KINDS, kindOfBranch, type Kind } from "../lib/kinds";
 import { useNav } from "../lib/nav";
@@ -176,6 +177,7 @@ function Detail({ r }: { r: Row }) {
   });
   const push = useAction("workspace.push", { invalidate: commitInv, success: `Pushed ${r.branch}` });
   const [pick, setPick] = useAgentPick(r.projectId);
+  const [termView, setTermView] = useTermView();
   const busy = a?.status === "running" || a?.status === "paused";
   const send = () => {
     const t = text.trim();
@@ -248,23 +250,29 @@ function Detail({ r }: { r: Row }) {
         )}
       </div>
       <div className="col card" style={{ flex: "1 1 320px", minHeight: 280, gap: 0, overflow: "hidden", background: "var(--term)" }}>
-        <div className="row" style={{ height: 34, margin: 0, padding: "0 14px", borderBottom: "1px solid var(--line)", background: "var(--panel)" }}>
-          <Icon name="terminal" />
+        <div className="term-tabs">
+          <TermTabs value={termView} onChange={setTermView} />
           <span className="grow" />
-          <span className="hint">Keeps running when you switch project</span>
+          <span className="hint row" style={{ padding: "0 14px" }}>Keeps running when you switch project</span>
         </div>
-        <AgentLog lines={a?.lines ?? []} projectId={r.projectId} provider={a ? a.ai?.provider : pick.provider} thinking={a?.status === "running" || msg.isPending || start.isPending} actions={isWorktree && <FinishWorktreeCard session={session} finish={finish} />} onAnswer={a && ((t) => msg.mutate({ id: a.id, text: t }))} empty={r.wt ? "No agent session on this checkout." : "Directory removed."} />
-        <AgentInput
-          id="wt-ask"
-          label="Message the agent"
-          value={text}
-          onChange={setText}
-          onSend={send}
-          disabled={busy || (!a && !r.wt)}
-          pending={msg.isPending || start.isPending}
-          picker={a?.ai ? <AgentPicker value={a.ai} onChange={(p) => configure.mutate({ id: a.id, ...p })} compact /> : !a && r.wt && <AgentPicker value={pick} onChange={setPick} compact />}
-          placeholder={busy ? "Agent is working…" : a ? `Message the agent on ${r.branch}…` : "Start a session: describe what the agent should do…"}
-        />
+        {termView === "shell" ? (
+          <ShellPane projectId={r.projectId} path={r.wt ? r.path : undefined} />
+        ) : (
+          <>
+            <AgentLog lines={a?.lines ?? []} projectId={r.projectId} provider={a ? a.ai?.provider : pick.provider} thinking={a?.status === "running" || msg.isPending || start.isPending} actions={isWorktree && <FinishWorktreeCard session={session} finish={finish} />} onAnswer={a && ((t) => msg.mutate({ id: a.id, text: t }))} empty={r.wt ? "No agent session on this checkout." : "Directory removed."} />
+            <AgentInput
+              id="wt-ask"
+              label="Message the agent"
+              value={text}
+              onChange={setText}
+              onSend={send}
+              disabled={busy || (!a && !r.wt)}
+              pending={msg.isPending || start.isPending}
+              picker={a?.ai ? <AgentPicker value={a.ai} onChange={(p) => configure.mutate({ id: a.id, ...p })} compact /> : !a && r.wt && <AgentPicker value={pick} onChange={setPick} compact />}
+              placeholder={busy ? "Agent is working…" : a ? `Message the agent on ${r.branch}…` : "Start a session: describe what the agent should do…"}
+            />
+          </>
+        )}
       </div>
       {merging && (
         <MergeModal

@@ -28,6 +28,7 @@ use crate::tickets::{self, Ticket};
 pub struct Gitnetix {
     pub store: Store,
     pub agents: AgentManager,
+    pub shells: crate::shell::Shells,
     pub events: broadcast::Sender<Event>,
     pub dir: PathBuf,
     /// Branches the git host protects, per project, with when they were looked up.
@@ -1012,7 +1013,8 @@ impl Gitnetix {
         let store = Store::open(dir)?;
         let (events, _) = broadcast::channel(1024);
         let agents = AgentManager::new(events.clone(), dir);
-        let k = Arc::new(Gitnetix { store, agents, events, dir: dir.to_path_buf(), protected: Default::default(), watcher: Default::default(), commits: CommitCache::open(dir), views: ViewCache::open(dir.join("overview-cache")), hosted: Default::default() });
+        let shells = crate::shell::Shells::new(events.clone());
+        let k = Arc::new(Gitnetix { store, agents, shells, events, dir: dir.to_path_buf(), protected: Default::default(), watcher: Default::default(), commits: CommitCache::open(dir), views: ViewCache::open(dir.join("overview-cache")), hosted: Default::default() });
         k.rewatch();
         Ok(k)
     }
@@ -3034,6 +3036,8 @@ impl Gitnetix {
             return Err(Error::Invalid("That is the main checkout".into()));
         }
         let agents: Vec<String> = self.agents.list().into_iter().filter(|a| a.cwd == path).map(|a| a.id).collect();
+        // Its shell first, so nothing it started keeps writing in the folder.
+        self.shells.remove(path);
         for id in &agents {
             let _ = self.agents.stop(id);
         }
@@ -3052,6 +3056,18 @@ impl Gitnetix {
         })?;
         self.changed(project_id);
         Ok(())
+    }
+
+    /// Opens the terminal of one of the project's checkouts; any other folder is refused.
+    pub async fn shell_open(&self, project_id: &str, path: &str, cols: u16, rows: u16) -> Result<crate::shell::Snapshot> {
+        let p = self.store.project(project_id)?;
+        let want = crate::shell::key(path);
+        let ours = crate::shell::key(&p.path) == want
+            || self.git(&p).worktrees().await?.iter().any(|w| crate::shell::key(&w.path) == want);
+        if !ours {
+            return Err(Error::Invalid("Not a checkout of this project".into()));
+        }
+        self.shells.open(path, cols, rows)
     }
 
     /// `pick` overrides the "agent" routing when it names a provider.

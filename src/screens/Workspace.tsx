@@ -10,6 +10,7 @@ import { IMAGE_MODES, ImageDiff, comparable, isImage, useImageMode } from "../co
 import { ContextMenu, type MenuItem } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
 import { Resizer, usePaneWidth } from "../components/Resizer";
+import { ShellPane, TermTabs, useTermView } from "../components/Shell";
 import { Busy, ErrorBox, Loading, Markdown, Modal, Seg } from "../components/ui";
 import { ago, plural } from "../lib/format";
 import { startCleanup, useCleaning } from "../lib/cleanups";
@@ -392,6 +393,7 @@ export function Workspace() {
             <Terminal
               pid={pid}
               branch={branch}
+              cwd={root}
               open={termOpen}
               setOpen={setTermOpen}
               onCloseWorktree={setClosingSession}
@@ -1626,8 +1628,8 @@ function CommitBox({ pid, branch, enabled, staged, changed }: { pid: string; bra
   );
 }
 
-/** The agent of the selected branch. Several agents at once are managed on the Worktrees & agents page. */
-function Terminal({ pid, branch, open, setOpen, onCloseWorktree, finish }: { pid: string; branch?: string; open: boolean; setOpen: (b: boolean) => void; onCloseWorktree: (s: AgentSession) => void; finish: FinishHandlers }) {
+/** The agent of the selected branch, or the shell of its checkout (`cwd`). Several agents at once are managed on the Worktrees & agents page. */
+function Terminal({ pid, branch, cwd, open, setOpen, onCloseWorktree, finish }: { pid: string; branch?: string; cwd?: string; open: boolean; setOpen: (b: boolean) => void; onCloseWorktree: (s: AgentSession) => void; finish: FinishHandlers }) {
   const agents = useAgents();
   const cur = (agents.data ?? []).find((a) => a.projectId === pid && a.branch === branch);
   const [text, setText] = useState("");
@@ -1638,13 +1640,15 @@ function Terminal({ pid, branch, open, setOpen, onCloseWorktree, finish }: { pid
   const configure = useAction("agents.configure", { invalidate: [["agents"]] });
   const remove = useAction("agents.remove", { invalidate: [["agents"]] });
   const height = usePaneWidth("gnx.pane.term", 248, 120, 900);
+  const [view, setView] = useTermView();
+  const shell = view === "shell";
 
   if (!open) {
     return (
       <button className="row term-bar" style={{ height: 37, flex: "0 0 37px", margin: 0, padding: "0 14px 3px", border: 0, borderTop: "1px solid var(--line)", background: "var(--panel)", color: "var(--muted)", textAlign: "left" }} onClick={() => setOpen(true)}>
         <Icon name="terminal" />
-        <span>{cur ? `Agent · ${cur.status}` : "Agent"}</span>
-        {cur?.status === "running" && <span className="pulse" />}
+        <span>{shell ? "Shell" : cur ? `Agent · ${cur.status}` : "Agent"}</span>
+        {!shell && cur?.status === "running" && <span className="pulse" />}
         <span className="grow" />
         <Icon name="chevronUp" size={13} />
       </button>
@@ -1669,15 +1673,13 @@ function Terminal({ pid, branch, open, setOpen, onCloseWorktree, finish }: { pid
       <div className="term" style={{ "--term-h": `${height.width}px` } as CSSProperties}>
         {/* Empty parts of the bar collapse it, like the closed bar opens it. */}
         <div className="term-tabs term-bar" style={{ cursor: "pointer" }} onClick={(e) => !(e.target as HTMLElement).closest("button, select, input") && setOpen(false)}>
-          {/* Only the right side grows, so the session label sits left, after the icon. */}
+          {/* Only the right side grows, so the session label sits left, after the tabs. */}
           <div className="term-side" style={{ flex: "none" }}>
-            <div className="row muted" style={{ padding: "0 10px 0 14px" }}>
-              <Icon name="terminal" label="Agents" />
-            </div>
+            <TermTabs value={view} onChange={setView} />
           </div>
-          {cur && (
+          {!shell && cur && (
             <>
-              <span className="term-tab" style={{ fontSize: 11.5 }}>
+              <span className="term-tab" style={{ fontSize: 11.5, borderLeft: 0 }}>
                 {cur.status === "running" && <span className="pulse" />}
                 <span className="mono">{cur.branch}</span>
                 <span className="faint">{cur.worktree ? "worktree" : "main checkout"}</span>
@@ -1688,40 +1690,46 @@ function Terminal({ pid, branch, open, setOpen, onCloseWorktree, finish }: { pid
             </>
           )}
           <div className="term-side" style={{ justifyContent: "flex-end" }}>
-            {cur && !cur.ai && <span className="row faint hide-narrow" style={{ padding: "0 10px", fontSize: 11.5, whiteSpace: "nowrap" }}>{cur.agentLabel}</span>}
+            {!shell && cur && !cur.ai && <span className="row faint hide-narrow" style={{ padding: "0 10px", fontSize: 11.5, whiteSpace: "nowrap" }}>{cur.agentLabel}</span>}
             <button className="btn btn-ghost" style={{ width: 36, height: "auto", border: 0, borderRadius: 0 }} aria-label="Collapse agents" onClick={() => setOpen(false)}>
               <Icon name="chevronDown" size={13} />
             </button>
           </div>
         </div>
-        <AgentLog
-          lines={cur?.lines ?? []}
-          projectId={pid}
-          provider={cur ? cur.ai?.provider : pick.provider}
-          thinking={cur?.status === "running" || start.isPending || message.isPending}
-          actions={
-            cur?.worktree && <FinishWorktreeCard session={cur} finish={finish} />
-          }
-          onAnswer={cur && ((t) => message.mutate({ id: cur.id, text: t }))}
-          empty={
-            cur
-              ? undefined
-              : branch
-                ? `Start an agent on ${branch}: it gets its own worktree, so it keeps working while you switch branches.`
-                : "Start an agent on the main checkout: describe what it should do below."
-          }
-        />
-        <AgentInput
-          id="ag-ask"
-          label="Ask the agent"
-          value={text}
-          onChange={setText}
-          onSend={send}
-          disabled={busy}
-          pending={start.isPending || message.isPending}
-          picker={!cur ? <AgentPicker value={pick} onChange={setPick} compact /> : cur.ai && <AgentPicker value={cur.ai} onChange={(p) => configure.mutate({ id: cur.id, ...p })} compact />}
-          placeholder={busy ? "Agent is working…" : cur ? "Reply to the agent…" : "Ask the agent anything…"}
-        />
+        {shell ? (
+          <ShellPane projectId={pid} path={cwd} />
+        ) : (
+          <>
+            <AgentLog
+              lines={cur?.lines ?? []}
+              projectId={pid}
+              provider={cur ? cur.ai?.provider : pick.provider}
+              thinking={cur?.status === "running" || start.isPending || message.isPending}
+              actions={
+                cur?.worktree && <FinishWorktreeCard session={cur} finish={finish} />
+              }
+              onAnswer={cur && ((t) => message.mutate({ id: cur.id, text: t }))}
+              empty={
+                cur
+                  ? undefined
+                  : branch
+                    ? `Start an agent on ${branch}: it gets its own worktree, so it keeps working while you switch branches.`
+                    : "Start an agent on the main checkout: describe what it should do below."
+              }
+            />
+            <AgentInput
+              id="ag-ask"
+              label="Ask the agent"
+              value={text}
+              onChange={setText}
+              onSend={send}
+              disabled={busy}
+              pending={start.isPending || message.isPending}
+              picker={!cur ? <AgentPicker value={pick} onChange={setPick} compact /> : cur.ai && <AgentPicker value={cur.ai} onChange={(p) => configure.mutate({ id: cur.id, ...p })} compact />}
+              placeholder={busy ? "Agent is working…" : cur ? "Reply to the agent…" : "Ask the agent anything…"}
+            />
+          </>
+        )}
       </div>
     </>
   );

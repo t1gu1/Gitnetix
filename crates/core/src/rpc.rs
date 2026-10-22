@@ -95,6 +95,9 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("agents.resume", "Resume an agent", "id"),
     ("agents.stop", "Stop an agent", "id"),
     ("agents.remove", "Delete an agent session", "id"),
+    ("shell.open", "Terminal of a checkout (main checkout or worktree) of the project: starts its shell if needed, returns recent output", "projectId, path, cols, rows"),
+    ("shell.write", "Type into a checkout's terminal", "path, data"),
+    ("shell.resize", "Resize a checkout's terminal", "path, cols, rows"),
     ("ai.catalog", "AI providers, their status and settings", ""),
     ("ai.saveProvider", "Configure an AI provider", "id, method?, model?, effort?, baseUrl?, apiKey?"),
     ("ai.setDefault", "Default AI provider", "id"),
@@ -531,6 +534,15 @@ pub async fn call(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
         }
         "agents.remove" => {
             k.agents.remove(&s(&p, "id")?)?;
+            ok()
+        }
+        "shell.open" => to(k.shell_open(&s(&p, "projectId")?, &s(&p, "path")?, u(&p, "cols")? as u16, u(&p, "rows")? as u16).await?),
+        "shell.write" => {
+            k.shells.write(&s(&p, "path")?, &s(&p, "data")?).await?;
+            ok()
+        }
+        "shell.resize" => {
+            k.shells.resize(&s(&p, "path")?, u(&p, "cols")? as u16, u(&p, "rows")? as u16)?;
             ok()
         }
 

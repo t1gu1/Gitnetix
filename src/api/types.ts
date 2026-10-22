@@ -381,6 +381,16 @@ export interface AgentSession {
   ai?: { provider: string; model: string; effort: string } | null;
 }
 
+/** A checkout's terminal: the main checkout's is shared by every branch on it, each worktree has its own. */
+export interface ShellSnapshot {
+  /** Canonical checkout path, the terminal's key. */
+  cwd: string;
+  /** Recent output, base64. */
+  data: string;
+  /** Bytes output so far; `shellData` events past it follow `data`. */
+  end: number;
+}
+
 export interface WorktreeView {
   projectId: string;
   projectName: string;
@@ -513,4 +523,6 @@ export type GitnetixEvent =
   | { type: "agentStatus"; sessionId: string; status: AgentStatus }
   | { type: "projectChanged"; projectId: string }
   | { type: "configChanged" }
-  | { type: "cleanupStep"; projectId: string; branch: string };
+  | { type: "cleanupStep"; projectId: string; branch: string }
+  | { type: "shellData"; cwd: string; data: string; end: number }
+  | { type: "shellExit"; cwd: string };
