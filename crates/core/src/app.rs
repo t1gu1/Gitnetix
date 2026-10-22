@@ -1361,7 +1361,7 @@ impl Gitnetix {
 
         let refs = Refs::new(branches, remote_branches).batched();
         // Never wait on the git host for a first look.
-        let hosted = self.hosted_prs(&p, &git, &refs.tips(), !quick).await;
+        let hosted = self.hosted_prs(&p, &refs.tips(), !quick).await;
         let refs = refs.with_hosted(hosted);
         let fingerprint = fingerprint.ok();
         let digest = self.hosted_digest(&p.id);
@@ -2459,11 +2459,9 @@ impl Gitnetix {
         Ok(out)
     }
 
-    /// Branches the git host protects, looked up again after a few minutes or on `refresh`.
-    /// Empty without a connected GitHub, or when the host can't be reached.
     /// Completed pull requests that took in any of `tips`, as the git host says (Azure DevOps
     /// for now; nothing without sign-in). `ask`: look up the tips not asked about lately first.
-    async fn hosted_prs(&self, p: &Project, git: &Git, tips: &[String], ask: bool) -> HashMap<String, Vec<MergedPr>> {
+    async fn hosted_prs(&self, p: &Project, tips: &[String], ask: bool) -> HashMap<String, Vec<MergedPr>> {
         if ask {
             let due: Vec<String> = {
                 let all = self.hosted.lock().unwrap();
@@ -2473,9 +2471,10 @@ impl Gitnetix {
             };
             if !due.is_empty() {
                 let lookup = async {
-                    let url = git.remote_url("origin").await?.ok_or_else(|| Error::NotConnected("no origin remote".into()))?;
-                    let repo = azure::parse_remote(&url).ok_or_else(|| Error::Unsupported(url))?;
-                    azure::merged_prs(&repo, &azure_auth::authorization().await?, &due).await
+                    match self.pr_host(&p.id).await? {
+                        PrHost::Azure(a) => a.merged_prs(&due).await,
+                        PrHost::GitHub(_) => Ok(HashMap::new()),
+                    }
                 };
                 let found = tokio::time::timeout(std::time::Duration::from_secs(10), lookup).await.ok().and_then(|r| r.ok());
                 let mut all = self.hosted.lock().unwrap();
@@ -2508,6 +2507,8 @@ impl Gitnetix {
         any_in(git, &commits, base).await
     }
 
+    /// Branches the git host protects, looked up again after a few minutes or on `refresh`.
+    /// Empty without a connected GitHub, or when the host can't be reached.
     async fn protected_branches(&self, project_id: &str, refresh: bool) -> Vec<String> {
         if !refresh {
             if let Some((at, list)) = self.protected.lock().unwrap().get(project_id) {

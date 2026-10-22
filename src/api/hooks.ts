@@ -41,7 +41,7 @@ export function useEngineEvents() {
         switch (e.type) {
           case "agentLine":
             qc.setQueryData<AgentSession[]>(["agents"], (list) =>
-              list?.map((s) => (s.id === e.sessionId ? { ...s, lines: [...s.lines, e.line] } : s)),
+              list?.map((s) => (s.id === e.sessionId ? { ...s, lines: [...s.lines.slice(-1999), e.line] } : s)),
             );
             break;
           case "agentStatus":

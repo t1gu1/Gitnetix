@@ -96,10 +96,6 @@ pub fn render(t: &Template, vars: &BTreeMap<String, String>, language: &str) -> 
     out
 }
 
-pub fn rule_bool(t: &Template, key: &str) -> bool {
-    t.rules.iter().find(|r| r.key == key).and_then(|r| r.value.as_bool()).unwrap_or(false)
-}
-
 pub fn rule_num(t: &Template, key: &str) -> Option<i64> {
     t.rules.iter().find(|r| r.key == key).and_then(|r| r.value.as_i64())
 }

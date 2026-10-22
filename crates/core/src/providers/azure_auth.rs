@@ -44,9 +44,7 @@ async fn post(path: &str, form: &[(&str, &str)]) -> Result<Value> {
     if CLIENT_ID.is_empty() {
         return Err(Error::Unsupported("Azure DevOps sign-in is not set up in this build".into()));
     }
-    let res = reqwest::Client::builder()
-        .user_agent(concat!("Gitnetix/", env!("CARGO_PKG_VERSION")))
-        .build()?
+    let res = crate::net::client()
         .post(format!("https://login.microsoftonline.com/{TENANT}/oauth2/v2.0{path}"))
         .header("accept", "application/json")
         .form(form)
@@ -124,9 +122,7 @@ fn basic(pat: &str) -> String {
 /// `org` because a token scoped to one organization is refused by the global profile API.
 pub async fn save_pat(pat: &str, org: &str) -> Result<String> {
     let org = org_name(org).ok_or_else(|| Error::Invalid("missing Azure DevOps organization".into()))?;
-    let res = reqwest::Client::builder()
-        .user_agent(concat!("Gitnetix/", env!("CARGO_PKG_VERSION")))
-        .build()?
+    let res = crate::net::client()
         .get(format!("https://dev.azure.com/{org}/_apis/connectionData"))
         .header("authorization", basic(pat))
         .header("accept", "application/json")
@@ -157,9 +153,7 @@ fn save(v: &Value, prev: Option<String>) -> Result<String> {
 
 /// Display name (or email) of the account an `Authorization` header value belongs to.
 pub async fn login(auth: &str) -> Result<String> {
-    let res = reqwest::Client::builder()
-        .user_agent(concat!("Gitnetix/", env!("CARGO_PKG_VERSION")))
-        .build()?
+    let res = crate::net::client()
         .get("https://app.vssps.visualstudio.com/_apis/profile/profiles/me?api-version=7.1")
         .header("authorization", auth)
         .header("accept", "application/json")

@@ -184,8 +184,9 @@ fn release_kind(v: &Value) -> ReleaseKind {
     if os(v, "kind").as_deref() == Some("hotfix") { ReleaseKind::Hotfix } else { ReleaseKind::Next }
 }
 
-fn paths(v: &Value) -> Result<Vec<String>> {
-    Ok(serde_json::from_value(v.get("paths").cloned().unwrap_or(json!([])))?)
+/// String list at `k`, empty when missing.
+fn list(v: &Value, k: &str) -> Result<Vec<String>> {
+    Ok(serde_json::from_value(v.get(k).cloned().unwrap_or(json!([])))?)
 }
 
 fn b(v: &Value, k: &str) -> bool {
@@ -283,7 +284,7 @@ pub async fn call(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
         // ---- projects & profiles ----
         "projects.list" => to(k.projects().await),
         "projects.add" => {
-            let paths: Vec<String> = serde_json::from_value(p.get("paths").cloned().unwrap_or(json!([])))?;
+            let paths = list(&p, "paths")?;
             to(k.add_projects(paths).await?)
         }
         "projects.remove" => {
@@ -296,7 +297,7 @@ pub async fn call(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
             ok()
         }
         "projects.reorder" => {
-            let ids: Vec<String> = serde_json::from_value(p.get("ids").cloned().unwrap_or(json!([])))?;
+            let ids = list(&p, "ids")?;
             k.reorder_projects(&ids)?;
             ok()
         }
@@ -394,15 +395,15 @@ pub async fn call(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
         }
         "workspace.commitMessage" => to(json!({ "message": k.generate_commit_message(&s(&p, "projectId")?, &s(&p, "branch")?).await? })),
         "workspace.stage" => {
-            k.stage(&s(&p, "projectId")?, &s(&p, "branch")?, &paths(&p)?).await?;
+            k.stage(&s(&p, "projectId")?, &s(&p, "branch")?, &list(&p, "paths")?).await?;
             ok()
         }
         "workspace.unstage" => {
-            k.unstage(&s(&p, "projectId")?, &s(&p, "branch")?, &paths(&p)?).await?;
+            k.unstage(&s(&p, "projectId")?, &s(&p, "branch")?, &list(&p, "paths")?).await?;
             ok()
         }
         "workspace.discard" => {
-            k.discard(&s(&p, "projectId")?, &s(&p, "branch")?, b(&p, "staged"), &paths(&p)?).await?;
+            k.discard(&s(&p, "projectId")?, &s(&p, "branch")?, b(&p, "staged"), &list(&p, "paths")?).await?;
             ok()
         }
         "workspace.ignore" => {
@@ -495,7 +496,7 @@ pub async fn call(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
             ok()
         }
         "branches.cleanup" => {
-            let branches: Vec<String> = serde_json::from_value(p.get("branches").cloned().unwrap_or(json!([])))?;
+            let branches = list(&p, "branches")?;
             to(k.cleanup_branches(&s(&p, "projectId")?, &branches, b(&p, "force"), b(&p, "remote")).await?)
         }
         "branches.delete" => {
@@ -894,7 +895,7 @@ pub async fn call(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
         }
         "jira.setFixVersions" => {
             let conf = jira_conn(k, &p)?;
-            let versions: Vec<String> = serde_json::from_value(p.get("versions").cloned().unwrap_or(json!([])))?;
+            let versions = list(&p, "versions")?;
             crate::tickets::jira_set_fix_versions(&conf, &jira_auth::token(&conf).await?, &s(&p, "key")?, &versions).await?;
             ok()
         }

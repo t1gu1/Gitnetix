@@ -7,6 +7,7 @@ import { Avatar } from "../components/Avatar";
 import { Icon } from "../components/Icon";
 import { Resizer, usePaneWidth } from "../components/Resizer";
 import { ago, Busy, Empty, ErrorBox, Header, initials, Loading, Markdown, Modal, Seg } from "../components/ui";
+import { plural } from "../lib/format";
 import { useNav } from "../lib/nav";
 import { toast } from "../lib/toast";
 
@@ -182,7 +183,7 @@ function Detail({ pid, number }: { pid: string; number: number }) {
   const unresolved = d.threads.filter((t) => t.resolvable && !t.resolved).length;
   const approvals = d.reviewers.filter((r) => r.vote === "approve").length;
   const changes = d.reviewers.filter((r) => r.vote === "changes").length;
-  const votes = [approvals && `${approvals} approval${approvals === 1 ? "" : "s"}`, changes && `${changes} changes requested`].filter(Boolean).join(" · ");
+  const votes = [approvals && plural(approvals, "approval"), changes && `${changes} changes requested`].filter(Boolean).join(" · ");
   const threads = filter === "open" ? d.threads.filter((t) => t.resolvable && !t.resolved) : d.threads;
   const startEdit = () => {
     setTitle(d.title);
@@ -276,7 +277,7 @@ function Detail({ pid, number }: { pid: string; number: number }) {
             Reopen
           </button>
         )}
-        {unresolved > 0 && open && <span className="c-acc" style={{ fontSize: 12.5 }}>{unresolved} unresolved conversation{unresolved === 1 ? "" : "s"}</span>}
+        {unresolved > 0 && open && <span className="c-acc" style={{ fontSize: 12.5 }}>{plural(unresolved, "unresolved conversation")}</span>}
       </div>
 
       {confirmClose && (

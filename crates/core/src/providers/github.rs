@@ -119,10 +119,7 @@ fn emoji(content: &str) -> String {
 impl GitHub {
     pub fn new(repo: RepoRef, token: String, api: Option<String>) -> Self {
         let api = api.filter(|s| !s.is_empty()).unwrap_or_else(|| "https://api.github.com".into());
-        let http = reqwest::Client::builder()
-            .user_agent(concat!("Gitnetix/", env!("CARGO_PKG_VERSION")))
-            .build()
-            .expect("http client");
+        let http = crate::net::client();
         GitHub { http, api: api.trim_end_matches('/').into(), token, repo }
     }
 
@@ -232,14 +229,6 @@ impl GitHub {
         let me = self.me().await?;
         let v = self.get(&format!("{}/pulls?state=all&per_page=60&sort=updated&direction=desc", self.rp())).await?;
         Ok(v.as_array().into_iter().flatten().map(|p| Self::summary(p, &me)).collect())
-    }
-
-    pub async fn find_for_branch(&self, head: &str) -> Result<Option<PrSummary>> {
-        let me = self.me().await?;
-        let v = self
-            .get(&format!("{}/pulls?state=all&head={}:{}", self.rp(), self.repo.owner, head))
-            .await?;
-        Ok(v.as_array().and_then(|a| a.first()).map(|p| Self::summary(p, &me)))
     }
 
     pub async fn detail(&self, number: u64) -> Result<PrDetail> {

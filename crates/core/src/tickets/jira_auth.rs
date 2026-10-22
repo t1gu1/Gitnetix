@@ -14,6 +14,7 @@ use tokio::task::{AbortHandle, JoinHandle};
 
 use crate::error::{Error, Result};
 use crate::secrets;
+use crate::net::client as http;
 use crate::store::JiraConf;
 
 /// The Gitnetix app in developer.atlassian.com, baked in at build time so the
@@ -51,13 +52,6 @@ fn client() -> Result<(&'static str, &'static str)> {
         (Some(id), Some(secret)) if !id.is_empty() && !secret.is_empty() => Ok((id, secret)),
         _ => Err(Error::Unsupported("Atlassian sign-in is not set up in this build; use an API token".into())),
     }
-}
-
-fn http() -> reqwest::Client {
-    reqwest::Client::builder()
-        .user_agent(concat!("Gitnetix/", env!("CARGO_PKG_VERSION")))
-        .build()
-        .expect("http client")
 }
 
 /// Listen for the redirect and return the URL to open in the browser.

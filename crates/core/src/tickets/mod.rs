@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::error::{Error, Result};
+use crate::net::client as http;
 use crate::store::{AsanaConf, JiraConf, TrelloConf};
 
 pub mod jira_auth;
@@ -70,13 +71,6 @@ pub struct StatusOption {
 pub struct Criterion {
     pub text: String,
     pub done: bool,
-}
-
-fn http() -> reqwest::Client {
-    reqwest::Client::builder()
-        .user_agent(concat!("Gitnetix/", env!("CARGO_PKG_VERSION")))
-        .build()
-        .expect("http client")
 }
 
 async fn check(res: reqwest::Response, who: &str) -> Result<Value> {

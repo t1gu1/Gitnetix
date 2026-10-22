@@ -10,6 +10,7 @@ import { ContextMenu } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
 import { Resizer, usePaneWidth } from "../components/Resizer";
 import { ago, Busy, Empty, ErrorBox, Header, Loading, Markdown, releaseTagLabel, Seg } from "../components/ui";
+import { plural } from "../lib/format";
 import { useNav } from "../lib/nav";
 import { useStored } from "../lib/stored";
 import { toast } from "../lib/toast";
@@ -42,7 +43,7 @@ export function Tickets({ initial }: { initial?: string }) {
   const [suggestions, setSuggestions] = useState<Record<string, Suggestion>>({});
   const setRel = useAction("tickets.setRelease", { invalidate: [["tickets", pid], ["overview", pid]] });
   const triage = useAction<Suggestion[]>("tickets.triage", {
-    success: (r) => (r.length ? `AI suggested a release for ${r.length} ticket${r.length === 1 ? "" : "s"}` : "Nothing to triage"),
+    success: (r) => (r.length ? `AI suggested a release for ${plural(r.length, "ticket")}` : "Nothing to triage"),
   });
 
   const open = (ov?.releases ?? []).filter((r) => r.open);
@@ -382,7 +383,7 @@ function TicketDetail({
           </ul>
         </section>
       )}
-      <div className="hint">{t.comments === 0 ? `No comments in ${SRC[t.source]}.` : `${t.comments} comment${t.comments === 1 ? "" : "s"} in ${SRC[t.source]}.`}</div>
+      <div className="hint">{t.comments === 0 ? `No comments in ${SRC[t.source]}.` : `${plural(t.comments, "comment")} in ${SRC[t.source]}.`}</div>
     </div>
   );
 }

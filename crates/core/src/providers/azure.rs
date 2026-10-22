@@ -59,26 +59,6 @@ pub fn parse_remote(url: &str) -> Option<AzureRepo> {
     }
 }
 
-/// Completed pull requests that took each of `commits` in, by commit. Commits no
-/// completed pull request took are left out.
-pub async fn merged_prs(repo: &AzureRepo, auth: &str, commits: &[String]) -> Result<HashMap<String, Vec<MergedPr>>> {
-    let client = reqwest::Client::builder().user_agent(concat!("Gitnetix/", env!("CARGO_PKG_VERSION"))).build()?;
-    let url = format!("https://dev.azure.com/{}/{}/_apis/git/repositories/{}/pullrequestquery?api-version=7.1", repo.org, repo.project, repo.repo);
-    let mut out = HashMap::new();
-    for chunk in commits.chunks(100) {
-        // "commit": the pull requests that merged these commits.
-        let body = json!({ "queries": [{ "type": "commit", "items": chunk }] });
-        let res = client.post(&url).header("authorization", auth).header("accept", "application/json").json(&body).send().await?;
-        let status = res.status();
-        let v: Value = res.json().await.unwrap_or(Value::Null);
-        if !status.is_success() {
-            return Err(Error::Http(format!("Azure DevOps {status}: {}", v["message"].as_str().unwrap_or("pull request lookup failed"))));
-        }
-        out.extend(read_query(&v));
-    }
-    Ok(out)
-}
-
 /// Azure DevOps pull requests, with the same methods as `GitHub` so `PrHost` can hand
 /// either to the pull request screens. Thread ids are `pr/thread` and comment ids
 /// `pr/thread/comment`, since Azure only addresses them under their pull request.
@@ -139,7 +119,7 @@ fn merge_strategy(wanted: &str, policies: &Value) -> String {
 
 impl Azure {
     pub fn new(repo: AzureRepo, auth: String) -> Self {
-        let http = reqwest::Client::builder().user_agent(concat!("Gitnetix/", env!("CARGO_PKG_VERSION"))).build().expect("http client");
+        let http = crate::net::client();
         Azure { http, auth, repo }
     }
 
@@ -175,6 +155,18 @@ impl Azure {
 
     async fn send(&self, method: reqwest::Method, path: &str, body: Value) -> Result<Value> {
         self.req(method, &self.git_url(path), Some(body)).await
+    }
+
+    /// Completed pull requests that took each of `commits` in, by commit. Commits no
+    /// completed pull request took are left out.
+    pub async fn merged_prs(&self, commits: &[String]) -> Result<HashMap<String, Vec<MergedPr>>> {
+        let mut out = HashMap::new();
+        for chunk in commits.chunks(100) {
+            // "commit": the pull requests that merged these commits.
+            let body = json!({ "queries": [{ "type": "commit", "items": chunk }] });
+            out.extend(read_query(&self.send(reqwest::Method::POST, "/pullrequestquery", body).await?));
+        }
+        Ok(out)
     }
 
     /// Id of the signed-in identity.

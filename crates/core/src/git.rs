@@ -721,9 +721,8 @@ impl Git {
 
     /// Uncommitted changes (staged + unstaged + untracked) against HEAD.
     pub async fn wip_changes(&self) -> Result<Vec<FileChange>> {
-        let status = self.run(&["status", "--porcelain=v1", "-z", "-uall"]).await?;
+        let (status, has_head) = tokio::try_join!(self.run(&["status", "--porcelain=v1", "-z", "-uall"]), self.ref_exists("HEAD"))?;
         let mut entries = parse_status_z(&status);
-        let has_head = self.ref_exists("HEAD").await?;
         let stats = if has_head {
             parse_numstat_z(&self.run(&["diff", "--numstat", "-z", "HEAD"]).await?)
         } else {
@@ -810,9 +809,12 @@ impl Git {
     /// unstaged (working tree vs index, plus untracked). A partially staged
     /// file appears once on each side.
     pub async fn wip_split(&self) -> Result<Vec<FileChange>> {
-        let status = self.run(&["status", "--porcelain=v1", "-z", "-uall"]).await?;
-        let staged_stats = parse_numstat_z(&self.run(&["diff", "--cached", "--numstat", "-z"]).await?);
-        let unstaged_stats = parse_numstat_z(&self.run(&["diff", "--numstat", "-z"]).await?);
+        let (status, staged, unstaged) = tokio::try_join!(
+            self.run(&["status", "--porcelain=v1", "-z", "-uall"]),
+            self.run(&["diff", "--cached", "--numstat", "-z"]),
+            self.run(&["diff", "--numstat", "-z"]),
+        )?;
+        let (staged_stats, unstaged_stats) = (parse_numstat_z(&staged), parse_numstat_z(&unstaged));
         let mut out = parse_status_split_z(&status);
         for e in out.iter_mut() {
             let stats = if e.staged == Some(true) { &staged_stats } else { &unstaged_stats };
@@ -834,8 +836,9 @@ impl Git {
 
     /// Files changed in a diff range, with line counts.
     pub async fn range_changes(&self, range: &str) -> Result<Vec<FileChange>> {
-        let ns = self.run(&["diff", "--name-status", "-z", "-M", range]).await?;
-        let stats = parse_numstat_z(&self.run(&["diff", "--numstat", "-z", "-M", range]).await?);
+        let (ns_args, stat_args) = (["diff", "--name-status", "-z", "-M", range], ["diff", "--numstat", "-z", "-M", range]);
+        let (ns, stats) = tokio::try_join!(self.run(&ns_args), self.run(&stat_args))?;
+        let stats = parse_numstat_z(&stats);
         let mut out = parse_name_status_z(&ns);
         for e in out.iter_mut() {
             if let Some((a, d)) = stats.get(&e.path) {

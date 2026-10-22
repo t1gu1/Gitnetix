@@ -212,10 +212,8 @@ pub async fn list(git: &Git) -> Result<Vec<Submodule>> {
         return Ok(Vec::new());
     }
     let paths: Vec<&str> = decl.iter().filter_map(|(_, d)| d.path.as_deref()).collect();
-    let (index, head, urls) = tokio::join!(index_links(git, &paths), head_links(git, &paths), local_urls(git));
-    let (index, head, urls) = (&index?, &head, &urls);
-    let origin = git.remote_url("origin").await.ok().flatten();
-    let origin = &origin;
+    let (index, head, urls, origin) = tokio::join!(index_links(git, &paths), head_links(git, &paths), local_urls(git), git.remote_url("origin"));
+    let (index, head, urls, origin) = (&index?, &head, &urls, &origin.ok().flatten());
     let root = git.cwd();
     Ok(stream::iter(decl)
         .map(|(name, d)| async move {

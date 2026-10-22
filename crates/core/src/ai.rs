@@ -224,12 +224,9 @@ async fn complete_cli(r: &Resolved, prompt: &str, cwd: Option<&Path>) -> Result<
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
-fn http() -> reqwest::Client {
-    reqwest::Client::builder()
-        .timeout(Duration::from_secs(600))
-        .user_agent(concat!("Gitnetix/", env!("CARGO_PKG_VERSION")))
-        .build()
-        .expect("http client")
+/// Model calls can run for minutes.
+fn http(method: reqwest::Method, url: impl reqwest::IntoUrl) -> reqwest::RequestBuilder {
+    crate::net::client().request(method, url).timeout(Duration::from_secs(600))
 }
 
 async fn complete_api(r: &Resolved, prompt: &str) -> Result<String> {
@@ -258,8 +255,7 @@ async fn anthropic(key: &str, r: &Resolved, prompt: &str) -> Result<String> {
     if !r.effort.is_empty() {
         body["output_config"] = json!({ "effort": r.effort });
     }
-    let mut req = http()
-        .post("https://api.anthropic.com/v1/messages")
+    let mut req = http(reqwest::Method::POST, "https://api.anthropic.com/v1/messages")
         .header("x-api-key", key)
         .header("anthropic-version", "2023-06-01")
         .header("content-type", "application/json");
@@ -293,8 +289,7 @@ async fn openai_compat(base: &str, key: &str, r: &Resolved, prompt: &str) -> Res
     if r.model.is_empty() {
         return Err(Error::Invalid("Pick a model id for this provider in AI setup".into()));
     }
-    let res = http()
-        .post(format!("{base}/chat/completions"))
+    let res = http(reqwest::Method::POST, format!("{base}/chat/completions"))
         .bearer_auth(key)
         .json(&json!({ "model": r.model, "messages": [{ "role": "user", "content": prompt }] }))
         .send()

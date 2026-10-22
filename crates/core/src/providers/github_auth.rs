@@ -36,9 +36,7 @@ pub enum Poll {
 }
 
 async fn post(path: &str, body: Value) -> Result<Value> {
-    let res = reqwest::Client::builder()
-        .user_agent(concat!("Gitnetix/", env!("CARGO_PKG_VERSION")))
-        .build()?
+    let res = crate::net::client()
         .post(format!("https://github.com{path}"))
         .header("accept", "application/json")
         .json(&body)
@@ -77,9 +75,7 @@ pub async fn poll(device_code: &str) -> Result<Poll> {
 
 /// Login of the account a token belongs to.
 pub async fn login(token: &str) -> Result<String> {
-    let res = reqwest::Client::builder()
-        .user_agent(concat!("Gitnetix/", env!("CARGO_PKG_VERSION")))
-        .build()?
+    let res = crate::net::client()
         .get("https://api.github.com/user")
         .bearer_auth(token)
         .header("accept", "application/vnd.github+json")

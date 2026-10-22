@@ -491,9 +491,6 @@ body.dragging-tab * {
 .btn-icon.btn-sm {
   width: 26px;
 }
-.btn-block {
-  width: 100%;
-}
 
 .seg {
   display: flex;
@@ -1930,10 +1927,6 @@ button.tree-twist:hover {
 .split-main {
   border-top-right-radius: 0;
   border-bottom-right-radius: 0;
-}
-.split-mid {
-  margin-left: -1px;
-  border-radius: 0;
 }
 .split-more {
   margin-left: -1px;
