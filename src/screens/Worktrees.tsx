@@ -133,7 +133,7 @@ export function Worktrees({ initial }: { initial?: string }) {
           </div>
         </section>
         <Resizer pane={listW} label="Resize worktree list" />
-        <main className="detail" data-pane data-active={pane === "detail"} style={{ display: "flex", flexDirection: "column" }}>
+        <main className="detail wt-pane" data-pane data-active={pane === "detail"}>
           <button className="btn btn-sm show-narrow" style={{ marginBottom: 12, alignSelf: "flex-start" }} onClick={() => setPane("list")}>
             <Icon name="back" size={12} />
             All worktrees
@@ -190,7 +190,7 @@ function Detail({ r }: { r: Row }) {
   };
   const [label, cls] = STATUS[r.status];
   return (
-    <div className="detail-inner" style={{ flex: 1, minHeight: 0 }}>
+    <div className="detail-inner wt-detail" style={{ flex: 1, minHeight: 0 }}>
       {!max && (
         <>
           <div className="col" style={{ gap: 6 }}>
@@ -207,7 +207,7 @@ function Detail({ r }: { r: Row }) {
             <div><span>Ticket</span><span className="mono">{r.wt?.ticket ?? "—"}</span></div>
             <div><span>Started</span><span>{a ? ago(a.startedAt) : "—"}</span></div>
           </div>
-          <div className="row wrap" style={{ gap: 6 }}>
+          <div className="row wrap wt-actions" style={{ gap: 6 }}>
             {a?.status === "waiting" && r.wt && (
               <button
                 className="btn btn-primary"
@@ -259,7 +259,7 @@ function Detail({ r }: { r: Row }) {
         <div className="term-tabs">
           <TermTabs value={termView} onChange={setTermView} />
           <span className="grow" />
-          <span className="hint row" style={{ padding: "0 14px" }}>Keeps running when you switch project</span>
+          <span className="hint row hide-narrow" style={{ padding: "0 14px" }}>Keeps running when you switch project</span>
           <button className="btn btn-ghost" style={{ width: 36, height: "auto", border: 0, borderLeft: "1px solid var(--line)", borderRadius: 0 }} aria-label={max ? "Restore terminal size" : "Expand terminal"} aria-pressed={max} data-tip={max ? "Restore" : "Expand"} onClick={() => setMax(!max)}>
             <Icon name={max ? "minimize" : "maximize"} size={13} />
           </button>

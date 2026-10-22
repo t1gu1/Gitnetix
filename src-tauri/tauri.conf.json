@@ -15,7 +15,7 @@
         "title": "Gitnetix",
         "width": 1440,
         "height": 900,
-        "minWidth": 960,
+        "minWidth": 600,
         "minHeight": 600,
         "dragDropEnabled": true
       }
