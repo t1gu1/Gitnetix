@@ -20,6 +20,7 @@ import type {
   ProjectSummary,
   Submodule,
   Template,
+  Terminal,
   Ticket,
   WorktreeView,
 } from "./types";
@@ -62,6 +63,13 @@ export function useEngineEvents() {
             qc.invalidateQueries({ queryKey: ["worktrees"] });
             qc.invalidateQueries({ queryKey: ["projects"] });
             qc.invalidateQueries({ queryKey: ["submodules", e.projectId] });
+            break;
+          case "shellLine":
+            // Keyed by the path the UI asked for, so matched on the canonical one.
+            qc.setQueriesData<Terminal>({ queryKey: ["shell"] }, (t) => (t?.cwd === e.cwd ? { ...t, lines: [...t.lines, e.line] } : t));
+            break;
+          case "shellChanged":
+            qc.invalidateQueries({ queryKey: ["shell"] });
             break;
           case "configChanged":
             qc.invalidateQueries({ queryKey: ["config"] });
@@ -216,6 +224,9 @@ export const useAgents = () =>
 
 export const useWorktrees = () =>
   useQuery({ queryKey: ["worktrees"], queryFn: () => rpc<WorktreeView[]>("worktrees.list"), refetchInterval: 10_000 });
+
+export const useShell = (path?: string) =>
+  useQuery({ queryKey: ["shell", path], queryFn: () => rpc<Terminal>("shell.get", { path }), enabled: !!path });
 
 export const useSubmodules = (projectId?: string) =>
   useQuery({

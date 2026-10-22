@@ -95,6 +95,9 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("agents.resume", "Resume an agent", "id"),
     ("agents.stop", "Stop an agent", "id"),
     ("agents.remove", "Delete an agent session", "id"),
+    ("shell.get", "Terminal of a checkout (main checkout or worktree): its output and whether a command runs", "path"),
+    ("shell.run", "Run a shell command in a checkout of the project, one at a time per checkout", "projectId, path, command"),
+    ("shell.stop", "Stop the command running in a checkout's terminal", "path"),
     ("ai.catalog", "AI providers, their status and settings", ""),
     ("ai.saveProvider", "Configure an AI provider", "id, method?, model?, effort?, baseUrl?, apiKey?"),
     ("ai.setDefault", "Default AI provider", "id"),
@@ -531,6 +534,15 @@ pub async fn call(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
         }
         "agents.remove" => {
             k.agents.remove(&s(&p, "id")?)?;
+            ok()
+        }
+        "shell.get" => to(k.shells.get(&s(&p, "path")?)),
+        "shell.run" => {
+            k.shell_run(&s(&p, "projectId")?, &s(&p, "path")?, &s(&p, "command")?).await?;
+            ok()
+        }
+        "shell.stop" => {
+            k.shells.stop(&s(&p, "path")?);
             ok()
         }
 
