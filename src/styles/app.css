@@ -2266,6 +2266,8 @@ button.tree-twist:hover {
   overflow-x: hidden;
   overflow-y: auto;
   scrollbar-width: none;
+  /* No macOS bounce: it chains to .diff and flashes its scrollbar beside the heatmap. */
+  overscroll-behavior: none;
 }
 .diff-pane-scroll::-webkit-scrollbar {
   display: none;
