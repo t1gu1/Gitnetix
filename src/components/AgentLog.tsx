@@ -78,7 +78,7 @@ export function choices(lines: LogLine[]): { n: string; label: string }[] {
   // A plain list (steps, findings, changes) is not a question: only offer it when the text around it asks you to pick.
   const intro = rows.slice(0, start).filter((l) => l.trim()).at(-1) ?? "";
   const after = rows.slice(end).join("\n");
-  const asks = /\?\s*$|\b(which|prefer|choose|pick|options?)\b/i.test(intro) || /\b(which|prefer|choose|pick)\b|\b\d+\s+or\s+\d+\b/i.test(after);
+  const asks = /\?\s*$|\b(which|prefer|choose|pick)\b/i.test(intro) || /\b(which|prefer|choose|pick)\b|\b\d+\s+or\s+\d+\b/i.test(after);
   return asks ? out : [];
 }
 

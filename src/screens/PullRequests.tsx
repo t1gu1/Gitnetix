@@ -47,7 +47,13 @@ export function PullRequests({ initial }: { initial?: number }) {
   const creating = usePendingBranches("prs.create", pid).includes(branch ?? "");
   const bv = ov?.branches.find((b) => b.name === branch);
   // Pushed commits = commits ahead of its base that origin already has.
-  const unpushed = bv && (!bv.remote || bv.ahead - bv.upstreamAhead <= 0) ? `Push commits to ${branch} before opening a pull request.` : undefined;
+  const unpushed = !bv
+    ? undefined
+    : bv.ahead === 0
+      ? `${branch} has no commits ahead of its base yet.`
+      : !bv.remote || bv.ahead - bv.upstreamAhead <= 0
+        ? `Push commits to ${branch} before opening a pull request.`
+        : undefined;
 
   return (
     <>

@@ -1743,12 +1743,13 @@ export function FinishWorktreeCard({ session: s, finish }: { session: WtSession;
   if (!branches) return null;
   const b = branches.find((x) => x.name === s.branch);
   // Nothing committed or edited yet (the agent only answered or asked): nothing to merge.
-  if (b && !b.ahead && !b.wip) return null;
+  // Not in the overview: no base to merge into.
+  if (!b || (!b.ahead && !b.wip)) return null;
   return (
     <MergeModal
       pid={s.projectId}
       branch={s.branch}
-      base={b?.parent ?? ""}
+      base={b.parent ?? ""}
       others={mergeTargets(branches, s.branch)}
       onClose={() => {}}
       onDeleted={(into) => nav.projectId === s.projectId && nav.selectedBranch === s.branch && nav.selectBranch(into)}

@@ -6,7 +6,7 @@ import { AgentLog } from "../components/AgentLog";
 import { AgentPicker, MenuChoice, useAgentPick } from "../components/AgentPicker";
 import { Icon } from "../components/Icon";
 import { ago, Busy, Empty, Header, Loading, Modal, Seg } from "../components/ui";
-import { kindOfBranch } from "../lib/kinds";
+import { KINDS, kindOfBranch, type Kind } from "../lib/kinds";
 import { useNav } from "../lib/nav";
 import { useBranchActions } from "./BranchMenu";
 import { FinishWorktreeCard, MergeModal, mergeTargets, useFinishHandlers } from "./Workspace";
@@ -297,6 +297,7 @@ function StartModal({ initial, onClose }: { initial?: string; onClose: () => voi
   const [mode, setMode] = useState<"existing" | "new">("existing");
   const [pickedFrom, setFrom] = useState("");
   const [name, setName] = useState("");
+  const [kind, setKind] = useState<Kind>("feat");
   const [request, setRequest] = useState("");
   const [pick, setPick] = useAgentPick(pid);
   const ov = useOverview(pid).data;
@@ -317,7 +318,7 @@ function StartModal({ initial, onClose }: { initial?: string; onClose: () => voi
     fresh
       ? create.mutate(
           // Empty name: the backend names the branch from the request.
-          { projectId: pid, from, kind: kindOfBranch(name) ?? "feat", description: request, branchName: name.trim() || undefined, where: "worktree", startAgent: true, ...pick },
+          { projectId: pid, from, kind: kindOfBranch(name) ?? kind, description: request, branchName: name.trim() || undefined, where: "worktree", startAgent: true, ...pick },
           { onSuccess: onClose },
         )
       : start.mutate({ projectId: pid, branch, request, ...pick }, { onSuccess: onClose });
@@ -353,6 +354,7 @@ function StartModal({ initial, onClose }: { initial?: string; onClose: () => voi
           />
         </div>
       </div>
+      {fresh && <Seg<Kind> grid cols={6} label="Type" value={kind} onChange={setKind} options={KINDS.map((k) => ({ value: k.id, label: k.label }))} />}
       {fresh && (
         <div className="field">
           <label htmlFor="ag-name">Branch name <span className="faint" style={{ fontWeight: 400 }}>optional</span></label>

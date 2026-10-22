@@ -791,6 +791,11 @@ body.dragging-tab * {
   font-size: 15px;
   color: color-mix(in srgb, var(--bg), #fff 40%);
 }
+/* On the light surface, lighter than --bg is unreadable: press it in instead. */
+[data-theme="light"] .empty.engraved {
+  color: color-mix(in srgb, var(--bg), #000 38%);
+  text-shadow: 0 1px 0 #fff;
+}
 .empty-state {
   flex: 1 1 auto;
   display: flex;
