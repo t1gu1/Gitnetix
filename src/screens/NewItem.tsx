@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import { useAction, useAiOn, useOverview, useSuggestedVersion } from "../api/hooks";
 import { rpc } from "../api/transport";
+import { MenuChoice } from "../components/AgentPicker";
 import { Icon } from "../components/Icon";
 import { Modal, releaseTagLabel, Seg } from "../components/ui";
 import { KINDS, kindNoun, kindOfBranch, withPrefix, withTicket, type Kind } from "../lib/kinds";
@@ -165,15 +166,20 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
       <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 }}>
         <div className="field">
           <label htmlFor="ni-rel">Branches off</label>
-          <select id="ni-rel" className="select" value={from} onChange={(e) => setFrom(e.target.value)}>
-            {draft.tag && <option value={draft.tag}>{draft.tag} (tag)</option>}
-            {bases.map((b) => {
-              const r = open.find((x) => x.branch === b.name);
-              return (
-                <option key={b.name} value={b.name}>{r ? `v${r.version} — ${releaseTagLabel(r.tag)}` : b.name}</option>
-              );
-            })}
-          </select>
+          <MenuChoice
+            id="ni-rel"
+            className="select menu-select"
+            label="Branches off"
+            value={from}
+            options={[
+              ...(draft.tag ? [{ value: draft.tag, label: `${draft.tag} (tag)` }] : []),
+              ...bases.map((b) => {
+                const r = open.find((x) => x.branch === b.name);
+                return { value: b.name, label: r ? `v${r.version} — ${releaseTagLabel(r.tag)}` : b.name };
+              }),
+            ]}
+            onChange={setFrom}
+          />
         </div>
         <div className="field">
           <label htmlFor="ni-ticket">Ticket <span className="faint" style={{ fontWeight: 400 }}>optional</span></label>

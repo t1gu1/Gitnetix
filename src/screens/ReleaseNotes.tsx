@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import { useAction, useConfig, useOverview } from "../api/hooks";
 import { rpc } from "../api/transport";
+import { MenuChoice } from "../components/AgentPicker";
 import { Icon } from "../components/Icon";
 import { Busy, Empty, Header, LANGS, Loading, Markdown, Seg } from "../components/ui";
 import { useNav } from "../lib/nav";
@@ -59,18 +60,14 @@ export function ReleaseNotes() {
             <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 32px minmax(0,1fr)", gap: 6, alignItems: "end" }}>
               <div className="field">
                 <label htmlFor="rn-from">From</label>
-                <select id="rn-from" className="select mono" style={{ fontSize: 12 }} value={from} onChange={(e) => setFrom(e.target.value)}>
-                  {refOptions.map((o) => <option key={o.v} value={o.v}>{o.l}</option>)}
-                </select>
+                <MenuChoice id="rn-from" className="select menu-select mono" style={{ fontSize: 12 }} label="From" value={from} options={refOptions.map((o) => ({ value: o.v, label: o.l }))} onChange={setFrom} />
               </div>
               <button className="btn btn-ghost btn-icon" style={{ height: 36 }} aria-label="Swap" onClick={() => { setFrom(to); setTo(from); }}>
                 <Icon name="swap" />
               </button>
               <div className="field">
                 <label htmlFor="rn-to">To</label>
-                <select id="rn-to" className="select mono" style={{ fontSize: 12 }} value={to} onChange={(e) => setTo(e.target.value)}>
-                  {refOptions.map((o) => <option key={o.v} value={o.v}>{o.l}</option>)}
-                </select>
+                <MenuChoice id="rn-to" className="select menu-select mono" style={{ fontSize: 12 }} label="To" value={to} options={refOptions.map((o) => ({ value: o.v, label: o.l }))} onChange={setTo} />
               </div>
             </div>
             <div className="row note-box muted" style={{ gap: 14, fontSize: 12, background: "var(--bg)" }}>
@@ -88,10 +85,14 @@ export function ReleaseNotes() {
           <section className="col" style={{ gap: 10 }}>
             <h2 className="label">Template</h2>
             <label htmlFor="rn-tpl" className="sr-only">Template</label>
-            <select id="rn-tpl" className="select" value={tpl} onChange={(e) => setTpl(e.target.value)}>
-              <option value="">Default ({templates.find((t) => t.isDefault)?.name ?? "first"})</option>
-              {templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-            </select>
+            <MenuChoice
+              id="rn-tpl"
+              className="select menu-select"
+              label="Template"
+              value={tpl}
+              options={[{ value: "", label: `Default (${templates.find((t) => t.isDefault)?.name ?? "first"})` }, ...templates.map((t) => ({ value: t.id, label: t.name }))]}
+              onChange={setTpl}
+            />
             <Seg grid label="Language" value={lang} onChange={setLang} options={LANGS} />
           </section>
           <section className="col" style={{ gap: 4 }}>
@@ -117,12 +118,12 @@ export function ReleaseNotes() {
           </button>
         </aside>
         <main className="col grow" data-pane data-active={!!md} style={{ gap: 0, minWidth: 0, minHeight: 0 }}>
-          <div className="row wrap" style={{ minHeight: 56, padding: "8px 24px", borderBottom: "1px solid var(--line)", gap: 12 }}>
+          <div className="row wrap" style={{ minHeight: 56, margin: 0, padding: "8px 24px", borderBottom: "1px solid var(--line)", gap: 12 }}>
             <button className="btn btn-sm show-narrow" onClick={() => setMd("")}>Options</button>
             <Seg label="View" value={view} onChange={setView} options={[{ value: "preview", label: "Preview" }, { value: "markdown", label: "Markdown" }]} />
             {model && <span className="faint" style={{ fontSize: 12 }}>{model}</span>}
             <span className="grow" />
-            <div className="row wrap" style={{ gap: 6 }}>
+            <div className="row wrap" style={{ gap: 6, margin: 0 }}>
               <button className="btn" disabled={!md || gen.isPending} onClick={run}>
                 <Icon name="refresh" size={12} />
                 Regenerate

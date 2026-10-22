@@ -2,7 +2,7 @@ import { type ReactNode, useEffect, useState } from "react";
 
 import { useAction, useAiCatalog } from "../api/hooks";
 import type { AiCatalog, ConnectMethod } from "../api/types";
-import { EFFORTS } from "../components/AgentPicker";
+import { EFFORTS, MenuChoice } from "../components/AgentPicker";
 import { Header, Loading, Seg } from "../components/ui";
 
 const TASKS: [string, string][] = [
@@ -64,9 +64,7 @@ export function AISetupPanes({ top }: { top?: ReactNode }) {
         {top}
         <div className="show-narrow" style={{ marginBottom: 16 }}>
           <label htmlFor="ai-pick" className="sr-only">Provider</label>
-          <select id="ai-pick" className="select" style={{ width: "100%" }} value={sel} onChange={(e) => setSel(e.target.value)}>
-            {c.providers.map((p) => <option key={p.info.id} value={p.info.id}>{p.info.name}</option>)}
-          </select>
+          <MenuChoice id="ai-pick" className="select menu-select" style={{ width: "100%" }} label="Provider" value={sel} options={c.providers.map((p) => ({ value: p.info.id, label: p.info.name }))} onChange={setSel} />
         </div>
         <div className="page-inner">
           <ProviderDetail key={sel} cat={c} id={sel} />
@@ -186,9 +184,7 @@ function ProviderDetail({ cat, id }: { cat: AiCatalog; id: string }) {
           <div className="field">
             <label htmlFor="ai-model">Default model</label>
             {info.models.length > 0 ? (
-              <select id="ai-model" className="select" value={model} onChange={(e) => { setModel(e.target.value); save({ model: e.target.value }); }}>
-                {info.models.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
-              </select>
+              <MenuChoice id="ai-model" className="select menu-select" label="Default model" value={model} options={info.models.map((m) => ({ value: m.id, label: m.label }))} onChange={(v) => { setModel(v); save({ model: v }); }} />
             ) : (
               <input id="ai-model" className="input mono" placeholder={info.local ? "llama3.2" : "model id"} value={model} onChange={(e) => setModel(e.target.value)} onBlur={() => save({ model })} />
             )}
@@ -227,23 +223,36 @@ function Routing({ cat }: { cat: AiCatalog }) {
           return (
             <li key={task} className="list-row wrap" style={{ gap: "8px 12px" }}>
               <label htmlFor={`rt-${task}`} className="grow" style={{ minWidth: 160 }}>{label}</label>
-              <select id={`rt-${task}`} className="select" style={{ height: 32 }} value={r.provider ?? ""} onChange={(e) => set.mutate({ task, provider: e.target.value || null, model: null, effort: r.effort ?? null })}>
-                <option value="">Default AI</option>
-                {usable.map((p) => <option key={p.info.id} value={p.info.id}>{p.info.name}</option>)}
-              </select>
+              <MenuChoice
+                id={`rt-${task}`}
+                className="select menu-select"
+                style={{ height: 32 }}
+                label={label}
+                value={r.provider ?? ""}
+                options={[{ value: "", label: "Default AI" }, ...usable.map((p) => ({ value: p.info.id, label: p.info.name }))]}
+                onChange={(v) => set.mutate({ task, provider: v || null, model: null, effort: r.effort ?? null })}
+              />
               {models.length > 0 ? (
-                <select aria-label={`${label} model`} className="select" style={{ height: 32 }} value={r.model ?? ""} onChange={(e) => set.mutate({ task, provider: r.provider ?? null, model: e.target.value || null, effort: r.effort ?? null })}>
-                  <option value="">Provider default</option>
-                  {models.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
-                </select>
+                <MenuChoice
+                  className="select menu-select"
+                  style={{ height: 32 }}
+                  label={`${label} model`}
+                  value={r.model ?? ""}
+                  options={[{ value: "", label: "Provider default" }, ...models.map((m) => ({ value: m.id, label: m.label }))]}
+                  onChange={(v) => set.mutate({ task, provider: r.provider ?? null, model: v || null, effort: r.effort ?? null })}
+                />
               ) : (
                 <input aria-label={`${label} model`} className="input mono" style={{ height: 32, width: 160 }} placeholder="model id" defaultValue={r.model ?? ""} onBlur={(e) => set.mutate({ task, provider: r.provider ?? null, model: e.target.value || null, effort: r.effort ?? null })} />
               )}
               {prov?.info.effort && (
-                <select aria-label={`${label} effort`} className="select" style={{ height: 32 }} value={r.effort ?? ""} onChange={(e) => set.mutate({ task, provider: r.provider ?? null, model: r.model ?? null, effort: e.target.value || null })}>
-                  <option value="">Default effort</option>
-                  {EFFORTS.map((e) => <option key={e} value={e}>{e}</option>)}
-                </select>
+                <MenuChoice
+                  className="select menu-select"
+                  style={{ height: 32 }}
+                  label={`${label} effort`}
+                  value={r.effort ?? ""}
+                  options={[{ value: "", label: "Default effort" }, ...EFFORTS.map((e) => ({ value: e, label: e }))]}
+                  onChange={(v) => set.mutate({ task, provider: r.provider ?? null, model: r.model ?? null, effort: v || null })}
+                />
               )}
             </li>
           );

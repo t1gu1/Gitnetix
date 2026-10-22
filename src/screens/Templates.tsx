@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import { useAction, useConfig, useTemplates } from "../api/hooks";
 import type { Template } from "../api/types";
+import { MenuChoice } from "../components/AgentPicker";
 import { Icon } from "../components/Icon";
 import { Busy, Header, LANGS, Loading, Seg } from "../components/ui";
 import { useNav } from "../lib/nav";
@@ -143,12 +144,19 @@ export function TemplatesPanes() {
             )}
             <div className="field">
               <label htmlFor="tp-model">Model</label>
-              <select id="tp-model" className="select" value={draft.model ?? ""} onChange={(e) => setDraft({ ...draft, model: e.target.value || null })}>
-                <option value="">Use AI setup default</option>
-                <option value="claude-haiku-5-5">Claude Haiku 5.5</option>
-                <option value="claude-sonnet-5-5">Claude Sonnet 5.5</option>
-                <option value="claude-opus-5-5">Claude Opus 5.5</option>
-              </select>
+              <MenuChoice
+                id="tp-model"
+                className="select menu-select"
+                label="Model"
+                value={draft.model ?? ""}
+                options={[
+                  { value: "", label: "Use AI setup default" },
+                  { value: "claude-haiku-5-5", label: "Claude Haiku 5.5" },
+                  { value: "claude-sonnet-5-5", label: "Claude Sonnet 5.5" },
+                  { value: "claude-opus-5-5", label: "Claude Opus 5.5" },
+                ]}
+                onChange={(v) => setDraft({ ...draft, model: v || null })}
+              />
               <span className="hint">Overrides the model from task routing in AI setup.</span>
             </div>
           </section>

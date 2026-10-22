@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useAction, useOverview, useTickets } from "../api/hooks";
 import { openExternal } from "../api/transport";
 import type { Suggestion, Ticket } from "../api/types";
+import { MenuChoice } from "../components/AgentPicker";
 import { Icon } from "../components/Icon";
 import { ago, Busy, Empty, ErrorBox, Header, Loading, releaseTagLabel, Seg } from "../components/ui";
 import { useNav } from "../lib/nav";
@@ -213,10 +214,7 @@ function TicketDetail({
         <div><span>Assignee</span><span>{t.assignee}</span></div>
         <div>
           <label htmlFor="tk-rel" style={{ fontSize: 11, color: "var(--faint)", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 600 }}>Release</label>
-          <select id="tk-rel" className="select" style={{ height: 30 }} value={rel ? t.release : ""} onChange={(e) => onRelease(e.target.value)}>
-            {releases.map((r) => <option key={r.version} value={r.version}>{r.label}</option>)}
-            <option value="">Unplanned</option>
-          </select>
+          <MenuChoice id="tk-rel" className="select menu-select" style={{ height: 30, width: "100%" }} label="Release" value={rel ? t.release : ""} options={[...releases.map((r) => ({ value: r.version, label: r.label })), { value: "", label: "Unplanned" }]} onChange={onRelease} />
         </div>
       </div>
       {suggestion && (

@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useAction, useConfig } from "../api/hooks";
 import { companionInfo, isLocal, openExternal, rpc, type CompanionInfo } from "../api/transport";
 import type { Config, GitProfile } from "../api/types";
+import { MenuChoice } from "../components/AgentPicker";
 import { GRAVATAR_KEY } from "../components/Avatar";
 import { Header } from "../components/ui";
 import { ANIMATIONS, useAnimations } from "../lib/motion";
@@ -54,9 +55,7 @@ export function SettingsPanes({ section, onAi, onTemplates }: { section?: string
       <main className="page">
         <div className="show-narrow" style={{ marginBottom: 16 }}>
           <label htmlFor="st-sec" className="sr-only">Section</label>
-          <select id="st-sec" className="select" style={{ width: "100%" }} value={sec} onChange={(e) => pick(e.target.value)}>
-            {GROUPS.flatMap(([, items]) => items).map(([id, l]) => <option key={id} value={id}>{l}</option>)}
-          </select>
+          <MenuChoice id="st-sec" className="select menu-select" style={{ width: "100%" }} label="Section" value={sec} options={GROUPS.flatMap(([, items]) => items).map(([id, l]) => ({ value: id, label: l }))} onChange={pick} />
         </div>
         {cfg && (
           <div className="page-inner">

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type CSSProperties } from "react";
 
 import { useAiCatalog } from "../api/hooks";
 import { useStored } from "../lib/stored";
@@ -42,15 +42,17 @@ export function AgentPicker({ value, onChange, compact }: { value: AgentPick; on
   );
 }
 
-type ChoiceProps = { label: string; value: string; options: { value: string; label: string }[]; onChange: (v: string) => void; className?: string };
+type ChoiceProps = { label: string; value: string; options: { value: string; label: string }[]; onChange: (v: string) => void; className?: string; id?: string; style?: CSSProperties };
 
 /** A button opening the options as a menu, like a branch's right-click one; `select menu-select` styles it as a form field. */
-export function MenuChoice({ label, value, options, onChange, className = "picker-act" }: ChoiceProps) {
+export function MenuChoice({ label, value, options, onChange, className = "picker-act", id, style }: ChoiceProps) {
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   return (
     <>
       <button
+        id={id}
         className={className}
+        style={style}
         aria-haspopup="menu"
         aria-label={label}
         onClick={(e) => {
