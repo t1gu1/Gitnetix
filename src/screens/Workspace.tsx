@@ -1589,8 +1589,8 @@ function Terminal({ pid, branch, open, setOpen, onCloseWorktree, finish }: { pid
       <div className="term" style={{ "--term-h": `${height.width}px` } as CSSProperties}>
         {/* Empty parts of the bar collapse it, like the closed bar opens it. */}
         <div className="term-tabs term-bar" style={{ cursor: "pointer" }} onClick={(e) => !(e.target as HTMLElement).closest("button, select, input") && setOpen(false)}>
-          {/* Equal-width sides keep the session label centered in the bar. */}
-          <div className="term-side">
+          {/* Only the right side grows, so the session label sits left, after the picker. */}
+          <div className="term-side" style={{ flex: "none" }}>
             <div className="row muted" style={{ padding: "0 10px 0 14px" }}>
               <Icon name="terminal" label="Agents" />
             </div>
