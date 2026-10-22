@@ -126,7 +126,7 @@ function Screen({ onUnpair }: { onUnpair: () => void }) {
       screen = <Templates />;
       break;
     case "tickets":
-      screen = <Tickets />;
+      screen = <Tickets initial={r.key} />;
       break;
     case "analytics":
       screen = <Analytics />;

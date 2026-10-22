@@ -259,10 +259,12 @@ export const usePr = (projectId?: string, number?: number) =>
     retry: false,
   });
 
-export const useTickets = (projectId?: string) =>
+export const useTickets = (projectId?: string, mine = false, sprint = false) =>
   useQuery({
-    queryKey: ["tickets", projectId],
-    queryFn: () => rpc<{ sources: string[]; tickets: Ticket[]; syncedAt?: string }>("tickets.list", { projectId }),
+    queryKey: ["tickets", projectId, mine, sprint],
+    queryFn: () => rpc<{ sources: string[]; tickets: Ticket[]; syncedAt?: string }>("tickets.list", { projectId, mine, sprint }),
+    // Toggling a filter keeps the list on screen while it refetches.
+    placeholderData: (prev, prevQuery) => (prevQuery?.queryKey[1] === projectId ? prev : undefined),
     enabled: !!projectId,
     retry: false,
     staleTime: 60_000,

@@ -99,6 +99,9 @@ jobs:
           # Signs the update bundles so installed apps accept them as updates.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # Baked into the binary for "Sign in with Atlassian" (see tickets/jira_auth.rs).
+          GITNETIX_JIRA_CLIENT_ID: ${{ secrets.GITNETIX_JIRA_CLIENT_ID }}
+          GITNETIX_JIRA_CLIENT_SECRET: ${{ secrets.GITNETIX_JIRA_CLIENT_SECRET }}
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           ARGS=(--bundles "${{ matrix.bundles }}" --config "{\"version\":\"${VERSION}\"}")

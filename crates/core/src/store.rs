@@ -235,33 +235,111 @@ pub struct Integrations {
     /// Signed in with "Sign in with Azure DevOps". Tokens in keychain "azure".
     pub azure_connected: bool,
     pub azure_user: Option<String>,
-    pub jira: Option<JiraConf>,
-    pub trello: Option<TrelloConf>,
-    pub asana: Option<AsanaConf>,
+    /// One per Jira site or account. Older configs held a single object, for each tracker.
+    #[serde(deserialize_with = "one_or_many")]
+    pub jira: Vec<JiraConf>,
+    #[serde(deserialize_with = "one_or_many")]
+    pub trello: Vec<TrelloConf>,
+    #[serde(deserialize_with = "one_or_many")]
+    pub asana: Vec<AsanaConf>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default, rename_all = "camelCase")]
 pub struct JiraConf {
+    /// "" for the connection made before there could be several.
+    pub id: String,
     /// https://yourteam.atlassian.net
     pub base_url: String,
     pub email: String,
     /// Optional JQL; defaults to open issues assigned to or reported by me.
     pub jql: Option<String>,
+    /// Set when signed in with Atlassian (OAuth); `email` is unused then.
+    pub cloud_id: Option<String>,
+    /// Set for a scoped API token, which only works through api.atlassian.com.
+    pub api_cloud_id: Option<String>,
+    /// Jira project keys to show tickets from; empty = all.
+    pub projects: Vec<String>,
+    /// Gitnetix projects whose Tickets screen shows this connection; empty = all.
+    pub repos: Vec<String>,
+}
+
+/// A tracker connection; there can be several of each kind.
+pub trait Connection {
+    const KIND: &'static str;
+    /// "" for the connection made before there could be several.
+    fn id(&self) -> &str;
+    /// Keychain key of this connection's token.
+    fn secret(&self) -> String {
+        if self.id().is_empty() { Self::KIND.into() } else { format!("{}.{}", Self::KIND, self.id()) }
+    }
+}
+
+impl Connection for JiraConf {
+    const KIND: &'static str = "jira";
+    fn id(&self) -> &str {
+        &self.id
+    }
+}
+
+impl Connection for TrelloConf {
+    const KIND: &'static str = "trello";
+    fn id(&self) -> &str {
+        &self.id
+    }
+}
+
+impl Connection for AsanaConf {
+    const KIND: &'static str = "asana";
+    fn id(&self) -> &str {
+        &self.id
+    }
+}
+
+/// Replaces the connection with `item`'s id, or adds it.
+pub fn upsert<T: Connection>(list: &mut Vec<T>, item: T) {
+    match list.iter_mut().find(|x| x.id() == item.id()) {
+        Some(x) => *x = item,
+        None => list.push(item),
+    }
+}
+
+/// Whether a connection limited to `repos` shows in project `id`.
+pub fn shows_in(repos: &[String], id: &str) -> bool {
+    repos.is_empty() || repos.iter().any(|r| r == id)
+}
+
+fn one_or_many<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(d: D) -> std::result::Result<Vec<T>, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum OneOrMany<T> {
+        Many(Vec<T>),
+        One(Option<T>),
+    }
+    Ok(match OneOrMany::deserialize(d)? {
+        OneOrMany::Many(v) => v,
+        OneOrMany::One(o) => o.into_iter().collect(),
+    })
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default, rename_all = "camelCase")]
 pub struct TrelloConf {
+    pub id: String,
     pub api_key: String,
     pub board_id: Option<String>,
+    /// Gitnetix projects whose Tickets screen shows it; empty = all.
+    pub repos: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default, rename_all = "camelCase")]
 pub struct AsanaConf {
+    pub id: String,
     pub workspace_gid: String,
     pub project_gid: Option<String>,
+    /// Gitnetix projects whose Tickets screen shows it; empty = all.
+    pub repos: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -425,5 +503,20 @@ mod tests {
         super::write_private(&f, "new").unwrap();
         assert_eq!(std::fs::metadata(&f).unwrap().permissions().mode() & 0o777, 0o600);
         assert_eq!(std::fs::read_to_string(&f).unwrap(), "new");
+    }
+
+    #[test]
+    fn reads_old_single_connections() {
+        use super::Connection;
+        let i: super::Integrations = serde_json::from_str(r#"{"trello":{"apiKey":"k"},"asana":null}"#).unwrap();
+        assert_eq!(i.trello[0].secret(), "trello");
+        assert!(i.asana.is_empty());
+        let i: super::Integrations = serde_json::from_str(r#"{"jira":{"baseUrl":"https://a.atlassian.net","email":"e"}}"#).unwrap();
+        assert_eq!(i.jira.len(), 1);
+        assert_eq!(i.jira[0].secret(), "jira");
+        let i: super::Integrations = serde_json::from_str(r#"{"jira":null}"#).unwrap();
+        assert!(i.jira.is_empty());
+        let i: super::Integrations = serde_json::from_str(r#"{"jira":[{"id":"x"},{"id":"y"}]}"#).unwrap();
+        assert_eq!(i.jira[1].secret(), "jira.y");
     }
 }

@@ -3305,21 +3305,24 @@ button.picker-act {
     column-gap: 40px;
   }
 }
-/* A page opened inside the menu panel: same width as the menu grid, scrolling with the panel. */
-.menu-embed {
+/* A page opened inside the menu panel: fills the panel, its section list and content scroll on their own. */
+.menu-grid.menu-embed {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-width: none;
   display: flex;
+  gap: 0;
   align-items: stretch;
   border: 1px solid var(--line);
   border-radius: 4px;
   overflow: hidden;
 }
-.menu-embed > .sidenav,
-.menu-embed > .page {
-  overflow: visible;
-}
 .menu-embed > .page {
   padding: 24px;
   background: var(--bg);
+}
+.menu-embed .page-inner {
+  max-width: none;
 }
 .app-list {
   display: flex;

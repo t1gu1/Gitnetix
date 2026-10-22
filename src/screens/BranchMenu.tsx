@@ -248,6 +248,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
       },
       tag: { id: "tag", label: "Create tag…", tip: `Tag the tip of ${b}`, icon: "tag", run: () => openDialog("tag", b) },
       copy: { id: "copy", label: "Copy branch name", icon: "edit", run: () => copyToClipboard(b) },
+      ticket: { id: "ticket", label: <>Show ticket <span className="mono">{v.ticket}</span></>, icon: "ticket", run: () => v.ticket && nav.go({ name: "tickets", key: v.ticket }) },
       delete: {
         id: "delete",
         label: v.exists ? "Delete branch…" : "Forget branch…",
@@ -299,6 +300,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
     }
     list.push("sep");
     if (t.showCommits) list.push({ id: "commits", label: "Show commits", icon: "commit", run: t.showCommits });
+    if (v.ticket) list.push(a.ticket);
     if (t.showStashes) list.push({ id: "stashes", label: "Show stashes", icon: "stash", hint: v.stashes ? String(v.stashes) : undefined, run: t.showStashes });
     if (!v.worktree) list.push(a.tag);
     list.push(a.copy);

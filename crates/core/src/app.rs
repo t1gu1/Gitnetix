@@ -20,7 +20,7 @@ use crate::git::{ticket_keys, Blobs, BranchInfo, Commit, FileChange, Git, Hunk, 
 use crate::providers::azure::{self, MergedPr};
 use crate::providers::{azure_auth, github::GitHub, parse_remote};
 use crate::secrets;
-use crate::store::{new_id, now, BranchMeta, GitProfile, Project, Release, ReleaseKind, Route, Store};
+use crate::store::{new_id, now, BranchMeta, Connection, GitProfile, Project, Release, ReleaseKind, Route, Store};
 use crate::submodules::{self, FetchReport, Submodule};
 use crate::templates::{self, Template};
 use crate::tickets::{self, Ticket};
@@ -241,6 +241,8 @@ pub struct TicketView {
     pub ticket: Ticket,
     pub release: String,
     pub branch: Option<String>,
+    /// Project holding `branch` when it is not the one asked about.
+    pub branch_project: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -851,7 +853,8 @@ fn plain_view(p: &Project, refs: &Refs, name: &str, parent: Option<String>) -> B
         upstream_behind: 0,
         rewritten: false,
         likely_merged: false,
-        ticket: meta.and_then(|m| m.ticket.clone()),
+        // Branches not made from a ticket here still carry its key in their name (`feat/ATL-212_login`).
+        ticket: meta.and_then(|m| m.ticket.clone()).or_else(|| ticket_keys(name, true).into_iter().next()),
         exists: refs.rev(name).is_some(),
         merged: false,
         parent,
@@ -868,7 +871,7 @@ fn plain_view(p: &Project, refs: &Refs, name: &str, parent: Option<String>) -> B
 }
 
 /// Bump when branch views are built differently, so saved ones are not reused.
-const VIEW_CACHE_VERSION: &str = "8";
+const VIEW_CACHE_VERSION: &str = "9";
 
 /// What a project's branch views are built from: its refs, its default branch,
 /// what Gitnetix knows about its releases and branches, and what the git host said.
@@ -3364,59 +3367,95 @@ impl Gitnetix {
 
     // ---------- tickets ----------
 
-    pub async fn tickets(&self, project_id: &str) -> Result<Vec<TicketView>> {
+    /// `mine`: only Jira tickets assigned to the user (Trello and Asana ones are always theirs).
+    /// `sprint`: only Jira tickets in an open sprint; Trello and Asana have no sprints, so none of theirs.
+    pub async fn tickets(&self, project_id: &str, mine: bool, sprint: bool) -> Result<Vec<TicketView>> {
         let p = self.store.project(project_id)?;
         let integ = self.store.read(|c| c.integrations.clone());
         // One source failing (missing token, keychain refusal, HTTP error)
         // must not hide tickets from the others.
-        let token = |name: &str, label: &str| match secrets::get(name) {
+        let token = |name: String, label: &str| match secrets::get(&name) {
             Ok(Some(tok)) => Ok(tok),
             Ok(None) => Err(format!("{label} token missing")),
             Err(e) => Err(format!("{label}: {e}")),
         };
-        let mut results: Vec<std::result::Result<Vec<Ticket>, String>> = Vec::new();
-        if let Some(j) = &integ.jira {
-            results.push(match token("jira", "Jira") {
-                Ok(tok) => tickets::jira(j, &tok).await.map_err(|e| e.to_string()),
-                Err(e) => Err(e),
-            });
+        // Each with the projects its connection shows in.
+        let mut results: Vec<(&[String], std::result::Result<Vec<Ticket>, String>)> = Vec::new();
+        for j in integ.jira.iter().filter(|j| crate::store::shows_in(&j.repos, project_id)) {
+            results.push((&j.repos, match tickets::jira_auth::token(j).await {
+                Ok(tok) => tickets::jira(j, &tok, mine, sprint).await.map_err(|e| e.to_string()),
+                Err(e) => Err(e.to_string()),
+            }));
         }
-        if let Some(t) = &integ.trello {
-            results.push(match token("trello", "Trello") {
+        for t in integ.trello.iter().filter(|t| !sprint && crate::store::shows_in(&t.repos, project_id)) {
+            results.push((&t.repos, match token(t.secret(), "Trello") {
                 Ok(tok) => tickets::trello(t, &tok).await.map_err(|e| e.to_string()),
                 Err(e) => Err(e),
-            });
+            }));
         }
-        if let Some(a) = &integ.asana {
-            results.push(match token("asana", "Asana") {
+        for a in integ.asana.iter().filter(|a| !sprint && crate::store::shows_in(&a.repos, project_id)) {
+            results.push((&a.repos, match token(a.secret(), "Asana") {
                 Ok(tok) => tickets::asana(a, &tok).await.map_err(|e| e.to_string()),
                 Err(e) => Err(e),
-            });
+            }));
         }
-        let mut all: Vec<Ticket> = Vec::new();
+        let mut all: Vec<(Ticket, &[String])> = Vec::new();
         let mut errors = Vec::new();
-        for r in results {
+        for (repos, r) in results {
             match r {
-                Ok(v) => all.extend(v),
+                Ok(v) => all.extend(v.into_iter().map(|t| (t, repos))),
                 Err(e) => errors.push(e),
             }
         }
         if all.is_empty() && !errors.is_empty() {
-            return Err(Error::Http(errors.join(" · ")));
+            // Each message already carries its own "http error:" prefix.
+            return Err(Error::Other(errors.join(" · ")));
         }
-        Ok(all
+        // A ticket's branch: one made for it, or one with its key in the name (feat/ATL-212_login),
+        // looked for in this project first, then in the other projects its connection shows in.
+        let others = self.store.read(|c| c.projects.clone()).into_iter().filter(|q| q.id != p.id && all.iter().any(|(_, repos)| crate::store::shows_in(repos, &q.id)));
+        let mut scan = Vec::new();
+        for q in std::iter::once(p.clone()).chain(others) {
+            let local: Vec<(String, Vec<String>)> = self.git(&q).branches().await.unwrap_or_default().into_iter().map(|b| (ticket_keys(&b.name, true), b.name)).map(|(keys, name)| (name, keys)).collect();
+            scan.push((q, local));
+        }
+        let find = |q: &Project, local: &[(String, Vec<String>)], key: &str| {
+            q.branches
+                .iter()
+                .find(|(_, m)| m.ticket.as_deref() == Some(key))
+                .map(|(b, _)| b.clone())
+                .or_else(|| local.iter().find(|(_, keys)| keys.iter().any(|k| k.eq_ignore_ascii_case(key))).map(|(b, _)| b.clone()))
+        };
+        let mut views = all
             .into_iter()
-            .map(|t| {
-                let branch = p.branches.iter().find(|(_, m)| m.ticket.as_deref() == Some(t.key.as_str())).map(|(b, _)| b.clone());
+            .map(|(t, repos)| {
+                let (in_project, branch) = scan
+                    .iter()
+                    .filter(|(q, _)| q.id == p.id || crate::store::shows_in(repos, &q.id))
+                    .find_map(|(q, local)| find(q, local, &t.key).map(|b| (q.id.clone(), b)))
+                    .unzip();
+                let here = in_project.as_deref() == Some(p.id.as_str());
                 let release = p
                     .ticket_releases
                     .get(&t.key)
                     .cloned()
-                    .or_else(|| branch.as_ref().and_then(|b| p.branches.get(b)).and_then(|m| m.release.clone()))
+                    .or_else(|| branch.as_ref().filter(|_| here).and_then(|b| p.branches.get(b)).and_then(|m| m.release.clone()))
+                    .or_else(|| fix_version_release(&t.fix_versions, &p.releases))
                     .unwrap_or_default();
-                TicketView { ticket: t, release, branch }
+                TicketView { ticket: t, release, branch, branch_project: in_project.filter(|_| !here) }
             })
-            .collect())
+            .collect::<Vec<_>>();
+        // Still unplanned: the release its branch is a child of, or was merged into.
+        // shortcut: base_of reloads refs per branch when the overview cache is stale, share one Refs if ticket lists get slow.
+        let default = self.git(&p).default_branch().await.unwrap_or_else(|_| "main".into());
+        for v in views.iter_mut().filter(|v| v.release.is_empty() && v.branch_project.is_none()) {
+            let Some(b) = &v.branch else { continue };
+            let parent = self.base_of(&p, b, &default).await;
+            if let Some(r) = p.releases.iter().find(|r| r.branch == parent) {
+                v.release = r.version.clone();
+            }
+        }
+        Ok(views)
     }
 
     pub fn set_ticket_release(&self, project_id: &str, key: &str, release: &str) -> Result<()> {
@@ -3430,7 +3469,7 @@ impl Gitnetix {
 
     pub async fn triage(&self, project_id: &str) -> Result<Vec<Suggestion>> {
         let p = self.store.project(project_id)?;
-        let list = self.tickets(project_id).await?;
+        let list = self.tickets(project_id, false, false).await?;
         let unplanned: Vec<&TicketView> = list.iter().filter(|t| t.release.is_empty() && t.ticket.status != "done").collect();
         if unplanned.is_empty() {
             return Ok(Vec::new());
@@ -3772,9 +3811,31 @@ fn squash_title(branch: &str) -> String {
     format!("squash | {}", branch.replace('-', " "))
 }
 
+/// The project release a Jira fix version names: "2.4.0", "v2.4.0", "api 2.4.0", "api-v2.4.0" → 2.4.0, open releases first.
+fn fix_version_release(fix_versions: &[String], releases: &[Release]) -> Option<String> {
+    // The last word of the name, so a product prefix doesn't hide the version.
+    let version = |f: &str| f.trim().rsplit([' ', '-', '_', '/']).next().unwrap_or("").trim_start_matches(['v', 'V']).to_string();
+    let named = |r: &&Release| fix_versions.iter().any(|f| version(f) == r.version);
+    let mut known = releases.iter().filter(named).collect::<Vec<_>>();
+    known.sort_by_key(|r| r.shipped_at.is_some());
+    known.first().map(|r| r.version.clone())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fix_version_names_a_release() {
+        let rel = |v: &str, shipped: bool| Release { version: v.into(), shipped_at: shipped.then(now), ..Default::default() };
+        let releases = [rel("2.3.0", true), rel("2.4.0", false)];
+        assert_eq!(fix_version_release(&["v2.3.0".into(), "2.4.0".into()], &releases).as_deref(), Some("2.4.0"));
+        assert_eq!(fix_version_release(&[" V2.3.0".into()], &releases).as_deref(), Some("2.3.0"));
+        assert_eq!(fix_version_release(&["Backlog".into()], &releases), None);
+        assert_eq!(fix_version_release(&["mauril-api v2.4.0".into()], &releases).as_deref(), Some("2.4.0"));
+        assert_eq!(fix_version_release(&["api-2.3.0".into()], &releases).as_deref(), Some("2.3.0"));
+        assert_eq!(fix_version_release(&["2.4.0-rc1".into()], &releases), None);
+    }
 
     #[test]
     fn new_item_takes_the_agent_pick() {

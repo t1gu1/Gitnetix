@@ -329,6 +329,20 @@ export interface Template {
   model?: string | null;
 }
 
+export interface JiraConn {
+  /** "" for the connection made before there could be several. */
+  id: string;
+  baseUrl: string;
+  email: string;
+  jql?: string | null;
+  /** Set when signed in with Atlassian. */
+  cloudId?: string | null;
+  /** Jira project keys to show; empty = all. */
+  projects: string[];
+  /** Ids of the projects whose Tickets screen shows it; empty = all. */
+  repos: string[];
+}
+
 export interface Config {
   version: number;
   projects: Project[];
@@ -341,9 +355,10 @@ export interface Config {
     githubUser?: string | null;
     azureConnected: boolean;
     azureUser?: string | null;
-    jira?: { baseUrl: string; email: string; jql?: string | null } | null;
-    trello?: { apiKey: string; boardId?: string | null } | null;
-    asana?: { workspaceGid: string; projectGid?: string | null } | null;
+    jira: JiraConn[];
+    /** `id` "" = the connection from before there could be several; `repos`: ids of the projects whose Tickets screen shows it, empty = all. */
+    trello: { id: string; apiKey: string; boardId?: string | null; repos: string[] }[];
+    asana: { id: string; workspaceGid: string; projectGid?: string | null; repos: string[] }[];
   };
   ui: {
     language: string;
@@ -500,8 +515,14 @@ export interface Ticket {
   comments: number;
   url: string;
   whereLabel: string;
+  /** The Jira project, Trello board or Asana project it comes from. */
+  place: string;
+  /** Jira fix versions ("Versions corrigées"), as named there. */
+  fixVersions?: string[];
   release: string;
   branch?: string | null;
+  /** Project holding `branch` when it is another one linked to the same tracker. */
+  branchProject?: string | null;
 }
 
 export interface Suggestion {

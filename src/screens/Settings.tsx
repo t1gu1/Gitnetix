@@ -1,17 +1,20 @@
-import { useEffect, useState, type CSSProperties } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { Fragment, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { useAction, useConfig } from "../api/hooks";
 import { companionInfo, isLocal, openExternal, rpc, type CompanionInfo } from "../api/transport";
-import type { Config, GitProfile } from "../api/types";
+import type { Config, GitProfile, JiraConn } from "../api/types";
 import { MenuChoice } from "../components/AgentPicker";
 import { GRAVATAR_KEY } from "../components/Avatar";
+import { Icon } from "../components/Icon";
 import { Resizer, usePaneWidth } from "../components/Resizer";
 import { Header } from "../components/ui";
 import { ANIMATIONS, useAnimations } from "../lib/motion";
 import { useNav } from "../lib/nav";
 import { useStoredFlag } from "../lib/stored";
 import { copyToClipboard, toast } from "../lib/toast";
+
+const JIRA_TOKENS = "https://id.atlassian.com/manage-profile/security/api-tokens";
 
 const GROUPS: [string, [string, string][]][] = [
   ["General", [["project", "Project"], ["animations", "Animations"], ["avatars", "Avatars"]]],
@@ -386,84 +389,304 @@ function GitProviders({ cfg }: { cfg: Config }) {
   );
 }
 
-function Integrations({ cfg }: { cfg: Config }) {
-  const save = useAction("integrations.save", { invalidate: [["config"], ["tickets"]], success: "Saved" });
-  const disc = useAction("integrations.disconnect", { invalidate: [["config"], ["tickets"]] });
-  const [jira, setJira] = useState({ baseUrl: cfg.integrations.jira?.baseUrl ?? "", email: cfg.integrations.jira?.email ?? "", jql: cfg.integrations.jira?.jql ?? "", token: "" });
-  const [trello, setTrello] = useState({ apiKey: cfg.integrations.trello?.apiKey ?? "", boardId: cfg.integrations.trello?.boardId ?? "", token: "" });
-  const [asana, setAsana] = useState({ workspaceGid: cfg.integrations.asana?.workspaceGid ?? "", projectGid: cfg.integrations.asana?.projectGid ?? "", token: "" });
-  const block = (title: string, kind: string, on: boolean, body: React.ReactNode, onSave: () => void, canSave: boolean) => (
-    <form
-      className="col card"
-      style={{ padding: 16, gap: 12 }}
-      onSubmit={(e) => {
-        e.preventDefault();
-        onSave();
-      }}
-    >
-      <div className="row">
-        <span className="col grow" style={{ gap: 2 }}>
-          <span style={{ fontWeight: 500 }}>{title}</span>
-          <span className={on ? "c-add" : "faint"} style={{ fontSize: 12 }}>{on ? "Connected" : "Not connected"}</span>
-        </span>
-        {on && <button type="button" className="btn" onClick={() => disc.mutate({ kind })}>Disconnect</button>}
-      </div>
-      {body}
-      <div>
-        <button className="btn btn-primary" disabled={!canSave}>{on ? "Save" : "Connect"}</button>
-      </div>
-    </form>
+/** Browser sign-in: Atlassian redirects back to a listener the app opens on localhost. */
+function AtlassianSignIn({ onDone }: { onDone?: () => void }) {
+  const qc = useQueryClient();
+  const [waiting, setWaiting] = useState(false);
+  const attempt = useRef(0);
+  const signIn = async () => {
+    const mine = ++attempt.current;
+    setWaiting(true);
+    try {
+      const { url } = await rpc<{ url: string }>("jira.signInStart");
+      await openExternal(url);
+      const r = await rpc<{ user?: string | null }>("jira.signInFinish");
+      if (mine !== attempt.current) return;
+      for (const key of ["config", "tickets", "jiraAuth"]) qc.invalidateQueries({ queryKey: [key] });
+      toast(r.user ? `Signed in to Jira as ${r.user}` : "Jira connected", "ok");
+      onDone?.();
+    } catch (e) {
+      if (mine === attempt.current) toast((e as Error).message, "error");
+    } finally {
+      if (mine === attempt.current) setWaiting(false);
+    }
+  };
+  return waiting ? (
+    <div className="row" style={{ gap: 10 }}>
+      <span className="spinner" />
+      <span className="muted grow">Finish signing in in your browser…</span>
+      <button type="button" className="btn btn-sm" onClick={() => signIn()}>Open again</button>
+      <button
+        type="button"
+        className="btn btn-sm"
+        onClick={() => {
+          attempt.current++;
+          setWaiting(false);
+        }}
+      >
+        Cancel
+      </button>
+    </div>
+  ) : (
+    <div>
+      <button type="button" className="btn btn-primary" onClick={() => signIn()}>Sign in with Atlassian</button>
+    </div>
   );
-  const input = (id: string, label: string, value: string, set: (v: string) => void, opts: { type?: string; ph?: string; hint?: string } = {}) => (
+}
+
+const tokensLink = (
+  <a href={JIRA_TOKENS} onClick={(e) => { e.preventDefault(); openExternal(JIRA_TOKENS); }}>{JIRA_TOKENS}</a>
+);
+
+function input(id: string, label: string, value: string, set: (v: string) => void, opts: { type?: string; ph?: string; hint?: ReactNode } = {}) {
+  return (
     <div className="field">
       <label htmlFor={id}>{label}</label>
       <input id={id} className="input" type={opts.type ?? "text"} placeholder={opts.ph} value={value} onChange={(e) => set(e.target.value)} />
       {opts.hint && <span className="hint">{opts.hint}</span>}
     </div>
   );
+}
+
+const toggle = (list: string[], v: string) => (list.includes(v) ? list.filter((x) => x !== v) : [...list, v]);
+
+/** Ticks among `options`; none ticked means all of them. */
+function Checks({ label, hint, options, value, onChange }: { label: string; hint: string; options: { value: string; label: string }[]; value: string[]; onChange: (v: string[]) => void }) {
+  const [search, setSearch] = useState("");
+  const term = search.trim().toLowerCase();
+  const shown = options.filter((o) => !term || o.label.toLowerCase().includes(term));
+  return (
+    <fieldset className="field" style={{ border: 0, padding: 0, margin: 0 }}>
+      <legend style={{ padding: 0, marginBottom: 6 }}>{label}</legend>
+      <input className="input" type="search" aria-label={`Search ${label.toLowerCase()}`} placeholder="Search" value={search} onChange={(e) => setSearch(e.target.value)} style={{ marginBottom: 6 }} />
+      <div className="col" style={{ gap: 2, maxHeight: 200, overflowY: "auto" }}>
+        {shown.map((o) => (
+          <label key={o.value} className="check">
+            <input type="checkbox" checked={value.includes(o.value)} onChange={() => onChange(toggle(value, o.value))} />
+            <span>{o.label}</span>
+          </label>
+        ))}
+        {shown.length === 0 && <span className="faint" style={{ fontSize: 12 }}>No match.</span>}
+      </div>
+      <span className="hint">{hint}</span>
+    </fieldset>
+  );
+}
+
+/** Which Gitnetix projects show a connection's tickets. */
+function RepoChecks({ cfg, value, onChange }: { cfg: Config; value: string[]; onChange: (v: string[]) => void }) {
+  return (
+    <Checks
+      label="Show in these projects"
+      hint="None ticked = every project."
+      options={cfg.projects.map((p) => ({ value: p.id, label: p.name }))}
+      value={value}
+      onChange={onChange}
+    />
+  );
+}
+
+/** One Jira connection, or the form adding a new one when `conn` is missing. */
+function JiraConnection({ cfg, conn, onDone }: { cfg: Config; conn?: JiraConn; onDone?: () => void }) {
+  const save = useAction<{ user?: string | null }>("integrations.save", { invalidate: [["config"], ["tickets"], ["jiraAuth"], ["jiraProjects"]], success: (r) => (r.user ? `Connected as ${r.user}` : "Saved") });
+  const disc = useAction("integrations.disconnect", { invalidate: [["config"], ["tickets"]] });
+  // A saved config is not enough: the token may have expired or been revoked since.
+  const auth = useQuery({
+    queryKey: ["jiraAuth", conn?.id],
+    queryFn: () => rpc<{ user?: string | null }>("integrations.checkJira", { id: conn!.id }),
+    enabled: !!conn,
+    retry: false,
+    staleTime: 60_000,
+  });
+  const projects = useQuery({
+    queryKey: ["jiraProjects", conn?.id],
+    queryFn: () => rpc<{ key: string; name: string }[]>("jira.projects", { id: conn!.id }),
+    enabled: auth.isSuccess,
+    staleTime: 5 * 60_000,
+  });
+  const [f, setF] = useState({ baseUrl: conn?.baseUrl ?? "", email: conn?.email ?? "", jql: conn?.jql ?? "", token: "", projects: conn?.projects ?? [], repos: conn?.repos ?? [] });
+  const oauth = !!conn?.cloudId;
+  const [tokenMode, setTokenMode] = useState(!!conn && !oauth);
+  const filters = { jql: f.jql || null, projects: f.projects, repos: f.repos };
+  const submit = () =>
+    save.mutate(
+      tokenMode
+        ? { kind: "jira", token: f.token, config: { id: conn?.id ?? null, baseUrl: f.baseUrl, email: f.email, ...filters } }
+        : { kind: "jira", config: { id: conn!.id, baseUrl: conn!.baseUrl, cloudId: conn!.cloudId, ...filters } },
+      { onSuccess: () => onDone?.() },
+    );
+  const canSave = tokenMode ? !!f.baseUrl && !!f.email && (!!f.token || (!!conn && !oauth)) : !!conn;
+  const site = conn ? conn.baseUrl.replace(/^https?:\/\//, "").replace(/\/$/, "") : "";
+  return (
+    <form
+      className="col card"
+      style={{ padding: 16, gap: 12 }}
+      onSubmit={(e) => {
+        e.preventDefault();
+        submit();
+      }}
+    >
+      <div className="row">
+        <span className="col grow" style={{ gap: 2 }}>
+          <span style={{ fontWeight: 500 }}>{conn ? `Jira Cloud · ${site}` : "New Jira connection"}</span>
+          {!conn ? (
+            <span className="faint" style={{ fontSize: 12 }}>Not connected</span>
+          ) : auth.isPending ? (
+            <span className="faint" style={{ fontSize: 12 }}>Checking…</span>
+          ) : auth.isError ? (
+            <span className="c-del" style={{ fontSize: 12 }}>Not signed in · {auth.error.message}</span>
+          ) : (
+            <span className="c-add" style={{ fontSize: 12 }}>{auth.data?.user ? `Connected as ${auth.data.user}` : "Connected"}</span>
+          )}
+        </span>
+        {conn ? (
+          <button type="button" className="btn" onClick={() => disc.mutate({ kind: "jira", id: conn.id })}>Disconnect</button>
+        ) : (
+          onDone && <button type="button" className="btn" onClick={onDone}>Cancel</button>
+        )}
+      </div>
+      {!conn && !tokenMode && <AtlassianSignIn onDone={onDone} />}
+      {tokenMode && (
+        <>
+          {input(`jr-url-${conn?.id ?? "new"}`, "Site", f.baseUrl, (v) => setF({ ...f, baseUrl: v }), { ph: "https://yourteam.atlassian.net" })}
+          {input(`jr-email-${conn?.id ?? "new"}`, "Account email", f.email, (v) => setF({ ...f, email: v }))}
+          {input(`jr-token-${conn?.id ?? "new"}`, "API token", f.token, (v) => setF({ ...f, token: v }), { type: "password", hint: <>Create one at {tokensLink} (scoped tokens need read:jira-user and read:jira-work)</> })}
+          {save.isError && (
+            <span className="c-del" style={{ fontSize: 12 }}>
+              {save.error.message} · Make sure you did create the API token here: {tokensLink}
+            </span>
+          )}
+        </>
+      )}
+      {(tokenMode || oauth) && input(`jr-jql-${conn?.id ?? "new"}`, "JQL (optional)", f.jql, (v) => setF({ ...f, jql: v }), { ph: "project = ATL AND statusCategory != Done" })}
+      {conn &&
+        (projects.data ? (
+          <Checks
+            label="Jira projects"
+            hint="None ticked = every project this account can see."
+            options={projects.data.map((p) => ({ value: p.key, label: `${p.name} (${p.key})` }))}
+            value={f.projects}
+            onChange={(v) => setF({ ...f, projects: v })}
+          />
+        ) : (
+          projects.isFetching && <span className="faint" style={{ fontSize: 12 }}>Loading Jira projects…</span>
+        ))}
+      {(conn || tokenMode) && <RepoChecks cfg={cfg} value={f.repos} onChange={(v) => setF({ ...f, repos: v })} />}
+      {!tokenMode && (
+        <div>
+          <button type="button" className="btn btn-sm" onClick={() => setTokenMode(true)}>
+            {oauth ? "Replace with an API token" : "Use an API token instead"}
+          </button>
+        </div>
+      )}
+      {(conn || tokenMode) && (
+        <div>
+          <button className="btn btn-primary" disabled={!canSave || save.isPending}>{conn ? "Save" : "Connect"}</button>
+        </div>
+      )}
+    </form>
+  );
+}
+
+type Field = { key: string; label: string; hint?: string; optional?: boolean };
+type Kind = { kind: "trello" | "asana"; title: string; token: string; fields: Field[]; name: (c: Record<string, unknown>) => string };
+const TRELLO: Kind = {
+  kind: "trello",
+  title: "Trello",
+  token: "Token",
+  fields: [
+    { key: "apiKey", label: "API key", hint: "trello.com/power-ups/admin › your Power-Up › API key" },
+    { key: "boardId", label: "Board id (optional)", hint: "Empty = cards assigned to you", optional: true },
+  ],
+  name: (c) => (c.boardId ? `board ${c.boardId}` : "my cards"),
+};
+const ASANA: Kind = {
+  kind: "asana",
+  title: "Asana",
+  token: "Personal access token",
+  fields: [
+    { key: "workspaceGid", label: "Workspace gid" },
+    { key: "projectGid", label: "Project gid (optional)", hint: "Empty = tasks assigned to you", optional: true },
+  ],
+  name: (c) => (c.projectGid ? `project ${c.projectGid}` : "my tasks"),
+};
+
+/** One Trello or Asana connection, or the form adding a new one when `conn` is missing. */
+function TokenConnection({ cfg, k, conn, onDone }: { cfg: Config; k: Kind; conn?: { id: string; repos: string[] } & Record<string, unknown>; onDone?: () => void }) {
+  const save = useAction("integrations.save", { invalidate: [["config"], ["tickets"]], success: conn ? "Saved" : `${k.title} connected` });
+  const disc = useAction("integrations.disconnect", { invalidate: [["config"], ["tickets"]] });
+  const [f, setF] = useState<Record<string, string>>(() => Object.fromEntries(k.fields.map((x) => [x.key, String(conn?.[x.key] ?? "")])));
+  const [token, setToken] = useState("");
+  const [repos, setRepos] = useState(conn?.repos ?? []);
+  const uid = `${k.kind}-${conn?.id ?? "new"}`;
+  const canSave = k.fields.every((x) => x.optional || f[x.key]) && (!!token || !!conn);
+  return (
+    <form
+      className="col card"
+      style={{ padding: 16, gap: 12 }}
+      onSubmit={(e) => {
+        e.preventDefault();
+        const config = { id: conn?.id ?? null, repos, ...Object.fromEntries(k.fields.map((x) => [x.key, f[x.key] || (x.optional ? null : "")])) };
+        save.mutate({ kind: k.kind, token, config }, { onSuccess: () => onDone?.() });
+      }}
+    >
+      <div className="row">
+        <span className="col grow" style={{ gap: 2 }}>
+          <span style={{ fontWeight: 500 }}>{conn ? `${k.title} · ${k.name(conn)}` : `New ${k.title} connection`}</span>
+          <span className={conn ? "c-add" : "faint"} style={{ fontSize: 12 }}>{conn ? "Connected" : "Not connected"}</span>
+        </span>
+        {conn ? (
+          <button type="button" className="btn" onClick={() => disc.mutate({ kind: k.kind, id: conn.id })}>Disconnect</button>
+        ) : (
+          onDone && <button type="button" className="btn" onClick={onDone}>Cancel</button>
+        )}
+      </div>
+      {k.fields.map((x, i) => (
+        <Fragment key={x.key}>
+          {input(`${uid}-${x.key}`, x.label, f[x.key], (v) => setF({ ...f, [x.key]: v }), { hint: x.hint })}
+          {i === 0 && input(`${uid}-token`, k.token, token, setToken, { type: "password", hint: conn ? "Empty = keep the saved one" : undefined })}
+        </Fragment>
+      ))}
+      <RepoChecks cfg={cfg} value={repos} onChange={setRepos} />
+      <div>
+        <button className="btn btn-primary" disabled={!canSave || save.isPending}>{conn ? "Save" : "Connect"}</button>
+      </div>
+    </form>
+  );
+}
+
+/** A tracker's connections, then a form or button to add one. */
+function ConnectionList<T extends { id: string }>({ items, add, row }: { items: T[]; add: string; row: (c?: T, onDone?: () => void) => ReactNode }) {
+  const [adding, setAdding] = useState(false);
+  return (
+    <>
+      {items.map((c) => (
+        <Fragment key={c.id}>{row(c)}</Fragment>
+      ))}
+      {(adding || items.length === 0) && row(undefined, items.length ? () => setAdding(false) : undefined)}
+      {items.length > 0 && !adding && (
+        <div>
+          <button className="btn" onClick={() => setAdding(true)}>
+            <Icon name="plus" size={12} />
+            {add}
+          </button>
+        </div>
+      )}
+    </>
+  );
+}
+
+function Integrations({ cfg }: { cfg: Config }) {
+  const i = cfg.integrations;
   return (
     <>
       <div className="col" style={{ gap: 6 }}>
         <h1>Jira, Trello, Asana</h1>
         <p className="muted" style={{ margin: 0 }}>Tickets show in Tickets, linked to their branch and release. Tokens go to your OS keychain.</p>
       </div>
-      {block(
-        "Jira Cloud",
-        "jira",
-        !!cfg.integrations.jira,
-        <>
-          {input("jr-url", "Site", jira.baseUrl, (v) => setJira({ ...jira, baseUrl: v }), { ph: "https://yourteam.atlassian.net" })}
-          {input("jr-email", "Account email", jira.email, (v) => setJira({ ...jira, email: v }))}
-          {input("jr-token", "API token", jira.token, (v) => setJira({ ...jira, token: v }), { type: "password", hint: "id.atlassian.com › Security › API tokens" })}
-          {input("jr-jql", "JQL (optional)", jira.jql, (v) => setJira({ ...jira, jql: v }), { ph: "project = ATL AND statusCategory != Done" })}
-        </>,
-        () => save.mutate({ kind: "jira", token: jira.token, config: { baseUrl: jira.baseUrl, email: jira.email, jql: jira.jql || null } }),
-        !!jira.baseUrl && !!jira.email && (!!jira.token || !!cfg.integrations.jira),
-      )}
-      {block(
-        "Trello",
-        "trello",
-        !!cfg.integrations.trello,
-        <>
-          {input("tr-key", "API key", trello.apiKey, (v) => setTrello({ ...trello, apiKey: v }), { hint: "trello.com/power-ups/admin › your Power-Up › API key" })}
-          {input("tr-token", "Token", trello.token, (v) => setTrello({ ...trello, token: v }), { type: "password" })}
-          {input("tr-board", "Board id (optional)", trello.boardId, (v) => setTrello({ ...trello, boardId: v }), { hint: "Empty = cards assigned to you" })}
-        </>,
-        () => save.mutate({ kind: "trello", token: trello.token, config: { apiKey: trello.apiKey, boardId: trello.boardId || null } }),
-        !!trello.apiKey && (!!trello.token || !!cfg.integrations.trello),
-      )}
-      {block(
-        "Asana",
-        "asana",
-        !!cfg.integrations.asana,
-        <>
-          {input("as-token", "Personal access token", asana.token, (v) => setAsana({ ...asana, token: v }), { type: "password" })}
-          {input("as-ws", "Workspace gid", asana.workspaceGid, (v) => setAsana({ ...asana, workspaceGid: v }))}
-          {input("as-pr", "Project gid (optional)", asana.projectGid, (v) => setAsana({ ...asana, projectGid: v }), { hint: "Empty = tasks assigned to you" })}
-        </>,
-        () => save.mutate({ kind: "asana", token: asana.token, config: { workspaceGid: asana.workspaceGid, projectGid: asana.projectGid || null } }),
-        !!asana.workspaceGid && (!!asana.token || !!cfg.integrations.asana),
-      )}
+      <ConnectionList items={i.jira} add="Add a Jira connection" row={(c, onDone) => <JiraConnection cfg={cfg} conn={c} onDone={onDone} />} />
+      <ConnectionList items={i.trello} add="Add a Trello connection" row={(c, onDone) => <TokenConnection cfg={cfg} k={TRELLO} conn={c} onDone={onDone} />} />
+      <ConnectionList items={i.asana} add="Add an Asana connection" row={(c, onDone) => <TokenConnection cfg={cfg} k={ASANA} conn={c} onDone={onDone} />} />
     </>
   );
 }

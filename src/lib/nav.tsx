@@ -12,7 +12,7 @@ export type Route =
   | { name: "notes" }
   | { name: "prs"; number?: number }
   | { name: "templates" }
-  | { name: "tickets" }
+  | { name: "tickets"; key?: string }
   | { name: "analytics" }
   | { name: "worktrees"; path?: string }
   | { name: "submodules" }

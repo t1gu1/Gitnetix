@@ -1,9 +1,10 @@
 import { useState, type CSSProperties } from "react";
 
-import { useAction, useOverview, useTickets } from "../api/hooks";
+import { useAction, useOverview, useProjects, useTickets } from "../api/hooks";
 import { openExternal } from "../api/transport";
 import type { Suggestion, Ticket } from "../api/types";
 import { MenuChoice } from "../components/AgentPicker";
+import { Avatar } from "../components/Avatar";
 import { Icon } from "../components/Icon";
 import { Resizer, usePaneWidth } from "../components/Resizer";
 import { ago, Busy, Empty, ErrorBox, Header, Loading, releaseTagLabel, Seg } from "../components/ui";
@@ -17,18 +18,22 @@ const STATUS: Record<Ticket["status"], [string, string]> = {
   done: ["Done", "c-add"],
 };
 const SRC = { jira: "Jira", trello: "Trello", asana: "Asana" };
+const ADD = "\0add";
 
-export function Tickets() {
+export function Tickets({ initial }: { initial?: string }) {
   const nav = useNav();
   const pid = nav.projectId!;
-  const q = useTickets(pid);
-  const ov = useOverview(pid).data;
-  const [source, setSource] = useState<string>("all");
-  const [group, setGroup] = useState<"release" | "status">("release");
   const [mine, setMine] = useState(false);
+  const [sprint, setSprint] = useState(false);
+  const q = useTickets(pid, mine, sprint);
+  const ov = useOverview(pid).data;
+  const projects = useProjects().data ?? [];
+  const home = (x: Ticket) => projects.find((p) => p.id === x.branchProject)?.name;
+  const [place, setPlace] = useState<string>("all");
+  const [group, setGroup] = useState<"release" | "status">("release");
   const [search, setSearch] = useState("");
-  const [sel, setSel] = useState<string | undefined>();
-  const [pane, setPane] = useState<"list" | "detail">("list");
+  const [sel, setSel] = useState<string | undefined>(initial);
+  const [pane, setPane] = useState<"list" | "detail">(initial ? "detail" : "list");
   const listW = usePaneWidth("gnx.pane.tickets", 400, 280, 720);
   const [suggestions, setSuggestions] = useState<Record<string, Suggestion>>({});
   const setRel = useAction("tickets.setRelease", { invalidate: [["tickets", pid], ["overview", pid]] });
@@ -40,7 +45,9 @@ export function Tickets() {
   const all = q.data?.tickets ?? [];
   const term = search.trim().toLowerCase();
   const base = all.filter((t) => (!mine || t.mine) && (!term || `${t.key} ${t.title}`.toLowerCase().includes(term)));
-  const visible = base.filter((t) => source === "all" || t.source === source);
+  const places = [...new Set(all.map((x) => x.place))].sort();
+  const shown = places.includes(place) ? place : "all";
+  const visible = base.filter((t) => shown === "all" || t.place === shown);
   const groups =
     group === "release"
       ? [...open.map((r) => ({ id: r.version, label: `${releaseTagLabel(r.tag)} · v${r.version}` })), { id: "", label: "Unplanned" }]
@@ -74,7 +81,7 @@ export function Tickets() {
     <>
       <Header
         title="Tickets"
-        sub={ov?.project.name}
+        sub={[ov?.project.name, shown === "all" ? "" : shown].filter(Boolean).join(" · ")}
         right={
           <>
             <span className="faint hide-narrow" style={{ fontSize: 12 }}>{q.data?.syncedAt ? `Synced ${ago(q.data.syncedAt)}` : ""}</span>
@@ -85,22 +92,31 @@ export function Tickets() {
         }
       />
       {q.error ? (
-        <div className="page"><div className="page-inner"><ErrorBox error={q.error} /></div></div>
+        <div className="page" style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ maxWidth: 480, textAlign: "center" }}>
+            <ErrorBox error={q.error} />
+            <div style={{ marginTop: 14 }}>
+              <button className="btn btn-primary" onClick={() => nav.go({ name: "settings", section: "tools" })}>Open settings</button>
+            </div>
+          </div>
+        </div>
       ) : (
         <div className="body split">
           <section className="master" style={{ "--master-w": `${listW.width}px` } as CSSProperties} data-pane data-active={pane === "list"} aria-label="Ticket list">
             <div className="master-tools">
               <label htmlFor="tk-q" className="sr-only">Search tickets</label>
               <input id="tk-q" className="input" placeholder="Search by key or title" value={search} onChange={(e) => setSearch(e.target.value)} />
-              <Seg
-                grid
-                label="Source"
-                value={source}
-                onChange={setSource}
-                options={["all", ...(q.data?.sources ?? [])].map((s) => ({
-                  value: s,
-                  label: <>{s === "all" ? "All" : SRC[s as keyof typeof SRC]} <span className="faint">{base.filter((x) => s === "all" || x.source === s).length}</span></>,
-                }))}
+              <MenuChoice
+                className="select menu-select"
+                style={{ height: 30, width: "100%" }}
+                label="Tracker"
+                value={shown}
+                options={[
+                  { value: "all", label: `All trackers · ${base.length}` },
+                  ...places.map((p) => ({ value: p, label: `${p} · ${base.filter((x) => x.place === p).length}` })),
+                  { value: ADD, label: "Connect another tracker…" },
+                ]}
+                onChange={(v) => (v === ADD ? nav.go({ name: "settings", section: "tools" }) : setPlace(v))}
               />
               <div className="row wrap">
                 <Seg label="Group by" value={group} onChange={setGroup} options={[{ value: "release", label: "By release" }, { value: "status", label: "By status" }]} />
@@ -108,6 +124,12 @@ export function Tickets() {
                   <input type="checkbox" checked={mine} onChange={() => setMine(!mine)} />
                   <span>Assigned to me</span>
                 </label>
+                {q.data?.sources.includes("jira") && (
+                  <label className="check" style={{ minHeight: 28 }} data-tip="Jira tickets in an open sprint; hides Trello and Asana">
+                    <input type="checkbox" checked={sprint} onChange={() => setSprint(!sprint)} />
+                    <span>Active sprint</span>
+                  </label>
+                )}
               </div>
               {unplanned > 0 && open.length > 0 && (
                 <button
@@ -129,24 +151,33 @@ export function Tickets() {
                   </div>
                   <div className="col" style={{ gap: 2 }}>
                     {g.items.map((x) => (
-                      <button key={x.key} className="item-btn" aria-pressed={x.key === t?.key} onClick={() => { setSel(x.key); setPane("detail"); }}>
-                        <span className="row" style={{ alignItems: "baseline" }}>
-                          <span className="mono faint" style={{ fontSize: 12 }}>{x.key}</span>
-                          <span className="ellipsis grow" style={{ fontWeight: 500 }}>{x.title}</span>
-                          {suggestions[x.key] && !x.release && <Icon name="sparkle" size={11} className="c-acc" />}
-                        </span>
-                        <span className="row wrap" style={{ gap: 8, fontSize: 11.5 }}>
+                      <button key={x.key} className="item-btn" style={{ gap: 1, padding: "7px 12px" }} aria-pressed={x.key === t?.key} onClick={() => { setSel(x.key); setPane("detail"); }}>
+                        <span className="row" style={{ gap: 8, margin: "0 0 2px", fontSize: 11.5 }}>
+                          <Avatar name={x.assignee} />
+                          <span className="mono faint">{x.key}</span>
                           <span className={STATUS[x.status][1]}>{x.statusLabel || STATUS[x.status][0]}</span>
-                          <span className="faint">{x.kind}</span>
-                          <span className="mono faint ellipsis grow">{x.branch ?? "No branch"}</span>
+                          <span className="faint ellipsis grow">{x.kind}</span>
+                          {suggestions[x.key] && !x.release && <Icon name="sparkle" size={11} className="c-acc" />}
                           <span className="faint">{SRC[x.source]}</span>
                         </span>
+                        <span className="ellipsis" style={{ fontWeight: 500 }}>{x.title}</span>
+                        <span className="mono faint ellipsis" style={{ fontSize: 11.5, marginTop: 8 }}>{x.branch ? [home(x), x.branch].filter(Boolean).join(" · ") : "No branch"}</span>
                       </button>
                     ))}
                   </div>
                 </div>
               ))}
-              {grouped.length === 0 && <Empty>No tickets match these filters.</Empty>}
+              {grouped.length === 0 &&
+                (all.length ? (
+                  <Empty>No tickets match these filters.</Empty>
+                ) : (
+                  <Empty>
+                    No open tickets from {(q.data?.sources ?? []).map((s) => SRC[s as keyof typeof SRC]).join(", ")}. Check the query in Settings.
+                    <div style={{ marginTop: 14 }}>
+                      <button className="btn" onClick={() => nav.go({ name: "settings", section: "tools" })}>Open settings</button>
+                    </div>
+                  </Empty>
+                ))}
             </div>
           </section>
           <Resizer pane={listW} label="Resize ticket list" />
@@ -158,6 +189,7 @@ export function Tickets() {
             {t ? (
               <TicketDetail
                 t={t}
+                home={home(t)}
                 releases={open.map((r) => ({ version: r.version, label: `v${r.version} · ${releaseTagLabel(r.tag)}`, branch: r.branch }))}
                 suggestion={!t.release ? suggestions[t.key] : undefined}
                 onRelease={(v) => setRel.mutate({ projectId: pid, key: t.key, release: v })}
@@ -179,12 +211,14 @@ export function Tickets() {
 
 function TicketDetail({
   t,
+  home,
   releases,
   suggestion,
   onRelease,
   onDismiss,
 }: {
   t: Ticket;
+  home?: string;
   releases: { version: string; label: string; branch: string }[];
   suggestion?: Suggestion;
   onRelease: (v: string) => void;
@@ -215,6 +249,7 @@ function TicketDetail({
         <div><span>Status</span><span className={STATUS[t.status][1]}>{t.statusLabel || STATUS[t.status][0]}</span></div>
         <div><span>Type</span><span>{t.kind}</span></div>
         <div><span>Assignee</span><span>{t.assignee}</span></div>
+        {t.fixVersions?.length ? <div><span>Fix versions</span><span>{t.fixVersions.join(", ")}</span></div> : null}
         <div>
           <label htmlFor="tk-rel" style={{ fontSize: 11, color: "var(--faint)", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 600 }}>Release</label>
           <MenuChoice id="tk-rel" className="select menu-select" style={{ height: 30, width: "100%" }} label="Release" value={rel ? t.release : ""} options={[...releases.map((r) => ({ value: r.version, label: r.label })), { value: "", label: "Unplanned" }]} onChange={onRelease} />
@@ -238,11 +273,20 @@ function TicketDetail({
         {t.branch ? (
           <div className="row wrap card" style={{ padding: 14 }}>
             <Icon name="branch" />
-            <span className="mono grow">{t.branch}</span>
-            <button className="btn btn-sm" onClick={() => nav.go({ name: "prs" })}>Pull requests</button>
+            <span className="mono grow">{t.branch}{home && <span className="faint"> in {home}</span>}</span>
             <button
               className="btn btn-sm"
               onClick={() => {
+                if (t.branchProject) nav.setProject(t.branchProject);
+                nav.go({ name: "prs" });
+              }}
+            >
+              Pull requests
+            </button>
+            <button
+              className="btn btn-sm"
+              onClick={() => {
+                if (t.branchProject) nav.setProject(t.branchProject);
                 nav.selectBranch(t.branch!);
                 nav.go({ name: "workspace" });
               }}

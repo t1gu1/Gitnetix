@@ -6,6 +6,8 @@ use serde_json::{json, Value};
 use crate::error::{Error, Result};
 use crate::store::{AsanaConf, JiraConf, TrelloConf};
 
+pub mod jira_auth;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Ticket {
@@ -25,6 +27,11 @@ pub struct Ticket {
     pub comments: u32,
     pub url: String,
     pub where_label: String,
+    /// The Jira project, Trello board or Asana project it comes from, for switching between them.
+    pub place: String,
+    /// Jira fix versions, as named there ("2.4.0", "v2.4.0"), to guess the release from.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fix_versions: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -42,15 +49,25 @@ fn http() -> reqwest::Client {
 
 async fn check(res: reqwest::Response, who: &str) -> Result<Value> {
     let status = res.status();
-    let v: Value = res.json().await.unwrap_or(Value::Null);
+    let text = res.text().await.unwrap_or_default();
+    parse(status, &text, who)
+}
+
+fn parse(status: reqwest::StatusCode, text: &str, who: &str) -> Result<Value> {
+    let v: Value = serde_json::from_str(text).unwrap_or(Value::Null);
     if !status.is_success() {
         let msg = v["errorMessages"][0]
             .as_str()
             .or(v["message"].as_str())
             .or(v["errors"][0]["message"].as_str())
             .map(String::from)
-            .unwrap_or_else(|| v.to_string());
+            // Jira answers a bad token with plain text, not JSON.
+            .unwrap_or_else(|| text.trim().chars().take(200).collect());
         return Err(Error::Http(format!("{who} {status}: {msg}")));
+    }
+    // An HTML page (wrong site URL) would otherwise read as "no tickets".
+    if v.is_null() {
+        return Err(Error::Http(format!("{who}: unexpected response, check the site URL")));
     }
     Ok(v)
 }
@@ -101,31 +118,91 @@ fn adf_text(node: &Value, out: &mut String, criteria: &mut Vec<Criterion>) {
     }
 }
 
-pub async fn jira(conf: &JiraConf, token: &str) -> Result<Vec<Ticket>> {
+/// A Jira REST call: through api.atlassian.com with an OAuth token or a
+/// scoped API token, or straight to the site with a classic API token.
+fn jira_req(conf: &JiraConf, token: &str, method: reqwest::Method, path: &str) -> reqwest::RequestBuilder {
+    let gateway = |id: &str| format!("https://api.atlassian.com/ex/jira/{id}{path}");
+    match (&conf.cloud_id, &conf.api_cloud_id) {
+        (Some(id), _) => http().request(method, gateway(id)).bearer_auth(token),
+        (None, Some(id)) => http().request(method, gateway(id)).basic_auth(&conf.email, Some(token)),
+        (None, None) => http().request(method, format!("{}{path}", conf.base_url.trim_end_matches('/'))).basic_auth(&conf.email, Some(token)),
+    }
+}
+
+/// `jira_me` for a new connection, picking the API token's route: the site
+/// for a classic token, else api.atlassian.com, the only one a scoped token works on.
+pub async fn jira_connect(conf: &mut JiraConf, token: &str) -> Result<Value> {
+    conf.api_cloud_id = None;
+    let site = jira_me(conf, token).await;
+    if site.is_ok() || conf.cloud_id.is_some() {
+        return site;
+    }
+    let tenant = http().get(format!("{}/_edge/tenant_info", conf.base_url.trim_end_matches('/'))).send().await;
+    let Some(id) = (match tenant {
+        Ok(res) => check(res, "Jira").await.ok().and_then(|v| v["cloudId"].as_str().map(String::from)),
+        Err(_) => None,
+    }) else {
+        return site;
+    };
+    conf.api_cloud_id = Some(id);
+    jira_me(conf, token).await
+}
+
+/// The signed-in Jira user. Checked first: with a bad token, search falls
+/// back to anonymous and answers 200 with no issues.
+pub async fn jira_me(conf: &JiraConf, token: &str) -> Result<Value> {
+    let res = jira_req(conf, token, reqwest::Method::GET, "/rest/api/3/myself").send().await?;
+    if res.status() == reqwest::StatusCode::UNAUTHORIZED {
+        return Err(Error::Http(if conf.cloud_id.is_some() {
+            "Jira session expired or was revoked. Sign in with Atlassian again".into()
+        } else {
+            "Jira rejected the email and API token. Check the account email and that the token hasn't expired; a scoped token needs the read:jira-user and read:jira-work scopes".into()
+        }));
+    }
+    check(res, "Jira").await
+}
+
+/// Most tickets fetched per Jira connection, so a broad JQL can't page on for ever.
+const JIRA_CAP: usize = 1000;
+
+/// `mine` adds `assignee = currentUser()`, so the cap can't hide the user's own tickets;
+/// `sprint` keeps only tickets in an open sprint.
+pub async fn jira(conf: &JiraConf, token: &str, mine: bool, sprint: bool) -> Result<Vec<Ticket>> {
     let base = conf.base_url.trim_end_matches('/');
+    // The whole sprint, done tickets included, not just the user's part of it: "Assigned to me" narrows that down.
     let jql = conf.jql.clone().filter(|s| !s.trim().is_empty()).unwrap_or_else(|| {
-        "(assignee = currentUser() OR reporter = currentUser() OR assignee is EMPTY) AND statusCategory != Done ORDER BY updated DESC".into()
+        if sprint {
+            "ORDER BY updated DESC".into()
+        } else {
+            "(assignee = currentUser() OR reporter = currentUser() OR assignee is EMPTY) AND statusCategory != Done ORDER BY updated DESC".into()
+        }
     });
-    let me = check(
-        http().get(format!("{base}/rest/api/3/myself")).basic_auth(&conf.email, Some(token)).send().await?,
-        "Jira",
-    )
-    .await?;
+    let mut jql = scope_jql(&jql, &conf.projects);
+    if mine {
+        jql = and_jql(&jql, "assignee = currentUser()");
+    }
+    if sprint {
+        jql = and_jql(&jql, "sprint in openSprints()");
+    }
+    let me = jira_me(conf, token).await?;
     let my_id = me["accountId"].as_str().unwrap_or("").to_string();
-    let v = check(
-        http()
-            .post(format!("{base}/rest/api/3/search/jql"))
-            .basic_auth(&conf.email, Some(token))
-            .json(&json!({ "jql": jql, "maxResults": 100, "fields": ["summary", "status", "issuetype", "assignee", "description", "comment", "project"] }))
-            .send()
-            .await?,
-        "Jira",
-    )
-    .await?;
-    Ok(v["issues"]
-        .as_array()
-        .into_iter()
-        .flatten()
+    let mut issues = Vec::new();
+    let mut page: Option<String> = None;
+    loop {
+        let mut body = json!({ "jql": jql, "maxResults": 100, "fields": ["summary", "status", "issuetype", "assignee", "description", "comment", "project", "fixVersions"] });
+        if let Some(t) = &page {
+            body["nextPageToken"] = t.as_str().into();
+        }
+        let v = check(jira_req(conf, token, reqwest::Method::POST, "/rest/api/3/search/jql").json(&body).send().await?, "Jira").await?;
+        issues.extend(v["issues"].as_array().cloned().unwrap_or_default());
+        page = v["nextPageToken"].as_str().map(String::from);
+        if page.is_none() || issues.len() >= JIRA_CAP {
+            break;
+        }
+    }
+    issues.truncate(JIRA_CAP);
+    Ok(issues
+        .iter()
         .map(|i| {
             let f = &i["fields"];
             let key = i["key"].as_str().unwrap_or("").to_string();
@@ -137,6 +214,7 @@ pub async fn jira(conf: &JiraConf, token: &str) -> Result<Vec<Ticket>> {
             Ticket {
                 url: format!("{base}/browse/{key}"),
                 where_label: format!("Jira · {}", f["project"]["name"].as_str().unwrap_or("")),
+                place: format!("Jira · {}", f["project"]["name"].as_str().unwrap_or("")),
                 key,
                 source: "jira".into(),
                 title: f["summary"].as_str().unwrap_or("").into(),
@@ -148,9 +226,42 @@ pub async fn jira(conf: &JiraConf, token: &str) -> Result<Vec<Ticket>> {
                 description: desc.trim().into(),
                 criteria,
                 comments: f["comment"]["total"].as_u64().unwrap_or(0) as u32,
+                fix_versions: f["fixVersions"].as_array().into_iter().flatten().filter_map(|v| v["name"].as_str().map(String::from)).collect(),
             }
         })
         .collect())
+}
+
+/// `jql` limited to the given project keys, keeping its ORDER BY last.
+fn scope_jql(jql: &str, projects: &[String]) -> String {
+    if projects.is_empty() {
+        return jql.into();
+    }
+    let keys = projects.iter().map(|k| format!("\"{}\"", k.replace('"', ""))).collect::<Vec<_>>().join(", ");
+    and_jql(jql, &format!("project in ({keys})"))
+}
+
+/// `clause AND (jql)`, keeping jql's ORDER BY last.
+fn and_jql(jql: &str, clause: &str) -> String {
+    let at = jql.to_ascii_uppercase().rfind("ORDER BY").unwrap_or(jql.len());
+    let (filter, order) = (jql[..at].trim(), &jql[at..]);
+    let filter = if filter.is_empty() { String::new() } else { format!(" AND ({filter})") };
+    format!("{clause}{filter} {order}").trim_end().into()
+}
+
+/// The Jira projects `token` can see, for picking which ones to show.
+pub async fn jira_projects(conf: &JiraConf, token: &str) -> Result<Vec<Value>> {
+    let mut out = Vec::new();
+    loop {
+        let path = format!("/rest/api/3/project/search?maxResults=100&orderBy=name&startAt={}", out.len());
+        let v = check(jira_req(conf, token, reqwest::Method::GET, &path).send().await?, "Jira").await?;
+        let page = v["values"].as_array().cloned().unwrap_or_default();
+        let done = page.is_empty() || v["isLast"].as_bool().unwrap_or(true);
+        out.extend(page.into_iter().map(|p| json!({ "key": p["key"], "name": p["name"] })));
+        if done {
+            return Ok(out);
+        }
+    }
 }
 
 // ---------- Trello ----------
@@ -162,6 +273,13 @@ pub async fn trello(conf: &TrelloConf, token: &str) -> Result<Vec<Ticket>> {
         _ => format!("https://api.trello.com/1/members/me/cards?list=true&checklists=all&members=true&{auth}"),
     };
     let v = check(http().get(url).send().await?, "Trello").await?;
+    let place = match &conf.board_id {
+        Some(b) if !b.is_empty() => {
+            let board = check(http().get(format!("https://api.trello.com/1/boards/{b}?fields=name&{auth}")).send().await?, "Trello").await;
+            format!("Trello · {}", board.ok().and_then(|v| v["name"].as_str().map(String::from)).unwrap_or_else(|| b.clone()))
+        }
+        _ => "Trello · My cards".into(),
+    };
     Ok(v.as_array()
         .into_iter()
         .flatten()
@@ -177,6 +295,7 @@ pub async fn trello(conf: &TrelloConf, token: &str) -> Result<Vec<Ticket>> {
                 .map(|it| Criterion { text: it["name"].as_str().unwrap_or("").into(), done: it["state"] == "complete" })
                 .collect();
             Ticket {
+                fix_versions: Vec::new(),
                 key: format!("#{}", c["idShort"].as_u64().unwrap_or(0)),
                 source: "trello".into(),
                 title: c["name"].as_str().unwrap_or("").into(),
@@ -190,6 +309,7 @@ pub async fn trello(conf: &TrelloConf, token: &str) -> Result<Vec<Ticket>> {
                 comments: c["badges"]["comments"].as_u64().unwrap_or(0) as u32,
                 url: c["url"].as_str().unwrap_or("").into(),
                 where_label: format!("Trello · {list}"),
+                place: place.clone(),
             }
         })
         .collect())
@@ -207,6 +327,13 @@ pub async fn asana(conf: &AsanaConf, token: &str) -> Result<Vec<Ticket>> {
         ),
     };
     let v = check(http().get(url).bearer_auth(token).send().await?, "Asana").await?;
+    let place = match &conf.project_gid {
+        Some(p) if !p.is_empty() => {
+            let project = check(http().get(format!("https://app.asana.com/api/1.0/projects/{p}?opt_fields=name")).bearer_auth(token).send().await?, "Asana").await;
+            format!("Asana · {}", project.ok().and_then(|v| v["data"]["name"].as_str().map(String::from)).unwrap_or_else(|| p.clone()))
+        }
+        _ => "Asana · My tasks".into(),
+    };
     Ok(v["data"]
         .as_array()
         .into_iter()
@@ -215,6 +342,7 @@ pub async fn asana(conf: &AsanaConf, token: &str) -> Result<Vec<Ticket>> {
             let section = t["memberships"][0]["section"]["name"].as_str().unwrap_or("");
             let status = if t["completed"] == true { "done" } else { status_from_name(section, "") };
             Ticket {
+                fix_versions: Vec::new(),
                 // Full gid: a suffix collides across tasks, and the prefix
                 // keeps it apart from Trello's `#idShort` keys.
                 key: format!("AS-{}", t["gid"].as_str().unwrap_or("")),
@@ -230,6 +358,7 @@ pub async fn asana(conf: &AsanaConf, token: &str) -> Result<Vec<Ticket>> {
                 comments: 0,
                 url: t["permalink_url"].as_str().unwrap_or("").into(),
                 where_label: "Asana".into(),
+                place: place.clone(),
             }
         })
         .collect())
@@ -256,6 +385,16 @@ mod tests {
     use super::*;
 
     #[test]
+    fn scopes_jql_to_projects() {
+        let p = vec!["ATL".to_string(), "WEB".to_string()];
+        assert_eq!(scope_jql("a = 1 ORDER BY updated DESC", &[]), "a = 1 ORDER BY updated DESC");
+        assert_eq!(scope_jql("a = 1 order by updated DESC", &p), r#"project in ("ATL", "WEB") AND (a = 1) order by updated DESC"#);
+        assert_eq!(scope_jql("a = 1", &p), r#"project in ("ATL", "WEB") AND (a = 1)"#);
+        assert_eq!(scope_jql("ORDER BY rank", &p[..1]), r#"project in ("ATL") ORDER BY rank"#);
+        assert_eq!(and_jql("a = 1 ORDER BY rank", "b = 2"), "b = 2 AND (a = 1) ORDER BY rank");
+    }
+
+    #[test]
     fn finds_keys() {
         assert_eq!(extract_keys("feat: x\n\nRefs ATL-212, see UTF-8"), vec!["ATL-212"]);
         assert_eq!(extract_keys("Merge branch 'feat/ATL-212_login'"), vec!["ATL-212"]);
@@ -269,6 +408,15 @@ mod tests {
         assert_eq!(status_from_name("Code review", ""), "review");
         assert_eq!(status_from_name("Backlog", ""), "todo");
         assert_eq!(status_from_name("In Progress", "indeterminate"), "progress");
+    }
+
+    #[test]
+    fn parse_bodies() {
+        use reqwest::StatusCode;
+        let e = parse(StatusCode::UNAUTHORIZED, "Client must be authenticated to access this resource.", "Jira").unwrap_err();
+        assert!(e.to_string().contains("Client must be authenticated"));
+        assert!(parse(StatusCode::OK, "<html></html>", "Jira").is_err());
+        assert_eq!(parse(StatusCode::OK, r#"{"issues":[]}"#, "Jira").unwrap()["issues"], json!([]));
     }
 
     #[test]

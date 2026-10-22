@@ -6,10 +6,11 @@ use serde_json::{json, Value};
 
 use crate::app::{Gitnetix, MergeOptions, NewItem, NotesInclude, ViewMode};
 use crate::error::{Error, Result};
-use crate::store::{ConnectMethod, GitProfile, JiraConf, ReleaseKind, Route, TrelloConf, AsanaConf, new_id};
+use crate::store::{upsert, ConnectMethod, Connection, GitProfile, JiraConf, ReleaseKind, Route, TrelloConf, AsanaConf, new_id};
 use crate::templates::{self, Template};
 use crate::providers::github_auth::{self, Poll};
 use crate::providers::azure_auth;
+use crate::tickets::jira_auth;
 use crate::{ai, secrets};
 
 /// (method, description, params) — also the MCP tool list.
@@ -124,15 +125,19 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("prs.react", "Add or remove a reaction", "projectId, subjectId, content, add"),
     ("prs.draftReply", "AI-drafted reply for a thread; with draft, that started reply polished instead (editing = id of the comment it rewrites)", "projectId, number, threadId, draft?, editing?"),
     ("prs.draftReview", "AI-drafted review summary", "projectId, number"),
-    ("tickets.list", "Tickets from Jira, Trello, Asana with their release", "projectId"),
+    ("tickets.list", "Tickets from Jira, Trello, Asana with their release; mine = only the user's Jira tickets, sprint = only Jira tickets in an open sprint", "projectId, mine?, sprint?"),
     ("tickets.setRelease", "Plan a ticket into a release", "projectId, key, release"),
     ("tickets.triage", "AI suggestions for unplanned tickets", "projectId"),
-    ("integrations.save", "Connect GitHub, Jira, Trello or Asana", "kind, config?, token?"),
+    ("integrations.save", "Connect GitHub, Jira, Trello or Asana; a Jira, Trello or Asana config without id adds a connection", "kind, config?, token?"),
+    ("integrations.checkJira", "Sign in to a Jira connection with its saved token; the user's name, or an error", "id"),
+    ("jira.projects", "The Jira projects a connection can see", "id"),
+    ("jira.signInStart", "Start \"Sign in with Atlassian\": the URL to open in the browser", ""),
+    ("jira.signInFinish", "Wait for the browser sign-in to finish; done = Jira connected", ""),
     ("github.signInStart", "Start \"Sign in with GitHub\": a code for the user to enter at verificationUri", ""),
     ("github.signInPoll", "Check whether the user entered the code; done = token stored and GitHub connected", "deviceCode"),
     ("azure.signInStart", "Start \"Sign in with Azure DevOps\": a code for the user to enter at verificationUri", ""),
     ("azure.signInPoll", "Check whether the user entered the code; done = tokens stored and Azure DevOps connected", "deviceCode"),
-    ("integrations.disconnect", "Disconnect an integration", "kind"),
+    ("integrations.disconnect", "Disconnect an integration (id = which Jira, Trello or Asana connection)", "kind, id?"),
     ("notes.refs", "Tags and branches for a notes range", "projectId"),
     ("notes.range", "Commit, branch and ticket counts in a range", "projectId, from, to"),
     ("notes.generate", "AI release notes", "projectId, from, to, templateId?, language, include"),
@@ -193,6 +198,20 @@ fn ok() -> Result<Value> {
 
 fn to<T: serde::Serialize>(t: T) -> Result<Value> {
     Ok(serde_json::to_value(t)?)
+}
+
+/// The Jira connection named by `id` ("" = the one from before there could be several).
+fn jira_conn(k: &Gitnetix, p: &Value) -> Result<JiraConf> {
+    let id = os(p, "id").unwrap_or_default();
+    k.store.read(|c| c.integrations.jira.iter().find(|j| j.id == id).cloned()).ok_or_else(|| Error::NotConnected("Jira".into()))
+}
+
+/// The Atlassian sign-in is shared by every OAuth connection; drop it once none is left.
+fn drop_unused_atlassian_sign_in(k: &Gitnetix) -> Result<()> {
+    if !k.store.read(|c| c.integrations.jira.iter().any(|j| j.cloud_id.is_some())) {
+        secrets::delete(jira_auth::KEY)?;
+    }
+    Ok(())
 }
 
 pub async fn call(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
@@ -743,7 +762,13 @@ pub async fn call(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
         // ---- tickets & integrations ----
         "tickets.list" => {
             let integ = k.store.read(|c| c.integrations.clone());
-            let sources: Vec<&str> = [("jira", integ.jira.is_some()), ("trello", integ.trello.is_some()), ("asana", integ.asana.is_some())]
+            let pid = s(&p, "projectId")?;
+            let on = |repos: &Vec<String>| crate::store::shows_in(repos, &pid);
+            let sources: Vec<&str> = [
+                ("jira", integ.jira.iter().any(|j| on(&j.repos))),
+                ("trello", integ.trello.iter().any(|t| on(&t.repos))),
+                ("asana", integ.asana.iter().any(|a| on(&a.repos))),
+            ]
                 .into_iter()
                 .filter(|(_, on)| *on)
                 .map(|(n, _)| n)
@@ -751,7 +776,7 @@ pub async fn call(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
             if sources.is_empty() {
                 return to(json!({ "sources": [], "tickets": [] }));
             }
-            to(json!({ "sources": sources, "tickets": k.tickets(&s(&p, "projectId")?).await?, "syncedAt": crate::store::now() }))
+            to(json!({ "sources": sources, "tickets": k.tickets(&pid, b(&p, "mine"), b(&p, "sprint")).await?, "syncedAt": crate::store::now() }))
         }
         "tickets.setRelease" => {
             k.set_ticket_release(&s(&p, "projectId")?, &s(&p, "key")?, &os(&p, "release").unwrap_or_default())?;
@@ -760,8 +785,63 @@ pub async fn call(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
         "tickets.triage" => to(k.triage(&s(&p, "projectId")?).await?),
         "integrations.save" => {
             let kind = s(&p, "kind")?;
-            let token = os(&p, "token").filter(|t| !t.is_empty());
-            let cfg = p.get("config").cloned().unwrap_or(json!({}));
+            // Pasted credentials often carry stray whitespace, which Jira answers with a 401.
+            let token = os(&p, "token").map(|t| t.trim().to_string()).filter(|t| !t.is_empty());
+            let mut cfg = p.get("config").cloned().unwrap_or(json!({}));
+            for f in ["baseUrl", "email"] {
+                if let Some(v) = cfg[f].as_str() {
+                    cfg[f] = v.trim().into();
+                }
+            }
+            if kind == "jira" {
+                let mut conf = serde_json::from_value::<JiraConf>(cfg.clone())?;
+                if cfg.get("id").is_none_or(Value::is_null) {
+                    conf.id = new_id();
+                }
+                // Sign in before saving, so "Connected" means Jira accepted the token.
+                let tok = match &token {
+                    Some(t) => t.clone(),
+                    None => jira_auth::token(&conf).await?,
+                };
+                let me = crate::tickets::jira_connect(&mut conf, &tok).await?;
+                if let Some(t) = &token {
+                    secrets::set(&conf.secret(), t)?;
+                }
+                k.store.write(|c| {
+                    upsert(&mut c.integrations.jira, conf.clone());
+                    Ok(())
+                })?;
+                drop_unused_atlassian_sign_in(k)?;
+                return to(json!({ "ok": true, "id": conf.id, "user": me["displayName"] }));
+            }
+            if kind == "trello" || kind == "asana" {
+                // A config without id adds a connection.
+                if cfg.get("id").is_none_or(Value::is_null) {
+                    cfg["id"] = new_id().into();
+                }
+                let id = os(&cfg, "id").unwrap_or_default();
+                let secret = if kind == "trello" {
+                    let conf = serde_json::from_value::<TrelloConf>(cfg)?;
+                    let secret = conf.secret();
+                    k.store.write(|c| {
+                        upsert(&mut c.integrations.trello, conf.clone());
+                        Ok(())
+                    })?;
+                    secret
+                } else {
+                    let conf = serde_json::from_value::<AsanaConf>(cfg)?;
+                    let secret = conf.secret();
+                    k.store.write(|c| {
+                        upsert(&mut c.integrations.asana, conf.clone());
+                        Ok(())
+                    })?;
+                    secret
+                };
+                if let Some(t) = &token {
+                    secrets::set(&secret, t)?;
+                }
+                return to(json!({ "ok": true, "id": id }));
+            }
             if let Some(t) = &token {
                 secrets::set(&kind, t)?;
             }
@@ -774,14 +854,41 @@ pub async fn call(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
                             c.integrations.github_user = None;
                         }
                     }
-                    "jira" => c.integrations.jira = Some(serde_json::from_value::<JiraConf>(cfg.clone())?),
-                    "trello" => c.integrations.trello = Some(serde_json::from_value::<TrelloConf>(cfg.clone())?),
-                    "asana" => c.integrations.asana = Some(serde_json::from_value::<AsanaConf>(cfg.clone())?),
                     other => return Err(Error::Invalid(format!("unknown integration {other}"))),
                 }
                 Ok(())
             })?;
             ok()
+        }
+        "integrations.checkJira" => {
+            let conf = jira_conn(k, &p)?;
+            let me = crate::tickets::jira_me(&conf, &jira_auth::token(&conf).await?).await?;
+            to(json!({ "user": me["displayName"], "site": conf.base_url, "oauth": conf.cloud_id.is_some() }))
+        }
+        "jira.projects" => {
+            let conf = jira_conn(k, &p)?;
+            to(crate::tickets::jira_projects(&conf, &jira_auth::token(&conf).await?).await?)
+        }
+        "jira.signInStart" => to(json!({ "url": jira_auth::start().await? })),
+        "jira.signInFinish" => {
+            let site = jira_auth::finish().await?;
+            // Signing in to a site already connected replaces that connection, keeping its filters.
+            let same = |j: &JiraConf| j.cloud_id.as_deref() == Some(site.cloud_id.as_str()) || j.base_url.trim_end_matches('/') == site.url.trim_end_matches('/');
+            let old = k.store.read(|c| c.integrations.jira.iter().find(|j| same(j)).cloned());
+            let mut conf = old.clone().unwrap_or_else(|| JiraConf { id: new_id(), ..Default::default() });
+            conf.base_url = site.url.clone();
+            conf.email = String::new();
+            conf.cloud_id = Some(site.cloud_id.clone());
+            conf.api_cloud_id = None;
+            let me = crate::tickets::jira_me(&conf, &jira_auth::access_token().await?).await?;
+            if old.is_some() {
+                secrets::delete(&conf.secret())?;
+            }
+            k.store.write(|c| {
+                upsert(&mut c.integrations.jira, conf.clone());
+                Ok(())
+            })?;
+            to(json!({ "id": conf.id, "user": me["displayName"] }))
         }
         "github.signInStart" => to(github_auth::start().await?),
         "github.signInPoll" => match github_auth::poll(&s(&p, "deviceCode")?).await? {
@@ -816,6 +923,26 @@ pub async fn call(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
         },
         "integrations.disconnect" => {
             let kind = s(&p, "kind")?;
+            if kind == "jira" {
+                let conf = jira_conn(k, &p)?;
+                secrets::delete(&conf.secret())?;
+                k.store.write(|c| {
+                    c.integrations.jira.retain(|j| j.id != conf.id);
+                    Ok(())
+                })?;
+                drop_unused_atlassian_sign_in(k)?;
+                return ok();
+            }
+            if kind == "trello" || kind == "asana" {
+                let id = os(&p, "id").unwrap_or_default();
+                secrets::delete(&if id.is_empty() { kind.clone() } else { format!("{kind}.{id}") })?;
+                k.store.write(|c| {
+                    c.integrations.trello.retain(|t| kind != "trello" || t.id != id);
+                    c.integrations.asana.retain(|a| kind != "asana" || a.id != id);
+                    Ok(())
+                })?;
+                return ok();
+            }
             secrets::delete(&kind)?;
             k.store.write(|c| {
                 match kind.as_str() {
@@ -827,9 +954,6 @@ pub async fn call(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
                         c.integrations.azure_connected = false;
                         c.integrations.azure_user = None;
                     }
-                    "jira" => c.integrations.jira = None,
-                    "trello" => c.integrations.trello = None,
-                    "asana" => c.integrations.asana = None,
                     _ => {}
                 }
                 Ok(())
