@@ -24,6 +24,30 @@ mod desktop {
         serde_json::json!({ "enabled": s.enabled, "port": s.port, "lan": s.lan, "token": s.token, "hosts": lan_hosts() })
     }
 
+    /// AppImage's AppRun points LD_LIBRARY_PATH, GTK and GIO at bundled libs. The
+    /// system browser inherits them and fails to start, so launch it without them.
+    #[tauri::command]
+    pub fn open_url(url: String) -> Result<(), String> {
+        #[cfg(target_os = "linux")]
+        if let Some(appdir) = std::env::var_os("APPDIR").filter(|_| std::env::var_os("APPIMAGE").is_some()) {
+            let mut cmd = std::process::Command::new("xdg-open");
+            for k in ["LD_LIBRARY_PATH", "GTK_DATA_PREFIX", "GTK_THEME", "GSETTINGS_SCHEMA_DIR", "GI_TYPELIB_PATH", "GIO_MODULE_DIR", "GTK_EXE_PREFIX", "GTK_PATH", "GTK_IM_MODULE_FILE", "GDK_PIXBUF_MODULE_FILE", "PYTHONHOME", "PYTHONPATH", "PERLLIB", "QT_PLUGIN_PATH", "GST_PLUGIN_SYSTEM_PATH", "GST_PLUGIN_SYSTEM_PATH_1_0"] {
+                cmd.env_remove(k);
+            }
+            // Keep the user's own entries, drop the ones pointing inside the AppImage.
+            for k in ["PATH", "XDG_DATA_DIRS"] {
+                if let Some(v) = std::env::var_os(k) {
+                    let kept: Vec<_> = std::env::split_paths(&v).filter(|p| !p.starts_with(&appdir)).collect();
+                    cmd.env(k, std::env::join_paths(kept).unwrap_or_default());
+                }
+            }
+            let mut child = cmd.arg(url).spawn().map_err(|e| e.to_string())?;
+            std::thread::spawn(move || child.wait());
+            return Ok(());
+        }
+        tauri_plugin_opener::open_url(url, None::<&str>).map_err(|e| e.to_string())
+    }
+
     /// Local IPv4 addresses, shown to pair a phone.
     fn lan_hosts() -> Vec<String> {
         // Connecting a UDP socket reveals the outbound interface without sending.
@@ -74,7 +98,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .setup(desktop::setup)
-        .invoke_handler(tauri::generate_handler![desktop::rpc, desktop::companion]);
+        .invoke_handler(tauri::generate_handler![desktop::rpc, desktop::companion, desktop::open_url]);
 
     builder.run(tauri::generate_context!()).expect("error while running Gitnetix");
 }

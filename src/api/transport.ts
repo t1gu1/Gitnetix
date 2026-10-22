@@ -152,8 +152,8 @@ export async function pickFolders(): Promise<string[] | null> {
 
 export async function openExternal(url: string) {
   if (isLocal) {
-    const { openUrl } = await import("@tauri-apps/plugin-opener");
-    await openUrl(url);
+    const { invoke } = await import("@tauri-apps/api/core");
+    await invoke("open_url", { url });
   } else {
     window.open(url, "_blank", "noopener");
   }
