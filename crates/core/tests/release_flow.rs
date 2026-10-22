@@ -1100,6 +1100,15 @@ async fn ship_dates_the_changelog() {
     let before = rev(&repo, "release/0.3.0");
     call(&k, "releases.ship", json!({ "projectId": pid, "version": "0.3.0" })).await;
     assert_eq!(rev(&repo, "v0.3.0^{commit}"), before);
+
+    // Release checked out, main nowhere: the checkout lands on main, staged work kept.
+    sh(&repo, &["worktree", "remove", "--force", &main_dir.to_string_lossy()]);
+    call(&k, "releases.create", json!({ "projectId": pid, "version": "0.4.0", "kind": "next" })).await;
+    sh(&repo, &["switch", "-q", "release/0.4.0"]);
+    call(&k, "releases.ship", json!({ "projectId": pid, "version": "0.4.0" })).await;
+    assert_eq!(git_out(&repo, &["branch", "--show-current"]), "main\n");
+    assert_eq!(rev(&repo, "main"), rev(&repo, "v0.4.0^{commit}"));
+    assert_eq!(git_out(&repo, &["diff", "--cached", "--name-only"]), "wip.txt\n");
 }
 
 #[tokio::test]

@@ -2165,7 +2165,13 @@ impl Gitnetix {
         let sha = git.rev_parse(&r.branch).await?;
         match default_dir {
             Some(dir) => Git::new(&dir).merge_ff_only(&r.branch).await?,
-            None => git.update_ref(&format!("refs/heads/{default}"), &sha).await?,
+            None => {
+                git.update_ref(&format!("refs/heads/{default}"), &sha).await?;
+                // Same commit, so the switch keeps any local changes.
+                if let Some(dir) = self.checkout_dir(&p, &r.branch).await? {
+                    Git::new(&dir).switch(&default).await?;
+                }
+            }
         }
         let tag = format!("v{version}");
         git.tag(&tag, &sha, &format!("Release {tag}")).await?;
