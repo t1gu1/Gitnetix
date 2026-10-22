@@ -513,6 +513,10 @@ body.dragging-tab * {
   font-size: 12px;
   white-space: nowrap;
 }
+/* Icon + label options reuse .row for the layout, not its block margin. */
+.seg > button .row {
+  margin: 0;
+}
 .seg > button:hover:not([aria-pressed="true"]) {
   background: color-mix(in srgb, var(--sel) 40%, transparent);
 }
@@ -775,11 +779,16 @@ body.dragging-tab * {
 }
 /* Text raised off the surface: lighter than --bg in both themes. */
 .empty.engraved {
+  height: 100%;
+  display: grid;
+  place-items: center;
+  font-size: 13.5px;
   font-weight: 700;
   color: color-mix(in srgb, var(--bg), #fff 30%);
   text-shadow: 0 1px 0 color-mix(in srgb, #000 25%, transparent);
 }
 .ws-diff .empty.engraved {
+  font-size: 15px;
   color: color-mix(in srgb, var(--bg), #fff 40%);
 }
 .empty-state {

@@ -1511,8 +1511,9 @@ impl Gitnetix {
         for ((b, wt), (conflict, wip)) in views.iter_mut().zip(checkouts).zip(state) {
             b.worktree = wt.filter(|w| !w.main).map(|w| w.path.clone());
             b.checked_out = wt.is_some();
-            b.running = agents.iter().any(|a| a.branch == b.name && a.project_id == p.id && a.status == AgentStatus::Running);
-            b.waiting = agents.iter().any(|a| a.branch == b.name && a.project_id == p.id && a.status == AgentStatus::Waiting);
+            let has = |st| agents.iter().any(|a| a.branch == b.name && a.project_id == p.id && a.status == st);
+            b.running = has(AgentStatus::Running);
+            b.waiting = has(AgentStatus::Waiting);
             b.conflict = conflict;
             b.wip = wip;
         }

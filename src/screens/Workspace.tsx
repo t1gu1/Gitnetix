@@ -411,7 +411,7 @@ export function Workspace() {
                 <FileList key={fold.n} allClosed={fold.closed} list={list} current={current} tree={asTree} menu={fileMenu} onPick={(f) => { setFile(fileKey(f)); setPane("diff"); }} />
               )}
               {!files.isLoading && list.length === 0 && (
-                <li className="empty engraved" style={{ height: "100%", display: "grid", placeItems: "center", fontSize: 13.5 }}>{stash ? "This stash holds no files." : commit ? "This commit changes no files." : mode === "wip" ? (checkedOut ? "No uncommitted changes." : "This branch is not checked out.") : "No changes on this branch yet."}</li>
+                <li className="empty engraved">{stash ? "This stash holds no files." : commit ? "This commit changes no files." : mode === "wip" ? (checkedOut ? "No uncommitted changes." : "This branch is not checked out.") : "No changes on this branch yet."}</li>
               )}
             </ul>
             {branch && !history && <CommitBox pid={pid} branch={branch} enabled={checkedOut} staged={stagedCount} changed={wipCount} />}
@@ -463,7 +463,7 @@ export function Workspace() {
                 </>
               )}
               {(!current || (diff.data && diff.data.length === 0 && !image) || (unchanged && !image && blobs.data && text === null)) && (
-                <div className={list.length === 0 ? "empty engraved" : "empty"} style={{ fontFamily: "var(--sans)", ...(list.length === 0 && { height: "100%", display: "grid", placeItems: "center", fontSize: 15 }) }}>
+                <div className={list.length === 0 ? "empty engraved" : "empty"} style={{ fontFamily: "var(--sans)" }}>
                   {list.length === 0 ? "Nothing to show — working tree is clean." : unchanged ? "Binary file." : "No textual changes in this file."}
                 </div>
               )}
@@ -984,7 +984,7 @@ export function MergeModal({
               onChange={(v) => set({ squashMessage: v })}
               options={[
                 { value: "branch", label: <span className="mono ellipsis">squash | {branch.replace(/-/g, " ")}</span> },
-                { value: "ai", label: <span className="row" style={{ gap: 6, margin: 0, justifyContent: "center" }}><Icon name="sparkle" size={11} />AI writes it</span> },
+                { value: "ai", label: <span className="row" style={{ gap: 6, justifyContent: "center" }}><Icon name="sparkle" size={11} />AI writes it</span> },
               ]}
             />
           </div>
@@ -1686,7 +1686,7 @@ export function useFinishHandlers(
 }
 
 /** Ends a worktree session: the agent stops and the worktree goes, its branch either kept to continue on or merged first. */
-function useFinishWorktree(s: WtSession, finish: FinishHandlers, done?: () => void) {
+function CloseWorktreeModal({ session: s, finish, onClose }: { session: AgentSession; finish: FinishHandlers; onClose: () => void }) {
   const [then, setThen] = useState<"continue" | "merge">("continue");
   const [sw, setSw] = useState(true);
   const body = (
@@ -1722,20 +1722,15 @@ function useFinishWorktree(s: WtSession, finish: FinishHandlers, done?: () => vo
   );
   const buttons = (
     <>
-      <button type="button" className="btn btn-md btn-danger" data-tip={`Delete the worktree, its uncommitted changes and the local ${s.branch} branch`} onClick={() => { finish.discard(s); done?.(); }}>Cancel and Delete all</button>
-      <button type="button" className="btn btn-md btn-primary" onClick={() => { finish[then](s, sw); done?.(); }}>
+      <button type="button" className="btn btn-md btn-danger" data-tip={`Delete the worktree, its uncommitted changes and the local ${s.branch} branch`} onClick={() => { finish.discard(s); onClose(); }}>Cancel and Delete all</button>
+      <button type="button" className="btn btn-md btn-primary" onClick={() => { finish[then](s, sw); onClose(); }}>
         Finish with the agent / worktree{then === "merge" ? "…" : ""}
       </button>
     </>
   );
-  return { body, buttons };
-}
-
-function CloseWorktreeModal({ session, finish, onClose }: { session: AgentSession; finish: FinishHandlers; onClose: () => void }) {
-  const f = useFinishWorktree(session, finish, onClose);
   return (
-    <Modal title="Close worktree session" sub={<span className="mono">{session.branch}</span>} width={520} onClose={onClose} footer={f.buttons}>
-      {f.body}
+    <Modal title="Close worktree session" sub={<span className="mono">{s.branch}</span>} width={520} onClose={onClose} footer={buttons}>
+      {body}
     </Modal>
   );
 }
@@ -1753,7 +1748,7 @@ export function FinishWorktreeCard({ session: s, finish }: { session: WtSession;
     <MergeModal
       pid={s.projectId}
       branch={s.branch}
-      base={branches.find((b) => b.name === s.branch)?.parent ?? ""}
+      base={b?.parent ?? ""}
       others={mergeTargets(branches, s.branch)}
       onClose={() => {}}
       onDeleted={(into) => nav.projectId === s.projectId && nav.selectedBranch === s.branch && nav.selectBranch(into)}

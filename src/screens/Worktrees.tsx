@@ -342,17 +342,16 @@ function StartModal({ initial, onClose }: { initial?: string; onClose: () => voi
           <span>Project</span>
           <MenuChoice className="select menu-select" label="Project" value={pid} options={projects.map((p) => ({ value: p.id, label: p.name }))} onChange={(v) => { setPid(v); setBranch(""); setFrom(""); }} />
         </div>
-        {fresh ? (
-          <div className="field grow">
-            <span>Branches off</span>
-            <MenuChoice className="select menu-select" label="Branches off" value={from} options={all.map((b) => ({ value: b.name, label: label(b) }))} onChange={setFrom} />
-          </div>
-        ) : (
-          <div className="field grow">
-            <span>Branch</span>
-            <MenuChoice className="select menu-select" label="Branch" value={branch} options={branches.map((b) => ({ value: b.name, label: label(b) }))} onChange={setBranch} />
-          </div>
-        )}
+        <div className="field grow">
+          <span>{fresh ? "Branches off" : "Branch"}</span>
+          <MenuChoice
+            className="select menu-select"
+            label={fresh ? "Branches off" : "Branch"}
+            value={fresh ? from : branch}
+            options={(fresh ? all : branches).map((b) => ({ value: b.name, label: label(b) }))}
+            onChange={fresh ? setFrom : setBranch}
+          />
+        </div>
       </div>
       {fresh && (
         <div className="field">
