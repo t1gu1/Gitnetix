@@ -11,13 +11,6 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
-### Added
-- Publishing a branch now returns your checkout to its parent branch.
-
-### Fixed
-- Deleting a release's tag now reopens the release.
-- A shipped release without a tag that is ahead of main is now reopened.
-
 ## [0.4.0] - 2026-10-22
 
 ### Added
@@ -36,6 +29,7 @@ release notes and the in-app update prompt.
 - The agent input has a Stop button while the agent works, and Up and Down recall earlier messages.
 - Suggestion choices in the agent log allow multiple selections.
 - The worktrees screen has a narrow layout, and the window can be made narrower.
+- Publishing a branch now returns your checkout to its parent branch.
 
 ### Changed
 - Workspace diffs open in the left pane above the terminal, and the branches pane is a resizable panel.
@@ -51,6 +45,8 @@ release notes and the in-app update prompt.
 - The context menu flips above its button instead of running off screen.
 - Choosing an option from the agent input menu no longer submits the prompt form.
 - Azure sign-in requests the user_impersonation scope, so consent is granted when needed.
+- Deleting a release's tag now reopens the release.
+- A shipped release without a tag that is ahead of main is now reopened.
 
 ## [0.3.0] - 2026-10-21
 
