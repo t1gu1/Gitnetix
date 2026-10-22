@@ -82,7 +82,8 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
   const pr = useAction<{ number: number }, { projectId: string; branch: string }>("prs.create", { invalidate: [["prs", pid]], success: (r) => `Opened PR #${r.number}` });
   const changelog = useAction<{ message: string }, { projectId: string; branch: string }>("changelog.update", { invalidate: inv, success: (r) => r.message });
   const stampChangelog = useAction<{ message: string }, { projectId: string; branch: string; version: string }>("changelog.release", { invalidate: inv, success: (r) => r.message });
-  const hasChangelog = !!useOverview(pid).data?.hasChangelog;
+  const ov = useOverview(pid).data;
+  const hasChangelog = !!ov?.hasChangelog;
   // Changelog entries are written by the AI that writes release notes.
   const canChangelog = useAiOn("release") && hasChangelog;
   const move = useAction("branches.setParent", { invalidate: inv });
@@ -102,6 +103,8 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
     const parent = t.baseLabel;
     const originOnly = v.remote && !v.local;
     const diverged = isDiverged(v);
+    // Publishing the branch checked out here hands the checkout back to its parent ("" base: the default branch).
+    const home = !v.upstream && v.checkedOut && !v.worktree ? t.base || ov?.defaultBranch : undefined;
     return {
       switch: {
         id: "switch",
@@ -143,10 +146,10 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
         id: "push",
         label: v.upstream ? "Push" : "Publish to origin",
         short: v.upstream ? `Push ${v.upstreamAhead || ""}`.trim() : "Publish",
-        tip: !v.upstream ? `Publish ${b} to origin` : v.upstreamAhead ? `Push ${plural(v.upstreamAhead, "commit")} to ${v.upstream}` : `Push to ${v.upstream}`,
+        tip: !v.upstream ? `Publish ${b} to origin${home ? `, then switch to ${home}` : ""}` : v.upstreamAhead ? `Push ${plural(v.upstreamAhead, "commit")} to ${v.upstream}` : `Push to ${v.upstream}`,
         icon: "push",
         hint: v.upstreamAhead ? `↑${v.upstreamAhead}` : undefined,
-        run: () => run(push, b, `Pushed ${b}`),
+        run: () => (home ? push.mutate({ projectId: pid, branch: b }, { onSuccess: () => run(sw, home, `Published ${b}, switched to ${home}`) }) : run(push, b, `Pushed ${b}`)),
       },
       forcePush: {
         id: "forcePush",
