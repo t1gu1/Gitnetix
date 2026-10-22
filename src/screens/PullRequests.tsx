@@ -19,6 +19,11 @@ const EMOJI: [string, string, string][] = [
   ["ROCKET", "🚀", "Rocket"],
 ];
 
+/** Name of the host the project's pull requests live on, from the cached list. */
+function useHost(pid: string) {
+  return usePrs(pid).data?.provider === "azure" ? "Azure DevOps" : "GitHub";
+}
+
 function stateOf(p: PrSummary, d?: PrDetail): [string, string] {
   if (p.state === "merged") return ["Merged", "c-mod"];
   if (p.state === "closed") return ["Closed", "faint"];
@@ -59,7 +64,7 @@ export function PullRequests({ initial }: { initial?: number }) {
 
   return (
     <>
-      <Header title="Pull requests" sub={`${ov?.project.name ?? ""}${prs.data ? ` · GitHub ${prs.data.repo.owner}/${prs.data.repo.repo}` : ""}`} />
+      <Header title="Pull requests" sub={`${ov?.project.name ?? ""}${prs.data ? ` · ${prs.data.provider === "azure" ? "Azure DevOps" : "GitHub"} ${prs.data.repo.owner}/${prs.data.repo.repo}` : ""}`} />
       {prs.error instanceof RpcError && (prs.error.code === "not_connected" || prs.error.code === "unsupported") ? (
         <div className="empty-state">
           <span className="empty-state-icon" aria-hidden="true"><Icon name="pr" size={22} /></span>
@@ -133,9 +138,10 @@ export function PullRequests({ initial }: { initial?: number }) {
 function Detail({ pid, number }: { pid: string; number: number }) {
   const nav = useNav();
   const q = usePr(pid, number);
+  const host = useHost(pid);
   const inv = [["pr", pid, number], ["prs", pid]];
   const merge = useAction("prs.merge", { invalidate: inv, success: `Merged #${number}` });
-  const update = useAction("prs.update", { invalidate: inv, success: "Saved to GitHub" });
+  const update = useAction("prs.update", { invalidate: inv, success: `Saved to ${host}` });
   const close = useAction<{ deleteError: string | null }>("prs.close", {
     invalidate: [...inv, ["overview", pid], ["files", pid], ["worktrees"]],
     success: (r) => (r.deleteError ? undefined : `Closed #${number}`),
@@ -238,7 +244,7 @@ function Detail({ pid, number }: { pid: string; number: number }) {
         )}
         <button className="btn" onClick={() => openExternal(d.url)}>
           <Icon name="external" size={12} />
-          Open on GitHub
+          Open on {host}
         </button>
         {open && (
           <button className="btn btn-danger" disabled={close.isPending} onClick={() => setConfirmClose(true)}>
@@ -282,9 +288,9 @@ function Detail({ pid, number }: { pid: string; number: number }) {
         >
           <p style={{ margin: 0, lineHeight: 1.55 }}>
             {deleteBranch ? (
-              <>Abandons the pull request on GitHub and deletes <span className="mono">{d.head}</span> here and on origin, with its worktree. Commits not merged elsewhere are lost.</>
+              <>Abandons the pull request on {host} and deletes <span className="mono">{d.head}</span> here and on origin, with its worktree. Commits not merged elsewhere are lost.</>
             ) : (
-              <>Abandons the pull request on GitHub. The branch <span className="mono">{d.head}</span> and its commits stay, and you can reopen it later.</>
+              <>Abandons the pull request on {host}. The branch <span className="mono">{d.head}</span> and its commits stay, and you can reopen it later.</>
             )}
           </p>
           <label className="check" style={{ marginTop: 12 }}>
@@ -347,7 +353,7 @@ function Detail({ pid, number }: { pid: string; number: number }) {
               <span className="grow" />
               <button className="btn" onClick={() => setEditing(false)}>Cancel</button>
               <button className="btn btn-primary" disabled={!title.trim() || update.isPending} onClick={() => update.mutate({ projectId: pid, number, title, body }, { onSuccess: () => setEditing(false) })}>
-                Save to GitHub
+                Save to {host}
               </button>
             </div>
           </div>
@@ -391,7 +397,10 @@ function Detail({ pid, number }: { pid: string; number: number }) {
 }
 
 function ReviewForm({ pid, d, onDone }: { pid: string; d: PrDetail; onDone: () => void }) {
-  const opts: [string, string, string][] = d.mine
+  const host = useHost(pid);
+  // GitHub refuses votes from a PR's author; Azure DevOps takes them.
+  const authorOnly = d.mine && host === "GitHub";
+  const opts: [string, string, string][] = authorOnly
     ? [["comment", "Comment", "General feedback, no explicit approval."]]
     : [
         ["comment", "Comment", "General feedback, no explicit approval."],
@@ -400,13 +409,13 @@ function ReviewForm({ pid, d, onDone }: { pid: string; d: PrDetail; onDone: () =
       ];
   const [vote, setVote] = useState(opts[0][0]);
   const [text, setText] = useState("");
-  const submit = useAction("prs.review", { invalidate: [["pr", pid, d.number]], success: "Review posted to GitHub" });
+  const submit = useAction("prs.review", { invalidate: [["pr", pid, d.number]], success: `Review posted to ${host}` });
   const draft = useAction<{ text: string }>("prs.draftReview");
   return (
     <section aria-label="Submit review" className="col card" style={{ padding: 16, gap: 12 }}>
       <div className="row">
         <h2 className="grow">Submit review</h2>
-        <span className="hint">Posted to GitHub as a review</span>
+        <span className="hint">{host === "GitHub" ? "Posted to GitHub as a review" : "Posted to Azure DevOps as your vote and a comment"}</span>
       </div>
       <div className="field">
         <label htmlFor="pr-review-text">Summary <span className="faint" style={{ fontWeight: 400 }}>optional</span></label>
@@ -424,7 +433,7 @@ function ReviewForm({ pid, d, onDone }: { pid: string; d: PrDetail; onDone: () =
           </button>
         ))}
       </fieldset>
-      {d.mine && <span className="hint">You opened this pull request, so GitHub only lets you comment on it.</span>}
+      {authorOnly && <span className="hint">You opened this pull request, so GitHub only lets you comment on it.</span>}
       <div className="row wrap">
         <button className="btn" disabled={draft.isPending} onClick={() => draft.mutate({ projectId: pid, number: d.number }, { onSuccess: (r) => setText(r.text) })}>
           <Busy on={draft.isPending}><Icon name="sparkle" size={12} className="c-acc" /></Busy>
@@ -441,6 +450,8 @@ function ReviewForm({ pid, d, onDone }: { pid: string; d: PrDetail; onDone: () =
 }
 
 function ThreadView({ pid, number, t }: { pid: string; number: number; t: PrThread }) {
+  // Azure DevOps comments only take likes.
+  const emoji = useHost(pid) === "GitHub" ? EMOJI : EMOJI.slice(0, 1);
   const [open, setOpen] = useState(!t.resolved);
   const [draft, setDraft] = useState("");
   const [picker, setPicker] = useState<string | null>(null);
@@ -555,7 +566,7 @@ function ThreadView({ pid, number, t }: { pid: string; number: number; t: PrThre
               </button>
               {picker === c.id && (
                 <div role="group" aria-label="Pick a reaction" className="row card" style={{ gap: 2, padding: 4 }}>
-                  {EMOJI.map(([content, e, label]) => (
+                  {emoji.map(([content, e, label]) => (
                     <button key={content} className="btn btn-ghost btn-sm" aria-label={label} onClick={() => { react.mutate({ projectId: pid, subjectId: c.id, content, add: true }); setPicker(null); }}>
                       {e}
                     </button>

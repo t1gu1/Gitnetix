@@ -313,6 +313,10 @@ function GitProviders({ cfg }: { cfg: Config }) {
   const save = useAction("integrations.save", { invalidate: [["config"], ["prs"]], success: "GitHub connected" });
   const disc = useAction("integrations.disconnect", { invalidate: [["config"], ["prs"]], success: "GitHub disconnected" });
   const discAzure = useAction("integrations.disconnect", { invalidate: [["config"]], success: "Azure DevOps disconnected" });
+  const saveAzure = useAction("integrations.save", { invalidate: [["config"]], success: "Azure DevOps connected" });
+  const [azureToken, setAzureToken] = useState("");
+  const [azureOrg, setAzureOrg] = useState("");
+  const [azureManual, setAzureManual] = useState(false);
   const on = cfg.integrations.githubConnected;
   const user = cfg.integrations.githubUser;
   const azureOn = cfg.integrations.azureConnected;
@@ -375,6 +379,35 @@ function GitProviders({ cfg }: { cfg: Config }) {
             {azureOn && <button className="btn" onClick={() => discAzure.mutate({ kind: "azure" })}>Disconnect</button>}
           </div>
           {!azureOn && <DeviceSignIn method="azure" name="Azure DevOps" site="Microsoft" />}
+          {!azureManual ? (
+            <div>
+              <button className="btn btn-sm" onClick={() => setAzureManual(true)}>
+                {azureOn ? "Replace with a personal access token" : "Use a personal access token"}
+              </button>
+            </div>
+          ) : (
+            <form
+              className="col"
+              style={{ gap: 10 }}
+              onSubmit={(e) => {
+                e.preventDefault();
+                saveAzure.mutate({ kind: "azure", token: azureToken, config: { org: azureOrg } }, { onSuccess: () => { setAzureToken(""); setAzureManual(false); } });
+              }}
+            >
+              <div className="field">
+                <label htmlFor="az-token">{azureOn ? "Replace token" : "Personal access token"}</label>
+                <input id="az-token" type="password" className="input mono" value={azureToken} onChange={(e) => setAzureToken(e.target.value)} />
+                <span className="hint">Token with the Code (Read &amp; write) scope, to read and act on pull requests.</span>
+              </div>
+              <div className="field">
+                <label htmlFor="az-org">Organization</label>
+                <input id="az-org" className="input mono" placeholder="https://dev.azure.com/your-org" value={azureOrg} onChange={(e) => setAzureOrg(e.target.value)} />
+              </div>
+              <div>
+                <button className="btn btn-primary" disabled={!azureToken || !azureOrg.trim() || saveAzure.isPending}>{azureOn ? "Save" : "Connect"}</button>
+              </div>
+            </form>
+          )}
         </li>
         {["GitLab", "Bitbucket", "Gitea"].map((n) => (
           <li key={n} className="list-row">
