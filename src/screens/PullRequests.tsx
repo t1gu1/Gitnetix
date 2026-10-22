@@ -3,6 +3,7 @@ import { useEffect, useState, type CSSProperties } from "react";
 import { useAction, useOverview, usePendingBranches, usePr, usePrs } from "../api/hooks";
 import { openExternal, RpcError } from "../api/transport";
 import type { PrDetail, PrSummary, PrThread } from "../api/types";
+import { Avatar } from "../components/Avatar";
 import { Icon } from "../components/Icon";
 import { Resizer, usePaneWidth } from "../components/Resizer";
 import { ago, Busy, Empty, ErrorBox, Header, initials, Loading, Markdown, Modal, Seg } from "../components/ui";
@@ -10,6 +11,7 @@ import { useNav } from "../lib/nav";
 import { toast } from "../lib/toast";
 
 type Tab = "open" | "review" | "closed";
+const GROUPS: PrSummary["state"][] = ["open", "draft", "merged", "closed"];
 const EMOJI: [string, string, string][] = [
   ["THUMBS_UP", "👍", "Thumbs up"],
   ["THUMBS_DOWN", "👎", "Thumbs down"],
@@ -101,24 +103,37 @@ export function PullRequests({ initial }: { initial?: number }) {
                 <span className="ellipsis">New PR from {branch ?? "current branch"}</span>
               </button>
             </div>
-            <div className="scroll col" style={{ flex: "1 1 auto", gap: 2, padding: "8px 0" }}>
+            <div className="scroll" style={{ flex: "1 1 auto", paddingBottom: 12 }}>
               {prs.isLoading && <Loading />}
               {!prs.isLoading && list.length === 0 && <Empty>Nothing here.</Empty>}
-              {list.map((p) => {
-                const [label, cls] = stateOf(p);
-                return (
-                  <button key={p.number} className="item-btn" aria-pressed={p.number === current} onClick={() => { setSel(p.number); setPane("detail"); }}>
-                    <span className="row" style={{ alignItems: "baseline" }}>
-                      <span className="mono faint" style={{ fontSize: 12 }}>#{p.number}</span>
-                      <span className="ellipsis" style={{ fontWeight: 500 }}>{p.title}</span>
-                    </span>
-                    <span className="row">
-                      <span className="mono faint ellipsis grow" style={{ fontSize: 11.5 }}>{p.head} → {p.base}</span>
-                      <span className={`pill ${cls}`}>{label}</span>
-                    </span>
-                  </button>
-                );
-              })}
+              {GROUPS.map((s) => ({ s, items: list.filter((p) => p.state === s) }))
+                .filter((g) => g.items.length)
+                .map(({ s, items }) => {
+                  const [label, cls] = stateOf(items[0]);
+                  return (
+                    <div key={s}>
+                      <div className="group-head" style={{ fontSize: 13, fontWeight: 700 }}>
+                        <span className={cls}>{label}</span>
+                        <span>{items.length}</span>
+                      </div>
+                      <div className="col" style={{ gap: 2 }}>
+                        {items.map((p) => (
+                          <button key={p.number} className="item-btn" style={{ gap: 1, padding: "7px 12px" }} aria-pressed={p.number === current} onClick={() => { setSel(p.number); setPane("detail"); }}>
+                            <span className="row" style={{ gap: 8, margin: "0 0 2px", fontSize: 11.5 }}>
+                              <Avatar name={p.author} />
+                              <span className="mono faint">#{p.number}</span>
+                              <span className={cls} style={{ fontSize: 13 }}>{label}</span>
+                              <span className="faint ellipsis grow">{p.mine ? "You" : p.author}</span>
+                              <span className="faint">{ago(p.updatedAt)}</span>
+                            </span>
+                            <span className="ellipsis" style={{ fontWeight: 500 }}>{p.title}</span>
+                            <span className="mono faint ellipsis" style={{ fontSize: 11.5, marginTop: 8 }}>{p.head} → {p.base}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
             </div>
           </section>
           <Resizer pane={listW} label="Resize pull request list" />
