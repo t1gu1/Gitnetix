@@ -53,7 +53,7 @@ export function ReleaseNotes() {
     <>
       <Header title="Release notes" sub={project?.name} />
       <div className="body split">
-        <aside aria-label="Options" className="sidenav" data-pane data-active={!md} style={{ flexBasis: 360, gap: 24, padding: 24 }}>
+        <aside aria-label="Options" className="sidenav" data-pane data-active={!md} style={{ flexBasis: 420, gap: 24, padding: 24 }}>
           <section className="col" style={{ gap: 10 }}>
             <h2 className="label">Range</h2>
             <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 32px minmax(0,1fr)", gap: 6, alignItems: "end" }}>
