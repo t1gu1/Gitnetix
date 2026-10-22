@@ -1645,6 +1645,8 @@ function Terminal({ pid, branch, cwd, open, setOpen, onCloseWorktree, finish }: 
   const height = usePaneWidth("gnx.pane.term", 248, 120, 900);
   const [view, setView] = useTermView();
   const shell = view === "shell";
+  // Maximized, the terminal takes the branch tree's place in its column.
+  const [max, setMax] = useState(false);
 
   if (!open) {
     return (
@@ -1672,8 +1674,8 @@ function Terminal({ pid, branch, cwd, open, setOpen, onCloseWorktree, finish }: 
   };
   return (
     <>
-      <Resizer pane={height} label="Resize agents panel" top />
-      <div className="term" style={{ "--term-h": `${height.width}px` } as CSSProperties}>
+      {!max && <Resizer pane={height} label="Resize agents panel" top />}
+      <div className={max ? "term term-max" : "term"} style={{ "--term-h": `${height.width}px` } as CSSProperties}>
         {/* Empty parts of the bar collapse it, like the closed bar opens it. */}
         <div className="term-tabs term-bar" style={{ cursor: "pointer" }} onClick={(e) => !(e.target as HTMLElement).closest("button, select, input") && setOpen(false)}>
           {/* Only the right side grows, so the session label sits left, after the tabs. */}
@@ -1694,7 +1696,10 @@ function Terminal({ pid, branch, cwd, open, setOpen, onCloseWorktree, finish }: 
           )}
           <div className="term-side" style={{ justifyContent: "flex-end" }}>
             {!shell && cur && !cur.ai && <span className="row faint hide-narrow" style={{ padding: "0 10px", fontSize: 11.5, whiteSpace: "nowrap" }}>{cur.agentLabel}</span>}
-            <button className="btn btn-ghost" style={{ width: 36, height: "auto", border: 0, borderRadius: 0 }} aria-label="Collapse agents" onClick={() => setOpen(false)}>
+            <button className="btn btn-ghost" style={{ width: 36, height: "auto", border: 0, borderLeft: "1px solid var(--line)", borderRadius: 0 }} aria-label={max ? "Restore terminal size" : "Expand terminal"} aria-pressed={max} data-tip={max ? "Restore" : "Expand"} onClick={() => setMax(!max)}>
+              <Icon name={max ? "minimize" : "maximize"} size={13} />
+            </button>
+            <button className="btn btn-ghost" style={{ width: 36, height: "auto", border: 0, borderLeft: "1px solid var(--line)", borderRadius: 0 }} aria-label="Collapse agents" onClick={() => setOpen(false)}>
               <Icon name="chevronDown" size={13} />
             </button>
           </div>

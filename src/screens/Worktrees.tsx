@@ -178,6 +178,8 @@ function Detail({ r }: { r: Row }) {
   const push = useAction("workspace.push", { invalidate: commitInv, success: `Pushed ${r.branch}` });
   const [pick, setPick] = useAgentPick(r.projectId);
   const [termView, setTermView] = useTermView();
+  // Maximized, the terminal card takes the whole detail pane.
+  const [max, setMax] = useState(false);
   const busy = a?.status === "running" || a?.status === "paused";
   const send = () => {
     const t = text.trim();
@@ -189,71 +191,78 @@ function Detail({ r }: { r: Row }) {
   const [label, cls] = STATUS[r.status];
   return (
     <div className="detail-inner" style={{ flex: 1, minHeight: 0 }}>
-      <div className="col" style={{ gap: 6 }}>
-        <div className="row wrap" style={{ fontSize: 12.5 }}>
-          <span className={`pill ${cls}`}>{label}</span>
-          <span className="muted">{r.projectName} · {r.wt ? (r.wt.main ? "Main checkout" : "Worktree") : "Directory removed"}</span>
-        </div>
-        <h1 className="mono" style={{ fontSize: 18 }}>{r.branch}</h1>
-      </div>
-      <div className="kv">
-        <div><span>Path</span><span className="mono ellipsis" title={r.path} style={{ fontSize: 12 }}>{r.path}</span></div>
-        <div><span>Base</span><span className="mono">{r.wt?.base ?? "—"}</span></div>
-        <div><span>Agent</span><span>{a?.agentLabel ?? "None"}</span></div>
-        <div><span>Ticket</span><span className="mono">{r.wt?.ticket ?? "—"}</span></div>
-        <div><span>Started</span><span>{a ? ago(a.startedAt) : "—"}</span></div>
-      </div>
-      <div className="row wrap" style={{ gap: 6 }}>
-        {a?.status === "waiting" && r.wt && (
-          <button
-            className="btn btn-primary"
-            disabled={!changed || commit.isPending || push.isPending}
-            onClick={() => commit.mutate({ projectId: r.projectId, branch: r.branch, message: "", all: !staged }, { onSuccess: () => push.mutate({ projectId: r.projectId, branch: r.branch }) })}
-          >
-            <Busy on={commit.isPending || push.isPending}><Icon name="sparkle" size={12} /></Busy>
-            <span>Commit &amp; Push changes<span style={{ fontWeight: 400, opacity: 0.75, marginLeft: 6 }}>{staged || changed}</span></span>
-          </button>
-        )}
-        {a?.status === "failed" && (
-          <button className="btn btn-primary" onClick={() => msg.mutate({ id: a.id, text: "The last run failed. Read the errors above, fix them and try again." })}>
-            <Icon name="sparkle" size={12} />
-            Fix and retry with AI
-          </button>
-        )}
-        {a?.status === "running" && <button className="btn" onClick={() => pause.mutate({ id: a.id })}><Icon name="pause" size={12} />Pause</button>}
-        {a?.status === "paused" && <button className="btn" onClick={() => resume.mutate({ id: a.id })}><Icon name="play" size={12} />Resume</button>}
-        {busy && a && <button className="btn" onClick={() => stop.mutate({ id: a.id })}><Icon name="stop" size={12} />Stop agent</button>}
-        {r.wt && (
-          <button
-            className="btn"
-            onClick={() => {
-              nav.setProject(r.projectId);
-              nav.selectBranch(r.branch);
-              nav.go({ name: "workspace" });
-            }}
-          >
-            Open in workspace
-          </button>
-        )}
-        <span className="grow" />
-        {a && !busy && !isWorktree && <button className="btn btn-ghost" onClick={() => removeAgent.mutate({ id: a.id })}>Clear session</button>}
-        {isWorktree && (
-          <>
-            <button className="btn" data-tip={`Delete the worktree and switch to ${r.branch}; refused with uncommitted changes`} onClick={() => finish.continue(session, true)}>Continue on branch</button>
-            <button className="btn" data-tip="Pick the merge options; the worktree is deleted once merged" onClick={() => finish.merge(session, true)}>Merge…</button>
-            <button className="btn btn-danger" data-tip={`Delete the worktree, its uncommitted changes and the local ${r.branch} branch`} onClick={() => setDiscarding(true)}>
-              <Icon name="trash" size={12} />
-              Cancel and Delete all
-            </button>
-            {discarding && <DiscardWorktreeModal branch={r.branch} path={r.path} onClose={() => setDiscarding(false)} onConfirm={() => finish.discard(session)} />}
-          </>
-        )}
-      </div>
-      <div className="col card" style={{ flex: "1 1 320px", minHeight: 280, gap: 0, overflow: "hidden", background: "var(--term)" }}>
+      {!max && (
+        <>
+          <div className="col" style={{ gap: 6 }}>
+            <div className="row wrap" style={{ fontSize: 12.5 }}>
+              <span className={`pill ${cls}`}>{label}</span>
+              <span className="muted">{r.projectName} · {r.wt ? (r.wt.main ? "Main checkout" : "Worktree") : "Directory removed"}</span>
+            </div>
+            <h1 className="mono" style={{ fontSize: 18 }}>{r.branch}</h1>
+          </div>
+          <div className="kv">
+            <div><span>Path</span><span className="mono ellipsis" title={r.path} style={{ fontSize: 12 }}>{r.path}</span></div>
+            <div><span>Base</span><span className="mono">{r.wt?.base ?? "—"}</span></div>
+            <div><span>Agent</span><span>{a?.agentLabel ?? "None"}</span></div>
+            <div><span>Ticket</span><span className="mono">{r.wt?.ticket ?? "—"}</span></div>
+            <div><span>Started</span><span>{a ? ago(a.startedAt) : "—"}</span></div>
+          </div>
+          <div className="row wrap" style={{ gap: 6 }}>
+            {a?.status === "waiting" && r.wt && (
+              <button
+                className="btn btn-primary"
+                disabled={!changed || commit.isPending || push.isPending}
+                onClick={() => commit.mutate({ projectId: r.projectId, branch: r.branch, message: "", all: !staged }, { onSuccess: () => push.mutate({ projectId: r.projectId, branch: r.branch }) })}
+              >
+                <Busy on={commit.isPending || push.isPending}><Icon name="sparkle" size={12} /></Busy>
+                <span>Commit &amp; Push changes<span style={{ fontWeight: 400, opacity: 0.75, marginLeft: 6 }}>{staged || changed}</span></span>
+              </button>
+            )}
+            {a?.status === "failed" && (
+              <button className="btn btn-primary" onClick={() => msg.mutate({ id: a.id, text: "The last run failed. Read the errors above, fix them and try again." })}>
+                <Icon name="sparkle" size={12} />
+                Fix and retry with AI
+              </button>
+            )}
+            {a?.status === "running" && <button className="btn" onClick={() => pause.mutate({ id: a.id })}><Icon name="pause" size={12} />Pause</button>}
+            {a?.status === "paused" && <button className="btn" onClick={() => resume.mutate({ id: a.id })}><Icon name="play" size={12} />Resume</button>}
+            {busy && a && <button className="btn" onClick={() => stop.mutate({ id: a.id })}><Icon name="stop" size={12} />Stop agent</button>}
+            {r.wt && (
+              <button
+                className="btn"
+                onClick={() => {
+                  nav.setProject(r.projectId);
+                  nav.selectBranch(r.branch);
+                  nav.go({ name: "workspace" });
+                }}
+              >
+                Open in workspace
+              </button>
+            )}
+            <span className="grow" />
+            {a && !busy && !isWorktree && <button className="btn btn-ghost" onClick={() => removeAgent.mutate({ id: a.id })}>Clear session</button>}
+            {isWorktree && (
+              <>
+                <button className="btn" data-tip={`Delete the worktree and switch to ${r.branch}; refused with uncommitted changes`} onClick={() => finish.continue(session, true)}>Continue on branch</button>
+                <button className="btn" data-tip="Pick the merge options; the worktree is deleted once merged" onClick={() => finish.merge(session, true)}>Merge…</button>
+                <button className="btn btn-danger" data-tip={`Delete the worktree, its uncommitted changes and the local ${r.branch} branch`} onClick={() => setDiscarding(true)}>
+                  <Icon name="trash" size={12} />
+                  Cancel and Delete all
+                </button>
+                {discarding && <DiscardWorktreeModal branch={r.branch} path={r.path} onClose={() => setDiscarding(false)} onConfirm={() => finish.discard(session)} />}
+              </>
+            )}
+          </div>
+        </>
+      )}
+      <div className={max ? "col card term-max" : "col card"} style={{ flex: "1 1 320px", minHeight: 280, gap: 0, overflow: "hidden", background: "var(--term)" }}>
         <div className="term-tabs">
           <TermTabs value={termView} onChange={setTermView} />
           <span className="grow" />
           <span className="hint row" style={{ padding: "0 14px" }}>Keeps running when you switch project</span>
+          <button className="btn btn-ghost" style={{ width: 36, height: "auto", border: 0, borderLeft: "1px solid var(--line)", borderRadius: 0 }} aria-label={max ? "Restore terminal size" : "Expand terminal"} aria-pressed={max} data-tip={max ? "Restore" : "Expand"} onClick={() => setMax(!max)}>
+            <Icon name={max ? "minimize" : "maximize"} size={13} />
+          </button>
         </div>
         {termView === "shell" ? (
           <ShellPane projectId={r.projectId} path={r.wt ? r.path : undefined} />

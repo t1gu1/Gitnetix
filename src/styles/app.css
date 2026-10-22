@@ -2506,6 +2506,26 @@ input.img-slider {
   border-top: 1px solid var(--line);
   background: var(--term);
 }
+/* Doubled class: outranks the narrow layout's `.term` flex-basis further down. */
+.term.term-max {
+  flex: 1 1 0;
+  max-height: none;
+}
+.ws-left:has(> .term-max) > .ws-releases {
+  display: none;
+}
+/* Expanded, the worktree agent card fills the pane edge to edge. */
+.detail:has(.term-max) {
+  padding: 0;
+}
+.detail-inner:has(> .term-max) {
+  max-width: none;
+  gap: 0;
+}
+.card.term-max {
+  border: 0;
+  border-radius: 0;
+}
 .term-tabs {
   display: flex;
   align-items: stretch;

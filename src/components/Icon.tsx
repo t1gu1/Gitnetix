@@ -46,6 +46,8 @@ const PATHS: Record<string, { d: string[]; fill?: boolean; circles?: [number, nu
   gear: { d: ["M8 5.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5zM8 1.5v1.6M8 12.9v1.6M1.5 8h1.6M12.9 8h1.6M3.4 3.4l1.1 1.1M11.5 11.5l1.1 1.1M3.4 12.6l1.1-1.1M11.5 4.5l1.1-1.1"] },
   more: { d: [], circles: [[3.5, 8, 0.7], [8, 8, 0.7], [12.5, 8, 0.7]] },
   home: { d: ["M2.5 7.5L8 3l5.5 4.5V13h-11z"] },
+  maximize: { d: ["M9.5 2.5h4v4M13.5 2.5L9 7M6.5 13.5h-4v-4M2.5 13.5L7 9"] },
+  minimize: { d: ["M13.5 2.5L9.5 6.5M9.5 3v3.5H13M2.5 13.5l4-4M6.5 13V9.5H3"] },
 };
 
 export function Icon({ name, size = 14, stroke = 1.5, className, label }: { name: keyof typeof PATHS | string; size?: number; stroke?: number; className?: string; label?: string }) {
