@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useRef } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 
 import { useAiCatalog, useConfig } from "../api/hooks";
 import type { LogLine } from "../api/types";
@@ -145,6 +145,36 @@ function AgentMark({ provider }: { provider?: string }) {
   return <span className="ag-avatar" aria-hidden="true">{mark}</span>;
 }
 
+/** Toggle one or more options, then send their numbers ("1, 3") in one answer. */
+function Choices({ opts, onAnswer }: { opts: { n: string; label: string }[]; onAnswer: (text: string) => void }) {
+  const [picked, setPicked] = useState<string[]>([]);
+  return (
+    <div className="ag-choices">
+      {opts.map((o) => (
+        <button
+          key={o.n}
+          type="button"
+          className="btn btn-sm"
+          title={o.label}
+          aria-pressed={picked.includes(o.n)}
+          onClick={() => setPicked((p) => (p.includes(o.n) ? p.filter((x) => x !== o.n) : [...p, o.n]))}
+        >
+          <span className="c-acc">{o.n}</span>
+          <span className="ellipsis">{o.label}</span>
+        </button>
+      ))}
+      <button
+        type="button"
+        className="btn btn-sm btn-primary"
+        disabled={!picked.length}
+        onClick={() => onAnswer(opts.filter((o) => picked.includes(o.n)).map((o) => o.n).join(", "))}
+      >
+        Submit
+      </button>
+    </div>
+  );
+}
+
 /** `actions` show under "Your turn!" when the agent did not ask a question. */
 export function AgentLog({ lines, empty, onAnswer, projectId, actions, thinking, provider }: { lines: LogLine[]; empty?: string; onAnswer?: (text: string) => void; projectId?: string; actions?: ReactNode; thinking?: boolean; provider?: string }) {
   const me = useMe(projectId);
@@ -211,14 +241,7 @@ export function AgentLog({ lines, empty, onAnswer, projectId, actions, thinking,
                 {opts.length > 0 && (
                   <div className="ag-sugg" role="group" aria-labelledby="ag-sugg-label">
                     <span id="ag-sugg-label" className="ag-sugg-label">Suggestions</span>
-                    <div className="ag-choices">
-                      {opts.map((o) => (
-                        <button key={o.n} type="button" className="btn btn-sm" title={o.label} onClick={() => onAnswer?.(o.n)}>
-                          <span className="c-acc">{o.n}</span>
-                          <span className="ellipsis">{o.label}</span>
-                        </button>
-                      ))}
-                    </div>
+                    <Choices opts={opts} onAnswer={(t) => onAnswer?.(t)} />
                   </div>
                 )}
                 {opts.length === 0 && actions && <div className="ag-choices">{actions}</div>}

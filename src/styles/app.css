@@ -2912,6 +2912,10 @@ button.picker-act {
 .ag-choices .btn-icon {
   padding: 0;
 }
+.ag-choices .btn[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--raised);
+}
 /* The merge options inline in the chat, as in their modal. */
 .ag-finish {
   width: min(100%, 520px);
