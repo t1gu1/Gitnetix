@@ -3207,6 +3207,7 @@ impl Gitnetix {
             prompt = prompt.replace(&format!("{{{k}}}"), v);
         }
         prompt = prompt.replace("{language}", templates::language_name(&p.gen_lang.commit));
+        prompt = format!("{prompt}\n\n{}", templates::NO_AI_CREDIT);
         self.agents.start(StartArgs {
             project_id: project_id.into(),
             branch,

@@ -75,6 +75,9 @@ pub fn variables(kind: &str) -> Vec<(&'static str, &'static str)> {
 
 /// Fill `{var}` placeholders. Rules are exposed as `{ruleKey}` too.
 /// Unknown placeholders are left as they are.
+/// Appended to every prompt, stored and custom templates included, so output never credits an AI.
+pub const NO_AI_CREDIT: &str = "Never mention Claude, AI, an assistant or an agent in what you write: no Co-Authored-By trailers, no \"Generated with\" lines, no AI attribution of any kind.";
+
 pub fn render(t: &Template, vars: &BTreeMap<String, String>, language: &str) -> String {
     let mut all = vars.clone();
     for r in &t.rules {
@@ -92,6 +95,8 @@ pub fn render(t: &Template, vars: &BTreeMap<String, String>, language: &str) -> 
     if !t.body.contains("{language}") {
         out.push_str(&format!("\n\nWrite the result in {}.", language_name(language)));
     }
+    out.push_str("\n\n");
+    out.push_str(NO_AI_CREDIT);
     out.push_str("\n\nReply with the result only: no preamble, no code fences, no explanation.");
     out
 }
@@ -244,6 +249,7 @@ mod tests {
         assert!(out.contains("feat/x"));
         assert!(out.contains("at most 72 characters"));
         assert!(out.contains("Write the result in French."));
+        assert!(out.contains(NO_AI_CREDIT));
         assert!(out.contains("{files}")); // not provided → left alone
     }
 }
