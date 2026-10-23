@@ -216,7 +216,7 @@ pub fn default_templates() -> Vec<Template> {
                 rule("askFirst", "Ask before applying", "check", json!(true)),
                 rule("runTests", "Run tests after resolving", "check", json!(true)),
             ],
-            body: "Resolve the merge conflicts in {path} between {ours} and {theirs}.\n\n- Keep the structure from {theirs} (the release branch)\n- Re-apply the intent of the change from {ours} on top\n- Never drop a change silently\n\nReturn the COMPLETE resolved file content, with no conflict markers left.\n\nFile with conflict markers:\n{conflict}".into(),
+            body: "Resolve the merge conflicts in {path} between {ours} and {theirs}.\n\n- Keep the structure from {theirs} (the release branch)\n- Re-apply the intent of the change from {ours} on top\n- Never drop a change silently\n\nReturn the COMPLETE resolved text below, every line of it, with no conflict markers left.\n\nText with conflict markers:\n{conflict}".into(),
             ..Default::default()
         },
         Template {

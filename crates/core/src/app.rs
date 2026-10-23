@@ -2086,6 +2086,10 @@ impl Gitnetix {
     pub async fn commit(&self, project_id: &str, branch: &str, message: Option<String>, all: bool) -> Result<CommitResult> {
         let p = self.store.project(project_id)?;
         let git = self.staged_checkout(&p, branch, all).await?;
+        let marked = git.staged_with_conflict_markers().await?;
+        if !marked.is_empty() {
+            return Err(Error::Invalid(format!("Conflict markers are still in {}: resolve them before committing.", marked.join(", "))));
+        }
         let (message, ai_written) = match message.filter(|m| !m.trim().is_empty()) {
             Some(m) => (m, false),
             None => (self.commit_message_for(&p, &git, branch).await?, true),
@@ -2183,19 +2187,38 @@ impl Gitnetix {
     }
 
     /// AI's take on conflicted file `path` in `git`'s checkout: the change from `ours` brought onto `theirs`.
+    /// AI is asked about each conflict with a few lines around it, not the whole file: a big file
+    /// would take minutes to write back, or never come back at all.
     async fn propose_resolution(&self, p: &Project, git: &Git, path: &str, ours: &str, theirs: &str) -> Result<String> {
         let content = std::fs::read_to_string(git.cwd().join(path))?;
-        let t = self.template("conflict", None, Some(&p.id))?;
-        let mut vars = BTreeMap::new();
-        vars.insert("conflict".into(), content);
-        vars.insert("path".into(), path.to_string());
-        vars.insert("ours".into(), ours.to_string());
-        vars.insert("theirs".into(), theirs.to_string());
-        let out = self.ask("conflict", &t, vars, "en", Some(git.cwd())).await?;
-        if out.contains("<<<<<<<") || out.contains(">>>>>>>") {
-            return Err(Error::Ai("The AI answer still has conflict markers. Try again or resolve by hand.".into()));
+        let lines: Vec<&str> = content.lines().collect();
+        let regions = conflict_regions(&lines, 10);
+        if regions.is_empty() {
+            return Err(Error::Invalid(format!("{path} has no conflict markers to resolve")));
         }
-        Ok(out)
+        let t = self.template("conflict", None, Some(&p.id))?;
+        let mut out: Vec<String> = Vec::new();
+        let mut at = 0;
+        for (start, end) in regions {
+            out.extend(lines[at..start].iter().map(|l| l.to_string()));
+            let mut vars = BTreeMap::new();
+            vars.insert("conflict".into(), lines[start..end].join("\n"));
+            vars.insert("path".into(), format!("{path} (excerpt: lines {}-{} of {})", start + 1, end, lines.len()));
+            vars.insert("ours".into(), ours.to_string());
+            vars.insert("theirs".into(), theirs.to_string());
+            let answer = self.ask("conflict", &t, vars, "en", Some(git.cwd())).await?;
+            if answer.contains("<<<<<<<") || answer.contains(">>>>>>>") {
+                return Err(Error::Ai("The AI answer still has conflict markers. Try again or resolve by hand.".into()));
+            }
+            for (i, l) in answer.lines().enumerate() {
+                // The answer comes back trimmed: give its first line back the excerpt's indent.
+                let first = lines[start];
+                out.push(if i == 0 && l.trim_start() == first.trim_start() { first.to_string() } else { l.to_string() });
+            }
+            at = end;
+        }
+        out.extend(lines[at..].iter().map(|l| l.to_string()));
+        Ok(out.join("\n"))
     }
 
     /// Write a resolved file and stage it.
@@ -4529,5 +4552,44 @@ mod tests {
     #[test]
     fn squash_title_drops_dashes() {
         assert_eq!(squash_title("feat/add-login-page"), "squash | feat/add login page");
+    }
+}
+
+/// Line ranges [start, end) of `lines` to ask AI about: each conflict (`<<<<<<<` to `>>>>>>>`)
+/// with `context` lines on each side, ranges that touch merged into one.
+fn conflict_regions(lines: &[&str], context: usize) -> Vec<(usize, usize)> {
+    let mut regions: Vec<(usize, usize)> = Vec::new();
+    let mut open = None;
+    for (i, l) in lines.iter().enumerate() {
+        if l.starts_with("<<<<<<<") {
+            open = Some(i);
+        } else if let (Some(s), true) = (open, l.starts_with(">>>>>>>")) {
+            open = None;
+            let (start, end) = (s.saturating_sub(context), (i + 1 + context).min(lines.len()));
+            match regions.last_mut() {
+                Some(last) if start <= last.1 => last.1 = end,
+                _ => regions.push((start, end)),
+            }
+        }
+    }
+    regions
+}
+
+#[cfg(test)]
+mod conflict_regions_tests {
+    use super::conflict_regions;
+
+    #[test]
+    fn each_conflict_with_its_context_and_close_ones_merged() {
+        let mut lines = vec!["x"; 40];
+        lines[5] = "<<<<<<< HEAD";
+        lines[7] = ">>>>>>> b";
+        lines[10] = "<<<<<<< HEAD";
+        lines[12] = ">>>>>>> b";
+        lines[30] = "<<<<<<< HEAD";
+        lines[32] = ">>>>>>> b";
+        assert_eq!(conflict_regions(&lines, 2), vec![(3, 15), (28, 35)]);
+        assert_eq!(conflict_regions(&lines, 10), vec![(0, 40)]);
+        assert!(conflict_regions(&["a", "b"], 10).is_empty());
     }
 }

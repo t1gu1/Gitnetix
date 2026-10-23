@@ -1249,6 +1249,21 @@ impl Git {
         self.run(&[op, "--abort"]).await.map(|_| ())
     }
 
+    /// Staged files whose changes add conflict markers (`<<<<<<<` / `>>>>>>>` lines).
+    pub async fn staged_with_conflict_markers(&self) -> Result<Vec<String>> {
+        let out = self.run(&["diff", "--cached", "-U0", "--no-color", "--no-ext-diff"]).await?;
+        let mut files: Vec<String> = Vec::new();
+        let mut file = "";
+        for l in out.lines() {
+            if let Some(f) = l.strip_prefix("+++ b/") {
+                file = f;
+            } else if (l.starts_with("+<<<<<<< ") || l.starts_with("+>>>>>>> ")) && files.last().map(String::as_str) != Some(file) {
+                files.push(file.to_string());
+            }
+        }
+        Ok(files)
+    }
+
     /// Undo a commit with a new one. Returns false when it stopped on conflicts.
     pub async fn revert(&self, sha: &str) -> Result<bool> {
         self.apply_commit("revert", sha).await
