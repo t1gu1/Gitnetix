@@ -21,7 +21,7 @@
   },
   {
     "q": "macOS says Gitnetix \"is damaged\". Is it safe?",
-    "a": "The app is fine. It isn't notarized yet, so macOS can't check who made it. After moving it to Applications, run <code>xattr -cr /Applications/Gitnetix.app</code> once, or choose Open Anyway in System Settings › Privacy &amp; Security. Updates from inside the app don't need this again."
+    "a": "The app is fine. It isn't notarized yet, so macOS can't check who made it. After moving it to Applications, run <code>xattr -cr /Applications/Gitnetix.app</code> once. If that says \"Permission denied\", copy it to <code>~/Applications</code> and clear the flag there (commands on the Download page). Or choose Open Anyway in System Settings › Privacy &amp; Security. Updates from inside the app don't need this again."
   },
   {
     "q": "Can I manage it from my phone?",

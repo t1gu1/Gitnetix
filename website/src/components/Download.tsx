@@ -1,6 +1,11 @@
 import { REPO, longDate, u, type Download as File, type Release } from '../lib/changelog';
 
-type Props = { latest: { version: string; downloads: File[] }; notes?: Release };
+const MAC_USER_INSTALL = `mkdir -p ~/Applications
+cp -R /Applications/Gitnetix.app ~/Applications/
+xattr -cr ~/Applications/Gitnetix.app
+open ~/Applications/Gitnetix.app`;
+
+type Props ={ latest: { version: string; downloads: File[] }; notes?: Release };
 
 /** Download page body. The page's inline script highlights the visitor's OS and wires the copy button. */
 export default function Download({ latest, notes }: Props) {
@@ -44,6 +49,11 @@ export default function Download({ latest, notes }: Props) {
     <div style={{ display: 'flex', alignItems: 'center', gap: '10px', background: 'var(--term)', border: '1px solid var(--line)', borderRadius: '12px', padding: '8px 8px 8px 18px' }}>
     <code style={{ flex: '1', color: '#e8e9eb', fontSize: '14px', overflowX: 'auto', whiteSpace: 'nowrap' }}><span style={{ color: '#868c96' }}>$ </span>xattr -cr /Applications/Gitnetix.app</code>
     <button type="button" data-copy="xattr -cr /Applications/Gitnetix.app" aria-label="Copy command" style={{ background: '#24282e', color: '#e8e9eb', border: '0', borderRadius: '8px', font: 'inherit', fontSize: '13px', padding: '0 14px', minHeight: '40px', minWidth: '72px' }}>Copy</button>
+    </div>
+    <p style={{ margin: '6px 0 0', color: 'var(--muted)', fontSize: '15px' }}>Getting "Permission denied", for example without admin rights? Copy the app to your own Applications folder and clear the flag there:</p>
+    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', background: 'var(--term)', border: '1px solid var(--line)', borderRadius: '12px', padding: '8px 8px 8px 18px' }}>
+    <pre className="mono" style={{ flex: '1', margin: '0', padding: '10px 0', color: '#e8e9eb', fontSize: '14px', overflowX: 'auto' }}>{MAC_USER_INSTALL.split('\n').map((l) => <div key={l}><span style={{ color: '#868c96' }}>$ </span>{l}</div>)}</pre>
+    <button type="button" data-copy={MAC_USER_INSTALL} aria-label="Copy commands" style={{ background: '#24282e', color: '#e8e9eb', border: '0', borderRadius: '8px', font: 'inherit', fontSize: '13px', padding: '0 14px', minHeight: '40px', minWidth: '72px' }}>Copy</button>
     </div>
     <p style={{ margin: '0', fontSize: '13px', color: 'var(--faint)' }}>Universal build: runs natively on Apple Silicon and Intel.</p>
     </div>
