@@ -93,7 +93,10 @@ let latest: Promise<{ version: string; downloads: Download[] }> | undefined;
 export function latestRelease() {
   return (latest ??= (async () => {
     let version = releases[0].version;
-    try {
+    // Built by the release workflow: the tag being released is the latest. The API lags a
+    // few seconds after publishing and would still return the previous release.
+    if (process.env.GITHUB_REF_TYPE === 'tag') version = process.env.GITHUB_REF_NAME!.replace(/^v/, '');
+    else try {
       const headers: Record<string, string> = { Accept: 'application/vnd.github+json' };
       if (process.env.GITHUB_TOKEN) headers.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
       const res = await fetch('https://api.github.com/repos/t1gu1/Gitnetix/releases/latest', { headers });
