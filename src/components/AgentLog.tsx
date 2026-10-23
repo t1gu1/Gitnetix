@@ -51,36 +51,51 @@ export function blocks(lines: LogLine[]): Block[] {
   return out;
 }
 
-/** Numbered options ("1. **Foo:** bar") in the agent's last reply, when it now waits for you to pick one. */
-export function choices(lines: LogLine[]): { n: string; label: string }[] {
+type Opt = { n: string; label: string };
+/** A question the agent waits on: its letter ("A") when it has one, its text, and its numbered options. */
+export type Question = { id: string; text: string; opts: Opt[] };
+
+// The agent may reply in French ("Quelle option ?", "Réponds 1, 2 ou 3").
+const PICK = /\b(which|prefer|choose|pick|quel(le)?s?|lequel|laquelle|choisi\w*|choix|préf[éè]r\w*)\b/i;
+
+/** Numbered options ("1. **Foo:** bar") in the agent's last reply, when it now waits for you to pick: one entry per question. */
+export function questions(lines: LogLine[]): Question[] {
   const b = blocks(lines);
   if (b.at(-1)?.kind !== "wait") return [];
   const reply = [...b].reverse().find((x) => x.kind === "ai" || x.kind === "you");
   if (reply?.kind !== "ai") return [];
   const rows = reply.text.split("\n");
-  const out: { n: string; label: string }[] = [];
-  let start = -1;
-  let end = rows.length;
-  for (let i = rows.length - 1; i >= 0; i--) {
+  // A list starts at "1." and runs while the numbers follow; lines between items (sub-bullets) are skipped.
+  const lists: { start: number; end: number; opts: Opt[] }[] = [];
+  let fence = false;
+  rows.forEach((row, i) => {
+    if (/^\s*```/.test(row)) fence = !fence;
     // The number may sit inside the bold: "**1. Foo** bar".
-    const m = /^\s*(?:\*\*)?(\d+)[.)]\s+(.+)$/.exec(rows[i]);
-    if (!m) continue;
-    if (!out.length) end = i + 1;
-    out.unshift({ n: m[1], label: m[2].replace(/\*\*|`/g, "") });
-    // Keep only the last list of the reply.
-    if (m[1] === "1") {
-      start = i;
-      break;
+    const m = fence ? null : /^\s*(?:\*\*)?(\d+)[.)]\s+(.+)$/.exec(row);
+    if (!m) return;
+    const opt = { n: m[1], label: m[2].replace(/\*\*|`/g, "") };
+    const last = lists.at(-1);
+    if (m[1] === "1") lists.push({ start: i, end: i + 1, opts: [opt] });
+    else if (last && Number(m[1]) === last.opts.length + 1) {
+      last.opts.push(opt);
+      last.end = i + 1;
     }
+  });
+  const out: Question[] = [];
+  for (const [k, l] of lists.entries()) {
+    const final = k === lists.length - 1;
+    // Items that are questions ("What text? …") ask you to answer each one, not to pick one.
+    const ask = !l.opts.some((o) => o.label.includes("?"));
+    // A plain list (steps, findings, changes) is not a question: only offer it when the text around it asks you to pick.
+    // The intro may be bold or a heading: "**A. Which one?**".
+    const intro = (rows.slice(0, l.start).filter((r) => r.trim()).at(-1) ?? "").replace(/\*\*|`/g, "").replace(/^\s*#+\s*/, "").trim();
+    const after = final ? rows.slice(l.end).join("\n") : "";
+    const asks = ask && (/\?$/.test(intro) || PICK.test(intro) || PICK.test(after) || /\b\d+\s+(or|ou)\s+\d+\b/i.test(after));
+    // The questions close the reply: when the last list asks nothing, the earlier ones were not questions either.
+    if (final && !asks) return [];
+    if (asks) out.push({ id: /^([A-Z])[.)]\s/.exec(intro)?.[1] ?? "", text: intro, opts: l.opts });
   }
-  if (start < 0) return [];
-  // Items that are questions ("What text? …") ask you to answer each one, not to pick one.
-  if (out.some((o) => o.label.includes("?"))) return [];
-  // A plain list (steps, findings, changes) is not a question: only offer it when the text around it asks you to pick.
-  const intro = rows.slice(0, start).filter((l) => l.trim()).at(-1) ?? "";
-  const after = rows.slice(end).join("\n");
-  const asks = /\?\s*$|\b(which|prefer|choose|pick)\b/i.test(intro) || /\b(which|prefer|choose|pick)\b|\b\d+\s+or\s+\d+\b/i.test(after);
-  return asks ? out : [];
+  return out;
 }
 
 /** "Read ×3 · Edit · Bash ×2" */
@@ -145,33 +160,44 @@ function AgentMark({ provider }: { provider?: string }) {
   return <span className="ag-avatar" aria-hidden="true">{mark}</span>;
 }
 
-/** Toggle one or more options, then send their numbers ("1, 3") in one answer. */
-function Choices({ opts, onAnswer }: { opts: { n: string; label: string }[]; onAnswer: (text: string) => void }) {
-  const [picked, setPicked] = useState<string[]>([]);
+/** Toggle one or more options per question, then send them in one answer: "1, 3", or "A: 1, 3; B: 2" for several questions. */
+function Choices({ qs, onAnswer }: { qs: Question[]; onAnswer: (text: string) => void }) {
+  // Picked option numbers, one list per question.
+  const [picked, setPicked] = useState<string[][]>(() => qs.map(() => []));
+  const toggle = (q: number, n: string) => setPicked((p) => p.map((x, i) => (i !== q ? x : x.includes(n) ? x.filter((y) => y !== n) : [...x, n])));
+  const nums = (q: number) => qs[q].opts.filter((o) => picked[q]?.includes(o.n)).map((o) => o.n).join(", ");
+  const answer = qs.length === 1 ? nums(0) : qs.map((q, i) => `${q.id || `Q${i + 1}`}: ${nums(i)}`).join("; ");
+  // Every question needs a pick before sending.
+  const ready = qs.every((_, i) => picked[i]?.length);
   return (
-    <div className="ag-choices">
-      {opts.map((o) => (
-        <button
-          key={o.n}
-          type="button"
-          className="btn btn-sm"
-          title={o.label}
-          aria-pressed={picked.includes(o.n)}
-          onClick={() => setPicked((p) => (p.includes(o.n) ? p.filter((x) => x !== o.n) : [...p, o.n]))}
-        >
-          <span className="c-acc">{o.n}</span>
-          <span className="ellipsis">{o.label}</span>
-        </button>
+    <>
+      {qs.map((q, i) => (
+        <div key={i} className="ag-q">
+          {qs.length > 1 && <span className="ag-q-text">{q.text}</span>}
+          <div className="ag-choices">
+            {q.opts.map((o) => (
+              <button
+                key={o.n}
+                type="button"
+                className="btn btn-sm"
+                title={o.label}
+                aria-pressed={!!picked[i]?.includes(o.n)}
+                onClick={() => toggle(i, o.n)}
+              >
+                <span className="c-acc">{o.n}</span>
+                <span className="ellipsis">{o.label}</span>
+              </button>
+            ))}
+            {/* One Send for all questions, at the end of the last one. */}
+            {i === qs.length - 1 && (
+              <button type="button" className="btn btn-sm btn-primary" disabled={!ready} onClick={() => onAnswer(answer)}>
+                Send
+              </button>
+            )}
+          </div>
+        </div>
       ))}
-      <button
-        type="button"
-        className="btn btn-sm btn-primary"
-        disabled={!picked.length}
-        onClick={() => onAnswer(opts.filter((o) => picked.includes(o.n)).map((o) => o.n).join(", "))}
-      >
-        Submit
-      </button>
-    </div>
+    </>
   );
 }
 
@@ -181,7 +207,7 @@ export function AgentLog({ lines, empty, onAnswer, projectId, actions, thinking,
   const ref = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
   const list = blocks(lines);
-  const opts = onAnswer ? choices(lines) : [];
+  const qs = onAnswer ? questions(lines) : [];
   // One mark per answer: on the first reply or steps after each message of yours.
   const opens = new Set<number>();
   let fresh = true;
@@ -238,13 +264,13 @@ export function AgentLog({ lines, empty, onAnswer, projectId, actions, thinking,
             return i !== list.length - 1 ? null : (
               <div key={i} className="ag-wait">
                 <span className="ag-wait-chip">Your turn!</span>
-                {opts.length > 0 && (
+                {qs.length > 0 && (
                   <div className="ag-sugg" role="group" aria-labelledby="ag-sugg-label">
                     <span id="ag-sugg-label" className="ag-sugg-label">Suggestions</span>
-                    <Choices opts={opts} onAnswer={(t) => onAnswer?.(t)} />
+                    <Choices qs={qs} onAnswer={(t) => onAnswer?.(t)} />
                   </div>
                 )}
-                {opts.length === 0 && actions && <div className="ag-choices">{actions}</div>}
+                {qs.length === 0 && actions && <div className="ag-choices">{actions}</div>}
               </div>
             );
           case "err":
