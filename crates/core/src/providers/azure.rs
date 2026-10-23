@@ -218,6 +218,10 @@ impl Azure {
         let mut checks: Vec<Check> = Vec::new();
         for e in evals.ok().as_ref().and_then(|v| v["value"].as_array()).into_iter().flatten() {
             let c = &e["configuration"];
+            // Only met on completion, and merge() picks an allowed strategy then.
+            if c["type"]["id"] == MERGE_STRATEGY_POLICY {
+                continue;
+            }
             let name = c["settings"]["displayName"].as_str().or(c["type"]["displayName"].as_str()).unwrap_or("Policy");
             if let Some(status) = check_status(e["status"].as_str().unwrap_or("")) {
                 // Build policies point at their pipeline run.
