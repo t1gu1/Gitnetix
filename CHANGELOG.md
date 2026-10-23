@@ -11,6 +11,9 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+### Added
+- Website built with Astro, deployed to GitHub Pages, with one release notes page per version.
+
 ## [0.4.0] - 2026-10-22
 
 ### Added
