@@ -193,8 +193,9 @@ const JIRA_CAP: usize = 1000;
 
 /// `mine` adds `assignee = currentUser()`, so the cap can't hide the user's own tickets;
 /// `sprint` keeps only tickets in an open sprint.
+const JIRA_FIELDS: [&str; 11] = ["summary", "status", "issuetype", "assignee", "description", "comment", "project", "fixVersions", "priority", "timetracking", "parent"];
+
 pub async fn jira(conf: &JiraConf, token: &str, mine: bool, sprint: bool) -> Result<Vec<Ticket>> {
-    let base = conf.base_url.trim_end_matches('/');
     // The whole sprint, done tickets included, not just the user's part of it: "Assigned to me" narrows that down.
     let jql = conf.jql.clone().filter(|s| !s.trim().is_empty()).unwrap_or_else(|| {
         if sprint {
@@ -215,7 +216,7 @@ pub async fn jira(conf: &JiraConf, token: &str, mine: bool, sprint: bool) -> Res
     let mut issues = Vec::new();
     let mut page: Option<String> = None;
     loop {
-        let mut body = json!({ "jql": jql, "maxResults": 100, "fields": ["summary", "status", "issuetype", "assignee", "description", "comment", "project", "fixVersions", "priority", "timetracking", "parent"] });
+        let mut body = json!({ "jql": jql, "maxResults": 100, "fields": JIRA_FIELDS });
         if let Some(t) = &page {
             body["nextPageToken"] = t.as_str().into();
         }
@@ -227,44 +228,55 @@ pub async fn jira(conf: &JiraConf, token: &str, mine: bool, sprint: bool) -> Res
         }
     }
     issues.truncate(JIRA_CAP);
-    Ok(issues
-        .iter()
-        .map(|i| {
-            let f = &i["fields"];
-            let key = i["key"].as_str().unwrap_or("").to_string();
-            let mut desc = String::new();
-            let mut criteria = Vec::new();
-            adf_text(&f["description"], &mut desc, &mut criteria);
-            let st_name = f["status"]["name"].as_str().unwrap_or("");
-            let cat = f["status"]["statusCategory"]["key"].as_str().unwrap_or("new");
-            Ticket {
-                url: format!("{base}/browse/{key}"),
-                where_label: format!("Jira · {}", f["project"]["name"].as_str().unwrap_or("")),
-                place: format!("Jira · {}", f["project"]["name"].as_str().unwrap_or("")),
-                id: key.clone(),
-                conn: conf.id.clone(),
-                key,
-                source: "jira".into(),
-                title: f["summary"].as_str().unwrap_or("").into(),
-                kind: f["issuetype"]["name"].as_str().unwrap_or("Task").into(),
-                status: status_from_name(st_name, cat).into(),
-                status_label: st_name.into(),
-                assignee: f["assignee"]["displayName"].as_str().unwrap_or("Unassigned").into(),
-                mine: f["assignee"]["accountId"].as_str() == Some(my_id.as_str()),
-                description: desc.trim().into(),
-                doc: f["description"].clone(),
-                criteria,
-                comments: f["comment"]["total"].as_u64().unwrap_or(0) as u32,
-                fix_versions: f["fixVersions"].as_array().into_iter().flatten().filter_map(|v| v["name"].as_str().map(String::from)).collect(),
-                priority: f["priority"]["name"].as_str().unwrap_or("").into(),
-                time_remaining: f["timetracking"]["remainingEstimate"].as_str().unwrap_or("").into(),
-                time_estimate: f["timetracking"]["originalEstimate"].as_str().unwrap_or("").into(),
-                parent_key: f["parent"]["key"].as_str().unwrap_or("").into(),
-                parent_title: f["parent"]["fields"]["summary"].as_str().unwrap_or("").into(),
-                parent_url: f["parent"]["key"].as_str().map(|k| format!("{base}/browse/{k}")).unwrap_or_default(),
-            }
-        })
-        .collect())
+    Ok(issues.iter().map(|i| jira_ticket(conf, i, &my_id)).collect())
+}
+
+/// A Jira issue as returned by search or by `/issue/{key}`, as a `Ticket`.
+fn jira_ticket(conf: &JiraConf, i: &Value, my_id: &str) -> Ticket {
+    let base = conf.base_url.trim_end_matches('/');
+    let f = &i["fields"];
+    let key = i["key"].as_str().unwrap_or("").to_string();
+    let mut desc = String::new();
+    let mut criteria = Vec::new();
+    adf_text(&f["description"], &mut desc, &mut criteria);
+    let st_name = f["status"]["name"].as_str().unwrap_or("");
+    let cat = f["status"]["statusCategory"]["key"].as_str().unwrap_or("new");
+    Ticket {
+        url: format!("{base}/browse/{key}"),
+        where_label: format!("Jira · {}", f["project"]["name"].as_str().unwrap_or("")),
+        place: format!("Jira · {}", f["project"]["name"].as_str().unwrap_or("")),
+        id: key.clone(),
+        conn: conf.id.clone(),
+        key,
+        source: "jira".into(),
+        title: f["summary"].as_str().unwrap_or("").into(),
+        kind: f["issuetype"]["name"].as_str().unwrap_or("Task").into(),
+        status: status_from_name(st_name, cat).into(),
+        status_label: st_name.into(),
+        assignee: f["assignee"]["displayName"].as_str().unwrap_or("Unassigned").into(),
+        mine: f["assignee"]["accountId"].as_str() == Some(my_id),
+        description: desc.trim().into(),
+        doc: f["description"].clone(),
+        criteria,
+        comments: f["comment"]["total"].as_u64().unwrap_or(0) as u32,
+        fix_versions: f["fixVersions"].as_array().into_iter().flatten().filter_map(|v| v["name"].as_str().map(String::from)).collect(),
+        priority: f["priority"]["name"].as_str().unwrap_or("").into(),
+        time_remaining: f["timetracking"]["remainingEstimate"].as_str().unwrap_or("").into(),
+        time_estimate: f["timetracking"]["originalEstimate"].as_str().unwrap_or("").into(),
+        parent_key: f["parent"]["key"].as_str().unwrap_or("").into(),
+        parent_title: f["parent"]["fields"]["summary"].as_str().unwrap_or("").into(),
+        parent_url: f["parent"]["key"].as_str().map(|k| format!("{base}/browse/{k}")).unwrap_or_default(),
+    }
+}
+
+/// One Jira ticket by key, whatever its status or assignee. `mine` is left false: it would cost a `myself` call.
+pub async fn jira_issue(conf: &JiraConf, token: &str, key: &str) -> Result<Ticket> {
+    if key.is_empty() || !key.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+        return Err(Error::Invalid(format!("“{key}” is not a Jira key")));
+    }
+    let path = format!("/rest/api/3/issue/{key}?fields={}", JIRA_FIELDS.join(","));
+    let i = check(jira_req(conf, token, reqwest::Method::GET, &path).send().await?, "Jira").await?;
+    Ok(jira_ticket(conf, &i, ""))
 }
 
 /// Where Jira lets ticket `key` go from its current status.
@@ -565,6 +577,30 @@ mod tests {
         assert!(e.to_string().contains("Client must be authenticated"));
         assert!(parse(StatusCode::OK, "<html></html>", "Jira").is_err());
         assert_eq!(parse(StatusCode::OK, r#"{"issues":[]}"#, "Jira").unwrap()["issues"], json!([]));
+    }
+
+    #[test]
+    fn jira_issue_as_ticket() {
+        let conf: JiraConf = serde_json::from_value(json!({ "id": "c1", "baseUrl": "https://x.atlassian.net/", "email": "a@b.c" })).unwrap();
+        let issue = json!({ "key": "ATL-212", "fields": {
+            "summary": "Login", "issuetype": { "name": "Story" }, "project": { "name": "Atlas" },
+            "status": { "name": "Done", "statusCategory": { "key": "done" } },
+            "assignee": { "accountId": "me", "displayName": "Ana" },
+            "description": { "type": "doc", "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Users sign in." }] }] },
+            "parent": { "key": "ATL-1", "fields": { "summary": "Auth" } }
+        }});
+        let t = jira_ticket(&conf, &issue, "me");
+        assert_eq!((t.key.as_str(), t.id.as_str(), t.conn.as_str()), ("ATL-212", "ATL-212", "c1"));
+        assert_eq!(t.url, "https://x.atlassian.net/browse/ATL-212");
+        assert_eq!((t.status.as_str(), t.description.as_str(), t.parent_title.as_str()), ("done", "Users sign in.", "Auth"));
+        assert!(t.mine);
+        assert!(!jira_ticket(&conf, &issue, "").mine);
+    }
+
+    #[tokio::test]
+    async fn jira_issue_refuses_odd_keys() {
+        let conf: JiraConf = serde_json::from_value(json!({ "baseUrl": "https://x.atlassian.net", "email": "a@b.c" })).unwrap();
+        assert!(matches!(jira_issue(&conf, "t", "ATL-1/../../x").await, Err(Error::Invalid(_))));
     }
 
     #[test]

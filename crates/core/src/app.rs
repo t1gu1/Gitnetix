@@ -11,7 +11,7 @@ use futures_util::{stream, StreamExt};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, OnceCell};
 
-use crate::agents::{AgentManager, AgentSession, AgentStatus, StartArgs};
+use crate::agents::{AgentManager, AgentSession, AgentStatus, LogLine, StartArgs};
 use crate::ai::{self, Resolved};
 use crate::cache::{key_of, CommitCache, ViewCache};
 use crate::error::{Error, Result};
@@ -382,6 +382,59 @@ fn valid_branch_name(s: &str) -> bool {
         && !s.ends_with('/')
         && !s.ends_with(".lock")
         && s.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '-' | '_' | '.'))
+}
+
+/// File in a checkout's git dir holding its agent's ticket, out of the working tree.
+const TICKET_FILE: &str = "gitnetix-ticket.md";
+
+/// How long an agent start waits for the branch's ticket.
+const TICKET_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Longest ticket description given to an agent, in characters.
+const TICKET_DESCRIPTION_MAX: usize = 20_000;
+
+/// A ticket as an agent reads it.
+fn ticket_context(t: &Ticket) -> String {
+    let mut s = format!("# {} · {} · {}\n{}\nStatus: {}", t.key, t.kind, t.title, t.url, t.status_label);
+    if !t.parent_key.is_empty() {
+        s.push_str(&format!("\nParent: {} {}", t.parent_key, t.parent_title));
+    }
+    let desc = t.description.trim();
+    if !desc.is_empty() {
+        s.push_str("\n\n");
+        s.extend(desc.chars().take(TICKET_DESCRIPTION_MAX));
+        if desc.chars().count() > TICKET_DESCRIPTION_MAX {
+            s.push_str("\n… (cut, see the ticket)");
+        }
+    }
+    if !t.criteria.is_empty() {
+        s.push_str("\n\nAcceptance criteria:");
+        for c in &t.criteria {
+            s.push_str(&format!("\n- [{}] {}", if c.done { "x" } else { " " }, c.text));
+        }
+    }
+    s
+}
+
+/// The agent prompt's `{ticket}`: the ticket, then where to get it again.
+fn ticket_section(project_id: &str, key: &str, body: &str, saved: Option<&Path>) -> String {
+    let mut s = format!("Ticket linked to this branch:\n\n{body}\n\n");
+    if let Some(f) = saved {
+        s.push_str(&format!("A copy is in {}: read it again whenever you need the ticket. ", f.display()));
+    }
+    s.push_str(&format!("If the Gitnetix `tickets_get` tool is available, call it with projectId \"{project_id}\" and key \"{key}\" for its current version."));
+    s
+}
+
+/// Fill an agent prompt's `{ticket}`, or add the section at the end of a template without it.
+fn insert_ticket(prompt: &str, ticket: &str) -> String {
+    if prompt.contains("{ticket}") {
+        prompt.replace("{ticket}", ticket)
+    } else if ticket.is_empty() {
+        prompt.to_string()
+    } else {
+        format!("{prompt}\n\n{ticket}")
+    }
 }
 
 /// Start the part after the prefix with the ticket key and an underscore (`feat/ATL-212_login`).
@@ -3207,6 +3260,9 @@ impl Gitnetix {
             prompt = prompt.replace(&format!("{{{k}}}"), v);
         }
         prompt = prompt.replace("{language}", templates::language_name(&p.gen_lang.commit));
+        let (ticket, notes) = self.agent_ticket(project_id, &branch, cwd).await;
+        // Last, so nothing in the ticket is taken for a placeholder.
+        prompt = insert_ticket(&prompt, &ticket);
         prompt = format!("{prompt}\n\n{}", templates::NO_AI_CREDIT);
         self.agents.start(StartArgs {
             project_id: project_id.into(),
@@ -3216,7 +3272,27 @@ impl Gitnetix {
             request: request.into(),
             prompt,
             ai: r,
+            notes,
         })
+    }
+
+    /// The prompt section for the branch's ticket ("" without one), with log lines saying what
+    /// happened. The ticket is also saved in the checkout's git dir so the agent can read it again.
+    /// A tracker that fails or is slow never keeps the agent from starting.
+    async fn agent_ticket(&self, project_id: &str, branch: &str, cwd: &Path) -> (String, Vec<LogLine>) {
+        let note = |text: String| vec![LogLine::new("dim", text)];
+        let t = match tokio::time::timeout(TICKET_TIMEOUT, self.branch_ticket(project_id, branch)).await {
+            Ok(Ok(Some(t))) => t,
+            Ok(Ok(None)) => return (String::new(), vec![]),
+            Ok(Err(e)) => return (String::new(), note(format!("  ⚠ Could not load the branch's ticket: {e}"))),
+            Err(_) => return (String::new(), note("  ⚠ The branch's ticket took too long to load: starting without it".into())),
+        };
+        let body = ticket_context(&t);
+        let saved = match Git::new(cwd).git_paths(&[TICKET_FILE]).await {
+            Ok(paths) => paths.into_iter().next().filter(|f| std::fs::write(f, &body).is_ok()),
+            Err(_) => None,
+        };
+        (ticket_section(project_id, &t.key, &body, saved.as_deref()), note(format!("  ↳ Ticket {} added to the context", t.key)))
     }
 
     /// An agent on a branch always works in that branch's own worktree, made
@@ -3581,6 +3657,80 @@ impl Gitnetix {
             }
         }
         Ok(views)
+    }
+
+    /// Ticket `key` from the connections this project shows: Jira asked for it directly, so a done
+    /// or unassigned ticket is found too; Trello and Asana looked up in their lists.
+    pub async fn ticket(&self, project_id: &str, key: &str) -> Result<Option<Ticket>> {
+        let integ = self.store.read(|c| c.integrations.clone());
+        let on = |repos: &[String]| crate::store::shows_in(repos, project_id);
+        let mut err = None;
+        if let Some(jira_key) = ticket_keys(key, true).into_iter().find(|k| k.eq_ignore_ascii_case(key.trim())) {
+            let prefix = jira_key.split('-').next().unwrap_or("");
+            // A connection scoped to other Jira projects cannot have it.
+            for j in integ.jira.iter().filter(|j| on(&j.repos) && (j.projects.is_empty() || j.projects.iter().any(|p| p.eq_ignore_ascii_case(prefix)))) {
+                let got = match tickets::jira_auth::token(j).await {
+                    Ok(tok) => tickets::jira_issue(j, &tok, &jira_key).await,
+                    Err(e) => Err(e),
+                };
+                match got {
+                    Ok(t) => return Ok(Some(t)),
+                    Err(e) => err = Some(e),
+                }
+            }
+        }
+        let token = |name: String| secrets::get(&name).and_then(|t| t.ok_or_else(|| Error::Other(format!("{name} token missing"))));
+        let mut lists = Vec::new();
+        for t in integ.trello.iter().filter(|t| on(&t.repos)) {
+            lists.push(match token(t.secret()) {
+                Ok(tok) => tickets::trello(t, &tok).await,
+                Err(e) => Err(e),
+            });
+        }
+        for a in integ.asana.iter().filter(|a| on(&a.repos)) {
+            lists.push(match token(a.secret()) {
+                Ok(tok) => tickets::asana(a, &tok).await,
+                Err(e) => Err(e),
+            });
+        }
+        for l in lists {
+            match l {
+                Ok(v) => {
+                    if let Some(t) = v.into_iter().find(|t| t.key.eq_ignore_ascii_case(key.trim())) {
+                        return Ok(Some(t));
+                    }
+                }
+                Err(e) => err = Some(e),
+            }
+        }
+        match err {
+            Some(e) => Err(e),
+            None => Ok(None),
+        }
+    }
+
+    /// The ticket `branch` was made for, else the first one its name holds that a connection has.
+    pub async fn branch_ticket(&self, project_id: &str, branch: &str) -> Result<Option<Ticket>> {
+        let p = self.store.project(project_id)?;
+        let made_for = p.branches.get(branch).and_then(|m| m.ticket.clone()).filter(|t| !t.is_empty());
+        let mut keys: Vec<String> = Vec::new();
+        for k in made_for.into_iter().chain(ticket_keys(branch, true)) {
+            if !keys.iter().any(|seen| seen.eq_ignore_ascii_case(&k)) {
+                keys.push(k);
+            }
+        }
+        let mut err = None;
+        for k in keys {
+            match self.ticket(project_id, &k).await {
+                Ok(Some(t)) => return Ok(Some(t)),
+                Ok(None) => {}
+                Err(e) => err = Some(e),
+            }
+        }
+        match err {
+            Some(e) => Err(e),
+            None => Ok(None),
+        }
     }
 
     pub fn set_ticket_release(&self, project_id: &str, key: &str, release: &str) -> Result<()> {
@@ -4112,6 +4262,42 @@ mod tests {
         assert_eq!(normalize_kind("wip"), None);
         assert!(!valid_branch_name("feat/ bad"));
         assert!(!valid_branch_name("feat/.."));
+    }
+
+    #[test]
+    fn agent_ticket_context() {
+        let t: Ticket = serde_json::from_value(serde_json::json!({
+            "key": "ATL-212", "source": "jira", "title": "Login", "kind": "Story", "status": "progress", "statusLabel": "In Progress",
+            "assignee": "Ana", "mine": false, "description": "Users sign in.\n", "criteria": [{"text": "SSO", "done": true}, {"text": "MFA", "done": false}],
+            "comments": 0, "url": "https://x.atlassian.net/browse/ATL-212", "whereLabel": "", "place": ""
+        }))
+        .unwrap();
+        let body = ticket_context(&t);
+        assert_eq!(body, "# ATL-212 · Story · Login\nhttps://x.atlassian.net/browse/ATL-212\nStatus: In Progress\n\nUsers sign in.\n\nAcceptance criteria:\n- [x] SSO\n- [ ] MFA");
+
+        let section = ticket_section("p1", "ATL-212", &body, Some(Path::new("/r/.git/gitnetix-ticket.md")));
+        assert!(section.contains(&body));
+        assert!(section.contains("/r/.git/gitnetix-ticket.md"));
+        assert!(section.contains(r#"projectId "p1" and key "ATL-212""#));
+        assert!(!ticket_section("p1", "ATL-212", &body, None).contains("A copy is in"));
+
+        assert_eq!(insert_ticket("Do it.\n{ticket}\nThanks", "T"), "Do it.\nT\nThanks");
+        assert_eq!(insert_ticket("Do it.", "T"), "Do it.\n\nT");
+        assert_eq!(insert_ticket("Do it.", ""), "Do it.");
+        assert_eq!(insert_ticket("Do it.\n{ticket}", ""), "Do it.\n");
+    }
+
+    #[test]
+    fn long_ticket_description_is_cut() {
+        let mut t: Ticket = serde_json::from_value(serde_json::json!({
+            "key": "#12", "source": "trello", "title": "T", "kind": "Card", "status": "todo", "statusLabel": "To do",
+            "assignee": "", "mine": true, "description": "", "criteria": [], "comments": 0, "url": "", "whereLabel": "", "place": ""
+        }))
+        .unwrap();
+        t.description = "é".repeat(TICKET_DESCRIPTION_MAX + 5);
+        let body = ticket_context(&t);
+        assert_eq!(body.matches('é').count(), TICKET_DESCRIPTION_MAX);
+        assert!(body.ends_with("(cut, see the ticket)"));
     }
 
     #[test]

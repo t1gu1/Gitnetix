@@ -126,6 +126,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("prs.draftReply", "AI-drafted reply for a thread; with draft, that started reply polished instead (editing = id of the comment it rewrites)", "projectId, number, threadId, draft?, editing?"),
     ("prs.draftReview", "AI-drafted review summary", "projectId, number"),
     ("tickets.list", "Tickets from Jira, Trello, Asana with their release; mine = only the user's Jira tickets, sprint = only Jira tickets in an open sprint", "projectId, mine?, sprint?"),
+    ("tickets.get", "One ticket with its full description, by key or by the branch linked to it; null when none", "projectId, key? | branch?"),
     ("tickets.setRelease", "Plan a ticket into a release", "projectId, key, release"),
     ("tickets.triage", "AI suggestions for unplanned tickets", "projectId"),
     ("tickets.statuses", "Statuses a ticket can move to (Jira transitions, Trello lists, Asana sections)", "source, conn, id"),
@@ -782,6 +783,13 @@ pub async fn call(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
                 return to(json!({ "sources": [], "tickets": [] }));
             }
             to(json!({ "sources": sources, "tickets": k.tickets(&pid, b(&p, "mine"), b(&p, "sprint")).await?, "syncedAt": crate::store::now() }))
+        }
+        "tickets.get" => {
+            let pid = s(&p, "projectId")?;
+            match os(&p, "key").filter(|k| !k.trim().is_empty()) {
+                Some(key) => to(k.ticket(&pid, &key).await?),
+                None => to(k.branch_ticket(&pid, &s(&p, "branch")?).await?),
+            }
         }
         "tickets.setRelease" => {
             k.set_ticket_release(&s(&p, "projectId")?, &s(&p, "key")?, &os(&p, "release").unwrap_or_default())?;

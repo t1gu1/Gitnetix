@@ -66,7 +66,7 @@ pub fn variables(kind: &str) -> Vec<(&'static str, &'static str)> {
         "release" => vec![("{commits}", "Commits in range"), ("{tickets}", "Linked tickets"), ("{from}", "Start ref"), ("{to}", "End ref")],
         "changelog" => vec![("{commits}", "Commits the branch adds"), ("{unreleased}", "Current Unreleased section"), ("{released}", "Entries already moved under the release version"), ("{branch}", "Branch"), ("{base}", "Base branch")],
         "conflict" => vec![("{conflict}", "Conflicting file"), ("{ours}", "Our branch"), ("{theirs}", "Their branch"), ("{path}", "File path")],
-        "agent" => vec![("{request}", "User request"), ("{branch}", "Current branch"), ("{worktree}", "Worktree path")],
+        "agent" => vec![("{request}", "User request"), ("{branch}", "Current branch"), ("{worktree}", "Worktree path"), ("{ticket}", "Linked ticket with its description; added at the end when left out")],
         _ => vec![],
     };
     v.push(("{language}", "Language picked when generating"));

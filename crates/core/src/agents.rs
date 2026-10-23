@@ -36,7 +36,7 @@ pub struct LogLine {
 }
 
 impl LogLine {
-    fn new(kind: &str, text: impl Into<String>) -> Self {
+    pub fn new(kind: &str, text: impl Into<String>) -> Self {
         LogLine { kind: kind.into(), text: text.into() }
     }
 }
@@ -95,6 +95,8 @@ pub struct StartArgs {
     /// Full prompt sent to the agent (template applied).
     pub prompt: String,
     pub ai: Resolved,
+    /// Shown under the request line, e.g. what was added to the context.
+    pub notes: Vec<LogLine>,
 }
 
 impl AgentManager {
@@ -189,7 +191,7 @@ impl AgentManager {
             status: AgentStatus::Running,
             request: args.request.clone(),
             agent_label: agent_label(&args.ai)?,
-            lines: vec![LogLine::new("cmd", format!("$ {} · {}", args.ai.provider, args.request))],
+            lines: std::iter::once(LogLine::new("cmd", format!("$ {} · {}", args.ai.provider, args.request))).chain(args.notes).collect(),
             started_at: now(),
             updated_at: now(),
             resume_id: None,

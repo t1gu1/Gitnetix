@@ -11,6 +11,10 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+### Added
+- Agents started on a branch linked to a Jira, Trello or Asana ticket get the ticket's title, description and acceptance criteria in their first prompt, with a copy in the checkout's git dir to read again later. Agent templates can place it with `{ticket}`.
+- `tickets.get` API method (and `tickets_get` MCP tool): one ticket with its full description, by key or by branch.
+
 ## [0.5.2] - 2026-10-23
 
 ### Added
