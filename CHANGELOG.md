@@ -11,6 +11,25 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+### Added
+- Offer grouped answer buttons for agent questions, one group per question with a single Send
+- Resolve merge, rebase, cherry-pick, revert and stash conflicts automatically and carry on, with a Menu toggle to turn it off
+- Add an in-app Logs page under Menu to view, copy and clear recent operations and errors
+- Include the linked Jira, Trello or Asana ticket in the agent prompt when a branch has one
+- Add `tickets.get` RPC method and `tickets_get` MCP tool to fetch one ticket by key or branch
+- Ask before merging a branch with uncommitted changes
+- Offer to abort a stuck rebase, merge, cherry-pick or revert before switching branch
+- Add user-level install fallback on the website when permission is denied
+
+### Changed
+- Mirror the app workspace layout in the website hero demo
+- Send only the conflicted excerpt to AI conflict resolution so big files resolve faster
+- Roll the branch back to its old tip when a squash merge fails
+
+### Fixed
+- Block commits that still contain conflict markers and list the affected files
+- Preserve CRLF line endings and keep the stash after AI conflict resolution
+
 ## [0.6.0] - 2026-10-23
 
 ### Added
