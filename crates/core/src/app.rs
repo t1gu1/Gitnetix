@@ -2155,6 +2155,17 @@ impl Gitnetix {
                 r.branch
             )));
         }
+        // Checked before anything moves: a refused push would leave main moved and tagged here only.
+        if push {
+            git.fetch().await?;
+            let theirs = format!("refs/remotes/origin/{default}");
+            if git.ref_exists(&theirs).await? && !git.is_ancestor(&theirs, &r.branch).await? {
+                return Err(Error::Invalid(format!(
+                    "origin/{default} has commits that are not in {}. Merge origin/{default} into the release first.",
+                    r.branch
+                )));
+            }
+        }
         let default_dir = self.checkout_dir(&p, &default).await?;
         if let Some(dir) = &default_dir {
             if !Git::new(dir).wip_changes().await?.is_empty() {
@@ -2176,8 +2187,7 @@ impl Gitnetix {
         let tag = format!("v{version}");
         git.tag(&tag, &sha, &format!("Release {tag}")).await?;
         if push {
-            git.push(&default, false).await?;
-            git.push_tag(&tag, false).await?;
+            git.push_atomic(&[&default, &format!("refs/tags/{tag}")]).await?;
         }
         self.store.with_project(project_id, |p| {
             if let Some(x) = p.releases.iter_mut().find(|x| x.version == version && x.shipped_at.is_none()) {
@@ -3134,6 +3144,10 @@ impl Gitnetix {
         let p = self.store.project(project_id)?;
         if Path::new(path) == Path::new(&p.path) {
             return Err(Error::Invalid("That is the main checkout".into()));
+        }
+        // git refuses a dirty worktree; refuse before its shell and agents are stopped for nothing.
+        if !force && Path::new(path).exists() && Git::new(path).wip_count().await? > 0 {
+            return Err(Error::Invalid(format!("{path} has uncommitted or untracked files. Commit or discard them first.")));
         }
         let agents: Vec<String> = self.agents.list().into_iter().filter(|a| a.cwd == path).map(|a| a.id).collect();
         // Its shell first, so nothing it started keeps writing in the folder.

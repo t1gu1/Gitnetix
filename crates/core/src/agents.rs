@@ -389,8 +389,9 @@ impl AgentManager {
             };
             let outcome = out_task.await.ok().flatten();
             let _ = err_task.await;
+            // Stopped by user: `stop` took the kill handle; one here now belongs to a newer run.
+            let Some(exit) = exit else { return };
             me.inner.lock().unwrap().kills.remove(&sid);
-            let Some(exit) = exit else { return }; // stopped by user, already reported
             let ok = exit.map(|s| s.success()).unwrap_or(false);
             match (ok, outcome) {
                 (_, Some(false)) | (false, None) => {

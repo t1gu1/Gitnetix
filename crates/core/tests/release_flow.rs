@@ -138,6 +138,12 @@ async fn release_flow() {
     assert!(std::path::Path::new(&path).exists());
     let list = call(&k, "worktrees.list", json!({})).await;
     assert!(list.as_array().unwrap().iter().any(|w| w["path"] == path.as_str()));
+    // Dirty: refused, and its terminal keeps running (writing to a closed one fails).
+    call(&k, "shell.open", json!({ "projectId": pid, "path": path, "cols": 80, "rows": 24 })).await;
+    std::fs::write(std::path::Path::new(&path).join("scratch.txt"), "wip\n").unwrap();
+    assert!(rpc::call(&k, "worktrees.remove", json!({ "projectId": pid, "path": path })).await.is_err());
+    call(&k, "shell.write", json!({ "path": path, "data": "" })).await;
+    std::fs::remove_file(std::path::Path::new(&path).join("scratch.txt")).unwrap();
     call(&k, "worktrees.remove", json!({ "projectId": pid, "path": path })).await;
 
     let a = call(&k, "analytics.get", json!({ "projectId": pid, "days": 30 })).await;
@@ -1397,4 +1403,48 @@ async fn untagged_release_ahead_of_main_reopens() {
     assert!(release(&ov)["shipped"].is_null());
     assert_eq!(release(&ov)["role"], "release");
     assert!(ov["releases"].as_array().unwrap().iter().any(|r| r["version"] == "0.0.1" && r["open"] == true && r["tag"] == "next"));
+}
+
+#[tokio::test]
+async fn ship_and_push_waits_for_origin_then_pushes_branch_and_tag_together() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("atlas-api");
+    init_repo(&repo);
+    let origin = tmp.path().join("origin.git");
+    sh(tmp.path(), &["init", "-q", "--bare", "-b", "main", origin.to_str().unwrap()]);
+    sh(&repo, &["remote", "add", "origin", origin.to_str().unwrap()]);
+    sh(&repo, &["push", "-q", "-u", "origin", "main"]);
+
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let added = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await;
+    let pid = added[0]["id"].as_str().unwrap().to_string();
+    call(&k, "releases.create", json!({ "projectId": pid, "version": "0.2.0", "kind": "next" })).await;
+    sh(&repo, &["switch", "-q", "release/0.2.0"]);
+    commit_file(&repo, "a.txt", "a\n");
+    sh(&repo, &["switch", "-q", "main"]);
+
+    // A teammate lands work on origin's main meanwhile.
+    let other = tmp.path().join("other");
+    sh(tmp.path(), &["clone", "-q", origin.to_str().unwrap(), other.to_str().unwrap()]);
+    sh(&other, &["config", "user.email", "o@example.com"]);
+    sh(&other, &["config", "user.name", "Other"]);
+    sh(&other, &["config", "commit.gpgsign", "false"]);
+    commit_file(&other, "b.txt", "b\n");
+    sh(&other, &["push", "-q", "origin", "main"]);
+
+    // Refused before anything moves: no local main move, no tag.
+    let main = rev(&repo, "main");
+    let ship = json!({ "projectId": pid, "version": "0.2.0", "push": true });
+    assert!(rpc::call(&k, "releases.ship", ship.clone()).await.is_err());
+    assert_eq!(rev(&repo, "main"), main);
+    assert_eq!(rev(&repo, "v0.2.0"), "");
+
+    // Once the release has origin's work, main and the tag reach origin together.
+    sh(&repo, &["switch", "-q", "release/0.2.0"]);
+    sh(&repo, &["merge", "-q", "--no-edit", "origin/main"]);
+    sh(&repo, &["switch", "-q", "main"]);
+    call(&k, "releases.ship", ship).await;
+    let tip = rev(&repo, "release/0.2.0");
+    assert_eq!(rev(&origin, "main"), tip);
+    assert_eq!(rev(&origin, "v0.2.0^{commit}"), tip);
 }

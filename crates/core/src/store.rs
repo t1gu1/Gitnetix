@@ -419,6 +419,13 @@ pub struct Store {
     data: RwLock<Config>,
 }
 
+fn save(path: &Path, cfg: &Config) -> Result<()> {
+    let tmp = path.with_extension("json.tmp");
+    write_private(&tmp, serde_json::to_string_pretty(cfg)?)?;
+    std::fs::rename(&tmp, path)?;
+    Ok(())
+}
+
 impl Store {
     pub fn open(dir: &Path) -> Result<Store> {
         std::fs::create_dir_all(dir)?;
@@ -442,35 +449,24 @@ impl Store {
         } else {
             Config::default()
         };
-        let store = Store { path, data: RwLock::new(data) };
-        store.save()?;
-        Ok(store)
+        save(&path, &data)?;
+        Ok(Store { path, data: RwLock::new(data) })
     }
 
     pub fn read<R>(&self, f: impl FnOnce(&Config) -> R) -> R {
         f(&self.data.read().expect("config lock"))
     }
 
-    /// Mutate and persist.
+    /// Mutate and persist. Saved under the lock: concurrent saves would share the temp file.
     pub fn write<R>(&self, f: impl FnOnce(&mut Config) -> Result<R>) -> Result<R> {
-        let r = {
-            let mut g = self.data.write().expect("config lock");
-            f(&mut g)?
-        };
-        self.save()?;
+        let mut g = self.data.write().expect("config lock");
+        let r = f(&mut g)?;
+        save(&self.path, &g)?;
         Ok(r)
     }
 
     pub fn snapshot(&self) -> Config {
         self.read(|c| c.clone())
-    }
-
-    fn save(&self) -> Result<()> {
-        let json = self.read(serde_json::to_string_pretty)?;
-        let tmp = self.path.with_extension("json.tmp");
-        write_private(&tmp, json)?;
-        std::fs::rename(&tmp, &self.path)?;
-        Ok(())
     }
 
     pub fn project(&self, id: &str) -> Result<Project> {
@@ -503,6 +499,24 @@ mod tests {
         super::write_private(&f, "new").unwrap();
         assert_eq!(std::fs::metadata(&f).unwrap().permissions().mode() & 0o777, 0o600);
         assert_eq!(std::fs::read_to_string(&f).unwrap(), "new");
+    }
+
+    #[test]
+    fn concurrent_writes_keep_the_file_whole() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = super::Store::open(dir.path()).unwrap();
+        std::thread::scope(|s| {
+            for i in 0..16 {
+                let store = &store;
+                s.spawn(move || {
+                    for j in 0..20 {
+                        store.write(|c| Ok(c.ui.view.insert(format!("k{i}-{j}"), "x".repeat(i * j)))).unwrap();
+                    }
+                });
+            }
+        });
+        let reopened = super::Store::open(dir.path()).unwrap();
+        assert_eq!(reopened.read(|c| c.ui.view.len()), 16 * 20);
     }
 
     #[test]

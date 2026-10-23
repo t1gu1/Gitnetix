@@ -124,3 +124,50 @@ pub async fn spawn(k: Arc<Gitnetix>) -> anyhow::Result<Option<SocketAddr>> {
     tracing::info!("companion API on http://{bound}");
     Ok(Some(bound))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn every_route_but_health_needs_the_token() {
+        let dir = tempfile::tempdir().unwrap();
+        let k = Gitnetix::open(dir.path()).unwrap();
+        let token = k
+            .store
+            .write(|c| {
+                c.server.port = 0;
+                Ok(c.server.token.clone())
+            })
+            .unwrap();
+        let addr = spawn(k.clone()).await.unwrap().unwrap();
+        let http = reqwest::Client::new();
+        let rpc = |t: Option<&str>| {
+            let r = http.post(format!("http://{addr}/rpc")).json(&json!({ "method": "app.info" }));
+            match t {
+                Some(t) => r.bearer_auth(t),
+                None => r,
+            }
+            .send()
+        };
+        let get = |path: &str| http.get(format!("http://{addr}{path}")).send();
+        let code = |r: reqwest::Result<reqwest::Response>| r.unwrap().status().as_u16();
+
+        assert_eq!(code(rpc(None).await), 401);
+        assert_eq!(code(rpc(Some(&"0".repeat(token.len()))).await), 401);
+        assert_eq!(code(rpc(Some(&token[..token.len() - 1])).await), 401);
+        assert_eq!(code(rpc(Some(&token)).await), 200);
+        assert_eq!(code(get("/methods").await), 401);
+        assert_eq!(code(get("/events?token=nope").await), 401);
+        assert_eq!(code(get("/health").await), 200);
+
+        // No token configured lets nobody in, not even an empty bearer.
+        k.store
+            .write(|c| {
+                c.server.token.clear();
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(code(rpc(Some("")).await), 401);
+    }
+}

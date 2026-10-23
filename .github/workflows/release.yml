@@ -94,6 +94,11 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
+      # Once is enough: a failure fails this job, so publish (which needs every build) never runs.
+      - name: Run tests
+        if: matrix.name == 'linux'
+        run: cargo test --workspace
+
       - name: Build bundles
         env:
           # Signs the update bundles so installed apps accept them as updates.

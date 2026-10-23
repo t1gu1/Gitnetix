@@ -3,7 +3,7 @@
 //! We shell out instead of linking libgit2: worktrees, rebases, signing and
 //! credential helpers then behave exactly like the user's own `git`.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -962,14 +962,17 @@ impl Git {
     /// Throw away working-tree changes to `paths`: tracked files go back to
     /// their staged state, untracked ones are deleted.
     pub async fn discard_unstaged(&self, paths: &[String]) -> Result<()> {
-        let (mut tracked, mut untracked) = (Vec::new(), Vec::new());
-        for p in paths {
-            if self.is_tracked(p).await? {
-                tracked.push(p.as_str());
-            } else {
-                untracked.push(p.as_str());
-            }
+        if paths.is_empty() {
+            return Ok(());
         }
+        // shortcut: every path goes on the command line, so tens of thousands of files can hit the
+        // OS argument limit; pass `.` for "discard all" if that shows up.
+        // One git call for all paths. Only paths git names as untracked get deleted.
+        let mut args = vec!["ls-files", "-z", "--others", "--exclude-standard", "--"];
+        args.extend(paths.iter().map(String::as_str));
+        let listed = self.run(&args).await?;
+        let others: HashSet<&str> = listed.split('\0').collect();
+        let (untracked, tracked): (Vec<&str>, Vec<&str>) = paths.iter().map(String::as_str).partition(|p| others.contains(p));
         if !tracked.is_empty() {
             let mut args = vec!["checkout", "--"];
             args.extend(tracked);
@@ -1003,12 +1006,29 @@ impl Git {
                 }
             }
         }
-        for p in &targets {
-            let in_head = has_head && self.try_run(&["cat-file", "-e", &format!("HEAD:{p}")]).await?.0;
-            if in_head {
-                self.run(&["checkout", "HEAD", "--", p]).await?;
-            } else {
-                self.run(&["rm", "-f", "-q", "--ignore-unmatch", "--", p]).await?;
+        if targets.is_empty() {
+            return Ok(());
+        }
+        // One git call for all paths, not one per path.
+        let listed = if has_head {
+            let mut args = vec!["ls-tree", "-r", "-z", "--name-only", "HEAD", "--"];
+            args.extend(targets.iter().map(String::as_str));
+            self.run(&args).await?
+        } else {
+            String::new()
+        };
+        let in_head: HashSet<&str> = listed.split('\0').collect();
+        let (restore, remove): (Vec<&str>, Vec<&str>) = targets.iter().map(String::as_str).partition(|p| in_head.contains(p));
+        if !restore.is_empty() {
+            let mut args = vec!["checkout", "HEAD", "--"];
+            args.extend(&restore);
+            self.run(&args).await?;
+        }
+        if !remove.is_empty() {
+            let mut args = vec!["rm", "-f", "-q", "--ignore-unmatch", "--"];
+            args.extend(&remove);
+            self.run(&args).await?;
+            for p in remove {
                 let _ = std::fs::remove_file(self.cwd.join(p));
             }
         }
@@ -1117,6 +1137,13 @@ impl Git {
     pub async fn force_push(&self, branch: &str, upstream: &str) -> Result<String> {
         let (remote, dest) = upstream.split_once('/').unwrap_or(("origin", upstream));
         self.push_with(&["push", "--force-with-lease", "--force-if-includes", remote, &format!("{branch}:refs/heads/{dest}")]).await
+    }
+
+    /// Push several refs to origin: all of them land, or none do.
+    pub async fn push_atomic(&self, refs: &[&str]) -> Result<String> {
+        let mut args = vec!["push", "--atomic", "origin"];
+        args.extend(refs);
+        self.push_with(&args).await
     }
 
     async fn push_with(&self, args: &[&str]) -> Result<String> {
