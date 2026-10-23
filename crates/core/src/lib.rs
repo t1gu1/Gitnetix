@@ -10,6 +10,7 @@ pub mod cache;
 pub mod error;
 pub mod events;
 pub mod git;
+pub mod log;
 pub mod net;
 pub mod providers;
 pub mod rpc;

@@ -20,6 +20,8 @@ pub enum Event {
     /// AI starts resolving these conflicted files; it takes a while.
     #[serde(rename_all = "camelCase")]
     ConflictResolving { project_id: String, files: Vec<String> },
+    /// A new line in the Logs page.
+    Log { entry: crate::log::Entry },
     /// Output of a checkout's terminal, base64; `end` counts its bytes so far.
     #[serde(rename_all = "camelCase")]
     ShellData { cwd: String, data: String, end: u64 },

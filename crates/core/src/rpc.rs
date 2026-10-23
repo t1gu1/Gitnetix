@@ -16,6 +16,8 @@ use crate::{ai, secrets};
 /// (method, description, params) — also the MCP tool list.
 pub const METHODS: &[(&str, &str, &str)] = &[
     ("app.info", "App version and companion server address", ""),
+    ("log.get", "Recent operations and errors, oldest first", ""),
+    ("log.clear", "Empty the log", ""),
     ("config.get", "Full app configuration (no secrets)", ""),
     ("ui.set", "Save UI preferences", "language?, theme?, lastProject?, animationsOff?"),
     ("ui.setView", "Remember how a screen was left (pane width, collapsed section…); no value forgets it", "key, value?"),
@@ -220,9 +222,48 @@ fn drop_unused_atlassian_sign_in(k: &Gitnetix) -> Result<()> {
     Ok(())
 }
 
+/// Reads polled all the time: logged only when they fail.
+const QUIET: &[&str] = &[".info", ".get", ".list", ".overview", ".files", ".diff", ".blobs", ".commits", ".catalog", ".statuses", ".versions", ".projects", ".refs", ".range", ".preview", ".clear", "shell.write", "shell.resize", "ui.setView", "github.signInPoll", "azure.signInPoll"];
+
+/// Run `method`, logging what it will attempt and how it ended.
 pub async fn call(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
+    let quiet = QUIET.iter().any(|q| method.ends_with(q));
+    if !quiet {
+        crate::log::info(format!("Will attempt to {method} {}", scrub(&p, "")));
+    }
+    let start = std::time::Instant::now();
+    let out = dispatch(k, method, p).await;
+    let ms = start.elapsed().as_millis();
+    match &out {
+        Ok(_) if !quiet => crate::log::info(format!("Done {method} in {ms}ms")),
+        Err(e) => crate::log::error(format!("{method} failed after {ms}ms: {e}")),
+        _ => {}
+    }
+    out
+}
+
+/// Params as logged: secrets hidden, long text cut.
+fn scrub(v: &Value, key: &str) -> Value {
+    let k = key.to_ascii_lowercase();
+    if ["token", "secret", "password", "key"].iter().any(|s| k.contains(s)) {
+        return json!("***");
+    }
+    match v {
+        Value::Object(m) => Value::Object(m.iter().map(|(k, v)| (k.clone(), scrub(v, k))).collect()),
+        Value::Array(a) => Value::Array(a.iter().map(|v| scrub(v, key)).collect()),
+        Value::String(s) if s.chars().count() > 120 => json!(format!("{}…", s.chars().take(120).collect::<String>())),
+        _ => v.clone(),
+    }
+}
+
+async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
     let p = if p.is_null() { json!({}) } else { p };
     match method {
+        "log.get" => to(crate::log::all()),
+        "log.clear" => {
+            crate::log::clear();
+            ok()
+        }
         "app.info" => {
             let server = k.store.read(|c| c.server.clone());
             to(json!({

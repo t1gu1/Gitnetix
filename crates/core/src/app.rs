@@ -1170,6 +1170,7 @@ impl Gitnetix {
         let (events, _) = broadcast::channel(1024);
         let agents = AgentManager::new(events.clone(), dir);
         let shells = crate::shell::Shells::new(events.clone());
+        crate::log::attach(events.clone());
         let k = Arc::new(Gitnetix { store, agents, shells, events, dir: dir.to_path_buf(), protected: Default::default(), watcher: Default::default(), commits: CommitCache::open(dir), views: ViewCache::open(dir.join("overview-cache")), hosted: Default::default() });
         k.rewatch();
         Ok(k)
@@ -1376,7 +1377,16 @@ impl Gitnetix {
     async fn ask(&self, task: &str, t: &Template, vars: BTreeMap<String, String>, lang: &str, cwd: Option<&Path>) -> Result<String> {
         let r = self.route(task, Some(t))?;
         let prompt = templates::render(t, &vars, lang);
-        ai::complete(&r, &prompt, cwd).await
+        let how = format!("{} {:?}{}", r.provider, r.method, if r.model.is_empty() { String::new() } else { format!(" ({})", r.model) });
+        crate::log::info(format!("Will attempt to ask AI for {task} with {how}"));
+        let start = Instant::now();
+        let out = ai::complete(&r, &prompt, cwd).await;
+        let secs = start.elapsed().as_secs_f32();
+        match &out {
+            Ok(_) => crate::log::info(format!("AI answered {task} in {secs:.1}s")),
+            Err(e) => crate::log::error(format!("AI failed {task} after {secs:.1}s: {e}")),
+        }
+        out
     }
 
     // ---------- projects ----------
@@ -2200,6 +2210,7 @@ impl Gitnetix {
     /// (binary, deleted on one side) are left too.
     async fn resolve_files(&self, p: &Project, git: &Git, files: &[String], ours: &str, theirs: &str) -> Vec<String> {
         let _ = self.events.send(Event::ConflictResolving { project_id: p.id.clone(), files: files.to_vec() });
+        crate::log::info(format!("Will attempt to resolve conflicts with AI in {} ({ours} onto {theirs}): {}", git.cwd().display(), files.join(", ")));
         // Asked a few at a time; written one by one, as `git add` takes the index lock.
         let answers: Vec<(String, Result<String>)> = stream::iter(files.to_vec())
             .map(|f| async move {
@@ -2216,7 +2227,10 @@ impl Gitnetix {
                 Ok(body) => Self::write_resolution(git, &f, &body).await,
                 Err(e) => Err(e),
             } {
+                crate::log::error(format!("Could not resolve {f}: {e}"));
                 failed.push(format!("{f}: {e}"));
+            } else {
+                crate::log::info(format!("Resolved and staged {f}"));
             }
         }
         self.changed(&p.id);

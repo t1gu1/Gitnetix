@@ -1017,8 +1017,11 @@ export function MergeModal({
           <>Creates a merge commit on <span className="mono">{base}</span>.</>
         )}{" "}
         {stay ? "" : `Then switches to ${base}. `}Where {base}{opts.rebase ? ` or ${branch}` : ""} is checked out, it must have no uncommitted changes.
-        Nothing changes when the merge would conflict: rebase onto {base} and resolve first.
+        {opts.resolveConflicts
+          ? "Conflicts are resolved with AI, which can take a few minutes; if it can't, nothing changes."
+          : `Nothing changes when the merge would conflict: rebase onto ${base} and resolve first.`}
       </p>
+      {merge.isPending && <p className="hint" style={{ margin: 0 }}>Merging… Menu › Logs shows each step.</p>}
       {merge.error && <ErrorBox error={merge.error} />}
       <div className="col" style={{ gap: 0 }}>
         <label className="check">

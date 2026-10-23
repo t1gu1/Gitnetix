@@ -377,6 +377,13 @@ export interface Config {
 
 export type AgentStatus = "running" | "waiting" | "paused" | "failed" | "done" | "stopped";
 
+/** A line of the app's Logs page: what it tried and what failed. */
+export interface LogEntry {
+  at: string;
+  error: boolean;
+  text: string;
+}
+
 export interface LogLine {
   kind: "cmd" | "ai" | "ok" | "dim" | "err" | "wait" | "run";
   text: string;
@@ -571,5 +578,6 @@ export type GitnetixEvent =
   | { type: "configChanged" }
   | { type: "cleanupStep"; projectId: string; branch: string }
   | { type: "conflictResolving"; projectId: string; files: string[] }
+  | { type: "log"; entry: LogEntry }
   | { type: "shellData"; cwd: string; data: string; end: number }
   | { type: "shellExit"; cwd: string };

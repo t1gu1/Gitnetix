@@ -223,6 +223,9 @@ impl Git {
     }
 
     fn command(&self, args: &[&str]) -> Command {
+        if changes_repo(args) {
+            crate::log::info(format!("Will attempt git {} (in {})", args.join(" "), self.cwd.display()));
+        }
         let mut cmd = Command::new("git");
         cmd.current_dir(&self.cwd);
         for (k, v) in &self.config {
@@ -245,6 +248,7 @@ impl Git {
 
     fn stdout_or_err(args: &[&str], out: std::process::Output) -> Result<String> {
         if !out.status.success() {
+            crate::log::error(format!("git {} failed: {}", args.join(" "), String::from_utf8_lossy(&out.stderr).trim()));
             return Err(Error::Git {
                 cmd: args.first().copied().unwrap_or("").to_string(),
                 stderr: String::from_utf8_lossy(&out.stderr).trim().to_string(),
@@ -256,6 +260,9 @@ impl Git {
     /// Run git and return (exit success, stdout, stderr) without failing.
     pub async fn try_run(&self, args: &[&str]) -> Result<(bool, String, String)> {
         let out = self.command(args).output().await?;
+        if !out.status.success() && changes_repo(args) {
+            crate::log::error(format!("git {} failed: {}", args.join(" "), String::from_utf8_lossy(&out.stderr).trim()));
+        }
         Ok((
             out.status.success(),
             String::from_utf8_lossy(&out.stdout).into_owned(),
@@ -1670,5 +1677,38 @@ mod tests {
         assert_eq!(h[0].new_start, 1);
         assert_eq!(h[0].lines.len(), 5);
         assert_eq!(h[0].lines[1].kind, '-');
+    }
+}
+
+/// A git command that changes the repository (worth a line in the log), as opposed to a read.
+fn changes_repo(args: &[&str]) -> bool {
+    let mut it = args.iter();
+    let verb = loop {
+        match it.next() {
+            Some(&"-c") => {
+                it.next();
+            }
+            Some(a) => break *a,
+            None => return false,
+        }
+    };
+    let sub = it.next().copied().unwrap_or("");
+    match verb {
+        "stash" | "worktree" => !matches!(sub, "list" | "show"),
+        _ => ["merge", "rebase", "cherry-pick", "revert", "commit", "push", "pull", "reset", "checkout", "switch", "update-ref", "add", "rm", "restore", "clean", "apply"].contains(&verb),
+    }
+}
+
+#[cfg(test)]
+mod changes_repo_tests {
+    use super::changes_repo;
+
+    #[test]
+    fn tells_writes_from_reads() {
+        assert!(changes_repo(&["-c", "core.editor=true", "merge", "--continue"]));
+        assert!(changes_repo(&["stash", "push"]));
+        assert!(!changes_repo(&["stash", "list"]));
+        assert!(!changes_repo(&["rev-parse", "HEAD"]));
+        assert!(!changes_repo(&[]));
     }
 }
