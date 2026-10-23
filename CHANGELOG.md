@@ -11,6 +11,8 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-10-23
+
 ### Added
 - Website: dedicated remote section with the phone mockup.
 - Website: worktree mockup now mirrors the agent pane.
