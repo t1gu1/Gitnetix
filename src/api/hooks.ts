@@ -213,7 +213,7 @@ export const useAutoFetch = (projectId?: string, enabled = true) => {
 };
 
 export const useAgents = () =>
-  useQuery({ queryKey: ["agents"], queryFn: () => rpc<AgentSession[]>("agents.list"), refetchInterval: 15_000 });
+  useQuery({ queryKey: ["agents"], queryFn: () => rpc<AgentSession[]>("agents.list") });
 
 export const useWorktrees = () =>
   useQuery({ queryKey: ["worktrees"], queryFn: () => rpc<WorktreeView[]>("worktrees.list"), refetchInterval: 10_000 });
