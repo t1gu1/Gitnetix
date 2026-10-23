@@ -91,10 +91,11 @@ details[open] .chev{transform:rotate(45deg)}
 .hd .ibtn{cursor:pointer}
 .hd-filter{display:flex;align-items:center;gap:10px;padding:8px 10px 8px 16px;border-bottom:1px solid var(--line);color:var(--faint);flex:none}
 .hd-filter input{flex:1;height:28px;padding:0 12px;border:1px solid var(--line);border-radius:4px;background:var(--bg);box-sizing:border-box}
-.hd-tree{flex:1 1 auto;min-height:0;overflow:auto;padding:6px 6px 6px 8px}
-.hd-row{position:relative;display:flex;align-items:stretch;min-height:46px;margin:0 0 2px;border-radius:4px;background:var(--raised);overflow:hidden}
+.hd-tree{position:relative;flex:1 1 auto;min-height:0;overflow:auto;padding:6px 0 6px 2px}
+.hd-path{position:absolute;z-index:3;left:0;top:0;width:100%;height:100%;overflow:visible;pointer-events:none;fill:none;stroke-width:1}
+.hd-row{position:relative;display:flex;align-items:stretch;min-height:46px;margin:0 6px 2px;border-radius:4px;background:var(--raised);overflow:hidden}
 .hd-row[data-sel]{background:color-mix(in srgb,var(--raised),var(--fg) 7%)}
-.hd-row[data-cur]{box-shadow:inset 2px 0 0 var(--trunk)}
+.hd-row[data-cur]{background:color-mix(in srgb,color-mix(in srgb,var(--raised),var(--fg) 6%),var(--warn) 6%)}
 .hd-row-btn{flex:1;min-width:0;display:flex;gap:8px;padding:6px 0 6px 8px!important;text-align:left}
 .hd-lead{flex:0 0 16px;display:flex;justify-content:center;padding-top:3px;color:var(--faint)}
 .hd-row[data-role=release] .hd-lead,.hd-row[data-role=release] .hd-name .mono{color:var(--release)}
@@ -110,10 +111,9 @@ details[open] .chev{transform:rotate(45deg)}
 .hd-act{display:inline-flex;align-items:center;justify-content:center;width:26px;color:var(--muted)}
 .hd-act-main{width:34px;color:var(--fg)}.hd-act-main:hover{color:var(--accent-fg)}
 .hd-act-stack{display:flex;flex-direction:column;border-left:1px solid color-mix(in srgb,var(--fg) 4%,transparent)}.hd-act-stack .hd-act{flex:1}
-.hd-kids{position:relative;margin-left:8px;padding-left:6px}
+.hd-kids{position:relative;margin-left:6px}
 .hd-kids::before{content:'';position:absolute;left:0;top:0;bottom:4px;width:1px;background:repeating-linear-gradient(to bottom,var(--line) 0 1px,transparent 1px 3px)}
-.hd-kids[data-path]::before{background:repeating-linear-gradient(to bottom,var(--trunk) 0 1px,transparent 1px 3px)}
-.hd-grp{display:flex;align-items:center;gap:6px;width:100%;height:30px;margin:0 0 2px;padding:0 6px!important;font-size:11px!important;font-weight:600!important;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);white-space:nowrap;box-sizing:border-box;text-align:left}
+.hd-grp{display:flex;align-items:center;gap:6px;width:calc(100% - 12px);height:30px;margin:0 6px 2px;padding:0 4px!important;font-size:11px!important;font-weight:600!important;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);white-space:nowrap;box-sizing:border-box;text-align:left}
 .hd-pulse{display:inline-block;width:6px;height:6px;margin-right:4px;border-radius:50%;background:var(--accent);animation:hdp 1.2s ease-in-out infinite}
 .hd-pulse-txt{display:inline-flex;align-items:center}
 @keyframes hdp{50%{opacity:.3}}
@@ -170,6 +170,6 @@ details[open] .chev{transform:rotate(45deg)}
 .hd-split{display:grid;grid-template-columns:1fr 1fr}.hd-split>.hd-ln{overflow:hidden;text-overflow:ellipsis}.hd-split>.hd-ln:first-child{border-right:1px solid var(--line)}
 .hd-toast{position:absolute;right:16px;bottom:16px;z-index:5;padding:10px 14px;border:1px solid var(--line);border-radius:6px;background:var(--raised);font-size:12.5px;box-shadow:0 10px 30px -10px rgba(0,0,0,.6)}
 @media (max-width:760px){.hd-body{height:auto}.hd-left,.hd-right-pane{height:auto}.hd-tree{max-height:none}.hd-term{flex-basis:300px}.hd-files{max-height:280px}.hd-left{border-right:0;border-bottom:1px solid var(--line)}}
-@media (prefers-reduced-motion:reduce){.hd-wip,.hd-pulse,.hd-dots i{animation:none}}
+@media (prefers-reduced-motion:reduce){.hd-beam{display:none}.hd-wip,.hd-pulse,.hd-dots i{animation:none}}
 @container (max-width:520px){.hd-opt{display:none}}
 @container (max-width:420px){.hd-chip,.hd-term-label{display:none}}

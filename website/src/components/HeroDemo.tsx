@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 // The app's own icon set, so the demo draws the same glyphs.
 import { Icon } from '../../../src/components/Icon';
 
@@ -20,6 +20,8 @@ type Branch = {
   /** Checked out in its own worktree, where an agent works. */
   wt?: boolean;
 };
+/** The orange path from the trunk to the checked-out row, measured off the rendered tree. */
+type Path = { d: string; len: number; x: number; top: number; mid: number; bottom: number };
 type Line = { kind: 'you' | 'steps' | 'ai' | 'wait' | 'err'; text: string };
 
 const BRANCHES: Record<string, Branch> = {
@@ -104,6 +106,39 @@ function Files({ list, tree, onPick }: { list: File[]; tree: boolean; onPick: (f
   );
 }
 
+/** Dotted path, a solid stretch on the checked-out row, and a pulse that runs down it at the app's 90px/s and flares on arrival. */
+function PathLine({ p }: { p: Path }) {
+  const dur = Math.max(p.len, 1) / 90;
+  const arrive = p.len / (p.len + 12);
+  return (
+    <svg className="hd-path" aria-hidden="true" key={p.d}>
+      <defs>
+        <linearGradient id="hd-cur" gradientUnits="userSpaceOnUse" x1="0" y1={p.top} x2="0" y2={p.bottom}>
+          <stop offset="0" stopColor="var(--trunk)" stopOpacity=".45" />
+          <stop offset=".38" stopColor="var(--trunk)" />
+          <stop offset=".62" stopColor="var(--trunk)" />
+          <stop offset="1" stopColor="var(--trunk)" stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      {/* The row's lower half hides the grey nesting line behind it. */}
+      <path d={`M${p.x} ${p.mid}V${p.bottom}`} stroke="var(--panel)" />
+      <path d={p.d} stroke="var(--trunk)" strokeDasharray="1 2" />
+      <path d={`M${p.x} ${p.top}V${p.bottom}`} stroke="url(#hd-cur)" />
+      <g className="hd-beam">
+        <path d={p.d} stroke="var(--trunk)" strokeWidth="5" strokeOpacity=".5" strokeDasharray={`12 ${p.len + 24}`} filter="blur(1.5px)">
+          <animate attributeName="stroke-dashoffset" from="12" to={-p.len} dur={`${dur}s`} repeatCount="indefinite" />
+        </path>
+        <path d={p.d} stroke="#fff3dd" strokeDasharray={`12 ${p.len + 24}`}>
+          <animate attributeName="stroke-dashoffset" from="12" to={-p.len} dur={`${dur}s`} repeatCount="indefinite" />
+        </path>
+        <circle cx={p.x} cy={p.mid} r="3" fill="var(--trunk)" filter="blur(1.5px)" opacity="0">
+          <animate attributeName="opacity" values="0;0;.9;0" keyTimes={`0;${arrive};${arrive};${Math.min(1, arrive + 1 / dur)}`} dur={`${dur}s`} repeatCount="indefinite" />
+        </circle>
+      </g>
+    </svg>
+  );
+}
+
 export default function HeroDemo() {
   const [bs, setBs] = useState(BRANCHES);
   const [head, setHead] = useState('feat/branch-tree');
@@ -122,7 +157,46 @@ export default function HeroDemo() {
   const [summary, setSummary] = useState('');
   const [toast, setToast] = useState<string>();
   const timers = useRef<number[]>([]);
+  const treeRef = useRef<HTMLDivElement>(null);
+  const [path, setPath] = useState<Path | null>(null);
   useEffect(() => () => timers.current.forEach(clearTimeout), []);
+
+  // Like the app's tree: the line runs 6px left of each row on the path, stepping in 6px (7 across, elbow included) at each level, down to the middle of the checked-out row.
+  useLayoutEffect(() => {
+    const t = treeRef.current;
+    const chain: string[] = [];
+    for (let n: string | undefined = head; n; n = bs[n].base) chain.unshift(n);
+    const rows = chain.map((n) => t?.querySelector<HTMLElement>(`[data-row="${n}"]`));
+    if (!t || rows.some((r) => !r)) return setPath(null);
+    const box = t.getBoundingClientRect();
+    const y = (v: number) => v - box.top + t.scrollTop;
+    const x = (el: HTMLElement) => Math.round(el.getBoundingClientRect().left - box.left + t.scrollLeft) - 5.5;
+    const first = rows[0]!.getBoundingClientRect();
+    let cx = x(rows[0]!);
+    let cy = y(first.top);
+    let d = `M${cx} ${cy}`;
+    let len = 0;
+    for (const el of rows.slice(1)) {
+      const k = y(el!.parentElement!.getBoundingClientRect().top);
+      const nx = x(el!);
+      d += `V${k}H${nx}`;
+      len += k - cy + Math.abs(nx - cx);
+      cx = nx;
+      cy = k;
+    }
+    const cur = rows.at(-1)!.getBoundingClientRect();
+    const mid = y((cur.top + cur.bottom) / 2);
+    d += `V${mid}`;
+    len += mid - cy;
+    setPath((p) => (p?.d === d ? p : { d, len, x: cx, top: y(cur.top), mid, bottom: y(cur.bottom) }));
+  });
+  // Re-measure when the window reflows the rows.
+  const [, reflow] = useState(0);
+  useEffect(() => {
+    const ro = new ResizeObserver(() => reflow((n) => n + 1));
+    if (treeRef.current) ro.observe(treeRef.current);
+    return () => ro.disconnect();
+  }, [file, term]);
 
   const b = bs[sel];
   const isHead = sel === head;
@@ -133,6 +207,12 @@ export default function HeroDemo() {
   const flash = (t: string) => {
     setToast(t);
     later(2600, () => setToast(undefined));
+  };
+  // Like workspace.switch: uncommitted work comes along.
+  const checkout = (n: string) => {
+    if (n === head) return;
+    setBs((x) => ({ ...x, [head]: { ...x[head], wip: [] }, [n]: { ...x[n], wip: [...x[n].wip, ...x[head].wip] } }));
+    setHead(n);
   };
   const select = (n: string) => {
     setSel(n);
@@ -175,8 +255,6 @@ export default function HeroDemo() {
     setMode('branch');
   };
 
-  // Branches whose subtree holds the checked-out one: the path runs through them.
-  const holds = (n: string): boolean => n === head || !!bs[n].kids?.some(holds);
   const shows = (n: string): boolean => !filter || n.includes(filter) || !!bs[n].kids?.some(shows);
 
   const row = (n: string): ReactNode => {
@@ -186,8 +264,8 @@ export default function HeroDemo() {
     const tracked = !!x.base;
     return (
       <div key={n}>
-        <div className="hd-row" data-cur={cur || undefined} data-sel={n === sel || undefined} data-role={x.role}>
-          <button className="hd-row-btn" onClick={() => select(n)} onDoubleClick={() => !x.wt && setHead(n)}>
+        <div className="hd-row" data-row={n} data-cur={cur || undefined} data-sel={n === sel || undefined} data-role={x.role}>
+          <button className="hd-row-btn" onClick={() => select(n)} onDoubleClick={() => !x.wt && checkout(n)}>
             <span className="hd-lead">
               <Icon name={x.role === 'trunk' ? 'home' : x.role === 'release' ? 'tag' : 'branch'} size={13} />
             </span>
@@ -211,7 +289,7 @@ export default function HeroDemo() {
             </span>
           </button>
           <span className="hd-acts">
-            {!x.wt && <button className="hd-act hd-act-main" aria-label={cur ? `Pull ${n}` : `Switch to ${n}`} title={cur ? 'Pull' : 'Switch to this branch'} onClick={() => (cur ? flash(`${n} is up to date`) : setHead(n))}>
+            {!x.wt && <button className="hd-act hd-act-main" aria-label={cur ? `Pull ${n}` : `Switch to ${n}`} title={cur ? 'Pull' : 'Switch to this branch'} onClick={() => (cur ? flash(`${n} is up to date`) : checkout(n))}>
               <Icon name={cur ? 'refresh' : 'swap'} size={13} />
             </button>}
             <span className="hd-act-stack" aria-hidden="true"><span className="hd-act"><Icon name="plus" size={11} /></span><span className="hd-act"><Icon name="more" size={13} stroke={2.4} /></span></span>
@@ -222,10 +300,10 @@ export default function HeroDemo() {
             <button className="hd-grp" aria-expanded={!!open.kids} onClick={() => setOpen((o) => ({ ...o, kids: !o.kids }))}>
               <Icon name="chevronDown" size={12} className="chev" /><span className="lbl child">Child branches</span><span className="faint">{x.kids.length}</span>
             </button>
-            {open.kids && <div className="hd-kids" data-path={holds(n) && n !== head ? '' : undefined}>{x.kids.map(row)}</div>}
+            {open.kids && <div className="hd-kids">{x.kids.map(row)}</div>}
           </>
         ) : (
-          <div className="hd-kids" data-path={holds(n) && n !== head ? '' : undefined}>{x.kids.map(row)}</div>
+          <div className="hd-kids">{x.kids.map(row)}</div>
         ))}
       </div>
     );
@@ -298,7 +376,8 @@ export default function HeroDemo() {
                 <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filter branches" />
                 <span className="ibtn" aria-hidden="true" style={{ height: 28, gap: 8 }}>All <Icon name="chevronDown" size={10} /></span>
               </label>
-              <div className="hd-tree">
+              <div className="hd-tree" ref={treeRef}>
+                {path && <PathLine p={path} />}
                 {row('main')}
                 <div className="hd-grp" aria-hidden="true"><Icon name="chevronDown" size={12} className="chev hd-right" /><span className="lbl behind">Branches falling behind</span><span className="faint" style={{ flex: 1 }}>3</span><Icon name="brush" size={13} /></div>
                 <div className="hd-grp" aria-hidden="true"><Icon name="chevronDown" size={12} className="chev hd-right" /><span className="lbl shipped">Shipped</span><span className="faint">3</span></div>
