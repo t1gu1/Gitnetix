@@ -223,6 +223,9 @@ impl Git {
     }
 
     fn command(&self, args: &[&str]) -> Command {
+        if changes_repo(args) {
+            crate::log::info(format!("Will attempt git {} (in {})", args.join(" "), self.cwd.display()));
+        }
         let mut cmd = Command::new("git");
         cmd.current_dir(&self.cwd);
         for (k, v) in &self.config {
@@ -245,6 +248,7 @@ impl Git {
 
     fn stdout_or_err(args: &[&str], out: std::process::Output) -> Result<String> {
         if !out.status.success() {
+            crate::log::error(format!("git {} failed: {}", args.join(" "), String::from_utf8_lossy(&out.stderr).trim()));
             return Err(Error::Git {
                 cmd: args.first().copied().unwrap_or("").to_string(),
                 stderr: String::from_utf8_lossy(&out.stderr).trim().to_string(),
@@ -256,6 +260,9 @@ impl Git {
     /// Run git and return (exit success, stdout, stderr) without failing.
     pub async fn try_run(&self, args: &[&str]) -> Result<(bool, String, String)> {
         let out = self.command(args).output().await?;
+        if !out.status.success() && changes_repo(args) {
+            crate::log::error(format!("git {} failed: {}", args.join(" "), String::from_utf8_lossy(&out.stderr).trim()));
+        }
         Ok((
             out.status.success(),
             String::from_utf8_lossy(&out.stdout).into_owned(),
@@ -332,6 +339,13 @@ impl Git {
 
     pub async fn is_rebasing(&self) -> Result<bool> {
         Ok(self.git_paths(&["rebase-merge", "rebase-apply"]).await?.iter().any(|p| p.exists()))
+    }
+
+    /// The rebase, merge, cherry-pick or revert this checkout is stopped in the middle of, if any.
+    pub async fn in_progress(&self) -> Result<Option<&'static str>> {
+        let paths = self.git_paths(&["rebase-merge", "rebase-apply", "MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD"]).await?;
+        let ops = ["rebase", "rebase", "merge", "cherry-pick", "revert"];
+        Ok(paths.iter().zip(ops).find(|(p, _)| p.exists()).map(|(_, op)| op))
     }
 
     // ---------- refs ----------
@@ -1211,32 +1225,58 @@ impl Git {
     }
 
     pub async fn rebase_continue(&self) -> Result<bool> {
-        let (ok, _, err) = self.try_run(&["-c", "core.editor=true", "rebase", "--continue"]).await?;
-        if ok {
-            return Ok(true);
-        }
-        if self.is_rebasing().await? && !self.conflicted_files().await?.is_empty() {
-            return Ok(false);
-        }
-        Err(Error::Git { cmd: "rebase".into(), stderr: err.trim().into() })
+        self.continue_op("rebase").await
     }
 
     pub async fn rebase_abort(&self) -> Result<()> {
-        self.run(&["rebase", "--abort"]).await.map(|_| ())
+        self.abort_op("rebase").await
     }
 
-    /// Undo a commit with a new one. On conflict nothing changes.
-    pub async fn revert(&self, sha: &str) -> Result<String> {
+    /// `git <op> --continue` once its conflicts are staged (rebase, merge, cherry-pick, revert),
+    /// keeping the prepared message. Returns false when it stopped on conflicts again (a rebase's next commit).
+    pub async fn continue_op(&self, op: &str) -> Result<bool> {
+        let (ok, _, err) = self.try_run(&["-c", "core.editor=true", op, "--continue"]).await?;
+        if ok {
+            return Ok(true);
+        }
+        if !self.conflicted_files().await?.is_empty() {
+            return Ok(false);
+        }
+        Err(Error::Git { cmd: op.into(), stderr: err.trim().into() })
+    }
+
+    pub async fn abort_op(&self, op: &str) -> Result<()> {
+        self.run(&[op, "--abort"]).await.map(|_| ())
+    }
+
+    /// Staged files whose changes add conflict markers (`<<<<<<<` / `>>>>>>>` lines).
+    pub async fn staged_with_conflict_markers(&self) -> Result<Vec<String>> {
+        let out = self.run(&["diff", "--cached", "-U0", "--no-color", "--no-ext-diff"]).await?;
+        let mut files: Vec<String> = Vec::new();
+        let mut file = "";
+        for l in out.lines() {
+            if let Some(f) = l.strip_prefix("+++ b/") {
+                file = f;
+            } else if (l.starts_with("+<<<<<<< ") || l.starts_with("+>>>>>>> ")) && files.last().map(String::as_str) != Some(file) {
+                files.push(file.to_string());
+            }
+        }
+        Ok(files)
+    }
+
+    /// Undo a commit with a new one. Returns false when it stopped on conflicts.
+    pub async fn revert(&self, sha: &str) -> Result<bool> {
         self.apply_commit("revert", sha).await
     }
 
-    /// Copy a commit onto the checked-out branch. On conflict nothing changes.
-    pub async fn cherry_pick(&self, sha: &str) -> Result<String> {
+    /// Copy a commit onto the checked-out branch. Returns false when it stopped on conflicts.
+    pub async fn cherry_pick(&self, sha: &str) -> Result<bool> {
         self.apply_commit("cherry-pick", sha).await
     }
 
     /// `revert` / `cherry-pick` one commit; a merge commit is taken against its first parent.
-    async fn apply_commit(&self, cmd: &str, sha: &str) -> Result<String> {
+    /// Stopped on conflicts, it stays in progress; any other failure is aborted.
+    async fn apply_commit(&self, cmd: &str, sha: &str) -> Result<bool> {
         let merge = self.try_run(&["rev-parse", "--verify", "-q", &format!("{sha}^2")]).await?.0;
         let mut args = vec![cmd, "--no-edit"];
         if merge {
@@ -1244,11 +1284,14 @@ impl Git {
         }
         args.push(sha);
         let (ok, _, err) = self.try_run(&args).await?;
-        if !ok {
-            let _ = self.try_run(&[cmd, "--abort"]).await;
-            return Err(Error::Git { cmd: cmd.into(), stderr: err.trim().into() });
+        if ok {
+            return Ok(true);
         }
-        self.rev_parse("HEAD").await
+        if !self.conflicted_files().await?.is_empty() {
+            return Ok(false);
+        }
+        let _ = self.try_run(&[cmd, "--abort"]).await;
+        Err(Error::Git { cmd: cmd.into(), stderr: err.trim().into() })
     }
 
     /// Move the checked-out branch to `sha`; `mode` is soft, mixed or hard.
@@ -1261,6 +1304,20 @@ impl Git {
 
     pub async fn merge_ff_only(&self, from: &str) -> Result<()> {
         self.run(&["merge", "--ff-only", from]).await.map(|_| ())
+    }
+
+    /// Merge commit in the current checkout. Returns false when it stopped on conflicts,
+    /// left in progress; any other failure is aborted.
+    pub async fn merge_start(&self, from: &str, message: &str) -> Result<bool> {
+        let (ok, _, err) = self.try_run(&["merge", "--no-ff", "-m", message, from]).await?;
+        if ok {
+            return Ok(true);
+        }
+        if !self.conflicted_files().await?.is_empty() {
+            return Ok(false);
+        }
+        let _ = self.try_run(&["merge", "--abort"]).await;
+        Err(Error::Git { cmd: "merge".into(), stderr: err.trim().into() })
     }
 
     /// Merge commit in the current checkout. On failure the merge is aborted.
@@ -1642,5 +1699,38 @@ mod tests {
         assert_eq!(h[0].new_start, 1);
         assert_eq!(h[0].lines.len(), 5);
         assert_eq!(h[0].lines[1].kind, '-');
+    }
+}
+
+/// A git command that changes the repository (worth a line in the log), as opposed to a read.
+fn changes_repo(args: &[&str]) -> bool {
+    let mut it = args.iter();
+    let verb = loop {
+        match it.next() {
+            Some(&"-c") => {
+                it.next();
+            }
+            Some(a) => break *a,
+            None => return false,
+        }
+    };
+    let sub = it.next().copied().unwrap_or("");
+    match verb {
+        "stash" | "worktree" => !matches!(sub, "list" | "show"),
+        _ => ["merge", "rebase", "cherry-pick", "revert", "commit", "push", "pull", "reset", "checkout", "switch", "update-ref", "add", "rm", "restore", "clean", "apply"].contains(&verb),
+    }
+}
+
+#[cfg(test)]
+mod changes_repo_tests {
+    use super::changes_repo;
+
+    #[test]
+    fn tells_writes_from_reads() {
+        assert!(changes_repo(&["-c", "core.editor=true", "merge", "--continue"]));
+        assert!(changes_repo(&["stash", "push"]));
+        assert!(!changes_repo(&["stash", "list"]));
+        assert!(!changes_repo(&["rev-parse", "HEAD"]));
+        assert!(!changes_repo(&[]));
     }
 }

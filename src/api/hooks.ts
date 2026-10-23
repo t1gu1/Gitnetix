@@ -10,6 +10,7 @@ import type {
   BranchView,
   Commit,
   CommitPrefs,
+  LogEntry,
   Config,
   FileChange,
   Hunk,
@@ -64,6 +65,12 @@ export function useEngineEvents() {
             qc.invalidateQueries({ queryKey: ["projects"] });
             qc.invalidateQueries({ queryKey: ["submodules", e.projectId] });
             break;
+          case "conflictResolving":
+            toast(`Conflicts in ${e.files.join(", ")}: resolving them with AI. This can take a few minutes; Menu › Logs shows progress.`, "info", 12_000);
+            break;
+          case "log":
+            qc.setQueryData<LogEntry[]>(["log"], (l) => l && [...l.slice(-1999), e.entry]);
+            break;
           case "configChanged":
             qc.invalidateQueries({ queryKey: ["config"] });
             qc.invalidateQueries({ queryKey: ["projects"] });
@@ -75,7 +82,7 @@ export function useEngineEvents() {
   );
 }
 
-const MERGE_DEFAULTS: MergePrefs = { squash: false, squashMessage: "branch", rebase: false, deleteBranch: true, push: false };
+const MERGE_DEFAULTS: MergePrefs = { squash: false, squashMessage: "branch", rebase: false, deleteBranch: true, push: false, resolveConflicts: true };
 const COMMIT_DEFAULTS: CommitPrefs = { autoPush: false };
 
 type PrefsPatch = { merge?: Partial<MergePrefs>; commit?: Partial<CommitPrefs> };
@@ -105,6 +112,7 @@ export function useProjectPrefs(projectId?: string) {
 }
 
 export const useConfig = () => useQuery({ queryKey: ["config"], queryFn: () => rpc<Config>("config.get") });
+export const useLog = () => useQuery({ queryKey: ["log"], queryFn: () => rpc<LogEntry[]>("log.get"), staleTime: Infinity });
 export const useProjects = () => useQuery({ queryKey: ["projects"], queryFn: () => rpc<ProjectSummary[]>("projects.list") });
 
 /**

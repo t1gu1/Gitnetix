@@ -8,7 +8,7 @@ import { plural } from "../lib/format";
 import { useNav } from "../lib/nav";
 import { copyToClipboard, toast } from "../lib/toast";
 
-export type BranchDialog = "merge" | "delete" | "continue" | "conflicts" | "reset" | "forcePush" | "tag" | "target" | "rebase";
+export type BranchDialog = "merge" | "delete" | "continue" | "conflicts" | "reset" | "forcePush" | "tag" | "target" | "rebase" | "abortSwitch";
 
 export interface BranchTarget {
   view: BranchView;
@@ -62,7 +62,7 @@ const isDiverged = (v: BranchView) => !!v.upstream && v.upstreamAhead > 0 && v.u
 export function useBranchActions(pid: string, openDialog: (d: BranchDialog, branch: string, onto?: string) => void) {
   const nav = useNav();
   const inv = [["overview", pid], ["files", pid], ["diff", pid], ["commits", pid]];
-  const sw = useAction<unknown, { projectId: string; branch: string }>("workspace.switch", {
+  const sw = useAction<unknown, { projectId: string; branch: string; abort?: boolean }>("workspace.switch", {
     invalidate: inv,
     // The tree follows the checkout at once instead of waiting for the full overview.
     patch: (qc, v) => qc.setQueryData<Overview>(["overview", pid], (o) => o && switchedOverview(o, v.branch)),
@@ -95,7 +95,10 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
   const busy = new Set([...mutations.flatMap((m) => (m.isPending && m.variables?.branch ? [m.variables.branch] : [])), ...pushing]);
   const run = (m: BranchMutation, branch: string, ok: string) => m.mutate({ projectId: pid, branch }, { onSuccess: () => toast(ok, "ok") });
   /** Deletes the worktree (refused with uncommitted changes there), then checks its branch out here. */
-  const continueOn = (branch: string, path: string) => removeWt.mutate({ projectId: pid, branch, path }, { onSuccess: () => run(sw, branch, `Worktree deleted, continuing on ${branch}`) });
+  // Git refuses to switch in the middle of a rebase, merge…: ask to abort it first.
+  const switchOrAsk = (b: string, ok: string) => (ov?.inProgress ? openDialog("abortSwitch", b) : run(sw, b, ok));
+  const abortAndSwitch = (b: string) => sw.mutate({ projectId: pid, branch: b, abort: true }, { onSuccess: () => toast(`Aborted the ${ov?.inProgress ?? "operation"} and switched to ${b}`, "ok") });
+  const continueOn = (branch: string, path: string) => removeWt.mutate({ projectId: pid, branch, path }, { onSuccess: () => switchOrAsk(branch, `Worktree deleted, continuing on ${branch}`) });
 
   const all = (t: BranchTarget) => {
     const v = t.view;
@@ -112,7 +115,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
         short: originOnly ? "Check out" : "Switch",
         tip: originOnly ? `Only on origin: create a local ${b} that tracks it and switch to it` : `Check out ${b}`,
         icon: "swap",
-        run: () => run(sw, b, `Switched to ${b}`),
+        run: () => switchOrAsk(b, `Switched to ${b}`),
       },
       continue: {
         id: "continue",
@@ -351,14 +354,14 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
     else setMenu({ x: fromKey ? r.left : e.clientX, y: fromKey ? r.bottom + 2 : e.clientY, alignRight: false, t });
   };
 
-  const switchTo = (b: string) => run(sw, b, `Switched to ${b}`);
+  const switchTo = (b: string) => switchOrAsk(b, `Switched to ${b}`);
 
   /** Start a new branch off this one; gone branches have nothing to start from. */
   const create = (t: BranchTarget): Action | undefined => (t.view.exists ? all(t).create : undefined);
 
   const menuEl = menu && <ContextMenu x={menu.x} y={menu.y} alignRight={menu.alignRight} label={`Actions for ${menu.t.view.name}`} items={items(menu.t)} onClose={() => setMenu(null)} />;
 
-  return { primary, create, openMenu, menuEl, busy, switchTo, continueOn };
+  return { primary, create, openMenu, menuEl, busy, switchTo, continueOn, abortAndSwitch };
 }
 
 export type BranchActions = ReturnType<typeof useBranchActions>;

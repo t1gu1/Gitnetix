@@ -11,7 +11,7 @@ use futures_util::{stream, StreamExt};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, OnceCell};
 
-use crate::agents::{AgentManager, AgentSession, AgentStatus, StartArgs};
+use crate::agents::{AgentManager, AgentSession, AgentStatus, LogLine, StartArgs};
 use crate::ai::{self, Resolved};
 use crate::cache::{key_of, CommitCache, ViewCache};
 use crate::error::{Error, Result};
@@ -20,7 +20,7 @@ use crate::git::{ticket_keys, Blobs, BranchInfo, Commit, FileChange, Git, Hunk, 
 use crate::providers::azure::{self, MergedPr};
 use crate::providers::{azure_auth, github::GitHub, parse_remote, PrHost};
 use crate::secrets;
-use crate::store::{new_id, now, BranchMeta, Connection, GitProfile, Project, Release, ReleaseKind, Route, Store};
+use crate::store::{new_id, now, BranchMeta, Connection, ConnectMethod, GitProfile, Project, Release, ReleaseKind, Route, Store};
 use crate::submodules::{self, FetchReport, Submodule};
 use crate::templates::{self, Template};
 use crate::tickets::{self, Ticket};
@@ -194,6 +194,8 @@ pub struct Overview {
     /// Every branch (local, origin-only and tracked-but-gone), each with its parent.
     pub branches: Vec<BranchView>,
     pub rebasing: bool,
+    /// The rebase, merge, cherry-pick or revert the main checkout is stopped in the middle of.
+    pub in_progress: Option<&'static str>,
     pub conflicts: Vec<String>,
     pub remote: Option<String>,
     /// Every stash, newest first (shared by all worktrees).
@@ -312,6 +314,27 @@ pub struct MergeOptions {
     pub stay: bool,
 }
 
+/// Where AI resolving an operation's conflicts got to.
+struct Resolution {
+    /// The operation went all the way through.
+    done: bool,
+    /// Files still conflicted where it stopped.
+    left: Vec<String>,
+    /// "path: why" for each file AI could not resolve; empty when it was off.
+    errors: Vec<String>,
+}
+
+impl Resolution {
+    /// Why AI did not get it through, as a sentence; empty when it was off.
+    fn why(&self) -> String {
+        if self.errors.is_empty() {
+            String::new()
+        } else {
+            format!(" AI could not resolve {}.", self.errors.join("; "))
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RebaseResult {
@@ -382,6 +405,59 @@ fn valid_branch_name(s: &str) -> bool {
         && !s.ends_with('/')
         && !s.ends_with(".lock")
         && s.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '-' | '_' | '.'))
+}
+
+/// File in a checkout's git dir holding its agent's ticket, out of the working tree.
+const TICKET_FILE: &str = "gitnetix-ticket.md";
+
+/// How long an agent start waits for the branch's ticket.
+const TICKET_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Longest ticket description given to an agent, in characters.
+const TICKET_DESCRIPTION_MAX: usize = 20_000;
+
+/// A ticket as an agent reads it.
+fn ticket_context(t: &Ticket) -> String {
+    let mut s = format!("# {} · {} · {}\n{}\nStatus: {}", t.key, t.kind, t.title, t.url, t.status_label);
+    if !t.parent_key.is_empty() {
+        s.push_str(&format!("\nParent: {} {}", t.parent_key, t.parent_title));
+    }
+    let desc = t.description.trim();
+    if !desc.is_empty() {
+        s.push_str("\n\n");
+        s.extend(desc.chars().take(TICKET_DESCRIPTION_MAX));
+        if desc.chars().count() > TICKET_DESCRIPTION_MAX {
+            s.push_str("\n… (cut, see the ticket)");
+        }
+    }
+    if !t.criteria.is_empty() {
+        s.push_str("\n\nAcceptance criteria:");
+        for c in &t.criteria {
+            s.push_str(&format!("\n- [{}] {}", if c.done { "x" } else { " " }, c.text));
+        }
+    }
+    s
+}
+
+/// The agent prompt's `{ticket}`: the ticket, then where to get it again.
+fn ticket_section(project_id: &str, key: &str, body: &str, saved: Option<&Path>) -> String {
+    let mut s = format!("Ticket linked to this branch:\n\n{body}\n\n");
+    if let Some(f) = saved {
+        s.push_str(&format!("A copy is in {}: read it again whenever you need the ticket. ", f.display()));
+    }
+    s.push_str(&format!("If the Gitnetix `tickets_get` tool is available, call it with projectId \"{project_id}\" and key \"{key}\" for its current version."));
+    s
+}
+
+/// Fill an agent prompt's `{ticket}`, or add the section at the end of a template without it.
+fn insert_ticket(prompt: &str, ticket: &str) -> String {
+    if prompt.contains("{ticket}") {
+        prompt.replace("{ticket}", ticket)
+    } else if ticket.is_empty() {
+        prompt.to_string()
+    } else {
+        format!("{prompt}\n\n{ticket}")
+    }
 }
 
 /// Start the part after the prefix with the ticket key and an underscore (`feat/ATL-212_login`).
@@ -1096,6 +1172,7 @@ impl Gitnetix {
         let (events, _) = broadcast::channel(1024);
         let agents = AgentManager::new(events.clone(), dir);
         let shells = crate::shell::Shells::new(events.clone());
+        crate::log::attach(events.clone());
         let k = Arc::new(Gitnetix { store, agents, shells, events, dir: dir.to_path_buf(), protected: Default::default(), watcher: Default::default(), commits: CommitCache::open(dir), views: ViewCache::open(dir.join("overview-cache")), hosted: Default::default() });
         k.rewatch();
         Ok(k)
@@ -1302,7 +1379,16 @@ impl Gitnetix {
     async fn ask(&self, task: &str, t: &Template, vars: BTreeMap<String, String>, lang: &str, cwd: Option<&Path>) -> Result<String> {
         let r = self.route(task, Some(t))?;
         let prompt = templates::render(t, &vars, lang);
-        ai::complete(&r, &prompt, cwd).await
+        let how = format!("{} {:?}{}", r.provider, r.method, if r.model.is_empty() { String::new() } else { format!(" ({})", r.model) });
+        crate::log::info(format!("Will attempt to ask AI for {task} with {how}"));
+        let start = Instant::now();
+        let out = ai::complete(&r, &prompt, cwd).await;
+        let secs = start.elapsed().as_secs_f32();
+        match &out {
+            Ok(_) => crate::log::info(format!("AI answered {task} in {secs:.1}s")),
+            Err(e) => crate::log::error(format!("AI failed {task} after {secs:.1}s: {e}")),
+        }
+        out
     }
 
     // ---------- projects ----------
@@ -1409,13 +1495,13 @@ impl Gitnetix {
     pub async fn overview(&self, project_id: &str, quick: bool) -> Result<Overview> {
         let mut p = self.store.project(project_id)?;
         let git = self.git(&p);
-        let (default, current, branches, remote_branches, wts, rebasing, tags, remote, fingerprint) = tokio::join!(
+        let (default, current, branches, remote_branches, wts, in_progress, tags, remote, fingerprint) = tokio::join!(
             git.default_branch(),
             git.current_branch(),
             git.branches(),
             git.remote_branches(),
             git.worktrees(),
-            git.is_rebasing(),
+            git.in_progress(),
             git.tags(),
             git.remote_url("origin"),
             git.ref_fingerprint(),
@@ -1445,7 +1531,8 @@ impl Gitnetix {
             })?;
         }
         let agents = self.agents.list();
-        let rebasing = rebasing.unwrap_or(false);
+        let in_progress = in_progress.ok().flatten();
+        let rebasing = in_progress == Some("rebase");
         let conflicts = if rebasing { git.conflicted_files().await.unwrap_or_default() } else { Vec::new() };
 
         let refs = Refs::new(branches, remote_branches).batched();
@@ -1571,7 +1658,7 @@ impl Gitnetix {
         let default_view = find(&default);
         let remote = remote.ok().flatten();
         let has_changelog = Path::new(&p.path).join(CHANGELOG).is_file();
-        Ok(Overview { project: p, current_branch: current, default_branch: default, releases, other_branches, default_view, branches: all, rebasing, conflicts, remote, stashes, has_changelog })
+        Ok(Overview { project: p, current_branch: current, default_branch: default, releases, other_branches, default_view, branches: all, rebasing, in_progress, conflicts, remote, stashes, has_changelog })
     }
 
     /// Every branch's view with counts, merge state and parent: a few git calls per branch,
@@ -1843,18 +1930,33 @@ impl Gitnetix {
 
     /// Revert one commit of `branch` with a new commit on it.
     pub async fn revert_commit(&self, project_id: &str, branch: &str, sha: &str) -> Result<String> {
-        let p = self.store.project(project_id)?;
-        let out = self.require_checkout(&p, branch).await?.revert(check_sha(sha)?).await;
-        self.changed(project_id);
-        out
+        self.apply_commit(project_id, branch, sha, "revert").await
     }
 
     /// Copy one commit onto `onto`.
     pub async fn cherry_pick(&self, project_id: &str, onto: &str, sha: &str) -> Result<String> {
+        self.apply_commit(project_id, onto, sha, "cherry-pick").await
+    }
+
+    /// Revert or cherry-pick (`op`) one commit on checked-out `branch`, AI resolving its conflicts.
+    /// When they can't be, nothing changes. Returns the new commit.
+    async fn apply_commit(&self, project_id: &str, branch: &str, sha: &str, op: &str) -> Result<String> {
         let p = self.store.project(project_id)?;
-        let out = self.require_checkout(&p, onto).await?.cherry_pick(check_sha(sha)?).await;
+        let git = self.require_checkout(&p, branch).await?;
+        let sha = check_sha(sha)?;
+        let started = if op == "revert" { git.revert(sha).await } else { git.cherry_pick(sha).await };
+        let short = &sha[..sha.len().min(7)];
+        let out = match started {
+            Ok(true) => Ok(()),
+            Ok(false) => {
+                let (verb, change) = if op == "revert" { ("Reverting", format!("the revert of commit {short}")) } else { ("Cherry-picking", format!("commit {short}")) };
+                self.resolve_or_abort(&p, &git, op, &change, branch, |r| format!("{verb} {short} conflicts in {}.{}", r.left.join(", "), r.why())).await
+            }
+            Err(e) => Err(e),
+        };
         self.changed(project_id);
-        out
+        out?;
+        git.rev_parse("HEAD").await
     }
 
     /// Move `branch` to one of its commits: soft keeps the changes staged, mixed unstaged, hard drops them.
@@ -1865,7 +1967,9 @@ impl Gitnetix {
         Ok(())
     }
 
-    pub async fn switch_branch(&self, project_id: &str, branch: &str) -> Result<()> {
+    /// Check out `branch` in the main checkout; `abort` first aborts the rebase, merge, cherry-pick
+    /// or revert it's stopped in the middle of (git refuses to switch then).
+    pub async fn switch_branch(&self, project_id: &str, branch: &str, abort: bool) -> Result<()> {
         let p = self.store.project(project_id)?;
         if let Some(dir) = self.checkout_dir(&p, branch).await? {
             if dir != Path::new(&p.path) {
@@ -1873,7 +1977,15 @@ impl Gitnetix {
             }
             return Ok(());
         }
-        self.git(&p).switch(branch).await?;
+        let git = self.git(&p);
+        if abort {
+            if let Some(op) = git.in_progress().await? {
+                let out = git.abort_op(op).await;
+                self.changed(project_id);
+                out?;
+            }
+        }
+        git.switch(branch).await?;
         self.changed(project_id);
         Ok(())
     }
@@ -1974,6 +2086,10 @@ impl Gitnetix {
     pub async fn commit(&self, project_id: &str, branch: &str, message: Option<String>, all: bool) -> Result<CommitResult> {
         let p = self.store.project(project_id)?;
         let git = self.staged_checkout(&p, branch, all).await?;
+        let marked = git.staged_with_conflict_markers().await?;
+        if !marked.is_empty() {
+            return Err(Error::Invalid(format!("Conflict markers are still in {}: resolve them before committing.", marked.join(", "))));
+        }
         let (message, ai_written) = match message.filter(|m| !m.trim().is_empty()) {
             Some(m) => (m, false),
             None => (self.commit_message_for(&p, &git, branch).await?, true),
@@ -2015,6 +2131,7 @@ impl Gitnetix {
         let default = git.default_branch().await?;
         let base = self.base_of(&p, branch, &default).await;
         let ok = git.rebase(&git.rev_of(&base).await).await?;
+        let ok = ok || self.resolve_and_continue(&p, &git, Some("rebase"), branch, &base).await?.done;
         self.changed(project_id);
         Self::rebase_result(&git, branch, ok).await
     }
@@ -2023,6 +2140,11 @@ impl Gitnetix {
         let p = self.store.project(project_id)?;
         let git = self.require_checkout(&p, branch).await?;
         let ok = git.rebase_continue().await?;
+        let ok = ok || {
+            let default = git.default_branch().await?;
+            let base = self.base_of(&p, branch, &default).await;
+            self.resolve_and_continue(&p, &git, Some("rebase"), branch, &base).await?.done
+        };
         self.changed(project_id);
         Self::rebase_result(&git, branch, ok).await
     }
@@ -2049,19 +2171,9 @@ impl Gitnetix {
     pub async fn conflict_propose(&self, project_id: &str, branch: &str, path: &str) -> Result<String> {
         let p = self.store.project(project_id)?;
         let git = self.require_checkout(&p, branch).await?;
-        let content = std::fs::read_to_string(git.cwd().join(path))?;
         let default = git.default_branch().await?;
-        let t = self.template("conflict", None, Some(&p.id))?;
-        let mut vars = BTreeMap::new();
-        vars.insert("conflict".into(), content);
-        vars.insert("path".into(), path.to_string());
-        vars.insert("ours".into(), branch.to_string());
-        vars.insert("theirs".into(), self.base_of(&p, branch, &default).await);
-        let out = self.ask("conflict", &t, vars, "en", Some(git.cwd())).await?;
-        if out.contains("<<<<<<<") || out.contains(">>>>>>>") {
-            return Err(Error::Ai("The AI answer still has conflict markers. Try again or resolve by hand.".into()));
-        }
-        Ok(out)
+        let base = self.base_of(&p, branch, &default).await;
+        self.propose_resolution(&p, &git, path, branch, &base).await
     }
 
     pub async fn conflict_apply(&self, project_id: &str, branch: &str, path: &str, content: &str) -> Result<()> {
@@ -2069,14 +2181,135 @@ impl Gitnetix {
         let path = submodules::check_path(path)?;
         let p = self.store.project(project_id)?;
         let git = self.require_checkout(&p, branch).await?;
+        Self::write_resolution(&git, path, content).await?;
+        self.changed(project_id);
+        Ok(())
+    }
+
+    /// AI's take on conflicted file `path` in `git`'s checkout: the change from `ours` brought onto `theirs`.
+    /// AI is asked about each conflict with a few lines around it, not the whole file: a big file
+    /// would take minutes to write back, or never come back at all.
+    async fn propose_resolution(&self, p: &Project, git: &Git, path: &str, ours: &str, theirs: &str) -> Result<String> {
+        let content = std::fs::read_to_string(git.cwd().join(path))?;
+        let lines: Vec<&str> = content.lines().collect();
+        let regions = conflict_regions(&lines, 10);
+        if regions.is_empty() {
+            return Err(Error::Invalid(format!("{path} has no conflict markers to resolve")));
+        }
+        let t = self.template("conflict", None, Some(&p.id))?;
+        let mut out: Vec<String> = Vec::new();
+        let mut at = 0;
+        for (start, end) in regions {
+            out.extend(lines[at..start].iter().map(|l| l.to_string()));
+            let mut vars = BTreeMap::new();
+            vars.insert("conflict".into(), lines[start..end].join("\n"));
+            vars.insert("path".into(), format!("{path} (excerpt: lines {}-{} of {})", start + 1, end, lines.len()));
+            vars.insert("ours".into(), ours.to_string());
+            vars.insert("theirs".into(), theirs.to_string());
+            let answer = self.ask("conflict", &t, vars, "en", Some(git.cwd())).await?;
+            if answer.contains("<<<<<<<") || answer.contains(">>>>>>>") {
+                return Err(Error::Ai("The AI answer still has conflict markers. Try again or resolve by hand.".into()));
+            }
+            for (i, l) in answer.lines().enumerate() {
+                // The answer comes back trimmed: give its first line back the excerpt's indent.
+                let first = lines[start];
+                out.push(if i == 0 && l.trim_start() == first.trim_start() { first.to_string() } else { l.to_string() });
+            }
+            at = end;
+        }
+        out.extend(lines[at..].iter().map(|l| l.to_string()));
+        Ok(out.join("\n"))
+    }
+
+    /// Write a resolved file and stage it.
+    async fn write_resolution(git: &Git, path: &str, content: &str) -> Result<()> {
         let mut body = content.to_string();
         if !body.ends_with('\n') {
             body.push('\n');
         }
         std::fs::write(git.cwd().join(path), body)?;
-        git.add(path).await?;
-        self.changed(project_id);
-        Ok(())
+        git.add(path).await
+    }
+
+    /// AI resolves this project's conflicts on its own: turned on, with an AI set up to run the conflict
+    /// template (a CLI one found on this computer), so that every conflict isn't a call bound to fail.
+    fn resolves_conflicts(&self, p: &Project) -> bool {
+        p.merge.resolve_conflicts
+            && self
+                .template("conflict", None, Some(&p.id))
+                .and_then(|t| self.route("conflict", Some(&t)))
+                .is_ok_and(|r| r.method != ConnectMethod::Cli || ai::cli_path(&r.provider).is_ok())
+    }
+
+    /// AI resolves conflicted `files` in `git`'s checkout and stages them. Returns "path: why" for
+    /// each one it could not, left as it was. Files whose conflict has no markers to work from
+    /// (binary, deleted on one side) are left too.
+    async fn resolve_files(&self, p: &Project, git: &Git, files: &[String], ours: &str, theirs: &str) -> Vec<String> {
+        let _ = self.events.send(Event::ConflictResolving { project_id: p.id.clone(), files: files.to_vec() });
+        crate::log::info(format!("Will attempt to resolve conflicts with AI in {} ({ours} onto {theirs}): {}", git.cwd().display(), files.join(", ")));
+        // Asked a few at a time; written one by one, as `git add` takes the index lock.
+        let answers: Vec<(String, Result<String>)> = stream::iter(files.to_vec())
+            .map(|f| async move {
+                let marked = std::fs::read_to_string(git.cwd().join(&f)).is_ok_and(|c| c.contains("<<<<<<<"));
+                let r = if marked { self.propose_resolution(p, git, &f, ours, theirs).await } else { Err(Error::Invalid("no conflict markers to resolve".into())) };
+                (f, r)
+            })
+            .buffered(3)
+            .collect()
+            .await;
+        let mut failed = Vec::new();
+        for (f, r) in answers {
+            if let Err(e) = match r {
+                Ok(body) => Self::write_resolution(git, &f, &body).await,
+                Err(e) => Err(e),
+            } {
+                crate::log::error(format!("Could not resolve {f}: {e}"));
+                failed.push(format!("{f}: {e}"));
+            } else {
+                crate::log::info(format!("Resolved and staged {f}"));
+            }
+        }
+        self.changed(&p.id);
+        failed
+    }
+
+    /// AI resolves what `op` stopped on in `git`'s checkout, then `op` carries on, through every commit
+    /// a rebase stops on, until it's done. `op` None has nothing to carry on (a stash). Stops, `op` left
+    /// in progress, when AI is off for the project or could not resolve a file.
+    async fn resolve_and_continue(&self, p: &Project, git: &Git, op: Option<&str>, ours: &str, theirs: &str) -> Result<Resolution> {
+        let on = self.resolves_conflicts(p);
+        loop {
+            let files = git.conflicted_files().await?;
+            if !on {
+                return Ok(Resolution { done: false, left: files, errors: Vec::new() });
+            }
+            let errors = self.resolve_files(p, git, &files, ours, theirs).await;
+            if !errors.is_empty() {
+                return Ok(Resolution { done: false, left: git.conflicted_files().await?, errors });
+            }
+            let done = match op {
+                Some(op) => git.continue_op(op).await?,
+                None => true,
+            };
+            if done {
+                return Ok(Resolution { done, left: Vec::new(), errors: Vec::new() });
+            }
+        }
+    }
+
+    /// Like [`Self::resolve_and_continue`], except `op` is aborted unless it goes through, the checkout
+    /// back as it was before it; `refusal` words the error then.
+    async fn resolve_or_abort(&self, p: &Project, git: &Git, op: &str, ours: &str, theirs: &str, refusal: impl FnOnce(&Resolution) -> String) -> Result<()> {
+        match self.resolve_and_continue(p, git, Some(op), ours, theirs).await {
+            Ok(r) if r.done => Ok(()),
+            r => {
+                let _ = git.abort_op(op).await;
+                Err(match r {
+                    Ok(r) => Error::Invalid(refusal(&r)),
+                    Err(e) => e,
+                })
+            }
+        }
     }
 
     // ---------- releases ----------
@@ -2679,7 +2912,10 @@ impl Gitnetix {
         let out = git.stash_apply(sha).await;
         // Even a refused apply may have touched files.
         self.changed(project_id);
-        let conflicts = out?;
+        let mut conflicts = out?;
+        if !conflicts.is_empty() {
+            conflicts = self.resolve_and_continue(&p, &git, None, "the stashed changes", branch).await?.left;
+        }
         let dropped = pop && conflicts.is_empty();
         if dropped {
             git.stash_drop(sha).await?;
@@ -2830,13 +3066,24 @@ impl Gitnetix {
             Some(_) => git.rev_parse(branch).await.ok(),
             None => None,
         };
+        let mut squashed = None;
         if opts.squash && !git.is_ancestor(branch, &into).await.unwrap_or(false) {
             // Squashing rewrites the branch: check everything that could stop the merge first,
             // so a refusal never leaves it squashed but not merged.
             self.check_mergeable(&p, branch, &into, opts.rebase).await?;
-            self.squash_branch(&p, branch, &into, opts.squash_ai).await?;
+            squashed = self.squash_branch(&p, branch, &into, opts.squash_ai).await?;
         }
-        let (sha, already_merged) = if opts.rebase { self.rebase_ff(&p, branch, &into).await? } else { self.merge_refs(&p, branch, &into).await? };
+        let merged = if opts.rebase { self.rebase_ff(&p, branch, &into).await } else { self.merge_refs(&p, branch, &into).await };
+        let (sha, already_merged) = match merged {
+            Ok(m) => m,
+            Err(e) => {
+                // Conflicts AI could not resolve: the branch goes back to before the squash, unless it moved since.
+                if let Some((old, new)) = squashed {
+                    let _ = git.update_ref_from(&format!("refs/heads/{branch}"), &old, &new).await;
+                }
+                return Err(e);
+            }
+        };
         self.changed(project_id);
         // Land the main checkout on the branch that got the changes, unless it's already there
         // or `into` is open in another worktree (a branch can't be checked out twice).
@@ -2918,7 +3165,9 @@ impl Gitnetix {
             }
         }
         if let Err(files) = git.merge_tree(into, from).await? {
-            return Err(Error::Invalid(format!("Merging {from} into {into} conflicts in {}. Rebase onto the base and resolve first.", files.join(", "))));
+            if !self.resolves_conflicts(p) {
+                return Err(Error::Invalid(format!("Merging {from} into {into} conflicts in {}. Rebase onto the base and resolve first.", files.join(", "))));
+            }
         }
         let mut dirs = vec![(into, self.checkout_dir(p, into).await?)];
         if rebase {
@@ -2938,12 +3187,13 @@ impl Gitnetix {
     /// Collapse `branch`'s commits since it left `onto` into one, its files unchanged.
     /// Only the ref moves, so a checkout of it stays as it was. The message is
     /// "squash | <branch>" with the squashed subjects, or written by AI (`ai`).
-    async fn squash_branch(&self, p: &Project, branch: &str, onto: &str, ai: bool) -> Result<()> {
+    /// Returns the old tip and the squashed commit, None when there was nothing to squash.
+    async fn squash_branch(&self, p: &Project, branch: &str, onto: &str, ai: bool) -> Result<Option<(String, String)>> {
         let git = self.git(p);
         let base = git.merge_base(onto, branch).await?;
         let range = format!("{base}..{branch}");
         if git.count(&range).await? < 2 {
-            return Ok(());
+            return Ok(None);
         }
         // Written before anything moves: if AI fails, the branch is untouched.
         let message = if ai {
@@ -2969,7 +3219,7 @@ impl Gitnetix {
                 Ok(())
             })?;
         }
-        Ok(())
+        Ok(Some((old, commit)))
     }
 
     /// Rebase `from` onto `into`, then fast-forward `into` to it. Returns (new tip, already merged).
@@ -2980,28 +3230,15 @@ impl Gitnetix {
             return Ok((git.rev_parse(into).await?, true));
         }
         if !git.is_ancestor(into, from).await? {
-            let conflict = || Error::Invalid(format!("Rebasing {from} onto {into} stopped on conflicts. Rebase it by hand and resolve first."));
             match self.checkout_dir(p, from).await? {
-                Some(dir) => {
-                    let g = self.git_at(p, &dir);
-                    if !g.rebase(into).await? {
-                        g.rebase_abort().await?;
-                        return Err(conflict());
-                    }
-                }
+                Some(dir) => self.rebase_resolving(p, &self.git_at(p, &dir), from, into).await?,
                 // Not checked out anywhere: rebase it in a throwaway worktree.
                 None => {
                     let tmp = std::env::temp_dir().join(format!("gitnetix-rebase-{}", new_id()));
                     git.worktree_add(&tmp, from, None).await?;
-                    let g = self.git_at(p, &tmp);
-                    let done = g.rebase(into).await;
-                    if matches!(done, Ok(false)) {
-                        let _ = g.rebase_abort().await;
-                    }
+                    let done = self.rebase_resolving(p, &self.git_at(p, &tmp), from, into).await;
                     git.worktree_remove(&tmp, true).await?;
-                    if !done? {
-                        return Err(conflict());
-                    }
+                    done?;
                 }
             }
         }
@@ -3014,6 +3251,24 @@ impl Gitnetix {
             }
         }
         Ok((tip, false))
+    }
+
+    /// Rebase `g`'s checkout of `from` onto `into`, AI resolving the conflicts on the way.
+    /// When they can't be, the rebase is aborted.
+    async fn rebase_resolving(&self, p: &Project, g: &Git, from: &str, into: &str) -> Result<()> {
+        if g.rebase(into).await? {
+            return Ok(());
+        }
+        self.resolve_or_abort(p, g, "rebase", from, into, |r| format!("Rebasing {from} onto {into} stopped on conflicts.{} Rebase it by hand and resolve first.", r.why())).await
+    }
+
+    /// Merge commit of `from` in `g`'s checkout of `into`, AI resolving the conflicts.
+    /// When they can't be, the merge is aborted. Returns the merge commit.
+    async fn merge_resolving(&self, p: &Project, g: &Git, from: &str, into: &str, message: &str) -> Result<String> {
+        if !g.merge_start(from, message).await? {
+            self.resolve_or_abort(p, g, "merge", from, into, |r| format!("Merging {from} into {into} conflicts in {}.{} Rebase onto the base and resolve first.", r.left.join(", "), r.why())).await?;
+        }
+        g.rev_parse("HEAD").await
     }
 
     /// Bring a branch up to date with its base by merging the base into it
@@ -3042,19 +3297,33 @@ impl Gitnetix {
         if git.is_ancestor(from, into).await? {
             return Ok((git.rev_parse(into).await?, true));
         }
-        let tree = git.merge_tree(into, from).await?.map_err(|files| {
-            Error::Invalid(format!("Merging {from} into {into} conflicts in {}. Rebase onto the base and resolve first.", files.join(", ")))
-        })?;
+        // None: conflicts, for AI to resolve in a checkout.
+        let tree = match git.merge_tree(into, from).await? {
+            Ok(tree) => Some(tree),
+            Err(_) if self.resolves_conflicts(p) => None,
+            Err(files) => return Err(Error::Invalid(format!("Merging {from} into {into} conflicts in {}. Rebase onto the base and resolve first.", files.join(", ")))),
+        };
         let message = format!("Merge branch '{from}' into {into}");
-        let sha = match self.checkout_dir(p, into).await? {
-            Some(dir) => {
+        let sha = match (self.checkout_dir(p, into).await?, tree) {
+            (Some(dir), tree) => {
                 let g = self.git_at(p, &dir);
                 if g.is_rebasing().await? || !g.wip_changes().await?.is_empty() {
                     return Err(Error::Invalid(format!("{into} has uncommitted changes at {}", dir.display())));
                 }
-                g.merge_no_ff(from, &message).await?
+                match tree {
+                    Some(_) => g.merge_no_ff(from, &message).await?,
+                    None => self.merge_resolving(p, &g, from, into, &message).await?,
+                }
             }
-            None => {
+            // Not checked out anywhere: merge it in a throwaway worktree.
+            (None, None) => {
+                let tmp = std::env::temp_dir().join(format!("gitnetix-merge-{}", new_id()));
+                git.worktree_add(&tmp, into, None).await?;
+                let sha = self.merge_resolving(p, &self.git_at(p, &tmp), from, into, &message).await;
+                git.worktree_remove(&tmp, true).await?;
+                sha?
+            }
+            (None, Some(tree)) => {
                 let (old, tip) = (git.rev_parse(into).await?, git.rev_parse(from).await?);
                 let commit = git.commit_tree(&tree, &[&old, &tip], &message).await?;
                 git.update_ref_from(&format!("refs/heads/{into}"), &commit, &old).await?;
@@ -3207,7 +3476,14 @@ impl Gitnetix {
             prompt = prompt.replace(&format!("{{{k}}}"), v);
         }
         prompt = prompt.replace("{language}", templates::language_name(&p.gen_lang.commit));
+<<<<<<< HEAD
+        prompt = format!("{prompt}\n\n{}\n\n{}", templates::CHOICE_FORMAT, templates::NO_AI_CREDIT);
+=======
+        let (ticket, notes) = self.agent_ticket(project_id, &branch, cwd).await;
+        // Last, so nothing in the ticket is taken for a placeholder.
+        prompt = insert_ticket(&prompt, &ticket);
         prompt = format!("{prompt}\n\n{}", templates::NO_AI_CREDIT);
+>>>>>>> release/0.5.3
         self.agents.start(StartArgs {
             project_id: project_id.into(),
             branch,
@@ -3216,7 +3492,27 @@ impl Gitnetix {
             request: request.into(),
             prompt,
             ai: r,
+            notes,
         })
+    }
+
+    /// The prompt section for the branch's ticket ("" without one), with log lines saying what
+    /// happened. The ticket is also saved in the checkout's git dir so the agent can read it again.
+    /// A tracker that fails or is slow never keeps the agent from starting.
+    async fn agent_ticket(&self, project_id: &str, branch: &str, cwd: &Path) -> (String, Vec<LogLine>) {
+        let note = |text: String| vec![LogLine::new("dim", text)];
+        let t = match tokio::time::timeout(TICKET_TIMEOUT, self.branch_ticket(project_id, branch)).await {
+            Ok(Ok(Some(t))) => t,
+            Ok(Ok(None)) => return (String::new(), vec![]),
+            Ok(Err(e)) => return (String::new(), note(format!("  ⚠ Could not load the branch's ticket: {e}"))),
+            Err(_) => return (String::new(), note("  ⚠ The branch's ticket took too long to load: starting without it".into())),
+        };
+        let body = ticket_context(&t);
+        let saved = match Git::new(cwd).git_paths(&[TICKET_FILE]).await {
+            Ok(paths) => paths.into_iter().next().filter(|f| std::fs::write(f, &body).is_ok()),
+            Err(_) => None,
+        };
+        (ticket_section(project_id, &t.key, &body, saved.as_deref()), note(format!("  ↳ Ticket {} added to the context", t.key)))
     }
 
     /// An agent on a branch always works in that branch's own worktree, made
@@ -3581,6 +3877,80 @@ impl Gitnetix {
             }
         }
         Ok(views)
+    }
+
+    /// Ticket `key` from the connections this project shows: Jira asked for it directly, so a done
+    /// or unassigned ticket is found too; Trello and Asana looked up in their lists.
+    pub async fn ticket(&self, project_id: &str, key: &str) -> Result<Option<Ticket>> {
+        let integ = self.store.read(|c| c.integrations.clone());
+        let on = |repos: &[String]| crate::store::shows_in(repos, project_id);
+        let mut err = None;
+        if let Some(jira_key) = ticket_keys(key, true).into_iter().find(|k| k.eq_ignore_ascii_case(key.trim())) {
+            let prefix = jira_key.split('-').next().unwrap_or("");
+            // A connection scoped to other Jira projects cannot have it.
+            for j in integ.jira.iter().filter(|j| on(&j.repos) && (j.projects.is_empty() || j.projects.iter().any(|p| p.eq_ignore_ascii_case(prefix)))) {
+                let got = match tickets::jira_auth::token(j).await {
+                    Ok(tok) => tickets::jira_issue(j, &tok, &jira_key).await,
+                    Err(e) => Err(e),
+                };
+                match got {
+                    Ok(t) => return Ok(Some(t)),
+                    Err(e) => err = Some(e),
+                }
+            }
+        }
+        let token = |name: String| secrets::get(&name).and_then(|t| t.ok_or_else(|| Error::Other(format!("{name} token missing"))));
+        let mut lists = Vec::new();
+        for t in integ.trello.iter().filter(|t| on(&t.repos)) {
+            lists.push(match token(t.secret()) {
+                Ok(tok) => tickets::trello(t, &tok).await,
+                Err(e) => Err(e),
+            });
+        }
+        for a in integ.asana.iter().filter(|a| on(&a.repos)) {
+            lists.push(match token(a.secret()) {
+                Ok(tok) => tickets::asana(a, &tok).await,
+                Err(e) => Err(e),
+            });
+        }
+        for l in lists {
+            match l {
+                Ok(v) => {
+                    if let Some(t) = v.into_iter().find(|t| t.key.eq_ignore_ascii_case(key.trim())) {
+                        return Ok(Some(t));
+                    }
+                }
+                Err(e) => err = Some(e),
+            }
+        }
+        match err {
+            Some(e) => Err(e),
+            None => Ok(None),
+        }
+    }
+
+    /// The ticket `branch` was made for, else the first one its name holds that a connection has.
+    pub async fn branch_ticket(&self, project_id: &str, branch: &str) -> Result<Option<Ticket>> {
+        let p = self.store.project(project_id)?;
+        let made_for = p.branches.get(branch).and_then(|m| m.ticket.clone()).filter(|t| !t.is_empty());
+        let mut keys: Vec<String> = Vec::new();
+        for k in made_for.into_iter().chain(ticket_keys(branch, true)) {
+            if !keys.iter().any(|seen| seen.eq_ignore_ascii_case(&k)) {
+                keys.push(k);
+            }
+        }
+        let mut err = None;
+        for k in keys {
+            match self.ticket(project_id, &k).await {
+                Ok(Some(t)) => return Ok(Some(t)),
+                Ok(None) => {}
+                Err(e) => err = Some(e),
+            }
+        }
+        match err {
+            Some(e) => Err(e),
+            None => Ok(None),
+        }
     }
 
     pub fn set_ticket_release(&self, project_id: &str, key: &str, release: &str) -> Result<()> {
@@ -4115,6 +4485,42 @@ mod tests {
     }
 
     #[test]
+    fn agent_ticket_context() {
+        let t: Ticket = serde_json::from_value(serde_json::json!({
+            "key": "ATL-212", "source": "jira", "title": "Login", "kind": "Story", "status": "progress", "statusLabel": "In Progress",
+            "assignee": "Ana", "mine": false, "description": "Users sign in.\n", "criteria": [{"text": "SSO", "done": true}, {"text": "MFA", "done": false}],
+            "comments": 0, "url": "https://x.atlassian.net/browse/ATL-212", "whereLabel": "", "place": ""
+        }))
+        .unwrap();
+        let body = ticket_context(&t);
+        assert_eq!(body, "# ATL-212 · Story · Login\nhttps://x.atlassian.net/browse/ATL-212\nStatus: In Progress\n\nUsers sign in.\n\nAcceptance criteria:\n- [x] SSO\n- [ ] MFA");
+
+        let section = ticket_section("p1", "ATL-212", &body, Some(Path::new("/r/.git/gitnetix-ticket.md")));
+        assert!(section.contains(&body));
+        assert!(section.contains("/r/.git/gitnetix-ticket.md"));
+        assert!(section.contains(r#"projectId "p1" and key "ATL-212""#));
+        assert!(!ticket_section("p1", "ATL-212", &body, None).contains("A copy is in"));
+
+        assert_eq!(insert_ticket("Do it.\n{ticket}\nThanks", "T"), "Do it.\nT\nThanks");
+        assert_eq!(insert_ticket("Do it.", "T"), "Do it.\n\nT");
+        assert_eq!(insert_ticket("Do it.", ""), "Do it.");
+        assert_eq!(insert_ticket("Do it.\n{ticket}", ""), "Do it.\n");
+    }
+
+    #[test]
+    fn long_ticket_description_is_cut() {
+        let mut t: Ticket = serde_json::from_value(serde_json::json!({
+            "key": "#12", "source": "trello", "title": "T", "kind": "Card", "status": "todo", "statusLabel": "To do",
+            "assignee": "", "mine": true, "description": "", "criteria": [], "comments": 0, "url": "", "whereLabel": "", "place": ""
+        }))
+        .unwrap();
+        t.description = "é".repeat(TICKET_DESCRIPTION_MAX + 5);
+        let body = ticket_context(&t);
+        assert_eq!(body.matches('é').count(), TICKET_DESCRIPTION_MAX);
+        assert!(body.ends_with("(cut, see the ticket)"));
+    }
+
+    #[test]
     fn ticket_in_branch() {
         assert_eq!(with_ticket("feat/login", "ATL-212"), "feat/ATL-212_login");
         assert_eq!(with_ticket("feat/atl-212-login", "ATL-212"), "feat/ATL-212_login");
@@ -4150,5 +4556,44 @@ mod tests {
     #[test]
     fn squash_title_drops_dashes() {
         assert_eq!(squash_title("feat/add-login-page"), "squash | feat/add login page");
+    }
+}
+
+/// Line ranges [start, end) of `lines` to ask AI about: each conflict (`<<<<<<<` to `>>>>>>>`)
+/// with `context` lines on each side, ranges that touch merged into one.
+fn conflict_regions(lines: &[&str], context: usize) -> Vec<(usize, usize)> {
+    let mut regions: Vec<(usize, usize)> = Vec::new();
+    let mut open = None;
+    for (i, l) in lines.iter().enumerate() {
+        if l.starts_with("<<<<<<<") {
+            open = Some(i);
+        } else if let (Some(s), true) = (open, l.starts_with(">>>>>>>")) {
+            open = None;
+            let (start, end) = (s.saturating_sub(context), (i + 1 + context).min(lines.len()));
+            match regions.last_mut() {
+                Some(last) if start <= last.1 => last.1 = end,
+                _ => regions.push((start, end)),
+            }
+        }
+    }
+    regions
+}
+
+#[cfg(test)]
+mod conflict_regions_tests {
+    use super::conflict_regions;
+
+    #[test]
+    fn each_conflict_with_its_context_and_close_ones_merged() {
+        let mut lines = vec!["x"; 40];
+        lines[5] = "<<<<<<< HEAD";
+        lines[7] = ">>>>>>> b";
+        lines[10] = "<<<<<<< HEAD";
+        lines[12] = ">>>>>>> b";
+        lines[30] = "<<<<<<< HEAD";
+        lines[32] = ">>>>>>> b";
+        assert_eq!(conflict_regions(&lines, 2), vec![(3, 15), (28, 35)]);
+        assert_eq!(conflict_regions(&lines, 10), vec![(0, 40)]);
+        assert!(conflict_regions(&["a", "b"], 10).is_empty());
     }
 }

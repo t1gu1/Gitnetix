@@ -40,6 +40,8 @@ export interface MergePrefs {
   deleteBranch: boolean;
   /** Push the target to origin after. */
   push: boolean;
+  /** Let AI resolve the conflicts a merge, rebase, cherry-pick, revert or stash runs into, and carry on. */
+  resolveConflicts: boolean;
 }
 
 export interface CommitPrefs {
@@ -223,6 +225,8 @@ export interface Overview {
   /** Every branch (local, origin-only, tracked-but-gone), each with its parent. */
   branches: BranchView[];
   rebasing: boolean;
+  /** The rebase, merge, cherry-pick or revert the main checkout is stopped in the middle of. */
+  inProgress?: "rebase" | "merge" | "cherry-pick" | "revert" | null;
   conflicts: string[];
   remote?: string | null;
   /** Every stash, newest first (shared by all worktrees). */
@@ -374,6 +378,13 @@ export interface Config {
 }
 
 export type AgentStatus = "running" | "waiting" | "paused" | "failed" | "done" | "stopped";
+
+/** A line of the app's Logs page: what it tried and what failed. */
+export interface LogEntry {
+  at: string;
+  error: boolean;
+  text: string;
+}
 
 export interface LogLine {
   kind: "cmd" | "ai" | "ok" | "dim" | "err" | "wait" | "run";
@@ -568,5 +579,7 @@ export type GitnetixEvent =
   | { type: "projectChanged"; projectId: string }
   | { type: "configChanged" }
   | { type: "cleanupStep"; projectId: string; branch: string }
+  | { type: "conflictResolving"; projectId: string; files: string[] }
+  | { type: "log"; entry: LogEntry }
   | { type: "shellData"; cwd: string; data: string; end: number }
   | { type: "shellExit"; cwd: string };

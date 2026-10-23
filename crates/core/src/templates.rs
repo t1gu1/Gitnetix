@@ -66,7 +66,7 @@ pub fn variables(kind: &str) -> Vec<(&'static str, &'static str)> {
         "release" => vec![("{commits}", "Commits in range"), ("{tickets}", "Linked tickets"), ("{from}", "Start ref"), ("{to}", "End ref")],
         "changelog" => vec![("{commits}", "Commits the branch adds"), ("{unreleased}", "Current Unreleased section"), ("{released}", "Entries already moved under the release version"), ("{branch}", "Branch"), ("{base}", "Base branch")],
         "conflict" => vec![("{conflict}", "Conflicting file"), ("{ours}", "Our branch"), ("{theirs}", "Their branch"), ("{path}", "File path")],
-        "agent" => vec![("{request}", "User request"), ("{branch}", "Current branch"), ("{worktree}", "Worktree path")],
+        "agent" => vec![("{request}", "User request"), ("{branch}", "Current branch"), ("{worktree}", "Worktree path"), ("{ticket}", "Linked ticket with its description; added at the end when left out")],
         _ => vec![],
     };
     v.push(("{language}", "Language picked when generating"));
@@ -77,6 +77,9 @@ pub fn variables(kind: &str) -> Vec<(&'static str, &'static str)> {
 /// Unknown placeholders are left as they are.
 /// Appended to every prompt, stored and custom templates included, so output never credits an AI.
 pub const NO_AI_CREDIT: &str = "Never mention Claude, AI, an assistant or an agent in what you write: no Co-Authored-By trailers, no \"Generated with\" lines, no AI attribution of any kind.";
+
+/// Appended to agent prompts so the log can turn questions into answer buttons, one group per question.
+pub const CHOICE_FORMAT: &str = "When the user needs to choose, end your reply with the questions. Put each question on its own line, starting with a letter when there are several (\"A. Which storage?\"), then its options as a numbered list (\"1. Option\"), one option per line, with no question inside an option. Give every question options; the user can still type another answer.";
 
 pub fn render(t: &Template, vars: &BTreeMap<String, String>, language: &str) -> String {
     let mut all = vars.clone();
@@ -216,7 +219,7 @@ pub fn default_templates() -> Vec<Template> {
                 rule("askFirst", "Ask before applying", "check", json!(true)),
                 rule("runTests", "Run tests after resolving", "check", json!(true)),
             ],
-            body: "Resolve the merge conflicts in {path} between {ours} and {theirs}.\n\n- Keep the structure from {theirs} (the release branch)\n- Re-apply the intent of the change from {ours} on top\n- Never drop a change silently\n\nReturn the COMPLETE resolved file content, with no conflict markers left.\n\nFile with conflict markers:\n{conflict}".into(),
+            body: "Resolve the merge conflicts in {path} between {ours} and {theirs}.\n\n- Keep the structure from {theirs} (the release branch)\n- Re-apply the intent of the change from {ours} on top\n- Never drop a change silently\n\nReturn the COMPLETE resolved text below, every line of it, with no conflict markers left.\n\nText with conflict markers:\n{conflict}".into(),
             ..Default::default()
         },
         Template {

@@ -16,6 +16,8 @@ use crate::{ai, secrets};
 /// (method, description, params) — also the MCP tool list.
 pub const METHODS: &[(&str, &str, &str)] = &[
     ("app.info", "App version and companion server address", ""),
+    ("log.get", "Recent operations and errors, oldest first", ""),
+    ("log.clear", "Empty the log", ""),
     ("config.get", "Full app configuration (no secrets)", ""),
     ("ui.set", "Save UI preferences", "language?, theme?, lastProject?, animationsOff?"),
     ("ui.setView", "Remember how a screen was left (pane width, collapsed section…); no value forgets it", "key, value?"),
@@ -26,7 +28,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("projects.setHidden", "Close or reopen a project's tab (data kept)", "projectId, hidden"),
     ("projects.reorder", "Set the order of projects", "ids: string[]"),
     ("projects.setGenLang", "Language AI writes in for a project", "projectId, commit?, pr?, release?"),
-    ("projects.setPrefs", "Remembered merge and commit options for a project", "projectId, merge?: {squash?, squashMessage?: branch|ai, rebase?, deleteBranch?, push?}, commit?: {autoPush?}"),
+    ("projects.setPrefs", "Remembered merge and commit options for a project", "projectId, merge?: {squash?, squashMessage?: branch|ai, rebase?, deleteBranch?, push?, resolveConflicts?}, commit?: {autoPush?}"),
     ("projects.setProfile", "Git profile used for commits in a project", "projectId, profileId"),
     ("profiles.save", "Create or update a Git profile", "profile: {id?, label, name, email, sign, signingKey?}"),
     ("profiles.delete", "Delete a Git profile", "id"),
@@ -38,7 +40,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("commits.revert", "Revert a commit with a new commit on its branch", "projectId, branch, sha"),
     ("commits.cherryPick", "Copy a commit onto a checked-out branch", "projectId, onto, sha"),
     ("commits.reset", "Reset a checked-out branch to a commit", "projectId, branch, sha, mode: soft|mixed|hard"),
-    ("workspace.switch", "Check out a branch (uncommitted work comes along)", "projectId, branch"),
+    ("workspace.switch", "Check out a branch (uncommitted work comes along); abort = first abort the rebase/merge/cherry-pick/revert the checkout is stopped in", "projectId, branch, abort?"),
     ("workspace.stage", "Stage files (all when paths is empty)", "projectId, branch, paths?"),
     ("workspace.unstage", "Unstage files (all when paths is empty)", "projectId, branch, paths?"),
     ("workspace.discard", "Discard staged or unstaged changes (all on that side when paths is empty)", "projectId, branch, staged, paths?"),
@@ -126,6 +128,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("prs.draftReply", "AI-drafted reply for a thread; with draft, that started reply polished instead (editing = id of the comment it rewrites)", "projectId, number, threadId, draft?, editing?"),
     ("prs.draftReview", "AI-drafted review summary", "projectId, number"),
     ("tickets.list", "Tickets from Jira, Trello, Asana with their release; mine = only the user's Jira tickets, sprint = only Jira tickets in an open sprint", "projectId, mine?, sprint?"),
+    ("tickets.get", "One ticket with its full description, by key or by the branch linked to it; null when none", "projectId, key? | branch?"),
     ("tickets.setRelease", "Plan a ticket into a release", "projectId, key, release"),
     ("tickets.triage", "AI suggestions for unplanned tickets", "projectId"),
     ("tickets.statuses", "Statuses a ticket can move to (Jira transitions, Trello lists, Asana sections)", "source, conn, id"),
@@ -219,9 +222,48 @@ fn drop_unused_atlassian_sign_in(k: &Gitnetix) -> Result<()> {
     Ok(())
 }
 
+/// Reads polled all the time: logged only when they fail.
+const QUIET: &[&str] = &[".info", ".get", ".list", ".overview", ".files", ".diff", ".blobs", ".commits", ".catalog", ".statuses", ".versions", ".projects", ".refs", ".range", ".preview", ".clear", "shell.write", "shell.resize", "ui.setView", "github.signInPoll", "azure.signInPoll"];
+
+/// Run `method`, logging what it will attempt and how it ended.
 pub async fn call(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
+    let quiet = QUIET.iter().any(|q| method.ends_with(q));
+    if !quiet {
+        crate::log::info(format!("Will attempt to {method} {}", scrub(&p, "")));
+    }
+    let start = std::time::Instant::now();
+    let out = dispatch(k, method, p).await;
+    let ms = start.elapsed().as_millis();
+    match &out {
+        Ok(_) if !quiet => crate::log::info(format!("Done {method} in {ms}ms")),
+        Err(e) => crate::log::error(format!("{method} failed after {ms}ms: {e}")),
+        _ => {}
+    }
+    out
+}
+
+/// Params as logged: secrets hidden, long text cut.
+fn scrub(v: &Value, key: &str) -> Value {
+    let k = key.to_ascii_lowercase();
+    if ["token", "secret", "password", "key"].iter().any(|s| k.contains(s)) {
+        return json!("***");
+    }
+    match v {
+        Value::Object(m) => Value::Object(m.iter().map(|(k, v)| (k.clone(), scrub(v, k))).collect()),
+        Value::Array(a) => Value::Array(a.iter().map(|v| scrub(v, key)).collect()),
+        Value::String(s) if s.chars().count() > 120 => json!(format!("{}…", s.chars().take(120).collect::<String>())),
+        _ => v.clone(),
+    }
+}
+
+async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
     let p = if p.is_null() { json!({}) } else { p };
     match method {
+        "log.get" => to(crate::log::all()),
+        "log.clear" => {
+            crate::log::clear();
+            ok()
+        }
         "app.info" => {
             let server = k.store.read(|c| c.server.clone());
             to(json!({
@@ -390,7 +432,7 @@ pub async fn call(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
             ok()
         }
         "workspace.switch" => {
-            k.switch_branch(&s(&p, "projectId")?, &s(&p, "branch")?).await?;
+            k.switch_branch(&s(&p, "projectId")?, &s(&p, "branch")?, b(&p, "abort")).await?;
             ok()
         }
         "workspace.commitMessage" => to(json!({ "message": k.generate_commit_message(&s(&p, "projectId")?, &s(&p, "branch")?).await? })),
@@ -782,6 +824,13 @@ pub async fn call(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
                 return to(json!({ "sources": [], "tickets": [] }));
             }
             to(json!({ "sources": sources, "tickets": k.tickets(&pid, b(&p, "mine"), b(&p, "sprint")).await?, "syncedAt": crate::store::now() }))
+        }
+        "tickets.get" => {
+            let pid = s(&p, "projectId")?;
+            match os(&p, "key").filter(|k| !k.trim().is_empty()) {
+                Some(key) => to(k.ticket(&pid, &key).await?),
+                None => to(k.branch_ticket(&pid, &s(&p, "branch")?).await?),
+            }
         }
         "tickets.setRelease" => {
             k.set_ticket_release(&s(&p, "projectId")?, &s(&p, "key")?, &os(&p, "release").unwrap_or_default())?;

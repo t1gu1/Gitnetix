@@ -12,14 +12,14 @@ let next = 1;
 const listeners = new Set<() => void>();
 const emit = () => listeners.forEach((l) => l());
 
-export function toast(text: string, kind: Kind = "info") {
+export function toast(text: string, kind: Kind = "info", ms = kind === "error" ? 8000 : 4000) {
   const id = next++;
   toasts = [...toasts, { id, text, kind }];
   emit();
   setTimeout(() => {
     toasts = toasts.filter((t) => t.id !== id);
     emit();
-  }, kind === "error" ? 8000 : 4000);
+  }, ms);
 }
 
 export function copyToClipboard(text: string) {

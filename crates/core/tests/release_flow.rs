@@ -158,6 +158,8 @@ async fn merge_and_delete_branches() {
     let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
     let added = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await;
     let pid = added[0]["id"].as_str().unwrap().to_string();
+    // Its conflicts must stop the operation, not go to an AI found on this computer.
+    call(&k, "projects.setPrefs", json!({ "projectId": pid, "merge": { "resolveConflicts": false } })).await;
 
     // Unmerged branch: plain delete refuses, force deletes.
     sh(&repo, &["switch", "-qc", "spike"]);
@@ -807,6 +809,8 @@ async fn merge_by_squash_rebase_and_push() {
     let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
     let added = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await;
     let pid = added[0]["id"].as_str().unwrap().to_string();
+    // Its conflicts must stop the operation, not go to an AI found on this computer.
+    call(&k, "projects.setPrefs", json!({ "projectId": pid, "merge": { "resolveConflicts": false } })).await;
     let count = |r: &str| {
         let out = Command::new("git").current_dir(&repo).args(["rev-list", "--count", r]).output().unwrap();
         String::from_utf8(out.stdout).unwrap().trim().parse::<u32>().unwrap()
@@ -1017,6 +1021,8 @@ async fn stash_flow() {
     let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
     let added = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await;
     let pid = added[0]["id"].as_str().unwrap().to_string();
+    // Its conflicts must stop the operation, not go to an AI found on this computer.
+    call(&k, "projects.setPrefs", json!({ "projectId": pid, "merge": { "resolveConflicts": false } })).await;
 
     std::fs::write(repo.join("README.md"), "# atlas\nmore\n").unwrap();
     std::fs::write(repo.join("new.ts"), "x\n").unwrap();

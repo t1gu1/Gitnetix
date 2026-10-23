@@ -8,11 +8,12 @@ import { LANGS, Seg } from "../components/ui";
 import { animates } from "../lib/motion";
 import { useNav } from "../lib/nav";
 import { AISetupPanes } from "./AISetup";
+import { LogsPane } from "./Logs";
 import { SettingsPanes } from "./Settings";
 import { TemplatesPanes } from "./Templates";
 
-type View = { name: "ai" } | { name: "templates" } | { name: "settings"; section?: string };
-const VIEW_TITLE = { ai: "AI setup", templates: "AI templates", settings: "Settings" };
+type View = { name: "ai" } | { name: "templates" } | { name: "settings"; section?: string } | { name: "logs" };
+const VIEW_TITLE = { ai: "AI setup", templates: "AI templates", settings: "Settings", logs: "Logs" };
 
 export function Menu({ onUnpair }: { onUnpair: () => void }) {
   const nav = useNav();
@@ -100,6 +101,7 @@ export function Menu({ onUnpair }: { onUnpair: () => void }) {
               <div className={`menu-grid menu-embed${view.name === "templates" ? " split" : ""}`}>
                 {view.name === "ai" && <AISetupPanes />}
                 {view.name === "templates" && <TemplatesPanes />}
+                {view.name === "logs" && <LogsPane />}
                 {view.name === "settings" && (
                   <SettingsPanes key={view.section} section={view.section} onAi={() => open({ name: "ai" })} onTemplates={() => open({ name: "templates" })} />
                 )}
@@ -169,6 +171,10 @@ export function Menu({ onUnpair }: { onUnpair: () => void }) {
                         <label className="check">
                           <input type="checkbox" checked={prefs.merge.push} onChange={() => prefs.setMerge({ push: !prefs.merge.push })} />
                           <span>Push the target branch to origin after merging</span>
+                        </label>
+                        <label className="check">
+                          <input type="checkbox" checked={prefs.merge.resolveConflicts} onChange={() => prefs.setMerge({ resolveConflicts: !prefs.merge.resolveConflicts })} />
+                          <span>Resolve conflicts with AI and carry on (merge, rebase, cherry-pick, revert, stash)</span>
                         </label>
                       </div>
                       <div style={{ borderTop: "1px solid var(--line)", margin: "4px -14px 0" }} />
@@ -276,6 +282,11 @@ export function Menu({ onUnpair }: { onUnpair: () => void }) {
                       <Icon name="gear" size={16} />
                       <span className="app-row-label">Settings</span>
                       <span className="app-row-sub">Animations, Git providers, integrations, companion &amp; MCP</span>
+                    </button>
+                    <button className="app-row" onClick={() => open({ name: "logs" })}>
+                      <Icon name="terminal" size={16} />
+                      <span className="app-row-label">Logs</span>
+                      <span className="app-row-sub">What the app attempted and the errors, to copy and share</span>
                     </button>
                     <div className="app-row">
                       <span className="app-row-label">Language</span>
