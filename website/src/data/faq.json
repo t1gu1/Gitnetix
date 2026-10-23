@@ -1,0 +1,30 @@
+[
+  {
+    "q": "What is Gitnetix?",
+    "a": "Gitnetix is a release-centric Git client for macOS, Windows and Linux. Instead of a commit graph, it shows your branches as a tree: <code>main</code>, then releases, then the features and fixes that belong to them. It ships a release in one click and can run an AI agent on every branch."
+  },
+  {
+    "q": "How is it different from other Git GUIs?",
+    "a": "Most Git clients are built around the commit graph, which shows what git stored. Gitnetix drops it and shows intent: which release a branch belongs to, what is still open, what shipped and what is falling behind. It works out each branch's real parent, even after a squash-merged pull request."
+  },
+  {
+    "q": "Is Gitnetix an alternative to GitKraken, Fork or Sourcetree?",
+    "a": "Yes. Like GitKraken, Fork, Sourcetree, Tower or GitHub Desktop, it is a desktop Git GUI for everyday branching, committing, merging and pull requests. The difference is the picture: those clients are built around the commit graph, while Gitnetix shows branches as a tree of releases and the work inside them, with a one-click release flow and an AI agent per branch."
+  },
+  {
+    "q": "Which AI agents does it work with?",
+    "a": "Claude Code, Codex, Gemini, Copilot and Ollama through their signed-in CLIs, or any provider with an API key. You pick the provider, model and effort for each agent session, and each one runs in its branch's own worktree."
+  },
+  {
+    "q": "Does it support GitLab or Bitbucket?",
+    "a": "Not yet. Any git remote works for branches, commits and releases. Pull request features currently cover GitHub and Azure DevOps."
+  },
+  {
+    "q": "macOS says Gitnetix \"is damaged\". Is it safe?",
+    "a": "The app is fine. It isn't notarized yet, so macOS can't check who made it. After moving it to Applications, run <code>xattr -cr /Applications/Gitnetix.app</code> once, or choose Open Anyway in System Settings › Privacy &amp; Security. Updates from inside the app don't need this again."
+  },
+  {
+    "q": "Can I manage it from my phone?",
+    "a": "Yes. Scan the QR code shown by your desktop (or a headless server) and Gitnetix opens in your phone's browser, no app store needed. From there you can drive releases, agents, worktrees, pull requests and tickets."
+  }
+]

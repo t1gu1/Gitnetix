@@ -1,0 +1,36 @@
+---
+import ReleasePage from '../../components/ReleasePage';
+import Base from '../../layouts/Base.astro';
+import { releases, longDate, summary, u, type Release } from '../../lib/changelog';
+
+export const getStaticPaths = () =>
+  releases.map((r, i) => ({ params: { version: r.version }, props: { r, i } }));
+
+const { r, i } = Astro.props as { r: Release; i: number };
+const url = new URL(u(`releases/${r.version}/`), Astro.site).href;
+const description = `Gitnetix ${r.version}, released ${longDate(r.date)}: ${summary(r)}`.slice(0, 300);
+const jsonLd = [
+  {
+    '@context': 'https://schema.org',
+    '@type': 'BreadcrumbList',
+    itemListElement: [
+      { '@type': 'ListItem', position: 1, name: 'Gitnetix', item: new URL(u(), Astro.site).href },
+      { '@type': 'ListItem', position: 2, name: 'Releases', item: new URL(u('releases/'), Astro.site).href },
+      { '@type': 'ListItem', position: 3, name: `v${r.version}`, item: url },
+    ],
+  },
+  {
+    '@context': 'https://schema.org',
+    '@type': 'BlogPosting',
+    headline: `Gitnetix ${r.version}: ${r.title}`,
+    description,
+    datePublished: r.date,
+    url,
+    image: new URL(u('og.png'), Astro.site).href,
+    author: { '@type': 'Person', name: 'Guillaume', url: 'https://adevjourney.wtf/en/projects/gitnetix/' },
+  },
+];
+---
+<Base title={`Gitnetix ${r.version}: ${r.title}`} description={description} page="releases" type="article" jsonLd={jsonLd}>
+<ReleasePage i={i} />
+</Base>

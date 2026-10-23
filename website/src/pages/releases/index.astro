@@ -1,0 +1,18 @@
+---
+import Releases from '../../components/Releases';
+import Base from '../../layouts/Base.astro';
+import { releases, latestRelease, u } from '../../lib/changelog';
+
+const latest = await latestRelease();
+const jsonLd = [{
+  '@context': 'https://schema.org',
+  '@type': 'BreadcrumbList',
+  itemListElement: [
+    { '@type': 'ListItem', position: 1, name: 'Gitnetix', item: new URL(u(), Astro.site).href },
+    { '@type': 'ListItem', position: 2, name: 'Releases', item: new URL(u('releases/'), Astro.site).href },
+  ],
+}];
+---
+<Base title="Gitnetix releases and changelog" description={`What changed in every Gitnetix release, newest first. ${releases.length} releases so far, latest v${releases[0].version}: ${releases[0].title}.`} page="releases" jsonLd={jsonLd}>
+<Releases version={latest.version} />
+</Base>

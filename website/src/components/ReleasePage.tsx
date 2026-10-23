@@ -1,0 +1,24 @@
+import ReleaseCard from './ReleaseCard';
+import { releases, longDate, u } from '../lib/changelog';
+
+/** One release on its own page, with links to its neighbours. */
+export default function ReleasePage({ i }: { i: number }) {
+  const r = releases[i];
+  const newer = releases[i - 1];
+  const older = releases[i + 1];
+  return (
+    <div style={{ maxWidth: '1040px', margin: '0 auto', padding: '0 24px 120px' }}>
+    <nav aria-label="Breadcrumb" style={{ padding: '28px 0 40px', fontSize: '14px', color: 'var(--faint)' }}><a href={u()} style={{ color: 'var(--faint)' }}>Gitnetix</a> <span aria-hidden="true">/</span> <a href={u('releases/')} style={{ color: 'var(--faint)' }}>Releases</a> <span aria-hidden="true">/</span> <span>v{r.version}</span></nav>
+    <p style={{ margin: '0 0 16px', display: 'flex', flexWrap: 'wrap', gap: '6px 14px', alignItems: 'center', color: 'var(--muted)' }}>
+    <span className="mono" style={{ color: 'var(--release)', background: 'var(--chip)', padding: '2px 10px', borderRadius: '999px', fontSize: '14px' }}>v{r.version}</span>
+    <span>Released <time dateTime={r.date}>{longDate(r.date)}</time></span>
+    {i === 0 && <span style={{ fontSize: '12px', fontWeight: '600', color: 'var(--accent-ink)', background: 'var(--accent)', padding: '2px 10px', borderRadius: '999px' }}>Latest</span>}
+    </p>
+    <ReleaseCard r={r} latest={i === 0} open heading="h1" />
+    <nav aria-label="Other releases" style={{ marginTop: '32px', display: 'flex', flexWrap: 'wrap', gap: '16px', justifyContent: 'space-between' }}>
+    {older ? <a href={u(`releases/${older.version}/`)} style={{ color: 'var(--muted)', minHeight: '44px', display: 'flex', alignItems: 'center' }}>← v{older.version}: {older.title}</a> : <span></span>}
+    {newer && <a href={u(`releases/${newer.version}/`)} style={{ color: 'var(--muted)', minHeight: '44px', display: 'flex', alignItems: 'center' }}>v{newer.version}: {newer.title} →</a>}
+    </nav>
+    </div>
+  );
+}

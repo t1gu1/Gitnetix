@@ -219,3 +219,12 @@ jobs:
               }}' > latest.json
           cat latest.json
           gh release upload "$TAG" latest.json --clobber --repo "$GITHUB_REPOSITORY"
+
+  # Rebuild the website with this release's changelog and download links.
+  website:
+    needs: publish
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    uses: ./.github/workflows/website.yml

@@ -1,0 +1,54 @@
+---
+import Home from '../components/Home';
+import Base from '../layouts/Base.astro';
+import faq from '../data/faq.json';
+import { REPO, releases, latestRelease, u } from '../lib/changelog';
+
+const latest = await latestRelease();
+const first = releases[releases.length - 1];
+const description = 'Gitnetix is a free Git client for macOS, Windows and Linux with no commit graph: branches as a tree of releases, one-click releases, and an AI agent (Claude Code, Codex, Gemini) on every branch.';
+const site = new URL(u(), Astro.site).href;
+const jsonLd = [
+  { '@context': 'https://schema.org', '@type': 'WebSite', name: 'Gitnetix', url: site },
+  {
+    '@context': 'https://schema.org',
+    '@type': 'SoftwareApplication',
+    name: 'Gitnetix',
+    description,
+    url: site,
+    applicationCategory: 'DeveloperApplication',
+    applicationSubCategory: 'Git client',
+    operatingSystem: 'macOS, Windows, Linux',
+    softwareVersion: latest.version,
+    datePublished: first.date,
+    dateModified: releases[0].date,
+    downloadUrl: new URL(u('download/'), Astro.site).href,
+    releaseNotes: new URL(u('releases/'), Astro.site).href,
+    image: new URL(u('icon-192.png'), Astro.site).href,
+    screenshot: new URL(u('og.png'), Astro.site).href,
+    offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
+    author: { '@type': 'Person', name: 'Guillaume', url: 'https://adevjourney.wtf/en/projects/gitnetix/' },
+    sameAs: [REPO],
+  },
+  {
+    '@context': 'https://schema.org',
+    '@type': 'FAQPage',
+    mainEntity: faq.map((f) => ({ '@type': 'Question', name: f.q, acceptedAnswer: { '@type': 'Answer', text: f.a.replace(/<[^>]+>/g, '') } })),
+  },
+];
+---
+<Base title="Gitnetix: the Git client that shows your work, not your commits" description={description} page="home" jsonLd={jsonLd}>
+<Home version={latest.version} />
+</Base>
+
+<script is:inline define:vars={{ downloads: latest.downloads, version: latest.version }}>
+  // Point the download buttons at the visitor's OS; without JS they open the download page.
+  const ua = navigator.userAgent.toLowerCase();
+  const os = /android|iphone|ipad/.test(ua) ? null : ua.includes('win') ? 'windows' : ua.includes('linux') ? 'linux' : ua.includes('mac') ? 'macos' : null;
+  const d = downloads.find((x) => x.id === os);
+  if (d) {
+    document.querySelectorAll('[data-dl]').forEach((a) => (a.href = d.url));
+    document.querySelectorAll('[data-dl-label]').forEach((s) => (s.textContent = `Download for ${d.name}`));
+    document.querySelectorAll('[data-dl-note]').forEach((s) => (s.textContent = `v${version} · ${d.desc.split('.')[0]}`));
+  }
+</script>

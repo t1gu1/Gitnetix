@@ -1,0 +1,45 @@
+---
+import Download from '../components/Download';
+import Base from '../layouts/Base.astro';
+import { releases, latestRelease } from '../lib/changelog';
+
+const latest = await latestRelease();
+// A tag pushed without a changelog section has no notes of its own.
+const notes = releases.find((r) => r.version === latest.version);
+const jsonLd = [{
+  '@context': 'https://schema.org',
+  '@type': 'SoftwareApplication',
+  name: 'Gitnetix',
+  applicationCategory: 'DeveloperApplication',
+  operatingSystem: 'macOS, Windows, Linux',
+  softwareVersion: latest.version,
+  downloadUrl: latest.downloads.map((d) => d.url),
+  offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
+}];
+---
+<Base title={`Download Gitnetix ${latest.version} for macOS, Windows and Linux`} description={`Download Gitnetix ${latest.version}, the release-centric Git client: a universal .dmg for macOS, a Windows installer and a Linux AppImage. Free, with automatic updates.`} page="download" jsonLd={jsonLd}>
+<Download latest={latest} notes={notes} />
+</Base>
+
+<style is:global>
+.pf.on{border-color:rgba(240,164,58,.55)!important;box-shadow:0 0 50px -18px rgba(240,164,58,.55)}
+.pf .sys{display:none}
+.pf.on .sys{display:inline}
+.pf.on .pbtn{background:var(--accent)!important;color:var(--accent-ink)!important;border-color:transparent!important}
+</style>
+
+<script>
+  const ua = navigator.userAgent.toLowerCase();
+  const os = /android|iphone|ipad/.test(ua) ? null : ua.includes('win') ? 'windows' : ua.includes('linux') ? 'linux' : ua.includes('mac') ? 'macos' : null;
+  const card = document.querySelector<HTMLElement>(`.pf[data-os="${os}"]`);
+  if (card) {
+    card.classList.add('on');
+    card.parentElement!.prepend(card);
+  }
+  document.querySelectorAll<HTMLButtonElement>('[data-copy]').forEach((b) =>
+    b.addEventListener('click', async () => {
+      await navigator.clipboard.writeText(b.dataset.copy!);
+      b.textContent = 'Copied';
+    }),
+  );
+</script>

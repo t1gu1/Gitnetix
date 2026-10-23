@@ -1,0 +1,87 @@
+{
+  "0.4.0": {
+    "title": "Close a worktree, keep the work",
+    "story": "Worktrees stopped being a dead end. Close one and Gitnetix can merge it into the branch you choose. Every checkout gets a shell beside its agent, Azure DevOps pull requests now do everything GitHub ones do, and Jira, Trello and Asana can be connected more than once. And deleting a release tag reopens the release, the way it always should have.",
+    "highlights": [
+      "Merge on close",
+      "Shell beside every agent",
+      "Azure DevOps pull requests",
+      "Jira sign-in with Atlassian",
+      "Auto fetch every 5 min"
+    ]
+  },
+  "0.3.0": {
+    "title": "Pick your agent, per session",
+    "story": "Each agent session now gets its own provider, model and effort, and always runs in its branch’s own worktree. The commit list learned to search and filter by author, avatars arrived (Gravatar stays off unless you turn it on), and after a commit or push only the branches that changed are rebuilt.",
+    "highlights": [
+      "Provider, model and effort per session",
+      "Commit search",
+      "Author filters",
+      "Faster tree updates"
+    ]
+  },
+  "0.2.0": {
+    "title": "Right-click everything",
+    "story": "A small release for your hands. Right-click a changed file or folder to copy its path, open it, or add it to .gitignore. Folders show their +/- totals, and changing a branch target offers a rebase on the spot.",
+    "highlights": [
+      "Context menus",
+      "Folder totals",
+      "Rebase on retarget"
+    ]
+  },
+  "0.1.3": {
+    "title": "Origin-only releases come home",
+    "story": "Release branches that only exist on origin are imported now, so a teammate’s release shows up in your tree."
+  },
+  "0.1.2": {
+    "title": "The path learns to breathe",
+    "story": "A release about the orange path. Dots on branches it only passes by are dimmed, dimmed runs fade in and out at their ends, and the pulse keeps its pace as the path grows, stays in sync on WebKit and carries across layout changes. Switching projects now returns you exactly where you left each one.",
+    "highlights": [
+      "Calmer path",
+      "Pulse fixes",
+      "Per-project memory",
+      "Analytics by project"
+    ]
+  },
+  "0.1.1": {
+    "title": "The squash-merge detective",
+    "story": "Squash-merged pull requests are found even when they aren’t titled with the branch name, and land under the release that shipped them. Branches whose ticket key shows up in a later squash get a “likely” tag and are never cleaned up by mistake. Also: the push button now wiggles when commits are waiting for origin.",
+    "highlights": [
+      "Squash detection",
+      "“Likely merged” tag",
+      "Retarget any branch",
+      "Changelog into x.y.z"
+    ]
+  },
+  "0.1.0": {
+    "title": "Every desktop, one sign-in",
+    "story": "Gitnetix lands on macOS and Windows next to Linux, and starts updating itself. Sign in to GitHub or Azure DevOps with a device code, no token to create. Stashes, submodules, image diffs with swipe and onion skin, and an AI action that adds your branch to the changelog for you.",
+    "highlights": [
+      "macOS and Windows builds",
+      "In-app updates",
+      "Device-code sign-in",
+      "Stashes and submodules",
+      "Image diffs"
+    ]
+  },
+  "0.0.6": {
+    "title": "Tags on commits, and a Linux AppImage"
+  },
+  "0.0.5": {
+    "title": "Tags you can act on"
+  },
+  "0.0.4": {
+    "title": "Tag and push"
+  },
+  "0.0.3": {
+    "title": "Versions that suggest themselves"
+  },
+  "0.0.2": {
+    "title": "The tree takes root",
+    "story": "The branch tree with parent tracking arrives, with shipped work placed under its release."
+  },
+  "0.0.1": {
+    "title": "Day one",
+    "story": "Projects, releases, feature and fix branches, worktrees, and ship + tag. The whole idea, in a first release."
+  }
+}
