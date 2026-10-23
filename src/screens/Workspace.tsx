@@ -946,6 +946,9 @@ export function MergeModal({
     success: (r) =>
       `${r.alreadyMerged ? `${branch} was already in ${r.into}` : `Merged ${branch} into ${r.into}`}${r.switched ? ` · switched to ${r.into}` : ""}${r.deleted ? " · branch deleted" : ""}${r.pushed ? " · pushed" : ""}${r.retagged ? ` · ${r.retagged} moved` : ""}${r.stayed ? ` · stayed put: ${r.stayed}` : ""}`,
   });
+  // Uncommitted work on the branch would be left out of the merge: commit or discard it first.
+  const wip = useOverview(pid).data?.branches.find((x) => x.name === branch)?.wip ?? 0;
+  const [asking, setAsking] = useState(false);
   const run = () =>
     merge.mutate(
       { projectId: pid, branch, into: base, deleteBranch: opts.deleteBranch, squash: opts.squash, squashAi: opts.squashMessage === "ai", rebase: opts.rebase, push: opts.push, stay },
@@ -967,7 +970,7 @@ export function MergeModal({
         <button
           className="btn btn-primary btn-md split-main"
           disabled={merge.isPending}
-          onClick={run}
+          onClick={() => (wip ? setAsking(true) : run())}
         >
           {merge.isPending && <span className="spinner" />}
           Merge into {base}
@@ -1047,10 +1050,69 @@ export function MergeModal({
       </div>
     </>
   );
+  // Cancelling brings the merge options back; once the work is committed or discarded, the merge runs.
+  if (asking) return <MergeWipModal pid={pid} branch={branch} files={wip} onClose={() => setAsking(false)} onClean={() => { setAsking(false); run(); }} />;
   if (inline) return <div className="ag-finish">{body}<div className="ag-finish-foot">{footer}</div></div>;
   return (
     <Modal title="Merge branch" sub={<span className="mono">{branch} → {base}</span>} onClose={onClose} footer={footer}>
       {body}
+    </Modal>
+  );
+}
+
+/** Before merging a branch with uncommitted changes: stage all & commit them, or discard them. `onClean` runs once that is done. */
+function MergeWipModal({ pid, branch, files, onClose, onClean }: { pid: string; branch: string; files: number; onClose: () => void; onClean: () => void }) {
+  const [summary, setSummary] = useState("");
+  const aiOn = useAiOn("commit");
+  const inv = [["overview", pid], ["files", pid], ["diff", pid], ["commits", pid]];
+  const commit = useAction<{ sha: string; message: string; aiWritten: boolean }>("workspace.commit", {
+    invalidate: inv,
+    success: (r) => `${r.aiWritten ? "AI wrote: " : "Committed: "}${r.message.split("\n")[0]}`,
+  });
+  const discard = useAction("workspace.discard", { invalidate: inv, success: "Changes discarded" });
+  const busy = commit.isPending || discard.isPending;
+  const error = commit.error ?? discard.error;
+  const stageAndCommit = () => commit.mutateAsync({ projectId: pid, branch, message: summary.trim(), all: true }).then(onClean, () => {});
+  // Unstaged edits first (back to what is staged, untracked files deleted), then the staged ones (back to the last commit).
+  const throwAway = () =>
+    discard
+      .mutateAsync({ projectId: pid, branch, staged: false, paths: [] })
+      .then(() => discard.mutateAsync({ projectId: pid, branch, staged: true, paths: [] }))
+      .then(onClean, () => {});
+  return (
+    <Modal
+      title="Uncommitted changes"
+      sub={<span className="mono">{branch} · {plural(files, "file")}</span>}
+      width={520}
+      onClose={() => !busy && onClose()}
+      footer={
+        <>
+          <button className="btn btn-md" disabled={busy} onClick={onClose}>Cancel</button>
+          <button className="btn btn-md btn-danger" disabled={busy} data-tip={`Throw away every uncommitted change on ${branch}, then merge`} onClick={throwAway}>
+            {discard.isPending && <span className="spinner" />}
+            Discard & Merge
+          </button>
+          <button className="btn btn-md btn-primary" disabled={busy || (!aiOn && !summary.trim())} data-tip={`Commit every change on ${branch}, then merge`} onClick={stageAndCommit}>
+            {commit.isPending && <span className="spinner" />}
+            Stage all, Commit & Merge
+          </button>
+        </>
+      }
+    >
+      <p style={{ margin: 0, lineHeight: 1.55 }}>
+        <span className="mono">{branch}</span> has uncommitted changes the merge would leave out. Commit them all first, or discard them; the merge starts once that is done.
+      </p>
+      <input
+        className="input"
+        style={{ height: 32, fontSize: 12.5, padding: "0 10px" }}
+        placeholder={aiOn ? "Commit summary — leave empty for AI" : "Commit summary"}
+        aria-label="Commit summary"
+        value={summary}
+        disabled={busy}
+        onChange={(e) => setSummary(e.target.value)}
+      />
+      <p className="c-warn" style={{ margin: 0, lineHeight: 1.55 }}>Discarding deletes untracked files too. This cannot be undone.</p>
+      {error && <ErrorBox error={error} />}
     </Modal>
   );
 }
