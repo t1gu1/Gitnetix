@@ -22,7 +22,26 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # A release pushes its commit to main together with its tag. Building on that main push
+  # would link the previous release (the new one is still building), and Pages ignores a
+  # second deployment of the same commit, so the release workflow's rebuild never shows up.
+  # Leave tagged commits to the release workflow, which deploys once the release is published.
+  check-tag:
+    runs-on: ubuntu-latest
+    outputs:
+      tagged: ${{ steps.check.outputs.tagged }}
+    steps:
+      - id: check
+        if: github.event_name == 'push' && github.ref_type == 'branch'
+        run: |
+          if git ls-remote --tags "https://github.com/${GITHUB_REPOSITORY}.git" | grep -q "^${GITHUB_SHA}[[:space:]]"; then
+            echo "::notice::${GITHUB_SHA} is tagged, the release workflow deploys the website."
+            echo "tagged=true" >> "$GITHUB_OUTPUT"
+          fi
+
   build:
+    needs: check-tag
+    if: needs.check-tag.outputs.tagged != 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
