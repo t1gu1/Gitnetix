@@ -2,7 +2,9 @@ import { Fragment, useEffect, useRef, useState, type CSSProperties, type ReactNo
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { useAction, useConfig } from "../api/hooks";
-import { companionInfo, isLocal, openExternal, rpc, type CompanionInfo } from "../api/transport";
+import { renderSVG } from "uqr";
+
+import { allowFirewall, companionInfo, isLocal, openExternal, rpc, type CompanionInfo } from "../api/transport";
 import type { Config, GitProfile, JiraConn } from "../api/types";
 import { MenuChoice } from "../components/AgentPicker";
 import { GRAVATAR_KEY } from "../components/Avatar";
@@ -767,9 +769,27 @@ function Companion({ cfg }: { cfg: Config }) {
               <span className="mono ellipsis" title={s.token}>{s.token.slice(0, 12)}…</span>
             </div>
           </div>
+          {s.enabled && s.lan && info?.hosts[0] && (
+            <div className="row" style={{ gap: 16, alignItems: "center" }}>
+              <div
+                role="img"
+                aria-label="QR code to open Gitnetix on your phone"
+                style={{ width: 160, flexShrink: 0, background: "#fff", padding: 8, borderRadius: 8 }}
+                dangerouslySetInnerHTML={{ __html: renderSVG(`http://${host}:${s.port}/#token=${s.token}`) }}
+              />
+              <p className="hint" style={{ margin: 0 }}>
+                Scan with the phone camera to open Gitnetix in its browser, already paired. The code contains the token: don't share it.
+              </p>
+            </div>
+          )}
           <div className="row wrap">
             <button className="btn" onClick={() => copyToClipboard(`${host}:${s.port}`)}>Copy address</button>
             <button className="btn" onClick={() => copyToClipboard(s.token)}>Copy token</button>
+            {s.lan && info?.ufw && (
+              <button className="btn" title="Lets devices on this network reach the companion port (asks for your password)" onClick={() => allowFirewall().then((m) => toast(m || "Allowed through the firewall", "ok"), (e) => toast(String(e), "error"))}>
+                Allow through firewall
+              </button>
+            )}
             <button className="btn btn-danger" onClick={() => set.mutate({ regenerateToken: true })}>New token (unpairs devices)</button>
           </div>
         </section>

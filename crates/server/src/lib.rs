@@ -3,8 +3,9 @@
 //! - `POST /rpc` `{ "method": "...", "params": {...} }` → result JSON
 //! - `GET /events?token=…` → Server-Sent Events (agent logs, project changes)
 //! - `GET /health` → `{ "ok": true }` (no auth, used for pairing)
+//! - any other `GET` → the web UI's files, when the host provides them (no auth: the bundle holds no secrets)
 //!
-//! Every call except `/health` needs `Authorization: Bearer <token>`. The
+//! Every API call except `/health` needs `Authorization: Bearer <token>`. The
 //! server listens on 127.0.0.1 unless LAN access is turned on in Settings.
 
 use std::convert::Infallible;
@@ -12,7 +13,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use axum::extract::{Query, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::{header, HeaderMap, StatusCode, Uri};
 use axum::response::sse::{Event as SseEvent, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -25,9 +26,13 @@ use tokio_stream::wrappers::BroadcastStream;
 use tokio_stream::StreamExt;
 use tower_http::cors::{Any, CorsLayer};
 
+/// Looks up a web UI file by URL path: bytes and MIME type. Lets a phone browser open the app from this server.
+pub type Ui = Arc<dyn Fn(&str) -> Option<(Vec<u8>, String)> + Send + Sync>;
+
 #[derive(Clone)]
 struct AppState {
     k: Arc<Gitnetix>,
+    ui: Option<Ui>,
 }
 
 #[derive(Deserialize)]
@@ -94,19 +99,27 @@ async fn methods_handler(State(s): State<AppState>, headers: HeaderMap) -> Respo
     Json(list).into_response()
 }
 
-pub fn router(k: Arc<Gitnetix>) -> Router {
+async fn ui_handler(State(s): State<AppState>, uri: Uri) -> Response {
+    match s.ui.as_ref().and_then(|ui| ui(uri.path())) {
+        Some((bytes, mime)) => ([(header::CONTENT_TYPE, mime)], bytes).into_response(),
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+pub fn router(k: Arc<Gitnetix>, ui: Option<Ui>) -> Router {
     let cors = CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any);
     Router::new()
         .route("/health", get(|| async { Json(json!({ "ok": true, "app": "gitnetix", "version": env!("CARGO_PKG_VERSION") })) }))
         .route("/rpc", post(rpc_handler))
         .route("/methods", get(methods_handler))
         .route("/events", get(events_handler))
+        .fallback(get(ui_handler))
         .layer(cors)
-        .with_state(AppState { k })
+        .with_state(AppState { k, ui })
 }
 
 /// Bind and serve until the process exits. Returns the bound address.
-pub async fn spawn(k: Arc<Gitnetix>) -> anyhow::Result<Option<SocketAddr>> {
+pub async fn spawn(k: Arc<Gitnetix>, ui: Option<Ui>) -> anyhow::Result<Option<SocketAddr>> {
     let cfg = k.store.read(|c| c.server.clone());
     if !cfg.enabled {
         return Ok(None);
@@ -115,7 +128,7 @@ pub async fn spawn(k: Arc<Gitnetix>) -> anyhow::Result<Option<SocketAddr>> {
     let addr = SocketAddr::from((host, cfg.port));
     let listener = tokio::net::TcpListener::bind(addr).await?;
     let bound = listener.local_addr()?;
-    let app = router(k);
+    let app = router(k, ui);
     tokio::spawn(async move {
         if let Err(e) = axum::serve(listener, app).await {
             tracing::error!("companion server stopped: {e}");
@@ -140,7 +153,8 @@ mod tests {
                 Ok(c.server.token.clone())
             })
             .unwrap();
-        let addr = spawn(k.clone()).await.unwrap().unwrap();
+        let ui: Ui = Arc::new(|p| (p == "/").then(|| (b"<html>".to_vec(), "text/html".into())));
+        let addr = spawn(k.clone(), Some(ui)).await.unwrap().unwrap();
         let http = reqwest::Client::new();
         let rpc = |t: Option<&str>| {
             let r = http.post(format!("http://{addr}/rpc")).json(&json!({ "method": "app.info" }));
@@ -160,6 +174,8 @@ mod tests {
         assert_eq!(code(get("/methods").await), 401);
         assert_eq!(code(get("/events?token=nope").await), 401);
         assert_eq!(code(get("/health").await), 200);
+        assert_eq!(code(get("/").await), 200);
+        assert_eq!(code(get("/missing.js").await), 404);
 
         // No token configured lets nobody in, not even an empty bearer.
         k.store

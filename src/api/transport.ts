@@ -47,6 +47,17 @@ export function saveRemote(r: Remote | null) {
 
 let remote: Remote | null = isLocal ? null : loadRemote();
 
+/** The Settings QR code opens the companion's own page with `#token=…`: pair with the server that served it. */
+function remoteFromLink(): Remote | null {
+  const token = new URLSearchParams(location.hash.slice(1)).get("token");
+  if (!token) return null;
+  history.replaceState(null, "", location.pathname + location.search); // keep the token out of history and screenshots
+  return { url: location.origin, token };
+}
+
+const linked = isLocal ? null : remoteFromLink();
+if (linked) saveRemote(linked);
+
 export function currentRemote() {
   return remote;
 }
@@ -133,12 +144,20 @@ export interface CompanionInfo {
   lan: boolean;
   token: string;
   hosts: string[];
+  /** Linux ufw firewall is on: the phone can't connect until the port is allowed. */
+  ufw: boolean;
 }
 
 export async function companionInfo(): Promise<CompanionInfo | null> {
   if (!isLocal) return null;
   const { invoke } = await import("@tauri-apps/api/core");
   return invoke<CompanionInfo>("companion");
+}
+
+/** Allow the companion port through the Linux firewall (system password prompt). Returns ufw's message. */
+export async function allowFirewall(): Promise<string> {
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<string>("allow_firewall");
 }
 
 /** Native folder picker on desktop; null elsewhere. */
