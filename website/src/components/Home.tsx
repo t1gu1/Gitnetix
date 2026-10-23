@@ -185,7 +185,7 @@ export default function Home({ version }: { version: string }) {
     {/* before */}
     <figure style={{ margin: '0', display: 'flex', flexDirection: 'column', gap: '14px' }}>
     <div style={{ fontSize: '13px', letterSpacing: '.14em', color: 'var(--faint)' }}>OTHER GIT CLIENTS</div>
-    <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: '14px', padding: '22px', height: '360px', display: 'flex', gap: '24px', overflow: 'hidden' }}>
+    <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: '14px', padding: '22px', height: '360px', boxSizing: 'border-box', display: 'flex', gap: '24px', overflow: 'hidden' }}>
     <svg role="img" aria-label="A tangled commit graph with seven crossing colored rails" width="200" height="316" viewBox="90 135 200 360" style={{ flex: 'none', opacity: '.85' }}>
     <g fill="none" strokeWidth="3" strokeLinecap="round">
     <path d="M100 140 V490" stroke="#5b8def"></path>
