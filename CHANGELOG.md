@@ -11,6 +11,10 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+### Added
+- Interactive hero demo on the website: pick branches, open file diffs, send prompts and commit in a playable copy of the Workspace screen
+- Animated path to the checked-out branch in the website hero demo
+
 ## [0.5.1] - 2026-10-23
 
 ### Added
