@@ -14,6 +14,19 @@ release notes and the in-app update prompt.
 ### Added
 - Agents started on a branch linked to a Jira, Trello or Asana ticket get the ticket's title, description and acceptance criteria in their first prompt, with a copy in the checkout's git dir to read again later. Agent templates can place it with `{ticket}`.
 - `tickets.get` API method (and `tickets_get` MCP tool): one ticket with its full description, by key or by branch.
+- Replies with several questions show as one group of buttons per question, lettered when the reply letters them, with a single Send.
+- Merge, rebase, cherry-pick, revert and stash apply now resolve conflicts automatically and carry on. If a file cannot be resolved, the operation is aborted, the checkout is left unchanged, and the error gives the reason. Turn it off in the Menu.
+- Logs page under Menu: the last 2000 operations and errors, with copy and clear actions. The conflict toast and merge dialog link to it.
+- Switching branch while the main checkout is stopped mid-rebase, merge, cherry-pick or revert asks to abort that operation first. `workspace.switch` accepts `abort` to do it before the checkout.
+- Merging a branch with uncommitted changes asks for confirmation first.
+- The website install script falls back to a user-level install when permission is denied.
+
+### Changed
+- Commits are refused while staged changes still contain conflict markers, and the affected files are listed.
+- Conflict resolution sends only the conflicted excerpts instead of the whole file, so big files resolve faster.
+
+### Fixed
+- Squash rolls the branch back to its old tip when the merge that follows fails.
 
 ## [0.5.2] - 2026-10-23
 
