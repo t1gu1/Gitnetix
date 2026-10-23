@@ -40,6 +40,8 @@ export interface MergePrefs {
   deleteBranch: boolean;
   /** Push the target to origin after. */
   push: boolean;
+  /** Let AI resolve the conflicts a merge, rebase, cherry-pick, revert or stash runs into, and carry on. */
+  resolveConflicts: boolean;
 }
 
 export interface CommitPrefs {
@@ -568,5 +570,6 @@ export type GitnetixEvent =
   | { type: "projectChanged"; projectId: string }
   | { type: "configChanged" }
   | { type: "cleanupStep"; projectId: string; branch: string }
+  | { type: "conflictResolving"; projectId: string; files: string[] }
   | { type: "shellData"; cwd: string; data: string; end: number }
   | { type: "shellExit"; cwd: string };

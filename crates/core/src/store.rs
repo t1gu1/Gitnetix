@@ -79,11 +79,13 @@ pub struct MergePrefs {
     pub delete_branch: bool,
     /// Push the target to origin after.
     pub push: bool,
+    /// Let AI resolve the conflicts a merge, rebase, cherry-pick, revert or stash runs into, and carry on.
+    pub resolve_conflicts: bool,
 }
 
 impl Default for MergePrefs {
     fn default() -> Self {
-        MergePrefs { squash: false, squash_message: SquashMessage::Branch, rebase: false, delete_branch: true, push: false }
+        MergePrefs { squash: false, squash_message: SquashMessage::Branch, rebase: false, delete_branch: true, push: false, resolve_conflicts: true }
     }
 }
 

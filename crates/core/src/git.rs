@@ -1211,32 +1211,43 @@ impl Git {
     }
 
     pub async fn rebase_continue(&self) -> Result<bool> {
-        let (ok, _, err) = self.try_run(&["-c", "core.editor=true", "rebase", "--continue"]).await?;
-        if ok {
-            return Ok(true);
-        }
-        if self.is_rebasing().await? && !self.conflicted_files().await?.is_empty() {
-            return Ok(false);
-        }
-        Err(Error::Git { cmd: "rebase".into(), stderr: err.trim().into() })
+        self.continue_op("rebase").await
     }
 
     pub async fn rebase_abort(&self) -> Result<()> {
-        self.run(&["rebase", "--abort"]).await.map(|_| ())
+        self.abort_op("rebase").await
     }
 
-    /// Undo a commit with a new one. On conflict nothing changes.
-    pub async fn revert(&self, sha: &str) -> Result<String> {
+    /// `git <op> --continue` once its conflicts are staged (rebase, merge, cherry-pick, revert),
+    /// keeping the prepared message. Returns false when it stopped on conflicts again (a rebase's next commit).
+    pub async fn continue_op(&self, op: &str) -> Result<bool> {
+        let (ok, _, err) = self.try_run(&["-c", "core.editor=true", op, "--continue"]).await?;
+        if ok {
+            return Ok(true);
+        }
+        if !self.conflicted_files().await?.is_empty() {
+            return Ok(false);
+        }
+        Err(Error::Git { cmd: op.into(), stderr: err.trim().into() })
+    }
+
+    pub async fn abort_op(&self, op: &str) -> Result<()> {
+        self.run(&[op, "--abort"]).await.map(|_| ())
+    }
+
+    /// Undo a commit with a new one. Returns false when it stopped on conflicts.
+    pub async fn revert(&self, sha: &str) -> Result<bool> {
         self.apply_commit("revert", sha).await
     }
 
-    /// Copy a commit onto the checked-out branch. On conflict nothing changes.
-    pub async fn cherry_pick(&self, sha: &str) -> Result<String> {
+    /// Copy a commit onto the checked-out branch. Returns false when it stopped on conflicts.
+    pub async fn cherry_pick(&self, sha: &str) -> Result<bool> {
         self.apply_commit("cherry-pick", sha).await
     }
 
     /// `revert` / `cherry-pick` one commit; a merge commit is taken against its first parent.
-    async fn apply_commit(&self, cmd: &str, sha: &str) -> Result<String> {
+    /// Stopped on conflicts, it stays in progress; any other failure is aborted.
+    async fn apply_commit(&self, cmd: &str, sha: &str) -> Result<bool> {
         let merge = self.try_run(&["rev-parse", "--verify", "-q", &format!("{sha}^2")]).await?.0;
         let mut args = vec![cmd, "--no-edit"];
         if merge {
@@ -1244,11 +1255,14 @@ impl Git {
         }
         args.push(sha);
         let (ok, _, err) = self.try_run(&args).await?;
-        if !ok {
-            let _ = self.try_run(&[cmd, "--abort"]).await;
-            return Err(Error::Git { cmd: cmd.into(), stderr: err.trim().into() });
+        if ok {
+            return Ok(true);
         }
-        self.rev_parse("HEAD").await
+        if !self.conflicted_files().await?.is_empty() {
+            return Ok(false);
+        }
+        let _ = self.try_run(&[cmd, "--abort"]).await;
+        Err(Error::Git { cmd: cmd.into(), stderr: err.trim().into() })
     }
 
     /// Move the checked-out branch to `sha`; `mode` is soft, mixed or hard.
@@ -1261,6 +1275,20 @@ impl Git {
 
     pub async fn merge_ff_only(&self, from: &str) -> Result<()> {
         self.run(&["merge", "--ff-only", from]).await.map(|_| ())
+    }
+
+    /// Merge commit in the current checkout. Returns false when it stopped on conflicts,
+    /// left in progress; any other failure is aborted.
+    pub async fn merge_start(&self, from: &str, message: &str) -> Result<bool> {
+        let (ok, _, err) = self.try_run(&["merge", "--no-ff", "-m", message, from]).await?;
+        if ok {
+            return Ok(true);
+        }
+        if !self.conflicted_files().await?.is_empty() {
+            return Ok(false);
+        }
+        let _ = self.try_run(&["merge", "--abort"]).await;
+        Err(Error::Git { cmd: "merge".into(), stderr: err.trim().into() })
     }
 
     /// Merge commit in the current checkout. On failure the merge is aborted.

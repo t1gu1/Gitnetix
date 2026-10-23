@@ -64,6 +64,9 @@ export function useEngineEvents() {
             qc.invalidateQueries({ queryKey: ["projects"] });
             qc.invalidateQueries({ queryKey: ["submodules", e.projectId] });
             break;
+          case "conflictResolving":
+            toast(`Conflicts in ${e.files.join(", ")}: resolving them with AI. This takes a little longer…`, "info", 12_000);
+            break;
           case "configChanged":
             qc.invalidateQueries({ queryKey: ["config"] });
             qc.invalidateQueries({ queryKey: ["projects"] });
@@ -75,7 +78,7 @@ export function useEngineEvents() {
   );
 }
 
-const MERGE_DEFAULTS: MergePrefs = { squash: false, squashMessage: "branch", rebase: false, deleteBranch: true, push: false };
+const MERGE_DEFAULTS: MergePrefs = { squash: false, squashMessage: "branch", rebase: false, deleteBranch: true, push: false, resolveConflicts: true };
 const COMMIT_DEFAULTS: CommitPrefs = { autoPush: false };
 
 type PrefsPatch = { merge?: Partial<MergePrefs>; commit?: Partial<CommitPrefs> };

@@ -170,6 +170,10 @@ export function Menu({ onUnpair }: { onUnpair: () => void }) {
                           <input type="checkbox" checked={prefs.merge.push} onChange={() => prefs.setMerge({ push: !prefs.merge.push })} />
                           <span>Push the target branch to origin after merging</span>
                         </label>
+                        <label className="check">
+                          <input type="checkbox" checked={prefs.merge.resolveConflicts} onChange={() => prefs.setMerge({ resolveConflicts: !prefs.merge.resolveConflicts })} />
+                          <span>Resolve conflicts with AI and carry on (merge, rebase, cherry-pick, revert, stash)</span>
+                        </label>
                       </div>
                       <div style={{ borderTop: "1px solid var(--line)", margin: "4px -14px 0" }} />
                       <div className="col" style={{ gap: 2 }}>
