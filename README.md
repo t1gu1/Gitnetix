@@ -2,8 +2,12 @@
 
 <p align="center"><img src="gitnetix-logo-extended-animated.gif" alt="Gitnetix" /></p>
 
-Release-centric Git client with AI built in. Rust engine, React UI, Tauri 2 shell.
-Desktop does the work; a mobile build of the same UI manages it remotely.
+<p align="center"><b>See your work, not your commits.</b></p>
+
+Gitnetix is a Git client with no commit graph. Branches as a tree. Releases as a button. An agent on every branch.
+Runs on macOS, Windows and Linux; pair your phone by QR code to manage it remotely.
+
+Built with a Rust engine, a React UI and a Tauri 2 shell.
 
 **Website:** https://t1gu1.github.io/Gitnetix/
 
