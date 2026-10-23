@@ -5,6 +5,8 @@
 Release-centric Git client with AI built in. Rust engine, React UI, Tauri 2 shell.
 Desktop does the work; a mobile build of the same UI manages it remotely.
 
+**Website:** https://t1gu1.github.io/Gitnetix/
+
 ## Workflow
 
 - A **release** is a branch `release/x.y.z` cut from `main` (or from the latest tag for a hotfix).
