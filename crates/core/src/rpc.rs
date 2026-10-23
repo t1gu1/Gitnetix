@@ -40,7 +40,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("commits.revert", "Revert a commit with a new commit on its branch", "projectId, branch, sha"),
     ("commits.cherryPick", "Copy a commit onto a checked-out branch", "projectId, onto, sha"),
     ("commits.reset", "Reset a checked-out branch to a commit", "projectId, branch, sha, mode: soft|mixed|hard"),
-    ("workspace.switch", "Check out a branch (uncommitted work comes along)", "projectId, branch"),
+    ("workspace.switch", "Check out a branch (uncommitted work comes along); abort = first abort the rebase/merge/cherry-pick/revert the checkout is stopped in", "projectId, branch, abort?"),
     ("workspace.stage", "Stage files (all when paths is empty)", "projectId, branch, paths?"),
     ("workspace.unstage", "Unstage files (all when paths is empty)", "projectId, branch, paths?"),
     ("workspace.discard", "Discard staged or unstaged changes (all on that side when paths is empty)", "projectId, branch, staged, paths?"),
@@ -432,7 +432,7 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
             ok()
         }
         "workspace.switch" => {
-            k.switch_branch(&s(&p, "projectId")?, &s(&p, "branch")?).await?;
+            k.switch_branch(&s(&p, "projectId")?, &s(&p, "branch")?, b(&p, "abort")).await?;
             ok()
         }
         "workspace.commitMessage" => to(json!({ "message": k.generate_commit_message(&s(&p, "projectId")?, &s(&p, "branch")?).await? })),

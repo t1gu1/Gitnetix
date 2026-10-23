@@ -194,6 +194,8 @@ pub struct Overview {
     /// Every branch (local, origin-only and tracked-but-gone), each with its parent.
     pub branches: Vec<BranchView>,
     pub rebasing: bool,
+    /// The rebase, merge, cherry-pick or revert the main checkout is stopped in the middle of.
+    pub in_progress: Option<&'static str>,
     pub conflicts: Vec<String>,
     pub remote: Option<String>,
     /// Every stash, newest first (shared by all worktrees).
@@ -1493,13 +1495,13 @@ impl Gitnetix {
     pub async fn overview(&self, project_id: &str, quick: bool) -> Result<Overview> {
         let mut p = self.store.project(project_id)?;
         let git = self.git(&p);
-        let (default, current, branches, remote_branches, wts, rebasing, tags, remote, fingerprint) = tokio::join!(
+        let (default, current, branches, remote_branches, wts, in_progress, tags, remote, fingerprint) = tokio::join!(
             git.default_branch(),
             git.current_branch(),
             git.branches(),
             git.remote_branches(),
             git.worktrees(),
-            git.is_rebasing(),
+            git.in_progress(),
             git.tags(),
             git.remote_url("origin"),
             git.ref_fingerprint(),
@@ -1529,7 +1531,8 @@ impl Gitnetix {
             })?;
         }
         let agents = self.agents.list();
-        let rebasing = rebasing.unwrap_or(false);
+        let in_progress = in_progress.ok().flatten();
+        let rebasing = in_progress == Some("rebase");
         let conflicts = if rebasing { git.conflicted_files().await.unwrap_or_default() } else { Vec::new() };
 
         let refs = Refs::new(branches, remote_branches).batched();
@@ -1655,7 +1658,7 @@ impl Gitnetix {
         let default_view = find(&default);
         let remote = remote.ok().flatten();
         let has_changelog = Path::new(&p.path).join(CHANGELOG).is_file();
-        Ok(Overview { project: p, current_branch: current, default_branch: default, releases, other_branches, default_view, branches: all, rebasing, conflicts, remote, stashes, has_changelog })
+        Ok(Overview { project: p, current_branch: current, default_branch: default, releases, other_branches, default_view, branches: all, rebasing, in_progress, conflicts, remote, stashes, has_changelog })
     }
 
     /// Every branch's view with counts, merge state and parent: a few git calls per branch,
@@ -1964,7 +1967,9 @@ impl Gitnetix {
         Ok(())
     }
 
-    pub async fn switch_branch(&self, project_id: &str, branch: &str) -> Result<()> {
+    /// Check out `branch` in the main checkout; `abort` first aborts the rebase, merge, cherry-pick
+    /// or revert it's stopped in the middle of (git refuses to switch then).
+    pub async fn switch_branch(&self, project_id: &str, branch: &str, abort: bool) -> Result<()> {
         let p = self.store.project(project_id)?;
         if let Some(dir) = self.checkout_dir(&p, branch).await? {
             if dir != Path::new(&p.path) {
@@ -1972,7 +1977,15 @@ impl Gitnetix {
             }
             return Ok(());
         }
-        self.git(&p).switch(branch).await?;
+        let git = self.git(&p);
+        if abort {
+            if let Some(op) = git.in_progress().await? {
+                let out = git.abort_op(op).await;
+                self.changed(project_id);
+                out?;
+            }
+        }
+        git.switch(branch).await?;
         self.changed(project_id);
         Ok(())
     }

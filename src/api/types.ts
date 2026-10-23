@@ -225,6 +225,8 @@ export interface Overview {
   /** Every branch (local, origin-only, tracked-but-gone), each with its parent. */
   branches: BranchView[];
   rebasing: boolean;
+  /** The rebase, merge, cherry-pick or revert the main checkout is stopped in the middle of. */
+  inProgress?: "rebase" | "merge" | "cherry-pick" | "revert" | null;
   conflicts: string[];
   remote?: string | null;
   /** Every stash, newest first (shared by all worktrees). */

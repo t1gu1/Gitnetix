@@ -341,6 +341,13 @@ impl Git {
         Ok(self.git_paths(&["rebase-merge", "rebase-apply"]).await?.iter().any(|p| p.exists()))
     }
 
+    /// The rebase, merge, cherry-pick or revert this checkout is stopped in the middle of, if any.
+    pub async fn in_progress(&self) -> Result<Option<&'static str>> {
+        let paths = self.git_paths(&["rebase-merge", "rebase-apply", "MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD"]).await?;
+        let ops = ["rebase", "rebase", "merge", "cherry-pick", "revert"];
+        Ok(paths.iter().zip(ops).find(|(p, _)| p.exists()).map(|(_, op)| op))
+    }
+
     // ---------- refs ----------
 
     pub async fn branches(&self) -> Result<Vec<BranchInfo>> {

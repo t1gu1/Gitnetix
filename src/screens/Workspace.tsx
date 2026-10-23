@@ -577,6 +577,9 @@ export function Workspace() {
       {dialog?.kind === "delete" && dialogView?.worktree && (
         <DiscardWorktreeModal branch={dialog.branch} path={dialogView.worktree} onClose={() => setDialog(null)} onConfirm={() => finish.discard({ projectId: pid, branch: dialog.branch, cwd: dialogView.worktree! })} />
       )}
+      {dialog?.kind === "abortSwitch" && o?.inProgress && (
+        <AbortSwitchModal op={o.inProgress} branch={dialog.branch} path={o.project.path} onClose={() => setDialog(null)} onConfirm={() => actions.abortAndSwitch(dialog.branch)} />
+      )}
       {dialog?.kind === "continue" && dialogView?.worktree && (
         <ContinueOnBranchModal branch={dialog.branch} path={dialogView.worktree} onClose={() => setDialog(null)} onConfirm={() => actions.continueOn(dialog.branch, dialogView.worktree!)} />
       )}
@@ -1363,6 +1366,27 @@ export function DiscardWorktreeModal({ branch, path, onClose, onConfirm }: { bra
 }
 
 /** Confirms checking a worktree's branch out here, which deletes the worktree. */
+function AbortSwitchModal({ op, branch, path, onClose, onConfirm }: { op: string; branch: string; path: string; onClose: () => void; onConfirm: () => void }) {
+  return (
+    <Modal
+      title={`Abort the ${op}?`}
+      sub={<span className="mono">{branch}</span>}
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn btn-md" onClick={onClose}>Cancel</button>
+          <button className="btn btn-md btn-danger" onClick={() => { onConfirm(); onClose(); }}>Abort {op} and switch</button>
+        </>
+      }
+    >
+      <p style={{ margin: 0, lineHeight: 1.55 }}>
+        The checkout at <span className="mono">{path}</span> is stopped in the middle of a {op}, so git can't switch to <span className="mono">{branch}</span>.
+        Aborting puts it back as it was before the {op}, then switches. <span className="c-warn">Every change made to its files since the {op} started is lost, conflict fixes included.</span>
+      </p>
+    </Modal>
+  );
+}
+
 function ContinueOnBranchModal({ branch, path, onClose, onConfirm }: { branch: string; path: string; onClose: () => void; onConfirm: () => void }) {
   return (
     <Modal
