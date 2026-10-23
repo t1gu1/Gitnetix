@@ -1,8 +1,9 @@
+import type { ReactNode } from 'react';
 import faq from '../data/faq.json';
 import { REPO, releases, shortDate, longDate, plain, u } from '../lib/changelog';
 
 /** The landing page, ported from the "Gitnetix website" design canvas. */
-export default function Home({ version }: { version: string }) {
+export default function Home({ version, demo }: { version: string; demo?: ReactNode }) {
   const first = releases[releases.length - 1];
   const days = Math.round((Date.parse(releases[0].date) - Date.parse(first.date)) / 864e5) + 1;
   const featured = releases.filter((r) => r.story).slice(0, 3);
@@ -30,142 +31,8 @@ export default function Home({ version }: { version: string }) {
 
     {/* hero app window */}
     <figure style={{ maxWidth: '1120px', margin: '64px auto 0', padding: '0' }}>
-    <div className="ap" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: '10px', overflow: 'hidden', boxShadow: '0 40px 120px -40px rgba(0,0,0,.7)', textAlign: 'left', lineHeight: '1.35' }}>
-    {/* project tabs */}
-    <div style={{ display: 'flex', alignItems: 'stretch', height: '42px', background: 'var(--bg)', borderBottom: '1px solid var(--line)', overflow: 'hidden' }}>
-    <span aria-hidden="true" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '46px', borderRight: '1px solid var(--line)', color: 'var(--muted)' }}><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"><path d="M3 4.5h10M3 8h10M3 11.5h10"></path></svg></span>
-    <span className="ptab on">acme-web <span aria-hidden="true" style={{ color: 'var(--faint)' }}>×</span></span>
-    <span className="ptab">acme-api <span aria-hidden="true" style={{ color: 'var(--faint)' }}>×</span></span>
-    <span className="ptab hide-sm">design-system <span aria-hidden="true" style={{ color: 'var(--faint)' }}>×</span></span>
-    <span aria-hidden="true" className="ptab" style={{ padding: '0 14px' }}>+</span>
-    <span style={{ flex: '1' }}></span>
-    <span aria-hidden="true" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '46px', borderLeft: '1px solid var(--line)', color: 'var(--muted)' }}><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"><circle cx="8" cy="8" r="2.8"></circle><path d="M8 1.5v1.6M8 12.9v1.6M1.5 8h1.6M12.9 8h1.6M3.4 3.4l1.1 1.1M11.5 11.5l1.1 1.1M3.4 12.6l1.1-1.1M11.5 4.5l1.1-1.1"></path></svg></span>
-    </div>
-    {/* screen tabs */}
-    <div style={{ display: 'flex', alignItems: 'stretch', padding: '0 8px', borderBottom: '1px solid var(--line)', overflow: 'hidden' }}>
-    <span className="ntab on"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="var(--accent)" strokeWidth="1.4" strokeLinejoin="round"><path d="M2.5 7.5L8 3l5.5 4.5V13h-11z"></path></svg>Workspace</span>
-    <span className="ntab"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"><path d="M2 2.5h5.5L14 9l-5 5-6.5-6.5z"></path><circle cx="5.3" cy="5.3" r="1"></circle></svg>Release notes</span>
-    <span className="ntab"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4"><circle cx="4" cy="3.5" r="1.5"></circle><circle cx="4" cy="12.5" r="1.5"></circle><circle cx="12" cy="12.5" r="1.5"></circle><path d="M4 5v6M12 11V7.5c0-1.5-1-2.5-2.5-2.5H7.5"></path></svg>Pull requests</span>
-    <span className="ntab hide-sm"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"><path d="M2 4.5h12v2a1.5 1.5 0 0 0 0 3v2H2v-2a1.5 1.5 0 0 0 0-3z"></path></svg>Tickets</span>
-    <span className="ntab hide-sm"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"><path d="M8 2l6 3-6 3-6-3zM2 8l6 3 6-3M2 11l6 3 6-3"></path></svg>Worktrees &amp; agents</span>
-    <span className="ntab hide-sm"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4"><path d="M3 13V9M6.5 13V5M10 13V7.5M13.5 13V3"></path></svg>Analytics</span>
-    </div>
-    {/* body */}
-    <div style={{ display: 'flex', flexWrap: 'wrap' }}>
-    {/* left: branches */}
-    <div style={{ flex: '1 1 440px', minWidth: '0', borderRight: '1px solid var(--line)', display: 'flex', flexDirection: 'column' }}>
-    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', height: '50px', padding: '0 10px 0 16px', borderBottom: '1px solid var(--line)' }}>
-    <span style={{ flex: '1', fontSize: '11px', fontWeight: '600', letterSpacing: '.1em', color: 'var(--muted)' }}>BRANCHES</span>
-    <span className="ibtn" aria-hidden="true"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M8 2.5v7m0 0L5 6.5m3 3 3-3M3 12.5h10"></path></svg>2</span>
-    <span className="ibtn" aria-hidden="true" style={{ padding: '0' }}><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><path d="M13 8a5 5 0 1 1-1.5-3.5M13 2.5v3h-3"></path></svg></span>
-    <span className="ibtn"><svg aria-hidden="true" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><path d="M8 3v10M3 8h10"></path></svg>Release</span>
-    </div>
-    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 10px 8px 16px', borderBottom: '1px solid var(--line)' }}>
-    <svg aria-hidden="true" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="var(--faint)" strokeWidth="1.5" strokeLinecap="round"><circle cx="7" cy="7" r="4.5"></circle><path d="M11 11l3 3"></path></svg>
-    <span style={{ flex: '1', height: '28px', display: 'flex', alignItems: 'center', padding: '0 12px', border: '1px solid var(--line)', borderRadius: '4px', background: 'var(--bg)', color: 'var(--faint)' }}>Filter branches</span>
-    <span className="ibtn" style={{ height: '28px', gap: '8px' }}>All <svg aria-hidden="true" width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M4 6l4 4 4-4"></path></svg></span>
-    </div>
-
-    <div className="tr">
-    <span className="pth v" aria-hidden="true" style={{ left: '6px', top: '6px', height: '78px' }}></span>
-    <span className="pth h" aria-hidden="true" style={{ left: '6px', top: '84px', width: '7px' }}></span>
-    <span className="pth v" aria-hidden="true" style={{ left: '12px', top: '84px', height: '46px' }}></span>
-    <span className="pth h" aria-hidden="true" style={{ left: '12px', top: '130px', width: '7px' }}></span>
-    <span className="pth v" aria-hidden="true" style={{ left: '18px', top: '130px', height: '22px' }}></span>
-    <span className="pth solid" aria-hidden="true" style={{ left: '18px', top: '130px', height: '44px' }}></span>
-    <span className="streak" aria-hidden="true"></span>
-
-    <div className="row">
-    <span className="ic"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"><path d="M2.5 7.5L8 3l5.5 4.5V13h-11z"></path></svg></span>
-    <div className="mn"><div className="nm"><span className="mono trunk">main</span></div><div className="meta"><span className="av" style={{ background: '#8e44ad' }}>AM</span><span className="dul">all commits</span><span style={{ display: 'flex', alignItems: 'center', gap: '3px' }}><svg aria-hidden="true" width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M8 2.5v7m0 0L5 6.5m3 3 3-3M3 12.5h10"></path></svg>1</span></div></div>
-    </div>
-    <div className="grp"><span className="chv"><svg aria-hidden="true" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M4 6l4 4 4-4"></path></svg></span><span className="lbl child">Child branches</span><span style={{ color: 'var(--faint)' }}>2</span></div>
-    <div className="kids">
-    <div className="row">
-    <span className="ic" style={{ color: 'var(--release)' }}><svg aria-hidden="true" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"><path d="M2 2.5h5.5L14 9l-5 5-6.5-6.5z"></path><circle cx="5.3" cy="5.3" r="1"></circle></svg></span>
-    <div className="mn"><div className="nm"><span className="mono rel">v0.5.0</span><span className="tg">Next</span></div><div className="meta"><span className="av" style={{ background: '#8e44ad' }}>AM</span><span className="mono">release/0.5.0</span><span className="dul">12 commits</span><span style={{ color: 'var(--add)' }}>✓ 4 merged</span></div></div>
-    </div>
-    <div className="kids">
-    <div className="row cur">
-    <span className="ic"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4"><path d="M5 3v10M11 6.5c0 3-3 3.5-6 4"></path><circle cx="5" cy="3" r="1.5"></circle><circle cx="5" cy="13" r="1.5"></circle><circle cx="11" cy="5" r="1.5"></circle></svg></span>
-    <div className="mn"><div className="nm"><span className="mono shine">feat/branch-tree</span></div><div className="meta"><span className="av" style={{ background: '#b7791f' }}>GH</span><span style={{ color: 'var(--warn)' }}>checked out</span><span className="wip">WIP 2</span><span className="dul">4 commits</span><span className="hide-sm" style={{ display: 'flex', alignItems: 'center', gap: '5px', color: 'var(--add)' }}><span aria-hidden="true" style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--add)' }}></span>agent</span></div></div>
-    <div className="acts" aria-hidden="true">
-    <span className="act main"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4"><path d="M4 4.5v1c0 2.5 4 3 4 5.5v.5"></path><path d="M12 4.5v1c0 2.5-4 3-4 5.5"></path><circle cx="4" cy="3" r="1.5"></circle><circle cx="12" cy="3" r="1.5"></circle><circle cx="8" cy="13" r="1.5"></circle></svg></span>
-    <span className="astack"><span className="act"><svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><path d="M8 3v10M3 8h10"></path></svg></span><span className="act"><svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><circle cx="3.5" cy="8" r="1.2"></circle><circle cx="8" cy="8" r="1.2"></circle><circle cx="12.5" cy="8" r="1.2"></circle></svg></span></span>
-    </div>
-    </div>
-    <div className="row">
-    <span className="ic"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4"><path d="M5 3v10M11 6.5c0 3-3 3.5-6 4"></path><circle cx="5" cy="3" r="1.5"></circle><circle cx="5" cy="13" r="1.5"></circle><circle cx="11" cy="5" r="1.5"></circle></svg></span>
-    <div className="mn"><div className="nm"><span className="mono">fix/stale-remote</span><span className="tg hide-sm">worktree</span></div><div className="meta"><span className="av" style={{ background: '#2f7d6d' }}>JL</span><span className="dul">2 commits</span><span style={{ color: 'var(--warn)' }}>↓2 from v0.5.0</span></div></div>
-    </div>
-    <div className="grp"><span className="chv"><svg aria-hidden="true" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M6 4l4 4-4 4"></path></svg></span><span className="lbl merged">Merged into v0.5.0</span><span style={{ color: 'var(--faint)' }}>4</span></div>
-    </div>
-    <div className="row">
-    <span className="ic" style={{ color: 'var(--release)' }}><svg aria-hidden="true" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"><path d="M2 2.5h5.5L14 9l-5 5-6.5-6.5z"></path><circle cx="5.3" cy="5.3" r="1"></circle></svg></span>
-    <div className="mn"><div className="nm"><span className="mono rel">v0.4.1</span><span className="tg">Hotfix</span></div><div className="meta"><span className="av" style={{ background: '#8e44ad' }}>AM</span><span className="mono">release/0.4.1</span><span className="dul">2 commits</span><span>PR #182</span></div></div>
-    </div>
-    </div>
-    <div className="grp" style={{ paddingRight: '0' }}><span className="chv"><svg aria-hidden="true" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M6 4l4 4-4 4"></path></svg></span><span className="lbl behind">Branches falling behind</span><span style={{ color: 'var(--faint)', flex: '1' }}>3</span><span className="act" aria-hidden="true" style={{ height: '30px', borderLeft: '1px solid color-mix(in srgb, var(--fg) 3%, transparent)' }}><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"><path d="M13.7 2.3L10.8 5.2M9.1 3.4l3.5 3.5-1.8 1.8-3.5-3.5zM7.3 5.2L2.3 8.7l5 5 3.5-5M6.2 8.4L3.9 10.3M7.6 9.8L5.7 12.1"></path></svg></span></div>
-    <div className="tsep" aria-hidden="true"></div>
-    <div className="grp"><span className="chv"><svg aria-hidden="true" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M6 4l4 4-4 4"></path></svg></span><span className="lbl shipped">Shipped</span><span style={{ color: 'var(--faint)' }}>3</span></div>
-    </div>
-
-    {/* agent panel */}
-    <div style={{ marginTop: 'auto', borderTop: '1px solid var(--line)' }}>
-    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', height: '40px', padding: '0 16px', color: 'var(--muted)' }}>
-    <svg aria-hidden="true" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 4l4 4-4 4M8.5 12H13"></path></svg>
-    <span style={{ color: 'var(--fg)' }}>Agent</span>
-    <span style={{ fontSize: '11.5px', padding: '1px 8px', border: '1px solid var(--line)', borderRadius: '3px' }}>Claude Code</span>
-    <span style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '11.5px', color: 'var(--add)' }}><span aria-hidden="true" style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--add)' }}></span>working</span>
-    <span style={{ flex: '1' }}></span>
-    <svg aria-hidden="true" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M4 6l4 4 4-4"></path></svg>
-    </div>
-    <div className="mono" style={{ margin: '0 12px 12px', padding: '12px 14px', background: 'var(--term)', border: '1px solid var(--line)', borderRadius: '4px', fontSize: '11.5px', lineHeight: '1.85', color: '#a0a5ae', overflowX: 'auto', whiteSpace: 'nowrap' }}>
-    <div style={{ color: '#868c96' }}>› add a pulse that travels down the path</div>
-    <div style={{ color: '#62d6ae' }}>✓ edited BranchTree.tsx (+42 −6)</div>
-    <div style={{ color: '#62d6ae' }}>✓ 128 tests passed</div>
-    <div><span style={{ color: '#f5b65c' }}>Commit:</span> <span style={{ color: '#e8e9eb' }}>"Pulse along branch path"?</span><span className="blink" aria-hidden="true">▍</span></div>
-    </div>
-    </div>
-    </div>
-
-    {/* right: workspace */}
-    <div style={{ flex: '999 1 360px', minWidth: '0', display: 'flex', flexDirection: 'column' }}>
-    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', height: '50px', padding: '0 12px 0 16px' }}>
-    <span className="mono" style={{ fontWeight: '600', fontSize: '13px' }}>feat/branch-tree</span>
-    <span style={{ fontSize: '12px', color: 'var(--faint)', flex: '1', whiteSpace: 'nowrap' }}>from release/0.5.0</span>
-    <span className="ibtn" aria-hidden="true" style={{ padding: '0' }}><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"><path d="M2 4.5A1 1 0 0 1 3 3.5h3l1.4 1.5H13a1 1 0 0 1 1 1V12a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1z"></path></svg></span>
-    </div>
-    <div style={{ padding: '0 12px 12px 12px', borderBottom: '1px solid var(--line)' }}>
-    <div className="seg"><span className="on" style={{ color: 'var(--accent-fg)' }}>WIP 2</span><span>Branch 4</span><span>Project</span></div>
-    </div>
-    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', height: '30px', padding: '0 12px 0 14px', background: 'var(--raised)', borderBottom: '1px solid var(--line)', fontSize: '11px', fontWeight: '600', letterSpacing: '.06em', color: 'var(--muted)' }}>
-    <svg aria-hidden="true" width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M4 6l4 4 4-4"></path></svg>
-    <span style={{ color: 'var(--fg)' }}>UNSTAGED</span><span>2</span><span style={{ flex: '1' }}></span>
-    <svg aria-hidden="true" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><path d="M8 3v10M3 8h10"></path></svg>
-    <svg aria-hidden="true" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M5.5 3.5L2.5 6.5l3 3M2.5 6.5H10a3.5 3.5 0 0 1 0 7H6.5"></path></svg>
-    </div>
-    <div style={{ display: 'flex', flexDirection: 'column', padding: '6px 0', fontSize: '12.5px' }}>
-    <div style={{ display: 'flex', alignItems: 'center', gap: '14px', height: '28px', padding: '0 16px' }}><span className="mono" style={{ color: 'var(--work)', fontSize: '11px', fontWeight: '600' }}>M</span><span style={{ color: 'var(--muted)' }}>src/components/<span style={{ color: 'var(--fg)' }}>BranchTree.tsx</span></span><span style={{ marginLeft: 'auto', fontSize: '11px' }}><span style={{ color: 'var(--add)' }}>+42</span> <span style={{ color: '#ff9089' }}>−6</span></span></div>
-    <div style={{ display: 'flex', alignItems: 'center', gap: '14px', height: '28px', padding: '0 16px' }}><span className="mono" style={{ color: 'var(--work)', fontSize: '11px', fontWeight: '600' }}>M</span><span style={{ color: 'var(--muted)' }}>src/styles/<span style={{ color: 'var(--fg)' }}>app.css</span></span><span style={{ marginLeft: 'auto', fontSize: '11px' }}><span style={{ color: 'var(--add)' }}>+18</span></span></div>
-    </div>
-    <div style={{ flex: '1', minHeight: '120px', margin: '4px 12px 12px', borderRadius: '4px', background: 'var(--term)', border: '1px solid var(--line)', padding: '12px 0', overflow: 'hidden' }} className="mono">
-    <div style={{ display: 'flex', fontSize: '11.5px', lineHeight: '1.9', color: '#a0a5ae' }}><span style={{ width: '44px', textAlign: 'right', paddingRight: '12px', color: '#5c626c' }}>88</span><span>&#160;&#160;const path = usePath(current);</span></div>
-    <div style={{ display: 'flex', fontSize: '11.5px', lineHeight: '1.9', background: 'rgba(64,190,150,.13)', color: '#62d6ae' }}><span style={{ width: '44px', textAlign: 'right', paddingRight: '12px', color: '#62d6ae' }}>89</span><span>+ &#160;const pulse = usePulse(path, 90);</span></div>
-    <div style={{ display: 'flex', fontSize: '11.5px', lineHeight: '1.9', background: 'rgba(64,190,150,.13)', color: '#62d6ae' }}><span style={{ width: '44px', textAlign: 'right', paddingRight: '12px', color: '#62d6ae' }}>90</span><span>+ &#160;return &lt;Tree path=&#123;path&#125; pulse=&#123;pulse&#125; /&gt;;</span></div>
-    <div style={{ display: 'flex', fontSize: '11.5px', lineHeight: '1.9', color: '#a0a5ae' }}><span style={{ width: '44px', textAlign: 'right', paddingRight: '12px', color: '#5c626c' }}>91</span><span>&#160;&#160;&#125;</span></div>
-    </div>
-    <div style={{ borderTop: '1px solid var(--line)', padding: '8px 12px 12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-    <span style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: 'var(--faint)', paddingLeft: '4px' }}><svg aria-hidden="true" width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M6 4l4 4-4 4"></path></svg>Commit message</span>
-    <div style={{ display: 'flex' }}>
-    <span aria-hidden="true" style={{ flex: '1', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', height: '40px', border: '0', borderRadius: '4px 0 0 4px', background: 'var(--accent)', color: 'var(--accent-ink)', font: 'inherit', fontSize: '13px', fontWeight: '600' }}><svg aria-hidden="true" width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1l1.7 4.6L14.5 7.3 9.7 9 8 13.6 6.3 9 1.5 7.3l4.8-1.7z"></path></svg>Stage all &amp; Commit <span style={{ fontWeight: '500' }}>2</span></span>
-    <span aria-hidden="true" style={{ width: '40px', height: '40px', border: '0', borderLeft: '1px solid color-mix(in srgb, var(--accent) 80%, #000)', borderRadius: '0 4px 4px 0', background: 'var(--accent)', color: 'var(--accent-ink)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><svg aria-hidden="true" width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><circle cx="3.5" cy="8" r="1.2"></circle><circle cx="8" cy="8" r="1.2"></circle><circle cx="12.5" cy="8" r="1.2"></circle></svg></span>
-    </div>
-    </div>
-    </div>
-    </div>
-    </div>
-    <figcaption style={{ textAlign: 'center', fontSize: '13px', color: 'var(--faint)', marginTop: '16px' }}>The orange path runs from <code>main</code> to the branch you have checked out, with a pulse travelling down it.</figcaption>
+    {demo}
+    <figcaption style={{ textAlign: 'center', fontSize: '13px', color: 'var(--faint)', marginTop: '16px' }}>Try it: pick a branch, open a file, ask the agent, commit. Double-click a branch to check it out.</figcaption>
     </figure>
     </section>
 

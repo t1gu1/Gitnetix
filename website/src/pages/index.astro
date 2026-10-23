@@ -1,5 +1,6 @@
 ---
 import Home from '../components/Home';
+import HeroDemo from '../components/HeroDemo';
 import Base from '../layouts/Base.astro';
 import faq from '../data/faq.json';
 import { REPO, releases, latestRelease, u } from '../lib/changelog';
@@ -38,7 +39,7 @@ const jsonLd = [
 ];
 ---
 <Base title="Gitnetix: the Git client that shows your work, not your commits" description={description} page="home" jsonLd={jsonLd}>
-<Home version={latest.version} />
+<Home version={latest.version}><HeroDemo slot="demo" client:visible /></Home>
 </Base>
 
 <script is:inline define:vars={{ downloads: latest.downloads, version: latest.version }}>
