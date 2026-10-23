@@ -316,21 +316,23 @@ export default function Home({ version }: { version: string }) {
     </div>
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '24px', marginTop: '48px', alignItems: 'center' }}>
     <div style={{ flex: '999 1 600px', minWidth: '0', background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: '16px', padding: '18px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(200px, 100%), 1fr))', gap: '14px' }}>
-    <div style={{ background: 'var(--raised)', borderRadius: '12px', padding: '14px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><span aria-hidden="true" style={{ width: '10px', height: '10px', borderRadius: '50%', background: 'var(--accent)' }}></span><strong style={{ fontSize: '15px', flex: '1' }}>feat/checkout</strong><span aria-hidden="true" style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--add)' }}></span></div>
-    <div style={{ fontSize: '12px', color: 'var(--faint)' }}>~/wt/checkout · Claude Code</div>
-    <div className="mono" style={{ background: 'var(--term)', borderRadius: '8px', padding: '12px', fontSize: '12px', lineHeight: '1.9', minHeight: '150px', color: '#a0a5ae' }}><div style={{ color: '#62d6ae' }}>✓ edited Cart.tsx</div><div style={{ color: '#62d6ae' }}>✓ tests pass</div><div>… writing PR body</div></div>
+    {[
+    { branch: 'feat/checkout', path: '~/wt/checkout', head: true, status: 'var(--add)', agent: ['Claude', 'Claude Opus 5.5', 'xhigh'], log: [['✓ edited Cart.tsx', '#62d6ae'], ['✓ tests pass', '#62d6ae'], ['… writing PR body']] },
+    { branch: 'fix/tax-rounding', path: '~/wt/tax', status: 'var(--warn)', agent: ['Codex', 'GPT-5', 'high'], log: [['› why is 0.1+0.2 off?'], ['✓ use cents everywhere', '#62d6ae'], ['? approve change', '#f5b65c']] },
+    { branch: 'feat/dark-mode', path: '~/wt/dark', status: 'var(--add)', agent: ['Gemini', 'Gemini 2.5 Pro', 'medium'], log: [['✓ tokens added', '#62d6ae'], ['… running build'], ['$ pnpm build', '#868c96']] },
+    ].map((w) => (
+    <div key={w.branch} style={{ background: 'var(--raised)', borderRadius: '12px', padding: '14px', display: 'flex', flexDirection: 'column', gap: '6px', minWidth: '0' }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><span aria-hidden="true" style={{ width: '10px', height: '10px', borderRadius: '50%', boxSizing: 'border-box', ...(w.head ? { background: 'var(--accent)' } : { border: '2px solid var(--work)' }) }}></span><strong style={{ fontSize: '15px', flex: '1' }}>{w.branch}</strong><span aria-hidden="true" style={{ width: '8px', height: '8px', borderRadius: '50%', background: w.status }}></span></div>
+    <div style={{ fontSize: '12px', color: 'var(--faint)' }}>{w.path}</div>
+    {/* mirrors the app's agent pane: Agent/Shell tabs, transcript, prompt bar with provider/model/effort */}
+    <div aria-hidden="true" style={{ background: 'var(--term)', border: '1px solid var(--line)', borderRadius: '8px', overflow: 'hidden', display: 'flex', flexDirection: 'column', fontSize: '11.5px' }}>
+    <div style={{ display: 'flex', borderBottom: '1px solid var(--line)' }}><span style={{ padding: '6px 10px', color: 'var(--fg)', borderRight: '1px solid var(--line)' }}>✦ Agent</span><span style={{ padding: '6px 10px', color: 'var(--faint)', borderRight: '1px solid var(--line)' }}>›_ Shell</span></div>
+    <div className="mono" style={{ padding: '10px 12px', lineHeight: '1.9', minHeight: '96px', color: '#a0a5ae' }}>{w.log.map(([t, c], i) => <div key={i} style={c ? { color: c } : undefined}>{t}{i === w.log.length - 1 && t.startsWith('$') && <span className="blink">▍</span>}</div>)}</div>
+    <div className="mono" style={{ display: 'flex', gap: '6px', padding: '7px 10px', borderTop: '1px solid var(--line)', color: 'var(--faint)' }}><span style={{ color: 'var(--accent)' }}>›</span>Ask the agent…</div>
+    <div style={{ display: 'flex', borderTop: '1px solid var(--line)', color: 'var(--muted)' }}>{w.agent.map((a) => <span key={a} style={{ padding: '6px 8px', borderRight: '1px solid var(--line)', minWidth: '0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{a} ⌄</span>)}<span style={{ marginLeft: 'auto', padding: '6px 10px', background: 'var(--accent-soft)', color: 'var(--accent-fg)' }}>➤</span></div>
     </div>
-    <div style={{ background: 'var(--raised)', borderRadius: '12px', padding: '14px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><span aria-hidden="true" style={{ width: '10px', height: '10px', borderRadius: '50%', border: '2px solid var(--work)', boxSizing: 'border-box' }}></span><strong style={{ fontSize: '15px', flex: '1' }}>fix/tax-rounding</strong><span aria-hidden="true" style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--warn)' }}></span></div>
-    <div style={{ fontSize: '12px', color: 'var(--faint)' }}>~/wt/tax · Codex</div>
-    <div className="mono" style={{ background: 'var(--term)', borderRadius: '8px', padding: '12px', fontSize: '12px', lineHeight: '1.9', minHeight: '150px', color: '#a0a5ae' }}><div>› why is 0.1+0.2 off?</div><div style={{ color: '#62d6ae' }}>✓ use cents everywhere</div><div style={{ color: '#f5b65c' }}>? approve change</div></div>
     </div>
-    <div style={{ background: 'var(--raised)', borderRadius: '12px', padding: '14px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><span aria-hidden="true" style={{ width: '10px', height: '10px', borderRadius: '50%', border: '2px solid var(--work)', boxSizing: 'border-box' }}></span><strong style={{ fontSize: '15px', flex: '1' }}>feat/dark-mode</strong><span aria-hidden="true" style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--add)' }}></span></div>
-    <div style={{ fontSize: '12px', color: 'var(--faint)' }}>~/wt/dark · Gemini</div>
-    <div className="mono" style={{ background: 'var(--term)', borderRadius: '8px', padding: '12px', fontSize: '12px', lineHeight: '1.9', minHeight: '150px', color: '#a0a5ae' }}><div style={{ color: '#62d6ae' }}>✓ tokens added</div><div>… running build</div><div style={{ color: '#868c96' }}>$ pnpm build<span className="blink" aria-hidden="true">▍</span></div></div>
-    </div>
+    ))}
     </div>
     {/* phone */}
     <div style={{ flex: '1 1 240px', display: 'flex', flexDirection: 'column', gap: '14px', alignItems: 'center' }}>
