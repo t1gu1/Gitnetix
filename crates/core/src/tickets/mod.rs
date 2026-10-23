@@ -270,13 +270,17 @@ fn jira_ticket(conf: &JiraConf, i: &Value, my_id: &str) -> Ticket {
 }
 
 /// One Jira ticket by key, whatever its status or assignee. `mine` is left false: it would cost a `myself` call.
-pub async fn jira_issue(conf: &JiraConf, token: &str, key: &str) -> Result<Ticket> {
+/// None when Jira has no such issue: branch names hold key-like words (`fix/utf-8-…`).
+pub async fn jira_issue(conf: &JiraConf, token: &str, key: &str) -> Result<Option<Ticket>> {
     if key.is_empty() || !key.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
         return Err(Error::Invalid(format!("“{key}” is not a Jira key")));
     }
     let path = format!("/rest/api/3/issue/{key}?fields={}", JIRA_FIELDS.join(","));
-    let i = check(jira_req(conf, token, reqwest::Method::GET, &path).send().await?, "Jira").await?;
-    Ok(jira_ticket(conf, &i, ""))
+    let res = jira_req(conf, token, reqwest::Method::GET, &path).send().await?;
+    if res.status() == reqwest::StatusCode::NOT_FOUND {
+        return Ok(None);
+    }
+    Ok(Some(jira_ticket(conf, &check(res, "Jira").await?, "")))
 }
 
 /// Where Jira lets ticket `key` go from its current status.

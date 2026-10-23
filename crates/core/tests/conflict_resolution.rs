@@ -100,14 +100,14 @@ async fn ai_resolves_conflicts_and_the_operation_goes_through() {
     assert_eq!(rev(&repo, "main~1"), before);
     assert_eq!(readme(), "resolved 4\n");
 
-    // Stash pop: resolved, staged, and the stash dropped.
+    // Stash pop: resolved and staged, the stash kept in case AI got it wrong.
     std::fs::write(repo.join("README.md"), "# stashed\n").unwrap();
     call(&k, "branches.stash", json!({ "projectId": pid, "branch": "main" })).await;
     commit_file(&repo, "README.md", "# other\n");
     let sha = call(&k, "stashes.list", json!({ "projectId": pid })).await[0]["sha"].as_str().unwrap().to_string();
     let r = call(&k, "stashes.apply", json!({ "projectId": pid, "branch": "main", "sha": sha, "pop": true })).await;
     assert_eq!(r["conflicts"], json!([]), "{r}");
-    assert_eq!(r["dropped"], true);
+    assert_eq!(r["dropped"], false);
     assert_eq!(readme(), "resolved 5\n");
     sh(&repo, &["commit", "-qm", "resolved stash"]);
 

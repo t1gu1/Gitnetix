@@ -2218,7 +2218,8 @@ impl Gitnetix {
             at = end;
         }
         out.extend(lines[at..].iter().map(|l| l.to_string()));
-        Ok(out.join("\n"))
+        // `lines()` drops the `\r`: a CRLF file keeps its line endings.
+        Ok(out.join(if content.contains("\r\n") { "\r\n" } else { "\n" }))
     }
 
     /// Write a resolved file and stage it.
@@ -2913,10 +2914,12 @@ impl Gitnetix {
         // Even a refused apply may have touched files.
         self.changed(project_id);
         let mut conflicts = out?;
-        if !conflicts.is_empty() {
+        // Kept after AI resolves its conflicts: the stash is the only copy if AI got them wrong.
+        let clean = conflicts.is_empty();
+        if !clean {
             conflicts = self.resolve_and_continue(&p, &git, None, "the stashed changes", branch).await?.left;
         }
-        let dropped = pop && conflicts.is_empty();
+        let dropped = pop && clean;
         if dropped {
             git.stash_drop(sha).await?;
             self.changed(project_id);
@@ -3476,14 +3479,10 @@ impl Gitnetix {
             prompt = prompt.replace(&format!("{{{k}}}"), v);
         }
         prompt = prompt.replace("{language}", templates::language_name(&p.gen_lang.commit));
-<<<<<<< HEAD
-        prompt = format!("{prompt}\n\n{}\n\n{}", templates::CHOICE_FORMAT, templates::NO_AI_CREDIT);
-=======
         let (ticket, notes) = self.agent_ticket(project_id, &branch, cwd).await;
         // Last, so nothing in the ticket is taken for a placeholder.
         prompt = insert_ticket(&prompt, &ticket);
-        prompt = format!("{prompt}\n\n{}", templates::NO_AI_CREDIT);
->>>>>>> release/0.5.3
+        prompt = format!("{prompt}\n\n{}\n\n{}", templates::CHOICE_FORMAT, templates::NO_AI_CREDIT);
         self.agents.start(StartArgs {
             project_id: project_id.into(),
             branch,
@@ -3894,7 +3893,8 @@ impl Gitnetix {
                     Err(e) => Err(e),
                 };
                 match got {
-                    Ok(t) => return Ok(Some(t)),
+                    Ok(Some(t)) => return Ok(Some(t)),
+                    Ok(None) => {}
                     Err(e) => err = Some(e),
                 }
             }
