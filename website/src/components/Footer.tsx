@@ -10,7 +10,7 @@ export default function Footer() {
     <a href={u('releases/')} style={{ color: 'var(--muted)' }}>Changelog</a>
     <a href={u('download/')} style={{ color: 'var(--muted)' }}>Download</a>
     <a href={u('releases.xml')} style={{ color: 'var(--muted)' }}>RSS</a>
-    <a href="https://adevjourney.wtf/en/projects/gitnetix/" style={{ color: 'var(--muted)' }}>Made by Guillaume · A Dev Journey</a>
+    <a href="https://adevjourney.wtf/en/" style={{ color: 'var(--muted)' }}>Made by Guillaume Huard Hughes · A Dev Journey</a>
     </nav>
     </div>
     </footer>

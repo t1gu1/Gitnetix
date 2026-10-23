@@ -123,3 +123,7 @@ sessions, GitHub PRs/reviews/releases, Jira/Trello/Asana.
 
 Not done yet: GitLab / Azure DevOps / Bitbucket / Gitea PRs, French UI strings (the AI output
 language setting works; the interface itself is English), mobile builds have not been generated.
+
+---
+
+Made by Guillaume Huard Hughes · [A Dev Journey](https://adevjourney.wtf/en/)
