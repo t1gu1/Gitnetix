@@ -20,7 +20,7 @@ jobs:
     outputs:
       on-main: ${{ steps.check.outputs.on-main }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -58,7 +58,7 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install system dependencies
         if: matrix.name == 'linux'
@@ -74,11 +74,11 @@ jobs:
             patchelf \
             file
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: 11
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: pnpm
@@ -139,7 +139,7 @@ jobs:
           esac
           ls -l release
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: gitnetix-${{ matrix.name }}-${{ github.ref_name }}
           path: release/*
@@ -149,7 +149,7 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # The release notes are this version's CHANGELOG.md section, without its heading,
       # or the Unreleased section when the tag was pushed without dating the changelog.
@@ -173,14 +173,14 @@ jobs:
           fi
           cat release-notes.md
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: gitnetix-*-${{ github.ref_name }}
           path: release
           merge-multiple: true
 
       - name: Publish GitHub release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: release/*
           body_path: release-notes.md
