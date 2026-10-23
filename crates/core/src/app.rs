@@ -3476,10 +3476,14 @@ impl Gitnetix {
             prompt = prompt.replace(&format!("{{{k}}}"), v);
         }
         prompt = prompt.replace("{language}", templates::language_name(&p.gen_lang.commit));
+<<<<<<< HEAD
+        prompt = format!("{prompt}\n\n{}\n\n{}", templates::CHOICE_FORMAT, templates::NO_AI_CREDIT);
+=======
         let (ticket, notes) = self.agent_ticket(project_id, &branch, cwd).await;
         // Last, so nothing in the ticket is taken for a placeholder.
         prompt = insert_ticket(&prompt, &ticket);
         prompt = format!("{prompt}\n\n{}", templates::NO_AI_CREDIT);
+>>>>>>> release/0.5.3
         self.agents.start(StartArgs {
             project_id: project_id.into(),
             branch,
