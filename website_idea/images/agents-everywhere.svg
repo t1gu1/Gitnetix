@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="480" viewBox="0 0 1200 480" font-family="Instrument Sans, Helvetica Neue, Arial, sans-serif">
+  <rect width="1200" height="480" fill="#0e0f11"/>
+  <text x="600" y="58" fill="#e8e9eb" font-size="28" font-weight="600" text-anchor="middle">One branch. One worktree. One agent.</text>
+  <text x="600" y="88" fill="#7a808a" font-size="15" text-anchor="middle">Run them side by side. Drive them from your desk, your phone, or another agent over MCP.</text>
+
+  <!-- desktop with 3 lanes -->
+  <rect x="60" y="120" width="760" height="320" rx="14" fill="#15171a" stroke="#272a30"/>
+  <g font-size="14">
+    <!-- lane 1 -->
+    <rect x="84" y="144" width="226" height="272" rx="10" fill="#1c1f23"/>
+    <circle cx="104" cy="168" r="5" fill="#f0a43a"/>
+    <text x="116" y="173" fill="#e8e9eb" font-weight="600">feat/checkout</text>
+    <text x="100" y="196" fill="#7a808a" font-size="11">~/wt/checkout · Claude Code</text>
+    <rect x="96" y="210" width="202" height="190" rx="8" fill="#0b0c0e"/>
+    <g font-family="JetBrains Mono, Menlo, monospace" font-size="11">
+      <text x="108" y="232" fill="#62d6ae">✓ edited Cart.tsx</text>
+      <text x="108" y="252" fill="#62d6ae">✓ tests pass</text>
+      <text x="108" y="272" fill="#a0a5ae">… writing PR body</text>
+    </g>
+    <circle cx="282" cy="168" r="4" fill="#62d6ae"/>
+    <!-- lane 2 -->
+    <rect x="326" y="144" width="226" height="272" rx="10" fill="#1c1f23"/>
+    <circle cx="346" cy="168" r="5" fill="none" stroke="#86aeff" stroke-width="2"/>
+    <text x="358" y="173" fill="#e8e9eb" font-weight="600">fix/tax-rounding</text>
+    <text x="342" y="196" fill="#7a808a" font-size="11">~/wt/tax · Codex</text>
+    <rect x="338" y="210" width="202" height="190" rx="8" fill="#0b0c0e"/>
+    <g font-family="JetBrains Mono, Menlo, monospace" font-size="11">
+      <text x="350" y="232" fill="#a0a5ae">› why is 0.1+0.2 off?</text>
+      <text x="350" y="252" fill="#62d6ae">✓ use cents everywhere</text>
+      <text x="350" y="272" fill="#f5b65c">? approve change</text>
+    </g>
+    <circle cx="524" cy="168" r="4" fill="#e3b45a"/>
+    <!-- lane 3 -->
+    <rect x="568" y="144" width="226" height="272" rx="10" fill="#1c1f23"/>
+    <circle cx="588" cy="168" r="5" fill="none" stroke="#86aeff" stroke-width="2"/>
+    <text x="600" y="173" fill="#e8e9eb" font-weight="600">feat/dark-mode</text>
+    <text x="584" y="196" fill="#7a808a" font-size="11">~/wt/dark · Gemini</text>
+    <rect x="580" y="210" width="202" height="190" rx="8" fill="#0b0c0e"/>
+    <g font-family="JetBrains Mono, Menlo, monospace" font-size="11">
+      <text x="592" y="232" fill="#62d6ae">✓ tokens added</text>
+      <text x="592" y="252" fill="#a0a5ae">… running build</text>
+      <text x="592" y="272" fill="#7a808a">$ pnpm build</text>
+    </g>
+    <circle cx="766" cy="168" r="4" fill="#62d6ae"/>
+  </g>
+
+  <!-- link -->
+  <path d="M840 280 H900" stroke="#f0a43a" stroke-width="2.5" stroke-dasharray="6 6"/>
+  <text x="870" y="268" fill="#7a808a" font-size="11" text-anchor="middle">paired</text>
+
+  <!-- phone -->
+  <rect x="920" y="120" width="180" height="320" rx="28" fill="#15171a" stroke="#3a3e46" stroke-width="2"/>
+  <rect x="980" y="132" width="60" height="8" rx="4" fill="#272a30"/>
+  <text x="940" y="176" fill="#7a808a" font-size="10" letter-spacing="1">AGENTS</text>
+  <g font-size="12">
+    <rect x="936" y="188" width="148" height="44" rx="8" fill="#1c1f23"/>
+    <circle cx="950" cy="210" r="4" fill="#62d6ae"/><text x="962" y="214" fill="#e8e9eb">feat/checkout</text>
+    <rect x="936" y="240" width="148" height="44" rx="8" fill="#1f1708" stroke="#e3b45a" stroke-opacity="0.5"/>
+    <circle cx="950" cy="262" r="4" fill="#e3b45a"/><text x="962" y="266" fill="#e8e9eb">fix/tax-rounding</text>
+    <rect x="936" y="292" width="148" height="44" rx="8" fill="#1c1f23"/>
+    <circle cx="950" cy="314" r="4" fill="#62d6ae"/><text x="962" y="318" fill="#e8e9eb">feat/dark-mode</text>
+  </g>
+  <rect x="936" y="370" width="148" height="34" rx="10" fill="#f0a43a"/>
+  <text x="1010" y="392" fill="#1b1205" font-size="13" font-weight="600" text-anchor="middle">Approve</text>
+</svg>
