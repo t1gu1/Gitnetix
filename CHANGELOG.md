@@ -11,6 +11,19 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+### Added
+- Website: dedicated remote section with the phone mockup.
+- Website: worktree mockup now mirrors the agent pane.
+
+### Changed
+- Author is credited as Guillaume Huard Hughes, linking to the A Dev Journey home page, in the README and website footers.
+- README intro rewritten, with a new tagline and a link to the project website.
+
+### Fixed
+- Website: comparison panel now uses border-box sizing.
+- Website: spine gradient fades in from the top edge.
+- Website: CI builds now show the release tag as the latest version.
+
 ## [0.5.0] - 2026-10-23
 
 ### Added
