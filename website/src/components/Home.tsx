@@ -314,8 +314,7 @@ export default function Home({ version }: { version: string }) {
     <h2 id="ag-h" style={{ margin: '0', fontSize: 'clamp(34px, 4.6vw, 56px)', lineHeight: '1.05', letterSpacing: '-0.03em', textWrap: 'balance' }}>One branch. One worktree. One agent.</h2>
     <p style={{ margin: '18px 0 0', fontSize: '19px', color: 'var(--muted)', textWrap: 'pretty' }}>Open any branch in its own worktree with one click, put an AI agent on it, and keep a shell beside it. Run them side by side. When you close a worktree, Gitnetix can merge it into the branch you choose.</p>
     </div>
-    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '24px', marginTop: '48px', alignItems: 'center' }}>
-    <div style={{ flex: '999 1 600px', minWidth: '0', background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: '16px', padding: '18px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(200px, 100%), 1fr))', gap: '14px' }}>
+    <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: '16px', padding: '18px', marginTop: '48px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(200px, 100%), 1fr))', gap: '14px' }}>
     {[
     { branch: 'feat/checkout', path: '~/wt/checkout', head: true, status: 'var(--add)', agent: ['Claude', 'Claude Opus 5.5', 'xhigh'], log: [['✓ edited Cart.tsx', '#62d6ae'], ['✓ tests pass', '#62d6ae'], ['… writing PR body']] },
     { branch: 'fix/tax-rounding', path: '~/wt/tax', status: 'var(--warn)', agent: ['Codex', 'GPT-5', 'high'], log: [['› why is 0.1+0.2 off?'], ['✓ use cents everywhere', '#62d6ae'], ['? approve change', '#f5b65c']] },
@@ -334,17 +333,6 @@ export default function Home({ version }: { version: string }) {
     </div>
     ))}
     </div>
-    {/* phone */}
-    <div style={{ flex: '1 1 240px', display: 'flex', flexDirection: 'column', gap: '14px', alignItems: 'center' }}>
-    <figure style={{ margin: '0', display: 'flex', flexDirection: 'column', gap: '14px', alignItems: 'center' }}>
-    <div style={{ position: 'relative', width: '264px', maxWidth: '100%', background: '#0b0c0e', border: '2px solid var(--rail)', borderRadius: '18px', padding: '10px', boxSizing: 'border-box', boxShadow: '0 30px 80px -30px rgba(0,0,0,.8), 0 0 50px -20px rgba(240,164,58,.45)' }}>
-    <img src={u("phone.jpg")} alt="Gitnetix on a phone browser: the branch tree with main, a merged-into-main group, the checked-out v0.4.2 hotfix release, a Shipped group, and Releases, Agents, PRs and Tickets tabs" width="640" height="1153" loading="lazy" style={{ display: 'block', width: '100%', height: 'auto', borderRadius: '9px' }} />
-    </div>
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--add)', background: 'var(--panel)', border: '1px solid var(--line)', padding: '4px 12px', borderRadius: '999px' }}><span aria-hidden="true" style={{ width: '7px', height: '7px', borderRadius: '50%', background: 'var(--add)' }}></span>Real screenshot · paired by QR code</span>
-    <figcaption style={{ margin: '0', fontSize: '14px', color: 'var(--muted)', textAlign: 'center', maxWidth: '280px' }}>Scan the QR code from your desktop and the same app opens in your phone's browser. Approve agents, ship hotfixes, review PRs.</figcaption>
-    </figure>
-    </div>
-    </div>
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginTop: '28px', alignItems: 'center' }}>
     <span style={{ fontSize: '14px', color: 'var(--faint)', marginRight: '6px' }}>Bring your agent:</span>
     <span style={{ fontSize: '14px', padding: '7px 14px', borderRadius: '999px', background: 'var(--panel)', border: '1px solid var(--line)' }}>Claude Code</span>
@@ -355,6 +343,26 @@ export default function Home({ version }: { version: string }) {
     <span style={{ fontSize: '14px', padding: '7px 14px', borderRadius: '999px', border: '1px dashed var(--rail)', color: 'var(--muted)' }}>or an API key</span>
     </div>
     <p style={{ margin: '18px 0 0', fontSize: '16px', color: 'var(--muted)' }}>Every action is also an <strong style={{ color: 'var(--fg)' }}>MCP tool</strong>, so another agent can drive Gitnetix too: <code style={{ fontSize: '14px', color: 'var(--fg)', background: 'var(--panel)', padding: '2px 8px', borderRadius: '6px' }}>claude mcp add gitnetix</code></p>
+    </section>
+
+    {/* MOBILE */}
+    <section className="sec" aria-labelledby="mo-h" style={{ paddingTop: '96px', paddingBottom: '40px', position: 'relative' }}>
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '48px', alignItems: 'center' }}>
+    <div style={{ position: 'relative', flex: '1 1 380px', maxWidth: '640px' }}>
+    <span className="knot" aria-hidden="true"></span>
+    <p style={{ margin: '0 0 12px', fontSize: '13px', letterSpacing: '.14em', color: 'var(--accent-fg)', fontWeight: '600' }}>REMOTE</p>
+    <h2 id="mo-h" style={{ margin: '0', fontSize: 'clamp(34px, 4.6vw, 56px)', lineHeight: '1.05', letterSpacing: '-0.03em', textWrap: 'balance' }}>Your desktop, in your pocket.</h2>
+    <p style={{ margin: '18px 0 0', fontSize: '19px', color: 'var(--muted)', textWrap: 'pretty' }}>Scan the QR code from your desktop and the same app opens in your phone's browser. Approve agents, ship hotfixes, review PRs.</p>
+    </div>
+    <div style={{ flex: '1 1 260px', display: 'flex', justifyContent: 'center' }}>
+    <figure style={{ margin: '0', display: 'flex', flexDirection: 'column', gap: '14px', alignItems: 'center' }}>
+    <div style={{ position: 'relative', width: '264px', maxWidth: '100%', background: '#0b0c0e', border: '2px solid var(--rail)', borderRadius: '18px', padding: '10px', boxSizing: 'border-box', boxShadow: '0 30px 80px -30px rgba(0,0,0,.8), 0 0 50px -20px rgba(240,164,58,.45)' }}>
+    <img src={u("phone.jpg")} alt="Gitnetix on a phone browser: the branch tree with main, a merged-into-main group, the checked-out v0.4.2 hotfix release, a Shipped group, and Releases, Agents, PRs and Tickets tabs" width="640" height="1153" loading="lazy" style={{ display: 'block', width: '100%', height: 'auto', borderRadius: '9px' }} />
+    </div>
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--add)', background: 'var(--panel)', border: '1px solid var(--line)', padding: '4px 12px', borderRadius: '999px' }}><span aria-hidden="true" style={{ width: '7px', height: '7px', borderRadius: '50%', background: 'var(--add)' }}></span>Real screenshot · paired by QR code</span>
+    </figure>
+    </div>
+    </div>
     </section>
 
     {/* AI BORING TEXT */}
