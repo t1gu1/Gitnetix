@@ -52,7 +52,6 @@ const MOBILE_TABS: { route: Route; label: string; icon: string }[] = [
   { route: { name: "worktrees" }, label: "Agents", icon: "layers" },
   { route: { name: "prs" }, label: "PRs", icon: "pr" },
   { route: { name: "tickets" }, label: "Tickets", icon: "ticket" },
-  { route: { name: "menu" }, label: "More", icon: "menu" },
 ];
 
 function Shell({ onUnpair }: { onUnpair: () => void }) {
@@ -76,9 +75,21 @@ function Shell({ onUnpair }: { onUnpair: () => void }) {
         {each(() => <Screen onUnpair={onUnpair} />)}
       </div>
       {nav.projectId && (
-        <nav className="mobile-tabs" aria-label="Sections">
+        <nav
+          className="mobile-tabs"
+          aria-label="Sections"
+          // Dragging across the bar opens the tab under the pointer, like Seg.
+          // Touch captures the pressed button, whose click on release would undo the drag.
+          onPointerDown={(e) => (e.target as Element).releasePointerCapture(e.pointerId)}
+          onPointerMove={(e) => {
+            if (!e.buttons) return;
+            const btn = document.elementFromPoint(e.clientX, e.clientY)?.closest(".mobile-tabs > button");
+            const t = btn && MOBILE_TABS[[...e.currentTarget.children].indexOf(btn)];
+            if (t && (nav.menuOpen || r.name !== t.route.name)) nav.go(t.route);
+          }}
+        >
           {MOBILE_TABS.map((t) => (
-            <button key={t.label} aria-pressed={t.route.name === "menu" ? nav.menuOpen : !nav.menuOpen && r.name === t.route.name} onClick={() => nav.go(t.route)}>
+            <button key={t.label} aria-pressed={!nav.menuOpen && r.name === t.route.name} onClick={() => nav.go(t.route)}>
               <Icon name={t.icon} size={18} />
               {t.label}
             </button>

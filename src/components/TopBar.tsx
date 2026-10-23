@@ -33,6 +33,11 @@ export const isPageRoute = (r: Route) =>
 const DRAG_THRESHOLD = 32;
 /** Share of the pointer travel the tab stretches by before it snaps loose. */
 const STRETCH = 0.6;
+/** Hold time before a touch press on a project tab picks it up; a shorter press is a tap or a scroll. */
+const LONG_PRESS = 400;
+/** Distance from the bar's edge where a dragged tab scrolls the bar, and the scroll speed per pixel into it. */
+const EDGE = 40;
+const EDGE_SPEED = 0.3;
 
 interface Drag {
   id: string;
@@ -86,8 +91,21 @@ export function TopBar() {
   const [landed, setLanded] = useState<string>();
   const tabs = useRef(new Map<string, HTMLElement>());
   const bar = useRef<HTMLElement>(null);
+  // Touch: a swipe scrolls the bar natively and a tap clicks; only a long press picks the tab up.
+  const touch = useRef(false);
+  const hold = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const held = useRef(false);
+  const cancelHold = () => clearTimeout(hold.current);
   const shown = drag?.active ? moveTo(open, drag.id, drag.index) : open;
   const dragging = !!drag?.active;
+
+  // A held tab blocks the native scroll so the finger moves the tab instead of the bar.
+  useEffect(() => {
+    const el = bar.current;
+    const block = (e: TouchEvent) => held.current && e.preventDefault();
+    el?.addEventListener("touchmove", block, { passive: false });
+    return () => el?.removeEventListener("touchmove", block);
+  }, []);
 
   // Keep the grabbing cursor wherever the pointer goes during a drag.
   useEffect(() => {
@@ -95,18 +113,43 @@ export function TopBar() {
     return () => document.body.classList.remove("dragging-tab");
   }, [dragging]);
 
+  /** Slot for the dragged tab: how many other tabs sit left of the pointer. */
+  const indexAt = (id: string, x: number) =>
+    open.filter((p) => {
+      const r = p.id !== id && tabs.current.get(p.id)?.getBoundingClientRect();
+      return r && r.left + r.width / 2 < x;
+    }).length;
+
   const onDragMove = (e: PointerEvent) => {
     if (!drag) return;
     const x = e.clientX;
     if (!drag.active && Math.abs(x - drag.x0) < DRAG_THRESHOLD)
       return setDrag({ ...drag, x });
-    const index = shown.filter((p) => {
-      const r =
-        p.id !== drag.id && tabs.current.get(p.id)?.getBoundingClientRect();
-      return r && r.left + r.width / 2 < e.clientX;
-    }).length;
-    setDrag({ ...drag, x, index, active: true });
+    setDrag({ ...drag, x, index: indexAt(drag.id, x), active: true });
   };
+
+  // Near an edge the bar scrolls under the held tab, faster the closer the pointer, even while it stays still.
+  const dragX = drag?.active ? drag.x : null;
+  useEffect(() => {
+    if (dragX === null) return;
+    let raf = 0;
+    const tick = () => {
+      const el = bar.current!;
+      const b = el.getBoundingClientRect();
+      const into =
+        dragX < b.left + EDGE
+          ? dragX - b.left - EDGE
+          : Math.max(0, dragX - b.right + EDGE);
+      const step = Math.max(-EDGE, Math.min(EDGE, into)) * EDGE_SPEED;
+      const before = el.scrollLeft;
+      el.scrollLeft += step;
+      if (el.scrollLeft === before) return;
+      setDrag((d) => d && { ...d, index: indexAt(d.id, dragX) });
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [dragX]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /** Rubber-band pull toward the pointer while pressed; springs back (CSS transition) once released or dragging. */
   const stretch = (id: string): CSSProperties | undefined => {
@@ -128,7 +171,32 @@ export function TopBar() {
     };
   };
 
+  const startDrag = (
+    id: string,
+    pointerId: number,
+    x: number,
+    active: boolean,
+  ) => {
+    bar.current!.setPointerCapture(pointerId);
+    const r = tabs.current.get(id)!.getBoundingClientRect();
+    const b = bar.current!.getBoundingClientRect();
+    setDrag({
+      id,
+      x0: x,
+      x,
+      ox: x - r.left,
+      top: r.top,
+      w: r.width,
+      h: r.height,
+      minLeft: b.left,
+      maxLeft: b.right - r.width,
+      index: open.findIndex((p) => p.id === id),
+      active,
+    });
+  };
+
   const onDragEnd = () => {
+    held.current = false;
     if (drag && !drag.active) {
       // Captured on the bar, so the button gets no click: a press released over its tab opens it.
       const r = tabs.current.get(drag.id)?.getBoundingClientRect();
@@ -210,27 +278,26 @@ export function TopBar() {
                 aria-pressed={p.id === nav.projectId}
                 title="Drag to reorder"
                 onPointerDown={(e) => {
+                  touch.current = e.pointerType === "touch";
                   if (e.button !== 0) return;
-                  bar.current!.setPointerCapture(e.pointerId);
-                  const r = tabs.current.get(p.id)!.getBoundingClientRect();
-                  const b = bar.current!.getBoundingClientRect();
-                  const x = e.clientX;
-                  setDrag({
-                    id: p.id,
-                    x0: x,
-                    x,
-                    ox: x - r.left,
-                    top: r.top,
-                    w: r.width,
-                    h: r.height,
-                    minLeft: b.left,
-                    maxLeft: b.right - r.width,
-                    index: 0,
-                    active: false,
-                  });
+                  if (!touch.current)
+                    return startDrag(p.id, e.pointerId, e.clientX, false);
+                  const { pointerId, clientX } = e;
+                  cancelHold();
+                  hold.current = setTimeout(() => {
+                    held.current = true;
+                    startDrag(p.id, pointerId, clientX, true);
+                    navigator.vibrate?.(10);
+                  }, LONG_PRESS);
                 }}
-                // Mouse clicks are handled on release (onDragEnd); this covers keyboard activation.
-                onClick={(e) => e.detail === 0 && nav.setProject(p.id)}
+                // A scroll cancels the pointer; lifting before the hold time is a tap.
+                onPointerUp={cancelHold}
+                onPointerCancel={cancelHold}
+                onContextMenu={(e) => touch.current && e.preventDefault()}
+                // Mouse clicks are handled on release (onDragEnd); this covers keyboard and touch.
+                onClick={(e) =>
+                  (e.detail === 0 || touch.current) && nav.setProject(p.id)
+                }
               >
                 {p.runningAgents > 0 && (
                   <span className="pulse" title="AI task running" />
@@ -257,7 +324,7 @@ export function TopBar() {
           )}
           <button
             className="btn btn-ghost btn-icon"
-            style={{ height: "auto", width: 42, border: 0, borderRadius: 0 }}
+            style={{ height: "auto", width: 42, flex: "none", border: 0, borderRadius: 0 }}
             aria-label="Add project"
             onClick={() => nav.go({ name: "home" })}
           >

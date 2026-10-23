@@ -25,6 +25,7 @@ import { StashList } from "./StashList";
 
 type Mode = "branch" | "wip" | "project";
 type Pane = "releases" | "files" | "diff";
+const PANES: Pane[] = ["releases", "files", "diff"];
 
 export function Workspace() {
   const nav = useNav();
@@ -38,6 +39,10 @@ export function Workspace() {
   const [imageMode, setImageMode] = useImageMode();
   const [termOpen, setTermOpen] = useStoredFlag("gnx.pane.termOpen");
   const [pane, setPane] = useState<Pane>("releases");
+  const swipe = useRef<{ x: number; y: number } | null>(null);
+  // Which way the narrow layout slides the new pane in; none until the first switch.
+  const [slide, setSlide] = useState<{ pane: Pane; dir?: "next" | "prev" }>({ pane });
+  if (slide.pane !== pane) setSlide({ pane, dir: PANES.indexOf(pane) > PANES.indexOf(slide.pane) ? "next" : "prev" });
   const [shipping, setShipping] = useState<ReleaseView | null>(null);
   // `then` runs once the merge is done (closing a worktree session after merging it).
   const [dialog, setDialog] = useState<{ kind: BranchDialog; branch: string; onto?: string; then?: () => void; stay?: boolean; into?: string } | null>(null);
@@ -241,20 +246,6 @@ export function Workspace() {
   if (ov.isLoading) return <Loading />;
   return (
     <>
-      <div className="pane-switch">
-        <Seg<Pane>
-          label="Panel"
-          grid
-          value={pane}
-          onChange={setPane}
-          options={[
-            { value: "releases", label: "Branches" },
-            { value: "files", label: `Files${fileCount ? ` ${fileCount}` : ""}` },
-            { value: "diff", label: "Diff & agent" },
-          ]}
-        />
-      </div>
-
       {ov.error && (
         <div style={{ padding: 16 }}>
           <ErrorBox error={ov.error} />
@@ -266,6 +257,22 @@ export function Workspace() {
           className="ws"
           style={{ "--branches-w": `${leftW.width}%` } as CSSProperties}
           data-file-open={current ? true : undefined}
+          data-slide={slide.dir}
+          onTouchStart={(e) => {
+            // Leave horizontal swipes to content that scrolls sideways (diff lines, terminal).
+            const sideways = (el: Element | null): boolean => !!el && el !== e.currentTarget && (el.scrollWidth > el.clientWidth + 1 || sideways(el.parentElement));
+            swipe.current = e.touches.length === 1 && !sideways(e.target as Element) ? { x: e.touches[0].clientX, y: e.touches[0].clientY } : null;
+          }}
+          onTouchEnd={(e) => {
+            const s = swipe.current;
+            swipe.current = null;
+            if (!s) return;
+            const dx = e.changedTouches[0].clientX - s.x;
+            const dy = e.changedTouches[0].clientY - s.y;
+            if (Math.abs(dx) < 60 || Math.abs(dx) < 2 * Math.abs(dy)) return;
+            const next = PANES[PANES.indexOf(pane) + (dx < 0 ? 1 : -1)];
+            if (next) setPane(next);
+          }}
         >
           <div className="ws-left" data-pane data-active={pane !== "files"}>
             {stashesOf !== null ? (
@@ -498,6 +505,21 @@ export function Workspace() {
 
         </main>
       )}
+
+      {/* After main so it sits at the bottom, just above the mobile tabs. */}
+      <div className="pane-switch">
+        <Seg<Pane>
+          label="Panel"
+          grid
+          value={pane}
+          onChange={setPane}
+          options={[
+            { value: "releases", label: "Branches" },
+            { value: "files", label: `Files${fileCount ? ` ${fileCount}` : ""}` },
+            { value: "diff", label: "Diff & agent" },
+          ]}
+        />
+      </div>
 
       {discarding && branch && (
         <DiscardModal pid={pid} branch={branch} staged={discarding.staged} paths={discarding.paths} total={list.filter((f) => f.staged === discarding.staged).length} onClose={() => setDiscarding(null)} />
@@ -1582,7 +1604,7 @@ function CommitBox({ pid, branch, enabled, staged, changed }: { pid: string; bra
         />
       </div>}
       <span className="split-btn" style={{ display: "flex", width: "100%" }}>
-        <button className="btn btn-primary split-main" style={{ height: 34, flex: "1 1 auto" }} disabled={!canType || orphanBody || busy}
+        <button className="btn btn-primary split-main commit-btn" style={{ flex: "1 1 auto" }} disabled={!canType || orphanBody || busy}
           title={orphanBody ? "Add a summary to go with the description" : undefined}
           // mutateAsync, not mutate callbacks: those are dropped if the user switches branch before the commit ends.
           onClick={() => commit.mutateAsync({ projectId: pid, branch, message, all }).then(() => { clear(); if (autoPush) push.mutate({ projectId: pid, branch }); }, () => {})}>
@@ -1590,8 +1612,7 @@ function CommitBox({ pid, branch, enabled, staged, changed }: { pid: string; bra
           <span>{all ? "Stage all & Commit" : "Commit"}<span style={{ fontWeight: 400, opacity: 0.75, marginLeft: 6 }}>{all ? changed || null : staged}</span></span>
         </button>
         <button
-          className="btn btn-primary btn-icon split-more"
-          style={{ height: 34, width: 34 }}
+          className="btn btn-primary btn-icon split-more commit-btn"
           aria-label="Commit options"
           data-tip="Commit options"
           aria-haspopup="menu"

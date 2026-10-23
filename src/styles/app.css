@@ -242,6 +242,13 @@ a:hover {
   padding: 0 12px;
   margin-left: auto;
 }
+/* theme toggle is a flush full-height square: drop the padding, re-space whatever precedes it */
+.hdr-tools:has(> .theme-toggle) {
+  padding: 0;
+}
+.hdr-tools:has(> .theme-toggle) > :first-child:not(.theme-toggle) {
+  margin-left: 12px;
+}
 .tabs-projects {
   display: flex;
   align-items: stretch;
@@ -266,6 +273,8 @@ a:hover {
 }
 .tab-project-open {
   display: flex;
+  -webkit-touch-callout: none;
+  user-select: none;
   align-items: center;
   gap: 8px;
   padding: 0 4px 1px 16px;
@@ -500,6 +509,21 @@ body.dragging-tab * {
   border-radius: 4px;
   background: var(--bg);
 }
+/* The selected highlight, placed and sized over the selected button by Seg, sliding between them.
+   Horizontal drags select options (Seg); vertical ones still scroll the page. */
+.seg {
+  position: relative;
+  touch-action: pan-y;
+  user-select: none;
+}
+.seg-thumb {
+  position: absolute;
+  top: 0;
+  left: 0;
+  border-radius: 3px;
+  background: var(--sel);
+  transition: transform 0.2s ease, width 0.2s ease, height 0.2s ease;
+}
 .seg.grid {
   display: grid;
   grid-auto-flow: column;
@@ -512,6 +536,7 @@ body.dragging-tab * {
   text-overflow: ellipsis;
 }
 .seg > button {
+  position: relative;
   height: 28px;
   padding: 0 10px;
   border: 0;
@@ -529,7 +554,8 @@ body.dragging-tab * {
   background: color-mix(in srgb, var(--sel) 40%, transparent);
 }
 .seg > button[aria-pressed="true"] {
-  background: var(--sel);
+  /* The .seg-thumb behind it shows the selection. */
+  background: transparent;
   color: var(--fg);
   font-weight: 500;
 }
@@ -1702,6 +1728,18 @@ button.tree-twist:hover {
   text-align: left;
   cursor: pointer;
 }
+/* Taller touch targets on mobile. */
+@media (max-width: 900px) {
+  .tree-row {
+    min-height: 52px;
+  }
+  .tree-row:has(> .tree-btn .tree-main > .branch-meta:empty) {
+    min-height: 44px;
+  }
+  .tree-group {
+    min-height: 40px;
+  }
+}
 .tree-group {
   gap: 6px;
   font-size: 11px;
@@ -1712,6 +1750,13 @@ button.tree-twist:hover {
 }
 .tree-group:hover {
   color: var(--fg);
+}
+/* Collapsible headers sit a shade darker than branch rows. */
+.tree-group::after {
+  background: color-mix(in srgb, var(--raised), #000 18%);
+}
+.tree-group:hover::after {
+  background: color-mix(in srgb, var(--raised), #000 10%);
 }
 .tree-toggle {
   color: var(--fg);
@@ -1868,6 +1913,15 @@ button.tree-twist:hover {
   width: 34px;
   color: var(--fg);
 }
+/* Square in branch rows: matches .tree-row's min-height, which the acts stretch to fill. */
+.tree-row .acts > .act-main {
+  width: 44px;
+}
+@media (max-width: 900px) {
+  .tree-row .acts > .act-main {
+    width: 52px;
+  }
+}
 .act.btn-danger {
   color: var(--del-fg);
 }
@@ -1918,6 +1972,13 @@ button.tree-twist:hover {
   margin-left: -1px;
   border-top-left-radius: 0;
   border-bottom-left-radius: 0;
+}
+.commit-btn {
+  --commit-h: 38px;
+  height: var(--commit-h);
+}
+.split-more.commit-btn {
+  width: var(--commit-h);
 }
 /* Primary buttons have no border: a darker accent hairline splits the arrow from the main button. */
 .btn-primary.split-more {
@@ -2982,6 +3043,32 @@ button.picker-act {
   font-family: var(--mono);
   font-size: 12px;
 }
+/* Narrow: the picker takes its own full-width row above the text. */
+@media (max-width: 900px) {
+  .term-input {
+    flex-wrap: wrap;
+    height: auto;
+    flex-basis: auto;
+    row-gap: 0;
+  }
+  .term-input input {
+    height: 40px;
+  }
+  .term-input .picker-acts {
+    order: -1;
+    flex: 0 0 calc(100% + 32px);
+    height: 34px;
+    margin: 0 -16px;
+    border-bottom: 1px solid var(--line);
+  }
+  .term-input .picker-act {
+    flex: 1 1 0;
+    justify-content: space-between;
+  }
+  .term-input .picker-act:first-child {
+    border-left: 0;
+  }
+}
 
 /* ---------- list + detail screens (PRs, tickets, worktrees) ---------- */
 .master {
@@ -3698,11 +3785,20 @@ button.app-row:hover {
   .pane-switch {
     display: flex;
     padding: 8px 12px;
-    border-bottom: 1px solid var(--line);
+    border-top: 1px solid var(--line);
     background: var(--panel);
   }
   .pane-switch .seg {
     flex: 1 1 auto;
+  }
+  /* A pane leaving display:none restarts its animation, so the one switched to slides in. Not on .ws-left itself: its panes already slide. */
+  .ws[data-slide] > .ws-files[data-active="true"],
+  .ws[data-slide] > .ws-left > [data-pane][data-active="true"] {
+    animation: pane-in 0.22s ease-out;
+  }
+  .ws[data-slide="prev"] > .ws-files[data-active="true"],
+  .ws[data-slide="prev"] > .ws-left > [data-pane][data-active="true"] {
+    --pane-from: -24%;
   }
   .page {
     padding: 20px 16px 48px;
@@ -3734,6 +3830,8 @@ button.app-row:hover {
     border-top: 1px solid var(--line);
     background: var(--panel);
     padding-bottom: env(safe-area-inset-bottom);
+    touch-action: none;
+    user-select: none;
   }
   .mobile-tabs button {
     flex: 1 1 0;
@@ -4082,9 +4180,29 @@ button.app-row:hover {
 :root[data-anim-off~="menu"] :is(.menu-panel, .menu-scrim) {
   animation: none !important;
 }
+:root[data-anim-off~="panes"] .ws [data-pane] {
+  animation: none !important;
+}
+:root[data-anim-off~="seg"] .seg-thumb {
+  transition: none !important;
+}
 :root[data-anim-off~="tooltips"] .tip {
   animation: none !important;
 }
 :root[data-anim-off~="chevrons"] .chev {
   transition: none !important;
+}
+@keyframes pane-in {
+  from {
+    transform: translateX(var(--pane-from, 24%));
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ws [data-pane] {
+    animation: none !important;
+  }
+  .seg-thumb {
+    transition: none !important;
+  }
 }

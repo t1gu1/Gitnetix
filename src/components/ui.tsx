@@ -1,4 +1,4 @@
-import { Fragment, type ReactNode, useEffect } from "react";
+import { type CSSProperties, Fragment, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { link } from "./Adf";
 import { Icon } from "./Icon";
@@ -23,13 +23,47 @@ export function Seg<T extends string>({
   cols?: number;
   size?: "lg";
 }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [thumb, setThumb] = useState<CSSProperties>();
+  const selected = options.findIndex((o) => o.value === value);
+  // Puts the highlight over the selected button, again whenever a button resizes (label change, wrap, shown after hidden).
+  useLayoutEffect(() => {
+    const el = ref.current!;
+    const btns = el.querySelectorAll<HTMLElement>(":scope > button");
+    const place = () => {
+      const b = btns[selected];
+      // Hidden (no box): no highlight, so it appears in place rather than sliding in when shown.
+      setThumb(b?.offsetWidth ? { width: b.offsetWidth, height: b.offsetHeight, transform: `translate(${b.offsetLeft}px, ${b.offsetTop}px)` } : undefined);
+    };
+    place();
+    const ro = new ResizeObserver(place);
+    btns.forEach((b) => ro.observe(b));
+    return () => ro.disconnect();
+  }, [selected, options.length]);
   return (
     <div
+      ref={ref}
       role="group"
       aria-label={label}
       className={`seg${grid ? " grid" : ""}${size ? " " + size : ""}`}
       style={grid && cols ? { gridAutoFlow: "row", gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` } : undefined}
+      // Dragging across the control selects the option nearest the pointer, like a slider.
+      // Touch captures the pressed button, whose click on release would undo the drag.
+      onPointerDown={(e) => (e.target as Element).releasePointerCapture(e.pointerId)}
+      onPointerMove={(e) => {
+        if (!e.buttons) return;
+        const away = (b: Element) => {
+          const r = b.getBoundingClientRect();
+          return Math.hypot(Math.max(r.left - e.clientX, 0, e.clientX - r.right), Math.max(r.top - e.clientY, 0, e.clientY - r.bottom));
+        };
+        const btns = [...e.currentTarget.querySelectorAll(":scope > button")];
+        const near = btns.reduce((a, b) => (away(b) < away(a) ? b : a));
+        const next = options[btns.indexOf(near)].value;
+        if (next !== value) onChange(next);
+      }}
     >
+      {/* The highlight sliding behind the buttons to the selected one. */}
+      {thumb && <span className="seg-thumb" style={thumb} aria-hidden />}
       {options.map((o) => (
         <button key={o.value} type="button" aria-pressed={o.value === value} onClick={() => onChange(o.value)}>
           {grid ? o.label : <FixedWidth>{o.label}</FixedWidth>}

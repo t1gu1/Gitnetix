@@ -15,6 +15,8 @@ export const ANIMATIONS: { id: string; label: string; hint: string }[] = [
   { id: "activity", label: "Activity pulse", hint: "The dot pulsing next to running agents, AI work and checks, and a branch's AI working and waiting labels" },
   { id: "tabs", label: "Project tab drag", hint: "The stretch, pop and spring back when reordering project tabs" },
   { id: "menu", label: "Menu slide", hint: "The menu sliding in and out" },
+  { id: "panes", label: "Panel slide", hint: "On mobile, the Branches, Files and Diff panels sliding in when switching between them" },
+  { id: "seg", label: "Tab highlight slide", hint: "The highlight sliding from the previous tab to the newly selected one" },
   { id: "tooltips", label: "Tooltip fade", hint: "Tooltips fading in" },
   { id: "chevrons", label: "Folding arrows", hint: "Arrows turning as groups open and close" },
 ];
