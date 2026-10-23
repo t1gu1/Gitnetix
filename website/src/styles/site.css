@@ -65,7 +65,7 @@ details[open] .chev{transform:rotate(45deg)}
 .ptab{display:flex;align-items:center;gap:22px;height:42px;padding:0 16px;color:var(--muted);border-right:1px solid var(--line);white-space:nowrap;box-sizing:border-box;border-bottom:2px solid transparent}
 .ptab.on{color:var(--fg);font-weight:500;border-bottom-color:var(--accent)}
 .spine{position:relative}
-.spine::before{content:'';position:absolute;left:23px;top:0;bottom:0;width:2px;background:linear-gradient(var(--accent),var(--accent) 92%,transparent);opacity:.45}
+.spine::before{content:'';position:absolute;left:23px;top:0;bottom:0;width:2px;background:linear-gradient(transparent,var(--accent) 8%,var(--accent) 92%,transparent);opacity:.45}
 .spine .dot{position:absolute;left:19px;top:0;width:10px;height:10px;border-radius:50%;background:#fff3dd;box-shadow:0 0 12px 3px rgba(240,164,58,.8);animation:down 14s linear infinite}
 @keyframes down{from{top:0}to{top:100%}}
 .knot{position:absolute;left:-80px;top:6px;width:12px;height:12px;border-radius:50%;border:2px solid var(--accent);background:var(--bg);box-shadow:var(--glow)}
