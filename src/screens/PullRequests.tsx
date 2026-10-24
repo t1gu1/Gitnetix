@@ -6,7 +6,7 @@ import type { PrDetail, PrSummary, PrThread } from "../api/types";
 import { Avatar } from "../components/Avatar";
 import { Icon } from "../components/Icon";
 import { Resizer, usePaneWidth } from "../components/Resizer";
-import { ago, Busy, Empty, EmptyState, ErrorBox, Header, initials, Loading, Markdown, Modal, Seg } from "../components/ui";
+import { ago, Busy, Empty, EmptyState, Header, initials, Loading, Markdown, Modal, Seg } from "../components/ui";
 import { plural } from "../lib/format";
 import { useNav } from "../lib/nav";
 import { toast } from "../lib/toast";
@@ -65,27 +65,19 @@ export function PullRequests({ initial }: { initial?: number }) {
       : !bv.remote || bv.ahead - bv.upstreamAhead <= 0
         ? `Push commits to ${branch} before opening a pull request.`
         : undefined;
+  const errCode = prs.error instanceof RpcError ? prs.error.code : undefined;
 
   return (
     <>
       <Header title="Pull requests" sub={`${ov?.project.name ?? ""}${prs.data ? ` · ${prs.data.provider === "azure" ? "Azure DevOps" : "GitHub"} ${prs.data.repo.owner}/${prs.data.repo.repo}` : ""}`} />
-      {prs.error instanceof RpcError && (prs.error.code === "not_connected" || prs.error.code === "unsupported") ? (
+      {prs.error ? (
         <EmptyState
           icon="pr"
-          title={prs.error.code === "unsupported" ? "Git provider not supported" : "No Git provider connected"}
+          title={errCode === "unsupported" ? "Git provider not supported" : errCode === "not_connected" ? "No Git provider connected" : "Couldn't load pull requests"}
           action={<button className="btn btn-primary btn-md" onClick={() => nav.go({ name: "settings", section: "git" })}>Open Git providers</button>}
         >
           {prs.error.message}
         </EmptyState>
-      ) : prs.error ? (
-        <div className="page" style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <div style={{ maxWidth: 480, textAlign: "center" }}>
-            <ErrorBox error={prs.error} />
-            <div style={{ marginTop: 14 }}>
-              <button className="btn" onClick={() => nav.go({ name: "settings", section: "git" })}>Open Git providers</button>
-            </div>
-          </div>
-        </div>
       ) : (
         <div className="body split">
           <section aria-label="Pull request list" className="master" style={{ "--master-w": `${listW.width}px` } as CSSProperties} data-pane data-active={pane === "list"}>
@@ -176,7 +168,7 @@ function Detail({ pid, number }: { pid: string; number: number }) {
   const [checksOpen, setChecksOpen] = useState(false);
 
   if (q.isLoading) return <Loading />;
-  if (q.error) return <ErrorBox error={q.error} />;
+  if (q.error) return <EmptyState icon="pr" title="Couldn't load pull request">{q.error.message}</EmptyState>;
   const d = q.data!;
   const open = d.state === "open" || d.state === "draft";
   const [label, cls] = stateOf(d, d);
