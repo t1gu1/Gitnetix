@@ -7,7 +7,7 @@ import { AgentPicker, MenuChoice, useAgentPick } from "../components/AgentPicker
 import { Icon } from "../components/Icon";
 import { Resizer, usePaneWidth } from "../components/Resizer";
 import { ShellPane, TermTabs, useTermView } from "../components/Shell";
-import { ago, Busy, Empty, Header, Loading, Modal, Seg } from "../components/ui";
+import { ago, Busy, Empty, EmptyState, Header, Loading, Modal, Seg } from "../components/ui";
 import { KINDS, kindOfBranch, type Kind } from "../lib/kinds";
 import { useNav } from "../lib/nav";
 import { useBranchActions } from "./BranchMenu";
@@ -102,7 +102,7 @@ export function Worktrees({ initial }: { initial?: string }) {
                     <span>{name}</span>
                     <span style={{ textTransform: "none", letterSpacing: 0, fontWeight: 400 }} className="faint">{n === 1 ? "1 worktree" : `${n} worktrees`}</span>
                   </div>
-                  {!items.length && <p className="hint" style={{ padding: "0 14px 4px" }}>None currently running</p>}
+                  {!items.length && <p className="hint" style={{ padding: "0 14px 4px" }}>{{ all: "No worktree yet", running: "No agent running", needs: "Nothing waiting on you" }[filter]}</p>}
                   <div className="col" style={{ gap: 2 }}>
                     {items.map((r) => (
                       <button key={r.key} className="item-btn" style={{ width: "100%", margin: 0, borderRadius: 0, padding: "10px 14px" }} aria-pressed={r.key === cur?.key} title={`${STATUS[r.status][0]} · ${r.path}`} onClick={() => { setSel(r.key); setPane("detail"); }}>
@@ -125,6 +125,7 @@ export function Worktrees({ initial }: { initial?: string }) {
           </div>
           <div className="master-tools" style={{ borderBottom: 0, borderTop: "1px solid var(--line)" }}>
             <button className="btn btn-primary" style={{ height: 48, fontSize: 13.5 }} disabled={!projects.length} onClick={() => setStarting(true)}>
+              <Icon name="sparkle" size={13} />
               New agent session
             </button>
           </div>
@@ -135,7 +136,7 @@ export function Worktrees({ initial }: { initial?: string }) {
             <Icon name="back" size={12} />
             All worktrees
           </button>
-          {cur ? <Detail key={cur.key} r={cur} /> : <Empty>Select a worktree.</Empty>}
+          {cur ? <Detail key={cur.key} r={cur} /> : <EmptyState icon="layers" title="No worktree selected">Pick one from the list, or start a new agent session to give a branch its own folder and agent.</EmptyState>}
         </main>
       </div>
       {starting && <StartModal initial={cur?.projectId ?? nav.projectId ?? projects[0]?.id} onClose={() => setStarting(false)} />}

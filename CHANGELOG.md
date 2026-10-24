@@ -11,6 +11,24 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+### Added
+- Ctrl+Enter (⌘+Enter on macOS) in the commit summary or description commits.
+- Settings › Animations has three more switches: Page fade, List entrances and Dialog pop.
+- Notifications can be clicked away, and show a check or a cross on success and errors.
+
+### Changed
+- A refreshed look across the app: softer corners, layered shadows on menus and dialogs, an accent halo on focused fields, thin scrollbars, and buttons that ease into their hover and give a little when pressed.
+- Smoother motion: pages fade up when opened and the page tabs' underline slides to the open page; dialogs, context menus, notifications and the agent panel animate in; new branches, files, commits and agent replies fade in as they appear; analytics bars grow from the axis.
+- Panes with nothing selected yet (pull request, ticket, worktree, submodule, release notes) show an icon, a title and what to do next.
+- The welcome and pairing screens were redrawn: the logo, a drop zone that lights up while folders are dragged over it, and numbered pairing steps.
+- Light theme: branch tree group headers are much lighter and the checked-out branch gets a warm amber tint; segmented controls show a white selected chip.
+- Mobile: the open tab's icon sits in an accent pill, and the page bar scrolls to keep the open page's tab in view.
+- Disconnect from this desktop is a quieter red text button instead of a solid one.
+
+### Fixed
+- The worktree list no longer says "None currently running" for a project that simply has no worktree yet.
+- A double line no longer shows under the page tabs.
+
 ## [0.6.2] - 2026-10-24
 
 ### Fixed

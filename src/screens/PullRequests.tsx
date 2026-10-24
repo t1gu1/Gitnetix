@@ -6,7 +6,7 @@ import type { PrDetail, PrSummary, PrThread } from "../api/types";
 import { Avatar } from "../components/Avatar";
 import { Icon } from "../components/Icon";
 import { Resizer, usePaneWidth } from "../components/Resizer";
-import { ago, Busy, Empty, ErrorBox, Header, initials, Loading, Markdown, Modal, Seg } from "../components/ui";
+import { ago, Busy, Empty, EmptyState, ErrorBox, Header, initials, Loading, Markdown, Modal, Seg } from "../components/ui";
 import { plural } from "../lib/format";
 import { useNav } from "../lib/nav";
 import { toast } from "../lib/toast";
@@ -70,12 +70,13 @@ export function PullRequests({ initial }: { initial?: number }) {
     <>
       <Header title="Pull requests" sub={`${ov?.project.name ?? ""}${prs.data ? ` · ${prs.data.provider === "azure" ? "Azure DevOps" : "GitHub"} ${prs.data.repo.owner}/${prs.data.repo.repo}` : ""}`} />
       {prs.error instanceof RpcError && (prs.error.code === "not_connected" || prs.error.code === "unsupported") ? (
-        <div className="empty-state">
-          <span className="empty-state-icon" aria-hidden="true"><Icon name="pr" size={22} /></span>
-          <h2>{prs.error.code === "unsupported" ? "Git provider not supported" : "No Git provider connected"}</h2>
-          <p>{prs.error.message}</p>
-          <button className="btn btn-primary" onClick={() => nav.go({ name: "settings", section: "git" })}>Open Git providers</button>
-        </div>
+        <EmptyState
+          icon="pr"
+          title={prs.error.code === "unsupported" ? "Git provider not supported" : "No Git provider connected"}
+          action={<button className="btn btn-primary btn-md" onClick={() => nav.go({ name: "settings", section: "git" })}>Open Git providers</button>}
+        >
+          {prs.error.message}
+        </EmptyState>
       ) : prs.error ? (
         <div className="page">
           <div className="page-inner">
@@ -144,7 +145,7 @@ export function PullRequests({ initial }: { initial?: number }) {
               <Icon name="back" size={12} />
               All pull requests
             </button>
-            {current ? <Detail key={current} pid={pid} number={current} /> : <Empty>Select a pull request.</Empty>}
+            {current ? <Detail key={current} pid={pid} number={current} /> : <EmptyState icon="pr" title="No pull request selected">Pick one from the list to read its description, checks and reviews.</EmptyState>}
           </main>
         </div>
       )}

@@ -14,7 +14,7 @@ import { animates } from "../lib/motion";
 import { useNav, type Route } from "../lib/nav";
 import { Icon } from "./Icon";
 import { ThemeToggle } from "./ThemeToggle";
-import { FixedWidth } from "./ui";
+import { FixedWidth, useThumb } from "./ui";
 
 export const PAGES: { label: string; icon: string; route: Route }[] = [
   { label: "Workspace", icon: "home", route: { name: "workspace" } },
@@ -97,6 +97,13 @@ export function TopBar() {
   const held = useRef(false);
   const cancelHold = () => clearTimeout(hold.current);
   const shown = drag?.active ? moveTo(open, drag.id, drag.index) : open;
+  const pagesBar = useRef<HTMLElement>(null);
+  const page = PAGES.findIndex((p) => p.route.name === nav.route.name);
+  const ink = useThumb(pagesBar, page, PAGES.length);
+  // On a narrow window the page bar scrolls: keep the current page's tab in sight.
+  useEffect(() => {
+    pagesBar.current?.querySelectorAll(".tab-page")[page]?.scrollIntoView({ block: "nearest", inline: "nearest", behavior: animates("seg") ? "smooth" : "auto" });
+  }, [page]);
   const dragging = !!drag?.active;
 
   // A held tab blocks the native scroll so the finger moves the tab instead of the bar.
@@ -347,7 +354,9 @@ export function TopBar() {
           <ThemeToggle />
         </div>
       </header>
-      <nav aria-label="Pages" className="tabs-pages">
+      <nav ref={pagesBar} aria-label="Pages" className="tabs-pages">
+        {/* The accent underline, sliding from the previous page's tab to the new one. */}
+        {ink && <span className="tabs-ink" style={ink} aria-hidden />}
         {PAGES.map((p) => {
           const active = nav.route.name === p.route.name;
           return (

@@ -9,7 +9,7 @@ import { Avatar } from "../components/Avatar";
 import { ContextMenu } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
 import { Resizer, usePaneWidth } from "../components/Resizer";
-import { ago, Busy, Empty, ErrorBox, Header, Loading, Markdown, releaseTagLabel, Seg } from "../components/ui";
+import { ago, Busy, Empty, EmptyState, ErrorBox, Header, Loading, Markdown, releaseTagLabel, Seg } from "../components/ui";
 import { plural } from "../lib/format";
 import { useNav } from "../lib/nav";
 import { useStored } from "../lib/stored";
@@ -68,16 +68,13 @@ export function Tickets({ initial }: { initial?: string }) {
     return (
       <>
         <Header title="Tickets" sub={ov?.project.name} />
-        <div className="page" style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <div style={{ maxWidth: 420 }}>
-            <Empty>
-              Connect Jira, Trello or Asana to see tickets here, plan them into releases and start a branch from one.
-              <div style={{ marginTop: 14 }}>
-                <button className="btn btn-primary" onClick={() => nav.go({ name: "settings", section: "tools" })}>Connect a tracker</button>
-              </div>
-            </Empty>
-          </div>
-        </div>
+        <EmptyState
+          icon="ticket"
+          title="No ticket tracker connected"
+          action={<button className="btn btn-primary btn-md" onClick={() => nav.go({ name: "settings", section: "tools" })}>Connect a tracker</button>}
+        >
+          Connect Jira, Trello or Asana to see tickets here, plan them into releases and start a branch from one.
+        </EmptyState>
       </>
     );
   }
@@ -205,7 +202,7 @@ export function Tickets({ initial }: { initial?: string }) {
                 }}
               />
             ) : (
-              <Empty>Select a ticket.</Empty>
+              <EmptyState icon="ticket" title="No ticket selected">Pick one from the list to see its details and start a branch from it.</EmptyState>
             )}
           </main>
         </div>

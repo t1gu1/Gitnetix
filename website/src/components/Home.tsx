@@ -24,7 +24,7 @@ export default function Home({ version, demo }: { version: string; demo?: ReactN
     <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v12m0 0-5-5m5 5 5-5M4 21h16"></path></svg>
     <span data-dl-label>Download Gitnetix</span>
     </a>
-    <a href={REPO} style={{ display: 'flex', alignItems: 'center', gap: '10px', fontWeight: '500', fontSize: '17px', padding: '15px 22px', borderRadius: '12px', border: '1px solid var(--line)', background: 'var(--panel)' }}>View on GitHub</a>
+    <a className="btn-s" href={REPO} style={{ display: 'flex', alignItems: 'center', gap: '10px', fontWeight: '500', fontSize: '17px', padding: '15px 22px', borderRadius: '12px', border: '1px solid var(--line)', background: 'var(--panel)' }}>View on GitHub</a>
     </div>
     <p style={{ margin: '0', fontSize: '14px', color: 'var(--faint)' }}><span data-dl-note>v{version} · Free for macOS, Windows and Linux</span> · <a href={u("download/")} style={{ color: 'var(--muted)', textDecoration: 'underline', textUnderlineOffset: '3px' }}>Other platforms</a></p>
     </div>
@@ -240,7 +240,8 @@ export default function Home({ version, demo }: { version: string; demo?: ReactN
     <h2 id="ai-h" style={{ margin: '0', fontSize: 'clamp(34px, 4.6vw, 56px)', lineHeight: '1.05', letterSpacing: '-0.03em' }}>AI writes the boring text.</h2>
     <p style={{ margin: '18px 0 0', fontSize: '19px', color: 'var(--muted)', textWrap: 'pretty' }}>Editable templates decide what gets written. Per-task routing decides who writes it: a cheap model for commit messages, a strong one for conflicts. Works with a signed-in CLI or an API key.</p>
     </div>
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(260px, 100%), 1fr))', gap: '1px', marginTop: '48px', background: 'var(--line)', border: '1px solid var(--line)', borderRadius: '16px', overflow: 'hidden' }}>
+    {/* 300px columns: three across on desktop, so the six cards fill two whole rows. */}
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(300px, 100%), 1fr))', gap: '1px', marginTop: '48px', background: 'var(--line)', border: '1px solid var(--line)', borderRadius: '16px', overflow: 'hidden' }}>
     <div style={{ background: 'var(--panel)', padding: '24px', display: 'flex', flexDirection: 'column', gap: '8px' }}><h3 style={{ margin: '0', fontSize: '18px' }}>Commit messages</h3><p className="mono" style={{ margin: '0', fontSize: '13px', color: 'var(--muted)' }}>"Pulse along branch path"</p></div>
     <div style={{ background: 'var(--panel)', padding: '24px', display: 'flex', flexDirection: 'column', gap: '8px' }}><h3 style={{ margin: '0', fontSize: '18px' }}>Branch names</h3><p className="mono" style={{ margin: '0', fontSize: '13px', color: 'var(--muted)' }}>fix/tax-rounding</p></div>
     <div style={{ background: 'var(--panel)', padding: '24px', display: 'flex', flexDirection: 'column', gap: '8px' }}><h3 style={{ margin: '0', fontSize: '18px' }}>PR descriptions</h3><p style={{ margin: '0', fontSize: '15px', color: 'var(--muted)' }}>Written from the branch's real diff, ready to edit.</p></div>
@@ -288,7 +289,7 @@ export default function Home({ version, demo }: { version: string; demo?: ReactN
     </div>
     <ol style={{ listStyle: 'none', margin: '44px 0 0', padding: '0', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(300px, 100%), 1fr))', gap: '16px' }}>
     {featured.map((r, i) => (
-    <li key={r.version}><a href={u(`releases/${r.version}/`)} style={{ display: 'flex', flexDirection: 'column', gap: '10px', height: '100%', boxSizing: 'border-box', background: 'var(--panel)', border: `1px solid ${i === 0 ? 'rgba(240,164,58,.4)' : 'var(--line)'}`, borderRadius: '14px', padding: '24px' }}>
+    <li key={r.version}><a className="card-link" href={u(`releases/${r.version}/`)} style={{ display: 'flex', flexDirection: 'column', gap: '10px', height: '100%', boxSizing: 'border-box', background: 'var(--panel)', border: `1px solid ${i === 0 ? 'rgba(240,164,58,.4)' : 'var(--line)'}`, borderRadius: '14px', padding: '24px' }}>
     <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '13px' }}><span className="mono" style={{ color: 'var(--release)', background: 'var(--chip)', padding: '2px 10px', borderRadius: '999px' }}>v{r.version}</span><time dateTime={r.date} style={{ color: 'var(--faint)' }}>{shortDate(r.date)}</time>{r === releases[0] && <span style={{ marginLeft: 'auto', color: 'var(--accent-fg)', fontWeight: '600' }}>Latest</span>}</div>
     <h3 style={{ margin: '0', fontSize: '21px', letterSpacing: '-0.01em' }}>{r.title}</h3>
     <p style={{ margin: '0', fontSize: '15px', color: 'var(--muted)' }}>{r.highlights.length ? r.highlights.join(' · ') : plain(r.sections[0]?.items[0] ?? '')}</p>
@@ -312,6 +313,8 @@ export default function Home({ version, demo }: { version: string; demo?: ReactN
     <div><dt className="mono" style={{ color: 'var(--accent-fg)', fontSize: '14px' }}>Keychain</dt><dd style={{ margin: '4px 0 0', color: 'var(--muted)', fontSize: '15px' }}>API keys and tokens in your OS keychain</dd></div>
     <div><dt className="mono" style={{ color: 'var(--accent-fg)', fontSize: '14px' }}>MCP</dt><dd style={{ margin: '4px 0 0', color: 'var(--muted)', fontSize: '15px' }}>Every RPC method exposed as a tool</dd></div>
     <div><dt className="mono" style={{ color: 'var(--accent-fg)', fontSize: '14px' }}>Auto-update</dt><dd style={{ margin: '4px 0 0', color: 'var(--muted)', fontSize: '15px' }}>New releases offered on launch</dd></div>
+    <div><dt className="mono" style={{ color: 'var(--accent-fg)', fontSize: '14px' }}>Calm motion</dt><dd style={{ margin: '4px 0 0', color: 'var(--muted)', fontSize: '15px' }}>Fluid by default, every animation can be turned off</dd></div>
+    <div><dt className="mono" style={{ color: 'var(--accent-fg)', fontSize: '14px' }}>Dark &amp; light</dt><dd style={{ margin: '4px 0 0', color: 'var(--muted)', fontSize: '15px' }}>Follows your system, or pick one</dd></div>
     </dl>
     </div>
     </section>
@@ -341,7 +344,7 @@ export default function Home({ version, demo }: { version: string; demo?: ReactN
     <p style={{ margin: '0', fontSize: '19px', color: 'var(--muted)' }}>Free download for macOS, Windows and Linux.</p>
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', justifyContent: 'center', marginTop: '6px' }}>
     <a className="btn-p" data-dl href={u("download/")} style={{ background: 'var(--accent)', color: 'var(--accent-ink)', fontWeight: '600', padding: '15px 24px', borderRadius: '12px', boxShadow: '0 8px 30px -8px rgba(240,164,58,.6)' }}><span data-dl-label>Download Gitnetix</span></a>
-    <a href={u("download/")} style={{ fontWeight: '500', padding: '15px 22px', borderRadius: '12px', border: '1px solid var(--line)', background: 'var(--panel)' }}>All downloads</a>
+    <a className="btn-s" href={u("download/")} style={{ fontWeight: '500', padding: '15px 22px', borderRadius: '12px', border: '1px solid var(--line)', background: 'var(--panel)' }}>All downloads</a>
     </div>
     </div>
     </section>

@@ -325,7 +325,7 @@ export function Menu({ onUnpair }: { onUnpair: () => void }) {
                   </div>
                   {!isLocal && (
                     <button
-                      className="btn btn-danger"
+                      className="btn btn-ghost btn-danger"
                       style={{ marginTop: 8 }}
                       onClick={() => {
                         saveRemote(null);

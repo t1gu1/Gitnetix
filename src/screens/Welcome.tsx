@@ -5,7 +5,7 @@ import { isLocal, onFolderDrop, pickFolders } from "../api/transport";
 import type { Project } from "../api/types";
 import { Icon } from "../components/Icon";
 import { ThemeToggle } from "../components/ThemeToggle";
-import { Busy } from "../components/ui";
+import { Busy, initials } from "../components/ui";
 import { useNav } from "../lib/nav";
 
 export function Welcome() {
@@ -51,26 +51,20 @@ export function Welcome() {
       </header>
       <main className="scroll" style={{ flex: 1, display: "flex", justifyContent: "center", padding: "72px 24px 48px" }}>
         <div className="col" style={{ width: "100%", maxWidth: 640, gap: 40 }}>
-          <div className="col" style={{ gap: 8 }}>
-            <h1 style={{ margin: 0, fontSize: 28, fontWeight: 600, letterSpacing: "-0.01em" }}>Open a project</h1>
-            <p className="muted" style={{ margin: 0, fontSize: 14, lineHeight: 1.5 }}>
-              Add one or more local Git repositories. They stay in your project bar until you remove them.
-            </p>
+          <div className="welcome-hero">
+            <img src="/logo.png" alt="" width={56} height={56} />
+            <div className="col" style={{ gap: 8 }}>
+              <h1>{list.length ? "Open a project" : "Welcome to Gitnetix"}</h1>
+              <p className="muted">
+                Add one or more local Git repositories. They stay in your project bar until you remove them.
+              </p>
+            </div>
           </div>
 
-          <div
-            className="col"
-            style={{
-              alignItems: "center",
-              gap: 20,
-              padding: "56px 24px",
-              border: `1.5px dashed ${over ? "var(--accent)" : "var(--line)"}`,
-              borderRadius: 4,
-              background: over ? "var(--raised)" : "var(--panel)",
-              textAlign: "center",
-            }}
-          >
-            <Icon name="folder" size={36} stroke={1.1} className="faint" />
+          <div className="dropzone" data-over={over || undefined}>
+            <span className="dropzone-icon" aria-hidden="true">
+              <Icon name="folder" size={26} stroke={1.3} />
+            </span>
             {isLocal ? (
               <>
                 <div className="col" style={{ alignItems: "center", gap: 4 }}>
@@ -108,16 +102,17 @@ export function Welcome() {
             ) : (
               <ul className="list">
                 {list.map((p) => (
-                  <li key={p.id} className="row" style={{ alignItems: "stretch", gap: 0 }}>
+                  <li key={p.id} className="row project-row" style={{ alignItems: "stretch", gap: 0, margin: 0 }}>
                     <button
-                      className="row grow"
-                      style={{ gap: 14, minHeight: 56, padding: "0 16px", border: 0, background: "transparent", textAlign: "left", minWidth: 0 }}
+                      className="row grow list-link"
+                      style={{ gap: 14, minHeight: 60, padding: "0 16px", textAlign: "left", minWidth: 0 }}
                       onClick={() => {
                         if (p.hidden) reopen.mutate({ projectId: p.id, hidden: false });
                         nav.setProject(p.id);
                         nav.go({ name: "workspace" });
                       }}
                     >
+                      <span className="mono-badge" aria-hidden="true">{initials(p.name)}</span>
                       <span className="col" style={{ gap: 3, minWidth: 0 }}>
                         <span style={{ fontWeight: 500 }}>{p.name}</span>
                         <span className="mono faint ellipsis" style={{ fontSize: 11.5 }}>{p.path}</span>

@@ -45,13 +45,18 @@ export function Pair({ onPaired, error }: { onPaired: () => void; error?: string
             connect();
           }}
         >
-          <div className="col" style={{ gap: 8 }}>
-            <h1 style={{ margin: 0, fontSize: 24, fontWeight: 600 }}>Pair with Gitnetix</h1>
-            <p className="muted" style={{ margin: 0, lineHeight: 1.5 }}>
-              On your computer open Menu › Settings › Companion, turn on LAN access, then copy the address and pairing token here.
-              Your repositories stay on the computer; this app manages releases, agents, PRs and tickets remotely.
-            </p>
+          <div className="welcome-hero">
+            <img src="/logo.png" alt="" width={56} height={56} />
+            <div className="col" style={{ gap: 8 }}>
+              <h1>Pair with Gitnetix</h1>
+              <p className="muted">Your repositories stay on the computer; from here you manage releases, agents, PRs and tickets remotely.</p>
+            </div>
           </div>
+          <ol className="steps">
+            <li><span>On your computer, open Menu › Settings › Companion &amp; MCP.</span></li>
+            <li><span>Turn on <b>Allow devices on my network</b>.</span></li>
+            <li><span>Scan the QR code shown there, or copy its address and pairing token below.</span></li>
+          </ol>
           <div className="field">
             <label htmlFor="pair-url">Address</label>
             <input id="pair-url" className="input mono" inputMode="url" autoCapitalize="off" autoCorrect="off" placeholder="192.168.1.20:7421" value={url} onChange={(e) => setUrl(e.target.value)} />

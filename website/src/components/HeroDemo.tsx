@@ -113,8 +113,24 @@ function FixedWidth({ children }: { children: ReactNode }) {
 }
 
 function Seg<T extends string>({ label, value, options, onChange, grid }: { label: string; value: T; options: [T, ReactNode][]; onChange: (v: T) => void; grid?: boolean }) {
+  // The highlight slides to the pressed option, like useThumb in src/components/ui.tsx.
+  const ref = useRef<HTMLDivElement>(null);
+  const [thumb, setThumb] = useState<{ width: number; height: number; transform: string }>();
+  const selected = options.findIndex(([v]) => v === value);
+  useLayoutEffect(() => {
+    const btns = ref.current!.querySelectorAll<HTMLElement>(':scope > button');
+    const place = () => {
+      const b = btns[selected];
+      setThumb(b?.offsetWidth ? { width: b.offsetWidth, height: b.offsetHeight, transform: `translate(${b.offsetLeft}px, ${b.offsetTop}px)` } : undefined);
+    };
+    place();
+    const ro = new ResizeObserver(place);
+    btns.forEach((b) => ro.observe(b));
+    return () => ro.disconnect();
+  }, [selected, options.length]);
   return (
-    <div role="group" aria-label={label} className={`hd-seg${grid ? ' grid' : ''}`}>
+    <div ref={ref} role="group" aria-label={label} className={`hd-seg${grid ? ' grid' : ''}`}>
+      {thumb && <span className="seg-thumb" style={thumb} aria-hidden="true" />}
       {options.map(([v, l]) => (
         <button key={v} type="button" aria-pressed={v === value} onClick={() => onChange(v)}>{grid ? l : <FixedWidth>{l}</FixedWidth>}</button>
       ))}

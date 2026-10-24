@@ -8,6 +8,7 @@ export default function Footer() {
     <nav aria-label="Footer" style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 24px' }}>
     <a href={REPO} style={{ color: 'var(--muted)' }}>GitHub</a>
     <a href={u('releases/')} style={{ color: 'var(--muted)' }}>Changelog</a>
+    <a href={u('#faq')} style={{ color: 'var(--muted)' }}>FAQ</a>
     <a href={u('download/')} style={{ color: 'var(--muted)' }}>Download</a>
     <a href={u('releases.xml')} style={{ color: 'var(--muted)' }}>RSS</a>
     <a href="https://adevjourney.wtf/en/" style={{ color: 'var(--muted)' }}>Made by Guillaume Huard Hughes · A Dev Journey</a>

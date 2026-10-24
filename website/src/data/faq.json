@@ -4,6 +4,10 @@
     "a": "Gitnetix is a release-centric Git client for macOS, Windows and Linux. Instead of a commit graph, it shows your branches as a tree: <code>main</code>, then releases, then the features and fixes that belong to them. It ships a release in one click and can run an AI agent on every branch."
   },
   {
+    "q": "Is Gitnetix free?",
+    "a": "Yes. Gitnetix is free to download and use on macOS, Windows and Linux, and updates itself. AI features run through your own signed-in CLI (Claude Code, Codex, Gemini, Copilot) or an API key, so any AI cost goes to your provider, and local models through Ollama cost nothing."
+  },
+  {
     "q": "How is it different from other Git GUIs?",
     "a": "Most Git clients are built around the commit graph, which shows what git stored. Gitnetix drops it and shows intent: which release a branch belongs to, what is still open, what shipped and what is falling behind. It works out each branch's real parent, even after a squash-merged pull request."
   },

@@ -6,7 +6,7 @@ import type { Project, Submodule } from "../api/types";
 import { ContextMenu, type MenuItem } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
 import { Resizer, usePaneWidth } from "../components/Resizer";
-import { ago, Empty, ErrorBox, Header, Loading, Modal, Seg } from "../components/ui";
+import { ago, Empty, EmptyState, ErrorBox, Header, Loading, Modal, Seg } from "../components/ui";
 import { plural } from "../lib/format";
 import { useNav } from "../lib/nav";
 import { copyToClipboard, toast } from "../lib/toast";
@@ -202,7 +202,7 @@ export function Submodules() {
             {cur ? (
               <Detail key={cur.path} pid={pid} root={project?.path} s={cur} onOutput={setOutput} />
             ) : (
-              !q.isLoading && <Empty>{list.length ? "Select a submodule." : "Submodules show up here once added."}</Empty>
+              !q.isLoading && <EmptyState icon="box" title={list.length ? "No submodule selected" : "No submodules yet"}>{list.length ? "Pick one from the list to see its state and update it." : "Submodules show up here once added."}</EmptyState>
             )}
             {output && (
               <section className="col" style={{ gap: 8 }} aria-label="Command output">

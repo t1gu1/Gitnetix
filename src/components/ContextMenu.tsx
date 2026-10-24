@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 import { Icon } from "./Icon";
@@ -28,7 +28,7 @@ window.addEventListener("mousedown", (e) => (lastDown = (e.target as Element).cl
 /** Floating menu at a viewport point; closes on outside click, Escape, scroll or resize. */
 export function ContextMenu({ x, y, items, label, alignRight, onClose }: { x: number; y: number; items: MenuItem[]; label: string; alignRight?: boolean; onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState({ left: x, top: y });
+  const [pos, setPos] = useState({ left: x, top: y, "--origin": "top left" });
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
   // The button that opened the menu: pressing it again closes the menu instead of reopening it.
@@ -41,9 +41,12 @@ export function ContextMenu({ x, y, items, label, alignRight, onClose }: { x: nu
     // Anchored under its button, the menu flips above the button rather than over it.
     const btn = opener?.getBoundingClientRect();
     const flip = btn && y >= btn.bottom ? btn.top - 2 : y;
+    const up = y + height > window.innerHeight - 8;
     setPos({
       left: Math.max(8, Math.min(alignRight ? x - width : x, window.innerWidth - width - 8)),
-      top: Math.max(8, y + height > window.innerHeight - 8 ? flip - height : y),
+      top: Math.max(8, up ? flip - height : y),
+      // The menu grows out of the corner at the pointer or button.
+      "--origin": `${up ? "bottom" : "top"} ${alignRight ? "right" : "left"}`,
     });
     el.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
   }, [x, y, alignRight]);
@@ -82,7 +85,7 @@ export function ContextMenu({ x, y, items, label, alignRight, onClose }: { x: nu
   }, []);
 
   return createPortal(
-    <div ref={ref} className="ctx-menu" role="menu" aria-label={label} style={pos} onContextMenu={(e) => e.preventDefault()}>
+    <div ref={ref} className="ctx-menu" role="menu" aria-label={label} style={pos as CSSProperties} onContextMenu={(e) => e.preventDefault()}>
       {items.map((it, i) =>
         it === "sep" ? (
           <div key={`sep-${i}`} className="ctx-sep" role="separator" />

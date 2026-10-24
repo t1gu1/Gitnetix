@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent, type ReactNode } from "react";
 
 import { switchedOverview, useAction, useAgents, useAiOn, useAutoFetch, useBlobs, useDiff, useFiles, useOverview, usePendingBranches, useProjectPrefs, useProjects } from "../api/hooks";
 import { isLocal, revealPath } from "../api/transport";
@@ -1653,6 +1653,16 @@ function CommitBox({ pid, branch, enabled, staged, changed }: { pid: string; bra
   // Per branch, from the shared cache: a commit running on another worktree doesn't block this one.
   const busy = [...usePendingBranches("workspace.commit", pid), ...usePendingBranches("workspace.push", pid)].includes(branch);
   const [more, setMore] = useState<{ x: number; y: number } | null>(null);
+  const canCommit = canType && !orphanBody && !busy;
+  // mutateAsync, not mutate callbacks: those are dropped if the user switches branch before the commit ends.
+  const doCommit = () => commit.mutateAsync({ projectId: pid, branch, message, all }).then(() => { clear(); if (autoPush) push.mutate({ projectId: pid, branch }); }, () => {});
+  // Ctrl/⌘+Enter in the message commits, like most editors' "submit".
+  const onKey = (e: ReactKeyboardEvent) => {
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && canCommit) {
+      e.preventDefault();
+      doCommit();
+    }
+  };
   return (
     <div className="col" style={{ padding: "6px 12px 10px", gap: 6, borderTop: "1px solid var(--line)" }}>
       <div className="row faint" style={{ justifyContent: "space-between", fontSize: 11, margin: 0 }}>
@@ -1680,6 +1690,7 @@ function CommitBox({ pid, branch, enabled, staged, changed }: { pid: string; bra
           value={summary}
           disabled={!canType}
           onChange={(e) => setSummary(e.target.value)}
+          onKeyDown={onKey}
         />
         <textarea
           className="textarea"
@@ -1690,13 +1701,13 @@ function CommitBox({ pid, branch, enabled, staged, changed }: { pid: string; bra
           value={body}
           disabled={!canType}
           onChange={(e) => setBody(e.target.value)}
+          onKeyDown={onKey}
         />
       </div>}
       <span className="split-btn" style={{ display: "flex", width: "100%" }}>
-        <button className="btn btn-primary split-main commit-btn" style={{ flex: "1 1 auto" }} disabled={!canType || orphanBody || busy}
-          title={orphanBody ? "Add a summary to go with the description" : undefined}
-          // mutateAsync, not mutate callbacks: those are dropped if the user switches branch before the commit ends.
-          onClick={() => commit.mutateAsync({ projectId: pid, branch, message, all }).then(() => { clear(); if (autoPush) push.mutate({ projectId: pid, branch }); }, () => {})}>
+        <button className="btn btn-primary split-main commit-btn" style={{ flex: "1 1 auto" }} disabled={!canCommit}
+          title={orphanBody ? "Add a summary to go with the description" : open ? "Commit (Ctrl+Enter in the message)" : undefined}
+          onClick={doCommit}>
           <Busy on={busy}><Icon name="sparkle" size={12} /></Busy>
           <span>{all ? "Stage all & Commit" : "Commit"}<span style={{ fontWeight: 400, opacity: 0.75, marginLeft: 6 }}>{all ? changed || null : staged}</span></span>
         </button>

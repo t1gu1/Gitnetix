@@ -1,4 +1,4 @@
-import { type CSSProperties, Fragment, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type CSSProperties, Fragment, type ReactNode, type RefObject, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { link } from "./Adf";
 import { Icon } from "./Icon";
@@ -24,22 +24,8 @@ export function Seg<T extends string>({
   size?: "lg";
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  const [thumb, setThumb] = useState<CSSProperties>();
   const selected = options.findIndex((o) => o.value === value);
-  // Puts the highlight over the selected button, again whenever a button resizes (label change, wrap, shown after hidden).
-  useLayoutEffect(() => {
-    const el = ref.current!;
-    const btns = el.querySelectorAll<HTMLElement>(":scope > button");
-    const place = () => {
-      const b = btns[selected];
-      // Hidden (no box): no highlight, so it appears in place rather than sliding in when shown.
-      setThumb(b?.offsetWidth ? { width: b.offsetWidth, height: b.offsetHeight, transform: `translate(${b.offsetLeft}px, ${b.offsetTop}px)` } : undefined);
-    };
-    place();
-    const ro = new ResizeObserver(place);
-    btns.forEach((b) => ro.observe(b));
-    return () => ro.disconnect();
-  }, [selected, options.length]);
+  const thumb = useThumb(ref, selected, options.length);
   return (
     <div
       ref={ref}
@@ -71,6 +57,25 @@ export function Seg<T extends string>({
       ))}
     </div>
   );
+}
+
+/** Box of the `index`th button of `ref`, for a highlight that slides to it; again whenever a button resizes (label change, wrap, shown after hidden). */
+export function useThumb(ref: RefObject<HTMLElement | null>, index: number, count: number) {
+  const [thumb, setThumb] = useState<CSSProperties>();
+  useLayoutEffect(() => {
+    const el = ref.current!;
+    const btns = el.querySelectorAll<HTMLElement>(":scope > button");
+    const place = () => {
+      const b = btns[index];
+      // Hidden (no box): no highlight, so it appears in place rather than sliding in when shown.
+      setThumb(b?.offsetWidth ? { width: b.offsetWidth, height: b.offsetHeight, transform: `translate(${b.offsetLeft}px, ${b.offsetTop}px)` } : undefined);
+    };
+    place();
+    const ro = new ResizeObserver(place);
+    btns.forEach((b) => ro.observe(b));
+    return () => ro.disconnect();
+  }, [index, count]);
+  return thumb;
 }
 
 /** Reserves the width of the bold rendering so toggling the active weight doesn't resize the control. */
@@ -148,6 +153,20 @@ export function ErrorBox({ error }: { error: unknown }) {
 
 export function Empty({ children }: { children: ReactNode }) {
   return <div className="empty">{children}</div>;
+}
+
+/** A whole pane with nothing to show yet: icon, title, a line of help and the action that fills it. */
+export function EmptyState({ icon, title, children, action }: { icon: string; title: ReactNode; children?: ReactNode; action?: ReactNode }) {
+  return (
+    <div className="empty-state">
+      <span className="empty-state-icon" aria-hidden="true">
+        <Icon name={icon} size={22} />
+      </span>
+      <h2>{title}</h2>
+      {children && <p>{children}</p>}
+      {action}
+    </div>
+  );
 }
 
 export function Loading() {

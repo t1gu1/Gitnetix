@@ -6,7 +6,7 @@ import { rpc } from "../api/transport";
 import { MenuChoice } from "../components/AgentPicker";
 import { Icon } from "../components/Icon";
 import { Resizer, usePaneWidth } from "../components/Resizer";
-import { Busy, Empty, Header, LANGS, Loading, Markdown, Seg } from "../components/ui";
+import { Busy, EmptyState, Header, LANGS, Loading, Markdown, Seg } from "../components/ui";
 import { useNav } from "../lib/nav";
 import { copyToClipboard } from "../lib/toast";
 
@@ -144,7 +144,7 @@ export function ReleaseNotes() {
           </div>
           <div className="scroll" style={{ flex: "1 1 auto", padding: "40px 24px 64px" }}>
             <article style={{ maxWidth: 680, margin: "0 auto" }}>
-              {!md && !gen.isPending && <Empty>Pick a range and press Generate. AI reads the commits and linked tickets, using your release-notes template.</Empty>}
+              {!md && !gen.isPending && <EmptyState icon="sparkle" title="No notes yet">Pick a range and press Generate notes. AI reads the commits and linked tickets, using your release-notes template.</EmptyState>}
               {gen.isPending && <Loading />}
               {md && view === "preview" && <Markdown text={md} />}
               {md && view === "markdown" && (

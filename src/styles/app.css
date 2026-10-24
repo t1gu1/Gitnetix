@@ -24,9 +24,29 @@
   --hunk-bg: rgba(134, 174, 255, 0.08);
   --term: #0b0c0e;
   --shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+  /* Floating layers: a tight contact shadow under a wide soft one. */
+  --shadow-pop: 0 1px 2px rgba(0, 0, 0, 0.4), 0 10px 28px -6px rgba(0, 0, 0, 0.55);
+  --shadow-lg: 0 2px 6px rgba(0, 0, 0, 0.35), 0 24px 64px -12px rgba(0, 0, 0, 0.7);
+  /* Keyboard focus and focused fields: a soft accent halo outside the border. */
+  --ring: 0 0 0 3px color-mix(in srgb, var(--accent) 28%, transparent);
+  --scrim: rgba(5, 6, 8, 0.55);
   --sans: "Instrument Sans", "Helvetica Neue", system-ui, sans-serif;
   --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
   color-scheme: dark;
+}
+:root {
+  --r-sm: 4px;
+  --r: 6px;
+  --r-lg: 10px;
+  /* Motion: quick for hover and press, a touch longer for things that appear. */
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --ease-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
+  /* The menu drawer: fast out of the gate, long gentle landing. */
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  --t-fast: 0.12s;
+  --t: 0.2s;
+  --t-slow: 0.32s;
 }
 
 [data-theme="light"],
@@ -53,6 +73,10 @@
   --hunk-bg: #eef2fb;
   --term: #fafaf8;
   --shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+  --shadow-pop: 0 1px 2px rgba(20, 20, 30, 0.08), 0 10px 28px -6px rgba(20, 20, 30, 0.18);
+  --shadow-lg: 0 2px 6px rgba(20, 20, 30, 0.08), 0 24px 64px -12px rgba(20, 20, 30, 0.28);
+  --ring: 0 0 0 3px color-mix(in srgb, var(--accent) 38%, transparent);
+  --scrim: rgba(30, 30, 36, 0.32);
   color-scheme: light;
 }
 
@@ -96,6 +120,30 @@ a:hover {
 :focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
+}
+::selection {
+  background: color-mix(in srgb, var(--accent) 34%, transparent);
+}
+/* Thin rounded scrollbars that sit on the surface instead of the OS's grey gutter. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--fg) 18%, transparent) transparent;
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--fg) 16%, transparent) padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in srgb, var(--fg) 30%, transparent);
 }
 .mono {
   font-family: var(--mono);
@@ -155,7 +203,7 @@ a:hover {
 .pulse {
   width: 6px;
   height: 6px;
-  border-radius: 3px;
+  border-radius: var(--r-sm);
   background: var(--accent);
   animation: agpulse 1.4s ease-in-out infinite;
   flex: 0 0 6px;
@@ -205,6 +253,13 @@ a:hover {
   border-top: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
   background: var(--bg);
+}
+/* A page's own header right under the page tabs: one hairline between them, not two. */
+.tabs-pages ~ .hdr {
+  border-top: 0;
+}
+.empty > .spinner {
+  color: var(--accent);
 }
 .hdr-icon {
   display: flex;
@@ -319,7 +374,7 @@ a:hover {
   z-index: 1000;
   pointer-events: none;
   border: 1px solid var(--line);
-  border-radius: 4px;
+  border-radius: var(--r);
   background: var(--panel);
   color: var(--fg);
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.28);
@@ -356,6 +411,7 @@ body.dragging-tab * {
   }
 }
 .tabs-pages {
+  position: relative;
   display: flex;
   align-items: stretch;
   flex: 0 0 40px;
@@ -385,10 +441,36 @@ body.dragging-tab * {
 .tab-page[aria-current="page"] {
   color: var(--fg);
   font-weight: 600;
-  box-shadow: inset 0 -2px 0 var(--accent);
+}
+.tab-page svg {
+  transition: color var(--t-fast) var(--ease), transform var(--t) var(--ease-spring);
+}
+.tab-page:hover:not([aria-current="page"]) svg {
+  transform: translateY(-1px);
 }
 .tab-page[aria-current="page"] svg {
   color: var(--accent-fg);
+}
+/* Placed over the current page's tab by TopBar; draws its underline and slides with it. */
+.tabs-ink {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  transition:
+    transform var(--t-slow) var(--ease),
+    width var(--t-slow) var(--ease);
+}
+.tabs-ink::after {
+  content: "";
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  bottom: 0;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: var(--accent);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 55%, transparent);
 }
 /* Stacks the label over a hidden bold copy so the bold width is always reserved. */
 .fixed-w {
@@ -412,6 +494,16 @@ body.dragging-tab * {
   display: flex;
   overflow: hidden;
 }
+/* A page fades up into place when opened (and when its project's tab comes back). */
+.app-main > :not(.hdr, .tabs-pages, .menu-overlay) {
+  animation: page-in 0.3s var(--ease);
+}
+@keyframes page-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
 .scroll {
   overflow-y: auto;
   min-height: 0;
@@ -426,34 +518,61 @@ body.dragging-tab * {
   height: 32px;
   padding: 0 12px;
   border: 1px solid var(--line);
-  border-radius: 4px;
+  border-radius: var(--r);
   background: var(--panel);
   color: var(--fg);
   white-space: nowrap;
   text-decoration: none;
   font-size: 12.5px;
+  transition:
+    background-color var(--t-fast) var(--ease),
+    border-color var(--t-fast) var(--ease),
+    color var(--t-fast) var(--ease),
+    box-shadow var(--t) var(--ease),
+    transform var(--t-fast) var(--ease);
 }
 .btn:hover:not(:disabled) {
   background: var(--raised);
+  border-color: color-mix(in srgb, var(--line), var(--fg) 12%);
   color: var(--fg);
+}
+/* Pressed: the button gives a pixel under the finger; icon buttons squeeze a little. */
+.btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+.btn-icon:active:not(:disabled),
+.act:active:not(:disabled) {
+  transform: scale(0.92);
 }
 .btn-raised {
   background: var(--raised);
   font-weight: 500;
 }
+/* A faint top light over the accent fill, and a soft accent glow on hover. */
 .btn-primary {
   border: 0;
-  background: var(--accent);
+  background-color: var(--accent);
+  background-image: linear-gradient(rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0));
   color: var(--on-accent);
   font-weight: 600;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    0 1px 2px rgba(0, 0, 0, 0.22);
 }
 .btn-primary:hover:not(:disabled) {
-  background: var(--accent-fg);
+  background-color: var(--accent-fg);
   color: var(--on-accent);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.26),
+    0 1px 2px rgba(0, 0, 0, 0.22),
+    0 6px 18px -6px color-mix(in srgb, var(--accent) 70%, transparent);
+}
+.btn-primary:disabled {
+  box-shadow: none;
 }
 /* Light mode: --accent-fg matches the fill, so the hover deepens it a touch instead. */
 [data-theme="light"] .btn-primary:hover:not(:disabled) {
-  background: #f2a940;
+  background-color: #f2a940;
 }
 .btn-ghost {
   border-color: transparent;
@@ -461,6 +580,7 @@ body.dragging-tab * {
   color: var(--muted);
 }
 .btn-ghost:hover:not(:disabled) {
+  border-color: transparent;
   background: var(--raised);
   color: var(--fg);
 }
@@ -470,13 +590,21 @@ body.dragging-tab * {
 /* Solid red, one shade for both themes: white text stays readable on it. Ghost icon buttons keep the red text only. */
 .btn.btn-danger:not(.btn-ghost) {
   border-color: transparent;
-  background: #d23a31;
+  background-color: #d23a31;
+  background-image: linear-gradient(rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0));
   color: #fff;
   font-weight: 600;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    0 1px 2px rgba(0, 0, 0, 0.22);
 }
 .btn.btn-danger:not(.btn-ghost):hover:not(:disabled) {
-  background: #b8302a;
+  border-color: transparent;
+  background-color: #b8302a;
   color: #fff;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    0 6px 18px -6px rgba(210, 58, 49, 0.6);
 }
 .btn-lg {
   height: 40px;
@@ -500,13 +628,49 @@ body.dragging-tab * {
 .btn-icon.btn-sm {
   width: 26px;
 }
+/* Rows, tabs and menu items ease into their hover and selection instead of snapping. */
+:is(
+    .nav-item,
+    .tab-page,
+    .tab-project-open,
+    .tab-project-close,
+    .hdr-icon,
+    .file-btn,
+    .item-btn,
+    .commit-row,
+    .stash-row,
+    .ctx-item,
+    .app-row,
+    .list-link,
+    .picker-act,
+    .term-tab,
+    .act,
+    .reaction,
+    .tree-twist,
+    .file-sec-toggle,
+    .tree-merged-toggle,
+    .tree-group,
+    .meta-link,
+    .mobile-tabs button
+  ) {
+  transition:
+    background-color var(--t-fast) var(--ease),
+    color var(--t-fast) var(--ease),
+    border-color var(--t-fast) var(--ease),
+    box-shadow var(--t-fast) var(--ease),
+    opacity var(--t-fast) var(--ease),
+    transform var(--t-fast) var(--ease);
+}
+.hdr-icon:hover {
+  background: var(--raised);
+}
 
 .seg {
   display: flex;
   gap: 2px;
   padding: 2px;
   border: 1px solid var(--line);
-  border-radius: 4px;
+  border-radius: var(--r);
   background: var(--bg);
 }
 /* The selected highlight, placed and sized over the selected button by Seg, sliding between them.
@@ -520,9 +684,22 @@ body.dragging-tab * {
   position: absolute;
   top: 0;
   left: 0;
-  border-radius: 3px;
+  border-radius: var(--r-sm);
   background: var(--sel);
-  transition: transform 0.2s ease, width 0.2s ease, height 0.2s ease;
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.28),
+    inset 0 0 0 1px color-mix(in srgb, var(--fg) 6%, transparent);
+  transition:
+    transform 0.26s var(--ease),
+    width 0.26s var(--ease),
+    height 0.26s var(--ease);
+}
+/* Light: a white chip lifted off the grey track, like a native segmented control. */
+[data-theme="light"] .seg-thumb {
+  background: var(--panel);
+  box-shadow:
+    0 1px 2px rgba(20, 20, 30, 0.12),
+    0 0 0 1px rgba(20, 20, 30, 0.05);
 }
 .seg.grid {
   display: grid;
@@ -540,11 +717,14 @@ body.dragging-tab * {
   height: 28px;
   padding: 0 10px;
   border: 0;
-  border-radius: 3px;
+  border-radius: var(--r-sm);
   background: color-mix(in srgb, var(--sel) 15%, transparent);
   color: var(--muted);
   font-size: 12px;
   white-space: nowrap;
+  transition:
+    background-color var(--t-fast) var(--ease),
+    color var(--t-fast) var(--ease);
 }
 /* Icon + label options reuse .row for the layout, not its block margin. */
 .seg > button .row {
@@ -572,7 +752,7 @@ body.dragging-tab * {
   font-weight: 600;
   padding: 1px 7px;
   border: 1px solid currentColor;
-  border-radius: 3px;
+  border-radius: var(--r-sm);
   white-space: nowrap;
 }
 .tag {
@@ -582,7 +762,7 @@ body.dragging-tab * {
   text-transform: uppercase;
   padding: 1px 6px;
   border: 1px solid var(--line);
-  border-radius: 3px;
+  border-radius: var(--r-sm);
   color: var(--muted);
 }
 .tag.accent {
@@ -663,10 +843,21 @@ body.dragging-tab * {
   height: 36px;
   padding: 0 12px;
   border: 1px solid var(--line);
-  border-radius: 4px;
+  border-radius: var(--r);
   background: var(--bg);
   color: var(--fg);
   min-width: 0;
+  transition:
+    border-color var(--t-fast) var(--ease),
+    box-shadow var(--t) var(--ease),
+    background-color var(--t-fast) var(--ease);
+}
+.input::placeholder,
+.textarea::placeholder {
+  color: var(--faint);
+}
+:is(.input, .select, .textarea):hover:not(:disabled, :focus) {
+  border-color: color-mix(in srgb, var(--line), var(--fg) 14%);
 }
 .select {
   padding: 0 8px;
@@ -690,6 +881,7 @@ body.dragging-tab * {
 .textarea:focus {
   border-color: var(--accent);
   outline: none;
+  box-shadow: var(--ring);
 }
 .check {
   display: flex;
@@ -706,15 +898,25 @@ body.dragging-tab * {
   height: 16px;
   margin: 0;
   border: 1px solid var(--faint);
-  border-radius: 4px;
-  background: transparent center / 10px 10px no-repeat;
+  border-radius: var(--r-sm);
+  /* The tick grows in from the middle when checked (no animation on first paint). */
+  background: transparent center / 0 0 no-repeat;
   cursor: pointer;
+  transition:
+    background-size var(--t) var(--ease-spring),
+    background-color var(--t-fast) var(--ease),
+    border-color var(--t-fast) var(--ease),
+    box-shadow var(--t) var(--ease);
+}
+.check:hover input:not(:disabled, :checked) {
+  border-color: var(--muted);
 }
 /* The tick is --on-accent, the same in both themes. */
 .check input:checked {
   border-color: var(--accent);
   background-color: var(--accent);
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M2 5.2 4.1 7.3 8 2.9' fill='none' stroke='%231b1205' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-size: 10px 10px;
 }
 .check input:focus-visible {
   outline: 2px solid var(--accent);
@@ -730,10 +932,17 @@ body.dragging-tab * {
   gap: 12px;
   padding: 10px 12px;
   border: 1px solid var(--line);
-  border-radius: 4px;
+  border-radius: var(--r);
   background: transparent;
   text-align: left;
   width: 100%;
+  transition:
+    border-color var(--t-fast) var(--ease),
+    background-color var(--t-fast) var(--ease);
+}
+.radio-card:hover:not([aria-pressed="true"], [aria-checked="true"], :disabled) {
+  border-color: color-mix(in srgb, var(--line), var(--fg) 14%);
+  background: color-mix(in srgb, var(--raised) 50%, transparent);
 }
 .radio-card[aria-pressed="true"],
 .radio-card[aria-checked="true"] {
@@ -747,6 +956,7 @@ body.dragging-tab * {
   border-radius: 7px;
   border: 1.5px solid var(--faint);
   margin-top: 2px;
+  transition: border var(--t) var(--ease-spring);
 }
 [aria-pressed="true"] > .radio-dot,
 [aria-checked="true"] > .radio-dot {
@@ -760,7 +970,7 @@ body.dragging-tab * {
 
 .card {
   border: 1px solid var(--line);
-  border-radius: 4px;
+  border-radius: var(--r);
   background: var(--panel);
 }
 .list {
@@ -768,7 +978,7 @@ body.dragging-tab * {
   margin: 0;
   padding: 0;
   border: 1px solid var(--line);
-  border-radius: 4px;
+  border-radius: var(--r);
   background: var(--panel);
 }
 .list > li + li {
@@ -793,6 +1003,110 @@ body.dragging-tab * {
 .list-link:hover {
   background: var(--raised);
 }
+/* Hover fills reach the list's rounded corners without spilling past them. */
+.list:has(.list-link) {
+  overflow: hidden;
+}
+
+/* ---------- welcome ---------- */
+.welcome-hero {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+.welcome-hero > img {
+  flex: none;
+  border-radius: 14px;
+  box-shadow: var(--shadow-pop);
+}
+.welcome-hero h1 {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+.welcome-hero p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  text-wrap: pretty;
+}
+/* Numbered how-to: each step's number in an accent circle. */
+.steps {
+  counter-reset: step;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  line-height: 1.5;
+}
+.steps > li {
+  counter-increment: step;
+  display: flex;
+  gap: 12px;
+}
+.steps > li::before {
+  content: counter(step);
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  margin-top: -1px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent-fg);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+[data-theme="light"] .steps > li::before {
+  color: #a35f00;
+}
+/* Where folders are dropped: lights up with the accent while a drag hovers it. */
+.dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  padding: 48px 24px;
+  border: 1.5px dashed var(--line);
+  border-radius: var(--r-lg);
+  background:
+    radial-gradient(120% 90% at 50% 0%, color-mix(in srgb, var(--accent) 5%, transparent), transparent 70%),
+    var(--panel);
+  text-align: center;
+  transition:
+    border-color var(--t) var(--ease),
+    background-color var(--t) var(--ease),
+    box-shadow var(--t) var(--ease),
+    transform var(--t) var(--ease);
+}
+.dropzone:hover {
+  border-color: color-mix(in srgb, var(--line), var(--fg) 14%);
+}
+.dropzone[data-over] {
+  border-color: var(--accent);
+  background-color: var(--raised);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 14%, transparent);
+  transform: scale(1.01);
+}
+.dropzone-icon {
+  display: grid;
+  place-items: center;
+  width: 60px;
+  height: 60px;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--raised);
+  color: var(--accent-fg);
+  box-shadow: 0 0 0 8px color-mix(in srgb, var(--raised) 45%, transparent);
+  transition: transform var(--t-slow) var(--ease-spring);
+}
+.dropzone[data-over] .dropzone-icon {
+  transform: translateY(-4px) scale(1.08);
+}
 .empty {
   padding: 40px 24px;
   text-align: center;
@@ -803,7 +1117,7 @@ body.dragging-tab * {
 .err-box {
   padding: 10px 12px;
   border: 1px solid var(--del-fg);
-  border-radius: 4px;
+  border-radius: var(--r);
   color: var(--del-fg);
   background: var(--del-bg);
   font-size: 12.5px;
@@ -818,7 +1132,7 @@ body.dragging-tab * {
 .note-box {
   padding: 10px 12px;
   border: 1px solid var(--line);
-  border-radius: 4px;
+  border-radius: var(--r);
   background: var(--raised);
   font-size: 12.5px;
   line-height: 1.45;
@@ -857,11 +1171,20 @@ body.dragging-tab * {
   place-items: center;
   width: 52px;
   height: 52px;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
   border: 1px solid var(--line);
   border-radius: 50%;
   background: var(--raised);
   color: var(--muted);
+  /* Two faint rings around it, like ripples. */
+  box-shadow:
+    0 0 0 8px color-mix(in srgb, var(--raised) 45%, transparent),
+    0 0 0 16px color-mix(in srgb, var(--raised) 20%, transparent);
+}
+/* A detail pane's placeholder sits in its middle. */
+.detail > .empty-state {
+  min-height: 100%;
+  padding-block: 0;
 }
 .empty-state h2 {
   margin: 0;
@@ -870,6 +1193,7 @@ body.dragging-tab * {
   color: var(--fg);
 }
 .empty-state p {
+  text-wrap: pretty;
   margin: 0 0 8px;
   max-width: 380px;
   color: var(--muted);
@@ -903,7 +1227,7 @@ body.dragging-tab * {
   min-height: 34px;
   padding: 6px 10px;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--r);
   background: transparent;
   color: var(--muted);
   text-align: left;
@@ -919,6 +1243,9 @@ body.dragging-tab * {
 .nav-item:hover {
   color: var(--fg);
 }
+.nav-item:hover:not([aria-current="page"], [aria-pressed="true"]) {
+  background: color-mix(in srgb, var(--sel) 55%, transparent);
+}
 .mono-badge {
   display: inline-flex;
   align-items: center;
@@ -927,7 +1254,7 @@ body.dragging-tab * {
   height: 32px;
   flex: 0 0 32px;
   border: 1px solid var(--line);
-  border-radius: 4px;
+  border-radius: var(--r);
   background: var(--raised);
   font-family: var(--mono);
   font-size: 11px;
@@ -1072,6 +1399,11 @@ body.resizing .term {
   pointer-events: none;
 }
 @media (min-width: 901px) {
+  /* Shown again (a file's diff opened or closed), each crossfades in rather than popping. */
+  .ws-releases,
+  .ws-diff {
+    animation: fade-in var(--t) var(--ease);
+  }
   /* A picked file's diff takes the branches' and the terminal's place until closed. */
   .ws[data-file-open] .ws-releases,
   .ws:not([data-file-open]) .ws-diff,
@@ -1117,7 +1449,7 @@ body.resizing .term {
   min-height: 44px;
   margin: 0 6px 2px;
   padding: 6px;
-  border-radius: 4px;
+  border-radius: var(--r);
 }
 /* An open branch's line starts below its show/hide toggle and runs down past its children, so they read as under it.
    Children step in 6px; the line sits on the parent row's left edge, 6px left of each child row. */
@@ -1215,9 +1547,10 @@ body.resizing .term {
   position: absolute;
   z-index: -1;
   inset: 0;
-  border-radius: 4px;
+  border-radius: var(--r);
   background: var(--raised);
   pointer-events: none;
+  transition: background-color var(--t-fast) var(--ease);
 }
 .tree-row:hover::after {
   background: color-mix(in srgb, var(--raised), var(--fg) 6%);
@@ -1226,8 +1559,8 @@ body.resizing .term {
 [data-theme="light"] .tree-row[data-current]::after {
   background: color-mix(
     in srgb,
-    color-mix(in srgb, var(--raised), var(--fg) 6%),
-    var(--warn-fg) 11%
+    color-mix(in srgb, var(--raised), var(--fg) 3%),
+    var(--accent) 20%
   );
 }
 [data-theme="light"] .tree-row[data-current]:hover::after,
@@ -1237,8 +1570,8 @@ body.resizing .term {
   )::after {
   background: color-mix(
     in srgb,
-    color-mix(in srgb, var(--raised), var(--fg) 9%),
-    var(--warn-fg) 14%
+    color-mix(in srgb, var(--raised), var(--fg) 5%),
+    var(--accent) 28%
   );
 }
 .tree-row[data-current]::after {
@@ -1495,7 +1828,7 @@ body.resizing .term {
   justify-content: center;
   padding: 0;
   border: 0;
-  border-radius: 3px;
+  border-radius: var(--r-sm);
   background: transparent;
   color: var(--faint);
 }
@@ -1758,6 +2091,13 @@ button.tree-twist:hover {
 .tree-group:hover::after {
   background: color-mix(in srgb, var(--raised), #000 10%);
 }
+/* Light: black mixed in reads as a grey slab on white; a whisper of shade is enough. */
+[data-theme="light"] .tree-group::after {
+  background: color-mix(in srgb, var(--raised), #000 3.5%);
+}
+[data-theme="light"] .tree-group:hover::after {
+  background: color-mix(in srgb, var(--raised), #000 6.5%);
+}
 .tree-toggle {
   color: var(--fg);
 }
@@ -1887,7 +2227,7 @@ button.tree-twist:hover {
   display: flex;
   align-items: stretch;
   border-left: 1px solid var(--act-line);
-  border-radius: 0 4px 4px 0;
+  border-radius: 0 var(--r) var(--r) 0;
   overflow: hidden;
 }
 .act {
@@ -1935,7 +2275,7 @@ button.tree-twist:hover {
   align-self: stretch;
   margin: -6px -6px -6px 0;
   border-left: 1px solid color-mix(in srgb, var(--fg) 3%, transparent);
-  border-radius: 0 4px 4px 0;
+  border-radius: 0 var(--r) var(--r) 0;
   color: var(--muted);
 }
 .act.tree-cleanup[aria-busy="true"] {
@@ -1997,8 +2337,17 @@ button.tree-twist:hover {
   flex-direction: column;
   background: var(--raised);
   border: 1px solid var(--line);
-  border-radius: 6px;
-  box-shadow: var(--shadow);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-pop);
+  /* Grows out of the corner nearest the pointer or button (set by ContextMenu). */
+  transform-origin: var(--origin, top left);
+  animation: pop-in 0.16s var(--ease);
+}
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.94);
+  }
 }
 .tip {
   position: fixed;
@@ -2006,16 +2355,16 @@ button.tree-twist:hover {
   max-width: min(320px, calc(100vw - 16px));
   padding: 5px 9px;
   border: 1px solid var(--line);
-  border-radius: 4px;
+  border-radius: var(--r);
   background: var(--raised);
   color: var(--fg);
-  box-shadow: var(--shadow);
+  box-shadow: var(--shadow-pop);
   font-size: 12px;
   line-height: 1.4;
   white-space: pre-line;
   overflow-wrap: anywhere;
   pointer-events: none;
-  animation: tip-in 110ms ease-out;
+  animation: tip-in 0.14s var(--ease);
 }
 .tip::after {
   content: "";
@@ -2037,13 +2386,15 @@ button.tree-twist:hover {
   border-bottom: 0;
   border-right: 0;
 }
+/* Fades in while drifting a few pixels toward its side. */
 @keyframes tip-in {
   from {
     opacity: 0;
+    transform: translateY(var(--tip-from, 3px));
   }
-  to {
-    opacity: 1;
-  }
+}
+.tip[data-side="bottom"] {
+  --tip-from: -3px;
 }
 @media (prefers-reduced-motion: reduce) {
   .tip {
@@ -2057,7 +2408,7 @@ button.tree-twist:hover {
   min-height: 30px;
   padding: 0 10px 0 8px;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--r);
   background: transparent;
   color: var(--fg);
   font: inherit;
@@ -2157,6 +2508,7 @@ button.tree-twist:hover {
   display: flex;
   gap: 2px;
   opacity: 0;
+  transition: opacity var(--t-fast) var(--ease);
 }
 .file-row:hover .file-acts,
 .file-row:has(:focus-visible) .file-acts {
@@ -2286,6 +2638,9 @@ button.tree-twist:hover {
   overflow-wrap: anywhere;
   padding-right: 24px;
 }
+.diff-row:hover:not(.hunk) {
+  box-shadow: inset 0 0 0 100vmax color-mix(in srgb, var(--fg) 4%, transparent);
+}
 .diff-row.add {
   background: var(--add-bg);
 }
@@ -2405,7 +2760,7 @@ button.tree-twist:hover {
     repeating-conic-gradient(var(--checker) 0 25%, transparent 0 50%) 0 0 / 16px
     16px;
   border: 1px solid var(--line);
-  border-radius: 4px;
+  border-radius: var(--r);
 }
 .img-frame {
   display: flex;
@@ -2468,7 +2823,7 @@ button.tree-twist:hover {
   position: absolute;
   top: 6px;
   padding: 1px 6px;
-  border-radius: 3px;
+  border-radius: var(--r-sm);
   background: rgba(0, 0, 0, 0.6);
   color: #fff;
   font-size: 11px;
@@ -2550,6 +2905,7 @@ input.img-slider {
 }
 
 .term {
+  animation: term-in 0.26s var(--ease);
   flex: 0 0 var(--term-h, 248px);
   max-height: calc(100% - 120px);
   display: flex;
@@ -2557,6 +2913,13 @@ input.img-slider {
   min-height: 0;
   border-top: 1px solid var(--line);
   background: var(--term);
+}
+/* Opening the agent panel: it rises out of its bar. */
+@keyframes term-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
 }
 /* Doubled class: outranks the narrow layout's `.term` flex-basis further down. */
 .term.term-max {
@@ -2684,7 +3047,7 @@ button.picker-act {
   gap: 4px;
   padding: 4px;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--r-lg);
   background: var(--panel);
   box-shadow: var(--shadow);
 }
@@ -2932,7 +3295,7 @@ button.picker-act {
 .ag-err {
   padding: 7px 12px;
   border-left: 3px solid var(--del-fg);
-  border-radius: 4px;
+  border-radius: var(--r);
   background: var(--del-bg);
   color: var(--del-fg);
   font-size: 12.5px;
@@ -3010,7 +3373,7 @@ button.picker-act {
   gap: 12px;
   padding: 14px;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--r-lg);
   background: var(--panel);
   text-align: left;
 }
@@ -3135,7 +3498,7 @@ button.picker-act {
   margin: 0 8px;
   padding: 10px 12px;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--r);
   background: transparent;
   text-align: left;
 }
@@ -3162,7 +3525,7 @@ button.picker-act {
   gap: 12px;
   padding: 14px 16px;
   border: 1px solid var(--line);
-  border-radius: 4px;
+  border-radius: var(--r);
   background: var(--panel);
 }
 .kv > div {
@@ -3209,7 +3572,7 @@ button.picker-act {
 
 .thread {
   border: 1px solid var(--line);
-  border-radius: 4px;
+  border-radius: var(--r);
   background: var(--panel);
 }
 .thread-file {
@@ -3342,7 +3705,7 @@ button.picker-act {
   margin: 8px 0;
   padding: 8px 12px;
   border-left: 3px solid var(--p);
-  border-radius: 4px;
+  border-radius: var(--r);
   background: color-mix(in srgb, var(--p) 10%, transparent);
 }
 .adf-note { --p: var(--release-fg); }
@@ -3373,7 +3736,7 @@ button.picker-act {
 .adf summary { cursor: pointer; font-weight: 500; }
 .adf-chip {
   padding: 0 5px;
-  border-radius: 3px;
+  border-radius: var(--r-sm);
   background: var(--raised);
   font-size: 12.5px;
 }
@@ -3382,13 +3745,13 @@ button.picker-act {
   font-size: 12px;
   background: var(--raised);
   padding: 1px 4px;
-  border-radius: 3px;
+  border-radius: var(--r-sm);
 }
 .pre {
   margin: 0;
   padding: 16px;
   border: 1px solid var(--line);
-  border-radius: 4px;
+  border-radius: var(--r);
   background: var(--panel);
   font-family: var(--mono);
   font-size: 12.5px;
@@ -3414,21 +3777,28 @@ button.picker-act {
   min-height: 0;
   background: var(--panel);
   border-right: 1px solid var(--line);
-  box-shadow: var(--shadow);
-  animation: menu-in 180ms ease-out;
+  box-shadow: var(--shadow-lg);
+  animation: menu-in 0.34s var(--ease-drawer);
 }
 .menu-scrim {
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.45);
-  animation: menu-fade 180ms ease-out;
+  background: var(--scrim);
+  animation: fade-in 0.34s var(--ease);
+}
+/* The menu's two columns follow the drawer in, a beat apart. */
+.menu-grid:not(.menu-embed) > .menu-col {
+  animation: rise-in 0.4s var(--ease) both;
+}
+.menu-grid:not(.menu-embed) > .menu-col + .menu-col {
+  animation-delay: 0.05s;
 }
 @keyframes menu-in {
   from {
     transform: translateX(-100%);
   }
 }
-@keyframes menu-fade {
+@keyframes fade-in {
   from {
     opacity: 0;
   }
@@ -3437,10 +3807,10 @@ button.picker-act {
   pointer-events: none;
 }
 .menu-overlay.closing .menu-panel {
-  animation: menu-out 160ms ease-in forwards;
+  animation: menu-out 0.2s var(--ease-in) forwards;
 }
 .menu-overlay.closing .menu-scrim {
-  animation: menu-fade-out 160ms ease-in forwards;
+  animation: menu-fade-out 0.2s var(--ease-in) forwards;
 }
 @keyframes menu-out {
   to {
@@ -3452,10 +3822,17 @@ button.picker-act {
     opacity: 0;
   }
 }
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
 @media (prefers-reduced-motion: reduce) {
   .menu-panel,
-  .menu-scrim {
-    animation: none;
+  .menu-scrim,
+  .menu-col {
+    animation: none !important;
   }
 }
 .menu-wrap {
@@ -3516,7 +3893,7 @@ button.picker-act {
   gap: 0;
   align-items: stretch;
   border: 1px solid var(--line);
-  border-radius: 4px;
+  border-radius: var(--r);
   overflow: hidden;
 }
 .menu-embed > .page {
@@ -3530,7 +3907,7 @@ button.picker-act {
   display: flex;
   flex-direction: column;
   border: 1px solid var(--line);
-  border-radius: 4px;
+  border-radius: var(--r);
 }
 .app-row {
   display: flex;
@@ -3577,7 +3954,8 @@ button.app-row:hover {
   align-items: center;
   justify-content: center;
   padding: 16px;
-  background: rgba(0, 0, 0, 0.45);
+  background: var(--scrim);
+  animation: fade-in var(--t) var(--ease);
 }
 .modal {
   width: 560px;
@@ -3587,9 +3965,17 @@ button.app-row:hover {
   flex-direction: column;
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 6px;
-  box-shadow: var(--shadow);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-lg);
   overflow: hidden;
+  animation: modal-in 0.28s var(--ease);
+}
+/* Rises a few pixels and settles to full size. */
+@keyframes modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.97);
+  }
 }
 .modal-head {
   display: flex;
@@ -3629,21 +4015,51 @@ button.app-row:hover {
   max-width: min(420px, calc(100vw - 32px));
 }
 .toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
   padding: 10px 14px;
   border: 1px solid var(--line);
-  border-radius: 4px;
+  border-radius: var(--r-lg);
   background: var(--raised);
-  box-shadow: var(--shadow);
+  box-shadow: var(--shadow-pop);
   font-size: 12.5px;
   line-height: 1.45;
   white-space: pre-wrap;
   word-break: break-word;
+  cursor: pointer;
+  animation: toast-in 0.36s var(--ease-spring);
+}
+.toast > svg {
+  flex: none;
+  margin-top: 2px;
 }
 .toast.error {
-  border-color: var(--del-fg);
+  border-color: color-mix(in srgb, var(--del-fg) 55%, var(--line));
+}
+.toast.error > svg {
+  color: var(--del-fg);
 }
 .toast.ok {
-  border-color: var(--add-fg);
+  border-color: color-mix(in srgb, var(--add-fg) 55%, var(--line));
+}
+.toast.ok > svg {
+  color: var(--add-fg);
+}
+.toast[data-leaving] {
+  animation: toast-out 0.22s var(--ease-in) forwards;
+}
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateX(28px) scale(0.98);
+  }
+}
+@keyframes toast-out {
+  to {
+    opacity: 0;
+    transform: translateX(18px) scale(0.98);
+  }
 }
 
 /* ---------- charts ---------- */
@@ -3658,7 +4074,7 @@ button.app-row:hover {
   gap: 6px;
   padding: 16px;
   border: 1px solid var(--line);
-  border-radius: 4px;
+  border-radius: var(--r);
   background: var(--panel);
 }
 .kpi .v {
@@ -3739,7 +4155,7 @@ button.app-row:hover {
   width: 240px;
   padding: 10px 12px;
   border: 1px solid var(--line);
-  border-radius: 4px;
+  border-radius: var(--r);
   background: var(--raised);
   font-size: 12px;
   pointer-events: none;
@@ -3863,6 +4279,21 @@ button.app-row:hover {
   .mobile-tabs button[aria-pressed="true"] {
     color: var(--accent-fg);
   }
+  /* The current tab's icon sits in a soft accent pill. */
+  .mobile-tabs button > svg {
+    box-sizing: content-box;
+    padding: 4px 16px;
+    border-radius: 999px;
+    transition:
+      background-color var(--t) var(--ease),
+      transform var(--t-fast) var(--ease);
+  }
+  .mobile-tabs button[aria-pressed="true"] > svg {
+    background: color-mix(in srgb, var(--accent) 16%, transparent);
+  }
+  .mobile-tabs button:active > svg {
+    transform: scale(0.9);
+  }
   .btn {
     min-height: 36px;
   }
@@ -3906,7 +4337,7 @@ button.app-row:hover {
   margin: 0 6px;
   padding: 8px 10px;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--r);
   background: transparent;
   color: var(--fg);
   font: inherit;
@@ -3965,7 +4396,7 @@ button.app-row:hover {
   display: flex;
   align-items: stretch;
   margin: 0 6px;
-  border-radius: 4px;
+  border-radius: var(--r);
 }
 .stash-row:hover {
   background: var(--raised);
@@ -4029,7 +4460,7 @@ button.app-row:hover {
   gap: 3px;
   padding: 0 5px;
   border: 1px solid color-mix(in srgb, var(--add-fg) 45%, transparent);
-  border-radius: 3px;
+  border-radius: var(--r-sm);
   font-size: 10.5px;
   line-height: 16px;
   color: var(--add-fg);
@@ -4159,7 +4590,92 @@ button.app-row:hover {
   border-bottom-style: solid;
 }
 
+/* ---------- entrances ---------- */
+/* Rows fade in as they appear: a group opening, a file moving to Staged, a new commit, an agent's reply. */
+.tree-kids,
+.file-row,
+.commit-row,
+.stash-row,
+.item-btn,
+.ag-log > * {
+  animation: row-in 0.24s var(--ease);
+}
+/* A stash's button is a commit row inside the stash row, which already fades in. */
+.stash-row > .commit-row {
+  animation: none;
+}
+@keyframes row-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+}
+.ag-log > * {
+  animation-name: msg-in;
+}
+@keyframes msg-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+/* Chart bars grow up from the axis, KPI cards rise in. */
+.chart-bar > span {
+  transform-origin: bottom;
+  animation: bar-grow 0.5s var(--ease) both;
+}
+@keyframes bar-grow {
+  from {
+    transform: scaleY(0);
+  }
+}
+.kpi {
+  animation: rise-in 0.36s var(--ease) both;
+}
+.kpi:nth-child(2) {
+  animation-delay: 0.04s;
+}
+.kpi:nth-child(3) {
+  animation-delay: 0.08s;
+}
+.kpi:nth-child(n + 4) {
+  animation-delay: 0.12s;
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-main > *,
+  .ws-releases,
+  .ws-diff,
+  .term,
+  .tree-kids,
+  .file-row,
+  .commit-row,
+  .stash-row,
+  .item-btn,
+  .ag-log > *,
+  .chart-bar > span,
+  .kpi,
+  .modal,
+  .modal-scrim,
+  .ctx-menu,
+  .toast {
+    animation: none !important;
+  }
+  .btn:active,
+  .act:active {
+    transform: none !important;
+  }
+}
+
 /* Animations turned off in Settings › Animations, one by one (ids from src/lib/motion.ts). */
+:root[data-anim-off~="pages"] :is(.app-main > *, .ws-releases, .ws-diff, .term) {
+  animation: none !important;
+}
+:root[data-anim-off~="lists"] :is(.tree-kids, .file-row, .commit-row, .stash-row, .item-btn, .ag-log > *, .chart-bar > span, .kpi) {
+  animation: none !important;
+}
+:root[data-anim-off~="dialogs"] :is(.modal, .modal-scrim, .ctx-menu, .toast) {
+  animation: none !important;
+}
 :root[data-anim-off~="path"] .tree-row[data-path]::before,
 :root[data-anim-off~="path"] .tree-node[data-path]::before,
 :root[data-anim-off~="path"] .tree-sep[data-path]::before,
@@ -4197,7 +4713,7 @@ button.app-row:hover {
 :root[data-anim-off~="panes"] .ws [data-pane] {
   animation: none !important;
 }
-:root[data-anim-off~="seg"] .seg-thumb {
+:root[data-anim-off~="seg"] :is(.seg-thumb, .tabs-ink) {
   transition: none !important;
 }
 :root[data-anim-off~="tooltips"] .tip {
@@ -4216,7 +4732,8 @@ button.app-row:hover {
   .ws [data-pane] {
     animation: none !important;
   }
-  .seg-thumb {
+  .seg-thumb,
+  .tabs-ink {
     transition: none !important;
   }
 }

@@ -9,6 +9,8 @@ import '../styles/site.css';
 import Header, { type Page } from '../components/Header';
 import Footer from '../components/Footer';
 import { u } from '../lib/changelog';
+// The hero headline's weight: preloaded so the largest text paints in its own font, not a fallback.
+import heading from '@fontsource/instrument-sans/files/instrument-sans-latin-700-normal.woff2?url';
 
 interface Props {
   title: string;
@@ -28,20 +30,27 @@ const og = new URL(u('og.png'), Astro.site).href;
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title}</title>
 <meta name="description" content={description}>
+<meta name="author" content="Guillaume Huard Hughes">
+<meta name="application-name" content="Gitnetix">
+<meta name="color-scheme" content="dark light">
+<link rel="preload" href={heading} as="font" type="font/woff2" crossorigin>
 <link rel="canonical" href={canonical}>
 <meta name="robots" content="index, follow, max-image-preview:large">
 <meta name="theme-color" content="#0e0f11" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#f3f3f1" media="(prefers-color-scheme: light)">
 <link rel="icon" type="image/png" href={u('favicon.png')}>
 <link rel="apple-touch-icon" href={u('apple-touch-icon.png')}>
+<link rel="manifest" href={u('site.webmanifest')}>
 <link rel="alternate" type="application/rss+xml" title="Gitnetix releases" href={u('releases.xml')}>
 <link rel="sitemap" href={u('sitemap-index.xml')}>
 <meta property="og:site_name" content="Gitnetix">
+<meta property="og:locale" content="en_US">
 <meta property="og:type" content={type}>
 <meta property="og:title" content={title}>
 <meta property="og:description" content={description}>
 <meta property="og:url" content={canonical}>
 <meta property="og:image" content={og}>
+<meta property="og:image:type" content="image/png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta property="og:image:alt" content="Gitnetix: see your work, not your commits. A branch tree from main to release to feature.">
@@ -49,6 +58,7 @@ const og = new URL(u('og.png'), Astro.site).href;
 <meta name="twitter:title" content={title}>
 <meta name="twitter:description" content={description}>
 <meta name="twitter:image" content={og}>
+<meta name="twitter:image:alt" content="Gitnetix: see your work, not your commits. A branch tree from main to release to feature.">
 {jsonLd.map((d) => <script type="application/ld+json" set:html={JSON.stringify(d)} />)}
 </head>
 <body>
