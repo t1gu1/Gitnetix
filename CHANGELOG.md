@@ -11,6 +11,18 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+### Added
+- Azure: PR checks now show a "waiting" status for policies not yet running, and the PR screen shows "Checks waiting".
+
+### Changed
+- Azure: only build policies with a current pipeline run count as running; other unmet policies report as waiting.
+- Azure: PR statuses come from the latest iteration, as on Azure's PR page, and the newest status per name wins.
+- Azure: pending code coverage statuses are hidden, since the pipeline's own policy carries the result.
+- The PR screen blocks merge while any check is waiting, as it does for running checks.
+
+### Fixed
+- Azure: the merge strategy policy no longer appears in PR checks.
+
 ## [0.6.0] - 2026-10-23
 
 ### Added
