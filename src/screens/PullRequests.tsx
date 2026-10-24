@@ -78,10 +78,10 @@ export function PullRequests({ initial }: { initial?: number }) {
           {prs.error.message}
         </EmptyState>
       ) : prs.error ? (
-        <div className="page">
-          <div className="page-inner">
+        <div className="page" style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ maxWidth: 480, textAlign: "center" }}>
             <ErrorBox error={prs.error} />
-            <div>
+            <div style={{ marginTop: 14 }}>
               <button className="btn" onClick={() => nav.go({ name: "settings", section: "git" })}>Open Git providers</button>
             </div>
           </div>

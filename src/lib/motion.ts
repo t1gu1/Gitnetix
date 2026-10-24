@@ -19,7 +19,7 @@ export const ANIMATIONS: { id: string; label: string; hint: string }[] = [
   { id: "lists", label: "List entrances", hint: "Branches, files, commits and agent replies fading in as they appear, chart bars growing" },
   { id: "dialogs", label: "Dialog pop", hint: "Dialogs, context menus and notifications popping in" },
   { id: "panes", label: "Panel slide", hint: "On mobile, the Branches, Files and Diff panels sliding in when switching between them" },
-  { id: "seg", label: "Tab highlight slide", hint: "The highlight and the page underline sliding from the previous tab to the newly selected one" },
+  { id: "seg", label: "Tab highlight slide", hint: "The highlight, the page underline and the mobile tab bubble sliding from the previous tab to the newly selected one" },
   { id: "tooltips", label: "Tooltip fade", hint: "Tooltips fading in" },
   { id: "chevrons", label: "Folding arrows", hint: "Arrows turning as groups open and close" },
 ];

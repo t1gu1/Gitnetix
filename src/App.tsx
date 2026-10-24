@@ -1,4 +1,4 @@
-import { Activity, type ReactNode, useState } from "react";
+import { Activity, type ReactNode, useRef, useState } from "react";
 
 import { useConfig, useEngineEvents, useProjects } from "./api/hooks";
 import { currentRemote, isLocal } from "./api/transport";
@@ -6,7 +6,7 @@ import { Icon } from "./components/Icon";
 import { TooltipLayer } from "./components/Tooltip";
 import { isPageRoute, TopBar } from "./components/TopBar";
 import { UpdatePrompt } from "./components/UpdatePrompt";
-import { Loading } from "./components/ui";
+import { Loading, useThumb } from "./components/ui";
 import { useApplyAnimations } from "./lib/motion";
 import { NavProvider, ProjectView, useNav, useVisited, type Route } from "./lib/nav";
 import { Toasts } from "./lib/toast";
@@ -74,33 +74,46 @@ function Shell({ onUnpair }: { onUnpair: () => void }) {
         {nav.projectId && isPageRoute(r) && <TopBar />}
         {each(() => <Screen onUnpair={onUnpair} />)}
       </div>
-      {nav.projectId && (
-        <nav
-          className="mobile-tabs"
-          aria-label="Sections"
-          // Dragging across the bar opens the tab under the pointer, like Seg.
-          // Touch captures the pressed button, whose click on release would undo the drag.
-          onPointerDown={(e) => (e.target as Element).releasePointerCapture(e.pointerId)}
-          onPointerMove={(e) => {
-            if (!e.buttons) return;
-            const btn = document.elementFromPoint(e.clientX, e.clientY)?.closest(".mobile-tabs > button");
-            const t = btn && MOBILE_TABS[[...e.currentTarget.children].indexOf(btn)];
-            if (t && (nav.menuOpen || r.name !== t.route.name)) nav.go(t.route);
-          }}
-        >
-          {MOBILE_TABS.map((t) => (
-            <button key={t.label} aria-pressed={!nav.menuOpen && r.name === t.route.name} onClick={() => nav.go(t.route)}>
-              <Icon name={t.icon} size={18} />
-              {t.label}
-            </button>
-          ))}
-        </nav>
-      )}
+      {nav.projectId && <MobileTabs />}
       {each(() => <NewItemDialog />)}
       <UpdatePrompt />
       <Toasts />
       <TooltipLayer />
     </div>
+  );
+}
+
+function MobileTabs() {
+  const nav = useNav();
+  const r = nav.route;
+  const bar = useRef<HTMLElement>(null);
+  // The bubble behind the current tab's icon, sliding from the previous one; none while the menu is open.
+  const bubble = useThumb(bar, nav.menuOpen ? -1 : MOBILE_TABS.findIndex((t) => t.route.name === r.name), MOBILE_TABS.length, ":scope > button > span");
+  return (
+    <nav
+      ref={bar}
+      className="mobile-tabs"
+      aria-label="Sections"
+      // Dragging across the bar opens the tab under the pointer, like Seg.
+      // Touch captures the pressed button, whose click on release would undo the drag.
+      onPointerDown={(e) => (e.target as Element).releasePointerCapture(e.pointerId)}
+      onPointerMove={(e) => {
+        if (!e.buttons) return;
+        const btn = document.elementFromPoint(e.clientX, e.clientY)?.closest(".mobile-tabs > button");
+        const t = btn && MOBILE_TABS[[...e.currentTarget.querySelectorAll(":scope > button")].indexOf(btn)];
+        if (t && (nav.menuOpen || r.name !== t.route.name)) nav.go(t.route);
+      }}
+    >
+      {bubble && <span className="mobile-tabs-bubble" style={bubble} aria-hidden />}
+      {MOBILE_TABS.map((t) => (
+        <button key={t.label} aria-pressed={!nav.menuOpen && r.name === t.route.name} onClick={() => nav.go(t.route)}>
+          <span>
+            <Icon name={t.icon} size={18} />
+          </span>
+          {t.label}
+        </button>
+      ))}
+    </nav>
   );
 }
 

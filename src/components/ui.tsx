@@ -59,19 +59,26 @@ export function Seg<T extends string>({
   );
 }
 
-/** Box of the `index`th button of `ref`, for a highlight that slides to it; again whenever a button resizes (label change, wrap, shown after hidden). */
-export function useThumb(ref: RefObject<HTMLElement | null>, index: number, count: number) {
+/** Box of the `index`th button (or `sel` match) of `ref`, for a highlight that slides to it; again whenever one resizes (label change, wrap, shown after hidden). */
+export function useThumb(ref: RefObject<HTMLElement | null>, index: number, count: number, sel = ":scope > button") {
   const [thumb, setThumb] = useState<CSSProperties>();
   useLayoutEffect(() => {
     const el = ref.current!;
-    const btns = el.querySelectorAll<HTMLElement>(":scope > button");
-    const place = () => {
+    const btns = el.querySelectorAll<HTMLElement>(sel);
+    let last = "";
+    // `resized`: follow at once instead of sliding, and only when the box really moved, since the observer also fires on its first observe.
+    const place = (resized?: boolean) => {
       const b = btns[index];
+      const box = b?.offsetWidth ? [b.offsetWidth, b.offsetHeight, b.offsetLeft, b.offsetTop].join() : "";
+      if (resized && box === last) return;
+      last = box;
       // Hidden (no box): no highlight, so it appears in place rather than sliding in when shown.
-      setThumb(b?.offsetWidth ? { width: b.offsetWidth, height: b.offsetHeight, transform: `translate(${b.offsetLeft}px, ${b.offsetTop}px)` } : undefined);
+      setThumb(b?.offsetWidth ? { width: b.offsetWidth, height: b.offsetHeight, transform: `translate(${b.offsetLeft}px, ${b.offsetTop}px)`, ...(resized && { transition: "none" }) } : undefined);
     };
     place();
-    const ro = new ResizeObserver(place);
+    const ro = new ResizeObserver(() => place(true));
+    // The container too: fixed-size items (mobile tab icons) move without resizing when it does.
+    ro.observe(el);
     btns.forEach((b) => ro.observe(b));
     return () => ro.disconnect();
   }, [index, count]);

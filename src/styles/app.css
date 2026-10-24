@@ -1600,7 +1600,11 @@ body.resizing .term {
 .tree-row[data-path] {
   z-index: 2;
 }
-/* A sibling listed above the next branch on the path: the line runs down past it, its children included. */
+/* A sibling listed above the next branch on the path: the line runs down past it, its children included.
+   Nested ones are blocks, not flex items: flow-root keeps their last row's 2px gap inside them, so the line doesn't skip it. */
+.tree-node {
+  display: flow-root;
+}
 .tree-node[data-path],
 .tree-sep[data-path] {
   position: relative;
@@ -1677,8 +1681,9 @@ body.resizing .term {
       4px var(--dot, 0px) / 1px 100% no-repeat;
   animation: path-pulse var(--pulse-loop, 4s) linear infinite;
 }
-/* On the checked-out row the streak and the glow riding under it drain into the middle, and a glow of its own flares there: it shows from the moment
-   the pulse arrives (--pulse-arrive, from the tree) and fades out over 1s. */
+/* On the checked-out row the streak drains into the middle, and the glow riding under it hands over to a glow of its own centred there: the moving one
+   is gone the moment its centre reaches the middle (squashed instead, it would linger as a flat sliver), just as the other shows (--pulse-arrive,
+   from the tree), and that one fades out over 1s. Its 50% is a position: (height - 12px) / 2, centred. */
 .tree-row[data-path][data-current]::before {
   --path-glow-a: 0%;
   background:
@@ -1689,7 +1694,7 @@ body.resizing .term {
         color-mix(in srgb, var(--path-fg) var(--path-glow-a), transparent),
         transparent
       )
-      0 min(var(--pulse-y), 50% - 6px) / 9px 12px no-repeat,
+      0 50% / 9px 12px no-repeat,
     linear-gradient(
         to bottom,
         color-mix(in srgb, var(--path-fg) 45%, transparent),
@@ -1703,9 +1708,9 @@ body.resizing .term {
         transparent 1px 3px
       )
       4px var(--dot, 0px) / 1px 50% no-repeat,
-    linear-gradient(var(--panel), var(--panel)) 0 100% / 9px 50% no-repeat,
     var(--path-glow) 0 var(--pulse-y) / 9px
-      clamp(0px, 50% - var(--pulse-y), 12px) no-repeat;
+      clamp(0px, (50% - 6px - var(--pulse-y)) * 100, 12px) no-repeat,
+    linear-gradient(var(--panel), var(--panel)) 0 100% / 9px 50% no-repeat;
   animation:
     path-pulse var(--pulse-loop, 4s) linear infinite,
     path-glow-fade var(--pulse-loop, 4s) linear var(--pulse-arrive, 0s) infinite;
@@ -4264,6 +4269,8 @@ button.app-row:hover {
   .mobile-tabs {
     display: flex;
     flex: 0 0 auto;
+    position: relative;
+    isolation: isolate;
     border-top: 1px solid var(--line);
     background: var(--panel);
     padding-bottom: env(safe-area-inset-bottom);
@@ -4286,20 +4293,29 @@ button.app-row:hover {
   .mobile-tabs button[aria-pressed="true"] {
     color: var(--accent-fg);
   }
-  /* The current tab's icon sits in a soft accent pill. */
-  .mobile-tabs button > svg {
-    box-sizing: content-box;
+  .mobile-tabs button > span {
+    display: flex;
     padding: 4px 16px;
-    border-radius: 999px;
-    transition:
-      background-color var(--t) var(--ease),
-      transform var(--t-fast) var(--ease);
   }
-  .mobile-tabs button[aria-pressed="true"] > svg {
-    background: color-mix(in srgb, var(--accent) 16%, transparent);
+  .mobile-tabs button svg {
+    transition: transform var(--t-fast) var(--ease);
   }
-  .mobile-tabs button:active > svg {
+  .mobile-tabs button:active svg {
     transform: scale(0.9);
+  }
+  /* The current tab's icon sits in a soft accent pill, placed by Shell and sliding between tabs.
+     Under the buttons without positioning them, so the icons stay measured against the bar. */
+  .mobile-tabs-bubble {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: -1;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--accent) 16%, transparent);
+    transition:
+      transform 0.26s var(--ease),
+      width 0.26s var(--ease),
+      height 0.26s var(--ease);
   }
   .btn {
     min-height: 36px;
@@ -4720,7 +4736,7 @@ button.app-row:hover {
 :root[data-anim-off~="panes"] .ws [data-pane] {
   animation: none !important;
 }
-:root[data-anim-off~="seg"] :is(.seg-thumb, .tabs-ink) {
+:root[data-anim-off~="seg"] :is(.seg-thumb, .tabs-ink, .mobile-tabs-bubble) {
   transition: none !important;
 }
 :root[data-anim-off~="tooltips"] .tip {
@@ -4740,7 +4756,8 @@ button.app-row:hover {
     animation: none !important;
   }
   .seg-thumb,
-  .tabs-ink {
+  .tabs-ink,
+  .mobile-tabs-bubble {
     transition: none !important;
   }
 }
