@@ -1344,6 +1344,10 @@ body.dragging-tab * {
 .ws-releases > .pane-head:has(.pane-toggle) {
   padding-left: 8px;
 }
+.ws-releases > .pane-head .label {
+  font-weight: 700;
+  color: var(--fg);
+}
 @media (max-width: 900px) {
   .ws-releases > .pane-head:has(.pane-toggle) {
     padding-left: 16px;
@@ -2273,6 +2277,29 @@ button.tree-twist:hover {
   .tree-row .acts > .act-main {
     width: 52px;
   }
+}
+/* Pane head acts (Fetch, Release): as tall as the head, flush with its right edge; icon-only ones square. */
+.pane-head > .row:has(> .acts) {
+  align-self: stretch;
+  margin: 0;
+}
+.pane-head .acts {
+  align-self: stretch;
+  margin-right: -12px;
+  border-radius: 0;
+}
+.pane-head .acts > .act-main {
+  width: 44px;
+}
+.pane-head .acts > .act-text {
+  width: auto;
+  gap: 6px;
+  padding: 0 14px 0 12px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.pane-head .acts > .act + .act {
+  border-left: 1px solid var(--act-line);
 }
 .act.btn-danger {
   color: var(--del-fg);

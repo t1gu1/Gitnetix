@@ -481,13 +481,15 @@ export function BranchTree({
               <span>{o.stashes.length}</span>
             </button>
           )}
-          <button className="btn btn-sm btn-icon" aria-label="Fetch origin" disabled={fetchOrigin.isPending || !o.remote} onClick={() => fetchOrigin.mutate({ projectId: pid })}>
-            {fetchOrigin.isPending ? <span className="spinner" /> : <Icon name="refresh" size={12} />}
-          </button>
-          <button className="btn btn-sm" onClick={onNewRelease}>
-            <Icon name="plus" size={12} stroke={1.6} />
-            <span>Release</span>
-          </button>
+          <span className="acts">
+            <button className="act act-main" aria-label="Fetch origin" data-tip="Fetch origin" disabled={fetchOrigin.isPending || !o.remote} onClick={() => fetchOrigin.mutate({ projectId: pid })}>
+              {fetchOrigin.isPending ? <span className="spinner" /> : <Icon name="refresh" size={14} />}
+            </button>
+            <button className="act act-main act-text" onClick={onNewRelease}>
+              <Icon name="plus" size={14} />
+              <span>Release</span>
+            </button>
+          </span>
         </span>
       </div>
       <div className="tree-filter">
