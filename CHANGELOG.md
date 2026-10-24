@@ -11,6 +11,8 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-10-23
+
 ### Added
 - Azure: PR checks now show a "waiting" status for policies not yet running, and the PR screen shows "Checks waiting".
 
