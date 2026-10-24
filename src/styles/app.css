@@ -1622,6 +1622,10 @@ body.resizing .term {
   );
   pointer-events: none;
 }
+/* Rows sit 2px apart: a row's stretch runs on through the gap, so the dots don't skip there. */
+.tree-row[data-path]::before {
+  bottom: -2px;
+}
 /* The checked-out row itself: a solid stretch over the dots, full in its middle 24%, fading out across the rest to 45% at the top and to nothing at the bottom; the dots under it stop at its middle,
    and its lower half hides the parent's grey line behind it. */
 .tree-row[data-path][data-current]::before {
@@ -1644,7 +1648,8 @@ body.resizing .term {
    It runs the whole path at one pace: --pulse is how far down the path it is (0 to 1 of --pulse-run each loop, --pulse-loop long: 90px/s, from the tree), and each piece draws it
    that far below --pulse-off, where the piece starts along the path (set from the tree, elbows counting their 7px across).
    On the checked-out row it stops in the middle, into the solid stretch.
-   A soft glow rides under the streak, 2px past the line on each side, so these pieces are 5px across with the line drawn down their middle. */
+   A soft glow rides under the streak, 4px past the line on each side, so these pieces are 9px across with the line drawn down their middle.
+   The dots start --dot into each piece (from the tree), so they keep one 3px beat down the whole path, around its elbows too. */
 /* --pulse runs 0 to 1 and is scaled by --pulse-run here, not in the keyframes: WebKit keeps a running animation's keyframes as first resolved,
    so a var() there would leave older pieces looping over the path's old length once a group opens or closes. */
 @property --pulse {
@@ -1659,46 +1664,48 @@ body.resizing .term {
   --pulse-y: calc(
     var(--pulse) * var(--pulse-run, 600px) - 12px - var(--pulse-off, 0px)
   );
-  left: -8px;
-  width: 5px;
+  left: -10px;
+  width: 9px;
   background:
-    var(--path-pulse-v) 2px var(--pulse-y) / 1px 12px no-repeat,
-    var(--path-glow) 0 var(--pulse-y) / 5px 12px no-repeat,
+    var(--path-pulse-v) 4px var(--pulse-y) / 1px 12px no-repeat,
+    var(--path-glow) 0 var(--pulse-y) / 9px 12px no-repeat,
     repeating-linear-gradient(
         to bottom,
         var(--path-fg) 0 1px,
         transparent 1px 3px
       )
-      2px 0 / 1px 100% no-repeat;
+      4px var(--dot, 0px) / 1px 100% no-repeat;
   animation: path-pulse var(--pulse-loop, 4s) linear infinite;
 }
-/* On the checked-out row the streak and a glow of its own stop at the middle; that glow shows from the moment the pulse arrives
-   (--pulse-arrive, from the tree) and fades out over 1s. The riding glow runs on underneath, hidden in the lower half like the parent's line. */
+/* On the checked-out row the streak and the glow riding under it drain into the middle, and a glow of its own flares there: it shows from the moment
+   the pulse arrives (--pulse-arrive, from the tree) and fades out over 1s. */
 .tree-row[data-path][data-current]::before {
   --path-glow-a: 0%;
   background:
-    var(--path-pulse-v) 2px min(var(--pulse-y), 50%) / 1px 12px no-repeat,
+    var(--path-pulse-v) 4px var(--pulse-y) / 1px
+      clamp(0px, 50% - var(--pulse-y), 12px) no-repeat,
     radial-gradient(
         closest-side,
         color-mix(in srgb, var(--path-fg) var(--path-glow-a), transparent),
         transparent
       )
-      0 min(var(--pulse-y), 50%) / 5px 12px no-repeat,
+      0 min(var(--pulse-y), 50% - 6px) / 9px 12px no-repeat,
     linear-gradient(
         to bottom,
         color-mix(in srgb, var(--path-fg) 45%, transparent),
         var(--path-fg) 38% 62%,
         transparent
       )
-      2px 0 / 1px 100% no-repeat,
+      4px 0 / 1px 100% no-repeat,
     repeating-linear-gradient(
         to bottom,
         var(--path-fg) 0 1px,
         transparent 1px 3px
       )
-      2px 0 / 1px 50% no-repeat,
-    linear-gradient(var(--panel), var(--panel)) 0 100% / 5px 50% no-repeat,
-    var(--path-glow) 0 var(--pulse-y) / 5px 12px no-repeat;
+      4px var(--dot, 0px) / 1px 50% no-repeat,
+    linear-gradient(var(--panel), var(--panel)) 0 100% / 9px 50% no-repeat,
+    var(--path-glow) 0 var(--pulse-y) / 9px
+      clamp(0px, 50% - var(--pulse-y), 12px) no-repeat;
   animation:
     path-pulse var(--pulse-loop, 4s) linear infinite,
     path-glow-fade var(--pulse-loop, 4s) linear var(--pulse-arrive, 0s) infinite;
@@ -1708,19 +1715,19 @@ body.resizing .term {
   --pulse-x: calc(
     var(--pulse) * var(--pulse-run, 600px) - 4px - var(--pulse-off, 0px)
   );
-  top: -2px;
+  top: -4px;
   left: -6px;
   width: 7px;
-  height: 5px;
+  height: 9px;
   background:
-    var(--path-pulse-h) var(--pulse-x) 2px / 4px 1px no-repeat,
-    var(--path-glow) var(--pulse-x) 0 / 4px 5px no-repeat,
+    var(--path-pulse-h) var(--pulse-x) 4px / 4px 1px no-repeat,
+    var(--path-glow) var(--pulse-x) 0 / 4px 9px no-repeat,
     repeating-linear-gradient(
         to right,
         var(--path-fg) 0 1px,
         transparent 1px 3px
       )
-      0 2px / 100% 1px no-repeat;
+      var(--dot, 0px) 4px / 100% 1px no-repeat;
   animation: path-pulse var(--pulse-loop, 4s) linear infinite;
 }
 .tree-toggle[data-path] + .tree-open::after {
@@ -1728,11 +1735,11 @@ body.resizing .term {
 }
 /* The node starts 6px left of its row, on the line itself. */
 .tree-node[data-path]::before {
-  left: -2px;
+  left: -4px;
 }
 /* The separator is inset 12px: back out to the line. */
 .tree-sep[data-path]::before {
-  left: -14px;
+  left: -16px;
 }
 /* Dimmer where the path only runs past: siblings above the next branch on it, and merged or falling-behind groups it skips.
    A run of these fades from the bright path to the dim colour over its first --dim-in and back over its last --dim-out (set from the tree).
@@ -1742,50 +1749,50 @@ body.resizing .term {
 .tree-merged + .tree-kids[data-path="past"]::after {
   --path-dim: color-mix(in srgb, var(--trunk-fg) 55%, var(--panel));
   background:
-    var(--path-pulse-v) 2px var(--pulse-y) / 1px 12px no-repeat,
-    var(--path-glow) 0 var(--pulse-y) / 5px 12px no-repeat,
-    repeating-linear-gradient(
-        to bottom,
-        transparent 0 1px,
-        var(--panel) 1px 3px
-      )
-      2px 0 / 1px 100% no-repeat,
+    var(--path-pulse-v) 4px var(--pulse-y) / 1px 12px no-repeat,
+    var(--path-glow) 0 var(--pulse-y) / 9px 12px no-repeat,
+    linear-gradient(transparent 1px, var(--panel) 0) 4px var(--dot, 0px) / 1px
+      3px repeat-y,
     linear-gradient(
         to bottom,
         var(--path-fg),
         var(--path-dim) var(--dim-in, 0px) calc(100% - var(--dim-out, 0px)),
         var(--path-fg)
       )
-      2px 0 / 1px 100% no-repeat;
+      4px 0 / 1px 100% no-repeat;
 }
 [data-theme="light"] .tree-node[data-path]::before,
 [data-theme="light"] .tree-row[data-path="past"]::before,
 [data-theme="light"] .tree-merged + .tree-kids[data-path="past"]::after {
   --path-dim: color-mix(in srgb, var(--accent), var(--fg) 25%);
 }
+/* The pulse: a white-hot streak in a soft glow of the path's colour. */
 .tree {
   --path-fg: var(--trunk-fg);
+  --path-core: #fff3dd;
   --path-pulse-v: linear-gradient(
     to bottom,
     transparent,
-    var(--path-fg) 40% 60%,
+    var(--path-core) 25% 75%,
     transparent
   );
   --path-pulse-h: linear-gradient(
     to right,
     transparent,
-    var(--path-fg),
+    var(--path-core),
     transparent
   );
   --path-glow: radial-gradient(
     closest-side,
-    color-mix(in srgb, var(--path-fg) 55%, transparent),
+    color-mix(in srgb, var(--path-fg) 70%, transparent),
     transparent
   );
 }
-/* Light mode: the path and its pulse take a lighter tint of the primary button's yellow rather than the darker trunk orange. */
+/* Light mode: the path and its pulse take a lighter tint of the primary button's yellow rather than the darker trunk orange;
+   a white core would vanish on the light panel. */
 [data-theme="light"] .tree {
   --path-fg: color-mix(in srgb, var(--accent), #fff 30%);
+  --path-core: var(--path-fg);
 }
 @keyframes path-pulse {
   from {
@@ -1798,11 +1805,11 @@ body.resizing .term {
 @property --path-glow-a {
   syntax: "<percentage>";
   inherits: true;
-  initial-value: 55%;
+  initial-value: 80%;
 }
 @keyframes path-glow-fade {
   0% {
-    --path-glow-a: 55%;
+    --path-glow-a: 80%;
   }
   25%,
   100% {

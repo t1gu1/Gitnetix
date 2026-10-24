@@ -401,6 +401,9 @@ export function BranchTree({
           el.style.setProperty("--dim-out", last ? fade : "0px");
         }
         const off = r.top - top + elbows * ELBOW_LENGTH;
+        // Where the piece's first dot falls, so they keep a 3px beat down the path; an elbow's end pixels are the lines' own, so it adds 6px.
+        const dots = Math.round(r.top - top) + elbows * (ELBOW_LENGTH - 1);
+        el.style.setProperty("--dot", `${(3 - (dots % 3)) % 3}px`);
         const elbow = el.matches(PATH_ELBOW);
         if (elbow) elbows++;
         return { el, off, len: elbow ? ELBOW_LENGTH : r.height, height: r.height };

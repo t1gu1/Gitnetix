@@ -25,8 +25,8 @@ type Branch = {
   /** Checked out in its own worktree, where an agent works. */
   wt?: boolean;
 };
-/** The orange path from the trunk to the checked-out row, measured off the rendered tree. */
-type Path = { d: string; len: number; x: number; top: number; mid: number; bottom: number };
+/** The orange path from the trunk to the checked-out row, measured off the rendered tree. No `top`: that row is folded away. */
+type Path = { d: string; len: number; x: number; top?: number; mid: number; bottom: number };
 type Line = { kind: 'you' | 'steps' | 'ai' | 'wait' | 'err'; text: string };
 
 const ME = 'Grace Hopper';
@@ -321,18 +321,20 @@ function PathLine({ p }: { p: Path }) {
   const arrive = p.len / (p.len + 12);
   return (
     <svg className="hd-path" aria-hidden="true" key={p.d}>
-      <defs>
-        <linearGradient id="hd-cur" gradientUnits="userSpaceOnUse" x1="0" y1={p.top} x2="0" y2={p.bottom}>
-          <stop offset="0" stopColor="var(--path-fg)" stopOpacity=".45" />
-          <stop offset=".38" stopColor="var(--path-fg)" />
-          <stop offset=".62" stopColor="var(--path-fg)" />
-          <stop offset="1" stopColor="var(--path-fg)" stopOpacity="0" />
-        </linearGradient>
-      </defs>
+      {p.top !== undefined && (
+        <defs>
+          <linearGradient id="hd-cur" gradientUnits="userSpaceOnUse" x1="0" y1={p.top} x2="0" y2={p.bottom}>
+            <stop offset="0" stopColor="var(--path-fg)" stopOpacity=".45" />
+            <stop offset=".38" stopColor="var(--path-fg)" />
+            <stop offset=".62" stopColor="var(--path-fg)" />
+            <stop offset="1" stopColor="var(--path-fg)" stopOpacity="0" />
+          </linearGradient>
+        </defs>
+      )}
       {/* The row's lower half hides the grey nesting line behind it. */}
-      <path d={`M${p.x} ${p.mid}V${p.bottom}`} stroke="var(--panel)" />
+      {p.top !== undefined && <path d={`M${p.x} ${p.mid}V${p.bottom}`} stroke="var(--panel)" />}
       <path d={p.d} stroke="var(--path-fg)" strokeDasharray="1 2" />
-      <path d={`M${p.x} ${p.top}V${p.bottom}`} stroke="url(#hd-cur)" />
+      {p.top !== undefined && <path d={`M${p.x} ${p.top}V${p.bottom}`} stroke="url(#hd-cur)" />}
       <g className="hd-beam">
         <path d={p.d} stroke="var(--path-fg)" strokeWidth="5" strokeOpacity=".5" strokeDasharray={`12 ${p.len + 24}`} filter="blur(1.5px)">
           <animate attributeName="stroke-dashoffset" from="12" to={-p.len} dur={`${dur}s`} repeatCount="indefinite" />
@@ -374,34 +376,44 @@ export default function HeroDemo() {
   useEffect(() => () => timers.current.forEach(clearTimeout), []);
 
   // Like the app's tree: the line runs 6px left of each row on the path and steps in at the top of each level's
-  // child list (just under its "Child branches" toggle), down to the middle of the checked-out row.
+  // child list (just under its "Child branches" toggle), down to the middle of the checked-out row,
+  // or to the foot of the closed toggle it hides under.
   useLayoutEffect(() => {
     const t = treeRef.current;
     const chain: string[] = [];
     for (let n: string | undefined = head; n; n = bs[n].base) chain.unshift(n);
-    const rows = chain.map((n) => t?.querySelector<HTMLElement>(`[data-row="${n}"]`));
-    if (!t || rows.some((r) => !r)) return setPath(null);
-    const box = t.getBoundingClientRect();
-    const y = (v: number) => v - box.top + t.scrollTop;
-    const x = (el: HTMLElement) => Math.round(el.getBoundingClientRect().left - box.left + t.scrollLeft) - 5.5;
-    const first = rows[0]!.getBoundingClientRect();
-    let cx = x(rows[0]!);
-    let cy = y(first.top);
+    const all = chain.map((n) => t?.querySelector<HTMLElement>(`[data-row="${n}"]`));
+    const hidden = all.indexOf(null);
+    const rows = (hidden < 0 ? all : all.slice(0, hidden)) as HTMLElement[];
+    if (!t || !rows.length) return setPath(null);
+    // Layout offsets, not client rects: rows sliding in as a group opens would be measured mid-slide.
+    const at = (el: HTMLElement) => {
+      let x = 0;
+      let y = 0;
+      for (let e: HTMLElement | null = el; e && e !== t; e = e.offsetParent as HTMLElement | null) {
+        x += e.offsetLeft;
+        y += e.offsetTop;
+      }
+      return { x: x - 5.5, y, h: el.offsetHeight };
+    };
+    let { x: cx, y: cy } = at(rows[0]);
     let d = `M${cx} ${cy}`;
     let len = 0;
     for (const el of rows.slice(1)) {
-      const k = y(el!.closest('.tree-open')!.getBoundingClientRect().top);
-      const nx = x(el!);
+      const k = at(el.closest<HTMLElement>('.tree-open')!).y;
+      const nx = at(el).x;
       d += `V${k}H${nx}`;
       len += k - cy + Math.abs(nx - cx);
       cx = nx;
       cy = k;
     }
-    const cur = rows.at(-1)!.getBoundingClientRect();
-    const mid = y((cur.top + cur.bottom) / 2);
+    const last = rows.at(-1)!;
+    const cur = at(last);
+    const toggle = last.parentElement!.querySelector<HTMLElement>(':scope > .tree-sub > .tree-toggle');
+    const mid = hidden < 0 ? cur.y + cur.h / 2 : toggle ? at(toggle).y + toggle.offsetHeight : cur.y + cur.h;
     d += `V${mid}`;
     len += mid - cy;
-    setPath((p) => (p?.d === d ? p : { d, len, x: cx, top: y(cur.top), mid, bottom: y(cur.bottom) }));
+    setPath((p) => (p?.d === d ? p : { d, len, x: cx, top: hidden < 0 ? cur.y : undefined, mid, bottom: cur.y + cur.h }));
   });
   // Re-measure when the window reflows the rows.
   const [, reflow] = useState(0);
