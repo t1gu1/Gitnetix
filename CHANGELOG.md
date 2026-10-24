@@ -11,6 +11,8 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-10-24
+
 ### Fixed
 - A release is now forgotten once its branch is gone everywhere, so it no longer lingers in the app.
 
