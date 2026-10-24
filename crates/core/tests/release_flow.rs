@@ -253,6 +253,25 @@ async fn delete_release_branch_before_its_items() {
 }
 
 #[tokio::test]
+async fn forget_release_branch_deleted_outside() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("atlas-api");
+    init_repo(&repo);
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let added = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await;
+    let pid = added[0]["id"].as_str().unwrap().to_string();
+
+    call(&k, "releases.create", json!({ "projectId": pid, "version": "0.10.0", "kind": "next" })).await;
+    sh(&repo, &["switch", "-q", "main"]);
+    sh(&repo, &["branch", "-qD", "release/0.10.0"]);
+
+    // Gone everywhere: forgetting it drops the release instead of failing with "not found".
+    call(&k, "branches.delete", json!({ "projectId": pid, "branch": "release/0.10.0", "remote": true })).await;
+    let ov = call(&k, "workspace.overview", json!({ "projectId": pid })).await;
+    assert!(ov["releases"].as_array().unwrap().iter().all(|r| r["version"] != "0.10.0"), "{}", ov["releases"]);
+}
+
+#[tokio::test]
 async fn pull_and_tracking() {
     let tmp = tempfile::tempdir().unwrap();
     let repo = tmp.path().join("atlas-api");

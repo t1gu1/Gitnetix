@@ -2685,9 +2685,13 @@ impl Gitnetix {
         let on_origin = remote && git.ref_exists(&format!("refs/remotes/origin/{branch}")).await?;
         if !local && !on_origin {
             let only_origin = !remote && git.ref_exists(&format!("refs/remotes/origin/{branch}")).await?;
-            return Err(Error::Invalid(if only_origin { format!("{branch} is only on origin") } else { format!("{branch} not found") }));
+            let tracked = p.branches.contains_key(branch) || p.releases.iter().any(|r| r.branch == branch);
+            if only_origin || !tracked {
+                return Err(Error::Invalid(if only_origin { format!("{branch} is only on origin") } else { format!("{branch} not found") }));
+            }
         }
-        {
+        // Gone everywhere: nothing to check or delete, only forget it below.
+        if local || on_origin {
             // Full refs: a bare name resolves to a tag of the same name first.
             let rev = if local { format!("refs/heads/{branch}") } else { format!("refs/remotes/origin/{branch}") };
             let base = match base {
