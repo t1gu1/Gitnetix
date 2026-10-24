@@ -74,6 +74,9 @@ const LIKE: &str = "THUMBS_UP";
 /// Policy type "Require a merge strategy".
 const MERGE_STRATEGY_POLICY: &str = "fa4e907d-c16b-4a4c-9dfa-4916e5d171ab";
 
+/// Policy type "Build".
+const BUILD_POLICY: &str = "0609b952-1397-4640-95ec-e00a01b2c241";
+
 fn branch(r: &Value) -> String {
     let r = r.as_str().unwrap_or("");
     r.strip_prefix("refs/heads/").unwrap_or(r).into()
@@ -90,6 +93,47 @@ fn vote(v: &Value) -> &'static str {
 
 fn split_id(id: &str) -> Result<Vec<u64>> {
     id.split('/').map(|p| p.parse().map_err(|_| Error::Invalid(format!("bad Azure DevOps id {id}")))).collect()
+}
+
+/// A policy evaluation's check status. Azure reports "running" for any unmet policy,
+/// so only a build policy with a current pipeline run is really running; the rest wait.
+fn eval_status(e: &Value) -> Option<&'static str> {
+    let ctx = &e["context"];
+    match e["status"].as_str().unwrap_or("") {
+        "queued" => Some("wait"),
+        "running" => {
+            let building = e["configuration"]["type"]["id"] == BUILD_POLICY
+                && ctx["buildId"].is_u64()
+                && ctx["isExpired"] != true
+                && ctx["buildIsNotCurrent"] != true;
+            Some(if building { "run" } else { "wait" })
+        }
+        s => check_status(s),
+    }
+}
+
+/// A PR status as a check, or None when it does not apply. Like Azure's PR page, a status
+/// tied to an earlier iteration (push) is dropped; one without an iteration is PR-wide.
+fn status_check(st: &Value, latest: Option<u64>) -> Option<Check> {
+    if let (Some(it), Some(latest)) = (st["iterationId"].as_u64(), latest) {
+        if it != latest {
+            return None;
+        }
+    }
+    let status = check_status(st["state"].as_str().unwrap_or(""))?;
+    let ctx = &st["context"];
+    // Posted pending for each PR pipeline and settled only if it publishes coverage;
+    // Azure's PR page leaves it out, the pipeline's own policy carries the result.
+    if status == "run" && ctx["name"] == "codecoverage" {
+        return None;
+    }
+    let name = match (ctx["genre"].as_str().filter(|g| !g.is_empty()), ctx["name"].as_str()) {
+        (Some(genre), Some(name)) => format!("{genre}/{name}"),
+        (_, Some(name)) => name.into(),
+        _ => st["description"].as_str().unwrap_or("Status").into(),
+    };
+    let url = st["targetUrl"].as_str().filter(|u| u.starts_with("http")).map(Into::into);
+    Some(Check { name, status: status.into(), url })
 }
 
 /// pass | fail | run, or None for a policy or status that does not apply.
@@ -213,8 +257,10 @@ impl Azure {
             self.repo.org, self.repo.project
         );
         // Checks are a bonus: a token without the policy scope still shows the rest.
-        let statuses_path = format!("/pullRequests/{number}/statuses");
-        let (evals, statuses) = futures_util::join!(self.req(reqwest::Method::GET, &evals, None), self.get(&statuses_path));
+        let (statuses_path, iterations_path) = (format!("/pullRequests/{number}/statuses"), format!("/pullRequests/{number}/iterations"));
+        let (evals, statuses, iterations) =
+            futures_util::join!(self.req(reqwest::Method::GET, &evals, None), self.get(&statuses_path), self.get(&iterations_path));
+        let latest = iterations.ok().as_ref().and_then(|v| v["value"].as_array()).and_then(|v| v.iter().filter_map(|i| i["id"].as_u64()).max());
         let mut checks: Vec<Check> = Vec::new();
         for e in evals.ok().as_ref().and_then(|v| v["value"].as_array()).into_iter().flatten() {
             let c = &e["configuration"];
@@ -223,19 +269,22 @@ impl Azure {
                 continue;
             }
             let name = c["settings"]["displayName"].as_str().or(c["type"]["displayName"].as_str()).unwrap_or("Policy");
-            if let Some(status) = check_status(e["status"].as_str().unwrap_or("")) {
+            if let Some(status) = eval_status(e) {
                 // Build policies point at their pipeline run.
                 let url = e["context"]["buildId"].as_u64().map(|id| format!("https://dev.azure.com/{}/{}/_build/results?buildId={id}", self.repo.org, self.repo.project));
                 checks.push(Check { name: name.into(), status: status.into(), url });
             }
         }
-        // Statuses are posted again on each push; the last one per name counts.
-        for st in statuses.ok().as_ref().and_then(|v| v["value"].as_array()).into_iter().flatten() {
-            let name = st["context"]["name"].as_str().or(st["description"].as_str()).unwrap_or("Status").to_string();
-            let Some(status) = check_status(st["state"].as_str().unwrap_or("")) else { continue };
-            checks.retain(|c| c.name != name);
-            let url = st["targetUrl"].as_str().filter(|u| u.starts_with("http")).map(Into::into);
-            checks.push(Check { name, status: status.into(), url });
+        // Statuses are posted again on each push and run (pending, then succeeded); the newest
+        // per name counts. The API does not list them oldest first, so order by id.
+        let statuses = statuses.unwrap_or_default();
+        let mut statuses: Vec<&Value> = statuses["value"].as_array().into_iter().flatten().collect();
+        statuses.sort_by_key(|st| st["id"].as_u64().unwrap_or(0));
+        for st in statuses {
+            let Some(check) = status_check(st, latest) else { continue };
+            let short = st["context"]["name"].as_str().unwrap_or("");
+            checks.retain(|c| c.name != check.name && c.name != short);
+            checks.push(check);
         }
 
         let reviewers = p["reviewers"]
@@ -452,6 +501,33 @@ mod tests {
         assert_eq!(merge_strategy("squash", &squash_only), "squash");
         assert_eq!(split_id("7/42/3").unwrap(), vec![7, 42, 3]);
         assert!(split_id("PRRT_x").is_err());
+    }
+
+    #[test]
+    fn tells_waiting_policies_from_running_builds() {
+        let build = |ctx: Value| json!({ "status": "running", "configuration": { "type": { "id": BUILD_POLICY } }, "context": ctx });
+        assert_eq!(eval_status(&build(json!({ "buildId": 12 }))), Some("run"));
+        assert_eq!(eval_status(&build(json!({ "buildId": 12, "isExpired": true }))), Some("wait"));
+        assert_eq!(eval_status(&build(json!({}))), Some("wait"));
+        let reviewers = json!({ "status": "running", "configuration": { "type": { "id": "fa6a7e74-0000" } } });
+        assert_eq!(eval_status(&reviewers), Some("wait"));
+        assert_eq!(eval_status(&json!({ "status": "queued" })), Some("wait"));
+        assert_eq!(eval_status(&json!({ "status": "approved" })), Some("pass"));
+        assert_eq!(eval_status(&json!({ "status": "notApplicable" })), None);
+    }
+
+    #[test]
+    fn keeps_statuses_of_the_latest_iteration() {
+        let st = |it: Value| json!({ "state": "pending", "iterationId": it, "context": { "genre": "codecoverage", "name": "coverage" } });
+        assert_eq!(status_check(&st(json!(3)), Some(3)).unwrap().name, "codecoverage/coverage");
+        let coverage = |state: &str| json!({ "state": state, "context": { "genre": "check-mauril-api", "name": "codecoverage" } });
+        assert!(status_check(&coverage("pending"), None).is_none());
+        assert_eq!(status_check(&coverage("succeeded"), None).unwrap().name, "check-mauril-api/codecoverage");
+        assert!(status_check(&st(json!(2)), Some(3)).is_none());
+        assert!(status_check(&st(Value::Null), Some(3)).is_some());
+        assert!(status_check(&st(json!(2)), None).is_some());
+        let bare = json!({ "state": "succeeded", "context": { "name": "lint" } });
+        assert_eq!(status_check(&bare, None).unwrap().name, "lint");
     }
 
     #[test]

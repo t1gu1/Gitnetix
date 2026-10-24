@@ -33,6 +33,7 @@ function stateOf(p: PrSummary, d?: PrDetail): [string, string] {
   if (d?.conflict) return ["Conflict", "c-del"];
   if (p.state === "draft") return ["Draft", "muted"];
   if (d?.checks.some((c) => c.status === "run")) return ["Checks running", "c-acc"];
+  if (d?.checks.some((c) => c.status === "wait")) return ["Checks waiting", "c-acc"];
   if (d && d.reviewers.some((r) => r.vote === "approve") && !d.checks.some((c) => c.status === "fail")) return ["Ready to merge", "c-add"];
   return ["Open", "c-add"];
 }
@@ -180,6 +181,8 @@ function Detail({ pid, number }: { pid: string; number: number }) {
   const [label, cls] = stateOf(d, d);
   const failing = d.checks.filter((c) => c.status === "fail").length;
   const running = d.checks.filter((c) => c.status === "run").length;
+  const waiting = d.checks.filter((c) => c.status === "wait").length;
+  const pending = [running && `${running} running`, waiting && `${waiting} waiting`].filter(Boolean).join(", ");
   const unresolved = d.threads.filter((t) => t.resolvable && !t.resolved).length;
   const approvals = d.reviewers.filter((r) => r.vote === "approve").length;
   const changes = d.reviewers.filter((r) => r.vote === "changes").length;
@@ -220,7 +223,7 @@ function Detail({ pid, number }: { pid: string; number: number }) {
 
       <div className="row wrap" style={{ gap: 6, margin: 0 }}>
         {open && !d.conflict && d.state !== "draft" && (
-          <button className="btn btn-primary" disabled={merge.isPending || running > 0} onClick={() => merge.mutate({ projectId: pid, number })}>
+          <button className="btn btn-primary" disabled={merge.isPending || running + waiting > 0} onClick={() => merge.mutate({ projectId: pid, number })}>
             {merge.isPending && <span className="spinner" />}
             Merge into {d.base}
           </button>
@@ -325,8 +328,8 @@ function Detail({ pid, number }: { pid: string; number: number }) {
         <section className="section">
           <div className="row" style={{ margin: 0 }}>
             <h2>Checks</h2>
-            <span className={failing ? "c-del" : running ? "c-acc" : "c-add"} style={{ fontSize: 12.5 }}>
-              {failing ? `${failing} failing` : running ? `${d.checks.length - running} of ${d.checks.length} passed, ${running} running` : `All ${d.checks.length} passing`}
+            <span className={failing ? "c-del" : pending ? "c-acc" : "c-add"} style={{ fontSize: 12.5 }}>
+              {failing ? `${failing} failing` : pending ? `${d.checks.length - running - waiting} of ${d.checks.length} passed, ${pending}` : `All ${d.checks.length} passing`}
             </span>
             <span className="grow" />
             <button className="btn btn-sm" aria-expanded={checksOpen} onClick={() => setChecksOpen(!checksOpen)}>
@@ -339,10 +342,10 @@ function Detail({ pid, number }: { pid: string; number: number }) {
               {d.checks.map((c, i) => {
                 const row = (
                   <>
-                    <span className="pulse" style={{ animation: c.status === "run" ? undefined : "none", background: c.status === "pass" ? "var(--add-fg)" : c.status === "fail" ? "var(--del-fg)" : "var(--accent)" }} />
+                    <span className="pulse" style={{ animation: c.status === "run" ? undefined : "none", background: c.status === "pass" ? "var(--add-fg)" : c.status === "fail" ? "var(--del-fg)" : c.status === "wait" ? "var(--faint)" : "var(--accent)" }} />
                     <span className="grow">{c.name}</span>
                     {c.url && <Icon name="external" size={12} className="faint" />}
-                    <span className="muted" style={{ fontSize: 12 }}>{c.status === "pass" ? "Passed" : c.status === "fail" ? "Failed" : "Running"}</span>
+                    <span className="muted" style={{ fontSize: 12 }}>{c.status === "pass" ? "Passed" : c.status === "fail" ? "Failed" : c.status === "wait" ? "Waiting" : "Running"}</span>
                   </>
                 );
                 return (

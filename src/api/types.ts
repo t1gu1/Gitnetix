@@ -508,7 +508,7 @@ export interface PrDetail extends PrSummary {
   body: string;
   conflict: boolean;
   mergeable?: boolean | null;
-  checks: { name: string; status: "pass" | "fail" | "run"; url?: string | null }[];
+  checks: { name: string; status: "pass" | "fail" | "run" | "wait"; url?: string | null }[];
   reviewers: { login: string; vote: "approve" | "changes" | "comment" | "pending" }[];
   threads: PrThread[];
 }

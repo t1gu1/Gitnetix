@@ -33,7 +33,7 @@ pub struct PrSummary {
 #[serde(rename_all = "camelCase")]
 pub struct Check {
     pub name: String,
-    /// pass | fail | run
+    /// pass | fail | run | wait
     pub status: String,
     /// Where the run's logs live, when the host gives one.
     #[serde(default)]
