@@ -28,16 +28,16 @@ export default function Releases({ version }: { version: string }) {
     </div>
     </section>
 
-    <ol className="tl" style={{ listStyle: 'none', margin: '0', padding: '0', display: 'flex', flexDirection: 'column', gap: '28px' }}>
+    <ol className="tl">
     {releases.map((r, i) => (
-    <li key={r.version} id={slug(r.version)} style={{ position: 'relative', display: 'flex', flexWrap: 'wrap', gap: '12px 64px' }}>
+    <li key={r.version} id={slug(r.version)}>
+    <div className="meta">
     <span className={i === 0 ? 'node on' : 'node'} aria-hidden="true"></span>
-    <div style={{ flex: '0 0 160px', display: 'flex', flexDirection: 'column', gap: '6px', paddingTop: '2px' }}>
-    <a href={u(`releases/${r.version}/`)} className="mono" style={{ fontSize: '20px', fontWeight: '500', color: 'var(--release)' }}>v{r.version}</a>
+    <a href={u(`releases/${r.version}/`)} className="mono ver" style={{ fontSize: '20px', fontWeight: '500', color: 'var(--release)' }}>v{r.version}</a>
     <time dateTime={r.date} style={{ fontSize: '14px', color: 'var(--faint)' }}>{shortDate(r.date)}</time>
-    {i === 0 && <span style={{ alignSelf: 'flex-start', fontSize: '12px', fontWeight: '600', color: 'var(--accent-ink)', background: 'var(--accent)', padding: '2px 10px', borderRadius: '999px' }}>Latest</span>}
+    {i === 0 && <span style={{ fontSize: '12px', fontWeight: '600', color: 'var(--accent-ink)', background: 'var(--accent)', padding: '2px 10px', borderRadius: '999px' }}>Latest</span>}
     </div>
-    <ReleaseCard r={r} latest={i === 0} open={i === 0} heading="h2" />
+    <ReleaseCard r={r} latest={i === 0} heading="h2" />
     </li>
     ))}
     </ol>

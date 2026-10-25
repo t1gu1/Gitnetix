@@ -14,7 +14,7 @@ export default function ReleasePage({ i }: { i: number }) {
     <span>Released <time dateTime={r.date}>{longDate(r.date)}</time></span>
     {i === 0 && <span style={{ fontSize: '12px', fontWeight: '600', color: 'var(--accent-ink)', background: 'var(--accent)', padding: '2px 10px', borderRadius: '999px' }}>Latest</span>}
     </p>
-    <ReleaseCard r={r} latest={i === 0} open heading="h1" />
+    <ReleaseCard r={r} latest={i === 0} heading="h1" />
     <nav aria-label="Other releases" style={{ marginTop: '32px', display: 'flex', flexWrap: 'wrap', gap: '16px', justifyContent: 'space-between' }}>
     {older ? <a href={u(`releases/${older.version}/`)} style={{ color: 'var(--muted)', minHeight: '44px', display: 'flex', alignItems: 'center' }}>← v{older.version}: {older.title}</a> : <span></span>}
     {newer && <a href={u(`releases/${newer.version}/`)} style={{ color: 'var(--muted)', minHeight: '44px', display: 'flex', alignItems: 'center' }}>v{newer.version}: {newer.title} →</a>}

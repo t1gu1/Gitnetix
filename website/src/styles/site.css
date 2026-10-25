@@ -94,11 +94,16 @@ details[open] .chev{transform:rotate(45deg)}
 @keyframes breathe{50%{box-shadow:0 0 0 1px rgba(240,164,58,.45),0 0 24px rgba(240,164,58,.18)}}
 @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}.streak,.dot,.blink,.live,.shine{animation:none}.dot,.streak{display:none}}
 @media (max-width:760px){.spine::before,.spine .dot,.knot{display:none}.sec{padding-left:0}.hide-sm{display:none}}
-.tl{position:relative}
-.tl::before{content:'';position:absolute;left:207px;top:8px;bottom:0;width:2px;background:linear-gradient(var(--accent),var(--rail) 18%,var(--rail) 90%,transparent)}
-.node{position:absolute;left:200px;top:6px;width:16px;height:16px;border-radius:4px;border:2px solid var(--release);background:var(--bg);box-sizing:border-box}
+/* Releases timeline: version | rail | card. Rows align on the first baseline, so the version, its node and the card title share one line. */
+.tl{position:relative;list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:28px}
+.tl>li{display:grid;grid-template-columns:128px minmax(0,1fr);column-gap:56px;align-items:baseline}
+.tl::before{content:'';position:absolute;left:155px;top:0;bottom:0;width:2px;background:linear-gradient(transparent,var(--accent) 40px,var(--rail) 18%,var(--rail) 90%,transparent)}
+.tl .meta{position:relative;display:flex;flex-direction:column;align-items:flex-end;gap:4px;text-align:right}
+.tl .ver{line-height:28px}
+.node{position:absolute;right:-35px;top:7px;width:14px;height:14px;border-radius:4px;border:2px solid var(--release);background:var(--bg);box-sizing:border-box;transition:background-color .2s var(--ease),box-shadow .2s var(--ease)}
+.tl>li:hover .node:not(.on){background:var(--release)}
 .node.on{border-color:var(--accent);background:var(--accent);box-shadow:var(--glow)}
-@media (max-width:760px){.tl::before,.node{display:none}}
+@media (max-width:760px){.tl::before,.node{display:none}.tl>li{grid-template-columns:minmax(0,1fr);row-gap:12px}.tl .meta{flex-direction:row;flex-wrap:wrap;align-items:center;gap:4px 12px;text-align:left}}
 /* Hero demo (HeroDemo.tsx): the app's Workspace, playable. Same class names as the app; each rule is a copy of the src/styles/app.css one, scoped to .hd. */
 .hd{--bg:#0e0f11;--panel:#15171a;--raised:#1c1f23;--sel:#24282e;--line:#272a30;--fg:#e8e9eb;--muted:#a0a5ae;--faint:#7a808a;--accent:#f0a43a;--accent-fg:#f5b65c;--on-accent:#1b1205;--add-bg:rgba(64,190,150,.13);--add-fg:#62d6ae;--warn-fg:#e3b45a;--del-bg:rgba(244,104,96,.13);--del-fg:#ff9089;--mod-fg:#86aeff;--trunk-fg:#f7c48a;--release-fg:#c4a7ff;--hunk-bg:rgba(134,174,255,.08);--term:#0b0c0e;--shadow:0 6px 20px rgba(0,0,0,.35);--shadow-pop:0 1px 2px rgba(0,0,0,.4),0 10px 28px -6px rgba(0,0,0,.55);--ring:0 0 0 3px color-mix(in srgb,var(--accent) 28%,transparent);--r-sm:4px;--r:6px;--r-lg:10px;--ease:cubic-bezier(.2,.8,.2,1);--ease-spring:cubic-bezier(.34,1.4,.64,1);--t-fast:.12s;--t:.2s;--sans:'Instrument Sans','Helvetica Neue',system-ui,sans-serif;--mono:'JetBrains Mono',ui-monospace,'SF Mono',Menlo,monospace;position:relative;display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden;box-shadow:0 40px 120px -40px rgba(0,0,0,.7);text-align:left;color:var(--fg);font-family:var(--sans);font-size:13px;line-height:normal;-webkit-font-smoothing:antialiased}
 @media (prefers-color-scheme:light){.hd{--bg:#f3f3f1;--panel:#ffffff;--raised:#f4f4f2;--sel:#ecece8;--line:#e2e2de;--fg:#16171a;--muted:#575c65;--faint:#787d86;--accent:#f6b860;--accent-fg:#f6b860;--add-bg:#e2f4eb;--add-fg:#17744d;--warn-fg:#8a5a00;--del-bg:#fce6e4;--del-fg:#b0271f;--mod-fg:#2452c2;--trunk-fg:#a85a12;--release-fg:#6b46c1;--hunk-bg:#eef2fb;--term:#fafaf8;--shadow:0 6px 20px rgba(0,0,0,.12);--shadow-pop:0 1px 2px rgba(20,20,30,.08),0 10px 28px -6px rgba(20,20,30,.18);--ring:0 0 0 3px color-mix(in srgb,var(--accent) 38%,transparent)}}
