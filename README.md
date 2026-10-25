@@ -9,7 +9,7 @@ Runs on macOS, Windows and Linux; pair your phone by QR code to manage it remote
 
 Built with a Rust engine, a React UI and a Tauri 2 shell.
 
-**Website:** https://t1gu1.github.io/Gitnetix/
+**Website:** https://gitnetix.app/
 
 ## Workflow
 
