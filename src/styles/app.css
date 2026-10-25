@@ -991,6 +991,15 @@ body.dragging-tab * {
   min-height: 52px;
   padding: 6px 12px 6px 16px;
 }
+.route-list {
+  container-type: inline-size;
+}
+/* Task routing: once the pickers no longer fit beside the label, they go on a line below it. */
+@container (max-width: 700px) {
+  .route-label {
+    flex-basis: 100%;
+  }
+}
 .list-link {
   width: 100%;
   border: 0;

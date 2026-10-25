@@ -218,18 +218,18 @@ function Routing({ cat }: { cat: AiCatalog }) {
         <h2>Task routing</h2>
         <span className="hint">Which AI handles each job. Lighter models for quick jobs, stronger ones where it matters. Agents need a CLI provider.</span>
       </div>
-      <ul className="list">
+      <ul className="list route-list">
         {TASKS.map(([task, label]) => {
           const r = cat.routing[task] ?? {};
           const prov = cat.providers.find((p) => p.info.id === (r.provider ?? cat.defaultProvider));
           const models = prov?.info.models ?? [];
           return (
-            <li key={task} className="list-row wrap" style={{ gap: "8px 12px" }}>
-              <label htmlFor={`rt-${task}`} className="grow" style={{ minWidth: 160 }}>{label}</label>
+            <li key={task} className="list-row wrap" style={{ gap: "8px 12px", paddingBlock: 10 }}>
+              <label htmlFor={`rt-${task}`} className="grow route-label" style={{ minWidth: 160 }}>{label}</label>
               <MenuChoice
                 id={`rt-${task}`}
                 className="select menu-select"
-                style={{ height: 32 }}
+                style={{ height: 32, width: 140 }}
                 label={label}
                 value={r.provider ?? ""}
                 options={[{ value: "", label: "Default AI" }, ...usable.map((p) => ({ value: p.info.id, label: p.info.name }))]}
@@ -238,7 +238,7 @@ function Routing({ cat }: { cat: AiCatalog }) {
               {models.length > 0 ? (
                 <MenuChoice
                   className="select menu-select"
-                  style={{ height: 32 }}
+                  style={{ height: 32, width: 160 }}
                   label={`${label} model`}
                   value={r.model ?? ""}
                   options={[{ value: "", label: "Provider default" }, ...models.map((m) => ({ value: m.id, label: m.label }))]}
@@ -250,7 +250,7 @@ function Routing({ cat }: { cat: AiCatalog }) {
               {prov?.info.effort && (
                 <MenuChoice
                   className="select menu-select"
-                  style={{ height: 32 }}
+                  style={{ height: 32, width: 130 }}
                   label={`${label} effort`}
                   value={r.effort ?? ""}
                   options={[{ value: "", label: "Default effort" }, ...EFFORTS.map((e) => ({ value: e, label: e }))]}
