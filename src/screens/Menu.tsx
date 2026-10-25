@@ -3,10 +3,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useAction, useConfig, useProjectPrefs } from "../api/hooks";
 import { currentRemote, isLocal, isTauri, saveRemote } from "../api/transport";
 import type { GitProfile } from "../api/types";
+import { MenuChoice } from "../components/AgentPicker";
 import { Icon } from "../components/Icon";
 import { LANGS, Seg } from "../components/ui";
 import { animates } from "../lib/motion";
 import { useNav } from "../lib/nav";
+import { THEMES } from "../lib/themes";
 import { AISetupPanes } from "./AISetup";
 import { LogsPane } from "./Logs";
 import { SettingsPanes } from "./Settings";
@@ -281,7 +283,7 @@ export function Menu({ onUnpair }: { onUnpair: () => void }) {
                     <button className="app-row" onClick={() => open({ name: "settings" })}>
                       <Icon name="gear" size={16} />
                       <span className="app-row-label">Settings</span>
-                      <span className="app-row-sub">Animations, Git providers, integrations, companion &amp; MCP</span>
+                      <span className="app-row-sub">Appearance, animations, Git providers, integrations, companion &amp; MCP</span>
                     </button>
                     <button className="app-row" onClick={() => open({ name: "logs" })}>
                       <Icon name="terminal" size={16} />
@@ -296,14 +298,12 @@ export function Menu({ onUnpair }: { onUnpair: () => void }) {
                     <div className="app-row">
                       <span className="app-row-label">Theme</span>
                       <span className="grow" />
-                      <Seg
+                      <MenuChoice
+                        className="select menu-select"
+                        style={{ width: 200 }}
                         label="Theme"
                         value={nav.themePref}
-                        options={[
-                          { value: "system", label: "System" },
-                          { value: "light", label: "Light" },
-                          { value: "dark", label: "Dark" },
-                        ]}
+                        options={[{ value: "system", label: "System" }, ...THEMES.map((t) => ({ value: t.id, label: t.name }))]}
                         onChange={nav.setThemePref}
                       />
                     </div>

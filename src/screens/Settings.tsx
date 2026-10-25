@@ -14,12 +14,13 @@ import { Header, Seg } from "../components/ui";
 import { ANIMATIONS, useAnimations } from "../lib/motion";
 import { useNav } from "../lib/nav";
 import { useStoredFlag } from "../lib/stored";
+import { ansi, THEMES, type Theme } from "../lib/themes";
 import { copyToClipboard, toast } from "../lib/toast";
 
 const JIRA_TOKENS = "https://id.atlassian.com/manage-profile/security/api-tokens";
 
 const GROUPS: [string, [string, string][]][] = [
-  ["General", [["project", "Project"], ["animations", "Animations"], ["avatars", "Avatars"]]],
+  ["General", [["project", "Project"], ["appearance", "Appearance"], ["animations", "Animations"], ["avatars", "Avatars"]]],
   ["AI", [["ai", "AI setup"], ["templates", "Templates"]]],
   ["Git", [["profiles", "Git profiles"], ["git", "Git providers"]]],
   ["Integrations", [["tools", "Jira, Trello, Asana"], ["companion", "Companion & MCP"]]],
@@ -68,6 +69,7 @@ export function SettingsPanes({ section, onAi, onTemplates }: { section?: string
         {cfg && (
           <div className="page-inner">
             {sec === "project" && <ProjectSection cfg={cfg} />}
+            {sec === "appearance" && <Appearance />}
             {sec === "animations" && <Animations />}
             {sec === "avatars" && <Avatars />}
             {sec === "profiles" && <Profiles cfg={cfg} />}
@@ -141,6 +143,46 @@ function ProjectSection({ cfg }: { cfg: Config }) {
         </button>
       </div>
     </>
+  );
+}
+
+function Appearance() {
+  const nav = useNav();
+  const card = (id: string, label: string, preview: ReactNode) => (
+    <button key={id} className="radio-card" role="radio" aria-checked={nav.themePref === id} style={{ alignItems: "center" }} onClick={() => nav.setThemePref(id)}>
+      {preview}
+      <span>{label}</span>
+    </button>
+  );
+  return (
+    <>
+      <div className="col" style={{ gap: 6 }}>
+        <h1>Appearance</h1>
+        <p className="muted" style={{ margin: 0 }}>For every project. System follows your computer's light or dark mode, in the Gitnetix colors.</p>
+      </div>
+      <div role="radiogroup" aria-label="Theme" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 8 }}>
+        {card(
+          "system",
+          "System",
+          <span className="row" style={{ gap: 4 }}>
+            {THEMES.filter((t) => t.family === "Gitnetix").map((t) => <Swatch key={t.id} t={t} />)}
+          </span>,
+        )}
+        {THEMES.map((t) => card(t.id, t.name, <Swatch t={t} />))}
+      </div>
+    </>
+  );
+}
+
+/** A theme in small: its panel, with dots for its text, accent and added / deleted / warning / changed colors. */
+function Swatch({ t }: { t: Theme }) {
+  const a = ansi(t);
+  return (
+    <span aria-hidden="true" style={{ display: "grid", gridTemplateColumns: "repeat(3, 8px)", gap: 3, padding: 5, flex: "none", borderRadius: "var(--r-sm)", border: "1px solid var(--line)", background: t.panel }}>
+      {[t.fg, t.accent, a[10], a[9], a[11], a[12]].map((c, i) => (
+        <i key={i} style={{ width: 8, height: 8, borderRadius: 4, background: c }} />
+      ))}
+    </span>
   );
 }
 

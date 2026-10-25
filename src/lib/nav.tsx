@@ -2,6 +2,7 @@ import { createContext, type ReactNode, useCallback, useContext, useEffect, useM
 
 import { rpc } from "../api/transport";
 import type { Kind } from "./kinds";
+import { applyTheme, resolveTheme } from "./themes";
 
 export type Route =
   | { name: "home" }
@@ -93,10 +94,9 @@ export function NavProvider({ children, initialProject, initialTheme }: { childr
     return () => m.removeEventListener("change", h);
   }, []);
 
-  const theme = themePref === "light" || themePref === "dark" ? themePref : sys;
-  useEffect(() => {
-    document.documentElement.dataset.theme = theme;
-  }, [theme]);
+  const shown = resolveTheme(themePref, sys);
+  const theme = shown.light ? "light" : "dark";
+  useEffect(() => applyTheme(shown), [shown]);
 
   /** Change the view of the open project (or of `key`). */
   const update = useCallback((f: (v: View) => View, key = projectRef.current ?? NONE) => {

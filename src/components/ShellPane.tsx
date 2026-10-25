@@ -8,6 +8,7 @@ import "@xterm/xterm/css/xterm.css";
 
 import { isLocal, openExternal, rpc, subscribe } from "../api/transport";
 import type { GitnetixEvent, ShellSnapshot } from "../api/types";
+import { ansi, resolveTheme } from "../lib/themes";
 import { Icon } from "./Icon";
 
 const MAC = /Mac|iPhone|iPad/.test(navigator.userAgent);
@@ -22,20 +23,15 @@ const FONT = '"JetBrainsMono Nerd Font", "JetBrainsMono NF", "JetBrains Mono", "
 // The glyph cache is drawn once, so the fonts must be there before the terminal opens.
 const fontsReady = () => Promise.all([document.fonts.load('12px "JetBrains Mono"'), document.fonts.load('12px "Symbols Nerd Font Mono"', "")]).catch(() => {});
 
-const DARK: ITheme = {
-  black: "#1c1f23", red: "#ff7b72", green: "#62d6ae", yellow: "#e3b45a", blue: "#86aeff", magenta: "#c4a7ff", cyan: "#5fd0e0", white: "#c9ccd1",
-  brightBlack: "#7a808a", brightRed: "#ff9089", brightGreen: "#7ee8c2", brightYellow: "#f5b65c", brightBlue: "#a5c3ff", brightMagenta: "#d6c0ff", brightCyan: "#8ae3ef", brightWhite: "#ffffff",
-};
-const LIGHT: ITheme = {
-  black: "#16171a", red: "#b0271f", green: "#17744d", yellow: "#8a5a00", blue: "#2452c2", magenta: "#6b46c1", cyan: "#0e7490", white: "#a0a5ae",
-  brightBlack: "#575c65", brightRed: "#d1352b", brightGreen: "#1f9463", brightYellow: "#a86f00", brightBlue: "#3b6be0", brightMagenta: "#8257e0", brightCyan: "#1592b0", brightWhite: "#787d86",
-};
+const ANSI = ["black", "red", "green", "yellow", "blue", "magenta", "cyan", "white", "brightBlack", "brightRed", "brightGreen", "brightYellow", "brightBlue", "brightMagenta", "brightCyan", "brightWhite"];
 
 function theme(): ITheme {
-  const css = getComputedStyle(document.documentElement);
+  const root = document.documentElement;
+  const css = getComputedStyle(root);
   const v = (n: string) => css.getPropertyValue(n).trim();
-  const light = document.documentElement.dataset.theme === "light";
-  return { ...(light ? LIGHT : DARK), background: v("--term"), foreground: v("--fg"), cursor: v("--accent"), cursorAccent: v("--term"), selectionBackground: light ? "#f6b86066" : "#f0a43a44" };
+  const t = resolveTheme(root.dataset.palette ?? "", root.dataset.theme === "light" ? "light" : "dark");
+  const colors = Object.fromEntries(ansi(t).map((c, i) => [ANSI[i], c]));
+  return { ...colors, background: v("--term"), foreground: v("--fg"), cursor: v("--accent"), cursorAccent: v("--term"), selectionBackground: v("--accent") + (t.light ? "66" : "44") };
 }
 
 function bytes(b64: string) {
@@ -153,7 +149,7 @@ export default function ShellPane({ projectId, path }: { projectId: string; path
       frame = requestAnimationFrame(() => el.clientHeight && fit.fit());
     });
     const mo = new MutationObserver(() => (term.options.theme = theme()));
-    mo.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    mo.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "data-palette"] });
 
     fontsReady().then(() => {
       if (dead) return;

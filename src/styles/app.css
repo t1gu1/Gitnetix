@@ -49,6 +49,7 @@
   --t-slow: 0.32s;
 }
 
+/* Light rules with Gitnetix's own hues carry :not([data-palette]), so the other themes (src/lib/themes.ts) keep theirs. */
 [data-theme="light"],
 [data-theme="light"] .ag {
   --bg: #f3f3f1;
@@ -571,7 +572,7 @@ body.dragging-tab * {
   box-shadow: none;
 }
 /* Light mode: --accent-fg matches the fill, so the hover deepens it a touch instead. */
-[data-theme="light"] .btn-primary:hover:not(:disabled) {
+[data-theme="light"]:not([data-palette]) .btn-primary:hover:not(:disabled) {
   background-color: #f2a940;
 }
 .btn-ghost {
@@ -775,7 +776,7 @@ body.dragging-tab * {
   border-color: #4b5160;
   background: color-mix(in srgb, #4b5160 8%, transparent);
 }
-[data-theme="light"] .tag.accent {
+[data-theme="light"]:not([data-palette]) .tag.accent {
   color: #f08a00;
   border-color: #f08a00;
   background: color-mix(in srgb, #f08a00 12%, transparent);
@@ -807,7 +808,7 @@ body.dragging-tab * {
 .c-current {
   color: var(--trunk-fg);
 }
-[data-theme="light"] .c-current {
+[data-theme="light"]:not([data-palette]) .c-current {
   color: #f08a00;
   font-weight: 600;
 }
@@ -1070,7 +1071,7 @@ body.dragging-tab * {
   font-size: 11.5px;
   font-weight: 600;
 }
-[data-theme="light"] .steps > li::before {
+[data-theme="light"]:not([data-palette]) .steps > li::before {
   color: #a35f00;
 }
 /* Where folders are dropped: lights up with the accent while a drag hovers it. */
@@ -1999,7 +2000,7 @@ button.tree-twist:hover {
 }
 /* Light mode uses punchier takes on the dark theme's text colours inside a branch row (icon, name, tags, kind, status line); --fg stays dark so plain names read on white.
    The path lines and the rest of the app stay on the light tokens. */
-[data-theme="light"] .tree-btn {
+[data-theme="light"]:not([data-palette]) .tree-btn {
   --muted: #8a909a;
   --faint: #6e747e;
   --line: #272a30;
@@ -2213,11 +2214,11 @@ button.tree-twist:hover {
   --label-fg: var(--add-fg);
 }
 /* Light mode uses punchier takes on the dark theme's label gradients. */
-[data-theme="light"] .child-label {
+[data-theme="light"]:not([data-palette]) .child-label {
   --label-from: #e0a01f;
   --label-fg: #da659f;
 }
-[data-theme="light"] .shipped-label {
+[data-theme="light"]:not([data-palette]) .shipped-label {
   --label-from: #a57bff;
   --label-fg: #1fc48c;
 }
@@ -2791,10 +2792,10 @@ button.tree-twist:hover {
   background: color-mix(in srgb, var(--del-fg) 80%, #000);
 }
 /* Light mode: brighter marks than the dark text colours of the light theme. */
-[data-theme="light"] .diff-heatmap .hm.add {
+[data-theme="light"]:not([data-palette]) .diff-heatmap .hm.add {
   background: #4fd6a4;
 }
-[data-theme="light"] .diff-heatmap .hm.del {
+[data-theme="light"]:not([data-palette]) .diff-heatmap .hm.del {
   background: #ff7d74;
 }
 .diff-heatmap.split .hm.del {
@@ -3800,7 +3801,7 @@ button.picker-act {
   );
   opacity: 0.1;
 }
-[data-theme="light"] .wt-group + .wt-group::before {
+[data-theme="light"]:not([data-palette]) .wt-group + .wt-group::before {
   background: linear-gradient(
     90deg,
     transparent,
@@ -4720,7 +4721,7 @@ body:has(> .modal-scrim) #root * {
   pointer-events: none;
 }
 /* Light --warn-fg reads brown; use a brighter gold for the line. */
-[data-theme="light"] .commit-list > .commit-row + .commit-row::before {
+[data-theme="light"]:not([data-palette]) .commit-list > .commit-row + .commit-row::before {
   background: linear-gradient(
     90deg,
     transparent,
