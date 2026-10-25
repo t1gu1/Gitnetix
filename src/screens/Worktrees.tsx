@@ -262,7 +262,7 @@ function Detail({ r }: { r: Row }) {
             {a && !busy && !isWorktree && <button className="btn btn-ghost" onClick={() => removeAgent.mutate({ id: a.id })}>Clear session</button>}
             {isWorktree && (
               <>
-                <button className="btn" data-tip={`Delete the worktree and switch to ${r.branch}; refused with uncommitted changes`} onClick={() => finish.continue(session, true)}>Continue on branch</button>
+                <button className="btn" data-tip={`Delete the worktree and switch to ${r.branch}; uncommitted changes get committed or discarded first`} onClick={() => finish.continue(session, true)}>Continue on branch</button>
                 <button className="btn" data-tip="Pick the merge options; the worktree is deleted once merged" onClick={() => finish.merge(session, true)}>Merge…</button>
                 <button className="btn btn-danger" data-tip={`Delete the worktree, its uncommitted changes and the local ${r.branch} branch`} onClick={() => setDiscarding(true)}>
                   <Icon name="trash" size={12} />
@@ -320,6 +320,7 @@ function Detail({ r }: { r: Row }) {
           onMerged={merging.then}
         />
       )}
+      {finish.modal}
     </div>
   );
 }

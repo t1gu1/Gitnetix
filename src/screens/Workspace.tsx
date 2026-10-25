@@ -582,8 +582,9 @@ export function Workspace() {
         <AbortSwitchModal op={o.inProgress} branch={dialog.branch} path={o.project.path} onClose={() => setDialog(null)} onConfirm={() => actions.abortAndSwitch(dialog.branch)} />
       )}
       {dialog?.kind === "continue" && dialogView?.worktree && (
-        <ContinueOnBranchModal branch={dialog.branch} path={dialogView.worktree} onClose={() => setDialog(null)} onConfirm={() => actions.continueOn(dialog.branch, dialogView.worktree!)} />
+        <ContinueOnBranchModal branch={dialog.branch} path={dialogView.worktree} onClose={() => setDialog(null)} onConfirm={() => finish.continue({ projectId: pid, branch: dialog.branch, cwd: dialogView.worktree! }, true)} />
       )}
+      {finish.modal}
       {dialog?.kind === "delete" && dialogView && !dialogView.worktree && (
         <DeleteBranchModal
           pid={pid}
@@ -1058,7 +1059,7 @@ export function MergeModal({
     </>
   );
   // Cancelling brings the merge options back; once the work is committed or discarded, the merge runs.
-  if (asking) return <MergeWipModal pid={pid} branch={branch} files={wip} onClose={() => setAsking(false)} onClean={() => { setAsking(false); run(); }} />;
+  if (asking) return <WipModal pid={pid} branch={branch} files={wip} op="Merge" onClose={() => setAsking(false)} onClean={() => { setAsking(false); run(); }} />;
   if (inline) return <div className="ag-finish">{body}<div className="ag-finish-foot">{footer}</div></div>;
   return (
     <Modal title="Merge branch" sub={<span className="mono">{branch} → {base}</span>} onClose={onClose} footer={footer}>
@@ -1067,8 +1068,8 @@ export function MergeModal({
   );
 }
 
-/** Before merging a branch with uncommitted changes: stage all & commit them, or discard them. `onClean` runs once that is done. */
-function MergeWipModal({ pid, branch, files, onClose, onClean }: { pid: string; branch: string; files: number; onClose: () => void; onClean: () => void }) {
+/** Before merging a branch, or deleting its worktree to continue on it, with uncommitted changes: stage all & commit them, or discard them. `onClean` runs once that is done. */
+function WipModal({ pid, branch, files, op, onClose, onClean }: { pid: string; branch: string; files: number; op: "Merge" | "Continue"; onClose: () => void; onClean: () => void }) {
   const [summary, setSummary] = useState("");
   const aiOn = useAiOn("commit");
   const inv = [["overview", pid], ["files", pid], ["diff", pid], ["commits", pid]];
@@ -1095,19 +1096,20 @@ function MergeWipModal({ pid, branch, files, onClose, onClean }: { pid: string; 
       footer={
         <>
           <button className="btn btn-md" disabled={busy} onClick={onClose}>Cancel</button>
-          <button className="btn btn-md btn-danger" disabled={busy} data-tip={`Throw away every uncommitted change on ${branch}, then merge`} onClick={throwAway}>
+          <button className="btn btn-md btn-danger" disabled={busy} data-tip={`Throw away every uncommitted change on ${branch}, then ${op.toLowerCase()}`} onClick={throwAway}>
             {discard.isPending && <span className="spinner" />}
-            Discard & Merge
+            Discard & {op}
           </button>
-          <button className="btn btn-md btn-primary" disabled={busy || (!aiOn && !summary.trim())} data-tip={`Commit every change on ${branch}, then merge`} onClick={stageAndCommit}>
+          <button className="btn btn-md btn-primary" disabled={busy || (!aiOn && !summary.trim())} data-tip={`Commit every change on ${branch}, then ${op.toLowerCase()}`} onClick={stageAndCommit}>
             {commit.isPending && <span className="spinner" />}
-            Stage all, Commit & Merge
+            Stage all, Commit & {op}
           </button>
         </>
       }
     >
       <p style={{ margin: 0, lineHeight: 1.55 }}>
-        <span className="mono">{branch}</span> has uncommitted changes the merge would leave out. Commit them all first, or discard them; the merge starts once that is done.
+        <span className="mono">{branch}</span> has uncommitted changes {op === "Merge" ? "the merge would leave out" : "in the worktree about to be deleted"}. Commit them all first, or discard them;{" "}
+        {op === "Merge" ? "the merge starts" : "the worktree is deleted"} once that is done.
       </p>
       <input
         className="input"
@@ -1402,7 +1404,7 @@ function ContinueOnBranchModal({ branch, path, onClose, onConfirm }: { branch: s
       }
     >
       <p style={{ margin: 0, lineHeight: 1.55 }}>
-        The agent stops and the worktree at <span className="mono">{path}</span> is deleted, then <span className="mono">{branch}</span> is checked out here with all its commits. <span className="c-warn">Refused if the worktree has uncommitted changes.</span>
+        The agent stops and the worktree at <span className="mono">{path}</span> is deleted, then <span className="mono">{branch}</span> is checked out here with all its commits. Uncommitted changes there get committed or discarded first: you pick.
       </p>
       <div className="col" style={{ gap: 6 }}>
         <h2 className="label">Tip!</h2>
@@ -1872,12 +1874,17 @@ type WtSession = Pick<AgentSession, "projectId" | "branch" | "cwd">;
 /** How a worktree session ends; each gets the session and whether to switch to where the code lands. */
 type FinishHandlers = { discard: (s: WtSession) => void; continue: (s: WtSession, sw: boolean) => void; merge: (s: WtSession, sw: boolean, into?: string) => void };
 
-/** `continueOn` deletes the worktree and checks its branch out; `openMerge` shows the merge options (into `into`, else the base), `then` running once merged. */
+/** `continueOn` deletes the worktree and checks its branch out; `openMerge` shows the merge options (into `into`, else the base), `then` running once merged.
+ * `modal` asks to commit or discard uncommitted changes before a continue: render it. */
 export function useFinishHandlers(
   pid: string,
   continueOn: (branch: string, path: string) => void,
   openMerge: (branch: string, then: () => void, stay: boolean, into?: string) => void,
-): FinishHandlers {
+): FinishHandlers & { modal: ReactNode } {
+  const branches = useOverview(pid).data?.branches;
+  // Deleting the worktree is refused with uncommitted changes there.
+  const [dirty, setDirty] = useState<{ s: WtSession; sw: boolean; files: number } | null>(null);
+  const keepOn = (s: WtSession, sw: boolean) => (sw ? continueOn(s.branch, s.cwd) : drop(s));
   const removeWt = useAction("worktrees.remove", { invalidate: [["agents"], ["worktrees"], ["overview", pid]], success: "Worktree removed" });
   // Removing the worktree also removes its agent session.
   const drop = (s: WtSession) => removeWt.mutate({ projectId: s.projectId, path: s.cwd });
@@ -1892,8 +1899,15 @@ export function useFinishHandlers(
         await deleteBranch.mutateAsync({ projectId: s.projectId, branch: s.branch, force: true });
         nav.forgetBranches(s.projectId, [s.branch]);
       })().catch(() => {}), // useAction already toasts the error
-    continue: (s, sw) => (sw ? continueOn(s.branch, s.cwd) : drop(s)),
+    continue: (s, sw) => {
+      const files = branches?.find((b) => b.name === s.branch)?.wip ?? 0;
+      if (files) setDirty({ s, sw, files });
+      else keepOn(s, sw);
+    },
     merge: (s, sw, into) => openMerge(s.branch, () => drop(s), !sw, into),
+    modal: dirty && (
+      <WipModal pid={dirty.s.projectId} branch={dirty.s.branch} files={dirty.files} op="Continue" onClose={() => setDirty(null)} onClean={() => { setDirty(null); keepOn(dirty.s, dirty.sw); }} />
+    ),
   };
 }
 
@@ -1926,7 +1940,7 @@ function CloseWorktreeModal({ session: s, finish, onClose, inline }: { session: 
           </>
         )}
       </p>
-      <p className="c-warn" style={{ margin: 0, lineHeight: 1.55 }}>Deleting the folder will be refused if it has uncommitted changes.</p>
+      <p className="muted" style={{ margin: 0, lineHeight: 1.55 }}>Uncommitted changes in it get committed or discarded first: you pick.</p>
       <Seg
         grid
         label="Then"

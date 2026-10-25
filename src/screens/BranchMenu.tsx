@@ -121,7 +121,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
         id: "continue",
         label: "Continue on branch & delete worktree",
         short: "Continue",
-        tip: `Delete the worktree of ${b} and check ${b} out here. Refused if the worktree has uncommitted changes`,
+        tip: `Delete the worktree of ${b} and check ${b} out here. Uncommitted changes there get committed or discarded first`,
         icon: "swap",
         warn: true,
         run: () => openDialog("continue", b),
