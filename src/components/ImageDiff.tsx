@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type PointerEvent } from "react";
 
 import type { Blobs } from "../api/types";
+import { bytes } from "../lib/format";
 import { useStored } from "../lib/stored";
 
 const MIME: Record<string, string> = {
@@ -57,13 +58,11 @@ function useImage(path: string, b64?: string | null) {
   return img;
 }
 
-const size = (n: number) => (n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1024 / 1024).toFixed(2)} MB`);
-
 function Meta({ img, label, cls }: { img: Loaded; label: string; cls: string }) {
   return (
     <span className="img-meta">
       <span className={cls}>{label}</span>
-      <span className="faint">{img.w} × {img.h} · {size(img.bytes)}</span>
+      <span className="faint">{img.w} × {img.h} · {bytes(img.bytes)}</span>
     </span>
   );
 }

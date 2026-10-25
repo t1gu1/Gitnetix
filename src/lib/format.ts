@@ -1,4 +1,5 @@
 export const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
+export const bytes = (n: number) => (n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1024 / 1024).toFixed(2)} MB`);
 export const stashCount = (n: number) => `${n} stash${n === 1 ? "" : "es"}`;
 
 /** "just now", "5m ago", "3h ago", "2d ago", then the date. */

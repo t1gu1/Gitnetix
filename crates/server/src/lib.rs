@@ -12,7 +12,7 @@ use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use axum::extract::{Query, State};
+use axum::extract::{DefaultBodyLimit, Query, State};
 use axum::http::{header, HeaderMap, StatusCode, Uri};
 use axum::response::sse::{Event as SseEvent, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
@@ -110,7 +110,8 @@ pub fn router(k: Arc<Gitnetix>, ui: Option<Ui>) -> Router {
     let cors = CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any);
     Router::new()
         .route("/health", get(|| async { Json(json!({ "ok": true, "app": "gitnetix", "version": env!("CARGO_PKG_VERSION") })) }))
-        .route("/rpc", post(rpc_handler))
+        // Agent messages carry their attachments in base64 (the UI caps them at 25 MB).
+        .route("/rpc", post(rpc_handler).layer(DefaultBodyLimit::max(48 << 20)))
         .route("/methods", get(methods_handler))
         .route("/events", get(events_handler))
         .fallback(get(ui_handler))

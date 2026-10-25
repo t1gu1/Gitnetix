@@ -3434,10 +3434,7 @@ button.picker-act {
   font-size: 12.5px;
   color: var(--muted);
 }
-.ag-q-send {
-  margin-top: 6px;
-}
-/* Wrapped options line up with the question text and Send. */
+/* Wrapped options line up with the question text. */
 .ag-q .ag-choices {
   justify-content: flex-start;
 }
@@ -3481,57 +3478,182 @@ button.picker-act {
 }
 .term-input {
   display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 0 16px;
-  height: 40px;
-  flex: 0 0 40px;
+  flex-direction: column;
+  flex: none;
   border-top: 1px solid var(--line);
 }
-/* Full-height, flush with the panel's right edge. */
-.term-input .btn-icon {
+/* The panel holding a prompt box takes file drops; its overlay covers the whole panel. */
+:has(> .term-input) {
+  position: relative;
+}
+.term-input-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 16px 0 6px;
+}
+/* Sits on the last line of text as the box grows. */
+.term-attach {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  margin-bottom: 6px;
+  padding: 0;
+}
+/* Full-height, flush with the panel's right edge. Square while the text grows to 3 lines (40, 58, 76px), then only taller. */
+.term-send {
+  flex: none;
   align-self: stretch;
-  width: 40px;
+  width: calc(22px + 18px * var(--lines, 1));
   height: auto;
   margin-right: -16px;
+  padding: 0;
   border: 0;
   border-left: 1px solid color-mix(in srgb, white 35%, transparent);
   border-radius: 0;
 }
 /* Picker sits flush against the send button. */
 .term-input .picker-acts {
-  margin-right: -10px;
+  margin-right: -8px;
 }
 /* The plane's tip points right: nudge it to look centered. */
-.term-input .btn-icon svg {
+.term-send svg {
   transform: translate(-1px, 1px);
 }
-.term-input input {
+.term-input textarea {
   flex: 1 1 auto;
   min-width: 0;
+  padding: 11px 0;
   border: 0;
   outline: none;
+  resize: none;
   background: transparent;
   color: var(--fg);
   font-family: var(--mono);
   font-size: 12px;
+  line-height: 18px;
+}
+/* Files waiting to go with the next message: a band of its own, so the bar's columns start on its line. */
+.ag-attach {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--line);
+}
+.ag-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 260px;
+  height: 32px;
+  padding: 0 10px 0 4px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--panel);
+  color: var(--fg);
+  font-family: var(--sans);
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+}
+.ag-file > svg {
+  flex: none;
+  margin-left: 4px;
+  color: var(--muted);
+}
+.ag-file > img {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 3px;
+  object-fit: cover;
+}
+.ag-file > .faint {
+  flex: none;
+  font-size: 11px;
+}
+/* A picked option, styled like it is in the log. */
+.ag-pick {
+  padding-left: 10px;
+  border-color: var(--accent);
+  background: var(--raised);
+}
+.ag-file-x {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin-right: -4px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.ag-file-x:hover {
+  background: var(--raised);
+  color: var(--fg);
+}
+.ag-file-x:focus-visible {
+  outline: 1px solid var(--accent);
+}
+/* Files sent with a message, under its text. */
+.ag-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0 2px;
+}
+.ag-files:first-child {
+  margin-top: 0;
+}
+.ag-drop {
+  position: absolute;
+  inset: 6px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1.5px dashed var(--accent);
+  border-radius: var(--r-lg);
+  background: color-mix(in srgb, var(--term) 88%, transparent);
+  color: var(--fg);
+  font-size: 13px;
+  font-weight: 500;
+  pointer-events: none;
+}
+.ag-drop > svg {
+  color: var(--accent);
+}
+/* From 3 lines, provider, model and effort stack beside Send. */
+@media (min-width: 901px) {
+  .term-input-tall .picker-acts {
+    flex-direction: column;
+  }
+  .term-input-tall .picker-act {
+    flex: 1 1 0;
+    justify-content: space-between;
+  }
+  .term-input-tall .picker-act + .picker-act {
+    border-top: 1px solid var(--line);
+  }
 }
 /* Narrow: the picker takes its own full-width row above the text. */
 @media (max-width: 900px) {
-  .term-input {
+  .term-input-row {
     flex-wrap: wrap;
-    height: auto;
-    flex-basis: auto;
     row-gap: 0;
-  }
-  .term-input input {
-    height: 40px;
   }
   .term-input .picker-acts {
     order: -1;
-    flex: 0 0 calc(100% + 32px);
+    flex: 0 0 calc(100% + 22px);
     height: 34px;
-    margin: 0 -16px;
+    margin: 0 -16px 0 -6px;
     border-bottom: 1px solid var(--line);
   }
   .term-input .picker-act {

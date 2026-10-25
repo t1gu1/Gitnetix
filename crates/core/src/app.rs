@@ -410,6 +410,50 @@ fn valid_branch_name(s: &str) -> bool {
 /// File in a checkout's git dir holding its agent's ticket, out of the working tree.
 const TICKET_FILE: &str = "gitnetix-ticket.md";
 
+/// Folder in a checkout's git dir holding files sent to its agent, out of the working tree.
+// shortcut: never pruned on the main checkout (a worktree's git dir goes with it), prune per session if it grows.
+const ATTACH_DIR: &str = "gitnetix-attachments";
+
+/// A file sent with an agent message: its contents in base64, or a path on this machine (dropped on the desktop app).
+#[derive(Debug, Deserialize)]
+pub struct Attachment {
+    pub name: String,
+    #[serde(default)]
+    pub data: Option<String>,
+    #[serde(default)]
+    pub path: Option<String>,
+}
+
+/// Saves `files` in the checkout's git dir and lists their paths after `text`, for the agent to open.
+async fn attach(cwd: &Path, text: &str, files: &[Attachment]) -> Result<String> {
+    use base64::Engine as _;
+    if files.is_empty() {
+        return Ok(text.to_string());
+    }
+    let dir = Git::new(cwd).git_paths(&[ATTACH_DIR]).await?.into_iter().next().ok_or_else(|| Error::Invalid("no git dir".into()))?.join(new_id());
+    std::fs::create_dir_all(&dir)?;
+    let mut list = String::new();
+    for f in files {
+        // The bare file name: a name carrying a path must not write outside `dir`.
+        let name = Path::new(&f.name).file_name().and_then(|n| n.to_str()).unwrap_or("file");
+        let mut dest = dir.join(name);
+        // Pasted screenshots all arrive as "image.png".
+        let mut i = 1;
+        while dest.exists() {
+            i += 1;
+            dest = dir.join(format!("{i}-{name}"));
+        }
+        let saved = match (&f.data, &f.path) {
+            (Some(d), _) => base64::engine::general_purpose::STANDARD.decode(d).map_err(|e| e.to_string()).and_then(|b| std::fs::write(&dest, b).map_err(|e| e.to_string())),
+            (None, Some(p)) => std::fs::copy(p, &dest).map(|_| ()).map_err(|e| e.to_string()),
+            (None, None) => Err("no contents".into()),
+        };
+        saved.map_err(|e| Error::Invalid(format!("Could not attach {name}: {e}")))?;
+        list.push_str(&format!("\n- {}", dest.display()));
+    }
+    Ok(format!("{text}\n\nAttached files:{list}").trim_start().to_string())
+}
+
 /// How long an agent start waits for the branch's ticket.
 const TICKET_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
@@ -3530,7 +3574,7 @@ impl Gitnetix {
     /// An agent on a branch always works in that branch's own worktree, made
     /// here if needed, so it keeps going while the main checkout moves on.
     /// Without a branch it runs on the main checkout.
-    pub async fn start_agent_on(&self, project_id: &str, branch: Option<String>, request: &str, ticket: Option<String>, pick: Route) -> Result<AgentSession> {
+    pub async fn start_agent_on(&self, project_id: &str, branch: Option<String>, request: &str, ticket: Option<String>, pick: Route, files: &[Attachment]) -> Result<AgentSession> {
         let p = self.store.project(project_id)?;
         let (cwd, b) = match branch {
             Some(b) => (self.agent_worktree(&p, &b).await?, Some(b)),
@@ -3545,6 +3589,7 @@ impl Gitnetix {
             }
             request = format!("{request} (ticket {t})");
         }
+        let request = attach(&cwd, &request, files).await?;
         self.start_agent(project_id, b.as_deref(), &cwd, wt, &request, pick).await
     }
 
@@ -3575,12 +3620,14 @@ impl Gitnetix {
         Ok(PathBuf::from(self.create_worktree(&p.id, branch).await?))
     }
 
-    pub fn agent_message(&self, id: &str, text: &str) -> Result<()> {
-        let r = match self.agents.get(id)?.ai {
+    pub async fn agent_message(&self, id: &str, text: &str, files: &[Attachment]) -> Result<()> {
+        let s = self.agents.get(id)?;
+        let r = match s.ai {
             Some(r) => r,
             None => self.route("agent", None)?,
         };
-        self.agents.message(id, text, &r)
+        let text = attach(Path::new(&s.cwd), text, files).await?;
+        self.agents.message(id, &text, &r)
     }
 
     /// Applies from the next message on. A different provider is resolved
@@ -4425,6 +4472,22 @@ mod tests {
         assert_eq!(ignore_line("src/a.log", false), "/src/a.log\n");
         assert_eq!(ignore_line("build", true), "/build/\n");
         assert_eq!(ignore_line("x[1]*.txt", false), "/x\\[1]\\*.txt\n");
+    }
+
+    #[tokio::test]
+    async fn attachments_land_in_the_git_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        Git::new(tmp.path().to_str().unwrap()).run(&["init", "-q"]).await.unwrap();
+        let up = |name: &str, data: &str| Attachment { name: name.into(), data: Some(data.into()), path: None };
+        assert_eq!(attach(tmp.path(), "hi", &[]).await.unwrap(), "hi");
+        // "aGk=" is "hi"; the second image.png must not overwrite the first, "../x" must not escape.
+        let text = attach(tmp.path(), "look", &[up("image.png", "aGk="), up("image.png", "aGk="), up("../x.txt", "aGk=")]).await.unwrap();
+        let paths: Vec<&str> = text.lines().filter_map(|l| l.strip_prefix("- ")).collect();
+        assert!(text.starts_with("look\n\nAttached files:\n- "));
+        assert_eq!(paths.len(), 3);
+        assert!(paths[0].ends_with("/image.png") && paths[1].ends_with("/2-image.png") && paths[2].ends_with("/x.txt"));
+        assert!(paths.iter().all(|p| p.contains(&format!(".git/{ATTACH_DIR}/")) && std::fs::read(p).unwrap() == b"hi"));
+        assert!(attach(tmp.path(), "", &[up("a", "not base64!")]).await.is_err());
     }
 
     #[tokio::test]

@@ -184,8 +184,10 @@ export async function revealPath(path: string) {
   await revealItemInDir(path);
 }
 
-/** Folder drops onto the desktop window. */
-export function onFolderDrop(handler: (paths: string[]) => void, onHover?: (over: boolean) => void): () => void {
+type Point = { x: number; y: number };
+
+/** File and folder drops onto the desktop window, with where they are (CSS pixels): the window takes them before the page can. */
+export function onPathDrop(handler: (paths: string[], at: Point) => void, onHover?: (over: boolean, at?: Point) => void): () => void {
   if (!isLocal) return () => {};
   let un: (() => void) | null = null;
   let cancelled = false;
@@ -193,11 +195,12 @@ export function onFolderDrop(handler: (paths: string[]) => void, onHover?: (over
     getCurrentWebview()
       .onDragDropEvent((e) => {
         const p = e.payload;
-        if (p.type === "over" || p.type === "enter") onHover?.(true);
+        const at = p.type === "leave" ? undefined : { x: p.position.x / devicePixelRatio, y: p.position.y / devicePixelRatio };
+        if (p.type === "over" || p.type === "enter") onHover?.(true, at);
         else if (p.type === "leave") onHover?.(false);
         else if (p.type === "drop") {
           onHover?.(false);
-          handler(p.paths);
+          handler(p.paths, at!);
         }
       })
       .then((u) => {

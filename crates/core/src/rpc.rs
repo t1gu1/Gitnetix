@@ -4,7 +4,7 @@
 
 use serde_json::{json, Value};
 
-use crate::app::{Gitnetix, MergeOptions, NewItem, NotesInclude, ViewMode};
+use crate::app::{Attachment, Gitnetix, MergeOptions, NewItem, NotesInclude, ViewMode};
 use crate::error::{Error, Result};
 use crate::store::{upsert, ConnectMethod, Connection, GitProfile, JiraConf, ReleaseKind, Route, TrelloConf, AsanaConf, new_id};
 use crate::templates::{self, Template};
@@ -92,8 +92,8 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("worktrees.remove", "Remove a worktree", "projectId, path, force?"),
     ("agents.list", "Agent sessions", ""),
     ("agents.get", "One agent session with its log", "id"),
-    ("agents.start", "Start an agent on a branch (or main checkout)", "projectId, branch?, request, ticket?, provider?, model?, effort?"),
-    ("agents.message", "Send a follow-up message to an agent", "id, text"),
+    ("agents.start", "Start an agent on a branch (or main checkout)", "projectId, branch?, request, ticket?, provider?, model?, effort?, files?"),
+    ("agents.message", "Send a follow-up message to an agent; files: [{ name, data (base64) | path }]", "id, text, files?"),
     ("agents.pause", "Pause an agent", "id"),
     ("agents.resume", "Resume an agent", "id"),
     ("agents.stop", "Stop an agent", "id"),
@@ -190,6 +190,11 @@ fn release_kind(v: &Value) -> ReleaseKind {
 /// String list at `k`, empty when missing.
 fn list(v: &Value, k: &str) -> Result<Vec<String>> {
     Ok(serde_json::from_value(v.get(k).cloned().unwrap_or(json!([])))?)
+}
+
+/// Files sent with an agent message, empty when missing.
+fn files(v: &Value) -> Result<Vec<Attachment>> {
+    Ok(serde_json::from_value(v.get("files").cloned().unwrap_or(json!([])))?)
 }
 
 fn b(v: &Value, k: &str) -> bool {
@@ -576,14 +581,14 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
         "agents.get" => to(k.agents.get(&s(&p, "id")?)?),
         "agents.start" => {
             let pick = Route { provider: os(&p, "provider"), model: os(&p, "model"), effort: os(&p, "effort") };
-            to(k.start_agent_on(&s(&p, "projectId")?, os(&p, "branch"), &s(&p, "request")?, os(&p, "ticket"), pick).await?)
+            to(k.start_agent_on(&s(&p, "projectId")?, os(&p, "branch"), &s(&p, "request")?, os(&p, "ticket"), pick, &files(&p)?).await?)
         }
         "agents.configure" => {
             let pick = Route { provider: os(&p, "provider"), model: os(&p, "model"), effort: os(&p, "effort") };
             to(k.agent_configure(&s(&p, "id")?, pick)?)
         }
         "agents.message" => {
-            k.agent_message(&s(&p, "id")?, &s(&p, "text")?)?;
+            k.agent_message(&s(&p, "id")?, &s(&p, "text")?, &files(&p)?).await?;
             ok()
         }
         "agents.pause" => {

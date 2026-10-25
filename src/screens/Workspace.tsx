@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties, type Keyboard
 import { switchedOverview, useAction, useAgents, useAiOn, useAutoFetch, useBlobs, useDiff, useFiles, useOverview, usePendingBranches, useProjectPrefs, useProjects } from "../api/hooks";
 import { isLocal, revealPath } from "../api/transport";
 import type { AgentSession, BranchView, Commit, FileChange, Hunk, MergeResult, Overview, RebaseResult, ReleaseView, Stash } from "../api/types";
-import { AgentInput, AgentLog } from "../components/AgentLog";
+import { AgentInput, AgentLog, type Attachment, type Choice, type Upload } from "../components/AgentLog";
 import { AgentPicker, useAgentPick } from "../components/AgentPicker";
 import { DiffView, type DiffMode } from "../components/DiffView";
 import { IMAGE_MODES, ImageDiff, comparable, isImage, useImageMode } from "../components/ImageDiff";
@@ -1747,6 +1747,8 @@ function Terminal({ pid, branch, cwd, open, setOpen, onCloseWorktree, finish }: 
   const agents = useAgents();
   const cur = (agents.data ?? []).find((a) => a.projectId === pid && a.branch === branch);
   const [text, setText] = useState("");
+  const [files, setFiles] = useState<Attachment[]>([]);
+  const [picks, setPicks] = useState<Choice[]>([]);
   const [pick, setPick] = useAgentPick(pid);
   // Starting on a branch makes its worktree and may move the main checkout off it.
   const start = useAction<{ id: string }>("agents.start", { invalidate: [["agents"], ["worktrees"], ["overview", pid]] });
@@ -1772,17 +1774,17 @@ function Terminal({ pid, branch, cwd, open, setOpen, onCloseWorktree, finish }: 
     );
   }
   const busy = cur?.status === "running" || cur?.status === "paused";
-  const send = () => {
-    const t = text.trim();
-    if (!t || busy) return;
-    if (cur) {
-      message.mutate({ id: cur.id, text: t }, { onSuccess: () => setText("") });
-    } else {
-      start.mutate(
-        { projectId: pid, branch, request: t, ...pick },
-        { onSuccess: () => setText("") },
-      );
-    }
+  const send = (up: Upload[], t: string) => {
+    if ((!t && !up.length) || busy) return;
+    const done = {
+      onSuccess: () => {
+        setText("");
+        setFiles([]);
+        setPicks([]);
+      },
+    };
+    if (cur) message.mutate({ id: cur.id, text: t, files: up }, done);
+    else start.mutate({ projectId: pid, branch, request: t, files: up, ...pick }, done);
   };
   return (
     <>
@@ -1828,7 +1830,8 @@ function Terminal({ pid, branch, cwd, open, setOpen, onCloseWorktree, finish }: 
               actions={
                 cur?.worktree && <FinishWorktreeCard session={cur} finish={finish} />
               }
-              onAnswer={cur && ((t) => message.mutate({ id: cur.id, text: t }))}
+              picks={picks}
+              onPicks={setPicks}
               empty={
                 cur
                   ? undefined
@@ -1842,6 +1845,10 @@ function Terminal({ pid, branch, cwd, open, setOpen, onCloseWorktree, finish }: 
               label="Ask the agent"
               value={text}
               onChange={setText}
+              files={files}
+              onFiles={setFiles}
+              picks={picks}
+              onPicks={setPicks}
               onSend={send}
               onStop={busy && cur ? () => stop.mutate({ id: cur.id }) : undefined}
               log={cur?.lines}

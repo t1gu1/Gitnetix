@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { useAction, useProjects } from "../api/hooks";
-import { isLocal, onFolderDrop, pickFolders } from "../api/transport";
+import { isLocal, onPathDrop, pickFolders } from "../api/transport";
 import type { Project } from "../api/types";
 import { Icon } from "../components/Icon";
 import { ThemeToggle } from "../components/ThemeToggle";
@@ -35,7 +35,7 @@ export function Welcome() {
     );
   };
 
-  useEffect(() => onFolderDrop(addPaths, setOver), []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => onPathDrop(addPaths, setOver), []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const list = projects.data ?? [];
   return (

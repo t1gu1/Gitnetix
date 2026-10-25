@@ -2,7 +2,7 @@ import { useMemo, useState, type CSSProperties } from "react";
 
 import { useAction, useAgents, useFiles, useOverview, useProjects, useWorktrees } from "../api/hooks";
 import type { AgentSession, AgentStatus, WorktreeView } from "../api/types";
-import { AgentInput, AgentLog } from "../components/AgentLog";
+import { AgentInput, AgentLog, type Attachment, type Choice, type Upload } from "../components/AgentLog";
 import { AgentPicker, MenuChoice, useAgentPick } from "../components/AgentPicker";
 import { Icon } from "../components/Icon";
 import { Resizer, usePaneWidth } from "../components/Resizer";
@@ -170,6 +170,8 @@ function Detail({ r }: { r: Row }) {
   const start = useAction("agents.start", { invalidate: inv });
   const removeAgent = useAction("agents.remove", { invalidate: inv });
   const [text, setText] = useState("");
+  const [files, setFiles] = useState<Attachment[]>([]);
+  const [picks, setPicks] = useState<Choice[]>([]);
   const actions = useBranchActions(r.projectId, () => {});
   const ov = useOverview(r.projectId);
   // Merging closes the worktree once done (`then`); `stay` leaves the main checkout where it is.
@@ -193,12 +195,17 @@ function Detail({ r }: { r: Row }) {
   // Maximized, the terminal card takes the whole detail pane.
   const [max, setMax] = useState(false);
   const busy = a?.status === "running" || a?.status === "paused";
-  const send = () => {
-    const t = text.trim();
-    if (!t) return;
-    const done = { onSuccess: () => setText("") };
-    if (a && !busy) msg.mutate({ id: a.id, text: t }, done);
-    else if (!a) start.mutate({ projectId: r.projectId, branch: r.wt?.branch ?? undefined, request: t, ...pick }, done);
+  const send = (up: Upload[], t: string) => {
+    if (!t && !up.length) return;
+    const done = {
+      onSuccess: () => {
+        setText("");
+        setFiles([]);
+        setPicks([]);
+      },
+    };
+    if (a && !busy) msg.mutate({ id: a.id, text: t, files: up }, done);
+    else if (!a) start.mutate({ projectId: r.projectId, branch: r.wt?.branch ?? undefined, request: t, files: up, ...pick }, done);
   };
   const [label, cls] = STATUS[r.status];
   return (
@@ -280,12 +287,16 @@ function Detail({ r }: { r: Row }) {
           <ShellPane projectId={r.projectId} path={r.wt ? r.path : undefined} />
         ) : (
           <>
-            <AgentLog lines={a?.lines ?? []} projectId={r.projectId} provider={a ? a.ai?.provider : pick.provider} thinking={a?.status === "running" || msg.isPending || start.isPending} actions={isWorktree && <FinishWorktreeCard session={session} finish={finish} />} onAnswer={a && ((t) => msg.mutate({ id: a.id, text: t }))} empty={r.wt ? "No agent session on this checkout." : "Directory removed."} />
+            <AgentLog lines={a?.lines ?? []} projectId={r.projectId} provider={a ? a.ai?.provider : pick.provider} thinking={a?.status === "running" || msg.isPending || start.isPending} actions={isWorktree && <FinishWorktreeCard session={session} finish={finish} />} picks={picks} onPicks={setPicks} empty={r.wt ? "No agent session on this checkout." : "Directory removed."} />
             <AgentInput
               id="wt-ask"
               label="Message the agent"
               value={text}
               onChange={setText}
+              files={files}
+              onFiles={setFiles}
+              picks={picks}
+              onPicks={setPicks}
               onSend={send}
               onStop={busy && a ? () => stop.mutate({ id: a.id }) : undefined}
               log={a?.lines}
