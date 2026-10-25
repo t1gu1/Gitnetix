@@ -11,6 +11,20 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+### Added
+- Selectable color themes beyond light and dark, with an Appearance pane in Settings showing swatches.
+- Attach files to a new agent session by button, paste or drop.
+- New worktrees clone their submodules at the branch's pinned commits.
+- Commit or discard uncommitted work before continuing on a branch.
+
+### Changed
+- The header toggle switches to the same theme's other mode when one exists, and the menu theme picker lists every theme.
+- Removing a worktree is refused when a submodule holds commits that are not on any remote, unless forced.
+- Codex and Copilot now receive the picked model and reasoning effort, and Gemini receives the model.
+
+### Fixed
+- Lettered question lists in agent replies are detected as answer groups when any list in the reply is a question.
+
 ## [0.7.1] - 2026-10-25
 
 ### Changed
