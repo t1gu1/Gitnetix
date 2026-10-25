@@ -10,7 +10,7 @@ export default function ReleasePage({ i }: { i: number }) {
     <div style={{ maxWidth: '1040px', margin: '0 auto', padding: '0 24px 120px' }}>
     <nav aria-label="Breadcrumb" style={{ padding: '28px 0 40px', fontSize: '14px', color: 'var(--faint)' }}><a className="faint" href={u()}>Gitnetix</a> <span aria-hidden="true">/</span> <a className="faint" href={u('releases/')}>Releases</a> <span aria-hidden="true">/</span> <span>v{r.version}</span></nav>
     <p style={{ margin: '0 0 16px', display: 'flex', flexWrap: 'wrap', gap: '6px 14px', alignItems: 'center', color: 'var(--muted)' }}>
-    <span className="mono" style={{ color: 'var(--release)', background: 'var(--chip)', padding: '2px 10px', borderRadius: '999px', fontSize: '14px' }}>v{r.version}</span>
+    <span className="mono" style={{ color: 'var(--accent-fg)', background: 'var(--accent-soft)', fontWeight: '600', padding: '2px 10px', borderRadius: '999px', fontSize: '14px' }}>v{r.version}</span>
     <span>Released <time dateTime={r.date}>{longDate(r.date)}</time></span>
     {i === 0 && <span style={{ fontSize: '12px', fontWeight: '600', color: 'var(--accent-ink)', background: 'var(--accent)', padding: '2px 10px', borderRadius: '999px' }}>Latest</span>}
     </p>

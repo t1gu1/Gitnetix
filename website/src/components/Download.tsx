@@ -15,7 +15,7 @@ export default function Download({ latest, notes }: Props) {
     <img src={u("icon-192.png")} alt="Gitnetix app icon" width="96" height="96" style={{ width: '96px', height: '96px', borderRadius: '22px', boxShadow: '0 20px 60px -20px rgba(240,164,58,.55)' }} />
     <h1 id="dl-h" style={{ margin: '0', fontSize: 'clamp(40px, 5.6vw, 68px)', lineHeight: '1.04', letterSpacing: '-0.035em' }}>Download Gitnetix</h1>
     <p style={{ margin: '0', color: 'var(--muted)', fontSize: '18px', display: 'flex', flexWrap: 'wrap', gap: '6px 14px', justifyContent: 'center', alignItems: 'center' }}>
-    <span className="mono" style={{ color: 'var(--release)', background: 'var(--chip)', padding: '2px 10px', borderRadius: '999px', fontSize: '14px' }}>v{latest.version}</span>
+    <span className="mono" style={{ color: 'var(--accent-fg)', background: 'var(--accent-soft)', fontWeight: '600', padding: '2px 10px', borderRadius: '999px', fontSize: '14px' }}>v{latest.version}</span>
     {notes && <span>Released <time dateTime={notes.date}>{longDate(notes.date)}</time></span>}
     {notes && <a className="dl-new" href={u(`releases/${notes.version}/`)} style={{ fontWeight: '600' }}>What's new →</a>}
     </p>

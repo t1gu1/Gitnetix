@@ -73,8 +73,8 @@ details[open] .chev{transform:rotate(45deg)}
 .tl::before{content:'';position:absolute;left:155px;top:0;bottom:0;width:2px;background:linear-gradient(transparent,var(--accent) 40px,var(--rail) 18%,var(--rail) 90%,transparent)}
 .tl .meta{position:relative;display:flex;flex-direction:column;align-items:flex-end;gap:4px;text-align:right}
 .tl .ver{line-height:28px}
-.node{position:absolute;right:-35px;top:7px;width:14px;height:14px;border-radius:4px;border:2px solid var(--release);background:var(--bg);box-sizing:border-box;transition:background-color .2s var(--ease),box-shadow .2s var(--ease)}
-.tl>li:hover .node:not(.on){background:var(--release)}
+.node{position:absolute;right:-35px;top:7px;width:14px;height:14px;border-radius:4px;border:2px solid var(--accent-fg);background:var(--bg);box-sizing:border-box;transition:background-color .2s var(--ease),box-shadow .2s var(--ease)}
+.tl>li:hover .node:not(.on){background:var(--accent-fg)}
 .node.on{border-color:var(--accent);background:var(--accent);box-shadow:var(--glow)}
 @media (max-width:760px){.tl::before,.node{display:none}.tl>li{grid-template-columns:minmax(0,1fr);row-gap:12px}.tl .meta{flex-direction:row;flex-wrap:wrap;align-items:center;gap:4px 12px;text-align:left}}
 /* Hero demo (HeroDemo.tsx): the app's Workspace, playable. Same class names as the app; each rule is a copy of the src/styles/app.css one, scoped to .hd. */

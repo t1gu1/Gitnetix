@@ -33,7 +33,7 @@ export default function Releases({ version }: { version: string }) {
     <li key={r.version} id={slug(r.version)}>
     <div className="meta">
     <span className={i === 0 ? 'node on' : 'node'} aria-hidden="true"></span>
-    <a href={u(`releases/${r.version}/`)} className="mono ver" style={{ fontSize: '20px', fontWeight: '500', color: 'var(--release)' }}>v{r.version}</a>
+    <a href={u(`releases/${r.version}/`)} className="mono ver" style={{ fontSize: '20px', fontWeight: '600', color: 'var(--accent-fg)', background: 'var(--accent-soft)', padding: '2px 10px', borderRadius: '999px' }}>v{r.version}</a>
     <time dateTime={r.date} style={{ fontSize: '14px', color: 'var(--faint)' }}>{shortDate(r.date)}</time>
     {i === 0 && <span style={{ fontSize: '12px', fontWeight: '600', color: 'var(--accent-ink)', background: 'var(--accent)', padding: '2px 10px', borderRadius: '999px' }}>Latest</span>}
     </div>
