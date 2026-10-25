@@ -662,6 +662,15 @@ fn is_trunk(name: &str) -> bool {
     DEV_TRUNKS.contains(&name) || matches!(name, "main" | "master")
 }
 
+/// Make `ticket` the branch's ticket, planned into the branch's release when it has one.
+fn link_ticket(p: &mut Project, branch: &str, ticket: &str) {
+    let meta = p.branches.entry(branch.to_string()).or_insert_with(|| BranchMeta { created_at: now(), ..Default::default() });
+    meta.ticket = Some(ticket.to_string());
+    if let Some(r) = meta.release.clone() {
+        p.ticket_releases.insert(ticket.to_string(), r);
+    }
+}
+
 /// A pair of commit counts per branch.
 type Counts = HashMap<String, (u32, u32)>;
 
@@ -3521,14 +3530,22 @@ impl Gitnetix {
     /// An agent on a branch always works in that branch's own worktree, made
     /// here if needed, so it keeps going while the main checkout moves on.
     /// Without a branch it runs on the main checkout.
-    pub async fn start_agent_on(&self, project_id: &str, branch: Option<String>, request: &str, pick: Route) -> Result<AgentSession> {
+    pub async fn start_agent_on(&self, project_id: &str, branch: Option<String>, request: &str, ticket: Option<String>, pick: Route) -> Result<AgentSession> {
         let p = self.store.project(project_id)?;
         let (cwd, b) = match branch {
             Some(b) => (self.agent_worktree(&p, &b).await?, Some(b)),
             None => (top_path(&p), None),
         };
         let wt = cwd != Path::new(&p.path);
-        self.start_agent(project_id, b.as_deref(), &cwd, wt, request, pick).await
+        let mut request = request.to_string();
+        if let Some(t) = ticket.as_deref().map(str::trim).filter(|t| !t.is_empty()) {
+            // Linked before the start, which loads the branch's ticket into the agent's context.
+            if let Some(b) = &b {
+                self.store.with_project(project_id, |p| Ok(link_ticket(p, b, t)))?;
+            }
+            request = format!("{request} (ticket {t})");
+        }
+        self.start_agent(project_id, b.as_deref(), &cwd, wt, &request, pick).await
     }
 
     async fn agent_worktree(&self, p: &Project, branch: &str) -> Result<PathBuf> {
@@ -4370,6 +4387,18 @@ mod tests {
         assert_eq!(fix_version_release(&["mauril-api v2.4.0".into()], &releases).as_deref(), Some("2.4.0"));
         assert_eq!(fix_version_release(&["api-2.3.0".into()], &releases).as_deref(), Some("2.3.0"));
         assert_eq!(fix_version_release(&["2.4.0-rc1".into()], &releases), None);
+    }
+
+    #[test]
+    fn link_ticket_sets_the_branch_ticket_and_plans_it() {
+        let mut p = Project::default();
+        p.branches.insert("feat/a".into(), BranchMeta { release: Some("1.2.0".into()), ticket: Some("OLD-1".into()), ..Default::default() });
+        link_ticket(&mut p, "feat/a", "ATL-7");
+        link_ticket(&mut p, "feat/untracked", "ATL-8");
+        assert_eq!(p.branches["feat/a"].ticket.as_deref(), Some("ATL-7"));
+        assert_eq!(p.ticket_releases.get("ATL-7").map(String::as_str), Some("1.2.0"));
+        assert_eq!(p.branches["feat/untracked"].ticket.as_deref(), Some("ATL-8"));
+        assert!(!p.ticket_releases.contains_key("ATL-8"));
     }
 
     #[test]

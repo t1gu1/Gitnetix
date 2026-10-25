@@ -54,7 +54,8 @@ export function Worktrees({ initial }: { initial?: string }) {
   const [sel, setSel] = useState<string | undefined>(initial);
   const [pane, setPane] = useState<"list" | "detail">(initial ? "detail" : "list");
   const listW = usePaneWidth("gnx.pane.worktrees", 400, 280, 720);
-  const [starting, setStarting] = useState(false);
+  // The project the new session modal opens on; undefined while it is closed.
+  const [starting, setStarting] = useState<string>();
 
   // One row per linked worktree; agents elsewhere (main checkout, removed directory) still show up.
   const rows: Row[] = useMemo(() => {
@@ -73,7 +74,12 @@ export function Worktrees({ initial }: { initial?: string }) {
   }, [wts.data, agents.data, projects]);
 
   const cur = rows.find((r) => r.key === sel) ?? rows[0];
-  const names = [...new Set([...projects.map((p) => p.name), ...rows.map((r) => r.projectName)])];
+  // Projects with matching rows first; the rest sink to the bottom as bare headers.
+  const groups = [...new Set([...projects.map((p) => p.name), ...rows.map((r) => r.projectName)])]
+    .map((name) => ({ name, id: projects.find((p) => p.name === name)?.id, items: rows.filter((r) => r.projectName === name && match(r.status, filter)) }))
+    .filter((g) => g.items.length || filter === "all")
+    .sort((a, b) => +!a.items.length - +!b.items.length);
+  const loading = wts.isLoading || agents.isLoading;
 
   return (
     <>
@@ -90,41 +96,49 @@ export function Worktrees({ initial }: { initial?: string }) {
                 value: f,
                 label: <>{{ all: "All", running: "Running", needs: "Needs you" }[f]} <span className="faint">{rows.filter((r) => match(r.status, f)).length}</span></>,
               }))}
-            />          </div>
+            />
+          </div>
           <div className="scroll" style={{ flex: "1 1 auto", paddingBottom: 12 }}>
-            {(wts.isLoading || agents.isLoading) && <Loading />}
-            {names.map((name) => {
-              const items = rows.filter((r) => r.projectName === name && match(r.status, filter));
-              const n = rows.filter((r) => r.projectName === name && r.wt && !r.wt.main).length;
-              return (
-                <div key={name}>
-                  <div className="group-head" style={{ padding: "22px 14px 6px" }}>
-                    <span>{name}</span>
-                    <span style={{ textTransform: "none", letterSpacing: 0, fontWeight: 400 }} className="faint">{n === 1 ? "1 worktree" : `${n} worktrees`}</span>
-                  </div>
-                  {!items.length && <p className="hint" style={{ padding: "0 14px 4px" }}>{{ all: "No worktree yet", running: "No agent running", needs: "Nothing waiting on you" }[filter]}</p>}
-                  <div className="col" style={{ gap: 2 }}>
-                    {items.map((r) => (
-                      <button key={r.key} className="item-btn" style={{ width: "100%", margin: 0, borderRadius: 0, padding: "10px 14px" }} aria-pressed={r.key === cur?.key} title={`${STATUS[r.status][0]} · ${r.path}`} onClick={() => { setSel(r.key); setPane("detail"); }}>
-                        <span className="row" style={{ gap: 8, fontSize: 11.5 }}>
-                          {r.status === "running" ? <span className="pulse" style={{ flex: "0 0 8px", width: 8, height: 8, borderRadius: 4 }} /> : <span className={STATUS[r.status][1]} style={{ flex: "0 0 8px", height: 8, borderRadius: 4, background: "currentColor" }} />}
-                          <span className="sr-only">{STATUS[r.status][0]}</span>
-                          <span className={`mono ellipsis grow${r.wt ? "" : " faint"}`} style={{ fontSize: 12.5 }}>{r.branch}</span>
-                          {r.wt && (r.wt.additions > 0 || r.wt.deletions > 0) && (
-                            <span className="mono"><span className="c-add">+{r.wt.additions}</span> <span className="c-del">−{r.wt.deletions}</span></span>
-                          )}
-                          {r.agent && <span className="faint">{ago(r.agent.updatedAt)}</span>}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
+            {loading && <Loading />}
+            {groups.map((g) => (
+              <div key={g.name} className="wt-group" data-empty={!g.items.length || undefined}>
+                <div className="wt-group-head">
+                  <span className="ellipsis grow">{g.name}</span>
+                  <span className="faint">{g.items.length || "No worktrees"}</span>
+                  {g.id && (
+                    <button className="btn btn-ghost btn-sm btn-icon" aria-label={`New agent session in ${g.name}`} data-tip="New agent session" onClick={() => setStarting(g.id)}>
+                      <Icon name="plus" size={12} />
+                    </button>
+                  )}
                 </div>
-              );
-            })}
-            {!wts.isLoading && names.length === 0 && <Empty>Nothing here right now.</Empty>}
+                {g.items.map((r) => {
+                  const [label, cls] = STATUS[r.status];
+                  const sub = !r.wt ? "Directory removed" : r.agent ? r.agent.request.split("\n")[0] : r.wt.base && `from ${r.wt.base}`;
+                  return (
+                    <button key={r.key} className="item-btn wt-row" aria-pressed={r.key === cur?.key} title={r.path} onClick={() => { setSel(r.key); setPane("detail"); }}>
+                      <span className="row" style={{ gap: 8 }}>
+                        <span className={`mono ellipsis grow${r.wt ? "" : " faint"}`}>{r.branch}</span>
+                        {r.wt && (r.wt.additions > 0 || r.wt.deletions > 0) && (
+                          <span className="mono wt-stat"><span className="c-add">+{r.wt.additions}</span> <span className="c-del">−{r.wt.deletions}</span></span>
+                        )}
+                      </span>
+                      <span className="row wt-meta">
+                        <span className={r.status === "running" ? "pulse" : `wt-dot ${cls}`} />
+                        <span className={cls} style={{ flex: "none" }}>{label}</span>
+                        {sub && <span className="faint">·</span>}
+                        <span className="faint ellipsis grow">{sub}</span>
+                        {r.agent && <span className="faint" style={{ flex: "none" }}>{ago(r.agent.updatedAt)}</span>}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            ))}
+            {!loading && !groups.some((g) => g.items.length) && filter !== "all" && <Empty>{filter === "running" ? "No agent running." : "Nothing waiting on you."}</Empty>}
+            {!loading && groups.length === 0 && filter === "all" && <Empty>Nothing here right now.</Empty>}
           </div>
           <div className="master-tools" style={{ borderBottom: 0, borderTop: "1px solid var(--line)" }}>
-            <button className="btn btn-primary" style={{ height: 48, fontSize: 13.5 }} disabled={!projects.length} onClick={() => setStarting(true)}>
+            <button className="btn btn-primary" style={{ height: 48, fontSize: 13.5 }} disabled={!projects.length} onClick={() => setStarting(nav.projectId ?? cur?.projectId ?? projects[0]?.id)}>
               <Icon name="sparkle" size={13} />
               New agent session
             </button>
@@ -139,7 +153,7 @@ export function Worktrees({ initial }: { initial?: string }) {
           {cur ? <Detail key={cur.key} r={cur} /> : <EmptyState icon="layers" title="No worktree selected">Pick one from the list, or start a new agent session to give a branch its own folder and agent.</EmptyState>}
         </main>
       </div>
-      {starting && <StartModal initial={cur?.projectId ?? nav.projectId ?? projects[0]?.id} onClose={() => setStarting(false)} />}
+      {starting && <StartModal initial={starting} onClose={() => setStarting(undefined)} />}
     </>
   );
 }
@@ -305,18 +319,24 @@ function StartModal({ initial, onClose }: { initial?: string; onClose: () => voi
   // Each session gets its own worktree (made by the backend if needed); the default branch is reserved.
   const [picked, setBranch] = useState("");
   // "new": branch off `from` into a fresh worktree; the default branch can be the base.
-  const [mode, setMode] = useState<"existing" | "new">("existing");
+  const [pickedMode, setMode] = useState<"existing" | "new">();
   const [pickedFrom, setFrom] = useState("");
   const [name, setName] = useState("");
   const [kind, setKind] = useState<Kind>("feat");
+  const [typedTicket, setTicket] = useState<string>();
   const [request, setRequest] = useState("");
   const [pick, setPick] = useAgentPick(pid);
   const ov = useOverview(pid).data;
   const all = (ov?.branches ?? []).filter((b) => b.exists);
   const branches = all.filter((b) => b.name !== ov?.defaultBranch);
   const branch = branches.find((b) => b.name === picked)?.name ?? branches[0]?.name ?? "";
-  const from = all.find((b) => b.name === pickedFrom)?.name ?? ov?.defaultBranch ?? "";
+  // Checked out on a trunk (main, master, dev) or release branch: offer a new branch off it.
+  const on = all.find((b) => b.name === ov?.currentBranch && b.role !== "branch");
+  const mode = pickedMode ?? (on || (ov && !branches.length) ? "new" : "existing");
+  const from = all.find((b) => b.name === pickedFrom)?.name ?? on?.name ?? ov?.defaultBranch ?? "";
   const fresh = mode === "new";
+  // An existing branch shows the ticket it already carries (linked, or a key in its name) until one is typed.
+  const ticket = typedTicket ?? (fresh ? "" : (branches.find((b) => b.name === branch)?.ticket ?? ""));
   const label = (b: { name: string; local: boolean }) => (b.local ? b.name : `${b.name} (origin)`);
   const start = useAction("agents.start", { invalidate: [["agents"], ["worktrees"]], success: "Agent started" });
   const create = useAction<{ branch: string }>("items.create", {
@@ -329,10 +349,10 @@ function StartModal({ initial, onClose }: { initial?: string; onClose: () => voi
     fresh
       ? create.mutate(
           // Empty name: the backend names the branch from the request.
-          { projectId: pid, from, kind: kindOfBranch(name) ?? kind, description: request, branchName: name.trim() || undefined, where: "worktree", startAgent: true, ...pick },
+          { projectId: pid, from, kind: kindOfBranch(name) ?? kind, description: request, branchName: name.trim() || undefined, ticket: ticket.trim() || undefined, where: "worktree", startAgent: true, ...pick },
           { onSuccess: onClose },
         )
-      : start.mutate({ projectId: pid, branch, request, ...pick }, { onSuccess: onClose });
+      : start.mutate({ projectId: pid, branch, request, ticket: ticket.trim() || undefined, ...pick }, { onSuccess: onClose });
   return (
     <Modal
       title="New agent session"
@@ -352,7 +372,7 @@ function StartModal({ initial, onClose }: { initial?: string; onClose: () => voi
       <div className="row" style={{ gap: 10, alignItems: "flex-start" }}>
         <div className="field grow">
           <span>Project</span>
-          <MenuChoice className="select menu-select" label="Project" value={pid} options={projects.map((p) => ({ value: p.id, label: p.name }))} onChange={(v) => { setPid(v); setBranch(""); setFrom(""); }} />
+          <MenuChoice className="select menu-select" label="Project" value={pid} options={projects.map((p) => ({ value: p.id, label: p.name }))} onChange={(v) => { setPid(v); setBranch(""); setFrom(""); setMode(undefined); setTicket(undefined); }} />
         </div>
         <div className="field grow">
           <span>{fresh ? "Branches off" : "Branch"}</span>
@@ -363,6 +383,11 @@ function StartModal({ initial, onClose }: { initial?: string; onClose: () => voi
             options={(fresh ? all : branches).map((b) => ({ value: b.name, label: label(b) }))}
             onChange={fresh ? setFrom : setBranch}
           />
+        </div>
+        {/* Linked to the branch: the agent gets the ticket's content from Jira, Trello or Asana. */}
+        <div className="field" style={{ flex: "0 1 140px", minWidth: 0 }}>
+          <label htmlFor="ag-ticket">Ticket <span className="faint" style={{ fontWeight: 400 }}>optional</span></label>
+          <input id="ag-ticket" className="input mono" placeholder="ATL-212" value={ticket} onChange={(e) => setTicket(e.target.value)} />
         </div>
       </div>
       {fresh && <Seg<Kind> grid cols={6} label="Type" value={kind} onChange={setKind} options={KINDS.map((k) => ({ value: k.id, label: k.label }))} />}

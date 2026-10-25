@@ -92,7 +92,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("worktrees.remove", "Remove a worktree", "projectId, path, force?"),
     ("agents.list", "Agent sessions", ""),
     ("agents.get", "One agent session with its log", "id"),
-    ("agents.start", "Start an agent on a branch (or main checkout)", "projectId, branch?, request, provider?, model?, effort?"),
+    ("agents.start", "Start an agent on a branch (or main checkout)", "projectId, branch?, request, ticket?, provider?, model?, effort?"),
     ("agents.message", "Send a follow-up message to an agent", "id, text"),
     ("agents.pause", "Pause an agent", "id"),
     ("agents.resume", "Resume an agent", "id"),
@@ -576,7 +576,7 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
         "agents.get" => to(k.agents.get(&s(&p, "id")?)?),
         "agents.start" => {
             let pick = Route { provider: os(&p, "provider"), model: os(&p, "model"), effort: os(&p, "effort") };
-            to(k.start_agent_on(&s(&p, "projectId")?, os(&p, "branch"), &s(&p, "request")?, pick).await?)
+            to(k.start_agent_on(&s(&p, "projectId")?, os(&p, "branch"), &s(&p, "request")?, os(&p, "ticket"), pick).await?)
         }
         "agents.configure" => {
             let pick = Route { provider: os(&p, "provider"), model: os(&p, "model"), effort: os(&p, "effort") };
