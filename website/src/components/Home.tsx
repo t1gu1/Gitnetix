@@ -1,6 +1,37 @@
 import type { ReactNode } from 'react';
 import faq from '../data/faq.json';
 import { REPO, releases, shortDate, longDate, plain, u } from '../lib/changelog';
+import { Icon } from '../../../src/components/Icon';
+import { Avatar, PathLine, type Path } from './HeroDemo';
+
+/** The orange path from main to the checked-out row in the "subway map" tree, measured once off the rendered rows like HeroDemo does. */
+const TREE_PATH: Path = { d: 'M6.5 6V127H12.5V214H18.5V239.5', len: 245.5, x: 18.5, top: 214, mid: 239.5, bottom: 265 };
+
+/** The "other Git clients" graph: one commit per row like a real log, seven lanes forking off and merging across each other. */
+const RAILS = ['#5b8def', '#e5534b', '#57ab5a', '#c69026', '#986ee2', '#39c5cf', '#e0823d'];
+const lane = (l: number) => 10 + l * 26;
+const row = (r: number) => 14 + r * 24;
+/** [lane, forked from lane, at row, merged into lane, at row] */
+const FORKS = [[1, 0, 1, 0, 15], [2, 1, 3, 1, 10], [3, 0, 2, 0, 12], [4, 2, 5, 0, 17], [5, 3, 4, 1, 14], [6, 0, 6, 4, 13]];
+/** Per row: [the commit's lane, message width %, ref label width px] */
+const COMMITS: [number, number, number?][] = [[0, 70, 38], [0, 88], [1, 62, 52], [3, 80, 44], [2, 55], [5, 74], [4, 92], [6, 58, 46], [1, 84], [2, 66], [3, 90], [5, 52], [0, 76], [4, 68], [1, 94], [0, 60, 34], [4, 82], [0, 72]];
+
+/** A static branch row, in HeroDemo's markup (from src/screens/BranchTree.tsx). */
+function TreeRow({ row, role, icon, author, name, tag, current, act, meta, ai }: { row: string; role: string; icon: string; author: string; name: string; tag?: string; current?: boolean; act: string; meta: ReactNode; ai?: boolean }) {
+  return (
+    <div className="tree-row" data-row={row} data-role={role} data-current={current || undefined}>
+      <span className="tree-btn">
+        <span className="tree-lead"><span className="tree-icon"><Icon name={icon} size={13} stroke={1.5} /></span><Avatar name={author} /></span>
+        <span className="tree-main">
+          <span className="tree-name"><span className="mono ellipsis">{name}</span>{tag && <span className="tag accent">{tag}</span>}</span>
+          <span className="branch-meta">{meta}</span>
+          {ai && <span className="branch-meta"><span className="row c-acc" style={{ gap: 4 }}><Icon name="layers" size={11} stroke={1.4} /><span className="ai-fade">AI working</span></span></span>}
+        </span>
+      </span>
+      <span className="tree-acts"><span className="acts"><span className="act act-main"><Icon name={act} size={14} /></span><span className="act-stack"><span className="act"><Icon name="plus" size={12} /></span><span className="act"><Icon name="more" size={13} /></span></span></span></span>
+    </div>
+  );
+}
 
 /** The landing page, ported from the "Gitnetix website" design canvas. */
 export default function Home({ version, demo }: { version: string; demo?: ReactNode }) {
@@ -53,55 +84,69 @@ export default function Home({ version, demo }: { version: string; demo?: ReactN
     {/* before */}
     <figure style={{ margin: '0', display: 'flex', flexDirection: 'column', gap: '14px' }}>
     <div style={{ fontSize: '13px', letterSpacing: '.14em', color: 'var(--faint)' }}>OTHER GIT CLIENTS</div>
-    <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: '14px', padding: '22px', height: '360px', boxSizing: 'border-box', display: 'flex', gap: '24px', overflow: 'hidden' }}>
-    <svg role="img" aria-label="A tangled commit graph with seven crossing colored rails" width="200" height="316" viewBox="90 135 200 360" style={{ flex: 'none', opacity: '.85' }}>
+    <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: '14px', padding: '22px', height: '480px', boxSizing: 'border-box', display: 'flex', gap: '24px', overflow: 'hidden' }}>
+    <svg role="img" aria-label="A tangled commit graph with seven crossing colored rails" width={lane(RAILS.length - 1) + 10} height={row(COMMITS.length) - 10} style={{ flex: 'none', opacity: '.85' }}>
     <g fill="none" strokeWidth="3" strokeLinecap="round">
-    <path d="M100 140 V490" stroke="#5b8def"></path>
-    <path d="M100 170 C130 185 130 195 130 215 V420 C130 440 100 445 100 460" stroke="#e5534b"></path>
-    <path d="M130 240 C160 255 160 265 160 285 V380 C160 395 130 400 130 410" stroke="#57ab5a"></path>
-    <path d="M100 200 C190 215 190 230 190 250 V340 C190 360 160 365 160 370" stroke="#c69026"></path>
-    <path d="M160 300 C220 310 220 320 220 330 V470 C220 480 100 482 100 488" stroke="#986ee2"></path>
-    <path d="M190 270 C250 280 250 290 250 300 V440 C250 455 130 450 130 430" stroke="#39c5cf"></path>
-    <path d="M100 320 C280 330 280 345 280 360 V400 C280 415 220 410 220 420" stroke="#e0823d"></path>
+    <path d={`M${lane(0)} 0V${row(COMMITS.length)}`} stroke={RAILS[0]}></path>
+    {FORKS.map(([l, from, at, into, end]) => <path key={l} d={`M${lane(from)} ${row(at)}C${lane(from)} ${row(at) + 12} ${lane(l)} ${row(at) + 12} ${lane(l)} ${row(at + 1)}V${row(end - 1)}C${lane(l)} ${row(end) - 12} ${lane(into)} ${row(end) - 12} ${lane(into)} ${row(end)}`} stroke={RAILS[l]}></path>)}
     </g>
-    <g fill="#15171a" strokeWidth="2.5">
-    <circle cx="100" cy="150" r="5" stroke="#5b8def"></circle><circle cx="100" cy="230" r="5" stroke="#5b8def"></circle><circle cx="100" cy="350" r="5" stroke="#5b8def"></circle><circle cx="100" cy="460" r="5" stroke="#5b8def"></circle>
-    <circle cx="130" cy="225" r="5" stroke="#e5534b"></circle><circle cx="130" cy="320" r="5" stroke="#e5534b"></circle><circle cx="160" cy="290" r="5" stroke="#57ab5a"></circle><circle cx="160" cy="350" r="5" stroke="#57ab5a"></circle>
-    <circle cx="190" cy="260" r="5" stroke="#c69026"></circle><circle cx="190" cy="310" r="5" stroke="#c69026"></circle><circle cx="220" cy="340" r="5" stroke="#986ee2"></circle><circle cx="220" cy="430" r="5" stroke="#986ee2"></circle>
-    <circle cx="250" cy="310" r="5" stroke="#39c5cf"></circle><circle cx="250" cy="400" r="5" stroke="#39c5cf"></circle><circle cx="280" cy="370" r="5" stroke="#e0823d"></circle>
+    <g fill="var(--panel)" strokeWidth="2.5">
+    {COMMITS.map(([l], r) => <circle key={r} cx={lane(l)} cy={row(r)} r="5" stroke={RAILS[l]}></circle>)}
     </g>
     </svg>
-    <div aria-hidden="true" style={{ flex: '1', display: 'flex', flexDirection: 'column', gap: '17px', paddingTop: '6px', minWidth: '0' }}>
-    <span style={{ height: '9px', width: '90%', borderRadius: '5px', background: 'var(--rail)' }}></span><span style={{ height: '9px', width: '70%', borderRadius: '5px', background: 'var(--rail)' }}></span><span style={{ height: '9px', width: '96%', borderRadius: '5px', background: 'var(--rail)' }}></span><span style={{ height: '9px', width: '60%', borderRadius: '5px', background: 'var(--rail)' }}></span><span style={{ height: '9px', width: '84%', borderRadius: '5px', background: 'var(--rail)' }}></span><span style={{ height: '9px', width: '75%', borderRadius: '5px', background: 'var(--rail)' }}></span><span style={{ height: '9px', width: '92%', borderRadius: '5px', background: 'var(--rail)' }}></span><span style={{ height: '9px', width: '66%', borderRadius: '5px', background: 'var(--rail)' }}></span><span style={{ height: '9px', width: '88%', borderRadius: '5px', background: 'var(--rail)' }}></span><span style={{ height: '9px', width: '58%', borderRadius: '5px', background: 'var(--rail)' }}></span><span style={{ height: '9px', width: '80%', borderRadius: '5px', background: 'var(--rail)' }}></span>
+    <div aria-hidden="true" style={{ flex: '1', display: 'flex', flexDirection: 'column', paddingTop: '2px', minWidth: '0' }}>
+    {COMMITS.map(([l, w, ref], r) => (
+    <div key={r} style={{ height: '24px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+    {ref && <span style={{ flex: 'none', width: `${ref}px`, height: '14px', boxSizing: 'border-box', borderRadius: '4px', border: `1px solid ${RAILS[l]}`, background: `color-mix(in srgb, ${RAILS[l]} 18%, transparent)` }}></span>}
+    <span style={{ flex: '0 1 auto', height: '9px', width: `${w}%`, minWidth: '24px', borderRadius: '5px', background: 'var(--rail)' }}></span>
+    <span style={{ flex: '0 1 30px', marginLeft: 'auto', height: '7px', borderRadius: '4px', background: 'var(--rail)', opacity: '.5' }}></span>
+    </div>
+    ))}
     </div>
     </div>
     <figcaption style={{ fontSize: '16px', color: 'var(--muted)' }}>Which branch is mine? What ships next? What's dead?</figcaption>
     </figure>
-    {/* after */}
+    {/* after: the app's branch pane, in HeroDemo's markup so its .hd rules (copies of src/styles/app.css) apply */}
     <figure style={{ margin: '0', display: 'flex', flexDirection: 'column', gap: '14px' }}>
     <div style={{ fontSize: '13px', letterSpacing: '.14em', color: 'var(--accent-fg)', fontWeight: '600' }}>GITNETIX</div>
-    <div className="ap" style={{ background: 'var(--panel)', border: '1px solid rgba(240,164,58,.35)', borderRadius: '14px', padding: '12px 10px 12px 4px', height: '360px', boxSizing: 'border-box', overflow: 'hidden', lineHeight: '1.35' }}>
-    <div className="tr">
-    <span className="pth v" aria-hidden="true" style={{ left: '6px', top: '6px', height: '78px' }}></span>
-    <span className="pth h" aria-hidden="true" style={{ left: '6px', top: '84px', width: '7px' }}></span>
-    <span className="pth v" aria-hidden="true" style={{ left: '12px', top: '84px', height: '46px' }}></span>
-    <span className="pth h" aria-hidden="true" style={{ left: '12px', top: '130px', width: '7px' }}></span>
-    <span className="pth v" aria-hidden="true" style={{ left: '18px', top: '130px', height: '22px' }}></span>
-    <span className="pth solid" aria-hidden="true" style={{ left: '18px', top: '130px', height: '44px' }}></span>
-    <span className="streak" aria-hidden="true"></span>
-    <div className="row"><span className="ic"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"><path d="M2.5 7.5L8 3l5.5 4.5V13h-11z"></path></svg></span><div className="mn"><div className="nm"><span className="mono trunk">main</span></div><div className="meta"><span className="av" style={{ background: '#8e44ad' }}>AM</span><span className="dul">all commits</span></div></div></div>
-    <div className="grp"><span className="chv"><svg aria-hidden="true" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M4 6l4 4 4-4"></path></svg></span><span className="lbl child">Child branches</span><span style={{ color: 'var(--faint)' }}>2</span></div>
-    <div className="kids">
-    <div className="row"><span className="ic" style={{ color: 'var(--release)' }}><svg aria-hidden="true" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"><path d="M2 2.5h5.5L14 9l-5 5-6.5-6.5z"></path><circle cx="5.3" cy="5.3" r="1"></circle></svg></span><div className="mn"><div className="nm"><span className="mono rel">v2.4.0</span><span className="tg">Next</span></div><div className="meta"><span className="mono">release/2.4.0</span><span style={{ color: 'var(--add)' }}>✓ 6 merged</span></div></div></div>
-    <div className="kids">
-    <div className="row cur"><span className="ic"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4"><path d="M5 3v10M11 6.5c0 3-3 3.5-6 4"></path><circle cx="5" cy="3" r="1.5"></circle><circle cx="5" cy="13" r="1.5"></circle><circle cx="11" cy="5" r="1.5"></circle></svg></span><div className="mn"><div className="nm"><span className="mono shine">feat/checkout-redesign</span></div><div className="meta"><span className="av" style={{ background: '#b7791f' }}>GH</span><span style={{ color: 'var(--warn)' }}>checked out</span><span className="dul">4 commits</span><span style={{ color: 'var(--add)' }}>you are here</span></div></div></div>
-    <div className="row"><span className="ic"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4"><path d="M5 3v10M11 6.5c0 3-3 3.5-6 4"></path><circle cx="5" cy="3" r="1.5"></circle><circle cx="5" cy="13" r="1.5"></circle><circle cx="11" cy="5" r="1.5"></circle></svg></span><div className="mn"><div className="nm"><span className="mono">fix/cart-total</span></div><div className="meta"><span className="av" style={{ background: '#2f7d6d' }}>JL</span><span style={{ display: 'flex', alignItems: 'center', gap: '5px', color: 'var(--add)' }}><span aria-hidden="true" style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--add)' }}></span>agent running</span></div></div></div>
+    <div className="ap hd" role="img" aria-label="The Gitnetix branch pane: main, a Merged into main group, the next release v2.4.0 with the checked-out feat/checkout-redesign and fix/cart-total where AI is working, and a Shipped group" style={{ background: 'var(--panel)', border: '1px solid rgba(240,164,58,.35)', borderRadius: '14px', height: '480px', boxSizing: 'border-box', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+    <div className="ws-releases" style={{ display: 'flex', flexDirection: 'column', flex: '1', minHeight: '0' }}>
+    <div className="pane-head">
+    <span className="label">Branches</span>
+    <span className="row"><span className="acts"><span className="act act-main"><Icon name="refresh" size={14} /></span><span className="act act-main act-text"><Icon name="plus" size={14} />Release</span></span></span>
     </div>
-    <div className="row"><span className="ic" style={{ color: 'var(--release)' }}><svg aria-hidden="true" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"><path d="M2 2.5h5.5L14 9l-5 5-6.5-6.5z"></path><circle cx="5.3" cy="5.3" r="1"></circle></svg></span><div className="mn"><div className="nm"><span className="mono rel">v2.3.1</span><span className="tg">Hotfix</span></div><div className="meta"><span className="mono">release/2.3.1</span><span className="dul">2 commits</span></div></div></div>
+    <div className="tree-filter">
+    <Icon name="search" size={12} className="faint" />
+    <span className="input" style={{ display: 'flex', alignItems: 'center', color: 'var(--faint)' }}>Filter branches</span>
+    <span className="btn btn-sm" style={{ flex: '0 0 auto' }}><span className="ellipsis">All</span><Icon name="chevronDown" size={10} /></span>
     </div>
-    <div className="grp"><span className="chv"><svg aria-hidden="true" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M6 4l4 4-4 4"></path></svg></span><span className="lbl behind">Branches falling behind</span><span style={{ color: 'var(--faint)' }}>3</span></div>
-    <div className="tsep" aria-hidden="true"></div>
-    <div className="grp"><span className="chv"><svg aria-hidden="true" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M6 4l4 4-4 4"></path></svg></span><span className="lbl shipped">Shipped</span><span style={{ color: 'var(--faint)' }}>5</span></div>
+    <div className="tree">
+    <PathLine p={TREE_PATH} />
+    <div className="tree-node">
+    <TreeRow row="main" role="trunk" icon="home" author="Ana Moreau" name="main" act="swap" meta={<span className="meta-link">all commits</span>} />
+    <div className="tree-sub">
+    <div className="tree-row tree-group tree-merged">
+    <span className="tree-merged-toggle"><span className="tree-twist"><Icon name="chevronDown" size={12} className="chev hd-shut" /></span><span className="group-label">Merged into main</span><span className="faint">3</span></span>
+    <span className="act act-main tree-cleanup"><Icon name="brush" size={14} /></span>
+    </div>
+    <div className="tree-row tree-group tree-toggle"><span className="tree-twist"><Icon name="chevronDown" size={12} className="chev" /></span><span className="child-label" data-active>Child branches</span><span className="faint">1</span></div>
+    <div className="tree-open"><div className="tree-kids">
+    <div className="tree-node">
+    <TreeRow row="v2.4.0" role="release" icon="tag" author="Ana Moreau" name="v2.4.0" tag="Next" act="ship" meta={<><span className="mono">release/2.4.0</span><span className="meta-link">6 commits</span></>} />
+    <div className="tree-sub">
+    <div className="tree-row tree-group tree-toggle"><span className="tree-twist"><Icon name="chevronDown" size={12} className="chev" /></span><span className="child-label" data-active>Child branches</span><span className="faint">2</span></div>
+    <div className="tree-open"><div className="tree-kids">
+    <div className="tree-node"><TreeRow row="feat" role="branch" icon="branch" author="Grace Hopper" name="checkout-redesign" current act="merged" meta={<><span className="kind-chip c-mod">feat</span><span className="c-current">checked out</span><span className="meta-link">4 commits</span></>} /></div>
+    <div className="tree-node"><TreeRow row="fix" role="branch" icon="branch" author="Jules Laurent" name="cart-total" act="swap" meta={<><span className="kind-chip c-del">fix</span><span className="meta-link">2 commits</span></>} ai /></div>
+    </div></div>
+    </div>
+    </div>
+    </div></div>
+    </div>
+    </div>
+    <div className="tree-sep" />
+    <div className="tree-row tree-group"><span className="tree-twist"><Icon name="chevronDown" size={12} className="chev hd-shut" /></span><span className="shipped-label">Shipped</span><span className="faint">5</span></div>
+    </div>
     </div>
     </div>
     <figcaption style={{ fontSize: '16px', color: 'var(--fg)' }}>Where you are, what ships next, what's done. At a glance.</figcaption>

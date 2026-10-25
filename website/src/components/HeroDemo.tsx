@@ -26,7 +26,7 @@ type Branch = {
   wt?: boolean;
 };
 /** The orange path from the trunk to the checked-out row, measured off the rendered tree. No `top`: that row is folded away. */
-type Path = { d: string; len: number; x: number; top?: number; mid: number; bottom: number };
+export type Path = { d: string; len: number; x: number; top?: number; mid: number; bottom: number };
 type Line = { kind: 'you' | 'steps' | 'ai' | 'wait' | 'err'; text: string };
 
 const ME = 'Grace Hopper';
@@ -82,7 +82,7 @@ function initials(name: string) {
   const w = name.trim().split(/\s+/);
   return (w.length > 1 ? w[0][0] + w[w.length - 1][0] : w[0].slice(0, 2)).toUpperCase();
 }
-function Avatar({ name, size = 16 }: { name: string; size?: number }) {
+export function Avatar({ name, size = 16 }: { name: string; size?: number }) {
   return (
     <span className="user-avatar" role="img" aria-label={name} title={name} style={{ width: size, height: size, fontSize: Math.round(size * 0.45), background: `hsl(${hue(name)} 45% 42%)` }}>
       {initials(name)}
@@ -316,7 +316,7 @@ function Diff({ mode }: { mode: 'split' | 'unified' | 'full' }) {
 }
 
 /** Dotted path, a solid stretch on the checked-out row, and a pulse that runs down it at the app's 90px/s and flares on arrival. */
-function PathLine({ p }: { p: Path }) {
+export function PathLine({ p }: { p: Path }) {
   const dur = Math.max(p.len, 1) / 90;
   const arrive = p.len / (p.len + 12);
   return (
