@@ -1,12 +1,14 @@
 import { REPO, u } from '../lib/changelog';
 
-export type Page = 'home' | 'releases' | 'download';
+export type Page = 'home' | 'releases' | 'download' | 'compare';
 
+/** [label, href, the page it marks as current] */
 const nav = [
   ['The tree', u('#tree')],
   ['Ship', u('#ship')],
   ['Agents', u('#agents')],
-  ['Releases', u('releases/')],
+  ['Releases', u('releases/'), 'releases'],
+  ['Compare', u('compare/'), 'compare'],
   ['FAQ', u('#faq')],
 ];
 
@@ -19,8 +21,8 @@ export default function Header({ page }: { page?: Page }) {
     <span>Gitnetix</span>
     </a>
     <div className="muted-links" style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 22px', fontSize: '15px', flex: '1 1 auto' }}>
-    {nav.map(([label, href]) => {
-      const on = label === 'Releases' && page === 'releases';
+    {nav.map(([label, href, key]) => {
+      const on = key !== undefined && key === page;
       return <a key={label} href={href} aria-current={on ? 'page' : undefined} style={on ? { color: 'var(--fg)', fontWeight: 600 } : undefined}>{label}</a>;
     })}
     </div>

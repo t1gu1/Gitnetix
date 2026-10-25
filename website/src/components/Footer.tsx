@@ -8,6 +8,7 @@ export default function Footer() {
     <nav aria-label="Footer" className="muted-links" style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 24px' }}>
     <a href={REPO}>GitHub</a>
     <a href={u('releases/')}>Changelog</a>
+    <a href={u('compare/')}>Compare</a>
     <a href={u('#faq')}>FAQ</a>
     <a href={u('download/')}>Download</a>
     <a href={u('releases.xml')}>RSS</a>

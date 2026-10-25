@@ -1,0 +1,26 @@
+---
+import Compare from '../components/Compare';
+import Base from '../layouts/Base.astro';
+---
+<Base title="Gitnetix vs GitKraken, Fork and Sourcetree: Git client comparison" description="Gitnetix, GitKraken, Fork and Sourcetree side by side: price, platforms, AI, agents, the release flow and everyday Git. What each one does well." page="compare">
+<Compare />
+</Base>
+
+<style is:global>
+/* Wide table: scrolls sideways on phones with the feature column pinned. */
+.cmp-scroll{overflow-x:auto;background:var(--panel);border:1px solid var(--line);border-radius:16px}
+/* Fixed layout: the four apps get equal columns, sized from the header row. */
+.cmp{width:100%;min-width:900px;table-layout:fixed;border-collapse:collapse;font-size:15px;line-height:1.45}
+.cmp :is(th,td){padding:14px 18px;text-align:left;vertical-align:top;border-top:1px solid var(--line)}
+.cmp thead :is(th,td){border-top:0;padding:21px 18px 19px;vertical-align:middle;font-size:18px;font-weight:600;letter-spacing:-.01em}
+.cmp thead td{width:22%}
+.cmp tbody th[scope=row]{font-weight:500}
+.cmp :is(thead th,td):nth-child(2){background:color-mix(in srgb,var(--accent) 6%,transparent)}
+.cmp thead th:nth-child(2){color:var(--accent-fg)}
+.cmp .grp th{padding:30px 18px 10px;font-size:12px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--faint)}
+.cmp tbody tr:not(.grp){transition:background-color .15s var(--ease)}
+.cmp tbody tr:not(.grp):hover{background:var(--raised)}
+.cmp :is(thead td,th[scope=row]){position:sticky;left:0;z-index:1;background:var(--panel)}
+.cmp tbody tr:hover th[scope=row]{background:var(--raised)}
+@media (max-width:760px){.cmp thead td{width:150px}}
+</style>
