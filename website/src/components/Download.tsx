@@ -17,7 +17,7 @@ export default function Download({ latest, notes }: Props) {
     <p style={{ margin: '0', color: 'var(--muted)', fontSize: '18px', display: 'flex', flexWrap: 'wrap', gap: '6px 14px', justifyContent: 'center', alignItems: 'center' }}>
     <span className="mono" style={{ color: 'var(--release)', background: 'var(--chip)', padding: '2px 10px', borderRadius: '999px', fontSize: '14px' }}>v{latest.version}</span>
     {notes && <span>Released <time dateTime={notes.date}>{longDate(notes.date)}</time></span>}
-    {notes && <a href={u(`releases/${notes.version}/`)} style={{ color: 'var(--accent-fg)', fontWeight: '600' }}>What's new →</a>}
+    {notes && <a className="dl-new" href={u(`releases/${notes.version}/`)} style={{ fontWeight: '600' }}>What's new →</a>}
     </p>
     </section>
 
@@ -37,7 +37,7 @@ export default function Download({ latest, notes }: Props) {
     </li>
     ))}
     </ul>
-    <p style={{ margin: '20px 0 0', textAlign: 'center', fontSize: '14px', color: 'var(--faint)' }}>Installed apps check for new releases on launch and update themselves. <a href={`${REPO}/releases`} style={{ color: 'var(--muted)', textDecoration: 'underline', textUnderlineOffset: '3px' }}>All releases on GitHub</a></p>
+    <p style={{ margin: '20px 0 0', textAlign: 'center', fontSize: '14px', color: 'var(--faint)' }}>Installed apps check for new releases on launch and update themselves. <a className="dl-all" href={`${REPO}/releases`} style={{ textDecoration: 'underline', textUnderlineOffset: '3px' }}>All releases on GitHub</a></p>
 
     <section aria-labelledby="mac-h" style={{ marginTop: '72px', display: 'flex', flexWrap: 'wrap', gap: '28px 56px', background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: '18px', padding: 'clamp(24px, 4vw, 44px)' }}>
     <div style={{ flex: '1 1 360px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
@@ -63,7 +63,7 @@ export default function Download({ latest, notes }: Props) {
     <h2 id="more-h" style={{ margin: '0 0 24px', fontSize: '32px', letterSpacing: '-0.02em' }}>Other ways to run it</h2>
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(340px, 100%), 1fr))', gap: '18px' }}>
     <article style={{ background: 'var(--panel)', border: '1px solid rgba(240,164,58,.45)', borderRadius: '16px', padding: '26px', display: 'flex', gap: '20px', alignItems: 'flex-start' }}>
-    <img src={u("phone.jpg")} alt="Gitnetix branch tree in a phone browser" width="640" height="1153" loading="lazy" style={{ width: '96px', height: 'auto', borderRadius: '14px', border: '2px solid var(--rail)', flex: 'none' }} />
+    <img src={u("phone.jpg")} alt="Gitnetix branch tree in a phone browser" width="640" height="1152" loading="lazy" style={{ width: '96px', height: 'auto', borderRadius: '14px', border: '2px solid var(--rail)', flex: 'none' }} />
     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
     <h3 style={{ margin: '0', fontSize: '20px' }}>On your phone</h3>
     <p style={{ margin: '0', color: 'var(--muted)', fontSize: '15px' }}>Nothing to install. In Settings › Companion &amp; MCP, allow devices on your network, then scan the QR code. Gitnetix opens in your phone's browser.</p>

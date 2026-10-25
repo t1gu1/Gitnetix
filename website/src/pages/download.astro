@@ -26,6 +26,16 @@ const jsonLd = [{
 .pf .sys{display:none}
 .pf.on .sys{display:inline}
 .pf.on .pbtn{background:var(--accent)!important;color:var(--accent-ink)!important;border-color:transparent!important}
+.pbtn{transition:background-color .18s var(--ease),border-color .18s var(--ease),transform .18s var(--ease),box-shadow .25s var(--ease),filter .18s var(--ease)}
+.pbtn:hover{background:var(--chip)!important;border-color:color-mix(in srgb,var(--line),var(--fg) 22%)!important}
+.pf.on .pbtn:hover{filter:brightness(1.06);transform:translateY(-1px);box-shadow:0 12px 34px -10px rgba(240,164,58,.75)}
+.pbtn:active,.pf.on .pbtn:active{transform:translateY(1px)}
+[data-copy]{cursor:pointer;transition:background-color .15s var(--ease)}
+[data-copy]:hover{background:#2e333a!important}
+/* Colours live here, not inline, so the global a:hover can still recolour them. */
+.dl-new{color:var(--accent-fg)}
+.dl-new:hover{text-decoration:underline;text-underline-offset:3px}
+.dl-all{color:var(--muted)}
 </style>
 
 <script>

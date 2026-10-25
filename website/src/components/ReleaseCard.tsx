@@ -47,7 +47,7 @@ export default function ReleaseCard({ r, latest, heading: H }: Props) {
       </div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 20px', fontSize: '14px' }}>
         <a href={`${REPO}/releases/tag/v${r.version}`} style={{ color: 'var(--accent-fg)', fontWeight: 600, display: 'flex', alignItems: 'center', minHeight: '32px' }}>Download v{r.version} →</a>
-        {H === 'h2' && <a href={page} style={{ color: 'var(--faint)', display: 'flex', alignItems: 'center', minHeight: '32px' }}>Release page</a>}
+        {H === 'h2' && <a className="faint" href={page} style={{ display: 'flex', alignItems: 'center', minHeight: '32px' }}>Release page</a>}
       </div>
     </article>
   );

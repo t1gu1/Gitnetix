@@ -5,6 +5,9 @@ html{scroll-behavior:smooth}
 body{margin:0;background:var(--bg);color:var(--fg);font-family:'Instrument Sans','Helvetica Neue',Arial,sans-serif;font-size:17px;line-height:1.55;overflow-x:hidden}
 a{color:var(--fg);text-decoration:none}
 a:hover{color:var(--accent-fg)}
+/* :where() keeps this below a:hover, so muted links still light up. */
+:where(.muted-links a,a.muted){color:var(--muted)}
+:where(a.faint){color:var(--faint)}
 a.btn-p:hover{color:var(--accent-ink);filter:brightness(1.06)}
 a:focus-visible,button:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:6px}
 code,.mono{font-family:'JetBrains Mono',Menlo,Consolas,monospace}
@@ -26,6 +29,9 @@ a.btn-s{transition:border-color .18s var(--ease),background-color .18s var(--eas
 a.btn-s:hover{color:var(--fg);border-color:color-mix(in srgb,var(--line),var(--fg) 22%)!important;background:var(--raised)!important}
 a.card-link{transition:border-color .2s var(--ease),transform .2s var(--ease),box-shadow .25s var(--ease)}
 a.card-link:hover{color:var(--fg);border-color:rgba(240,164,58,.5)!important;transform:translateY(-2px);box-shadow:0 18px 40px -22px rgba(240,164,58,.45)}
+/* Lift and press move the box; this strip past both edges keeps the pointer on it, so the hit zone stays put (no hover flicker, no lost clicks). */
+a:is(.btn-p,.btn-s,.card-link,.pbtn){position:relative}
+a:is(.btn-p,.btn-s,.card-link,.pbtn):is(:hover,:active)::before{content:"";position:absolute;inset:-3px 0}
 details summary:hover h3{color:var(--accent-fg)}
 details summary h3{transition:color .15s var(--ease)}
 .chev{transition:transform .2s var(--ease)}

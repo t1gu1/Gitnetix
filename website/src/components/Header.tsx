@@ -18,10 +18,10 @@ export default function Header({ page }: { page?: Page }) {
     <img src={u('favicon.png')} alt="" width="32" height="32" style={{ width: '32px', height: '32px', borderRadius: '8px' }} />
     <span>Gitnetix</span>
     </a>
-    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 22px', fontSize: '15px', flex: '1 1 auto' }}>
+    <div className="muted-links" style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 22px', fontSize: '15px', flex: '1 1 auto' }}>
     {nav.map(([label, href]) => {
       const on = label === 'Releases' && page === 'releases';
-      return <a key={label} href={href} aria-current={on ? 'page' : undefined} style={on ? { color: 'var(--fg)', fontWeight: 600 } : { color: 'var(--muted)' }}>{label}</a>;
+      return <a key={label} href={href} aria-current={on ? 'page' : undefined} style={on ? { color: 'var(--fg)', fontWeight: 600 } : undefined}>{label}</a>;
     })}
     </div>
     <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>

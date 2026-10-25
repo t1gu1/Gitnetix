@@ -7,7 +7,7 @@ export default function Releases({ version }: { version: string }) {
   const days = Math.round((Date.parse(releases[0].date) - Date.parse(releases[releases.length - 1].date)) / 864e5) + 1;
   return (
     <div style={{ maxWidth: '1240px', margin: '0 auto', padding: '0 24px 120px' }}>
-    <nav aria-label="Breadcrumb" style={{ paddingTop: '28px', fontSize: '14px', color: 'var(--faint)' }}><a href={u()} style={{ color: 'var(--faint)' }}>Gitnetix</a> <span aria-hidden="true">/</span> <span>Releases</span></nav>
+    <nav aria-label="Breadcrumb" style={{ paddingTop: '28px', fontSize: '14px', color: 'var(--faint)' }}><a className="faint" href={u()}>Gitnetix</a> <span aria-hidden="true">/</span> <span>Releases</span></nav>
 
     <section aria-labelledby="rel-h" style={{ padding: '56px 0 64px', display: 'flex', flexWrap: 'wrap', gap: '32px 64px', alignItems: 'flex-end', justifyContent: 'space-between' }}>
     <div style={{ flex: '1 1 560px', maxWidth: '760px' }}>
@@ -22,8 +22,8 @@ export default function Releases({ version }: { version: string }) {
     <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: '12px', padding: '14px' }}><dt style={{ fontSize: '12px', color: 'var(--faint)' }}>Latest</dt><dd className="mono" style={{ margin: '6px 0 0', fontSize: '18px', fontWeight: '500', color: 'var(--accent-fg)' }}>{latest.version}</dd></div>
     </dl>
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 18px', fontSize: '14px' }}>
-    <a href={u('releases.xml')} style={{ color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: '6px', minHeight: '32px' }}><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M4 11a9 9 0 0 1 9 9M4 4a16 16 0 0 1 16 16"></path><circle cx="5" cy="19" r="1.5"></circle></svg>Release feed</a>
-    <a href={`${REPO}/blob/main/CHANGELOG.md`} style={{ color: 'var(--muted)', display: 'flex', alignItems: 'center', minHeight: '32px' }}>CHANGELOG.md on GitHub</a>
+    <a className="muted" href={u('releases.xml')} style={{ display: 'flex', alignItems: 'center', gap: '6px', minHeight: '32px' }}><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M4 11a9 9 0 0 1 9 9M4 4a16 16 0 0 1 16 16"></path><circle cx="5" cy="19" r="1.5"></circle></svg>Release feed</a>
+    <a className="muted" href={`${REPO}/blob/main/CHANGELOG.md`} style={{ display: 'flex', alignItems: 'center', minHeight: '32px' }}>CHANGELOG.md on GitHub</a>
     </div>
     </div>
     </section>

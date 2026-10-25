@@ -12,7 +12,7 @@ export default function Home({ version, demo }: { version: string; demo?: ReactN
     {/* HERO */}
     <section aria-labelledby="hero-h" style={{ position: 'relative', padding: '88px 24px 40px', background: 'radial-gradient(900px 480px at 50% 0%, var(--accent-soft), transparent 70%)' }}>
     <div style={{ maxWidth: '1080px', margin: '0 auto', display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: '24px' }}>
-    <a href={u(`releases/${releases[0].version}/`)} style={{ display: 'inline-flex', alignItems: 'center', gap: '10px', fontSize: '14px', padding: '6px 14px 6px 6px', border: '1px solid var(--line)', borderRadius: '999px', background: 'var(--panel)', color: 'var(--muted)' }}>
+    <a className="btn-s muted" href={u(`releases/${releases[0].version}/`)} style={{ display: 'inline-flex', alignItems: 'center', gap: '10px', fontSize: '14px', padding: '6px 14px 6px 6px', border: '1px solid var(--line)', borderRadius: '999px', background: 'var(--panel)' }}>
     <span style={{ background: 'var(--accent-soft)', color: 'var(--accent-fg)', fontWeight: '600', padding: '2px 10px', borderRadius: '999px' }} className="mono">v{releases[0].version}</span>
     <span>{releases[0].title}</span>
     <span aria-hidden="true">→</span>
@@ -26,7 +26,7 @@ export default function Home({ version, demo }: { version: string; demo?: ReactN
     </a>
     <a className="btn-s" href={REPO} style={{ display: 'flex', alignItems: 'center', gap: '10px', fontWeight: '500', fontSize: '17px', padding: '15px 22px', borderRadius: '12px', border: '1px solid var(--line)', background: 'var(--panel)' }}>View on GitHub</a>
     </div>
-    <p style={{ margin: '0', fontSize: '14px', color: 'var(--faint)' }}><span data-dl-note>v{version} · Free for macOS, Windows and Linux</span> · <a href={u("download/")} style={{ color: 'var(--muted)', textDecoration: 'underline', textUnderlineOffset: '3px' }}>Other platforms</a></p>
+    <p style={{ margin: '0', fontSize: '14px', color: 'var(--faint)' }}><span data-dl-note>v{version} · Free for macOS, Windows and Linux</span> · <a className="muted" href={u("download/")} style={{ textDecoration: 'underline', textUnderlineOffset: '3px' }}>Other platforms</a></p>
     </div>
 
     {/* hero app window */}
@@ -224,7 +224,7 @@ export default function Home({ version, demo }: { version: string; demo?: ReactN
     <div style={{ flex: '1 1 260px', display: 'flex', justifyContent: 'center' }}>
     <figure style={{ margin: '0', display: 'flex', flexDirection: 'column', gap: '14px', alignItems: 'center' }}>
     <div style={{ position: 'relative', width: '264px', maxWidth: '100%', background: '#0b0c0e', border: '2px solid var(--rail)', borderRadius: '18px', padding: '10px', boxSizing: 'border-box', boxShadow: '0 30px 80px -30px rgba(0,0,0,.8), 0 0 50px -20px rgba(240,164,58,.45)' }}>
-    <img src={u("phone.jpg")} alt="Gitnetix on a phone browser: the branch tree with main, a merged-into-main group, the checked-out v0.4.2 hotfix release, a Shipped group, and Releases, Agents, PRs and Tickets tabs" width="640" height="1153" loading="lazy" style={{ display: 'block', width: '100%', height: 'auto', borderRadius: '9px' }} />
+    <img src={u("phone.jpg")} alt="Gitnetix on a phone browser: the branch tree with main, a merged-into-main group, the checked-out v0.7.0 next release, a Shipped group, and Releases, Agents, PRs and Tickets tabs" width="640" height="1152" loading="lazy" style={{ display: 'block', width: '100%', height: 'auto', borderRadius: '9px' }} />
     </div>
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--add)', background: 'var(--panel)', border: '1px solid var(--line)', padding: '4px 12px', borderRadius: '999px' }}><span aria-hidden="true" style={{ width: '7px', height: '7px', borderRadius: '50%', background: 'var(--add)' }}></span>Real screenshot · paired by QR code</span>
     </figure>
