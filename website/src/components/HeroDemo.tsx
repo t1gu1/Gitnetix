@@ -667,11 +667,13 @@ export default function HeroDemo() {
                   <button className="btn btn-sm" aria-label="Show 2 stashes" title="2 stashes set aside" onClick={() => flash('2 stashes set aside on feat/branch-tree')}>
                     <Icon name="stash" size={12} stroke={1.6} />2
                   </button>
-                  <button className="btn btn-sm btn-icon" aria-label="Fetch origin" onClick={() => flash('Fetched origin')}>
-                    <Icon name="refresh" size={12} />
-                  </button>
-                  <span className="btn btn-sm hide-sm" aria-hidden="true">
-                    <Icon name="plus" size={12} stroke={1.6} />Release
+                  <span className="acts">
+                    <button className="act act-main" aria-label="Fetch origin" onClick={() => flash('Fetched origin')}>
+                      <Icon name="refresh" size={14} />
+                    </button>
+                    <span className="act act-main act-text hide-sm" aria-hidden="true">
+                      <Icon name="plus" size={14} />Release
+                    </span>
                   </span>
                 </span>
               </div>

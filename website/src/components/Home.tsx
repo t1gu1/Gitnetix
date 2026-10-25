@@ -31,6 +31,7 @@ export default function Home({ version, demo }: { version: string; demo?: ReactN
 
     {/* hero app window */}
     <figure style={{ maxWidth: '1120px', margin: '64px auto 0', padding: '0' }}>
+    <p style={{ margin: '0 auto 16px', width: 'fit-content', maxWidth: '100%', boxSizing: 'border-box', fontSize: '13px', color: 'var(--muted)', background: 'var(--panel)', border: '1px solid var(--line)', padding: '6px 14px', borderRadius: '999px', textAlign: 'center' }}>Heads up: this web demo is very limited and a bit clunkier than the real app. Not every button works.</p>
     {demo}
     <figcaption style={{ textAlign: 'center', fontSize: '13px', color: 'var(--faint)', marginTop: '16px' }}>Try it: pick a branch, open a file, ask the agent, commit. Double-click a branch to check it out.</figcaption>
     </figure>
