@@ -188,15 +188,14 @@ function Choices({ qs, onAnswer }: { qs: Question[]; onAnswer: (text: string) =>
                 <span className="ellipsis">{o.label}</span>
               </button>
             ))}
-            {/* One Send for all questions, at the end of the last one. */}
-            {i === qs.length - 1 && (
-              <button type="button" className="btn btn-sm btn-primary" disabled={!ready} onClick={() => onAnswer(answer)}>
-                Send
-              </button>
-            )}
           </div>
         </div>
       ))}
+      {/* One Send for all questions, on its own line below them. */}
+      <button type="button" className="btn btn-lg btn-primary ag-q-send" disabled={!ready} onClick={() => onAnswer(answer)}>
+        <Icon name="send" size={18} />
+        Send my {qs.length === 1 ? "response" : "responses"}
+      </button>
     </>
   );
 }
