@@ -318,8 +318,12 @@ function base64(f: File) {
   });
 }
 
+/** `files` as `agents.message`, `agents.start` and `items.create` take them. */
+export const uploads = (files: Attachment[]) =>
+  Promise.all(files.map(async (f): Promise<Upload> => (typeof f === "string" ? { name: nameOf(f), path: f } : { name: f.name, data: await base64(f) })));
+
 /** A file sent, or about to be: images in hand show a thumbnail, others their icon. `onRemove` takes it off the message. */
-function FileChip({ file, onRemove }: { file: Attachment; onRemove?: () => void }) {
+export function FileChip({ file, onRemove }: { file: Attachment; onRemove?: () => void }) {
   const name = nameOf(file);
   const [url, setUrl] = useState<string>();
   useEffect(() => {
@@ -345,28 +349,10 @@ function FileChip({ file, onRemove }: { file: Attachment; onRemove?: () => void 
   );
 }
 
-/** The prompt box under an agent log, shared by the workspace terminal and the worktrees page.
- * Enter sends, Shift+Enter or Ctrl+Enter starts a new line. Files come from the clip, a paste, or a drop anywhere on the panel it sits in.
- * `picks` (options picked in the log) go first in the message, the text after them adds to it.
- * `onStop` (while the agent works) swaps Send for Stop; Up/Down on the first or last line walk your past messages in `log`. */
-export function AgentInput({ id, label, value, onChange, files, onFiles, picks, onPicks, onSend, onStop, log = [], placeholder, disabled, pending, picker }: { id: string; label: string; value: string; onChange: (v: string) => void; files: Attachment[]; onFiles: (f: Attachment[]) => void; picks: Choice[]; onPicks: (c: Choice[]) => void; onSend: (files: Upload[], text: string) => void; onStop?: () => void; log?: LogLine[]; placeholder: string; disabled: boolean; pending: boolean; picker?: ReactNode }) {
-  // Position in the history, and the unsent text it replaced.
-  const [at, setAt] = useState<number | null>(null);
-  const draft = useRef("");
-  const form = useRef<HTMLFormElement>(null);
-  const input = useRef<HTMLTextAreaElement>(null);
-  const chooser = useRef<HTMLInputElement>(null);
+/** Adds to `files` within the upload cap, from `add` or a drop on `target()`; `over` while files hover it. */
+export function useAttach(target: () => HTMLElement | null | undefined, files: Attachment[], onFiles: (f: Attachment[]) => void, disabled: boolean) {
   // Files are being dragged over the panel.
   const [over, setOver] = useState(false);
-  // Lines of text shown: Send stays square up to 3, where the picker stacks beside it.
-  const [lines, setLines] = useState(1);
-  const sent = blocks(log).flatMap((b) => (b.kind === "you" ? [b.text] : []));
-  const ready = !disabled && !pending && !onStop && (!!value.trim() || files.length > 0 || picks.length > 0);
-  // A pick lands in the box: type the details next, Enter sends.
-  useEffect(() => {
-    if (picks.length) input.current?.focus();
-  }, [picks]);
-
   const add = (more: Attachment[]) => {
     if (!more.length) return;
     const all = [...files, ...more];
@@ -378,12 +364,10 @@ export function AgentInput({ id, label, value, onChange, files, onFiles, picks, 
   addRef.current = add;
 
   useEffect(() => {
-    const panel = form.current?.parentElement;
+    const panel = target();
     if (!panel || disabled) return;
-    const inside = (p: { x: number; y: number }) => {
-      const r = panel.getBoundingClientRect();
-      return p.x >= r.left && p.x <= r.right && p.y >= r.top && p.y <= r.bottom;
-    };
+    // What is on top there: a modal over the panel takes its drops.
+    const inside = (p: { x: number; y: number }) => panel.contains(document.elementFromPoint(p.x, p.y));
     // In a browser: files dragged in from the desktop. The desktop window hands its drops to `onPathDrop` instead.
     const ac = new AbortController();
     const opts = { signal: ac.signal };
@@ -411,7 +395,30 @@ export function AgentInput({ id, label, value, onChange, files, onFiles, picks, 
       ac.abort();
       un();
     };
-  }, [disabled]);
+  }, [disabled]); // eslint-disable-line react-hooks/exhaustive-deps
+  return { over, add };
+}
+
+/** The prompt box under an agent log, shared by the workspace terminal and the worktrees page.
+ * Enter sends, Shift+Enter or Ctrl+Enter starts a new line. Files come from the clip, a paste, or a drop anywhere on the panel it sits in.
+ * `picks` (options picked in the log) go first in the message, the text after them adds to it.
+ * `onStop` (while the agent works) swaps Send for Stop; Up/Down on the first or last line walk your past messages in `log`. */
+export function AgentInput({ id, label, value, onChange, files, onFiles, picks, onPicks, onSend, onStop, log = [], placeholder, disabled, pending, picker }: { id: string; label: string; value: string; onChange: (v: string) => void; files: Attachment[]; onFiles: (f: Attachment[]) => void; picks: Choice[]; onPicks: (c: Choice[]) => void; onSend: (files: Upload[], text: string) => void; onStop?: () => void; log?: LogLine[]; placeholder: string; disabled: boolean; pending: boolean; picker?: ReactNode }) {
+  // Position in the history, and the unsent text it replaced.
+  const [at, setAt] = useState<number | null>(null);
+  const draft = useRef("");
+  const form = useRef<HTMLFormElement>(null);
+  const input = useRef<HTMLTextAreaElement>(null);
+  const chooser = useRef<HTMLInputElement>(null);
+  const { over, add } = useAttach(() => form.current?.parentElement, files, onFiles, disabled);
+  // Lines of text shown: Send stays square up to 3, where the picker stacks beside it.
+  const [lines, setLines] = useState(1);
+  const sent = blocks(log).flatMap((b) => (b.kind === "you" ? [b.text] : []));
+  const ready = !disabled && !pending && !onStop && (!!value.trim() || files.length > 0 || picks.length > 0);
+  // A pick lands in the box: type the details next, Enter sends.
+  useEffect(() => {
+    if (picks.length) input.current?.focus();
+  }, [picks]);
 
   useLayoutEffect(() => {
     const el = input.current;
@@ -461,7 +468,7 @@ export function AgentInput({ id, label, value, onChange, files, onFiles, picks, 
         if (!ready) return;
         setAt(null);
         const text = [picks.map(choiceText).join("\n"), value.trim()].filter(Boolean).join("\n\n");
-        onSend(await Promise.all(files.map(async (f) => (typeof f === "string" ? { name: nameOf(f), path: f } : { name: f.name, data: await base64(f) }))), text);
+        onSend(await uploads(files), text);
       }}
     >
       {picks.length + files.length > 0 && (

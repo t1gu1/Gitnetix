@@ -3636,6 +3636,13 @@ button.picker-act {
 .ag-drop > svg {
   color: var(--accent);
 }
+/* The new agent session modal takes drops anywhere on it. */
+.modal:has(.ag-drop) {
+  position: relative;
+}
+.modal .ag-drop {
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+}
 /* From 3 lines, provider, model and effort stack beside Send. */
 @media (min-width: 901px) {
   .term-input-tall .picker-acts {

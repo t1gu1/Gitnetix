@@ -273,6 +273,8 @@ pub struct NewItem {
     /// Provider, model and effort for the agent when `start_agent`.
     #[serde(flatten)]
     pub pick: Route,
+    /// Files sent with the agent's first message when `start_agent`.
+    pub files: Vec<Attachment>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -415,7 +417,7 @@ const TICKET_FILE: &str = "gitnetix-ticket.md";
 const ATTACH_DIR: &str = "gitnetix-attachments";
 
 /// A file sent with an agent message: its contents in base64, or a path on this machine (dropped on the desktop app).
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct Attachment {
     pub name: String,
     #[serde(default)]
@@ -2654,6 +2656,7 @@ impl Gitnetix {
             if let Some(t) = req.ticket.as_ref().filter(|t| !t.is_empty()) {
                 request = format!("{request} (ticket {t})");
             }
+            let request = attach(&cwd, &request, &req.files).await?;
             let s = self.start_agent(project_id, Some(&branch), &cwd, worktree.is_some(), &request, req.pick.clone()).await?;
             agent_session = Some(s.id);
         }

@@ -1,8 +1,8 @@
-import { useMemo, useState, type CSSProperties } from "react";
+import { useMemo, useRef, useState, type CSSProperties } from "react";
 
 import { useAction, useAgents, useFiles, useOverview, useProjects, useWorktrees } from "../api/hooks";
 import type { AgentSession, AgentStatus, WorktreeView } from "../api/types";
-import { AgentInput, AgentLog, type Attachment, type Choice, type Upload } from "../components/AgentLog";
+import { AgentInput, AgentLog, FileChip, uploads, useAttach, type Attachment, type Choice, type Upload } from "../components/AgentLog";
 import { AgentPicker, MenuChoice, useAgentPick } from "../components/AgentPicker";
 import { Icon } from "../components/Icon";
 import { Resizer, usePaneWidth } from "../components/Resizer";
@@ -336,6 +336,11 @@ function StartModal({ initial, onClose }: { initial?: string; onClose: () => voi
   const [kind, setKind] = useState<Kind>("feat");
   const [typedTicket, setTicket] = useState<string>();
   const [request, setRequest] = useState("");
+  // Files for the agent, like in its prompt box: picked, pasted, or dropped anywhere on the modal.
+  const [files, setFiles] = useState<Attachment[]>([]);
+  const field = useRef<HTMLDivElement>(null);
+  const chooser = useRef<HTMLInputElement>(null);
+  const { over, add } = useAttach(() => field.current?.closest<HTMLElement>(".modal"), files, setFiles, false);
   const [pick, setPick] = useAgentPick(pid);
   const ov = useOverview(pid).data;
   const all = (ov?.branches ?? []).filter((b) => b.exists);
@@ -356,14 +361,16 @@ function StartModal({ initial, onClose }: { initial?: string; onClose: () => voi
   });
   const busy = start.isPending || create.isPending;
   const ready = !!pid && !!(fresh ? from : branch) && !!request.trim() && !busy;
-  const go = () =>
-    fresh
-      ? create.mutate(
-          // Empty name: the backend names the branch from the request.
-          { projectId: pid, from, kind: kindOfBranch(name) ?? kind, description: request, branchName: name.trim() || undefined, ticket: ticket.trim() || undefined, where: "worktree", startAgent: true, ...pick },
-          { onSuccess: onClose },
-        )
-      : start.mutate({ projectId: pid, branch, request, ticket: ticket.trim() || undefined, ...pick }, { onSuccess: onClose });
+  const go = async () => {
+    const up = await uploads(files);
+    if (fresh)
+      create.mutate(
+        // Empty name: the backend names the branch from the request.
+        { projectId: pid, from, kind: kindOfBranch(name) ?? kind, description: request, branchName: name.trim() || undefined, ticket: ticket.trim() || undefined, where: "worktree", startAgent: true, files: up, ...pick },
+        { onSuccess: onClose },
+      );
+    else start.mutate({ projectId: pid, branch, request, ticket: ticket.trim() || undefined, files: up, ...pick }, { onSuccess: onClose });
+  };
   return (
     <Modal
       title="New agent session"
@@ -423,7 +430,7 @@ function StartModal({ initial, onClose }: { initial?: string; onClose: () => voi
         <span>Agent</span>
         <AgentPicker value={pick} onChange={setPick} />
       </div>
-      <div className="field">
+      <div ref={field} className="field">
         <label htmlFor="ag-req">What should the agent do?</label>
         <textarea
           id="ag-req"
@@ -432,10 +439,46 @@ function StartModal({ initial, onClose }: { initial?: string; onClose: () => voi
           value={request}
           onChange={(e) => setRequest(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && ready) go(); }}
+          onPaste={(e) => {
+            // Screenshots and copied images attach instead of pasting nothing.
+            const pasted = [...e.clipboardData.files];
+            if (!pasted.length) return;
+            e.preventDefault();
+            add(pasted);
+          }}
           autoFocus
         />
-        <span className="hint">⌘↵ to start</span>
+        {files.length > 0 && (
+          <div className="ag-files">
+            {files.map((f, i) => (
+              <FileChip key={i} file={f} onRemove={() => setFiles(files.filter((_, j) => j !== i))} />
+            ))}
+          </div>
+        )}
+        <div className="row" style={{ justifyContent: "space-between" }}>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => chooser.current?.click()}>
+            <Icon name="attach" size={12} />
+            Attach files
+          </button>
+          <span className="hint">⌘↵ to start · drop files to attach</span>
+        </div>
+        <input
+          ref={chooser}
+          type="file"
+          multiple
+          hidden
+          onChange={(e) => {
+            add([...(e.target.files ?? [])]);
+            e.target.value = "";
+          }}
+        />
       </div>
+      {over && (
+        <div className="ag-drop" aria-hidden="true">
+          <Icon name="attach" size={18} />
+          Drop to attach
+        </div>
+      )}
     </Modal>
   );
 }
