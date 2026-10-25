@@ -56,7 +56,7 @@ pub fn catalog() -> Vec<ProviderInfo> {
         },
         ProviderInfo {
             id: "codex", name: "Codex", mono: "CX", maker: "OpenAI", bin: Some("codex"),
-            methods: vec!["cli", "api"], effort: false, local: false, needs_url: false, models: vec![],
+            methods: vec!["cli", "api"], effort: true, local: false, needs_url: false, models: vec![],
         },
         ProviderInfo {
             id: "gemini", name: "Gemini", mono: "GM", maker: "Google", bin: Some("gemini"),
@@ -64,7 +64,7 @@ pub fn catalog() -> Vec<ProviderInfo> {
         },
         ProviderInfo {
             id: "copilot", name: "GitHub Copilot", mono: "CP", maker: "GitHub", bin: Some("copilot"),
-            methods: vec!["cli"], effort: false, local: false, needs_url: false, models: vec![],
+            methods: vec!["cli"], effort: true, local: false, needs_url: false, models: vec![],
         },
         ProviderInfo {
             id: "mistral", name: "Mistral", mono: "MI", maker: "Mistral AI", bin: None,
@@ -102,7 +102,7 @@ impl Resolved {
             .ok()
             .and_then(|p| p.models.into_iter().find(|m| m.id == self.model).map(|m| m.label))
             .unwrap_or_else(|| if self.model.is_empty() { "default model".into() } else { self.model.clone() });
-        format!("{model} · {}", self.effort)
+        if self.effort.is_empty() { model } else { format!("{model} · {}", self.effort) }
     }
 }
 
@@ -175,12 +175,18 @@ async fn complete_cli(r: &Resolved, prompt: &str, cwd: Option<&Path>) -> Result<
             if !r.model.is_empty() {
                 cmd.args(["--model", &r.model]);
             }
+            if !r.effort.is_empty() {
+                cmd.args(["--effort", &r.effort]);
+            }
             true
         }
         "codex" => {
             cmd.args(["exec", "--skip-git-repo-check"]);
             if !r.model.is_empty() {
                 cmd.args(["-m", &r.model]);
+            }
+            if !r.effort.is_empty() {
+                cmd.args(["-c", &format!("model_reasoning_effort={}", r.effort)]);
             }
             cmd.arg("-");
             true
@@ -198,6 +204,12 @@ async fn complete_cli(r: &Resolved, prompt: &str, cwd: Option<&Path>) -> Result<
             false
         }
         "copilot" => {
+            if !r.model.is_empty() {
+                cmd.args(["--model", &r.model]);
+            }
+            if !r.effort.is_empty() {
+                cmd.args(["--reasoning-effort", &r.effort]);
+            }
             cmd.args(["-p", prompt]);
             false
         }
@@ -289,9 +301,14 @@ async fn openai_compat(base: &str, key: &str, r: &Resolved, prompt: &str) -> Res
     if r.model.is_empty() {
         return Err(Error::Invalid("Pick a model id for this provider in AI setup".into()));
     }
+    let mut body = json!({ "model": r.model, "messages": [{ "role": "user", "content": prompt }] });
+    // Only for providers with an effort setting: routing keeps the old effort when a task moves to another provider.
+    if !r.effort.is_empty() && provider_info(&r.provider).is_ok_and(|p| p.effort) {
+        body["reasoning_effort"] = json!(r.effort);
+    }
     let res = http(reqwest::Method::POST, format!("{base}/chat/completions"))
         .bearer_auth(key)
-        .json(&json!({ "model": r.model, "messages": [{ "role": "user", "content": prompt }] }))
+        .json(&body)
         .send()
         .await?;
     let status = res.status();

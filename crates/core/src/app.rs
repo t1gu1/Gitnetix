@@ -3513,16 +3513,21 @@ impl Gitnetix {
         self.shells.open(path, cols, rows)
     }
 
-    /// `pick` overrides the "agent" routing when it names a provider.
+    /// `pick` overrides the "agent" routing when it names a provider; its empty
+    /// fields fall back to the template's model and the provider's setup.
+    fn agent_ai(&self, t: &Template, pick: Route) -> Result<Resolved> {
+        if pick.provider.as_deref().is_some_and(|s| !s.is_empty()) {
+            let tm = if pick.model.as_deref().is_some_and(|s| !s.is_empty()) { None } else { t.model.as_deref() };
+            self.store.read(|c| ai::resolve_route(&c.ai, pick, tm))
+        } else {
+            self.route("agent", Some(t))
+        }
+    }
+
     pub async fn start_agent(&self, project_id: &str, branch: Option<&str>, cwd: &Path, worktree: bool, request: &str, pick: Route) -> Result<AgentSession> {
         let p = self.store.project(project_id)?;
         let t = self.template("agent", None, Some(&p.id))?;
-        let r = if pick.provider.as_deref().is_some_and(|s| !s.is_empty()) {
-            let tm = if pick.model.as_deref().is_some_and(|s| !s.is_empty()) { None } else { t.model.as_deref() };
-            self.store.read(|c| ai::resolve_route(&c.ai, pick, tm))?
-        } else {
-            self.route("agent", Some(&t))?
-        };
+        let r = self.agent_ai(&t, pick)?;
         let branch = match branch {
             Some(b) => b.to_string(),
             None => Git::new(cwd).current_branch().await?.unwrap_or_else(|| "HEAD".into()),
@@ -3630,17 +3635,13 @@ impl Gitnetix {
         self.agents.message(id, &text, &r)
     }
 
-    /// Applies from the next message on. A different provider is resolved
-    /// like a new session's pick.
+    /// Applies from the next message on. Resolved like a new session's pick,
+    /// so "Default" model or effort means the same in both.
     pub fn agent_configure(&self, id: &str, pick: Route) -> Result<AgentSession> {
-        let cur = match self.agents.get(id)?.ai {
-            Some(r) => r,
-            None => self.route("agent", None)?,
-        };
-        let r = match pick.provider.as_deref().filter(|p| !p.is_empty() && *p != cur.provider) {
-            Some(_) => self.store.read(|c| ai::resolve_route(&c.ai, pick, None))?,
-            None => Resolved { model: pick.model.unwrap_or_default(), effort: pick.effort.unwrap_or_default(), ..cur },
-        };
+        let s = self.agents.get(id)?;
+        let t = self.template("agent", None, Some(&s.project_id))?;
+        let provider = pick.provider.clone().filter(|p| !p.is_empty()).or(s.ai.map(|r| r.provider));
+        let r = self.agent_ai(&t, Route { provider, ..pick })?;
         self.agents.set_ai(id, r)
     }
 
@@ -4456,6 +4457,20 @@ mod tests {
         assert_eq!(req.pick.provider.as_deref(), Some("codex"));
         assert_eq!(req.pick.effort.as_deref(), Some("high"));
         assert!(req.pick.model.is_none());
+    }
+
+    #[tokio::test]
+    async fn agent_default_effort_is_the_providers() {
+        let tmp = tempfile::tempdir().unwrap();
+        let ai = serde_json::json!({ "provider": "claude", "method": "cli", "model": "claude-opus-5-5", "effort": "xhigh", "baseUrl": null });
+        let s = serde_json::json!([{ "id": "a", "projectId": "p", "branch": "b", "cwd": ".", "worktree": false, "status": "waiting", "request": "r", "agentLabel": "", "lines": [], "startedAt": "", "updatedAt": "", "resumeId": null, "ai": ai }]);
+        std::fs::write(tmp.path().join("agents.json"), s.to_string()).unwrap();
+        let k = Gitnetix::open(tmp.path()).unwrap();
+        let pick = |m: &str, e: &str| Route { provider: Some("claude".into()), model: Some(m.into()), effort: Some(e.into()) };
+        // "Default effort" on a running session means the provider's setup, as on a new session.
+        let r = k.agent_configure("a", pick("claude-opus-5-5", "")).unwrap().ai.unwrap();
+        assert_eq!((r.model.as_str(), r.effort.as_str()), ("claude-opus-5-5", "medium"));
+        assert_eq!(k.agent_configure("a", pick("", "max")).unwrap().ai.unwrap().effort, "max");
     }
 
     #[test]

@@ -5,7 +5,7 @@ import { useStored } from "../lib/stored";
 import { ContextMenu } from "./ContextMenu";
 import { Icon } from "./Icon";
 
-export const EFFORTS = ["low", "medium", "high", "xhigh"];
+export const EFFORTS = ["low", "medium", "high", "xhigh", "max"];
 
 /** Provider, model and effort for a new agent session. Empty = the "Free-form agent" routing. */
 export type AgentPick = { provider?: string; model?: string; effort?: string };

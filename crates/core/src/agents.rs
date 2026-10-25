@@ -319,13 +319,29 @@ impl AgentManager {
                 }
             }
             "codex" => {
-                cmd.args(["exec", "--dangerously-bypass-approvals-and-sandbox", "-"]);
+                cmd.args(["exec", "--dangerously-bypass-approvals-and-sandbox"]);
+                if !r.model.is_empty() {
+                    cmd.args(["-m", &r.model]);
+                }
+                if !r.effort.is_empty() {
+                    cmd.args(["-c", &format!("model_reasoning_effort={}", r.effort)]);
+                }
+                cmd.arg("-");
             }
             "gemini" => {
+                if !r.model.is_empty() {
+                    cmd.args(["-m", &r.model]);
+                }
                 cmd.args(["--yolo", "-p", prompt]);
                 stdin_prompt = false;
             }
             "copilot" => {
+                if !r.model.is_empty() {
+                    cmd.args(["--model", &r.model]);
+                }
+                if !r.effort.is_empty() {
+                    cmd.args(["--reasoning-effort", &r.effort]);
+                }
                 cmd.args(["--allow-all-tools", "-p", prompt]);
                 stdin_prompt = false;
             }
