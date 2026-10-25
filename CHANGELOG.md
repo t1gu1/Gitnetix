@@ -11,6 +11,8 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-25
+
 ### Added
 - Ctrl+Enter (⌘+Enter on macOS) in the commit summary or description commits.
 - Settings › Animations has three more switches: Page fade, List entrances and Dialog pop.
