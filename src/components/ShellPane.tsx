@@ -6,11 +6,13 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal, type ITheme } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 
-import { openExternal, rpc, subscribe } from "../api/transport";
+import { isLocal, openExternal, rpc, subscribe } from "../api/transport";
 import type { GitnetixEvent, ShellSnapshot } from "../api/types";
 import { Icon } from "./Icon";
 
 const MAC = /Mac|iPhone|iPad/.test(navigator.userAgent);
+// WebKitGTK without its DMA-BUF renderer (main.rs turns it off) copies each WebGL frame back through the CPU: typing lags.
+const WEBGL = !(isLocal && /Linux/.test(navigator.userAgent));
 const FIND: ISearchOptions = {
   decorations: { matchBackground: "#f0a43a33", activeMatchBackground: "#f0a43a99", matchOverviewRuler: "#f0a43a66", activeMatchColorOverviewRuler: "#f0a43a" },
 };
@@ -157,9 +159,11 @@ export default function ShellPane({ projectId, path }: { projectId: string; path
       if (dead) return;
       term.open(el);
       try {
-        const gl = new WebglAddon();
-        gl.onContextLoss(() => gl.dispose());
-        term.loadAddon(gl);
+        if (WEBGL) {
+          const gl = new WebglAddon();
+          gl.onContextLoss(() => gl.dispose());
+          term.loadAddon(gl);
+        }
       } catch {
         /* no WebGL: xterm's DOM renderer */
       }
