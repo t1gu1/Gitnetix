@@ -1816,7 +1816,7 @@ function Terminal({ pid, branch, cwd, open, setOpen, onCloseWorktree, finish }: 
             <button className="btn btn-ghost" style={{ width: 36, height: "auto", border: 0, borderLeft: "1px solid var(--line)", borderRadius: 0 }} aria-label={max ? "Restore terminal size" : "Expand terminal"} aria-pressed={max} data-tip={max ? "Restore" : "Expand"} onClick={() => setMax(!max)}>
               <Icon name={max ? "minimize" : "maximize"} size={13} />
             </button>
-            <button className="btn btn-ghost" style={{ width: 36, height: "auto", border: 0, borderLeft: "1px solid var(--line)", borderRadius: 0 }} aria-label="Collapse agents" onClick={() => setOpen(false)}>
+            <button className="btn btn-ghost term-collapse" style={{ width: 36, height: "auto", border: 0, borderLeft: "1px solid var(--line)", borderRadius: 0 }} aria-label="Collapse agents" onClick={() => setOpen(false)}>
               <Icon name="chevronDown" size={13} />
             </button>
           </div>

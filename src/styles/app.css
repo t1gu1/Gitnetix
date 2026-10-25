@@ -3040,12 +3040,18 @@ input.img-slider {
   overflow-x: auto;
   scrollbar-width: none;
 }
-/* The whole bar toggles the panel, so it highlights as one. */
-.term-bar:hover {
+/* The whole closed bar opens the panel, so it highlights as one. */
+button.term-bar:hover {
   background: var(--raised) !important;
 }
-.term-bar .btn-ghost:hover:not(:disabled) {
-  background: transparent;
+/* Open, the bar's empty parts collapse it: hovering them fades the bar in toward the collapse button. */
+.term-bar:hover:not(:has(button:hover, select:hover, input:hover)) > .term-side:last-child {
+  /* 72px: the expand and collapse buttons at its end; expand stays unlit. */
+  background: linear-gradient(to right, transparent 50%, color-mix(in srgb, var(--raised) 60%, transparent) calc(100% - 72px), transparent 0);
+}
+.term-bar:hover:not(:has(button:hover, select:hover, input:hover)) .term-collapse {
+  background: var(--raised);
+  color: var(--fg);
 }
 /* Compact agent picker: menu buttons fill their bar's height, split like .term-tab. */
 .picker-acts {
