@@ -118,3 +118,38 @@ async fn submodule_manager() {
     assert!(!app.join("ui-kit").exists());
     assert!(!app.join(".git/modules/ui-kit").exists());
 }
+
+#[tokio::test]
+async fn worktree_gets_submodules() {
+    std::env::set_var("GIT_CONFIG_COUNT", "1");
+    std::env::set_var("GIT_CONFIG_KEY_0", "protocol.file.allow");
+    std::env::set_var("GIT_CONFIG_VALUE_0", "always");
+
+    let tmp = tempfile::tempdir().unwrap();
+    let lib = tmp.path().join("ui-kit");
+    let app = tmp.path().join("app");
+    init_repo(&lib, "kit.txt");
+    init_repo(&app, "README.md");
+    sh(&app, &["submodule", "add", "-q", &lib.to_string_lossy(), "ui-kit"]);
+    sh(&app, &["commit", "-qm", "add ui-kit"]);
+
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let pid = call(&k, "projects.add", json!({ "paths": [app.to_string_lossy()] })).await[0]["id"].as_str().unwrap().to_string();
+
+    // A worktree gets its submodules cloned, and a clean one still removes without force.
+    let wt = call(&k, "worktrees.create", json!({ "projectId": pid, "branch": "feat/sub" })).await["path"].as_str().unwrap().to_string();
+    assert!(Path::new(&wt).join("ui-kit/kit.txt").exists());
+    call(&k, "worktrees.remove", json!({ "projectId": pid, "path": wt })).await;
+    assert!(!Path::new(&wt).exists());
+
+    // Commits only in the worktree's submodule clone would be lost: refused unless forced.
+    let wt = call(&k, "worktrees.create", json!({ "projectId": pid, "branch": "feat/sub2" })).await["path"].as_str().unwrap().to_string();
+    let id = ["-c", "user.name=Test", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false"];
+    std::fs::write(Path::new(&wt).join("ui-kit/kit.txt"), "3\n").unwrap();
+    sh(&Path::new(&wt).join("ui-kit"), &[&id[..], &["commit", "-qam", "local"]].concat());
+    sh(Path::new(&wt), &[&id[..], &["commit", "-qam", "bump"]].concat());
+    let err = rpc::call(&k, "worktrees.remove", json!({ "projectId": pid, "path": wt })).await.unwrap_err().to_string();
+    assert!(err.contains("not pushed"), "{err}");
+    call(&k, "worktrees.remove", json!({ "projectId": pid, "path": wt, "force": true })).await;
+    assert!(!Path::new(&wt).exists());
+}

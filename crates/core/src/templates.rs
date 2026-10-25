@@ -79,7 +79,7 @@ pub fn variables(kind: &str) -> Vec<(&'static str, &'static str)> {
 pub const NO_AI_CREDIT: &str = "Never mention Claude, AI, an assistant or an agent in what you write: no Co-Authored-By trailers, no \"Generated with\" lines, no AI attribution of any kind.";
 
 /// Appended to agent prompts so the log can turn questions into answer buttons, one group per question.
-pub const CHOICE_FORMAT: &str = "When the user needs to choose, end your reply with the questions. Put each question on its own line, starting with a letter when there are several (\"A. Which storage?\"), then its options as a numbered list (\"1. Option\"), one option per line, with no question inside an option. Give every question options; the user can still type another answer.";
+pub const CHOICE_FORMAT: &str = "When the user needs to choose, end your reply with the questions. Put each question on its own line, ending with \"?\", starting with a letter when there are several (\"A. Which storage?\"), then its options as a numbered list (\"1. Option\"), one option per line, with no question inside an option. Give every question options; the user can still type another answer.";
 
 pub fn render(t: &Template, vars: &BTreeMap<String, String>, language: &str) -> String {
     let mut all = vars.clone();

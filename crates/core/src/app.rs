@@ -2628,6 +2628,7 @@ impl Gitnetix {
         let cwd = if req.r#where == "worktree" || req.start_agent {
             let path = worktree_path(&p, &branch);
             git.worktree_add(&path, &branch, Some(&start)).await?;
+            init_submodules(&path).await;
             worktree = Some(path.to_string_lossy().to_string());
             path
         } else {
@@ -3462,6 +3463,7 @@ impl Gitnetix {
         } else {
             git.worktree_add(&path, branch, Some(&default)).await?;
         }
+        init_submodules(&path).await;
         self.store.with_project(project_id, |p| {
             if let Some(m) = p.branches.get_mut(branch) {
                 m.worktree = Some(path.to_string_lossy().to_string());
@@ -3481,13 +3483,21 @@ impl Gitnetix {
         if !force && Path::new(path).exists() && Git::new(path).wip_count().await? > 0 {
             return Err(Error::Invalid(format!("{path} has uncommitted or untracked files. Commit or discard them first.")));
         }
+        // Removing also deletes the worktree's submodule clones: keep commits that exist nowhere else.
+        if !force && Path::new(path).exists() {
+            let (_, unpushed, _) = Git::new(path).try_run(&["submodule", "foreach", "--recursive", "--quiet", "git rev-list -n1 HEAD --branches --not --remotes"]).await?;
+            if !unpushed.trim().is_empty() {
+                return Err(Error::Invalid(format!("A submodule in {path} has commits that are not pushed. Push them first.")));
+            }
+        }
         let agents: Vec<String> = self.agents.list().into_iter().filter(|a| a.cwd == path).map(|a| a.id).collect();
         // Its shell first, so nothing it started keeps writing in the folder.
         self.shells.remove(path);
         for id in &agents {
             let _ = self.agents.stop(id);
         }
-        self.git(&p).worktree_remove(Path::new(path), force).await?;
+        // Checked above; git refuses any worktree holding submodules unless forced.
+        self.git(&p).worktree_remove(Path::new(path), true).await?;
         // Their folder is gone, so the sessions cannot run again.
         for id in &agents {
             let _ = self.agents.remove(id);
@@ -4373,6 +4383,14 @@ fn worktree_path(p: &Project, branch: &str) -> PathBuf {
     let top = top_path(p);
     let parent = top.parent().map(Path::to_path_buf).unwrap_or_else(|| top.clone());
     parent.join(format!("{}.{}", p.name, branch.replace('/', "-")))
+}
+
+/// `git worktree add` leaves submodule folders empty: clone them at the branch's pins.
+/// A failed clone (offline, SSH key) still leaves a usable worktree, so it is only logged.
+async fn init_submodules(path: &Path) {
+    if let Err(e) = submodules::update(&Git::new(path), None, false).await {
+        crate::log::error(format!("Could not clone the submodules of {}: {e}", path.display()));
+    }
 }
 
 /// A commit id from the UI goes straight to `git diff`, so it must not read as an option.

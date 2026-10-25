@@ -85,8 +85,7 @@ export function questions(lines: LogLine[]): Question[] {
       last.end = i + 1;
     }
   });
-  const out: Question[] = [];
-  for (const [k, l] of lists.entries()) {
+  const found = lists.map((l, k) => {
     const final = k === lists.length - 1;
     // Items that are questions ("What text? …") ask you to answer each one, not to pick one.
     const ask = !l.opts.some((o) => o.label.includes("?"));
@@ -95,9 +94,16 @@ export function questions(lines: LogLine[]): Question[] {
     const intro = (rows.slice(0, l.start).filter((r) => r.trim()).at(-1) ?? "").replace(/\*\*|`/g, "").replace(/^\s*#+\s*/, "").trim();
     const after = final ? rows.slice(l.end).join("\n") : "";
     const asks = ask && (/\?$/.test(intro) || PICK.test(intro) || PICK.test(after) || /\b\d+\s+(or|ou)\s+\d+\b/i.test(after));
+    return { l, ask, asks, intro, id: /^([A-Z])[.)]\s/.exec(intro)?.[1] ?? "" };
+  });
+  // "C. If it fails:" next to "A. Which one?" is a question too.
+  const lettered = found.some((f) => f.asks && f.id);
+  const out: Question[] = [];
+  for (const [k, f] of found.entries()) {
+    const asks = f.asks || (lettered && f.ask && !!f.id);
     // The questions close the reply: when the last list asks nothing, the earlier ones were not questions either.
-    if (final && !asks) return [];
-    if (asks) out.push({ id: /^([A-Z])[.)]\s/.exec(intro)?.[1] ?? "", text: intro, opts: l.opts });
+    if (k === found.length - 1 && !asks) return [];
+    if (asks) out.push({ id: f.id, text: f.intro, opts: f.l.opts });
   }
   return out;
 }
