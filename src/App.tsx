@@ -2,9 +2,10 @@ import { Activity, type ReactNode, useRef, useState } from "react";
 
 import { useConfig, useEngineEvents, useProjects } from "./api/hooks";
 import { currentRemote, isLocal } from "./api/transport";
+import { ContextMenu } from "./components/ContextMenu";
 import { Icon } from "./components/Icon";
 import { TooltipLayer } from "./components/Tooltip";
-import { isPageRoute, TopBar } from "./components/TopBar";
+import { isPageRoute, PAGES, TopBar } from "./components/TopBar";
 import { UpdatePrompt } from "./components/UpdatePrompt";
 import { Loading, useThumb } from "./components/ui";
 import { useApplyAnimations } from "./lib/motion";
@@ -53,6 +54,8 @@ const MOBILE_TABS: { route: Route; label: string; icon: string }[] = [
   { route: { name: "prs" }, label: "PRs", icon: "pr" },
   { route: { name: "tickets" }, label: "Tickets", icon: "ticket" },
 ];
+/** Pages without a bottom tab, listed under "More" since the page tabs are hidden on mobile. */
+const MORE_PAGES = PAGES.filter((p) => !MOBILE_TABS.some((t) => t.route.name === p.route.name));
 
 function Shell({ onUnpair }: { onUnpair: () => void }) {
   const nav = useNav();
@@ -87,8 +90,11 @@ function MobileTabs() {
   const nav = useNav();
   const r = nav.route;
   const bar = useRef<HTMLElement>(null);
+  const [more, setMore] = useState<{ x: number; y: number } | null>(null);
+  const inMore = MORE_PAGES.some((p) => p.route.name === r.name);
+  const tab = inMore ? MOBILE_TABS.length : MOBILE_TABS.findIndex((t) => t.route.name === r.name);
   // The bubble behind the current tab's icon, sliding from the previous one; none while the menu is open.
-  const bubble = useThumb(bar, nav.menuOpen ? -1 : MOBILE_TABS.findIndex((t) => t.route.name === r.name), MOBILE_TABS.length, ":scope > button > span");
+  const bubble = useThumb(bar, nav.menuOpen ? -1 : tab, MOBILE_TABS.length + 1, ":scope > button > span");
   return (
     <nav
       ref={bar}
@@ -113,6 +119,29 @@ function MobileTabs() {
           {t.label}
         </button>
       ))}
+      <button
+        aria-haspopup="menu"
+        aria-pressed={!nav.menuOpen && inMore}
+        onClick={(e) => {
+          const b = e.currentTarget.getBoundingClientRect();
+          // Inset from the screen edge, which the menu would otherwise hug at its 8px minimum.
+          setMore({ x: b.right - 16, y: b.top - 2 });
+        }}
+      >
+        <span>
+          <Icon name="more" size={18} />
+        </span>
+        More
+      </button>
+      {more && (
+        <ContextMenu
+          {...more}
+          alignRight
+          label="More pages"
+          items={MORE_PAGES.map((p) => ({ id: p.route.name, label: p.label, icon: p.icon, run: () => nav.go(p.route) }))}
+          onClose={() => setMore(null)}
+        />
+      )}
     </nav>
   );
 }

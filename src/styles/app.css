@@ -4334,6 +4334,17 @@ button.app-row:hover {
   .hide-narrow {
     display: none !important;
   }
+  /* The bottom tabs and their "More" menu take over page switching. */
+  .tabs-pages {
+    display: none;
+  }
+  /* Matched by its label (App.tsx MobileTabs): full-size touch rows, like the tabs it opens from. */
+  .ctx-menu[aria-label="More pages"] .ctx-item {
+    min-height: 48px;
+    padding: 0 16px 0 12px;
+    gap: 12px;
+    font-size: 14px;
+  }
   .mobile-tabs {
     display: flex;
     flex: 0 0 auto;
