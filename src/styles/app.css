@@ -3619,7 +3619,7 @@ button.picker-act {
   min-height: 42px;
   padding: 8px 14px 4px 20px;
   background: var(--panel);
-  font-size: 12.5px;
+  font-size: 15px;
   font-weight: 600;
 }
 .wt-group-head .btn-icon {
@@ -3638,8 +3638,31 @@ button.picker-act {
 }
 .wt-group:not([data-empty]) + .wt-group[data-empty] {
   margin-top: 12px;
-  padding-top: 8px;
-  border-top: 1px solid var(--line);
+}
+/* Yellow hairline fading at both ends between projects, like the commit list. */
+.wt-group + .wt-group::before {
+  content: "";
+  display: block;
+  height: 1px;
+  margin: 8px 14px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--warn-fg) 15%,
+    var(--warn-fg) 85%,
+    transparent
+  );
+  opacity: 0.1;
+}
+[data-theme="light"] .wt-group + .wt-group::before {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    #c8960c 12%,
+    #f5c518 50%,
+    #c8960c 88%,
+    transparent
+  );
 }
 .wt-row {
   gap: 4px;
