@@ -86,6 +86,8 @@ impl Shells {
         let pair = native_pty_system().openpty(size(cols, rows))?;
         // The user's login shell: a desktop app's PATH lacks what their profile adds.
         let mut cmd = CommandBuilder::new_default_prog();
+        // An inherited $SHELL goes stale after `chsh` until re-login; without it the passwd entry decides.
+        cmd.env_remove("SHELL");
         cmd.cwd(cwd);
         cmd.env("TERM", "xterm-256color");
         cmd.env("COLORTERM", "truecolor");
@@ -172,13 +174,18 @@ mod tests {
         let sh = Shells::new(tx);
         let path = std::env::temp_dir().to_string_lossy().to_string();
         let first = sh.open(&path, 80, 24).unwrap();
-        sh.write(&path, "echo gnx-$((40+2)); exit\n").await.unwrap();
+        // Any login shell (fish has no `$((…))`); the echoed input reads gnx-4''2, the output gnx-42.
+        sh.write(&path, "echo gnx-4''2; exit\n").await.unwrap();
         let mut out = decode(&first.data);
         let mut end = first.end;
         loop {
             match tokio::time::timeout(std::time::Duration::from_secs(10), rx.recv()).await.expect("shell output").unwrap() {
                 Event::ShellData { data, end: e, .. } => {
                     let d = decode(&data);
+                    // Answer the device-attributes query as the UI's emulator does; fish waits for it.
+                    if String::from_utf8_lossy(&d).contains("\x1b[0c") {
+                        sh.write(&path, "\x1b[?62c").await.unwrap();
+                    }
                     assert_eq!(e - d.len() as u64, end, "no gap between snapshot and events");
                     end = e;
                     out.extend(d);
