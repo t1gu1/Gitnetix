@@ -11,6 +11,8 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-10-25
+
 ### Changed
 - Website now served from the gitnetix.app custom domain.
 
