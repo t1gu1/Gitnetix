@@ -15,6 +15,7 @@ release notes and the in-app update prompt.
 - Ctrl+Enter (⌘+Enter on macOS) in the commit summary or description commits.
 - Settings › Animations has three more switches: Page fade, List entrances and Dialog pop.
 - Notifications can be clicked away, and show a check or a cross on success and errors.
+- Mobile: a More menu in the tab bar opens the pages that do not fit as tabs.
 
 ### Changed
 - A refreshed look across the app: softer corners, layered shadows on menus and dialogs, an accent halo on focused fields, thin scrollbars, and buttons that ease into their hover and give a little when pressed.
@@ -24,10 +25,15 @@ release notes and the in-app update prompt.
 - Light theme: branch tree group headers are much lighter and the checked-out branch gets a warm amber tint; segmented controls show a white selected chip.
 - Mobile: the open tab's icon sits in an accent pill, and the page bar scrolls to keep the open page's tab in view.
 - Disconnect from this desktop is a quieter red text button instead of a solid one.
+- The branch tree filter is a full-width bar with an author segment.
+- Pull request load errors show the empty-state view.
+- The website's release page lists each release's changes inline and has a "See all release notes" link.
 
 ### Fixed
 - The worktree list no longer says "None currently running" for a project that simply has no worktree yet.
 - A double line no longer shows under the page tabs.
+- Branch path dots stay lined up across elbows in the branch tree.
+- Icon buttons stay square at touch height on mobile.
 
 ## [0.6.2] - 2026-10-24
 
