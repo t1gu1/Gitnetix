@@ -11,6 +11,8 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-25
+
 ### Added
 - Selectable color themes beyond light and dark, with an Appearance pane in Settings showing swatches.
 - Attach files to a new agent session by button, paste or drop.
