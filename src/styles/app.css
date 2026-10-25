@@ -3768,6 +3768,10 @@ button.picker-act {
 .wt-group:not([data-empty]) + .wt-group[data-empty] {
   margin-top: 12px;
 }
+/* First project only; :first-child misses it while the loading spinner sits above. */
+.wt-group:not(.wt-group + .wt-group) {
+  margin-top: 6px;
+}
 /* Yellow hairline fading at both ends between projects, like the commit list. */
 .wt-group + .wt-group::before {
   content: "";
