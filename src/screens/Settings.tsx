@@ -1,16 +1,16 @@
 import { Fragment, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { useAction, useConfig } from "../api/hooks";
+import { useAction, useConfig, useProjectPrefs } from "../api/hooks";
 import { renderSVG } from "uqr";
 
 import { allowFirewall, companionInfo, isLocal, openExternal, rpc, type CompanionInfo } from "../api/transport";
-import type { Config, GitProfile, JiraConn } from "../api/types";
+import type { Config, DialogPrefs, GitProfile, JiraConn } from "../api/types";
 import { MenuChoice } from "../components/AgentPicker";
 import { GRAVATAR_KEY } from "../components/Avatar";
 import { Icon } from "../components/Icon";
 import { Resizer, usePaneWidth } from "../components/Resizer";
-import { Header } from "../components/ui";
+import { Header, Seg } from "../components/ui";
 import { ANIMATIONS, useAnimations } from "../lib/motion";
 import { useNav } from "../lib/nav";
 import { useStoredFlag } from "../lib/stored";
@@ -85,7 +85,14 @@ function ProjectSection({ cfg }: { cfg: Config }) {
   const nav = useNav();
   const p = cfg.projects.find((x) => x.id === nav.projectId);
   const remove = useAction("projects.remove", { invalidate: [["config"], ["projects"]] });
+  const { dialogs: d, setDialogs } = useProjectPrefs(p?.id);
   if (!p) return <p className="muted">No project open.</p>;
+  const check = (k: Exclude<keyof DialogPrefs, "finish">, label: ReactNode) => (
+    <label className="check">
+      <input type="checkbox" checked={d[k]} onChange={() => setDialogs({ [k]: !d[k] })} />
+      <span>{label}</span>
+    </label>
+  );
   return (
     <>
       <div className="col" style={{ gap: 6 }}>
@@ -97,7 +104,24 @@ function ProjectSection({ cfg }: { cfg: Config }) {
         <div><span>Tracked branches</span><span>{Object.keys(p.branches).length}</span></div>
         <div><span>AI-written commits</span><span>{p.aiCommits.length}</span></div>
       </div>
-      <p className="hint">Generation languages and the Git profile for this project are in the menu.</p>
+      <section className="section">
+        <h2>Dialog defaults</h2>
+        <p className="hint" style={{ margin: 0 }}>What the dialogs start with in this project. Changing an option in a dialog applies to that time only.</p>
+        <Seg
+          grid
+          label="Finishing a worktree session"
+          value={d.finish}
+          onChange={(finish) => setDialogs({ finish })}
+          options={[{ value: "continue", label: "Continue on branch" }, { value: "merge", label: "Merge it" }]}
+        />
+        {check("finishSwitch", "Switch to where the worktree's code lands once it is closed")}
+        {check("newWorktree", "Give a new branch its own worktree instead of switching to it")}
+        {check("newAgent", "Start an AI agent on a new branch right away (always in a worktree)")}
+        {check("shipPush", "Push the default branch and the tag when shipping a release")}
+        {check("deleteOrigin", "Also delete a deleted branch on origin")}
+        {check("cleanupOrigin", "Also delete cleaned-up behind branches on origin")}
+      </section>
+      <p className="hint">Generation languages, merge and commit options and the Git profile for this project are in the menu.</p>
       <div>
         <button
           className="btn btn-danger"

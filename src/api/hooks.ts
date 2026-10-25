@@ -10,6 +10,7 @@ import type {
   BranchView,
   Commit,
   CommitPrefs,
+  DialogPrefs,
   LogEntry,
   Config,
   FileChange,
@@ -84,10 +85,11 @@ export function useEngineEvents() {
 
 const MERGE_DEFAULTS: MergePrefs = { squash: false, squashMessage: "branch", rebase: false, deleteBranch: true, push: false, resolveConflicts: true };
 const COMMIT_DEFAULTS: CommitPrefs = { autoPush: false };
+const DIALOG_DEFAULTS: DialogPrefs = { finish: "merge", finishSwitch: true, newWorktree: false, newAgent: false, shipPush: true, deleteOrigin: false, cleanupOrigin: true };
 
-type PrefsPatch = { merge?: Partial<MergePrefs>; commit?: Partial<CommitPrefs> };
+type PrefsPatch = { merge?: Partial<MergePrefs>; commit?: Partial<CommitPrefs>; dialogs?: Partial<DialogPrefs> };
 
-/** A project's remembered merge and commit options. Changes show at once, then save. */
+/** A project's remembered merge, commit and dialog options. Changes show at once, then save. */
 export function useProjectPrefs(projectId?: string) {
   const qc = useQueryClient();
   const project = useConfig().data?.projects.find((p) => p.id === projectId);
@@ -97,7 +99,11 @@ export function useProjectPrefs(projectId?: string) {
       qc.setQueryData<Config>(["config"], (c) =>
         c && {
           ...c,
-          projects: c.projects.map((p) => (p.id === projectId ? { ...p, merge: { ...MERGE_DEFAULTS, ...p.merge, ...patch.merge }, commit: { ...COMMIT_DEFAULTS, ...p.commit, ...patch.commit } } : p)),
+          projects: c.projects.map((p) =>
+            p.id === projectId
+              ? { ...p, merge: { ...MERGE_DEFAULTS, ...p.merge, ...patch.merge }, commit: { ...COMMIT_DEFAULTS, ...p.commit, ...patch.commit }, dialogs: { ...DIALOG_DEFAULTS, ...p.dialogs, ...patch.dialogs } }
+              : p,
+          ),
         },
       ),
     onError: (e) => toast(e.message, "error"),
@@ -106,8 +112,10 @@ export function useProjectPrefs(projectId?: string) {
   return {
     merge: { ...MERGE_DEFAULTS, ...project?.merge },
     commit: { ...COMMIT_DEFAULTS, ...project?.commit },
+    dialogs: { ...DIALOG_DEFAULTS, ...project?.dialogs },
     setMerge: (merge: Partial<MergePrefs>) => save.mutate({ merge }),
     setCommit: (commit: Partial<CommitPrefs>) => save.mutate({ commit }),
+    setDialogs: (dialogs: Partial<DialogPrefs>) => save.mutate({ dialogs }),
   };
 }
 

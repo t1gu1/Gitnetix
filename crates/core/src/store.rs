@@ -65,6 +65,8 @@ pub struct Project {
     pub merge: MergePrefs,
     /// Commit button options.
     pub commit: CommitPrefs,
+    /// What the other dialogs start with, set in the project's settings.
+    pub dialogs: DialogPrefs,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -104,6 +106,38 @@ pub enum SquashMessage {
 pub struct CommitPrefs {
     /// Push the branch after each commit.
     pub auto_push: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct DialogPrefs {
+    /// How a worktree session ends: keep its branch to continue on, or merge it.
+    pub finish: FinishWith,
+    /// Switch to where the worktree's code lands once it is closed.
+    pub finish_switch: bool,
+    /// A new branch gets its own worktree instead of being switched to.
+    pub new_worktree: bool,
+    /// Start an AI agent on a new branch right away.
+    pub new_agent: bool,
+    /// Push the default branch and the tag when shipping a release.
+    pub ship_push: bool,
+    /// Also delete a deleted branch on origin.
+    pub delete_origin: bool,
+    /// Also delete the cleaned-up behind branches on origin.
+    pub cleanup_origin: bool,
+}
+
+impl Default for DialogPrefs {
+    fn default() -> Self {
+        DialogPrefs { finish: FinishWith::Merge, finish_switch: true, new_worktree: false, new_agent: false, ship_push: true, delete_origin: false, cleanup_origin: true }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum FinishWith {
+    Continue,
+    Merge,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -49,6 +49,24 @@ export interface CommitPrefs {
   autoPush: boolean;
 }
 
+/** What the other dialogs start with, set in the project's settings. */
+export interface DialogPrefs {
+  /** How a worktree session ends: keep its branch to continue on, or merge it. */
+  finish: "continue" | "merge";
+  /** Switch to where the worktree's code lands once it is closed. */
+  finishSwitch: boolean;
+  /** A new branch gets its own worktree instead of being switched to. */
+  newWorktree: boolean;
+  /** Start an AI agent on a new branch right away. */
+  newAgent: boolean;
+  /** Push the default branch and the tag when shipping a release. */
+  shipPush: boolean;
+  /** Also delete a deleted branch on origin. */
+  deleteOrigin: boolean;
+  /** Also delete the cleaned-up behind branches on origin. */
+  cleanupOrigin: boolean;
+}
+
 export interface GenLangs {
   commit: string;
   pr: string;
@@ -82,6 +100,7 @@ export interface Project {
   genLang: GenLangs;
   merge: MergePrefs;
   commit: CommitPrefs;
+  dialogs: DialogPrefs;
   releases: Release[];
   branches: Record<string, BranchMeta>;
   ticketReleases: Record<string, string>;

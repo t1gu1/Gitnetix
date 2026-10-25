@@ -28,7 +28,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("projects.setHidden", "Close or reopen a project's tab (data kept)", "projectId, hidden"),
     ("projects.reorder", "Set the order of projects", "ids: string[]"),
     ("projects.setGenLang", "Language AI writes in for a project", "projectId, commit?, pr?, release?"),
-    ("projects.setPrefs", "Remembered merge and commit options for a project", "projectId, merge?: {squash?, squashMessage?: branch|ai, rebase?, deleteBranch?, push?, resolveConflicts?}, commit?: {autoPush?}"),
+    ("projects.setPrefs", "Remembered merge, commit and dialog options for a project", "projectId, merge?: {squash?, squashMessage?: branch|ai, rebase?, deleteBranch?, push?, resolveConflicts?}, commit?: {autoPush?}, dialogs?: {finish?: continue|merge, finishSwitch?, newWorktree?, newAgent?, shipPush?, deleteOrigin?, cleanupOrigin?}"),
     ("projects.setProfile", "Git profile used for commits in a project", "projectId, profileId"),
     ("profiles.save", "Create or update a Git profile", "profile: {id?, label, name, email, sign, signingKey?}"),
     ("profiles.delete", "Delete a Git profile", "id"),
@@ -370,6 +370,9 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
                 }
                 if let Some(c) = p.get("commit") {
                     pr.commit = overlay(&pr.commit, c)?;
+                }
+                if let Some(d) = p.get("dialogs") {
+                    pr.dialogs = overlay(&pr.dialogs, d)?;
                 }
                 Ok(())
             })?;

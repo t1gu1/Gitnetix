@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { useAction, useAiOn, useOverview, useSuggestedVersion } from "../api/hooks";
+import { useAction, useAiOn, useOverview, useProjectPrefs, useSuggestedVersion } from "../api/hooks";
 import { rpc } from "../api/transport";
 import { MenuChoice } from "../components/AgentPicker";
 import { Icon } from "../components/Icon";
@@ -28,8 +28,10 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
   const [desc, setDesc] = useState(draft.description ?? "");
   const [from, setFrom] = useState(firstBase);
   const [ticket, setTicket] = useState(draft.ticket ?? "");
-  const [where, setWhere] = useState<"switch" | "worktree">("switch");
-  const [agent, setAgent] = useState(false);
+  const { dialogs } = useProjectPrefs(pid);
+  // An agent always gets its own worktree.
+  const [where, setWhere] = useState<"switch" | "worktree">(dialogs.newWorktree || dialogs.newAgent ? "worktree" : "switch");
+  const [agent, setAgent] = useState(dialogs.newAgent);
   const [name, setName] = useState("");
   const [named, setNamed] = useState<"ai" | "auto" | "you" | null>(null);
   const [naming, setNaming] = useState(false);

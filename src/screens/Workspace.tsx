@@ -549,6 +549,7 @@ export function Workspace() {
       )}
       {cleanupBehind && (
         <BehindCleanupModal
+          pid={pid}
           base={cleanupBehind.base}
           branches={cleanupBehind.branches}
           onClose={() => setCleanupBehind(null)}
@@ -1434,8 +1435,8 @@ function DeleteBranchModal({
   onDeleted: () => void;
 }) {
   const [force, setForce] = useState(false);
-  // Origin-only branches can only go from origin; otherwise origin keeps its copy unless asked (remembered).
-  const [alsoOrigin, setAlsoOrigin] = useStoredFlag("gnx.delete.alsoOrigin");
+  // Origin-only branches can only go from origin; otherwise origin keeps its copy unless the project's settings or the user ask.
+  const [alsoOrigin, setAlsoOrigin] = useState(useProjectPrefs(pid).dialogs.deleteOrigin);
   const onOrigin = remote && (!local || alsoOrigin);
   const exists = local || remote;
   const del = useAction("branches.delete", { invalidate: [["overview", pid], ["files", pid], ["worktrees"]], success: `Deleted ${branch}` });
@@ -1542,11 +1543,13 @@ function CleanupModal({
 
 /** Pick branches that fell far behind `base` to delete, unmerged commits and all; the delete runs in the background. */
 function BehindCleanupModal({
+  pid,
   base,
   branches,
   onClose,
   onConfirm,
 }: {
+  pid: string;
   base: string;
   branches: BranchView[];
   onClose: () => void;
@@ -1554,7 +1557,7 @@ function BehindCleanupModal({
 }) {
   // Nothing is picked up front: these hold work that isn't merged anywhere.
   const [picked, setPicked] = useState<Set<string>>(new Set());
-  const [remote, setRemote] = useState(true);
+  const [remote, setRemote] = useState(useProjectPrefs(pid).dialogs.cleanupOrigin);
   const flip = (name: string) => {
     const next = new Set(picked);
     if (next.has(name)) next.delete(name);
@@ -1896,8 +1899,9 @@ export function useFinishHandlers(
 
 /** Ends a worktree session: the agent stops and the worktree goes, its branch either kept to continue on or merged first. `inline` shows it in the agent chat instead of a modal. */
 function CloseWorktreeModal({ session: s, finish, onClose, inline }: { session: WtSession; finish: FinishHandlers; onClose: () => void; inline?: boolean }) {
-  const [then, setThen] = useState<"continue" | "merge">("continue");
-  const [sw, setSw] = useState(true);
+  const { dialogs } = useProjectPrefs(s.projectId);
+  const [then, setThen] = useState(dialogs.finish);
+  const [sw, setSw] = useState(dialogs.finishSwitch);
   const [discarding, setDiscarding] = useState(false);
   const branches = useOverview(s.projectId).data?.branches ?? [];
   const base = branches.find((x) => x.name === s.branch)?.parent ?? "";
@@ -1995,7 +1999,7 @@ export function FinishWorktreeCard({ session: s, finish }: { session: WtSession;
 }
 
 function ShipModal({ pid, release, defaultBranch, onClose }: { pid: string; release: ReleaseView; defaultBranch: string; onClose: () => void }) {
-  const [push, setPush] = useState(true);
+  const [push, setPush] = useState(useProjectPrefs(pid).dialogs.shipPush);
   const ship = useAction<{ tag: string }>("releases.ship", { invalidate: [["overview", pid], ["projects"]], success: (r) => `Shipped ${r.tag}` });
   return (
     <Modal

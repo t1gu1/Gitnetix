@@ -1473,3 +1473,22 @@ async fn ship_and_push_waits_for_origin_then_pushes_branch_and_tag_together() {
     assert_eq!(rev(&origin, "main"), tip);
     assert_eq!(rev(&origin, "v0.2.0^{commit}"), tip);
 }
+
+#[tokio::test]
+async fn dialog_prefs_default_and_save() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("atlas-api");
+    init_repo(&repo);
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let added = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await;
+    let pid = added[0]["id"].as_str().unwrap().to_string();
+    // Finishing a worktree session merges unless the project's settings say otherwise.
+    let cfg = call(&k, "config.get", json!({})).await;
+    assert_eq!(cfg["projects"][0]["dialogs"]["finish"], "merge");
+
+    call(&k, "projects.setPrefs", json!({ "projectId": pid, "dialogs": { "finish": "continue", "deleteOrigin": true } })).await;
+    let d = call(&k, "config.get", json!({})).await["projects"][0]["dialogs"].clone();
+    assert_eq!((d["finish"].as_str(), d["deleteOrigin"].as_bool(), d["shipPush"].as_bool()), (Some("continue"), Some(true), Some(true)));
+    let err = rpc::call(&k, "projects.setPrefs", json!({ "projectId": pid, "dialogs": { "finish": "later" } })).await.unwrap_err();
+    assert!(err.to_string().contains("unknown variant"), "{err}");
+}
