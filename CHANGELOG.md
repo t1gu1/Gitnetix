@@ -16,6 +16,8 @@ release notes and the in-app update prompt.
 - Settings › Animations has three more switches: Page fade, List entrances and Dialog pop.
 - Notifications can be clicked away, and show a check or a cross on success and errors.
 - Mobile: a More menu in the tab bar opens the pages that do not fit as tabs.
+- Files and images can be attached to agent messages and new agent starts, up to 25 MB each.
+- Agent sessions take an optional ticket, linked to the branch before the agent starts.
 
 ### Changed
 - A refreshed look across the app: softer corners, layered shadows on menus and dialogs, an accent halo on focused fields, thin scrollbars, and buttons that ease into their hover and give a little when pressed.
@@ -28,12 +30,19 @@ release notes and the in-app update prompt.
 - The branch tree filter is a full-width bar with an author segment.
 - Pull request load errors show the empty-state view.
 - The website's release page lists each release's changes inline and has a "See all release notes" link.
+- The worktrees list is grouped by project, with a new-session button on each header and status and base branch shown under each branch name.
+- Planning a branch into a release also plans its ticket into that release.
+- Suggestions picked in the agent prompt box queue there instead of sending on their own.
+- The agent question Send button sits below all questions.
+- Task routing pickers wrap below their label when the pane is narrow.
+- The website's home page comparison shows the app's branch pane.
 
 ### Fixed
 - The worktree list no longer says "None currently running" for a project that simply has no worktree yet.
 - A double line no longer shows under the page tabs.
 - Branch path dots stay lined up across elbows in the branch tree.
 - Icon buttons stay square at touch height on mobile.
+- Scrollbars no longer show through dialogs.
 
 ## [0.6.2] - 2026-10-24
 
