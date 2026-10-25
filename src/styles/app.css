@@ -4255,6 +4255,10 @@ button.app-row:hover {
   background: var(--scrim);
   animation: fade-in var(--t) var(--ease);
 }
+/* WebKitGTK paints overlay scrollbars above everything, so one still fading out under the modal would show through it. */
+body:has(> .modal-scrim) #root * {
+  scrollbar-color: transparent transparent;
+}
 .modal {
   width: 560px;
   max-width: 100%;

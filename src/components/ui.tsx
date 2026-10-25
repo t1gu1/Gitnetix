@@ -1,4 +1,5 @@
 import { type CSSProperties, Fragment, type ReactNode, type RefObject, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { link } from "./Adf";
 import { Icon } from "./Icon";
@@ -129,7 +130,8 @@ export function Modal({ title, sub, onClose, children, footer, width }: { title:
     window.addEventListener("keydown", k);
     return () => window.removeEventListener("keydown", k);
   }, [onClose]);
-  return (
+  // Portaled out of #root so the rule hiding scrollbars behind the modal (app.css) skips the modal's own.
+  return createPortal(
     <div className="modal-scrim" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal" role="dialog" aria-modal="true" style={width ? { width } : undefined}>
         <div className="modal-head">
@@ -144,7 +146,8 @@ export function Modal({ title, sub, onClose, children, footer, width }: { title:
         <div className="modal-body">{children}</div>
         {footer && <div className="modal-foot">{footer}</div>}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
