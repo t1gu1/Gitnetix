@@ -18,6 +18,8 @@ release notes and the in-app update prompt.
 - Mobile: a More menu in the tab bar opens the pages that do not fit as tabs.
 - Files and images can be attached to agent messages and new agent starts, up to 25 MB each.
 - Agent sessions take an optional ticket, linked to the branch before the agent starts.
+- Each project stores defaults for the finish, new branch, new agent, ship, delete origin and cleanup origin dialogs.
+- The website has a Compare page with Gitnetix, GitKraken, Fork and Sourcetree side by side.
 
 ### Changed
 - A refreshed look across the app: softer corners, layered shadows on menus and dialogs, an accent halo on focused fields, thin scrollbars, and buttons that ease into their hover and give a little when pressed.
@@ -36,6 +38,9 @@ release notes and the in-app update prompt.
 - The agent question Send button sits below all questions.
 - Task routing pickers wrap below their label when the pane is narrow.
 - The website's home page comparison shows the app's branch pane.
+- The default finish action in the finish dialog is now merge, not continue.
+- The terminal's open bar highlights on hover toward the collapse button.
+- Release version chips on the website use the accent color.
 
 ### Fixed
 - The worktree list no longer says "None currently running" for a project that simply has no worktree yet.
@@ -43,6 +48,8 @@ release notes and the in-app update prompt.
 - Branch path dots stay lined up across elbows in the branch tree.
 - Icon buttons stay square at touch height on mobile.
 - Scrollbars no longer show through dialogs.
+- The terminal no longer uses the WebGL renderer on Linux, where it failed to draw.
+- The terminal starts the login shell from the system account instead of an inherited SHELL.
 
 ## [0.6.2] - 2026-10-24
 
