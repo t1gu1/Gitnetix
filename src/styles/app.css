@@ -4388,6 +4388,10 @@ button.app-row:hover {
   .btn {
     min-height: 36px;
   }
+  /* Keep icon buttons square once the touch height kicks in. */
+  .btn-icon {
+    min-width: 36px;
+  }
   .seg > button {
     min-height: 32px;
   }
