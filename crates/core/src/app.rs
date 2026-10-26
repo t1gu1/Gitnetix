@@ -3514,16 +3514,34 @@ impl Gitnetix {
         Ok(())
     }
 
-    /// Opens the terminal of one of the project's checkouts; any other folder is refused.
-    pub async fn shell_open(&self, project_id: &str, path: &str, cols: u16, rows: u16) -> Result<crate::shell::Snapshot> {
-        let p = self.store.project(project_id)?;
+    /// Refuses any folder that isn't one of the project's checkouts.
+    async fn require_own_checkout(&self, p: &Project, path: &str) -> Result<()> {
         let want = crate::shell::key(path);
         let ours = crate::shell::key(&p.path) == want
-            || self.git(&p).worktrees().await?.iter().any(|w| crate::shell::key(&w.path) == want);
+            || self.git(p).worktrees().await?.iter().any(|w| crate::shell::key(&w.path) == want);
         if !ours {
             return Err(Error::Invalid("Not a checkout of this project".into()));
         }
+        Ok(())
+    }
+
+    /// Opens the terminal of one of the project's checkouts; any other folder is refused.
+    pub async fn shell_open(&self, project_id: &str, path: &str, cols: u16, rows: u16) -> Result<crate::shell::Snapshot> {
+        let p = self.store.project(project_id)?;
+        self.require_own_checkout(&p, path).await?;
         self.shells.open(path, cols, rows)
+    }
+
+    /// Scripts of every `package.json` in one of the project's checkouts, tracked or not ignored.
+    pub async fn shell_scripts(&self, project_id: &str, path: &str) -> Result<Vec<Scripts>> {
+        let p = self.store.project(project_id)?;
+        self.require_own_checkout(&p, path).await?;
+        // `*` in a pathspec crosses folders, so these match at any depth; exact names are checked after.
+        let mut args = vec!["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "*package.json"];
+        args.extend(LOCKFILES.iter().map(|(_, glob, _)| *glob));
+        let out = self.git_at(&p, Path::new(path)).run(&args).await?;
+        let files: Vec<&str> = out.split('\0').filter(|f| !f.is_empty()).collect();
+        Ok(package_scripts(&files, |f| std::fs::read_to_string(Path::new(path).join(f)).ok()))
     }
 
     /// `pick` overrides the "agent" routing when it names a provider; its empty
@@ -4442,9 +4460,113 @@ fn fix_version_release(fix_versions: &[String], releases: &[Release]) -> Option<
     known.first().map(|r| r.version.clone())
 }
 
+/// One `package.json` in the terminal's script menu.
+#[derive(Serialize, Debug, PartialEq)]
+pub struct Scripts {
+    /// Its `name`, else its folder.
+    pub title: String,
+    /// Each script and the command line that runs it from the checkout root.
+    pub scripts: Vec<(String, String)>,
+}
+
+/// Lockfile, its pathspec, and the package manager it belongs to.
+const LOCKFILES: [(&str, &str, &str); 5] = [
+    ("pnpm-lock.yaml", "*pnpm-lock.yaml", "pnpm"),
+    ("yarn.lock", "*yarn.lock", "yarn"),
+    ("bun.lock", "*bun.lock", "bun"),
+    ("bun.lockb", "*bun.lockb", "bun"),
+    ("package-lock.json", "*package-lock.json", "npm"),
+];
+
+/// `files`: the checkout's `package.json` and lockfile paths; `read`: a file's text.
+fn package_scripts(files: &[&str], read: impl Fn(&str) -> Option<String>) -> Vec<Scripts> {
+    let name = |f: &str| f.rsplit_once('/').map_or(f, |(_, n)| n).to_string();
+    let dir = |f: &str| f.rsplit_once('/').map_or("", |(d, _)| d).to_string();
+    // By folder, so the root ("") comes first.
+    let pkgs: BTreeMap<String, serde_json::Value> = files
+        .iter()
+        .filter(|f| name(f) == "package.json")
+        .filter_map(|f| Some((dir(f), serde_json::from_str(&read(f)?).ok()?)))
+        .collect();
+    // The nearest folder up from `d` that names one, by its `packageManager` field, else its lockfile.
+    let manager = |d: &str| {
+        let mut cur = Some(d);
+        while let Some(c) = cur {
+            let pm = pkgs.get(c).and_then(|v| v["packageManager"].as_str()).and_then(|s| s.split('@').next());
+            if let Some(m) = ["npm", "pnpm", "yarn", "bun"].into_iter().find(|m| pm == Some(*m)) {
+                return m;
+            }
+            let at = |f: &str| if c.is_empty() { f.to_string() } else { format!("{c}/{f}") };
+            if let Some((_, _, m)) = LOCKFILES.iter().find(|(l, _, _)| files.contains(&at(l).as_str())) {
+                return *m;
+            }
+            cur = (!c.is_empty()).then(|| c.rsplit_once('/').map_or("", |(up, _)| up));
+        }
+        "npm"
+    };
+    pkgs.iter()
+        .filter_map(|(d, v)| {
+            let scripts = v["scripts"].as_object().filter(|s| !s.is_empty())?;
+            let pm = manager(d);
+            let flag = match pm {
+                "npm" => "--prefix",
+                "pnpm" => "--dir",
+                _ => "--cwd",
+            };
+            let at = if d.is_empty() { String::new() } else { format!(" {flag} {}", shell_word(d)) };
+            let title = v["name"].as_str().filter(|n| !n.is_empty()).map(String::from);
+            Some(Scripts {
+                title: title.unwrap_or_else(|| if d.is_empty() { "Root".into() } else { d.clone() }),
+                scripts: scripts.keys().map(|s| (s.clone(), format!("{pm}{at} run {}", shell_word(s)))).collect(),
+            })
+        })
+        .collect()
+}
+
+/// `s` as one shell word: as is when plain, else single-quoted (the same in bash, zsh and fish).
+fn shell_word(s: &str) -> String {
+    if !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || "-_./:@+=,".contains(c)) {
+        s.into()
+    } else {
+        format!("'{}'", s.replace('\'', r"'\''"))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shell_scripts_group_by_package_with_its_manager() {
+        let files = ["package.json", "pnpm-lock.yaml", "apps/web/package.json", "apps/docs/package.json", "tools/package.json", "tools/yarn.lock", "my app/package.json", "empty/package.json"];
+        let read = |f: &str| {
+            Some(
+                match f {
+                    "package.json" => r#"{ "name": "mono", "scripts": { "build": "tsc", "lint:fix": "eslint" } }"#,
+                    "apps/web/package.json" => r#"{ "name": "web", "scripts": { "dev": "vite" } }"#,
+                    "apps/docs/package.json" => r#"{ "packageManager": "bun@1.1.0", "scripts": { "dev": "astro" } }"#,
+                    "tools/package.json" => r#"{ "scripts": { "it's": "x" } }"#,
+                    "my app/package.json" => r#"{ "name": "", "packageManager": "npm@10", "scripts": { "start": "node ." } }"#,
+                    "empty/package.json" => r#"{ "name": "empty" }"#,
+                    _ => return None,
+                }
+                .to_string(),
+            )
+        };
+        let got = package_scripts(&files, read);
+        let pair = |a: &str, b: &str| (a.to_string(), b.to_string());
+        assert_eq!(
+            got,
+            vec![
+                Scripts { title: "mono".into(), scripts: vec![pair("build", "pnpm run build"), pair("lint:fix", "pnpm run lint:fix")] },
+                Scripts { title: "apps/docs".into(), scripts: vec![pair("dev", "bun --cwd apps/docs run dev")] },
+                Scripts { title: "web".into(), scripts: vec![pair("dev", "pnpm --dir apps/web run dev")] },
+                Scripts { title: "my app".into(), scripts: vec![pair("start", "npm --prefix 'my app' run start")] },
+                Scripts { title: "tools".into(), scripts: vec![pair("it's", r"yarn --cwd tools run 'it'\''s'")] },
+            ]
+        );
+        assert_eq!(package_scripts(&["package.json"], |_| Some(r#"{ "scripts": { "t": "x" } }"#.into()))[0].scripts[0].1, "npm run t");
+    }
 
     #[test]
     fn fix_version_names_a_release() {

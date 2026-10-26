@@ -2530,6 +2530,12 @@ button.tree-twist:hover {
   font-size: 11px;
   white-space: nowrap;
 }
+.ctx-head {
+  padding: 6px 10px 2px 8px;
+  color: var(--faint);
+  font-size: 11px;
+  font-weight: 600;
+}
 .ctx-sep {
   height: 1px;
   margin: 4px 2px;
@@ -3146,6 +3152,12 @@ button.picker-act {
   border-radius: var(--r-lg);
   background: var(--panel);
   box-shadow: var(--shadow);
+}
+.shell-scripts {
+  position: absolute;
+  top: 6px;
+  right: 18px;
+  z-index: 5;
 }
 .shell-find .input {
   width: 180px;

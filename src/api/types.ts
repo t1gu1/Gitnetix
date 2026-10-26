@@ -428,6 +428,12 @@ export interface AgentSession {
 }
 
 /** A checkout's terminal: the main checkout's is shared by every branch on it, each worktree has its own. */
+/** One package.json in the terminal's script menu: its title and each script with the command line that runs it from the checkout root. */
+export interface Scripts {
+  title: string;
+  scripts: [string, string][];
+}
+
 export interface ShellSnapshot {
   /** Canonical checkout path, the terminal's key. */
   cwd: string;

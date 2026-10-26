@@ -20,13 +20,16 @@ export type MenuItem =
       run: () => void;
     };
 
+/** A group title in the menu, not a choice. */
+type MenuHeading = { heading: ReactNode };
+
 const TRIGGER = '[aria-haspopup="menu"]';
 // WebKit doesn't focus clicked buttons, so the last pressed trigger stands in for the focused one.
 let lastDown: Element | null = null;
 window.addEventListener("mousedown", (e) => (lastDown = (e.target as Element).closest?.(TRIGGER) ?? null), true);
 
 /** Floating menu at a viewport point; closes on outside click, Escape, scroll or resize. */
-export function ContextMenu({ x, y, items, label, alignRight, onClose }: { x: number; y: number; items: MenuItem[]; label: string; alignRight?: boolean; onClose: () => void }) {
+export function ContextMenu({ x, y, items, label, alignRight, onClose }: { x: number; y: number; items: (MenuItem | MenuHeading)[]; label: string; alignRight?: boolean; onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState({ left: x, top: y, "--origin": "top left" });
   const closeRef = useRef(onClose);
@@ -89,6 +92,10 @@ export function ContextMenu({ x, y, items, label, alignRight, onClose }: { x: nu
       {items.map((it, i) =>
         it === "sep" ? (
           <div key={`sep-${i}`} className="ctx-sep" role="separator" />
+        ) : "heading" in it ? (
+          <div key={`head-${i}`} className="ctx-head ellipsis" role="presentation">
+            {it.heading}
+          </div>
         ) : (
           <button
             key={it.id}

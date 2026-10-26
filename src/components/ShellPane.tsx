@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon, type ISearchOptions } from "@xterm/addon-search";
 import { WebLinksAddon } from "@xterm/addon-web-links";
@@ -7,8 +8,9 @@ import { Terminal, type ITheme } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 
 import { isLocal, openExternal, rpc, subscribe } from "../api/transport";
-import type { GitnetixEvent, ShellSnapshot } from "../api/types";
+import type { GitnetixEvent, Scripts, ShellSnapshot } from "../api/types";
 import { ansi, resolveTheme } from "../lib/themes";
+import { ContextMenu } from "./ContextMenu";
 import { Icon } from "./Icon";
 
 const MAC = /Mac|iPhone|iPad/.test(navigator.userAgent);
@@ -49,6 +51,17 @@ export default function ShellPane({ projectId, path }: { projectId: string; path
   const [finding, setFinding] = useState(false);
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<{ i: number; n: number }>();
+  const [menu, setMenu] = useState<{ x: number; y: number }>();
+  const scripts = useQuery({ queryKey: ["shellScripts", projectId, path], queryFn: () => rpc<Scripts[]>("shell.scripts", { projectId, path }), enabled: !!path });
+  const pkgs = scripts.data ?? [];
+  const typeScript = (cmd: string) => {
+    const term = termRef.current;
+    if (!term) return;
+    // Ctrl+E then Ctrl+U clears the whole line in bash, zsh and fish (Ctrl+U alone keeps what follows the cursor). No Enter: the user runs it.
+    term.input("\x05\x15" + cmd);
+    // After the menu hands focus back to whatever had it.
+    requestAnimationFrame(() => term.focus());
+  };
   useEffect(() => {
     const el = host.current;
     if (!el || !path) return;
@@ -200,6 +213,34 @@ export default function ShellPane({ projectId, path }: { projectId: string; path
   return (
     <div className="shell-pane">
       <div ref={host} style={{ height: "100%" }} />
+      {pkgs.length > 0 && (
+        <button
+          type="button"
+          className="btn btn-sm btn-icon shell-scripts"
+          aria-haspopup="menu"
+          aria-label="Package scripts"
+          data-tip="Package scripts"
+          onClick={(e) => {
+            const r = e.currentTarget.getBoundingClientRect();
+            setMenu({ x: r.right, y: r.bottom + 2 });
+            scripts.refetch();
+          }}
+        >
+          <Icon name="play" size={12} />
+        </button>
+      )}
+      {menu && (
+        <ContextMenu
+          {...menu}
+          alignRight
+          label="Package scripts"
+          onClose={() => setMenu(undefined)}
+          items={pkgs.flatMap((p, i) => [
+            ...(pkgs.length > 1 ? [...(i ? ["sep" as const] : []), { heading: p.title }] : []),
+            ...p.scripts.map(([name, cmd]) => ({ id: `${i}:${name}`, label: name, icon: null, run: () => typeScript(cmd) })),
+          ])}
+        />
+      )}
       {finding && (
         <div className="shell-find" onKeyDown={(e) => e.key === "Escape" && (e.stopPropagation(), closeFind())}>
           <input

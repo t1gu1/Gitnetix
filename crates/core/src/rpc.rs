@@ -101,6 +101,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("shell.open", "Terminal of a checkout (main checkout or worktree) of the project: starts its shell if needed, returns recent output", "projectId, path, cols, rows"),
     ("shell.write", "Type into a checkout's terminal", "path, data"),
     ("shell.resize", "Resize a checkout's terminal", "path, cols, rows"),
+    ("shell.scripts", "Scripts of every package.json in a checkout of the project, each with the command line that runs it from the checkout root", "projectId, path"),
     ("ai.catalog", "AI providers, their status and settings", ""),
     ("ai.saveProvider", "Configure an AI provider", "id, method?, model?, effort?, baseUrl?, apiKey?"),
     ("ai.setDefault", "Default AI provider", "id"),
@@ -228,7 +229,7 @@ fn drop_unused_atlassian_sign_in(k: &Gitnetix) -> Result<()> {
 }
 
 /// Reads polled all the time: logged only when they fail.
-const QUIET: &[&str] = &[".info", ".get", ".list", ".overview", ".files", ".diff", ".blobs", ".commits", ".catalog", ".statuses", ".versions", ".projects", ".refs", ".range", ".preview", ".clear", "shell.write", "shell.resize", "ui.setView", "github.signInPoll", "azure.signInPoll"];
+const QUIET: &[&str] = &[".info", ".get", ".list", ".overview", ".files", ".diff", ".blobs", ".commits", ".catalog", ".statuses", ".versions", ".projects", ".refs", ".range", ".preview", ".clear", "shell.write", "shell.resize", "shell.scripts", "ui.setView", "github.signInPoll", "azure.signInPoll"];
 
 /// Run `method`, logging what it will attempt and how it ended.
 pub async fn call(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
@@ -619,6 +620,7 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
             k.shells.resize(&s(&p, "path")?, u(&p, "cols")? as u16, u(&p, "rows")? as u16)?;
             ok()
         }
+        "shell.scripts" => to(k.shell_scripts(&s(&p, "projectId")?, &s(&p, "path")?).await?),
 
         // ---- AI setup ----
         "ai.catalog" => {
