@@ -213,6 +213,17 @@ impl Azure {
         Ok(out)
     }
 
+    /// Active pull requests from or into `branch`.
+    pub async fn open_prs(&self, branch: &str) -> Result<Vec<u64>> {
+        let r = urlencoding(&format!("refs/heads/{branch}"));
+        let (source, target) = (
+            format!("/pullrequests?searchCriteria.status=active&searchCriteria.sourceRefName={r}"),
+            format!("/pullrequests?searchCriteria.status=active&searchCriteria.targetRefName={r}"),
+        );
+        let (from, into) = futures_util::try_join!(self.get(&source), self.get(&target))?;
+        Ok([from, into].iter().flat_map(|v| v["value"].as_array().into_iter().flatten()).filter_map(|p| p["pullRequestId"].as_u64()).collect())
+    }
+
     /// Id of the signed-in identity.
     pub async fn me(&self) -> Result<String> {
         let v = self.req(reqwest::Method::GET, &format!("https://dev.azure.com/{}/_apis/connectionData", self.repo.org), None).await?;

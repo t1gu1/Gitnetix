@@ -154,6 +154,9 @@ pub struct BranchView {
     pub remote: bool,
     /// The git host protects it (branch protection or a ruleset): it can't be deleted.
     pub protected: bool,
+    /// Most likely renamed on origin by someone else: following it renames it here too (see [`renamed_to`]).
+    #[serde(default)]
+    pub renamed_to: Option<String>,
     /// Date of its last commit (ISO 8601).
     pub date: String,
     /// Author of its last commit.
@@ -548,12 +551,52 @@ fn parse_version(s: &str) -> Option<[u64; 3]> {
     Some(v)
 }
 
+fn valid_version(v: &str) -> bool {
+    !v.is_empty() && v.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-')
+}
+
 fn release_branch(version: &str) -> String {
     format!("release/{}", version.trim_start_matches('v'))
 }
 
 /// Keep a Changelog file that shipping dates (see `stamp_changelog`).
 const CHANGELOG: &str = "CHANGELOG.md";
+
+/// Refused while CHANGELOG.md has uncommitted changes in the checkout at `dir`.
+async fn clean_changelog(g: &Git, dir: &Path) -> Result<()> {
+    if !g.run(&["status", "--porcelain", "--", CHANGELOG]).await?.trim().is_empty() {
+        return Err(Error::Invalid(format!("{CHANGELOG} has uncommitted changes at {}", dir.display())));
+    }
+    Ok(())
+}
+
+/// The changelog with `old`'s version heading (`## [2.4.0] - date`) under `new` instead; None without one.
+fn rename_changelog_version(text: &str, old: &str, new: &str) -> Option<String> {
+    let heading = format!("## [{old}]");
+    let mut found = false;
+    let out: String = text
+        .split_inclusive('\n')
+        .map(|l| match l.trim_start().strip_prefix(&heading) {
+            Some(rest) => {
+                found = true;
+                format!("## [{new}]{rest}")
+            }
+            None => l.to_string(),
+        })
+        .collect();
+    found.then_some(out)
+}
+
+/// Stashes made on a branch before it was renamed show under its name now (git keeps the old one
+/// in their message), unless the old name is `in_use` again.
+fn relabel_stashes(p: &Project, stashes: &mut [StashInfo], in_use: impl Fn(&str) -> bool) {
+    for s in stashes {
+        // Renamed again later: follow the chain (renames never loop, see `renamed`).
+        while let Some(to) = s.branch.as_deref().filter(|n| !in_use(n)).and_then(|n| p.renamed_branches.get(n)) {
+            s.branch = Some(to.clone());
+        }
+    }
+}
 
 /// Rename the `## [Unreleased]` section to `## [version] - date` and open a fresh empty
 /// `Unreleased` above it. When the version already has a section (entries added after an
@@ -702,6 +745,53 @@ fn import_release_branches(p: &mut Project, branches: &[BranchInfo], remote: &[B
         added = true;
     }
     added
+}
+
+/// Carry what the project knows about branch `from` over to `to`. An open release's branch
+/// takes its new version along, with its branches and planned tickets.
+fn renamed(p: &mut Project, from: &str, to: &str) -> Result<()> {
+    if let Some(r) = p.releases.iter().find(|r| r.branch == from) {
+        if r.shipped_at.is_some() {
+            return Err(Error::Invalid(format!("v{} shipped: its branch keeps its name", r.version)));
+        }
+        let Some(v) = to.strip_prefix("release/").filter(|v| valid_version(v)) else {
+            return Err(Error::Invalid("A release branch is named release/<version>, like release/2.5.0".into()));
+        };
+        // An open release already on `to` was imported from origin's copy (renamed by someone else): this one takes its place.
+        if p.releases.iter().any(|x| x.version == v && x.branch != from && (x.shipped_at.is_some() || x.branch != to)) {
+            return Err(Error::Invalid(format!("v{v} already exists")));
+        }
+        let old = r.version.clone();
+        p.releases.retain(|x| x.branch != to || x.shipped_at.is_some());
+        for x in p.releases.iter_mut().filter(|x| x.branch == from) {
+            x.version = v.into();
+            x.branch = to.into();
+        }
+        for m in p.branches.values_mut().filter(|m| m.release.as_deref() == Some(old.as_str())) {
+            m.release = Some(v.into());
+        }
+        for r in p.ticket_releases.values_mut().filter(|r| **r == old) {
+            *r = v.into();
+        }
+        // Origin keeps the old branch when renamed here only: it must not come back as a release.
+        p.forgotten_releases.retain(|f| f != v);
+        if !p.forgotten_releases.contains(&old) {
+            p.forgotten_releases.push(old);
+        }
+    }
+    if let Some(m) = p.branches.remove(from) {
+        p.branches.insert(to.into(), m);
+    }
+    // `to` names this branch now, not what it was renamed to before: no loop of renames.
+    p.renamed_branches.remove(to);
+    p.renamed_branches.insert(from.into(), to.into());
+    for m in p.branches.values_mut().filter(|m| m.parent.as_deref() == Some(from)) {
+        m.parent = Some(to.into());
+    }
+    for r in p.releases.iter_mut().filter(|r| r.base == from) {
+        r.base = to.into();
+    }
+    Ok(())
 }
 
 /// Long-lived integration branches that sit under the default branch.
@@ -1007,6 +1097,20 @@ fn branch_names(p: &Project, refs: &Refs) -> Vec<String> {
     names
 }
 
+/// Where origin renamed local `name` to, by the look of it: its upstream is gone, and exactly one
+/// branch on origin that no local branch has or tracks sits at its tip.
+fn renamed_to(refs: &Refs, name: &str) -> Option<String> {
+    let info = refs.local(name)?;
+    let up = info.upstream.as_deref()?.strip_prefix("origin/")?;
+    if refs.remote(up).is_some() {
+        return None;
+    }
+    let taken = |n: &str| refs.local(n).is_some() || refs.local.iter().any(|l| l.upstream.as_deref().and_then(|u| u.strip_prefix("origin/")) == Some(n));
+    let mut at_tip = refs.remote.iter().filter(|r| r.sha == info.sha && !taken(&r.name));
+    let first = at_tip.next()?;
+    at_tip.next().is_none().then(|| first.name.clone())
+}
+
 /// What a branch view says without looking at history: no counts, not merged,
 /// no checkout (see `Gitnetix::decorate`).
 fn plain_view(p: &Project, refs: &Refs, name: &str, parent: Option<String>) -> BranchView {
@@ -1056,6 +1160,7 @@ fn plain_view(p: &Project, refs: &Refs, name: &str, parent: Option<String>) -> B
         local: info.is_some(),
         remote: refs.remote(name).is_some(),
         protected: false,
+        renamed_to: None,
         date: tip.map(|b| b.date.clone()).unwrap_or_default(),
         author: tip.map(|b| b.author.clone()).unwrap_or_default(),
         email: tip.map(|b| b.email.clone()).unwrap_or_default(),
@@ -1634,10 +1739,13 @@ impl Gitnetix {
             }
         };
         let (_, protected, stashes) = tokio::join!(self.decorate(&p, &mut all, &wts, &agents), protected, git.stashes());
-        let stashes = stashes.unwrap_or_default();
+        let mut stashes = stashes.unwrap_or_default();
+        relabel_stashes(&p, &mut stashes, |n| all.iter().any(|b| b.name == n && b.exists));
         for b in &mut all {
             b.protected = protected.contains(&b.name);
             b.stashes = stashes.iter().filter(|s| s.branch.as_deref() == Some(b.name.as_str())).count() as u32;
+            // A merged branch's upstream is gone because it was deleted, not renamed.
+            b.renamed_to = if b.merged { None } else { renamed_to(&refs, &b.name) };
         }
         let mut open: Vec<&Release> = p.releases.iter().filter(|r| r.shipped_at.is_none()).collect();
         // Newest version first; stable sort keeps unparseable versions in registration order, last.
@@ -2403,7 +2511,7 @@ impl Gitnetix {
 
     pub async fn create_release(&self, project_id: &str, version: &str, kind: ReleaseKind, from: Option<String>) -> Result<Release> {
         let version = version.trim().trim_start_matches('v').to_string();
-        if version.is_empty() || !version.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-') {
+        if !valid_version(&version) {
             return Err(Error::Invalid("Version like 2.4.0".into()));
         }
         let p = self.store.project(project_id)?;
@@ -2521,21 +2629,21 @@ impl Gitnetix {
         let Some(text) = git.show_file(branch, CHANGELOG).await? else { return Ok(false) };
         let date = chrono::Local::now().format("%Y-%m-%d").to_string();
         let Some(stamped) = stamp_changelog(&text, version, &date) else { return Ok(false) };
-        let message = format!("docs(changelog): release v{version}");
+        self.commit_changelog(p, git, branch, &stamped, &format!("docs(changelog): release v{version}")).await?;
+        Ok(true)
+    }
+
+    /// Commit `text` as `branch`'s CHANGELOG.md: in its checkout when it has one, else straight onto the branch.
+    async fn commit_changelog(&self, p: &Project, git: &Git, branch: &str, text: &str, message: &str) -> Result<()> {
         match self.checkout_dir(p, branch).await? {
             Some(dir) => {
                 let g = self.git_at(p, &dir);
-                if !g.run(&["status", "--porcelain", "--", CHANGELOG]).await?.trim().is_empty() {
-                    return Err(Error::Invalid(format!("{CHANGELOG} has uncommitted changes at {}", dir.display())));
-                }
-                tokio::fs::write(dir.join(CHANGELOG), stamped).await?;
-                g.commit_paths(&[CHANGELOG], &message).await?;
+                clean_changelog(&g, &dir).await?;
+                tokio::fs::write(dir.join(CHANGELOG), text).await?;
+                g.commit_paths(&[CHANGELOG], message).await
             }
-            None => {
-                git.commit_root_file(branch, CHANGELOG, &stamped, &message).await?;
-            }
+            None => git.commit_root_file(branch, CHANGELOG, text, message).await.map(|_| ()),
         }
-        Ok(true)
     }
 
     pub fn delete_release(&self, project_id: &str, version: &str) -> Result<()> {
@@ -2831,6 +2939,105 @@ impl Gitnetix {
         })?;
         self.changed(project_id);
         Ok(())
+    }
+
+    /// Rename a branch and, with `remote`, its copy on origin for everyone. An open release's
+    /// branch (`release/<version>`) takes its new version along. A local branch whose origin
+    /// copy was renamed by someone else follows it (`renamed_to`): it tracks the new name after.
+    /// True when the release's CHANGELOG.md section was moved to the new version (committed, not pushed).
+    pub async fn rename_branch(&self, project_id: &str, branch: &str, to: &str, remote: bool) -> Result<bool> {
+        let to = to.trim();
+        let p = self.store.project(project_id)?;
+        let git = self.git(&p);
+        if !valid_branch_name(to) || to == branch {
+            return Err(Error::Invalid(format!("{to:?} is not a new branch name")));
+        }
+        if branch == git.default_branch().await? {
+            return Err(Error::Invalid(format!("{branch} is the default branch")));
+        }
+        // Refused release renames are refused before anything moves.
+        renamed(&mut p.clone(), branch, to)?;
+        if git.ref_exists(&format!("refs/heads/{to}")).await? {
+            return Err(Error::Invalid(format!("{to} already exists")));
+        }
+        let dir = self.checkout_dir(&p, branch).await?;
+        if let Some(dir) = &dir {
+            if let Some(op) = Git::new(dir).in_progress().await? {
+                return Err(Error::Invalid(format!("{branch} is in the middle of a {op}. Finish or abort it first.")));
+            }
+        }
+        let local = git.ref_exists(&format!("refs/heads/{branch}")).await?;
+        let on_origin = remote && git.ref_exists(&format!("refs/remotes/origin/{branch}")).await?;
+        if !local && !on_origin {
+            return Err(Error::Invalid(format!("{branch} is only on origin")));
+        }
+        // An open release's CHANGELOG.md section follows its new version (checked by `renamed` above).
+        let versions = p.releases.iter().find(|r| r.branch == branch && r.shipped_at.is_none()).map(|r| (r.version.clone(), to.trim_start_matches("release/")));
+        let changelog = match (&versions, local) {
+            (Some((old, new)), true) => git.show_file(branch, CHANGELOG).await?.and_then(|t| rename_changelog_version(&t, old, new)),
+            _ => None,
+        };
+        if let (Some(_), Some(dir)) = (&changelog, &dir) {
+            clean_changelog(&self.git_at(&p, dir), dir).await?;
+        }
+        // As configured: `@{upstream}` fails once origin dropped it.
+        let upstream = git.run(&["for-each-ref", "--format=%(upstream:short)", &format!("refs/heads/{branch}")]).await?;
+        // Origin first: if the host refuses, nothing changed here.
+        if on_origin {
+            git.fetch().await?;
+            let theirs = format!("refs/remotes/origin/{branch}");
+            if !git.ref_exists(&theirs).await? {
+                return Err(Error::Invalid(format!("{branch} is no longer on origin")));
+            }
+            if git.ref_exists(&format!("refs/remotes/origin/{to}")).await? {
+                return Err(Error::Invalid(format!("origin already has {to}")));
+            }
+            let sha = git.rev_parse(&theirs).await?;
+            self.rename_on_origin(&p, &git, branch, to, &sha).await?;
+        }
+        if local {
+            git.rename_branch(branch, to).await?;
+            // Renamed on origin, here or by someone else (its upstream is gone and origin has `to`): track the new name.
+            let gone = upstream.trim() == format!("origin/{branch}") && !git.ref_exists(&format!("refs/remotes/origin/{branch}")).await?;
+            if on_origin || (gone && git.ref_exists(&format!("refs/remotes/origin/{to}")).await?) {
+                git.set_upstream(to, &format!("origin/{to}")).await?;
+            }
+        }
+        self.store.with_project(project_id, |p| renamed(p, branch, to))?;
+        self.agents.rename_branch(project_id, branch, to);
+        if let (Some(text), Some((old, new))) = (&changelog, &versions) {
+            self.commit_changelog(&p, &git, to, text, &format!("docs(changelog): v{old} is now v{new}")).await?;
+        }
+        self.changed(project_id);
+        Ok(changelog.is_some())
+    }
+
+    /// Rename `from` (at `sha` on origin) to `to` on origin. GitHub renames it itself, so its open
+    /// pull requests and protection rules follow; elsewhere one atomic push creates `to` and deletes `from`.
+    async fn rename_on_origin(&self, p: &Project, git: &Git, from: &str, to: &str, sha: &str) -> Result<()> {
+        let url = git.remote_url("origin").await?.unwrap_or_default();
+        if let Some(repo) = azure::parse_remote(&url) {
+            // Deleting the old name would cut off its pull requests: Azure DevOps can't move them to another branch.
+            let prs = azure::Azure::new(repo, azure_auth::authorization().await?).open_prs(from).await?;
+            if let Some(n) = prs.first() {
+                return Err(Error::Invalid(format!("Pull request #{n} is open from or into {from}. Complete or abandon it first.")));
+            }
+        } else {
+            match self.github(&p.id).await {
+                Ok(gh) => {
+                    gh.rename_branch(from, to).await?;
+                    // GitHub renames in the background: the tracking refs move now, the next fetch confirms.
+                    git.update_ref(&format!("refs/remotes/origin/{to}"), sha).await?;
+                    git.run(&["update-ref", "-d", &format!("refs/remotes/origin/{from}")]).await?;
+                    return Ok(());
+                }
+                // Not a GitHub remote: plain git below.
+                Err(Error::Unsupported(_)) => {}
+                // A GitHub remote without sign-in: deleting the old name would close its pull requests.
+                Err(e) => return Err(e),
+            }
+        }
+        git.push_rename(from, to, sha).await.map(|_| ())
     }
 
     /// Delete several branches (merged ones only unless `force`), a few at a time, carrying on past the ones that can't go.
@@ -4727,6 +4934,29 @@ mod tests {
         assert_eq!(replace_unreleased("# Changelog\n\n## [0.0.6]\n- Tags.\n", "- Fix."), "# Changelog\n\n## [Unreleased]\n\n- Fix.\n\n## [0.0.6]\n- Tags.\n");
         assert_eq!(replace_unreleased("# Changelog\n", "- Fix."), "# Changelog\n## [Unreleased]\n\n- Fix.\n");
         assert_eq!(replace_unreleased("## [Unreleased]\r\n\r\n## [1.0.0]\r\n- A.\r\n", "- B."), "## [Unreleased]\r\n\r\n- B.\r\n\r\n## [1.0.0]\r\n- A.\r\n");
+    }
+
+    #[test]
+    fn rename_moves_the_version_section_and_stashes_follow() {
+        let text = "## [Unreleased]\n\n## [2.4.0] - 2026-10-20\r\n- A.\n## [2.4.01]\n";
+        assert_eq!(rename_changelog_version(text, "2.4.0", "2.5.0").as_deref(), Some("## [Unreleased]\n\n## [2.5.0] - 2026-10-20\r\n- A.\n## [2.4.01]\n"));
+        assert_eq!(rename_changelog_version("## [Unreleased]\n", "2.4.0", "2.5.0"), None);
+
+        // a → b → c, then a new branch takes the name a again; renaming back never loops.
+        let mut p = Project::default();
+        renamed(&mut p, "a", "b").unwrap();
+        renamed(&mut p, "b", "c").unwrap();
+        let stash = |b: &str| StashInfo { sha: String::new(), branch: Some(b.into()), message: String::new(), date: String::new(), untracked: false };
+        let mut s = vec![stash("a"), stash("b")];
+        relabel_stashes(&p, &mut s, |_| false);
+        assert_eq!(s.iter().map(|s| s.branch.as_deref().unwrap()).collect::<Vec<_>>(), ["c", "c"]);
+        let mut s = vec![stash("a")];
+        relabel_stashes(&p, &mut s, |n| n == "a");
+        assert_eq!(s[0].branch.as_deref(), Some("a"));
+        renamed(&mut p, "c", "a").unwrap();
+        let mut s = vec![stash("b")];
+        relabel_stashes(&p, &mut s, |_| false);
+        assert_eq!(s[0].branch.as_deref(), Some("a"));
     }
 
     #[test]

@@ -192,6 +192,13 @@ impl GitHub {
         Ok(v.as_array().map(|a| a.iter().filter_map(|b| b["name"].as_str().map(String::from)).collect()).unwrap_or_default())
     }
 
+    /// Rename a branch on GitHub: its open pull requests, protection rules and links follow it.
+    /// GitHub finishes in the background.
+    pub async fn rename_branch(&self, from: &str, to: &str) -> Result<()> {
+        let name: String = from.bytes().map(|b| if b.is_ascii_alphanumeric() || b"-_.~".contains(&b) { (b as char).to_string() } else { format!("%{b:02X}") }).collect();
+        self.req(reqwest::Method::POST, &format!("{}/branches/{name}/rename", self.rp()), Some(json!({ "new_name": to }))).await.map(|_| ())
+    }
+
     pub async fn me(&self) -> Result<String> {
         Ok(self.get("/user").await?["login"].as_str().unwrap_or("").to_string())
     }

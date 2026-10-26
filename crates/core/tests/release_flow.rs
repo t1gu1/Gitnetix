@@ -1500,3 +1500,81 @@ async fn dialog_prefs_default_and_save() {
     let err = rpc::call(&k, "projects.setPrefs", json!({ "projectId": pid, "dialogs": { "finish": "later" } })).await.unwrap_err();
     assert!(err.to_string().contains("unknown variant"), "{err}");
 }
+
+#[tokio::test]
+async fn rename_on_origin_and_follow_it_elsewhere() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("atlas-api");
+    init_repo(&repo);
+    let origin = tmp.path().join("origin.git");
+    sh(tmp.path(), &["init", "-q", "--bare", "-b", "main", origin.to_str().unwrap()]);
+    sh(&repo, &["remote", "add", "origin", origin.to_str().unwrap()]);
+    sh(&repo, &["push", "-q", "-u", "origin", "main"]);
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let added = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await;
+    let pid = added[0]["id"].as_str().unwrap().to_string();
+
+    // A work branch: renamed on origin in one push, tracking the new name.
+    sh(&repo, &["switch", "-qc", "feat/a"]);
+    commit_file(&repo, "a.txt", "a\n");
+    sh(&repo, &["push", "-q", "-u", "origin", "feat/a"]);
+    let tip = rev(&repo, "feat/a");
+    std::fs::write(repo.join("wip.txt"), "wip\n").unwrap();
+    sh(&repo, &["stash", "push", "-q", "-u", "-m", "half done"]);
+    call(&k, "branches.rename", json!({ "projectId": pid, "branch": "feat/a", "name": "feat/b", "remote": true })).await;
+    assert_eq!(rev(&origin, "refs/heads/feat/b"), tip);
+    assert!(rev(&origin, "refs/heads/feat/a").is_empty());
+    assert!(rev(&repo, "refs/remotes/origin/feat/a").is_empty());
+    assert_eq!(git_out(&repo, &["rev-parse", "--abbrev-ref", "feat/b@{upstream}"]).trim(), "origin/feat/b");
+    assert_eq!(git_out(&repo, &["branch", "--show-current"]).trim(), "feat/b");
+    // The stash made before still names feat/a: it shows under feat/b.
+    let ov = call(&k, "workspace.overview", json!({ "projectId": pid })).await;
+    assert_eq!(ov["stashes"][0]["branch"], "feat/b");
+    assert_eq!(ov["branches"].as_array().unwrap().iter().find(|b| b["name"] == "feat/b").unwrap()["stashes"], 1);
+
+    // A name origin already has is refused, and nothing moves.
+    sh(&repo, &["push", "-q", "origin", "main:refs/heads/feat/taken"]);
+    let err = rpc::call(&k, "branches.rename", json!({ "projectId": pid, "branch": "feat/b", "name": "feat/taken", "remote": true })).await.unwrap_err();
+    assert!(err.to_string().contains("origin already has feat/taken"), "{err}");
+    assert_eq!(rev(&origin, "refs/heads/feat/b"), tip);
+    sh(&repo, &["switch", "-q", "main"]);
+
+    // An open release takes its new version along, with its branches and planned tickets.
+    call(&k, "releases.create", json!({ "projectId": pid, "version": "2.4.0", "kind": "next" })).await;
+    sh(&repo, &["switch", "-q", "release/2.4.0"]);
+    commit_file(&repo, "CHANGELOG.md", "## [Unreleased]\n\n## [2.4.0] - 2026-10-20\n- Login.\n\n## [2.3.0]\n- Old.\n");
+    sh(&repo, &["switch", "-q", "main"]);
+    sh(&repo, &["push", "-q", "-u", "origin", "release/2.4.0"]);
+    call(&k, "items.attach", json!({ "projectId": pid, "branch": "feat/b", "release": "2.4.0", "kind": "feat" })).await;
+    call(&k, "tickets.setRelease", json!({ "projectId": pid, "key": "ATL-1", "release": "2.4.0" })).await;
+    let err = rpc::call(&k, "branches.rename", json!({ "projectId": pid, "branch": "release/2.4.0", "name": "feat/x", "remote": true })).await.unwrap_err();
+    assert!(err.to_string().contains("release/<version>"), "{err}");
+    let r = call(&k, "branches.rename", json!({ "projectId": pid, "branch": "release/2.4.0", "name": "release/2.5.0", "remote": true })).await;
+    assert!(rev(&origin, "refs/heads/release/2.4.0").is_empty());
+    // Its changelog section follows, in a commit on the branch left for the user to push.
+    assert_eq!(r["changelog"], true);
+    assert_eq!(git_out(&repo, &["show", "release/2.5.0:CHANGELOG.md"]), "## [Unreleased]\n\n## [2.5.0] - 2026-10-20\n- Login.\n\n## [2.3.0]\n- Old.\n");
+    assert_eq!(git_out(&repo, &["log", "-1", "--format=%s", "release/2.5.0"]).trim(), "docs(changelog): v2.4.0 is now v2.5.0");
+    let ov = call(&k, "workspace.overview", json!({ "projectId": pid })).await;
+    let open: Vec<&Value> = ov["releases"].as_array().unwrap().iter().filter(|r| r["open"] == true).collect();
+    assert_eq!(open.len(), 1, "{ov}");
+    assert_eq!((open[0]["version"].as_str(), open[0]["branch"].as_str()), (Some("2.5.0"), Some("release/2.5.0")));
+    assert_eq!(open[0]["items"][0]["name"], "feat/b");
+    assert_eq!(ov["project"]["ticketReleases"]["ATL-1"], "2.5.0");
+
+    // A teammate's copy: its upstream is gone after a fetch, and it follows the rename.
+    let mate = tmp.path().join("mate");
+    sh(tmp.path(), &["clone", "-q", origin.to_str().unwrap(), mate.to_str().unwrap()]);
+    sh(&mate, &["switch", "-q", "feat/b"]);
+    sh(&mate, &["switch", "-q", "main"]);
+    let added = call(&k, "projects.add", json!({ "paths": [mate.to_string_lossy()] })).await;
+    let mid = added[0]["id"].as_str().unwrap().to_string();
+    call(&k, "branches.rename", json!({ "projectId": pid, "branch": "feat/b", "name": "feat/c", "remote": true })).await;
+    sh(&mate, &["fetch", "-q", "--prune", "origin"]);
+    let ov = call(&k, "workspace.overview", json!({ "projectId": mid })).await;
+    let b = ov["branches"].as_array().unwrap().iter().find(|b| b["name"] == "feat/b").unwrap().clone();
+    assert_eq!(b["renamedTo"], "feat/c", "{b}");
+    call(&k, "branches.rename", json!({ "projectId": mid, "branch": "feat/b", "name": "feat/c" })).await;
+    assert_eq!(git_out(&mate, &["rev-parse", "--abbrev-ref", "feat/c@{upstream}"]).trim(), "origin/feat/c");
+    assert!(rev(&mate, "refs/heads/feat/b").is_empty());
+}

@@ -8,7 +8,7 @@ import { plural } from "../lib/format";
 import { useNav } from "../lib/nav";
 import { copyToClipboard, toast } from "../lib/toast";
 
-export type BranchDialog = "merge" | "delete" | "continue" | "conflicts" | "reset" | "forcePush" | "tag" | "target" | "rebase" | "abortSwitch";
+export type BranchDialog = "merge" | "delete" | "rename" | "continue" | "conflicts" | "reset" | "forcePush" | "tag" | "target" | "rebase" | "abortSwitch";
 
 export interface BranchTarget {
   view: BranchView;
@@ -87,9 +87,10 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
   // Changelog entries are written by the AI that writes release notes.
   const canChangelog = useAiOn("release") && hasChangelog;
   const move = useAction("branches.setParent", { invalidate: inv });
+  const follow = useAction<unknown, { projectId: string; branch: string; name: string }>("branches.rename", { invalidate: [...inv, ["worktrees"], ["agents"]] });
   const [menu, setMenu] = useState<{ x: number; y: number; alignRight: boolean; t: BranchTarget } | null>(null);
 
-  const mutations = [sw, wt, removeWt, pull, push, rebase, sync, stash, unstash, pr, changelog, stampChangelog];
+  const mutations = [sw, wt, removeWt, pull, push, rebase, sync, stash, unstash, pr, changelog, stampChangelog, follow];
   // Pushes started elsewhere count too: the commit box's auto push spins the branch's Push button.
   const pushing = usePendingBranches("workspace.push", pid);
   const busy = new Set([...mutations.flatMap((m) => (m.isPending && m.variables?.branch ? [m.variables.branch] : [])), ...pushing]);
@@ -254,6 +255,27 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
       },
       tag: { id: "tag", label: "Create tag…", tip: `Tag the tip of ${b}`, icon: "tag", run: () => openDialog("tag", b) },
       copy: { id: "copy", label: "Copy branch name", icon: "edit", run: () => copyToClipboard(b) },
+      rename: {
+        id: "rename",
+        label: v.role === "release" ? "Rename release…" : "Rename branch…",
+        tip: v.role === "release" ? `Give ${v.release} another version, its branch and planned work along` : `Rename ${b}${v.remote ? ", on origin too for everyone" : ""}`,
+        icon: "edit",
+        run: () => openDialog("rename", b),
+      },
+      follow: {
+        id: "follow",
+        label: <>Follow rename to <span className="mono">{v.renamedTo}</span></>,
+        short: "Follow rename",
+        tip: `${v.upstream} is gone and origin/${v.renamedTo} is at the same commit: rename ${b} to ${v.renamedTo} and track it`,
+        icon: "swap",
+        warn: true,
+        run: () => v.renamedTo && follow.mutate({ projectId: pid, branch: b, name: v.renamedTo }, {
+              onSuccess: () => {
+                if (nav.selectedBranch === b) nav.selectBranch(v.renamedTo!);
+                toast(`Renamed ${b} to ${v.renamedTo}`, "ok");
+              },
+            }),
+      },
       ticket: { id: "ticket", label: <>Show ticket <span className="mono">{v.ticket}</span></>, icon: "ticket", run: () => v.ticket && nav.go({ name: "tickets", key: v.ticket }) },
       delete: {
         id: "delete",
@@ -273,6 +295,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
     if (!v.exists) return [a.delete];
     const list: MenuItem[] = t.extra?.length ? [...t.extra, "sep"] : [];
     if (v.conflict) list.push(a.conflicts, "sep");
+    if (v.renamedTo) list.push(a.follow, "sep");
     if (!v.checkedOut) list.push(a.switch, a.worktree);
     else if (v.worktree) list.push(a.continue);
     list.push(a.create, "sep");
@@ -310,6 +333,8 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
     if (t.showStashes) list.push({ id: "stashes", label: "Show stashes", icon: "stash", hint: v.stashes ? String(v.stashes) : undefined, run: t.showStashes });
     if (!v.worktree) list.push(a.tag);
     list.push(a.copy);
+    // Shipped releases keep their branch's name.
+    if (!t.isDefault && !v.shipped) list.push(a.rename);
     // Any branch but the default one, unless the git host protects it.
     if (!t.isDefault && !v.protected) list.push("sep", a.delete);
     return list;
@@ -322,6 +347,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
     if (!v.exists) return a.delete;
     if (v.conflict) return a.conflicts;
     if (!v.local) return a.switch;
+    if (v.renamedTo) return a.follow;
     // A rebased work branch: pulling would bring the old commits back, so suggest replacing origin's copy.
     if (v.role === "branch" && !v.protected && v.rewritten) return a.forcePush;
     if (v.upstreamBehind > 0) return a.pull;

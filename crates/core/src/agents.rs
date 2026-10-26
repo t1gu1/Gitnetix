@@ -148,6 +148,14 @@ impl AgentManager {
         self.inner.lock().unwrap().sessions.get(id).cloned().ok_or_else(|| Error::NotFound(format!("agent session {id}")))
     }
 
+    /// Move the project's sessions on `from` over to its new name.
+    pub fn rename_branch(&self, project_id: &str, from: &str, to: &str) {
+        for s in self.inner.lock().unwrap().sessions.values_mut().filter(|s| s.project_id == project_id && s.branch == from) {
+            s.branch = to.into();
+        }
+        self.persist();
+    }
+
     pub fn persist(&self) {
         // Snapshot under the session lock, serialize and write outside it so
         // log readers are not blocked. Order does not matter on disk: `new`

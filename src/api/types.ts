@@ -160,6 +160,8 @@ export interface BranchView {
   remote: boolean;
   /** The git host protects it (branch protection or a ruleset): it can't be deleted. */
   protected: boolean;
+  /** Most likely renamed on origin by someone else (its upstream is gone, this origin branch sits at its tip): following renames it here too. */
+  renamedTo?: string | null;
   /** Date of its last commit (ISO 8601). */
   date: string;
   /** Author of its last commit. */

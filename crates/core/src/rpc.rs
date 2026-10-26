@@ -79,6 +79,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("branches.fetch", "Fetch origin, pruning deleted branches", "projectId"),
     ("branches.cleanup", "Delete branches, skipping the ones that can't go; force = even if unmerged, remote = on origin too", "projectId, branches: string[], force?, remote?"),
     ("branches.delete", "Delete a local branch and its worktree; force = even if unmerged, remote = on origin too. Not the default or a host-protected branch", "projectId, branch, force?, remote?"),
+    ("branches.rename", "Rename a branch; remote = on origin too, for everyone (GitHub moves its open PRs along; Azure DevOps refuses while a PR is open from or into it). An open release's branch takes the version of its new name, release/<version>, and its CHANGELOG.md section is renamed in a commit (changelog = true; not pushed). A local branch whose upstream is gone and whose renamedTo is set follows that rename and tracks it", "projectId, branch, name, remote?"),
     ("submodules.list", "Submodules of the project: URL, tracked branch, recorded vs checked-out commit, uncommitted files, commits behind its remote", "projectId"),
     ("submodules.add", "Add a submodule (path defaults to the URL's last segment) and clone it", "projectId, url, path?, branch?"),
     ("submodules.update", "Check out the recorded commit of one submodule (path) or all, cloning missing ones, nested included; remote = the tracked branch's tip instead", "projectId, path?, remote?"),
@@ -608,6 +609,7 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
             let branches = list(&p, "branches")?;
             to(k.cleanup_branches(&s(&p, "projectId")?, &branches, b(&p, "force"), b(&p, "remote")).await?)
         }
+        "branches.rename" => to(json!({ "changelog": k.rename_branch(&s(&p, "projectId")?, &s(&p, "branch")?, &s(&p, "name")?, b(&p, "remote")).await? })),
         "branches.delete" => {
             k.delete_branch(&s(&p, "projectId")?, &s(&p, "branch")?, b(&p, "force"), b(&p, "remote")).await?;
             ok()

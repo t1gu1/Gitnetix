@@ -564,6 +564,9 @@ export function Workspace() {
       )}
       {deletingTag && <DeleteTagModal pid={pid} tag={deletingTag} onClose={() => setDeletingTag(null)} />}
       {dialog?.kind === "tag" && <TagBranchModal pid={pid} branch={dialog.branch} onClose={() => setDialog(null)} />}
+      {dialog?.kind === "rename" && dialogView && (
+        <RenameBranchModal pid={pid} view={dialogView} onClose={() => setDialog(null)} onRenamed={(to) => dialog.branch === branch && nav.selectBranch(to)} />
+      )}
       {dialog?.kind === "target" && o && (
         <TargetBranchModal
           pid={pid}
@@ -1216,6 +1219,61 @@ function TagBranchModal({ pid, branch, onClose }: { pid: string; branch: string;
         </div>
       </form>
       {tag.error && <ErrorBox error={tag.error} />}
+    </Modal>
+  );
+}
+
+/** Rename a branch, on origin too for everyone by default; an open release gets a new version instead. */
+function RenameBranchModal({ pid, view, onClose, onRenamed }: { pid: string; view: BranchView; onClose: () => void; onRenamed: (to: string) => void }) {
+  const release = view.role === "release" ? view.release : null;
+  const [name, setName] = useState(release ?? view.name);
+  // Origin-only branches can only be renamed there.
+  const [alsoOrigin, setAlsoOrigin] = useState(true);
+  const onOrigin = view.remote && (!view.local || alsoOrigin);
+  const to = release ? `release/${name.trim().replace(/^v/, "")}` : name.trim();
+  const rename = useAction<{ changelog: boolean }, { projectId: string; branch: string; name: string; remote: boolean }>("branches.rename", {
+    invalidate: [["overview", pid], ["files", pid], ["commits", pid], ["worktrees"], ["agents"]],
+    success: (r) => `Renamed ${view.name} to ${to}${r.changelog ? ". CHANGELOG.md updated in a commit: push it to share it" : ""}`,
+  });
+  const submit = () => to !== view.name && name.trim() && rename.mutate({ projectId: pid, branch: view.name, name: to, remote: onOrigin }, { onSuccess: () => { onRenamed(to); onClose(); } });
+  return (
+    <Modal
+      title={release ? "Rename release" : "Rename branch"}
+      sub={<span className="mono">{view.name}</span>}
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn btn-md" onClick={onClose}>Cancel</button>
+          <button className="btn btn-md btn-primary" disabled={!name.trim() || to === view.name || rename.isPending} onClick={submit}>
+            {rename.isPending && <span className="spinner" />}
+            Rename
+          </button>
+        </>
+      }
+    >
+      <form className="col" style={{ gap: 14 }} onSubmit={(e) => { e.preventDefault(); submit(); }}>
+        <div className="field">
+          <label htmlFor="rename-to">{release ? "Version" : "New name"}</label>
+          <input id="rename-to" className="input mono" autoFocus value={name} onChange={(e) => setName(e.target.value)} />
+        </div>
+        <p style={{ margin: 0, lineHeight: 1.55 }}>
+          {release && <>The branch becomes <span className="mono">{to}</span>, and the branches and tickets planned in {release} move to it. A CHANGELOG.md section for {release} is renamed in a commit. </>}
+          {onOrigin ? (
+            <>Renamed on origin for everyone: they see <span className="mono">{to}</span> on their next fetch. On GitHub, open pull requests follow it.</>
+          ) : view.remote ? (
+            <><span className="mono">origin/{view.name}</span> keeps its name.</>
+          ) : (
+            "Not on origin: renamed here only."
+          )}
+        </p>
+        {view.local && view.remote && (
+          <label className="check">
+            <input type="checkbox" checked={alsoOrigin} onChange={() => setAlsoOrigin(!alsoOrigin)} />
+            <span>Also rename it on origin, for everyone</span>
+          </label>
+        )}
+      </form>
+      {rename.error && <ErrorBox error={rename.error} />}
     </Modal>
   );
 }

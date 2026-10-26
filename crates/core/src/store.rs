@@ -61,6 +61,8 @@ pub struct Project {
     pub hidden: bool,
     /// Versions forgotten with `releases.delete`; their branches are not re-imported.
     pub forgotten_releases: Vec<String>,
+    /// Old branch name → what it was renamed to: stashes made before a rename still name the old one.
+    pub renamed_branches: BTreeMap<String, String>,
     /// Merge dialog options, as last chosen.
     pub merge: MergePrefs,
     /// Commit button options.

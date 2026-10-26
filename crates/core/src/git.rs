@@ -638,6 +638,22 @@ impl Git {
         self.run(&["branch", if force { "-D" } else { "-d" }, name]).await.map(|_| ())
     }
 
+    /// Rename a local branch: its reflog, config and checkouts follow.
+    pub async fn rename_branch(&self, from: &str, to: &str) -> Result<()> {
+        self.run(&["branch", "-m", from, to]).await.map(|_| ())
+    }
+
+    pub async fn set_upstream(&self, branch: &str, upstream: &str) -> Result<()> {
+        self.run(&["branch", "--set-upstream-to", upstream, branch]).await.map(|_| ())
+    }
+
+    /// Rename `from` to `to` on origin in one push: both land or neither does. Leases: `from` must
+    /// still be at `sha` (nothing pushed since is lost) and `to` must not exist there yet.
+    pub async fn push_rename(&self, from: &str, to: &str, sha: &str) -> Result<String> {
+        let (from, to) = (format!("refs/heads/{from}"), format!("refs/heads/{to}"));
+        self.push_atomic(&[&format!("--force-with-lease={from}:{sha}"), &format!("--force-with-lease={to}:"), &format!("{sha}:{to}"), &format!(":{from}")]).await
+    }
+
     pub async fn delete_remote_branch(&self, name: &str) -> Result<()> {
         // Lease on the last fetched tip: a push made since then is never deleted unseen.
         // Full ref: a bare name also matching a tag on origin is refused as ambiguous.
