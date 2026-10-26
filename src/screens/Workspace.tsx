@@ -1181,7 +1181,7 @@ function ForcePushModal({ pid, view, onClose }: { pid: string; view: BranchView;
         Replaces <span className="mono">{upstream}</span> with <span className="mono">{branch}</span>
         {view.upstreamBehind > 0 && <>: the {plural(view.upstreamBehind, "commit")} only on origin {view.upstreamBehind === 1 ? "goes" : "go"} away</>}.
         {view.rewritten
-          ? <> They were on {branch} before it was rewritten (rebased), so nothing you haven't seen is lost.</>
+          ? <> They were on {branch} before it was rewritten (rebased or reset), so nothing you haven't seen is lost.</>
           : <> Some were never on {branch}: someone else may have pushed them. Git refuses those, so pull or reset first.</>}
       </p>
       {push.error && <ErrorBox error={push.error} />}

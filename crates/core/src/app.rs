@@ -131,7 +131,7 @@ pub struct BranchView {
     pub upstream: Option<String>,
     pub upstream_ahead: u32,
     pub upstream_behind: u32,
-    /// Diverged from its upstream only because it was rewritten (rebased, amended):
+    /// Behind or diverged from its upstream only because it was rewritten (rebased, amended, reset):
     /// origin's tip was once on the local branch, so a force push loses nothing unseen.
     pub rewritten: bool,
     pub ticket: Option<String>,
@@ -1188,7 +1188,7 @@ fn plain_view(p: &Project, refs: &Refs, name: &str, parent: Option<String>) -> B
 }
 
 /// Bump when branch views are built differently, so saved ones are not reused.
-const VIEW_CACHE_VERSION: &str = "9";
+const VIEW_CACHE_VERSION: &str = "10";
 
 /// What a project's branch views are built from: its refs, its default branch,
 /// what Gitnetix knows about its releases and branches, and what the git host said.
@@ -1909,7 +1909,7 @@ impl Gitnetix {
             (v.upstream_ahead, v.upstream_behind) = refs.upstream_counts(git, name).await;
         }
         v.rewritten = match &v.upstream {
-            Some(u) if v.upstream_ahead > 0 && v.upstream_behind > 0 => match git.rev_parse(u).await {
+            Some(u) if v.upstream_behind > 0 => match git.rev_parse(u).await {
                 Ok(sha) => git.in_reflog(name, &sha).await.unwrap_or(false),
                 Err(_) => false,
             },

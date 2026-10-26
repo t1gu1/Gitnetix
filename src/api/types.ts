@@ -139,7 +139,7 @@ export interface BranchView {
   upstream?: string | null;
   upstreamAhead: number;
   upstreamBehind: number;
-  /** Diverged from its upstream only because it was rewritten (rebased): origin's tip was once on the local branch. */
+  /** Behind or diverged from its upstream only because it was rewritten (rebased, reset): origin's tip was once on the local branch. */
   rewritten: boolean;
   ticket?: string | null;
   /** Exists locally or on origin (false: tracked by Gitnetix but gone). */
