@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 
-import { useAnalytics, useProjects } from "../api/hooks";
-import type { Analytics as A, ProjectSummary } from "../api/types";
+import { useAnalytics, useAnalyticsDay, useProjects } from "../api/hooks";
+import type { Analytics as A, DayCommit, ProjectSummary } from "../api/types";
 import { Icon } from "../components/Icon";
-import { ErrorBox, Header, initials, Loading, Seg } from "../components/ui";
+import { Empty, ErrorBox, Header, initials, Loading, Modal, Seg } from "../components/ui";
+import { plural } from "../lib/format";
+import { kindOf, kindOfBranch } from "../lib/kinds";
 import { useNav } from "../lib/nav";
 import { useStored } from "../lib/stored";
 
@@ -19,6 +21,12 @@ const lead = (h: number) => {
   return d === 0 ? `${r} h` : r === 0 ? `${d} d` : `${d} d ${r} h`;
 };
 const fmt = (iso: string, opts: Intl.DateTimeFormatOptions) => new Date(`${iso}T12:00:00`).toLocaleDateString("en-US", opts);
+const GROUPS = [["feat", "Features"], ["fix", "Fixes"], ["other", "Other"]] as const;
+/** `feat(ui): x` → feat; titles without a feat or fix prefix are other. */
+const groupOf = (subject: string) => {
+  const k = kindOf(subject.match(/^(\w+)[(!:]/)?.[1] ?? "");
+  return k === "feat" || k === "fix" ? k : "other";
+};
 
 export function Analytics() {
   const nav = useNav();
@@ -27,6 +35,7 @@ export function Analytics() {
   // Empty means every project.
   const [ids, setIds] = useState<string[]>(nav.projectId ? [nav.projectId] : []);
   const q = useAnalytics(ids, Number(days));
+  const multi = projects.length > 1 && ids.length !== 1;
 
   const exportCsv = () => {
     if (!q.data) return;
@@ -51,7 +60,7 @@ export function Analytics() {
           </div>
           {q.isLoading && <Loading />}
           {q.error && <ErrorBox error={q.error} />}
-          {q.data && <Body a={q.data} />}
+          {q.data && <Body a={q.data} ids={ids} multi={multi} />}
         </div>
       </main>
     </>
@@ -108,9 +117,11 @@ function ProjectPicker({ projects, value, onChange }: { projects: ProjectSummary
   );
 }
 
-function Body({ a }: { a: A }) {
+function Body({ a, ids, multi }: { a: A; ids: string[]; multi: boolean }) {
   const [hd, setHd] = useState(-1);
   const [hb, setHb] = useState(-1);
+  const [day, setDay] = useState<string | null>(null);
+  const [rel, setRel] = useState<A["releases"][number] | null>(null);
   const n = a.days.length;
   const total = a.days.reduce((s, d) => s + d.total, 0);
   const work = a.days.filter((d) => !d.weekend).length || 1;
@@ -142,14 +153,14 @@ function Body({ a }: { a: A }) {
           <span className="muted"><strong style={{ color: "var(--fg)" }}>{total.toLocaleString("en-US")}</strong> commits</span>
           <span className="muted"><strong style={{ color: "var(--fg)" }}>{(Math.round((total / work) * 10) / 10).toString()}</strong> per working day</span>
         </div>
-        <div className="chart" role="img" aria-label={`${total} commits over the last ${n} days. Busiest day ${busiest ? fmt(busiest.date, { month: "short", day: "numeric" }) : ""} with ${busiest?.total ?? 0} commits.`}>
+        <div className="chart" role="group" aria-label={`${total} commits over the last ${n} days. Busiest day ${busiest ? fmt(busiest.date, { month: "short", day: "numeric" }) : ""} with ${busiest?.total ?? 0} commits.`}>
           <div className="chart-y">{ticks(max).map((t) => <span key={t.top} style={{ top: `${t.top}%` }}>{t.v}</span>)}</div>
           <div className="chart-plot" style={{ gap: n <= 30 ? 3 : n <= 90 ? 2 : 0 }} onMouseLeave={() => setHd(-1)}>
             {ticks(max).map((t) => <div key={t.top} className="chart-grid" style={{ top: `${t.top}%` }} />)}
             {a.days.map((d, i) => (
-              <div key={d.date} className={`chart-bar${d.weekend ? " weekend" : ""}${hd >= 0 && hd !== i ? " dim" : ""}`} onMouseEnter={() => setHd(i)}>
+              <button key={d.date} className={`chart-bar${d.weekend ? " weekend" : ""}${hd >= 0 && hd !== i ? " dim" : ""}`} aria-label={`${fmt(d.date, { weekday: "short", month: "short", day: "numeric" })}: ${plural(d.total, "commit")}`} onMouseEnter={() => setHd(i)} onClick={() => setDay(d.date)}>
                 <span style={{ height: `${(d.total / max) * 100}%` }} />
-              </div>
+              </button>
             ))}
             {hover && (
               <div className="chart-tip" style={{ left: `${((hd + 0.5) / n) * 100}%`, transform: `translateX(${hd / n < 0.2 ? "0" : hd / n > 0.8 ? "-100%" : "-50%"})` }}>
@@ -192,12 +203,12 @@ function Body({ a }: { a: A }) {
         {a.releases.length === 0 ? (
           <span className="muted">No tagged release yet.</span>
         ) : (
-          <div className="chart" role="img" aria-label={`Lead time per release: ${a.releases.map((r) => `${r.version} ${lead(r.leadHours)}`).join(", ")}.`}>
+          <div className="chart" role="group" aria-label={`Lead time per release: ${a.releases.map((r) => `${r.version} ${lead(r.leadHours)}`).join(", ")}.`}>
             <div className="chart-y">{ticks(leadMax, " d").map((t) => <span key={t.top} style={{ top: `${t.top}%` }}>{t.v}</span>)}</div>
             <div className="chart-plot" style={{ gap: 16 }} onMouseLeave={() => setHb(-1)}>
               {ticks(leadMax).map((t) => <div key={t.top} className="chart-grid" style={{ top: `${t.top}%` }} />)}
               {a.releases.map((r, i) => (
-                <div key={r.version} className={`chart-bar${hb >= 0 && hb !== i ? " dim" : ""}`} onMouseEnter={() => setHb(i)}>
+                <button key={r.version} className={`chart-bar${hb >= 0 && hb !== i ? " dim" : ""}`} aria-label={`${r.version}: ${lead(r.leadHours)}`} onMouseEnter={() => setHb(i)} onClick={() => setRel(r)}>
                   <span style={{ height: `${(r.leadHours / 24 / leadMax) * 100}%`, maxWidth: 56, borderRadius: "3px 3px 0 0" }} />
                   {hb === i && (
                     <div className="chart-tip" style={{ left: i / a.releases.length < 0.2 ? 0 : i / a.releases.length > 0.8 ? "100%" : "50%", transform: `translateX(${i / a.releases.length < 0.2 ? "0" : i / a.releases.length > 0.8 ? "-100%" : "-50%"})` }}>
@@ -213,7 +224,7 @@ function Body({ a }: { a: A }) {
                       ))}
                     </div>
                   )}
-                </div>
+                </button>
               ))}
             </div>
             <div className="row" style={{ gridColumn: 2, gap: 16 }}>
@@ -222,6 +233,73 @@ function Body({ a }: { a: A }) {
           </div>
         )}
       </section>
+      {day && <DayModal date={day} ids={ids} multi={multi} onClose={() => setDay(null)} />}
+      {rel && <ReleaseModal r={rel} multi={multi} onClose={() => setRel(null)} />}
     </div>
+  );
+}
+
+/** Who did what on `date`: each person's commits by type, with the branch each was made on. */
+function DayModal({ date, ids, multi, onClose }: { date: string; ids: string[]; multi: boolean; onClose: () => void }) {
+  const q = useAnalyticsDay(ids, date);
+  const people = new Map<string, DayCommit[]>();
+  for (const c of q.data ?? []) people.set(c.author, [...(people.get(c.author) ?? []), c]);
+  return (
+    <Modal title={fmt(date, { weekday: "long", month: "long", day: "numeric", year: "numeric" })} sub={q.data && plural(q.data.length, "commit")} onClose={onClose} width={720}>
+      {q.isLoading && <Loading />}
+      {q.error && <ErrorBox error={q.error} />}
+      {q.data?.length === 0 && <Empty>No commits this day.</Empty>}
+      {[...people].sort((x, y) => y[1].length - x[1].length).map(([name, list]) => (
+        <section key={name} className="col" style={{ gap: 8 }}>
+          <div className="row">
+            <span className="avatar" style={{ width: 24, height: 24, flexBasis: 24, fontSize: 10 }}>{initials(name)}</span>
+            <strong className="grow">{name}</strong>
+            <span className="muted">{plural(list.length, "commit")}</span>
+          </div>
+          {GROUPS.map(([kind, label]) => {
+            const of = list.filter((c) => groupOf(c.subject) === kind);
+            return of.length > 0 && (
+              <div key={kind} className="col" style={{ gap: 4 }}>
+                <span className="muted" style={{ fontSize: 12 }}>{label}</span>
+                {of.map((c) => (
+                  <div key={`${c.project}:${c.sha}`} className="row" style={{ gap: 8, fontSize: 12 }}>
+                    <span className="mono ellipsis grow" title={c.subject}>{c.subject}</span>
+                    {multi && <span className="faint">{c.project}</span>}
+                    <span className="mono faint ellipsis" style={{ maxWidth: 220 }} title={c.branch}>{c.branch || "no branch"}</span>
+                  </div>
+                ))}
+              </div>
+            );
+          })}
+        </section>
+      ))}
+    </Modal>
+  );
+}
+
+/** What a release shipped: its features, its fixes and the branches merged in. */
+function ReleaseModal({ r, multi, onClose }: { r: A["releases"][number]; multi: boolean; onClose: () => void }) {
+  const lists = [["Features", r.featureTitles], ["Fixes", r.fixTitles], ["Branches merged", r.branches]] as const;
+  return (
+    <Modal title={<span className="mono">{r.version}</span>} sub={`${multi ? `${r.project} · ` : ""}Shipped ${r.shipped} · ${lead(r.leadHours)} from first commit`} onClose={onClose} width={640}>
+      {lists.map(([label, list]) => (
+        <section key={label} className="col" style={{ gap: 6 }}>
+          <div className="row">
+            <h2 className="grow">{label}</h2>
+            <span className="muted">{list.length}</span>
+          </div>
+          {list.length === 0 && <span className="faint">{label === "Branches merged" ? "No merge commit names a branch (rebased or fast-forwarded in)" : "None"}</span>}
+          {list.map((t, i) => {
+            const k = label === "Branches merged" ? kindOfBranch(t) : null;
+            return (
+              <div key={i} className="row" style={{ gap: 8, fontSize: 12 }}>
+                {k && <span className={`kind-chip ${k === "fix" ? "c-del" : "c-mod"}`}>{k}</span>}
+                <span className="mono ellipsis grow" title={t}>{t}</span>
+              </div>
+            );
+          })}
+        </section>
+      ))}
+    </Modal>
   );
 }

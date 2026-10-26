@@ -4501,6 +4501,9 @@ body:has(> .modal-scrim) #root * {
   display: flex;
   align-items: flex-end;
   justify-content: center;
+  padding: 0;
+  border: 0;
+  background: none;
 }
 .chart-bar > span {
   width: 100%;
@@ -4541,6 +4544,7 @@ body:has(> .modal-scrim) #root * {
   font-size: 12px;
   pointer-events: none;
   box-shadow: var(--shadow);
+  text-align: start;
 }
 .table {
   width: 100%;

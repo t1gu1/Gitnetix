@@ -598,7 +598,16 @@ export interface Analytics {
   rangeDays: number;
   kpis: { label: string; value: string; delta: string }[];
   days: { date: string; weekend: boolean; total: number; authors: [string, number][]; subjects: string[] }[];
-  releases: { version: string; shipped: string; features: number; fixes: number; leadDays: number; leadHours: number; aiPct: number }[];
+  releases: { project: string; version: string; shipped: string; features: number; fixes: number; leadDays: number; leadHours: number; aiPct: number; featureTitles: string[]; fixTitles: string[]; branches: string[] }[];
+}
+
+export interface DayCommit {
+  sha: string;
+  author: string;
+  subject: string;
+  /** Empty when no branch holds it any more. */
+  branch: string;
+  project: string;
 }
 
 export type GitnetixEvent =

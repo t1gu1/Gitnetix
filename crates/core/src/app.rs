@@ -4365,13 +4365,23 @@ impl Gitnetix {
 
     // ---------- analytics ----------
 
+    /// The projects in `project_ids`; empty or `"all"` means every project.
+    fn analytics_projects(&self, project_ids: &[String]) -> Vec<Project> {
+        let all = project_ids.is_empty() || project_ids.iter().any(|id| id == "all");
+        self.store.read(|c| c.projects.iter().filter(|p| all || project_ids.contains(&p.id)).cloned().collect())
+    }
+
     /// Stats over the projects in `project_ids`; empty or `"all"` means every project.
     pub async fn analytics(&self, project_ids: &[String], days: i64) -> Result<crate::analytics::Analytics> {
-        let projects = self.store.read(|c| c.projects.clone());
-        let all = project_ids.is_empty() || project_ids.iter().any(|id| id == "all");
-        let chosen: Vec<&Project> = projects.iter().filter(|p| all || project_ids.contains(&p.id)).collect();
-        let repos = chosen.iter().map(|p| (Git::new(&p.path), p.ai_commits.as_slice())).collect();
+        let chosen = self.analytics_projects(project_ids);
+        let repos = chosen.iter().map(|p| (p.name.clone(), Git::new(&p.path), p.ai_commits.as_slice())).collect();
         crate::analytics::compute(crate::analytics::Input { repos, range_days: days }).await
+    }
+
+    /// Commits authored on `date` in the projects in `project_ids`, with the branch each was made on.
+    pub async fn analytics_day(&self, project_ids: &[String], date: chrono::NaiveDate) -> Vec<crate::analytics::DayCommit> {
+        let repos = self.analytics_projects(project_ids).iter().map(|p| (p.name.clone(), Git::new(&p.path))).collect();
+        crate::analytics::day(repos, date).await
     }
 }
 

@@ -22,7 +22,7 @@ pub(crate) const PR_ANY_GREP: &str = "--grep=^Merged PR [0-9]+: ";
 
 /// Branch a pull request squash came from: `Merged PR 12: feature/x` → `feature/x`.
 /// An edited title (spaces in it) names no branch.
-fn pr_source(subject: &str) -> Option<&str> {
+pub(crate) fn pr_source(subject: &str) -> Option<&str> {
     let rest = subject.strip_prefix("Merged PR ")?;
     let (n, source) = rest.split_once(": ")?;
     let source = source.trim();

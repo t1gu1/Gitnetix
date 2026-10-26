@@ -154,6 +154,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("changelog.release", "Move the Unreleased section of an open release's CHANGELOG.md into its version and commit it on the release branch", "projectId, version"),
     ("notes.publish", "Publish a GitHub release", "projectId, tag, target, name, body"),
     ("analytics.get", "Activity and release stats", "projectIds (empty = all) or projectId (or \"all\"), days"),
+    ("analytics.day", "Commits authored on a day, with the branch each was made on", "projectIds (empty = all) or projectId (or \"all\"), date (YYYY-MM-DD)"),
 ];
 
 fn s(v: &Value, k: &str) -> Result<String> {
@@ -176,6 +177,14 @@ fn overlay<T: serde::Serialize + serde::de::DeserializeOwned>(cur: &T, patch: &V
 
 fn os(v: &Value, k: &str) -> Option<String> {
     v.get(k).and_then(Value::as_str).map(String::from)
+}
+
+/// `projectIds`, else the one `projectId`.
+fn project_ids(v: &Value) -> Vec<String> {
+    match v.get("projectIds").and_then(Value::as_array) {
+        Some(a) => a.iter().filter_map(Value::as_str).map(String::from).collect(),
+        None => os(v, "projectId").into_iter().collect(),
+    }
 }
 
 /// Workspace view mode; defaults to "branch".
@@ -229,7 +238,7 @@ fn drop_unused_atlassian_sign_in(k: &Gitnetix) -> Result<()> {
 }
 
 /// Reads polled all the time: logged only when they fail.
-const QUIET: &[&str] = &[".info", ".get", ".list", ".overview", ".files", ".diff", ".blobs", ".commits", ".catalog", ".statuses", ".versions", ".projects", ".refs", ".range", ".preview", ".clear", "shell.write", "shell.resize", "shell.scripts", "ui.setView", "github.signInPoll", "azure.signInPoll"];
+const QUIET: &[&str] = &[".info", ".get", ".list", ".overview", ".files", ".diff", ".blobs", ".commits", ".catalog", ".statuses", ".versions", ".projects", ".refs", ".range", ".preview", ".clear", "analytics.day", "shell.write", "shell.resize", "shell.scripts", "ui.setView", "github.signInPoll", "azure.signInPoll"];
 
 /// Run `method`, logging what it will attempt and how it ended.
 pub async fn call(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
@@ -1070,12 +1079,10 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
         }
 
         // ---- analytics ----
-        "analytics.get" => {
-            let ids: Vec<String> = match p.get("projectIds").and_then(Value::as_array) {
-                Some(a) => a.iter().filter_map(Value::as_str).map(String::from).collect(),
-                None => os(&p, "projectId").into_iter().collect(),
-            };
-            to(k.analytics(&ids, p.get("days").and_then(Value::as_i64).unwrap_or(30)).await?)
+        "analytics.get" => to(k.analytics(&project_ids(&p), p.get("days").and_then(Value::as_i64).unwrap_or(30)).await?),
+        "analytics.day" => {
+            let date = chrono::NaiveDate::parse_from_str(&s(&p, "date")?, "%Y-%m-%d").map_err(|_| Error::Invalid("date must be YYYY-MM-DD".into()))?;
+            to(k.analytics_day(&project_ids(&p), date).await)
         }
 
         other => Err(Error::NotFound(format!("method {other}"))),

@@ -10,6 +10,7 @@ import type {
   BranchView,
   Commit,
   CommitPrefs,
+  DayCommit,
   DialogPrefs,
   LogEntry,
   Config,
@@ -326,6 +327,14 @@ export const useAnalytics = (projectIds: string[], days: number) =>
   useQuery({
     queryKey: ["analytics", [...projectIds].sort(), days],
     queryFn: () => rpc<Analytics>("analytics.get", { projectIds, days }),
+    staleTime: 60_000,
+  });
+
+/** Commits authored on `date` over `projectIds`, with the branch each was made on. */
+export const useAnalyticsDay = (projectIds: string[], date: string) =>
+  useQuery({
+    queryKey: ["analyticsDay", [...projectIds].sort(), date],
+    queryFn: () => rpc<DayCommit[]>("analytics.day", { projectIds, date }),
     staleTime: 60_000,
   });
 

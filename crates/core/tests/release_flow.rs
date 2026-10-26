@@ -148,6 +148,14 @@ async fn release_flow() {
 
     let a = call(&k, "analytics.get", json!({ "projectId": pid, "days": 30 })).await;
     assert_eq!(a["releases"][0]["version"], "v2.4.0");
+    assert_eq!(a["releases"][0]["project"], "atlas-api");
+    assert_eq!(a["releases"][0]["featureTitles"], json!(["feat(auth): add oauth"]));
+    assert_eq!(a["releases"][0]["branches"], json!(["feat/oauth-login"]), "{}", a["releases"][0]);
+    let today = a["days"].as_array().unwrap().last().unwrap()["date"].clone();
+    let day = call(&k, "analytics.day", json!({ "projectId": pid, "date": today })).await;
+    let oauth = day.as_array().unwrap().iter().find(|c| c["subject"] == "feat(auth): add oauth").expect("today's commit");
+    assert_eq!(oauth["project"], "atlas-api");
+    assert!(!oauth["branch"].as_str().unwrap().is_empty(), "{oauth}");
 }
 
 #[tokio::test]
