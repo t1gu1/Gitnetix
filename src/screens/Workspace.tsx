@@ -1898,6 +1898,7 @@ function Terminal({ pid, branch, cwd, open, setOpen, onCloseWorktree, finish }: 
           <>
             <AgentLog
               lines={cur?.lines ?? []}
+              session={cur?.id}
               projectId={pid}
               provider={cur ? cur.ai?.provider : pick.provider}
               thinking={cur?.status === "running" || start.isPending || message.isPending}

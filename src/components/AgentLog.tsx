@@ -1,6 +1,7 @@
 import { type CSSProperties, type KeyboardEvent, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
-import { useAiCatalog, useConfig } from "../api/hooks";
+import { useAgentFile, useAiCatalog, useConfig } from "../api/hooks";
 import { onPathDrop } from "../api/transport";
 import type { LogLine } from "../api/types";
 import { blocks, questions, type Block, type Opt, type Question } from "../lib/agentLog";
@@ -8,6 +9,7 @@ import { bytes } from "../lib/format";
 import { toast } from "../lib/toast";
 import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
+import { dataUrl, isImage } from "./ImageDiff";
 import { Markdown } from "./ui";
 
 /** "Read ×3 · Edit · Bash ×2" */
@@ -105,22 +107,30 @@ function Choices({ qs, picks, onPicks }: { qs: Question[]; picks: Choice[]; onPi
   );
 }
 
+/** Files in the log, one chip each; images preview from agent `session`. */
+function Files({ files, session }: { files: string[]; session?: string }) {
+  return files.length > 0 && (
+    <span className="ag-files">
+      {files.map((f) => <FileChip key={f} file={f} session={session} />)}
+    </span>
+  );
+}
+
 /** What you sent: its text, then the files that went with it. */
-function Said({ b }: { b: { text: string; files: string[] } }) {
+function Said({ b, session }: { b: { text: string; files: string[] }; session?: string }) {
   return (
     <>
       {b.text && <span>{b.text}</span>}
-      {b.files.length > 0 && (
-        <span className="ag-files">
-          {b.files.map((f) => <FileChip key={f} file={f} />)}
-        </span>
-      )}
+      <Files files={b.files} session={session} />
     </>
   );
 }
 
-/** `actions` show under "Your turn!" when the agent did not ask a question; `picks` are its options picked for the prompt box. */
-export function AgentLog({ lines, empty, picks, onPicks, projectId, actions, thinking, provider }: { lines: LogLine[]; empty?: string; picks: Choice[]; onPicks: (c: Choice[]) => void; projectId?: string; actions?: ReactNode; thinking?: boolean; provider?: string }) {
+/** Images a reply shows, as its prompt asks: the local paths of its Markdown images, `![What it shows](/path.png)`. */
+const shown = (text: string) => [...new Set([...text.matchAll(/!\[[^\]]*\]\(<?([^<>)]+?)>?\)/g)].map((m) => m[1].trim()))].filter((p) => isImage(p) && !/^\w+:\/\//.test(p));
+
+/** `actions` show under "Your turn!" when the agent did not ask a question; `picks` are its options picked for the prompt box; `session` is the agent's id, for the files you sent it. */
+export function AgentLog({ lines, empty, picks, onPicks, projectId, actions, thinking, provider, session }: { lines: LogLine[]; empty?: string; picks: Choice[]; onPicks: (c: Choice[]) => void; projectId?: string; actions?: ReactNode; thinking?: boolean; provider?: string; session?: string }) {
   const me = useMe(projectId);
   const ref = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
@@ -183,7 +193,7 @@ export function AgentLog({ lines, empty, picks, onPicks, projectId, actions, thi
             </button>
             {peek && (
               <div className="ag-task-full">
-                <Said b={task} />
+                <Said b={task} session={session} />
               </div>
             )}
           </div>
@@ -198,7 +208,7 @@ export function AgentLog({ lines, empty, picks, onPicks, projectId, actions, thi
                 <div className="ag-you-row">
                   <Avatar name={me.name} email={me.email} size={22} />
                   <div className="ag-bubble">
-                    <Said b={b} />
+                    <Said b={b} session={session} />
                   </div>
                 </div>
               </div>
@@ -208,6 +218,7 @@ export function AgentLog({ lines, empty, picks, onPicks, projectId, actions, thi
               <div key={i} className="ag-ai">
                 {opens.has(i) && mark}
                 <Markdown text={b.text} />
+                <Files files={shown(b.text)} session={session} />
               </div>
             );
           case "steps":
@@ -257,7 +268,6 @@ export type Upload = { name: string; data?: string; path?: string };
 
 // Files travel base64 in the request, which the companion server caps at 48 MB.
 const MAX_UPLOAD = 25 * 1024 * 1024;
-const IMAGE = /\.(png|jpe?g|gif|webp|bmp|svg|avif)$/i;
 const nameOf = (a: Attachment) => (typeof a === "string" ? (a.split(/[\\/]/).pop() ?? a) : a.name);
 
 function base64(f: File) {
@@ -273,10 +283,32 @@ function base64(f: File) {
 export const uploads = (files: Attachment[]) =>
   Promise.all(files.map(async (f): Promise<Upload> => (typeof f === "string" ? { name: nameOf(f), path: f } : { name: f.name, data: await base64(f) })));
 
-/** A file sent, or about to be: images in hand show a thumbnail, others their icon. `onRemove` takes it off the message. */
-export function FileChip({ file, onRemove }: { file: Attachment; onRemove?: () => void }) {
+/** A sent image, large, over the chip `at` (under it in the top half); placed once, so it hides on scroll. */
+function Preview({ at, name, src, failed }: { at: HTMLElement; name: string; src?: string; failed: boolean }) {
+  const r = at.getBoundingClientRect();
+  const left = Math.max(8, Math.min(r.left, window.innerWidth - 384));
+  return createPortal(
+    <div className="ag-preview" role="tooltip" style={r.top > window.innerHeight / 2 ? { left, bottom: window.innerHeight - r.top + 6 } : { left, top: r.bottom + 6 }}>
+      {src ? <img src={src} alt={name} /> : failed ? <span className="faint">Could not load {name}</span> : <span className="spinner" />}
+    </div>,
+    document.body,
+  );
+}
+
+/** A file sent, or about to be: images in hand show a thumbnail, others their icon; images sent to agent `session` preview on hover or focus. `onRemove` takes it off the message. */
+export function FileChip({ file, session, onRemove }: { file: Attachment; session?: string; onRemove?: () => void }) {
   const name = nameOf(file);
   const [url, setUrl] = useState<string>();
+  const sent = typeof file === "string" && !!session && isImage(file) ? file : undefined;
+  // The chip of a sent image while it is hovered or focused; its contents load on the first one.
+  const [at, setAt] = useState<HTMLElement | null>(null);
+  const shot = useAgentFile(session, sent, !!at);
+  useEffect(() => {
+    if (!at) return;
+    const off = () => setAt(null);
+    window.addEventListener("scroll", off, true);
+    return () => window.removeEventListener("scroll", off, true);
+  }, [at]);
   useEffect(() => {
     if (typeof file === "string" || !file.type.startsWith("image/")) {
       setUrl(undefined);
@@ -287,15 +319,26 @@ export function FileChip({ file, onRemove }: { file: Attachment; onRemove?: () =
     return () => URL.revokeObjectURL(u);
   }, [file]);
   return (
-    <span className="ag-file" title={typeof file === "string" ? file : name}>
-      {url ? <img src={url} alt="" /> : <Icon name={IMAGE.test(name) ? "image" : "file"} size={15} />}
-      <span className="ellipsis">{name}</span>
+    <span
+      className="ag-file"
+      // The preview stands where tooltips would.
+      title={sent ? undefined : typeof file === "string" ? file : name}
+      tabIndex={sent ? 0 : undefined}
+      onPointerEnter={(e) => sent && setAt(e.currentTarget)}
+      onPointerLeave={() => setAt(null)}
+      onFocus={(e) => sent && setAt(e.currentTarget)}
+      onBlur={() => setAt(null)}
+      onKeyDown={(e) => e.key === "Escape" && setAt(null)}
+    >
+      {url ? <img src={url} alt="" /> : <Icon name={isImage(name) ? "image" : "file"} size={15} />}
+      <span className="ellipsis" data-tip-off={sent ? "" : undefined}>{name}</span>
       {typeof file !== "string" && <span className="faint">{bytes(file.size)}</span>}
       {onRemove && (
         <button type="button" className="ag-file-x" aria-label={`Remove ${name}`} onClick={onRemove}>
           <Icon name="close" size={10} />
         </button>
       )}
+      {at && sent && <Preview at={at} name={name} src={shot.data && dataUrl(sent, shot.data)} failed={shot.isError} />}
     </span>
   );
 }

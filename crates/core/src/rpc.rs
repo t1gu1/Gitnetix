@@ -95,6 +95,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("agents.get", "One agent session with its log", "id"),
     ("agents.start", "Start an agent on a branch (or main checkout)", "projectId, branch?, request, ticket?, provider?, model?, effort?, files?"),
     ("agents.message", "Send a follow-up message to an agent; files: [{ name, data (base64) | path }]", "id, text, files?"),
+    ("agents.file", "A file sent to an agent, base64 (only from its attachments folder)", "id, path"),
     ("agents.pause", "Pause an agent", "id"),
     ("agents.resume", "Resume an agent", "id"),
     ("agents.stop", "Stop an agent", "id"),
@@ -655,6 +656,7 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
             k.agent_message(&s(&p, "id")?, &s(&p, "text")?, &files(&p)?).await?;
             ok()
         }
+        "agents.file" => to(k.agent_file(&s(&p, "id")?, &s(&p, "path")?).await?),
         "agents.pause" => {
             k.agents.pause(&s(&p, "id")?)?;
             ok()

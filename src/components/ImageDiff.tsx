@@ -20,6 +20,9 @@ const ext = (path: string) => path.slice(path.lastIndexOf(".") + 1).toLowerCase(
 
 export const isImage = (path?: string) => !!path && ext(path) in MIME;
 
+/** An image's base64 contents as an `<img>` source, typed by its file name. */
+export const dataUrl = (path: string, b64: string) => `data:${MIME[ext(path)]};base64,${b64}`;
+
 export type ImageMode = "side" | "swipe" | "onion" | "difference";
 
 export const IMAGE_MODES: { value: ImageMode; label: string }[] = [
@@ -49,7 +52,7 @@ function useImage(path: string, b64?: string | null) {
   useEffect(() => {
     if (!b64) return setImg(null);
     setImg(undefined);
-    const src = `data:${MIME[ext(path)]};base64,${b64}`;
+    const src = dataUrl(path, b64);
     const el = new Image();
     el.onload = () => setImg({ src, bytes: Math.floor((b64.length * 3) / 4), w: el.naturalWidth, h: el.naturalHeight });
     el.onerror = () => setImg(null);

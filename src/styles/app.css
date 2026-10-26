@@ -3772,6 +3772,31 @@ button.picker-act {
 .ag-files:first-child {
   margin-top: 0;
 }
+/* A sent image previews on hover or focus. */
+.ag-file[tabindex]:focus-visible {
+  outline: 1px solid var(--accent);
+}
+.ag-preview {
+  position: fixed;
+  z-index: 70;
+  display: grid;
+  place-items: center;
+  min-width: 48px;
+  min-height: 48px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--raised);
+  box-shadow: var(--shadow-pop);
+  font-size: 12px;
+  pointer-events: none;
+}
+.ag-preview > img {
+  display: block;
+  max-width: 360px;
+  max-height: min(360px, 50vh - 32px);
+  border-radius: 3px;
+}
 .ag-drop {
   position: absolute;
   inset: 6px;

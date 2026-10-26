@@ -454,13 +454,18 @@ pub struct Attachment {
     pub path: Option<String>,
 }
 
+/// The checkout's folder for files sent to its agent and images it shows, in its git dir.
+async fn attach_root(cwd: &Path) -> Result<PathBuf> {
+    Git::new(cwd).git_paths(&[ATTACH_DIR]).await?.into_iter().next().ok_or_else(|| Error::Invalid("no git dir".into()))
+}
+
 /// Saves `files` in the checkout's git dir and lists their paths after `text`, for the agent to open.
 async fn attach(cwd: &Path, text: &str, files: &[Attachment]) -> Result<String> {
     use base64::Engine as _;
     if files.is_empty() {
         return Ok(text.to_string());
     }
-    let dir = Git::new(cwd).git_paths(&[ATTACH_DIR]).await?.into_iter().next().ok_or_else(|| Error::Invalid("no git dir".into()))?.join(new_id());
+    let dir = attach_root(cwd).await?.join(new_id());
     std::fs::create_dir_all(&dir)?;
     let mut list = String::new();
     for f in files {
@@ -482,6 +487,18 @@ async fn attach(cwd: &Path, text: &str, files: &[Attachment]) -> Result<String> 
         list.push_str(&format!("\n- {}", dest.display()));
     }
     Ok(format!("{text}\n\nAttached files:{list}").trim_start().to_string())
+}
+
+/// A file `attach` saved, or an image the agent shows, for the checkout at `cwd`, base64; any path outside its attachments folder is refused.
+async fn attachment(cwd: &Path, path: &str) -> Result<String> {
+    use base64::Engine as _;
+    let dir = attach_root(cwd).await?;
+    // Canonical on both sides: "..", symlinks and the git dir's spelling cannot step out.
+    let file = Path::new(path).canonicalize()?;
+    if !file.starts_with(dir.canonicalize()?) {
+        return Err(Error::Invalid("Not a file sent to this agent".into()));
+    }
+    Ok(base64::engine::general_purpose::STANDARD.encode(std::fs::read(file)?))
 }
 
 /// How long an agent start waits for the branch's ticket.
@@ -3915,7 +3932,10 @@ impl Gitnetix {
         let (ticket, notes) = self.agent_ticket(project_id, &branch, cwd).await;
         // Last, so nothing in the ticket is taken for a placeholder.
         prompt = insert_ticket(&prompt, &ticket);
-        prompt = format!("{prompt}\n\n{}\n\n{}", templates::CHOICE_FORMAT, templates::NO_AI_CREDIT);
+        // Where the agent saves the images it shows: the log previews them from there only.
+        let shots = attach_root(cwd).await?.join("shared");
+        std::fs::create_dir_all(&shots)?;
+        prompt = format!("{prompt}\n\n{}\n\n{}\n\n{}", templates::CHOICE_FORMAT, templates::share_images(&shots.to_string_lossy()), templates::NO_AI_CREDIT);
         self.agents.start(StartArgs {
             project_id: project_id.into(),
             branch,
@@ -4004,6 +4024,11 @@ impl Gitnetix {
         };
         let text = attach(Path::new(&s.cwd), text, files).await?;
         self.agents.message(id, &text, &r)
+    }
+
+    /// A file sent to agent `id`, base64, as its log lists it.
+    pub async fn agent_file(&self, id: &str, path: &str) -> Result<String> {
+        attachment(Path::new(&self.agents.get(id)?.cwd), path).await
     }
 
     /// Applies from the next message on. Resolved like a new session's pick,
@@ -4892,6 +4917,16 @@ mod tests {
         assert!(paths[0].ends_with("/image.png") && paths[1].ends_with("/2-image.png") && paths[2].ends_with("/x.txt"));
         assert!(paths.iter().all(|p| p.contains(&format!(".git/{ATTACH_DIR}/")) && std::fs::read(p).unwrap() == b"hi"));
         assert!(attach(tmp.path(), "", &[up("a", "not base64!")]).await.is_err());
+        // Read back for the log's previews, but nothing else of the checkout.
+        assert_eq!(attachment(tmp.path(), paths[0]).await.unwrap(), "aGk=");
+        // So are the images the agent shows, saved where its prompt says.
+        let shot = attach_root(tmp.path()).await.unwrap().join("shared/app.png");
+        std::fs::create_dir_all(shot.parent().unwrap()).unwrap();
+        std::fs::write(&shot, "hi").unwrap();
+        assert_eq!(attachment(tmp.path(), shot.to_str().unwrap()).await.unwrap(), "aGk=");
+        let inside = format!("{}/.git/{ATTACH_DIR}/../config", tmp.path().display());
+        assert!(attachment(tmp.path(), &inside).await.is_err());
+        assert!(attachment(tmp.path(), tmp.path().join(".git/HEAD").to_str().unwrap()).await.is_err());
     }
 
     #[tokio::test]

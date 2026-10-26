@@ -222,6 +222,15 @@ export const useBlobs = (projectId?: string, branch?: string, mode = "branch", p
     enabled: enabled && !!projectId && (!!branch || !!stash) && !!path,
   });
 
+/** A file sent to agent `id`, base64 (image previews in its log); saved once, it never changes. */
+export const useAgentFile = (id?: string, path?: string, enabled = true) =>
+  useQuery({
+    queryKey: ["agentFile", id, path],
+    queryFn: () => rpc<string>("agents.file", { id, path }),
+    enabled: enabled && !!id && !!path,
+    staleTime: Infinity,
+  });
+
 export const useCommits = (projectId?: string, branch?: string) =>
   useQuery({
     queryKey: ["commits", projectId, branch],
