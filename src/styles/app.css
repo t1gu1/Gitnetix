@@ -2607,7 +2607,24 @@ button.tree-twist:hover {
     border-left: 1px solid var(--line);
   }
   /* Folded, the pill stands on its side so the column is only as wide as the pill is tall. */
+  .ctx-cols:has(.ctx-fold) {
+    /* No dead strip past the folded column: it would not open it on hover. */
+    min-width: 0;
+  }
+  /* Width can't transition from auto, so min and max width carry the reveal. */
+  .ctx-cols .ctx-col:has(.ctx-fold) {
+    overflow: hidden;
+    transition:
+      min-width 0.16s var(--ease),
+      max-width 0.16s var(--ease);
+  }
+  .ctx-col:has(.ctx-fold):not(:hover, :focus-within) {
+    /* Just over the ~32px pill column. */
+    max-width: 40px;
+  }
   .ctx-col:has(.ctx-fold):not(:hover, :focus-within) .ctx-head {
+    /* Flex: WebKitGTK sizes the sideways pill wrong as inline content and the ellipsis clip cuts it in half. */
+    display: flex;
     padding: 6px 4px;
   }
   .ctx-col:has(.ctx-fold):not(:hover, :focus-within) .ctx-fold {
@@ -3221,7 +3238,8 @@ button.picker-act {
   position: absolute;
   top: 6px;
   right: 18px;
-  z-index: 10;
+  /* Over the commands button, which it overlaps. */
+  z-index: 13;
   display: flex;
   align-items: center;
   gap: 4px;
@@ -3233,9 +3251,11 @@ button.picker-act {
 }
 .shell-scripts {
   position: absolute;
-  top: 6px;
-  right: 18px;
-  z-index: 5;
+  top: 5px;
+  /* Over the top of xterm's 14px scrollbar, which only shows while scrolling or hovered. */
+  right: 5px;
+  /* Above xterm's visible scrollbar (z-index 11). */
+  z-index: 12;
 }
 .shell-find .input {
   width: 180px;
@@ -5162,6 +5182,9 @@ body:has(> .modal-scrim) #root * {
   .act:active {
     transform: none !important;
   }
+  .ctx-col {
+    transition: none !important;
+  }
 }
 
 /* Animations turned off in Settings › Animations, one by one (ids from src/lib/motion.ts). */
@@ -5173,6 +5196,9 @@ body:has(> .modal-scrim) #root * {
 }
 :root[data-anim-off~="dialogs"] :is(.modal, .modal-scrim, .ctx-menu, .ctx-item, .toast) {
   animation: none !important;
+}
+:root[data-anim-off~="dialogs"] .ctx-col {
+  transition: none !important;
 }
 :root[data-anim-off~="path"] .tree-row[data-path]::before,
 :root[data-anim-off~="path"] .tree-node[data-path]::before,

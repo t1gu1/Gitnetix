@@ -57,8 +57,9 @@ export default function ShellPane({ projectId, path }: { projectId: string; path
   const pkgs = scripts.data ?? [];
   // Titles of the command sections hidden in this project, whatever the checkout.
   const [hidden, setHidden] = useStored<string[]>(`gnx.commands.hidden.${projectId}`, []);
-  const shown = pkgs.filter((p) => !hidden.includes(p.title));
-  const off = pkgs.filter((p) => hidden.includes(p.title));
+  // One section always shows: hiding is per project, so a checkout with fewer tools could end up with all of them hidden.
+  const off = pkgs.every((p) => hidden.includes(p.title)) ? [] : pkgs.filter((p) => hidden.includes(p.title));
+  const shown = pkgs.filter((p) => !off.includes(p));
   const typeScript = (cmd: string) => {
     const term = termRef.current;
     if (!term) return;
@@ -249,9 +250,11 @@ export default function ShellPane({ projectId, path }: { projectId: string; path
                       heading: (
                         <span className="ctx-head-row">
                           <span className="grow ellipsis">{p.title}</span>
-                          <button type="button" className="act" aria-label={`Hide ${p.title}`} data-tip="Hide in this project" onClick={() => setHidden([...hidden, p.title])}>
-                            <Icon name="close" size={10} />
-                          </button>
+                          {shown.length > 1 && (
+                            <button type="button" className="act" aria-label={`Hide ${p.title}`} data-tip="Hide in this project" onClick={() => setHidden([...hidden, p.title])}>
+                              <Icon name="close" size={10} />
+                            </button>
+                          )}
                         </span>
                       ),
                     },
@@ -261,7 +264,7 @@ export default function ShellPane({ projectId, path }: { projectId: string; path
             ]),
             ...(off.length
               ? [
-                  ...(shown.length ? ["sep" as const] : []),
+                  "sep" as const,
                   // Folds the list below into this pill; tabIndex lets a tap focus it, which opens it.
                   {
                     heading: (
