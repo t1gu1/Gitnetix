@@ -459,6 +459,31 @@ async fn pull_and_tracking() {
 }
 
 #[tokio::test]
+async fn reset_back_after_push_force_pushes() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("rewind");
+    init_repo(&repo);
+    let origin = tmp.path().join("origin.git");
+    sh(tmp.path(), &["init", "-q", "--bare", "-b", "main", origin.to_str().unwrap()]);
+    sh(&repo, &["remote", "add", "origin", origin.to_str().unwrap()]);
+    sh(&repo, &["push", "-q", "-u", "origin", "main"]);
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let added = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await;
+    let pid = added[0]["id"].as_str().unwrap().to_string();
+
+    // Only behind origin, but the dropped commit was on main: rewritten, so a plain push is refused and a force push goes.
+    commit_file(&repo, "back.txt", "b\n");
+    call(&k, "workspace.push", json!({ "projectId": pid, "branch": "main" })).await;
+    sh(&repo, &["reset", "-q", "--hard", "HEAD~1"]);
+    let main = |ov: &Value| ov["branches"].as_array().unwrap().iter().find(|b| b["name"] == "main").unwrap().clone();
+    let m = main(&call(&k, "workspace.overview", json!({ "projectId": pid })).await);
+    assert_eq!((m["upstreamAhead"].as_u64(), m["upstreamBehind"].as_u64(), m["rewritten"].as_bool()), (Some(0), Some(1), Some(true)), "{m}");
+    assert!(rpc::call(&k, "workspace.push", json!({ "projectId": pid, "branch": "main" })).await.is_err());
+    call(&k, "workspace.push", json!({ "projectId": pid, "branch": "main", "force": true })).await;
+    assert_eq!(rev(&origin, "main"), rev(&repo, "main"));
+}
+
+#[tokio::test]
 async fn release_branch_created_after_add_is_picked_up() {
     let tmp = tempfile::tempdir().unwrap();
     let repo = tmp.path().join("late");

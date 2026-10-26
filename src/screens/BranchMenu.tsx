@@ -161,7 +161,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
         id: "forcePush",
         label: <>Force push to <span className="mono">{v.upstream}</span></>,
         short: "Force push",
-        tip: `${v.rewritten ? `${b} was rewritten (rebased): r` : "R"}eplace ${v.upstream} with ${b}. Refused if origin has commits that were never on ${b}`,
+        tip: `${v.rewritten ? `${b} was rewritten (rebased, reset): r` : "R"}eplace ${v.upstream} with ${b}. Refused if origin has commits that were never on ${b}`,
         icon: "push",
         hint: diverged ? `↑${v.upstreamAhead} ↓${v.upstreamBehind}` : undefined,
         danger: true,
@@ -308,9 +308,10 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
       list.push(a.pull);
       // Out of step with origin: offer to throw away the local side.
       if (v.upstream && (v.upstreamAhead || v.upstreamBehind)) list.push(a.reset);
-      list.push(a.push);
-      // Only work branches get rewritten; shared branches never take a force push.
-      if (v.role === "branch" && !v.protected && v.upstream && v.upstreamAhead) list.push(a.forcePush);
+      // Rewritten (rebased, reset): origin refuses a plain push.
+      if (!v.rewritten || v.protected) list.push(a.push);
+      // Work branches can replace origin's copy; shared ones only once rewritten here.
+      if (!v.protected && v.upstream && (v.rewritten || (v.role === "branch" && v.upstreamAhead))) list.push(a.forcePush);
       if (v.checkedOut) list.push(a.stash);
       if (v.checkedOut && t.latestStash) list.push(a.unstash);
       if (t.base) {
