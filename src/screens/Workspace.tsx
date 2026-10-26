@@ -1978,11 +1978,15 @@ export function useFinishHandlers(
 /** Ends a worktree session: the agent stops and the worktree goes, its branch either kept to continue on or merged first. `inline` shows it in the agent chat instead of a modal. */
 function CloseWorktreeModal({ session: s, finish, onClose, inline }: { session: WtSession; finish: FinishHandlers; onClose: () => void; inline?: boolean }) {
   const { dialogs } = useProjectPrefs(s.projectId);
-  const [then, setThen] = useState(dialogs.finish);
+  const [chosen, setThen] = useState(dialogs.finish);
   const [sw, setSw] = useState(dialogs.finishSwitch);
   const [discarding, setDiscarding] = useState(false);
   const branches = useOverview(s.projectId).data?.branches ?? [];
-  const base = branches.find((x) => x.name === s.branch)?.parent ?? "";
+  const b = branches.find((x) => x.name === s.branch);
+  const base = b?.parent ?? "";
+  // Nothing committed or edited (the agent only answered or asked): nothing to merge, only closing.
+  const empty = !!b && !b.ahead && !b.wip;
+  const then = empty ? "continue" : chosen;
   const others = mergeTargets(branches, s.branch);
   const [into, setInto] = useState<string | undefined>();
   const [pick, setPick] = useState<{ x: number; y: number } | null>(null);
@@ -2004,14 +2008,20 @@ function CloseWorktreeModal({ session: s, finish, onClose, inline }: { session: 
           </>
         )}
       </p>
-      <p className="muted" style={{ margin: 0, lineHeight: 1.55 }}>Uncommitted changes in it get committed or discarded first: you pick.</p>
-      <Seg
-        grid
-        label="Then"
-        value={then}
-        onChange={setThen}
-        options={[{ value: "continue", label: "Continue on branch" }, { value: "merge", label: "Merge it" }]}
-      />
+      {empty ? (
+        <p className="muted" style={{ margin: 0, lineHeight: 1.55 }}>Nothing to merge: no commits or changes on <span className="mono">{s.branch}</span>.</p>
+      ) : (
+        <>
+          <p className="muted" style={{ margin: 0, lineHeight: 1.55 }}>Uncommitted changes in it get committed or discarded first: you pick.</p>
+          <Seg
+            grid
+            label="Then"
+            value={then}
+            onChange={setThen}
+            options={[{ value: "continue", label: "Continue on branch" }, { value: "merge", label: "Merge it" }]}
+          />
+        </>
+      )}
       <label className="check">
         <input type="checkbox" checked={sw} onChange={() => setSw(!sw)} />
         <span>Switch to {then === "merge" ? "the branch it merges into" : <span className="mono">{s.branch}</span>}</span>
@@ -2069,10 +2079,8 @@ function CloseWorktreeModal({ session: s, finish, onClose, inline }: { session: 
 export function FinishWorktreeCard({ session: s, finish }: { session: WtSession; finish: FinishHandlers }) {
   const branches = useOverview(s.projectId).data?.branches;
   if (!branches) return null;
-  const b = branches.find((x) => x.name === s.branch);
-  // Nothing committed or edited yet (the agent only answered or asked): nothing to merge.
   // Not in the overview: no base to merge into.
-  if (!b || (!b.ahead && !b.wip)) return null;
+  if (!branches.some((x) => x.name === s.branch)) return null;
   return <CloseWorktreeModal session={s} finish={finish} onClose={() => {}} inline />;
 }
 

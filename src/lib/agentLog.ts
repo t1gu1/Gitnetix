@@ -104,6 +104,6 @@ export function questions(lines: LogLine[]): Question[] {
   return out;
 }
 
-/** A worktree run that ended with its merge options showing (no question, something to merge on its branch `b`) is done. */
-export const shownStatus = (s: AgentSession, b?: { ahead: number; wip: number }): AgentStatus =>
-  s.status === "waiting" && s.worktree && !!b && (b.ahead > 0 || b.wip > 0) && !questions(s.lines).length ? "done" : s.status;
+/** A worktree run that ended with its close options showing (no question, its branch `b` known) is done, even with nothing to merge. */
+export const shownStatus = (s: AgentSession, b?: unknown): AgentStatus =>
+  s.status === "waiting" && s.worktree && !!b && !questions(s.lines).length ? "done" : s.status;
