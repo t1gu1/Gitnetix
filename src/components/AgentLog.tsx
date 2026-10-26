@@ -10,7 +10,7 @@ import { toast } from "../lib/toast";
 import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
 import { dataUrl, isImage } from "./ImageDiff";
-import { Markdown } from "./ui";
+import { Markdown, Modal } from "./ui";
 
 /** "Read ×3 · Edit · Bash ×2" */
 function summary(lines: LogLine[]) {
@@ -284,25 +284,31 @@ export const uploads = (files: Attachment[]) =>
   Promise.all(files.map(async (f): Promise<Upload> => (typeof f === "string" ? { name: nameOf(f), path: f } : { name: f.name, data: await base64(f) })));
 
 /** A sent image, large, over the chip `at` (under it in the top half); placed once, so it hides on scroll. */
-function Preview({ at, name, src, failed }: { at: HTMLElement; name: string; src?: string; failed: boolean }) {
+function Preview({ at, children }: { at: HTMLElement; children: ReactNode }) {
   const r = at.getBoundingClientRect();
   const left = Math.max(8, Math.min(r.left, window.innerWidth - 384));
   return createPortal(
     <div className="ag-preview" role="tooltip" style={r.top > window.innerHeight / 2 ? { left, bottom: window.innerHeight - r.top + 6 } : { left, top: r.bottom + 6 }}>
-      {src ? <img src={src} alt={name} /> : failed ? <span className="faint">Could not load {name}</span> : <span className="spinner" />}
+      {children}
     </div>,
     document.body,
   );
 }
 
-/** A file sent, or about to be: images in hand show a thumbnail, others their icon; images sent to agent `session` preview on hover or focus. `onRemove` takes it off the message. */
+/** A file sent, or about to be: images in hand show a thumbnail, others their icon; images sent to agent `session` preview on hover or focus, and open full size on click. `onRemove` takes it off the message. */
 export function FileChip({ file, session, onRemove }: { file: Attachment; session?: string; onRemove?: () => void }) {
   const name = nameOf(file);
   const [url, setUrl] = useState<string>();
   const sent = typeof file === "string" && !!session && isImage(file) ? file : undefined;
   // The chip of a sent image while it is hovered or focused; its contents load on the first one.
   const [at, setAt] = useState<HTMLElement | null>(null);
-  const shot = useAgentFile(session, sent, !!at);
+  const [big, setBig] = useState(false);
+  const shot = useAgentFile(session, sent, !!at || big);
+  const view = sent && shot.data ? <img src={dataUrl(sent, shot.data)} alt={name} /> : shot.isError ? <span className="faint">Could not load {name}</span> : <span className="spinner" />;
+  const open = () => {
+    setAt(null);
+    setBig(true);
+  };
   useEffect(() => {
     if (!at) return;
     const off = () => setAt(null);
@@ -319,27 +325,43 @@ export function FileChip({ file, session, onRemove }: { file: Attachment; sessio
     return () => URL.revokeObjectURL(u);
   }, [file]);
   return (
-    <span
-      className="ag-file"
-      // The preview stands where tooltips would.
-      title={sent ? undefined : typeof file === "string" ? file : name}
-      tabIndex={sent ? 0 : undefined}
-      onPointerEnter={(e) => sent && setAt(e.currentTarget)}
-      onPointerLeave={() => setAt(null)}
-      onFocus={(e) => sent && setAt(e.currentTarget)}
-      onBlur={() => setAt(null)}
-      onKeyDown={(e) => e.key === "Escape" && setAt(null)}
-    >
-      {url ? <img src={url} alt="" /> : <Icon name={isImage(name) ? "image" : "file"} size={15} />}
-      <span className="ellipsis" data-tip-off={sent ? "" : undefined}>{name}</span>
-      {typeof file !== "string" && <span className="faint">{bytes(file.size)}</span>}
-      {onRemove && (
-        <button type="button" className="ag-file-x" aria-label={`Remove ${name}`} onClick={onRemove}>
-          <Icon name="close" size={10} />
-        </button>
+    <>
+      <span
+        className="ag-file"
+        // The preview stands where tooltips would.
+        title={sent ? undefined : typeof file === "string" ? file : name}
+        tabIndex={sent ? 0 : undefined}
+        role={sent ? "button" : undefined}
+        onClick={() => sent && open()}
+        onPointerEnter={(e) => sent && setAt(e.currentTarget)}
+        onPointerLeave={() => setAt(null)}
+        onFocus={(e) => sent && setAt(e.currentTarget)}
+        onBlur={() => setAt(null)}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") setAt(null);
+          else if (sent && (e.key === "Enter" || e.key === " ")) {
+            e.preventDefault();
+            open();
+          }
+        }}
+      >
+        {url ? <img src={url} alt="" /> : <Icon name={isImage(name) ? "image" : "file"} size={15} />}
+        <span className="ellipsis" data-tip-off={sent ? "" : undefined}>{name}</span>
+        {typeof file !== "string" && <span className="faint">{bytes(file.size)}</span>}
+        {onRemove && (
+          <button type="button" className="ag-file-x" aria-label={`Remove ${name}`} onClick={onRemove}>
+            <Icon name="close" size={10} />
+          </button>
+        )}
+        {at && sent && <Preview at={at}>{view}</Preview>}
+      </span>
+      {/* Outside the chip: clicks in the portaled modal bubble up the React tree and would reopen it. */}
+      {big && (
+        <Modal title={name} onClose={() => setBig(false)}>
+          <div className="ag-shot">{view}</div>
+        </Modal>
       )}
-      {at && sent && <Preview at={at} name={name} src={shot.data && dataUrl(sent, shot.data)} failed={shot.isError} />}
-    </span>
+    </>
   );
 }
 

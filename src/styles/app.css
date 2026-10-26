@@ -3797,6 +3797,23 @@ button.picker-act {
   max-height: min(360px, 50vh - 32px);
   border-radius: 3px;
 }
+/* Clicked, it opens full size in a modal that fits it. */
+.ag-file[role="button"] {
+  cursor: zoom-in;
+}
+.modal:has(.ag-shot) {
+  width: auto;
+}
+.ag-shot {
+  text-align: center;
+}
+.ag-shot > img {
+  display: block;
+  margin: 0 auto;
+  max-width: 100%;
+  max-height: calc(100vh - 120px);
+  border-radius: 3px;
+}
 .ag-drop {
   position: absolute;
   inset: 6px;
