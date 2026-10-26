@@ -33,6 +33,16 @@ impl Dictation {
     pub async fn transcribe(&self, dir: &Path, audio: Vec<u8>, mime: String, progress: impl Fn(u64, u64) + Send) -> Result<String> {
         // Decoded first: a recording that can't be read fails before any download.
         let samples = tokio::task::spawn_blocking(move || decode(audio, &mime)).await.map_err(|e| Error::Other(e.to_string()))??;
+        self.recognize(dir, samples, progress).await
+    }
+
+    /// Mono `samples` at `rate` Hz, as the desktop's microphone gave them, as text.
+    pub async fn transcribe_mono(&self, dir: &Path, samples: Vec<f32>, rate: u32, progress: impl Fn(u64, u64) + Send) -> Result<String> {
+        self.recognize(dir, resample(&samples, rate), progress).await
+    }
+
+    /// Mono 16 kHz `samples` as text.
+    async fn recognize(&self, dir: &Path, samples: Vec<f32>, progress: impl Fn(u64, u64) + Send) -> Result<String> {
         if samples.len() < RATE as usize / 4 {
             return Ok(String::new());
         }

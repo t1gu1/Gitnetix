@@ -1,6 +1,6 @@
 import { type CSSProperties, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
-import { rpc } from "../api/transport";
+import { isLocal, rpc } from "../api/transport";
 import { base64 } from "../components/AgentLog";
 import { Icon } from "../components/Icon";
 import { animates } from "./motion";
@@ -39,23 +39,26 @@ type Field = HTMLInputElement | HTMLTextAreaElement;
 const FIELD = "textarea:not(.xterm-helper-textarea), input:is(:not([type]), [type=text], [type=search], [type=url], [type=email])";
 const asField = (el: Element | null) => (el?.matches(FIELD) && !(el as Field).readOnly && !(el as Field).disabled ? (el as Field) : null);
 
-/** Insecure pages (a phone browser on the companion's plain-HTTP address) get no microphone. */
-export const canDictate = typeof MediaRecorder !== "undefined" && !!navigator.mediaDevices?.getUserMedia;
-// Only what the desktop can decode (no Opus): PCM in WebM from Chromium-based views, Vorbis from WebKitGTK
-// (its base GStreamer plugins; mp4 there needs gst-plugins-good), AAC in mp4 from Safari and iOS.
+/** The desktop app records with its own microphone code (src-tauri/src/mic.rs): webview recorders depend on codecs each OS may lack.
+ *  Insecure pages (a phone browser on the companion's plain-HTTP address) get no microphone. */
+export const canDictate = isLocal || (typeof MediaRecorder !== "undefined" && !!navigator.mediaDevices?.getUserMedia);
+// Only what the desktop can decode (no Opus): PCM in WebM from Chromium-based browsers, AAC in mp4 from Safari and iOS.
 // shortcut: Firefox records only Opus, so the companion page in Firefox can't dictate; decode Opus on the desktop if that matters.
-const TYPE = canDictate ? ["audio/webm;codecs=pcm", "audio/ogg;codecs=vorbis", "audio/mp4"].find((t) => MediaRecorder.isTypeSupported(t)) : undefined;
+const TYPE = canDictate && !isLocal ? ["audio/webm;codecs=pcm", "audio/mp4"].find((t) => MediaRecorder.isTypeSupported(t)) : undefined;
 
 type Phase = "idle" | "listening" | "transcribing";
 /** The speech model's first download, while it runs. */
 let download: { done: number; total: number } | null = null;
 interface Session {
   field: Field;
-  ctx: AudioContext;
-  analyser: AnalyserNode;
+  ctx?: AudioContext;
+  analyser?: AnalyserNode;
   stream?: MediaStream;
   rec?: MediaRecorder;
   chunks: Blob[];
+  /** The desktop app's microphone: its start, and its loudness from 0 to 1. */
+  mic?: Promise<unknown>;
+  level: number;
 }
 
 let phase: Phase = "idle";
@@ -72,7 +75,7 @@ const subscribe = (l: () => void) => {
 
 function release(s: Session) {
   s.stream?.getTracks().forEach((t) => t.stop());
-  if (s.ctx.state !== "closed") s.ctx.close();
+  if (s.ctx && s.ctx.state !== "closed") s.ctx.close();
 }
 
 /** Start listening for `field`, or stop and transcribe when already listening. */
@@ -80,13 +83,14 @@ export async function toggleDictation(field: Field | null) {
   if (phase === "listening") return finish();
   if (phase !== "idle") return;
   if (!canDictate) return toast("The microphone needs the Gitnetix app, or this page over https", "error");
-  if (!TYPE) return toast("This browser can't record in a format Gitnetix reads", "error");
+  if (!isLocal && !TYPE) return toast("This browser can't record in a format Gitnetix reads", "error");
   if (!field) return toast("Click in a text box first");
+  if (isLocal) return listen(field);
   // Made inside the key press or tap: WebKit only lets audio start from one.
   const ctx = new AudioContext();
   const analyser = ctx.createAnalyser();
   analyser.fftSize = 256;
-  const s: Session = { field, ctx, analyser, chunks: [] };
+  const s: Session = { field, ctx, analyser, chunks: [], level: 0 };
   session = s;
   set("listening");
   try {
@@ -108,17 +112,51 @@ export async function toggleDictation(field: Field | null) {
   }
 }
 
+/** The desktop app's microphone, for `field`. */
+function listen(field: Field) {
+  const s: Session = { field, chunks: [], level: 0 };
+  // Set at once: a stop pressed meanwhile waits for the start rather than leave the microphone on.
+  s.mic = import("@tauri-apps/api/core").then(({ invoke, Channel }) => invoke("dictation_start", { onLevel: new Channel<number>((v) => (s.level = v)) }));
+  session = s;
+  set("listening");
+  s.mic.catch((e) => {
+    if (session !== s || phase !== "listening") return; // finish() reports it
+    session = null;
+    set("idle");
+    toast(`No microphone: ${e}`, "error");
+  });
+}
+
 async function finish() {
   const s = session;
   if (!s || phase !== "listening") return;
   const rec = s.rec;
-  if (!rec) {
+  if (!rec && !s.mic) {
     // Still at the permission prompt: nothing recorded.
     session = null;
     release(s);
     return set("idle");
   }
   set("transcribing");
+  try {
+    put(s.field, (s.mic ? await stopMic(s.mic) : await transcribe(s, rec!)).trim());
+  } catch (e) {
+    toast(e instanceof Error ? e.message : String(e), "error");
+  } finally {
+    session = null;
+    download = null;
+    set("idle");
+  }
+}
+
+async function stopMic(started: Promise<unknown>) {
+  await started;
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<string>("dictation_stop");
+}
+
+/** The page's recording, stopped, as text. */
+async function transcribe(s: Session, rec: MediaRecorder) {
   const blob = await new Promise<Blob>((ok) => {
     const done = () => ok(new Blob(s.chunks, { type: rec.mimeType }));
     // Already stopped by itself when the microphone went away.
@@ -127,16 +165,8 @@ async function finish() {
     rec.stop();
   });
   release(s);
-  try {
-    const { text } = await rpc<{ text: string }>("dictation.transcribe", { audio: await base64(blob), mime: blob.type });
-    put(s.field, text.trim());
-  } catch (e) {
-    toast(e instanceof Error ? e.message : String(e), "error");
-  } finally {
-    session = null;
-    download = null;
-    set("idle");
-  }
+  const { text } = await rpc<{ text: string }>("dictation.transcribe", { audio: await base64(blob), mime: blob.type });
+  return text;
 }
 
 /** Progress of the speech model's first download, from the engine's events. */
@@ -247,21 +277,21 @@ function Wave({ listening, keys }: { listening: boolean; keys: string }) {
     const t = setInterval(() => setSecs((s) => s + 1), 1000);
     return () => clearInterval(t);
   }, [listening]);
-  // Bars follow the voice: the middle ones the low frequencies, the outer ones the higher.
   useEffect(() => {
-    const a = session?.analyser;
-    if (!listening || !a || !animates("wave")) return;
-    const data = new Uint8Array(a.frequencyBinCount);
+    const s = session;
+    if (!listening || !s || !animates("wave")) return;
+    const a = s.analyser;
+    const data = new Uint8Array(a?.frequencyBinCount ?? 0);
+    // Bars follow the voice: the middle ones the low frequencies, the outer ones the higher.
+    // The desktop app's microphone gives only its loudness: the middle bars rise the most.
+    const bar = a ? (i: number) => Math.max(0, data[1 + fromMiddle(i)] - 60) / 195 : (i: number) => s.level * (1 - fromMiddle(i) / BARS);
     let raf = 0;
     const draw = () => {
-      const live = a.context.state === "running";
+      const live = !a || a.context.state === "running";
       wave.current?.toggleAttribute("data-idle", !live);
       if (live) {
-        a.getByteFrequencyData(data);
-        wave.current?.querySelectorAll("span").forEach((b, i) => {
-          const v = Math.max(0, data[1 + fromMiddle(i)] - 60) / 195;
-          b.style.height = `${16 + 84 * v}%`;
-        });
+        a?.getByteFrequencyData(data);
+        wave.current?.querySelectorAll("span").forEach((b, i) => (b.style.height = `${16 + 84 * bar(i)}%`));
       }
       raf = requestAnimationFrame(draw);
     };

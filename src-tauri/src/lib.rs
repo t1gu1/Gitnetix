@@ -5,14 +5,49 @@
 use tauri::webview::{PermissionKind, PermissionResponse};
 
 #[cfg(desktop)]
+mod mic;
+
+#[cfg(desktop)]
 mod desktop {
     use std::sync::Arc;
 
-    use gitnetix_core::{rpc, store::data_dir, ErrorBody, Gitnetix};
+    use gitnetix_core::{rpc, store::data_dir, ErrorBody, Event, Gitnetix};
     use serde_json::Value;
+    use tauri::ipc::Channel;
     use tauri::{Emitter, Manager, State};
 
+    use crate::mic::Recording;
+
     pub struct Engine(pub Arc<Gitnetix>);
+
+    /// The microphone while dictating.
+    #[derive(Default)]
+    pub struct Mic(std::sync::Mutex<Option<Recording>>);
+
+    /// Records the microphone for voice dictation; `on_level` gets its loudness meanwhile.
+    /// A window command, not an RPC method: a paired phone must not turn on the desktop's microphone.
+    #[tauri::command]
+    pub async fn dictation_start(mic: State<'_, Mic>, on_level: Channel<f32>) -> Result<(), String> {
+        let rec = Recording::start(move |l| {
+            let _ = on_level.send(l);
+        })?;
+        // One left over from a reloaded page stops as it is dropped.
+        *mic.0.lock().unwrap() = Some(rec);
+        Ok(())
+    }
+
+    /// Stops the microphone and turns what it heard into text.
+    #[tauri::command]
+    pub async fn dictation_stop(engine: State<'_, Engine>, mic: State<'_, Mic>) -> Result<String, String> {
+        let rec = mic.0.lock().unwrap().take().ok_or("Not dictating")?;
+        let (samples, rate) = tokio::task::spawn_blocking(move || rec.finish()).await.map_err(|e| e.to_string())?;
+        let k = engine.0.clone();
+        let events = k.events.clone();
+        let progress = move |done, total| {
+            let _ = events.send(Event::DictationModel { done, total });
+        };
+        k.dictation.transcribe_mono(&k.dir, samples, rate, progress).await.map_err(|e| e.to_string())
+    }
 
     /// Save the agent logs' latest lines and end their runs before quitting, so a resumed run keeps them and never runs twice.
     pub fn on_event(app: &tauri::AppHandle, ev: tauri::RunEvent) {
@@ -173,7 +208,7 @@ pub fn run() {
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        // Voice dictation records in the page, and WebKitGTK refuses the microphone unless the app allows it.
+        // The mobile app's voice dictation records in the page, and webviews refuse the microphone unless the app allows it.
         // Safe to allow outright: the window only ever shows Gitnetix's own UI, links open in the browser.
         .on_permission_request(|_, kind| match kind {
             PermissionKind::Microphone => PermissionResponse::Allow,
@@ -184,8 +219,9 @@ pub fn run() {
     let builder = builder
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .manage(desktop::Mic::default())
         .setup(desktop::setup)
-        .invoke_handler(tauri::generate_handler![desktop::rpc, desktop::companion, desktop::allow_firewall, desktop::open_url]);
+        .invoke_handler(tauri::generate_handler![desktop::rpc, desktop::companion, desktop::allow_firewall, desktop::open_url, desktop::dictation_start, desktop::dictation_stop]);
 
     // The pairing screen scans the desktop's QR code with the phone camera.
     #[cfg(mobile)]

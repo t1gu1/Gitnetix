@@ -27,7 +27,7 @@ base64 = "0.22"
 notify = "8"
 portable-pty = "0.9"
 keyring = { version = "3", optional = true, features = ["apple-native", "windows-native", "sync-secret-service"] }
-# Voice dictation: speech to text on this computer, from what the webviews record.
+# Voice dictation: speech to text on this computer, from the desktop microphone or what a browser records.
 whisper-rs = "0.16"
 symphonia = { version = "0.6", default-features = false, features = ["mkv", "ogg", "vorbis", "pcm", "isomp4", "aac"] }
 sha2 = "0.10"
