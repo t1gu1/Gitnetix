@@ -20,7 +20,7 @@ import { useStoredChoice, useStoredFlag } from "../lib/stored";
 import { copyToClipboard, toast } from "../lib/toast";
 import { offersRebase, rebaseMessage, useBranchActions, type BranchDialog, type BranchTarget } from "./BranchMenu";
 import { BranchTree } from "./BranchTree";
-import { CommitList } from "./CommitList";
+import { CommitList, DeleteTagModal } from "./CommitList";
 import { ConflictModal } from "./ConflictModal";
 import { StashList } from "./StashList";
 
@@ -1386,31 +1386,6 @@ function RebaseOntoModal({ pid, branch, onto, onClose }: { pid: string; branch: 
     >
       <p className="muted" style={{ margin: 0 }}>Replays the commits of {branch} on top of {onto}. Already pushed: it then needs a force push.</p>
       {rebase.error && <ErrorBox error={rebase.error} />}
-    </Modal>
-  );
-}
-
-function DeleteTagModal({ pid, tag, onClose }: { pid: string; tag: string; onClose: () => void }) {
-  const del = useAction("tags.delete", { invalidate: [["overview", pid], ["commits", pid]], success: `Deleted tag ${tag}` });
-  return (
-    <Modal
-      title="Delete tag"
-      sub={<span className="mono">{tag}</span>}
-      onClose={onClose}
-      footer={
-        <>
-          <button className="btn btn-md" onClick={onClose}>Cancel</button>
-          <button className="btn btn-md btn-danger" disabled={del.isPending} onClick={() => del.mutate({ projectId: pid, name: tag }, { onSuccess: onClose })}>
-            {del.isPending && <span className="spinner" />}
-            Delete tag
-          </button>
-        </>
-      }
-    >
-      <p style={{ margin: 0, lineHeight: 1.55 }}>
-        Deletes <span className="mono">{tag}</span> locally and on origin, for everyone who uses it. The commits it points at stay.
-      </p>
-      {del.error && <ErrorBox error={del.error} />}
     </Modal>
   );
 }

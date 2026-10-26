@@ -62,6 +62,7 @@ export function CommitList({
   );
   const [menu, setMenu] = useState<{ x: number; y: number; c: Commit } | null>(null);
   const [reset, setReset] = useState<{ c: Commit; mode: ResetMode } | null>(null);
+  const [deletingTag, setDeletingTag] = useState<string | null>(null);
   const inv = [["overview", pid], ["files", pid], ["diff", pid], ["commits", pid]];
   const revert = useAction<{ sha: string }>("commits.revert", { invalidate: inv, success: (r) => `Reverted · ${r.sha.slice(0, 7)}` });
   const pick = useAction<{ sha: string }>("commits.cherryPick", { invalidate: inv, success: (r) => `Cherry-picked onto ${current} · ${r.sha.slice(0, 7)}` });
@@ -94,6 +95,8 @@ export function CommitList({
       { id: "soft", label: "Reset here · soft", icon: "back", hint: needCheckout ?? "keep staged", disabled: !!needCheckout, run: () => setReset({ c, mode: "soft" }) },
       { id: "mixed", label: "Reset here · mixed", icon: "back", hint: needCheckout ?? "keep unstaged", disabled: !!needCheckout, run: () => setReset({ c, mode: "mixed" }) },
       { id: "hard", label: "Reset here · hard", icon: "trash", hint: needCheckout ?? "discard", danger: true, disabled: !!needCheckout, run: () => setReset({ c, mode: "hard" }) },
+      ...(c.tags.length > 0 ? ["sep" as const] : []),
+      ...c.tags.map((t): MenuItem => ({ id: `deleteTag:${t}`, label: <>Delete tag <span className="mono">{t}</span>…</>, icon: "trash", danger: true, run: () => setDeletingTag(t) })),
     ];
   };
 
@@ -173,6 +176,7 @@ export function CommitList({
           onClose={() => setReset(null)}
         />
       )}
+      {deletingTag && <DeleteTagModal pid={pid} tag={deletingTag} onClose={() => setDeletingTag(null)} />}
     </section>
   );
 }
@@ -269,6 +273,31 @@ function ResetModal({
       )}
       {reset.error && <ErrorBox error={reset.error} />}
       {push.error && <ErrorBox error={push.error} />}
+    </Modal>
+  );
+}
+
+export function DeleteTagModal({ pid, tag, onClose }: { pid: string; tag: string; onClose: () => void }) {
+  const del = useAction("tags.delete", { invalidate: [["overview", pid], ["commits", pid]], success: `Deleted tag ${tag}` });
+  return (
+    <Modal
+      title="Delete tag"
+      sub={<span className="mono">{tag}</span>}
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn btn-md" onClick={onClose}>Cancel</button>
+          <button className="btn btn-md btn-danger" disabled={del.isPending} onClick={() => del.mutate({ projectId: pid, name: tag }, { onSuccess: onClose })}>
+            {del.isPending && <span className="spinner" />}
+            Delete tag
+          </button>
+        </>
+      }
+    >
+      <p style={{ margin: 0, lineHeight: 1.55 }}>
+        Deletes <span className="mono">{tag}</span> locally and on origin, for everyone who uses it. The commits it points at stay.
+      </p>
+      {del.error && <ErrorBox error={del.error} />}
     </Modal>
   );
 }
