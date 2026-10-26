@@ -1206,7 +1206,7 @@ fn plain_view(p: &Project, refs: &Refs, name: &str, parent: Option<String>) -> B
 }
 
 /// Bump when branch views are built differently, so saved ones are not reused.
-const VIEW_CACHE_VERSION: &str = "10";
+const VIEW_CACHE_VERSION: &str = "11";
 
 /// What a project's branch views are built from: its refs, its default branch,
 /// what Gitnetix knows about its releases and branches, and what the git host said.
@@ -4752,6 +4752,7 @@ const KINDS: &[(&str, &[&str])] = &[
     ("docs", &["doc"]),
     ("chore", &[]),
     ("ci", &[]),
+    ("a11y", &["accessibility"]),
     ("build", &["deps"]),
     ("poc", &["spike"]),
 ];

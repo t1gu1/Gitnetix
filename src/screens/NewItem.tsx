@@ -73,7 +73,8 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
   const base = bases.find((b) => b.name === from);
   const fromTag = !!draft.tag && from === draft.tag;
   const rel = open.find((r) => r.branch === from);
-  const types = [...KINDS.map((k) => ({ value: k.id as Kind | "release", label: k.label })), { value: "release" as const, label: "Release" }];
+  // Release takes Build's slot so the types stay two rows of six; a typed `build/` prefix still works.
+  const types = [...KINDS.filter((k) => k.id !== "build").map((k) => ({ value: k.id as Kind | "release", label: k.label })), { value: "release" as const, label: "Release" }];
 
   // A hook: called on every render, so above the release dialog's early return.
   const aiOn = useAiOn("branch");

@@ -9,6 +9,7 @@ export const KINDS = [
   { id: "docs", label: "Docs", noun: "docs change", aliases: ["doc"] },
   { id: "chore", label: "Chore", noun: "chore", aliases: [] },
   { id: "ci", label: "CI", noun: "CI change", aliases: [] },
+  { id: "a11y", label: "A11y", noun: "a11y change", aliases: ["accessibility"] },
   { id: "build", label: "Build", noun: "build change", aliases: ["deps"] },
   { id: "poc", label: "POC", noun: "POC", aliases: ["spike"] },
 ] as const;
