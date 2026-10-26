@@ -1537,6 +1537,10 @@ async fn rename_on_origin_and_follow_it_elsewhere() {
     let err = rpc::call(&k, "branches.rename", json!({ "projectId": pid, "branch": "feat/b", "name": "feat/taken", "remote": true })).await.unwrap_err();
     assert!(err.to_string().contains("origin already has feat/taken"), "{err}");
     assert_eq!(rev(&origin, "refs/heads/feat/b"), tip);
+    // A detached worktree deleted outside git (still listed, prunable) is skipped, not an error.
+    let gone = tmp.path().join("gone");
+    sh(&repo, &["worktree", "add", "-q", "--detach", gone.to_str().unwrap(), "main"]);
+    std::fs::remove_dir_all(&gone).unwrap();
     // Mid-rebase, HEAD detached: refused before origin moves, as git would refuse the local rename.
     // Output captured: git's "execution failed" warning stays out of the test log.
     let stopped = Command::new("git").current_dir(&repo).args(["rebase", "-q", "-f", "-x", "false", "main"]).output().unwrap();

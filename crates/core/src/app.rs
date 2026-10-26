@@ -3015,9 +3015,9 @@ impl Gitnetix {
             }
         }
         // Rebasing or bisecting detaches HEAD, so no checkout has `branch` then; git would refuse the local rename after origin's.
-        // A folder deleted outside git (still listed, prunable) errors: it can't be rebasing anything.
-        for w in git.worktrees().await?.iter().filter(|w| w.branch.is_none()) {
-            if Git::new(&w.path).detached_from().await.ok().flatten().as_deref() == Some(branch) {
+        // A folder deleted outside git (still listed, prunable) is skipped: it can't be rebasing anything.
+        for w in git.worktrees().await?.iter().filter(|w| w.branch.is_none() && Path::new(&w.path).exists()) {
+            if Git::new(&w.path).detached_from().await?.as_deref() == Some(branch) {
                 return Err(Error::Invalid(format!("{branch} is being rebased or bisected at {}. Finish or abort it first.", w.path)));
             }
         }
