@@ -3,7 +3,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useAction, useConfig, useProjectPrefs } from "../api/hooks";
 import { currentRemote, isLocal, isTauri, saveRemote } from "../api/transport";
 import type { GitProfile } from "../api/types";
-import { MenuChoice } from "../components/AgentPicker";
 import { Icon } from "../components/Icon";
 import { LANGS, Seg } from "../components/ui";
 import { animates } from "../lib/motion";
@@ -295,18 +294,10 @@ export function Menu({ onUnpair }: { onUnpair: () => void }) {
                       <span className="grow" />
                       <Seg label="Language" value={cfg?.ui.language ?? "en"} options={LANGS} onChange={(v) => setUi.mutate({ language: v })} />
                     </div>
-                    <div className="app-row">
+                    <button className="app-row" onClick={() => open({ name: "settings", section: "appearance" })}>
                       <span className="app-row-label">Theme</span>
-                      <span className="grow" />
-                      <MenuChoice
-                        className="select menu-select"
-                        style={{ width: 200 }}
-                        label="Theme"
-                        value={nav.themePref}
-                        options={[{ value: "system", label: "System" }, ...THEMES.map((t) => ({ value: t.id, label: t.name }))]}
-                        onChange={nav.setThemePref}
-                      />
-                    </div>
+                      <span className="app-row-sub">{THEMES.find((t) => t.id === nav.themePref)?.name ?? "System"}</span>
+                    </button>
                     <button className="app-row" onClick={() => open({ name: "settings", section: "animations" })}>
                       <span className="app-row-label">Animations</span>
                       <span className="app-row-sub">Turn each one on or off</span>

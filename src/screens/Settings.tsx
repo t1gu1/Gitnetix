@@ -794,10 +794,11 @@ function Integrations({ cfg }: { cfg: Config }) {
 
 /** QR that opens Gitnetix on a phone, already paired; nothing until the companion is reachable on the LAN. Also shown in the menu panel. */
 export function PairQr({ server: s }: { server: Config["server"] }) {
-  const [host, setHost] = useState<string | null>(null);
+  const [info, setInfo] = useState<CompanionInfo | null>(null);
   useEffect(() => {
-    companionInfo().then((i) => setHost(i?.hosts[0] ?? null)).catch(() => {});
+    companionInfo().then(setInfo).catch(() => {});
   }, [s.token]);
+  const host = info?.hosts[0];
   if (!isLocal || !s.enabled || !s.lan || !host) return null;
   return (
     <div className="row" style={{ gap: 16, alignItems: "center" }}>
@@ -807,9 +808,16 @@ export function PairQr({ server: s }: { server: Config["server"] }) {
         style={{ width: 160, flexShrink: 0, background: "#fff", padding: 8, borderRadius: 8 }}
         dangerouslySetInnerHTML={{ __html: renderSVG(`http://${host}:${s.port}/#token=${s.token}`) }}
       />
-      <p className="hint" style={{ margin: 0 }}>
-        Scan with the phone camera to open Gitnetix in its browser, already paired. The code contains the token: don't share it.
-      </p>
+      <div className="col" style={{ alignItems: "flex-start" }}>
+        <p className="hint" style={{ margin: 0 }}>
+          Scan with the phone camera to open Gitnetix in its browser, already paired. The code contains the token: don't share it.
+        </p>
+        {info.ufw && (
+          <button className="btn" title="Lets devices on this network reach the companion port (asks for your password)" onClick={() => allowFirewall().then((m) => toast(m || "Allowed through the firewall", "ok"), (e) => toast(String(e), "error"))}>
+            Allow through firewall
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -861,11 +869,6 @@ function Companion({ cfg }: { cfg: Config }) {
           <div className="row wrap">
             <button className="btn" onClick={() => copyToClipboard(`${host}:${s.port}`)}>Copy address</button>
             <button className="btn" onClick={() => copyToClipboard(s.token)}>Copy token</button>
-            {s.lan && info?.ufw && (
-              <button className="btn" title="Lets devices on this network reach the companion port (asks for your password)" onClick={() => allowFirewall().then((m) => toast(m || "Allowed through the firewall", "ok"), (e) => toast(String(e), "error"))}>
-                Allow through firewall
-              </button>
-            )}
             <button className="btn btn-danger" onClick={() => set.mutate({ regenerateToken: true })}>New token (unpairs devices)</button>
           </div>
         </section>
