@@ -99,6 +99,8 @@ export function Worktrees({ initial }: { initial?: string }) {
     .filter((g) => g.items.length || filter === "all")
     .sort((a, b) => +!a.items.length - +!b.items.length);
   const loading = wts.isLoading || agents.isLoading;
+  // A closed or merged worktree drops out: on narrow screens go back to the list, not into the next one.
+  if (pane === "detail" && !loading && !rows.some((r) => r.key === sel)) setPane("list");
 
   return (
     <>
