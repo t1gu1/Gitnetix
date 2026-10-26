@@ -1,4 +1,4 @@
-//! Companion API: the same RPC surface as the desktop window, over HTTP.
+//! Companion API: the same RPC surface as the desktop window, over HTTP or HTTPS on the same port.
 //!
 //! - `POST /rpc` `{ "method": "...", "params": {...} }` → result JSON
 //! - `GET /events?token=…` → Server-Sent Events (agent logs, project changes)
@@ -7,10 +7,13 @@
 //!
 //! Every API call except `/health` needs `Authorization: Bearer <token>`. The
 //! server listens on 127.0.0.1 unless LAN access is turned on in Settings.
+//! HTTPS uses a self-signed certificate: phone browsers give the microphone only to https pages.
 
 use std::convert::Infallible;
 use std::net::SocketAddr;
+use std::path::Path;
 use std::sync::Arc;
+use std::time::Duration;
 
 use axum::extract::{DefaultBodyLimit, Query, State};
 use axum::http::{header, HeaderMap, StatusCode, Uri};
@@ -19,10 +22,15 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use futures_util::Stream;
-use gitnetix_core::{rpc, ErrorBody, Gitnetix};
+use gitnetix_core::{rpc, store::write_private, ErrorBody, Gitnetix};
+use hyper_util::rt::{TokioExecutor, TokioIo};
+use hyper_util::server::conn::auto::Builder;
+use hyper_util::service::TowerToHyperService;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use tokio_stream::wrappers::BroadcastStream;
+use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
+use tokio_rustls::{rustls, TlsAcceptor};
 use tokio_stream::StreamExt;
 use tower_http::cors::{Any, CorsLayer};
 
@@ -119,6 +127,45 @@ pub fn router(k: Arc<Gitnetix>, ui: Option<Ui>) -> Router {
         .with_state(AppState { k, ui })
 }
 
+/// Local IPv4 addresses, shown to pair a phone.
+pub fn lan_hosts() -> Vec<String> {
+    // Connecting a UDP socket reveals the outbound interface without sending.
+    let mut v = Vec::new();
+    if let Ok(sock) = std::net::UdpSocket::bind("0.0.0.0:0") {
+        if sock.connect("8.8.8.8:80").is_ok() {
+            if let Ok(addr) = sock.local_addr() {
+                v.push(addr.ip().to_string());
+            }
+        }
+    }
+    v
+}
+
+/// Apple refuses server certificates valid longer than 825 days, even once their warning is accepted.
+const CERT_DAYS: i64 = 800;
+
+/// The self-signed certificate, made once and kept so each phone accepts it once; remade before it expires.
+fn tls(dir: &Path) -> anyhow::Result<TlsAcceptor> {
+    let (cert, key) = (dir.join("companion-cert.der"), dir.join("companion-key.der"));
+    let age = std::fs::metadata(&cert).and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok());
+    if !key.exists() || age.is_none_or(|a| a > Duration::from_secs((CERT_DAYS as u64 - 10) * 86400)) {
+        // shortcut: names the LAN address of when it was made; a new address gets the browser's name warning too, still one tap to accept.
+        let mut p = rcgen::CertificateParams::new([vec!["localhost".into(), "127.0.0.1".into()], lan_hosts()].concat())?;
+        p.distinguished_name.push(rcgen::DnType::CommonName, "Gitnetix companion");
+        p.extended_key_usages = vec![rcgen::ExtendedKeyUsagePurpose::ServerAuth];
+        let now = time::OffsetDateTime::now_utc();
+        p.not_before = now - time::Duration::days(1);
+        p.not_after = now + time::Duration::days(CERT_DAYS);
+        let pair = rcgen::KeyPair::generate()?;
+        // Key first: a certificate on disk always has its key.
+        write_private(&key, pair.serialize_der())?;
+        std::fs::write(&cert, p.self_signed(&pair)?.der())?;
+    }
+    let chain = vec![CertificateDer::from(std::fs::read(&cert)?)];
+    let key = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(std::fs::read(&key)?));
+    Ok(TlsAcceptor::from(Arc::new(rustls::ServerConfig::builder().with_no_client_auth().with_single_cert(chain, key)?)))
+}
+
 /// Bind and serve until the process exits. Returns the bound address.
 pub async fn spawn(k: Arc<Gitnetix>, ui: Option<Ui>) -> anyhow::Result<Option<SocketAddr>> {
     let cfg = k.store.read(|c| c.server.clone());
@@ -129,13 +176,41 @@ pub async fn spawn(k: Arc<Gitnetix>, ui: Option<Ui>) -> anyhow::Result<Option<So
     let addr = SocketAddr::from((host, cfg.port));
     let listener = tokio::net::TcpListener::bind(addr).await?;
     let bound = listener.local_addr()?;
+    // Without it the API still answers over plain HTTP, the way the MCP bridge talks to it.
+    let tls = tls(&k.dir).inspect_err(|e| tracing::warn!("companion HTTPS off: {e:#}")).ok();
     let app = router(k, ui);
     tokio::spawn(async move {
-        if let Err(e) = axum::serve(listener, app).await {
-            tracing::error!("companion server stopped: {e}");
+        loop {
+            let tcp = match listener.accept().await {
+                Ok((tcp, _)) => tcp,
+                Err(e) => {
+                    // Out of file descriptors, say: wait instead of spinning.
+                    tracing::warn!("companion accept failed: {e}");
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                    continue;
+                }
+            };
+            let (app, tls) = (app.clone(), tls.clone());
+            // Each connection on its own task, so a slow handshake holds up no one else.
+            tokio::spawn(async move {
+                let http = Builder::new(TokioExecutor::new());
+                let svc = TowerToHyperService::new(app);
+                // A TLS handshake opens with byte 0x16; anything else is plain HTTP.
+                let mut first = [0u8];
+                let tls_hello = tcp.peek(&mut first).await.is_ok_and(|n| n == 1 && first[0] == 0x16);
+                // Dropped connections and refused handshakes are routine: nothing to report.
+                let _ = match (tls_hello, tls) {
+                    (true, Some(tls)) => match tls.accept(tcp).await {
+                        Ok(s) => http.serve_connection_with_upgrades(TokioIo::new(s), svc).await,
+                        Err(_) => return,
+                    },
+                    (true, None) => return,
+                    (false, _) => http.serve_connection_with_upgrades(TokioIo::new(tcp), svc).await,
+                };
+            });
         }
     });
-    tracing::info!("companion API on http://{bound}");
+    tracing::info!("companion API on http(s)://{bound}");
     Ok(Some(bound))
 }
 
@@ -177,6 +252,13 @@ mod tests {
         assert_eq!(code(get("/health").await), 200);
         assert_eq!(code(get("/").await), 200);
         assert_eq!(code(get("/missing.js").await), 404);
+
+        // The same port answers HTTPS, and the certificate is kept, so phones accept it only once.
+        let https = reqwest::Client::builder().danger_accept_invalid_certs(true).build().unwrap();
+        assert_eq!(code(https.get(format!("https://{addr}/health")).send().await), 200);
+        let cert = std::fs::read(dir.path().join("companion-cert.der")).unwrap();
+        tls(dir.path()).unwrap();
+        assert_eq!(std::fs::read(dir.path().join("companion-cert.der")).unwrap(), cert);
 
         // No token configured lets nobody in, not even an empty bearer.
         k.store

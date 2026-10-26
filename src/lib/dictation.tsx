@@ -211,7 +211,7 @@ export function Dictation() {
   return (
     <>
       {p !== "idle" && <Wave listening={p === "listening"} keys={keys} />}
-      {coarse && canDictate && <FieldMic listening={p === "listening"} />}
+      {canDictate && <FieldMic listening={p === "listening"} keys={coarse ? "" : showKeys(keys)} />}
     </>
   );
 }
@@ -219,8 +219,8 @@ export function Dictation() {
 /** Touch screens, with no keyboard for the shortcut. */
 const coarse = matchMedia("(pointer: coarse)").matches;
 
-/** The mic inside the right edge of the text box being typed in, on touch screens. */
-function FieldMic({ listening }: { listening: boolean }) {
+/** The mic inside the right edge of the text box being typed in, with the shortcut beside it where there's a keyboard. */
+function FieldMic({ listening, keys }: { listening: boolean; keys: string }) {
   const [field, setField] = useState<Field | null>(null);
   const mic = useRef<HTMLButtonElement>(null);
   useEffect(() => {
@@ -239,16 +239,19 @@ function FieldMic({ listening }: { listening: boolean }) {
     let raf = 0;
     const place = () => {
       const r = field.getBoundingClientRect();
-      // Centered in a one-line box, in the bottom corner of a multi-line one.
-      const top = field.tagName === "TEXTAREA" ? r.bottom - 32 : r.top + (r.height - 28) / 2;
-      if (mic.current) mic.current.style.transform = `translate(${r.right - 32}px, ${top}px)`;
+      const b = mic.current!;
+      // Centered in a one-line box, in the bottom corner of a multi-line one, with the bottom of its resize grip left to grab.
+      const top = field.tagName === "TEXTAREA" ? r.bottom - b.offsetHeight - 8 : r.top + (r.height - b.offsetHeight) / 2;
+      b.style.transform = `translate(${r.right - b.offsetWidth - 4}px, ${top}px)`;
       raf = requestAnimationFrame(place);
     };
     place();
     field.dataset.mic = ""; // room for it on the right, in the stylesheet
+    field.style.setProperty("--mic-w", `${mic.current!.offsetWidth}px`);
     return () => {
       cancelAnimationFrame(raf);
       delete field.dataset.mic;
+      field.style.removeProperty("--mic-w");
     };
   }, [field]);
   return (
@@ -257,12 +260,13 @@ function FieldMic({ listening }: { listening: boolean }) {
         ref={mic}
         className="field-mic"
         data-on={listening || undefined}
-        aria-label={listening ? "Stop dictating" : "Dictate"}
+        aria-label={`${listening ? "Stop dictating" : "Dictate"} ${keys}`.trim()}
         // Keeps the box focused, and the keyboard up.
         onPointerDown={(e) => e.preventDefault()}
         onClick={() => toggleDictation(field)}
       >
         <Icon name="mic" size={15} stroke={1.7} />
+        {keys && <span>{keys}</span>}
       </button>
     )
   );

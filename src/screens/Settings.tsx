@@ -250,7 +250,7 @@ function DictationSection() {
     <>
       <div className="col" style={{ gap: 6 }}>
         <h1>Voice dictation</h1>
-        <p className="muted" style={{ margin: 0 }}>Speak into any text box. Press the shortcut while in the box to start listening, then press it again or Stop to put the words in. On a phone, tap the mic at the right of the box.</p>
+        <p className="muted" style={{ margin: 0 }}>Speak into any text box. Press the shortcut or click the mic at the right of the box to start listening, then press either again or Stop to put the words in.</p>
         <p className="hint" style={{ margin: 0 }}>Speech is turned into text on this computer by Whisper. The first time downloads its model (148 MB) from Hugging Face; after that, nothing you say leaves the computer.</p>
       </div>
       <ul className="list">
@@ -882,11 +882,11 @@ export function PairQr({ server: s }: { server: Config["server"] }) {
         role="img"
         aria-label="QR code to open Gitnetix on your phone"
         style={{ width: 160, flexShrink: 0, background: "#fff", padding: 8, borderRadius: 8 }}
-        dangerouslySetInnerHTML={{ __html: renderSVG(`http://${host}:${s.port}/#token=${s.token}`) }}
+        dangerouslySetInnerHTML={{ __html: renderSVG(`https://${host}:${s.port}/#token=${s.token}`) }}
       />
       <div className="col" style={{ alignItems: "flex-start" }}>
         <p className="hint" style={{ margin: 0 }}>
-          Scan with the phone camera to open Gitnetix in its browser, already paired. The code contains the token: don't share it.
+          Scan with the phone camera to open Gitnetix in its browser, already paired. The first time, the browser warns that the connection isn't private: open the details and continue to the site. The code contains the token: don't share it.
         </p>
         {info.ufw && (
           <button className="btn" title="Lets devices on this network reach the companion port (asks for your password)" onClick={() => allowFirewall().then((m) => toast(m || "Allowed through the firewall", "ok"), (e) => toast(String(e), "error"))}>
@@ -925,7 +925,7 @@ function Companion({ cfg }: { cfg: Config }) {
           <span>Allow devices on my network (needed for the phone)</span>
         </label>
         <p className="hint">
-          Plain HTTP protected by the pairing token. Anyone with the token on the same network can run Git commands and agents on this computer. Turn LAN access on only on networks you trust, or use a VPN like Tailscale.
+          Phones connect over HTTPS with a certificate made on this computer, so their browser warns once and then allows voice dictation. The pairing token protects every call. Anyone with the token on the same network can run Git commands and agents on this computer. Turn LAN access on only on networks you trust, or use a VPN like Tailscale.
         </p>
       </section>
       {isLocal && (

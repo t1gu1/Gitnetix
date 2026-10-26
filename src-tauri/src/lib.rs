@@ -12,6 +12,7 @@ mod desktop {
     use std::sync::Arc;
 
     use gitnetix_core::{rpc, store::data_dir, ErrorBody, Event, Gitnetix};
+    use gitnetix_server::lan_hosts;
     use serde_json::Value;
     use tauri::ipc::Channel;
     use tauri::{Emitter, Manager, State};
@@ -129,19 +130,6 @@ mod desktop {
         tauri_plugin_opener::open_url(url, None::<&str>).map_err(|e| e.to_string())
     }
 
-    /// Local IPv4 addresses, shown to pair a phone.
-    fn lan_hosts() -> Vec<String> {
-        // Connecting a UDP socket reveals the outbound interface without sending.
-        let mut v = Vec::new();
-        if let Ok(sock) = std::net::UdpSocket::bind("0.0.0.0:0") {
-            if sock.connect("8.8.8.8:80").is_ok() {
-                if let Ok(addr) = sock.local_addr() {
-                    v.push(addr.ip().to_string());
-                }
-            }
-        }
-        v
-    }
 
     /// Dev builds load the UI from Vite and embed nothing, so serve the `pnpm build` output instead.
     fn dev_asset(path: &str) -> Option<(Vec<u8>, String)> {

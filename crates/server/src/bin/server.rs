@@ -10,7 +10,7 @@ async fn main() -> anyhow::Result<()> {
     let cfg = k.store.read(|c| c.server.clone());
     match gitnetix_server::spawn(k.clone(), None).await? {
         Some(addr) => {
-            println!("Gitnetix companion API on http://{addr}");
+            println!("Gitnetix companion API on http(s)://{addr}");
             println!("Pairing token: {}", cfg.token);
             if !cfg.lan {
                 println!("Listening on localhost only. Turn on LAN access in Settings › Companion to pair a phone.");

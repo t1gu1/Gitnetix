@@ -4771,27 +4771,37 @@ body:has(> .modal-scrim) #root * {
   justify-content: space-between;
   gap: 12px;
 }
-/* Touch screens: the mic inside the focused box's right edge (src/lib/dictation.tsx places it), with room made for it. */
+/* The mic inside the focused box's right edge (src/lib/dictation.tsx places it), with room made for it.
+   A circle on touch screens, a pill with the shortcut where there's a keyboard. */
 .field-mic {
   position: fixed;
   left: 0;
   top: 0;
   z-index: 61;
-  display: grid;
-  place-items: center;
-  width: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-width: 28px;
   height: 28px;
+  padding: 0 6px;
   border: 0;
-  border-radius: 50%;
+  border-radius: 14px;
   background: color-mix(in srgb, var(--accent) 16%, var(--raised));
-  color: var(--accent-fg);
+  /* Not --accent-fg: the light theme's is too pale to read on this tint. */
+  color: var(--fg);
+  font: 500 11px var(--mono);
+  white-space: nowrap;
+}
+.field-mic:hover:not([data-on]) {
+  background: color-mix(in srgb, var(--accent) 26%, var(--raised));
 }
 .field-mic[data-on] {
   background: var(--accent);
   color: var(--on-accent);
 }
 [data-mic] {
-  padding-right: 38px !important;
+  padding-right: calc(var(--mic-w, 28px) + 10px) !important;
 }
 .keys-input {
   min-width: 120px;
