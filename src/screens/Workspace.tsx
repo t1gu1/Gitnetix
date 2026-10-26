@@ -954,20 +954,20 @@ export function MergeModal({
   // Uncommitted work on the branch would be left out of the merge: commit or discard it first.
   const wip = useOverview(pid).data?.branches.find((x) => x.name === branch)?.wip ?? 0;
   const [asking, setAsking] = useState(false);
+  // Chained on the promise: deleting a worktree's branch removes the worktree, and with it the row this modal lives in,
+  // which drops `mutate`'s per-call callbacks (and so any delete error).
   const run = () =>
-    merge.mutate(
-      { projectId: pid, branch, into: base, deleteBranch: opts.deleteBranch, squash: opts.squash, squashAi: opts.squashMessage === "ai", rebase: opts.rebase, push: opts.push, stay },
-      {
-        onSuccess: (r) => {
-          if (r.pushError) toast(`Merged, but pushing ${r.into} failed: ${r.pushError}`, "error");
-          if (r.tagError) toast(`Merged, but moving its release tag failed: ${r.tagError}`, "error");
-          if (r.deleteError) toast(`Merged, but deleting ${branch} failed: ${r.deleteError}`, "error");
-          if (r.deleted || r.switched) onDeleted(r.into);
-          onMerged?.();
-          onClose();
-        },
-      },
-    );
+    void merge
+      .mutateAsync({ projectId: pid, branch, into: base, deleteBranch: opts.deleteBranch, squash: opts.squash, squashAi: opts.squashMessage === "ai", rebase: opts.rebase, push: opts.push, stay })
+      .then((r) => {
+        if (r.pushError) toast(`Merged, but pushing ${r.into} failed: ${r.pushError}`, "error");
+        if (r.tagError) toast(`Merged, but moving its release tag failed: ${r.tagError}`, "error");
+        if (r.deleteError) toast(`Merged, but deleting ${branch} failed: ${r.deleteError}`, "error");
+        if (r.deleted || r.switched) onDeleted(r.into);
+        onMerged?.();
+        onClose();
+      })
+      .catch(() => {}); // useAction already toasts the error
   const footer = (
     <>
       {inline ?? <button className="btn btn-md" onClick={onClose}>Cancel</button>}

@@ -244,7 +244,7 @@ const QUIET: &[&str] = &[".info", ".get", ".list", ".overview", ".files", ".diff
 static BUSY: std::sync::Mutex<usize> = std::sync::Mutex::new(0);
 
 /// One action in flight. While any is, the file named by `GITNETIX_BUSY_FILE` exists:
-/// `pnpm app` (scripts/dev.mjs) waits for it to go before restarting the app on a Rust change.
+/// `pnpm app` (scripts/dev.mjs) waits for it to go before restarting the app on a Rust change, and Vite before reloading the page.
 struct Busy;
 
 impl Busy {

@@ -724,12 +724,24 @@ impl Git {
             return Ok(());
         }
         let p = path.to_string_lossy();
-        if force {
-            self.run(&["worktree", "remove", "--force", &p]).await?;
-        } else {
-            self.run(&["worktree", "remove", &p]).await?;
+        let res = if force { self.run(&["worktree", "remove", "--force", &p]).await } else { self.run(&["worktree", "remove", &p]).await };
+        let Err(e) = res else { return Ok(()) };
+        // Refused (locked, dirty): git still lists it, and its folder stays as it is.
+        let real = std::fs::canonicalize(path)?;
+        if self.worktrees().await?.iter().any(|w| std::fs::canonicalize(&w.path).is_ok_and(|w| w == real)) {
+            return Err(e);
         }
-        Ok(())
+        // Git dropped its record but a process just killed in there (its shell's or agent's build) kept writing:
+        // "Directory not empty". Finish the folder once that process is gone.
+        // shortcut: a writer alive past 5s (a dev server the agent left running) still fails; kill agents' whole process group if that shows up.
+        for _ in 0..25 {
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            match tokio::fs::remove_dir_all(path).await {
+                Err(x) if x.kind() != std::io::ErrorKind::NotFound => {}
+                _ => return Ok(()),
+            }
+        }
+        Err(e)
     }
 
     // ---------- working tree ----------

@@ -1,11 +1,41 @@
-import { defineConfig } from "vite";
+import { existsSync } from "node:fs";
+import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 
 // Tauri expects a fixed port and, on mobile, a LAN-reachable dev server.
 const host = process.env.TAURI_DEV_HOST;
+// Set by `pnpm app` (scripts/dev.mjs): exists while the app runs an action.
+const busy = process.env.GITNETIX_BUSY_FILE;
+
+/** Gitnetix merges and switches branches in this very checkout: a page reload halfway would drop the rest of the flow
+ * (its result, the worktree cleanup after). Updates wait until it has been idle 2s, as the Rust restart does, then reload once.
+ * shortcut: an index.html or vite.config.ts change still reloads at once (Vite handles those before plugins); rare in a merge. */
+function holdWhileBusy(busy: string): Plugin {
+  let busyAt = 0;
+  let held = false;
+  const idle = () => !existsSync(busy) && Date.now() - busyAt >= 2000;
+  return {
+    name: "gitnetix-hold-while-busy",
+    configureServer(server) {
+      const timer = setInterval(() => {
+        if (existsSync(busy)) busyAt = Date.now();
+        else if (held && idle()) {
+          held = false;
+          server.ws.send({ type: "full-reload" });
+        }
+      }, 250);
+      server.httpServer?.once("close", () => clearInterval(timer));
+    },
+    hotUpdate() {
+      if (idle()) return;
+      held = true;
+      return [];
+    },
+  };
+}
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), busy ? holdWhileBusy(busy) : null],
   clearScreen: false,
   server: {
     port: 1420,

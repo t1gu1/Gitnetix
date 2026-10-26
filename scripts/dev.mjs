@@ -1,6 +1,6 @@
 // `tauri dev` kills the app the moment a Rust file changes, even halfway through a merge.
 // This runs it without its watcher and restarts it only once no action has run for 2s:
-// the app keeps GITNETIX_BUSY_FILE while one does (see `Busy` in crates/core/src/rpc.rs).
+// the app keeps GITNETIX_BUSY_FILE while one does (see `Busy` in crates/core/src/rpc.rs). Vite holds page reloads the same way (vite.config.ts).
 // shortcut: process-group kill is POSIX only; on Windows use `pnpm tauri dev`.
 import { spawn } from "node:child_process";
 import { existsSync, rmSync, watch } from "node:fs";
