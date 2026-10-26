@@ -18,10 +18,10 @@ import { FixedWidth, useThumb } from "./ui";
 
 export const PAGES: { label: string; icon: string; route: Route }[] = [
   { label: "Workspace", icon: "home", route: { name: "workspace" } },
-  { label: "Release notes", icon: "tag", route: { name: "notes" } },
+  { label: "Worktrees & agents", icon: "layers", route: { name: "worktrees" } },
   { label: "Pull requests", icon: "pr", route: { name: "prs" } },
   { label: "Tickets", icon: "ticket", route: { name: "tickets" } },
-  { label: "Worktrees & agents", icon: "layers", route: { name: "worktrees" } },
+  { label: "Release notes", icon: "tag", route: { name: "notes" } },
   { label: "Submodules", icon: "box", route: { name: "submodules" } },
   { label: "Analytics", icon: "chart", route: { name: "analytics" } },
 ];

@@ -65,10 +65,10 @@ const PROJECT = ['package.json', 'src/App.tsx', 'src/screens/BranchTree.tsx', 's
 /** Same pages as PAGES in src/components/TopBar.tsx. */
 const PAGES: { id: string; label: string; icon: string; Page?: ComponentType }[] = [
   { id: 'workspace', label: 'Workspace', icon: 'home' },
-  { id: 'notes', label: 'Release notes', icon: 'tag', Page: ReleaseNotes },
+  { id: 'worktrees', label: 'Worktrees & agents', icon: 'layers', Page: Worktrees },
   { id: 'prs', label: 'Pull requests', icon: 'pr', Page: PullRequests },
   { id: 'tickets', label: 'Tickets', icon: 'ticket', Page: Tickets },
-  { id: 'worktrees', label: 'Worktrees & agents', icon: 'layers', Page: Worktrees },
+  { id: 'notes', label: 'Release notes', icon: 'tag', Page: ReleaseNotes },
   { id: 'submodules', label: 'Submodules', icon: 'box', Page: Submodules },
   { id: 'analytics', label: 'Analytics', icon: 'chart', Page: Analytics },
 ];
