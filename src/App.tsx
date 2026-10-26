@@ -12,6 +12,7 @@ import { Dictation } from "./lib/dictation";
 import { useApplyAnimations } from "./lib/motion";
 import { NavProvider, ProjectView, useNav, useVisited, type Route } from "./lib/nav";
 import { Toasts } from "./lib/toast";
+import { useZoomKeys } from "./lib/zoom";
 import { AISetup } from "./screens/AISetup";
 import { Analytics } from "./screens/Analytics";
 import { Menu } from "./screens/Menu";
@@ -37,6 +38,7 @@ function Engine({ onUnpair }: { onUnpair: () => void }) {
   const cfg = useConfig();
   useEngineEvents();
   useApplyAnimations(cfg.data?.ui.animationsOff);
+  useZoomKeys();
   if (cfg.isLoading) return <Loading />;
   // Reload, not refetch: the event stream above is still open to the address that failed.
   if (cfg.error && !isLocal) return <Pair onPaired={() => location.reload()} error={cfg.error.message} />;
