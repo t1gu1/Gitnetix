@@ -4,7 +4,8 @@ import { REPO, releases, shortDate, longDate, plain, u } from '../lib/changelog'
 import { Icon } from '../../../src/components/Icon';
 import { THEMES } from '../../../src/lib/themes';
 import ThemePicker from './ThemePicker';
-import { Avatar, PathLine, type Path } from './HeroDemo';
+import { PathLine, type Path } from './HeroDemo';
+import { Avatar } from './demo/ui';
 
 /** The orange path from main to the checked-out row in the "subway map" tree, measured once off the rendered rows like HeroDemo does. */
 const TREE_PATH: Path = { d: 'M6.5 6V127H12.5V214H18.5V239.5', len: 245.5, x: 18.5, top: 214, mid: 239.5, bottom: 265 };
@@ -36,7 +37,7 @@ function TreeRow({ row, role, icon, author, name, tag, current, act, meta, ai }:
 }
 
 /** The landing page, ported from the "Gitnetix website" design canvas. */
-export default function Home({ version, demo }: { version: string; demo?: ReactNode }) {
+export default function Home({ version, demo, agents }: { version: string; demo?: ReactNode; agents?: ReactNode }) {
   const first = releases[releases.length - 1];
   const days = Math.round((Date.parse(releases[0].date) - Date.parse(first.date)) / 864e5) + 1;
   const featured = releases.filter((r) => r.story).slice(0, 3);
@@ -74,9 +75,9 @@ export default function Home({ version, demo }: { version: string; demo?: ReactN
 
     {/* hero app window */}
     <figure style={{ maxWidth: '1120px', margin: '32px auto 0', padding: '0' }}>
-    <p style={{ margin: '0 auto 16px', width: 'fit-content', maxWidth: '100%', boxSizing: 'border-box', fontSize: '13px', color: 'var(--muted)', background: 'var(--panel)', border: '1px solid var(--line)', padding: '6px 14px', borderRadius: '999px', textAlign: 'center' }}>Heads up: this web demo is very limited and a bit clunkier than the real app. Not every button works.</p>
+    <p style={{ margin: '0 auto 16px', width: 'fit-content', maxWidth: '100%', boxSizing: 'border-box', fontSize: '13px', color: 'var(--muted)', background: 'var(--panel)', border: '1px solid var(--line)', padding: '6px 14px', borderRadius: '999px', textAlign: 'center' }}>Heads up: this web demo runs on made-up data and is a bit clunkier than the real app. Not every button works.</p>
     {demo}
-    <figcaption style={{ textAlign: 'center', fontSize: '13px', color: 'var(--faint)', marginTop: '16px' }}>Try it: pick a branch, open a file, ask the agent, commit. Double-click a branch to check it out.</figcaption>
+    <figcaption style={{ textAlign: 'center', fontSize: '13px', color: 'var(--faint)', marginTop: '16px' }}>Try it: pick a branch, open a file, ask the agent, commit; double-click a branch to check it out. Every tab opens too: answer the agents in Worktrees &amp; agents, review a pull request, triage tickets.</figcaption>
     </figure>
     </section>
 
@@ -239,25 +240,8 @@ export default function Home({ version, demo }: { version: string; demo?: ReactN
     <h2 id="ag-h" style={{ margin: '0', fontSize: 'clamp(34px, 4.6vw, 56px)', lineHeight: '1.05', letterSpacing: '-0.03em', textWrap: 'balance' }}>One branch. One worktree. One agent.</h2>
     <p style={{ margin: '18px 0 0', fontSize: '19px', color: 'var(--muted)', textWrap: 'pretty' }}>Open any branch in its own worktree with one click, put an AI agent on it, and keep a shell beside it. Run them side by side. When you close a worktree, Gitnetix can merge it into the branch you choose.</p>
     </div>
-    <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: '16px', padding: '18px', marginTop: '48px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(200px, 100%), 1fr))', gap: '14px' }}>
-    {[
-    { branch: 'feat/checkout', path: '~/wt/checkout', head: true, status: 'var(--add)', agent: ['Claude', 'Claude Opus 5.5', 'xhigh'], log: [['✓ edited Cart.tsx', 'var(--add)'], ['✓ tests pass', 'var(--add)'], ['… writing PR body']] },
-    { branch: 'fix/tax-rounding', path: '~/wt/tax', status: 'var(--warn)', agent: ['Codex', 'GPT-5', 'high'], log: [['› why is 0.1+0.2 off?'], ['✓ use cents everywhere', 'var(--add)'], ['? approve change', 'var(--warn)']] },
-    { branch: 'feat/dark-mode', path: '~/wt/dark', status: 'var(--add)', agent: ['Gemini', 'Gemini 2.5 Pro', 'medium'], log: [['✓ tokens added', 'var(--add)'], ['… running build'], ['$ pnpm build', 'var(--faint)']] },
-    ].map((w) => (
-    <div key={w.branch} style={{ background: 'var(--raised)', borderRadius: '12px', padding: '14px', display: 'flex', flexDirection: 'column', gap: '6px', minWidth: '0' }}>
-    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><span aria-hidden="true" style={{ width: '10px', height: '10px', borderRadius: '50%', boxSizing: 'border-box', ...(w.head ? { background: 'var(--accent)' } : { border: '2px solid var(--work)' }) }}></span><strong style={{ fontSize: '15px', flex: '1' }}>{w.branch}</strong><span aria-hidden="true" style={{ width: '8px', height: '8px', borderRadius: '50%', background: w.status }}></span></div>
-    <div style={{ fontSize: '12px', color: 'var(--faint)' }}>{w.path}</div>
-    {/* mirrors the app's agent pane: Agent/Shell tabs, transcript, prompt bar with provider/model/effort */}
-    <div aria-hidden="true" style={{ background: 'var(--term)', border: '1px solid var(--line)', borderRadius: '8px', overflow: 'hidden', display: 'flex', flexDirection: 'column', fontSize: '11.5px' }}>
-    <div style={{ display: 'flex', borderBottom: '1px solid var(--line)' }}><span style={{ padding: '6px 10px', color: 'var(--fg)', borderRight: '1px solid var(--line)' }}>✦ Agent</span><span style={{ padding: '6px 10px', color: 'var(--faint)', borderRight: '1px solid var(--line)' }}>›_ Shell</span></div>
-    <div className="mono" style={{ padding: '10px 12px', lineHeight: '1.9', minHeight: '96px', color: 'var(--muted)' }}>{w.log.map(([t, c], i) => <div key={i} style={c ? { color: c } : undefined}>{t}{i === w.log.length - 1 && t.startsWith('$') && <span className="blink">▍</span>}</div>)}</div>
-    <div className="mono" style={{ display: 'flex', gap: '6px', padding: '7px 10px', borderTop: '1px solid var(--line)', color: 'var(--faint)' }}><span style={{ color: 'var(--accent)' }}>›</span>Ask the agent…</div>
-    <div style={{ display: 'flex', borderTop: '1px solid var(--line)', color: 'var(--muted)' }}>{w.agent.map((a) => <span key={a} style={{ padding: '6px 8px', borderRight: '1px solid var(--line)', minWidth: '0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{a} ⌄</span>)}<span style={{ marginLeft: 'auto', padding: '6px 10px', background: 'var(--accent-soft)', color: 'var(--accent-fg)' }}>➤</span></div>
-    </div>
-    </div>
-    ))}
-    </div>
+    {/* the three agent cards, playing (AgentCards.tsx, an island from index.astro) */}
+    {agents}
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginTop: '28px', alignItems: 'center' }}>
     <span style={{ fontSize: '14px', color: 'var(--faint)', marginRight: '6px' }}>Bring your agent:</span>
     <span style={{ fontSize: '14px', padding: '7px 14px', borderRadius: '999px', background: 'var(--panel)', border: '1px solid var(--line)' }}>Claude Code</span>

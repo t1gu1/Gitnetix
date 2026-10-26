@@ -1,19 +1,29 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ComponentType, type ReactNode } from 'react';
 // The app's own icon set, so the demo draws the same glyphs.
 import { Icon } from '../../../src/components/Icon';
+import { plural } from '../../../src/lib/format';
+import { kindOfBranch } from '../../../src/lib/kinds';
 import { otherMode, resolveTheme } from '../../../src/lib/themes';
+import Analytics from './demo/Analytics';
+import { AgentInput, AgentLog, AgentPicker, FinishCard, ME, TRY, keyOf, shown, useAgents, type Ai, type Pick } from './demo/agents';
+import PullRequests from './demo/PullRequests';
+import ReleaseNotes from './demo/ReleaseNotes';
+import Submodules from './demo/Submodules';
+import Tickets from './demo/Tickets';
+import { Avatar, DemoContext, FixedWidth, Seg, useThumb, type Demo } from './demo/ui';
+import Worktrees from './demo/Worktrees';
 
 /**
- * The hero's playable Workspace: a scripted copy of the app's screen.
+ * The hero's playable app: a scripted copy of its screens, the Workspace here and the other pages in ./demo.
  * Markup and class names follow src/components/TopBar.tsx, src/screens/Workspace.tsx, src/screens/BranchTree.tsx
  * and src/components/AgentLog.tsx, so the rules in site.css (scoped under .hd) can stay copies of src/styles/app.css.
  */
 
-type File = { path: string; add: number; del: number; s: 'M' | 'A' | 'D' | ' '; staged?: boolean };
-type Branch = {
+export type File = { path: string; add: number; del: number; s: 'M' | 'A' | 'D' | ' '; staged?: boolean };
+export type Branch = {
   name: string;
   /** Work branch type: shown as a chip, and the name loses its prefix. */
-  kind?: 'feat' | 'fix';
+  kind?: string;
   role: 'trunk' | 'release' | 'branch';
   base?: string;
   tag?: string;
@@ -28,9 +38,7 @@ type Branch = {
 };
 /** The orange path from the trunk to the checked-out row, measured off the rendered tree. No `top`: that row is folded away. */
 export type Path = { d: string; len: number; x: number; top?: number; mid: number; bottom: number };
-type Line = { kind: 'you' | 'steps' | 'ai' | 'wait' | 'err'; text: string };
 
-const ME = 'Grace Hopper';
 const BRANCHES: Record<string, Branch> = {
   main: { name: 'main', role: 'trunk', author: 'Ana Moreau', ahead: 0, behind: 0, wip: [], files: [], kids: ['release/0.6.0', 'feat/agent-pane'] },
   'release/0.6.0': {
@@ -43,8 +51,9 @@ const BRANCHES: Record<string, Branch> = {
     wip: [{ path: 'src/screens/BranchTree.tsx', add: 42, del: 6, s: 'M' }, { path: 'src/styles/app.css', add: 18, del: 0, s: 'M' }],
     files: [{ path: 'src/screens/BranchTree.tsx', add: 96, del: 21, s: 'M' }, { path: 'src/lib/path.ts', add: 64, del: 0, s: 'A' }, { path: 'src/styles/app.css', add: 30, del: 4, s: 'M' }],
   },
+  // An agent is at work on it, in its worktree (src/components/demo/agents.tsx).
   'fix/stale-remote': {
-    name: 'fix/stale-remote', kind: 'fix', role: 'branch', base: 'release/0.6.0', author: 'Jules Laurent', ahead: 2, behind: 2, wip: [],
+    name: 'fix/stale-remote', kind: 'fix', role: 'branch', base: 'release/0.6.0', author: 'Jules Laurent', ahead: 2, behind: 2, wip: [], wt: true,
     files: [{ path: 'crates/core/src/git.rs', add: 14, del: 9, s: 'M' }],
   },
   'feat/agent-pane': {
@@ -53,10 +62,15 @@ const BRANCHES: Record<string, Branch> = {
 };
 const PROJECT = ['package.json', 'src/App.tsx', 'src/screens/BranchTree.tsx', 'src/screens/Workspace.tsx', 'src/styles/app.css'];
 
-/** Same page list as PAGES in src/components/TopBar.tsx. */
-const PAGES: [string, string, boolean?][] = [
-  ['Workspace', 'home'], ['Release notes', 'tag'], ['Pull requests', 'pr'], ['Tickets', 'ticket', true],
-  ['Worktrees & agents', 'layers', true], ['Submodules', 'box', true], ['Analytics', 'chart', true],
+/** Same pages as PAGES in src/components/TopBar.tsx. */
+const PAGES: { id: string; label: string; icon: string; Page?: ComponentType }[] = [
+  { id: 'workspace', label: 'Workspace', icon: 'home' },
+  { id: 'notes', label: 'Release notes', icon: 'tag', Page: ReleaseNotes },
+  { id: 'prs', label: 'Pull requests', icon: 'pr', Page: PullRequests },
+  { id: 'tickets', label: 'Tickets', icon: 'ticket', Page: Tickets },
+  { id: 'worktrees', label: 'Worktrees & agents', icon: 'layers', Page: Worktrees },
+  { id: 'submodules', label: 'Submodules', icon: 'box', Page: Submodules },
+  { id: 'analytics', label: 'Analytics', icon: 'chart', Page: Analytics },
 ];
 
 const HUNK = '@@ -88,6 +88,7 @@ export function BranchTree';
@@ -71,79 +85,16 @@ const DIFF: [' ' | '+' | '-', string][] = [
 /** What "Full" adds above the change: the rest of the file. */
 const ABOVE = ["import { usePath } from '../lib/path';", "import { usePulse } from '../lib/pulse';", "import { Tree } from './Tree';", ''];
 
-const TRY = 'add a pulse that travels down the branch path';
-
-// Same as src/components/Avatar.tsx: initials on a colour picked from the name.
-function hue(name: string) {
-  let h = 0;
-  for (const c of name) h = (h * 31 + c.charCodeAt(0)) % 360;
-  return h;
-}
-function initials(name: string) {
-  const w = name.trim().split(/\s+/);
-  return (w.length > 1 ? w[0][0] + w[w.length - 1][0] : w[0].slice(0, 2)).toUpperCase();
-}
-export function Avatar({ name, size = 16 }: { name: string; size?: number }) {
-  return (
-    <span className="user-avatar" role="img" aria-label={name} title={name} style={{ width: size, height: size, fontSize: Math.round(size * 0.45), background: `hsl(${hue(name)} 45% 42%)` }}>
-      {initials(name)}
-    </span>
-  );
-}
-
-// Claude's starburst, from src/components/AgentLog.tsx.
-const RAYS = Array.from({ length: 12 }, (_, i) => {
-  const a = (i * Math.PI) / 6;
-  const r = i % 2 ? 5.2 : 6.6;
-  return `M${8 + 1.6 * Math.cos(a)} ${8 + 1.6 * Math.sin(a)}L${8 + r * Math.cos(a)} ${8 + r * Math.sin(a)}`;
-}).join('');
-const MARK = (
-  <span className="ag-avatar" aria-hidden="true">
-    <svg width={17} height={17} viewBox="0 0 16 16" stroke="#d97757" strokeWidth={1.7} strokeLinecap="round"><path d={RAYS} /></svg>
-  </span>
-);
-
-/** Reserves the width of the bold rendering, like FixedWidth in src/components/ui.tsx. */
-function FixedWidth({ children }: { children: ReactNode }) {
-  return (
-    <span className="fixed-w">
-      <span>{children}</span>
-      <span className="fixed-w-ghost" aria-hidden="true">{children}</span>
-    </span>
-  );
-}
-
-function Seg<T extends string>({ label, value, options, onChange, grid }: { label: string; value: T; options: [T, ReactNode][]; onChange: (v: T) => void; grid?: boolean }) {
-  // The highlight slides to the pressed option, like useThumb in src/components/ui.tsx.
-  const ref = useRef<HTMLDivElement>(null);
-  const [thumb, setThumb] = useState<{ width: number; height: number; transform: string }>();
-  const selected = options.findIndex(([v]) => v === value);
-  useLayoutEffect(() => {
-    const btns = ref.current!.querySelectorAll<HTMLElement>(':scope > button');
-    const place = () => {
-      const b = btns[selected];
-      setThumb(b?.offsetWidth ? { width: b.offsetWidth, height: b.offsetHeight, transform: `translate(${b.offsetLeft}px, ${b.offsetTop}px)` } : undefined);
-    };
-    place();
-    const ro = new ResizeObserver(place);
-    btns.forEach((b) => ro.observe(b));
-    return () => ro.disconnect();
-  }, [selected, options.length]);
-  return (
-    <div ref={ref} role="group" aria-label={label} className={`hd-seg${grid ? ' grid' : ''}`}>
-      {thumb && <span className="seg-thumb" style={thumb} aria-hidden="true" />}
-      {options.map(([v, l]) => (
-        <button key={v} type="button" aria-pressed={v === value} onClick={() => onChange(v)}>{grid ? l : <FixedWidth>{l}</FixedWidth>}</button>
-      ))}
-    </div>
-  );
-}
-
-function plural(n: number, w: string) {
-  return `${n} ${w}${n === 1 ? '' : 's'}`;
-}
-
 const labelOf = (b: string) => (b.startsWith('release/') ? `v${b.slice(8)}` : b);
+/** `b` once `done` (some of its WIP) is committed: those changes join the branch's own. */
+function fold(b: Branch, done: File[]): Branch {
+  const files = b.files.map((f) => {
+    const w = done.find((x) => x.path === f.path);
+    return w ? { ...f, add: f.add + w.add, del: f.del + w.del } : f;
+  });
+  const added = done.filter((w) => !b.files.some((f) => f.path === w.path)).map(({ staged: _, ...f }) => f);
+  return { ...b, ahead: b.ahead + 1, wip: b.wip.filter((f) => !done.includes(f)), files: [...files, ...added] };
+}
 
 function Nums({ add, del }: { add: number; del: number }) {
   return (
@@ -364,23 +315,34 @@ export default function HeroDemo() {
   const [secOpen, setSecOpen] = useState({ true: true, false: true });
   const [term, setTerm] = useState<'agent' | 'shell' | null>('agent');
   const [text, setText] = useState(TRY);
-  const [logs, setLogs] = useState<Record<string, Line[]>>({});
-  const [running, setRunning] = useState<string>();
+  const [picks, setPicks] = useState<Pick[]>([]);
+  // Why the agent pane would not start an agent on a branch.
+  const [refused, setRefused] = useState<Record<string, string>>({});
   const [msgOpen, setMsgOpen] = useState(false);
   const [summary, setSummary] = useState('');
   const [body, setBody] = useState('');
-  const [toast, setToast] = useState<string>();
+  const [toast, setToast] = useState<{ text: string; error?: boolean }>();
+  const [page, setPage] = useState('workspace');
+  // Pages mount on their first visit and stay: their state, and the agents they show, carry on while you look elsewhere.
+  const [seen, setSeen] = useState(['workspace']);
   const timers = useRef<number[]>([]);
+  const toastId = useRef(0);
   const treeRef = useRef<HTMLDivElement>(null);
-  const logRef = useRef<HTMLDivElement>(null);
+  const tabsRef = useRef<HTMLElement>(null);
   const [path, setPath] = useState<Path | null>(null);
   useEffect(() => () => timers.current.forEach(clearTimeout), []);
+  const setWip = (n: string, f: (w: File[]) => File[]) => setBs((x) => (x[n] ? { ...x, [n]: { ...x[n], wip: f(x[n].wip) } } : x));
+  // An agent's answer leaves its files in its worktree, uncommitted.
+  const agents = useAgents((s, wip) => s.project === 'acme-web' && setWip(s.branch, (w) => [...w.filter((f) => !wip.some((x) => x.path === f.path)), ...wip]));
+  const ink = useThumb(tabsRef, PAGES.findIndex((p) => p.id === page), PAGES.length);
 
   // Like the app's tree: the line runs 6px left of each row on the path and steps in at the top of each level's
   // child list (just under its "Child branches" toggle), down to the middle of the checked-out row,
   // or to the foot of the closed toggle it hides under.
   useLayoutEffect(() => {
     const t = treeRef.current;
+    // Behind another page: the last path stays until the tree shows again.
+    if (t && !t.offsetParent) return;
     const chain: string[] = [];
     for (let n: string | undefined = head; n; n = bs[n].base) chain.unshift(n);
     const all = chain.map((n) => t?.querySelector<HTMLElement>(`[data-row="${n}"]`));
@@ -424,25 +386,30 @@ export default function HeroDemo() {
     return () => ro.disconnect();
   }, [file, term]);
 
-  // Like AgentLog: new lines keep the log scrolled to the bottom.
-  useEffect(() => {
-    const el = logRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [logs, running, sel]);
-
   const b = bs[sel];
   const isHead = sel === head;
-  const log = logs[sel] ?? [];
+  const key = keyOf('acme-web', sel);
+  const ses = agents.get(key);
+  const busy = ses?.status === 'running' || ses?.status === 'paused';
+  const stOf = (n: string) => {
+    const s = agents.get(keyOf('acme-web', n));
+    return s && shown(s);
+  };
+  const running = agents.sessions.filter((s) => s.status === 'running');
   const wipCount = b.wip.length;
   const staged = b.wip.filter((f) => f.staged).length;
   const all = staged === 0;
-  const canCommit = (isHead || !!b.wt) && wipCount > 0 && running !== sel;
+  const canCommit = (isHead || !!b.wt) && wipCount > 0 && !busy;
   const later = (ms: number, f: () => void) => timers.current.push(window.setTimeout(f, ms));
-  const flash = (t: string) => {
-    setToast(t);
-    later(2600, () => setToast(undefined));
+  const flash = (t: string, error?: boolean) => {
+    const id = ++toastId.current;
+    setToast({ text: t, error });
+    later(2600, () => id === toastId.current && setToast(undefined));
   };
-  const setWip = (n: string, f: (w: File[]) => File[]) => setBs((x) => ({ ...x, [n]: { ...x[n], wip: f(x[n].wip) } }));
+  const go = (p: string) => {
+    setPage(p);
+    setSeen((s) => (s.includes(p) ? s : [...s, p]));
+  };
   // Like workspace.switch: uncommitted work comes along.
   const checkout = (n: string) => {
     if (n === head) return;
@@ -453,12 +420,48 @@ export default function HeroDemo() {
     setSel(n);
     setFile(undefined);
     setMode((n === head || bs[n].wt) && bs[n].wip.length ? 'wip' : 'branch');
+    agents.wake(keyOf('acme-web', n));
+  };
+  /** An agent on the branch, in its own worktree: same rules as start_agent_on in crates/core/src/app.rs. */
+  const agentOn = (n: string, t: string, base = bs[n]?.base ?? 'main', ai?: Ai) => {
+    if (n === 'main') return 'main is reserved: create a new branch for the agent.';
+    if (n === head && bs[n].wip.length) return `${n} has uncommitted changes in the main checkout. Commit or stash them first: the agent gets its own worktree.`;
+    if (n === head) setHead(base);
+    setBs((x) => ({ ...x, [n]: { ...x[n], wt: true } }));
+    agents.start({ project: 'acme-web', branch: n, base, behind: bs[n]?.behind }, t, ai);
+  };
+  const addBranch = (n: string, base: string) =>
+    setBs((x) => ({
+      ...x,
+      [base]: { ...x[base], kids: [...(x[base].kids ?? []), n] },
+      [n]: { name: n, kind: kindOfBranch(n) ?? undefined, role: 'branch', base, author: ME, ahead: 0, behind: 0, wip: [], files: [] },
+    }));
+  /** Ends a worktree session. Merged or deleted, the branch leaves the tree; one with child branches only loses its worktree. */
+  const finish: Demo['finish'] = (k, how, sw, note = '') => {
+    const s = agents.get(k);
+    if (!s) return;
+    agents.remove(k);
+    const n = s.branch;
+    const x = bs[n];
+    if (s.project === 'acme-web' && x) {
+      const base = x.base ?? 'main';
+      if (how === 'continue' || x.kids?.length) {
+        // Its uncommitted changes are committed first; the app lets you pick: commit or discard.
+        setBs((y) => ({ ...y, [n]: { ...(y[n].wip.length ? fold(y[n], y[n].wip) : y[n]), wt: false } }));
+        if (sw && how === 'continue') checkout(n);
+      } else {
+        setBs(({ [n]: gone, ...y }) => ({ ...y, [base]: { ...y[base], kids: y[base].kids?.filter((c) => c !== n), ahead: y[base].ahead + (how === 'merge' ? gone.ahead + (gone.wip.length ? 1 : 0) : 0) } }));
+        if (sel === n) select(base);
+      }
+      if (sw && how === 'merge') checkout(base);
+    }
+    flash(how === 'continue' ? `Worktree closed: ${n} and its commits stay` : how === 'merge' ? `Merged ${n} into ${s.base}${note}` : `Deleted the worktree and ${n}`);
   };
   // The row's main action for its state, picked like `primary` in src/screens/BranchMenu.tsx.
   const primary = (n: string): { icon: string; tip: string; run: () => void } => {
     const x = bs[n];
     const parent = x.base ? labelOf(x.base) : '';
-    if (x.wt) return { icon: 'swap', tip: `Continue on ${n} here and delete its worktree`, run: () => (running === n ? flash(`The agent is still working on ${n}`) : checkout(n)) };
+    if (x.wt) return { icon: 'swap', tip: `Continue on ${n} here and delete its worktree`, run: () => (stOf(n) === 'running' ? flash(`The agent is still working on ${n}`) : (agents.remove(keyOf('acme-web', n)), checkout(n))) };
     if (x.role === 'release' && x.ahead) return { icon: 'ship', tip: `Fast-forward main to ${n} and tag ${labelOf(n)}`, run: () => flash(`Ship ${labelOf(n)}: fast-forward main and tag it`) };
     if (n !== head) return { icon: 'swap', tip: `Check out ${n}`, run: () => checkout(n) };
     if (x.role === 'branch' && x.behind) return { icon: 'branch', tip: `Replay ${n} on top of ${parent} (${plural(x.behind, 'commit')} behind)`, run: () => flash(`Rebased ${n} onto ${parent}`) };
@@ -466,49 +469,43 @@ export default function HeroDemo() {
     return { icon: 'refresh', tip: `Pull from origin/${n}`, run: () => flash(`${n} is up to date`) };
   };
 
-  const send = () => {
-    const t = text.trim();
-    if (!t || running) return;
-    const at = sel;
-    const add = (l: Line) => setLogs((x) => ({ ...x, [at]: [...(x[at] ?? []).filter((y) => y.kind !== 'wait'), l] }));
-    // Same rules as start_agent_on in crates/core/src/app.rs.
-    if (at === 'main') return add({ kind: 'err', text: 'main is reserved: create a new branch for the agent.' });
-    if (at === head && bs[at].wip.length) return add({ kind: 'err', text: `${at} has uncommitted changes in the main checkout. Commit or stash them first: the agent gets its own worktree.` });
-    if (at === head) setHead(bs[at].base ?? 'main');
-    setBs((x) => ({ ...x, [at]: { ...x[at], wt: true } }));
-    setText('');
-    setRunning(at);
-    add({ kind: 'you', text: t });
-    later(1300, () => add({ kind: 'steps', text: 'Read src/screens/BranchTree.tsx\nRead src/styles/app.css\nEdit src/screens/BranchTree.tsx\nBash npm test' }));
-    later(3000, () => {
-      add({ kind: 'ai', text: 'Done: the pulse now runs from the trunk to the checked-out branch and restarts when you switch. Tests pass. Want me to slow it down on long paths?' });
-      add({ kind: 'wait', text: '' });
-      setRunning(undefined);
-      setWip(at, (w) => [...w.filter((f) => f.path !== 'src/lib/pulse.ts'), { path: 'src/lib/pulse.ts', add: 31, del: 0, s: 'A' }]);
-    });
-  };
-  const stop = () => {
-    timers.current.forEach(clearTimeout);
-    timers.current = [];
-    setRunning(undefined);
-    if (running) setLogs((x) => ({ ...x, [running]: [...(x[running] ?? []), { kind: 'wait', text: '' }] }));
+  const send = (t: string) => {
+    if (ses && ses.status !== 'idle') {
+      setText('');
+      return agents.send(key, t);
+    }
+    const why = agentOn(sel, t);
+    setRefused((x) => ({ ...x, [sel]: why ?? '' }));
+    if (!why) setText('');
   };
 
   const commit = () => {
     if (!canCommit) return;
-    // The committed changes join the branch's own; with nothing staged, everything goes.
+    // With nothing staged, everything goes.
     const done = all ? b.wip : b.wip.filter((f) => f.staged);
-    const files = b.files.map((f) => {
-      const w = done.find((x) => x.path === f.path);
-      return w ? { ...f, add: f.add + w.add, del: f.del + w.del } : f;
-    });
-    const added = done.filter((w) => !b.files.some((f) => f.path === w.path)).map(({ staged: _, ...f }) => f);
-    const left = b.wip.filter((f) => !done.includes(f));
-    setBs((x) => ({ ...x, [sel]: { ...b, ahead: b.ahead + 1, wip: left, files: [...files, ...added] } }));
+    setBs((x) => ({ ...x, [sel]: fold(b, done) }));
     flash(summary.trim() ? `Committed: ${summary.trim()}` : 'AI wrote: Pulse along the branch path');
     setSummary('');
     setBody('');
-    if (!left.length) setMode('branch');
+    if (done.length === wipCount) setMode('branch');
+  };
+
+  const demo: Demo = {
+    flash,
+    go,
+    openBranch: (n) => {
+      go('workspace');
+      select(n);
+    },
+    branches: bs,
+    sel,
+    head,
+    addBranch,
+    setBranch: (n, p) => setBs((x) => ({ ...x, [n]: { ...x[n], ...p } })),
+    commit: (n) => setBs((x) => (x[n]?.wip.length ? { ...x, [n]: fold(x[n], x[n].wip) } : x)),
+    agents,
+    agentOn,
+    finish,
   };
 
   const shows = (n: string): boolean => !filter || n.includes(filter) || !!bs[n].kids?.some(shows);
@@ -527,6 +524,7 @@ export default function HeroDemo() {
     const open = !closed[n] || !!filter;
     const pathLive = below(n).includes(head);
     const wipBelow = open ? 0 : below(n).reduce((t, k) => t + bs[k].wip.length, 0);
+    const st = stOf(n);
     return (
       <div key={n} role="group" className="tree-node">
         <div className="tree-row" data-row={n} data-current={cur || undefined} data-role={x.role}>
@@ -553,8 +551,8 @@ export default function HeroDemo() {
               </span>
               {x.wt && (
                 <span className="branch-meta">
-                  <span className={`row${running === n ? ' c-acc' : ''}`} style={{ gap: 4 }}><Icon name="layers" size={11} stroke={1.4} />{running === n ? <span className="ai-fade">AI working</span> : 'worktree'}</span>
-                  {running !== n && logs[n]?.at(-1)?.kind === 'wait' && <span className="c-add ai-fade">waiting</span>}
+                  <span className={`row${st === 'running' ? ' c-acc' : ''}`} style={{ gap: 4 }}><Icon name="layers" size={11} stroke={1.4} />{st === 'running' ? <span className="ai-fade">AI working</span> : 'worktree'}</span>
+                  {(st === 'waiting' || st === 'done') && <span className="c-add ai-fade">{st}</span>}
                   {!typed && wip}
                 </span>
               )}
@@ -606,9 +604,10 @@ export default function HeroDemo() {
       </>
     );
   };
-  const agentHere = !!b.wt && log.length > 0;
+  const agentHere = !!b.wt && !!ses;
 
   return (
+    <DemoContext.Provider value={demo}>
     <div className="ap hd">
       {/* project tabs (src/components/TopBar.tsx) */}
       <header className="hdr">
@@ -616,13 +615,22 @@ export default function HeroDemo() {
         <span className="tabs-projects" aria-hidden="true">
           {['acme-web', 'acme-api', 'design-system'].map((p, i) => (
             <span key={p} className={i === 2 ? 'tab-project hide-sm' : 'tab-project'} data-active={i === 0 || undefined}>
-              <span className="tab-project-open"><FixedWidth>{p}</FixedWidth></span>
+              <span className="tab-project-open">
+                {running.some((s) => s.project === p) && <span className="pulse" />}
+                <FixedWidth>{p}</FixedWidth>
+              </span>
               <span className="tab-project-close"><Icon name="close" size={12} /></span>
             </span>
           ))}
           <span className="btn btn-ghost btn-icon" style={{ height: 'auto', width: 42, flex: 'none', border: 0, borderRadius: 0 }}><Icon name="plus" /></span>
         </span>
         <span className="hdr-tools">
+          {running.length > 0 && (
+            <button className="btn hide-sm" style={{ height: 28 }} onClick={() => go('worktrees')}>
+              <span className="pulse" />
+              <span className="muted">{running.length} {running.length === 1 ? 'agent' : 'agents'} running</span>
+            </button>
+          )}
           {/* The app's ThemeToggle, read off the page as src/components/ShellPane.tsx does; Base.astro's script saves and shows the pick. */}
           <button
             className="btn btn-ghost btn-icon theme-toggle"
@@ -637,17 +645,18 @@ export default function HeroDemo() {
           </button>
         </span>
       </header>
-      {/* screen tabs */}
-      <nav className="tabs-pages" aria-hidden="true">
-        {PAGES.map(([label, icon, small], i) => (
-          <span key={label} className={small ? 'tab-page hide-sm' : 'tab-page'} aria-current={i === 0 ? 'page' : undefined}>
-            <Icon name={icon} size={14} />
-            <FixedWidth>{label}</FixedWidth>
-          </span>
+      {/* page tabs, the accent underline sliding to the open one */}
+      <nav ref={tabsRef} aria-label="Pages" className="tabs-pages">
+        {ink && <span className="tabs-ink" style={ink} aria-hidden="true" />}
+        {PAGES.map((p) => (
+          <button key={p.id} type="button" className="tab-page" aria-current={p.id === page ? 'page' : undefined} onClick={() => go(p.id)}>
+            <Icon name={p.icon} size={14} />
+            <FixedWidth>{p.label}</FixedWidth>
+          </button>
         ))}
       </nav>
 
-      <div className="ws" data-file-open={file ? true : undefined}>
+      <div className="ws" data-file-open={file ? true : undefined} hidden={page !== 'workspace'}>
         {/* left: branches and the agent, or the open file's diff */}
         <div className="ws-left">
           {file ? (
@@ -729,7 +738,7 @@ export default function HeroDemo() {
                 {term === 'agent' && agentHere && (
                   <>
                     <span className="term-tab" style={{ fontSize: 11.5, borderLeft: 0 }}>
-                      {running === sel && <span className="pulse" />}
+                      {ses.status === 'running' && <span className="pulse" />}
                       <span className="mono">{sel}</span>
                       <span className="faint">worktree</span>
                     </span>
@@ -745,71 +754,25 @@ export default function HeroDemo() {
               </div>
               {term === 'agent' ? (
                 <>
-                  <div ref={logRef} className="term-log ag-log" aria-live="polite">
-                    {log.length === 0 && <div className="ag-empty">Start an agent on {sel}: it gets its own worktree, so it keeps working while you switch branches.</div>}
-                    {log.map((l, i) =>
-                      l.kind === 'you' ? (
-                        <div key={i} className="ag-you">
-                          <div className="ag-you-row">
-                            <Avatar name={ME} size={22} />
-                            <div className="ag-bubble">{l.text}</div>
-                          </div>
-                        </div>
-                      ) : l.kind === 'steps' ? (
-                        <div key={i} className="ag-act">
-                          {log[i - 1]?.kind === 'you' && MARK}
-                          <details className="ag-steps" open>
-                            <summary>
-                              <span className="ag-steps-n">4 steps</span>
-                              <span className="ellipsis">Read ×2 · Edit · Bash</span>
-                            </summary>
-                            <div className="ag-steps-list">
-                              {l.text.split('\n').map((s) => (
-                                <div key={s} className="ag-step">
-                                  <span className="ag-step-name">{s.split(' ')[0]}</span>
-                                  <span className="ag-step-detail">{s.slice(s.indexOf(' ') + 1)}</span>
-                                </div>
-                              ))}
-                            </div>
-                          </details>
-                        </div>
-                      ) : l.kind === 'err' ? (
-                        <div key={i} className="ag-err">✕ {l.text}</div>
-                      ) : l.kind === 'ai' ? (
-                        <div key={i} className="ag-ai">
-                          {log[i - 1]?.kind === 'you' && MARK}
-                          <div className="md"><p>{l.text}</p></div>
-                        </div>
-                      ) : i === log.length - 1 ? (
-                        <div key={i} className="ag-wait"><span className="ag-wait-chip">Your turn!</span></div>
-                      ) : null,
-                    )}
-                    {running === sel && (
-                      <div className="ag-act" role="status" aria-label="Agent is thinking">
-                        {log.at(-1)?.kind === 'you' && MARK}
-                        <span className="ag-dots" aria-hidden="true"><i /><i /><i /></span>
-                      </div>
-                    )}
-                  </div>
-                  <form className="term-input" onSubmit={(e) => { e.preventDefault(); send(); }}>
-                    <span className="mono c-acc" aria-hidden="true">›</span>
-                    <label htmlFor="hd-ask" className="sr-only">Ask the agent</label>
-                    <input id="hd-ask" value={text} onChange={(e) => setText(e.target.value)} placeholder={running === sel ? 'Agent is working…' : agentHere ? 'Reply to the agent…' : 'Ask the agent anything…'} />
-                    <div className="picker-acts" aria-hidden="true">
-                      <span className="picker-act hd-opt"><span className="ellipsis">Claude</span><Icon name="chevronDown" size={10} /></span>
-                      <span className="picker-act"><span className="ellipsis">Claude Opus 5.5</span><Icon name="chevronDown" size={10} /></span>
-                      <span className="picker-act"><span className="ellipsis">xhigh</span><Icon name="chevronDown" size={10} /></span>
-                    </div>
-                    {running === sel ? (
-                      <button type="button" className="btn btn-sm btn-danger btn-icon" aria-label="Stop the agent" title="Stop" onClick={stop}>
-                        <Icon name="stop" size={16} />
-                      </button>
-                    ) : (
-                      <button type="submit" className="btn btn-sm btn-primary btn-icon" aria-label="Send" title="Send" disabled={!text.trim() || !!running}>
-                        <Icon name="send" size={20} />
-                      </button>
-                    )}
-                  </form>
+                  <AgentLog
+                    s={ses}
+                    empty={`Start an agent on ${sel}: it gets its own worktree, so it keeps working while you switch branches.`}
+                    picks={picks}
+                    onPicks={setPicks}
+                    error={refused[sel]}
+                    actions={ses && b.wt && ses.add + ses.del > 0 && <FinishCard s={ses} />}
+                  />
+                  <AgentInput
+                    id="hd-ask"
+                    value={text}
+                    onChange={setText}
+                    picks={picks}
+                    onPicks={setPicks}
+                    onSend={send}
+                    onStop={busy ? () => agents.stop(key) : undefined}
+                    picker={<AgentPicker value={ses?.ai ?? agents.pick} onChange={(ai) => (ses ? agents.update(key, { ai }) : agents.setPick(ai))} />}
+                    placeholder={busy ? 'Agent is working…' : agentHere ? 'Reply to the agent…' : 'Ask the agent anything…'}
+                  />
                 </>
               ) : (
                 <div className="term-log hd-shell">
@@ -822,8 +785,8 @@ export default function HeroDemo() {
           ) : (
             <button className="row term-bar hd-term-closed" onClick={() => setTerm('agent')}>
               <Icon name="terminal" />
-              <span>{term === null && running ? 'Agent · running' : 'Agent'}</span>
-              {running && <span className="pulse" />}
+              <span>{running.some((s) => s.project === 'acme-web') ? 'Agent · running' : 'Agent'}</span>
+              {running.some((s) => s.project === 'acme-web') && <span className="pulse" />}
               <span className="grow" />
               <Icon name="chevronUp" size={13} />
             </button>
@@ -918,7 +881,14 @@ export default function HeroDemo() {
           </div>
         </section>
       </div>
-      {toast && <div className="toast" role="status">{toast}</div>}
+      {/* the other pages (src/components/demo), mounted on their first visit */}
+      {PAGES.map(({ id, Page }) => Page && seen.includes(id) && (
+        <div key={id} className="pg" hidden={page !== id}>
+          <Page />
+        </div>
+      ))}
+      {toast && <div className={`toast${toast.error ? ' error' : ''}`} role="status">{toast.text}</div>}
     </div>
+    </DemoContext.Provider>
   );
 }
