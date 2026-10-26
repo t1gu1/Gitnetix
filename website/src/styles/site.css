@@ -77,7 +77,25 @@ details[open] .chev{transform:rotate(45deg)}
 @keyframes blink{50%{opacity:0}}
 .live{animation:breathe 2.4s ease-in-out infinite}
 @keyframes breathe{50%{box-shadow:0 0 0 1px color-mix(in srgb,var(--accent) 45%,transparent),0 0 24px color-mix(in srgb,var(--accent) 18%,transparent)}}
-@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}.dot,.blink,.live{animation:none}.dot{display:none}}
+/* Page tops (home, compare, download): the glow breathes on an 8s cycle. On the home page, at each peak a pulse runs down every side rail (Home.tsx's HERO_RAILS), lighting the stations it passes. */
+.hero-glow{position:relative}
+.hero-glow::before{content:'';position:absolute;inset:0 0 auto;height:520px;z-index:-1;pointer-events:none;background:radial-gradient(var(--glow-size,700px 360px) at 50% 0%,var(--accent-soft),transparent 70%);transform-origin:50% 0;animation:glow-breathe 8s ease-in-out infinite}
+@keyframes glow-breathe{0%,100%{opacity:.45;transform:scale(.92)}45%{opacity:1;transform:scale(1.05)}}
+.hero-rails{--hot:#fff3dd;position:absolute;top:0;z-index:-1;pointer-events:none;fill:none;mask-image:radial-gradient(130% 100% at 100% 0,#000 30%,transparent)}
+[data-theme=light] .hero-rails{--hot:var(--accent)}
+.hero-rails-l{right:calc(50% + 500px)}
+.hero-rails-r{left:calc(50% + 500px);transform:scaleX(-1)}
+.hero-rails .rail{stroke:color-mix(in srgb,var(--accent-fg) 35%,var(--bg));stroke-width:1.5;animation:rail-breathe 8s ease-in-out infinite}
+@keyframes rail-breathe{0%,100%{opacity:.6}45%{opacity:1}}
+/* One 24px dash per 736px: it crosses the longest rail and wraps out of sight each 8s, so every rail shares these keyframes. */
+.hero-rails .beam{stroke:var(--hot);stroke-width:2;stroke-linecap:round;stroke-dasharray:24 712;stroke-dashoffset:24px;filter:drop-shadow(0 0 4px var(--accent));animation:rail-run 8s linear infinite}
+@keyframes rail-run{to{stroke-dashoffset:-696px}}
+.hero-rails .stop{fill:var(--bg);stroke:var(--accent-fg);stroke-width:1.5;animation:stop-flash 8s ease-out infinite}
+@keyframes stop-flash{from{fill:var(--hot)}25%{fill:var(--bg)}}
+.hero-rails .ring{stroke:var(--accent-fg);opacity:0;transform-box:fill-box;transform-origin:center;animation:stop-ring 8s ease-out infinite}
+@keyframes stop-ring{from{opacity:.9}25%,to{opacity:0;transform:scale(4)}}
+@media (max-width:1100px){.hero-rails{display:none}}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}.dot,.blink,.live,.hero-glow::before,.hero-rails *{animation:none}.dot{display:none}}
 @media (max-width:760px){.spine::before,.spine .dot,.knot{display:none}.sec{padding-left:0}.hide-sm{display:none}}
 /* Releases timeline: version | rail | card. Rows align on the first baseline, so the version, its node and the card title share one line. */
 .tl{position:relative;list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:28px}

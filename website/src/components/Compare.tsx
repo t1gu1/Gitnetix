@@ -116,7 +116,7 @@ export default function Compare() {
   return (
     <div style={{ maxWidth: '1240px', margin: '0 auto', padding: '0 24px 40px' }}>
     {/* HERO */}
-    <section aria-labelledby="cmp-h" style={{ padding: '88px 0 56px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px', background: 'radial-gradient(700px 360px at 50% 0%, var(--accent-soft), transparent 70%)' }}>
+    <section aria-labelledby="cmp-h" className="hero-glow" style={{ padding: '88px 0 56px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px' }}>
     <p style={{ ...eyebrow, margin: '0' }}>COMPARE</p>
     <h1 id="cmp-h" style={{ margin: '0', fontSize: 'clamp(40px, 6vw, 76px)', lineHeight: '1.02', letterSpacing: '-0.035em', textWrap: 'balance', maxWidth: '940px' }}>Gitnetix, GitKraken, Fork or Sourcetree?</h1>
     <p style={{ margin: '0', fontSize: 'clamp(18px, 2vw, 21px)', color: 'var(--muted)', maxWidth: '700px', textWrap: 'pretty' }}>Four good desktop Git clients. Three of them draw your commit graph. Gitnetix draws your releases. Here is what each one does well, and what it costs.</p>

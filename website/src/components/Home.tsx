@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import faq from '../data/faq.json';
 import { REPO, releases, shortDate, longDate, plain, u } from '../lib/changelog';
 import { Icon } from '../../../src/components/Icon';
@@ -18,6 +18,39 @@ const row = (r: number) => 14 + r * 24;
 const FORKS = [[1, 0, 1, 0, 15], [2, 1, 3, 1, 10], [3, 0, 2, 0, 12], [4, 2, 5, 0, 17], [5, 3, 4, 1, 14], [6, 0, 6, 4, 13]];
 /** Per row: [the commit's lane, message width %, ref label width px] */
 const COMMITS: [number, number, number?][] = [[0, 70, 38], [0, 88], [1, 62, 52], [3, 80, 44], [2, 55], [5, 74], [4, 92], [6, 58, 46], [1, 84], [2, 66], [3, 90], [5, 52], [0, 76], [4, 68], [1, 94], [0, 60, 34], [4, 82], [0, 72]];
+
+/** The hero's side rails, left side (the right mirrors it): per rail, when its pulse leaves in the glow's 8s breath (at the peak), and its [x, y, station?] points from the top.
+ *  The pulse runs at the app's 90px/s, so each station flashes at its distance down the rail. */
+const HERO_RAILS = ([
+  [3.4, [[300, -8], [300, 56, 1], [300, 120], [256, 164], [256, 236, 1], [256, 332, 1], [256, 412, 1], [256, 520]]],
+  // A branch off the first rail and back: same start, so its pulse splits off at the fork and rejoins at the merge.
+  [3.4, [[300, -8], [300, 120], [256, 164], [256, 236], [288, 268], [288, 324, 1], [288, 380], [256, 412]]],
+  [3.7, [[264, -8], [264, 40], [196, 108], [196, 156, 1], [196, 250, 1], [196, 300], [156, 340], [156, 400, 1], [156, 490, 1], [156, 520]]],
+  [4, [[228, -8], [228, 16], [136, 108], [136, 160, 1], [136, 220], [76, 280], [76, 330, 1], [76, 430, 1], [76, 520]]],
+] as [number, number[][]][]).map(([at, pts]) => {
+  let run = 0;
+  return {
+    at,
+    d: `M${pts.map(([x, y]) => `${x} ${y}`).join('L')}`,
+    stops: pts.flatMap(([x, y, stop], i) => {
+      if (i) run += Math.hypot(x - pts[i - 1][0], y - pts[i - 1][1]);
+      return stop ? [{ x, y, at: at + run / 90 }] : [];
+    }),
+  };
+});
+
+function HeroRails({ side }: { side: 'l' | 'r' }) {
+  return (
+    <svg className={`hero-rails hero-rails-${side}`} aria-hidden="true" width="320" height="560">
+      {HERO_RAILS.map((r, i) => <path key={i} className="rail" d={r.d} />)}
+      {HERO_RAILS.map((r, i) => <path key={i} className="beam" d={r.d} style={{ animationDelay: `${r.at}s` }} />)}
+      {HERO_RAILS.flatMap((r) => r.stops).map((s, i) => {
+        const delay = { animationDelay: `${s.at.toFixed(2)}s` };
+        return <g key={i}><circle className="ring" cx={s.x} cy={s.y} r="3.5" style={delay} /><circle className="stop" cx={s.x} cy={s.y} r="3.5" style={delay} /></g>;
+      })}
+    </svg>
+  );
+}
 
 /** A static branch row, in HeroDemo's markup (from src/screens/BranchTree.tsx). */
 function TreeRow({ row, role, icon, author, name, tag, current, act, meta, ai }: { row: string; role: string; icon: string; author: string; name: string; tag?: string; current?: boolean; act: string; meta: ReactNode; ai?: boolean }) {
@@ -44,7 +77,8 @@ export default function Home({ version, demo, agents }: { version: string; demo?
   return (
     <>
     {/* HERO */}
-    <section aria-labelledby="hero-h" style={{ position: 'relative', padding: '88px 24px 40px', background: 'radial-gradient(900px 480px at 50% 0%, var(--accent-soft), transparent 70%)' }}>
+    <section aria-labelledby="hero-h" className="hero-glow" style={{ '--glow-size': '900px 480px', padding: '88px 24px 40px' } as CSSProperties}>
+    <HeroRails side="l" /><HeroRails side="r" />
     <div style={{ maxWidth: '1080px', margin: '0 auto', display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: '24px' }}>
     <a className="btn-s muted" href={u(`releases/${releases[0].version}/`)} style={{ display: 'inline-flex', alignItems: 'center', gap: '10px', fontSize: '14px', padding: '6px 14px 6px 6px', border: '1px solid var(--line)', borderRadius: '999px', background: 'var(--panel)' }}>
     <span style={{ background: 'var(--accent-soft)', color: 'var(--accent-fg)', fontWeight: '600', padding: '2px 10px', borderRadius: '999px' }} className="mono">v{releases[0].version}</span>
