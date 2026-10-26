@@ -792,6 +792,28 @@ function Integrations({ cfg }: { cfg: Config }) {
   );
 }
 
+/** QR that opens Gitnetix on a phone, already paired; nothing until the companion is reachable on the LAN. Also shown in the menu panel. */
+export function PairQr({ server: s }: { server: Config["server"] }) {
+  const [host, setHost] = useState<string | null>(null);
+  useEffect(() => {
+    companionInfo().then((i) => setHost(i?.hosts[0] ?? null)).catch(() => {});
+  }, [s.token]);
+  if (!isLocal || !s.enabled || !s.lan || !host) return null;
+  return (
+    <div className="row" style={{ gap: 16, alignItems: "center" }}>
+      <div
+        role="img"
+        aria-label="QR code to open Gitnetix on your phone"
+        style={{ width: 160, flexShrink: 0, background: "#fff", padding: 8, borderRadius: 8 }}
+        dangerouslySetInnerHTML={{ __html: renderSVG(`http://${host}:${s.port}/#token=${s.token}`) }}
+      />
+      <p className="hint" style={{ margin: 0 }}>
+        Scan with the phone camera to open Gitnetix in its browser, already paired. The code contains the token: don't share it.
+      </p>
+    </div>
+  );
+}
+
 function Companion({ cfg }: { cfg: Config }) {
   const [info, setInfo] = useState<CompanionInfo | null>(null);
   const set = useAction<{ restartRequired: boolean }>("server.set", { invalidate: [["config"]], success: "Saved — restart Gitnetix to apply" });
@@ -835,19 +857,7 @@ function Companion({ cfg }: { cfg: Config }) {
               <span className="mono ellipsis" title={s.token}>{s.token.slice(0, 12)}…</span>
             </div>
           </div>
-          {s.enabled && s.lan && info?.hosts[0] && (
-            <div className="row" style={{ gap: 16, alignItems: "center" }}>
-              <div
-                role="img"
-                aria-label="QR code to open Gitnetix on your phone"
-                style={{ width: 160, flexShrink: 0, background: "#fff", padding: 8, borderRadius: 8 }}
-                dangerouslySetInnerHTML={{ __html: renderSVG(`http://${host}:${s.port}/#token=${s.token}`) }}
-              />
-              <p className="hint" style={{ margin: 0 }}>
-                Scan with the phone camera to open Gitnetix in its browser, already paired. The code contains the token: don't share it.
-              </p>
-            </div>
-          )}
+          <PairQr server={s} />
           <div className="row wrap">
             <button className="btn" onClick={() => copyToClipboard(`${host}:${s.port}`)}>Copy address</button>
             <button className="btn" onClick={() => copyToClipboard(s.token)}>Copy token</button>

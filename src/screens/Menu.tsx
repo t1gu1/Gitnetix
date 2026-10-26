@@ -11,7 +11,7 @@ import { useNav } from "../lib/nav";
 import { THEMES } from "../lib/themes";
 import { AISetupPanes } from "./AISetup";
 import { LogsPane } from "./Logs";
-import { SettingsPanes } from "./Settings";
+import { PairQr, SettingsPanes } from "./Settings";
 import { TemplatesPanes } from "./Templates";
 
 type View = { name: "ai" } | { name: "templates" } | { name: "settings"; section?: string } | { name: "logs" };
@@ -323,6 +323,7 @@ export function Menu({ onUnpair }: { onUnpair: () => void }) {
                       </span>
                     </button>
                   </div>
+                  {cfg && <PairQr server={cfg.server} />}
                   {!isLocal && (
                     <button
                       className="btn btn-ghost btn-danger"
