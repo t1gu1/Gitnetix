@@ -11,6 +11,42 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+### Added
+- Project commands menu in the terminal for Cargo, Go, Make, just, Docker, Compose, Gradle, Maven, .NET, CMake, Python, Ruby, Godot, LÖVE, Odin and shell scripts, plus package.json scripts. Commands whose program is not installed are hidden.
+- Hide and show command sections per project. Hidden sections fold into a small pill.
+- Rename branches and open releases, locally and on origin when asked.
+- Rebase a worktree onto its base and resolve conflicts from the worktree actions.
+- Right-click actions menu and an actions button on worktree rows.
+- Worktree rows show how many commits they are behind base.
+- Copy workspace name action for worktrees.
+- Setting to expand the terminal by default in worktrees.
+- AI answers fit in conflict resolution, and modify/delete conflicts can be resolved.
+- Claude runs cut off by quit are resumed on next start.
+- Finished worktree agent runs show as done instead of waiting.
+- First task is pinned to the top of the agent log.
+- Phone notification when an agent is waiting or failed.
+- Analytics: click a day bar to see its commits by person and type, and a release bar to see its features, fixes and merged branches.
+- Pairing QR code in the settings menu panel.
+- Appearance settings open from the theme row in the menu.
+- Theme picker on the website header and home page.
+
+### Changed
+- Worktree detail layout is wider, up to 1400px.
+- Page header is hidden on wide layouts in tickets, pull requests and other tabbed pages; the back button shows only on narrow layouts.
+- The dev app restarts on Rust changes only when idle.
+
+### Fixed
+- Terminal always shows at least one command section, and the folded pill is tidier.
+- Opening a worktree focuses the agent tab.
+- Rename is refused mid-rebase, and a failed CHANGELOG.md commit after a rename is reported instead of failing the rename.
+- Upstream tracking is correct after a local branch rename.
+- Deleted or pruned worktrees no longer break the rebase check.
+- Merging with branch delete no longer fails with "Directory not empty" when a build is still writing in the worktree.
+- Authors sharing an email or name are merged into one person.
+- Child processes started from the AppImage no longer fail on bundled library variables.
+- Pinch zoom and double-tap zoom are blocked on mobile.
+- Day range bar in analytics lines up with the page content width.
+
 ## [0.8.0] - 2026-10-25
 
 ### Added
