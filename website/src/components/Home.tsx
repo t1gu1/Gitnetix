@@ -2,6 +2,8 @@ import type { ReactNode } from 'react';
 import faq from '../data/faq.json';
 import { REPO, releases, shortDate, longDate, plain, u } from '../lib/changelog';
 import { Icon } from '../../../src/components/Icon';
+import { THEMES } from '../../../src/lib/themes';
+import ThemePicker from './ThemePicker';
 import { Avatar, PathLine, type Path } from './HeroDemo';
 
 /** The orange path from main to the checked-out row in the "subway map" tree, measured once off the rendered rows like HeroDemo does. */
@@ -51,7 +53,7 @@ export default function Home({ version, demo }: { version: string; demo?: ReactN
     <h1 id="hero-h" style={{ margin: '0', fontSize: 'clamp(44px, 7.2vw, 92px)', lineHeight: '1.02', letterSpacing: '-0.035em', fontWeight: '700', textWrap: 'balance', maxWidth: '980px' }}>See your work, <span style={{ color: 'var(--accent-fg)' }}>not your commits.</span></h1>
     <p style={{ margin: '0', fontSize: 'clamp(18px, 2vw, 22px)', color: 'var(--muted)', maxWidth: '680px', textWrap: 'pretty' }}>Gitnetix is a Git client with no commit graph. Branches as a tree. Releases as a button. An agent on every branch.</p>
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', justifyContent: 'center', marginTop: '8px' }}>
-    <a className="btn-p" data-dl href={u("download/")} style={{ display: 'flex', alignItems: 'center', gap: '10px', background: 'var(--accent)', color: 'var(--accent-ink)', fontWeight: '600', fontSize: '17px', padding: '15px 24px', borderRadius: '12px', boxShadow: '0 8px 30px -8px rgba(240,164,58,.6)' }}>
+    <a className="btn-p" data-dl href={u("download/")} style={{ display: 'flex', alignItems: 'center', gap: '10px', background: 'var(--accent)', color: 'var(--accent-ink)', fontWeight: '600', fontSize: '17px', padding: '15px 24px', borderRadius: '12px', boxShadow: '0 8px 30px -8px color-mix(in srgb,var(--accent) 60%,transparent)' }}>
     <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v12m0 0-5-5m5 5 5-5M4 21h16"></path></svg>
     <span data-dl-label>Download Gitnetix</span>
     </a>
@@ -60,8 +62,18 @@ export default function Home({ version, demo }: { version: string; demo?: ReactN
     <p style={{ margin: '0', fontSize: '14px', color: 'var(--faint)' }}><span data-dl-note>v{version} · Free for macOS, Windows and Linux</span> · <a className="muted" href={u("download/")} style={{ textDecoration: 'underline', textUnderlineOffset: '3px' }}>Other platforms</a></p>
     </div>
 
+    {/* THEMES: a pick repaints the whole site and the demo below */}
+    <section aria-labelledby="th-h" style={{ maxWidth: '1120px', margin: '64px auto 0', boxSizing: 'border-box', background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: '14px', padding: '24px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '20px 40px' }}>
+    <div style={{ flex: '1 1 340px' }}>
+    <p style={{ margin: '0 0 8px', fontSize: '13px', letterSpacing: '.14em', color: 'var(--accent-fg)', fontWeight: '600' }}>{THEMES.length} THEMES</p>
+    <h2 id="th-h" style={{ margin: '0', fontSize: 'clamp(24px, 2.6vw, 30px)', lineHeight: '1.15', letterSpacing: '-0.02em', textWrap: 'balance' }}>Make it look the way you love.</h2>
+    <p style={{ margin: '10px 0 0', fontSize: '16px', color: 'var(--muted)', textWrap: 'pretty' }}>Catppuccin, Rosé Pine, Tokyo Night, Dracula, Nord, Gruvbox and more, dark and light. A theme colors every pane of the app, down to the terminal. Try one: this whole site and the demo below switch to it.</p>
+    </div>
+    <div style={{ flex: '1 1 460px' }}><ThemePicker /></div>
+    </section>
+
     {/* hero app window */}
-    <figure style={{ maxWidth: '1120px', margin: '64px auto 0', padding: '0' }}>
+    <figure style={{ maxWidth: '1120px', margin: '32px auto 0', padding: '0' }}>
     <p style={{ margin: '0 auto 16px', width: 'fit-content', maxWidth: '100%', boxSizing: 'border-box', fontSize: '13px', color: 'var(--muted)', background: 'var(--panel)', border: '1px solid var(--line)', padding: '6px 14px', borderRadius: '999px', textAlign: 'center' }}>Heads up: this web demo is very limited and a bit clunkier than the real app. Not every button works.</p>
     {demo}
     <figcaption style={{ textAlign: 'center', fontSize: '13px', color: 'var(--faint)', marginTop: '16px' }}>Try it: pick a branch, open a file, ask the agent, commit. Double-click a branch to check it out.</figcaption>
@@ -109,7 +121,7 @@ export default function Home({ version, demo }: { version: string; demo?: ReactN
     {/* after: the app's branch pane, in HeroDemo's markup so its .hd rules (copies of src/styles/app.css) apply */}
     <figure style={{ margin: '0', display: 'flex', flexDirection: 'column', gap: '14px' }}>
     <div style={{ fontSize: '13px', letterSpacing: '.14em', color: 'var(--accent-fg)', fontWeight: '600' }}>GITNETIX</div>
-    <div className="ap hd" role="img" aria-label="The Gitnetix branch pane: main, a Merged into main group, the next release v2.4.0 with the checked-out feat/checkout-redesign and fix/cart-total where AI is working, and a Shipped group" style={{ background: 'var(--panel)', border: '1px solid rgba(240,164,58,.35)', borderRadius: '14px', height: '480px', boxSizing: 'border-box', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+    <div className="ap hd" role="img" aria-label="The Gitnetix branch pane: main, a Merged into main group, the next release v2.4.0 with the checked-out feat/checkout-redesign and fix/cart-total where AI is working, and a Shipped group" style={{ background: 'var(--panel)', border: '1px solid color-mix(in srgb,var(--accent) 35%,transparent)', borderRadius: '14px', height: '480px', boxSizing: 'border-box', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
     <div className="ws-releases" style={{ display: 'flex', flexDirection: 'column', flex: '1', minHeight: '0' }}>
     <div className="pane-head">
     <span className="label">Branches</span>
@@ -210,7 +222,7 @@ export default function Home({ version, demo }: { version: string; demo?: ReactN
     <h3 style={{ margin: '0', fontSize: '22px' }}>Agents help</h3>
     <p style={{ margin: '0', color: 'var(--muted)', fontSize: '16px' }}>Claude Code, Codex, Gemini work in parallel. AI adds each branch to the changelog and writes the PR.</p>
     </li>
-    <li style={{ background: 'linear-gradient(160deg, var(--accent-soft), var(--panel) 60%)', border: '1px solid rgba(240,164,58,.55)', borderRadius: '16px', padding: '26px', display: 'flex', flexDirection: 'column', gap: '12px', boxShadow: '0 0 40px -12px rgba(240,164,58,.45)' }}>
+    <li style={{ background: 'linear-gradient(160deg, var(--accent-soft), var(--panel) 60%)', border: '1px solid color-mix(in srgb,var(--accent) 55%,transparent)', borderRadius: '16px', padding: '26px', display: 'flex', flexDirection: 'column', gap: '12px', boxShadow: '0 0 40px -12px color-mix(in srgb,var(--accent) 45%,transparent)' }}>
     <span aria-hidden="true" style={{ width: '38px', height: '38px', borderRadius: '50%', background: 'var(--accent)', color: 'var(--accent-ink)', display: 'grid', placeItems: 'center', fontWeight: '700' }}>4</span>
     <h3 style={{ margin: '0', fontSize: '22px', color: 'var(--accent-fg)' }}>Ship</h3>
     <p style={{ margin: '0', color: 'var(--muted)', fontSize: '16px' }}>Dates the changelog, fast-forwards <code>main</code>, tags <code>v2.4.0</code>, pushes. One click.</p>
@@ -229,9 +241,9 @@ export default function Home({ version, demo }: { version: string; demo?: ReactN
     </div>
     <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: '16px', padding: '18px', marginTop: '48px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(200px, 100%), 1fr))', gap: '14px' }}>
     {[
-    { branch: 'feat/checkout', path: '~/wt/checkout', head: true, status: 'var(--add)', agent: ['Claude', 'Claude Opus 5.5', 'xhigh'], log: [['✓ edited Cart.tsx', '#62d6ae'], ['✓ tests pass', '#62d6ae'], ['… writing PR body']] },
-    { branch: 'fix/tax-rounding', path: '~/wt/tax', status: 'var(--warn)', agent: ['Codex', 'GPT-5', 'high'], log: [['› why is 0.1+0.2 off?'], ['✓ use cents everywhere', '#62d6ae'], ['? approve change', '#f5b65c']] },
-    { branch: 'feat/dark-mode', path: '~/wt/dark', status: 'var(--add)', agent: ['Gemini', 'Gemini 2.5 Pro', 'medium'], log: [['✓ tokens added', '#62d6ae'], ['… running build'], ['$ pnpm build', '#868c96']] },
+    { branch: 'feat/checkout', path: '~/wt/checkout', head: true, status: 'var(--add)', agent: ['Claude', 'Claude Opus 5.5', 'xhigh'], log: [['✓ edited Cart.tsx', 'var(--add)'], ['✓ tests pass', 'var(--add)'], ['… writing PR body']] },
+    { branch: 'fix/tax-rounding', path: '~/wt/tax', status: 'var(--warn)', agent: ['Codex', 'GPT-5', 'high'], log: [['› why is 0.1+0.2 off?'], ['✓ use cents everywhere', 'var(--add)'], ['? approve change', 'var(--warn)']] },
+    { branch: 'feat/dark-mode', path: '~/wt/dark', status: 'var(--add)', agent: ['Gemini', 'Gemini 2.5 Pro', 'medium'], log: [['✓ tokens added', 'var(--add)'], ['… running build'], ['$ pnpm build', 'var(--faint)']] },
     ].map((w) => (
     <div key={w.branch} style={{ background: 'var(--raised)', borderRadius: '12px', padding: '14px', display: 'flex', flexDirection: 'column', gap: '6px', minWidth: '0' }}>
     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><span aria-hidden="true" style={{ width: '10px', height: '10px', borderRadius: '50%', boxSizing: 'border-box', ...(w.head ? { background: 'var(--accent)' } : { border: '2px solid var(--work)' }) }}></span><strong style={{ fontSize: '15px', flex: '1' }}>{w.branch}</strong><span aria-hidden="true" style={{ width: '8px', height: '8px', borderRadius: '50%', background: w.status }}></span></div>
@@ -239,7 +251,7 @@ export default function Home({ version, demo }: { version: string; demo?: ReactN
     {/* mirrors the app's agent pane: Agent/Shell tabs, transcript, prompt bar with provider/model/effort */}
     <div aria-hidden="true" style={{ background: 'var(--term)', border: '1px solid var(--line)', borderRadius: '8px', overflow: 'hidden', display: 'flex', flexDirection: 'column', fontSize: '11.5px' }}>
     <div style={{ display: 'flex', borderBottom: '1px solid var(--line)' }}><span style={{ padding: '6px 10px', color: 'var(--fg)', borderRight: '1px solid var(--line)' }}>✦ Agent</span><span style={{ padding: '6px 10px', color: 'var(--faint)', borderRight: '1px solid var(--line)' }}>›_ Shell</span></div>
-    <div className="mono" style={{ padding: '10px 12px', lineHeight: '1.9', minHeight: '96px', color: '#a0a5ae' }}>{w.log.map(([t, c], i) => <div key={i} style={c ? { color: c } : undefined}>{t}{i === w.log.length - 1 && t.startsWith('$') && <span className="blink">▍</span>}</div>)}</div>
+    <div className="mono" style={{ padding: '10px 12px', lineHeight: '1.9', minHeight: '96px', color: 'var(--muted)' }}>{w.log.map(([t, c], i) => <div key={i} style={c ? { color: c } : undefined}>{t}{i === w.log.length - 1 && t.startsWith('$') && <span className="blink">▍</span>}</div>)}</div>
     <div className="mono" style={{ display: 'flex', gap: '6px', padding: '7px 10px', borderTop: '1px solid var(--line)', color: 'var(--faint)' }}><span style={{ color: 'var(--accent)' }}>›</span>Ask the agent…</div>
     <div style={{ display: 'flex', borderTop: '1px solid var(--line)', color: 'var(--muted)' }}>{w.agent.map((a) => <span key={a} style={{ padding: '6px 8px', borderRight: '1px solid var(--line)', minWidth: '0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{a} ⌄</span>)}<span style={{ marginLeft: 'auto', padding: '6px 10px', background: 'var(--accent-soft)', color: 'var(--accent-fg)' }}>➤</span></div>
     </div>
@@ -269,7 +281,7 @@ export default function Home({ version, demo }: { version: string; demo?: ReactN
     </div>
     <div style={{ flex: '1 1 260px', display: 'flex', justifyContent: 'center' }}>
     <figure style={{ margin: '0', display: 'flex', flexDirection: 'column', gap: '14px', alignItems: 'center' }}>
-    <div style={{ position: 'relative', width: '264px', maxWidth: '100%', background: '#0b0c0e', border: '2px solid var(--rail)', borderRadius: '18px', padding: '10px', boxSizing: 'border-box', boxShadow: '0 30px 80px -30px rgba(0,0,0,.8), 0 0 50px -20px rgba(240,164,58,.45)' }}>
+    <div style={{ position: 'relative', width: '264px', maxWidth: '100%', background: '#0b0c0e', border: '2px solid var(--rail)', borderRadius: '18px', padding: '10px', boxSizing: 'border-box', boxShadow: '0 30px 80px -30px rgba(0,0,0,.8), 0 0 50px -20px color-mix(in srgb,var(--accent) 45%,transparent)' }}>
     <img src={u("phone.jpg")} alt="Gitnetix on a phone browser: the branch tree with main, a merged-into-main group, the checked-out v0.7.0 next release, a Shipped group, and Releases, Agents, PRs, Tickets and More tabs" width="640" height="1152" loading="lazy" style={{ display: 'block', width: '100%', height: 'auto', borderRadius: '9px' }} />
     </div>
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--add)', background: 'var(--panel)', border: '1px solid var(--line)', padding: '4px 12px', borderRadius: '999px' }}><span aria-hidden="true" style={{ width: '7px', height: '7px', borderRadius: '50%', background: 'var(--add)' }}></span>Real screenshot · paired by QR code</span>
@@ -335,7 +347,7 @@ export default function Home({ version, demo }: { version: string; demo?: ReactN
     </div>
     <ol style={{ listStyle: 'none', margin: '44px 0 0', padding: '0', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(300px, 100%), 1fr))', gap: '16px' }}>
     {featured.map((r, i) => (
-    <li key={r.version}><a className="card-link" href={u(`releases/${r.version}/`)} style={{ display: 'flex', flexDirection: 'column', gap: '10px', height: '100%', boxSizing: 'border-box', background: 'var(--panel)', border: `1px solid ${i === 0 ? 'rgba(240,164,58,.4)' : 'var(--line)'}`, borderRadius: '14px', padding: '24px' }}>
+    <li key={r.version}><a className="card-link" href={u(`releases/${r.version}/`)} style={{ display: 'flex', flexDirection: 'column', gap: '10px', height: '100%', boxSizing: 'border-box', background: 'var(--panel)', border: `1px solid ${i === 0 ? 'color-mix(in srgb,var(--accent) 40%,transparent)' : 'var(--line)'}`, borderRadius: '14px', padding: '24px' }}>
     <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '13px' }}><span className="mono" style={{ color: 'var(--accent-fg)', background: 'var(--accent-soft)', fontWeight: '600', padding: '2px 10px', borderRadius: '999px' }}>v{r.version}</span><time dateTime={r.date} style={{ color: 'var(--faint)' }}>{shortDate(r.date)}</time>{r === releases[0] && <span style={{ marginLeft: 'auto', color: 'var(--accent-fg)', fontWeight: '600' }}>Latest</span>}</div>
     <h3 style={{ margin: '0', fontSize: '21px', letterSpacing: '-0.01em' }}>{r.title}</h3>
     <p style={{ margin: '0', fontSize: '15px', color: 'var(--muted)' }}>{r.highlights.length ? r.highlights.join(' · ') : plain(r.sections[0]?.items[0] ?? '')}</p>
@@ -360,7 +372,7 @@ export default function Home({ version, demo }: { version: string; demo?: ReactN
     <div><dt className="mono" style={{ color: 'var(--accent-fg)', fontSize: '14px' }}>MCP</dt><dd style={{ margin: '4px 0 0', color: 'var(--muted)', fontSize: '15px' }}>Every RPC method exposed as a tool</dd></div>
     <div><dt className="mono" style={{ color: 'var(--accent-fg)', fontSize: '14px' }}>Auto-update</dt><dd style={{ margin: '4px 0 0', color: 'var(--muted)', fontSize: '15px' }}>New releases offered on launch</dd></div>
     <div><dt className="mono" style={{ color: 'var(--accent-fg)', fontSize: '14px' }}>Calm motion</dt><dd style={{ margin: '4px 0 0', color: 'var(--muted)', fontSize: '15px' }}>Fluid by default, every animation can be turned off</dd></div>
-    <div><dt className="mono" style={{ color: 'var(--accent-fg)', fontSize: '14px' }}>Dark &amp; light</dt><dd style={{ margin: '4px 0 0', color: 'var(--muted)', fontSize: '15px' }}>Follows your system, or pick one</dd></div>
+    <div><dt className="mono" style={{ color: 'var(--accent-fg)', fontSize: '14px' }}>{THEMES.length} themes</dt><dd style={{ margin: '4px 0 0', color: 'var(--muted)', fontSize: '15px' }}>Dark or light, or follow your system</dd></div>
     </dl>
     </div>
     </section>
@@ -385,11 +397,11 @@ export default function Home({ version, demo }: { version: string; demo?: ReactN
     {/* FINAL CTA: the path ends here */}
     <section aria-labelledby="cta-h" style={{ padding: '120px 24px 120px', position: 'relative', textAlign: 'center' }}>
     <div style={{ maxWidth: '860px', margin: '0 auto', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '22px' }}>
-    <span aria-hidden="true" style={{ width: '22px', height: '22px', borderRadius: '50%', background: 'var(--accent)', boxShadow: '0 0 0 8px var(--accent-soft), 0 0 40px rgba(240,164,58,.6)' }}></span>
+    <span aria-hidden="true" style={{ width: '22px', height: '22px', borderRadius: '50%', background: 'var(--accent)', boxShadow: '0 0 0 8px var(--accent-soft), 0 0 40px color-mix(in srgb,var(--accent) 60%,transparent)' }}></span>
     <h2 id="cta-h" style={{ margin: '0', fontSize: 'clamp(40px, 6vw, 76px)', lineHeight: '1.02', letterSpacing: '-0.035em', textWrap: 'balance' }}>Stop reading the subway map.</h2>
     <p style={{ margin: '0', fontSize: '19px', color: 'var(--muted)' }}>Free download for macOS, Windows and Linux.</p>
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', justifyContent: 'center', marginTop: '6px' }}>
-    <a className="btn-p" data-dl href={u("download/")} style={{ background: 'var(--accent)', color: 'var(--accent-ink)', fontWeight: '600', padding: '15px 24px', borderRadius: '12px', boxShadow: '0 8px 30px -8px rgba(240,164,58,.6)' }}><span data-dl-label>Download Gitnetix</span></a>
+    <a className="btn-p" data-dl href={u("download/")} style={{ background: 'var(--accent)', color: 'var(--accent-ink)', fontWeight: '600', padding: '15px 24px', borderRadius: '12px', boxShadow: '0 8px 30px -8px color-mix(in srgb,var(--accent) 60%,transparent)' }}><span data-dl-label>Download Gitnetix</span></a>
     <a className="btn-s" href={u("download/")} style={{ fontWeight: '500', padding: '15px 22px', borderRadius: '12px', border: '1px solid var(--line)', background: 'var(--panel)' }}>All downloads</a>
     </div>
     </div>

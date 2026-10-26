@@ -1,14 +1,10 @@
 import { Icon } from "./Icon";
 import { useNav } from "../lib/nav";
-import { resolveTheme, THEMES } from "../lib/themes";
+import { otherMode, resolveTheme } from "../lib/themes";
 
 export function ThemeToggle() {
   const nav = useNav();
-  const cur = resolveTheme(nav.themePref, nav.theme);
-  // The same theme's other mode, same contrast when it has one (Gruvbox Dark Hard → Light Hard, Catppuccin Mocha → Latte); Gitnetix's when it has none.
-  const other = THEMES.filter((t) => t.family === cur.family && t.light !== cur.light);
-  const bare = (name: string) => name.replace(/Dark|Light/, "");
-  const next = (other.find((t) => bare(t.name) === bare(cur.name)) ?? other[0])?.id ?? (cur.light ? "dark" : "light");
+  const next = otherMode(resolveTheme(nav.themePref, nav.theme));
   return (
     <button
       className="btn btn-ghost btn-icon theme-toggle"

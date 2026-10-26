@@ -9,6 +9,7 @@ import '../styles/site.css';
 import Header, { type Page } from '../components/Header';
 import Footer from '../components/Footer';
 import { u } from '../lib/changelog';
+import { THEMES } from '../../../src/lib/themes';
 // The hero headline's weight: preloaded so the largest text paints in its own font, not a fallback.
 import heading from '@fontsource/instrument-sans/files/instrument-sans-latin-700-normal.woff2?url';
 
@@ -34,6 +35,33 @@ const og = new URL(u('og.png'), Astro.site).href;
 <meta name="application-name" content="Gitnetix">
 <meta name="color-scheme" content="dark light">
 <link rel="preload" href={heading} as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href={u('themes.css')}>
+<script is:inline define:vars={{ themes: THEMES.map((t) => ({ id: t.id, light: t.light, own: t.family !== 'Gitnetix' })) }}>
+  // The app's resolveTheme + applyTheme, before the first paint: the saved pick, or Gitnetix in the computer's mode.
+  // Picks come from ThemePicker.tsx's [data-pick] buttons and HeroDemo's light / dark toggle (a "themechange" event); every picker shows the one in use.
+  let pref;
+  try { pref = localStorage.getItem('theme'); } catch {}
+  const sys = matchMedia('(prefers-color-scheme: light)');
+  const apply = () => {
+    const t = themes.find((x) => x.id === pref) ?? themes.find((x) => x.id === (sys.matches ? 'light' : 'dark'));
+    const root = document.documentElement;
+    root.dataset.theme = t.light ? 'light' : 'dark';
+    if (t.own) root.dataset.palette = t.id;
+    else delete root.dataset.palette;
+    document.querySelectorAll('[data-pick]').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.pick === t.id)));
+    document.querySelectorAll('[data-pick-name]').forEach((s) => (s.textContent = document.querySelector(`[data-pick="${t.id}"]`).getAttribute('aria-label')));
+  };
+  const pick = (id) => {
+    pref = id;
+    try { localStorage.setItem('theme', id); } catch {}
+    apply();
+  };
+  apply();
+  sys.addEventListener('change', apply);
+  addEventListener('DOMContentLoaded', apply);
+  addEventListener('click', (e) => { const b = e.target.closest?.('[data-pick]'); if (b) pick(b.dataset.pick); });
+  addEventListener('themechange', (e) => pick(e.detail));
+</script>
 <link rel="canonical" href={canonical}>
 <meta name="robots" content="index, follow, max-image-preview:large">
 <meta name="theme-color" content="#0e0f11" media="(prefers-color-scheme: dark)">

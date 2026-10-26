@@ -12,7 +12,7 @@ export default function Download({ latest, notes }: Props) {
   return (
     <div style={{ maxWidth: '1240px', margin: '0 auto', padding: '0 24px 120px' }}>
     <section aria-labelledby="dl-h" style={{ padding: '88px 0 56px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '18px', background: 'radial-gradient(700px 360px at 50% 0%, var(--accent-soft), transparent 70%)' }}>
-    <img src={u("icon-192.png")} alt="Gitnetix app icon" width="96" height="96" style={{ width: '96px', height: '96px', borderRadius: '22px', boxShadow: '0 20px 60px -20px rgba(240,164,58,.55)' }} />
+    <img src={u("icon-192.png")} alt="Gitnetix app icon" width="96" height="96" style={{ width: '96px', height: '96px', borderRadius: '22px', boxShadow: '0 20px 60px -20px color-mix(in srgb,var(--accent) 55%,transparent)' }} />
     <h1 id="dl-h" style={{ margin: '0', fontSize: 'clamp(40px, 5.6vw, 68px)', lineHeight: '1.04', letterSpacing: '-0.035em' }}>Download Gitnetix</h1>
     <p style={{ margin: '0', color: 'var(--muted)', fontSize: '18px', display: 'flex', flexWrap: 'wrap', gap: '6px 14px', justifyContent: 'center', alignItems: 'center' }}>
     <span className="mono" style={{ color: 'var(--accent-fg)', background: 'var(--accent-soft)', fontWeight: '600', padding: '2px 10px', borderRadius: '999px', fontSize: '14px' }}>v{latest.version}</span>
@@ -62,7 +62,7 @@ export default function Download({ latest, notes }: Props) {
     <section aria-labelledby="more-h" style={{ marginTop: '72px' }}>
     <h2 id="more-h" style={{ margin: '0 0 24px', fontSize: '32px', letterSpacing: '-0.02em' }}>Other ways to run it</h2>
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(340px, 100%), 1fr))', gap: '18px' }}>
-    <article style={{ background: 'var(--panel)', border: '1px solid rgba(240,164,58,.45)', borderRadius: '16px', padding: '26px', display: 'flex', gap: '20px', alignItems: 'flex-start' }}>
+    <article style={{ background: 'var(--panel)', border: '1px solid color-mix(in srgb,var(--accent) 45%,transparent)', borderRadius: '16px', padding: '26px', display: 'flex', gap: '20px', alignItems: 'flex-start' }}>
     <img src={u("phone.jpg")} alt="Gitnetix branch tree in a phone browser" width="640" height="1152" loading="lazy" style={{ width: '96px', height: 'auto', borderRadius: '14px', border: '2px solid var(--rail)', flex: 'none' }} />
     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
     <h3 style={{ margin: '0', fontSize: '20px' }}>On your phone</h3>

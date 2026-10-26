@@ -12,7 +12,7 @@ export default function ReleaseCard({ r, latest, heading: H }: Props) {
   const id = slug(r.version);
   const page = u(`releases/${r.version}/`);
   return (
-    <article aria-labelledby={`${id}-h`} style={{ minWidth: 0, background: 'var(--panel)', border: `1px solid ${latest ? 'rgba(240,164,58,.45)' : 'var(--line)'}`, borderRadius: '16px', padding: 'clamp(20px, 3vw, 32px)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+    <article aria-labelledby={`${id}-h`} style={{ minWidth: 0, background: 'var(--panel)', border: `1px solid ${latest ? 'color-mix(in srgb,var(--accent) 45%,transparent)' : 'var(--line)'}`, borderRadius: '16px', padding: 'clamp(20px, 3vw, 32px)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
       <H id={`${id}-h`} style={{ margin: 0, fontSize: H === 'h1' ? 'clamp(32px, 4.4vw, 52px)' : big ? 'clamp(26px, 3vw, 36px)' : '22px', lineHeight: 1.15, letterSpacing: '-0.02em', textWrap: 'balance' }}>
         {H === 'h1' ? r.title : <a href={page}>{r.title}</a>}
       </H>

@@ -128,7 +128,7 @@ export default function Compare() {
     <h2 id="short-h" style={{ margin: '0 0 20px', fontSize: '13px', letterSpacing: '.14em', color: 'var(--faint)', fontWeight: '600' }}>THE SHORT VERSION</h2>
     <ul style={{ listStyle: 'none', margin: '0', padding: '0', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(260px, 100%), 1fr))', gap: '16px' }}>
     {CARDS.map((c, i) => (
-    <li key={c.name} style={{ ...card, ...(i === 0 && { borderColor: 'rgba(240,164,58,.55)', boxShadow: '0 0 50px -24px rgba(240,164,58,.6)' }) }}>
+    <li key={c.name} style={{ ...card, ...(i === 0 && { borderColor: 'color-mix(in srgb,var(--accent) 55%,transparent)', boxShadow: '0 0 50px -24px color-mix(in srgb,var(--accent) 60%,transparent)' }) }}>
     <h3 style={{ margin: '0', fontSize: '24px', letterSpacing: '-0.02em', color: i === 0 ? 'var(--accent-fg)' : 'var(--fg)' }}>{c.name}</h3>
     <dl style={{ margin: '0', display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '6px 14px', fontSize: '15px' }}>
     <dt style={{ color: 'var(--faint)' }}>Price</dt><dd style={{ margin: '0', fontWeight: '600' }}>{c.price}</dd>
@@ -183,7 +183,7 @@ export default function Compare() {
     <p style={{ margin: '18px 0 0', fontSize: '19px', color: 'var(--muted)', textWrap: 'pretty' }}>Gitnetix is not trying to be a better commit graph. If the graph is how you think, one of the others will suit you better.</p>
     </div>
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(420px, 100%), 1fr))', gap: '18px', marginTop: '40px' }}>
-    <div style={{ ...card, padding: '30px', borderColor: 'rgba(240,164,58,.55)' }}>
+    <div style={{ ...card, padding: '30px', borderColor: 'color-mix(in srgb,var(--accent) 55%,transparent)' }}>
     <h3 style={{ margin: '0', fontSize: '22px', color: 'var(--accent-fg)' }}>Pick Gitnetix if</h3>
     <ul style={{ listStyle: 'none', margin: '0', padding: '0', display: 'flex', flexDirection: 'column', gap: '14px' }}>
     {ours.map((o) => <li key={o} style={{ display: 'flex', gap: '12px' }}><MarkIcon mark="yes" /><span>{o}</span></li>)}
@@ -203,7 +203,7 @@ export default function Compare() {
     <h2 id="try-h" style={{ margin: '0', fontSize: 'clamp(36px, 5.4vw, 64px)', lineHeight: '1.04', letterSpacing: '-0.035em', textWrap: 'balance' }}>Try it on your own repo.</h2>
     <p style={{ margin: '0', fontSize: '19px', color: 'var(--muted)' }}>Free on macOS, Windows and Linux. Keep your current client next to it.</p>
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', justifyContent: 'center', marginTop: '6px' }}>
-    <a className="btn-p" href={u('download/')} style={{ background: 'var(--accent)', color: 'var(--accent-ink)', fontWeight: '600', padding: '15px 24px', borderRadius: '12px', boxShadow: '0 8px 30px -8px rgba(240,164,58,.6)' }}>Download Gitnetix</a>
+    <a className="btn-p" href={u('download/')} style={{ background: 'var(--accent)', color: 'var(--accent-ink)', fontWeight: '600', padding: '15px 24px', borderRadius: '12px', boxShadow: '0 8px 30px -8px color-mix(in srgb,var(--accent) 60%,transparent)' }}>Download Gitnetix</a>
     <a className="btn-s" href={u()} style={{ fontWeight: '500', padding: '15px 22px', borderRadius: '12px', border: '1px solid var(--line)', background: 'var(--panel)' }}>See how it works</a>
     </div>
     </section>

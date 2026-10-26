@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 // The app's own icon set, so the demo draws the same glyphs.
 import { Icon } from '../../../src/components/Icon';
+import { otherMode, resolveTheme } from '../../../src/lib/themes';
 
 /**
  * The hero's playable Workspace: a scripted copy of the app's screen.
@@ -610,9 +611,9 @@ export default function HeroDemo() {
   return (
     <div className="ap hd">
       {/* project tabs (src/components/TopBar.tsx) */}
-      <header className="hdr" aria-hidden="true">
-        <span className="hdr-icon"><Icon name="menu" size={18} stroke={1.4} /></span>
-        <span className="tabs-projects">
+      <header className="hdr">
+        <span className="hdr-icon" aria-hidden="true"><Icon name="menu" size={18} stroke={1.4} /></span>
+        <span className="tabs-projects" aria-hidden="true">
           {['acme-web', 'acme-api', 'design-system'].map((p, i) => (
             <span key={p} className={i === 2 ? 'tab-project hide-sm' : 'tab-project'} data-active={i === 0 || undefined}>
               <span className="tab-project-open"><FixedWidth>{p}</FixedWidth></span>
@@ -622,10 +623,18 @@ export default function HeroDemo() {
           <span className="btn btn-ghost btn-icon" style={{ height: 'auto', width: 42, flex: 'none', border: 0, borderRadius: 0 }}><Icon name="plus" /></span>
         </span>
         <span className="hdr-tools">
-          <span className="btn btn-ghost btn-icon theme-toggle">
+          {/* The app's ThemeToggle, read off the page as src/components/ShellPane.tsx does; Base.astro's script saves and shows the pick. */}
+          <button
+            className="btn btn-ghost btn-icon theme-toggle"
+            aria-label="Switch light / dark"
+            onClick={() => {
+              const root = document.documentElement;
+              dispatchEvent(new CustomEvent('themechange', { detail: otherMode(resolveTheme(root.dataset.palette ?? '', root.dataset.theme === 'light' ? 'light' : 'dark')) }));
+            }}
+          >
             <Icon name="sun" size={15} stroke={1.4} className="hd-dark" />
             <Icon name="moon" size={15} stroke={1.4} className="hd-light" />
-          </span>
+          </button>
         </span>
       </header>
       {/* screen tabs */}

@@ -1,4 +1,6 @@
 import { REPO, u } from '../lib/changelog';
+import { THEMES } from '../../../src/lib/themes';
+import ThemePicker from './ThemePicker';
 
 export type Page = 'home' | 'releases' | 'download' | 'compare';
 
@@ -27,6 +29,14 @@ export default function Header({ page }: { page?: Page }) {
     })}
     </div>
     <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+    {/* a native popover: opens, light-dismisses and closes on Esc without JS; Base.astro's script runs the picks */}
+    <button type="button" className="btn-s" popoverTarget="theme-pop" aria-label="Theme" title="Theme" style={{ display: 'flex', alignItems: 'center', padding: '9px 10px', border: '1px solid var(--line)', borderRadius: '10px', background: 'transparent', color: 'var(--fg)', cursor: 'pointer' }}>
+    <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22a10 10 0 1 1 10-10c0 2.8-2.2 4-4.5 4H15a2 2 0 0 0-1.5 3.3A1.6 1.6 0 0 1 12 22Z"></path><circle cx="7.5" cy="10.5" r="1"></circle><circle cx="12" cy="7.5" r="1"></circle><circle cx="16.5" cy="10.5" r="1"></circle></svg>
+    </button>
+    <div id="theme-pop" popover="auto" className="theme-pop" role="dialog" aria-label="Theme">
+    <p style={{ margin: '0 0 12px', fontSize: '13px', letterSpacing: '.14em', color: 'var(--accent-fg)', fontWeight: '600' }}>{THEMES.length} THEMES</p>
+    <ThemePicker />
+    </div>
     <a className="btn-s" href={REPO} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', padding: '9px 14px', border: '1px solid var(--line)', borderRadius: '10px', minHeight: '24px' }}>
     <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 19c-4.3 1.4-4.3-2.5-6-3m12 5v-3.5c0-1 .1-1.4-.5-2 2.8-.3 5.5-1.4 5.5-6a4.6 4.6 0 0 0-1.3-3.2 4.2 4.2 0 0 0-.1-3.2s-1.1-.3-3.5 1.3a12.3 12.3 0 0 0-6.2 0C6.5 2.8 5.4 3.1 5.4 3.1a4.2 4.2 0 0 0-.1 3.2A4.6 4.6 0 0 0 4 9.5c0 4.6 2.7 5.7 5.5 6-.6.6-.6 1.2-.5 2V21"></path></svg>
     <span>GitHub</span>

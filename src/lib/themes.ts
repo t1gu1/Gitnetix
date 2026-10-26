@@ -117,8 +117,15 @@ export const ansi = (t: Theme) => t.ansi.split(" ").map((h) => `#${h}`);
 /** The theme a preference shows: a theme's id, or "system" (or a gone id) for Gitnetix in the computer's mode. */
 export const resolveTheme = (pref: string, system: "dark" | "light") => THEMES.find((t) => t.id === pref) ?? THEMES.find((t) => t.id === system)!;
 
+/** The light / dark toggle's next theme: the same theme's other mode, same contrast when it has one (Gruvbox Dark Hard → Light Hard, Catppuccin Mocha → Latte); Gitnetix's when it has none. */
+export function otherMode(cur: Theme) {
+  const other = THEMES.filter((t) => t.family === cur.family && t.light !== cur.light);
+  const bare = (name: string) => name.replace(/Dark|Light/, "");
+  return (other.find((t) => bare(t.name) === bare(cur.name)) ?? other[0])?.id ?? (cur.light ? "dark" : "light");
+}
+
 /** The app.css tokens a theme replaces; the bright ANSI colors carry the diff and status colors. */
-function tokens(t: Theme): Record<string, string> {
+export function tokens(t: Theme): Record<string, string> {
   const a = ansi(t);
   const mix = (c: string, pct: number, over = t.panel) => `color-mix(in srgb, ${c} ${pct}%, ${over})`;
   return {
