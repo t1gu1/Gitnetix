@@ -84,6 +84,7 @@ export function Tickets({ initial }: { initial?: string }) {
       <Header
         title="Tickets"
         sub={[ov?.project.name, shown === "all" ? "" : shown].filter(Boolean).join(" · ")}
+        onBack={pane === "detail" ? () => setPane("list") : undefined}
         right={
           <>
             <span className="faint hide-narrow" style={{ fontSize: 12 }}>{q.data?.syncedAt ? `Synced ${ago(q.data.syncedAt)}` : ""}</span>
@@ -184,10 +185,6 @@ export function Tickets({ initial }: { initial?: string }) {
           </section>
           <Resizer pane={listW} label="Resize ticket list" />
           <main className="detail" data-pane data-active={pane === "detail"}>
-            <button className="btn btn-sm show-narrow" style={{ marginBottom: 12 }} onClick={() => setPane("list")}>
-              <Icon name="back" size={12} />
-              All tickets
-            </button>
             {t ? (
               <TicketDetail
                 t={t}

@@ -96,14 +96,17 @@ export function FixedWidth({ children }: { children: ReactNode }) {
   );
 }
 
-export function Header({ title, sub, back = "back", right, onBack }: { title: ReactNode; sub?: ReactNode; back?: "back" | "workspace" | "none"; right?: ReactNode; onBack?: () => void }) {
+/** `hideWide`: drop the row on wide windows, where the page tabs already name the page. */
+export function Header({ title, sub, back = "back", right, onBack, hideWide }: { title: ReactNode; sub?: ReactNode; back?: "back" | "workspace" | "none"; right?: ReactNode; onBack?: () => void; hideWide?: boolean }) {
   const nav = useNav();
-  if (nav.projectId && isPageRoute(nav.route)) back = "none";
+  // Page tabs replace history back; a page's onBack steps from detail to list, which only the narrow layout splits.
+  const page = nav.projectId && isPageRoute(nav.route);
+  if (page && !onBack) back = "none";
   return (
-    <header className="hdr">
+    <header className={page && hideWide ? "hdr show-narrow" : "hdr"}>
       {back !== "none" && (
         <button
-          className="hdr-icon"
+          className={page ? "hdr-icon show-narrow" : "hdr-icon"}
           aria-label={back === "back" ? "Back" : "Back to workspace"}
           onClick={() => (onBack ? onBack() : back === "back" ? nav.back() : nav.go({ name: "workspace" }))}
         >

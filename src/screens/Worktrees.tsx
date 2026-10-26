@@ -84,7 +84,7 @@ export function Worktrees({ initial }: { initial?: string }) {
 
   return (
     <>
-      <Header title="Worktrees & agents" sub="All projects" />
+      <Header title="Worktrees & agents" sub="All projects" hideWide onBack={pane === "detail" ? () => setPane("list") : undefined} />
       <div className="body split">
         <section className="master" style={{ "--master-w": `${listW.width}px` } as CSSProperties} data-pane data-active={pane === "list"} aria-label="Worktrees">
           <div className="master-tools">
@@ -147,10 +147,6 @@ export function Worktrees({ initial }: { initial?: string }) {
         </section>
         <Resizer pane={listW} label="Resize worktree list" />
         <main className="detail wt-pane" data-pane data-active={pane === "detail"}>
-          <button className="btn btn-sm show-narrow" style={{ marginBottom: 12, alignSelf: "flex-start" }} onClick={() => setPane("list")}>
-            <Icon name="back" size={12} />
-            All worktrees
-          </button>
           {cur ? <Detail key={cur.key} r={cur} /> : <EmptyState icon="layers" title="No worktree selected">Pick one from the list, or start a new agent session to give a branch its own folder and agent.</EmptyState>}
         </main>
       </div>

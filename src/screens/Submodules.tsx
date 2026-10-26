@@ -110,7 +110,7 @@ export function Submodules() {
 
   return (
     <>
-      <Header title="Submodules" sub={project?.name} />
+      <Header title="Submodules" sub={project?.name} hideWide onBack={pane === "detail" ? () => setPane("list") : undefined} />
       <div className="body split">
         <section className="master" style={{ "--master-w": `${listW.width}px` } as CSSProperties} data-pane data-active={pane === "list"} aria-label="Submodules">
           <div className="master-tools">
@@ -194,10 +194,6 @@ export function Submodules() {
         </section>
         <Resizer pane={listW} label="Resize submodule list" />
         <main className="detail" data-pane data-active={pane === "detail"}>
-          <button className="btn btn-sm show-narrow" style={{ marginBottom: 12 }} onClick={() => setPane("list")}>
-            <Icon name="back" size={12} />
-            All submodules
-          </button>
           <div className="detail-inner">
             {cur ? (
               <Detail key={cur.path} pid={pid} root={project?.path} s={cur} onOutput={setOutput} />

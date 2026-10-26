@@ -69,7 +69,7 @@ export function PullRequests({ initial }: { initial?: number }) {
 
   return (
     <>
-      <Header title="Pull requests" sub={`${ov?.project.name ?? ""}${prs.data ? ` · ${prs.data.provider === "azure" ? "Azure DevOps" : "GitHub"} ${prs.data.repo.owner}/${prs.data.repo.repo}` : ""}`} />
+      <Header title="Pull requests" sub={`${ov?.project.name ?? ""}${prs.data ? ` · ${prs.data.provider === "azure" ? "Azure DevOps" : "GitHub"} ${prs.data.repo.owner}/${prs.data.repo.repo}` : ""}`} onBack={pane === "detail" ? () => setPane("list") : undefined} />
       {prs.error ? (
         <EmptyState
           icon="pr"
@@ -133,10 +133,6 @@ export function PullRequests({ initial }: { initial?: number }) {
           </section>
           <Resizer pane={listW} label="Resize pull request list" />
           <main className="detail" data-pane data-active={pane === "detail"}>
-            <button className="btn btn-sm show-narrow" style={{ marginBottom: 12 }} onClick={() => setPane("list")}>
-              <Icon name="back" size={12} />
-              All pull requests
-            </button>
             {current ? <Detail key={current} pid={pid} number={current} /> : <EmptyState icon="pr" title="No pull request selected">Pick one from the list to read its description, checks and reviews.</EmptyState>}
           </main>
         </div>

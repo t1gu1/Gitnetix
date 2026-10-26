@@ -54,7 +54,7 @@ export function ReleaseNotes() {
 
   return (
     <>
-      <Header title="Release notes" sub={project?.name} />
+      <Header title="Release notes" sub={project?.name} hideWide />
       <div className="body split">
         <aside aria-label="Options" className="sidenav" data-pane data-active={!md} style={{ "--sidenav-w": `${optsW.width}px`, gap: 24, padding: 24 } as CSSProperties}>
           <section className="col" style={{ gap: 10 }}>
