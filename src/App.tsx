@@ -2,7 +2,7 @@ import { Activity, type ReactNode, useRef, useState } from "react";
 
 import { useConfig, useEngineEvents, useProjects } from "./api/hooks";
 import { currentRemote, isLocal } from "./api/transport";
-import { ContextMenu } from "./components/ContextMenu";
+import { ContextMenu, type MenuItem } from "./components/ContextMenu";
 import { Icon } from "./components/Icon";
 import { TooltipLayer } from "./components/Tooltip";
 import { isPageRoute, PAGES, TopBar } from "./components/TopBar";
@@ -37,7 +37,8 @@ function Engine({ onUnpair }: { onUnpair: () => void }) {
   useEngineEvents();
   useApplyAnimations(cfg.data?.ui.animationsOff);
   if (cfg.isLoading) return <Loading />;
-  if (cfg.error && !isLocal) return <Pair onPaired={() => cfg.refetch()} error={cfg.error.message} />;
+  // Reload, not refetch: the event stream above is still open to the address that failed.
+  if (cfg.error && !isLocal) return <Pair onPaired={() => location.reload()} error={cfg.error.message} />;
   const c = cfg.data;
   const open = c?.projects.filter((p) => !p.hidden) ?? [];
   const last = c?.ui.lastProject && open.some((p) => p.id === c.ui.lastProject) ? c.ui.lastProject : open[0]?.id;
@@ -71,18 +72,26 @@ function Shell({ onUnpair }: { onUnpair: () => void }) {
         <ProjectView projectKey={k}>{render()}</ProjectView>
       </Activity>
     ));
+  const pairing = r.name === "pair";
   return (
-    <div className="ag app">
-      <div className="app-main">
-        {nav.projectId && isPageRoute(r) && <TopBar />}
-        {each(() => <Screen onUnpair={onUnpair} />)}
-      </div>
-      {nav.projectId && <MobileTabs />}
-      {each(() => <NewItemDialog />)}
-      <UpdatePrompt />
-      <Toasts />
-      <TooltipLayer />
-    </div>
+    <>
+      {/* Pairing takes the whole window, so the camera preview shows behind its see-through page; the app stays mounted, hidden. */}
+      <Activity mode={pairing ? "hidden" : "visible"}>
+        <div className="ag app">
+          <div className="app-main">
+            {nav.projectId && isPageRoute(r) && <TopBar />}
+            {each(() => <Screen onUnpair={onUnpair} />)}
+          </div>
+          {nav.projectId && <MobileTabs />}
+          {each(() => <NewItemDialog />)}
+          <UpdatePrompt />
+          <Toasts />
+          <TooltipLayer />
+        </div>
+      </Activity>
+      {/* Another desktop, or the same one at a new address: reload so events and projects start over against it. */}
+      {pairing && <Pair scan onBack={nav.back} onPaired={() => location.reload()} />}
+    </>
   );
 }
 
@@ -95,6 +104,8 @@ function MobileTabs() {
   const tab = inMore ? MOBILE_TABS.length : MOBILE_TABS.findIndex((t) => t.route.name === r.name);
   // The bubble behind the current tab's icon, sliding from the previous one; none while the menu is open.
   const bubble = useThumb(bar, nav.menuOpen ? -1 : tab, MOBILE_TABS.length + 1, ":scope > button > span");
+  // Off the desktop: re-pair, e.g. once the desktop's address or port changed.
+  const pair: MenuItem[] = isLocal ? [] : ["sep", { id: "pair", label: "Scan pairing QR code", icon: "qr", run: () => nav.go({ name: "pair" }) }];
   return (
     <nav
       ref={bar}
@@ -138,7 +149,7 @@ function MobileTabs() {
           {...more}
           alignRight
           label="More pages"
-          items={MORE_PAGES.map((p) => ({ id: p.route.name, label: p.label, icon: p.icon, run: () => nav.go(p.route) }))}
+          items={[...MORE_PAGES.map((p): MenuItem => ({ id: p.route.name, label: p.label, icon: p.icon, run: () => nav.go(p.route) })), ...pair]}
           onClose={() => setMore(null)}
         />
       )}
@@ -189,9 +200,6 @@ function Screen({ onUnpair }: { onUnpair: () => void }) {
       break;
     case "submodules":
       screen = nav.projectId ? <Submodules /> : <Welcome />;
-      break;
-    case "pair":
-      screen = <Pair onPaired={() => nav.go({ name: "workspace" })} />;
       break;
   }
   return (

@@ -9,8 +9,11 @@ import zxingWasm from "zxing-wasm/reader/zxing_reader.wasm?url";
 // Serve the decoder from this app, not the library's default CDN: the companion may have no internet.
 const zxingFiles = { locateFile: () => zxingWasm };
 
-/** Mobile / browser: connect to a desktop running Gitnetix. */
-export function Pair({ onPaired, error }: { onPaired: () => void; error?: string }) {
+/**
+ * Mobile / browser: connect to a desktop running Gitnetix.
+ * `scan`: open the camera right away (More › Scan pairing QR code). `onBack`: opened over the app, which it can return to.
+ */
+export function Pair({ onPaired, error, scan, onBack }: { onPaired: () => void; error?: string; scan?: boolean; onBack?: () => void }) {
   const [url, setUrl] = useState("");
   const [token, setToken] = useState("");
   const [busy, setBusy] = useState(false);
@@ -88,6 +91,14 @@ export function Pair({ onPaired, error }: { onPaired: () => void; error?: string
     }
   };
 
+  // Only the app scans without a tap: a browser opens the photo picker from the button's own click.
+  const started = useRef(false);
+  useEffect(() => {
+    if (!scan || !isTauri || started.current) return;
+    started.current = true; // StrictMode runs this twice in dev: one scanner only
+    scanQr();
+  }, []);
+
   const stopScan = () => {
     cancelled.current = true;
     import("@tauri-apps/plugin-barcode-scanner").then((qr) => qr.cancel());
@@ -104,6 +115,11 @@ export function Pair({ onPaired, error }: { onPaired: () => void; error?: string
   return (
     <div className="ag app">
       <header className="hdr">
+        {onBack && (
+          <button className="hdr-icon" aria-label="Back" onClick={onBack}>
+            <Icon name="back" size={16} />
+          </button>
+        )}
         <div className="hdr-title">
           <strong>Gitnetix</strong>
           <span className="faint">·</span>
