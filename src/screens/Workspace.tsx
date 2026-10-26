@@ -6,7 +6,7 @@ import type { AgentSession, BranchView, Commit, FileChange, Hunk, MergeResult, O
 import { AgentInput, AgentLog, type Attachment, type Choice, type Upload } from "../components/AgentLog";
 import { AgentPicker, useAgentPick } from "../components/AgentPicker";
 import { DiffView, type DiffMode } from "../components/DiffView";
-import { IMAGE_MODES, ImageDiff, comparable, isImage, useImageMode } from "../components/ImageDiff";
+import { IMAGE_MODES, ImageDiff, comparable, isImage, useImageMode, type ImageMode } from "../components/ImageDiff";
 import { ContextMenu, type MenuItem } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
 import { Resizer, usePaneWidth } from "../components/Resizer";
@@ -37,6 +37,7 @@ export function Workspace() {
   const [file, setFile] = useState<string | undefined>();
   const [diffMode, setDiffMode] = useState<DiffMode>("unified");
   const [preview, setPreview] = useState(false);
+  const [svgCode, setSvgCode] = useState(false);
   const [imageMode, setImageMode] = useImageMode();
   const [termOpen, setTermOpen] = useStoredFlag("gnx.pane.termOpen");
   const [pane, setPane] = useState<Pane>("releases");
@@ -175,7 +176,9 @@ export function Workspace() {
   const unchanged = mode === "project" && !commit && !stash && current?.status === " ";
   const markdown = /\.(md|markdown|mdx)$/i.test(current?.path ?? "");
   const diff = useDiff(pid, branch, mode, unchanged ? undefined : current?.path, current?.staged, commit?.sha, stash?.sha, diffMode === "full");
-  const image = isImage(current?.path);
+  const svg = /\.svg$/i.test(current?.path ?? "");
+  // An SVG is text too: its Code view drops the image preview and shows it like any other file.
+  const image = isImage(current?.path) && !(svg && svgCode);
   const blobs = useBlobs(pid, branch, mode, current?.path, current?.staged, commit?.sha, stash?.sha, image || unchanged || markdown);
   const text = useMemo(() => !image && decodeText(blobs.data?.new ?? blobs.data?.old), [blobs.data, image]);
   // Memoized: a new array would re-render every row and re-measure the heatmap.
@@ -341,14 +344,25 @@ export function Workspace() {
                 </span>
                 <span className="grow" />
                 {image ? (
-                  comparable(blobs.data) && <Seg value={imageMode} onChange={setImageMode} label="Image comparison" options={IMAGE_MODES} />
+                  (comparable(blobs.data) || svg) && (
+                    <Seg<ImageMode | "code">
+                      value={imageMode}
+                      onChange={(v) => (v === "code" ? setSvgCode(true) : setImageMode(v))}
+                      label="Image comparison"
+                      options={[
+                        ...(comparable(blobs.data) ? IMAGE_MODES : [{ value: imageMode, label: "Image" }]),
+                        ...(svg ? [{ value: "code" as const, label: "Code" }] : []),
+                      ]}
+                    />
+                  )
                 ) : (
-                  (!unchanged || markdown) && (
-                    <Seg<DiffMode | "raw" | "preview">
+                  (!unchanged || markdown || svg) && (
+                    <Seg<DiffMode | "raw" | "preview" | "image">
                       value={markdown && preview ? "preview" : unchanged ? "raw" : diffMode}
                       onChange={(v) => {
                         setPreview(v === "preview");
-                        if (v !== "preview" && v !== "raw") setDiffMode(v);
+                        if (v === "image") setSvgCode(false);
+                        else if (v !== "preview" && v !== "raw") setDiffMode(v);
                       }}
                       label="Diff mode"
                       options={[
@@ -356,6 +370,7 @@ export function Workspace() {
                           ? [{ value: "raw" as const, label: "Raw" }]
                           : [{ value: "split" as const, label: "Split" }, { value: "unified" as const, label: "Unified" }, { value: "full" as const, label: "Full" }]),
                         ...(markdown ? [{ value: "preview" as const, label: "Preview" }] : []),
+                        ...(svg ? [{ value: "image" as const, label: "Image" }] : []),
                       ]}
                     />
                   )
@@ -378,7 +393,7 @@ export function Workspace() {
                 ) : (
                   <>
                     {raw && <DiffView hunks={raw} mode="full" />}
-                    {diff.data && diff.data.length > 0 && <DiffView hunks={diff.data} mode={diffMode} />}
+                    {!image && diff.data && diff.data.length > 0 && <DiffView hunks={diff.data} mode={diffMode} />}
                   </>
                 )}
                 {(!current || (diff.data && diff.data.length === 0 && !image) || (unchanged && !image && blobs.data && text === null)) && (

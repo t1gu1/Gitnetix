@@ -75,6 +75,7 @@ export function ImageDiff({ path, blobs, mode }: { path: string; blobs: Blobs; m
   const old = useImage(path, blobs.old);
   const next = useImage(path, blobs.new);
   const [pos, setPos] = useState(50);
+  const vector = ext(path) === "svg";
 
   if (old === undefined || next === undefined) return null;
   if (!old && !next) return <div className="empty" style={{ fontFamily: "var(--sans)" }}>This image can't be previewed.</div>;
@@ -84,7 +85,7 @@ export function ImageDiff({ path, blobs, mode }: { path: string; blobs: Blobs; m
     return (
       <div className="img-diff">
         <div className="img-diff-bar"><Meta img={img} label={label} cls={cls} /></div>
-        <div className="img-frame"><img src={img.src} alt={path} style={fit(img)} /></div>
+        <div className="img-frame"><img src={img.src} alt={path} style={fit(img, vector)} /></div>
       </div>
     );
   }
@@ -108,21 +109,22 @@ export function ImageDiff({ path, blobs, mode }: { path: string; blobs: Blobs; m
       </div>
       {mode === "side" ? (
         <div className="img-side">
-          <div className="img-frame before"><img src={old.src} alt={`${path} before`} style={fit(old)} /></div>
-          <div className="img-frame after"><img src={next.src} alt={`${path} after`} style={fit(next)} /></div>
+          <div className="img-frame before"><img src={old.src} alt={`${path} before`} style={fit(old, vector)} /></div>
+          <div className="img-frame after"><img src={next.src} alt={`${path} after`} style={fit(next, vector)} /></div>
         </div>
       ) : (
-        <Stacked old={old} next={next} mode={mode} pos={pos} setPos={setPos} />
+        <Stacked old={old} next={next} vector={vector} mode={mode} pos={pos} setPos={setPos} />
       )}
     </div>
   );
 }
 
-/** Natural size, shrunk to fit; small images (icons) aren't blown up. */
-const fit = (img: Loaded): CSSProperties => ({ width: img.w, maxWidth: "100%", height: "auto" });
+/** Natural size, shrunk to fit; small bitmaps (icons) aren't blown up, but SVGs stay sharp so they fill the width, kept within 60% of the screen height. */
+const width = ({ w, h }: { w: number; h: number }, vector: boolean) => (vector ? `min(100%, ${(60 * w) / h}vh)` : w);
+const fit = (img: Loaded, vector: boolean): CSSProperties => ({ width: width(img, vector), maxWidth: "100%", height: "auto" });
 
 /** Both images on one canvas the size of the larger, anchored top-left like git would align them. */
-function Stacked({ old, next, mode, pos, setPos }: { old: Loaded; next: Loaded; mode: Exclude<ImageMode, "side">; pos: number; setPos: (n: number) => void }) {
+function Stacked({ old, next, vector, mode, pos, setPos }: { old: Loaded; next: Loaded; vector: boolean; mode: Exclude<ImageMode, "side">; pos: number; setPos: (n: number) => void }) {
   const stage = useRef<HTMLDivElement>(null);
   const w = Math.max(old.w, next.w);
   const h = Math.max(old.h, next.h);
@@ -140,7 +142,7 @@ function Stacked({ old, next, mode, pos, setPos }: { old: Loaded; next: Loaded; 
         ref={stage}
         className="img-stage"
         data-mode={mode}
-        style={{ width: w, aspectRatio: `${w} / ${h}` }}
+        style={{ width: width({ w, h }, vector), aspectRatio: `${w} / ${h}` }}
         onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); drag(e); }}
         onPointerMove={drag}
       >
