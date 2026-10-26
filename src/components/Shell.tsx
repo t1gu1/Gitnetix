@@ -1,12 +1,29 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useState } from "react";
 
 import { useStored } from "../lib/stored";
 import { Icon } from "./Icon";
 
 export type TermView = "agent" | "shell";
 
-/** Whether the bottom terminal shows the agent or the checkout's shell; one choice for every terminal. */
-export const useTermView = () => useStored<TermView>("gnx.term.view", "agent", (s) => (s === "shell" ? "shell" : "agent"), (v) => v);
+const parseView = (s: string): TermView => (s === "shell" ? "shell" : "agent");
+
+/** The tab a branch's terminal opens on until one is picked there, in every project. */
+export const useTermDefault = () => useStored<TermView>("gnx.term.default", "agent", parseView, String);
+
+// shortcut: picks of deleted branches stay in the config, prune them if the view map grows large.
+/**
+ * Whether a branch's terminal shows its agent or its checkout's shell. A worktree opens on its agent each time it is shown;
+ * another branch keeps its own pick and, until one is made, shows the agent when it has a session (`agent`), else the default tab.
+ */
+export function useTermView(projectId: string, branch: string | undefined, agent: boolean, worktree: boolean) {
+  const key = `gnx.term.view.${projectId}.${branch ?? ""}`;
+  const [def] = useTermDefault();
+  const kept = useStored<TermView>(key, agent ? "agent" : def, parseView, String);
+  // A worktree's pick is never saved and lasts until another branch is shown.
+  const [shown, setShown] = useState<{ key: string; view: TermView }>({ key, view: "agent" });
+  if (shown.key !== key) setShown({ key, view: "agent" });
+  return worktree ? ([shown.view, (view: TermView) => setShown({ key, view })] as const) : kept;
+}
 
 /** The terminal icon, split into the Agent and Shell tabs. */
 export function TermTabs({ value, onChange }: { value: TermView; onChange: (v: TermView) => void }) {

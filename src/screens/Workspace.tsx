@@ -392,6 +392,7 @@ export function Workspace() {
               pid={pid}
               branch={branch}
               cwd={root}
+              worktree={!!view?.worktree}
               open={termOpen}
               setOpen={setTermOpen}
               onCloseWorktree={setClosingSession}
@@ -1791,7 +1792,7 @@ function CommitBox({ pid, branch, enabled, staged, changed }: { pid: string; bra
 }
 
 /** The agent of the selected branch, or the shell of its checkout (`cwd`). Several agents at once are managed on the Worktrees & agents page. */
-function Terminal({ pid, branch, cwd, open, setOpen, onCloseWorktree, finish }: { pid: string; branch?: string; cwd?: string; open: boolean; setOpen: (b: boolean) => void; onCloseWorktree: (s: AgentSession) => void; finish: FinishHandlers }) {
+function Terminal({ pid, branch, cwd, worktree, open, setOpen, onCloseWorktree, finish }: { pid: string; branch?: string; cwd?: string; worktree: boolean; open: boolean; setOpen: (b: boolean) => void; onCloseWorktree: (s: AgentSession) => void; finish: FinishHandlers }) {
   const agents = useAgents();
   const cur = (agents.data ?? []).find((a) => a.projectId === pid && a.branch === branch);
   const curBranch = useOverview(pid).data?.branches.find((b) => b.name === cur?.branch);
@@ -1806,7 +1807,7 @@ function Terminal({ pid, branch, cwd, open, setOpen, onCloseWorktree, finish }: 
   const remove = useAction("agents.remove", { invalidate: [["agents"]] });
   const stop = useAction("agents.stop", { invalidate: [["agents"]] });
   const height = usePaneWidth("gnx.pane.term", 248, 120, 900);
-  const [view, setView] = useTermView();
+  const [view, setView] = useTermView(pid, branch, !!cur, worktree);
   const shell = view === "shell";
   // Maximized, the terminal takes the branch tree's place in its column.
   const [max, setMax] = useState(false);

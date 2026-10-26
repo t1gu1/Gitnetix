@@ -11,6 +11,12 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+### Added
+- Settings › Terminal sets the tab a branch's terminal opens on until one is picked there: Agent (the default) or Shell. Branches with an agent session open on Agent.
+
+### Fixed
+- The Agent or Shell tab picked in a terminal is remembered per branch instead of for every branch and worktree. Worktrees open on Agent every time you come back to them.
+
 ## [0.9.1] - 2026-10-26
 
 ### Added

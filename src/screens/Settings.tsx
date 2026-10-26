@@ -10,6 +10,7 @@ import { MenuChoice } from "../components/AgentPicker";
 import { GRAVATAR_KEY } from "../components/Avatar";
 import { Icon } from "../components/Icon";
 import { Resizer, usePaneWidth } from "../components/Resizer";
+import { useTermDefault } from "../components/Shell";
 import { Header, Seg } from "../components/ui";
 import { ANIMATIONS, useAnimations } from "../lib/motion";
 import { useNav } from "../lib/nav";
@@ -20,7 +21,7 @@ import { copyToClipboard, toast } from "../lib/toast";
 const JIRA_TOKENS = "https://id.atlassian.com/manage-profile/security/api-tokens";
 
 const GROUPS: [string, [string, string][]][] = [
-  ["General", [["project", "Project"], ["appearance", "Appearance"], ["animations", "Animations"], ["avatars", "Avatars"]]],
+  ["General", [["project", "Project"], ["appearance", "Appearance"], ["animations", "Animations"], ["avatars", "Avatars"], ["terminal", "Terminal"]]],
   ["AI", [["ai", "AI setup"], ["templates", "Templates"]]],
   ["Git", [["profiles", "Git profiles"], ["git", "Git providers"]]],
   ["Integrations", [["tools", "Jira, Trello, Asana"], ["companion", "Companion & MCP"]]],
@@ -72,6 +73,7 @@ export function SettingsPanes({ section, onAi, onTemplates }: { section?: string
             {sec === "appearance" && <Appearance />}
             {sec === "animations" && <Animations />}
             {sec === "avatars" && <Avatars />}
+            {sec === "terminal" && <TerminalSection />}
             {sec === "profiles" && <Profiles cfg={cfg} />}
             {sec === "git" && <GitProviders cfg={cfg} />}
             {sec === "tools" && <Integrations cfg={cfg} />}
@@ -235,6 +237,23 @@ function Avatars() {
           </label>
         </li>
       </ul>
+    </>
+  );
+}
+
+function TerminalSection() {
+  const [tab, setTab] = useTermDefault();
+  return (
+    <>
+      <div className="col" style={{ gap: 6 }}>
+        <h1>Terminal</h1>
+        <p className="muted" style={{ margin: 0 }}>For every project. Each branch keeps the tab last picked in its terminal. Worktrees open on Agent every time you come back to them.</p>
+      </div>
+      <section className="section">
+        <h2>Default tab</h2>
+        <p className="hint" style={{ margin: 0 }}>What a branch opens on until a tab is picked there. A branch with an agent session opens on Agent.</p>
+        <Seg grid label="Default terminal tab" value={tab} onChange={setTab} options={[{ value: "agent", label: "Agent" }, { value: "shell", label: "Shell" }]} />
+      </section>
     </>
   );
 }
