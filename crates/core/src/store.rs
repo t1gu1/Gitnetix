@@ -9,7 +9,7 @@ use std::sync::RwLock;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, Result};
-use crate::templates::{default_templates, Template};
+use crate::templates::{default_templates, Template, OLD_BODIES};
 
 pub const CONFIG_VERSION: u32 = 1;
 
@@ -479,8 +479,12 @@ impl Store {
         let data = if path.exists() {
             let raw = std::fs::read_to_string(&path)?;
             let mut cfg: Config = serde_json::from_str(&raw)?;
-            // Kinds added since the config was written get their default templates.
+            // Kinds added since the config was written get their default templates, and
+            // defaults never edited get the body this version ships.
             for t in default_templates() {
+                if let Some(x) = cfg.templates.iter_mut().find(|x| x.id == t.id && OLD_BODIES.contains(&(&*x.id, &*x.body))) {
+                    x.body = t.body.clone();
+                }
                 if !cfg.templates.iter().any(|x| x.kind == t.kind) {
                     cfg.templates.push(t);
                 }
@@ -539,6 +543,21 @@ mod tests {
         super::write_private(&f, "new").unwrap();
         assert_eq!(std::fs::metadata(&f).unwrap().permissions().mode() & 0o777, 0o600);
         assert_eq!(std::fs::read_to_string(&f).unwrap(), "new");
+    }
+
+    #[test]
+    fn unedited_default_templates_get_todays_body() {
+        let dir = tempfile::tempdir().unwrap();
+        let open = |body: &str| {
+            let cfg = serde_json::json!({ "templates": [{ "id": "changelog", "kind": "changelog", "name": "Keep a Changelog", "isDefault": true, "body": body }] });
+            std::fs::write(dir.path().join("config.json"), cfg.to_string()).unwrap();
+            super::Store::open(dir.path()).unwrap().read(|c| c.templates.iter().find(|t| t.id == "changelog").unwrap().body.clone())
+        };
+        let today = crate::templates::default_templates().into_iter().find(|t| t.id == "changelog").unwrap().body;
+        for &(_, old) in crate::templates::OLD_BODIES {
+            assert_eq!(open(old), today);
+        }
+        assert_eq!(open("Edited."), "Edited.");
     }
 
     #[test]

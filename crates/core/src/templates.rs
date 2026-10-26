@@ -129,6 +129,13 @@ fn rule(key: &str, label: &str, kind: &str, value: serde_json::Value) -> Rule {
     Rule { key: key.into(), label: label.into(), kind: kind.into(), value }
 }
 
+/// Bodies earlier versions shipped for a default template, by id: a stored template still
+/// holding one was never edited, so `Store::open` gives it today's body.
+pub const OLD_BODIES: &[(&str, &str)] = &[
+    ("changelog", "Update the Unreleased section of a Keep a Changelog file with the changes {branch} brings over {base}.\n\n- Return the complete new body of the section, without the \"## [Unreleased]\" heading.\n- Keep every existing entry word for word; add one line per user-facing change that is not listed yet.\n- Group under ### Added, ### Changed, ### Fixed, ### Removed, in that order, skipping empty ones.\n- Match the tone and length of the existing entries.\n- Leave out refactors, tests, CI and formatting unless users would notice them.\n- When nothing new is worth listing, return the current section unchanged.\n\nCurrent Unreleased section:\n{unreleased}\n\nCommits:\n{commits}\n\nWrite the result in {language}."),
+    ("changelog", "Update the Unreleased section of a Keep a Changelog file with the changes {branch} brings over {base}.\n\n- Return the complete new body of the section, without the \"## [Unreleased]\" heading.\n- Keep every existing entry word for word; add one line per user-facing change that is not listed yet, here or under the release's version.\n- Group under ### Added, ### Changed, ### Fixed, ### Removed, in that order, skipping empty ones.\n- Match the tone and length of the existing entries.\n- Leave out refactors, tests, CI and formatting unless users would notice them.\n- When nothing new is worth listing, return the current section unchanged.\n\nCurrent Unreleased section:\n{unreleased}\n\nAlready listed under this release's version (do not add these again):\n{released}\n\nCommits:\n{commits}\n\nWrite the result in {language}."),
+];
+
 pub fn default_templates() -> Vec<Template> {
     use serde_json::json;
     vec![
@@ -212,7 +219,7 @@ pub fn default_templates() -> Vec<Template> {
             name: "Keep a Changelog".into(),
             is_default: true,
             rules: vec![],
-            body: "Update the Unreleased section of a Keep a Changelog file with the changes {branch} brings over {base}.\n\n- Return the complete new body of the section, without the \"## [Unreleased]\" heading.\n- Keep every existing entry word for word; add one line per user-facing change that is not listed yet, here or under the release's version.\n- Group under ### Added, ### Changed, ### Fixed, ### Removed, in that order, skipping empty ones.\n- Match the tone and length of the existing entries.\n- Leave out refactors, tests, CI and formatting unless users would notice them.\n- When nothing new is worth listing, return the current section unchanged.\n\nCurrent Unreleased section:\n{unreleased}\n\nAlready listed under this release's version (do not add these again):\n{released}\n\nCommits:\n{commits}\n\nWrite the result in {language}.".into(),
+            body: "Update the Unreleased section of a Keep a Changelog file with the changes {branch} brings over {base}.\n\n- Return the complete new body of the section, without the \"## [Unreleased]\" heading.\n- Keep every existing entry word for word; add one line per user-facing change that is not listed yet, here or under the release's version.\n- Group under ### Added, ### Changed, ### Fixed, ### Removed, in that order, skipping empty ones.\n- In each group, list the highlights first (the changes users will notice most), moving existing entries when needed.\n- Match the tone and length of the existing entries.\n- Leave out refactors, tests, CI and formatting unless users would notice them.\n- When nothing new is worth listing, return the current section, only reordered to put its highlights first.\n\nCurrent Unreleased section:\n{unreleased}\n\nAlready listed under this release's version (do not add these again):\n{released}\n\nCommits:\n{commits}\n\nWrite the result in {language}.".into(),
             ..Default::default()
         },
         Template {
