@@ -374,15 +374,21 @@ function StartModal({ initial, onClose }: { initial?: string; onClose: () => voi
   });
   const busy = start.isPending || create.isPending;
   const ready = !!pid && !!(fresh ? from : branch) && !!request.trim() && !busy;
+  const [, setTermView] = useTermView();
+  // The new worktree opens on its agent, even if the shell was the last tab picked.
+  const started = () => {
+    setTermView("agent");
+    onClose();
+  };
   const go = async () => {
     const up = await uploads(files);
     if (fresh)
       create.mutate(
         // Empty name: the backend names the branch from the request.
         { projectId: pid, from, kind: kindOfBranch(name) ?? kind, description: request, branchName: name.trim() || undefined, ticket: ticket.trim() || undefined, where: "worktree", startAgent: true, files: up, ...pick },
-        { onSuccess: onClose },
+        { onSuccess: started },
       );
-    else start.mutate({ projectId: pid, branch, request, ticket: ticket.trim() || undefined, files: up, ...pick }, { onSuccess: onClose });
+    else start.mutate({ projectId: pid, branch, request, ticket: ticket.trim() || undefined, files: up, ...pick }, { onSuccess: started });
   };
   return (
     <Modal

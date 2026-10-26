@@ -4,6 +4,7 @@ import { switchedOverview, useAction, useAiOn, useOverview, usePendingBranches }
 import type { BranchView, Overview, RebaseResult, RenameResult, Stash, StashApplied } from "../api/types";
 import { ContextMenu, type MenuItem } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
+import { useTermView } from "../components/Shell";
 import { plural } from "../lib/format";
 import { useNav } from "../lib/nav";
 import { copyToClipboard, toast } from "../lib/toast";
@@ -68,6 +69,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
     patch: (qc, v) => qc.setQueryData<Overview>(["overview", pid], (o) => o && switchedOverview(o, v.branch)),
   });
   const wt = useAction<{ path: string }, { projectId: string; branch: string }>("worktrees.create", { invalidate: [...inv, ["worktrees"]], success: (r) => `Worktree at ${r.path}` });
+  const [, setTermView] = useTermView();
   // `branch` only marks the row busy; the worktree is found by its path.
   const removeWt = useAction<unknown, { projectId: string; branch: string; path: string }>("worktrees.remove", { invalidate: [...inv, ["worktrees"], ["agents"]] });
   const pull = useAction<{ output: string }, { projectId: string; branch: string }>("branches.pull", { invalidate: inv });
@@ -127,7 +129,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
         warn: true,
         run: () => openDialog("continue", b),
       },
-      worktree: { id: "worktree", label: "Open in worktree", tip: `Open ${b} in its own worktree`, icon: "layers", run: () => wt.mutate({ projectId: pid, branch: b }) },
+      worktree: { id: "worktree", label: "Open in worktree", tip: `Open ${b} in its own worktree`, icon: "layers", run: () => wt.mutate({ projectId: pid, branch: b }, { onSuccess: () => setTermView("agent") }) },
       pull: {
         id: "pull",
         label: v.upstream ? <>Pull from <span className="mono">{v.upstream}</span></> : "Pull",

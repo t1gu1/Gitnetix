@@ -4,6 +4,7 @@ import { useAction, useAiOn, useOverview, useProjectPrefs, useSuggestedVersion }
 import { rpc } from "../api/transport";
 import { MenuChoice } from "../components/AgentPicker";
 import { Icon } from "../components/Icon";
+import { useTermView } from "../components/Shell";
 import { Modal, releaseTagLabel, Seg } from "../components/ui";
 import { KINDS, kindNoun, kindOfBranch, withPrefix, withTicket, type Kind } from "../lib/kinds";
 import { useNav, type NewItemDraft } from "../lib/nav";
@@ -32,6 +33,7 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
   // An agent always gets its own worktree.
   const [where, setWhere] = useState<"switch" | "worktree">(dialogs.newWorktree || dialogs.newAgent ? "worktree" : "switch");
   const [agent, setAgent] = useState(dialogs.newAgent);
+  const [, setTermView] = useTermView();
   const [name, setName] = useState("");
   const [named, setNamed] = useState<"ai" | "auto" | "you" | null>(null);
   const [naming, setNaming] = useState(false);
@@ -149,6 +151,8 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
                 { projectId: pid, release: rel?.version ?? "", from: rel ? undefined : from, kind, description: agent ? desc : "", branchName: branch || undefined, ticket: ticket || undefined, where, startAgent: agent },
                 {
                   onSuccess: (r) => {
+                    // A new worktree opens on its agent, even if the shell was the last tab picked.
+                    if (where === "worktree") setTermView("agent");
                     revealBranch(pid, r.branch);
                     nav.selectBranch(r.branch);
                     nav.go({ name: "workspace" });
