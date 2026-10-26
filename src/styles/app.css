@@ -1075,6 +1075,31 @@ body.dragging-tab * {
 [data-theme="light"]:not([data-palette]) .steps > li::before {
   color: #a35f00;
 }
+/* Pairing QR scan: the camera preview shows through the see-through page. */
+html.scanning,
+html.scanning body {
+  background: transparent;
+  color-scheme: normal;
+}
+.scan-view {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 16px;
+  padding: 24px 16px calc(24px + env(safe-area-inset-bottom));
+}
+.scan-view > p {
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-size: 14px;
+  line-height: 1.5;
+  text-align: center;
+}
 /* Where folders are dropped: lights up with the accent while a drag hovers it. */
 .dropzone {
   display: flex;

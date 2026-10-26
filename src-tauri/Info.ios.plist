@@ -10,5 +10,7 @@
   </dict>
   <key>NSLocalNetworkUsageDescription</key>
   <string>Gitnetix connects to Gitnetix on your computer to manage releases, agents, pull requests and tickets.</string>
+  <key>NSCameraUsageDescription</key>
+  <string>Gitnetix scans the QR code shown on your computer to pair with it.</string>
 </dict>
 </plist>

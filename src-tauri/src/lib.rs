@@ -177,6 +177,10 @@ pub fn run() {
         .setup(desktop::setup)
         .invoke_handler(tauri::generate_handler![desktop::rpc, desktop::companion, desktop::allow_firewall, desktop::open_url]);
 
+    // The pairing screen scans the desktop's QR code with the phone camera.
+    #[cfg(mobile)]
+    let builder = builder.plugin(tauri_plugin_barcode_scanner::init());
+
     let app = builder.build(tauri::generate_context!()).expect("error while running Gitnetix");
     #[cfg(desktop)]
     app.run(desktop::on_event);

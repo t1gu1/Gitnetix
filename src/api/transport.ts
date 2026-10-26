@@ -47,16 +47,18 @@ export function saveRemote(r: Remote | null) {
 
 let remote: Remote | null = isLocal ? null : loadRemote();
 
-/** The Settings QR code opens the companion's own page with `#token=…`: pair with the server that served it. */
-function remoteFromLink(): Remote | null {
-  const token = new URLSearchParams(location.hash.slice(1)).get("token");
-  if (!token) return null;
-  history.replaceState(null, "", location.pathname + location.search); // keep the token out of history and screenshots
-  return { url: location.origin, token };
+/** The Settings QR code is the companion's own page with `#token=…`. */
+export function remoteFromLink(link: URL | Location): Remote | null {
+  const token = new URLSearchParams(link.hash.slice(1)).get("token");
+  return token ? { url: link.origin, token } : null;
 }
 
-const linked = isLocal ? null : remoteFromLink();
-if (linked) saveRemote(linked);
+// Opened from that QR code by the phone camera: pair with the server that served this page.
+const linked = isLocal ? null : remoteFromLink(location);
+if (linked) {
+  history.replaceState(null, "", location.pathname + location.search); // keep the token out of history and screenshots
+  saveRemote(linked);
+}
 
 export function currentRemote() {
   return remote;

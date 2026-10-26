@@ -38,6 +38,7 @@ const PATHS: Record<string, { d: string[]; fill?: boolean; circles?: [number, nu
   pr: { d: ["M5 4.5v7M11 11.5V7a2 2 0 0 0-2-2H7M8.5 3.5L7 5l1.5 1.5"], circles: [[5, 3, 1.5], [5, 13, 1.5], [11, 13, 1.5]] },
   ticket: { d: ["M2.5 4.5h11v2a1.5 1.5 0 0 0 0 3v2h-11v-2a1.5 1.5 0 0 0 0-3z"] },
   chart: { d: ["M2.5 13.5h11M4.5 11V8M8 11V4.5M11.5 11V6.5"] },
+  qr: { d: ["M2.5 2.5h4v4h-4zM9.5 2.5h4v4h-4zM2.5 9.5h4v4h-4z", "M9.5 9.5h1.5v1.5M13.5 9.5v.01M9.5 13.5h.01M12 12v1.5h1.5"] },
   phone: { d: ["M5 1.5h6a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-11a1 1 0 0 1 1-1zM7 12.5h2"] },
   pause: { d: ["M5.5 3.5v9M10.5 3.5v9"] },
   play: { d: ["M5 3.5l7 4.5-7 4.5z"] },

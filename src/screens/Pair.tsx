@@ -1,9 +1,12 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
-import { saveRemote, testRemote } from "../api/transport";
+import { isLocal, isTauri, remoteFromLink, saveRemote, testRemote, type Remote } from "../api/transport";
 import { queryClient } from "../api/hooks";
 import { Icon } from "../components/Icon";
 import { Busy, ErrorBox } from "../components/ui";
+
+// Phone app only: the browser companion page is plain HTTP, where browsers turn the camera off.
+const canScan = isTauri && !isLocal;
 
 /** Mobile / browser: connect to a desktop running Gitnetix. */
 export function Pair({ onPaired, error }: { onPaired: () => void; error?: string }) {
@@ -11,12 +14,20 @@ export function Pair({ onPaired, error }: { onPaired: () => void; error?: string
   const [token, setToken] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | undefined>(error);
+  const [scanning, setScanning] = useState(false);
+  const cancelled = useRef(false);
 
-  const connect = async () => {
+  // The camera preview sits behind the web view, so the page goes see-through while scanning.
+  useEffect(() => {
+    document.documentElement.classList.toggle("scanning", scanning);
+    return () => document.documentElement.classList.remove("scanning");
+  }, [scanning]);
+
+  const connect = async (u = url, t = token) => {
     setBusy(true);
     setErr(undefined);
     try {
-      const r = await testRemote(url, token);
+      const r = await testRemote(u, t);
       saveRemote(r);
       queryClient.clear();
       onPaired();
@@ -26,6 +37,45 @@ export function Pair({ onPaired, error }: { onPaired: () => void; error?: string
       setBusy(false);
     }
   };
+
+  const scanQr = async () => {
+    setErr(undefined);
+    cancelled.current = false;
+    const qr = await import("@tauri-apps/plugin-barcode-scanner");
+    try {
+      if ((await qr.requestPermissions()) !== "granted") throw new Error("Camera access is off. Allow it for Gitnetix in the phone's Settings.");
+      setScanning(true);
+      // Windowed: the full-screen scanner has no way back to the app on iOS, so this page draws the Cancel button.
+      const { content } = await qr.scan({ windowed: true, formats: [qr.Format.QRCode] });
+      setScanning(false);
+      let r: Remote | null = null;
+      try {
+        r = remoteFromLink(new URL(content));
+      } catch {
+        /* not a link */
+      }
+      if (!r) throw new Error("This QR code is not a Gitnetix pairing code");
+      setUrl(r.url);
+      setToken(r.token);
+      await connect(r.url, r.token);
+    } catch (e) {
+      setScanning(false);
+      if (!cancelled.current) setErr(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const stopScan = () => {
+    cancelled.current = true;
+    import("@tauri-apps/plugin-barcode-scanner").then((qr) => qr.cancel());
+  };
+
+  if (scanning)
+    return (
+      <div className="scan-view">
+        <p>Point the camera at the QR code in Settings › Companion &amp; MCP on your computer.</p>
+        <button type="button" className="btn btn-lg" onClick={stopScan}>Cancel</button>
+      </div>
+    );
 
   return (
     <div className="ag app">
@@ -57,6 +107,12 @@ export function Pair({ onPaired, error }: { onPaired: () => void; error?: string
             <li><span>Turn on <b>Allow devices on my network</b>.</span></li>
             <li><span>Scan the QR code shown there, or copy its address and pairing token below.</span></li>
           </ol>
+          {canScan && (
+            <button type="button" className="btn btn-lg" disabled={busy} onClick={scanQr}>
+              <Icon name="qr" />
+              <span>Scan QR code</span>
+            </button>
+          )}
           <div className="field">
             <label htmlFor="pair-url">Address</label>
             <input id="pair-url" className="input mono" inputMode="url" autoCapitalize="off" autoCorrect="off" placeholder="192.168.1.20:7421" value={url} onChange={(e) => setUrl(e.target.value)} />
