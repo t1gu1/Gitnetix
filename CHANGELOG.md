@@ -11,6 +11,8 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-26
+
 ### Added
 - Project commands menu in the terminal for Cargo, Go, Make, just, Docker, Compose, Gradle, Maven, .NET, CMake, Python, Ruby, Godot, LÖVE, Odin and shell scripts, plus package.json scripts. Commands whose program is not installed are hidden.
 - Hide and show command sections per project. Hidden sections fold into a small pill.
