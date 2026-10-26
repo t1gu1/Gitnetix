@@ -1,0 +1,4 @@
+[env]
+# whisper.cpp (voice dictation) otherwise tunes itself to the building machine's CPU,
+# and a release built in CI could crash on users' CPUs. whisper-rs-sys hands GGML_* to cmake.
+GGML_NATIVE = "OFF"

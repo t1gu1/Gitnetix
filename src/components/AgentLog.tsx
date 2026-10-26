@@ -281,7 +281,7 @@ export type Upload = { name: string; data?: string; path?: string };
 const MAX_UPLOAD = 25 * 1024 * 1024;
 const nameOf = (a: Attachment) => (typeof a === "string" ? (a.split(/[\\/]/).pop() ?? a) : a.name);
 
-function base64(f: File) {
+export function base64(f: Blob) {
   return new Promise<string>((ok, fail) => {
     const r = new FileReader();
     r.onload = () => ok(String(r.result).split(",")[1] ?? "");

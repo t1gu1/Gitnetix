@@ -25,7 +25,9 @@ jobs:
             libayatana-appindicator3-dev \
             librsvg2-dev \
             libxdo-dev \
-            libssl-dev
+            libssl-dev \
+            cmake \
+            libclang-dev
 
       - uses: pnpm/action-setup@v6
         with:

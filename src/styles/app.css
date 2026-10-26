@@ -4689,6 +4689,157 @@ body:has(> .modal-scrim) #root * {
   }
 }
 
+/* ---------- voice dictation ---------- */
+/* Centered over everything but tooltips, without a scrim: the box being dictated into stays in view. */
+.dictation {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  z-index: 65;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(340px, calc(100vw - 32px));
+  padding: 14px 16px 12px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--raised);
+  box-shadow:
+    var(--shadow-lg),
+    0 0 80px -18px color-mix(in srgb, var(--accent) 45%, transparent);
+  translate: -50% -50%;
+  animation: dictation-in 0.36s var(--ease-spring);
+}
+.dictation-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.dictation-mic {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--on-accent);
+}
+/* A ring spreading from the mic while it listens. */
+.dictation-mic[data-on]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: var(--accent);
+  animation: dictation-ping 1.6s var(--ease) infinite;
+}
+.dictation-wave {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 44px;
+}
+/* Dots, tallest in the middle, until the voice stretches them (src/lib/dictation.tsx sets each height every frame).
+   Height rather than scaleY keeps the ends round; 16% of the wave is about a bar's width. */
+.dictation-wave > span {
+  flex: 1;
+  height: calc(100% * (0.16 + 0.3 / (1 + var(--d) * 0.3)));
+  border-radius: 99px;
+  background: linear-gradient(var(--accent-fg), var(--accent));
+  transition: height 0.08s linear;
+}
+/* Listening with no level to show (Web Audio can't run, e.g. WebKitGTK without gst-plugins-good): a slow swell.
+   Before the busy rule, so a leftover data-idle loses to it. */
+.dictation-wave[data-idle] > span {
+  animation: dictation-idle 1.2s var(--ease) calc(var(--d) * -90ms) infinite alternate;
+}
+/* Writing the words out: a ripple from the middle. */
+.dictation-wave[data-busy] > span {
+  animation: dictation-think 0.9s var(--ease) calc(var(--d) * 60ms) infinite alternate;
+}
+.dictation-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+/* Touch screens: the mic inside the focused box's right edge (src/lib/dictation.tsx places it), with room made for it. */
+.field-mic {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 61;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 16%, var(--raised));
+  color: var(--accent-fg);
+}
+.field-mic[data-on] {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+[data-mic] {
+  padding-right: 38px !important;
+}
+.keys-input {
+  min-width: 120px;
+}
+.keys-input[aria-pressed="true"] {
+  border-color: var(--accent);
+  box-shadow: var(--ring);
+  color: var(--accent-fg);
+}
+@media (max-width: 900px) {
+  /* Clear of the on-screen keyboard. */
+  .dictation {
+    top: 36%;
+  }
+}
+@media (hover: none) and (pointer: coarse) {
+  .dictation-keys {
+    visibility: hidden;
+  }
+}
+@keyframes dictation-in {
+  from {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+}
+@keyframes dictation-ping {
+  from {
+    opacity: 0.45;
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.9);
+  }
+}
+@keyframes dictation-idle {
+  from {
+    height: 16%;
+  }
+  to {
+    height: 40%;
+  }
+}
+@keyframes dictation-think {
+  from {
+    height: 16%;
+  }
+  to {
+    height: 62%;
+  }
+}
+
 /* ---------- charts ---------- */
 .kpis {
   display: grid;
@@ -5316,7 +5467,11 @@ body:has(> .modal-scrim) #root * {
 :root[data-anim-off~="lists"] :is(.tree-kids, .file-row, .commit-row, .stash-row, .item-btn, .ag-log > *, .chart-bar > span, .kpi) {
   animation: none !important;
 }
-:root[data-anim-off~="dialogs"] :is(.modal, .modal-scrim, .ctx-menu, .ctx-item, .toast) {
+:root[data-anim-off~="dialogs"] :is(.modal, .modal-scrim, .ctx-menu, .ctx-item, .toast, .dictation) {
+  animation: none !important;
+}
+:root[data-anim-off~="wave"] .dictation-mic::after,
+:root[data-anim-off~="wave"] .dictation-wave > span {
   animation: none !important;
 }
 :root[data-anim-off~="dialogs"] .ctx-col {
@@ -5376,6 +5531,10 @@ body:has(> .modal-scrim) #root * {
 }
 @media (prefers-reduced-motion: reduce) {
   .ws [data-pane] {
+    animation: none !important;
+  }
+  .dictation-mic::after,
+  .dictation-wave > span {
     animation: none !important;
   }
   .seg-thumb,

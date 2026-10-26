@@ -28,6 +28,7 @@ import type {
   WorktreeView,
 } from "./types";
 import { shownStatus } from "../lib/agentLog";
+import { dictationModel } from "../lib/dictation";
 import { toast } from "../lib/toast";
 
 export const queryClient = new QueryClient({
@@ -43,6 +44,9 @@ export function useEngineEvents() {
     () =>
       subscribe((e) => {
         switch (e.type) {
+          case "dictationModel":
+            dictationModel(e.done, e.total);
+            break;
           case "agentLine":
             // A message of yours going out takes the queued ones with it.
             qc.setQueryData<AgentSession[]>(["agents"], (list) =>

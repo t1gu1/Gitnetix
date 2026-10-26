@@ -12,6 +12,7 @@ import { Icon } from "../components/Icon";
 import { Resizer, usePaneWidth } from "../components/Resizer";
 import { useTermDefault } from "../components/Shell";
 import { Header, Seg } from "../components/ui";
+import { comboOf, DEFAULT_KEYS, showKeys, useDictationKeys } from "../lib/dictation";
 import { ANIMATIONS, useAnimations } from "../lib/motion";
 import { useNav } from "../lib/nav";
 import { useStoredFlag } from "../lib/stored";
@@ -21,7 +22,7 @@ import { copyToClipboard, toast } from "../lib/toast";
 const JIRA_TOKENS = "https://id.atlassian.com/manage-profile/security/api-tokens";
 
 const GROUPS: [string, [string, string][]][] = [
-  ["General", [["project", "Project"], ["appearance", "Appearance"], ["animations", "Animations"], ["avatars", "Avatars"], ["terminal", "Terminal"]]],
+  ["General", [["project", "Project"], ["appearance", "Appearance"], ["animations", "Animations"], ["avatars", "Avatars"], ["terminal", "Terminal"], ["dictation", "Voice dictation"]]],
   ["AI", [["ai", "AI setup"], ["templates", "Templates"]]],
   ["Git", [["profiles", "Git profiles"], ["git", "Git providers"]]],
   ["Integrations", [["tools", "Jira, Trello, Asana"], ["companion", "Companion & MCP"]]],
@@ -74,6 +75,7 @@ export function SettingsPanes({ section, onAi, onTemplates }: { section?: string
             {sec === "animations" && <Animations />}
             {sec === "avatars" && <Avatars />}
             {sec === "terminal" && <TerminalSection />}
+            {sec === "dictation" && <DictationSection />}
             {sec === "profiles" && <Profiles cfg={cfg} />}
             {sec === "git" && <GitProviders cfg={cfg} />}
             {sec === "tools" && <Integrations cfg={cfg} />}
@@ -235,6 +237,60 @@ function Avatars() {
               <span className="hint">Show the author's Gravatar picture when they have one. Sends a hash of each author's email to gravatar.com.</span>
             </span>
           </label>
+        </li>
+      </ul>
+    </>
+  );
+}
+
+function DictationSection() {
+  const [keys, setKeys] = useDictationKeys();
+  const [picking, setPicking] = useState(false);
+  return (
+    <>
+      <div className="col" style={{ gap: 6 }}>
+        <h1>Voice dictation</h1>
+        <p className="muted" style={{ margin: 0 }}>Speak into any text box. Press the shortcut while in the box to start listening, then press it again or Stop to put the words in. On a phone, tap the mic at the right of the box.</p>
+        <p className="hint" style={{ margin: 0 }}>Speech is turned into text on this computer by Whisper. The first time downloads its model (148 MB) from Hugging Face; after that, nothing you say leaves the computer.</p>
+      </div>
+      <ul className="list">
+        <li className="list-row" style={{ gap: 12 }}>
+          <span className="col grow" style={{ gap: 2 }}>
+            <span style={{ fontWeight: 500 }}>Shortcut</span>
+            <span className="hint">Click it, then press the new keys. They need Ctrl, Alt or ⌘. Esc keeps the current one.</span>
+          </span>
+          <button
+            data-keys-input
+            className="btn keys-input mono"
+            aria-label={`Dictation shortcut: ${showKeys(keys)}. Press to change`}
+            aria-pressed={picking}
+            // Focused by hand: WebKit doesn't focus clicked buttons, and the keys must come here.
+            onClick={(e) => {
+              e.currentTarget.focus();
+              setPicking(true);
+            }}
+            onBlur={() => setPicking(false)}
+            onKeyDown={(e) => {
+              if (!picking) return;
+              // Kept here: Esc would also close the menu this can sit in.
+              if (e.key === "Escape") {
+                e.stopPropagation();
+                return setPicking(false);
+              }
+              const combo = comboOf(e.nativeEvent);
+              if (!combo) return;
+              e.preventDefault();
+              setKeys(combo);
+              setPicking(false);
+            }}
+          >
+            {picking ? "Press keys…" : showKeys(keys)}
+          </button>
+          {keys !== DEFAULT_KEYS && (
+            <button className="btn btn-ghost btn-sm" onClick={() => setKeys("")}>
+              Reset
+            </button>
+          )}
         </li>
       </ul>
     </>

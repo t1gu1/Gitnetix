@@ -7,6 +7,7 @@ pub mod ai;
 pub mod analytics;
 pub mod app;
 pub mod cache;
+pub mod dictation;
 pub mod error;
 pub mod events;
 pub mod git;

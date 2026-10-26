@@ -32,6 +32,7 @@ pub struct Gitnetix {
     pub shells: crate::shell::Shells,
     pub events: broadcast::Sender<Event>,
     pub dir: PathBuf,
+    pub dictation: crate::dictation::Dictation,
     /// Branches the git host protects, per project, with when they were looked up.
     protected: std::sync::Mutex<HashMap<String, (Instant, Vec<String>)>>,
     /// Watches the projects' git dirs for changes made outside Gitnetix.
@@ -1375,7 +1376,7 @@ impl Gitnetix {
         let agents = AgentManager::new(events.clone(), dir);
         let shells = crate::shell::Shells::new(events.clone());
         crate::log::attach(events.clone());
-        let k = Arc::new(Gitnetix { store, agents, shells, events, dir: dir.to_path_buf(), protected: Default::default(), watcher: Default::default(), commits: CommitCache::open(dir), views: ViewCache::open(dir.join("overview-cache")), hosted: Default::default() });
+        let k = Arc::new(Gitnetix { store, agents, shells, events, dir: dir.to_path_buf(), dictation: Default::default(), protected: Default::default(), watcher: Default::default(), commits: CommitCache::open(dir), views: ViewCache::open(dir.join("overview-cache")), hosted: Default::default() });
         k.rewatch();
         Ok(k)
     }

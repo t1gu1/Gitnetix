@@ -8,6 +8,7 @@ import { TooltipLayer } from "./components/Tooltip";
 import { isPageRoute, PAGES, TopBar } from "./components/TopBar";
 import { UpdatePrompt } from "./components/UpdatePrompt";
 import { Loading, useThumb } from "./components/ui";
+import { Dictation } from "./lib/dictation";
 import { useApplyAnimations } from "./lib/motion";
 import { NavProvider, ProjectView, useNav, useVisited, type Route } from "./lib/nav";
 import { Toasts } from "./lib/toast";
@@ -86,6 +87,7 @@ function Shell({ onUnpair }: { onUnpair: () => void }) {
           {each(() => <NewItemDialog />)}
           <UpdatePrompt />
           <Toasts />
+          <Dictation />
           <TooltipLayer />
         </div>
       </Activity>

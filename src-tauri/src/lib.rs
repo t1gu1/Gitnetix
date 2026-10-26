@@ -2,6 +2,8 @@
 //! command plus an event stream. On iOS/Android it ships the same UI in
 //! remote mode: the web layer talks to a desktop over the companion API.
 
+use tauri::webview::{PermissionKind, PermissionResponse};
+
 #[cfg(desktop)]
 mod desktop {
     use std::sync::Arc;
@@ -168,7 +170,15 @@ mod desktop {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let _ = tracing_subscriber::fmt().with_env_filter(std::env::var("RUST_LOG").unwrap_or_else(|_| "info".into())).try_init();
-    let builder = tauri::Builder::default().plugin(tauri_plugin_opener::init()).plugin(tauri_plugin_dialog::init());
+    let builder = tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
+        // Voice dictation records in the page, and WebKitGTK refuses the microphone unless the app allows it.
+        // Safe to allow outright: the window only ever shows Gitnetix's own UI, links open in the browser.
+        .on_permission_request(|_, kind| match kind {
+            PermissionKind::Microphone => PermissionResponse::Allow,
+            _ => PermissionResponse::Default,
+        });
 
     #[cfg(desktop)]
     let builder = builder

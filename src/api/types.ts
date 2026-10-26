@@ -635,4 +635,5 @@ export type GitnetixEvent =
   | { type: "conflictResolving"; projectId: string; files: string[] }
   | { type: "log"; entry: LogEntry }
   | { type: "shellData"; cwd: string; data: string; end: number }
-  | { type: "shellExit"; cwd: string };
+  | { type: "shellExit"; cwd: string }
+  | { type: "dictationModel"; done: number; total: number };

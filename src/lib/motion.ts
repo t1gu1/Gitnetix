@@ -22,6 +22,7 @@ export const ANIMATIONS: { id: string; label: string; hint: string }[] = [
   { id: "seg", label: "Tab highlight slide", hint: "The highlight, the page underline and the mobile tab bubble sliding from the previous tab to the newly selected one" },
   { id: "tooltips", label: "Tooltip fade", hint: "Tooltips fading in" },
   { id: "chevrons", label: "Folding arrows", hint: "Arrows turning as groups open and close" },
+  { id: "wave", label: "Dictation wave", hint: "The bars moving with your voice while dictating, and their ripple while the words are written out" },
 ];
 
 /** Whether an animation plays: not turned off here, nor by the system's reduced motion. For the ones the code waits on. */

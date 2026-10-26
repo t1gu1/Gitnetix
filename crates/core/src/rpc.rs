@@ -108,6 +108,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("ai.saveProvider", "Configure an AI provider", "id, method?, model?, effort?, baseUrl?, apiKey?"),
     ("ai.setDefault", "Default AI provider", "id"),
     ("ai.test", "Test an AI provider", "id"),
+    ("dictation.transcribe", "Turn recorded speech into text on this computer (the first time downloads a 148 MB speech model)", "audio (base64), mime"),
     ("ai.setRoute", "Which AI handles a task", "task, provider?, model?, effort?"),
     ("ai.signIn", "Open the provider CLI to sign in", "id"),
     ("templates.list", "AI templates", ""),
@@ -741,6 +742,16 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
             ok()
         }
         "ai.test" => k.ai_test(&s(&p, "id")?).await,
+        "dictation.transcribe" => {
+            use base64::Engine;
+            let audio = base64::engine::general_purpose::STANDARD.decode(s(&p, "audio")?).map_err(|e| Error::Invalid(format!("audio: {e}")))?;
+            let events = k.events.clone();
+            let progress = move |done, total| {
+                let _ = events.send(crate::events::Event::DictationModel { done, total });
+            };
+            let text = k.dictation.transcribe(&k.dir, audio, os(&p, "mime").unwrap_or_default(), progress).await?;
+            to(json!({ "text": text }))
+        }
         "ai.setRoute" => {
             let task = s(&p, "task")?;
             let route = Route { provider: os(&p, "provider").filter(|x| !x.is_empty()), model: os(&p, "model"), effort: os(&p, "effort") };
