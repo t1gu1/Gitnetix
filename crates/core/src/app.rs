@@ -3015,8 +3015,9 @@ impl Gitnetix {
             }
         }
         // Rebasing or bisecting detaches HEAD, so no checkout has `branch` then; git would refuse the local rename after origin's.
+        // A folder deleted outside git (still listed, prunable) errors: it can't be rebasing anything.
         for w in git.worktrees().await?.iter().filter(|w| w.branch.is_none()) {
-            if Git::new(&w.path).detached_from().await?.as_deref() == Some(branch) {
+            if Git::new(&w.path).detached_from().await.ok().flatten().as_deref() == Some(branch) {
                 return Err(Error::Invalid(format!("{branch} is being rebased or bisected at {}. Finish or abort it first.", w.path)));
             }
         }
@@ -3068,8 +3069,10 @@ impl Gitnetix {
             match self.commit_changelog(&p, &git, to, text, &format!("docs(changelog): v{old} is now v{new}")).await {
                 Ok(()) => out.changelog = true,
                 Err(e) => {
-                    crate::log::error(format!("Could not commit {CHANGELOG} on {to}: {e}"));
-                    out.changelog_error = Some(e.to_string());
+                    // In a checkout the file is written before the commit: it stays there for the user to commit.
+                    let left = dir.as_ref().map(|d| format!(". {CHANGELOG} is left uncommitted at {}", d.display())).unwrap_or_default();
+                    crate::log::error(format!("Could not commit {CHANGELOG} on {to}: {e}{left}"));
+                    out.changelog_error = Some(format!("{e}{left}"));
                 }
             }
         }

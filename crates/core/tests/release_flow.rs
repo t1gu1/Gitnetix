@@ -1538,8 +1538,9 @@ async fn rename_on_origin_and_follow_it_elsewhere() {
     assert!(err.to_string().contains("origin already has feat/taken"), "{err}");
     assert_eq!(rev(&origin, "refs/heads/feat/b"), tip);
     // Mid-rebase, HEAD detached: refused before origin moves, as git would refuse the local rename.
-    let stopped = Command::new("git").current_dir(&repo).args(["rebase", "-q", "-f", "-x", "false", "main"]).status().unwrap();
-    assert!(!stopped.success());
+    // Output captured: git's "execution failed" warning stays out of the test log.
+    let stopped = Command::new("git").current_dir(&repo).args(["rebase", "-q", "-f", "-x", "false", "main"]).output().unwrap();
+    assert!(!stopped.status.success());
     let err = rpc::call(&k, "branches.rename", json!({ "projectId": pid, "branch": "feat/b", "name": "feat/r", "remote": true })).await.unwrap_err();
     assert!(err.to_string().contains("being rebased"), "{err}");
     assert_eq!(rev(&origin, "refs/heads/feat/b"), tip);
