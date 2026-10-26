@@ -2606,6 +2606,14 @@ button.tree-twist:hover {
     border-top: 0;
     border-left: 1px solid var(--line);
   }
+  /* Folded, the pill stands on its side so the column is only as wide as the pill is tall. */
+  .ctx-col:has(.ctx-fold):not(:hover, :focus-within) .ctx-head {
+    padding: 6px 4px;
+  }
+  .ctx-col:has(.ctx-fold):not(:hover, :focus-within) .ctx-fold {
+    writing-mode: vertical-rl;
+    padding: 7px 1px;
+  }
 }
 @media (pointer: coarse) {
   .ctx-item {
