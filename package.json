@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "typecheck": "tsc -b",
     "tauri": "tauri",
-    "app": "tauri dev",
+    "app": "node scripts/dev.mjs",
     "app:build": "tauri build",
     "app:build:local": "pnpm tauri build --config '{\"bundle\":{\"createUpdaterArtifacts\":false}}'",
     "ios": "tauri ios dev",

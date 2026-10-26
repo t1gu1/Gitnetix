@@ -240,9 +240,58 @@ fn drop_unused_atlassian_sign_in(k: &Gitnetix) -> Result<()> {
 /// Reads polled all the time: logged only when they fail.
 const QUIET: &[&str] = &[".info", ".get", ".list", ".overview", ".files", ".diff", ".blobs", ".commits", ".catalog", ".statuses", ".versions", ".projects", ".refs", ".range", ".preview", ".clear", "analytics.day", "shell.write", "shell.resize", "shell.scripts", "ui.setView", "github.signInPoll", "azure.signInPoll"];
 
+/// Actions in flight.
+static BUSY: std::sync::Mutex<usize> = std::sync::Mutex::new(0);
+
+/// One action in flight. While any is, the file named by `GITNETIX_BUSY_FILE` exists:
+/// `pnpm app` (scripts/dev.mjs) waits for it to go before restarting the app on a Rust change.
+struct Busy;
+
+impl Busy {
+    fn enter() -> Busy {
+        Busy::count(true);
+        Busy
+    }
+
+    fn count(up: bool) {
+        let Some(file) = std::env::var_os("GITNETIX_BUSY_FILE") else { return };
+        let mut n = BUSY.lock().unwrap_or_else(|e| e.into_inner());
+        if up {
+            *n += 1;
+        } else {
+            *n -= 1;
+        }
+        if up && *n == 1 {
+            let _ = std::fs::write(&file, "");
+        } else if *n == 0 {
+            let _ = std::fs::remove_file(&file);
+        }
+    }
+}
+
+impl Drop for Busy {
+    fn drop(&mut self) {
+        Busy::count(false);
+    }
+}
+
+#[test]
+fn busy_file_lives_while_any_action_runs() {
+    let file = std::env::temp_dir().join(format!("gitnetix-busy-test-{}", std::process::id()));
+    std::env::set_var("GITNETIX_BUSY_FILE", &file);
+    let a = Busy::enter();
+    let b = Busy::enter();
+    assert!(file.exists());
+    drop(a);
+    assert!(file.exists());
+    drop(b);
+    assert!(!file.exists());
+}
+
 /// Run `method`, logging what it will attempt and how it ended.
 pub async fn call(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
     let quiet = QUIET.iter().any(|q| method.ends_with(q));
+    let _busy = (!quiet).then(Busy::enter);
     if !quiet {
         crate::log::info(format!("Will attempt to {method} {}", scrub(&p, "")));
     }
