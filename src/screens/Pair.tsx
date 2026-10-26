@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 
-import { isLocal, isTauri, remoteFromLink, saveRemote, testRemote, type Remote } from "../api/transport";
+import { isTauri, remoteFromLink, saveRemote, testRemote, type Remote } from "../api/transport";
 import { queryClient } from "../api/hooks";
 import { Icon } from "../components/Icon";
 import { Busy, ErrorBox } from "../components/ui";
+import zxingWasm from "zxing-wasm/reader/zxing_reader.wasm?url";
 
-// Phone app only: the browser companion page is plain HTTP, where browsers turn the camera off.
-const canScan = isTauri && !isLocal;
+// Serve the decoder from this app, not the library's default CDN: the companion may have no internet.
+const zxingFiles = { locateFile: () => zxingWasm };
 
 /** Mobile / browser: connect to a desktop running Gitnetix. */
 export function Pair({ onPaired, error }: { onPaired: () => void; error?: string }) {
@@ -16,6 +17,7 @@ export function Pair({ onPaired, error }: { onPaired: () => void; error?: string
   const [err, setErr] = useState<string | undefined>(error);
   const [scanning, setScanning] = useState(false);
   const cancelled = useRef(false);
+  const photo = useRef<HTMLInputElement>(null);
 
   // The camera preview sits behind the web view, so the page goes see-through while scanning.
   useEffect(() => {
@@ -38,6 +40,19 @@ export function Pair({ onPaired, error }: { onPaired: () => void; error?: string
     }
   };
 
+  const pairFromQr = async (content: string) => {
+    let r: Remote | null = null;
+    try {
+      r = remoteFromLink(new URL(content));
+    } catch {
+      /* not a link */
+    }
+    if (!r) throw new Error("This QR code is not a Gitnetix pairing code");
+    setUrl(r.url);
+    setToken(r.token);
+    await connect(r.url, r.token);
+  };
+
   const scanQr = async () => {
     setErr(undefined);
     cancelled.current = false;
@@ -48,19 +63,28 @@ export function Pair({ onPaired, error }: { onPaired: () => void; error?: string
       // Windowed: the full-screen scanner has no way back to the app on iOS, so this page draws the Cancel button.
       const { content } = await qr.scan({ windowed: true, formats: [qr.Format.QRCode] });
       setScanning(false);
-      let r: Remote | null = null;
-      try {
-        r = remoteFromLink(new URL(content));
-      } catch {
-        /* not a link */
-      }
-      if (!r) throw new Error("This QR code is not a Gitnetix pairing code");
-      setUrl(r.url);
-      setToken(r.token);
-      await connect(r.url, r.token);
+      await pairFromQr(content);
     } catch (e) {
       setScanning(false);
       if (!cancelled.current) setErr(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  // Browser and home screen app: the page is plain HTTP, where live camera access is off, but a photo input still opens the camera.
+  // The phone's Camera app can't pair a home screen app: the link it opens lands in the browser, which keeps its own storage.
+  const scanPhoto = async (file: File) => {
+    setErr(undefined);
+    setBusy(true);
+    try {
+      // ZXing, not jsQR: jsQR misses photos of a screen (moiré, glare, tilt).
+      const zxing = await import("zxing-wasm/reader");
+      zxing.prepareZXingModule({ overrides: zxingFiles });
+      const [code] = (await zxing.readBarcodes(file, { formats: ["QRCode"] })).filter((r) => r.isValid);
+      if (!code) throw new Error("No QR code found in the photo. Fill the frame with the QR code and keep it sharp.");
+      await pairFromQr(code.text);
+    } catch (e) {
+      setBusy(false);
+      setErr(e instanceof Error ? e.message : String(e));
     }
   };
 
@@ -107,12 +131,6 @@ export function Pair({ onPaired, error }: { onPaired: () => void; error?: string
             <li><span>Turn on <b>Allow devices on my network</b>.</span></li>
             <li><span>Scan the QR code shown there, or copy its address and pairing token below.</span></li>
           </ol>
-          {canScan && (
-            <button type="button" className="btn btn-lg" disabled={busy} onClick={scanQr}>
-              <Icon name="qr" />
-              <span>Scan QR code</span>
-            </button>
-          )}
           <div className="field">
             <label htmlFor="pair-url">Address</label>
             <input id="pair-url" className="input mono" inputMode="url" autoCapitalize="off" autoCorrect="off" placeholder="192.168.1.20:7421" value={url} onChange={(e) => setUrl(e.target.value)} />
@@ -126,6 +144,22 @@ export function Pair({ onPaired, error }: { onPaired: () => void; error?: string
             <Busy on={busy}><Icon name="phone" /></Busy>
             <span>Connect</span>
           </button>
+          <button type="button" className="btn btn-lg" disabled={busy} onClick={isTauri ? scanQr : () => photo.current?.click()}>
+            <Icon name="qr" />
+            <span>Connect by scanning QR code</span>
+          </button>
+          <input
+            ref={photo}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            hidden
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              e.target.value = ""; // same photo picked twice still fires change
+              if (file) scanPhoto(file);
+            }}
+          />
           <p className="hint">Traffic is plain HTTP on your local network, protected by the token. Use it on networks you trust, or through a VPN such as Tailscale.</p>
         </form>
       </main>
