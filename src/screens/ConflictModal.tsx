@@ -6,7 +6,7 @@ import { Icon } from "../components/Icon";
 import { Busy, Modal } from "../components/ui";
 import { rebaseMessage } from "./BranchMenu";
 
-export function ConflictModal({ pid, branch, base, onClose }: { pid: string; branch: string; base: string; onClose: () => void }) {
+export function ConflictModal({ pid, branch, base, onClose, onDone }: { pid: string; branch: string; base: string; onClose: () => void; onDone?: (r: RebaseResult) => void }) {
   const files = useFiles(pid, branch, "wip");
   const conflicted = (files.data ?? []).filter((f) => f.status === "C");
   const [sel, setSel] = useState<string | undefined>();
@@ -35,7 +35,15 @@ export function ConflictModal({ pid, branch, base, onClose }: { pid: string; bra
           <button
             className="btn btn-primary btn-md"
             disabled={conflicted.length > 0 || cont.isPending}
-            onClick={() => cont.mutate({ projectId: pid, branch }, { onSuccess: (r) => r.conflicts.length === 0 && onClose() })}
+            onClick={() =>
+              cont.mutate({ projectId: pid, branch }, {
+                onSuccess: (r) => {
+                  if (r.conflicts.length) return;
+                  onDone?.(r);
+                  onClose();
+                },
+              })
+            }
           >
             {cont.isPending && <span className="spinner" />}
             Continue rebase
