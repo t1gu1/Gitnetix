@@ -11,6 +11,19 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+### Added
+- Ship dialog can update and date the changelog as the release ships, when AI is on for releases and the project has a `CHANGELOG.md`. A Settings toggle controls the default.
+- Delete tag action in the commit menu.
+- Images sent to an agent, and images it shows, preview on hover or focus in the agent log.
+- Click a sent image to open it full size.
+- Pulling a diverged branch now offers to rebase or merge.
+
+### Changed
+- Main tabs in the top bar are reordered.
+
+### Fixed
+- Shipping a release is refused only when uncommitted changes touch release files.
+
 ## [0.9.0] - 2026-10-26
 
 ### Added
