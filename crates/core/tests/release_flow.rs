@@ -1594,7 +1594,10 @@ async fn dialog_prefs_default_and_save() {
 
     call(&k, "projects.setPrefs", json!({ "projectId": pid, "dialogs": { "finish": "continue", "deleteOrigin": true } })).await;
     let d = call(&k, "config.get", json!({})).await["projects"][0]["dialogs"].clone();
-    assert_eq!((d["finish"].as_str(), d["deleteOrigin"].as_bool(), d["shipPush"].as_bool()), (Some("continue"), Some(true), Some(true)));
+    assert_eq!(
+        (d["finish"].as_str(), d["deleteOrigin"].as_bool(), d["shipPush"].as_bool(), d["shipChangelog"].as_bool()),
+        (Some("continue"), Some(true), Some(true), Some(true))
+    );
     let err = rpc::call(&k, "projects.setPrefs", json!({ "projectId": pid, "dialogs": { "finish": "later" } })).await.unwrap_err();
     assert!(err.to_string().contains("unknown variant"), "{err}");
 }

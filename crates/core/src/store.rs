@@ -123,6 +123,8 @@ pub struct DialogPrefs {
     pub new_agent: bool,
     /// Push the default branch and the tag when shipping a release.
     pub ship_push: bool,
+    /// Let AI update the release's CHANGELOG.md before shipping it.
+    pub ship_changelog: bool,
     /// Also delete a deleted branch on origin.
     pub delete_origin: bool,
     /// Also delete the cleaned-up behind branches on origin.
@@ -131,7 +133,7 @@ pub struct DialogPrefs {
 
 impl Default for DialogPrefs {
     fn default() -> Self {
-        DialogPrefs { finish: FinishWith::Merge, finish_switch: true, new_worktree: false, new_agent: false, ship_push: true, delete_origin: false, cleanup_origin: true }
+        DialogPrefs { finish: FinishWith::Merge, finish_switch: true, new_worktree: false, new_agent: false, ship_push: true, ship_changelog: true, delete_origin: false, cleanup_origin: true }
     }
 }
 

@@ -120,6 +120,7 @@ function ProjectSection({ cfg }: { cfg: Config }) {
         {check("newWorktree", "Give a new branch its own worktree instead of switching to it")}
         {check("newAgent", "Start an AI agent on a new branch right away (always in a worktree)")}
         {check("shipPush", "Push the default branch and the tag when shipping a release")}
+        {check("shipChangelog", "Let AI update the changelog before shipping a release")}
         {check("deleteOrigin", "Also delete a deleted branch on origin")}
         {check("cleanupOrigin", "Also delete cleaned-up behind branches on origin")}
       </section>

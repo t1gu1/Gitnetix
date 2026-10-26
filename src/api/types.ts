@@ -61,6 +61,8 @@ export interface DialogPrefs {
   newAgent: boolean;
   /** Push the default branch and the tag when shipping a release. */
   shipPush: boolean;
+  /** Let AI update the release's CHANGELOG.md before shipping it. */
+  shipChangelog: boolean;
   /** Also delete a deleted branch on origin. */
   deleteOrigin: boolean;
   /** Also delete the cleaned-up behind branches on origin. */

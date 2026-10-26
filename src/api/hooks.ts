@@ -102,7 +102,7 @@ export function useEngineEvents() {
 
 const MERGE_DEFAULTS: MergePrefs = { squash: false, squashMessage: "branch", rebase: false, deleteBranch: true, push: false, resolveConflicts: true };
 const COMMIT_DEFAULTS: CommitPrefs = { autoPush: false };
-const DIALOG_DEFAULTS: DialogPrefs = { finish: "merge", finishSwitch: true, newWorktree: false, newAgent: false, shipPush: true, deleteOrigin: false, cleanupOrigin: true };
+const DIALOG_DEFAULTS: DialogPrefs = { finish: "merge", finishSwitch: true, newWorktree: false, newAgent: false, shipPush: true, shipChangelog: true, deleteOrigin: false, cleanupOrigin: true };
 
 type PrefsPatch = { merge?: Partial<MergePrefs>; commit?: Partial<CommitPrefs>; dialogs?: Partial<DialogPrefs> };
 

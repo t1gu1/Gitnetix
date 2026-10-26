@@ -2058,8 +2058,16 @@ export function FinishWorktreeCard({ session: s, finish }: { session: WtSession;
 }
 
 function ShipModal({ pid, release, defaultBranch, onClose }: { pid: string; release: ReleaseView; defaultBranch: string; onClose: () => void }) {
-  const [push, setPush] = useState(useProjectPrefs(pid).dialogs.shipPush);
+  const prefs = useProjectPrefs(pid).dialogs;
+  const [push, setPush] = useState(prefs.shipPush);
+  const hasChangelog = !!useOverview(pid).data?.hasChangelog;
+  // Same gate as "Update changelog" in the branch menu.
+  const canChangelog = useAiOn("release") && hasChangelog;
+  const [updateLog, setUpdateLog] = useState(prefs.shipChangelog);
+  const changelog = useAction<{ message: string }, { projectId: string; branch: string }>("changelog.update", { invalidate: [["overview", pid], ["commits", pid]], success: (r) => r.message });
   const ship = useAction<{ tag: string }>("releases.ship", { invalidate: [["overview", pid], ["projects"]], success: (r) => `Shipped ${r.tag}` });
+  const shipIt = () => ship.mutate({ projectId: pid, version: release.version, push }, { onSuccess: onClose });
+  const busy = changelog.isPending || ship.isPending;
   return (
     <Modal
       title={`Ship v${release.version}`}
@@ -2067,9 +2075,13 @@ function ShipModal({ pid, release, defaultBranch, onClose }: { pid: string; rele
       footer={
         <>
           <button className="btn btn-md" onClick={onClose}>Cancel</button>
-          <button className="btn btn-primary btn-md" disabled={ship.isPending} onClick={() => ship.mutate({ projectId: pid, version: release.version, push }, { onSuccess: onClose })}>
-            {ship.isPending && <span className="spinner" />}
-            Ship v{release.version}
+          <button
+            className="btn btn-primary btn-md"
+            disabled={busy}
+            onClick={() => (canChangelog && updateLog ? changelog.mutate({ projectId: pid, branch: release.branch }, { onSuccess: shipIt }) : shipIt())}
+          >
+            {busy && <span className="spinner" />}
+            {changelog.isPending ? "Updating changelog…" : `Ship v${release.version}`}
           </button>
         </>
       }
@@ -2077,11 +2089,18 @@ function ShipModal({ pid, release, defaultBranch, onClose }: { pid: string; rele
       <p style={{ margin: 0, lineHeight: 1.55 }}>
         Moves <span className="mono">{defaultBranch}</span> to <span className="mono">{release.branch}</span> (fast-forward only) and creates the tag <span className="mono">v{release.version}</span>.
         It stops if {defaultBranch} has commits the release does not.
+        {hasChangelog && <> The Unreleased section of CHANGELOG.md becomes v{release.version}, dated today.</>}
       </p>
       {release.items.length > 0 && (
         <div className="note-box">
           Make sure these are merged into {release.branch}: {release.items.map((b) => b.name).join(", ")}.
         </div>
+      )}
+      {canChangelog && (
+        <label className="check">
+          <input type="checkbox" checked={updateLog} onChange={() => setUpdateLog(!updateLog)} />
+          <span>First let AI add what {release.branch} changes to the changelog</span>
+        </label>
       )}
       <label className="check">
         <input type="checkbox" checked={push} onChange={() => setPush(!push)} />
