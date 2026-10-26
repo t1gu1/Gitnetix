@@ -455,6 +455,8 @@ export interface WorktreeView {
   deletions: number;
   /** Commits not in `base` yet, and files with uncommitted changes: what a merge would carry. */
   ahead: number;
+  /** Commits in `base` not in the branch yet. */
+  behind: number;
   wip: number;
   agent?: AgentSession | null;
 }

@@ -10,6 +10,7 @@ import { Icon } from "../components/Icon";
 import { Resizer, usePaneWidth } from "../components/Resizer";
 import { ShellPane, TermTabs, useTermView } from "../components/Shell";
 import { ago, Busy, Empty, EmptyState, Header, Loading, Modal, Seg } from "../components/ui";
+import { plural } from "../lib/format";
 import { KINDS, kindOfBranch, type Kind } from "../lib/kinds";
 import { useNav } from "../lib/nav";
 import { useBranchActions } from "./BranchMenu";
@@ -140,7 +141,16 @@ export function Worktrees({ initial }: { initial?: string }) {
                             <span className="mono wt-stat"><span className="c-add">+{r.wt.additions}</span> <span className="c-del">−{r.wt.deletions}</span></span>
                           )}
                         </span>
-                        {r.wt?.base && <span className="faint ellipsis wt-base">from {r.wt.base}</span>}
+                        {r.wt?.base && (
+                          <span className="row wt-base" style={{ gap: 6 }}>
+                            <span className="faint ellipsis">from {r.wt.base}</span>
+                            {r.wt.behind > 0 && (
+                              <span className="c-warn mono" style={{ flex: "none" }} title={`${r.wt.base} has ${plural(r.wt.behind, "commit")} that ${r.branch} doesn't. Update or rebase to catch up.`}>
+                                ↓{r.wt.behind}
+                              </span>
+                            )}
+                          </span>
+                        )}
                         <span className="row wt-meta">
                           <span className={r.status === "running" ? "pulse" : `wt-dot ${cls}`} />
                           <span className={cls} style={{ flex: "none" }}>{label}</span>

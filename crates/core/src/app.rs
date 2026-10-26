@@ -235,6 +235,8 @@ pub struct WorktreeView {
     pub deletions: u32,
     /// Commits not in `base` yet, and files with uncommitted changes: what a merge would carry.
     pub ahead: u32,
+    /// Commits in `base` not in the branch yet.
+    pub behind: u32,
     pub wip: u32,
     pub agent: Option<AgentSession>,
 }
@@ -3436,9 +3438,9 @@ impl Gitnetix {
                     Some(b) => Some(self.base_in(&p, &git, &refs, b, &default).await).filter(|x| x != b),
                     None => None,
                 };
-                let ahead = match (w.branch.as_deref().and_then(|b| refs.rev(b)), base.as_deref().and_then(|b| refs.rev(b))) {
-                    (Some(r), Some(b)) => refs.left_right(&git, &b, &r).await.map(|(_, a)| a).unwrap_or(0),
-                    _ => 0,
+                let (behind, ahead) = match (w.branch.as_deref().and_then(|b| refs.rev(b)), base.as_deref().and_then(|b| refs.rev(b))) {
+                    (Some(r), Some(b)) => refs.left_right(&git, &b, &r).await.unwrap_or((0, 0)),
+                    _ => (0, 0),
                 };
                 out.push(WorktreeView {
                     project_id: p.id.clone(),
@@ -3452,6 +3454,7 @@ impl Gitnetix {
                     additions: add,
                     deletions: del,
                     ahead,
+                    behind,
                     wip: changes.len() as u32,
                 });
             }
