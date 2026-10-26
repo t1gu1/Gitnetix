@@ -11,6 +11,7 @@ import { Resizer, usePaneWidth } from "../components/Resizer";
 import { ShellPane, TermTabs, useTermView } from "../components/Shell";
 import { ago, Busy, Empty, EmptyState, Header, Loading, Modal, Seg } from "../components/ui";
 import { plural } from "../lib/format";
+import { copyToClipboard } from "../lib/toast";
 import { KINDS, kindOfBranch, type Kind } from "../lib/kinds";
 import { useNav } from "../lib/nav";
 import { useBranchActions } from "./BranchMenu";
@@ -265,6 +266,7 @@ function Detail({ r, menu, onMenuClose }: { r: Row; menu?: { x: number; y: numbe
     a?.status === "paused" && { id: "resume", label: "Resume", icon: "play", run: () => resume.mutate({ id: a.id }) },
     busy && a && { id: "stop", label: "Stop agent", icon: "stop", run: () => stop.mutate({ id: a.id }) },
     r.wt && { id: "open", label: "Open in workspace", icon: "external", run: openWs },
+    { id: "copyName", label: "Copy workspace name", icon: "copy", run: () => copyToClipboard(r.path.split(/[\\/]/).pop() ?? r.path) },
     a && !busy && !isWorktree && { id: "clear", label: "Clear session", icon: "close", run: () => removeAgent.mutate({ id: a.id }) },
     isWorktree && "sep",
     isWorktree && { id: "continue", label: "Continue on branch", icon: "swap", run: () => finish.continue(session, true) },
