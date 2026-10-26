@@ -3907,8 +3907,6 @@ button.picker-act {
   font-size: 12.5px;
 }
 .wt-row .wt-base {
-  flex: 0 1 auto;
-  max-width: 45%;
   font-size: 11.5px;
 }
 .wt-row .wt-stat {

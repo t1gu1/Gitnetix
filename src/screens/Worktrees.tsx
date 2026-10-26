@@ -134,11 +134,11 @@ export function Worktrees({ initial }: { initial?: string }) {
                       <button className="item-btn wt-row" aria-pressed={r.key === cur?.key} title={r.path} onClick={() => { setSel(r.key); setPane("detail"); }}>
                         <span className="row" style={{ gap: 8 }}>
                           <span className={`mono ellipsis grow${r.wt ? "" : " faint"}`}>{r.branch}</span>
-                          {r.wt?.base && <span className="faint ellipsis wt-base">from {r.wt.base}</span>}
                           {r.wt && (r.wt.additions > 0 || r.wt.deletions > 0) && (
                             <span className="mono wt-stat"><span className="c-add">+{r.wt.additions}</span> <span className="c-del">−{r.wt.deletions}</span></span>
                           )}
                         </span>
+                        {r.wt?.base && <span className="faint ellipsis wt-base">from {r.wt.base}</span>}
                         <span className="row wt-meta">
                           <span className={r.status === "running" ? "pulse" : `wt-dot ${cls}`} />
                           <span className={cls} style={{ flex: "none" }}>{label}</span>
