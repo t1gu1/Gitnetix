@@ -11,6 +11,8 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-10-26
+
 ### Added
 - Ship dialog can update and date the changelog as the release ships, when AI is on for releases and the project has a `CHANGELOG.md`. A Settings toggle controls the default.
 - Delete tag action in the commit menu.
