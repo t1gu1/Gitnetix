@@ -12,7 +12,7 @@ import { Icon } from "../components/Icon";
 import { Resizer, usePaneWidth } from "../components/Resizer";
 import { useTermDefault } from "../components/Shell";
 import { Header, Seg } from "../components/ui";
-import { comboOf, DEFAULT_KEYS, showKeys, useDictationKeys } from "../lib/dictation";
+import { comboOf, DEFAULT_KEYS, DICTATION_LANGS, showKeys, useDictationKeys } from "../lib/dictation";
 import { ANIMATIONS, useAnimations } from "../lib/motion";
 import { useNav } from "../lib/nav";
 import { useStoredFlag } from "../lib/stored";
@@ -246,6 +246,8 @@ function Avatars() {
 function DictationSection() {
   const [keys, setKeys] = useDictationKeys();
   const [picking, setPicking] = useState(false);
+  const langs = useConfig().data?.ui.dictationLanguages ?? [];
+  const setUi = useAction("ui.set", { invalidate: [["config"]] });
   return (
     <>
       <div className="col" style={{ gap: 6 }}>
@@ -293,6 +295,13 @@ function DictationSection() {
           )}
         </li>
       </ul>
+      <Checks
+        label="Languages you speak"
+        hint="Each stretch of speech between pauses is written in the likeliest of these, so you can switch language mid-dictation. None ticked means any language, and short phrases may then be taken for another one."
+        options={DICTATION_LANGS}
+        value={langs}
+        onChange={(v) => setUi.mutate({ dictationLanguages: v })}
+      />
     </>
   );
 }

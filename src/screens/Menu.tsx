@@ -120,7 +120,7 @@ export function Menu({ onUnpair }: { onUnpair: () => void }) {
                     <div className="col card" style={{ gap: 12, padding: 14 }}>
                       <div className="col" style={{ gap: 2 }}>
                         <span style={{ fontWeight: 500 }}>Generation language</span>
-                        <span className="hint">The language the AI writes in for this project. Templates stay the same.</span>
+                        <span className="hint">The language the AI writes in for this project. Spoken follows your last voice dictation. Templates stay the same.</span>
                       </div>
                       {(
                         [
@@ -131,7 +131,7 @@ export function Menu({ onUnpair }: { onUnpair: () => void }) {
                       ).map(([k, label]) => (
                         <div key={k} className="row wrap" style={{ justifyContent: "space-between" }}>
                           <span className="muted" id={`gen-${k}`}>{label}</span>
-                          <Seg label={label} value={project.genLang[k]} options={LANGS} onChange={(v) => setLang.mutate({ projectId: project.id, [k]: v })} />
+                          <Seg label={label} value={project.genLang[k]} options={k === "release" ? LANGS : [...LANGS, { value: "spoken", label: "Spoken" }]} onChange={(v) => setLang.mutate({ projectId: project.id, [k]: v })} />
                         </div>
                       ))}
                       <div style={{ borderTop: "1px solid var(--line)", margin: "4px -14px 0" }} />

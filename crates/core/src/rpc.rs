@@ -19,7 +19,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("log.get", "Recent operations and errors, oldest first", ""),
     ("log.clear", "Empty the log", ""),
     ("config.get", "Full app configuration (no secrets)", ""),
-    ("ui.set", "Save UI preferences", "language?, theme?, lastProject?, animationsOff?"),
+    ("ui.set", "Save UI preferences", "language?, theme?, lastProject?, animationsOff?, dictationLanguages?"),
     ("ui.setView", "Remember how a screen was left (pane width, collapsed section…); no value forgets it", "key, value?"),
     ("server.set", "Configure the companion API", "enabled?, lan?, port?, regenerateToken?"),
     ("projects.list", "List saved projects", ""),
@@ -354,6 +354,9 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
                 }
                 if let Some(x) = p.get("animationsOff").and_then(Value::as_array) {
                     c.ui.animations_off = x.iter().filter_map(|v| v.as_str().map(String::from)).collect();
+                }
+                if let Some(x) = p.get("dictationLanguages").and_then(Value::as_array) {
+                    c.ui.dictation_languages = x.iter().filter_map(|v| v.as_str().map(String::from)).collect();
                 }
                 Ok(())
             })?;
@@ -749,7 +752,7 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
             let progress = move |done, total| {
                 let _ = events.send(crate::events::Event::DictationModel { done, total });
             };
-            let text = k.dictation.transcribe(&k.dir, audio, os(&p, "mime").unwrap_or_default(), progress).await?;
+            let text = k.dictation.transcribe(&k.dir, &k.store, audio, os(&p, "mime").unwrap_or_default(), progress).await?;
             to(json!({ "text": text }))
         }
         "ai.setRoute" => {

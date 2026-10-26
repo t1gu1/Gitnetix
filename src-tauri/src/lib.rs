@@ -47,7 +47,7 @@ mod desktop {
         let progress = move |done, total| {
             let _ = events.send(Event::DictationModel { done, total });
         };
-        k.dictation.transcribe_mono(&k.dir, samples, rate, progress).await.map_err(|e| e.to_string())
+        k.dictation.transcribe_mono(&k.dir, &k.store, samples, rate, progress).await.map_err(|e| e.to_string())
     }
 
     /// Save the agent logs' latest lines and end their runs before quitting, so a resumed run keeps them and never runs twice.

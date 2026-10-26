@@ -1579,9 +1579,17 @@ impl Gitnetix {
         self.store.read(|c| ai::resolve(&c.ai, task, t.and_then(|t| t.model.as_deref())))
     }
 
+    /// `lang` to write in: "spoken" is the language of the last dictation, the app's language before any.
+    fn gen_lang(&self, lang: &str) -> String {
+        if lang != "spoken" {
+            return lang.into();
+        }
+        self.store.read(|c| c.ui.spoken_language.clone().unwrap_or_else(|| c.ui.language.clone()))
+    }
+
     async fn ask(&self, task: &str, t: &Template, vars: BTreeMap<String, String>, lang: &str, cwd: Option<&Path>) -> Result<String> {
         let r = self.route(task, Some(t))?;
-        let prompt = templates::render(t, &vars, lang);
+        let prompt = templates::render(t, &vars, &self.gen_lang(lang));
         let how = format!("{} {:?}{}", r.provider, r.method, if r.model.is_empty() { String::new() } else { format!(" ({})", r.model) });
         crate::log::info(format!("Will attempt to ask AI for {task} with {how}"));
         let start = Instant::now();
@@ -3929,7 +3937,7 @@ impl Gitnetix {
         for (k, v) in &vars {
             prompt = prompt.replace(&format!("{{{k}}}"), v);
         }
-        prompt = prompt.replace("{language}", templates::language_name(&p.gen_lang.commit));
+        prompt = prompt.replace("{language}", templates::language_name(&self.gen_lang(&p.gen_lang.commit)));
         let (ticket, notes) = self.agent_ticket(project_id, &branch, cwd).await;
         // Last, so nothing in the ticket is taken for a placeholder.
         prompt = insert_ticket(&prompt, &ticket);

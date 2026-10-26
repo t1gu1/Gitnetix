@@ -46,6 +46,13 @@ export const canDictate = isLocal || (typeof MediaRecorder !== "undefined" && !!
 // shortcut: Firefox records only Opus, so the companion page in Firefox can't dictate; decode Opus on the desktop if that matters.
 const TYPE = canDictate && !isLocal ? ["audio/webm;codecs=pcm", "audio/mp4"].find((t) => MediaRecorder.isTypeSupported(t)) : undefined;
 
+const names = new Intl.DisplayNames([navigator.language], { type: "language" });
+/** The languages Whisper hears, by name. It writes Javanese "jw". */
+export const DICTATION_LANGS = "en zh de es ru ko fr ja pt tr pl ca nl ar sv it id hi fi vi he uk el ms cs ro da hu ta no th ur hr bg lt la mi ml cy sk te fa lv bn sr az sl kn et mk br eu is hy ne mn bs kk sq sw gl mr pa si km sn yo so af oc ka be tg sd gu am yi lo uz fo ht ps tk nn mt sa lb my bo tl mg as tt haw ln ha ba jw su yue"
+  .split(" ")
+  .map((value) => ({ value, label: names.of(value === "jw" ? "jv" : value) ?? value }))
+  .sort((a, b) => a.label.localeCompare(b.label));
+
 type Phase = "idle" | "listening" | "transcribing";
 /** The speech model's first download, while it runs. */
 let download: { done: number; total: number } | null = null;

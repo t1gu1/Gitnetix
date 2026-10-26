@@ -403,6 +403,10 @@ export interface Config {
     view: Record<string, string>;
     /** Animations turned off, by id (see `ANIMATIONS`). */
     animationsOff: string[];
+    /** Languages dictation listens for, as Whisper codes; empty = any. */
+    dictationLanguages: string[];
+    /** The language the last dictation was mostly in. */
+    spokenLanguage?: string | null;
   };
   server: { enabled: boolean; port: number; lan: boolean; token: string };
 }

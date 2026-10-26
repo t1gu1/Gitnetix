@@ -147,6 +147,7 @@ pub enum FinishWith {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct GenLangs {
+    /// Language codes ("fr"), or "spoken" for the language of the last dictation.
     pub commit: String,
     pub pr: String,
     pub release: String,
@@ -392,11 +393,15 @@ pub struct UiPrefs {
     pub view: BTreeMap<String, String>,
     /// Animations the user turned off, by id (see the UI's list); every other one plays.
     pub animations_off: Vec<String>,
+    /// Languages voice dictation listens for, as Whisper codes ("fr"); empty = any.
+    pub dictation_languages: Vec<String>,
+    /// The language the last dictation was mostly in: what the "spoken" generation language follows.
+    pub spoken_language: Option<String>,
 }
 
 impl Default for UiPrefs {
     fn default() -> Self {
-        UiPrefs { language: "en".into(), theme: "system".into(), last_project: None, view: BTreeMap::new(), animations_off: Vec::new() }
+        UiPrefs { language: "en".into(), theme: "system".into(), last_project: None, view: BTreeMap::new(), animations_off: Vec::new(), dictation_languages: Vec::new(), spoken_language: None }
     }
 }
 
