@@ -3772,6 +3772,10 @@ button.picker-act {
   flex-direction: column;
   gap: 24px;
 }
+/* Worktree detail runs wider than the other detail pages: terminal and agent log need the room. */
+.wt-detail {
+  max-width: 1400px;
+}
 .detail h1 {
   margin: 0;
   font-size: 20px;
