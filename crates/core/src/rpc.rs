@@ -94,7 +94,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("agents.list", "Agent sessions", ""),
     ("agents.get", "One agent session with its log", "id"),
     ("agents.start", "Start an agent on a branch (or main checkout)", "projectId, branch?, request, ticket?, provider?, model?, effort?, files?"),
-    ("agents.message", "Send a follow-up message to an agent; files: [{ name, data (base64) | path }]", "id, text, files?"),
+    ("agents.message", "Send a follow-up message to an agent, queued until its run ends while it works; files: [{ name, data (base64) | path }]", "id, text, files?"),
     ("agents.file", "A file sent to an agent, base64 (only from its attachments folder)", "id, path"),
     ("agents.pause", "Pause an agent", "id"),
     ("agents.resume", "Resume an agent", "id"),

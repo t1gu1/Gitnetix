@@ -436,6 +436,8 @@ export interface AgentSession {
   resumeId?: string | null;
   /** What the session runs on; missing on sessions from before routing. */
   ai?: { provider: string; model: string; effort: string } | null;
+  /** Messages sent while it works, in order; they go out together when the run ends. */
+  queued: string[];
 }
 
 /** One project in the terminal's command menu (a package.json, a Cargo.toml, a compose file…): its title and each command with the command line that runs it from the checkout root. */

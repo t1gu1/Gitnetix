@@ -240,6 +240,8 @@ function Detail({ r, menu, onMenuClose }: { r: Row; menu?: { x: number; y: numbe
   const [pick, setPick] = useAgentPick(r.projectId);
   const [termView, setTermView] = useTermView(r.projectId, r.branch, !!a, isWorktree);
   const busy = a?.status === "running" || a?.status === "paused";
+  // Stopping drops what was queued for the run's end: it comes back to the prompt box.
+  const halt = (s: AgentSession) => stop.mutate({ id: s.id }, { onSuccess: () => setText((t) => [...s.queued, t].filter(Boolean).join("\n\n")) });
   const send = (up: Upload[], t: string) => {
     if (!t && !up.length) return;
     const done = {
@@ -249,8 +251,8 @@ function Detail({ r, menu, onMenuClose }: { r: Row; menu?: { x: number; y: numbe
         setPicks([]);
       },
     };
-    if (a && !busy) msg.mutate({ id: a.id, text: t, files: up }, done);
-    else if (!a) start.mutate({ projectId: r.projectId, branch: r.wt?.branch ?? undefined, request: t, files: up, ...pick }, done);
+    if (a) msg.mutate({ id: a.id, text: t, files: up }, done);
+    else start.mutate({ projectId: r.projectId, branch: r.wt?.branch ?? undefined, request: t, files: up, ...pick }, done);
   };
   const commitPush = () => commit.mutate({ projectId: r.projectId, branch: r.branch, message: "", all: !staged }, { onSuccess: () => push.mutate({ projectId: r.projectId, branch: r.branch }) });
   const retry = (id: string) => msg.mutate({ id, text: "The last run failed. Read the errors above, fix them and try again." });
@@ -265,7 +267,7 @@ function Detail({ r, menu, onMenuClose }: { r: Row; menu?: { x: number; y: numbe
     a?.status === "failed" && { id: "retry", label: "Fix and retry with AI", icon: "sparkle", run: () => retry(a.id) },
     a?.status === "running" && { id: "pause", label: "Pause", icon: "pause", run: () => pause.mutate({ id: a.id }) },
     a?.status === "paused" && { id: "resume", label: "Resume", icon: "play", run: () => resume.mutate({ id: a.id }) },
-    busy && a && { id: "stop", label: "Stop agent", icon: "stop", run: () => stop.mutate({ id: a.id }) },
+    busy && a && { id: "stop", label: "Stop agent", icon: "stop", run: () => halt(a) },
     r.wt && { id: "open", label: "Open in workspace", icon: "external", run: openWs },
     { id: "copyName", label: "Copy workspace name", icon: "copy", run: () => copyToClipboard(r.path.split(/[\\/]/).pop() ?? r.path) },
     a && !busy && !isWorktree && { id: "clear", label: "Clear session", icon: "close", run: () => removeAgent.mutate({ id: a.id }) },
@@ -296,7 +298,7 @@ function Detail({ r, menu, onMenuClose }: { r: Row; menu?: { x: number; y: numbe
           <ShellPane projectId={r.projectId} path={r.wt ? r.path : undefined} />
         ) : (
           <>
-            <AgentLog lines={a?.lines ?? []} session={a?.id} projectId={r.projectId} provider={a ? a.ai?.provider : pick.provider} thinking={a?.status === "running" || msg.isPending || start.isPending} actions={isWorktree && <FinishWorktreeCard session={session} finish={finish} />} picks={picks} onPicks={setPicks} empty={r.wt ? "No agent session on this checkout." : "Directory removed."} />
+            <AgentLog lines={a?.lines ?? []} session={a?.id} projectId={r.projectId} provider={a ? a.ai?.provider : pick.provider} thinking={a?.status === "running" || msg.isPending || start.isPending} queued={a?.queued} actions={isWorktree && <FinishWorktreeCard session={session} finish={finish} />} picks={picks} onPicks={setPicks} empty={r.wt ? "No agent session on this checkout." : "Directory removed."} />
             <AgentInput
               id="wt-ask"
               label="Message the agent"
@@ -307,12 +309,12 @@ function Detail({ r, menu, onMenuClose }: { r: Row; menu?: { x: number; y: numbe
               picks={picks}
               onPicks={setPicks}
               onSend={send}
-              onStop={busy && a ? () => stop.mutate({ id: a.id }) : undefined}
+              onStop={busy && a ? () => halt(a) : undefined}
               log={a?.lines}
               disabled={!a && !r.wt}
               pending={msg.isPending || start.isPending}
               picker={a?.ai ? <AgentPicker value={a.ai} onChange={(p) => configure.mutate({ id: a.id, ...p })} compact /> : !a && r.wt && <AgentPicker value={pick} onChange={setPick} compact />}
-              placeholder={busy ? "Agent is working…" : a ? `Message the agent on ${r.branch}…` : "Start a session: describe what the agent should do…"}
+              placeholder={busy ? "Agent is working… a message now waits for it to finish" : a ? `Message the agent on ${r.branch}…` : "Start a session: describe what the agent should do…"}
             />
           </>
         )}

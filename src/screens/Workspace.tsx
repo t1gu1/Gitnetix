@@ -1824,8 +1824,10 @@ function Terminal({ pid, branch, cwd, worktree, open, setOpen, onCloseWorktree, 
     );
   }
   const busy = cur?.status === "running" || cur?.status === "paused";
+  // Stopping drops what was queued for the run's end: it comes back to the prompt box.
+  const halt = (s: AgentSession) => stop.mutate({ id: s.id }, { onSuccess: () => setText((t) => [...s.queued, t].filter(Boolean).join("\n\n")) });
   const send = (up: Upload[], t: string) => {
-    if ((!t && !up.length) || busy) return;
+    if (!t && !up.length) return;
     const done = {
       onSuccess: () => {
         setText("");
@@ -1878,6 +1880,7 @@ function Terminal({ pid, branch, cwd, worktree, open, setOpen, onCloseWorktree, 
               projectId={pid}
               provider={cur ? cur.ai?.provider : pick.provider}
               thinking={cur?.status === "running" || start.isPending || message.isPending}
+              queued={cur?.queued}
               actions={
                 cur?.worktree && <FinishWorktreeCard session={cur} finish={finish} />
               }
@@ -1901,12 +1904,12 @@ function Terminal({ pid, branch, cwd, worktree, open, setOpen, onCloseWorktree, 
               picks={picks}
               onPicks={setPicks}
               onSend={send}
-              onStop={busy && cur ? () => stop.mutate({ id: cur.id }) : undefined}
+              onStop={busy && cur ? () => halt(cur) : undefined}
               log={cur?.lines}
               disabled={false}
               pending={start.isPending || message.isPending}
               picker={!cur ? <AgentPicker value={pick} onChange={setPick} compact /> : cur.ai && <AgentPicker value={cur.ai} onChange={(p) => configure.mutate({ id: cur.id, ...p })} compact />}
-              placeholder={busy ? "Agent is working…" : cur ? "Reply to the agent…" : "Ask the agent anything…"}
+              placeholder={busy ? "Agent is working… a message now waits for it to finish" : cur ? "Reply to the agent…" : "Ask the agent anything…"}
             />
           </>
         )}

@@ -10,6 +10,12 @@ export type Block =
 const REPLY = /^✦ /;
 const STATUS = /^\s*[■⏸▶]/;
 
+/** A message of yours: its text, then the files sent with it, which close it, one "- path" per line. */
+export function said(msg: string) {
+  const [text, list = ""] = msg.split(/\n*Attached files:\n(?=- )/);
+  return { text, files: list.split("\n").flatMap((f) => (f.startsWith("- ") ? [f.slice(2)] : [])) };
+}
+
 /** Group raw log lines into chat blocks: your messages, replies, tool steps, status. */
 export function blocks(lines: LogLine[]): Block[] {
   const out: Block[] = [];
@@ -17,9 +23,8 @@ export function blocks(lines: LogLine[]): Block[] {
     const last = out.at(-1);
     switch (l.kind) {
       case "cmd": {
-        // "$ claude · request" opens the session, "› text" follows up; files sent with it close it, one "- path" per line.
-        const [text, list = ""] = l.text.replace(/^(\$ \S+ · |› )/, "").split(/\n*Attached files:\n(?=- )/);
-        out.push({ kind: "you", text, files: list.split("\n").flatMap((f) => (f.startsWith("- ") ? [f.slice(2)] : [])) });
+        // "$ claude · request" opens the session, "› text" follows up.
+        out.push({ kind: "you", ...said(l.text.replace(/^(\$ \S+ · |› )/, "")) });
         break;
       }
       case "ai": {

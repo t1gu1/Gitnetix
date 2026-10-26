@@ -60,6 +60,9 @@ pub struct AgentSession {
     /// What the session was started on; follow-ups reuse it.
     #[serde(default)]
     pub ai: Option<Resolved>,
+    /// Messages sent while it works, in order; they go out together when the run ends.
+    #[serde(default)]
+    pub queued: Vec<String>,
     #[serde(skip)]
     pub pid: Option<u32>,
 }
@@ -81,9 +84,14 @@ pub struct AgentManager {
     file: PathBuf,
     /// Serializes writes to `file` so concurrent persists cannot interleave.
     write_lock: Arc<Mutex<()>>,
+    /// Held by `message`, `end_run` and `stop`: a message never queues after its run took the queue, nor a stop slips between them.
+    turn: Arc<Mutex<()>>,
 }
 
 const MAX_LINES: usize = 2000;
+
+/// Closes the messages sent while the agent worked: it reads them only after its last reply.
+const QUEUED_NOTE: &str = "(I sent this while you were still working, before your last reply. If that reply asked me questions this does not answer, ask them again at the end of this reply, unless I told you not to ask questions.)";
 
 fn agent_label(r: &Resolved) -> Result<String> {
     Ok(format!("{} CLI · {}", ai::provider_info(&r.provider)?.name, r.label()))
@@ -119,13 +127,16 @@ impl AgentManager {
             // Only Claude Code can pick its conversation back up; a paused run stays as the user left it.
             if s.status == AgentStatus::Running && s.resume_id.is_some() && s.ai.as_ref().is_some_and(|r| r.provider == "claude") {
                 interrupted.push(s.id.clone());
+            } else {
+                // No run ends to send it: it would go out after your next message instead.
+                s.queued.clear();
             }
             if matches!(s.status, AgentStatus::Running | AgentStatus::Paused) {
                 s.status = AgentStatus::Stopped;
                 s.lines.push(LogLine::new("dim", "  ■ Stopped when Gitnetix quit"));
             }
         }
-        AgentManager { inner: Arc::new(Mutex::new(Inner { sessions, kills: HashMap::new(), interrupted, quitting: false })), events, file, write_lock: Arc::default() }
+        AgentManager { inner: Arc::new(Mutex::new(Inner { sessions, kills: HashMap::new(), interrupted, quitting: false })), events, file, write_lock: Arc::default(), turn: Arc::default() }
     }
 
     /// On quit: save the sessions, then kill their processes, which a quit never drops (`kill_on_drop`), so a
@@ -244,6 +255,7 @@ impl AgentManager {
             updated_at: now(),
             resume_id: None,
             ai: Some(args.ai.clone()),
+            queued: Vec::new(),
             pid: None,
         };
         self.inner.lock().unwrap().sessions.insert(id.clone(), session.clone());
@@ -282,11 +294,17 @@ impl AgentManager {
     }
 
     /// Send a follow-up message. Claude Code resumes the same conversation;
-    /// other CLIs get a fresh run in the same directory.
+    /// other CLIs get a fresh run in the same directory. While the agent
+    /// works, it waits for the run to end (`end_run`).
     pub fn message(&self, id: &str, text: &str, ai: &Resolved) -> Result<()> {
+        let _turn = self.turn.lock().unwrap();
         let s = self.get(id)?;
         if s.status == AgentStatus::Running || s.status == AgentStatus::Paused {
-            return Err(Error::Invalid("The agent is still working. Wait for it or stop it first.".into()));
+            if let Some(s) = self.inner.lock().unwrap().sessions.get_mut(id) {
+                s.queued.push(text.into());
+            }
+            self.persist();
+            return Ok(());
         }
         if !std::path::Path::new(&s.cwd).exists() {
             return Err(Error::Invalid(format!("{} no longer exists. Start a new session.", s.cwd)));
@@ -307,8 +325,44 @@ impl AgentManager {
         res
     }
 
+    /// After a run (`r`): the messages sent during it go out together as the
+    /// next one and the session keeps running; without any, it waits for you.
+    fn end_run(&self, id: &str, failed: bool, r: &Resolved) {
+        let _turn = self.turn.lock().unwrap();
+        if failed {
+            self.push(id, LogLine::new("err", "✕ Agent run failed"));
+        }
+        let Ok(s) = self.get(id) else { return };
+        // Quitting, nothing new starts: the saved queue goes out after the resumed run.
+        if s.queued.is_empty() || self.inner.lock().unwrap().quitting {
+            if !failed {
+                self.push(id, LogLine::new("wait", "◆ Waiting for your review"));
+            }
+            self.set_status(id, if failed { AgentStatus::Failed } else { AgentStatus::Waiting });
+            return;
+        }
+        if let Some(s) = self.inner.lock().unwrap().sessions.get_mut(id) {
+            s.queued.clear();
+        }
+        for t in &s.queued {
+            self.push(id, LogLine::new("cmd", format!("› {t}")));
+        }
+        // Already running: this saves the emptied queue and has the UI refetch it.
+        self.set_status(id, AgentStatus::Running);
+        let prompt = format!("{}\n\n{QUEUED_NOTE}", s.queued.join("\n\n"));
+        let _ = self.spawn_or_fail(id, std::path::Path::new(&s.cwd), s.ai.as_ref().unwrap_or(r), &prompt, s.resume_id.as_deref());
+    }
+
     pub fn stop(&self, id: &str) -> Result<()> {
-        let kill = self.inner.lock().unwrap().kills.remove(id);
+        let _turn = self.turn.lock().unwrap();
+        let kill = {
+            let mut g = self.inner.lock().unwrap();
+            // Dropped with the run it waited for; the UI puts it back in the prompt box.
+            if let Some(s) = g.sessions.get_mut(id) {
+                s.queued.clear();
+            }
+            g.kills.remove(id)
+        };
         if let Some(k) = kill {
             let _ = k.send(());
         }
@@ -419,6 +473,7 @@ impl AgentManager {
         let me = self.clone();
         let sid = id.to_string();
         let prompt = prompt.to_string();
+        let r = r.clone();
         tokio::spawn(async move {
             if let Some(mut w) = stdin {
                 let _ = w.write_all(prompt.as_bytes()).await;
@@ -460,16 +515,7 @@ impl AgentManager {
             let Some(exit) = exit else { return };
             me.inner.lock().unwrap().kills.remove(&sid);
             let ok = exit.map(|s| s.success()).unwrap_or(false);
-            match (ok, outcome) {
-                (_, Some(false)) | (false, None) => {
-                    me.push(&sid, LogLine::new("err", "✕ Agent run failed"));
-                    me.set_status(&sid, AgentStatus::Failed);
-                }
-                _ => {
-                    me.push(&sid, LogLine::new("wait", "◆ Waiting for your review"));
-                    me.set_status(&sid, AgentStatus::Waiting);
-                }
-            }
+            me.end_run(&sid, matches!((ok, outcome), (_, Some(false)) | (false, None)), &r);
         });
         Ok(())
     }
@@ -572,7 +618,7 @@ mod tests {
         let s = AgentSession {
             id: "a".into(), project_id: "p".into(), branch: "b".into(), cwd: ".".into(), worktree: false,
             status: AgentStatus::Waiting, request: "r".into(), agent_label: String::new(), lines: vec![],
-            started_at: now(), updated_at: now(), resume_id: Some("rid".into()), ai: Some(cli("claude")), pid: None,
+            started_at: now(), updated_at: now(), resume_id: Some("rid".into()), ai: Some(cli("claude")), queued: vec![], pid: None,
         };
         m.inner.lock().unwrap().sessions.insert("a".into(), s);
 
@@ -596,7 +642,7 @@ mod tests {
         let s = |id: &str, status, rid: Option<&str>, provider| AgentSession {
             id: id.into(), project_id: "p".into(), branch: "b".into(), cwd: "/gone".into(), worktree: false,
             status, request: "r".into(), agent_label: String::new(), lines: vec![],
-            started_at: now(), updated_at: now(), resume_id: rid.map(Into::into), ai: Some(cli(provider)), pid: None,
+            started_at: now(), updated_at: now(), resume_id: rid.map(Into::into), ai: Some(cli(provider)), queued: vec!["q".into()], pid: None,
         };
         let saved = vec![
             s("run", AgentStatus::Running, Some("rid"), "claude"),
@@ -610,11 +656,52 @@ mod tests {
         let m = AgentManager::new(broadcast::channel(8).0, dir.path());
         assert_eq!(m.inner.lock().unwrap().interrupted, vec!["run".to_string()]);
         assert!(saved.iter().take(4).all(|x| m.get(&x.id).unwrap().status == AgentStatus::Stopped));
+        // What was queued goes out when the resumed run ends; the others never end.
+        assert!(saved.iter().all(|x| m.get(&x.id).unwrap().queued.is_empty() == (x.id != "run")));
 
         // Its checkout is gone, so it stays stopped instead of spawning.
         m.resume_interrupted();
         assert!(m.inner.lock().unwrap().interrupted.is_empty());
         assert_eq!(m.get("run").unwrap().status, AgentStatus::Stopped);
+    }
+
+    #[test]
+    fn messages_sent_while_working_go_out_when_the_run_ends() {
+        let dir = tempfile::tempdir().unwrap();
+        let m = AgentManager::new(broadcast::channel(64).0, dir.path());
+        // No such CLI: the follow-up fails to start instead of running anything.
+        let r = cli("none");
+        let s = AgentSession {
+            id: "a".into(), project_id: "p".into(), branch: "b".into(), cwd: ".".into(), worktree: false,
+            status: AgentStatus::Running, request: "r".into(), agent_label: String::new(), lines: vec![],
+            started_at: now(), updated_at: now(), resume_id: Some("rid".into()), ai: Some(r.clone()), queued: vec![], pid: None,
+        };
+        m.inner.lock().unwrap().sessions.insert("a".into(), s);
+        let running = || m.inner.lock().unwrap().sessions.get_mut("a").unwrap().status = AgentStatus::Running;
+
+        m.message("a", "also the tests", &r).unwrap();
+        m.message("a", "and the docs", &r).unwrap();
+        let s = m.get("a").unwrap();
+        assert_eq!(s.queued, ["also the tests", "and the docs"]);
+        assert!(s.lines.is_empty());
+
+        // They go out together, without waiting for you in between.
+        m.end_run("a", false, &r);
+        let s = m.get("a").unwrap();
+        assert!(s.queued.is_empty());
+        let said: Vec<&str> = s.lines.iter().filter(|l| l.kind == "cmd").map(|l| l.text.as_str()).collect();
+        assert_eq!(said, ["› also the tests", "› and the docs"]);
+        assert!(!s.lines.iter().any(|l| l.kind == "wait"));
+
+        running();
+        m.end_run("a", false, &r);
+        assert_eq!(m.get("a").unwrap().status, AgentStatus::Waiting);
+
+        // Stopping drops what was queued.
+        running();
+        m.message("a", "never mind", &r).unwrap();
+        m.stop("a").unwrap();
+        assert!(m.get("a").unwrap().queued.is_empty());
     }
 
     #[test]
@@ -624,14 +711,22 @@ mod tests {
         let s = AgentSession {
             id: "a".into(), project_id: "p".into(), branch: "b".into(), cwd: ".".into(), worktree: false,
             status: AgentStatus::Running, request: "r".into(), agent_label: String::new(), lines: vec![],
-            started_at: now(), updated_at: now(), resume_id: Some("rid".into()), ai: Some(cli("claude")), pid: None,
+            started_at: now(), updated_at: now(), resume_id: Some("rid".into()), ai: Some(cli("claude")), queued: vec![], pid: None,
         };
+        // No such CLI for "q": a follow-up started by mistake fails instead of running anything.
+        let q = AgentSession { id: "q".into(), ai: Some(cli("none")), queued: vec!["later".into()], ..s.clone() };
         m.inner.lock().unwrap().sessions.insert("a".into(), s);
+        m.inner.lock().unwrap().sessions.insert("q".into(), q);
         m.shutdown();
         // Its killed process ending the run after: not saved, so the next launch resumes it.
         m.set_status("a", AgentStatus::Failed);
         let next = AgentManager::new(broadcast::channel(8).0, dir.path());
         assert_eq!(next.inner.lock().unwrap().interrupted, vec!["a".to_string()]);
+        // A killed run with messages queued starts nothing on quit; they stay for the resumed run.
+        m.end_run("q", true, &cli("none"));
+        let q = m.get("q").unwrap();
+        assert_eq!(q.queued, ["later"]);
+        assert!(!q.lines.iter().any(|l| l.kind == "cmd"));
     }
 
     #[test]
@@ -641,7 +736,7 @@ mod tests {
         let s = AgentSession {
             id: "a".into(), project_id: "p".into(), branch: "b".into(), cwd: ".".into(), worktree: false,
             status: AgentStatus::Running, request: "r".into(), agent_label: String::new(), lines: vec![],
-            started_at: now(), updated_at: now(), resume_id: None, ai: Some(cli("claude")), pid: None,
+            started_at: now(), updated_at: now(), resume_id: None, ai: Some(cli("claude")), queued: vec![], pid: None,
         };
         m.inner.lock().unwrap().sessions.insert("a".into(), s);
         let saved = || std::fs::read_to_string(dir.path().join("agents.json")).unwrap_or_default();

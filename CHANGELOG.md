@@ -13,6 +13,7 @@ release notes and the in-app update prompt.
 
 ### Added
 - Settings › Terminal sets the tab a branch's terminal opens on until one is picked there: Agent (the default) or Shell. Branches with an agent session open on Agent.
+- Message an agent while it works: your messages wait in a queue and go out together when its run ends. If it had asked you questions, it asks them again after answering, unless you told it not to ask questions. Stopping the agent puts the queued messages back in the prompt box.
 
 ### Fixed
 - The Agent or Shell tab picked in a terminal is remembered per branch instead of for every branch and worktree. Worktrees open on Agent every time you come back to them.

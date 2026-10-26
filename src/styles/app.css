@@ -3326,6 +3326,16 @@ button.picker-act {
   white-space: pre-wrap;
   word-break: break-word;
 }
+/* Sent while the agent works: faded until its run ends and the message goes out. */
+.ag-queued .ag-bubble {
+  opacity: 0.6;
+}
+/* Under the bubble: past the avatar column and its gap. */
+.ag-queued-hint {
+  margin-left: 36px;
+  font-size: 11.5px;
+  color: var(--faint);
+}
 /* The task pinned over the log once your first message scrolls away. No height and no gap, so showing it never shifts the log. */
 .ag-task {
   position: sticky;

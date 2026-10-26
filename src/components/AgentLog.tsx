@@ -4,7 +4,7 @@ import { createPortal } from "react-dom";
 import { useAgentFile, useAiCatalog, useConfig } from "../api/hooks";
 import { onPathDrop } from "../api/transport";
 import type { LogLine } from "../api/types";
-import { blocks, questions, type Block, type Opt, type Question } from "../lib/agentLog";
+import { blocks, questions, said, type Block, type Opt, type Question } from "../lib/agentLog";
 import { bytes } from "../lib/format";
 import { toast } from "../lib/toast";
 import { Avatar } from "./Avatar";
@@ -129,8 +129,8 @@ function Said({ b, session }: { b: { text: string; files: string[] }; session?: 
 /** Images a reply shows, as its prompt asks: the local paths of its Markdown images, `![What it shows](/path.png)`. */
 const shown = (text: string) => [...new Set([...text.matchAll(/!\[[^\]]*\]\(<?([^<>)]+?)>?\)/g)].map((m) => m[1].trim()))].filter((p) => isImage(p) && !/^\w+:\/\//.test(p));
 
-/** `actions` show under "Your turn!" when the agent did not ask a question; `picks` are its options picked for the prompt box; `session` is the agent's id, for the files you sent it. */
-export function AgentLog({ lines, empty, picks, onPicks, projectId, actions, thinking, provider, session }: { lines: LogLine[]; empty?: string; picks: Choice[]; onPicks: (c: Choice[]) => void; projectId?: string; actions?: ReactNode; thinking?: boolean; provider?: string; session?: string }) {
+/** `actions` show under "Your turn!" when the agent did not ask a question; `picks` are its options picked for the prompt box; `session` is the agent's id, for the files you sent it; `queued` are your messages waiting for its run to end. */
+export function AgentLog({ lines, empty, picks, onPicks, projectId, actions, thinking, provider, session, queued = [] }: { lines: LogLine[]; empty?: string; picks: Choice[]; onPicks: (c: Choice[]) => void; projectId?: string; actions?: ReactNode; thinking?: boolean; provider?: string; session?: string; queued?: string[] }) {
   const me = useMe(projectId);
   const ref = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
@@ -155,7 +155,7 @@ export function AgentLog({ lines, empty, picks, onPicks, projectId, actions, thi
   useEffect(() => {
     const el = ref.current;
     if (el && stick.current) el.scrollTop = el.scrollHeight;
-  }, [lines.length, thinking]);
+  }, [lines.length, thinking, queued.length]);
   // Your first message is the task: once it scrolls out of the log, it pins to the top; `peek` unfolds it there.
   const task = list.find((b): b is Extract<Block, { kind: "you" }> => b.kind === "you");
   const ti = task ? list.indexOf(task) : -1;
@@ -257,6 +257,17 @@ export function AgentLog({ lines, empty, picks, onPicks, projectId, actions, thi
           <span className="ag-dots" aria-hidden="true"><i /><i /><i /></span>
         </div>
       )}
+      {queued.map((t, i) => (
+        <div key={i} className="ag-you ag-queued">
+          <div className="ag-you-row">
+            <Avatar name={me.name} email={me.email} size={22} />
+            <div className="ag-bubble">
+              <Said b={said(t)} session={session} />
+            </div>
+          </div>
+          {i === queued.length - 1 && <span className="ag-queued-hint">Queued · sends when the agent finishes</span>}
+        </div>
+      ))}
     </div>
   );
 }
@@ -478,7 +489,7 @@ export function RequestField({ value, onChange, files, onFiles, onSubmit }: { va
 /** The prompt box under an agent log, shared by the workspace terminal and the worktrees page.
  * Enter sends, Shift+Enter or Ctrl+Enter starts a new line. Files come from the clip, a paste, or a drop anywhere on the panel it sits in.
  * `picks` (options picked in the log) go first in the message, the text after them adds to it.
- * `onStop` (while the agent works) swaps Send for Stop; Up/Down on the first or last line walk your past messages in `log`. */
+ * `onStop` (while the agent works) swaps Send for Stop until something is typed, which then queues for the run's end; Up/Down on the first or last line walk your past messages in `log`. */
 export function AgentInput({ id, label, value, onChange, files, onFiles, picks, onPicks, onSend, onStop, log = [], placeholder, disabled, pending, picker }: { id: string; label: string; value: string; onChange: (v: string) => void; files: Attachment[]; onFiles: (f: Attachment[]) => void; picks: Choice[]; onPicks: (c: Choice[]) => void; onSend: (files: Upload[], text: string) => void; onStop?: () => void; log?: LogLine[]; placeholder: string; disabled: boolean; pending: boolean; picker?: ReactNode }) {
   // Position in the history, and the unsent text it replaced.
   const [at, setAt] = useState<number | null>(null);
@@ -490,7 +501,8 @@ export function AgentInput({ id, label, value, onChange, files, onFiles, picks, 
   // Lines of text shown: Send stays square up to 3, where the picker stacks beside it.
   const [lines, setLines] = useState(1);
   const sent = blocks(log).flatMap((b) => (b.kind === "you" ? [b.text] : []));
-  const ready = !disabled && !pending && !onStop && (!!value.trim() || files.length > 0 || picks.length > 0);
+  const typed = !!value.trim() || files.length > 0 || picks.length > 0;
+  const ready = !disabled && !pending && typed;
   // A pick lands in the box: type the details next, Enter sends.
   useEffect(() => {
     if (picks.length) input.current?.focus();
@@ -599,12 +611,12 @@ export function AgentInput({ id, label, value, onChange, files, onFiles, picks, 
           placeholder={placeholder}
         />
         {picker}
-        {onStop ? (
+        {onStop && !typed ? (
           <button type="button" className="btn btn-danger term-send" aria-label="Stop the agent" data-tip="Stop" onClick={onStop}>
             <Icon name="stop" size={16} />
           </button>
         ) : (
-          <button type="submit" className="btn btn-primary term-send" aria-label="Send" data-tip="Send · Shift+Enter for a new line" disabled={!ready}>
+          <button type="submit" className="btn btn-primary term-send" aria-label={onStop ? "Queue the message" : "Send"} data-tip={onStop ? "Queue · sends when the agent finishes" : "Send · Shift+Enter for a new line"} disabled={!ready}>
             {pending ? <span className="spinner" /> : <Icon name="send" size={20} />}
           </button>
         )}

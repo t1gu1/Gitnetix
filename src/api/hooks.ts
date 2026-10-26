@@ -44,8 +44,9 @@ export function useEngineEvents() {
       subscribe((e) => {
         switch (e.type) {
           case "agentLine":
+            // A message of yours going out takes the queued ones with it.
             qc.setQueryData<AgentSession[]>(["agents"], (list) =>
-              list?.map((s) => (s.id === e.sessionId ? { ...s, lines: [...s.lines.slice(-1999), e.line] } : s)),
+              list?.map((s) => (s.id === e.sessionId ? { ...s, lines: [...s.lines.slice(-1999), e.line], queued: e.line.kind === "cmd" ? [] : s.queued } : s)),
             );
             break;
           case "agentStatus": {
