@@ -3939,6 +3939,10 @@ button.picker-act {
     flex-wrap: wrap;
     row-gap: 0;
   }
+  /* Touch buttons are 36px tall here, not 28: still centered on the 40px last line. */
+  .term-attach {
+    margin-bottom: 2px;
+  }
   .term-input .picker-acts {
     order: -1;
     flex: 0 0 calc(100% + 22px);

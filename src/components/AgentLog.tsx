@@ -514,6 +514,8 @@ export function AgentInput({ id, label, value, onChange, files, onFiles, picks, 
     // Grows with the text up to half the panel, then scrolls.
     const cap = Math.min(240, (form.current?.parentElement?.clientHeight ?? 480) / 2);
     el.style.height = "auto";
+    // Mounted in a hidden pane (mobile detail, inactive tab) it measures 0: keep the one-line height.
+    if (!el.scrollHeight) return;
     const h = Math.min(el.scrollHeight, cap);
     el.style.height = `${h}px`;
     el.style.overflowY = el.scrollHeight > cap ? "auto" : "hidden";
