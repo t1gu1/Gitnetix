@@ -364,7 +364,7 @@ details[open] .chev{transform:rotate(45deg)}
 .hd .diff-split-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
 .hd .diff-half{display:grid;grid-template-columns:52px 20px minmax(0,1fr);overflow:hidden;border-right:1px solid var(--line)}
 .hd .diff-half .tx{white-space:pre-wrap;overflow-wrap:anywhere;padding-right:8px}
-.hd .diff-half.empty{background:var(--raised)}
+.hd .diff-half.blank{background:var(--raised)}
 .hd .diff-heatmap{position:relative;flex:0 0 28px;border-left:1px solid var(--line);background:var(--raised)}
 .hd .diff-heatmap .hm{position:absolute;left:2px;right:2px;min-height:4px;border-radius:2px}
 .hd .diff-heatmap .hm.add{background:color-mix(in srgb,var(--add-fg) 80%,#000)}

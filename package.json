@@ -16,8 +16,11 @@
     "android": "tauri android dev"
   },
   "dependencies": {
+    "@codemirror/language": "^6.13.1",
+    "@codemirror/language-data": "^6.5.2",
     "@fontsource/instrument-sans": "^5.2.6",
     "@fontsource/jetbrains-mono": "^5.2.6",
+    "@lezer/highlight": "^1.2.5",
     "@tanstack/react-query": "^5.80.0",
     "@tauri-apps/api": "^2.5.0",
     "@tauri-apps/plugin-barcode-scanner": "^2.5.3",

@@ -48,4 +48,6 @@ export default defineConfig({
     target: "es2022",
     sourcemap: false,
   },
+  // ES workers can split: the diff highlighter loads each language's grammar only when a file needs it.
+  worker: { format: "es" },
 });

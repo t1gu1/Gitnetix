@@ -237,7 +237,7 @@ function Diff({ mode }: { mode: 'split' | 'unified' | 'full' }) {
               {pairs.map(([l, r], i) => (
                 <div key={i} className="diff-split-row">
                   {[l && { ...l, num: l.k === '@' ? undefined : l.o }, r && { ...r, num: r.k === '@' ? undefined : r.n }].map((x, j) => (
-                    <div key={j} className={`diff-half${x ? cls(x.k) : ' empty'}`}>
+                    <div key={j} className={`diff-half${x ? cls(x.k) : ' blank'}`}>
                       <span className="ln">{x?.num}</span>
                       <span className="sg">{x && sign(x.k)}</span>
                       <span className="tx">{x?.t}</span>

@@ -146,6 +146,7 @@ export function tokens(t: Theme): Record<string, string> {
     "warn-fg": a[11],
     "mod-fg": a[12],
     "release-fg": a[13],
+    "prop-fg": a[14],
     "trunk-fg": t.trunk,
     "add-bg": mix(a[10], 14, "transparent"),
     "del-bg": mix(a[9], 14, "transparent"),

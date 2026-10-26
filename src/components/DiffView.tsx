@@ -1,6 +1,7 @@
-import { Fragment, useId, useLayoutEffect, useRef, useState, type PointerEvent, type ReactElement, type ReactNode } from "react";
+import { Fragment, startTransition, useEffect, useId, useLayoutEffect, useRef, useState, type PointerEvent, type ReactElement, type ReactNode } from "react";
 
 import type { Hunk } from "../api/types";
+import type { Token, Tokens } from "../lib/highlight.worker";
 
 const MARKER = /^(<<<<<<<|=======|>>>>>>>)/;
 // #rgb, #rgba, #rrggbb or #rrggbbaa; not inside a word or an `&#123;` entity.
@@ -13,18 +14,50 @@ function swatched(text: string): ReactNode {
   return parts.map((p, i) => (i % 2 ? <Fragment key={i}><span className="swatch" style={{ background: p }} />{p}</Fragment> : p));
 }
 
+/** A line's text, in its syntax colors once they have come. */
+function code(text: string, toks: Token[] | null | undefined): ReactNode {
+  if (!toks) return swatched(text);
+  return toks.map(([s, cls], i) => (cls ? <span key={i} className={cls}>{swatched(s)}</span> : swatched(s)));
+}
+
+let worker: Worker | undefined;
+let asked = 0;
+const answers = new Map<number, (tokens: Tokens) => void>();
+
+/** The hunks to draw and their syntax tokens, from a worker. A new file shows plain until they come; a new
+ * version of the same file (a refresh, another mode) keeps the colored previous one meanwhile, so it doesn't flicker. */
+function useTokens(path: string, hunks: Hunk[]): { hunks: Hunk[]; tokens?: Tokens } {
+  const [got, setGot] = useState<{ id: number; path: string; hunks: Hunk[]; tokens: Tokens }>();
+  useEffect(() => {
+    if (!worker) {
+      worker = new Worker(new URL("../lib/highlight.worker.ts", import.meta.url), { type: "module" });
+      worker.onmessage = ({ data }) => {
+        answers.get(data.id)?.(data.tokens);
+        answers.delete(data.id);
+      };
+    }
+    const id = ++asked;
+    // A late answer still moves the view forward, so steady edits can't stall it on an old version. A transition
+    // draws the colors in slices, so a big file doesn't freeze while they land.
+    answers.set(id, (tokens) => startTransition(() => setGot((g) => (g && g.id > id ? g : { id, path, hunks, tokens }))));
+    worker.postMessage({ id, path, hunks });
+  }, [path, hunks]);
+  return got && (got.hunks === hunks || (got.path === path && got.tokens)) ? got : { hunks };
+}
+
 /** "full" is unified with the whole file as context (the hunks must be fetched that way). */
 export type DiffMode = "unified" | "split" | "full";
 
-export function DiffView({ hunks, mode }: { hunks: Hunk[]; mode: DiffMode }) {
+export function DiffView({ path, hunks, mode }: { path: string; hunks: Hunk[]; mode: DiffMode }) {
+  const shown = useTokens(path, hunks);
   return (
-    <Heatmapped hunks={hunks} split={mode === "split"}>
-      {mode === "split" ? <Split hunks={hunks} /> : <Unified hunks={hunks} headers={mode === "unified"} />}
+    <Heatmapped hunks={shown.hunks} split={mode === "split"}>
+      {mode === "split" ? <Split hunks={shown.hunks} tokens={shown.tokens} /> : <Unified hunks={shown.hunks} tokens={shown.tokens} headers={mode === "unified"} />}
     </Heatmapped>
   );
 }
 
-function Unified({ hunks, headers = true }: { hunks: Hunk[]; headers?: boolean }) {
+function Unified({ hunks, tokens, headers = true }: { hunks: Hunk[]; tokens: Tokens | undefined; headers?: boolean }) {
   const rows: ReactElement[] = [];
   hunks.forEach((h, hi) => {
     if (headers)
@@ -46,7 +79,7 @@ function Unified({ hunks, headers = true }: { hunks: Hunk[]; headers?: boolean }
           <span className="ln">{l.kind === "+" ? "" : o}</span>
           <span className="ln">{l.kind === "-" ? "" : n}</span>
           <span className="sg">{l.kind === " " ? "" : l.kind === "-" ? "−" : "+"}</span>
-          <span className="tx">{swatched(l.text)}</span>
+          <span className="tx">{code(l.text, tokens?.[hi][li])}</span>
         </div>,
       );
       if (l.kind !== "+") o++;
@@ -73,14 +106,15 @@ interface Half {
   num: string;
   sign: string;
   text: string;
+  toks?: Token[] | null;
   cls: string;
 }
 
-const empty: Half = { num: "", sign: "", text: "", cls: "empty" };
+const empty: Half = { num: "", sign: "", text: "", cls: "blank" };
 
-function Split({ hunks }: { hunks: Hunk[] }) {
+function Split({ hunks, tokens }: { hunks: Hunk[]; tokens: Tokens | undefined }) {
   const rows: [Half, Half][] = [];
-  for (const h of hunks) {
+  hunks.forEach((h, hi) => {
     rows.push([{ num: "", sign: "", text: h.header, cls: "hunk" }, { num: "", sign: "", text: "", cls: "hunk" }]);
     let o = h.oldStart;
     let n = h.newStart;
@@ -92,19 +126,20 @@ function Split({ hunks }: { hunks: Hunk[] }) {
       dels = [];
       adds = [];
     };
-    for (const l of h.lines) {
-      if (l.kind === "-") dels.push({ num: String(o++), sign: "−", text: l.text, cls: "del" });
-      else if (l.kind === "+") adds.push({ num: String(n++), sign: "+", text: l.text, cls: "add" });
+    h.lines.forEach((l, li) => {
+      const toks = tokens?.[hi][li];
+      if (l.kind === "-") dels.push({ num: String(o++), sign: "−", text: l.text, toks, cls: "del" });
+      else if (l.kind === "+") adds.push({ num: String(n++), sign: "+", text: l.text, toks, cls: "add" });
       else {
         flush();
         rows.push([
-          { num: String(o++), sign: "", text: l.text, cls: "" },
-          { num: String(n++), sign: "", text: l.text, cls: "" },
+          { num: String(o++), sign: "", text: l.text, toks, cls: "" },
+          { num: String(n++), sign: "", text: l.text, toks, cls: "" },
         ]);
       }
-    }
+    });
     flush();
-  }
+  });
   return (
     <div className="diff-split">
       {chunked(rows.map(([l, r], i) => (
@@ -113,7 +148,7 @@ function Split({ hunks }: { hunks: Hunk[] }) {
             <div key={j} className={`diff-half ${x.cls}`}>
               <span className="ln">{x.num}</span>
               <span className="sg">{x.sign}</span>
-              <span className="tx">{swatched(x.text)}</span>
+              <span className="tx">{code(x.text, x.toks)}</span>
             </div>
           ))}
         </div>

@@ -392,8 +392,8 @@ export function Workspace() {
                   </article>
                 ) : (
                   <>
-                    {raw && <DiffView hunks={raw} mode="full" />}
-                    {!image && diff.data && diff.data.length > 0 && <DiffView hunks={diff.data} mode={diffMode} />}
+                    {raw && current && <DiffView path={current.path} hunks={raw} mode="full" />}
+                    {!image && current && diff.data && diff.data.length > 0 && <DiffView path={current.path} hunks={diff.data} mode={diffMode} />}
                   </>
                 )}
                 {(!current || (diff.data && diff.data.length === 0 && !image) || (unchanged && !image && blobs.data && text === null)) && (

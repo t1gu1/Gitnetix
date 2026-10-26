@@ -21,6 +21,7 @@
   --mod-fg: #86aeff;
   --trunk-fg: #f7c48a;
   --release-fg: #c4a7ff;
+  --prop-fg: #5fd0e0;
   --hunk-bg: rgba(134, 174, 255, 0.08);
   --term: #0b0c0e;
   --shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
@@ -71,6 +72,7 @@
   --mod-fg: #2452c2;
   --trunk-fg: #a85a12;
   --release-fg: #6b46c1;
+  --prop-fg: #0e7490;
   --hunk-bg: #eef2fb;
   --term: #fafaf8;
   --shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
@@ -2887,6 +2889,39 @@ button.tree-twist:hover {
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--fg) 35%, transparent);
   vertical-align: -1px;
 }
+/* Syntax colors (src/lib/highlight.worker.ts): the theme's terminal hues, as a terminal diff shows them. */
+.sx-k {
+  color: var(--release-fg);
+}
+.sx-s {
+  color: var(--add-fg);
+}
+.sx-n {
+  color: var(--warn-fg);
+}
+.sx-c {
+  color: var(--faint);
+  font-style: italic;
+}
+.sx-m {
+  color: var(--muted);
+}
+.sx-t {
+  color: var(--trunk-fg);
+}
+.sx-f,
+.sx-l {
+  color: var(--mod-fg);
+}
+.sx-p {
+  color: var(--prop-fg);
+}
+.sx-h {
+  font-weight: 500;
+}
+.sx-e {
+  font-style: italic;
+}
 .diff-pane {
   position: absolute;
   inset: 0;
@@ -3122,7 +3157,7 @@ input.img-slider {
 .diff-half.del .sg {
   color: var(--del-fg);
 }
-.diff-half.empty {
+.diff-half.blank {
   background: var(--raised);
 }
 .diff-half.hunk {
