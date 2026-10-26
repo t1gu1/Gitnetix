@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { QueryClient, useMutation, useMutationState, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { rpc, subscribe } from "./transport";
+import { isLocal, rpc, subscribe } from "./transport";
 import type {
   AgentSession,
   AiCatalog,
@@ -46,7 +46,15 @@ export function useEngineEvents() {
               list?.map((s) => (s.id === e.sessionId ? { ...s, lines: [...s.lines.slice(-1999), e.line] } : s)),
             );
             break;
-          case "agentStatus":
+          case "agentStatus": {
+            // Phone: buzz when a run needs the user. Only while the page is open; plain-HTTP LAN pages can't push notifications.
+            const prev = qc.getQueryData<AgentSession[]>(["agents"])?.find((s) => s.id === e.sessionId);
+            if (!isLocal && prev?.status !== e.status && (e.status === "waiting" || e.status === "failed")) {
+              navigator.vibrate?.([200, 100, 200]);
+              const on = prev ? ` on ${prev.branch}` : "";
+              if (e.status === "waiting") toast(`Agent${on} is waiting for you`, "info", 8000);
+              else toast(`Agent${on} failed`, "error");
+            }
             qc.setQueryData<AgentSession[]>(["agents"], (list) =>
               list?.map((s) => (s.id === e.sessionId ? { ...s, status: e.status } : s)),
             );
@@ -56,6 +64,7 @@ export function useEngineEvents() {
             qc.invalidateQueries({ queryKey: ["overview"] });
             qc.invalidateQueries({ queryKey: ["files"] });
             break;
+          }
           case "projectChanged":
             qc.invalidateQueries({ queryKey: ["overview", e.projectId] });
             qc.invalidateQueries({ queryKey: ["files", e.projectId] });
