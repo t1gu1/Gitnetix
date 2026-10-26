@@ -1,8 +1,17 @@
-import { useId, useLayoutEffect, useRef, useState, type PointerEvent, type ReactElement, type ReactNode } from "react";
+import { Fragment, useId, useLayoutEffect, useRef, useState, type PointerEvent, type ReactElement, type ReactNode } from "react";
 
 import type { Hunk } from "../api/types";
 
 const MARKER = /^(<<<<<<<|=======|>>>>>>>)/;
+// #rgb, #rgba, #rrggbb or #rrggbbaa; not inside a word or an `&#123;` entity.
+const HEX = /((?<![\w&])#(?:[\da-f]{8}|[\da-f]{6}|[\da-f]{3,4})\b)/i;
+
+/** The text with a swatch of each hex colour before it. */
+function swatched(text: string): ReactNode {
+  const parts = text.split(HEX);
+  if (parts.length === 1) return text;
+  return parts.map((p, i) => (i % 2 ? <Fragment key={i}><span className="swatch" style={{ background: p }} />{p}</Fragment> : p));
+}
 
 /** "full" is unified with the whole file as context (the hunks must be fetched that way). */
 export type DiffMode = "unified" | "split" | "full";
@@ -37,7 +46,7 @@ function Unified({ hunks, headers = true }: { hunks: Hunk[]; headers?: boolean }
           <span className="ln">{l.kind === "+" ? "" : o}</span>
           <span className="ln">{l.kind === "-" ? "" : n}</span>
           <span className="sg">{l.kind === " " ? "" : l.kind === "-" ? "−" : "+"}</span>
-          <span className="tx">{l.text}</span>
+          <span className="tx">{swatched(l.text)}</span>
         </div>,
       );
       if (l.kind !== "+") o++;
@@ -104,7 +113,7 @@ function Split({ hunks }: { hunks: Hunk[] }) {
             <div key={j} className={`diff-half ${x.cls}`}>
               <span className="ln">{x.num}</span>
               <span className="sg">{x.sign}</span>
-              <span className="tx">{x.text}</span>
+              <span className="tx">{swatched(x.text)}</span>
             </div>
           ))}
         </div>

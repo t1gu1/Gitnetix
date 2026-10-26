@@ -2877,6 +2877,16 @@ button.tree-twist:hover {
   color: var(--accent-fg);
   font-weight: 500;
 }
+.swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 4px;
+  border-radius: 2px;
+  /* Visible on any line background, even for colours close to it. */
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--fg) 35%, transparent);
+  vertical-align: -1px;
+}
 .diff-pane {
   position: absolute;
   inset: 0;
