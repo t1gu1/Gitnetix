@@ -2542,9 +2542,57 @@ button.tree-twist:hover {
   margin: 4px 2px;
   background: var(--line);
 }
+.ctx-col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.ctx-col + .ctx-col {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--line);
+}
+.ctx-head-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.ctx-head .act {
+  width: 18px;
+  height: 16px;
+  border-radius: var(--r-sm);
+}
+.ctx-head .act:hover {
+  color: var(--fg);
+  background: var(--sel);
+}
+/* Wide screens: the columns sit side by side. */
+@media (min-width: 901px) {
+  .ctx-cols {
+    flex-direction: row;
+    width: max-content;
+    max-width: calc(100vw - 16px);
+    overflow: auto;
+  }
+  .ctx-cols .ctx-col {
+    flex: 0 0 auto;
+    min-width: 160px;
+    max-width: 240px;
+  }
+  .ctx-col + .ctx-col {
+    margin: 0 0 0 4px;
+    padding: 0 0 0 4px;
+    border-top: 0;
+    border-left: 1px solid var(--line);
+  }
+}
 @media (pointer: coarse) {
   .ctx-item {
     min-height: 40px;
+  }
+  .ctx-head .act {
+    width: 32px;
+    height: 28px;
   }
 }
 .branch-meta {

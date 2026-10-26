@@ -9,6 +9,7 @@ import "@xterm/xterm/css/xterm.css";
 
 import { isLocal, openExternal, rpc, subscribe } from "../api/transport";
 import type { GitnetixEvent, Scripts, ShellSnapshot } from "../api/types";
+import { useStored } from "../lib/stored";
 import { ansi, resolveTheme } from "../lib/themes";
 import { ContextMenu } from "./ContextMenu";
 import { Icon } from "./Icon";
@@ -54,6 +55,10 @@ export default function ShellPane({ projectId, path }: { projectId: string; path
   const [menu, setMenu] = useState<{ x: number; y: number }>();
   const scripts = useQuery({ queryKey: ["shellScripts", projectId, path], queryFn: () => rpc<Scripts[]>("shell.scripts", { projectId, path }), enabled: !!path });
   const pkgs = scripts.data ?? [];
+  // Titles of the command sections hidden in this project, whatever the checkout.
+  const [hidden, setHidden] = useStored<string[]>(`gnx.commands.hidden.${projectId}`, []);
+  const shown = pkgs.filter((p) => !hidden.includes(p.title));
+  const off = pkgs.filter((p) => hidden.includes(p.title));
   const typeScript = (cmd: string) => {
     const term = termRef.current;
     if (!term) return;
@@ -233,12 +238,36 @@ export default function ShellPane({ projectId, path }: { projectId: string; path
         <ContextMenu
           {...menu}
           alignRight
+          columns
           label="Project commands"
           onClose={() => setMenu(undefined)}
-          items={pkgs.flatMap((p, i) => [
-            ...(pkgs.length > 1 ? [...(i ? ["sep" as const] : []), { heading: p.title }] : []),
-            ...p.scripts.map(([name, cmd]) => ({ id: `${i}:${name}`, label: name, icon: null, run: () => typeScript(cmd) })),
-          ])}
+          items={[
+            ...shown.flatMap((p, i) => [
+              ...(i ? ["sep" as const] : []),
+              ...(pkgs.length > 1
+                ? [
+                    {
+                      heading: (
+                        <span className="ctx-head-row">
+                          <span className="grow ellipsis">{p.title}</span>
+                          <button type="button" className="act" aria-label={`Hide ${p.title}`} data-tip="Hide in this project" onClick={() => setHidden([...hidden, p.title])}>
+                            <Icon name="close" size={10} />
+                          </button>
+                        </span>
+                      ),
+                    },
+                  ]
+                : []),
+              ...p.scripts.map(([name, cmd]) => ({ id: `${i}:${name}`, label: name, icon: null, run: () => typeScript(cmd) })),
+            ]),
+            ...(off.length
+              ? [
+                  ...(shown.length ? ["sep" as const] : []),
+                  { heading: "Hidden" },
+                  ...off.map((p) => ({ id: `show:${p.title}`, label: p.title, icon: "plus", hint: "Show", keep: true, run: () => setHidden(hidden.filter((t) => t !== p.title)) })),
+                ]
+              : []),
+          ]}
         />
       )}
       {finding && (
