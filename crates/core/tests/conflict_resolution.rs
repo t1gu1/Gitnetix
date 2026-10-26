@@ -122,4 +122,38 @@ async fn ai_resolves_conflicts_and_the_operation_goes_through() {
     assert_eq!(rev(&repo, "main"), before);
     assert!(git_out(&repo, &["status", "--porcelain"]).is_empty());
     assert!(rev(&repo, "MERGE_HEAD").is_empty());
+
+    // Changed on one side, deleted on the other: AI keeps the file or deletes it, told which side did what.
+    let prompt = tmp.path().join("prompt");
+    let answer = |word: &str| std::fs::write(&script, format!("#!/bin/sh\ncat > '{}'\necho {word}\n", prompt.display())).unwrap();
+    let asked = || std::fs::read_to_string(&prompt).unwrap();
+    commit_file(&repo, "NOTES.md", "notes\n");
+    sh(&repo, &["switch", "-qc", "feat/d"]);
+    std::fs::write(repo.join("OTHER.md"), "other\n").unwrap();
+    commit_file(&repo, "NOTES.md", "notes d\n");
+    sh(&repo, &["switch", "-q", "main"]);
+    sh(&repo, &["rm", "-q", "NOTES.md"]);
+    sh(&repo, &["commit", "-qm", "drop notes"]);
+    sh(&repo, &["switch", "-q", "feat/d"]);
+    answer("delete");
+    let r = call(&k, "workspace.rebase", json!({ "projectId": pid, "branch": "feat/d" })).await;
+    assert_eq!(r["conflicts"], json!([]), "{r}");
+    assert_eq!(rev(&repo, "feat/d~1"), rev(&repo, "main"));
+    assert!(!repo.join("NOTES.md").exists());
+    assert!(asked().contains("NOTES.md was changed by feat/d and deleted by main"), "{}", asked());
+
+    sh(&repo, &["switch", "-q", "main"]);
+    commit_file(&repo, "KEEP.md", "k\n");
+    sh(&repo, &["switch", "-qc", "feat/k"]);
+    sh(&repo, &["rm", "-q", "KEEP.md"]);
+    commit_file(&repo, "MORE.md", "more\n");
+    sh(&repo, &["switch", "-q", "main"]);
+    commit_file(&repo, "KEEP.md", "k main\n");
+    sh(&repo, &["switch", "-q", "feat/k"]);
+    answer("Keep.");
+    let r = call(&k, "workspace.rebase", json!({ "projectId": pid, "branch": "feat/k" })).await;
+    assert_eq!(r["conflicts"], json!([]), "{r}");
+    assert_eq!(rev(&repo, "feat/k~1"), rev(&repo, "main"));
+    assert_eq!(std::fs::read_to_string(repo.join("KEEP.md")).unwrap(), "k main\n");
+    assert!(asked().contains("KEEP.md was changed by main and deleted by feat/k"), "{}", asked());
 }

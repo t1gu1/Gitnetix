@@ -345,6 +345,15 @@ impl Resolution {
     }
 }
 
+/// What AI makes of one conflicted file.
+enum Fix {
+    /// Its resolved text.
+    Text(String),
+    /// Changed on one side, deleted on the other: the changed file stays, or goes.
+    Keep,
+    Delete,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RebaseResult {
@@ -2375,14 +2384,12 @@ impl Gitnetix {
             vars.insert("ours".into(), ours.to_string());
             vars.insert("theirs".into(), theirs.to_string());
             let answer = self.ask("conflict", &t, vars, "en", Some(git.cwd())).await?;
-            if answer.contains("<<<<<<<") || answer.contains(">>>>>>>") {
+            let fitted = fit_answer(&lines[start..end], &answer)
+                .ok_or_else(|| Error::Ai("The AI answer does not match the lines around the conflict. Try again or resolve by hand.".into()))?;
+            if fitted.iter().any(|l| l.starts_with("<<<<<<<") || l.starts_with(">>>>>>>")) {
                 return Err(Error::Ai("The AI answer still has conflict markers. Try again or resolve by hand.".into()));
             }
-            for (i, l) in answer.lines().enumerate() {
-                // The answer comes back trimmed: give its first line back the excerpt's indent.
-                let first = lines[start];
-                out.push(if i == 0 && l.trim_start() == first.trim_start() { first.to_string() } else { l.to_string() });
-            }
+            out.extend(fitted);
             at = end;
         }
         out.extend(lines[at..].iter().map(|l| l.to_string()));
@@ -2410,17 +2417,45 @@ impl Gitnetix {
                 .is_ok_and(|r| r.method != ConnectMethod::Cli || ai::cli_path(&r.provider).is_ok())
     }
 
+    /// AI's call on `path`, changed on one side and deleted on the other (`changed`: the index stage
+    /// holding the change, 2 for `theirs`, 3 for `ours`): keep the changed file, or delete it.
+    async fn keep_or_delete(&self, p: &Project, git: &Git, path: &str, changed: u8, ours: &str, theirs: &str) -> Result<Fix> {
+        let (changed_by, deleted_by) = if changed == 3 { (ours, theirs) } else { (theirs, ours) };
+        let mut diff = git.run(&["diff", &format!(":1:{path}"), &format!(":{changed}:{path}")]).await?;
+        crate::git::truncate_utf8(&mut diff, 60_000);
+        // The conflict template's AI and rules, asked a question its text-resolving body doesn't fit.
+        let mut t = self.template("conflict", None, Some(&p.id))?;
+        t.body = "{path} was changed by {changed} and deleted by {deleted}. Decide whether the file stays, with that change, or goes.\n\n- keep: the file is still needed and the change still matters\n- delete: the deletion was deliberate and the change is no longer needed, or is already made where the code moved\n\nAnswer with one word: keep or delete.\n\nThe change from {changed}:\n{diff}".into();
+        let mut vars = BTreeMap::new();
+        vars.insert("path".into(), path.to_string());
+        vars.insert("changed".into(), changed_by.to_string());
+        vars.insert("deleted".into(), deleted_by.to_string());
+        vars.insert("diff".into(), diff);
+        let answer = self.ask("conflict", &t, vars, "en", Some(git.cwd())).await?;
+        let fix = match answer.trim_matches(|c: char| !c.is_alphabetic()).to_lowercase().as_str() {
+            "keep" => Fix::Keep,
+            "delete" => Fix::Delete,
+            _ => return Err(Error::Ai(format!("The AI answered neither keep nor delete: {}", answer.trim()))),
+        };
+        crate::log::info(format!("AI chose to {} {path}, changed by {changed_by} and deleted by {deleted_by}", if matches!(fix, Fix::Keep) { "keep" } else { "delete" }));
+        Ok(fix)
+    }
+
     /// AI resolves conflicted `files` in `git`'s checkout and stages them. Returns "path: why" for
-    /// each one it could not, left as it was. Files whose conflict has no markers to work from
-    /// (binary, deleted on one side) are left too.
+    /// each one it could not, left as it was. A file changed on one side and deleted on the other is
+    /// kept or deleted; other conflicts with no markers to work from (binary, renamed on both sides) are left.
     async fn resolve_files(&self, p: &Project, git: &Git, files: &[String], ours: &str, theirs: &str) -> Vec<String> {
         let _ = self.events.send(Event::ConflictResolving { project_id: p.id.clone(), files: files.to_vec() });
         crate::log::info(format!("Will attempt to resolve conflicts with AI in {} ({ours} onto {theirs}): {}", git.cwd().display(), files.join(", ")));
         // Asked a few at a time; written one by one, as `git add` takes the index lock.
-        let answers: Vec<(String, Result<String>)> = stream::iter(files.to_vec())
+        let answers: Vec<(String, Result<Fix>)> = stream::iter(files.to_vec())
             .map(|f| async move {
-                let marked = std::fs::read_to_string(git.cwd().join(&f)).is_ok_and(|c| c.contains("<<<<<<<"));
-                let r = if marked { self.propose_resolution(p, git, &f, ours, theirs).await } else { Err(Error::Invalid("no conflict markers to resolve".into())) };
+                let r = match git.conflict_stages(&f).await {
+                    Ok(s) if s == [1, 2] || s == [1, 3] => self.keep_or_delete(p, git, &f, s[1], ours, theirs).await,
+                    Ok(_) if std::fs::read_to_string(git.cwd().join(&f)).is_ok_and(|c| c.contains("<<<<<<<")) => self.propose_resolution(p, git, &f, ours, theirs).await.map(Fix::Text),
+                    Ok(_) => Err(Error::Invalid("no conflict markers to resolve".into())),
+                    Err(e) => Err(e),
+                };
                 (f, r)
             })
             .buffered(3)
@@ -2429,7 +2464,9 @@ impl Gitnetix {
         let mut failed = Vec::new();
         for (f, r) in answers {
             if let Err(e) = match r {
-                Ok(body) => Self::write_resolution(git, &f, &body).await,
+                Ok(Fix::Text(body)) => Self::write_resolution(git, &f, &body).await,
+                Ok(Fix::Keep) => git.add(&f).await,
+                Ok(Fix::Delete) => git.run(&["rm", "-q", "--", &f]).await.map(|_| ()),
                 Err(e) => Err(e),
             } {
                 crate::log::error(format!("Could not resolve {f}: {e}"));
@@ -5084,6 +5121,64 @@ fn conflict_regions(lines: &[&str], context: usize) -> Vec<(usize, usize)> {
         }
     }
     regions
+}
+
+/// AI's answer for `excerpt` (conflicts with their context) cut back to the excerpt: an AI that can
+/// read the checkout may answer with the whole file, or add a preamble. The context on each side of the
+/// conflicts is found in the answer (whitespace aside) and kept as it was, what's between them taken.
+/// None when the answer doesn't hold that context: it can't be placed safely.
+fn fit_answer(excerpt: &[&str], answer: &str) -> Option<Vec<String>> {
+    let first = excerpt.iter().position(|l| l.starts_with("<<<<<<<"))?;
+    let last = excerpt.iter().rposition(|l| l.starts_with(">>>>>>>"))?;
+    let (head, tail) = (&excerpt[..first], &excerpt[last + 1..]);
+    // The answer comes back trimmed: blank lines at the excerpt's ends can't be matched.
+    let h = &head[head.iter().position(|l| !l.trim().is_empty()).unwrap_or(head.len())..];
+    let t = &tail[..tail.iter().rposition(|l| !l.trim().is_empty()).map_or(0, |i| i + 1)];
+    let a: Vec<&str> = answer.lines().collect();
+    let same = |at: usize, ctx: &[&str]| ctx.iter().zip(&a[at..]).all(|(c, l)| c.trim() == l.trim());
+    let from = (0..=a.len().checked_sub(h.len())?).find(|&i| same(i, h))? + h.len();
+    // Last match: the resolved lines may repeat some of the context.
+    let to = (from..=a.len().checked_sub(t.len())?).rev().find(|&j| same(j, t))?;
+    let keep = |ls: &[&str]| ls.iter().map(|l| l.to_string()).collect::<Vec<_>>();
+    Some([keep(head), keep(&a[from..to]), keep(tail)].concat())
+}
+
+#[cfg(test)]
+mod fit_answer_tests {
+    use super::fit_answer;
+
+    const EXCERPT: [&str; 9] = ["fn a() {", "    one();", "<<<<<<< HEAD", "    two();", "=======", "    three();", ">>>>>>> b", "    four();", "}"];
+
+    #[test]
+    fn excerpt_answer_keeps_context_as_it_was() {
+        // Trimmed answer: the first line lost its indent, the context comes back from the excerpt.
+        let got = fit_answer(&EXCERPT, "fn a() {\n one();\n    two();\n    three();\n    four();\n}").unwrap();
+        assert_eq!(got, ["fn a() {", "    one();", "    two();", "    three();", "    four();", "}"]);
+    }
+
+    #[test]
+    fn whole_file_or_preamble_cut_back_to_the_excerpt() {
+        let whole = "use x;\n\nfn a() {\n    one();\n    two();\n    three();\n    four();\n}\n\nfn b() {}";
+        let want = ["fn a() {", "    one();", "    two();", "    three();", "    four();", "}"];
+        assert_eq!(fit_answer(&EXCERPT, whole).unwrap(), want);
+        let chatty = "Here is the resolved text:\nfn a() {\n    one();\n    two();\n    three();\n    four();\n}";
+        assert_eq!(fit_answer(&EXCERPT, chatty).unwrap(), want);
+    }
+
+    #[test]
+    fn answer_without_the_context_is_refused() {
+        assert_eq!(fit_answer(&EXCERPT, "    two();\n    three();"), None);
+        assert_eq!(fit_answer(&EXCERPT, "fn a() {\n    one();\n    two();"), None);
+    }
+
+    #[test]
+    fn conflict_at_file_start_or_end() {
+        let start = ["<<<<<<< HEAD", "a", "=======", "b", ">>>>>>> x", "c"];
+        assert_eq!(fit_answer(&start, "a\nb\nc").unwrap(), ["a", "b", "c"]);
+        let end = ["", "c", "<<<<<<< HEAD", "a", "=======", "b", ">>>>>>> x"];
+        assert_eq!(fit_answer(&end, "c\na\nb").unwrap(), ["", "c", "a", "b"]);
+        assert_eq!(fit_answer(&["<<<<<<< HEAD", "a", "=======", "b", ">>>>>>> x"], "ab").unwrap(), ["ab"]);
+    }
 }
 
 #[cfg(test)]

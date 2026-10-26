@@ -905,6 +905,14 @@ impl Git {
         Ok(out.split('\0').filter(|s| !s.is_empty()).map(String::from).collect())
     }
 
+    /// Index stages conflicted `path` has, in order: 1 the common base, 2 the checkout's side, 3 the side
+    /// brought in. Base and one side only: changed on that side, deleted on the other.
+    pub async fn conflict_stages(&self, path: &str) -> Result<Vec<u8>> {
+        let out = self.run(&["ls-files", "-u", "-z", "--", path]).await?;
+        // "<mode> <sha> <stage>\t<path>"
+        Ok(out.split('\0').filter_map(|e| e.split_once('\t').filter(|(_, p)| *p == path)?.0.rsplit(' ').next()?.parse().ok()).collect())
+    }
+
     pub async fn ls_files(&self) -> Result<Vec<String>> {
         let out = self.run(&["ls-files", "-z"]).await?;
         Ok(out.split('\0').filter(|s| !s.is_empty()).map(String::from).collect())
