@@ -26,6 +26,7 @@ import type {
   Ticket,
   WorktreeView,
 } from "./types";
+import { shownStatus } from "../components/AgentLog";
 import { toast } from "../lib/toast";
 
 export const queryClient = new QueryClient({
@@ -49,12 +50,6 @@ export function useEngineEvents() {
           case "agentStatus": {
             // Phone: buzz when a run needs the user. Only while the page is open; plain-HTTP LAN pages can't push notifications.
             const prev = qc.getQueryData<AgentSession[]>(["agents"])?.find((s) => s.id === e.sessionId);
-            if (!isLocal && prev?.status !== e.status && (e.status === "waiting" || e.status === "failed")) {
-              navigator.vibrate?.([200, 100, 200]);
-              const on = prev ? ` on ${prev.branch}` : "";
-              if (e.status === "waiting") toast(`Agent${on} is waiting for you`, "info", 8000);
-              else toast(`Agent${on} failed`, "error");
-            }
             qc.setQueryData<AgentSession[]>(["agents"], (list) =>
               list?.map((s) => (s.id === e.sessionId ? { ...s, status: e.status } : s)),
             );
@@ -63,6 +58,18 @@ export function useEngineEvents() {
             qc.invalidateQueries({ queryKey: ["projects"] });
             qc.invalidateQueries({ queryKey: ["overview"] });
             qc.invalidateQueries({ queryKey: ["files"] });
+            if (!isLocal && prev?.status !== e.status && (e.status === "waiting" || e.status === "failed")) {
+              navigator.vibrate?.([200, 100, 200]);
+              const on = prev ? ` on ${prev.branch}` : "";
+              if (e.status === "failed") toast(`Agent${on} failed`, "error");
+              else {
+                // Done when its merge options show, which takes the branch's fresh commits and WIP: after the invalidation above, so this joins its refetch.
+                const s = prev && { ...prev, status: e.status };
+                qc.fetchQuery({ queryKey: ["worktrees"], queryFn: () => rpc<WorktreeView[]>("worktrees.list"), staleTime: 0 })
+                  .catch(() => [] as WorktreeView[])
+                  .then((wts) => toast(`Agent${on} ${s && shownStatus(s, wts.find((w) => w.path === s.cwd)) === "done" ? "is done" : "is waiting for you"}`, "info", 8000));
+              }
+            }
             break;
           }
           case "projectChanged":

@@ -1,8 +1,9 @@
 import { useIsMutating } from "@tanstack/react-query";
 import { useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type MouseEvent, type ReactNode } from "react";
 
-import { useAction } from "../api/hooks";
+import { useAction, useAgents } from "../api/hooks";
 import type { BranchView, Overview, ReleaseView } from "../api/types";
+import { shownStatus } from "../components/AgentLog";
 import { AuthorFilter, authorsOf } from "../components/AuthorFilter";
 import { Avatar } from "../components/Avatar";
 import { ContextMenu, type MenuItem } from "../components/ContextMenu";
@@ -770,6 +771,7 @@ function BranchMeta({
   const typed = b.role === "branch" && !!b.kind;
   const wip = b.wip > 0 && <span className="wip-badge" title={`${plural(b.wip, "file")} with uncommitted changes`}>WIP {b.wip}</span>;
   const conflict = b.conflict && <span className="c-del">conflict</span>;
+  const agent = useAgents().data?.find((a) => a.cwd === b.worktree);
   return (
     <>
     <span className="branch-meta">
@@ -845,7 +847,7 @@ function BranchMeta({
       <span className="branch-meta">
         {/* Its checkout's state: the worktree tag says when the AI works there. */}
         <span className={`row${b.running ? " c-acc" : ""}`} style={{ gap: 4 }} title={b.worktree}><Icon name="layers" size={11} stroke={1.4} />{b.running ? <span className="ai-fade">AI working</span> : "worktree"}</span>
-        {!b.running && b.waiting && <span className="c-add ai-fade">waiting</span>}
+        {!b.running && b.waiting && <span className="c-add ai-fade">{agent && shownStatus(agent, b) === "done" ? "done" : "waiting"}</span>}
         {conflict}
         {!typed && wip}
       </span>

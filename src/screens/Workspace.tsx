@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties, type Keyboard
 import { switchedOverview, useAction, useAgents, useAiOn, useAutoFetch, useBlobs, useDiff, useFiles, useOverview, usePendingBranches, useProjectPrefs, useProjects } from "../api/hooks";
 import { isLocal, revealPath } from "../api/transport";
 import type { AgentSession, BranchView, Commit, FileChange, Hunk, MergeResult, Overview, RebaseResult, ReleaseView, Stash } from "../api/types";
-import { AgentInput, AgentLog, type Attachment, type Choice, type Upload } from "../components/AgentLog";
+import { AgentInput, AgentLog, shownStatus, type Attachment, type Choice, type Upload } from "../components/AgentLog";
 import { AgentPicker, useAgentPick } from "../components/AgentPicker";
 import { DiffView, type DiffMode } from "../components/DiffView";
 import { IMAGE_MODES, ImageDiff, comparable, isImage, useImageMode } from "../components/ImageDiff";
@@ -1751,6 +1751,7 @@ function CommitBox({ pid, branch, enabled, staged, changed }: { pid: string; bra
 function Terminal({ pid, branch, cwd, open, setOpen, onCloseWorktree, finish }: { pid: string; branch?: string; cwd?: string; open: boolean; setOpen: (b: boolean) => void; onCloseWorktree: (s: AgentSession) => void; finish: FinishHandlers }) {
   const agents = useAgents();
   const cur = (agents.data ?? []).find((a) => a.projectId === pid && a.branch === branch);
+  const curBranch = useOverview(pid).data?.branches.find((b) => b.name === cur?.branch);
   const [text, setText] = useState("");
   const [files, setFiles] = useState<Attachment[]>([]);
   const [picks, setPicks] = useState<Choice[]>([]);
@@ -1771,7 +1772,7 @@ function Terminal({ pid, branch, cwd, open, setOpen, onCloseWorktree, finish }: 
     return (
       <button className="row term-bar" style={{ height: 37, flex: "0 0 37px", margin: 0, padding: "0 14px 3px", border: 0, borderTop: "1px solid var(--line)", background: "var(--panel)", color: "var(--muted)", textAlign: "left" }} onClick={() => setOpen(true)}>
         <Icon name="terminal" />
-        <span>{shell ? "Shell" : cur ? `Agent · ${cur.status}` : "Agent"}</span>
+        <span>{shell ? "Shell" : cur ? `Agent · ${shownStatus(cur, curBranch)}` : "Agent"}</span>
         {!shell && cur?.status === "running" && <span className="pulse" />}
         <span className="grow" />
         <Icon name="chevronUp" size={13} />

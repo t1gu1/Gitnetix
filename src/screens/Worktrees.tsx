@@ -2,7 +2,7 @@ import { useMemo, useRef, useState, type CSSProperties } from "react";
 
 import { useAction, useAgents, useFiles, useOverview, useProjects, useWorktrees } from "../api/hooks";
 import type { AgentSession, AgentStatus, WorktreeView } from "../api/types";
-import { AgentInput, AgentLog, FileChip, uploads, useAttach, type Attachment, type Choice, type Upload } from "../components/AgentLog";
+import { AgentInput, AgentLog, FileChip, shownStatus, uploads, useAttach, type Attachment, type Choice, type Upload } from "../components/AgentLog";
 import { AgentPicker, MenuChoice, useAgentPick } from "../components/AgentPicker";
 import { Icon } from "../components/Icon";
 import { Resizer, usePaneWidth } from "../components/Resizer";
@@ -40,6 +40,7 @@ interface Row {
 const GROUP: Partial<Record<Row["status"], Exclude<Filter, "all">>> = {
   running: "running",
   waiting: "needs",
+  done: "needs",
   failed: "needs",
 };
 
@@ -61,13 +62,13 @@ export function Worktrees({ initial }: { initial?: string }) {
   const rows: Row[] = useMemo(() => {
     const list: Row[] = (wts.data ?? []).filter((w) => !w.main).map((w) => {
       const a = (agents.data ?? []).find((x) => x.cwd === w.path) ?? w.agent ?? undefined;
-      return { key: w.path, wt: w, agent: a, projectId: w.projectId, projectName: w.projectName, branch: w.branch ?? "(detached)", path: w.path, status: a?.status ?? "idle" };
+      return { key: w.path, wt: w, agent: a, projectId: w.projectId, projectName: w.projectName, branch: w.branch ?? "(detached)", path: w.path, status: a ? shownStatus(a, w) : "idle" };
     });
     for (const a of agents.data ?? []) {
       if (!list.some((r) => r.agent?.id === a.id)) {
         const p = projects.find((x) => x.id === a.projectId);
         const w = wts.data?.find((x) => x.path === a.cwd);
-        list.push({ key: a.id, wt: w, agent: a, projectId: a.projectId, projectName: p?.name ?? "?", branch: a.branch, path: a.cwd, status: a.status });
+        list.push({ key: a.id, wt: w, agent: a, projectId: a.projectId, projectName: p?.name ?? "?", branch: a.branch, path: a.cwd, status: shownStatus(a, w) });
       }
     }
     return list;

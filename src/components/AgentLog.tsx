@@ -2,7 +2,7 @@ import { type CSSProperties, type KeyboardEvent, type ReactNode, useEffect, useL
 
 import { useAiCatalog, useConfig } from "../api/hooks";
 import { onPathDrop } from "../api/transport";
-import type { LogLine } from "../api/types";
+import type { AgentSession, AgentStatus, LogLine } from "../api/types";
 import { bytes } from "../lib/format";
 import { toast } from "../lib/toast";
 import { Avatar } from "./Avatar";
@@ -107,6 +107,10 @@ export function questions(lines: LogLine[]): Question[] {
   }
   return out;
 }
+
+/** A worktree run that ended with its merge options showing (no question, something to merge on its branch `b`) is done. */
+export const shownStatus = (s: AgentSession, b?: { ahead: number; wip: number }): AgentStatus =>
+  s.status === "waiting" && s.worktree && !!b && (b.ahead > 0 || b.wip > 0) && !questions(s.lines).length ? "done" : s.status;
 
 /** "Read ×3 · Edit · Bash ×2" */
 function summary(lines: LogLine[]) {

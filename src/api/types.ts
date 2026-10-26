@@ -453,6 +453,9 @@ export interface WorktreeView {
   ticket?: string | null;
   additions: number;
   deletions: number;
+  /** Commits not in `base` yet, and files with uncommitted changes: what a merge would carry. */
+  ahead: number;
+  wip: number;
   agent?: AgentSession | null;
 }
 

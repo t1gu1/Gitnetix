@@ -233,6 +233,9 @@ pub struct WorktreeView {
     pub ticket: Option<String>,
     pub additions: u32,
     pub deletions: u32,
+    /// Commits not in `base` yet, and files with uncommitted changes: what a merge would carry.
+    pub ahead: u32,
+    pub wip: u32,
     pub agent: Option<AgentSession>,
 }
 
@@ -3423,7 +3426,8 @@ impl Gitnetix {
             let refs = Refs::load(&git, git.branches().await.unwrap_or_default()).await;
             for w in list {
                 let (mut add, mut del) = (0, 0);
-                for f in Git::new(&w.path).wip_changes().await.unwrap_or_default() {
+                let changes = Git::new(&w.path).wip_changes().await.unwrap_or_default();
+                for f in &changes {
                     add += f.additions;
                     del += f.deletions;
                 }
@@ -3431,6 +3435,10 @@ impl Gitnetix {
                 let base = match &w.branch {
                     Some(b) => Some(self.base_in(&p, &git, &refs, b, &default).await).filter(|x| x != b),
                     None => None,
+                };
+                let ahead = match (w.branch.as_deref().and_then(|b| refs.rev(b)), base.as_deref().and_then(|b| refs.rev(b))) {
+                    (Some(r), Some(b)) => refs.left_right(&git, &b, &r).await.map(|(_, a)| a).unwrap_or(0),
+                    _ => 0,
                 };
                 out.push(WorktreeView {
                     project_id: p.id.clone(),
@@ -3443,6 +3451,8 @@ impl Gitnetix {
                     main: w.main,
                     additions: add,
                     deletions: del,
+                    ahead,
+                    wip: changes.len() as u32,
                 });
             }
         }
