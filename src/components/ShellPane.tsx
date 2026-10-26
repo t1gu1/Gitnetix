@@ -218,8 +218,8 @@ export default function ShellPane({ projectId, path }: { projectId: string; path
           type="button"
           className="btn btn-sm btn-icon shell-scripts"
           aria-haspopup="menu"
-          aria-label="Package scripts"
-          data-tip="Package scripts"
+          aria-label="Project commands"
+          data-tip="Project commands"
           onClick={(e) => {
             const r = e.currentTarget.getBoundingClientRect();
             setMenu({ x: r.right, y: r.bottom + 2 });
@@ -233,7 +233,7 @@ export default function ShellPane({ projectId, path }: { projectId: string; path
         <ContextMenu
           {...menu}
           alignRight
-          label="Package scripts"
+          label="Project commands"
           onClose={() => setMenu(undefined)}
           items={pkgs.flatMap((p, i) => [
             ...(pkgs.length > 1 ? [...(i ? ["sep" as const] : []), { heading: p.title }] : []),

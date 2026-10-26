@@ -102,7 +102,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("shell.open", "Terminal of a checkout (main checkout or worktree) of the project: starts its shell if needed, returns recent output", "projectId, path, cols, rows"),
     ("shell.write", "Type into a checkout's terminal", "path, data"),
     ("shell.resize", "Resize a checkout's terminal", "path, cols, rows"),
-    ("shell.scripts", "Scripts of every package.json in a checkout of the project, each with the command line that runs it from the checkout root", "projectId, path"),
+    ("shell.scripts", "Commands of every project tool in a checkout of the project (package.json scripts, Cargo, Docker Compose, Make, LÖVE…) whose program is installed, each with the command line that runs it from the checkout root", "projectId, path"),
     ("ai.catalog", "AI providers, their status and settings", ""),
     ("ai.saveProvider", "Configure an AI provider", "id, method?, model?, effort?, baseUrl?, apiKey?"),
     ("ai.setDefault", "Default AI provider", "id"),

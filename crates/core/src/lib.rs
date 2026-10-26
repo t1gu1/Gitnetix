@@ -12,6 +12,7 @@ pub mod events;
 pub mod git;
 pub mod log;
 pub mod net;
+pub mod project_commands;
 pub mod providers;
 pub mod rpc;
 pub mod secrets;

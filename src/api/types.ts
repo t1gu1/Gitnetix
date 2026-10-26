@@ -436,7 +436,7 @@ export interface AgentSession {
   ai?: { provider: string; model: string; effort: string } | null;
 }
 
-/** One package.json in the terminal's script menu: its title and each script with the command line that runs it from the checkout root. */
+/** One project in the terminal's command menu (a package.json, a Cargo.toml, a compose file…): its title and each command with the command line that runs it from the checkout root. */
 export interface Scripts {
   title: string;
   scripts: [string, string][];
