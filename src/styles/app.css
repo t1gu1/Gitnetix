@@ -2566,6 +2566,27 @@ button.tree-twist:hover {
   color: var(--fg);
   background: var(--sel);
 }
+/* A column with a .ctx-fold pill shrinks to it, and grows back on hover or focus. */
+.ctx-col:has(.ctx-fold):not(:hover, :focus-within) {
+  min-width: 0;
+}
+.ctx-col:has(.ctx-fold):not(:hover, :focus-within) .ctx-item {
+  /* Like .sr-only: still focusable, so the arrow keys open it. */
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+.ctx-col:has(.ctx-fold):is(:hover, :focus-within) .ctx-item {
+  transform-origin: top left;
+  animation: pop-in 0.16s var(--ease);
+}
+.ctx-fold {
+  outline: none;
+}
 /* Wide screens: the columns sit side by side. */
 @media (min-width: 901px) {
   .ctx-cols {
@@ -5125,6 +5146,7 @@ body:has(> .modal-scrim) #root * {
   .modal,
   .modal-scrim,
   .ctx-menu,
+  .ctx-item,
   .toast {
     animation: none !important;
   }
@@ -5141,7 +5163,7 @@ body:has(> .modal-scrim) #root * {
 :root[data-anim-off~="lists"] :is(.tree-kids, .file-row, .commit-row, .stash-row, .item-btn, .ag-log > *, .chart-bar > span, .kpi) {
   animation: none !important;
 }
-:root[data-anim-off~="dialogs"] :is(.modal, .modal-scrim, .ctx-menu, .toast) {
+:root[data-anim-off~="dialogs"] :is(.modal, .modal-scrim, .ctx-menu, .ctx-item, .toast) {
   animation: none !important;
 }
 :root[data-anim-off~="path"] .tree-row[data-path]::before,

@@ -227,7 +227,7 @@ export default function ShellPane({ projectId, path }: { projectId: string; path
           data-tip="Project commands"
           onClick={(e) => {
             const r = e.currentTarget.getBoundingClientRect();
-            setMenu({ x: r.right, y: r.bottom + 2 });
+            setMenu({ x: r.left, y: r.bottom + 2 });
             scripts.refetch();
           }}
         >
@@ -237,7 +237,6 @@ export default function ShellPane({ projectId, path }: { projectId: string; path
       {menu && (
         <ContextMenu
           {...menu}
-          alignRight
           columns
           label="Project commands"
           onClose={() => setMenu(undefined)}
@@ -263,7 +262,14 @@ export default function ShellPane({ projectId, path }: { projectId: string; path
             ...(off.length
               ? [
                   ...(shown.length ? ["sep" as const] : []),
-                  { heading: "Hidden" },
+                  // Folds the list below into this pill; tabIndex lets a tap focus it, which opens it.
+                  {
+                    heading: (
+                      <span className="pill faint ctx-fold" tabIndex={-1}>
+                        {off.length} hidden
+                      </span>
+                    ),
+                  },
                   ...off.map((p) => ({ id: `show:${p.title}`, label: p.title, icon: "plus", hint: "Show", keep: true, run: () => setHidden(hidden.filter((t) => t !== p.title)) })),
                 ]
               : []),
