@@ -11,6 +11,9 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+### Added
+- Open the pairing QR scanner from the More menu on mobile.
+
 ## [0.9.2] - 2026-10-26
 
 ### Added
