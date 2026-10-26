@@ -2620,9 +2620,9 @@ impl Gitnetix {
         }
         let default_dir = self.checkout_dir(&p, &default).await?;
         if let Some(dir) = &default_dir {
-            if !Git::new(dir).wip_changes().await?.is_empty() {
-                return Err(Error::Invalid(format!("{default} has uncommitted changes at {}", dir.display())));
-            }
+            self.check_wip_clear(&p, dir, &r.branch, &default).await?;
+            // The stamp below changes it on the release after this check.
+            clean_changelog(&self.git_at(&p, dir), dir).await?;
         }
         self.stamp_release_changelog(&p, &git, &r.branch, version).await?;
         let sha = git.rev_parse(&r.branch).await?;

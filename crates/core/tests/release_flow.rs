@@ -1537,10 +1537,22 @@ async fn ship_and_push_waits_for_origin_then_pushes_branch_and_tag_together() {
     sh(&repo, &["switch", "-q", "release/0.2.0"]);
     sh(&repo, &["merge", "-q", "--no-edit", "origin/main"]);
     sh(&repo, &["switch", "-q", "main"]);
+    // Uncommitted work in main's checkout to a file the release changes: refused, nothing moved.
+    std::fs::write(repo.join("a.txt"), "mine\n").unwrap();
+    let err = rpc::call(&k, "releases.ship", ship.clone()).await.unwrap_err();
+    assert!(err.to_string().contains("a.txt"), "{err}");
+    assert_eq!(rev(&repo, "main"), main);
+    std::fs::remove_file(repo.join("a.txt")).unwrap();
+    // Unrelated work, staged or not, stays through the ship.
+    std::fs::write(repo.join("notes.txt"), "wip\n").unwrap();
+    std::fs::write(repo.join("staged.txt"), "s\n").unwrap();
+    sh(&repo, &["add", "staged.txt"]);
     call(&k, "releases.ship", ship).await;
     let tip = rev(&repo, "release/0.2.0");
     assert_eq!(rev(&origin, "main"), tip);
     assert_eq!(rev(&origin, "v0.2.0^{commit}"), tip);
+    assert_eq!(std::fs::read_to_string(repo.join("notes.txt")).unwrap(), "wip\n");
+    assert!(git_out(&repo, &["diff", "--cached", "--name-only"]).contains("staged.txt"));
 }
 
 #[tokio::test]
