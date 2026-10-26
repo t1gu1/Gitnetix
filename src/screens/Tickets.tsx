@@ -63,11 +63,11 @@ export function Tickets({ initial }: { initial?: string }) {
   const t = all.find((x) => x.key === sel) ?? visible[0];
   const unplanned = visible.filter((x) => !x.release && x.status !== "done").length;
 
-  if (q.isLoading) return (<><Header title="Tickets" /><Loading /></>);
+  if (q.isLoading) return (<><Header title="Tickets" hideWide /><Loading /></>);
   if (q.data && q.data.sources.length === 0) {
     return (
       <>
-        <Header title="Tickets" sub={ov?.project.name} />
+        <Header title="Tickets" sub={ov?.project.name} hideWide />
         <EmptyState
           icon="ticket"
           title="No ticket tracker connected"
@@ -84,21 +84,15 @@ export function Tickets({ initial }: { initial?: string }) {
       <Header
         title="Tickets"
         sub={[ov?.project.name, shown === "all" ? "" : shown].filter(Boolean).join(" · ")}
+        hideWide
         onBack={pane === "detail" ? () => setPane("list") : undefined}
-        right={
-          <>
-            <span className="faint hide-narrow" style={{ fontSize: 12 }}>{q.data?.syncedAt ? `Synced ${ago(q.data.syncedAt)}` : ""}</span>
-            <button className="btn btn-icon" style={{ height: 28 }} aria-label="Sync now" onClick={() => q.refetch()}>
-              <Busy on={q.isFetching}><Icon name="refresh" size={13} /></Busy>
-            </button>
-          </>
-        }
       />
       {q.error ? (
         <div className="page" style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
           <div style={{ maxWidth: 480, textAlign: "center" }}>
             <ErrorBox error={q.error} />
-            <div style={{ marginTop: 14 }}>
+            <div className="row" style={{ marginTop: 14, justifyContent: "center" }}>
+              <button className="btn" onClick={() => q.refetch()}><Busy on={q.isFetching}>Retry</Busy></button>
               <button className="btn btn-primary" onClick={() => nav.go({ name: "settings", section: "tools" })}>Open settings</button>
             </div>
           </div>
@@ -108,7 +102,12 @@ export function Tickets({ initial }: { initial?: string }) {
           <section className="master" style={{ "--master-w": `${listW.width}px` } as CSSProperties} data-pane data-active={pane === "list"} aria-label="Ticket list">
             <div className="master-tools">
               <label htmlFor="tk-q" className="sr-only">Search tickets</label>
-              <input id="tk-q" className="input" placeholder="Search by key or title" value={search} onChange={(e) => setSearch(e.target.value, false)} onBlur={() => setSearch(search)} />
+              <div className="row" style={{ gap: 6, margin: 0 }}>
+                <input id="tk-q" className="input grow" placeholder="Search by key or title" value={search} onChange={(e) => setSearch(e.target.value, false)} onBlur={() => setSearch(search)} />
+                <button className="btn btn-icon" aria-label="Sync now" data-tip={q.data?.syncedAt ? `Sync now · synced ${ago(q.data.syncedAt)}` : "Sync now"} onClick={() => q.refetch()}>
+                  <Busy on={q.isFetching}><Icon name="refresh" size={13} /></Busy>
+                </button>
+              </div>
               <MenuChoice
                 className="select menu-select"
                 style={{ height: 30, width: "100%" }}

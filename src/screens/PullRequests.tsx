@@ -69,7 +69,7 @@ export function PullRequests({ initial }: { initial?: number }) {
 
   return (
     <>
-      <Header title="Pull requests" sub={`${ov?.project.name ?? ""}${prs.data ? ` · ${prs.data.provider === "azure" ? "Azure DevOps" : "GitHub"} ${prs.data.repo.owner}/${prs.data.repo.repo}` : ""}`} onBack={pane === "detail" ? () => setPane("list") : undefined} />
+      <Header title="Pull requests" sub={`${ov?.project.name ?? ""}${prs.data ? ` · ${prs.data.provider === "azure" ? "Azure DevOps" : "GitHub"} ${prs.data.repo.owner}/${prs.data.repo.repo}` : ""}`} hideWide onBack={pane === "detail" ? () => setPane("list") : undefined} />
       {prs.error ? (
         <EmptyState
           icon="pr"
