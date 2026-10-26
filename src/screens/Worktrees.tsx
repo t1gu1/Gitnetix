@@ -4,6 +4,7 @@ import { useAction, useAgents, useFiles, useOverview, useProjects, useWorktrees 
 import type { AgentSession, AgentStatus, WorktreeView } from "../api/types";
 import { AgentInput, AgentLog, FileChip, shownStatus, uploads, useAttach, type Attachment, type Choice, type Upload } from "../components/AgentLog";
 import { AgentPicker, MenuChoice, useAgentPick } from "../components/AgentPicker";
+import { ContextMenu, type MenuItem } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
 import { Resizer, usePaneWidth } from "../components/Resizer";
 import { ShellPane, TermTabs, useTermView } from "../components/Shell";
@@ -61,6 +62,8 @@ export function Worktrees({ initial }: { initial?: string }) {
   const listW = usePaneWidth("gnx.pane.worktrees", 400, 280, 720);
   // The project the new session modal opens on; undefined while it is closed.
   const [starting, setStarting] = useState<string>();
+  // Right-click selects the row and opens its actions: they and their modals live in its Detail.
+  const [menu, setMenu] = useState<{ key: string; x: number; y: number } | null>(null);
 
   // One row per linked worktree; agents elsewhere (main checkout, removed directory) still show up.
   const rows: Row[] = useMemo(() => {
@@ -120,7 +123,21 @@ export function Worktrees({ initial }: { initial?: string }) {
                   const [label, cls] = STATUS[r.status];
                   const sub = !r.wt ? "Directory removed" : r.agent ? r.agent.request.split("\n")[0] : r.wt.base && `from ${r.wt.base}`;
                   return (
-                    <button key={r.key} className="item-btn wt-row" aria-pressed={r.key === cur?.key} title={r.path} onClick={() => { setSel(r.key); setPane("detail"); }}>
+                    <button
+                      key={r.key}
+                      className="item-btn wt-row"
+                      aria-pressed={r.key === cur?.key}
+                      title={r.path}
+                      onClick={() => { setSel(r.key); setPane("detail"); }}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        // Keyboard-opened context menus report (0, 0): anchor to the row instead.
+                        const b = e.currentTarget.getBoundingClientRect();
+                        const fromKey = e.clientX === 0 && e.clientY === 0;
+                        setSel(r.key);
+                        setMenu({ key: r.key, x: fromKey ? b.left : e.clientX, y: fromKey ? b.bottom + 2 : e.clientY });
+                      }}
+                    >
                       <span className="row" style={{ gap: 8 }}>
                         <span className={`mono ellipsis grow${r.wt ? "" : " faint"}`}>{r.branch}</span>
                         {r.wt && (r.wt.additions > 0 || r.wt.deletions > 0) && (
@@ -151,7 +168,7 @@ export function Worktrees({ initial }: { initial?: string }) {
         </section>
         <Resizer pane={listW} label="Resize worktree list" />
         <main className="detail wt-pane" data-pane data-active={pane === "detail"}>
-          {cur ? <Detail key={cur.key} r={cur} /> : <EmptyState icon="layers" title="No worktree selected">Pick one from the list, or start a new agent session to give a branch its own folder and agent.</EmptyState>}
+          {cur ? <Detail key={cur.key} r={cur} menu={menu?.key === cur.key ? menu : undefined} onMenuClose={() => setMenu(null)} /> : <EmptyState icon="layers" title="No worktree selected">Pick one from the list, or start a new agent session to give a branch its own folder and agent.</EmptyState>}
         </main>
       </div>
       {starting && <StartModal initial={starting} onClose={() => setStarting(undefined)} />}
@@ -159,7 +176,7 @@ export function Worktrees({ initial }: { initial?: string }) {
   );
 }
 
-function Detail({ r }: { r: Row }) {
+function Detail({ r, menu, onMenuClose }: { r: Row; menu?: { x: number; y: number }; onMenuClose: () => void }) {
   const nav = useNav();
   const a = r.agent;
   const inv = [["agents"], ["worktrees"]];
@@ -211,6 +228,27 @@ function Detail({ r }: { r: Row }) {
     if (a && !busy) msg.mutate({ id: a.id, text: t, files: up }, done);
     else if (!a) start.mutate({ projectId: r.projectId, branch: r.wt?.branch ?? undefined, request: t, files: up, ...pick }, done);
   };
+  const commitPush = () => commit.mutate({ projectId: r.projectId, branch: r.branch, message: "", all: !staged }, { onSuccess: () => push.mutate({ projectId: r.projectId, branch: r.branch }) });
+  const retry = (id: string) => msg.mutate({ id, text: "The last run failed. Read the errors above, fix them and try again." });
+  const openWs = () => {
+    nav.setProject(r.projectId);
+    nav.selectBranch(r.branch);
+    nav.go({ name: "workspace" });
+  };
+  // The right-click menu: same actions and conditions as the buttons below.
+  const items = ([
+    a?.status === "waiting" && r.wt && { id: "commit", label: "Commit & Push changes", icon: "sparkle", hint: String(staged || changed), disabled: !changed || commit.isPending || push.isPending, run: commitPush },
+    a?.status === "failed" && { id: "retry", label: "Fix and retry with AI", icon: "sparkle", run: () => retry(a.id) },
+    a?.status === "running" && { id: "pause", label: "Pause", icon: "pause", run: () => pause.mutate({ id: a.id }) },
+    a?.status === "paused" && { id: "resume", label: "Resume", icon: "play", run: () => resume.mutate({ id: a.id }) },
+    busy && a && { id: "stop", label: "Stop agent", icon: "stop", run: () => stop.mutate({ id: a.id }) },
+    r.wt && { id: "open", label: "Open in workspace", icon: "external", run: openWs },
+    a && !busy && !isWorktree && { id: "clear", label: "Clear session", icon: "close", run: () => removeAgent.mutate({ id: a.id }) },
+    isWorktree && "sep",
+    isWorktree && { id: "continue", label: "Continue on branch", icon: "swap", run: () => finish.continue(session, true) },
+    isWorktree && { id: "merge", label: "Merge…", icon: "merged", run: () => finish.merge(session, true) },
+    isWorktree && { id: "discard", label: "Cancel and Delete all…", icon: "trash", danger: true, run: () => setDiscarding(true) },
+  ] as (MenuItem | false | undefined)[]).filter((x): x is MenuItem => !!x);
   const [label, cls] = STATUS[r.status];
   return (
     <div className="detail-inner wt-detail" style={{ flex: 1, minHeight: 0 }}>
@@ -235,14 +273,14 @@ function Detail({ r }: { r: Row }) {
               <button
                 className="btn btn-primary"
                 disabled={!changed || commit.isPending || push.isPending}
-                onClick={() => commit.mutate({ projectId: r.projectId, branch: r.branch, message: "", all: !staged }, { onSuccess: () => push.mutate({ projectId: r.projectId, branch: r.branch }) })}
+                onClick={commitPush}
               >
                 <Busy on={commit.isPending || push.isPending}><Icon name="sparkle" size={12} /></Busy>
                 <span>Commit &amp; Push changes<span style={{ fontWeight: 400, opacity: 0.75, marginLeft: 6 }}>{staged || changed}</span></span>
               </button>
             )}
             {a?.status === "failed" && (
-              <button className="btn btn-primary" onClick={() => msg.mutate({ id: a.id, text: "The last run failed. Read the errors above, fix them and try again." })}>
+              <button className="btn btn-primary" onClick={() => retry(a.id)}>
                 <Icon name="sparkle" size={12} />
                 Fix and retry with AI
               </button>
@@ -251,14 +289,7 @@ function Detail({ r }: { r: Row }) {
             {a?.status === "paused" && <button className="btn" onClick={() => resume.mutate({ id: a.id })}><Icon name="play" size={12} />Resume</button>}
             {busy && a && <button className="btn" onClick={() => stop.mutate({ id: a.id })}><Icon name="stop" size={12} />Stop agent</button>}
             {r.wt && (
-              <button
-                className="btn"
-                onClick={() => {
-                  nav.setProject(r.projectId);
-                  nav.selectBranch(r.branch);
-                  nav.go({ name: "workspace" });
-                }}
-              >
+              <button className="btn" onClick={openWs}>
                 Open in workspace
               </button>
             )}
@@ -272,7 +303,6 @@ function Detail({ r }: { r: Row }) {
                   <Icon name="trash" size={12} />
                   Cancel and Delete all
                 </button>
-                {discarding && <DiscardWorktreeModal branch={r.branch} path={r.path} onClose={() => setDiscarding(false)} onConfirm={() => finish.discard(session)} />}
               </>
             )}
           </div>
@@ -324,7 +354,9 @@ function Detail({ r }: { r: Row }) {
           onMerged={merging.then}
         />
       )}
+      {discarding && <DiscardWorktreeModal branch={r.branch} path={r.path} onClose={() => setDiscarding(false)} onConfirm={() => finish.discard(session)} />}
       {finish.modal}
+      {menu && <ContextMenu x={menu.x} y={menu.y} label={`Actions for ${r.branch}`} items={items} onClose={onMenuClose} />}
     </div>
   );
 }
