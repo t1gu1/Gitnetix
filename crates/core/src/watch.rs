@@ -67,7 +67,7 @@ pub fn watch(projects: &[Project], events: broadcast::Sender<Event>) -> Option<R
 
 /// The repository's common git dir (shared by its worktrees).
 fn git_dir(repo: &Path) -> Option<PathBuf> {
-    let out = Command::new("git").current_dir(repo).args(["rev-parse", "--path-format=absolute", "--git-common-dir"]).output().ok()?;
+    let out = crate::shell::without_appimage(&mut Command::new("git")).current_dir(repo).args(["rev-parse", "--path-format=absolute", "--git-common-dir"]).output().ok()?;
     let dir = PathBuf::from(String::from_utf8(out.stdout).ok()?.trim());
     (out.status.success() && dir.is_dir()).then_some(dir)
 }

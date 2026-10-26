@@ -227,6 +227,7 @@ impl Git {
             crate::log::info(format!("Will attempt git {} (in {})", args.join(" "), self.cwd.display()));
         }
         let mut cmd = Command::new("git");
+        crate::shell::without_appimage(cmd.as_std_mut());
         cmd.current_dir(&self.cwd);
         for (k, v) in &self.config {
             cmd.arg("-c").arg(format!("{k}={v}"));

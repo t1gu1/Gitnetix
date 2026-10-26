@@ -1096,7 +1096,7 @@ fn open_terminal(cmd: &str) -> Result<()> {
     #[cfg(all(unix, not(target_os = "macos")))]
     {
         for term in ["x-terminal-emulator", "gnome-terminal", "konsole", "xterm"] {
-            if std::process::Command::new(term).args(["-e", cmd]).spawn().is_ok() {
+            if crate::shell::without_appimage(&mut std::process::Command::new(term)).args(["-e", cmd]).spawn().is_ok() {
                 return Ok(());
             }
         }

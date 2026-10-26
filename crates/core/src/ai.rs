@@ -165,6 +165,7 @@ pub fn cli_path(provider: &str) -> Result<(&'static str, PathBuf)> {
 async fn complete_cli(r: &Resolved, prompt: &str, cwd: Option<&Path>) -> Result<String> {
     let (bin, path) = cli_path(&r.provider)?;
     let mut cmd = Command::new(path);
+    crate::shell::without_appimage(cmd.as_std_mut());
     if let Some(d) = cwd {
         cmd.current_dir(d);
     }

@@ -55,6 +55,38 @@ pub fn key(path: &str) -> String {
     std::fs::canonicalize(path).map(|p| p.to_string_lossy().to_string()).unwrap_or_else(|_| path.to_string())
 }
 
+/// AppImage's AppRun points LD_LIBRARY_PATH, GTK and GIO at bundled libs. Programs started
+/// for the user (browser, terminal shell) inherit them and break, so give them the host's
+/// environment back: each key is removed (None) or set (Some). None outside an AppImage.
+pub fn appimage_env() -> Option<Vec<(&'static str, Option<std::ffi::OsString>)>> {
+    let appdir = std::env::var_os("APPDIR").filter(|_| std::env::var_os("APPIMAGE").is_some())?;
+    let mut env: Vec<_> = [
+        "APPDIR", "APPIMAGE", "ARGV0", "OWD", "LD_LIBRARY_PATH", "GTK_DATA_PREFIX", "GTK_THEME", "GSETTINGS_SCHEMA_DIR", "GI_TYPELIB_PATH", "GIO_MODULE_DIR", "GTK_EXE_PREFIX", "GTK_PATH", "GTK_IM_MODULE_FILE", "GDK_PIXBUF_MODULE_FILE", "PYTHONHOME", "PYTHONPATH", "PERLLIB", "QT_PLUGIN_PATH", "GST_PLUGIN_SYSTEM_PATH", "GST_PLUGIN_SYSTEM_PATH_1_0",
+    ]
+    .into_iter()
+    .map(|k| (k, None))
+    .collect();
+    // Keep the user's own entries, drop the ones pointing inside the AppImage.
+    for k in ["PATH", "XDG_DATA_DIRS"] {
+        if let Some(v) = std::env::var_os(k) {
+            let kept: Vec<_> = std::env::split_paths(&v).filter(|p| !p.starts_with(&appdir)).collect();
+            env.push((k, Some(std::env::join_paths(kept).unwrap_or_default())));
+        }
+    }
+    Some(env)
+}
+
+/// [`appimage_env`] applied to a process about to start (tokio's through `as_std_mut`).
+pub fn without_appimage(cmd: &mut std::process::Command) -> &mut std::process::Command {
+    for (k, v) in appimage_env().into_iter().flatten() {
+        match v {
+            Some(v) => cmd.env(k, v),
+            None => cmd.env_remove(k),
+        };
+    }
+    cmd
+}
+
 fn b64(b: &[u8]) -> String {
     base64::engine::general_purpose::STANDARD.encode(b)
 }
@@ -88,6 +120,12 @@ impl Shells {
         let mut cmd = CommandBuilder::new_default_prog();
         // An inherited $SHELL goes stale after `chsh` until re-login; without it the passwd entry decides.
         cmd.env_remove("SHELL");
+        for (k, v) in appimage_env().into_iter().flatten() {
+            match v {
+                Some(v) => cmd.env(k, v),
+                None => cmd.env_remove(k),
+            }
+        }
         cmd.cwd(cwd);
         cmd.env("TERM", "xterm-256color");
         cmd.env("COLORTERM", "truecolor");

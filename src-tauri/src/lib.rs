@@ -67,8 +67,7 @@ mod desktop {
         assert_eq!(network([10, 1, 2, 3].into(), 32), "10.1.2.3/32");
     }
 
-    /// AppImage's AppRun points LD_LIBRARY_PATH, GTK and GIO at bundled libs. The
-    /// system browser inherits them and fails to start, so launch it without them.
+    /// The system browser fails to start with the AppImage's bundled libs, so launch it without them.
     #[tauri::command]
     pub fn open_url(url: String) -> Result<(), String> {
         // Links come from tickets and hosts; never hand other schemes (file:, custom handlers) to the OS.
@@ -76,19 +75,8 @@ mod desktop {
             return Err(format!("Not a web link: {url}"));
         }
         #[cfg(target_os = "linux")]
-        if let Some(appdir) = std::env::var_os("APPDIR").filter(|_| std::env::var_os("APPIMAGE").is_some()) {
-            let mut cmd = std::process::Command::new("xdg-open");
-            for k in ["LD_LIBRARY_PATH", "GTK_DATA_PREFIX", "GTK_THEME", "GSETTINGS_SCHEMA_DIR", "GI_TYPELIB_PATH", "GIO_MODULE_DIR", "GTK_EXE_PREFIX", "GTK_PATH", "GTK_IM_MODULE_FILE", "GDK_PIXBUF_MODULE_FILE", "PYTHONHOME", "PYTHONPATH", "PERLLIB", "QT_PLUGIN_PATH", "GST_PLUGIN_SYSTEM_PATH", "GST_PLUGIN_SYSTEM_PATH_1_0"] {
-                cmd.env_remove(k);
-            }
-            // Keep the user's own entries, drop the ones pointing inside the AppImage.
-            for k in ["PATH", "XDG_DATA_DIRS"] {
-                if let Some(v) = std::env::var_os(k) {
-                    let kept: Vec<_> = std::env::split_paths(&v).filter(|p| !p.starts_with(&appdir)).collect();
-                    cmd.env(k, std::env::join_paths(kept).unwrap_or_default());
-                }
-            }
-            let mut child = cmd.arg(url).spawn().map_err(|e| e.to_string())?;
+        if gitnetix_core::shell::appimage_env().is_some() {
+            let mut child = gitnetix_core::shell::without_appimage(&mut std::process::Command::new("xdg-open")).arg(url).spawn().map_err(|e| e.to_string())?;
             std::thread::spawn(move || child.wait());
             return Ok(());
         }

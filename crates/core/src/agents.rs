@@ -302,6 +302,7 @@ impl AgentManager {
     fn spawn(&self, id: &str, cwd: &std::path::Path, r: &Resolved, prompt: &str, resume: Option<&str>) -> Result<()> {
         let (_, path) = ai::cli_path(&r.provider)?;
         let mut cmd = Command::new(path);
+        crate::shell::without_appimage(cmd.as_std_mut());
         cmd.current_dir(cwd);
         let structured = r.provider == "claude";
         let mut stdin_prompt = true;
