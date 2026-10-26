@@ -169,12 +169,27 @@ export async function pickFolders(): Promise<string[] | null> {
   return Array.isArray(res) ? res : [res];
 }
 
+const LOOPBACK = /^(localhost|127(\.\d+){3}|0\.0\.0\.0|\[::1?\])$/;
+
+/** Off the desktop, `localhost` is this device: send dev server links to the desktop, by the address the companion is reached at. */
+function reachable(url: string) {
+  if (!remote) return url;
+  try {
+    const u = new URL(url);
+    if (!LOOPBACK.test(u.hostname)) return url;
+    u.hostname = new URL(remote.url).hostname;
+    return u.href;
+  } catch {
+    return url;
+  }
+}
+
 export async function openExternal(url: string) {
   if (isLocal) {
     const { invoke } = await import("@tauri-apps/api/core");
     await invoke("open_url", { url });
   } else {
-    window.open(url, "_blank", "noopener");
+    window.open(reachable(url), "_blank", "noopener");
   }
 }
 
