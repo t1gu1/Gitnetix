@@ -5,16 +5,31 @@ import { ContextMenu } from "./ContextMenu";
 import { Icon } from "./Icon";
 
 export interface Author {
-  /** Lowercased: the key authors are told apart by. */
+  /** Lowercased, the first of `emails`: the key authors are told apart by. */
   email: string;
+  /** Lowercased, every email this person authored under. */
+  emails: string[];
   name: string;
 }
 
-/** Everyone who authored one of `items`, once per email, by name. */
+/** Everyone who authored one of `items`, once per person: authors sharing an email or a name are merged, named by all their names ("T1Gu1 / Guillaume Huard Hughes"). */
 export function authorsOf(items: { author: string; email: string }[]): Author[] {
-  const by = new Map<string, string>();
-  for (const it of items) if (it.email && !by.has(it.email.toLowerCase())) by.set(it.email.toLowerCase(), it.author);
-  return [...by].map(([email, name]) => ({ email, name })).sort((a, b) => a.name.localeCompare(b.name));
+  const seen = new Set<string>();
+  let people: { emails: string[]; names: string[] }[] = [];
+  for (const it of items) {
+    const email = it.email.toLowerCase();
+    if (!email || seen.has(`${email}\n${it.author}`)) continue;
+    seen.add(`${email}\n${it.author}`);
+    const same = people.filter((p) => p.emails.includes(email) || (!!it.author && p.names.includes(it.author)));
+    people = people.filter((p) => !same.includes(p));
+    people.push({ emails: [...new Set([...same.flatMap((p) => p.emails), email])], names: [...new Set([...same.flatMap((p) => p.names), it.author])] });
+  }
+  return people
+    .map((p) => {
+      const emails = p.emails.sort();
+      return { email: emails[0], emails, name: p.names.filter(Boolean).join(" / ") };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 /** Dropdown picking the authors to show (their emails in `who`); none picked = all. Hidden with fewer than two authors. */
@@ -55,7 +70,7 @@ export function AuthorFilter({ authors, who, onChange, tip }: { authors: Author[
                   <Avatar name={a.name} email={a.email} size={20} />
                   <span className="col" style={{ minWidth: 0, gap: 0, lineHeight: 1.25 }}>
                     <span className="ellipsis">{a.name}</span>
-                    <span className="faint ellipsis" style={{ fontSize: 11 }}>{a.email}</span>
+                    <span className="faint ellipsis" style={{ fontSize: 11 }}>{a.emails.join(", ")}</span>
                   </span>
                 </span>
               ),

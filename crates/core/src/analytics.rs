@@ -69,6 +69,37 @@ fn signed(n: i64, unit: &str) -> String {
     }
 }
 
+/// Label of each (lowercased email, name) commits were authored under. Identities sharing an email or a
+/// name are one person, labelled with all their names: "T1Gu1 / Guillaume Huard Hughes".
+fn author_names(commits: &[(Commit, bool)]) -> HashMap<(String, String), String> {
+    let mut seen = HashSet::new();
+    let mut people: Vec<Vec<(String, String)>> = Vec::new();
+    for (c, _) in commits {
+        let id = (c.email.to_lowercase(), c.author.clone());
+        if !seen.insert(id.clone()) {
+            continue;
+        }
+        let same = |o: &(String, String)| (!id.0.is_empty() && o.0 == id.0) || (!id.1.is_empty() && o.1 == id.1);
+        let (same, rest): (Vec<_>, Vec<_>) = people.into_iter().partition(|p| p.iter().any(same));
+        let mut person: Vec<_> = same.into_iter().flatten().collect();
+        person.push(id);
+        people = rest;
+        people.push(person);
+    }
+    let mut out = HashMap::new();
+    for person in people {
+        let mut names: Vec<&str> = Vec::new();
+        for (_, n) in &person {
+            if !n.is_empty() && !names.contains(&n.as_str()) {
+                names.push(n);
+            }
+        }
+        let label = names.join(" / ");
+        out.extend(person.into_iter().map(|id| (id, label.clone())));
+    }
+    out
+}
+
 pub struct Input<'a> {
     pub repos: Vec<(Git, &'a [String])>,
     pub range_days: i64,
@@ -130,13 +161,14 @@ pub async fn compute(input: Input<'_>) -> Result<Analytics> {
             by_day.entry(d.date_naive()).or_default().push(c);
         }
     }
+    let names = author_names(&commits);
     let mut days = Vec::new();
     let mut d = start;
     while d <= today {
         let list = by_day.get(&d).cloned().unwrap_or_default();
         let mut per: BTreeMap<String, u32> = BTreeMap::new();
         for c in &list {
-            *per.entry(c.author.clone()).or_default() += 1;
+            *per.entry(names[&(c.email.to_lowercase(), c.author.clone())].clone()).or_default() += 1;
         }
         let mut authors: Vec<(String, u32)> = per.into_iter().collect();
         authors.sort_by_key(|a| std::cmp::Reverse(a.1));
@@ -231,4 +263,42 @@ pub async fn compute(input: Input<'_>) -> Result<Analytics> {
 
     let releases = stats.into_iter().rev().take(8).map(|s| s.0).collect::<Vec<_>>().into_iter().rev().collect();
     Ok(Analytics { range_days: n, kpis, days, releases })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn commit(author: &str, email: &str) -> (Commit, bool) {
+        let c = Commit { sha: String::new(), author: author.into(), email: email.into(), date: String::new(), subject: String::new(), body: String::new(), tags: Vec::new(), local: false, origin: false, unpulled: false };
+        (c, false)
+    }
+
+    #[test]
+    fn authors_grouped_by_email_or_name() {
+        let commits = [
+            commit("T1Gu1", "g@x.com"),
+            commit("Guillaume", "G@x.com"),
+            commit("T1Gu1", "g@x.com"),
+            commit("Guillaume", "g@work.com"),
+            commit("Gui", "g@work.com"),
+            commit("Bot", ""),
+            commit("Ann", ""),
+            commit("A", "a@y.com"),
+            commit("B", "b@y.com"),
+            commit("A", "b@y.com"),
+        ];
+        let names = author_names(&commits);
+        let label = |email: &str, name: &str| names[&(email.to_string(), name.to_string())].as_str();
+        assert_eq!(names.len(), 9);
+        for (email, name) in [("g@x.com", "T1Gu1"), ("g@x.com", "Guillaume"), ("g@work.com", "Guillaume"), ("g@work.com", "Gui")] {
+            assert_eq!(label(email, name), "T1Gu1 / Guillaume / Gui");
+        }
+        // No email in common, so not merged.
+        assert_eq!(label("", "Bot"), "Bot");
+        assert_eq!(label("", "Ann"), "Ann");
+        // "A <b@y.com>" ties two people into one.
+        assert_eq!(label("a@y.com", "A"), "A / B");
+        assert_eq!(label("b@y.com", "B"), "A / B");
+    }
 }

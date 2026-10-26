@@ -189,7 +189,7 @@ export function BranchTree({
 
   const q = query.trim().toLowerCase();
   const picked = authors.filter((a) => who.includes(a.email));
-  const emails = picked.map((a) => a.email).join("\n");
+  const emails = picked.flatMap((a) => a.emails).join("\n");
   const matches = useMemo(() => {
     if (!q && !emails) return null;
     const mine = new Set(emails.split("\n"));

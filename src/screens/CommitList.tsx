@@ -54,7 +54,7 @@ export function CommitList({
   const authors = useMemo(() => authorsOf(list), [list]);
   const [who, setWho] = useState<string[]>([]);
   // Picked authors still listed: one gone from the list (another branch) filters nothing.
-  const mine = who.filter((e) => authors.some((a) => a.email === e));
+  const mine = authors.filter((a) => who.includes(a.email)).flatMap((a) => a.emails);
   const shown = list.filter(
     (c) =>
       (!q || [c.subject, c.body, c.author, c.email, ...c.tags].some((t) => t.toLowerCase().includes(q)) || c.sha.startsWith(q)) &&
