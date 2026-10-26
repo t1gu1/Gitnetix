@@ -1025,7 +1025,7 @@ export function MergeModal({
         ) : (
           <>Creates a merge commit on <span className="mono">{base}</span>.</>
         )}{" "}
-        {stay ? "" : `Then switches to ${base}. `}Where {base}{opts.rebase ? ` or ${branch}` : ""} is checked out, it must have no uncommitted changes.
+        {base} catches up with origin first. {stay ? "" : `Then switches to ${base}. `}Uncommitted changes where {base} is checked out stay, unless the merge changes those files{opts.rebase ? `; where ${branch} is checked out, it must have none` : ""}.
         {opts.resolveConflicts
           ? "Conflicts are resolved with AI, which can take a few minutes; if it can't, nothing changes."
           : `Nothing changes when the merge would conflict: rebase onto ${base} and resolve first.`}

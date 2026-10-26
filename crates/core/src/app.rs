@@ -3329,7 +3329,9 @@ impl Gitnetix {
         Ok(())
     }
 
-    /// Fast-forward a branch to its upstream, checked out or not.
+    /// Bring a branch up to its upstream, checked out or not: a fast-forward or, when both moved,
+    /// its local commits replayed on top, or the upstream merged in when they hold merges (AI resolving
+    /// conflicts either way, aborted when it can't).
     pub async fn pull_branch(&self, project_id: &str, branch: &str) -> Result<String> {
         let p = self.store.project(project_id)?;
         let git = self.git(&p);
@@ -3341,16 +3343,28 @@ impl Gitnetix {
             .ok_or_else(|| Error::NotFound(format!("branch {branch}")))?
             .upstream
             .ok_or_else(|| Error::Invalid(format!("{branch} has no upstream. Push it first.")))?;
-        let out = match self.checkout_dir(&p, branch).await? {
-            Some(dir) => self.git_at(&p, &dir).pull_ff(branch, &upstream, true).await,
+        let dir = self.checkout_dir(&p, branch).await?;
+        let pulled = match &dir {
+            Some(dir) => self.git_at(&p, dir).pull_ff(branch, &upstream, true).await,
             None => git.pull_ff(branch, &upstream, false).await,
-        }
-        .map_err(|e| match e {
-            Error::Git { stderr, .. } if stderr.contains("non-fast-forward") || stderr.contains("Not possible to fast-forward") || stderr.contains("rejected") => {
-                Error::Invalid(format!("{branch} and {upstream} have diverged. Rebase or merge by hand."))
+        };
+        let out = match pulled {
+            // Diverged; the pull above fetched origin's side. Only commits origin never had get rewritten, and
+            // not merges: rebasing those would rewrite the branches they took in, so they'd look unmerged.
+            Err(Error::Git { stderr, .. }) if stderr.contains("non-fast-forward") || stderr.contains("Not possible to fast-forward") || stderr.contains("rejected") => {
+                if git.run(&["rev-list", "--merges", "--count", &format!("{upstream}..{branch}")]).await?.trim() != "0" {
+                    self.merge_refs(&p, &upstream, branch).await?;
+                    format!("{branch} and {upstream} had diverged: merged {upstream} into {branch}")
+                } else {
+                    if let Some(dir) = &dir {
+                        self.check_wip_clear(&p, dir, &upstream, branch).await?;
+                    }
+                    self.rebase_branch(&p, branch, &upstream).await?;
+                    format!("{branch} and {upstream} had diverged: rebased {branch} onto {upstream}")
+                }
             }
-            e => e,
-        })?;
+            out => out?,
+        };
         self.changed(project_id);
         Ok(out)
     }
@@ -3391,6 +3405,13 @@ impl Gitnetix {
         };
         if into == branch {
             return Err(Error::Invalid(format!("{branch} has no other branch to merge into")));
+        }
+        // Caught up with origin first, so the merge lands on top of origin's commits and the push goes through.
+        // shortcut: when `branch` was started from commits of `into` never pushed, rebasing them here duplicates them in the history.
+        if git.upstream(&into).await.ok().flatten().is_some() {
+            if let Err(e) = self.pull_branch(project_id, &into).await {
+                crate::log::info(format!("Merging into {into} as it is: updating it from origin failed: {e}"));
+            }
         }
         // Deleting the branch the main checkout is on means moving that checkout to `into`:
         // make sure that can happen before merging anything.
@@ -3514,19 +3535,36 @@ impl Gitnetix {
                 return Err(Error::Invalid(format!("Merging {from} into {into} conflicts in {}. Rebase onto the base and resolve first.", files.join(", "))));
             }
         }
-        let mut dirs = vec![(into, self.checkout_dir(p, into).await?)];
-        if rebase {
-            dirs.push((from, self.checkout_dir(p, from).await?));
+        if let Some(dir) = self.checkout_dir(p, into).await? {
+            self.check_wip_clear(p, &dir, from, into).await?;
         }
-        for (b, dir) in dirs {
-            if let Some(dir) = dir {
-                let g = self.git_at(p, &dir);
-                if g.is_rebasing().await? || !g.wip_changes().await?.is_empty() {
-                    return Err(Error::Invalid(format!("{b} has uncommitted changes at {}", dir.display())));
-                }
+        // Rebased where it's checked out: its uncommitted work would be left out of the merge.
+        if let (true, Some(dir)) = (rebase, self.checkout_dir(p, from).await?) {
+            let g = self.git_at(p, &dir);
+            if g.is_rebasing().await? || !g.wip_changes().await?.is_empty() {
+                return Err(Error::Invalid(format!("{from} has uncommitted changes at {}", dir.display())));
             }
         }
         Ok(())
+    }
+
+    /// Uncommitted work in `into`'s checkout at `dir` stays there while `from` comes in, as long as
+    /// `from` leaves those files alone (git won't overwrite them) and no rebase is in progress there.
+    async fn check_wip_clear(&self, p: &Project, dir: &Path, from: &str, into: &str) -> Result<()> {
+        let g = self.git_at(p, dir);
+        if g.is_rebasing().await? {
+            return Err(Error::Invalid(format!("{into} is in the middle of a rebase at {}", dir.display())));
+        }
+        let wip = g.wip_changes().await?;
+        if wip.is_empty() {
+            return Ok(());
+        }
+        let touched = g.run(&["diff", "--name-only", "--no-renames", "-z", &format!("{into}...{from}")]).await?;
+        let hit: Vec<&str> = wip.iter().map(|f| f.path.as_str()).filter(|w| touched.split('\0').any(|t| t == *w)).collect();
+        if hit.is_empty() {
+            return Ok(());
+        }
+        Err(Error::Invalid(format!("{into} has uncommitted changes at {} to files {from} changes: {}. Commit or stash them first.", dir.display(), hit.join(", "))))
     }
 
     /// Collapse `branch`'s commits since it left `onto` into one, its files unchanged.
@@ -3575,17 +3613,7 @@ impl Gitnetix {
             return Ok((git.rev_parse(into).await?, true));
         }
         if !git.is_ancestor(into, from).await? {
-            match self.checkout_dir(p, from).await? {
-                Some(dir) => self.rebase_resolving(p, &self.git_at(p, &dir), from, into).await?,
-                // Not checked out anywhere: rebase it in a throwaway worktree.
-                None => {
-                    let tmp = std::env::temp_dir().join(format!("gitnetix-rebase-{}", new_id()));
-                    git.worktree_add(&tmp, from, None).await?;
-                    let done = self.rebase_resolving(p, &self.git_at(p, &tmp), from, into).await;
-                    git.worktree_remove(&tmp, true).await?;
-                    done?;
-                }
-            }
+            self.rebase_branch(p, from, into).await?;
         }
         let tip = git.rev_parse(from).await?;
         match self.checkout_dir(p, into).await? {
@@ -3596,6 +3624,19 @@ impl Gitnetix {
             }
         }
         Ok((tip, false))
+    }
+
+    /// Rebase `from` onto `into` where it's checked out, else in a throwaway worktree. See [`Self::rebase_resolving`].
+    async fn rebase_branch(&self, p: &Project, from: &str, into: &str) -> Result<()> {
+        if let Some(dir) = self.checkout_dir(p, from).await? {
+            return self.rebase_resolving(p, &self.git_at(p, &dir), from, into).await;
+        }
+        let git = self.git(p);
+        let tmp = std::env::temp_dir().join(format!("gitnetix-rebase-{}", new_id()));
+        git.worktree_add(&tmp, from, None).await?;
+        let done = self.rebase_resolving(p, &self.git_at(p, &tmp), from, into).await;
+        git.worktree_remove(&tmp, true).await?;
+        done
     }
 
     /// Rebase `g`'s checkout of `from` onto `into`, AI resolving the conflicts on the way.
@@ -3631,13 +3672,14 @@ impl Gitnetix {
         Ok(MergeResult { into: branch.to_string(), sha, already_merged, deleted: false, delete_error: None, switched: false, stayed: None, pushed: false, push_error: None, retagged: None, tag_error: None })
     }
 
-    /// Merge commit of `from` into local branch `into`. Returns (new tip, already merged).
+    /// Merge commit of `from` (a local branch, or a remote-tracking one) into local branch `into`. Returns (new tip, already merged).
     async fn merge_refs(&self, p: &Project, from: &str, into: &str) -> Result<(String, bool)> {
         let git = self.git(p);
-        for b in [from, into] {
-            if !git.ref_exists(&format!("refs/heads/{b}")).await? {
-                return Err(Error::NotFound(format!("local branch {b}")));
-            }
+        if !git.ref_exists(&format!("refs/heads/{from}")).await? && !git.ref_exists(&format!("refs/remotes/{from}")).await? {
+            return Err(Error::NotFound(format!("branch {from}")));
+        }
+        if !git.ref_exists(&format!("refs/heads/{into}")).await? {
+            return Err(Error::NotFound(format!("local branch {into}")));
         }
         if git.is_ancestor(from, into).await? {
             return Ok((git.rev_parse(into).await?, true));
@@ -3651,9 +3693,11 @@ impl Gitnetix {
         let message = format!("Merge branch '{from}' into {into}");
         let sha = match (self.checkout_dir(p, into).await?, tree) {
             (Some(dir), tree) => {
+                self.check_wip_clear(p, &dir, from, into).await?;
                 let g = self.git_at(p, &dir);
-                if g.is_rebasing().await? || !g.wip_changes().await?.is_empty() {
-                    return Err(Error::Invalid(format!("{into} has uncommitted changes at {}", dir.display())));
+                // Git won't start a merge commit over staged changes.
+                if g.has_staged().await? {
+                    return Err(Error::Invalid(format!("{into} has staged changes at {}. Commit or unstage them first.", dir.display())));
                 }
                 match tree {
                     Some(_) => g.merge_no_ff(from, &message).await?,

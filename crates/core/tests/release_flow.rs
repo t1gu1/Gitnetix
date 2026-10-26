@@ -280,6 +280,67 @@ async fn forget_release_branch_deleted_outside() {
 }
 
 #[tokio::test]
+async fn diverged_pull_and_merge_past_uncommitted_work() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("atlas-api");
+    init_repo(&repo);
+    let origin = tmp.path().join("origin.git");
+    sh(tmp.path(), &["init", "-q", "--bare", "-b", "main", origin.to_str().unwrap()]);
+    sh(&repo, &["remote", "add", "origin", origin.to_str().unwrap()]);
+    sh(&repo, &["push", "-q", "-u", "origin", "main"]);
+    let other = tmp.path().join("other");
+    sh(tmp.path(), &["clone", "-q", origin.to_str().unwrap(), other.to_str().unwrap()]);
+    sh(&other, &["config", "user.email", "o@example.com"]);
+    sh(&other, &["config", "user.name", "Other"]);
+    sh(&other, &["config", "commit.gpgsign", "false"]);
+    let push_other = |name: &str| {
+        sh(&other, &["pull", "-q", "--ff-only"]);
+        commit_file(&other, name, "o\n");
+        sh(&other, &["push", "-q", "origin", "main"]);
+        sh(&repo, &["fetch", "-q", "origin"]);
+    };
+    let is_ancestor = |a: &str, b: &str| std::process::Command::new("git").current_dir(&repo).args(["merge-base", "--is-ancestor", a, b]).status().unwrap().success();
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let pid = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await[0]["id"].as_str().unwrap().to_string();
+
+    // Diverged with a plain local commit: replayed on top of origin's.
+    commit_file(&repo, "l1.txt", "l\n");
+    push_other("o1.txt");
+    call(&k, "branches.pull", json!({ "projectId": pid, "branch": "main" })).await;
+    assert_eq!(rev(&repo, "main^"), rev(&repo, "origin/main"));
+    assert!(repo.join("l1.txt").exists() && repo.join("o1.txt").exists());
+
+    // Diverged with a local merge: origin's merged in instead, so the merged branch stays merged.
+    sh(&repo, &["switch", "-qc", "feat/z"]);
+    commit_file(&repo, "z.txt", "z\n");
+    sh(&repo, &["switch", "-q", "main"]);
+    sh(&repo, &["merge", "-q", "--no-ff", "-m", "Merge branch 'feat/z'", "feat/z"]);
+    push_other("o2.txt");
+    call(&k, "branches.pull", json!({ "projectId": pid, "branch": "main" })).await;
+    assert!(is_ancestor("feat/z", "main") && is_ancestor("origin/main", "main"));
+    sh(&repo, &["push", "-q", "origin", "main"]);
+
+    // Merging into main while its checkout has unrelated uncommitted work and origin moved on:
+    // main catches up first, the work stays, the push goes through.
+    let wt = tmp.path().join("wt");
+    sh(&repo, &["worktree", "add", "-q", "-b", "feat/y", wt.to_str().unwrap()]);
+    commit_file(&wt, "y.txt", "y\n");
+    push_other("o3.txt");
+    std::fs::write(repo.join("notes.txt"), "wip\n").unwrap();
+    let r = call(&k, "branches.merge", json!({ "projectId": pid, "branch": "feat/y", "into": "main", "push": true, "stay": true })).await;
+    assert_eq!(r["pushed"], true, "{r}");
+    assert!(repo.join("y.txt").exists() && repo.join("o3.txt").exists());
+    assert_eq!(std::fs::read_to_string(repo.join("notes.txt")).unwrap(), "wip\n");
+
+    // Uncommitted work in a file the branch changes still stops the merge, nothing moved.
+    commit_file(&wt, "notes.txt", "theirs\n");
+    let before = rev(&repo, "main");
+    let err = rpc::call(&k, "branches.merge", json!({ "projectId": pid, "branch": "feat/y", "into": "main", "stay": true })).await.unwrap_err();
+    assert!(err.to_string().contains("notes.txt"), "{err}");
+    assert_eq!(rev(&repo, "main"), before);
+}
+
+#[tokio::test]
 async fn pull_and_tracking() {
     let tmp = tempfile::tempdir().unwrap();
     let repo = tmp.path().join("atlas-api");
