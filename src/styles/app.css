@@ -3772,10 +3772,6 @@ button.picker-act {
   flex-direction: column;
   gap: 24px;
 }
-/* Worktree detail runs wider than the other detail pages: terminal and agent log need the room. */
-.wt-detail {
-  max-width: 1400px;
-}
 .detail h1 {
   margin: 0;
   font-size: 20px;
@@ -3872,15 +3868,48 @@ button.picker-act {
     transparent
   );
 }
+/* A worktree: the row's button beside its "…" (like a stash row), sharing one hover and selection background. */
+.wt-item {
+  display: flex;
+  align-items: stretch;
+  margin: 0 8px 2px;
+  border-radius: var(--r);
+}
+.wt-item:hover {
+  background: var(--raised);
+}
+.wt-item:has(> .item-btn[aria-pressed="true"]) {
+  background: var(--sel);
+}
+.wt-item > .item-btn {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+  margin: 0;
+  background: transparent;
+}
+.wt-item > .tree-acts {
+  margin: 0;
+}
+.wt-item:hover > .tree-acts,
+.wt-item:focus-within > .tree-acts,
+.wt-item:has(> .item-btn[aria-pressed="true"]) > .tree-acts {
+  opacity: 1;
+  pointer-events: auto;
+}
 .wt-row {
   gap: 4px;
-  margin-bottom: 2px;
 }
 .wt-row > .row {
   margin: 0;
 }
 .wt-row > .row > .mono {
   font-size: 12.5px;
+}
+.wt-row .wt-base {
+  flex: 0 1 auto;
+  max-width: 45%;
+  font-size: 11.5px;
 }
 .wt-row .wt-stat {
   flex: none;
@@ -4710,24 +4739,6 @@ body:has(> .modal-scrim) #root * {
   }
   .seg > button {
     min-height: 32px;
-  }
-  /* Worktree detail: tighter, the long path on its own row, actions flowing together, agent card near the bottom edge. */
-  .wt-detail {
-    gap: 16px;
-  }
-  .wt-detail .kv {
-    grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
-    gap: 10px;
-    padding: 10px 12px;
-  }
-  .wt-detail .kv > :first-child {
-    grid-column: 1 / -1;
-  }
-  .wt-actions > .grow {
-    display: none;
-  }
-  .detail:has(> .wt-detail):not(:has(.term-max)) {
-    padding-bottom: 16px;
   }
 }
 @media (min-width: 901px) {

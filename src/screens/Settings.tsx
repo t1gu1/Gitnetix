@@ -13,15 +13,14 @@ import { Resizer, usePaneWidth } from "../components/Resizer";
 import { Header, Seg } from "../components/ui";
 import { ANIMATIONS, useAnimations } from "../lib/motion";
 import { useNav } from "../lib/nav";
-import { useStored, useStoredFlag } from "../lib/stored";
+import { useStoredFlag } from "../lib/stored";
 import { ansi, THEMES, type Theme } from "../lib/themes";
 import { copyToClipboard, toast } from "../lib/toast";
-import { TERM_MAX_KEY } from "./Worktrees";
 
 const JIRA_TOKENS = "https://id.atlassian.com/manage-profile/security/api-tokens";
 
 const GROUPS: [string, [string, string][]][] = [
-  ["General", [["project", "Project"], ["appearance", "Appearance"], ["animations", "Animations"], ["avatars", "Avatars"], ["worktrees", "Worktrees & agents"]]],
+  ["General", [["project", "Project"], ["appearance", "Appearance"], ["animations", "Animations"], ["avatars", "Avatars"]]],
   ["AI", [["ai", "AI setup"], ["templates", "Templates"]]],
   ["Git", [["profiles", "Git profiles"], ["git", "Git providers"]]],
   ["Integrations", [["tools", "Jira, Trello, Asana"], ["companion", "Companion & MCP"]]],
@@ -73,7 +72,6 @@ export function SettingsPanes({ section, onAi, onTemplates }: { section?: string
             {sec === "appearance" && <Appearance />}
             {sec === "animations" && <Animations />}
             {sec === "avatars" && <Avatars />}
-            {sec === "worktrees" && <WorktreePrefs />}
             {sec === "profiles" && <Profiles cfg={cfg} />}
             {sec === "git" && <GitProviders cfg={cfg} />}
             {sec === "tools" && <Integrations cfg={cfg} />}
@@ -232,29 +230,6 @@ function Avatars() {
             <span className="col" style={{ gap: 2 }}>
               <span style={{ fontWeight: 500 }}>Use Gravatar</span>
               <span className="hint">Show the author's Gravatar picture when they have one. Sends a hash of each author's email to gravatar.com.</span>
-            </span>
-          </label>
-        </li>
-      </ul>
-    </>
-  );
-}
-
-function WorktreePrefs() {
-  const [max, setMax] = useStored(TERM_MAX_KEY, true);
-  return (
-    <>
-      <div className="col" style={{ gap: 6 }}>
-        <h1>Worktrees &amp; agents</h1>
-        <p className="muted" style={{ margin: 0 }}>For every project. A worktree where you expanded or restored the terminal keeps that choice.</p>
-      </div>
-      <ul className="list">
-        <li className="list-row">
-          <label className="check grow">
-            <input type="checkbox" checked={max} onChange={() => setMax(!max)} />
-            <span className="col" style={{ gap: 2 }}>
-              <span style={{ fontWeight: 500 }}>Expand the terminal</span>
-              <span className="hint">Open a worktree with its terminal filling the pane, details and actions hidden until you restore it.</span>
             </span>
           </label>
         </li>

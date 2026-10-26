@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type CSSProperties } from "react";
+import { useMemo, useRef, useState, type CSSProperties, type MouseEvent } from "react";
 
 import { useAction, useAgents, useFiles, useOverview, useProjects, useWorktrees } from "../api/hooks";
 import type { AgentSession, AgentStatus, WorktreeView } from "../api/types";
@@ -11,7 +11,6 @@ import { ShellPane, TermTabs, useTermView } from "../components/Shell";
 import { ago, Busy, Empty, EmptyState, Header, Loading, Modal, Seg } from "../components/ui";
 import { KINDS, kindOfBranch, type Kind } from "../lib/kinds";
 import { useNav } from "../lib/nav";
-import { useStored } from "../lib/stored";
 import { useBranchActions } from "./BranchMenu";
 import { DiscardWorktreeModal, FinishWorktreeCard, MergeModal, mergeTargets, useFinishHandlers } from "./Workspace";
 
@@ -26,9 +25,6 @@ const STATUS: Record<AgentStatus | "idle", [string, string]> = {
 };
 
 type Filter = "all" | "running" | "needs";
-
-/** Whether a worktree's terminal opens expanded until toggled there. */
-export const TERM_MAX_KEY = "gnx.wt.termMax";
 
 interface Row {
   key: string;
@@ -62,8 +58,18 @@ export function Worktrees({ initial }: { initial?: string }) {
   const listW = usePaneWidth("gnx.pane.worktrees", 400, 280, 720);
   // The project the new session modal opens on; undefined while it is closed.
   const [starting, setStarting] = useState<string>();
-  // Right-click selects the row and opens its actions: they and their modals live in its Detail.
-  const [menu, setMenu] = useState<{ key: string; x: number; y: number } | null>(null);
+  // Right-click or "…" selects the row and opens its actions: they and their modals live in its Detail.
+  const [menu, setMenu] = useState<{ key: string; x: number; y: number; alignRight?: boolean } | null>(null);
+  const openMenu = (r: Row, e: MouseEvent<HTMLElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    // Keyboard-opened context menus report (0, 0): anchor to the element instead.
+    const b = e.currentTarget.getBoundingClientRect();
+    const fromKey = e.type === "contextmenu" && e.clientX === 0 && e.clientY === 0;
+    setSel(r.key);
+    if (e.type !== "contextmenu") setMenu({ key: r.key, x: b.right, y: b.bottom + 2, alignRight: true });
+    else setMenu({ key: r.key, x: fromKey ? b.left : e.clientX, y: fromKey ? b.bottom + 2 : e.clientY });
+  };
 
   // One row per linked worktree; agents elsewhere (main checkout, removed directory) still show up.
   const rows: Row[] = useMemo(() => {
@@ -121,37 +127,35 @@ export function Worktrees({ initial }: { initial?: string }) {
                 </div>
                 {g.items.map((r) => {
                   const [label, cls] = STATUS[r.status];
-                  const sub = !r.wt ? "Directory removed" : r.agent ? r.agent.request.split("\n")[0] : r.wt.base && `from ${r.wt.base}`;
+                  const sub = !r.wt ? "Directory removed" : r.agent?.request.split("\n")[0];
+                  const more = `More actions for ${r.branch}`;
                   return (
-                    <button
-                      key={r.key}
-                      className="item-btn wt-row"
-                      aria-pressed={r.key === cur?.key}
-                      title={r.path}
-                      onClick={() => { setSel(r.key); setPane("detail"); }}
-                      onContextMenu={(e) => {
-                        e.preventDefault();
-                        // Keyboard-opened context menus report (0, 0): anchor to the row instead.
-                        const b = e.currentTarget.getBoundingClientRect();
-                        const fromKey = e.clientX === 0 && e.clientY === 0;
-                        setSel(r.key);
-                        setMenu({ key: r.key, x: fromKey ? b.left : e.clientX, y: fromKey ? b.bottom + 2 : e.clientY });
-                      }}
-                    >
-                      <span className="row" style={{ gap: 8 }}>
-                        <span className={`mono ellipsis grow${r.wt ? "" : " faint"}`}>{r.branch}</span>
-                        {r.wt && (r.wt.additions > 0 || r.wt.deletions > 0) && (
-                          <span className="mono wt-stat"><span className="c-add">+{r.wt.additions}</span> <span className="c-del">−{r.wt.deletions}</span></span>
-                        )}
+                    <div key={r.key} className="wt-item" onContextMenu={(e) => openMenu(r, e)}>
+                      <button className="item-btn wt-row" aria-pressed={r.key === cur?.key} title={r.path} onClick={() => { setSel(r.key); setPane("detail"); }}>
+                        <span className="row" style={{ gap: 8 }}>
+                          <span className={`mono ellipsis grow${r.wt ? "" : " faint"}`}>{r.branch}</span>
+                          {r.wt?.base && <span className="faint ellipsis wt-base">from {r.wt.base}</span>}
+                          {r.wt && (r.wt.additions > 0 || r.wt.deletions > 0) && (
+                            <span className="mono wt-stat"><span className="c-add">+{r.wt.additions}</span> <span className="c-del">−{r.wt.deletions}</span></span>
+                          )}
+                        </span>
+                        <span className="row wt-meta">
+                          <span className={r.status === "running" ? "pulse" : `wt-dot ${cls}`} />
+                          <span className={cls} style={{ flex: "none" }}>{label}</span>
+                          {sub && <span className="faint">·</span>}
+                          <span className="faint ellipsis grow">{sub}</span>
+                          {r.agent && <span className="faint" style={{ flex: "none" }}>{ago(r.agent.updatedAt)}</span>}
+                        </span>
+                      </button>
+                      {/* Like a branch's "…", but alone: it takes the whole height. */}
+                      <span className="tree-acts">
+                        <span className="acts">
+                          <button className="act act-main" aria-label={more} data-tip={more} aria-haspopup="menu" onClick={(e) => openMenu(r, e)}>
+                            <Icon name="more" size={14} />
+                          </button>
+                        </span>
                       </span>
-                      <span className="row wt-meta">
-                        <span className={r.status === "running" ? "pulse" : `wt-dot ${cls}`} />
-                        <span className={cls} style={{ flex: "none" }}>{label}</span>
-                        {sub && <span className="faint">·</span>}
-                        <span className="faint ellipsis grow">{sub}</span>
-                        {r.agent && <span className="faint" style={{ flex: "none" }}>{ago(r.agent.updatedAt)}</span>}
-                      </span>
-                    </button>
+                    </div>
                   );
                 })}
               </div>
@@ -176,7 +180,7 @@ export function Worktrees({ initial }: { initial?: string }) {
   );
 }
 
-function Detail({ r, menu, onMenuClose }: { r: Row; menu?: { x: number; y: number }; onMenuClose: () => void }) {
+function Detail({ r, menu, onMenuClose }: { r: Row; menu?: { x: number; y: number; alignRight?: boolean }; onMenuClose: () => void }) {
   const nav = useNav();
   const a = r.agent;
   const inv = [["agents"], ["worktrees"]];
@@ -210,11 +214,6 @@ function Detail({ r, menu, onMenuClose }: { r: Row; menu?: { x: number; y: numbe
   const push = useAction("workspace.push", { invalidate: commitInv, success: `Pushed ${r.branch}` });
   const [pick, setPick] = useAgentPick(r.projectId);
   const [termView, setTermView] = useTermView();
-  // Maximized, the terminal card takes the whole detail pane. A worktree keeps its last toggle; untouched ones follow Settings.
-  const [maxDefault] = useStored(TERM_MAX_KEY, true);
-  // shortcut: choices of deleted worktrees stay in the config, prune them on removal if the view map grows.
-  const [ownMax, setMax] = useStored<boolean | null>(`${TERM_MAX_KEY}.${r.key}`, null);
-  const max = ownMax ?? maxDefault;
   const busy = a?.status === "running" || a?.status === "paused";
   const send = (up: Upload[], t: string) => {
     if (!t && !up.length) return;
@@ -235,7 +234,7 @@ function Detail({ r, menu, onMenuClose }: { r: Row; menu?: { x: number; y: numbe
     nav.selectBranch(r.branch);
     nav.go({ name: "workspace" });
   };
-  // The right-click menu: same actions and conditions as the buttons below.
+  // The row's "…" / right-click menu: the terminal fills the pane, so these are the worktree's only action buttons.
   const items = ([
     a?.status === "waiting" && r.wt && { id: "commit", label: "Commit & Push changes", icon: "sparkle", hint: String(staged || changed), disabled: !changed || commit.isPending || push.isPending, run: commitPush },
     a?.status === "failed" && { id: "retry", label: "Fix and retry with AI", icon: "sparkle", run: () => retry(a.id) },
@@ -249,73 +248,13 @@ function Detail({ r, menu, onMenuClose }: { r: Row; menu?: { x: number; y: numbe
     isWorktree && { id: "merge", label: "Merge…", icon: "merged", run: () => finish.merge(session, true) },
     isWorktree && { id: "discard", label: "Cancel and Delete all…", icon: "trash", danger: true, run: () => setDiscarding(true) },
   ] as (MenuItem | false | undefined)[]).filter((x): x is MenuItem => !!x);
-  const [label, cls] = STATUS[r.status];
   return (
-    <div className="detail-inner wt-detail" style={{ flex: 1, minHeight: 0 }}>
-      {!max && (
-        <>
-          <div className="col" style={{ gap: 6 }}>
-            <div className="row wrap" style={{ fontSize: 12.5 }}>
-              <span className={`pill ${cls}`}>{label}</span>
-              <span className="muted">{r.projectName} · {r.wt ? (r.wt.main ? "Main checkout" : "Worktree") : "Directory removed"}</span>
-            </div>
-            <h1 className="mono" style={{ fontSize: 18 }}>{r.branch}</h1>
-          </div>
-          <div className="kv">
-            <div><span>Path</span><span className="mono ellipsis" title={r.path} style={{ fontSize: 12 }}>{r.path}</span></div>
-            <div><span>Base</span><span className="mono">{r.wt?.base ?? "—"}</span></div>
-            <div><span>Agent</span><span>{a?.agentLabel ?? "None"}</span></div>
-            <div><span>Ticket</span><span className="mono">{r.wt?.ticket ?? "—"}</span></div>
-            <div><span>Started</span><span>{a ? ago(a.startedAt) : "—"}</span></div>
-          </div>
-          <div className="row wrap wt-actions" style={{ gap: 6 }}>
-            {a?.status === "waiting" && r.wt && (
-              <button
-                className="btn btn-primary"
-                disabled={!changed || commit.isPending || push.isPending}
-                onClick={commitPush}
-              >
-                <Busy on={commit.isPending || push.isPending}><Icon name="sparkle" size={12} /></Busy>
-                <span>Commit &amp; Push changes<span style={{ fontWeight: 400, opacity: 0.75, marginLeft: 6 }}>{staged || changed}</span></span>
-              </button>
-            )}
-            {a?.status === "failed" && (
-              <button className="btn btn-primary" onClick={() => retry(a.id)}>
-                <Icon name="sparkle" size={12} />
-                Fix and retry with AI
-              </button>
-            )}
-            {a?.status === "running" && <button className="btn" onClick={() => pause.mutate({ id: a.id })}><Icon name="pause" size={12} />Pause</button>}
-            {a?.status === "paused" && <button className="btn" onClick={() => resume.mutate({ id: a.id })}><Icon name="play" size={12} />Resume</button>}
-            {busy && a && <button className="btn" onClick={() => stop.mutate({ id: a.id })}><Icon name="stop" size={12} />Stop agent</button>}
-            {r.wt && (
-              <button className="btn" onClick={openWs}>
-                Open in workspace
-              </button>
-            )}
-            <span className="grow" />
-            {a && !busy && !isWorktree && <button className="btn btn-ghost" onClick={() => removeAgent.mutate({ id: a.id })}>Clear session</button>}
-            {isWorktree && (
-              <>
-                <button className="btn" data-tip={`Delete the worktree and switch to ${r.branch}; uncommitted changes get committed or discarded first`} onClick={() => finish.continue(session, true)}>Continue on branch</button>
-                <button className="btn" data-tip="Pick the merge options; the worktree is deleted once merged" onClick={() => finish.merge(session, true)}>Merge…</button>
-                <button className="btn btn-danger" data-tip={`Delete the worktree, its uncommitted changes and the local ${r.branch} branch`} onClick={() => setDiscarding(true)}>
-                  <Icon name="trash" size={12} />
-                  Cancel and Delete all
-                </button>
-              </>
-            )}
-          </div>
-        </>
-      )}
-      <div className={max ? "col card term-max" : "col card"} style={{ flex: "1 1 320px", minHeight: 280, gap: 0, overflow: "hidden", background: "var(--term)" }}>
+    <div className="detail-inner" style={{ flex: 1, minHeight: 0 }}>
+      <div className="col card term-max" style={{ flex: "1 1 320px", minHeight: 280, gap: 0, overflow: "hidden", background: "var(--term)" }}>
         <div className="term-tabs">
           <TermTabs value={termView} onChange={setTermView} />
           <span className="grow" />
           <span className="hint row hide-narrow" style={{ padding: "0 14px" }}>Keeps running when you switch project</span>
-          <button className="btn btn-ghost" style={{ width: 36, height: "auto", border: 0, borderLeft: "1px solid var(--line)", borderRadius: 0 }} aria-label={max ? "Restore terminal size" : "Expand terminal"} aria-pressed={max} data-tip={max ? "Restore" : "Expand"} onClick={() => setMax(!max)}>
-            <Icon name={max ? "minimize" : "maximize"} size={13} />
-          </button>
         </div>
         {termView === "shell" ? (
           <ShellPane projectId={r.projectId} path={r.wt ? r.path : undefined} />
@@ -356,7 +295,7 @@ function Detail({ r, menu, onMenuClose }: { r: Row; menu?: { x: number; y: numbe
       )}
       {discarding && <DiscardWorktreeModal branch={r.branch} path={r.path} onClose={() => setDiscarding(false)} onConfirm={() => finish.discard(session)} />}
       {finish.modal}
-      {menu && <ContextMenu x={menu.x} y={menu.y} label={`Actions for ${r.branch}`} items={items} onClose={onMenuClose} />}
+      {menu && <ContextMenu x={menu.x} y={menu.y} alignRight={menu.alignRight} label={`Actions for ${r.branch}`} items={items} onClose={onMenuClose} />}
     </div>
   );
 }
