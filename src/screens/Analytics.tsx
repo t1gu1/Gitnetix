@@ -41,16 +41,18 @@ export function Analytics() {
   return (
     <>
       <Header title="Analytics & stats" hideWide />
-      <div className="row wrap" style={{ margin: 0, padding: "10px 24px", borderBottom: "1px solid var(--line)", gap: 12 }}>
-        <Seg label="Time range" value={days} onChange={setDays} options={RANGES.map((d) => ({ value: d, label: `${d} days` }))} />
-        <ProjectPicker projects={projects} value={ids} onChange={setIds} />
-        <span className="grow" />
-        <button className="btn" disabled={!q.data} onClick={exportCsv}>Export CSV</button>
-      </div>
       <main className="page">
-        {q.isLoading && <Loading />}
-        {q.error && <ErrorBox error={q.error} />}
-        {q.data && <Body a={q.data} />}
+        <div className="col" style={{ gap: 32, maxWidth: 1200, marginInline: "auto" }}>
+          <div className="row wrap" style={{ margin: 0, gap: 12 }}>
+            <Seg label="Time range" value={days} onChange={setDays} options={RANGES.map((d) => ({ value: d, label: `${d} days` }))} />
+            <ProjectPicker projects={projects} value={ids} onChange={setIds} />
+            <span className="grow" />
+            <button className="btn" disabled={!q.data} onClick={exportCsv}>Export CSV</button>
+          </div>
+          {q.isLoading && <Loading />}
+          {q.error && <ErrorBox error={q.error} />}
+          {q.data && <Body a={q.data} />}
+        </div>
       </main>
     </>
   );
@@ -120,7 +122,7 @@ function Body({ a }: { a: A }) {
   const ticks = (m: number, unit = "") => [0, 1, 2, 3, 4].map((i) => ({ v: `${Math.round((m * i) / 4)}${unit && i === 4 ? unit : ""}`, top: 100 - i * 25 }));
 
   return (
-    <div className="col" style={{ gap: 32, maxWidth: 1200, marginInline: "auto" }}>
+    <div className="col" style={{ gap: 32 }}>
       <section aria-label="Key figures" className="kpis">
         {a.kpis.map((k) => (
           <div key={k.label} className="kpi">
