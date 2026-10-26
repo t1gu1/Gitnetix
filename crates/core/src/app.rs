@@ -2293,8 +2293,9 @@ impl Gitnetix {
             let upstream = git.upstream(branch).await?.ok_or_else(|| Error::Invalid(format!("{branch} has no upstream to force push to.")))?;
             git.force_push(branch, &upstream).await?
         } else {
-            // Track it unless it already does: a branch pushed without -u (on origin, untracked) gets its upstream now.
-            let tracked = git.upstream(branch).await?.is_some();
+            // Track it unless it already does: a branch pushed without -u (on origin, untracked), or one
+            // tracking another name (e.g. renamed locally), gets `origin/<branch>` as its upstream now.
+            let tracked = git.upstream(branch).await?.is_some_and(|u| u == format!("origin/{branch}"));
             git.push(branch, !tracked).await?
         };
         self.changed(project_id);
@@ -3038,6 +3039,9 @@ impl Gitnetix {
             let gone = upstream.trim() == format!("origin/{branch}") && !git.ref_exists(&format!("refs/remotes/origin/{branch}")).await?;
             if on_origin || (gone && git.ref_exists(&format!("refs/remotes/origin/{to}")).await?) {
                 git.set_upstream(to, &format!("origin/{to}")).await?;
+            } else if upstream.trim() == format!("origin/{branch}") {
+                // Renamed here only: origin keeps the old name, which `to` must not track. Its next push tracks `origin/{to}`.
+                git.run(&["branch", "--unset-upstream", to]).await?;
             }
         }
         self.store.with_project(project_id, |p| renamed(p, branch, to))?;

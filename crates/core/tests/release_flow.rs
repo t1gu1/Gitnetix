@@ -1577,4 +1577,13 @@ async fn rename_on_origin_and_follow_it_elsewhere() {
     call(&k, "branches.rename", json!({ "projectId": mid, "branch": "feat/b", "name": "feat/c" })).await;
     assert_eq!(git_out(&mate, &["rev-parse", "--abbrev-ref", "feat/c@{upstream}"]).trim(), "origin/feat/c");
     assert!(rev(&mate, "refs/heads/feat/b").is_empty());
+
+    // Renamed here only: origin keeps feat/c, which feat/d no longer tracks.
+    call(&k, "branches.rename", json!({ "projectId": mid, "branch": "feat/c", "name": "feat/d" })).await;
+    assert!(git_out(&mate, &["for-each-ref", "--format=%(upstream)", "refs/heads/feat/d"]).trim().is_empty());
+    assert!(!rev(&origin, "refs/heads/feat/c").is_empty());
+    // A branch still tracking another name (renamed before this fix) tracks what it pushed.
+    sh(&mate, &["branch", "-q", "-u", "origin/feat/c", "feat/d"]);
+    call(&k, "workspace.push", json!({ "projectId": mid, "branch": "feat/d" })).await;
+    assert_eq!(git_out(&mate, &["rev-parse", "--abbrev-ref", "feat/d@{upstream}"]).trim(), "origin/feat/d");
 }
