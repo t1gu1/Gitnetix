@@ -1,7 +1,7 @@
 import { useState, type MouseEvent } from "react";
 
 import { switchedOverview, useAction, useAiOn, useOverview, usePendingBranches } from "../api/hooks";
-import type { BranchView, Overview, RebaseResult, Stash, StashApplied } from "../api/types";
+import type { BranchView, Overview, RebaseResult, RenameResult, Stash, StashApplied } from "../api/types";
 import { ContextMenu, type MenuItem } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
 import { plural } from "../lib/format";
@@ -87,7 +87,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
   // Changelog entries are written by the AI that writes release notes.
   const canChangelog = useAiOn("release") && hasChangelog;
   const move = useAction("branches.setParent", { invalidate: inv });
-  const follow = useAction<unknown, { projectId: string; branch: string; name: string }>("branches.rename", { invalidate: [...inv, ["worktrees"], ["agents"]] });
+  const follow = useAction<RenameResult, { projectId: string; branch: string; name: string }>("branches.rename", { invalidate: [...inv, ["worktrees"], ["agents"]] });
   const [menu, setMenu] = useState<{ x: number; y: number; alignRight: boolean; t: BranchTarget } | null>(null);
 
   const mutations = [sw, wt, removeWt, pull, push, rebase, sync, stash, unstash, pr, changelog, stampChangelog, follow];
@@ -272,9 +272,10 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
         icon: "swap",
         warn: true,
         run: () => v.renamedTo && follow.mutate({ projectId: pid, branch: b, name: v.renamedTo }, {
-              onSuccess: () => {
+              onSuccess: (r) => {
                 if (nav.selectedBranch === b) nav.selectBranch(v.renamedTo!);
                 toast(`Renamed ${b} to ${v.renamedTo}`, "ok");
+                if (r.changelogError) toast(`Renamed, but committing CHANGELOG.md failed: ${r.changelogError}`, "error");
               },
             }),
       },

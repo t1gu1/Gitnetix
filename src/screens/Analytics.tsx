@@ -208,7 +208,7 @@ function Body({ a, ids, multi }: { a: A; ids: string[]; multi: boolean }) {
             <div className="chart-plot" style={{ gap: 16 }} onMouseLeave={() => setHb(-1)}>
               {ticks(leadMax).map((t) => <div key={t.top} className="chart-grid" style={{ top: `${t.top}%` }} />)}
               {a.releases.map((r, i) => (
-                <button key={r.version} className={`chart-bar${hb >= 0 && hb !== i ? " dim" : ""}`} aria-label={`${r.version}: ${lead(r.leadHours)}`} onMouseEnter={() => setHb(i)} onClick={() => setRel(r)}>
+                <button key={`${r.project}:${r.version}`} className={`chart-bar${hb >= 0 && hb !== i ? " dim" : ""}`} aria-label={`${r.version}: ${lead(r.leadHours)}`} onMouseEnter={() => setHb(i)} onClick={() => setRel(r)}>
                   <span style={{ height: `${(r.leadHours / 24 / leadMax) * 100}%`, maxWidth: 56, borderRadius: "3px 3px 0 0" }} />
                   {hb === i && (
                     <div className="chart-tip" style={{ left: i / a.releases.length < 0.2 ? 0 : i / a.releases.length > 0.8 ? "100%" : "50%", transform: `translateX(${i / a.releases.length < 0.2 ? "0" : i / a.releases.length > 0.8 ? "-100%" : "-50%"})` }}>
@@ -228,7 +228,7 @@ function Body({ a, ids, multi }: { a: A; ids: string[]; multi: boolean }) {
               ))}
             </div>
             <div className="row" style={{ gridColumn: 2, gap: 16 }}>
-              {a.releases.map((r) => <span key={r.version} className="mono faint" style={{ flex: "1 1 0", textAlign: "center", fontSize: 11 }}>{r.version}</span>)}
+              {a.releases.map((r) => <span key={`${r.project}:${r.version}`} className="mono faint" style={{ flex: "1 1 0", textAlign: "center", fontSize: 11 }}>{r.version}</span>)}
             </div>
           </div>
         )}

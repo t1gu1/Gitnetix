@@ -70,6 +70,8 @@ struct Inner {
     kills: HashMap<String, oneshot::Sender<()>>,
     /// Claude Code runs the last quit cut off, for `resume_interrupted`.
     interrupted: Vec<String>,
+    /// Set by `shutdown`: nothing is saved after it.
+    quitting: bool,
 }
 
 #[derive(Clone)]
@@ -123,7 +125,22 @@ impl AgentManager {
                 s.lines.push(LogLine::new("dim", "  ■ Stopped when Gitnetix quit"));
             }
         }
-        AgentManager { inner: Arc::new(Mutex::new(Inner { sessions, kills: HashMap::new(), interrupted })), events, file, write_lock: Arc::default() }
+        AgentManager { inner: Arc::new(Mutex::new(Inner { sessions, kills: HashMap::new(), interrupted, quitting: false })), events, file, write_lock: Arc::default() }
+    }
+
+    /// On quit: save the sessions, then kill their processes, which a quit never drops (`kill_on_drop`), so a
+    /// resumed run can't race one still going. Nothing is saved after: the next launch still finds the runs it cut off.
+    pub fn shutdown(&self) {
+        self.persist();
+        let pids: Vec<String> = {
+            let mut g = self.inner.lock().unwrap();
+            g.quitting = true;
+            g.sessions.values().filter_map(|s| s.pid).map(|p| p.to_string()).collect()
+        };
+        // shortcut: Unix only; on Windows a run may outlive the app until its pipes break, use taskkill if that shows up.
+        if !pids.is_empty() && !cfg!(windows) {
+            let _ = std::process::Command::new("kill").arg("-KILL").args(&pids).status();
+        }
     }
 
     /// Resume the Claude Code runs the last quit cut off. Needs a tokio runtime.
@@ -156,11 +173,17 @@ impl AgentManager {
         self.persist();
     }
 
-    pub fn persist(&self) {
+    fn persist(&self) {
         // Snapshot under the session lock, serialize and write outside it so
         // log readers are not blocked. Order does not matter on disk: `new`
         // loads sessions into a map.
-        let snapshot: Vec<AgentSession> = self.inner.lock().unwrap().sessions.values().cloned().collect();
+        let snapshot: Vec<AgentSession> = {
+            let g = self.inner.lock().unwrap();
+            if g.quitting {
+                return;
+            }
+            g.sessions.values().cloned().collect()
+        };
         let Ok(json) = serde_json::to_string(&snapshot) else { return };
         // Write to a temp file and rename so a reader never sees a torn file.
         let _guard = self.write_lock.lock().unwrap();
@@ -592,6 +615,23 @@ mod tests {
         m.resume_interrupted();
         assert!(m.inner.lock().unwrap().interrupted.is_empty());
         assert_eq!(m.get("run").unwrap().status, AgentStatus::Stopped);
+    }
+
+    #[test]
+    fn shutdown_keeps_runs_resumable() {
+        let dir = tempfile::tempdir().unwrap();
+        let m = AgentManager::new(broadcast::channel(8).0, dir.path());
+        let s = AgentSession {
+            id: "a".into(), project_id: "p".into(), branch: "b".into(), cwd: ".".into(), worktree: false,
+            status: AgentStatus::Running, request: "r".into(), agent_label: String::new(), lines: vec![],
+            started_at: now(), updated_at: now(), resume_id: Some("rid".into()), ai: Some(cli("claude")), pid: None,
+        };
+        m.inner.lock().unwrap().sessions.insert("a".into(), s);
+        m.shutdown();
+        // Its killed process ending the run after: not saved, so the next launch resumes it.
+        m.set_status("a", AgentStatus::Failed);
+        let next = AgentManager::new(broadcast::channel(8).0, dir.path());
+        assert_eq!(next.inner.lock().unwrap().interrupted, vec!["a".to_string()]);
     }
 
     #[test]

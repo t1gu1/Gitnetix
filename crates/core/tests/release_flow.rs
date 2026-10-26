@@ -1537,6 +1537,13 @@ async fn rename_on_origin_and_follow_it_elsewhere() {
     let err = rpc::call(&k, "branches.rename", json!({ "projectId": pid, "branch": "feat/b", "name": "feat/taken", "remote": true })).await.unwrap_err();
     assert!(err.to_string().contains("origin already has feat/taken"), "{err}");
     assert_eq!(rev(&origin, "refs/heads/feat/b"), tip);
+    // Mid-rebase, HEAD detached: refused before origin moves, as git would refuse the local rename.
+    let stopped = Command::new("git").current_dir(&repo).args(["rebase", "-q", "-f", "-x", "false", "main"]).status().unwrap();
+    assert!(!stopped.success());
+    let err = rpc::call(&k, "branches.rename", json!({ "projectId": pid, "branch": "feat/b", "name": "feat/r", "remote": true })).await.unwrap_err();
+    assert!(err.to_string().contains("being rebased"), "{err}");
+    assert_eq!(rev(&origin, "refs/heads/feat/b"), tip);
+    sh(&repo, &["rebase", "--abort"]);
     sh(&repo, &["switch", "-q", "main"]);
 
     // An open release takes its new version along, with its branches and planned tickets.
@@ -1579,9 +1586,16 @@ async fn rename_on_origin_and_follow_it_elsewhere() {
     assert!(rev(&mate, "refs/heads/feat/b").is_empty());
 
     // Renamed here only: origin keeps feat/c, which feat/d no longer tracks.
+    sh(&mate, &["switch", "-q", "feat/c"]);
+    std::fs::write(mate.join("wip.txt"), "wip\n").unwrap();
+    sh(&mate, &["-c", "user.name=T", "-c", "user.email=t@example.com", "stash", "push", "-q", "-u"]);
+    sh(&mate, &["switch", "-q", "main"]);
     call(&k, "branches.rename", json!({ "projectId": mid, "branch": "feat/c", "name": "feat/d" })).await;
     assert!(git_out(&mate, &["for-each-ref", "--format=%(upstream)", "refs/heads/feat/d"]).trim().is_empty());
     assert!(!rev(&origin, "refs/heads/feat/c").is_empty());
+    // Its stash follows, though origin still has a feat/c.
+    let ov = call(&k, "workspace.overview", json!({ "projectId": mid })).await;
+    assert_eq!(ov["stashes"][0]["branch"], "feat/d", "{}", ov["stashes"]);
     // A branch still tracking another name (renamed before this fix) tracks what it pushed.
     sh(&mate, &["branch", "-q", "-u", "origin/feat/c", "feat/d"]);
     call(&k, "workspace.push", json!({ "projectId": mid, "branch": "feat/d" })).await;

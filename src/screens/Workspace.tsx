@@ -2,8 +2,8 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties, type Keyboard
 
 import { switchedOverview, useAction, useAgents, useAiOn, useAutoFetch, useBlobs, useDiff, useFiles, useOverview, usePendingBranches, useProjectPrefs, useProjects } from "../api/hooks";
 import { isLocal, revealPath } from "../api/transport";
-import type { AgentSession, BranchView, Commit, FileChange, Hunk, MergeResult, Overview, RebaseResult, ReleaseView, Stash } from "../api/types";
-import { AgentInput, AgentLog, shownStatus, type Attachment, type Choice, type Upload } from "../components/AgentLog";
+import type { AgentSession, BranchView, Commit, FileChange, Hunk, MergeResult, Overview, RebaseResult, ReleaseView, RenameResult, Stash } from "../api/types";
+import { AgentInput, AgentLog, type Attachment, type Choice, type Upload } from "../components/AgentLog";
 import { AgentPicker, useAgentPick } from "../components/AgentPicker";
 import { DiffView, type DiffMode } from "../components/DiffView";
 import { IMAGE_MODES, ImageDiff, comparable, isImage, useImageMode } from "../components/ImageDiff";
@@ -13,6 +13,7 @@ import { Resizer, usePaneWidth } from "../components/Resizer";
 import { ShellPane, TermTabs, useTermView } from "../components/Shell";
 import { Busy, ErrorBox, Loading, Markdown, Modal, Seg } from "../components/ui";
 import { ago, plural } from "../lib/format";
+import { shownStatus } from "../lib/agentLog";
 import { startCleanup, useCleaning } from "../lib/cleanups";
 import { useNav } from "../lib/nav";
 import { useStoredChoice, useStoredFlag } from "../lib/stored";
@@ -1231,11 +1232,20 @@ function RenameBranchModal({ pid, view, onClose, onRenamed }: { pid: string; vie
   const [alsoOrigin, setAlsoOrigin] = useState(true);
   const onOrigin = view.remote && (!view.local || alsoOrigin);
   const to = release ? `release/${name.trim().replace(/^v/, "")}` : name.trim();
-  const rename = useAction<{ changelog: boolean }, { projectId: string; branch: string; name: string; remote: boolean }>("branches.rename", {
+  const rename = useAction<RenameResult, { projectId: string; branch: string; name: string; remote: boolean }>("branches.rename", {
     invalidate: [["overview", pid], ["files", pid], ["commits", pid], ["worktrees"], ["agents"]],
     success: (r) => `Renamed ${view.name} to ${to}${r.changelog ? ". CHANGELOG.md updated in a commit: push it to share it" : ""}`,
   });
-  const submit = () => to !== view.name && name.trim() && rename.mutate({ projectId: pid, branch: view.name, name: to, remote: onOrigin }, { onSuccess: () => { onRenamed(to); onClose(); } });
+  const submit = () =>
+    to !== view.name &&
+    name.trim() &&
+    rename.mutate({ projectId: pid, branch: view.name, name: to, remote: onOrigin }, {
+      onSuccess: (r) => {
+        if (r.changelogError) toast(`Renamed, but committing CHANGELOG.md failed: ${r.changelogError}`, "error");
+        onRenamed(to);
+        onClose();
+      },
+    });
   return (
     <Modal
       title={release ? "Rename release" : "Rename branch"}

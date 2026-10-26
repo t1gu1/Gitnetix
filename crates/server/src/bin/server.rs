@@ -24,6 +24,6 @@ async fn main() -> anyhow::Result<()> {
     // Here, not before: with the API disabled the process exits at once and would kill the resumed agents.
     k.agents.resume_interrupted();
     tokio::signal::ctrl_c().await?;
-    k.agents.persist();
+    k.agents.shutdown();
     Ok(())
 }

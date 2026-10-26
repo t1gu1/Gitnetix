@@ -213,6 +213,13 @@ export interface MergeResult {
   tagError?: string | null;
 }
 
+export interface RenameResult {
+  /** The open release's CHANGELOG.md section was moved to its new version (committed, not pushed). */
+  changelog: boolean;
+  /** Why committing that section failed; the rename itself went through. */
+  changelogError?: string | null;
+}
+
 export interface RebaseResult {
   /** Conflicted files where the rebase stopped (empty = done). */
   conflicts: string[];
@@ -429,13 +436,13 @@ export interface AgentSession {
   ai?: { provider: string; model: string; effort: string } | null;
 }
 
-/** A checkout's terminal: the main checkout's is shared by every branch on it, each worktree has its own. */
 /** One package.json in the terminal's script menu: its title and each script with the command line that runs it from the checkout root. */
 export interface Scripts {
   title: string;
   scripts: [string, string][];
 }
 
+/** A checkout's terminal: the main checkout's is shared by every branch on it, each worktree has its own. */
 export interface ShellSnapshot {
   /** Canonical checkout path, the terminal's key. */
   cwd: string;
@@ -455,10 +462,11 @@ export interface WorktreeView {
   ticket?: string | null;
   additions: number;
   deletions: number;
-  /** Commits not in `base` yet, and files with uncommitted changes: what a merge would carry. */
+  /** Commits not in `base` yet: with `wip`, what a merge would carry. */
   ahead: number;
   /** Commits in `base` not in the branch yet. */
   behind: number;
+  /** Files with uncommitted changes. */
   wip: number;
   agent?: AgentSession | null;
 }

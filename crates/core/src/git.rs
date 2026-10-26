@@ -349,6 +349,12 @@ impl Git {
         Ok(paths.iter().zip(ops).find(|(p, _)| p.exists()).map(|(_, op)| op))
     }
 
+    /// The branch this checkout is rebasing or bisecting, its HEAD detached meanwhile.
+    pub async fn detached_from(&self) -> Result<Option<String>> {
+        let paths = self.git_paths(&["rebase-merge/head-name", "rebase-apply/head-name", "BISECT_START"]).await?;
+        Ok(paths.iter().find_map(|p| std::fs::read_to_string(p).ok()).map(|s| s.trim().trim_start_matches("refs/heads/").to_string()))
+    }
+
     // ---------- refs ----------
 
     pub async fn branches(&self) -> Result<Vec<BranchInfo>> {

@@ -236,10 +236,11 @@ pub struct WorktreeView {
     pub ticket: Option<String>,
     pub additions: u32,
     pub deletions: u32,
-    /// Commits not in `base` yet, and files with uncommitted changes: what a merge would carry.
+    /// Commits not in `base` yet: with `wip`, what a merge would carry.
     pub ahead: u32,
     /// Commits in `base` not in the branch yet.
     pub behind: u32,
+    /// Files with uncommitted changes.
     pub wip: u32,
     pub agent: Option<AgentSession>,
 }
@@ -352,6 +353,15 @@ enum Fix {
     /// Changed on one side, deleted on the other: the changed file stays, or goes.
     Keep,
     Delete,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RenameResult {
+    /// The open release's CHANGELOG.md section was moved to its new version (committed, not pushed).
+    pub changelog: bool,
+    /// Why committing that section failed; the rename itself went through.
+    pub changelog_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1749,7 +1759,8 @@ impl Gitnetix {
         };
         let (_, protected, stashes) = tokio::join!(self.decorate(&p, &mut all, &wts, &agents), protected, git.stashes());
         let mut stashes = stashes.unwrap_or_default();
-        relabel_stashes(&p, &mut stashes, |n| all.iter().any(|b| b.name == n && b.exists));
+        // Local only: renamed here alone, origin still has the old name, and its stashes follow the new one.
+        relabel_stashes(&p, &mut stashes, |n| all.iter().any(|b| b.name == n && b.local));
         for b in &mut all {
             b.protected = protected.contains(&b.name);
             b.stashes = stashes.iter().filter(|s| s.branch.as_deref() == Some(b.name.as_str())).count() as u32;
@@ -2982,8 +2993,7 @@ impl Gitnetix {
     /// Rename a branch and, with `remote`, its copy on origin for everyone. An open release's
     /// branch (`release/<version>`) takes its new version along. A local branch whose origin
     /// copy was renamed by someone else follows it (`renamed_to`): it tracks the new name after.
-    /// True when the release's CHANGELOG.md section was moved to the new version (committed, not pushed).
-    pub async fn rename_branch(&self, project_id: &str, branch: &str, to: &str, remote: bool) -> Result<bool> {
+    pub async fn rename_branch(&self, project_id: &str, branch: &str, to: &str, remote: bool) -> Result<RenameResult> {
         let to = to.trim();
         let p = self.store.project(project_id)?;
         let git = self.git(&p);
@@ -3002,6 +3012,12 @@ impl Gitnetix {
         if let Some(dir) = &dir {
             if let Some(op) = Git::new(dir).in_progress().await? {
                 return Err(Error::Invalid(format!("{branch} is in the middle of a {op}. Finish or abort it first.")));
+            }
+        }
+        // Rebasing or bisecting detaches HEAD, so no checkout has `branch` then; git would refuse the local rename after origin's.
+        for w in git.worktrees().await?.iter().filter(|w| w.branch.is_none()) {
+            if Git::new(&w.path).detached_from().await?.as_deref() == Some(branch) {
+                return Err(Error::Invalid(format!("{branch} is being rebased or bisected at {}. Finish or abort it first.", w.path)));
             }
         }
         let local = git.ref_exists(&format!("refs/heads/{branch}")).await?;
@@ -3046,11 +3062,19 @@ impl Gitnetix {
         }
         self.store.with_project(project_id, |p| renamed(p, branch, to))?;
         self.agents.rename_branch(project_id, branch, to);
+        // Renamed by now: a failed commit (a hook, say) is reported along, not as the rename failing.
+        let mut out = RenameResult { changelog: false, changelog_error: None };
         if let (Some(text), Some((old, new))) = (&changelog, &versions) {
-            self.commit_changelog(&p, &git, to, text, &format!("docs(changelog): v{old} is now v{new}")).await?;
+            match self.commit_changelog(&p, &git, to, text, &format!("docs(changelog): v{old} is now v{new}")).await {
+                Ok(()) => out.changelog = true,
+                Err(e) => {
+                    crate::log::error(format!("Could not commit {CHANGELOG} on {to}: {e}"));
+                    out.changelog_error = Some(e.to_string());
+                }
+            }
         }
         self.changed(project_id);
-        Ok(changelog.is_some())
+        Ok(out)
     }
 
     /// Rename `from` (at `sha` on origin) to `to` on origin. GitHub renames it itself, so its open

@@ -12,11 +12,11 @@ mod desktop {
 
     pub struct Engine(pub Arc<Gitnetix>);
 
-    /// Save the agent logs' latest lines before quitting, so a resumed run keeps them.
+    /// Save the agent logs' latest lines and end their runs before quitting, so a resumed run keeps them and never runs twice.
     pub fn on_event(app: &tauri::AppHandle, ev: tauri::RunEvent) {
         if let tauri::RunEvent::Exit = ev {
             if let Some(e) = app.try_state::<Engine>() {
-                e.0.agents.persist();
+                e.0.agents.shutdown();
             }
         }
     }

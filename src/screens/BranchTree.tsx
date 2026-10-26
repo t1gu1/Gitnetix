@@ -3,7 +3,7 @@ import { useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type
 
 import { useAction, useAgents } from "../api/hooks";
 import type { BranchView, Overview, ReleaseView } from "../api/types";
-import { shownStatus } from "../components/AgentLog";
+import { shownStatus } from "../lib/agentLog";
 import { AuthorFilter, authorsOf } from "../components/AuthorFilter";
 import { Avatar } from "../components/Avatar";
 import { ContextMenu, type MenuItem } from "../components/ContextMenu";

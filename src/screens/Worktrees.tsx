@@ -3,7 +3,8 @@ import { useMemo, useRef, useState, type CSSProperties, type MouseEvent } from "
 import { useAction, useAgents, useFiles, useOverview, useProjects, useWorktrees } from "../api/hooks";
 import { rpc } from "../api/transport";
 import type { AgentSession, AgentStatus, RebaseResult, WorktreeView } from "../api/types";
-import { AgentInput, AgentLog, FileChip, shownStatus, uploads, useAttach, type Attachment, type Choice, type Upload } from "../components/AgentLog";
+import { AgentInput, AgentLog, FileChip, uploads, useAttach, type Attachment, type Choice, type Upload } from "../components/AgentLog";
+import { shownStatus } from "../lib/agentLog";
 import { AgentPicker, MenuChoice, useAgentPick } from "../components/AgentPicker";
 import { ContextMenu, type MenuItem } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";

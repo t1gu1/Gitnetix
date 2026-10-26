@@ -27,7 +27,7 @@ import type {
   Ticket,
   WorktreeView,
 } from "./types";
-import { shownStatus } from "../components/AgentLog";
+import { shownStatus } from "../lib/agentLog";
 import { toast } from "../lib/toast";
 
 export const queryClient = new QueryClient({
