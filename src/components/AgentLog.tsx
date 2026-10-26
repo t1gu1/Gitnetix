@@ -207,6 +207,20 @@ function Choices({ qs, picks, onPicks }: { qs: Question[]; picks: Choice[]; onPi
   );
 }
 
+/** What you sent: its text, then the files that went with it. */
+function Said({ b }: { b: { text: string; files: string[] } }) {
+  return (
+    <>
+      {b.text && <span>{b.text}</span>}
+      {b.files.length > 0 && (
+        <span className="ag-files">
+          {b.files.map((f) => <FileChip key={f} file={f} />)}
+        </span>
+      )}
+    </>
+  );
+}
+
 /** `actions` show under "Your turn!" when the agent did not ask a question; `picks` are its options picked for the prompt box. */
 export function AgentLog({ lines, empty, picks, onPicks, projectId, actions, thinking, provider }: { lines: LogLine[]; empty?: string; picks: Choice[]; onPicks: (c: Choice[]) => void; projectId?: string; actions?: ReactNode; thinking?: boolean; provider?: string }) {
   const me = useMe(projectId);
@@ -234,6 +248,23 @@ export function AgentLog({ lines, empty, picks, onPicks, projectId, actions, thi
     const el = ref.current;
     if (el && stick.current) el.scrollTop = el.scrollHeight;
   }, [lines.length, thinking]);
+  // Your first message is the task: once it scrolls out of the log, it pins to the top; `peek` unfolds it there.
+  const task = list.find((b): b is Extract<Block, { kind: "you" }> => b.kind === "you");
+  const ti = task ? list.indexOf(task) : -1;
+  const first = useRef<HTMLDivElement>(null);
+  const [gone, setGone] = useState(false);
+  const [peek, setPeek] = useState(false);
+  useEffect(() => {
+    setPeek(false);
+    const el = first.current;
+    if (!el) return setGone(false);
+    const io = new IntersectionObserver(([e]) => {
+      setGone(!e.isIntersecting);
+      if (e.isIntersecting) setPeek(false);
+    }, { root: ref.current });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [ti, task?.text]);
   return (
     <div
       ref={ref}
@@ -243,21 +274,33 @@ export function AgentLog({ lines, empty, picks, onPicks, projectId, actions, thi
         stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
       }}
     >
+      {task && gone && (
+        <div className="ag-task">
+          <div className="ag-task-card">
+            <button type="button" className="ag-task-bar" aria-expanded={peek} data-tip={peek ? "Fold" : "Read the whole task"} onClick={() => setPeek(!peek)}>
+              <Avatar name={me.name} email={me.email} size={18} />
+              <span className="ag-task-label">Task</span>
+              <span className="ellipsis grow">{!peek && (task.text || task.files.join(", "))}</span>
+              <Icon name={peek ? "chevronUp" : "chevronDown"} size={12} />
+            </button>
+            {peek && (
+              <div className="ag-task-full">
+                <Said b={task} />
+              </div>
+            )}
+          </div>
+        </div>
+      )}
       {lines.length === 0 && <div className="ag-empty">{empty ?? "No output yet."}</div>}
       {list.map((b, i) => {
         switch (b.kind) {
           case "you":
             return (
-              <div key={i} className="ag-you">
+              <div key={i} ref={b === task ? first : undefined} className="ag-you">
                 <div className="ag-you-row">
                   <Avatar name={me.name} email={me.email} size={22} />
                   <div className="ag-bubble">
-                    {b.text && <span>{b.text}</span>}
-                    {b.files.length > 0 && (
-                      <span className="ag-files">
-                        {b.files.map((f) => <FileChip key={f} file={f} />)}
-                      </span>
-                    )}
+                    <Said b={b} />
                   </div>
                 </div>
               </div>
