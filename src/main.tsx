@@ -13,6 +13,9 @@ import "./styles/app.css";
 import { queryClient } from "./api/hooks";
 import { App } from "./App";
 
+// iOS Safari ignores user-scalable=no; cancelling WebKit's pinch gesture is the only way to block it.
+if (navigator.maxTouchPoints > 0) document.addEventListener("gesturestart", (e) => e.preventDefault());
+
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
