@@ -415,6 +415,66 @@ export function useAttach(target: () => HTMLElement | null | undefined, files: A
   return { over, add };
 }
 
+/** What a new agent session should do, in a modal: files are picked, pasted, or dropped anywhere on it. ⌘↵ runs `onSubmit`. */
+export function RequestField({ value, onChange, files, onFiles, onSubmit }: { value: string; onChange: (v: string) => void; files: Attachment[]; onFiles: (f: Attachment[]) => void; onSubmit: () => void }) {
+  const field = useRef<HTMLDivElement>(null);
+  const chooser = useRef<HTMLInputElement>(null);
+  const { over, add } = useAttach(() => field.current?.closest<HTMLElement>(".modal"), files, onFiles, false);
+  return (
+    <div ref={field} className="field">
+      <label htmlFor="ag-req">What should the agent do?</label>
+      <textarea
+        id="ag-req"
+        className="textarea"
+        rows={5}
+        placeholder="Let users sign in with Google and GitHub."
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) onSubmit(); }}
+        onPaste={(e) => {
+          // Screenshots and copied images attach instead of pasting nothing.
+          const pasted = [...e.clipboardData.files];
+          if (!pasted.length) return;
+          e.preventDefault();
+          add(pasted);
+        }}
+        autoFocus
+      />
+      {files.length > 0 && (
+        <div className="ag-files">
+          {files.map((f, i) => (
+            <FileChip key={i} file={f} onRemove={() => onFiles(files.filter((_, j) => j !== i))} />
+          ))}
+        </div>
+      )}
+      <div className="row" style={{ justifyContent: "space-between" }}>
+        <button type="button" className="btn btn-ghost btn-sm" onClick={() => chooser.current?.click()}>
+          <Icon name="attach" size={12} />
+          Attach files
+        </button>
+        <span className="hint">⌘↵ to start · drop files to attach</span>
+      </div>
+      <input
+        ref={chooser}
+        type="file"
+        multiple
+        hidden
+        onChange={(e) => {
+          add([...(e.target.files ?? [])]);
+          e.target.value = "";
+        }}
+      />
+      {/* Covers the whole modal: `.modal:has(.ag-drop)` is its positioned parent. */}
+      {over && (
+        <div className="ag-drop" aria-hidden="true">
+          <Icon name="attach" size={18} />
+          Drop to attach
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** The prompt box under an agent log, shared by the workspace terminal and the worktrees page.
  * Enter sends, Shift+Enter or Ctrl+Enter starts a new line. Files come from the clip, a paste, or a drop anywhere on the panel it sits in.
  * `picks` (options picked in the log) go first in the message, the text after them adds to it.

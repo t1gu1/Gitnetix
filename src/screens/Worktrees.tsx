@@ -1,9 +1,9 @@
-import { useMemo, useRef, useState, type CSSProperties, type MouseEvent } from "react";
+import { useMemo, useState, type CSSProperties, type MouseEvent } from "react";
 
 import { useAction, useAgents, useFiles, useOverview, useProjects, useWorktrees } from "../api/hooks";
 import { rpc } from "../api/transport";
 import type { AgentSession, AgentStatus, RebaseResult, WorktreeView } from "../api/types";
-import { AgentInput, AgentLog, FileChip, uploads, useAttach, type Attachment, type Choice, type Upload } from "../components/AgentLog";
+import { AgentInput, AgentLog, RequestField, uploads, type Attachment, type Choice, type Upload } from "../components/AgentLog";
 import { shownStatus } from "../lib/agentLog";
 import { AgentPicker, MenuChoice, useAgentPick } from "../components/AgentPicker";
 import { ContextMenu, type MenuItem } from "../components/ContextMenu";
@@ -351,9 +351,6 @@ function StartModal({ initial, onClose }: { initial?: string; onClose: () => voi
   const [request, setRequest] = useState("");
   // Files for the agent, like in its prompt box: picked, pasted, or dropped anywhere on the modal.
   const [files, setFiles] = useState<Attachment[]>([]);
-  const field = useRef<HTMLDivElement>(null);
-  const chooser = useRef<HTMLInputElement>(null);
-  const { over, add } = useAttach(() => field.current?.closest<HTMLElement>(".modal"), files, setFiles, false);
   const [pick, setPick] = useAgentPick(pid);
   const ov = useOverview(pid).data;
   const all = (ov?.branches ?? []).filter((b) => b.exists);
@@ -449,55 +446,7 @@ function StartModal({ initial, onClose }: { initial?: string; onClose: () => voi
         <span>Agent</span>
         <AgentPicker value={pick} onChange={setPick} />
       </div>
-      <div ref={field} className="field">
-        <label htmlFor="ag-req">What should the agent do?</label>
-        <textarea
-          id="ag-req"
-          className="textarea"
-          rows={5}
-          value={request}
-          onChange={(e) => setRequest(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && ready) go(); }}
-          onPaste={(e) => {
-            // Screenshots and copied images attach instead of pasting nothing.
-            const pasted = [...e.clipboardData.files];
-            if (!pasted.length) return;
-            e.preventDefault();
-            add(pasted);
-          }}
-          autoFocus
-        />
-        {files.length > 0 && (
-          <div className="ag-files">
-            {files.map((f, i) => (
-              <FileChip key={i} file={f} onRemove={() => setFiles(files.filter((_, j) => j !== i))} />
-            ))}
-          </div>
-        )}
-        <div className="row" style={{ justifyContent: "space-between" }}>
-          <button type="button" className="btn btn-ghost btn-sm" onClick={() => chooser.current?.click()}>
-            <Icon name="attach" size={12} />
-            Attach files
-          </button>
-          <span className="hint">⌘↵ to start · drop files to attach</span>
-        </div>
-        <input
-          ref={chooser}
-          type="file"
-          multiple
-          hidden
-          onChange={(e) => {
-            add([...(e.target.files ?? [])]);
-            e.target.value = "";
-          }}
-        />
-      </div>
-      {over && (
-        <div className="ag-drop" aria-hidden="true">
-          <Icon name="attach" size={18} />
-          Drop to attach
-        </div>
-      )}
+      <RequestField value={request} onChange={setRequest} files={files} onFiles={setFiles} onSubmit={() => ready && go()} />
     </Modal>
   );
 }

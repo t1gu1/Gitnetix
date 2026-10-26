@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 
 import { useAction, useAiOn, useOverview, useProjectPrefs, useSuggestedVersion } from "../api/hooks";
 import { rpc } from "../api/transport";
-import { MenuChoice } from "../components/AgentPicker";
+import { RequestField, uploads, type Attachment } from "../components/AgentLog";
+import { AgentPicker, MenuChoice, useAgentPick } from "../components/AgentPicker";
 import { Icon } from "../components/Icon";
 import { useTermView } from "../components/Shell";
 import { Modal, releaseTagLabel, Seg } from "../components/ui";
@@ -33,6 +34,8 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
   // An agent always gets its own worktree.
   const [where, setWhere] = useState<"switch" | "worktree">(dialogs.newWorktree || dialogs.newAgent ? "worktree" : "switch");
   const [agent, setAgent] = useState(dialogs.newAgent);
+  const [pick, setPick] = useAgentPick(pid);
+  const [files, setFiles] = useState<Attachment[]>([]);
   const [, setTermView] = useTermView();
   const [name, setName] = useState("");
   const [named, setNamed] = useState<"ai" | "auto" | "you" | null>(null);
@@ -130,6 +133,23 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
   // Switching brings the uncommitted changes along: with no name, AI names the branch after them.
   const wip = ov.data?.branches.find((b) => b.name === ov.data?.currentBranch)?.wip ?? 0;
   const nameFromWip = aiOn && !agent && where === "switch" && wip > 0;
+  const ready = !!(base || fromTag) && (agent ? !!desc.trim() : !!name.trim() || nameFromWip) && !create.isPending;
+  const submit = async () => {
+    const up = agent ? await uploads(files) : undefined;
+    create.mutate(
+      { projectId: pid, release: rel?.version ?? "", from: rel ? undefined : from, kind, description: agent ? desc : "", branchName: branch || undefined, ticket: ticket || undefined, where, startAgent: agent, files: up, ...(agent && pick) },
+      {
+        onSuccess: (r) => {
+          // A new worktree opens on its agent, even if the shell was the last tab picked.
+          if (where === "worktree") setTermView("agent");
+          revealBranch(pid, r.branch);
+          nav.selectBranch(r.branch);
+          nav.go({ name: "workspace" });
+          onClose();
+        },
+      },
+    );
+  };
 
   return (
     <Modal
@@ -143,25 +163,7 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
       footer={
         <>
           <button className="btn btn-md" onClick={onClose}>Cancel</button>
-          <button
-            className="btn btn-primary btn-md"
-            disabled={!(base || fromTag) || (agent ? !desc.trim() : !name.trim() && !nameFromWip) || create.isPending}
-            onClick={() =>
-              create.mutate(
-                { projectId: pid, release: rel?.version ?? "", from: rel ? undefined : from, kind, description: agent ? desc : "", branchName: branch || undefined, ticket: ticket || undefined, where, startAgent: agent },
-                {
-                  onSuccess: (r) => {
-                    // A new worktree opens on its agent, even if the shell was the last tab picked.
-                    if (where === "worktree") setTermView("agent");
-                    revealBranch(pid, r.branch);
-                    nav.selectBranch(r.branch);
-                    nav.go({ name: "workspace" });
-                    onClose();
-                  },
-                },
-              )
-            }
-          >
+          <button className="btn btn-primary btn-md" disabled={!ready} onClick={submit}>
             {create.isPending && <span className="spinner" />}
             Create {label}
           </button>
@@ -249,10 +251,13 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
         <span>Start an AI agent on it right away</span>
       </label>
       {agent && (
-        <div className="field">
-          <label htmlFor="ni-desc">Describe it</label>
-          <textarea id="ni-desc" className="textarea" rows={3} style={{ resize: "none" }} value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Let users sign in with Google and GitHub." autoFocus />
-        </div>
+        <>
+          <div className="field">
+            <span>Agent</span>
+            <AgentPicker value={pick} onChange={setPick} />
+          </div>
+          <RequestField value={desc} onChange={setDesc} files={files} onFiles={setFiles} onSubmit={() => ready && submit()} />
+        </>
       )}
     </Modal>
   );
