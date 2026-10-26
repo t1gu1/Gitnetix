@@ -12,6 +12,15 @@ mod desktop {
 
     pub struct Engine(pub Arc<Gitnetix>);
 
+    /// Save the agent logs' latest lines before quitting, so a resumed run keeps them.
+    pub fn on_event(app: &tauri::AppHandle, ev: tauri::RunEvent) {
+        if let tauri::RunEvent::Exit = ev {
+            if let Some(e) = app.try_state::<Engine>() {
+                e.0.agents.persist();
+            }
+        }
+    }
+
     #[tauri::command]
     pub async fn rpc(engine: State<'_, Engine>, method: String, params: Value) -> Result<Value, ErrorBody> {
         let k = engine.0.clone();
@@ -125,6 +134,8 @@ mod desktop {
                 }
             }
         });
+        let resume_k = k.clone();
+        tauri::async_runtime::spawn(async move { resume_k.agents.resume_interrupted() });
         let server_k = k.clone();
         let assets = app.asset_resolver();
         let ui: gitnetix_server::Ui = Arc::new(move |path| match assets.get(path.to_string()) {
@@ -166,5 +177,9 @@ pub fn run() {
         .setup(desktop::setup)
         .invoke_handler(tauri::generate_handler![desktop::rpc, desktop::companion, desktop::allow_firewall, desktop::open_url]);
 
-    builder.run(tauri::generate_context!()).expect("error while running Gitnetix");
+    let app = builder.build(tauri::generate_context!()).expect("error while running Gitnetix");
+    #[cfg(desktop)]
+    app.run(desktop::on_event);
+    #[cfg(not(desktop))]
+    app.run(|_, _| {});
 }

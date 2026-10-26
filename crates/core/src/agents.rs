@@ -68,6 +68,8 @@ pub struct AgentSession {
 struct Inner {
     sessions: HashMap<String, AgentSession>,
     kills: HashMap<String, oneshot::Sender<()>>,
+    /// Claude Code runs the last quit cut off, for `resume_interrupted`.
+    interrupted: Vec<String>,
 }
 
 #[derive(Clone)]
@@ -110,13 +112,28 @@ impl AgentManager {
             .map(|s| (s.id.clone(), s))
             .collect();
         // Processes do not survive an app restart.
+        let mut interrupted = Vec::new();
         for s in sessions.values_mut() {
+            // Only Claude Code can pick its conversation back up; a paused run stays as the user left it.
+            if s.status == AgentStatus::Running && s.resume_id.is_some() && s.ai.as_ref().is_some_and(|r| r.provider == "claude") {
+                interrupted.push(s.id.clone());
+            }
             if matches!(s.status, AgentStatus::Running | AgentStatus::Paused) {
                 s.status = AgentStatus::Stopped;
                 s.lines.push(LogLine::new("dim", "  ■ Stopped when Gitnetix quit"));
             }
         }
-        AgentManager { inner: Arc::new(Mutex::new(Inner { sessions, kills: HashMap::new() })), events, file, write_lock: Arc::default() }
+        AgentManager { inner: Arc::new(Mutex::new(Inner { sessions, kills: HashMap::new(), interrupted })), events, file, write_lock: Arc::default() }
+    }
+
+    /// Resume the Claude Code runs the last quit cut off. Needs a tokio runtime.
+    pub fn resume_interrupted(&self) {
+        let ids = std::mem::take(&mut self.inner.lock().unwrap().interrupted);
+        for id in ids {
+            let Some(ai) = self.get(&id).ok().and_then(|s| s.ai) else { continue };
+            // A removed checkout errors before anything is logged: the session stays stopped.
+            let _ = self.message(&id, "Gitnetix quit while you were working. Continue the task where you left off.", &ai);
+        }
     }
 
     pub fn list(&self) -> Vec<AgentSession> {
@@ -131,7 +148,7 @@ impl AgentManager {
         self.inner.lock().unwrap().sessions.get(id).cloned().ok_or_else(|| Error::NotFound(format!("agent session {id}")))
     }
 
-    fn persist(&self) {
+    pub fn persist(&self) {
         // Snapshot under the session lock, serialize and write outside it so
         // log readers are not blocked. Order does not matter on disk: `new`
         // loads sessions into a map.
@@ -441,10 +458,13 @@ impl AgentManager {
                     if let Some(s) = self.inner.lock().unwrap().sessions.get_mut(id) {
                         s.resume_id = Some(sid.to_string());
                     }
+                    // Saved now so a quit mid-run can resume it.
+                    self.persist();
                 }
                 None
             }
             Some("assistant") => {
+                let mut replied = false;
                 for block in v["message"]["content"].as_array().into_iter().flatten() {
                     match block["type"].as_str() {
                         Some("text") => {
@@ -452,6 +472,7 @@ impl AgentManager {
                             let text = block["text"].as_str().unwrap_or("").trim();
                             if !text.is_empty() {
                                 self.push(id, LogLine::new("ai", format!("✦ {text}")));
+                                replied = true;
                             }
                         }
                         Some("tool_use") => {
@@ -468,6 +489,10 @@ impl AgentManager {
                         }
                         _ => {}
                     }
+                }
+                // Each reply is saved, with the tool calls before it, so a crash or kill loses little.
+                if replied {
+                    self.persist();
                 }
                 None
             }
@@ -532,5 +557,52 @@ mod tests {
         // Not while a turn runs: it would store a resume id after the switch.
         m.inner.lock().unwrap().sessions.get_mut("a").unwrap().status = AgentStatus::Running;
         assert!(m.set_ai("a", cli("claude")).is_err());
+    }
+
+    #[test]
+    fn only_running_claude_sessions_resume_after_quit() {
+        let dir = tempfile::tempdir().unwrap();
+        let s = |id: &str, status, rid: Option<&str>, provider| AgentSession {
+            id: id.into(), project_id: "p".into(), branch: "b".into(), cwd: "/gone".into(), worktree: false,
+            status, request: "r".into(), agent_label: String::new(), lines: vec![],
+            started_at: now(), updated_at: now(), resume_id: rid.map(Into::into), ai: Some(cli(provider)), pid: None,
+        };
+        let saved = vec![
+            s("run", AgentStatus::Running, Some("rid"), "claude"),
+            s("norid", AgentStatus::Running, None, "claude"),
+            s("paused", AgentStatus::Paused, Some("rid"), "claude"),
+            s("gemini", AgentStatus::Running, Some("rid"), "gemini"),
+            s("done", AgentStatus::Waiting, Some("rid"), "claude"),
+        ];
+        std::fs::write(dir.path().join("agents.json"), serde_json::to_string(&saved).unwrap()).unwrap();
+
+        let m = AgentManager::new(broadcast::channel(8).0, dir.path());
+        assert_eq!(m.inner.lock().unwrap().interrupted, vec!["run".to_string()]);
+        assert!(saved.iter().take(4).all(|x| m.get(&x.id).unwrap().status == AgentStatus::Stopped));
+
+        // Its checkout is gone, so it stays stopped instead of spawning.
+        m.resume_interrupted();
+        assert!(m.inner.lock().unwrap().interrupted.is_empty());
+        assert_eq!(m.get("run").unwrap().status, AgentStatus::Stopped);
+    }
+
+    #[test]
+    fn resume_id_and_replies_are_saved_mid_run() {
+        let dir = tempfile::tempdir().unwrap();
+        let m = AgentManager::new(broadcast::channel(8).0, dir.path());
+        let s = AgentSession {
+            id: "a".into(), project_id: "p".into(), branch: "b".into(), cwd: ".".into(), worktree: false,
+            status: AgentStatus::Running, request: "r".into(), agent_label: String::new(), lines: vec![],
+            started_at: now(), updated_at: now(), resume_id: None, ai: Some(cli("claude")), pid: None,
+        };
+        m.inner.lock().unwrap().sessions.insert("a".into(), s);
+        let saved = || std::fs::read_to_string(dir.path().join("agents.json")).unwrap_or_default();
+
+        m.handle_stream_json("a", r#"{"type":"system","subtype":"init","session_id":"rid"}"#);
+        assert!(saved().contains(r#""resumeId":"rid""#));
+        m.handle_stream_json("a", r#"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"x.rs"}}]}}"#);
+        assert!(!saved().contains("x.rs"));
+        m.handle_stream_json("a", r#"{"type":"assistant","message":{"content":[{"type":"text","text":"Done reading"}]}}"#);
+        assert!(saved().contains("x.rs") && saved().contains("Done reading"));
     }
 }

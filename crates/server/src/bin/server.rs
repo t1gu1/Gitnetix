@@ -8,7 +8,7 @@ async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt().with_env_filter(std::env::var("RUST_LOG").unwrap_or_else(|_| "info".into())).init();
     let k = Gitnetix::open(&data_dir())?;
     let cfg = k.store.read(|c| c.server.clone());
-    match gitnetix_server::spawn(k, None).await? {
+    match gitnetix_server::spawn(k.clone(), None).await? {
         Some(addr) => {
             println!("Gitnetix companion API on http://{addr}");
             println!("Pairing token: {}", cfg.token);
@@ -21,6 +21,9 @@ async fn main() -> anyhow::Result<()> {
             return Ok(());
         }
     }
+    // Here, not before: with the API disabled the process exits at once and would kill the resumed agents.
+    k.agents.resume_interrupted();
     tokio::signal::ctrl_c().await?;
+    k.agents.persist();
     Ok(())
 }
