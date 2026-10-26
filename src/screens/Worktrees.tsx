@@ -10,6 +10,7 @@ import { ShellPane, TermTabs, useTermView } from "../components/Shell";
 import { ago, Busy, Empty, EmptyState, Header, Loading, Modal, Seg } from "../components/ui";
 import { KINDS, kindOfBranch, type Kind } from "../lib/kinds";
 import { useNav } from "../lib/nav";
+import { useStored } from "../lib/stored";
 import { useBranchActions } from "./BranchMenu";
 import { DiscardWorktreeModal, FinishWorktreeCard, MergeModal, mergeTargets, useFinishHandlers } from "./Workspace";
 
@@ -24,6 +25,9 @@ const STATUS: Record<AgentStatus | "idle", [string, string]> = {
 };
 
 type Filter = "all" | "running" | "needs";
+
+/** Whether a worktree's terminal opens expanded until toggled there. */
+export const TERM_MAX_KEY = "gnx.wt.termMax";
 
 interface Row {
   key: string;
@@ -189,8 +193,11 @@ function Detail({ r }: { r: Row }) {
   const push = useAction("workspace.push", { invalidate: commitInv, success: `Pushed ${r.branch}` });
   const [pick, setPick] = useAgentPick(r.projectId);
   const [termView, setTermView] = useTermView();
-  // Maximized, the terminal card takes the whole detail pane.
-  const [max, setMax] = useState(false);
+  // Maximized, the terminal card takes the whole detail pane. A worktree keeps its last toggle; untouched ones follow Settings.
+  const [maxDefault] = useStored(TERM_MAX_KEY, true);
+  // shortcut: choices of deleted worktrees stay in the config, prune them on removal if the view map grows.
+  const [ownMax, setMax] = useStored<boolean | null>(`${TERM_MAX_KEY}.${r.key}`, null);
+  const max = ownMax ?? maxDefault;
   const busy = a?.status === "running" || a?.status === "paused";
   const send = (up: Upload[], t: string) => {
     if (!t && !up.length) return;
