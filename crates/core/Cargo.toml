@@ -32,5 +32,9 @@ whisper-rs = "0.16"
 symphonia = { version = "0.6", default-features = false, features = ["mkv", "ogg", "vorbis", "pcm", "isomp4", "aac"] }
 sha2 = "0.10"
 
+# Speech to text on the GPU through Metal on Apple Silicon; Intel Macs stay on the CPU, as ggml's Metal backend targets Apple GPUs.
+[target.'cfg(all(target_os = "macos", target_arch = "aarch64"))'.dependencies]
+whisper-rs = { version = "0.16", features = ["metal"] }
+
 [dev-dependencies]
 tempfile = "3"

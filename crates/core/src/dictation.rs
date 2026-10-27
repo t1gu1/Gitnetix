@@ -28,7 +28,7 @@ struct Model {
 }
 
 /// Whisper "large-v3-turbo", quantized: multilingual, and far more accurate than "base" in French for a few seconds more on a laptop CPU.
-// shortcut: whisper.cpp runs on the CPU only, about 5 s per 10 s of speech on a fast laptop; build whisper-rs with its `metal` (macOS) and `vulkan` features for GPU speed.
+// shortcut: whisper.cpp runs on the GPU only on Apple Silicon (Metal), elsewhere on the CPU at about 5 s per 10 s of speech on a fast laptop; build whisper-rs with its `vulkan` feature for GPU speed on Windows and Linux.
 const SPEECH: Model = Model {
     file: "ggml-large-v3-turbo-q5_0.bin",
     url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin",
