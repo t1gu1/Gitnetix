@@ -11,6 +11,8 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-27
+
 ### Added
 - Voice dictation in any text box with a shortcut (or the mic on phones), transcribed locally with Whisper and a downloaded-once model checked against its SHA-256.
 - Dictation splits speech by language, transcribes each stretch in its own language, and saves the main one as the spoken language. A new "Spoken" generation language option follows it.
