@@ -11,6 +11,34 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+### Added
+- Voice dictation in any text box: record with a shortcut, transcribed locally with Whisper, with speech detection, project vocabulary and an optional AI rewrite
+- Dictation detects the language of each stretch of speech, with a French-specific model and a "Spoken" generation language option
+- Dictation on desktop records with the native microphone, and from a phone over HTTPS
+- Syntax colors in diffs, with a colour swatch before hex values
+- "Create tag…" in the commit context menu to tag any commit
+- Ctrl/Cmd +, - and 0 shortcuts for desktop zoom
+- "a11y" branch kind
+
+### Changed
+- Branch rebuilds are faster and show their progress
+- Dictation runs Whisper on the Metal GPU on Apple Silicon
+- Desktop zoom defaults to 1.3
+- Modal footer buttons split the row equally
+- Changelog templates list highlights first
+
+### Fixed
+- Dictation can be cancelled from the footer and the field mic
+- SVG diffs stay sharp, with a new Code view
+- Worktree close options show for runs with nothing to merge
+- Worktree view returns to the list when the selected worktree closes
+- Mobile agent input no longer overlaps in hidden panes
+
+### Removed
+- Cancel, Close, Later and Not now buttons from modal footers
+
+Skipped: AI startup perf, macOS min version, social card. Did not check the commit diffs.
+
 ## [0.10.0] - 2026-10-27
 
 ### Added
