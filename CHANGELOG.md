@@ -11,6 +11,38 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+### Added
+- Voice dictation in any text box with a shortcut (or the mic on phones), transcribed locally with Whisper and a downloaded-once model checked against its SHA-256.
+- Dictation splits speech by language, transcribes each stretch in its own language, and saves the main one as the spoken language. A new "Spoken" generation language option follows it.
+- Dictation uses voice activity detection, the project's names, branch and changed files as vocabulary, and an optional rewrite into clear text. The rewrite can be turned off in settings.
+- Dedicated French dictation model, downloaded on first French use.
+- Dictation settings pane for the shortcut, the allowed dictation languages and the microphone permission.
+- Phone microphone dictation through the companion API, which now answers HTTPS on its existing port.
+- Syntax colors in diffs, loaded per language without blocking the UI.
+- Colour swatch before hex values in diff lines.
+- Code view for SVG diffs.
+- `a11y` branch kind (alias `accessibility`).
+- Ctrl/Cmd +, - and 0 shortcuts to zoom the desktop app.
+
+### Changed
+- Branch views refresh faster and show their progress, reusing saved views for branches that did not move.
+- Dictation runs on the Metal GPU on Apple Silicon.
+- Desktop dictation records with the native microphone, so it works on Linux installs without webview audio codecs.
+- Dictation can be cancelled from the footer or the field mic, including while text is being written out.
+- The field mic shows its shortcut beside the icon on desktop.
+- Dictation vocabulary and rewrite name the user's other projects.
+- Text-only AI completions start faster.
+- Changelog templates list highlights first, and old defaults are migrated.
+- The New Item type picker puts Release where Build was; a typed `build/` prefix still works.
+
+### Fixed
+- SVG diffs stay sharp.
+- Closing the selected worktree returns to the worktree list.
+- Close options show for worktree runs with nothing to merge.
+- Agent input no longer overlaps on mobile in hidden panes.
+
+Skipped: the social card refresh (website only). Not checked: whether the "Changelog templates" and "Release" picker lines match real user-visible wording.
+
 ## [0.9.3] - 2026-10-26
 
 ### Added
