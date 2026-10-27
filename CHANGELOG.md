@@ -19,6 +19,7 @@ release notes and the in-app update prompt.
 - "Create tag…" in the commit context menu to tag any commit
 - Ctrl/Cmd +, - and 0 shortcuts for desktop zoom
 - "a11y" branch kind
+- Mine / Others / All author filter under the Open and Closed pull request tabs, remembered between visits
 
 ### Changed
 - Branch rebuilds are faster and show their progress

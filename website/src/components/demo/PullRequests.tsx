@@ -6,6 +6,7 @@ import { Avatar, Busy, Empty, EmptyState, Markdown, Modal, Seg, useDemo, useLate
 /** src/screens/PullRequests.tsx on a made-up GitHub repo: merge, close, review, comment, react, resolve; checks finish as you watch. */
 
 type Tab = 'open' | 'review' | 'closed';
+type Who = 'mine' | 'others' | 'all';
 type Vote = 'approve' | 'changes' | 'comment' | 'pending';
 type Check = { name: string; status: 'pass' | 'fail' | 'run' | 'wait' };
 type Reaction = { content: string; count: number; mine: boolean };
@@ -86,8 +87,10 @@ function stateOf(p: Pr): [string, string] {
   if (p.reviewers.some((r) => r.vote === 'approve') && !p.checks.some((c) => c.status === 'fail')) return ['Ready to merge', 'c-add'];
   return ['Open', 'c-add'];
 }
-const inTab = (p: Pr, t: Tab) =>
-  t === 'closed' ? p.state === 'merged' || (!!p.mine && p.state === 'closed') : t === 'review' ? !!p.review && p.state !== 'merged' && p.state !== 'closed' : !!p.mine && (p.state === 'open' || p.state === 'draft');
+const inTab = (p: Pr, t: Tab, who: Who) =>
+  t === 'review'
+    ? !!p.review && p.state !== 'merged' && p.state !== 'closed'
+    : (who === 'all' || !!p.mine === (who === 'mine')) && (t === 'closed' ? p.state === 'merged' || p.state === 'closed' : p.state === 'open' || p.state === 'draft');
 const pending = (p: Pr) => p.checks.some((c) => c.status === 'run' || c.status === 'wait');
 /** A title from the branch name: feat/tree-keys → Tree keys. */
 const titleOf = (branch: string) => branch.replace(/^\w+\//, '').replace(/[-_]/g, ' ').replace(/^./, (c) => c.toUpperCase());
@@ -106,9 +109,10 @@ export default function PullRequests() {
   const later = useLater();
   const [prs, setPrs] = useState(PRS);
   const [tab, setTab] = useState<Tab>('open');
+  const [who, setWho] = useState<Who>('mine');
   const [sel, setSel] = useState<number>();
   const [creating, setCreating] = useState(false);
-  const list = prs.filter((p) => inTab(p, tab));
+  const list = prs.filter((p) => inTab(p, tab, who));
   const current = prs.find((p) => p.number === (sel ?? list[0]?.number));
   const update = (n: number) => (f: (p: Pr) => Pr) => setPrs((ps) => ps.map((p) => (p.number === n ? f(p) : p)));
   // CI moves on as you watch: running checks pass, waiting ones start.
@@ -156,8 +160,17 @@ export default function PullRequests() {
             label="Filter"
             value={tab}
             onChange={(t) => { setTab(t); setSel(undefined); }}
-            options={(['open', 'review', 'closed'] as Tab[]).map((t) => [t, <>{{ open: 'Open', review: 'To review', closed: 'Closed' }[t]} <span className="faint">{prs.filter((p) => inTab(p, t)).length}</span></>])}
+            options={(['open', 'review', 'closed'] as Tab[]).map((t) => [t, <>{{ open: 'Open', review: 'To review', closed: 'Closed' }[t]} <span className="faint">{prs.filter((p) => inTab(p, t, who)).length}</span></>])}
           />
+          {tab !== 'review' && (
+            <Seg
+              grid
+              label="Author"
+              value={who}
+              onChange={(w) => { setWho(w); setSel(undefined); }}
+              options={[['mine', 'Mine'], ['others', 'Others'], ['all', 'All']]}
+            />
+          )}
         </div>
         <div className="scroll" style={{ flex: '1 1 auto', paddingBottom: 12 }}>
           {list.length === 0 && <Empty>Nothing here.</Empty>}

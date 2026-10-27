@@ -9,9 +9,11 @@ import { Resizer, usePaneWidth } from "../components/Resizer";
 import { ago, Busy, Empty, EmptyState, Header, initials, Loading, Markdown, Modal, Seg } from "../components/ui";
 import { plural } from "../lib/format";
 import { useNav } from "../lib/nav";
+import { useStored } from "../lib/stored";
 import { toast } from "../lib/toast";
 
 type Tab = "open" | "review" | "closed";
+type Who = "mine" | "others" | "all";
 const GROUPS: PrSummary["state"][] = ["open", "draft", "merged", "closed"];
 const EMOJI: [string, string, string][] = [
   ["THUMBS_UP", "👍", "Thumbs up"],
@@ -44,12 +46,16 @@ export function PullRequests({ initial }: { initial?: number }) {
   const prs = usePrs(pid);
   const ov = useOverview(pid).data;
   const [tab, setTab] = useState<Tab>("open");
+  const [who, setWho] = useStored<Who>("gnx.prs.who", "mine", (s) => (s === "others" || s === "all" ? s : "mine"), String);
   const [sel, setSel] = useState<number | undefined>(initial);
   const [pane, setPane] = useState<"list" | "detail">(initial ? "detail" : "list");
   const listW = usePaneWidth("gnx.pane.prs", 460, 280, 720);
   const items = prs.data?.items ?? [];
+  // Review requests are always on someone else's pull requests, so the author filter skips them.
   const inTab = (p: PrSummary, t: Tab) =>
-    t === "closed" ? p.state === "merged" || (p.mine && p.state === "closed") : t === "review" ? p.reviewRequested && p.state !== "merged" && p.state !== "closed" : p.mine && (p.state === "open" || p.state === "draft");
+    t === "review"
+      ? p.reviewRequested && p.state !== "merged" && p.state !== "closed"
+      : (who === "all" || p.mine === (who === "mine")) && (t === "closed" ? p.state === "merged" || p.state === "closed" : p.state === "open" || p.state === "draft");
   const list = items.filter((p) => inTab(p, tab));
   const current = sel ?? list[0]?.number;
   const create = useAction<PrSummary>("prs.create", { invalidate: [["prs", pid]], success: (r) => `Opened #${r.number}` });
@@ -92,6 +98,15 @@ export function PullRequests({ initial }: { initial?: number }) {
                   label: <>{t === "open" ? "Open" : t === "review" ? "To review" : "Closed"} <span className="faint">{items.filter((p) => inTab(p, t)).length}</span></>,
                 }))}
               />
+              {tab !== "review" && (
+                <Seg<Who>
+                  grid
+                  label="Author"
+                  value={who}
+                  onChange={(w) => { setWho(w); setSel(undefined); }}
+                  options={[{ value: "mine", label: "Mine" }, { value: "others", label: "Others" }, { value: "all", label: "All" }]}
+                />
+              )}
             </div>
             <div className="scroll" style={{ flex: "1 1 auto", paddingBottom: 12 }}>
               {prs.isLoading && <Loading />}
