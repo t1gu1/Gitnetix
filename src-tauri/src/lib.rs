@@ -51,6 +51,12 @@ mod desktop {
         k.dictate(audio, project_id.as_deref(), branch.as_deref(), progress).await.map_err(|e| e.to_string())
     }
 
+    /// Stops the microphone and drops what it heard.
+    #[tauri::command]
+    pub fn dictation_cancel(mic: State<'_, Mic>) {
+        mic.0.lock().unwrap().take();
+    }
+
     /// Save the agent logs' latest lines and end their runs before quitting, so a resumed run keeps them and never runs twice.
     pub fn on_event(app: &tauri::AppHandle, ev: tauri::RunEvent) {
         if let tauri::RunEvent::Exit = ev {
@@ -210,7 +216,7 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .manage(desktop::Mic::default())
         .setup(desktop::setup)
-        .invoke_handler(tauri::generate_handler![desktop::rpc, desktop::companion, desktop::allow_firewall, desktop::open_url, desktop::dictation_start, desktop::dictation_stop]);
+        .invoke_handler(tauri::generate_handler![desktop::rpc, desktop::companion, desktop::allow_firewall, desktop::open_url, desktop::dictation_start, desktop::dictation_stop, desktop::dictation_cancel]);
 
     // The pairing screen scans the desktop's QR code with the phone camera.
     #[cfg(mobile)]

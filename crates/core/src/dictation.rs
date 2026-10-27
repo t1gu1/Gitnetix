@@ -4,6 +4,7 @@
 use std::io::Cursor;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use sha2::{Digest, Sha256};
@@ -69,11 +70,16 @@ pub enum Audio {
 }
 
 /// The speech models, loaded on first use and kept (about 800 MB of memory each): the multilingual one with the path
-/// of the voice detection model, and the French one once French is heard.
+/// of the voice detection model, and the French one once French is heard. Then how many times dictations were cancelled.
 #[derive(Default)]
-pub struct Dictation(tokio::sync::Mutex<Option<(Arc<WhisperContext>, PathBuf)>>, tokio::sync::Mutex<Option<Arc<WhisperContext>>>);
+pub struct Dictation(tokio::sync::Mutex<Option<(Arc<WhisperContext>, PathBuf)>>, tokio::sync::Mutex<Option<Arc<WhisperContext>>>, Arc<AtomicU64>);
 
 impl Dictation {
+    /// Stops the transcriptions under way, from every device: a cancelled one would slow the next one down for seconds.
+    pub fn cancel(&self) {
+        self.2.fetch_add(1, Ordering::SeqCst);
+    }
+
     /// `audio` as text, in the languages the settings allow, with `vocabulary` (the project's names) as the words to expect.
     /// The language most of it was in is kept as the spoken language, which AI can write in.
     /// `progress(done, total)` follows a speech model's first download.
@@ -86,18 +92,24 @@ impl Dictation {
         if samples.len() < RATE as usize / 4 {
             return Ok(String::new());
         }
+        let (cancels, started) = (self.2.clone(), self.2.load(Ordering::SeqCst));
+        let stop = move || cancels.load(Ordering::SeqCst) != started;
         let (ctx, vad) = self.model(dir, &progress).await?;
         let langs = store.read(|c| c.ui.dictation_languages.clone());
         let samples = Arc::new(samples);
         let heard = samples.clone();
-        let (state, speech, parts) = tokio::task::spawn_blocking(move || listen(&ctx, &vad, &heard, &langs)).await.map_err(|e| Error::Other(e.to_string()))??;
+        let quit = stop.clone();
+        let (state, speech, parts) = tokio::task::spawn_blocking(move || listen(&ctx, &vad, &heard, &langs, &quit)).await.map_err(|e| Error::Other(e.to_string()))??;
         // Fetched the first time French is heard, so speakers of other languages never download it. Turbo writes French
         // too: a French model that can't be fetched now (offline) doesn't lose what was said.
+        if stop() {
+            return Err(cancelled());
+        }
         let french = match parts.iter().any(|(l, _)| whisper_rs::get_lang_str(*l) == Some("fr")) {
             true => self.french(dir, &progress).await.inspect_err(|e| crate::log::error(format!("Could not get the French speech model: {e}"))).ok(),
             false => None,
         };
-        let (text, lang) = tokio::task::spawn_blocking(move || write(state, french.as_deref(), &samples, &speech, &parts, &vocabulary)).await.map_err(|e| Error::Other(e.to_string()))??;
+        let (text, lang) = tokio::task::spawn_blocking(move || write(state, french.as_deref(), &samples, &speech, &parts, &vocabulary, &stop)).await.map_err(|e| Error::Other(e.to_string()))??;
         let changed = lang.filter(|&l| store.read(|c| c.ui.spoken_language.as_deref() != Some(l)));
         if let Some(lang) = changed {
             let saved = store.write(|c| {
@@ -231,8 +243,9 @@ fn resample(samples: &[f32], rate: u32) -> Vec<f32> {
 /// told in its own language among `langs` (Whisper codes, "fr"; none: any), as language ids and ranges
 /// of indexes into the speech; with `ctx`'s state, for `write`. Whisper alone picks one language
 /// from the first 30 s, and drops or translates the rest.
-fn listen(ctx: &WhisperContext, vad: &Path, samples: &[f32], langs: &[String]) -> Result<(WhisperState, Vec<Range<usize>>, Vec<(i32, Range<usize>)>)> {
-    let fail = |e: whisper_rs::WhisperError| Error::Other(format!("Speech recognition failed: {e}"));
+/// Ends early, with an error, once `stop` says so.
+fn listen(ctx: &WhisperContext, vad: &Path, samples: &[f32], langs: &[String], stop: &impl Fn() -> bool) -> Result<(WhisperState, Vec<Range<usize>>, Vec<(i32, Range<usize>)>)> {
+    let fail = |e: whisper_rs::WhisperError| if stop() { cancelled() } else { Error::Other(format!("Speech recognition failed: {e}")) };
     let threads = threads();
     let speech = speech(vad, samples, threads)?;
     let mut state = ctx.create_state().map_err(fail)?;
@@ -253,11 +266,15 @@ fn listen(ctx: &WhisperContext, vad: &Path, samples: &[f32], langs: &[String]) -
         p.set_single_segment(true);
         p.set_max_tokens(1);
         p.set_n_threads(threads as i32);
+        abort_when(&mut p, stop);
         state.full(p, longest).map_err(fail)?;
     }
     // Neighbors in the same language go as one part: Whisper writes better with more context.
     let mut parts: Vec<(i32, Range<usize>)> = Vec::new();
     for (r, audio) in stretches {
+        if stop() {
+            return Err(cancelled());
+        }
         let lang = match allowed[..] {
             [one] => one,
             _ => {
@@ -275,8 +292,8 @@ fn listen(ctx: &WhisperContext, vad: &Path, samples: &[f32], langs: &[String]) -
 
 /// The `parts` of the `speech` as text, and the language most of it was in. French is written by
 /// `french` when given, the rest by `state`'s model, with `vocabulary` priming Whisper with the words to expect.
-fn write(mut state: WhisperState, french: Option<&WhisperContext>, samples: &[f32], speech: &[Range<usize>], parts: &[(i32, Range<usize>)], vocabulary: &str) -> Result<(String, Option<&'static str>)> {
-    let fail = |e: whisper_rs::WhisperError| Error::Other(format!("Speech recognition failed: {e}"));
+fn write(mut state: WhisperState, french: Option<&WhisperContext>, samples: &[f32], speech: &[Range<usize>], parts: &[(i32, Range<usize>)], vocabulary: &str, stop: &impl Fn() -> bool) -> Result<(String, Option<&'static str>)> {
+    let fail = |e: whisper_rs::WhisperError| if stop() { cancelled() } else { Error::Other(format!("Speech recognition failed: {e}")) };
     let threads = threads();
     let mut fr_state = french.map(WhisperContext::create_state).transpose().map_err(fail)?;
     let mut said = Vec::new();
@@ -299,6 +316,7 @@ fn write(mut state: WhisperState, french: Option<&WhisperContext>, samples: &[f3
         p.set_print_special(false);
         p.set_print_timestamps(false);
         p.set_suppress_nst(true);
+        abort_when(&mut p, stop);
         state.full(p, &audio).map_err(fail)?;
         said.extend(state.as_iter().map(|s| s.to_string()));
     }
@@ -309,6 +327,24 @@ fn write(mut state: WhisperState, french: Option<&WhisperContext>, samples: &[f3
 }
 
 /// The threads Whisper runs on.
+/// Has whisper.cpp end `p`'s run, with an error, once `stop` says so. `p` must not outlive `stop`.
+// whisper-rs 0.16's set_abort_callback_safe calls its closure through the wrong type, which aborts every run.
+fn abort_when<F: Fn() -> bool>(p: &mut FullParams, stop: &F) {
+    unsafe extern "C" fn call<F: Fn() -> bool>(stop: *mut std::ffi::c_void) -> bool {
+        // SAFETY: the `&F` given below, alive for as long as `p`.
+        unsafe { (*(stop as *const F))() }
+    }
+    // SAFETY: `call::<F>` reads the pointer as the `F` it is.
+    unsafe {
+        p.set_abort_callback(Some(call::<F>));
+        p.set_abort_callback_user_data(stop as *const F as *mut std::ffi::c_void);
+    }
+}
+
+fn cancelled() -> Error {
+    Error::Other("Dictation cancelled".into())
+}
+
 fn threads() -> usize {
     std::thread::available_parallelism().map_or(4, |n| n.get().min(16))
 }
@@ -454,8 +490,8 @@ mod tests {
 
     /// `listen` then `write`, as `transcribe` does once the models are in.
     fn run(ctx: &WhisperContext, french: Option<&WhisperContext>, vad: &Path, samples: &[f32], langs: &[String]) -> (String, Option<&'static str>) {
-        let (state, speech, parts) = listen(ctx, vad, samples, langs).unwrap();
-        write(state, french, samples, &speech, &parts, "").unwrap()
+        let (state, speech, parts) = listen(ctx, vad, samples, langs, &|| false).unwrap();
+        write(state, french, samples, &speech, &parts, "", &|| false).unwrap()
     }
 
     /// Needs the models in ~/.config/gitnetix/models and 16 kHz mono f32 clips:
@@ -486,6 +522,10 @@ mod tests {
         assert_eq!(run(&ctx, french, &vad, &[0.0; 3 * RATE as usize], &fr_en).0, "");
         let (mixed, _) = run(&ctx, french, &vad, &clip("mixed"), &fr_en);
         assert!(mixed.contains("polonium") && mixed.contains("ask not what your country"), "{mixed}");
+        // A cancel stops Whisper mid-run.
+        let jfk = clip("jfk");
+        let (state, speech, parts) = listen(&ctx, &vad, &jfk, &fr_en, &|| false).unwrap();
+        assert_eq!(write(state, french, &jfk, &speech, &parts, "", &|| true).unwrap_err().to_string(), "Dictation cancelled");
         if french.is_some() {
             // Turbo writes this one as "né à warsovie ... tiffus", without capitals.
             assert!(run(&ctx, french, &vad, &clip("fr12"), &fr_en).0.contains("Varsovie"));

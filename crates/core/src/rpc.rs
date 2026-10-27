@@ -109,6 +109,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("ai.setDefault", "Default AI provider", "id"),
     ("ai.test", "Test an AI provider", "id"),
     ("dictation.transcribe", "Turn recorded speech into text on this computer, expecting the project's names (the first time downloads a 575 MB speech model, and a 790 MB French one the first time it hears French)", "audio (base64), mime, projectId?, branch?"),
+    ("dictation.cancel", "Stop the transcriptions under way; they end with an error", ""),
     ("dictation.polish", "Rewrite dictated text into clear text with AI and the project's context; unchanged when turned off or no AI is set up", "text, projectId?, branch?, field?, typed?"),
     ("ai.setRoute", "Which AI handles a task", "task, provider?, model?, effort?"),
     ("ai.signIn", "Open the provider CLI to sign in", "id"),
@@ -759,6 +760,10 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
             let audio = crate::dictation::Audio::Recorded { bytes: audio, mime: os(&p, "mime").unwrap_or_default() };
             let text = k.dictate(audio, os(&p, "projectId").as_deref(), os(&p, "branch").as_deref(), progress).await?;
             to(json!({ "text": text }))
+        }
+        "dictation.cancel" => {
+            k.dictation.cancel();
+            ok()
         }
         "dictation.polish" => {
             let text = k.polish_dictation(&s(&p, "text")?, os(&p, "projectId").as_deref(), os(&p, "branch").as_deref(), &os(&p, "field").unwrap_or_default(), &os(&p, "typed").unwrap_or_default()).await?;

@@ -91,10 +91,10 @@ function release(s: Session) {
   if (s.ctx && s.ctx.state !== "closed") s.ctx.close();
 }
 
-/** Start listening for `field`, or stop and transcribe when already listening. */
+/** Start listening for `field`, stop and transcribe when already listening, or cancel while the words are written out. */
 export async function toggleDictation(field: Field | null) {
   if (phase === "listening") return finish();
-  if (phase !== "idle") return;
+  if (phase !== "idle") return cancelDictation();
   if (!canDictate) return toast("The microphone needs the Gitnetix app, or this page over https", "error");
   if (!isLocal && !TYPE) return toast("This browser can't record in a format Gitnetix reads", "error");
   if (!field) return toast("Click in a text box first");
@@ -151,16 +151,36 @@ async function finish() {
     return set("idle");
   }
   set("transcribing");
+  // Each step checks `session` again: cancelDictation() clears it.
   try {
     const heard = (s.mic ? await stopMic(s.mic) : await transcribe(s, rec!)).trim();
-    put(s.field, heard && polishOn ? await polish(s.field, heard) : heard);
+    if (session !== s) return;
+    const text = heard && polishOn ? await polish(s.field, heard) : heard;
+    if (session === s) put(s.field, text);
   } catch (e) {
-    toast(e instanceof Error ? e.message : String(e), "error");
+    if (session === s) toast(e instanceof Error ? e.message : String(e), "error");
   } finally {
-    session = null;
-    download = null;
-    set("idle");
+    if (session === s) {
+      session = null;
+      download = null;
+      set("idle");
+    }
   }
+}
+
+// shortcut: a cancelled AI rewrite still runs to its end (30 s at most), its words dropped; stop the AI call too if that costs.
+/** Stop listening without writing anything, or stop writing the words out. */
+export function cancelDictation() {
+  const s = session;
+  if (!s) return;
+  session = null;
+  download = null;
+  if (phase === "listening") {
+    if (s.rec?.state === "recording") s.rec.stop();
+    release(s);
+    s.mic?.then(() => import("@tauri-apps/api/core").then(({ invoke }) => invoke("dictation_cancel"))).catch(() => {});
+  } else if (phase === "transcribing") rpc("dictation.cancel").catch(() => {});
+  set("idle");
 }
 
 async function stopMic(started: Promise<unknown>) {
@@ -251,7 +271,7 @@ export function Dictation() {
   return (
     <>
       {p !== "idle" && <Wave listening={p === "listening"} polishing={p === "polishing"} keys={keys} />}
-      {canDictate && <FieldMic listening={p === "listening"} keys={coarse ? "" : showKeys(keys)} />}
+      {canDictate && <FieldMic phase={p} keys={coarse ? "" : showKeys(keys)} />}
     </>
   );
 }
@@ -260,7 +280,7 @@ export function Dictation() {
 const coarse = matchMedia("(pointer: coarse)").matches;
 
 /** The mic inside the right edge of the text box being typed in, with the shortcut beside it where there's a keyboard. */
-function FieldMic({ listening, keys }: { listening: boolean; keys: string }) {
+function FieldMic({ phase, keys }: { phase: Phase; keys: string }) {
   const [field, setField] = useState<Field | null>(null);
   const mic = useRef<HTMLButtonElement>(null);
   useEffect(() => {
@@ -276,13 +296,24 @@ function FieldMic({ listening, keys }: { listening: boolean; keys: string }) {
   // shortcut: reads the box's place every frame while it is focused, which follows scrolling, the keyboard and animations alike; use scroll and visualViewport listeners if battery matters.
   useEffect(() => {
     if (!field) return;
+    // What scrolls the box (a dialog's body, say) hides part of it: the mic stays in the part in view, not over the dialog's footer.
+    const clips: HTMLElement[] = [];
+    for (let el = field.parentElement; el; el = el.parentElement) if (getComputedStyle(el).overflowY !== "visible") clips.push(el);
     let raf = 0;
     const place = () => {
       const r = field.getBoundingClientRect();
       const b = mic.current!;
-      // Centered in a one-line box, in the bottom corner of a multi-line one, with the bottom of its resize grip left to grab.
-      const top = field.tagName === "TEXTAREA" ? r.bottom - b.offsetHeight - 8 : r.top + (r.height - b.offsetHeight) / 2;
+      let [lo, hi] = [-Infinity, Infinity];
+      for (const c of clips) {
+        const top = c.getBoundingClientRect().top + c.clientTop;
+        lo = Math.max(lo, top);
+        hi = Math.min(hi, top + c.clientHeight);
+      }
+      // Centered in a one-line box, in the bottom corner of a multi-line one (or of its part in view), with the bottom of its resize grip left to grab.
+      const top = field.tagName === "TEXTAREA" ? Math.max(r.top, Math.min(r.bottom, hi) - b.offsetHeight - 8) : r.top + (r.height - b.offsetHeight) / 2;
       b.style.transform = `translate(${r.right - b.offsetWidth - 4}px, ${top}px)`;
+      // Cut where the box is cut, clicks included.
+      b.style.clipPath = `inset(${Math.max(0, lo - top)}px 0 ${Math.max(0, top + b.offsetHeight - hi)}px)`;
       raf = requestAnimationFrame(place);
     };
     place();
@@ -299,8 +330,8 @@ function FieldMic({ listening, keys }: { listening: boolean; keys: string }) {
       <button
         ref={mic}
         className="field-mic"
-        data-on={listening || undefined}
-        aria-label={`${listening ? "Stop dictating" : "Dictate"} ${keys}`.trim()}
+        data-on={phase === "listening" || undefined}
+        aria-label={`${phase === "idle" ? "Dictate" : phase === "listening" ? "Stop dictating" : "Cancel dictation"} ${keys}`.trim()}
         // Keeps the box focused, and the keyboard up.
         onPointerDown={(e) => e.preventDefault()}
         onClick={() => toggleDictation(field)}
@@ -369,7 +400,10 @@ function Wave({ listening, polishing, keys }: { listening: boolean; polishing: b
         ))}
       </div>
       <div className="dictation-foot">
-        <span className="hint dictation-keys">{listening && `${showKeys(keys)} again to finish`}</span>
+        <span className="hint dictation-keys grow">{`${showKeys(keys)} again to ${listening ? "finish" : "cancel"}`}</span>
+        <button className="btn btn-sm" onPointerDown={(e) => e.preventDefault()} onClick={cancelDictation}>
+          Cancel
+        </button>
         {/* No focus change on press: the text goes back into the box being typed in. */}
         <button className="btn btn-primary btn-sm" disabled={!listening} onPointerDown={(e) => e.preventDefault()} onClick={finish}>
           <Icon name="stop" size={11} stroke={2} />
