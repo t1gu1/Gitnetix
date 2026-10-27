@@ -1368,6 +1368,18 @@ html.scanning body {
   color: var(--muted);
   font-size: 12px;
 }
+/* Shows only once a refresh takes a while: quick ones would flicker. */
+.tree-updating {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  animation: page-in 0.2s var(--ease) 0.5s both;
+}
+.tree-updating .spinner {
+  width: 10px;
+  height: 10px;
+}
 .ws-files {
   flex: 1 1 0;
   min-width: 0;

@@ -1,6 +1,6 @@
 import { useState, type MouseEvent } from "react";
 
-import { switchedOverview, useAction, useAiOn, useOverview, usePendingBranches } from "../api/hooks";
+import { patchOverview, patchWip, pushed, switchedOverview, useAction, useAiOn, useOverview, usePendingBranches } from "../api/hooks";
 import type { BranchView, Overview, RebaseResult, RenameResult, Stash, StashApplied } from "../api/types";
 import { ContextMenu, type MenuItem } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
@@ -70,11 +70,21 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
   const wt = useAction<{ path: string }, { projectId: string; branch: string }>("worktrees.create", { invalidate: [...inv, ["worktrees"]], success: (r) => `Worktree at ${r.path}` });
   // `branch` only marks the row busy; the worktree is found by its path.
   const removeWt = useAction<unknown, { projectId: string; branch: string; path: string }>("worktrees.remove", { invalidate: [...inv, ["worktrees"], ["agents"]] });
-  const pull = useAction<{ output: string }, { projectId: string; branch: string }>("branches.pull", { invalidate: inv });
-  const push = useAction<{ output: string }, { projectId: string; branch: string }>("workspace.push", { invalidate: inv });
+  // Pull, push and stash show on the row at once; counts against the parent wait for the overview.
+  const pull = useAction<{ output: string }, { projectId: string; branch: string }>("branches.pull", {
+    invalidate: inv,
+    patch: (qc, v) => patchOverview(qc, pid, v.branch, (b) => ({ ...b, upstreamBehind: 0 })),
+  });
+  const push = useAction<{ output: string }, { projectId: string; branch: string }>("workspace.push", { invalidate: inv, patch: (qc, v) => patchOverview(qc, pid, v.branch, pushed) });
   const rebase = useAction<RebaseResult, { projectId: string; branch: string }>("workspace.rebase", { invalidate: inv, success: rebaseMessage });
   const sync = useAction<unknown, { projectId: string; branch: string }>("branches.sync", { invalidate: inv });
-  const stash = useAction<unknown, { projectId: string; branch: string }>("branches.stash", { invalidate: inv });
+  const stash = useAction<unknown, { projectId: string; branch: string }>("branches.stash", {
+    invalidate: inv,
+    patch: (qc, v) => {
+      patchWip(qc, pid, v.branch, () => []);
+      patchOverview(qc, pid, v.branch, (b) => ({ ...b, stashes: b.stashes + 1 }));
+    },
+  });
   const unstash = useAction<StashApplied, { projectId: string; branch: string; sha: string; pop: boolean }>("stashes.apply", {
     invalidate: inv,
     success: (r) => (r.conflicts.length ? undefined : "Popped the latest stash"),

@@ -642,4 +642,5 @@ export type GitnetixEvent =
   | { type: "log"; entry: LogEntry }
   | { type: "shellData"; cwd: string; data: string; end: number }
   | { type: "shellExit"; cwd: string }
-  | { type: "dictationModel"; done: number; total: number };
+  | { type: "dictationModel"; done: number; total: number }
+  | { type: "overviewProgress"; projectId: string; done: number; total: number };

@@ -223,10 +223,13 @@ impl Git {
     }
 
     fn command(&self, args: &[&str]) -> Command {
-        if changes_repo(args) {
+        let _ = STARTED.try_with(|n| n.set(n.get() + 1));
+        let writes = changes_repo(args);
+        if writes {
             crate::log::info(format!("Will attempt git {} (in {})", args.join(" "), self.cwd.display()));
         }
-        let mut cmd = Command::new("git");
+        // Writes can run hooks: they keep the git the user's PATH gives, with its environment.
+        let mut cmd = Command::new(if writes { Path::new("git") } else { read_git() });
         crate::shell::without_appimage(cmd.as_std_mut());
         cmd.current_dir(&self.cwd);
         for (k, v) in &self.config {
@@ -542,8 +545,17 @@ impl Git {
     }
 
     pub async fn is_ancestor(&self, a: &str, b: &str) -> Result<bool> {
-        let (ok, _, _) = self.try_run(&["merge-base", "--is-ancestor", a, b]).await?;
-        Ok(ok)
+        Ok(self.ancestry(a, b).await? == Some(true))
+    }
+
+    /// [`Git::is_ancestor`], None when git can't tell (a commit it doesn't have yet).
+    pub async fn ancestry(&self, a: &str, b: &str) -> Result<Option<bool>> {
+        let out = self.command(&["merge-base", "--is-ancestor", a, b]).output().await?;
+        Ok(match out.status.code() {
+            Some(0) => Some(true),
+            Some(1) => Some(false),
+            _ => None,
+        })
     }
 
     /// True when `branch` had commits of its own that all landed in `base`:
@@ -569,8 +581,13 @@ impl Git {
         if !self.is_ancestor(tip, base_tip).await? {
             return Ok((false, false));
         }
+        Ok((true, self.merged_by_commit(tip, base_tip).await?))
+    }
+
+    /// A merge commit in `base_tip` has `tip` (already in it) as a merged-in parent.
+    pub async fn merged_by_commit(&self, tip: &str, base_tip: &str) -> Result<bool> {
         let merges = self.run(&["rev-list", "--merges", "--parents", "--ancestry-path", &format!("{tip}..{base_tip}")]).await?;
-        Ok((true, merges.lines().any(|l| l.split_whitespace().skip(2).any(|p| p == tip))))
+        Ok(merges.lines().any(|l| l.split_whitespace().skip(2).any(|p| p == tip)))
     }
 
     /// The branch moved since it was created: its oldest reflog entry is not `tip`.
@@ -592,10 +609,15 @@ impl Git {
     /// squashed into one commit there. Compares patch ids with `git cherry`;
     /// the squash check builds a throwaway commit holding the whole branch diff.
     pub async fn is_squash_merged(&self, branch: &str, base: &str) -> Result<bool> {
+        Ok(self.squash_check(branch, base).await?.0)
+    }
+
+    /// [`Git::is_squash_merged`], with the commit the squash looked for was made on when it got that far.
+    pub async fn squash_check(&self, branch: &str, base: &str) -> Result<(bool, Option<String>)> {
         let picked = |out: &str| !out.trim().is_empty() && out.lines().all(|l| l.starts_with('-'));
         let cherry = self.run(&["cherry", base, branch]).await?;
         if picked(&cherry) {
-            return Ok(true);
+            return Ok((true, None));
         }
         // Oldest commits already upstream (other work the branch pulled in) were not part of its
         // squash: squash from the last of them. Otherwise from where the branch forked.
@@ -615,10 +637,10 @@ impl Git {
             .output()
             .await?;
         if !out.status.success() {
-            return Ok(false);
+            return Ok((false, None));
         }
         let squash = String::from_utf8_lossy(&out.stdout).trim().to_string();
-        Ok(picked(&self.run(&["cherry", base, &squash]).await?))
+        Ok((picked(&self.run(&["cherry", base, &squash]).await?), Some(parent)))
     }
 
     pub async fn create_branch(&self, name: &str, from: &str) -> Result<()> {
@@ -1743,6 +1765,38 @@ mod tests {
         assert_eq!(h[0].lines.len(), 5);
         assert_eq!(h[0].lines[1].kind, '-');
     }
+}
+
+tokio::task_local! {
+    /// Git processes started by the work [`counting`] runs.
+    static STARTED: std::cell::Cell<u32>;
+}
+
+/// Run `f` and count the git processes it starts: what a slow refresh spent its time on.
+pub async fn counting<T>(f: impl std::future::Future<Output = T>) -> (T, u32) {
+    STARTED.scope(std::cell::Cell::new(0), async move { (f.await, STARTED.with(std::cell::Cell::get)) }).await
+}
+
+/// The git binary reads run. On macOS `/usr/bin/git` is a stub that asks `xcrun` for Xcode's git
+/// on every call: a second process each time, slow where starting one is (an overview runs hundreds).
+/// Asked once here instead.
+fn read_git() -> &'static Path {
+    static GIT: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    GIT.get_or_init(|| {
+        #[cfg(target_os = "macos")]
+        {
+            let on_path = std::env::var_os("PATH").and_then(|p| std::env::split_paths(&p).map(|d| d.join("git")).find(|g| g.is_file()));
+            if on_path.as_deref() == Some(Path::new("/usr/bin/git")) {
+                if let Ok(out) = std::process::Command::new("/usr/bin/xcrun").args(["--find", "git"]).output() {
+                    let found = PathBuf::from(String::from_utf8_lossy(&out.stdout).trim());
+                    if out.status.success() && found.is_file() {
+                        return found;
+                    }
+                }
+            }
+        }
+        PathBuf::from("git")
+    })
 }
 
 /// A git command that changes the repository (worth a line in the log), as opposed to a read.

@@ -8,12 +8,27 @@ const SERVICE: &str = "dev.gitnetix.app";
 #[cfg(feature = "keychain")]
 mod imp {
     use super::*;
+    use std::collections::{HashMap, HashSet};
+    use std::sync::{mpsc, LazyLock, Mutex};
+    use std::time::Duration;
+
+    /// Keychain answers kept for the run, and the keys being read.
+    #[derive(Default)]
+    pub(super) struct Kept {
+        read: HashMap<String, Option<String>>,
+        pending: HashSet<String>,
+    }
+
+    static KEPT: LazyLock<Mutex<Kept>> = LazyLock::new(Default::default);
+
+    /// How long a caller waits on the keychain before going on without the secret.
+    const WAIT: Duration = Duration::from_secs(2);
 
     fn entry(key: &str) -> Result<keyring::Entry> {
         keyring::Entry::new(SERVICE, key).map_err(|e| Error::Other(format!("keychain: {e}")))
     }
 
-    pub fn get(key: &str) -> Result<Option<String>> {
+    fn read(key: &str) -> Result<Option<String>> {
         match entry(key)?.get_password() {
             Ok(v) => Ok(Some(v)),
             Err(keyring::Error::NoEntry) => Ok(None),
@@ -21,14 +36,78 @@ mod imp {
         }
     }
 
+    pub fn get(key: &str) -> Result<Option<String>> {
+        kept_read(&KEPT, key, WAIT, read)
+    }
+
+    /// `read(key)` once per run, off the caller's thread: the system can ask the user before an app
+    /// reads a keychain item (macOS does for each rebuilt one), and the read waits on them. Past
+    /// `wait` the caller gets an error and goes on; the answer is kept once the user gave it.
+    pub(super) fn kept_read(kept: &'static Mutex<Kept>, key: &str, wait: Duration, read: fn(&str) -> Result<Option<String>>) -> Result<Option<String>> {
+        {
+            let mut k = kept.lock().unwrap();
+            if let Some(v) = k.read.get(key) {
+                return Ok(v.clone());
+            }
+            // One ask at a time: another would stack a second prompt.
+            if !k.pending.insert(key.to_string()) {
+                return Err(waiting());
+            }
+        }
+        let (tx, rx) = mpsc::channel();
+        let key = key.to_string();
+        std::thread::spawn(move || {
+            let got = read(&key);
+            let mut k = kept.lock().unwrap();
+            k.pending.remove(&key);
+            if let Ok(v) = &got {
+                k.read.insert(key, v.clone());
+            }
+            let _ = tx.send(got);
+        });
+        rx.recv_timeout(wait).unwrap_or_else(|_| Err(waiting()))
+    }
+
+    fn waiting() -> Error {
+        Error::Other("keychain: waiting for access, answer the system prompt".into())
+    }
+
     pub fn set(key: &str, value: &str) -> Result<()> {
-        entry(key)?.set_password(value).map_err(|e| Error::Other(format!("keychain: {e}")))
+        entry(key)?.set_password(value).map_err(|e| Error::Other(format!("keychain: {e}")))?;
+        KEPT.lock().unwrap().read.insert(key.into(), Some(value.into()));
+        Ok(())
     }
 
     pub fn delete(key: &str) -> Result<()> {
         match entry(key)?.delete_credential() {
-            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-            Err(e) => Err(Error::Other(format!("keychain: {e}"))),
+            Ok(()) | Err(keyring::Error::NoEntry) => {}
+            Err(e) => return Err(Error::Other(format!("keychain: {e}"))),
+        }
+        KEPT.lock().unwrap().read.insert(key.into(), None);
+        Ok(())
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use std::sync::atomic::{AtomicU32, Ordering};
+
+        #[test]
+        fn a_read_waiting_on_the_user_holds_no_one_up() {
+            static KEPT: LazyLock<Mutex<Kept>> = LazyLock::new(Default::default);
+            static ASKED: AtomicU32 = AtomicU32::new(0);
+            // The user answers the prompt after 300 ms.
+            fn prompt(_: &str) -> Result<Option<String>> {
+                ASKED.fetch_add(1, Ordering::Relaxed);
+                std::thread::sleep(Duration::from_millis(300));
+                Ok(Some("token".into()))
+            }
+            let wait = Duration::from_millis(50);
+            assert!(kept_read(&KEPT, "github", wait, prompt).is_err(), "gives up past the wait");
+            assert!(kept_read(&KEPT, "github", wait, prompt).is_err(), "no second ask while the first waits");
+            std::thread::sleep(Duration::from_millis(400));
+            assert_eq!(kept_read(&KEPT, "github", wait, prompt).unwrap().as_deref(), Some("token"), "the late answer is kept");
+            assert_eq!(ASKED.load(Ordering::Relaxed), 1);
         }
     }
 }

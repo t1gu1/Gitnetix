@@ -8,15 +8,16 @@ use std::sync::{Arc, Mutex};
 
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 /// Past this many answers the commit cache starts over, keeping the file small.
 const MAX_ENTRIES: usize = 20_000;
 
-/// Checks whose answer is fixed for a pair of commits, so it stays true for good.
-/// Keyed by the check's name and both SHAs.
+/// Checks whose answer is fixed for a pair of commits, so it stays true for good: a yes or no,
+/// or a list (patch ids). Keyed by the check's name and both SHAs.
 pub struct CommitCache {
     file: PathBuf,
-    map: Mutex<HashMap<String, bool>>,
+    map: Mutex<HashMap<String, Value>>,
     dirty: AtomicBool,
 }
 
@@ -28,11 +29,13 @@ impl CommitCache {
         CommitCache { file, map: Mutex::new(map), dirty: AtomicBool::new(false) }
     }
 
-    pub fn get(&self, check: &str, tip: &str, base: &str) -> Option<bool> {
-        self.map.lock().unwrap().get(&format!("{check}:{tip}:{base}")).copied()
+    pub fn get<T: DeserializeOwned>(&self, check: &str, tip: &str, base: &str) -> Option<T> {
+        let answer = self.map.lock().unwrap().get(&format!("{check}:{tip}:{base}"))?.clone();
+        serde_json::from_value(answer).ok()
     }
 
-    pub fn insert(&self, check: &str, tip: &str, base: &str, answer: bool) {
+    pub fn insert(&self, check: &str, tip: &str, base: &str, answer: impl Serialize) {
+        let Ok(answer) = serde_json::to_value(answer) else { return };
         let mut map = self.map.lock().unwrap();
         if map.len() >= MAX_ENTRIES {
             map.clear();
@@ -119,5 +122,24 @@ fn write_atomic(file: &Path, contents: String) {
     let tmp = file.with_extension("json.tmp");
     if std::fs::write(&tmp, contents).is_ok() {
         let _ = std::fs::rename(&tmp, file);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn keeps_saved_answers_and_lists() {
+        let dir = tempfile::tempdir().unwrap();
+        // A file saved before lists were kept: yes/no answers only.
+        std::fs::write(dir.path().join("commit-cache.json"), r#"{"squash2:a:b":true}"#).unwrap();
+        let cache = CommitCache::open(dir.path());
+        cache.insert("patches", "a", "c", ["p1", "p2"]);
+        cache.save();
+        let again = CommitCache::open(dir.path());
+        assert_eq!(again.get::<bool>("squash2", "a", "b"), Some(true));
+        assert_eq!(again.get::<Vec<String>>("patches", "a", "c"), Some(vec!["p1".to_string(), "p2".to_string()]));
+        assert_eq!(again.get::<bool>("patches", "a", "c"), None);
     }
 }

@@ -47,6 +47,9 @@ export function useEngineEvents() {
           case "dictationModel":
             dictationModel(e.done, e.total);
             break;
+          case "overviewProgress":
+            qc.setQueryData(["overviewProgress", e.projectId], { done: e.done, total: e.total });
+            break;
           case "agentLine":
             // A message of yours going out takes the queued ones with it.
             qc.setQueryData<AgentSession[]>(["agents"], (list) =>
@@ -163,6 +166,75 @@ export function switchedOverview(o: Overview, branch: string | null, tag?: strin
     releases: o.releases.map((r) => ({ ...r, checkedOut: !!tag && r.tagName === tag, view: r.view && mark(r.view) })),
   };
 }
+
+/** `o` with branch `name`'s view put through `f`, wherever it shows. */
+export function patchBranch(o: Overview, name: string, f: (b: BranchView) => BranchView): Overview {
+  const mark = (b: BranchView) => (b.name === name ? f(b) : b);
+  return {
+    ...o,
+    branches: o.branches.map(mark),
+    otherBranches: o.otherBranches.map(mark),
+    defaultView: o.defaultView && mark(o.defaultView),
+    releases: o.releases.map((r) => ({ ...r, items: r.items.map(mark), view: r.view && mark(r.view) })),
+  };
+}
+
+/** Show at once what an action did to branch `name`; the refreshed overview replaces it. */
+export const patchOverview = (qc: QueryClient, pid: string, name: string, f: (b: BranchView) => BranchView) =>
+  qc.setQueryData<Overview>(["overview", pid], (o) => o && patchBranch(o, name, f));
+
+/** A branch once a commit lands on it: one more of its own and to push, so not merged any more. */
+export const committed = (b: BranchView): BranchView => ({
+  ...b,
+  ahead: b.parent ? b.ahead + 1 : b.ahead,
+  upstreamAhead: b.upstream ? b.upstreamAhead + 1 : b.upstreamAhead,
+  merged: false,
+  likelyMerged: false,
+});
+
+/** A branch once pushed: origin has all its commits (`force`: and nothing else). */
+export const pushed = (b: BranchView, force = false): BranchView => ({
+  ...b,
+  upstream: b.upstream ?? `origin/${b.name}`,
+  remote: true,
+  upstreamAhead: 0,
+  ...(force ? { upstreamBehind: 0, rewritten: false } : {}),
+});
+
+/** The overview once branch `name` is deleted here (`remote`: from origin too). One origin keeps stays, origin-only. */
+export function deletedOverview(o: Overview, name: string, remote: boolean): Overview {
+  if (!remote && o.branches.some((b) => b.name === name && b.remote)) return patchBranch(o, name, (b) => ({ ...b, local: false, checkedOut: false, worktree: null, wip: 0 }));
+  const drop = (l: BranchView[]) => l.filter((b) => b.name !== name);
+  return { ...o, branches: drop(o.branches), otherBranches: drop(o.otherBranches), releases: o.releases.map((r) => ({ ...r, items: drop(r.items) })) };
+}
+
+/** Cache key of a branch's uncommitted files, as `useFiles(pid, branch, "wip")` reads them. */
+export const wipKey = (pid: string, branch: string) => ["files", pid, branch, "wip", undefined, undefined];
+
+/** Show a branch's uncommitted files as `f` leaves them, and their count on its row, ahead of the refresh. */
+export function patchWip(qc: QueryClient, pid: string, branch: string, f: (list: FileChange[]) => FileChange[]) {
+  const left = f(qc.getQueryData<FileChange[]>(wipKey(pid, branch)) ?? []);
+  qc.setQueryData(wipKey(pid, branch), left);
+  const wip = new Set(left.map((x) => x.path)).size;
+  patchOverview(qc, pid, branch, (b) => ({ ...b, wip }));
+}
+
+/** WIP files once `paths` (none: the whole side) move to the `staged` side. A partly staged file keeps one line. */
+export function movedWip(list: FileChange[], paths: string[], staged: boolean): FileChange[] {
+  const moves = (f: FileChange) => !!f.staged !== staged && (!paths.length || paths.includes(f.path));
+  const moving = new Set(list.filter(moves).map((f) => f.path));
+  return list.filter((f) => moves(f) || !(!!f.staged === staged && moving.has(f.path))).map((f) => (moves(f) ? { ...f, staged } : f));
+}
+
+/** WIP files once `paths` (none: the whole side) are discarded: unstaged edits only, or with `staged` the files' every change. */
+export function discardedWip(list: FileChange[], paths: string[], staged: boolean): FileChange[] {
+  const gone = new Set(list.filter((f) => !!f.staged === staged && (!paths.length || paths.includes(f.path))).map((f) => f.path));
+  return list.filter((f) => !gone.has(f.path) || (!staged && f.staged));
+}
+
+/** How far a long rebuild of the project's branches has got, as the engine reports it. */
+export const useOverviewProgress = (projectId?: string) =>
+  useQuery<{ done: number; total: number } | null>({ queryKey: ["overviewProgress", projectId], queryFn: () => null, enabled: false, staleTime: Infinity }).data;
 
 export const useOverview = (projectId?: string) => {
   const qc = useQueryClient();

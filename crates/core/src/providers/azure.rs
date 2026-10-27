@@ -204,13 +204,9 @@ impl Azure {
     /// Completed pull requests that took each of `commits` in, by commit. Commits no
     /// completed pull request took are left out.
     pub async fn merged_prs(&self, commits: &[String]) -> Result<HashMap<String, Vec<MergedPr>>> {
-        let mut out = HashMap::new();
-        for chunk in commits.chunks(100) {
-            // "commit": the pull requests that merged these commits.
-            let body = json!({ "queries": [{ "type": "commit", "items": chunk }] });
-            out.extend(read_query(&self.send(reqwest::Method::POST, "/pullrequestquery", body).await?));
-        }
-        Ok(out)
+        // "commit": the pull requests that merged these commits. Batches side by side: the overview waits on them.
+        let batches = commits.chunks(100).map(|chunk| self.send(reqwest::Method::POST, "/pullrequestquery", json!({ "queries": [{ "type": "commit", "items": chunk }] })));
+        Ok(futures_util::future::try_join_all(batches).await?.iter().flat_map(read_query).collect())
     }
 
     /// Active pull requests from or into `branch`.

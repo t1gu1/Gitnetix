@@ -119,6 +119,8 @@ export function BranchTree({
   tagItems,
   onStashes,
   building,
+  updating,
+  progress,
 }: {
   active: boolean;
   o: Overview;
@@ -141,6 +143,10 @@ export function BranchTree({
   onStashes: () => void;
   /** First look at the project: branches are not filed under their parents yet. */
   building?: boolean;
+  /** The overview is being read again (after an action, a fetch, a change in git). */
+  updating?: boolean;
+  /** Branches worked out so far of those a long rebuild redoes. */
+  progress?: { done: number; total: number } | null;
 }) {
   const pid = o.project.id;
   const [query, setQuery] = useState("");
@@ -474,6 +480,12 @@ export function BranchTree({
       <div className="pane-head">
         <span className="row" style={{ gap: 6 }}>
           <span className="label">Branches</span>
+          {updating && !building && (
+            <span className="tree-updating faint" role="status">
+              <span className="spinner" />
+              {progress && progress.done < progress.total ? `Updating ${progress.done}/${progress.total} branches…` : "Updating…"}
+            </span>
+          )}
         </span>
         <span className="row" style={{ gap: 4 }}>
           {o.stashes.length > 0 && (

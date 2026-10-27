@@ -28,6 +28,9 @@ pub enum Event {
     /// A checkout's shell exited or its terminal was removed.
     #[serde(rename_all = "camelCase")]
     ShellExit { cwd: String },
+    /// A long rebuild of a project's branches: `done` of the `total` it redoes so far.
+    #[serde(rename_all = "camelCase")]
+    OverviewProgress { project_id: String, done: u32, total: u32 },
     /// The speech model's first download, for voice dictation: `done` bytes of `total`.
     #[serde(rename_all = "camelCase")]
     DictationModel { done: u64, total: u64 },

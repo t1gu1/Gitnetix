@@ -1,6 +1,27 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent, type ReactNode } from "react";
 
-import { switchedOverview, useAction, useAgents, useAiOn, useAutoFetch, useBlobs, useDiff, useFiles, useOverview, usePendingBranches, useProjectPrefs, useProjects } from "../api/hooks";
+import {
+  committed,
+  deletedOverview,
+  discardedWip,
+  movedWip,
+  patchOverview,
+  patchWip,
+  pushed,
+  switchedOverview,
+  useAction,
+  useAgents,
+  useAiOn,
+  useAutoFetch,
+  useBlobs,
+  useDiff,
+  useFiles,
+  useOverview,
+  useOverviewProgress,
+  usePendingBranches,
+  useProjectPrefs,
+  useProjects,
+} from "../api/hooks";
 import { isLocal, revealPath } from "../api/transport";
 import type { AgentSession, BranchView, Commit, FileChange, Hunk, MergeResult, Overview, RebaseResult, ReleaseView, RenameResult, Stash } from "../api/types";
 import { AgentInput, AgentLog, type Attachment, type Choice, type Upload } from "../components/AgentLog";
@@ -32,6 +53,7 @@ export function Workspace() {
   const nav = useNav();
   const pid = nav.projectId!;
   const ov = useOverview(pid);
+  const progress = useOverviewProgress(pid);
   useAutoFetch(pid, !!ov.data?.remote);
   const [mode, setMode] = useState<Mode>("wip");
   const [file, setFile] = useState<string | undefined>();
@@ -332,6 +354,8 @@ export function Workspace() {
                 tagItems={tagItems}
                 onStashes={() => openStashes()}
                 building={ov.isPlaceholderData}
+                updating={ov.isFetching && !ov.isPlaceholderData}
+                progress={progress}
               />
             )}
 
@@ -501,6 +525,7 @@ export function Workspace() {
                 <WipList
                   pid={pid}
                   branch={branch}
+                  midOp={!!o.inProgress || !!view?.conflict}
                   list={list}
                   current={current}
                   tree={asTree}
@@ -658,6 +683,7 @@ function fileKey(f: FileChange) {
 function WipList({
   pid,
   branch,
+  midOp,
   list,
   current,
   tree,
@@ -669,6 +695,8 @@ function WipList({
 }: {
   pid: string;
   branch: string;
+  /** Mid rebase or merge: staging settles conflicts, which the overview shows. */
+  midOp: boolean;
   list: FileChange[];
   current?: FileChange;
   tree: boolean;
@@ -678,9 +706,11 @@ function WipList({
   onMoved: (f: FileChange) => void;
   onDiscard: (staged: boolean, paths: string[]) => void;
 }) {
-  const inv = [["files", pid], ["diff", pid], ["overview", pid]];
-  const stage = useAction("workspace.stage", { invalidate: inv });
-  const unstage = useAction("workspace.unstage", { invalidate: inv });
+  // Staging moves no ref and no file count: the overview only needs asking again mid rebase or merge.
+  const inv = [["files", pid], ["diff", pid], ...(midOp ? [["overview", pid]] : [])];
+  type Move = { projectId: string; branch: string; paths: string[] };
+  const stage = useAction<unknown, Move>("workspace.stage", { invalidate: inv, patch: (qc, v) => patchWip(qc, pid, v.branch, (l) => movedWip(l, v.paths, true)) });
+  const unstage = useAction<unknown, Move>("workspace.unstage", { invalidate: inv, patch: (qc, v) => patchWip(qc, pid, v.branch, (l) => movedWip(l, v.paths, false)) });
   const busy = stage.isPending || unstage.isPending;
   const [closed, setClosed] = useState<Record<string, boolean>>({});
   // No files = the whole side.
@@ -767,7 +797,11 @@ function WipList({
 }
 
 function DiscardModal({ pid, branch, staged, paths, total, onClose }: { pid: string; branch: string; staged: boolean; paths: string[]; total: number; onClose: () => void }) {
-  const discard = useAction("workspace.discard", { invalidate: [["files", pid], ["diff", pid], ["overview", pid]], success: "Changes discarded" });
+  const discard = useAction("workspace.discard", {
+    invalidate: [["files", pid], ["diff", pid], ["overview", pid]],
+    patch: (qc) => patchWip(qc, pid, branch, (l) => discardedWip(l, paths, staged)),
+    success: "Changes discarded",
+  });
   const what = paths.length === 1 ? <span className="mono">{paths[0]}</span> : <>{paths.length || total} file{(paths.length || total) === 1 ? "" : "s"}</>;
   return (
     <Modal
@@ -1177,7 +1211,11 @@ function ResetBranchModal({ pid, view, onClose }: { pid: string; view: BranchVie
 
 function ForcePushModal({ pid, view, onClose }: { pid: string; view: BranchView; onClose: () => void }) {
   const { name: branch, upstream } = view;
-  const push = useAction("workspace.push", { invalidate: [["overview", pid], ["files", pid], ["diff", pid], ["commits", pid]], success: `Force pushed ${branch}` });
+  const push = useAction("workspace.push", {
+    invalidate: [["overview", pid], ["files", pid], ["diff", pid], ["commits", pid]],
+    patch: (qc) => patchOverview(qc, pid, branch, (b) => pushed(b, true)),
+    success: `Force pushed ${branch}`,
+  });
   return (
     <Modal
       title="Force push"
@@ -1500,7 +1538,11 @@ function DeleteBranchModal({
   const [alsoOrigin, setAlsoOrigin] = useState(useProjectPrefs(pid).dialogs.deleteOrigin);
   const onOrigin = remote && (!local || alsoOrigin);
   const exists = local || remote;
-  const del = useAction("branches.delete", { invalidate: [["overview", pid], ["files", pid], ["worktrees"]], success: `Deleted ${branch}` });
+  const del = useAction<unknown, { projectId: string; branch: string; force: boolean; remote: boolean }>("branches.delete", {
+    invalidate: [["overview", pid], ["files", pid], ["worktrees"]],
+    patch: (qc, v) => qc.setQueryData<Overview>(["overview", pid], (o) => o && deletedOverview(o, v.branch, v.remote)),
+    success: `Deleted ${branch}`,
+  });
   return (
     <Modal
       title="Delete branch"
@@ -1697,14 +1739,10 @@ function CommitBox({ pid, branch, enabled, staged, changed }: { pid: string; bra
   const inv = [["overview", pid], ["files", pid], ["diff", pid], ["commits", pid]];
   const commit = useAction<{ sha: string; message: string; aiWritten: boolean }, { projectId: string; branch: string; message: string; all: boolean }>("workspace.commit", {
     invalidate: inv,
-    // The WIP list and badge drop the committed files at once instead of waiting for the full overview.
+    // The WIP list, badge and push count follow the commit at once instead of waiting for the full overview.
     patch: (qc, v) => {
-      const key = ["files", pid, v.branch, "wip", undefined, undefined];
-      const left = v.all ? [] : (qc.getQueryData<FileChange[]>(key) ?? []).filter((f) => !f.staged);
-      qc.setQueryData(key, left);
-      const wip = new Set(left.map((f) => f.path)).size;
-      const mark = (b: BranchView): BranchView => (b.name === v.branch ? { ...b, wip } : b);
-      qc.setQueryData<Overview>(["overview", pid], (o) => o && { ...o, branches: o.branches.map(mark), otherBranches: o.otherBranches.map(mark), defaultView: o.defaultView && mark(o.defaultView) });
+      patchWip(qc, pid, v.branch, (l) => (v.all ? [] : l.filter((f) => !f.staged)));
+      patchOverview(qc, pid, v.branch, committed);
     },
     success: (r) => `${r.aiWritten ? "AI wrote: " : "Committed: "}${r.message.split("\n")[0]}`,
   });
@@ -1713,7 +1751,7 @@ function CommitBox({ pid, branch, enabled, staged, changed }: { pid: string; bra
   // Saved with the project, like the merge options.
   const { commit: prefs, setCommit } = useProjectPrefs(pid);
   const autoPush = prefs.autoPush;
-  const push = useAction("workspace.push", { invalidate: inv, success: `Pushed ${branch}` });
+  const push = useAction<unknown, { projectId: string; branch: string }>("workspace.push", { invalidate: inv, patch: (qc, v) => patchOverview(qc, pid, v.branch, pushed), success: `Pushed ${branch}` });
   // Per branch, from the shared cache: a commit running on another worktree doesn't block this one.
   const busy = [...usePendingBranches("workspace.commit", pid), ...usePendingBranches("workspace.push", pid)].includes(branch);
   const [more, setMore] = useState<{ x: number; y: number } | null>(null);
@@ -1952,7 +1990,11 @@ export function useFinishHandlers(
   const removeWt = useAction("worktrees.remove", { invalidate: [["agents"], ["worktrees"], ["overview", pid]], success: "Worktree removed" });
   // Removing the worktree also removes its agent session.
   const drop = (s: WtSession) => removeWt.mutate({ projectId: s.projectId, path: s.cwd });
-  const deleteBranch = useAction("branches.delete", { invalidate: [["overview", pid], ["commits", pid]], success: "Branch deleted" });
+  const deleteBranch = useAction<unknown, { projectId: string; branch: string; force: boolean }>("branches.delete", {
+    invalidate: [["overview", pid], ["commits", pid]],
+    patch: (qc, v) => qc.setQueryData<Overview>(["overview", v.projectId], (o) => o && deletedOverview(o, v.branch, false)),
+    success: "Branch deleted",
+  });
   const nav = useNav();
   return {
     // Throws the session's work away: the worktree even with uncommitted changes, then its local branch even unmerged (origin's copy stays).
