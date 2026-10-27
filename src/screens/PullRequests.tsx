@@ -278,7 +278,6 @@ function Detail({ pid, number }: { pid: string; number: number }) {
           onClose={() => setConfirmClose(false)}
           footer={
             <>
-              <button className="btn btn-md" onClick={() => setConfirmClose(false)}>Cancel</button>
               <button className="btn btn-md btn-danger" disabled={close.isPending} onClick={() =>
                   close.mutate(
                     { projectId: pid, number, ...(deleteBranch && { deleteBranch: d.head }) },

@@ -57,8 +57,6 @@ export function UpdatePrompt() {
       width={520}
       footer={
         <>
-          <span className="grow" />
-          <button className="btn btn-md" disabled={busy} onClick={close}>Later</button>
           <button className="btn btn-primary btn-md" disabled={busy} onClick={install}>
             {busy ? `Downloading… ${progress}%` : "Update and restart"}
           </button>

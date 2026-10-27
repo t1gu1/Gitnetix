@@ -235,7 +235,6 @@ function ResetModal({
       onClose={onClose}
       footer={
         <>
-          <button className="btn btn-md" onClick={onClose}>Cancel</button>
           <button
             className={`btn btn-md ${mode === "hard" ? "btn-danger" : "btn-primary"}`}
             disabled={pending}
@@ -294,7 +293,6 @@ export function TagModal({ pid, branch, commit, onClose }: { pid: string; branch
       onClose={onClose}
       footer={
         <>
-          <button className="btn btn-md" onClick={onClose}>Cancel</button>
           <button className="btn btn-md btn-primary" disabled={!name.trim() || tag.isPending} onClick={submit}>
             {tag.isPending && <span className="spinner" />}
             Create and push
@@ -326,7 +324,6 @@ export function DeleteTagModal({ pid, tag, onClose }: { pid: string; tag: string
       onClose={onClose}
       footer={
         <>
-          <button className="btn btn-md" onClick={onClose}>Cancel</button>
           <button className="btn btn-md btn-danger" disabled={del.isPending} onClick={() => del.mutate({ projectId: pid, name: tag }, { onSuccess: onClose })}>
             {del.isPending && <span className="spinner" />}
             Delete tag

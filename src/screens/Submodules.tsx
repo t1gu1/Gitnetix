@@ -465,7 +465,6 @@ function AddModal({ pid, taken, onAdded, onClose }: { pid: string; taken: string
       onClose={add.isPending ? () => {} : onClose}
       footer={
         <>
-          <button className="btn btn-md" disabled={add.isPending} onClick={onClose}>Cancel</button>
           <button className="btn btn-primary btn-md" disabled={!url.trim() || !target || clash || add.isPending} onClick={submit}>
             {add.isPending && <span className="spinner" />}
             {add.isPending ? "Cloning…" : "Add submodule"}
@@ -512,7 +511,6 @@ function EditModal({ pid, s, onClose }: { pid: string; s: Submodule; onClose: ()
       onClose={onClose}
       footer={
         <>
-          <button className="btn btn-md" onClick={onClose}>Cancel</button>
           <button
             className="btn btn-primary btn-md"
             disabled={!changed || !url.trim() || set.isPending}
@@ -547,7 +545,6 @@ function RemoveModal({ pid, s, onClose }: { pid: string; s: Submodule; onClose: 
       onClose={remove.isPending ? () => {} : onClose}
       footer={
         <>
-          <button className="btn btn-md" disabled={remove.isPending} onClick={onClose}>Cancel</button>
           <button className="btn btn-md btn-danger" disabled={remove.isPending} onClick={() => remove.mutate({ projectId: pid, path: s.path }, { onSuccess: onClose })}>
             {remove.isPending && <span className="spinner" />}
             {s.dirty ? "Remove, losing local changes" : "Remove"}

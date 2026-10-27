@@ -243,7 +243,6 @@ function MergeModal({ s, onClose }: { s: Session; onClose: () => void }) {
       onClose={onClose}
       footer={
         <>
-          <button className="btn btn-md" onClick={onClose}>Cancel</button>
           <button className="btn btn-primary btn-md" onClick={() => { finish(s.key, 'merge', false, `${del ? ' · branch deleted' : ''}${push ? ' · pushed' : ''}`); onClose(); }}>Merge into {s.base}</button>
         </>
       }
@@ -322,7 +321,6 @@ function StartModal({ initial, onClose, onStarted }: { initial: string; onClose:
       onClose={onClose}
       footer={
         <>
-          <button className="btn btn-md" onClick={onClose}>Cancel</button>
           <button className="btn btn-primary btn-md" disabled={!ready} onClick={go}>
             <Icon name="play" size={12} />
             Start

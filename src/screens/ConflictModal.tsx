@@ -30,8 +30,6 @@ export function ConflictModal({ pid, branch, base, onClose, onDone }: { pid: str
       footer={
         <>
           <button className="btn btn-md btn-danger" disabled={abort.isPending} onClick={() => abort.mutate({ projectId: pid, branch }, { onSuccess: onClose })}>Abort rebase</button>
-          <span className="grow" />
-          <button className="btn btn-md" onClick={onClose}>Close</button>
           <button
             className="btn btn-primary btn-md"
             disabled={conflicted.length > 0 || cont.isPending}

@@ -93,7 +93,6 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
         onClose={onClose}
         footer={
           <>
-            <button className="btn btn-md" onClick={onClose}>Cancel</button>
             <button
               className="btn btn-primary btn-md"
               disabled={!v || createRelease.isPending}
@@ -159,7 +158,6 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
       onClose={onClose}
       footer={
         <>
-          <button className="btn btn-md" onClick={onClose}>Cancel</button>
           <button className="btn btn-primary btn-md" disabled={!ready} onClick={submit}>
             {create.isPending && <span className="spinner" />}
             Create {label}

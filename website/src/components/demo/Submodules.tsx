@@ -321,7 +321,6 @@ function Detail({ s, busy, set, onRun, onRemove }: { s: Sub; busy: boolean; set:
           onClose={() => setRemoving(false)}
           footer={
             <>
-              <button className="btn btn-md" onClick={() => setRemoving(false)}>Cancel</button>
               <button className="btn btn-md btn-danger" onClick={() => { onRemove(); flash(`Removed ${s.path}: commit the removal from the workspace`); }}>{s.dirty ? 'Remove, losing local changes' : 'Remove'}</button>
             </>
           }
@@ -398,7 +397,6 @@ function AddModal({ taken, onAdded, onClose }: { taken: string[]; onAdded: (s: S
       onClose={cloning ? () => {} : onClose}
       footer={
         <>
-          <button className="btn btn-md" disabled={cloning} onClick={onClose}>Cancel</button>
           <button className="btn btn-primary btn-md" disabled={!ok} onClick={submit}>
             {cloning && <span className="spinner" />}
             {cloning ? 'Cloning…' : 'Add submodule'}
@@ -443,7 +441,6 @@ function EditModal({ s, onClose, onSave }: { s: Sub; onClose: () => void; onSave
       onClose={onClose}
       footer={
         <>
-          <button className="btn btn-md" onClick={onClose}>Cancel</button>
           <button className="btn btn-primary btn-md" disabled={!changed || !url.trim()} onClick={() => { onSave(url.trim(), branch.trim()); onClose(); }}>Save</button>
         </>
       }

@@ -320,7 +320,6 @@ function Detail({ p, set }: { p: Pr; set: (f: (p: Pr) => Pr) => void }) {
           onClose={() => setConfirmClose(false)}
           footer={
             <>
-              <button className="btn btn-md" onClick={() => setConfirmClose(false)}>Cancel</button>
               <button className="btn btn-md btn-danger" onClick={() => { set((x) => ({ ...x, state: 'closed' })); setConfirmClose(false); flash(`Closed #${p.number}`); }}>
                 {deleteBranch ? 'Close and delete branch' : 'Close without merging'}
               </button>

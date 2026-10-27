@@ -810,7 +810,6 @@ function DiscardModal({ pid, branch, staged, paths, total, onClose }: { pid: str
       onClose={onClose}
       footer={
         <>
-          <button className="btn btn-md" onClick={onClose}>Cancel</button>
           <button
             className="btn btn-md btn-danger"
             disabled={discard.isPending}
@@ -1024,7 +1023,7 @@ export function MergeModal({
       .catch(() => {}); // useAction already toasts the error
   const footer = (
     <>
-      {inline ?? <button className="btn btn-md" onClick={onClose}>Cancel</button>}
+      {inline}
       <span className="split-btn">
         <button
           className="btn btn-primary btn-md split-main"
@@ -1149,7 +1148,6 @@ function WipModal({ pid, branch, files, op, onClose, onClean }: { pid: string; b
       onClose={() => !busy && onClose()}
       footer={
         <>
-          <button className="btn btn-md" disabled={busy} onClick={onClose}>Cancel</button>
           <button className="btn btn-md btn-danger" disabled={busy} data-tip={`Throw away every uncommitted change on ${branch}, then ${op.toLowerCase()}`} onClick={throwAway}>
             {discard.isPending && <span className="spinner" />}
             Discard & {op}
@@ -1190,7 +1188,6 @@ function ResetBranchModal({ pid, view, onClose }: { pid: string; view: BranchVie
       onClose={onClose}
       footer={
         <>
-          <button className="btn btn-md" onClick={onClose}>Cancel</button>
           <button className="btn btn-md btn-danger" disabled={reset.isPending} onClick={() => reset.mutate({ projectId: pid, branch }, { onSuccess: onClose })}>
             {reset.isPending && <span className="spinner" />}
             Reset branch
@@ -1223,7 +1220,6 @@ function ForcePushModal({ pid, view, onClose }: { pid: string; view: BranchView;
       onClose={onClose}
       footer={
         <>
-          <button className="btn btn-md" onClick={onClose}>Cancel</button>
           <button className="btn btn-md btn-danger" disabled={push.isPending} onClick={() => push.mutate({ projectId: pid, branch, force: true }, { onSuccess: onClose })}>
             {push.isPending && <span className="spinner" />}
             Force push
@@ -1272,7 +1268,6 @@ function RenameBranchModal({ pid, view, onClose, onRenamed }: { pid: string; vie
       onClose={onClose}
       footer={
         <>
-          <button className="btn btn-md" onClick={onClose}>Cancel</button>
           <button className="btn btn-md btn-primary" disabled={!name.trim() || to === view.name || rename.isPending} onClick={submit}>
             {rename.isPending && <span className="spinner" />}
             Rename
@@ -1353,7 +1348,6 @@ function TargetBranchModal({
       onClose={onClose}
       footer={
         <>
-          <button className="btn btn-md" onClick={onClose}>Cancel</button>
           <button className="btn btn-md btn-primary" disabled={!picked || move.isPending} onClick={submit}>
             {move.isPending && <span className="spinner" />}
             Target {picked ? labelOf(picked) : "it"}
@@ -1395,7 +1389,6 @@ function RebaseOntoModal({ pid, branch, onto, onClose }: { pid: string; branch: 
       onClose={onClose}
       footer={
         <>
-          <button className="btn btn-md" onClick={onClose}>Not now</button>
           <button className="btn btn-md btn-primary" autoFocus disabled={rebase.isPending} onClick={() => rebase.mutate({ projectId: pid, branch }, { onSuccess: onClose })}>
             {rebase.isPending && <span className="spinner" />}
             Rebase onto {onto}
@@ -1418,7 +1411,6 @@ export function DiscardWorktreeModal({ branch, path, onClose, onConfirm }: { bra
       onClose={onClose}
       footer={
         <>
-          <button className="btn btn-md" onClick={onClose}>Cancel</button>
           <button className="btn btn-md btn-danger" onClick={() => { onConfirm(); onClose(); }}>Cancel and Delete all</button>
         </>
       }
@@ -1439,7 +1431,6 @@ function AbortSwitchModal({ op, branch, path, onClose, onConfirm }: { op: string
       onClose={onClose}
       footer={
         <>
-          <button className="btn btn-md" onClick={onClose}>Cancel</button>
           <button className="btn btn-md btn-danger" onClick={() => { onConfirm(); onClose(); }}>Abort {op} and switch</button>
         </>
       }
@@ -1460,7 +1451,6 @@ function ContinueOnBranchModal({ branch, path, onClose, onConfirm }: { branch: s
       onClose={onClose}
       footer={
         <>
-          <button className="btn btn-md" onClick={onClose}>Cancel</button>
           <button className="btn btn-md btn-primary" onClick={() => { onConfirm(); onClose(); }}>Delete worktree and switch</button>
         </>
       }
@@ -1515,7 +1505,6 @@ function DeleteBranchModal({
       onClose={onClose}
       footer={
         <>
-          <button className="btn btn-md" onClick={onClose}>Cancel</button>
           <button
             className="btn btn-md btn-danger"
             disabled={del.isPending}
@@ -1580,7 +1569,6 @@ function CleanupModal({
       onClose={onClose}
       footer={
         <>
-          <button className="btn btn-md" onClick={onClose}>Cancel</button>
           <button
             className="btn btn-md btn-danger"
             disabled={!branches.length}
@@ -1641,7 +1629,6 @@ function BehindCleanupModal({
       onClose={onClose}
       footer={
         <>
-          <button className="btn btn-md" onClick={onClose}>Cancel</button>
           <button
             className="btn btn-md btn-danger"
             disabled={!picked.size}
@@ -2108,7 +2095,6 @@ function ShipModal({ pid, release, defaultBranch, onClose }: { pid: string; rele
       onClose={onClose}
       footer={
         <>
-          <button className="btn btn-md" onClick={onClose}>Cancel</button>
           <button
             className="btn btn-primary btn-md"
             disabled={busy}

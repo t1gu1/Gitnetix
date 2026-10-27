@@ -392,7 +392,6 @@ function StartModal({ initial, onClose }: { initial?: string; onClose: () => voi
       onClose={onClose}
       footer={
         <>
-          <button className="btn btn-md" onClick={onClose}>Cancel</button>
           <button className="btn btn-primary btn-md" disabled={!ready} onClick={go}>
             <Busy on={busy}><Icon name="play" size={12} /></Busy>
             Start

@@ -206,7 +206,6 @@ function DropStashModal({ pid, stash, onDone, onClose }: { pid: string; stash: S
       onClose={onClose}
       footer={
         <>
-          <button className="btn btn-md" onClick={onClose}>Cancel</button>
           <button
             className="btn btn-md btn-danger"
             disabled={drop.isPending}
@@ -261,7 +260,6 @@ function StashCleanupModal({ pid, stashes, onDropped, onClose }: { pid: string; 
       onClose={busy ? () => {} : onClose}
       footer={
         <>
-          <button className="btn btn-md" disabled={busy} onClick={onClose}>Cancel</button>
           <button className="btn btn-md btn-danger" disabled={!picked.size || busy} onClick={drop}>
             {busy && <span className="spinner" />}
             Drop {stashCount(picked.size)}

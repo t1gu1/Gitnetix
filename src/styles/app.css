@@ -4642,10 +4642,16 @@ body:has(> .modal-scrim) #root * {
 }
 .modal-foot {
   display: flex;
-  justify-content: flex-end;
   gap: 8px;
   padding: 14px 20px;
   border-top: 1px solid var(--line);
+}
+/* Footer buttons share the full width equally. */
+.modal-foot > * {
+  flex: 1 1 0;
+}
+.modal-foot > .split-btn > .split-main {
+  flex: 1 1 auto;
 }
 .toasts {
   position: fixed;
