@@ -103,15 +103,6 @@ export default function Submodules() {
       <section className="master" style={{ '--master-w': '340px' } as CSSProperties} aria-label="Submodules">
         <div className="master-tools">
           <div className="row" style={{ gap: 6 }}>
-            <span className="split-btn" style={{ display: 'flex', flex: '1 1 auto' }}>
-              <button className="btn btn-primary split-main grow" disabled={!!busy} title="Clone missing submodules and check each out at the commit the project pins, nested ones included" onClick={() => updateAll(false)}>
-                {busy === '*' ? <span className="spinner" /> : <Icon name="refresh" size={12} />}
-                Update all
-              </button>
-              <button className="btn btn-primary btn-icon split-more" aria-label="More bulk actions" title="More bulk actions" aria-haspopup="menu" disabled={!!busy} onClick={(e) => bulk.toggle(e, true)}>
-                <Icon name="chevronDown" size={12} />
-              </button>
-            </span>
             <button className="btn btn-icon" aria-label="Check remotes for updates" title="Check remotes for updates (fetch)" disabled={fetching} onClick={checkRemotes}>
               {fetching ? <span className="spinner" /> : <Icon name="search" size={13} />}
             </button>
@@ -155,6 +146,17 @@ export default function Submodules() {
             </Empty>
           )}
           {list.length > 0 && shown.length === 0 && <Empty>Every submodule is up to date.</Empty>}
+        </div>
+        <div className="master-tools" style={{ borderBottom: 0, borderTop: '1px solid var(--line)' }}>
+          <span className="split-btn" style={{ display: 'flex' }}>
+            <button className="btn btn-primary split-main grow" style={{ height: 48, fontSize: 13.5 }} disabled={!!busy} title="Clone missing submodules and check each out at the commit the project pins, nested ones included" onClick={() => updateAll(false)}>
+              {busy === '*' ? <span className="spinner" /> : <Icon name="refresh" size={13} />}
+              Update all
+            </button>
+            <button className="btn btn-primary btn-icon split-more" style={{ height: 48, width: 48 }} aria-label="More bulk actions" title="More bulk actions" aria-haspopup="menu" disabled={!!busy} onClick={(e) => bulk.toggle(e, true)}>
+              <Icon name="chevronDown" size={13} />
+            </button>
+          </span>
         </div>
       </section>
       <main className="detail">

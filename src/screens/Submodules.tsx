@@ -115,20 +115,6 @@ export function Submodules() {
         <section className="master" style={{ "--master-w": `${listW.width}px` } as CSSProperties} data-pane data-active={pane === "list"} aria-label="Submodules">
           <div className="master-tools">
             <div className="row" style={{ gap: 6 }}>
-              <span className="split-btn" style={{ display: "flex", flex: "1 1 auto" }}>
-                <button
-                  className="btn btn-primary split-main grow"
-                  disabled={!list.length || update.isPending}
-                  data-tip="Clone missing submodules and check each out at the commit the project pins, nested ones included"
-                  onClick={() => updateAll(false)}
-                >
-                  {allBusy ? <span className="spinner" /> : <Icon name="refresh" size={12} />}
-                  Update all
-                </button>
-                <button className="btn btn-primary btn-icon split-more" aria-label="More bulk actions" data-tip="More bulk actions" aria-haspopup="menu" disabled={!list.length || update.isPending} onClick={openMenu}>
-                  <Icon name="chevronDown" size={12} />
-                </button>
-              </span>
               <button className="btn btn-icon" aria-label="Check remotes for updates" data-tip="Check remotes for updates (fetch)" disabled={!list.length || fetch.isPending} onClick={checkRemotes}>
                 {fetch.isPending ? <span className="spinner" /> : <Icon name="search" size={13} />}
               </button>
@@ -190,6 +176,23 @@ export function Submodules() {
               </Empty>
             )}
             {list.length > 0 && shown.length === 0 && <Empty>Every submodule is up to date.</Empty>}
+          </div>
+          <div className="master-tools" style={{ borderBottom: 0, borderTop: "1px solid var(--line)" }}>
+            <span className="split-btn" style={{ display: "flex" }}>
+              <button
+                className="btn btn-primary split-main grow"
+                style={{ height: 48, fontSize: 13.5 }}
+                disabled={!list.length || update.isPending}
+                data-tip="Clone missing submodules and check each out at the commit the project pins, nested ones included"
+                onClick={() => updateAll(false)}
+              >
+                {allBusy ? <span className="spinner" /> : <Icon name="refresh" size={13} />}
+                Update all
+              </button>
+              <button className="btn btn-primary btn-icon split-more" style={{ height: 48, width: 48 }} aria-label="More bulk actions" data-tip="More bulk actions" aria-haspopup="menu" disabled={!list.length || update.isPending} onClick={openMenu}>
+                <Icon name="chevronDown" size={13} />
+              </button>
+            </span>
           </div>
         </section>
         <Resizer pane={listW} label="Resize submodule list" />
