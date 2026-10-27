@@ -1,14 +1,17 @@
 import { type CSSProperties, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
+import { useConfig } from "../api/hooks";
 import { isLocal, rpc } from "../api/transport";
 import { base64 } from "../components/AgentLog";
 import { Icon } from "../components/Icon";
 import { animates } from "./motion";
+import { useNav } from "./nav";
 import { useStored } from "./stored";
 import { toast } from "./toast";
 
 // Voice dictation into any text box: the shortcut (or the mic on phones) records here,
-// the desktop turns the recording into text with its local Whisper model, and the text lands at the box's caret.
+// the desktop turns the recording into text with its local Whisper model, AI rewrites it with the project's context
+// when that is on, and the text lands at the box's caret.
 
 const MAC = /Mac|iPhone|iPad/.test(navigator.userAgent);
 const MODS = ["Ctrl", "Alt", "Shift", "Meta"] as const;
@@ -53,7 +56,10 @@ export const DICTATION_LANGS = "en zh de es ru ko fr ja pt tr pl ca nl ar sv it 
   .map((value) => ({ value, label: names.of(value === "jw" ? "jv" : value) ?? value }))
   .sort((a, b) => a.label.localeCompare(b.label));
 
-type Phase = "idle" | "listening" | "transcribing";
+type Phase = "idle" | "listening" | "transcribing" | "polishing";
+/** Where dictations are spoken (the open project and branch), for the names Whisper expects and AI's context. */
+let at: { projectId?: string; branch?: string } = {};
+let polishOn = true;
 /** The speech model's first download, while it runs. */
 let download: { done: number; total: number } | null = null;
 interface Session {
@@ -146,7 +152,8 @@ async function finish() {
   }
   set("transcribing");
   try {
-    put(s.field, (s.mic ? await stopMic(s.mic) : await transcribe(s, rec!)).trim());
+    const heard = (s.mic ? await stopMic(s.mic) : await transcribe(s, rec!)).trim();
+    put(s.field, heard && polishOn ? await polish(s.field, heard) : heard);
   } catch (e) {
     toast(e instanceof Error ? e.message : String(e), "error");
   } finally {
@@ -159,7 +166,26 @@ async function finish() {
 async function stopMic(started: Promise<unknown>) {
   await started;
   const { invoke } = await import("@tauri-apps/api/core");
-  return invoke<string>("dictation_stop");
+  return invoke<string>("dictation_stop", at);
+}
+
+/** What `el` is, for AI: "one-line field “Branch name”". */
+function describe(el: Field) {
+  const name = el.getAttribute("aria-label") || el.placeholder;
+  return `${el.tagName === "INPUT" ? "one-line field" : "multi-line text box"}${name ? ` “${name}”` : ""}`;
+}
+
+/** `text` rewritten by AI for `el`, after what it already holds; the words as heard when AI fails. */
+async function polish(el: Field, text: string) {
+  set("polishing");
+  try {
+    const typed = el.value.slice(0, el.selectionStart ?? el.value.length).slice(-2000);
+    const r = await rpc<{ text: string }>("dictation.polish", { ...at, text, field: describe(el), typed });
+    return r.text.trim() || text;
+  } catch (e) {
+    toast(`AI couldn't rewrite it, so the words went in as heard: ${e instanceof Error ? e.message : e}`, "error");
+    return text;
+  }
 }
 
 /** The page's recording, stopped, as text. */
@@ -172,7 +198,7 @@ async function transcribe(s: Session, rec: MediaRecorder) {
     rec.stop();
   });
   release(s);
-  const { text } = await rpc<{ text: string }>("dictation.transcribe", { audio: await base64(blob), mime: blob.type });
+  const { text } = await rpc<{ text: string }>("dictation.transcribe", { audio: await base64(blob), mime: blob.type, ...at });
   return text;
 }
 
@@ -184,6 +210,7 @@ export function dictationModel(done: number, total: number) {
 
 function put(el: Field, text: string) {
   if (!text) return toast("No speech heard");
+  if (el.tagName === "INPUT") text = text.replace(/\s*\n\s*/g, " ");
   // The box closed meanwhile (its dialog, say): keep the words rather than drop them.
   if (!el.isConnected) return void navigator.clipboard.writeText(text).then(() => toast("The text box closed, so the text was copied", "ok"), () => toast(text, "info", 15000));
   el.focus();
@@ -204,6 +231,12 @@ const fromMiddle = (i: number) => Math.floor(Math.abs(i - (BARS - 1) / 2));
 export function Dictation() {
   const p = useSyncExternalStore(subscribe, () => phase);
   const [keys] = useDictationKeys();
+  const nav = useNav();
+  const polish = useConfig().data?.ui.dictationPolish;
+  useEffect(() => {
+    at = { projectId: nav.projectId, branch: nav.selectedBranch };
+    polishOn = polish ?? true;
+  }, [nav.projectId, nav.selectedBranch, polish]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       // Left alone in the terminal, where Ctrl+D ends input, and in the shortcut picker.
@@ -217,7 +250,7 @@ export function Dictation() {
   }, [keys]);
   return (
     <>
-      {p !== "idle" && <Wave listening={p === "listening"} keys={keys} />}
+      {p !== "idle" && <Wave listening={p === "listening"} polishing={p === "polishing"} keys={keys} />}
       {canDictate && <FieldMic listening={p === "listening"} keys={coarse ? "" : showKeys(keys)} />}
     </>
   );
@@ -279,7 +312,7 @@ function FieldMic({ listening, keys }: { listening: boolean; keys: string }) {
   );
 }
 
-function Wave({ listening, keys }: { listening: boolean; keys: string }) {
+function Wave({ listening, polishing, keys }: { listening: boolean; polishing: boolean; keys: string }) {
   const wave = useRef<HTMLDivElement>(null);
   const got = useSyncExternalStore(subscribe, () => download);
   const [secs, setSecs] = useState(0);
@@ -316,7 +349,13 @@ function Wave({ listening, keys }: { listening: boolean; keys: string }) {
           <Icon name="mic" size={14} stroke={1.7} />
         </span>
         <span className="grow">
-          {listening ? "Listening" : got && got.done < got.total ? `Downloading the speech model · ${Math.floor((got.done / got.total) * 100)}%` : "Transcribing…"}
+          {listening
+            ? "Listening"
+            : polishing
+              ? "Rewriting with AI…"
+              : got && got.done < got.total
+                ? `Downloading the speech model · ${Math.floor((got.done / got.total) * 100)}%`
+                : "Transcribing…"}
         </span>
         {listening && (
           <span className="mono faint" aria-hidden>

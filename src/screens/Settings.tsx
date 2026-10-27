@@ -246,14 +246,16 @@ function Avatars() {
 function DictationSection() {
   const [keys, setKeys] = useDictationKeys();
   const [picking, setPicking] = useState(false);
-  const langs = useConfig().data?.ui.dictationLanguages ?? [];
+  const ui = useConfig().data?.ui;
+  const langs = ui?.dictationLanguages ?? [];
+  const polish = ui?.dictationPolish ?? true;
   const setUi = useAction("ui.set", { invalidate: [["config"]] });
   return (
     <>
       <div className="col" style={{ gap: 6 }}>
         <h1>Voice dictation</h1>
         <p className="muted" style={{ margin: 0 }}>Speak into any text box. Press the shortcut or click the mic at the right of the box to start listening, then press either again or Stop to put the words in.</p>
-        <p className="hint" style={{ margin: 0 }}>Speech is turned into text on this computer by Whisper. The first time downloads its model (148 MB) from Hugging Face; after that, nothing you say leaves the computer.</p>
+        <p className="hint" style={{ margin: 0 }}>Speech is turned into text on this computer by Whisper, which hears only the parts with speech and expects the open project's names. The first time downloads its models (575 MB) from Hugging Face. Without Rewrite with AI, nothing you say leaves the computer.</p>
       </div>
       <ul className="list">
         <li className="list-row" style={{ gap: 12 }}>
@@ -293,6 +295,17 @@ function DictationSection() {
               Reset
             </button>
           )}
+        </li>
+        <li className="list-row">
+          <label className="check grow">
+            <input type="checkbox" checked={polish} onChange={() => setUi.mutate({ dictationPolish: !polish })} />
+            <span className="col" style={{ gap: 2 }}>
+              <span style={{ fontWeight: 500 }}>Rewrite with AI</span>
+              <span className="hint">
+                AI turns what you said into clear, structured text, and fixes misheard names with the project's files, branch, ticket and recent commits. Sends the words and that context to the AI set for “Voice dictation” in AI setup (Ollama stays on this computer). Skipped when no AI is set up.
+              </span>
+            </span>
+          </label>
         </li>
       </ul>
       <Checks

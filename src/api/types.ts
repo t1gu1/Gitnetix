@@ -407,6 +407,8 @@ export interface Config {
     dictationLanguages: string[];
     /** The language the last dictation was mostly in. */
     spokenLanguage?: string | null;
+    /** AI rewrites each dictation with the project's context, when a provider is set up. */
+    dictationPolish: boolean;
   };
   server: { enabled: boolean; port: number; lan: boolean; token: string };
 }

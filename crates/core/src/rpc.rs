@@ -19,7 +19,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("log.get", "Recent operations and errors, oldest first", ""),
     ("log.clear", "Empty the log", ""),
     ("config.get", "Full app configuration (no secrets)", ""),
-    ("ui.set", "Save UI preferences", "language?, theme?, lastProject?, animationsOff?, dictationLanguages?"),
+    ("ui.set", "Save UI preferences", "language?, theme?, lastProject?, animationsOff?, dictationLanguages?, dictationPolish?"),
     ("ui.setView", "Remember how a screen was left (pane width, collapsed section…); no value forgets it", "key, value?"),
     ("server.set", "Configure the companion API", "enabled?, lan?, port?, regenerateToken?"),
     ("projects.list", "List saved projects", ""),
@@ -108,7 +108,8 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("ai.saveProvider", "Configure an AI provider", "id, method?, model?, effort?, baseUrl?, apiKey?"),
     ("ai.setDefault", "Default AI provider", "id"),
     ("ai.test", "Test an AI provider", "id"),
-    ("dictation.transcribe", "Turn recorded speech into text on this computer (the first time downloads a 148 MB speech model)", "audio (base64), mime"),
+    ("dictation.transcribe", "Turn recorded speech into text on this computer, expecting the project's names (the first time downloads a 575 MB speech model)", "audio (base64), mime, projectId?, branch?"),
+    ("dictation.polish", "Rewrite dictated text into clear text with AI and the project's context; unchanged when turned off or no AI is set up", "text, projectId?, branch?, field?, typed?"),
     ("ai.setRoute", "Which AI handles a task", "task, provider?, model?, effort?"),
     ("ai.signIn", "Open the provider CLI to sign in", "id"),
     ("templates.list", "AI templates", ""),
@@ -357,6 +358,9 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
                 }
                 if let Some(x) = p.get("dictationLanguages").and_then(Value::as_array) {
                     c.ui.dictation_languages = x.iter().filter_map(|v| v.as_str().map(String::from)).collect();
+                }
+                if let Some(x) = p.get("dictationPolish").and_then(Value::as_bool) {
+                    c.ui.dictation_polish = x;
                 }
                 Ok(())
             })?;
@@ -752,7 +756,12 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
             let progress = move |done, total| {
                 let _ = events.send(crate::events::Event::DictationModel { done, total });
             };
-            let text = k.dictation.transcribe(&k.dir, &k.store, audio, os(&p, "mime").unwrap_or_default(), progress).await?;
+            let audio = crate::dictation::Audio::Recorded { bytes: audio, mime: os(&p, "mime").unwrap_or_default() };
+            let text = k.dictate(audio, os(&p, "projectId").as_deref(), os(&p, "branch").as_deref(), progress).await?;
+            to(json!({ "text": text }))
+        }
+        "dictation.polish" => {
+            let text = k.polish_dictation(&s(&p, "text")?, os(&p, "projectId").as_deref(), os(&p, "branch").as_deref(), &os(&p, "field").unwrap_or_default(), &os(&p, "typed").unwrap_or_default()).await?;
             to(json!({ "text": text }))
         }
         "ai.setRoute" => {

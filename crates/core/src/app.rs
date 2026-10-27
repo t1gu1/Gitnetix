@@ -14,6 +14,7 @@ use tokio::sync::{broadcast, OnceCell};
 use crate::agents::{AgentManager, AgentSession, AgentStatus, LogLine, StartArgs};
 use crate::ai::{self, Resolved};
 use crate::cache::{key_of, CommitCache, ViewCache};
+use crate::dictation::Audio;
 use crate::error::{Error, Result};
 use crate::events::Event;
 use crate::git::{ticket_keys, Blobs, BranchInfo, Commit, FileChange, Git, Hunk, PrSquash, Side, Identity, StashInfo, TagInfo, WorktreeInfo};
@@ -549,6 +550,42 @@ fn insert_ticket(prompt: &str, ticket: &str) -> String {
         prompt.to_string()
     } else {
         format!("{prompt}\n\n{ticket}")
+    }
+}
+
+/// Where a dictation is spoken, for the words it may hold.
+struct Scene {
+    project: String,
+    branch: String,
+    ticket: Option<String>,
+    /// The last 10 commits, each as "- subject" and then the files it touched.
+    commits: String,
+    /// The uncommitted changes, as `git status --short` lists them.
+    files: String,
+}
+
+/// Longest vocabulary given to Whisper, in characters: it reads about 220 tokens of it.
+const VOCABULARY_MAX: usize = 600;
+
+impl Scene {
+    /// The names Whisper should expect, most telling first: the project, branch and ticket, then the files
+    /// being worked on. Names only: sentences in one language make Whisper translate speech in another.
+    fn vocabulary(&self) -> String {
+        let paths = self.commits.lines().filter(|l| !l.starts_with("- ")).chain(self.files.lines().filter_map(|l| l.get(3..)));
+        let mut names: Vec<&str> = paths.filter_map(|p| Path::new(p.rsplit(' ').next()?.trim_matches('"')).file_stem()?.to_str()).collect();
+        names.sort_unstable();
+        names.dedup();
+        let mut out = String::new();
+        for w in [&*self.project, &self.branch, self.ticket.as_deref().unwrap_or("")].into_iter().chain(names) {
+            if w.is_empty() || out.len() + w.len() + 2 > VOCABULARY_MAX {
+                continue;
+            }
+            if !out.is_empty() {
+                out.push_str(", ");
+            }
+            out.push_str(w);
+        }
+        out
     }
 }
 
@@ -1600,6 +1637,73 @@ impl Gitnetix {
             Err(e) => crate::log::error(format!("AI failed {task} after {secs:.1}s: {e}")),
         }
         out
+    }
+
+    // ---------- dictation ----------
+
+    /// `audio` as text, with Whisper expecting the names of `project_id` on `branch` (its checked-out one when none).
+    pub async fn dictate(&self, audio: Audio, project_id: Option<&str>, branch: Option<&str>, progress: impl Fn(u64, u64) + Send) -> Result<String> {
+        let vocabulary = match project_id {
+            Some(id) => self.scene(id, branch).await.map(|s| s.vocabulary()).unwrap_or_default(),
+            None => String::new(),
+        };
+        self.dictation.transcribe(&self.dir, &self.store, audio, vocabulary, progress).await
+    }
+
+    /// `text` as dictated after `typed` into `field` (what the box is: "one-line field “Branch name”"), rewritten
+    /// by AI into clear text with the project's names, the branch's ticket, the changed files and recent commits.
+    /// Unchanged when that is turned off or no AI provider is set up.
+    pub async fn polish_dictation(&self, text: &str, project_id: Option<&str>, branch: Option<&str>, field: &str, typed: &str) -> Result<String> {
+        let t = self.template("dictation", None, project_id)?;
+        if text.trim().is_empty() || !self.store.read(|c| c.ui.dictation_polish) || self.route("dictation", Some(&t)).is_err() {
+            return Ok(text.into());
+        }
+        let scene = match project_id {
+            Some(id) => self.scene(id, branch).await.ok(),
+            None => None,
+        };
+        let ticket = match (project_id, scene.as_ref().and_then(|s| s.ticket.as_deref())) {
+            // A slow ticket service costs a few seconds at most: the key alone still helps.
+            (Some(id), Some(key)) => match tokio::time::timeout(std::time::Duration::from_secs(4), self.ticket(id, key)).await {
+                Ok(Ok(Some(t))) => ticket_context(&t).chars().take(4_000).collect(),
+                _ => key.to_string(),
+            },
+            _ => "(none)".into(),
+        };
+        let or_none = |s: String| if s.trim().is_empty() { "(none)".to_string() } else { s };
+        let mut vars = BTreeMap::new();
+        vars.insert("text".into(), text.to_string());
+        vars.insert("typed".into(), if typed.trim().is_empty() { "(empty)".into() } else { typed.to_string() });
+        vars.insert("field".into(), if field.is_empty() { "text box".into() } else { field.to_string() });
+        vars.insert("ticket".into(), ticket);
+        let (project, branch, files, commits) = scene.map(|s| (s.project, s.branch, s.files, s.commits)).unwrap_or_default();
+        vars.insert("project".into(), or_none(project));
+        vars.insert("branch".into(), or_none(branch));
+        vars.insert("files".into(), or_none(files.lines().take(100).collect::<Vec<_>>().join("\n")));
+        vars.insert("commits".into(), or_none(commits));
+        // The words are already there: a stuck provider must not hold them for minutes.
+        tokio::time::timeout(std::time::Duration::from_secs(30), self.ask("dictation", &t, vars, "spoken", None))
+            .await
+            .map_err(|_| Error::Other("AI took more than 30 s to rewrite the dictation".into()))?
+    }
+
+    /// Where a dictation in `project_id` on `branch` (its checked-out one when none) is spoken.
+    async fn scene(&self, project_id: &str, branch: Option<&str>) -> Result<Scene> {
+        let p = self.store.project(project_id)?;
+        let git = self.git(&p);
+        let branch = match branch {
+            Some(b) => b.to_string(),
+            None => git.current_branch().await?.unwrap_or_default(),
+        };
+        let rev = if branch.is_empty() { "HEAD" } else { &branch };
+        let commits = git.run(&["log", "-10", "--name-only", "--format=- %s", rev, "--"]).await.unwrap_or_default();
+        // A branch checked out nowhere has no uncommitted changes.
+        let files = match self.checkout_dir(&p, &branch).await? {
+            Some(dir) => self.git_at(&p, &dir).run(&["status", "--short"]).await.unwrap_or_default(),
+            None => String::new(),
+        };
+        let ticket = p.branches.get(&branch).and_then(|m| m.ticket.clone()).or_else(|| ticket_keys(&branch, true).into_iter().next());
+        Ok(Scene { project: p.name, branch, ticket, commits, files })
     }
 
     // ---------- projects ----------
@@ -4848,6 +4952,22 @@ fn fix_version_release(fix_versions: &[String], releases: &[Release]) -> Option<
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn vocabulary_puts_the_project_names_first() {
+        let scene = |commits: &str| Scene {
+            project: "Gitnetix".into(),
+            branch: "feat/GNX-12_voice".into(),
+            ticket: Some("GNX-12".into()),
+            commits: commits.into(),
+            files: " M crates/core/src/dictation.rs\nR  old.ts -> src/lib/Wave.tsx\n?? \"notes/my notes.md\"\n".into(),
+        };
+        let v = scene("- feat(dictation): split speech by language\n\ncrates/core/src/dictation.rs\nsrc/App.tsx\n- fix: stop overlap\n").vocabulary();
+        assert_eq!(v, "Gitnetix, feat/GNX-12_voice, GNX-12, App, Wave, dictation, notes");
+        // Too long: what fits goes in, in that order.
+        let long = scene(&format!("- big\n{}.rs\nzz.rs\n", "x".repeat(VOCABULARY_MAX))).vocabulary();
+        assert!(long.ends_with("notes, zz") && long.len() <= VOCABULARY_MAX, "{long}");
+    }
 
     #[test]
     fn fix_version_names_a_release() {

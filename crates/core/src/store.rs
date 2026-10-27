@@ -241,7 +241,7 @@ pub struct Route {
 pub struct AiConfig {
     pub default_provider: String,
     pub providers: BTreeMap<String, ProviderConf>,
-    /// Task id (commit, branch, pr, release, conflict, agent, triage) → route.
+    /// Task id (commit, branch, pr, release, conflict, agent, triage, dictation) → route.
     pub routing: BTreeMap<String, Route>,
 }
 
@@ -261,6 +261,7 @@ impl Default for AiConfig {
         routing.insert("conflict".into(), r("claude-opus-5-5", "high"));
         routing.insert("agent".into(), r("claude-opus-5-5", "xhigh"));
         routing.insert("triage".into(), r("claude-haiku-5-5", "low"));
+        routing.insert("dictation".into(), r("claude-haiku-5-5", "low"));
         AiConfig { default_provider: "claude".into(), providers, routing }
     }
 }
@@ -397,11 +398,13 @@ pub struct UiPrefs {
     pub dictation_languages: Vec<String>,
     /// The language the last dictation was mostly in: what the "spoken" generation language follows.
     pub spoken_language: Option<String>,
+    /// AI rewrites each dictation into clear text, with the project's context, when a provider is set up.
+    pub dictation_polish: bool,
 }
 
 impl Default for UiPrefs {
     fn default() -> Self {
-        UiPrefs { language: "en".into(), theme: "system".into(), last_project: None, view: BTreeMap::new(), animations_off: Vec::new(), dictation_languages: Vec::new(), spoken_language: None }
+        UiPrefs { language: "en".into(), theme: "system".into(), last_project: None, view: BTreeMap::new(), animations_off: Vec::new(), dictation_languages: Vec::new(), spoken_language: None, dictation_polish: true }
     }
 }
 

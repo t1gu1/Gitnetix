@@ -1,9 +1,9 @@
-//! Voice dictation: speech to text on this computer, with whisper.cpp. The model is
-//! downloaded once, on first use, and checked against its known hash before it is loaded.
+//! Voice dictation: speech to text on this computer, with whisper.cpp. The models are
+//! downloaded once, on first use, and checked against their known hash before they are loaded.
 
 use std::io::Cursor;
 use std::ops::Range;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use sha2::{Digest, Sha256};
@@ -14,50 +14,70 @@ use symphonia::core::formats::{FormatOptions, TrackType};
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
 use tokio::io::AsyncWriteExt;
-use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
+use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters, WhisperVadContext, WhisperVadContextParams, WhisperVadParams};
 
 use crate::error::{Error, Result};
 use crate::store::Store;
 
-/// Whisper "base": multilingual, and quick enough on a laptop CPU.
-const MODEL_URL: &str = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin";
-const MODEL_SHA256: &str = "60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe";
-const MODEL_SIZE: u64 = 147_951_465;
+struct Model {
+    file: &'static str,
+    url: &'static str,
+    sha256: &'static str,
+    size: u64,
+}
+
+/// Whisper "large-v3-turbo", quantized: multilingual, and far more accurate than "base" in French for a few seconds more on a laptop CPU.
+// shortcut: whisper.cpp runs on the CPU only, about 5 s per 10 s of speech on a fast laptop; build whisper-rs with its `metal` (macOS) and `vulkan` features for GPU speed.
+const SPEECH: Model = Model {
+    file: "ggml-large-v3-turbo-q5_0.bin",
+    url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin",
+    sha256: "394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2",
+    size: 574_041_195,
+};
+/// Silero voice activity detection: where the recording holds speech, so Whisper never hears a silence it would fill with made-up words.
+const VAD: Model = Model {
+    file: "ggml-silero-v5.1.2.bin",
+    url: "https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v5.1.2.bin",
+    sha256: "29940d98d42b91fbd05ce489f3ecf7c72f0a42f027e4875919a28fb4c04ea2cf",
+    size: 885_098,
+};
+/// The speech model earlier versions used, deleted once the new one is in.
+const OLD_SPEECH: &str = "ggml-base.bin";
 /// Whisper listens at 16 kHz.
 const RATE: u32 = 16_000;
-/// 20 ms of samples: the step pauses are looked for in.
-const FRAME: usize = RATE as usize / 50;
-/// A pause of half a second (in frames): where the speaker may switch language.
-const PAUSE: usize = 25;
+/// A pause of half a second: where the speaker may switch language, and the longest silence Whisper is given.
+const PAUSE: usize = RATE as usize / 2;
 /// Less speech than 2 s is too little to tell its language: it joins its neighbor.
 const MIN_STRETCH: usize = 2 * RATE as usize;
 
-/// The model, loaded on first use and kept (about 200 MB of memory).
+/// A recording, as the page made it or as the desktop's microphone gave it.
+pub enum Audio {
+    /// Encoded as `mime` says.
+    Recorded { bytes: Vec<u8>, mime: String },
+    /// Mono samples at `rate` Hz.
+    Mono { samples: Vec<f32>, rate: u32 },
+}
+
+/// The speech model, loaded on first use and kept (about 800 MB of memory), and the path of the voice detection model.
 #[derive(Default)]
-pub struct Dictation(tokio::sync::Mutex<Option<Arc<WhisperContext>>>);
+pub struct Dictation(tokio::sync::Mutex<Option<(Arc<WhisperContext>, PathBuf)>>);
 
 impl Dictation {
-    /// `audio` as the page recorded it (`mime`), as text. `progress(done, total)` follows the model's first download.
-    pub async fn transcribe(&self, dir: &Path, store: &Store, audio: Vec<u8>, mime: String, progress: impl Fn(u64, u64) + Send) -> Result<String> {
-        // Decoded first: a recording that can't be read fails before any download.
-        let samples = tokio::task::spawn_blocking(move || decode(audio, &mime)).await.map_err(|e| Error::Other(e.to_string()))??;
-        self.recognize(dir, store, samples, progress).await
-    }
-
-    /// Mono `samples` at `rate` Hz, as the desktop's microphone gave them, as text.
-    pub async fn transcribe_mono(&self, dir: &Path, store: &Store, samples: Vec<f32>, rate: u32, progress: impl Fn(u64, u64) + Send) -> Result<String> {
-        self.recognize(dir, store, resample(&samples, rate), progress).await
-    }
-
-    /// Mono 16 kHz `samples` as text, in the languages the settings allow. The language most of it
-    /// was in is kept as the spoken language, which AI can write in.
-    async fn recognize(&self, dir: &Path, store: &Store, samples: Vec<f32>, progress: impl Fn(u64, u64) + Send) -> Result<String> {
+    /// `audio` as text, in the languages the settings allow, with `vocabulary` (the project's names) as the words to expect.
+    /// The language most of it was in is kept as the spoken language, which AI can write in.
+    /// `progress(done, total)` follows the speech model's first download.
+    pub async fn transcribe(&self, dir: &Path, store: &Store, audio: Audio, vocabulary: String, progress: impl Fn(u64, u64) + Send) -> Result<String> {
+        let samples = match audio {
+            // Decoded first: a recording that can't be read fails before any download.
+            Audio::Recorded { bytes, mime } => tokio::task::spawn_blocking(move || decode(bytes, &mime)).await.map_err(|e| Error::Other(e.to_string()))??,
+            Audio::Mono { samples, rate } => resample(&samples, rate),
+        };
         if samples.len() < RATE as usize / 4 {
             return Ok(String::new());
         }
-        let ctx = self.model(dir, progress).await?;
+        let (ctx, vad) = self.model(dir, progress).await?;
         let langs = store.read(|c| c.ui.dictation_languages.clone());
-        let (text, lang) = tokio::task::spawn_blocking(move || run(&ctx, &samples, &langs)).await.map_err(|e| Error::Other(e.to_string()))??;
+        let (text, lang) = tokio::task::spawn_blocking(move || run(&ctx, &vad, &samples, &langs, &vocabulary)).await.map_err(|e| Error::Other(e.to_string()))??;
         let changed = lang.filter(|&l| store.read(|c| c.ui.spoken_language.as_deref() != Some(l)));
         if let Some(lang) = changed {
             let saved = store.write(|c| {
@@ -72,15 +92,21 @@ impl Dictation {
         Ok(text)
     }
 
-    async fn model(&self, dir: &Path, progress: impl Fn(u64, u64) + Send) -> Result<Arc<WhisperContext>> {
+    async fn model(&self, dir: &Path, progress: impl Fn(u64, u64) + Send) -> Result<(Arc<WhisperContext>, PathBuf)> {
         // Held through the download: a second dictation waits for the same model.
         let mut slot = self.0.lock().await;
-        if let Some(ctx) = slot.as_ref() {
-            return Ok(ctx.clone());
+        if let Some(loaded) = slot.as_ref() {
+            return Ok(loaded.clone());
         }
-        let path = dir.join("models").join("ggml-base.bin");
+        let models = dir.join("models");
+        let vad = models.join(VAD.file);
+        if !vad.exists() {
+            download(&vad, &VAD, |_, _| {}).await?;
+        }
+        let path = models.join(SPEECH.file);
         if !path.exists() {
-            download(&path, progress).await?;
+            download(&path, &SPEECH, progress).await?;
+            let _ = tokio::fs::remove_file(models.join(OLD_SPEECH)).await;
         }
         // Without it whisper.cpp writes its own log to stderr.
         whisper_rs::install_logging_hooks();
@@ -88,17 +114,17 @@ impl Dictation {
             .await
             .map_err(|e| Error::Other(e.to_string()))?
             .map_err(|e| Error::Other(format!("Could not load the speech model: {e}")))?;
-        Ok(slot.insert(Arc::new(ctx)).clone())
+        Ok(slot.insert((Arc::new(ctx), vad)).clone())
     }
 }
 
-/// Fetch the model to `path`, through a `.part` file so a cut download is never taken for the model.
-async fn download(path: &Path, progress: impl Fn(u64, u64)) -> Result<()> {
+/// Fetch `model` to `path`, through a `.part` file so a cut download is never taken for the model.
+async fn download(path: &Path, model: &Model, progress: impl Fn(u64, u64)) -> Result<()> {
     if let Some(d) = path.parent() {
         tokio::fs::create_dir_all(d).await?;
     }
     let part = path.with_extension("part");
-    let mut res = crate::net::client().get(MODEL_URL).send().await?.error_for_status()?;
+    let mut res = crate::net::client().get(model.url).send().await?.error_for_status()?;
     let mut file = tokio::fs::File::create(&part).await?;
     let (mut hash, mut done, mut shown) = (Sha256::new(), 0u64, u64::MAX);
     while let Some(chunk) = res.chunk().await? {
@@ -106,14 +132,14 @@ async fn download(path: &Path, progress: impl Fn(u64, u64)) -> Result<()> {
         file.write_all(&chunk).await?;
         done += chunk.len() as u64;
         // One update per percent is plenty for a progress bar.
-        if done * 100 / MODEL_SIZE != shown {
-            shown = done * 100 / MODEL_SIZE;
-            progress(done, MODEL_SIZE);
+        if done * 100 / model.size != shown {
+            shown = done * 100 / model.size;
+            progress(done, model.size);
         }
     }
     file.flush().await?;
     drop(file);
-    if format!("{:x}", hash.finalize()) != MODEL_SHA256 {
+    if format!("{:x}", hash.finalize()) != model.sha256 {
         let _ = tokio::fs::remove_file(&part).await;
         return Err(Error::Other("The speech model download was damaged, try again".into()));
     }
@@ -165,23 +191,40 @@ fn resample(samples: &[f32], rate: u32) -> Vec<f32> {
 }
 
 /// The speech as text, each stretch between pauses written in its own language among `langs`
-/// (Whisper codes, "fr"; none: any), and the language most of it was in.
+/// (Whisper codes, "fr"; none: any), and the language most of it was in. Only the speech
+/// `vad` finds is heard, and `vocabulary` primes Whisper with the words to expect.
 /// Whisper alone picks one language from the first 30 s, and drops or translates the rest.
-fn run(ctx: &WhisperContext, samples: &[f32], langs: &[String]) -> Result<(String, Option<&'static str>)> {
+fn run(ctx: &WhisperContext, vad: &Path, samples: &[f32], langs: &[String], vocabulary: &str) -> Result<(String, Option<&'static str>)> {
     let fail = |e: whisper_rs::WhisperError| Error::Other(format!("Speech recognition failed: {e}"));
-    let threads = std::thread::available_parallelism().map_or(4, |n| n.get().min(8));
+    let threads = std::thread::available_parallelism().map_or(4, |n| n.get().min(16));
+    let speech = speech(vad, samples, threads)?;
+    if speech.is_empty() {
+        return Ok((String::new(), None));
+    }
     let mut state = ctx.create_state().map_err(fail)?;
     let mut allowed: Vec<i32> = (0..=whisper_rs::get_lang_max_id()).filter(|&i| langs.iter().any(|l| whisper_rs::get_lang_str(i) == Some(l.as_str()))).collect();
     if allowed.is_empty() {
         allowed = (0..=whisper_rs::get_lang_max_id()).collect();
     }
+    let stretches: Vec<(Range<usize>, Vec<f32>)> = stretches(&speech).into_iter().map(|r| (r.clone(), joined(samples, &speech[r]))).collect();
+    let longest = stretches.iter().map(|(_, a)| a.as_slice()).max_by_key(|a| a.len()).unwrap_or_default();
+    if allowed.len() > 1 && audio_ctx(longest.len()) > 0 {
+        // lang_detect encodes as much audio as the last `full` was told to, not the 30 s it would for
+        // each stretch: a one-token pass over the longest sets that up.
+        let mut p = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
+        p.set_audio_ctx(audio_ctx(longest.len()));
+        p.set_single_segment(true);
+        p.set_max_tokens(1);
+        p.set_n_threads(threads as i32);
+        state.full(p, longest).map_err(fail)?;
+    }
     // Neighbors in the same language go as one part: Whisper writes better with more context.
     let mut parts: Vec<(i32, Range<usize>)> = Vec::new();
-    for r in stretches(samples) {
+    for (r, audio) in stretches {
         let lang = match allowed[..] {
             [one] => one,
             _ => {
-                state.pcm_to_mel(&samples[r.clone()], threads).map_err(fail)?;
+                state.pcm_to_mel(&audio, threads).map_err(fail)?;
                 pick(&state.lang_detect(0, threads).map_err(fail)?.1, &allowed)
             }
         };
@@ -192,21 +235,37 @@ fn run(ctx: &WhisperContext, samples: &[f32], langs: &[String]) -> Result<(Strin
     }
     let mut said = Vec::new();
     for (lang, r) in &parts {
-        let mut p = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
+        let audio = joined(samples, &speech[r.clone()]);
+        // Best of 5 only when Whisper, unsure, tries again warmer: as quick as before on clear speech.
+        let mut p = FullParams::new(SamplingStrategy::Greedy { best_of: 5 });
+        p.set_audio_ctx(audio_ctx(audio.len()));
         p.set_language(whisper_rs::get_lang_str(*lang));
+        if !vocabulary.is_empty() {
+            p.set_initial_prompt(vocabulary);
+        }
         p.set_n_threads(threads as i32);
         p.set_print_progress(false);
         p.set_print_realtime(false);
         p.set_print_special(false);
         p.set_print_timestamps(false);
         p.set_suppress_nst(true);
-        state.full(p, &samples[r.clone()]).map_err(fail)?;
+        state.full(p, &audio).map_err(fail)?;
         said.extend(state.as_iter().map(|s| s.to_string()));
     }
     let text = clean(said.into_iter());
-    let spoken = |l: i32| parts.iter().filter(|(x, _)| *x == l).map(|(_, r)| r.len()).sum::<usize>();
+    let spoken = |l: i32| parts.iter().filter(|(x, _)| *x == l).flat_map(|(_, r)| &speech[r.clone()]).map(|r| r.len()).sum::<usize>();
     let main = parts.iter().map(|(l, _)| *l).max_by_key(|&l| spoken(l)).filter(|_| !text.is_empty());
     Ok((text, main.and_then(whisper_rs::get_lang_str)))
+}
+
+/// How much Whisper encodes for `n` samples, in its 20 ms steps: it encodes 30 s whatever the length
+/// unless told less, and its time follows. A second more keeps the last words.
+fn audio_ctx(n: usize) -> i32 {
+    const FULL: usize = 1500;
+    if n >= 30 * RATE as usize {
+        return 0;
+    }
+    (n * FULL / (30 * RATE as usize) + 50).min(FULL) as i32
 }
 
 /// The likeliest of the `allowed` language ids, by Whisper's `probs`.
@@ -214,40 +273,60 @@ fn pick(probs: &[f32], allowed: &[i32]) -> i32 {
     allowed.iter().copied().max_by(|&a, &b| probs[a as usize].total_cmp(&probs[b as usize])).unwrap_or(0)
 }
 
-/// `samples` cut in the middle of each pause, as ranges that cover them all.
-/// Quiet is under a tenth of the loudest moment, so the microphone's level doesn't matter.
-fn stretches(samples: &[f32]) -> Vec<Range<usize>> {
-    let rms: Vec<f32> = samples.chunks(FRAME).map(|c| (c.iter().map(|s| s * s).sum::<f32>() / c.len() as f32).sqrt()).collect();
-    let quiet = rms.iter().copied().fold(0.0, f32::max) / 10.0;
-    let (mut cuts, mut run) = (vec![0], 0);
-    for (i, &r) in rms.iter().enumerate() {
-        if r < quiet {
-            run += 1;
-            continue;
-        }
-        if run >= PAUSE {
-            cuts.push((i - run / 2) * FRAME);
-        }
-        run = 0;
-    }
-    cuts.push(samples.len());
+/// Where `samples` hold speech, as ranges of them, by the Silero model at `vad`.
+fn speech(vad: &Path, samples: &[f32], threads: usize) -> Result<Vec<Range<usize>>> {
+    let fail = |e: whisper_rs::WhisperError| Error::Other(format!("Voice detection failed: {e}"));
+    let path = vad.to_str().ok_or_else(|| Error::Other(format!("Can't read the voice detection model at {}", vad.display())))?;
+    let mut params = WhisperVadContextParams::new();
+    params.set_n_threads(threads as i32);
+    let mut ctx = WhisperVadContext::new(path, params).map_err(fail)?;
+    // In hundredths of a second.
+    let at = |cs: f32| ((cs * RATE as f32 / 100.0) as usize).min(samples.len());
+    Ok(ctx.segments_from_samples(WhisperVadParams::new(), samples).map_err(fail)?.map(|s| at(s.start)..at(s.end)).filter(|r| !r.is_empty()).collect())
+}
+
+/// The `speech` ranges in stretches cut at pauses of half a second or more, as ranges of
+/// indexes into `speech`. A stretch with less than 2 s of speech joins its neighbor.
+fn stretches(speech: &[Range<usize>]) -> Vec<Range<usize>> {
+    let said = |s: &Range<usize>| speech[s.clone()].iter().map(|r| r.len()).sum::<usize>();
     let mut out: Vec<Range<usize>> = Vec::new();
-    for w in cuts.windows(2) {
+    for (i, r) in speech.iter().enumerate() {
         match out.last_mut() {
-            Some(last) if last.len() < MIN_STRETCH || w[1] - w[0] < MIN_STRETCH => last.end = w[1],
-            _ => out.push(w[0]..w[1]),
+            Some(last) if r.start - speech[i - 1].end < PAUSE || said(last) < MIN_STRETCH => last.end = i + 1,
+            _ => out.push(i..i + 1),
         }
+    }
+    if out.len() > 1 && said(&out[out.len() - 1]) < MIN_STRETCH {
+        let short = out.pop().unwrap();
+        out.last_mut().unwrap().end = short.end;
     }
     out
 }
 
-/// The segments as one line, without the tags Whisper writes for silence or noise ("[BLANK_AUDIO]", "(music)").
+/// The `speech` ranges of `samples` end to end, each pause between them kept up to half a second, in silence.
+fn joined(samples: &[f32], speech: &[Range<usize>]) -> Vec<f32> {
+    let mut out = Vec::new();
+    for (i, r) in speech.iter().enumerate() {
+        if i > 0 {
+            out.resize(out.len() + (r.start - speech[i - 1].end).min(PAUSE), 0.0);
+        }
+        out.extend_from_slice(&samples[r.clone()]);
+    }
+    out
+}
+
+/// The segments as one line, without the tags Whisper writes for silence or noise ("[BLANK_AUDIO]", "(music)"),
+/// nor a segment said again right after itself, as Whisper does when it loses its place.
 fn clean(segments: impl Iterator<Item = String>) -> String {
-    segments
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty() && !(s.starts_with('[') && s.ends_with(']')) && !(s.starts_with('(') && s.ends_with(')')))
-        .collect::<Vec<_>>()
-        .join(" ")
+    let tag = |s: &str| s.starts_with('[') && s.ends_with(']') || s.starts_with('(') && s.ends_with(')');
+    let mut out: Vec<String> = Vec::new();
+    for s in segments.map(|s| s.trim().to_string()) {
+        if s.is_empty() || tag(&s) || out.last() == Some(&s) {
+            continue;
+        }
+        out.push(s);
+    }
+    out.join(" ")
 }
 
 #[cfg(test)]
@@ -271,18 +350,43 @@ mod tests {
         assert_eq!(seg(&[" And so my fellow Americans,", " ask not."]), "And so my fellow Americans, ask not.");
         assert_eq!(seg(&[" [BLANK_AUDIO]"]), "");
         assert_eq!(seg(&["(music)", " Hello"]), "Hello");
+        assert_eq!(seg(&[" Ask what you can do.", " Ask what you can do.", " Then go."]), "Ask what you can do. Then go.");
+    }
+
+    /// Speech ranges from (start, end) times in seconds.
+    fn at(times: &[(f32, f32)]) -> Vec<Range<usize>> {
+        times.iter().map(|&(a, b)| (a * RATE as f32) as usize..(b * RATE as f32) as usize).collect()
     }
 
     #[test]
     fn stretches_cut_at_long_pauses_only() {
-        let s = |secs: f32, v: f32| vec![v; (secs * RATE as f32) as usize];
-        // 3 s of speech, a 1 s pause, 3 s, a short breath, 3 s: one cut, mid-pause.
-        let talk = [s(3.0, 0.3), s(1.0, 0.0), s(3.0, 0.3), s(0.2, 0.0), s(3.0, 0.3)].concat();
-        assert_eq!(stretches(&talk), vec![0..56_000, 56_000..talk.len()]);
+        // 3 s of speech, a 1 s pause, 3 s, a short breath, 3 s: one cut, at the long pause.
+        assert_eq!(stretches(&at(&[(0.0, 3.0), (4.0, 7.0), (7.2, 10.2)])), vec![0..1, 1..3]);
         // Half a second before a pause is too short to tell a language: it joins what follows.
-        let short = [s(0.5, 0.3), s(1.0, 0.0), s(3.0, 0.3)].concat();
-        assert_eq!(stretches(&short), vec![0..short.len()]);
-        assert_eq!(stretches(&s(1.0, 0.0)), vec![0..16_000]);
+        assert_eq!(stretches(&at(&[(0.0, 0.5), (1.5, 4.5)])), vec![0..2]);
+        // And a short last one joins what comes before.
+        assert_eq!(stretches(&at(&[(0.0, 3.0), (4.0, 4.5)])), vec![0..2]);
+        assert_eq!(stretches(&at(&[(0.0, 1.0)])), vec![0..1]);
+        assert_eq!(stretches(&[]), Vec::<Range<usize>>::new());
+    }
+
+    #[test]
+    fn joined_keeps_speech_and_shortens_pauses() {
+        let samples: Vec<f32> = (0..10 * RATE).map(|i| i as f32).collect();
+        // A 0.2 s breath is kept whole, a 5 s pause shrinks to half a second, the silence before and after goes.
+        let out = joined(&samples, &at(&[(1.0, 2.0), (2.2, 3.0), (8.0, 9.0)]));
+        assert_eq!(out.len(), 56_000); // 1 s + 0.2 + 0.8 + 0.5 + 1 s
+        assert_eq!(out[0], 16_000.0);
+        assert_eq!(out[16_000..19_200], [0.0; 3_200]);
+        assert_eq!(out[19_200], 35_200.0);
+        assert_eq!(*out.last().unwrap(), 143_999.0);
+    }
+
+    #[test]
+    fn audio_ctx_follows_the_length() {
+        assert_eq!(audio_ctx(15 * RATE as usize), 800);
+        assert_eq!(audio_ctx(RATE as usize * 299 / 10), 1500);
+        assert_eq!(audio_ctx(30 * RATE as usize), 0);
     }
 
     #[test]
@@ -293,13 +397,16 @@ mod tests {
         assert_eq!(pick(&probs, &[2, 6]), 6);
     }
 
-    /// Needs the speech model in ~/.config/gitnetix/models and 16 kHz mono f32 clips:
+    /// Needs the models in ~/.config/gitnetix/models and 16 kHz mono f32 clips:
     /// `GNX_CLIPS=/tmp/gnx-voice cargo test --release -p gitnetix-core -- --ignored speech --nocapture`.
     #[test]
     #[ignore]
     fn speech_follows_the_spoken_language() {
-        let model = std::env::var("HOME").unwrap() + "/.config/gitnetix/models/ggml-base.bin";
-        let ctx = WhisperContext::new_with_params(&model, WhisperContextParameters::default()).unwrap();
+        let models = PathBuf::from(std::env::var("HOME").unwrap() + "/.config/gitnetix/models");
+        // GNX_MODEL=ggml-base.bin compares with another model.
+        let model = std::env::var("GNX_MODEL").unwrap_or(SPEECH.file.into());
+        let ctx = WhisperContext::new_with_params(models.join(model).to_str().unwrap(), WhisperContextParameters::default()).unwrap();
+        let vad = models.join(VAD.file);
         let clip = |name: &str| {
             let raw = std::fs::read(format!("{}/{name}.f32", std::env::var("GNX_CLIPS").unwrap())).unwrap();
             raw.chunks(4).map(|b| f32::from_le_bytes(b.try_into().unwrap())).collect::<Vec<f32>>()
@@ -307,12 +414,15 @@ mod tests {
         let fr_en = ["fr".to_string(), "en".to_string()];
         for (name, langs) in [("fr4", &fr_en[..]), ("jfk", &fr_en[..]), ("mixed", &fr_en[..]), ("mixed", &[][..])] {
             let t = std::time::Instant::now();
-            let (text, lang) = run(&ctx, &clip(name), langs).unwrap();
+            let (text, lang) = run(&ctx, &vad, &clip(name), langs, "").unwrap();
             println!("{name} {langs:?} → {lang:?} in {:.1}s: {text}", t.elapsed().as_secs_f32());
         }
-        assert_eq!(run(&ctx, &clip("fr4"), &fr_en).unwrap().1, Some("fr"));
-        assert_eq!(run(&ctx, &clip("jfk"), &fr_en).unwrap().1, Some("en"));
-        let (mixed, _) = run(&ctx, &clip("mixed"), &fr_en).unwrap();
-        assert!(mixed.contains("Varsovie") && mixed.contains("ask not what your country"), "{mixed}");
+        assert_eq!(run(&ctx, &vad, &clip("fr4"), &fr_en, "").unwrap().1, Some("fr"));
+        assert_eq!(run(&ctx, &vad, &clip("jfk"), &fr_en, "").unwrap().1, Some("en"));
+        // Silence alone is no speech, not a made-up sentence.
+        assert_eq!(run(&ctx, &vad, &[0.0; 3 * RATE as usize], &fr_en, "").unwrap().0, "");
+        let (mixed, _) = run(&ctx, &vad, &clip("mixed"), &fr_en, "").unwrap();
+        assert!(mixed.contains("polonium") && mixed.contains("ask not what your country"), "{mixed}");
     }
 }
+
