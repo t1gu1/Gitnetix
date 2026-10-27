@@ -10,7 +10,7 @@ import { ContextMenu, type MenuItem } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
 import { Resizer, usePaneWidth } from "../components/Resizer";
 import { ShellPane, TermTabs, useTermView } from "../components/Shell";
-import { ago, Busy, Empty, EmptyState, Header, Loading, Modal, Seg } from "../components/ui";
+import { ago, Busy, Confirm, Empty, EmptyState, Header, Loading, Modal, Seg } from "../components/ui";
 import { plural } from "../lib/format";
 import { copyToClipboard } from "../lib/toast";
 import { KINDS, kindOfBranch, type Kind } from "../lib/kinds";
@@ -215,6 +215,7 @@ function Detail({ r, menu, onMenuClose }: { r: Row; menu?: { x: number; y: numbe
   // Merging closes the worktree once done (`then`); `stay` leaves the main checkout where it is.
   const [merging, setMerging] = useState<{ then: () => void; stay: boolean; into?: string } | null>(null);
   const [discarding, setDiscarding] = useState(false);
+  const [clearing, setClearing] = useState(false);
   const finish = useFinishHandlers(r.projectId, actions.continueOn, (_, then, stay, into) => setMerging({ then, stay, into }));
   const isWorktree = !!r.wt && !r.wt.main;
   const session = { projectId: r.projectId, branch: r.branch, cwd: r.path };
@@ -272,7 +273,7 @@ function Detail({ r, menu, onMenuClose }: { r: Row; menu?: { x: number; y: numbe
     busy && a && { id: "stop", label: "Stop agent", icon: "stop", run: () => halt(a) },
     r.wt && { id: "open", label: "Open in workspace", icon: "external", run: openWs },
     { id: "copyName", label: "Copy workspace name", icon: "copy", run: () => copyToClipboard(r.path.split(/[\\/]/).pop() ?? r.path) },
-    a && !busy && !isWorktree && { id: "clear", label: "Clear session", icon: "close", run: () => removeAgent.mutate({ id: a.id }) },
+    a && !busy && !isWorktree && { id: "clear", label: "Clear session…", icon: "close", danger: true, run: () => setClearing(true) },
     isWorktree && "sep",
     isWorktree && { id: "continue", label: "Continue on branch", icon: "swap", run: () => finish.continue(session, true) },
     isWorktree && view?.conflict && { id: "conflicts", label: "Resolve conflicts…", icon: "sparkle", run: () => setResolving(true) },
@@ -334,6 +335,18 @@ function Detail({ r, menu, onMenuClose }: { r: Row; menu?: { x: number; y: numbe
         />
       )}
       {discarding && <DiscardWorktreeModal branch={r.branch} path={r.path} onClose={() => setDiscarding(false)} onConfirm={() => finish.discard(session)} />}
+      {clearing && a && (
+        <Confirm
+          title="Clear agent session"
+          sub={<span className="mono">{r.branch}</span>}
+          action="Clear session"
+          busy={removeAgent.isPending}
+          onBack={() => setClearing(false)}
+          onConfirm={() => removeAgent.mutate({ id: a.id }, { onSuccess: () => setClearing(false) })}
+        >
+          The agent stops if it is working, and its conversation is deleted.
+        </Confirm>
+      )}
       {finish.modal}
       {resolving && <ConflictModal pid={r.projectId} branch={r.branch} base={base} onClose={() => setResolving(false)} onDone={afterRebase} />}
       {menu && <ContextMenu x={menu.x} y={menu.y} alignRight={menu.alignRight} label={`Actions for ${r.branch}`} items={items} onClose={onMenuClose} />}

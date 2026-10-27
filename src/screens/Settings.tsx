@@ -11,7 +11,7 @@ import { GRAVATAR_KEY } from "../components/Avatar";
 import { Icon } from "../components/Icon";
 import { Resizer, usePaneWidth } from "../components/Resizer";
 import { useTermDefault } from "../components/Shell";
-import { Header, Seg } from "../components/ui";
+import { Confirm, Header, Seg } from "../components/ui";
 import { comboOf, DEFAULT_KEYS, DICTATION_LANGS, showKeys, useDictationKeys } from "../lib/dictation";
 import { ANIMATIONS, useAnimations } from "../lib/motion";
 import { useNav } from "../lib/nav";
@@ -340,6 +340,7 @@ function Profiles({ cfg }: { cfg: Config }) {
   const save = useAction<GitProfile>("profiles.save", { invalidate: [["config"]], success: "Profile saved" });
   const del = useAction("profiles.delete", { invalidate: [["config"]] });
   const [edit, setEdit] = useState<GitProfile | null>(null);
+  const [deleting, setDeleting] = useState<GitProfile | null>(null);
   return (
     <>
       <div className="col" style={{ gap: 6 }}>
@@ -354,7 +355,7 @@ function Profiles({ cfg }: { cfg: Config }) {
               <span className="hint ellipsis">{p.name} &lt;{p.email}&gt;{p.sign ? ` · signs with ${p.signingKey || "default SSH key"}` : ""}</span>
             </span>
             <button className="btn btn-sm" onClick={() => setEdit(p)}>Edit</button>
-            <button className="btn btn-sm btn-danger" onClick={() => del.mutate({ id: p.id })}>Delete</button>
+            <button className="btn btn-sm btn-danger" onClick={() => setDeleting(p)}>Delete</button>
           </li>
         ))}
         {cfg.profiles.length === 0 && <li className="empty">No profile yet.</li>}
@@ -393,6 +394,18 @@ function Profiles({ cfg }: { cfg: Config }) {
             <button className="btn btn-primary" disabled={!edit.label || !edit.email}>Save</button>
           </div>
         </form>
+      )}
+      {deleting && (
+        <Confirm
+          title="Delete Git profile"
+          sub={deleting.label}
+          action="Delete profile"
+          busy={del.isPending}
+          onBack={() => setDeleting(null)}
+          onConfirm={() => del.mutate({ id: deleting.id }, { onSuccess: () => setDeleting(null) })}
+        >
+          Projects using it go back to your global git identity.
+        </Confirm>
       )}
     </>
   );
@@ -922,6 +935,7 @@ export function PairQr({ server: s }: { server: Config["server"] }) {
 
 function Companion({ cfg }: { cfg: Config }) {
   const [info, setInfo] = useState<CompanionInfo | null>(null);
+  const [regenerating, setRegenerating] = useState(false);
   const set = useAction<{ restartRequired: boolean }>("server.set", { invalidate: [["config"]], success: "Saved — restart Gitnetix to apply" });
   useEffect(() => {
     companionInfo().then(setInfo).catch(() => {});
@@ -967,7 +981,7 @@ function Companion({ cfg }: { cfg: Config }) {
           <div className="row wrap">
             <button className="btn" onClick={() => copyToClipboard(`${host}:${s.port}`)}>Copy address</button>
             <button className="btn" onClick={() => copyToClipboard(s.token)}>Copy token</button>
-            <button className="btn btn-danger" onClick={() => set.mutate({ regenerateToken: true })}>New token (unpairs devices)</button>
+            <button className="btn btn-danger" onClick={() => setRegenerating(true)}>New token (unpairs devices)</button>
           </div>
         </section>
       )}
@@ -979,6 +993,17 @@ function Companion({ cfg }: { cfg: Config }) {
         <pre className="pre">claude mcp add gitnetix -- gitnetix-mcp</pre>
         <p className="hint">Each RPC becomes a tool: projects_list, workspace_overview, items_create, agents_start, prs_review…</p>
       </section>
+      {regenerating && (
+        <Confirm
+          title="New pairing token"
+          action="New token"
+          busy={set.isPending}
+          onBack={() => setRegenerating(false)}
+          onConfirm={() => set.mutate({ regenerateToken: true }, { onSuccess: () => setRegenerating(false) })}
+        >
+          Once Gitnetix restarts, every paired device is disconnected and must pair again with the new token.
+        </Confirm>
+      )}
     </>
   );
 }

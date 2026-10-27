@@ -5,7 +5,7 @@ import type { Template } from "../api/types";
 import { MenuChoice } from "../components/AgentPicker";
 import { Icon } from "../components/Icon";
 import { Resizer, usePaneWidth } from "../components/Resizer";
-import { Busy, Header, LANGS, Loading, Seg } from "../components/ui";
+import { Busy, Confirm, Header, LANGS, Loading, Seg } from "../components/ui";
 import { useNav } from "../lib/nav";
 
 export function Templates() {
@@ -32,6 +32,7 @@ export function TemplatesPanes() {
   const [draft, setDraft] = useState<Template | null>(null);
   const [lang, setLang] = useState("en");
   const [preview, setPreview] = useState<{ output: string; source: string } | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const inv = [["templates"], ["config"]];
   const save = useAction<Template>("templates.save", { invalidate: inv, success: "Template saved" });
   const del = useAction("templates.delete", { invalidate: inv, success: "Template deleted" });
@@ -96,7 +97,7 @@ export function TemplatesPanes() {
             <span className="grow" />
             {!tpl?.isDefault && <button className="btn" onClick={() => setDef.mutate({ id: draft.id })}>Set as default</button>}
             <button className="btn" onClick={() => save.mutate({ template: { ...draft, id: "", name: `${draft.name} (copy)`, isDefault: false } }, { onSuccess: (t) => setSel(t.id) })}>Duplicate</button>
-            <button className="btn btn-danger" onClick={() => del.mutate({ id: draft.id }, { onSuccess: () => setSel(undefined) })}>Delete</button>
+            <button className="btn btn-danger" onClick={() => setDeleting(true)}>Delete</button>
             <button className="btn btn-primary" disabled={!dirty || save.isPending} onClick={() => save.mutate({ template: draft })}>Save</button>
           </div>
           <section aria-label="Editor" className="col" style={{ flex: "1 1 460px", minWidth: 0, gap: 18, padding: 24 }}>
@@ -180,6 +181,18 @@ export function TemplatesPanes() {
             </span>
             {preview ? <pre className="pre">{preview.output}</pre> : <div className="empty card">No preview yet.</div>}
           </aside>
+          {deleting && (
+            <Confirm
+              title="Delete template"
+              sub={draft.name}
+              action="Delete template"
+              busy={del.isPending}
+              onBack={() => setDeleting(false)}
+              onConfirm={() => del.mutate({ id: draft.id }, { onSuccess: () => { setDeleting(false); setSel(undefined); } })}
+            >
+              Its prompt and rules are deleted.
+            </Confirm>
+          )}
         </main>
       )}
     </>

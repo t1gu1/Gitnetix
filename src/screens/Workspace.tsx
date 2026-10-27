@@ -32,7 +32,7 @@ import { ContextMenu, type MenuItem } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
 import { Resizer, usePaneWidth } from "../components/Resizer";
 import { ShellPane, TermTabs, useTermView } from "../components/Shell";
-import { Busy, ErrorBox, Loading, Markdown, Modal, Seg } from "../components/ui";
+import { Busy, Confirm, ErrorBox, Loading, Markdown, Modal, Seg } from "../components/ui";
 import { ago, plural } from "../lib/format";
 import { shownStatus } from "../lib/agentLog";
 import { startCleanup, useCleaning } from "../lib/cleanups";
@@ -1124,6 +1124,7 @@ export function MergeModal({
 /** Before merging a branch, or deleting its worktree to continue on it, with uncommitted changes: stage all & commit them, or discard them. `onClean` runs once that is done. */
 function WipModal({ pid, branch, files, op, onClose, onClean }: { pid: string; branch: string; files: number; op: "Merge" | "Continue"; onClose: () => void; onClean: () => void }) {
   const [summary, setSummary] = useState("");
+  const [confirming, setConfirming] = useState(false);
   const aiOn = useAiOn("commit");
   const inv = [["overview", pid], ["files", pid], ["diff", pid], ["commits", pid]];
   const commit = useAction<{ sha: string; message: string; aiWritten: boolean }>("workspace.commit", {
@@ -1140,6 +1141,20 @@ function WipModal({ pid, branch, files, op, onClose, onClean }: { pid: string; b
       .mutateAsync({ projectId: pid, branch, staged: false, paths: [] })
       .then(() => discard.mutateAsync({ projectId: pid, branch, staged: true, paths: [] }))
       .then(onClean, () => {});
+  // Replaces this modal rather than stacking on it: one Escape would close both. Back keeps the typed summary.
+  if (confirming)
+    return (
+      <Confirm
+        title="Discard uncommitted changes"
+        sub={<span className="mono">{branch} · {plural(files, "file")}</span>}
+        action={`Discard & ${op}`}
+        busy={discard.isPending}
+        onBack={() => setConfirming(false)}
+        onConfirm={throwAway}
+      >
+        Every uncommitted change on <span className="mono">{branch}</span> is thrown away, untracked files included, then {op === "Merge" ? "the merge starts" : "the worktree is deleted"}.
+      </Confirm>
+    );
   return (
     <Modal
       title="Uncommitted changes"
@@ -1148,8 +1163,7 @@ function WipModal({ pid, branch, files, op, onClose, onClean }: { pid: string; b
       onClose={() => !busy && onClose()}
       footer={
         <>
-          <button className="btn btn-md btn-danger" disabled={busy} data-tip={`Throw away every uncommitted change on ${branch}, then ${op.toLowerCase()}`} onClick={throwAway}>
-            {discard.isPending && <span className="spinner" />}
+          <button className="btn btn-md btn-danger" disabled={busy} data-tip={`Throw away every uncommitted change on ${branch}, then ${op.toLowerCase()}`} onClick={() => setConfirming(true)}>
             Discard & {op}
           </button>
           <button className="btn btn-md btn-primary" disabled={busy || (!aiOn && !summary.trim())} data-tip={`Commit every change on ${branch}, then ${op.toLowerCase()}`} onClick={stageAndCommit}>
@@ -1816,6 +1830,7 @@ function Terminal({ pid, branch, cwd, worktree, open, setOpen, onCloseWorktree, 
   const shell = view === "shell";
   // Maximized, the terminal takes the branch tree's place in its column.
   const [max, setMax] = useState(false);
+  const [clearing, setClearing] = useState<AgentSession | null>(null);
 
   if (!open) {
     return (
@@ -1860,7 +1875,7 @@ function Terminal({ pid, branch, cwd, worktree, open, setOpen, onCloseWorktree, 
                 <span className="mono">{cur.branch}</span>
                 <span className="faint">{cur.worktree ? "worktree" : "main checkout"}</span>
               </span>
-              <button className="term-tab term-tab-x" aria-label={`Close ${cur.branch} session`} onClick={() => (cur.worktree ? onCloseWorktree(cur) : remove.mutate({ id: cur.id }))}>
+              <button className="term-tab term-tab-x" aria-label={`Close ${cur.branch} session`} onClick={() => (cur.worktree ? onCloseWorktree(cur) : setClearing(cur))}>
                 <Icon name="close" size={11} />
               </button>
             </>
@@ -1919,6 +1934,18 @@ function Terminal({ pid, branch, cwd, worktree, open, setOpen, onCloseWorktree, 
           </>
         )}
       </div>
+      {clearing && (
+        <Confirm
+          title="Clear agent session"
+          sub={<span className="mono">{clearing.branch}</span>}
+          action="Clear session"
+          busy={remove.isPending}
+          onBack={() => setClearing(null)}
+          onConfirm={() => remove.mutate({ id: clearing.id }, { onSuccess: () => setClearing(null) })}
+        >
+          The agent stops if it is working, and its conversation is deleted.
+        </Confirm>
+      )}
     </>
   );
 }

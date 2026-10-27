@@ -3,7 +3,7 @@ import { useState } from "react";
 import { useAction, useFiles } from "../api/hooks";
 import type { RebaseResult } from "../api/types";
 import { Icon } from "../components/Icon";
-import { Busy, Modal } from "../components/ui";
+import { Busy, Confirm, Modal } from "../components/ui";
 import { rebaseMessage } from "./BranchMenu";
 
 export function ConflictModal({ pid, branch, base, onClose, onDone }: { pid: string; branch: string; base: string; onClose: () => void; onDone?: (r: RebaseResult) => void }) {
@@ -11,6 +11,7 @@ export function ConflictModal({ pid, branch, base, onClose, onDone }: { pid: str
   const conflicted = (files.data ?? []).filter((f) => f.status === "C");
   const [sel, setSel] = useState<string | undefined>();
   const [proposal, setProposal] = useState<Record<string, string>>({});
+  const [aborting, setAborting] = useState(false);
   const path = sel ?? conflicted[0]?.path;
   const inv = [["overview", pid], ["files", pid], ["diff", pid]];
   const propose = useAction<{ content: string }>("workspace.conflictPropose");
@@ -21,6 +22,20 @@ export function ConflictModal({ pid, branch, base, onClose, onDone }: { pid: str
   });
   const abort = useAction("workspace.rebaseAbort", { invalidate: inv, success: "Rebase aborted" });
 
+  // Replaces this modal rather than stacking on it: one Escape would close both. Back keeps the AI proposals.
+  if (aborting)
+    return (
+      <Confirm
+        title="Abort rebase"
+        sub={<>Rebasing <span className="mono">{branch}</span> onto <span className="mono">{base}</span></>}
+        action="Abort rebase"
+        busy={abort.isPending}
+        onBack={() => setAborting(false)}
+        onConfirm={() => abort.mutate({ projectId: pid, branch }, { onSuccess: onClose })}
+      >
+        <span className="mono">{branch}</span> goes back to where it was before the rebase. Every conflict resolved so far is lost.
+      </Confirm>
+    );
   return (
     <Modal
       title="Resolve conflicts"
@@ -29,7 +44,7 @@ export function ConflictModal({ pid, branch, base, onClose, onDone }: { pid: str
       width={880}
       footer={
         <>
-          <button className="btn btn-md btn-danger" disabled={abort.isPending} onClick={() => abort.mutate({ projectId: pid, branch }, { onSuccess: onClose })}>Abort rebase</button>
+          <button className="btn btn-md btn-danger" onClick={() => setAborting(true)}>Abort rebase</button>
           <button
             className="btn btn-primary btn-md"
             disabled={conflicted.length > 0 || cont.isPending}

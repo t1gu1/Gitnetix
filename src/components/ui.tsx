@@ -154,6 +154,28 @@ export function Modal({ title, sub, onClose, children, footer, width }: { title:
   );
 }
 
+/** Asks before an action that cannot be undone. Focus starts on Back, so a stray Enter throws nothing away. */
+export function Confirm({ title, sub, action, busy, onConfirm, onBack, children }: { title: ReactNode; sub?: ReactNode; action: ReactNode; busy?: boolean; onConfirm: () => void; onBack: () => void; children: ReactNode }) {
+  return (
+    <Modal
+      title={title}
+      sub={sub}
+      onClose={() => !busy && onBack()}
+      footer={
+        <>
+          <button className="btn btn-md" autoFocus disabled={busy} onClick={onBack}>Back</button>
+          <button className="btn btn-md btn-danger" disabled={busy} onClick={onConfirm}>
+            {busy && <span className="spinner" />}
+            {action}
+          </button>
+        </>
+      }
+    >
+      <p style={{ margin: 0, lineHeight: 1.55 }}>{children} This cannot be undone.</p>
+    </Modal>
+  );
+}
+
 export function Busy({ on, children }: { on: boolean; children: ReactNode }) {
   return on ? <span className="spinner" aria-label="Working" /> : <>{children}</>;
 }
