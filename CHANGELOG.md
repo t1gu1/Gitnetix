@@ -16,21 +16,23 @@ release notes and the in-app update prompt.
 - Dictation detects the language of each stretch of speech, with a French-specific model and a "Spoken" generation language option
 - Dictation on desktop records with the native microphone, and from a phone over HTTPS
 - Syntax colors in diffs, with a colour swatch before hex values
+- Mine / Others / All author filter under the Open and Closed pull request tabs, remembered between visits
 - "Create tag…" in the commit context menu to tag any commit
+- Branch menu action to merge the Unreleased changelog section into the latest version
 - Ctrl/Cmd +, - and 0 shortcuts for desktop zoom
 - "a11y" branch kind
-- Mine / Others / All author filter under the Open and Closed pull request tabs, remembered between visits
 
 ### Changed
 - Branch rebuilds are faster and show their progress
+- Destructive actions ask for confirmation before running
 - Dictation runs Whisper on the Metal GPU on Apple Silicon
+- Changelog templates list highlights first
 - Desktop zoom defaults to 1.3
 - Modal footer buttons split the row equally
 - "New PR from" button sits at the bottom of the pull request list, like "New agent session"
 - "Generate notes" and "Triage" buttons sit at the bottom of their panels, like "New agent session"
 - Submodules "Update all" button sits at the bottom of the submodule list, like "New agent session"
 - Submodules top bar fits on one row: the filter with small fetch and add buttons, all hidden until a submodule exists
-- Changelog templates list highlights first
 
 ### Fixed
 - Dictation can be cancelled from the footer and the field mic
@@ -38,11 +40,10 @@ release notes and the in-app update prompt.
 - Worktree close options show for runs with nothing to merge
 - Worktree view returns to the list when the selected worktree closes
 - Mobile agent input no longer overlaps in hidden panes
+- Terminal input no longer shows a horizontal scrollbar
 
 ### Removed
 - Cancel, Close, Later and Not now buttons from modal footers
-
-Skipped: AI startup perf, macOS min version, social card. Did not check the commit diffs.
 
 ## [0.10.0] - 2026-10-27
 
