@@ -56,68 +56,71 @@ export function ReleaseNotes() {
     <>
       <Header title="Release notes" sub={project?.name} hideWide />
       <div className="body split">
-        <aside aria-label="Options" className="sidenav" data-pane data-active={!md} style={{ "--sidenav-w": `${optsW.width}px`, gap: 24, padding: 24 } as CSSProperties}>
-          <section className="col" style={{ gap: 10 }}>
-            <h2 className="label">Range</h2>
-            <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 32px minmax(0,1fr)", gap: 6, alignItems: "end" }}>
-              <div className="field">
-                <label htmlFor="rn-from">From</label>
-                <MenuChoice id="rn-from" className="select menu-select mono" style={{ fontSize: 12 }} label="From" value={from} options={refOptions.map((o) => ({ value: o.v, label: o.l }))} onChange={setFrom} />
+        <aside aria-label="Options" className="sidenav" data-pane data-active={!md} style={{ "--sidenav-w": `${optsW.width}px`, gap: 0, padding: 0 } as CSSProperties}>
+          <div className="scroll col" style={{ flex: "1 1 auto", gap: 24, padding: 24 }}>
+            <section className="col" style={{ gap: 10 }}>
+              <h2 className="label">Range</h2>
+              <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 32px minmax(0,1fr)", gap: 6, alignItems: "end" }}>
+                <div className="field">
+                  <label htmlFor="rn-from">From</label>
+                  <MenuChoice id="rn-from" className="select menu-select mono" style={{ fontSize: 12 }} label="From" value={from} options={refOptions.map((o) => ({ value: o.v, label: o.l }))} onChange={setFrom} />
+                </div>
+                <button className="btn btn-ghost btn-icon" style={{ height: 36 }} aria-label="Swap" onClick={() => { setFrom(to); setTo(from); }}>
+                  <Icon name="swap" />
+                </button>
+                <div className="field">
+                  <label htmlFor="rn-to">To</label>
+                  <MenuChoice id="rn-to" className="select menu-select mono" style={{ fontSize: 12 }} label="To" value={to} options={refOptions.map((o) => ({ value: o.v, label: o.l }))} onChange={setTo} />
+                </div>
               </div>
-              <button className="btn btn-ghost btn-icon" style={{ height: 36 }} aria-label="Swap" onClick={() => { setFrom(to); setTo(from); }}>
-                <Icon name="swap" />
-              </button>
-              <div className="field">
-                <label htmlFor="rn-to">To</label>
-                <MenuChoice id="rn-to" className="select menu-select mono" style={{ fontSize: 12 }} label="To" value={to} options={refOptions.map((o) => ({ value: o.v, label: o.l }))} onChange={setTo} />
+              <div className="row note-box muted" style={{ gap: 14, fontSize: 12, background: "var(--bg)" }}>
+                {range.error ? (
+                  <span className="c-del">{range.error.message}</span>
+                ) : (
+                  <>
+                    <span><strong style={{ color: "var(--fg)" }}>{range.data?.commits ?? "–"}</strong> commits</span>
+                    <span><strong style={{ color: "var(--fg)" }}>{range.data?.branches ?? "–"}</strong> merges</span>
+                    <span><strong style={{ color: "var(--fg)" }}>{range.data?.tickets ?? "–"}</strong> tickets</span>
+                  </>
+                )}
               </div>
-            </div>
-            <div className="row note-box muted" style={{ gap: 14, fontSize: 12, background: "var(--bg)" }}>
-              {range.error ? (
-                <span className="c-del">{range.error.message}</span>
-              ) : (
-                <>
-                  <span><strong style={{ color: "var(--fg)" }}>{range.data?.commits ?? "–"}</strong> commits</span>
-                  <span><strong style={{ color: "var(--fg)" }}>{range.data?.branches ?? "–"}</strong> merges</span>
-                  <span><strong style={{ color: "var(--fg)" }}>{range.data?.tickets ?? "–"}</strong> tickets</span>
-                </>
-              )}
-            </div>
-          </section>
-          <section className="col" style={{ gap: 10 }}>
-            <h2 className="label">Template</h2>
-            <label htmlFor="rn-tpl" className="sr-only">Template</label>
-            <MenuChoice
-              id="rn-tpl"
-              className="select menu-select"
-              label="Template"
-              value={tpl}
-              options={[{ value: "", label: `Default (${templates.find((t) => t.isDefault)?.name ?? "first"})` }, ...templates.map((t) => ({ value: t.id, label: t.name }))]}
-              onChange={setTpl}
-            />
-            <Seg grid label="Language" value={lang} onChange={setLang} options={LANGS} />
-          </section>
-          <section className="col" style={{ gap: 4 }}>
-            <h2 className="label" style={{ marginBottom: 6 }}>Include</h2>
-            {(
-              [
-                ["feat", "Features"],
-                ["fix", "Fixes"],
-                ["internal", "Internal changes"],
-                ["tickets", "Ticket links"],
-              ] as const
-            ).map(([k, l]) => (
-              <label key={k} className="check">
-                <input type="checkbox" checked={inc[k]} onChange={() => setInc({ ...inc, [k]: !inc[k] })} />
-                <span>{l}</span>
-              </label>
-            ))}
-          </section>
-          <span className="grow" />
-          <button className="btn btn-primary btn-lg" disabled={!from || !to || gen.isPending} onClick={run}>
-            <Busy on={gen.isPending}><Icon name="sparkle" size={13} /></Busy>
-            <span>Generate notes</span>
-          </button>
+            </section>
+            <section className="col" style={{ gap: 10 }}>
+              <h2 className="label">Template</h2>
+              <label htmlFor="rn-tpl" className="sr-only">Template</label>
+              <MenuChoice
+                id="rn-tpl"
+                className="select menu-select"
+                label="Template"
+                value={tpl}
+                options={[{ value: "", label: `Default (${templates.find((t) => t.isDefault)?.name ?? "first"})` }, ...templates.map((t) => ({ value: t.id, label: t.name }))]}
+                onChange={setTpl}
+              />
+              <Seg grid label="Language" value={lang} onChange={setLang} options={LANGS} />
+            </section>
+            <section className="col" style={{ gap: 4 }}>
+              <h2 className="label" style={{ marginBottom: 6 }}>Include</h2>
+              {(
+                [
+                  ["feat", "Features"],
+                  ["fix", "Fixes"],
+                  ["internal", "Internal changes"],
+                  ["tickets", "Ticket links"],
+                ] as const
+              ).map(([k, l]) => (
+                <label key={k} className="check">
+                  <input type="checkbox" checked={inc[k]} onChange={() => setInc({ ...inc, [k]: !inc[k] })} />
+                  <span>{l}</span>
+                </label>
+              ))}
+            </section>
+          </div>
+          <div className="master-tools" style={{ borderBottom: 0, borderTop: "1px solid var(--line)" }}>
+            <button className="btn btn-primary" style={{ height: 48, fontSize: 13.5 }} disabled={!from || !to || gen.isPending} onClick={run}>
+              <Busy on={gen.isPending}><Icon name="sparkle" size={13} /></Busy>
+              <span>Generate notes</span>
+            </button>
+          </div>
         </aside>
         <Resizer pane={optsW} label="Resize release notes options" />
         <main className="col grow" data-pane data-active={!!md} style={{ gap: 0, minWidth: 0, minHeight: 0 }}>

@@ -170,23 +170,6 @@ export default function Tickets() {
               <span>Active sprint</span>
             </label>
           </div>
-          {unplanned.length > 0 && (
-            <button
-              className="btn"
-              disabled={busy === 'triage'}
-              onClick={() => {
-                setBusy('triage');
-                later(1500, () => {
-                  setBusy(undefined);
-                  setSuggestions(Object.fromEntries(unplanned.map((x) => [x.key, SUGGEST[x.key] ?? { release: '0.6.0', kind: /bug|fix/i.test(x.kind) ? 'fix' : 'feat', reason: 'Fits the scope of v0.6.0, the next release.' }])));
-                  flash(`AI suggested a release for ${plural(unplanned.length, 'ticket')}`);
-                });
-              }}
-            >
-              <Busy on={busy === 'triage'}><Icon name="sparkle" size={12} className="c-acc" /></Busy>
-              Triage {unplanned.length} unplanned with AI
-            </button>
-          )}
         </div>
         <div className="scroll" style={{ flex: '1 1 auto', paddingBottom: 12 }}>
           {grouped.map((g) => (
@@ -215,6 +198,26 @@ export default function Tickets() {
           ))}
           {grouped.length === 0 && <Empty>No tickets match these filters.</Empty>}
         </div>
+        {unplanned.length > 0 && (
+          <div className="master-tools" style={{ borderBottom: 0, borderTop: '1px solid var(--line)' }}>
+            <button
+              className="btn btn-primary"
+              style={{ height: 48, fontSize: 13.5 }}
+              disabled={busy === 'triage'}
+              onClick={() => {
+                setBusy('triage');
+                later(1500, () => {
+                  setBusy(undefined);
+                  setSuggestions(Object.fromEntries(unplanned.map((x) => [x.key, SUGGEST[x.key] ?? { release: '0.6.0', kind: /bug|fix/i.test(x.kind) ? 'fix' : 'feat', reason: 'Fits the scope of v0.6.0, the next release.' }])));
+                  flash(`AI suggested a release for ${plural(unplanned.length, 'ticket')}`);
+                });
+              }}
+            >
+              <Busy on={busy === 'triage'}><Icon name="sparkle" size={13} /></Busy>
+              Triage {unplanned.length} unplanned with AI
+            </button>
+          </div>
+        )}
       </section>
       <main className="detail">
         {t ? (

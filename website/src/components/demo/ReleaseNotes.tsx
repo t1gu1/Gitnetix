@@ -90,53 +90,56 @@ export default function ReleaseNotes() {
 
   return (
     <>
-      <aside aria-label="Options" className="sidenav" style={{ '--sidenav-w': '360px', gap: 24, padding: 24 } as CSSProperties}>
-        <section className="col" style={{ gap: 10 }}>
-          <h2 className="label">Range</h2>
-          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 32px minmax(0,1fr)', gap: 6, alignItems: 'end' }}>
-            <div className="field">
-              <label htmlFor="rn-from">From</label>
-              <Choice id="rn-from" className="select menu-select mono" style={{ fontSize: 12 }} label="From" value={from} options={REFS} onChange={setFrom} />
+      <aside aria-label="Options" className="sidenav" style={{ '--sidenav-w': '360px', gap: 0, padding: 0 } as CSSProperties}>
+        <div className="scroll col" style={{ flex: '1 1 auto', gap: 24, padding: 24 }}>
+          <section className="col" style={{ gap: 10 }}>
+            <h2 className="label">Range</h2>
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 32px minmax(0,1fr)', gap: 6, alignItems: 'end' }}>
+              <div className="field">
+                <label htmlFor="rn-from">From</label>
+                <Choice id="rn-from" className="select menu-select mono" style={{ fontSize: 12 }} label="From" value={from} options={REFS} onChange={setFrom} />
+              </div>
+              <button className="btn btn-ghost btn-icon" style={{ height: 36 }} aria-label="Swap" onClick={() => { setFrom(to); setTo(from); }}>
+                <Icon name="swap" />
+              </button>
+              <div className="field">
+                <label htmlFor="rn-to">To</label>
+                <Choice id="rn-to" className="select menu-select mono" style={{ fontSize: 12 }} label="To" value={to} options={REFS} onChange={setTo} />
+              </div>
             </div>
-            <button className="btn btn-ghost btn-icon" style={{ height: 36 }} aria-label="Swap" onClick={() => { setFrom(to); setTo(from); }}>
-              <Icon name="swap" />
-            </button>
-            <div className="field">
-              <label htmlFor="rn-to">To</label>
-              <Choice id="rn-to" className="select menu-select mono" style={{ fontSize: 12 }} label="To" value={to} options={REFS} onChange={setTo} />
+            <div className="row note-box muted" style={{ gap: 14, fontSize: 12, background: 'var(--bg)' }}>
+              {error ? (
+                <span className="c-del">{error}</span>
+              ) : (
+                <>
+                  <span><strong style={{ color: 'var(--fg)' }}>{counts[0]}</strong> commits</span>
+                  <span><strong style={{ color: 'var(--fg)' }}>{counts[1]}</strong> merges</span>
+                  <span><strong style={{ color: 'var(--fg)' }}>{counts[2]}</strong> tickets</span>
+                </>
+              )}
             </div>
-          </div>
-          <div className="row note-box muted" style={{ gap: 14, fontSize: 12, background: 'var(--bg)' }}>
-            {error ? (
-              <span className="c-del">{error}</span>
-            ) : (
-              <>
-                <span><strong style={{ color: 'var(--fg)' }}>{counts[0]}</strong> commits</span>
-                <span><strong style={{ color: 'var(--fg)' }}>{counts[1]}</strong> merges</span>
-                <span><strong style={{ color: 'var(--fg)' }}>{counts[2]}</strong> tickets</span>
-              </>
-            )}
-          </div>
-        </section>
-        <section className="col" style={{ gap: 10 }}>
-          <h2 className="label">Template</h2>
-          <Choice className="select menu-select" label="Template" value={tpl} options={TEMPLATES} onChange={setTpl} />
-          <Seg grid label="Language" value={lang} onChange={setLang} options={[['en', 'English'], ['fr', 'Français']]} />
-        </section>
-        <section className="col" style={{ gap: 4 }}>
-          <h2 className="label" style={{ marginBottom: 6 }}>Include</h2>
-          {INCLUDE.map(([k, l]) => (
-            <label key={k} className="check">
-              <input type="checkbox" checked={inc[k]} onChange={() => setInc({ ...inc, [k]: !inc[k] })} />
-              <span>{l}</span>
-            </label>
-          ))}
-        </section>
-        <span className="grow" />
-        <button className="btn btn-primary btn-lg" disabled={!!error || !counts[0] || busy} onClick={run}>
-          <Busy on={busy}><Icon name="sparkle" size={13} /></Busy>
-          <span>Generate notes</span>
-        </button>
+          </section>
+          <section className="col" style={{ gap: 10 }}>
+            <h2 className="label">Template</h2>
+            <Choice className="select menu-select" label="Template" value={tpl} options={TEMPLATES} onChange={setTpl} />
+            <Seg grid label="Language" value={lang} onChange={setLang} options={[['en', 'English'], ['fr', 'Français']]} />
+          </section>
+          <section className="col" style={{ gap: 4 }}>
+            <h2 className="label" style={{ marginBottom: 6 }}>Include</h2>
+            {INCLUDE.map(([k, l]) => (
+              <label key={k} className="check">
+                <input type="checkbox" checked={inc[k]} onChange={() => setInc({ ...inc, [k]: !inc[k] })} />
+                <span>{l}</span>
+              </label>
+            ))}
+          </section>
+        </div>
+        <div className="master-tools" style={{ borderBottom: 0, borderTop: '1px solid var(--line)' }}>
+          <button className="btn btn-primary" style={{ height: 48, fontSize: 13.5 }} disabled={!!error || !counts[0] || busy} onClick={run}>
+            <Busy on={busy}><Icon name="sparkle" size={13} /></Busy>
+            <span>Generate notes</span>
+          </button>
+        </div>
       </aside>
       <main className="col grow" style={{ gap: 0, minWidth: 0, minHeight: 0 }}>
         <div className="row wrap" style={{ minHeight: 56, margin: 0, padding: '8px 24px', borderBottom: '1px solid var(--line)', gap: 12 }}>

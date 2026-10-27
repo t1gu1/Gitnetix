@@ -133,16 +133,6 @@ export function Tickets({ initial }: { initial?: string }) {
                   </label>
                 )}
               </div>
-              {unplanned > 0 && open.length > 0 && (
-                <button
-                  className="btn"
-                  disabled={triage.isPending}
-                  onClick={() => triage.mutate({ projectId: pid }, { onSuccess: (r) => setSuggestions(Object.fromEntries(r.map((s) => [s.key, s]))) })}
-                >
-                  <Busy on={triage.isPending}><Icon name="sparkle" size={12} className="c-acc" /></Busy>
-                  Triage {unplanned} unplanned with AI
-                </button>
-              )}
             </div>
             <div className="scroll" style={{ flex: "1 1 auto", paddingBottom: 12 }}>
               {grouped.map((g) => (
@@ -181,6 +171,19 @@ export function Tickets({ initial }: { initial?: string }) {
                   </Empty>
                 ))}
             </div>
+            {unplanned > 0 && open.length > 0 && (
+              <div className="master-tools" style={{ borderBottom: 0, borderTop: "1px solid var(--line)" }}>
+                <button
+                  className="btn btn-primary"
+                  style={{ height: 48, fontSize: 13.5 }}
+                  disabled={triage.isPending}
+                  onClick={() => triage.mutate({ projectId: pid }, { onSuccess: (r) => setSuggestions(Object.fromEntries(r.map((s) => [s.key, s]))) })}
+                >
+                  <Busy on={triage.isPending}><Icon name="sparkle" size={13} /></Busy>
+                  Triage {unplanned} unplanned with AI
+                </button>
+              </div>
+            )}
           </section>
           <Resizer pane={listW} label="Resize ticket list" />
           <main className="detail" data-pane data-active={pane === "detail"}>

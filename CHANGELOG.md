@@ -27,6 +27,7 @@ release notes and the in-app update prompt.
 - Desktop zoom defaults to 1.3
 - Modal footer buttons split the row equally
 - "New PR from" button sits at the bottom of the pull request list, like "New agent session"
+- "Generate notes" and "Triage" buttons sit at the bottom of their panels, like "New agent session"
 - Changelog templates list highlights first
 
 ### Fixed
