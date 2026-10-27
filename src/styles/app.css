@@ -874,11 +874,13 @@ body.dragging-tab * {
   text-align: left;
   cursor: pointer;
 }
+/* Text wraps, so a horizontal scrollbar never has anything to scroll to. */
 .textarea {
   height: auto;
   padding: 10px 12px;
   resize: vertical;
   line-height: 1.5;
+  overflow-x: hidden;
 }
 .input:focus,
 .select:focus,

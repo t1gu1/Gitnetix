@@ -148,7 +148,7 @@ details[open] .chev{transform:rotate(45deg)}
 .hd .btn-icon{width:32px;padding:0}.hd .btn-icon.btn-sm{width:26px}
 .hd .btn-act{width:22px;height:22px;padding:0;color:var(--muted)}.hd .btn-act:hover:not(:disabled){color:var(--fg)}.hd .btn-act.btn-danger:hover:not(:disabled){color:var(--del-fg)}
 .hd .input,.hd .textarea{height:36px;padding:0 12px;border:1px solid var(--line);border-radius:var(--r);background:var(--bg);color:var(--fg);min-width:0;transition:border-color var(--t-fast) var(--ease),box-shadow var(--t) var(--ease)}
-.hd .textarea{height:auto;padding:10px 12px;resize:vertical;line-height:1.5}
+.hd .textarea{height:auto;padding:10px 12px;resize:vertical;line-height:1.5;overflow-x:hidden}
 .hd .input:focus,.hd .textarea:focus{border-color:var(--accent);outline:none;box-shadow:var(--ring)}
 .hd .label{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0}
 .hd .ws-releases>.pane-head .label{font-weight:700;color:var(--fg)}
