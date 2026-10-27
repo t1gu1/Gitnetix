@@ -158,11 +158,6 @@ export default function PullRequests() {
             onChange={(t) => { setTab(t); setSel(undefined); }}
             options={(['open', 'review', 'closed'] as Tab[]).map((t) => [t, <>{{ open: 'Open', review: 'To review', closed: 'Closed' }[t]} <span className="faint">{prs.filter((p) => inTab(p, t)).length}</span></>])}
           />
-          {unpushed && <div className="err-box warn">{unpushed}</div>}
-          <button className="btn" disabled={creating || !!unpushed} onClick={create}>
-            <Busy on={creating}><Icon name="sparkle" size={12} className="c-acc" /></Busy>
-            <span className="ellipsis">New PR from {branch}</span>
-          </button>
         </div>
         <div className="scroll" style={{ flex: '1 1 auto', paddingBottom: 12 }}>
           {list.length === 0 && <Empty>Nothing here.</Empty>}
@@ -194,6 +189,13 @@ export default function PullRequests() {
                 </div>
               );
             })}
+        </div>
+        <div className="master-tools" style={{ borderBottom: 0, borderTop: '1px solid var(--line)' }}>
+          {unpushed && <div className="err-box warn">{unpushed}</div>}
+          <button className="btn btn-primary" style={{ height: 48, fontSize: 13.5 }} disabled={creating || !!unpushed} onClick={create}>
+            <Busy on={creating}><Icon name="sparkle" size={13} /></Busy>
+            <span className="ellipsis">New PR from {branch}</span>
+          </button>
         </div>
       </section>
       <main className="detail">

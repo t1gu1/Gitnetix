@@ -92,11 +92,6 @@ export function PullRequests({ initial }: { initial?: number }) {
                   label: <>{t === "open" ? "Open" : t === "review" ? "To review" : "Closed"} <span className="faint">{items.filter((p) => inTab(p, t)).length}</span></>,
                 }))}
               />
-              {unpushed && <div className="err-box warn">{unpushed}</div>}
-              <button className="btn" disabled={!branch || creating || !!unpushed} onClick={() => branch && create.mutate({ projectId: pid, branch }, { onSuccess: (r) => { setSel(r.number); setPane("detail"); } })}>
-                <Busy on={creating}><Icon name="sparkle" size={12} className="c-acc" /></Busy>
-                <span className="ellipsis">New PR from {branch ?? "current branch"}</span>
-              </button>
             </div>
             <div className="scroll" style={{ flex: "1 1 auto", paddingBottom: 12 }}>
               {prs.isLoading && <Loading />}
@@ -129,6 +124,13 @@ export function PullRequests({ initial }: { initial?: number }) {
                     </div>
                   );
                 })}
+            </div>
+            <div className="master-tools" style={{ borderBottom: 0, borderTop: "1px solid var(--line)" }}>
+              {unpushed && <div className="err-box warn">{unpushed}</div>}
+              <button className="btn btn-primary" style={{ height: 48, fontSize: 13.5 }} disabled={!branch || creating || !!unpushed} onClick={() => branch && create.mutate({ projectId: pid, branch }, { onSuccess: (r) => { setSel(r.number); setPane("detail"); } })}>
+                <Busy on={creating}><Icon name="sparkle" size={13} /></Busy>
+                <span className="ellipsis">New PR from {branch ?? "current branch"}</span>
+              </button>
             </div>
           </section>
           <Resizer pane={listW} label="Resize pull request list" />

@@ -25,6 +25,7 @@ release notes and the in-app update prompt.
 - Dictation runs Whisper on the Metal GPU on Apple Silicon
 - Desktop zoom defaults to 1.3
 - Modal footer buttons split the row equally
+- "New PR from" button sits at the bottom of the pull request list, like "New agent session"
 - Changelog templates list highlights first
 
 ### Fixed
