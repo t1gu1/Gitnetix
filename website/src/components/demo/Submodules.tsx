@@ -101,19 +101,21 @@ export default function Submodules() {
   return (
     <>
       <section className="master" style={{ '--master-w': '340px' } as CSSProperties} aria-label="Submodules">
-        <div className="master-tools">
-          <div className="row" style={{ gap: 6 }}>
-            <button className="btn btn-icon" aria-label="Check remotes for updates" title="Check remotes for updates (fetch)" disabled={fetching} onClick={checkRemotes}>
-              {fetching ? <span className="spinner" /> : <Icon name="search" size={13} />}
-            </button>
-            <button className="btn" onClick={() => setAdding(true)}>
-              <Icon name="plus" size={12} />
-              Add
-            </button>
+        {list.length > 0 && (
+          <div className="master-tools">
+            <div className="row" style={{ gap: 2, margin: 0 }}>
+              <span className="grow" style={{ minWidth: 0, marginRight: 4 }}>
+                <Seg grid label="Filter" value={filter} onChange={setFilter} options={[['all', <>All <span className="faint">{list.length}</span></>], ['attention', <>Needs you <span className="faint">{attention}</span></>]]} />
+              </span>
+              <button className="btn btn-ghost btn-icon btn-sm" aria-label="Check remotes for updates" title={`Check remotes for updates (fetch) · ${behind ? `${behind} with updates on their remote` : 'remotes as of last check'}`} disabled={fetching} onClick={checkRemotes}>
+                {fetching ? <span className="spinner" /> : <Icon name="refresh" size={13} />}
+              </button>
+              <button className="btn btn-ghost btn-icon btn-sm" aria-label="Add a submodule" title="Add a submodule" onClick={() => setAdding(true)}>
+                <Icon name="plus" size={14} />
+              </button>
+            </div>
           </div>
-          {list.length > 0 && <Seg grid label="Filter" value={filter} onChange={setFilter} options={[['all', <>All <span className="faint">{list.length}</span></>], ['attention', <>Needs you <span className="faint">{attention}</span></>]]} />}
-          {list.length > 0 && <span className="hint">{plural(list.length, 'submodule')} · {behind ? `${behind} with updates on their remote` : 'remotes as of last check'}</span>}
-        </div>
+        )}
         <div className="scroll" style={{ flex: '1 1 auto', padding: '8px 0 12px' }}>
           <div className="col" style={{ gap: 2 }}>
             {shown.map((s) => {
@@ -139,7 +141,7 @@ export default function Submodules() {
             <Empty>
               No submodules in this project.
               <br />
-              <button className="btn" style={{ marginTop: 12 }} onClick={() => setAdding(true)}>
+              <button className="btn btn-primary" style={{ marginTop: 12 }} onClick={() => setAdding(true)}>
                 <Icon name="plus" size={12} />
                 Add a submodule
               </button>
@@ -147,17 +149,19 @@ export default function Submodules() {
           )}
           {list.length > 0 && shown.length === 0 && <Empty>Every submodule is up to date.</Empty>}
         </div>
-        <div className="master-tools" style={{ borderBottom: 0, borderTop: '1px solid var(--line)' }}>
-          <span className="split-btn" style={{ display: 'flex' }}>
-            <button className="btn btn-primary split-main grow" style={{ height: 48, fontSize: 13.5 }} disabled={!!busy} title="Clone missing submodules and check each out at the commit the project pins, nested ones included" onClick={() => updateAll(false)}>
-              {busy === '*' ? <span className="spinner" /> : <Icon name="refresh" size={13} />}
-              Update all
-            </button>
-            <button className="btn btn-primary btn-icon split-more" style={{ height: 48, width: 48 }} aria-label="More bulk actions" title="More bulk actions" aria-haspopup="menu" disabled={!!busy} onClick={(e) => bulk.toggle(e, true)}>
-              <Icon name="chevronDown" size={13} />
-            </button>
-          </span>
-        </div>
+        {list.length > 0 && (
+          <div className="master-tools" style={{ borderBottom: 0, borderTop: '1px solid var(--line)' }}>
+            <span className="split-btn" style={{ display: 'flex' }}>
+              <button className="btn btn-primary split-main grow" style={{ height: 48, fontSize: 13.5 }} disabled={!!busy} title="Clone missing submodules and check each out at the commit the project pins, nested ones included" onClick={() => updateAll(false)}>
+                {busy === '*' ? <span className="spinner" /> : <Icon name="box" size={13} />}
+                Update all
+              </button>
+              <button className="btn btn-primary btn-icon split-more" style={{ height: 48, width: 48 }} aria-label="More bulk actions" title="More bulk actions" aria-haspopup="menu" disabled={!!busy} onClick={(e) => bulk.toggle(e, true)}>
+                <Icon name="chevronDown" size={13} />
+              </button>
+            </span>
+          </div>
+        )}
       </section>
       <main className="detail">
         <div className="detail-inner">
@@ -185,11 +189,11 @@ export default function Submodules() {
           label="Bulk submodule actions"
           onClose={bulk.close}
           items={[
-            { id: 'update', label: 'Update all to their pins', icon: 'refresh', run: () => updateAll(false) },
+            { id: 'update', label: 'Update all to their pins', icon: 'box', run: () => updateAll(false) },
             { id: 'remote', label: 'Pull latest for all', icon: 'stash', hint: 'then pin them', run: () => updateAll(true) },
             'sep',
             { id: 'sync', label: 'Sync all URLs', icon: 'swap', hint: 'from .gitmodules', run: () => { setList((l) => l.map((s) => ({ ...s, localUrl: undefined }))); flash('URLs synced'); } },
-            { id: 'fetch', label: 'Check remotes for updates', icon: 'search', run: checkRemotes },
+            { id: 'fetch', label: 'Check remotes for updates', icon: 'refresh', run: checkRemotes },
           ]}
         />
       )}
@@ -285,7 +289,7 @@ function Detail({ s, busy, set, onRun, onRemove }: { s: Sub; busy: boolean; set:
 
       <div className="row wrap" style={{ gap: 6 }}>
         <button className="btn" disabled={busy} title={cloned ? 'Check out the commit the project pins' : 'Clone it and check out its pin'} onClick={() => onRun(false)}>
-          {busy ? <span className="spinner" /> : <Icon name="refresh" size={12} />}
+          {busy ? <span className="spinner" /> : <Icon name="box" size={12} />}
           {cloned ? 'Update' : 'Clone'}
         </button>
         <button className="btn" disabled={busy} title={`Check out the tip of ${s.upstream ?? 'the tracked branch'}; then pin it to keep it`} onClick={() => onRun(true)}>

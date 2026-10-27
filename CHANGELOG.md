@@ -29,6 +29,7 @@ release notes and the in-app update prompt.
 - "New PR from" button sits at the bottom of the pull request list, like "New agent session"
 - "Generate notes" and "Triage" buttons sit at the bottom of their panels, like "New agent session"
 - Submodules "Update all" button sits at the bottom of the submodule list, like "New agent session"
+- Submodules top bar fits on one row: the filter with small fetch and add buttons, all hidden until a submodule exists
 - Changelog templates list highlights first
 
 ### Fixed
