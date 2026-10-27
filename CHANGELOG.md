@@ -11,40 +11,6 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
-### Added
-- Voice dictation in any text box: record with a shortcut, transcribed locally with Whisper, with speech detection, project vocabulary and an optional AI rewrite
-- Dictation detects the language of each stretch of speech, with a French-specific model and a "Spoken" generation language option
-- Dictation on desktop records with the native microphone, and from a phone over HTTPS
-- Syntax colors in diffs, with a colour swatch before hex values
-- Mine / Others / All author filter under the Open and Closed pull request tabs, remembered between visits
-- "Create tag…" in the commit context menu to tag any commit
-- Branch menu action to merge the Unreleased changelog section into the latest version
-- Ctrl/Cmd +, - and 0 shortcuts for desktop zoom
-- "a11y" branch kind
-
-### Changed
-- Branch rebuilds are faster and show their progress
-- Destructive actions ask for confirmation before running
-- Dictation runs Whisper on the Metal GPU on Apple Silicon
-- Changelog templates list highlights first
-- Desktop zoom defaults to 1.3
-- Modal footer buttons split the row equally
-- "New PR from" button sits at the bottom of the pull request list, like "New agent session"
-- "Generate notes" and "Triage" buttons sit at the bottom of their panels, like "New agent session"
-- Submodules "Update all" button sits at the bottom of the submodule list, like "New agent session"
-- Submodules top bar fits on one row: the filter with small fetch and add buttons, all hidden until a submodule exists
-
-### Fixed
-- Dictation can be cancelled from the footer and the field mic
-- SVG diffs stay sharp, with a new Code view
-- Worktree close options show for runs with nothing to merge
-- Worktree view returns to the list when the selected worktree closes
-- Mobile agent input no longer overlaps in hidden panes
-- Terminal input no longer shows a horizontal scrollbar
-
-### Removed
-- Cancel, Close, Later and Not now buttons from modal footers
-
 ## [0.10.0] - 2026-10-27
 
 ### Added
@@ -54,6 +20,9 @@ release notes and the in-app update prompt.
 - Dedicated French dictation model, downloaded on first French use.
 - Dictation settings pane for the shortcut, the allowed dictation languages and the microphone permission.
 - Phone microphone dictation through the companion API, which now answers HTTPS on its existing port.
+- Mine / Others / All author filter under the Open and Closed pull request tabs, remembered between visits.
+- "Create tag…" in the commit context menu to tag any commit.
+- Branch menu action to merge the Unreleased changelog section into the latest version.
 - Syntax colors in diffs, loaded per language without blocking the UI.
 - Colour swatch before hex values in diff lines.
 - Code view for SVG diffs.
@@ -62,6 +31,7 @@ release notes and the in-app update prompt.
 
 ### Changed
 - Branch views refresh faster and show their progress, reusing saved views for branches that did not move.
+- Destructive actions ask for confirmation before running.
 - Dictation runs on the Metal GPU on Apple Silicon.
 - Desktop dictation records with the native microphone, so it works on Linux installs without webview audio codecs.
 - Dictation can be cancelled from the footer or the field mic, including while text is being written out.
@@ -70,14 +40,22 @@ release notes and the in-app update prompt.
 - Text-only AI completions start faster.
 - Changelog templates list highlights first, and old defaults are migrated.
 - The New Item type picker puts Release where Build was; a typed `build/` prefix still works.
+- Desktop zoom defaults to 1.3.
+- Modal footer buttons split the row equally.
+- "New PR from" button sits at the bottom of the pull request list, like "New agent session".
+- "Generate notes" and "Triage" buttons sit at the bottom of their panels, like "New agent session".
+- Submodules "Update all" button sits at the bottom of the submodule list, like "New agent session".
+- Submodules top bar fits on one row: the filter with small fetch and add buttons, all hidden until a submodule exists.
 
 ### Fixed
 - SVG diffs stay sharp.
 - Closing the selected worktree returns to the worktree list.
 - Close options show for worktree runs with nothing to merge.
 - Agent input no longer overlaps on mobile in hidden panes.
+- Terminal input no longer shows a horizontal scrollbar.
 
-Skipped: the social card refresh (website only). Not checked: whether the "Changelog templates" and "Release" picker lines match real user-visible wording.
+### Removed
+- Cancel, Close, Later and Not now buttons from modal footers.
 
 ## [0.9.3] - 2026-10-26
 
