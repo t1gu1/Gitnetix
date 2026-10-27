@@ -63,6 +63,7 @@ export function CommitList({
   const [menu, setMenu] = useState<{ x: number; y: number; c: Commit } | null>(null);
   const [reset, setReset] = useState<{ c: Commit; mode: ResetMode } | null>(null);
   const [deletingTag, setDeletingTag] = useState<string | null>(null);
+  const [tagging, setTagging] = useState<Commit | null>(null);
   const inv = [["overview", pid], ["files", pid], ["diff", pid], ["commits", pid]];
   const revert = useAction<{ sha: string }>("commits.revert", { invalidate: inv, success: (r) => `Reverted · ${r.sha.slice(0, 7)}` });
   const pick = useAction<{ sha: string }>("commits.cherryPick", { invalidate: inv, success: (r) => `Cherry-picked onto ${current} · ${r.sha.slice(0, 7)}` });
@@ -95,7 +96,8 @@ export function CommitList({
       { id: "soft", label: "Reset here · soft", icon: "back", hint: needCheckout ?? "keep staged", disabled: !!needCheckout, run: () => setReset({ c, mode: "soft" }) },
       { id: "mixed", label: "Reset here · mixed", icon: "back", hint: needCheckout ?? "keep unstaged", disabled: !!needCheckout, run: () => setReset({ c, mode: "mixed" }) },
       { id: "hard", label: "Reset here · hard", icon: "trash", hint: needCheckout ?? "discard", danger: true, disabled: !!needCheckout, run: () => setReset({ c, mode: "hard" }) },
-      ...(c.tags.length > 0 ? ["sep" as const] : []),
+      "sep",
+      { id: "tag", label: "Create tag…", icon: "tag", run: () => setTagging(c) },
       ...c.tags.map((t): MenuItem => ({ id: `deleteTag:${t}`, label: <>Delete tag <span className="mono">{t}</span>…</>, icon: "trash", danger: true, run: () => setDeletingTag(t) })),
     ];
   };
@@ -177,6 +179,7 @@ export function CommitList({
         />
       )}
       {deletingTag && <DeleteTagModal pid={pid} tag={deletingTag} onClose={() => setDeletingTag(null)} />}
+      {tagging && <TagModal pid={pid} commit={tagging} onClose={() => setTagging(null)} />}
     </section>
   );
 }
@@ -273,6 +276,43 @@ function ResetModal({
       )}
       {reset.error && <ErrorBox error={reset.error} />}
       {push.error && <ErrorBox error={push.error} />}
+    </Modal>
+  );
+}
+
+/** Tag a branch's tip, or one commit, and push the tag. */
+export function TagModal({ pid, branch, commit, onClose }: { pid: string; branch?: string; commit?: Commit; onClose: () => void }) {
+  const [name, setName] = useState("");
+  const [message, setMessage] = useState("");
+  const what = commit ? commit.sha.slice(0, 7) : branch;
+  const tag = useAction(commit ? "commits.tag" : "branches.tag", { invalidate: [["overview", pid], ["commits", pid]], success: `Tagged ${what} as ${name.trim()} and pushed it` });
+  const submit = () => name.trim() && tag.mutate({ projectId: pid, ...(commit ? { sha: commit.sha } : { branch }), name: name.trim(), message }, { onSuccess: onClose });
+  return (
+    <Modal
+      title="Create tag"
+      sub={commit ? <><span className="mono">{what}</span> {commit.subject}</> : <span className="mono">{branch}</span>}
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn btn-md" onClick={onClose}>Cancel</button>
+          <button className="btn btn-md btn-primary" disabled={!name.trim() || tag.isPending} onClick={submit}>
+            {tag.isPending && <span className="spinner" />}
+            Create and push
+          </button>
+        </>
+      }
+    >
+      <form className="col" style={{ gap: 14 }} onSubmit={(e) => { e.preventDefault(); submit(); }}>
+        <div className="field">
+          <label htmlFor="tag-name">Name</label>
+          <input id="tag-name" className="input mono" placeholder="v1.2.0" autoFocus value={name} onChange={(e) => setName(e.target.value)} />
+        </div>
+        <div className="field">
+          <label htmlFor="tag-msg">Message</label>
+          <input id="tag-msg" className="input" placeholder="Defaults to the name" value={message} onChange={(e) => setMessage(e.target.value)} />
+        </div>
+      </form>
+      {tag.error && <ErrorBox error={tag.error} />}
     </Modal>
   );
 }

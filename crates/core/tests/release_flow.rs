@@ -411,6 +411,11 @@ async fn pull_and_tracking() {
     assert_eq!(rev(&origin, "snap-1^{commit}"), rev(&repo, "feat/x"));
     let err = rpc::call(&k, "branches.tag", json!({ "projectId": pid, "branch": "main", "name": "snap-1" })).await.unwrap_err();
     assert!(err.to_string().contains("already exists"), "{err}");
+    // Tag any commit by its sha, pushed too.
+    let main = rev(&repo, "main");
+    call(&k, "commits.tag", json!({ "projectId": pid, "sha": main, "name": "snap-0", "message": "on main" })).await;
+    assert_eq!(rev(&repo, "snap-0^{commit}"), main);
+    assert_eq!(rev(&origin, "snap-0^{commit}"), main);
     // Checking it out detaches HEAD on its commit.
     call(&k, "tags.checkout", json!({ "projectId": pid, "name": "snap-1" })).await;
     assert_eq!(rev(&repo, "HEAD"), rev(&repo, "feat/x"));

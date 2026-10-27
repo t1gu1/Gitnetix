@@ -40,6 +40,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("commits.revert", "Revert a commit with a new commit on its branch", "projectId, branch, sha"),
     ("commits.cherryPick", "Copy a commit onto a checked-out branch", "projectId, onto, sha"),
     ("commits.reset", "Reset a checked-out branch to a commit", "projectId, branch, sha, mode: soft|mixed|hard"),
+    ("commits.tag", "Tag a commit (annotated, message defaults to the name) and push it to origin", "projectId, sha, name, message?"),
     ("workspace.switch", "Check out a branch (uncommitted work comes along); abort = first abort the rebase/merge/cherry-pick/revert the checkout is stopped in", "projectId, branch, abort?"),
     ("workspace.stage", "Stage files (all when paths is empty)", "projectId, branch, paths?"),
     ("workspace.unstage", "Unstage files (all when paths is empty)", "projectId, branch, paths?"),
@@ -507,6 +508,10 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
         "commits.cherryPick" => to(json!({ "sha": k.cherry_pick(&s(&p, "projectId")?, &s(&p, "onto")?, &s(&p, "sha")?).await? })),
         "commits.reset" => {
             k.reset_branch(&s(&p, "projectId")?, &s(&p, "branch")?, &s(&p, "sha")?, &s(&p, "mode")?).await?;
+            ok()
+        }
+        "commits.tag" => {
+            k.tag_commit(&s(&p, "projectId")?, &s(&p, "sha")?, &s(&p, "name")?, os(&p, "message").as_deref()).await?;
             ok()
         }
         "workspace.switch" => {

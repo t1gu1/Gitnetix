@@ -3733,18 +3733,26 @@ impl Gitnetix {
 
     /// Tag a branch's tip (annotated; the message defaults to the name) and push the tag to origin.
     pub async fn tag_branch(&self, project_id: &str, branch: &str, name: &str, message: Option<&str>) -> Result<()> {
+        let p = self.store.project(project_id)?;
+        let git = self.git(&p);
+        let rev = git.branch_rev(branch).await?.ok_or_else(|| Error::NotFound(format!("branch {branch}")))?;
+        self.tag_commit(project_id, &git.rev_parse(&rev).await?, name, message).await
+    }
+
+    /// Tag a commit (annotated; the message defaults to the name) and push the tag to origin.
+    pub async fn tag_commit(&self, project_id: &str, sha: &str, name: &str, message: Option<&str>) -> Result<()> {
         let name = name.trim();
         if name.is_empty() {
             return Err(Error::Invalid("Name the tag.".into()));
         }
+        let rev = check_sha(sha)?;
         let p = self.store.project(project_id)?;
         let git = self.git(&p);
-        let rev = git.branch_rev(branch).await?.ok_or_else(|| Error::NotFound(format!("branch {branch}")))?;
         if git.ref_exists(&format!("refs/tags/{name}")).await? {
             return Err(Error::Invalid(format!("Tag {name} already exists.")));
         }
         let message = message.map(str::trim).filter(|m| !m.is_empty()).unwrap_or(name);
-        git.tag(name, &rev, message).await?;
+        git.tag(name, rev, message).await?;
         self.changed(project_id);
         git.push_tag(name, false).await?;
         Ok(())
