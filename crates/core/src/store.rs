@@ -556,16 +556,16 @@ mod tests {
     #[test]
     fn unedited_default_templates_get_todays_body() {
         let dir = tempfile::tempdir().unwrap();
-        let open = |body: &str| {
-            let cfg = serde_json::json!({ "templates": [{ "id": "changelog", "kind": "changelog", "name": "Keep a Changelog", "isDefault": true, "body": body }] });
+        let open = |id: &str, body: &str| {
+            let cfg = serde_json::json!({ "templates": [{ "id": id, "kind": id, "name": "Default", "isDefault": true, "body": body }] });
             std::fs::write(dir.path().join("config.json"), cfg.to_string()).unwrap();
-            super::Store::open(dir.path()).unwrap().read(|c| c.templates.iter().find(|t| t.id == "changelog").unwrap().body.clone())
+            super::Store::open(dir.path()).unwrap().read(|c| c.templates.iter().find(|t| t.id == id).unwrap().body.clone())
         };
-        let today = crate::templates::default_templates().into_iter().find(|t| t.id == "changelog").unwrap().body;
-        for &(_, old) in crate::templates::OLD_BODIES {
-            assert_eq!(open(old), today);
+        let today = |id: &str| crate::templates::default_templates().into_iter().find(|t| t.id == id).unwrap().body;
+        for &(id, old) in crate::templates::OLD_BODIES {
+            assert_eq!(open(id, old), today(id));
         }
-        assert_eq!(open("Edited."), "Edited.");
+        assert_eq!(open("changelog", "Edited."), "Edited.");
     }
 
     #[test]

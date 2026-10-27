@@ -562,21 +562,24 @@ struct Scene {
     commits: String,
     /// The uncommitted changes, as `git status --short` lists them.
     files: String,
+    /// Every saved project's name, this one included.
+    projects: Vec<String>,
 }
 
 /// Longest vocabulary given to Whisper, in characters: it reads about 220 tokens of it.
 const VOCABULARY_MAX: usize = 600;
 
 impl Scene {
-    /// The names Whisper should expect, most telling first: the project, branch and ticket, then the files
-    /// being worked on. Names only: sentences in one language make Whisper translate speech in another.
+    /// The names Whisper should expect, most telling first: the project, branch and ticket, the other projects,
+    /// then the files being worked on. Names only: sentences in one language make Whisper translate speech in another.
     fn vocabulary(&self) -> String {
         let paths = self.commits.lines().filter(|l| !l.starts_with("- ")).chain(self.files.lines().filter_map(|l| l.get(3..)));
         let mut names: Vec<&str> = paths.filter_map(|p| Path::new(p.rsplit(' ').next()?.trim_matches('"')).file_stem()?.to_str()).collect();
         names.sort_unstable();
         names.dedup();
         let mut out = String::new();
-        for w in [&*self.project, &self.branch, self.ticket.as_deref().unwrap_or("")].into_iter().chain(names) {
+        let projects = self.projects.iter().map(String::as_str).filter(|p| *p != self.project);
+        for w in [&*self.project, &self.branch, self.ticket.as_deref().unwrap_or("")].into_iter().chain(projects).chain(names) {
             if w.is_empty() || out.len() + w.len() + 2 > VOCABULARY_MAX {
                 continue;
             }
@@ -1681,6 +1684,7 @@ impl Gitnetix {
         vars.insert("branch".into(), or_none(branch));
         vars.insert("files".into(), or_none(files.lines().take(100).collect::<Vec<_>>().join("\n")));
         vars.insert("commits".into(), or_none(commits));
+        vars.insert("projects".into(), or_none(self.store.read(|c| c.projects.iter().map(|p| p.name.as_str()).collect::<Vec<_>>().join(", "))));
         // The words are already there: a stuck provider must not hold them for minutes.
         tokio::time::timeout(std::time::Duration::from_secs(30), self.ask("dictation", &t, vars, "spoken", None))
             .await
@@ -1703,7 +1707,8 @@ impl Gitnetix {
             None => String::new(),
         };
         let ticket = p.branches.get(&branch).and_then(|m| m.ticket.clone()).or_else(|| ticket_keys(&branch, true).into_iter().next());
-        Ok(Scene { project: p.name, branch, ticket, commits, files })
+        let projects = self.store.read(|c| c.projects.iter().map(|p| p.name.clone()).collect());
+        Ok(Scene { project: p.name, branch, ticket, commits, files, projects })
     }
 
     // ---------- projects ----------
@@ -4961,9 +4966,10 @@ mod tests {
             ticket: Some("GNX-12".into()),
             commits: commits.into(),
             files: " M crates/core/src/dictation.rs\nR  old.ts -> src/lib/Wave.tsx\n?? \"notes/my notes.md\"\n".into(),
+            projects: vec!["Gitnetix".into(), "Hivemind".into()],
         };
         let v = scene("- feat(dictation): split speech by language\n\ncrates/core/src/dictation.rs\nsrc/App.tsx\n- fix: stop overlap\n").vocabulary();
-        assert_eq!(v, "Gitnetix, feat/GNX-12_voice, GNX-12, App, Wave, dictation, notes");
+        assert_eq!(v, "Gitnetix, feat/GNX-12_voice, GNX-12, Hivemind, App, Wave, dictation, notes");
         // Too long: what fits goes in, in that order.
         let long = scene(&format!("- big\n{}.rs\nzz.rs\n", "x".repeat(VOCABULARY_MAX))).vocabulary();
         assert!(long.ends_with("notes, zz") && long.len() <= VOCABULARY_MAX, "{long}");
