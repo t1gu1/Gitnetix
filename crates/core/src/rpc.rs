@@ -108,7 +108,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("ai.saveProvider", "Configure an AI provider", "id, method?, model?, effort?, baseUrl?, apiKey?"),
     ("ai.setDefault", "Default AI provider", "id"),
     ("ai.test", "Test an AI provider", "id"),
-    ("dictation.transcribe", "Turn recorded speech into text on this computer, expecting the project's names (the first time downloads a 575 MB speech model)", "audio (base64), mime, projectId?, branch?"),
+    ("dictation.transcribe", "Turn recorded speech into text on this computer, expecting the project's names (the first time downloads a 575 MB speech model, and a 790 MB French one the first time it hears French)", "audio (base64), mime, projectId?, branch?"),
     ("dictation.polish", "Rewrite dictated text into clear text with AI and the project's context; unchanged when turned off or no AI is set up", "text, projectId?, branch?, field?, typed?"),
     ("ai.setRoute", "Which AI handles a task", "task, provider?, model?, effort?"),
     ("ai.signIn", "Open the provider CLI to sign in", "id"),

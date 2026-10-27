@@ -1642,7 +1642,7 @@ impl Gitnetix {
     // ---------- dictation ----------
 
     /// `audio` as text, with Whisper expecting the names of `project_id` on `branch` (its checked-out one when none).
-    pub async fn dictate(&self, audio: Audio, project_id: Option<&str>, branch: Option<&str>, progress: impl Fn(u64, u64) + Send) -> Result<String> {
+    pub async fn dictate(&self, audio: Audio, project_id: Option<&str>, branch: Option<&str>, progress: impl Fn(u64, u64) + Send + Sync) -> Result<String> {
         let vocabulary = match project_id {
             Some(id) => self.scene(id, branch).await.map(|s| s.vocabulary()).unwrap_or_default(),
             None => String::new(),

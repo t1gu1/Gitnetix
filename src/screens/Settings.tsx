@@ -255,7 +255,7 @@ function DictationSection() {
       <div className="col" style={{ gap: 6 }}>
         <h1>Voice dictation</h1>
         <p className="muted" style={{ margin: 0 }}>Speak into any text box. Press the shortcut or click the mic at the right of the box to start listening, then press either again or Stop to put the words in.</p>
-        <p className="hint" style={{ margin: 0 }}>Speech is turned into text on this computer by Whisper, which hears only the parts with speech and expects the open project's names. The first time downloads its models (575 MB) from Hugging Face. Without Rewrite with AI, nothing you say leaves the computer.</p>
+        <p className="hint" style={{ margin: 0 }}>Speech is turned into text on this computer by Whisper, which hears only the parts with speech and expects the open project's names. The first time downloads its models (575 MB) from Hugging Face, and the first time it hears French, a model made for French (790 MB). Without Rewrite with AI, nothing you say leaves the computer.</p>
       </div>
       <ul className="list">
         <li className="list-row" style={{ gap: 12 }}>

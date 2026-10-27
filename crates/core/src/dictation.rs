@@ -14,7 +14,7 @@ use symphonia::core::formats::{FormatOptions, TrackType};
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
 use tokio::io::AsyncWriteExt;
-use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters, WhisperVadContext, WhisperVadContextParams, WhisperVadParams};
+use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters, WhisperState, WhisperVadContext, WhisperVadContextParams, WhisperVadParams};
 
 use crate::error::{Error, Result};
 use crate::store::Store;
@@ -33,6 +33,16 @@ const SPEECH: Model = Model {
     url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin",
     sha256: "394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2",
     size: 574_041_195,
+};
+/// Whisper large-v3 tuned on French and cut to 16 decoder layers, for the speech found to be French: where turbo
+/// misspells names, drops capitals and repeats itself, this one doesn't, in about the same time. It only writes:
+/// turbo still tells the language, as this one takes everything for French.
+const FRENCH: Model = Model {
+    file: "ggml-large-v3-french-distil-dec16-q5_0.bin",
+    // Pinned to the commit the hash is from: a personal repository can change its files.
+    url: "https://huggingface.co/bofenghuang/whisper-large-v3-french-distil-dec16/resolve/16bd02185bdaa6b00fb4b0deb46e47ac1b754b8e/ggml-model-q5_0.bin",
+    sha256: "a804330f5cd369fb7447ad2935eb7bf5b1d628ba246a067255ac70775df720e4",
+    size: 791_369_259,
 };
 /// Silero voice activity detection: where the recording holds speech, so Whisper never hears a silence it would fill with made-up words.
 const VAD: Model = Model {
@@ -58,15 +68,16 @@ pub enum Audio {
     Mono { samples: Vec<f32>, rate: u32 },
 }
 
-/// The speech model, loaded on first use and kept (about 800 MB of memory), and the path of the voice detection model.
+/// The speech models, loaded on first use and kept (about 800 MB of memory each): the multilingual one with the path
+/// of the voice detection model, and the French one once French is heard.
 #[derive(Default)]
-pub struct Dictation(tokio::sync::Mutex<Option<(Arc<WhisperContext>, PathBuf)>>);
+pub struct Dictation(tokio::sync::Mutex<Option<(Arc<WhisperContext>, PathBuf)>>, tokio::sync::Mutex<Option<Arc<WhisperContext>>>);
 
 impl Dictation {
     /// `audio` as text, in the languages the settings allow, with `vocabulary` (the project's names) as the words to expect.
     /// The language most of it was in is kept as the spoken language, which AI can write in.
-    /// `progress(done, total)` follows the speech model's first download.
-    pub async fn transcribe(&self, dir: &Path, store: &Store, audio: Audio, vocabulary: String, progress: impl Fn(u64, u64) + Send) -> Result<String> {
+    /// `progress(done, total)` follows a speech model's first download.
+    pub async fn transcribe(&self, dir: &Path, store: &Store, audio: Audio, vocabulary: String, progress: impl Fn(u64, u64) + Send + Sync) -> Result<String> {
         let samples = match audio {
             // Decoded first: a recording that can't be read fails before any download.
             Audio::Recorded { bytes, mime } => tokio::task::spawn_blocking(move || decode(bytes, &mime)).await.map_err(|e| Error::Other(e.to_string()))??,
@@ -75,9 +86,18 @@ impl Dictation {
         if samples.len() < RATE as usize / 4 {
             return Ok(String::new());
         }
-        let (ctx, vad) = self.model(dir, progress).await?;
+        let (ctx, vad) = self.model(dir, &progress).await?;
         let langs = store.read(|c| c.ui.dictation_languages.clone());
-        let (text, lang) = tokio::task::spawn_blocking(move || run(&ctx, &vad, &samples, &langs, &vocabulary)).await.map_err(|e| Error::Other(e.to_string()))??;
+        let samples = Arc::new(samples);
+        let heard = samples.clone();
+        let (state, speech, parts) = tokio::task::spawn_blocking(move || listen(&ctx, &vad, &heard, &langs)).await.map_err(|e| Error::Other(e.to_string()))??;
+        // Fetched the first time French is heard, so speakers of other languages never download it. Turbo writes French
+        // too: a French model that can't be fetched now (offline) doesn't lose what was said.
+        let french = match parts.iter().any(|(l, _)| whisper_rs::get_lang_str(*l) == Some("fr")) {
+            true => self.french(dir, &progress).await.inspect_err(|e| crate::log::error(format!("Could not get the French speech model: {e}"))).ok(),
+            false => None,
+        };
+        let (text, lang) = tokio::task::spawn_blocking(move || write(state, french.as_deref(), &samples, &speech, &parts, &vocabulary)).await.map_err(|e| Error::Other(e.to_string()))??;
         let changed = lang.filter(|&l| store.read(|c| c.ui.spoken_language.as_deref() != Some(l)));
         if let Some(lang) = changed {
             let saved = store.write(|c| {
@@ -108,14 +128,31 @@ impl Dictation {
             download(&path, &SPEECH, progress).await?;
             let _ = tokio::fs::remove_file(models.join(OLD_SPEECH)).await;
         }
-        // Without it whisper.cpp writes its own log to stderr.
-        whisper_rs::install_logging_hooks();
-        let ctx = tokio::task::spawn_blocking(move || WhisperContext::new_with_params(&path, WhisperContextParameters::default()))
-            .await
-            .map_err(|e| Error::Other(e.to_string()))?
-            .map_err(|e| Error::Other(format!("Could not load the speech model: {e}")))?;
-        Ok(slot.insert((Arc::new(ctx), vad)).clone())
+        Ok(slot.insert((load(path).await?, vad)).clone())
     }
+
+    async fn french(&self, dir: &Path, progress: impl Fn(u64, u64) + Send) -> Result<Arc<WhisperContext>> {
+        let mut slot = self.1.lock().await;
+        if let Some(loaded) = slot.as_ref() {
+            return Ok(loaded.clone());
+        }
+        let path = dir.join("models").join(FRENCH.file);
+        if !path.exists() {
+            download(&path, &FRENCH, progress).await?;
+        }
+        Ok(slot.insert(load(path).await?).clone())
+    }
+}
+
+/// The speech model at `path`, loaded.
+async fn load(path: PathBuf) -> Result<Arc<WhisperContext>> {
+    // Without it whisper.cpp writes its own log to stderr.
+    whisper_rs::install_logging_hooks();
+    let ctx = tokio::task::spawn_blocking(move || WhisperContext::new_with_params(&path, WhisperContextParameters::default()))
+        .await
+        .map_err(|e| Error::Other(e.to_string()))?
+        .map_err(|e| Error::Other(format!("Could not load the speech model: {e}")))?;
+    Ok(Arc::new(ctx))
 }
 
 /// Fetch `model` to `path`, through a `.part` file so a cut download is never taken for the model.
@@ -190,18 +227,18 @@ fn resample(samples: &[f32], rate: u32) -> Vec<f32> {
         .collect()
 }
 
-/// The speech as text, each stretch between pauses written in its own language among `langs`
-/// (Whisper codes, "fr"; none: any), and the language most of it was in. Only the speech
-/// `vad` finds is heard, and `vocabulary` primes Whisper with the words to expect.
-/// Whisper alone picks one language from the first 30 s, and drops or translates the rest.
-fn run(ctx: &WhisperContext, vad: &Path, samples: &[f32], langs: &[String], vocabulary: &str) -> Result<(String, Option<&'static str>)> {
+/// The speech `vad` finds in `samples`, as ranges of them, and its parts, each stretch between pauses
+/// told in its own language among `langs` (Whisper codes, "fr"; none: any), as language ids and ranges
+/// of indexes into the speech; with `ctx`'s state, for `write`. Whisper alone picks one language
+/// from the first 30 s, and drops or translates the rest.
+fn listen(ctx: &WhisperContext, vad: &Path, samples: &[f32], langs: &[String]) -> Result<(WhisperState, Vec<Range<usize>>, Vec<(i32, Range<usize>)>)> {
     let fail = |e: whisper_rs::WhisperError| Error::Other(format!("Speech recognition failed: {e}"));
-    let threads = std::thread::available_parallelism().map_or(4, |n| n.get().min(16));
+    let threads = threads();
     let speech = speech(vad, samples, threads)?;
-    if speech.is_empty() {
-        return Ok((String::new(), None));
-    }
     let mut state = ctx.create_state().map_err(fail)?;
+    if speech.is_empty() {
+        return Ok((state, speech, Vec::new()));
+    }
     let mut allowed: Vec<i32> = (0..=whisper_rs::get_lang_max_id()).filter(|&i| langs.iter().any(|l| whisper_rs::get_lang_str(i) == Some(l.as_str()))).collect();
     if allowed.is_empty() {
         allowed = (0..=whisper_rs::get_lang_max_id()).collect();
@@ -233,8 +270,21 @@ fn run(ctx: &WhisperContext, vad: &Path, samples: &[f32], langs: &[String], voca
             _ => parts.push((lang, r)),
         }
     }
+    Ok((state, speech, parts))
+}
+
+/// The `parts` of the `speech` as text, and the language most of it was in. French is written by
+/// `french` when given, the rest by `state`'s model, with `vocabulary` priming Whisper with the words to expect.
+fn write(mut state: WhisperState, french: Option<&WhisperContext>, samples: &[f32], speech: &[Range<usize>], parts: &[(i32, Range<usize>)], vocabulary: &str) -> Result<(String, Option<&'static str>)> {
+    let fail = |e: whisper_rs::WhisperError| Error::Other(format!("Speech recognition failed: {e}"));
+    let threads = threads();
+    let mut fr_state = french.map(WhisperContext::create_state).transpose().map_err(fail)?;
     let mut said = Vec::new();
-    for (lang, r) in &parts {
+    for (lang, r) in parts {
+        let state = match fr_state.as_mut() {
+            Some(fr) if whisper_rs::get_lang_str(*lang) == Some("fr") => fr,
+            _ => &mut state,
+        };
         let audio = joined(samples, &speech[r.clone()]);
         // Best of 5 only when Whisper, unsure, tries again warmer: as quick as before on clear speech.
         let mut p = FullParams::new(SamplingStrategy::Greedy { best_of: 5 });
@@ -256,6 +306,11 @@ fn run(ctx: &WhisperContext, vad: &Path, samples: &[f32], langs: &[String], voca
     let spoken = |l: i32| parts.iter().filter(|(x, _)| *x == l).flat_map(|(_, r)| &speech[r.clone()]).map(|r| r.len()).sum::<usize>();
     let main = parts.iter().map(|(l, _)| *l).max_by_key(|&l| spoken(l)).filter(|_| !text.is_empty());
     Ok((text, main.and_then(whisper_rs::get_lang_str)))
+}
+
+/// The threads Whisper runs on.
+fn threads() -> usize {
+    std::thread::available_parallelism().map_or(4, |n| n.get().min(16))
 }
 
 /// How much Whisper encodes for `n` samples, in its 20 ms steps: it encodes 30 s whatever the length
@@ -397,32 +452,44 @@ mod tests {
         assert_eq!(pick(&probs, &[2, 6]), 6);
     }
 
+    /// `listen` then `write`, as `transcribe` does once the models are in.
+    fn run(ctx: &WhisperContext, french: Option<&WhisperContext>, vad: &Path, samples: &[f32], langs: &[String]) -> (String, Option<&'static str>) {
+        let (state, speech, parts) = listen(ctx, vad, samples, langs).unwrap();
+        write(state, french, samples, &speech, &parts, "").unwrap()
+    }
+
     /// Needs the models in ~/.config/gitnetix/models and 16 kHz mono f32 clips:
     /// `GNX_CLIPS=/tmp/gnx-voice cargo test --release -p gitnetix-core -- --ignored speech --nocapture`.
     #[test]
     #[ignore]
     fn speech_follows_the_spoken_language() {
         let models = PathBuf::from(std::env::var("HOME").unwrap() + "/.config/gitnetix/models");
-        // GNX_MODEL=ggml-base.bin compares with another model.
-        let model = std::env::var("GNX_MODEL").unwrap_or(SPEECH.file.into());
-        let ctx = WhisperContext::new_with_params(models.join(model).to_str().unwrap(), WhisperContextParameters::default()).unwrap();
+        let load = |file: &str| WhisperContext::new_with_params(models.join(file).to_str().unwrap(), WhisperContextParameters::default()).unwrap();
+        // GNX_MODEL=ggml-base.bin compares with another model, GNX_FRENCH=0 without the French one.
+        let ctx = load(&std::env::var("GNX_MODEL").unwrap_or(SPEECH.file.into()));
+        let french = (std::env::var("GNX_FRENCH").as_deref() != Ok("0")).then(|| load(FRENCH.file));
+        let french = french.as_ref();
         let vad = models.join(VAD.file);
         let clip = |name: &str| {
             let raw = std::fs::read(format!("{}/{name}.f32", std::env::var("GNX_CLIPS").unwrap())).unwrap();
             raw.chunks(4).map(|b| f32::from_le_bytes(b.try_into().unwrap())).collect::<Vec<f32>>()
         };
         let fr_en = ["fr".to_string(), "en".to_string()];
-        for (name, langs) in [("fr4", &fr_en[..]), ("jfk", &fr_en[..]), ("mixed", &fr_en[..]), ("mixed", &[][..])] {
+        for (name, langs) in [("fr4", &fr_en[..]), ("fr12", &fr_en[..]), ("jfk", &fr_en[..]), ("mixed", &fr_en[..]), ("mixed", &[][..])] {
             let t = std::time::Instant::now();
-            let (text, lang) = run(&ctx, &vad, &clip(name), langs, "").unwrap();
+            let (text, lang) = run(&ctx, french, &vad, &clip(name), langs);
             println!("{name} {langs:?} → {lang:?} in {:.1}s: {text}", t.elapsed().as_secs_f32());
         }
-        assert_eq!(run(&ctx, &vad, &clip("fr4"), &fr_en, "").unwrap().1, Some("fr"));
-        assert_eq!(run(&ctx, &vad, &clip("jfk"), &fr_en, "").unwrap().1, Some("en"));
+        assert_eq!(run(&ctx, french, &vad, &clip("fr4"), &fr_en).1, Some("fr"));
+        assert_eq!(run(&ctx, french, &vad, &clip("jfk"), &fr_en).1, Some("en"));
         // Silence alone is no speech, not a made-up sentence.
-        assert_eq!(run(&ctx, &vad, &[0.0; 3 * RATE as usize], &fr_en, "").unwrap().0, "");
-        let (mixed, _) = run(&ctx, &vad, &clip("mixed"), &fr_en, "").unwrap();
+        assert_eq!(run(&ctx, french, &vad, &[0.0; 3 * RATE as usize], &fr_en).0, "");
+        let (mixed, _) = run(&ctx, french, &vad, &clip("mixed"), &fr_en);
         assert!(mixed.contains("polonium") && mixed.contains("ask not what your country"), "{mixed}");
+        if french.is_some() {
+            // Turbo writes this one as "né à warsovie ... tiffus", without capitals.
+            assert!(run(&ctx, french, &vad, &clip("fr12"), &fr_en).0.contains("Varsovie"));
+        }
     }
 }
 
