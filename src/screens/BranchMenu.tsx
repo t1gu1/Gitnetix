@@ -92,6 +92,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
   const pr = useAction<{ number: number }, { projectId: string; branch: string }>("prs.create", { invalidate: [["prs", pid]], success: (r) => `Opened PR #${r.number}` });
   const changelog = useAction<{ message: string }, { projectId: string; branch: string }>("changelog.update", { invalidate: inv, success: (r) => r.message });
   const stampChangelog = useAction<{ message: string }, { projectId: string; branch: string; version: string }>("changelog.release", { invalidate: inv, success: (r) => r.message });
+  const latestChangelog = useAction<{ message: string }, { projectId: string; branch: string }>("changelog.latest", { invalidate: inv, success: (r) => r.message });
   const ov = useOverview(pid).data;
   const hasChangelog = !!ov?.hasChangelog;
   // Changelog entries are written by the AI that writes release notes.
@@ -100,7 +101,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
   const follow = useAction<RenameResult, { projectId: string; branch: string; name: string }>("branches.rename", { invalidate: [...inv, ["worktrees"], ["agents"]] });
   const [menu, setMenu] = useState<{ x: number; y: number; alignRight: boolean; t: BranchTarget } | null>(null);
 
-  const mutations = [sw, wt, removeWt, pull, push, rebase, sync, stash, unstash, pr, changelog, stampChangelog, follow];
+  const mutations = [sw, wt, removeWt, pull, push, rebase, sync, stash, unstash, pr, changelog, stampChangelog, latestChangelog, follow];
   // Pushes started elsewhere count too: the commit box's auto push spins the branch's Push button.
   const pushing = usePendingBranches("workspace.push", pid);
   const busy = new Set([...mutations.flatMap((m) => (m.isPending && m.variables?.branch ? [m.variables.branch] : [])), ...pushing]);
@@ -259,9 +260,16 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
       stampChangelog: {
         id: "stampChangelog",
         label: `Move unreleased changelog into ${v.release}`,
-        tip: `Rename the Unreleased section of CHANGELOG.md to ${v.release}, dated today, committed on ${b}`,
+        tip: `Rename the Unreleased section of CHANGELOG.md to ${v.release}, dated today, committed on ${b}. When ${v.release} already has entries, AI merges both, highlights first`,
         icon: "tag",
         run: () => v.release && stampChangelog.mutate({ projectId: pid, branch: b, version: v.release }),
+      },
+      latestChangelog: {
+        id: "latestChangelog",
+        label: `Add unreleased changelog to v${ov?.changelogVersion}`,
+        tip: `Merge the Unreleased section of CHANGELOG.md into ${ov?.changelogVersion}, committed on ${b}. AI combines it with the entries already there, highlights first`,
+        icon: "tag",
+        run: () => latestChangelog.mutate({ projectId: pid, branch: b }),
       },
       tag: { id: "tag", label: "Create tag…", tip: `Tag the tip of ${b}`, icon: "tag", run: () => openDialog("tag", b) },
       copy: { id: "copy", label: "Copy branch name", icon: "edit", run: () => copyToClipboard(b) },
@@ -334,6 +342,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
     if (t.base && !v.worktree) list.push(a.pr);
     if (v.local && canChangelog) list.push(a.changelog);
     if (v.local && hasChangelog && v.role === "release" && v.release) list.push(a.stampChangelog);
+    if (v.local && hasChangelog && v.name === ov?.defaultBranch && ov.changelogVersion) list.push(a.latestChangelog);
     if (t.moveTo?.length || t.pickTarget) {
       list.push("sep");
       for (const m of t.moveTo ?? []) {

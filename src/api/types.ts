@@ -263,6 +263,8 @@ export interface Overview {
   stashes: Stash[];
   /** The checkout has a CHANGELOG.md at its root. */
   hasChangelog: boolean;
+  /** Latest version heading of that CHANGELOG.md. */
+  changelogVersion?: string | null;
 }
 
 export interface Stash {

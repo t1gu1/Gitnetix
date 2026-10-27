@@ -53,6 +53,7 @@ pub const KINDS: &[(&str, &str)] = &[
     ("pr", "PR title & description"),
     ("release", "Release notes"),
     ("changelog", "Changelog entries"),
+    ("changelogMerge", "Changelog version merge"),
     ("conflict", "Conflict resolution"),
     ("agent", "Free-form agent"),
     ("dictation", "Voice dictation"),
@@ -66,6 +67,7 @@ pub fn variables(kind: &str) -> Vec<(&'static str, &'static str)> {
         "pr" => vec![("{diff}", "Branch diff"), ("{commits}", "Commit list"), ("{branch}", "Head branch"), ("{base}", "Base branch"), ("{ticket}", "Linked ticket")],
         "release" => vec![("{commits}", "Commits in range"), ("{tickets}", "Linked tickets"), ("{from}", "Start ref"), ("{to}", "End ref")],
         "changelog" => vec![("{commits}", "Commits the branch adds"), ("{unreleased}", "Current Unreleased section"), ("{released}", "Entries already moved under the release version"), ("{branch}", "Branch"), ("{base}", "Base branch")],
+        "changelogMerge" => vec![("{version}", "Version the entries go into"), ("{released}", "Entries already under that version"), ("{unreleased}", "Unreleased entries to add")],
         "conflict" => vec![("{conflict}", "Conflicting file"), ("{ours}", "Our branch"), ("{theirs}", "Their branch"), ("{path}", "File path")],
         "agent" => vec![("{request}", "User request"), ("{branch}", "Current branch"), ("{worktree}", "Worktree path"), ("{ticket}", "Linked ticket with its description; added at the end when left out")],
         "dictation" => vec![
@@ -233,6 +235,15 @@ pub fn default_templates() -> Vec<Template> {
             is_default: true,
             rules: vec![],
             body: "Update the Unreleased section of a Keep a Changelog file with the changes {branch} brings over {base}.\n\n- Return the complete new body of the section, without the \"## [Unreleased]\" heading.\n- Keep every existing entry word for word; add one line per user-facing change that is not listed yet, here or under the release's version.\n- Group under ### Added, ### Changed, ### Fixed, ### Removed, in that order, skipping empty ones.\n- In each group, list the highlights first (the changes users will notice most), moving existing entries when needed.\n- Match the tone and length of the existing entries.\n- Leave out refactors, tests, CI and formatting unless users would notice them.\n- When nothing new is worth listing, return the current section, only reordered to put its highlights first.\n\nCurrent Unreleased section:\n{unreleased}\n\nAlready listed under this release's version (do not add these again):\n{released}\n\nCommits:\n{commits}\n\nWrite the result in {language}.".into(),
+            ..Default::default()
+        },
+        Template {
+            id: "changelog-merge".into(),
+            kind: "changelogMerge".into(),
+            name: "Merge into version".into(),
+            is_default: true,
+            rules: vec![],
+            body: "Merge the Unreleased entries of a Keep a Changelog file into the section of version {version}.\n\n- Return the complete new body of the {version} section, without its \"## [{version}]\" heading.\n- List each change once: when an Unreleased entry repeats or extends one already under {version}, combine them into a single entry.\n- Keep every change from both lists.\n- Group under ### Added, ### Changed, ### Fixed, ### Removed, in that order, skipping empty ones.\n- In each group, list the highlights first (the changes users will notice most).\n- Match the tone and length of the existing entries.\n\nAlready under {version}:\n{released}\n\nUnreleased:\n{unreleased}\n\nWrite the result in {language}.".into(),
             ..Default::default()
         },
         Template {

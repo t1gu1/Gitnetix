@@ -212,6 +212,8 @@ pub struct Overview {
     pub stashes: Vec<StashInfo>,
     /// The checkout has a CHANGELOG.md at its root.
     pub has_changelog: bool,
+    /// Latest version heading of that CHANGELOG.md (see `latest_changelog_version`).
+    pub changelog_version: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -764,20 +766,21 @@ fn merge_sections(into: &[&str], from: &[&str]) -> Vec<String> {
     out
 }
 
-/// `text` with the body of its `## [Unreleased]` section replaced by `body`. Without
-/// that section, one is opened above the first version heading (or at the end).
-fn replace_unreleased(text: &str, body: &str) -> String {
+/// `text` with the body of its `## [name]` section (`name` matched ignoring case, heading kept)
+/// replaced by `body`. Without that section, one is opened above the first version heading (or at the end).
+fn replace_section(text: &str, name: &str, body: &str) -> String {
     let eol = if text.contains("\r\n") { "\r\n" } else { "\n" };
     let lines: Vec<&str> = text.split_inclusive('\n').collect();
-    let is_unreleased = |l: &str| l.trim().eq_ignore_ascii_case("## [unreleased]");
-    let start = lines.iter().position(|l| is_unreleased(l));
+    let heading = format!("## [{}]", name.to_lowercase());
+    let start = lines.iter().position(|l| l.trim().to_lowercase().starts_with(&heading));
     let after = start.map_or(0, |s| s + 1);
     let end = lines.iter().skip(after).position(|l| l.trim_start().starts_with("## ")).map_or(lines.len(), |i| after + i);
     let mut out: String = lines[..start.unwrap_or(end)].concat();
     if !out.is_empty() && !out.ends_with('\n') {
         out.push_str(eol);
     }
-    out.push_str(&format!("## [Unreleased]{eol}{eol}"));
+    out.push_str(&start.map_or(format!("## [{name}]"), |s| lines[s].trim_end().to_string()));
+    out.push_str(&format!("{eol}{eol}"));
     let body = body.trim();
     if !body.is_empty() {
         out.push_str(&body.lines().map(str::trim_end).collect::<Vec<_>>().join(eol));
@@ -788,6 +791,15 @@ fn replace_unreleased(text: &str, body: &str) -> String {
         out.push_str(&lines[end..].concat());
     }
     out
+}
+
+/// The version of the first `## [x.y.z]` heading that is not Unreleased.
+fn latest_changelog_version(text: &str) -> Option<String> {
+    text.lines()
+        .filter_map(|l| l.trim_start().strip_prefix("## [")?.split_once(']'))
+        .map(|(v, _)| v.trim())
+        .find(|v| !v.eq_ignore_ascii_case("unreleased"))
+        .map(String::from)
 }
 
 /// The body of the `## [name]` section, `name` matched ignoring case ("" when there is none).
@@ -2289,7 +2301,8 @@ impl Gitnetix {
         let default_view = find(&default);
         let remote = remote.ok().flatten();
         let has_changelog = Path::new(&p.path).join(CHANGELOG).is_file();
-        Ok((Overview { project: p, current_branch: current, default_branch: default, releases, other_branches, default_view, branches: all, rebasing, in_progress, conflicts, remote, stashes, has_changelog }, built))
+        let changelog_version = std::fs::read_to_string(Path::new(&p.path).join(CHANGELOG)).ok().and_then(|t| latest_changelog_version(&t));
+        Ok((Overview { project: p, current_branch: current, default_branch: default, releases, other_branches, default_view, branches: all, rebasing, in_progress, conflicts, remote, stashes, has_changelog, changelog_version }, built))
     }
 
     /// Every branch's view with counts, merge state and parent: a few git calls per branch,
@@ -3080,7 +3093,7 @@ impl Gitnetix {
             // The stamp below changes it on the release after this check.
             clean_changelog(&self.git_at(&p, dir), dir).await?;
         }
-        self.stamp_release_changelog(&p, &git, &r.branch, version).await?;
+        self.stamp_release_changelog(&p, &git, &r.branch, version, &format!("docs(changelog): release v{version}")).await?;
         let sha = git.rev_parse(&r.branch).await?;
         match default_dir {
             Some(dir) => Git::new(&dir).merge_ff_only(&r.branch).await?,
@@ -3121,7 +3134,7 @@ impl Gitnetix {
         let git = self.git(&p);
         let text = git.show_file(&r.branch, CHANGELOG).await?.ok_or_else(|| Error::Invalid(format!("{} has no {CHANGELOG}", r.branch)))?;
         let merging = text.lines().any(|l| l.trim_start().starts_with(&format!("## [{version}]")));
-        if !self.stamp_release_changelog(&p, &git, &r.branch, version).await? {
+        if !self.stamp_release_changelog(&p, &git, &r.branch, version, &format!("docs(changelog): release v{version}")).await? {
             return Ok(format!("Nothing under Unreleased to move into {version}"));
         }
         self.changed(project_id);
@@ -3129,14 +3142,55 @@ impl Gitnetix {
         Ok(format!("Unreleased changes {verb} into {version} on {}", r.branch))
     }
 
-    /// Turn the `Unreleased` section of the release branch's CHANGELOG.md into this
-    /// version's, and commit that on the branch. False (no-op) without a changelog or entries.
-    async fn stamp_release_changelog(&self, p: &Project, git: &Git, branch: &str, version: &str) -> Result<bool> {
+    /// Merge the `Unreleased` entries of `branch`'s CHANGELOG.md into its latest version's
+    /// section, committed on the branch (see `stamp_release_changelog`).
+    pub async fn changelog_into_latest(&self, project_id: &str, branch: &str) -> Result<String> {
+        let p = self.store.project(project_id)?;
+        let git = self.git(&p);
+        let text = git.show_file(branch, CHANGELOG).await?.ok_or_else(|| Error::Invalid(format!("{branch} has no {CHANGELOG}")))?;
+        let version = latest_changelog_version(&text).ok_or_else(|| Error::Invalid(format!("{CHANGELOG} on {branch} lists no version yet")))?;
+        if !self.stamp_release_changelog(&p, &git, branch, &version, &format!("docs(changelog): add unreleased changes to v{version}")).await? {
+            return Ok(format!("Nothing under Unreleased to add to {version}"));
+        }
+        self.changed(project_id);
+        Ok(format!("Unreleased changes merged into {version} on {branch}"))
+    }
+
+    /// Turn the `Unreleased` section of `branch`'s CHANGELOG.md into `version`'s (dated today when
+    /// new), and commit that on the branch. When the version already lists entries, AI merges both
+    /// (each change once, highlights first); without AI, or when it fails, `merge_sections` does.
+    /// False (no-op) without a changelog or entries.
+    async fn stamp_release_changelog(&self, p: &Project, git: &Git, branch: &str, version: &str, message: &str) -> Result<bool> {
         let Some(text) = git.show_file(branch, CHANGELOG).await? else { return Ok(false) };
         let date = chrono::Local::now().format("%Y-%m-%d").to_string();
-        let Some(stamped) = stamp_changelog(&text, version, &date) else { return Ok(false) };
-        self.commit_changelog(p, git, branch, &stamped, &format!("docs(changelog): release v{version}")).await?;
+        let Some(mut stamped) = stamp_changelog(&text, version, &date) else { return Ok(false) };
+        let released = section_body(&text, version);
+        if !released.is_empty() {
+            if let Some(body) = self.merge_changelog_ai(p, version, &released, &section_body(&text, "unreleased")).await {
+                stamped = replace_section(&stamped, version, &body);
+            }
+        }
+        self.commit_changelog(p, git, branch, &stamped, message).await?;
         Ok(true)
+    }
+
+    /// `released` and `unreleased` entries merged by AI into one body for `version`'s section.
+    /// None without AI, when it fails, or when the answer is not a section body.
+    async fn merge_changelog_ai(&self, p: &Project, version: &str, released: &str, unreleased: &str) -> Option<String> {
+        let t = self.template("changelogMerge", None, Some(&p.id)).ok()?;
+        let mut vars = BTreeMap::new();
+        vars.insert("version".into(), version.into());
+        vars.insert("released".into(), released.into());
+        vars.insert("unreleased".into(), unreleased.into());
+        let out = self.ask("release", &t, vars, &p.gen_lang.release, Some(Path::new(&p.path))).await.ok()?;
+        let out = out.trim();
+        // Some models repeat the heading they were told to leave out.
+        let body = if out.starts_with("## [") { out.split_once('\n').map_or("", |(_, b)| b).trim() } else { out };
+        if body.is_empty() || body.lines().any(|l| l.trim_start().starts_with("## ")) {
+            crate::log::error(format!("AI changelog merge for {version} was not a section body; merged without AI"));
+            return None;
+        }
+        Some(body.to_string())
     }
 
     /// Commit `text` as `branch`'s CHANGELOG.md: in its checkout when it has one, else straight onto the branch.
@@ -5066,7 +5120,7 @@ impl Gitnetix {
         if body == current {
             return Ok("Changelog already lists these changes".into());
         }
-        let updated = replace_unreleased(&text, &body);
+        let updated = replace_section(&text, "Unreleased", &body);
         let message = format!("docs(changelog): add changes from {branch}");
         match self.checkout_dir(&p, branch).await? {
             Some(dir) => {
@@ -5498,13 +5552,20 @@ mod tests {
         assert_eq!(section_body(text, "unreleased"), "### Added\n- Stash.");
         assert_eq!(section_body(text, "0.0.6"), "- Tags.");
         assert_eq!(
-            replace_unreleased(text, "### Added\n- Stash.\n- Azure.\n"),
+            replace_section(text, "Unreleased", "### Added\n- Stash.\n- Azure.\n"),
             "# Changelog\n\n## [Unreleased]\n\n### Added\n- Stash.\n- Azure.\n\n## [0.0.6] - 2026-10-18\n\n- Tags.\n"
         );
         // No Unreleased section yet: opened above the latest version.
-        assert_eq!(replace_unreleased("# Changelog\n\n## [0.0.6]\n- Tags.\n", "- Fix."), "# Changelog\n\n## [Unreleased]\n\n- Fix.\n\n## [0.0.6]\n- Tags.\n");
-        assert_eq!(replace_unreleased("# Changelog\n", "- Fix."), "# Changelog\n## [Unreleased]\n\n- Fix.\n");
-        assert_eq!(replace_unreleased("## [Unreleased]\r\n\r\n## [1.0.0]\r\n- A.\r\n", "- B."), "## [Unreleased]\r\n\r\n- B.\r\n\r\n## [1.0.0]\r\n- A.\r\n");
+        assert_eq!(replace_section("# Changelog\n\n## [0.0.6]\n- Tags.\n", "Unreleased", "- Fix."), "# Changelog\n\n## [Unreleased]\n\n- Fix.\n\n## [0.0.6]\n- Tags.\n");
+        assert_eq!(replace_section("# Changelog\n", "Unreleased", "- Fix."), "# Changelog\n## [Unreleased]\n\n- Fix.\n");
+        assert_eq!(replace_section("## [Unreleased]\r\n\r\n## [1.0.0]\r\n- A.\r\n", "Unreleased", "- B."), "## [Unreleased]\r\n\r\n- B.\r\n\r\n## [1.0.0]\r\n- A.\r\n");
+        // A version section keeps its dated heading; the next version is left alone.
+        assert_eq!(
+            replace_section("## [Unreleased]\n\n## [0.0.7] - 2026-10-19\n- A.\n- B.\n\n## [0.0.6]\n- Tags.\n", "0.0.7", "### Added\n- B.\n- A."),
+            "## [Unreleased]\n\n## [0.0.7] - 2026-10-19\n\n### Added\n- B.\n- A.\n\n## [0.0.6]\n- Tags.\n"
+        );
+        assert_eq!(latest_changelog_version(text).as_deref(), Some("0.0.6"));
+        assert_eq!(latest_changelog_version("# Changelog\n\n## [Unreleased]\n- Fix.\n"), None);
     }
 
     #[test]
