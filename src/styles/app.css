@@ -3781,6 +3781,8 @@ button.picker-act {
   border: 0;
   outline: none;
   resize: none;
+  /* Text wraps; with no side padding the caret at a line's end overflows by a pixel and brings up a sideways scrollbar. */
+  overflow-x: hidden;
   background: transparent;
   color: var(--fg);
   font-family: var(--mono);
