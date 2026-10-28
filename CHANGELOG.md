@@ -14,6 +14,9 @@ release notes and the in-app update prompt.
 ### Added
 - Pulling a branch when uncommitted changes are in the way now asks what to do with them: keep them on top of the pulled branch, or stash them and pull a clean branch. Before, the pull failed with git's error.
 
+### Changed
+- Desktop zoom defaults to 1.5.
+
 ### Fixed
 - Pulling a branch with uncommitted changes no longer fails when git's `pull.rebase` setting is on and the changes don't touch the files the pull brings in.
 

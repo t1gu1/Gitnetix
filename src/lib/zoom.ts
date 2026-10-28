@@ -4,8 +4,8 @@ import { isLocal } from "../api/transport";
 import { useStored } from "./stored";
 
 const MAC = /Mac/.test(navigator.userAgent);
-// Three Ctrl + steps up from the webview's 100%.
-const DEFAULT_ZOOM = 1.3;
+// Five Ctrl + steps up from the webview's 100%.
+const DEFAULT_ZOOM = 1.5;
 
 /** Ctrl (Cmd on macOS) + and - zoom the desktop window, 0 resets it; the level is kept between sessions. */
 export function useZoomKeys() {
