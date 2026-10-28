@@ -14,6 +14,10 @@ use crate::error::{Error, Result};
 /// Git's empty tree: the base to diff a root commit (or a stash's untracked files) against.
 const EMPTY_TREE: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 
+/// Untracked files get their lines counted up to this many. Past it (an unignored node_modules) they go
+/// uncounted: reading every one of them on each WIP poll stalls the app.
+const MAX_COUNTED: usize = 2000;
+
 /// `git log -E` filter for pull request squashes named after their branch.
 const PR_GREP: &str = "--grep=^Merged PR [0-9]+: [^ ]+$";
 
@@ -836,11 +840,12 @@ impl Git {
         } else {
             HashMap::new()
         };
+        let count = entries.iter().filter(|e| e.status == 'A' && !stats.contains_key(&e.path)).count() <= MAX_COUNTED;
         for e in entries.iter_mut() {
             if let Some((a, d)) = stats.get(&e.path) {
                 e.additions = *a;
                 e.deletions = *d;
-            } else if e.status == 'A' {
+            } else if count && e.status == 'A' {
                 e.additions = count_lines(&self.cwd.join(&e.path));
             }
         }
@@ -924,12 +929,13 @@ impl Git {
         )?;
         let (staged_stats, unstaged_stats) = (parse_numstat_z(&staged), parse_numstat_z(&unstaged));
         let mut out = parse_status_split_z(&status);
+        let count = out.iter().filter(|e| e.status == 'A' && e.staged == Some(false) && !unstaged_stats.contains_key(&e.path)).count() <= MAX_COUNTED;
         for e in out.iter_mut() {
             let stats = if e.staged == Some(true) { &staged_stats } else { &unstaged_stats };
             if let Some((a, d)) = stats.get(&e.path) {
                 e.additions = *a;
                 e.deletions = *d;
-            } else if e.status == 'A' && e.staged == Some(false) {
+            } else if count && e.status == 'A' && e.staged == Some(false) {
                 e.additions = count_lines(&self.cwd.join(&e.path));
             }
         }

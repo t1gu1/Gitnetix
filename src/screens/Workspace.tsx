@@ -26,7 +26,7 @@ import { isLocal, revealPath } from "../api/transport";
 import type { AgentSession, BranchView, Commit, FileChange, Hunk, LinePick, MergeResult, Overview, RebaseResult, ReleaseView, RenameResult, Stash } from "../api/types";
 import { AgentInput, AgentLog, type Attachment, type Choice, type Upload } from "../components/AgentLog";
 import { AgentPicker, useAgentPick } from "../components/AgentPicker";
-import { DiffView, type DiffMode, type Staging } from "../components/DiffView";
+import { DiffView, LargeDiff, type DiffMode, type Staging } from "../components/DiffView";
 import { IMAGE_MODES, ImageDiff, comparable, isImage, useImageMode, type ImageMode } from "../components/ImageDiff";
 import { ContextMenu, type MenuItem } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
@@ -48,6 +48,12 @@ import { StashList } from "./StashList";
 type Mode = "branch" | "wip" | "project";
 type Pane = "releases" | "files" | "diff";
 const PANES: Pane[] = ["releases", "files", "diff"];
+/** A file with more changed lines than this waits for "Show anyway" before its diff is even fetched. */
+const HUGE_DIFF = 20_000;
+/** A tree folder holding more files than this starts closed, and so do the folders inside it. */
+const BIG_FOLDER = 200;
+/** The flat list draws this many files until "Show all". */
+const MAX_ROWS = 1000;
 
 export function Workspace() {
   const nav = useNav();
@@ -197,7 +203,13 @@ export function Workspace() {
   // Project view lists untouched files too: those show as the plain file, no diff.
   const unchanged = mode === "project" && !commit && !stash && current?.status === " ";
   const markdown = /\.(md|markdown|mdx)$/i.test(current?.path ?? "");
-  const diff = useDiff(pid, branch, mode, unchanged ? undefined : current?.path, current?.staged, commit?.sha, stash?.sha, diffMode === "full");
+  // The file whose large diff the user asked to see anyway. One with a huge known line count isn't even fetched before that.
+  const [anyway, setAnyway] = useState<string>();
+  const forced = !!current && anyway === fileKey(current);
+  const changedLines = current ? current.additions + current.deletions : 0;
+  const huge = !forced && changedLines > HUGE_DIFF;
+  const showAnyway = () => current && setAnyway(fileKey(current));
+  const diff = useDiff(pid, branch, mode, unchanged || huge ? undefined : current?.path, current?.staged, commit?.sha, stash?.sha, diffMode === "full");
   const svg = /\.svg$/i.test(current?.path ?? "");
   // An SVG is text too: its Code view drops the image preview and shows it like any other file.
   const image = isImage(current?.path) && !(svg && svgCode);
@@ -236,6 +248,7 @@ export function Workspace() {
     invalidate: [["files", pid], ["diff", pid], ["overview", pid]],
     success: "Added to .gitignore",
   });
+  const junk = useMemo(() => (mode === "wip" && !commit && !stash && checkedOut ? junkFolder(list) : undefined), [mode, commit, stash, checkedOut, list]);
   const fileMenu = (t: FileTarget): MenuItem[] => {
     const notOut = checkedOut ? undefined : "check out first";
     return [
@@ -444,8 +457,9 @@ export function Workspace() {
                   </article>
                 ) : (
                   <>
-                    {raw && current && <DiffView path={current.path} hunks={raw} mode="full" />}
-                    {!image && current && diff.data && diff.data.length > 0 && <DiffView path={current.path} hunks={diff.data} mode={diffMode} staging={staging} />}
+                    {huge && !image && <LargeDiff lines={changedLines} onShow={showAnyway} />}
+                    {raw && current && <DiffView path={current.path} hunks={raw} mode="full" anyway={forced} onAnyway={showAnyway} />}
+                    {!image && current && diff.data && diff.data.length > 0 && <DiffView path={current.path} hunks={diff.data} mode={diffMode} staging={staging} anyway={forced} onAnyway={showAnyway} />}
                   </>
                 )}
                 {(!current || (diff.data && diff.data.length === 0 && !image) || (unchanged && !image && blobs.data && text === null)) && (
@@ -535,6 +549,17 @@ export function Workspace() {
               )}
               {branch && view?.worktree && <span className="hint mono ellipsis" title={view.worktree}>{view.worktree}</span>}
             </div>
+            {junk && (
+              <div className="col note-box" style={{ margin: "10px 12px 0" }}>
+                <span style={{ fontSize: 12, lineHeight: 1.45 }}>
+                  <span className="mono">{junk}/</span> isn't ignored: its files fill the list and slow the app down.
+                </span>
+                <button className="btn btn-sm" style={{ height: 30 }} disabled={ignore.isPending} onClick={() => branch && ignore.mutate({ projectId: pid, branch, path: junk, dir: true })}>
+                  {ignore.isPending ? <span className="spinner" /> : <Icon name="edit" size={12} />}
+                  <span>Add to .gitignore</span>
+                </button>
+              </div>
+            )}
             {inRebase && (
               <div className="col note-box" style={{ margin: "10px 12px 0" }}>
                 <span style={{ fontSize: 12, lineHeight: 1.45 }}>
@@ -879,6 +904,19 @@ function buildTree(list: FileChange[]) {
   return root;
 }
 
+/** Folders of installed packages or caches, which a repository should ignore. */
+const JUNK_DIRS = new Set(["node_modules", ".bun"]);
+
+/** The first such folder holding untracked files, outermost. */
+function junkFolder(list: FileChange[]): string | undefined {
+  for (const f of list) {
+    if (f.staged !== false || f.status !== "A") continue;
+    const parts = f.path.split("/");
+    const i = parts.findIndex((p, j) => j < parts.length - 1 && JUNK_DIRS.has(p));
+    if (i >= 0) return parts.slice(0, i + 1).join("/");
+  }
+}
+
 const filesUnder = (d: Dir): FileChange[] => [...d.files, ...[...d.dirs.values()].flatMap(filesUnder)];
 
 /** What a right click landed on: one file, or a folder and every listed file under it. */
@@ -903,6 +941,7 @@ function FileList({
   menu?: (t: FileTarget) => MenuItem[];
 }) {
   const [closed, setClosed] = useState<Record<string, boolean>>({});
+  const [all, setAll] = useState(false);
   const [ctx, setCtx] = useState<{ x: number; y: number; t: FileTarget } | null>(null);
   const openMenu = (t: FileTarget, e: MouseEvent) => {
     if (!menu) return;
@@ -921,8 +960,23 @@ function FileList({
     );
   };
   const ctxMenu = ctx && menu && <ContextMenu x={ctx.x} y={ctx.y} label={ctx.t.path} items={menu(ctx.t)} onClose={() => setCtx(null)} />;
-  if (!tree) return <>{list.map((f) => row(f))}{ctxMenu}</>;
-  const walk = (d: Dir, path: string, depth: number): ReactNode[] => [
+  if (!tree) {
+    const more = all ? 0 : list.length - MAX_ROWS;
+    return (
+      <>
+        {(more > 0 ? list.slice(0, MAX_ROWS) : list).map((f) => row(f))}
+        {more > 0 && (
+          <li className="row" style={{ gap: 8, padding: "6px 14px", fontSize: 12, color: "var(--muted)" }}>
+            <span className="grow">{plural(more, "more file")}</span>
+            <button className="btn btn-sm btn-ghost" onClick={() => setAll(true)}>Show all</button>
+          </li>
+        )}
+        {ctxMenu}
+      </>
+    );
+  }
+  // A big folder (an unignored node_modules) and the folders inside it start closed: their rows are only drawn once opened.
+  const walk = (d: Dir, path: string, depth: number, inBig = false): ReactNode[] => [
     ...[...d.dirs].sort(([a], [b]) => a.localeCompare(b)).map(([name, sub]) => {
       // Fold folders holding a single folder into one row, like "src/api".
       while (!sub.files.length && sub.dirs.size === 1) {
@@ -934,12 +988,14 @@ function FileList({
       const t: FileTarget = { path: key.slice(0, -1), dir: true, files: filesUnder(sub) };
       const adds = t.files.reduce((n, f) => n + f.additions, 0);
       const dels = t.files.reduce((n, f) => n + f.deletions, 0);
+      const big = inBig || t.files.length > BIG_FOLDER;
+      const shut = closed[key] ?? (allClosed || big);
       const btn = (
         <button
           className="file-btn"
           style={{ paddingLeft: 14 + depth * 14 }}
-          aria-expanded={!(closed[key] ?? allClosed)}
-          onClick={() => setClosed((c) => ({ ...c, [key]: !(c[key] ?? allClosed) }))}
+          aria-expanded={!shut}
+          onClick={() => setClosed((c) => ({ ...c, [key]: !(c[key] ?? (allClosed || big)) }))}
         >
           <Icon name="chevronDown" size={12} className="chev" />
           <span className="grow ellipsis faint" data-tip={key} data-tip-overflow>{name}</span>
@@ -959,7 +1015,7 @@ function FileList({
               </div>
             ) : btn}
           </div>
-          <ul style={{ listStyle: "none", margin: 0, padding: 0 }} hidden={closed[key] ?? allClosed}>{walk(sub, key, depth + 1)}</ul>
+          {!shut && <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>{walk(sub, key, depth + 1, big)}</ul>}
         </li>
       );
     }),

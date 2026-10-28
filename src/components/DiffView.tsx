@@ -61,7 +61,36 @@ export interface Staging {
   discard?: (lines: LinePick[]) => Promise<unknown>;
 }
 
-export function DiffView({ path, hunks, mode, staging }: { path: string; hunks: Hunk[]; mode: DiffMode; staging?: Staging }) {
+/** Past this many lines (or this much text) a diff waits for "Show anyway": drawing it all can freeze the app. */
+const LARGE_LINES = 5000;
+const LARGE_CHARS = 2_000_000;
+
+/** A diff too big to draw unasked, with a button to draw it anyway. */
+export function LargeDiff({ lines, onShow }: { lines: number; onShow: () => void }) {
+  return (
+    <div className="empty" style={{ fontFamily: "var(--sans)" }}>
+      <p style={{ margin: "0 0 12px" }}>Large diff — {lines.toLocaleString()} lines. Drawing it can slow the app down.</p>
+      <button className="btn btn-sm" onClick={onShow}>Show anyway</button>
+    </div>
+  );
+}
+
+/** `anyway` draws it whatever its size; until then a large diff shows `LargeDiff`, whose button calls `onAnyway`. */
+export function DiffView({ path, hunks, mode, staging, anyway, onAnyway }: { path: string; hunks: Hunk[]; mode: DiffMode; staging?: Staging; anyway: boolean; onAnyway: () => void }) {
+  const size = useMemo(() => {
+    let lines = 0;
+    let chars = 0;
+    for (const h of hunks) {
+      lines += h.lines.length;
+      for (const l of h.lines) chars += l.text.length;
+    }
+    return { lines, chars };
+  }, [hunks]);
+  if (!anyway && (size.lines > LARGE_LINES || size.chars > LARGE_CHARS)) return <LargeDiff lines={size.lines} onShow={onAnyway} />;
+  return <Diff path={path} hunks={hunks} mode={mode} staging={staging} />;
+}
+
+function Diff({ path, hunks, mode, staging }: { path: string; hunks: Hunk[]; mode: DiffMode; staging?: Staging }) {
   const shown = useTokens(path, hunks);
   const picking = usePicking(path, shown.hunks, staging);
   return (
