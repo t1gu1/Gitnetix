@@ -31,6 +31,7 @@ const PATHS: Record<string, { d: string[]; fill?: boolean; circles?: [number, nu
   edit: { d: ["M11 2.5l2.5 2.5L6 12.5H3.5V10z"] },
   check: { d: ["M3 8.5l3 3 7-7"] },
   external: { d: ["M9 3h4v4M13 3L7 9M11 9.5V13H3V5h3.5"] },
+  eye: { d: ["M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z"], circles: [[8, 8, 2]] },
   search: { d: ["M11 11l3 3"], circles: [[7, 7, 4.5]] },
   branch: { d: ["M5 3v10M11 6.5c0 3-3 3.5-6 4"], circles: [[5, 3, 1.5], [5, 13, 1.5], [11, 5, 1.5]] },
   merged: { d: ["M4 4.5v1c0 2.5 4 3 4 5.5v.5", "M12 4.5v1c0 2.5-4 3-4 5.5"], circles: [[4, 3, 1.5], [12, 3, 1.5], [8, 13, 1.5]] },

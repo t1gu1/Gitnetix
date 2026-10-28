@@ -18,6 +18,7 @@ import { KINDS, kindOfBranch, type Kind } from "../lib/kinds";
 import { useNav } from "../lib/nav";
 import { useStored } from "../lib/stored";
 import { useBranchActions } from "./BranchMenu";
+import { revealBranch } from "./BranchTree";
 import { ConflictModal } from "./ConflictModal";
 import { clearSession, DiscardWorktreeModal, FinishWorktreeCard, MergeModal, mergeTargets, TargetBranchModal, useFinishHandlers } from "./Workspace";
 
@@ -53,6 +54,14 @@ const GROUP: Partial<Record<Row["status"], Exclude<Filter, "all">>> = {
 };
 
 const match = (s: Row["status"], f: Filter) => f === "all" || GROUP[s] === f;
+
+/** Show `r`'s branch selected in its project's workspace, the tree's sections opened down to it. */
+function openInWorkspace(nav: ReturnType<typeof useNav>, r: Row) {
+  revealBranch(r.projectId, r.branch);
+  nav.setProject(r.projectId);
+  nav.selectBranch(r.branch);
+  nav.go({ name: "workspace" });
+}
 
 export function Worktrees({ initial }: { initial?: string }) {
   const nav = useNav();
@@ -99,8 +108,8 @@ export function Worktrees({ initial }: { initial?: string }) {
     }
     return list.filter((r) => !gone.has(wtKey(r.path)) && !(r.agent && gone.has(agentKey(r.agent.id))));
   }, [wts.data, agents.data, projects, gone]);
-  // A hidden project's rows are gone, from the counts too.
-  const rows = all.filter((r) => !hiddenProjects.includes(r.projectId));
+  // A hidden project's rows are gone, from the counts too. The one opened from elsewhere stays, its project with it.
+  const rows = all.filter((r) => !hiddenProjects.includes(r.projectId) || r.key === initial);
 
   const cur = rows.find((r) => r.key === sel) ?? rows[0];
   // Projects with matching rows first; the rest sink to the bottom as bare headers.
@@ -155,6 +164,7 @@ export function Worktrees({ initial }: { initial?: string }) {
                   const [label, cls] = STATUS[r.status];
                   const sub = !r.wt ? "Directory removed" : r.agent?.request.split("\n")[0];
                   const more = `More actions for ${r.branch}`;
+                  const show = `Show ${r.branch} in the workspace`;
                   return (
                     <div key={r.key} className="wt-item" onContextMenu={(e) => openMenu(r, e)}>
                       <button className="item-btn wt-row" aria-pressed={r.key === cur?.key} title={r.path} onClick={() => { setSel(r.key); setPane("detail"); }}>
@@ -182,9 +192,14 @@ export function Worktrees({ initial }: { initial?: string }) {
                           {r.agent && <span className="faint" style={{ flex: "none" }}>{ago(r.agent.updatedAt)}</span>}
                         </span>
                       </button>
-                      {/* Like a branch's "…", but alone: it takes the whole height. */}
+                      {/* Stacked like a branch's "+" over its "…"; alone (directory removed), the "…" takes the whole height. */}
                       <span className="tree-acts">
-                        <span className="acts">
+                        <span className="acts act-stack">
+                          {r.wt && (
+                            <button className="act act-main" aria-label={show} data-tip={show} onClick={() => openInWorkspace(nav, r)}>
+                              <Icon name="eye" size={14} />
+                            </button>
+                          )}
                           <button className="act act-main" aria-label={more} data-tip={more} aria-haspopup="menu" onClick={(e) => openMenu(r, e)}>
                             <Icon name="more" size={14} />
                           </button>
@@ -334,11 +349,6 @@ function Detail({ r, menu, onMenuClose }: { r: Row; menu?: { x: number; y: numbe
   };
   const commitPush = () => commit.mutate({ projectId: r.projectId, branch: r.branch, message: "", all: !staged }, { onSuccess: () => push.mutate({ projectId: r.projectId, branch: r.branch }) });
   const retry = (id: string) => msg.mutate({ id, text: "The last run failed. Read the errors above, fix them and try again." });
-  const openWs = () => {
-    nav.setProject(r.projectId);
-    nav.selectBranch(r.branch);
-    nav.go({ name: "workspace" });
-  };
   // The row's "…" / right-click menu: the terminal fills the pane, so these are the worktree's only action buttons.
   const items = ([
     a?.status === "waiting" && r.wt && { id: "commit", label: "Commit & Push changes", icon: "sparkle", hint: String(staged || changed), disabled: !changed || commit.isPending || push.isPending, run: commitPush },
@@ -346,7 +356,7 @@ function Detail({ r, menu, onMenuClose }: { r: Row; menu?: { x: number; y: numbe
     a?.status === "running" && { id: "pause", label: "Pause", icon: "pause", run: () => pause.mutate({ id: a.id }) },
     a?.status === "paused" && { id: "resume", label: "Resume", icon: "play", run: () => resume.mutate({ id: a.id }) },
     busy && a && { id: "stop", label: "Stop agent", icon: "stop", run: () => halt(a) },
-    r.wt && { id: "open", label: "Open in workspace", icon: "external", run: openWs },
+    r.wt && { id: "open", label: "Open in workspace", icon: "external", run: () => openInWorkspace(nav, r) },
     { id: "copyName", label: "Copy workspace name", icon: "copy", run: () => copyToClipboard(r.path.split(/[\\/]/).pop() ?? r.path) },
     a && !busy && !isWorktree && { id: "clear", label: "Clear session…", icon: "close", danger: true, run: () => setClearing(true) },
     isWorktree && "sep",

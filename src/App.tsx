@@ -200,7 +200,7 @@ function Screen({ onUnpair }: { onUnpair: () => void }) {
       screen = <Analytics />;
       break;
     case "worktrees":
-      screen = <Worktrees initial={r.path} />;
+      screen = <Worktrees initial={r.key} />;
       break;
     case "submodules":
       screen = nav.projectId ? <Submodules /> : <Welcome />;

@@ -15,7 +15,8 @@ export type Route =
   | { name: "templates" }
   | { name: "tickets"; key?: string }
   | { name: "analytics" }
-  | { name: "worktrees"; path?: string }
+  /** `key`: the row to select, a linked worktree's path or the id of an agent outside one. */
+  | { name: "worktrees"; key?: string }
   | { name: "submodules" }
   | { name: "pair" };
 

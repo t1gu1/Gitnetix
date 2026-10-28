@@ -10,6 +10,7 @@ import { ContextMenu, type MenuItem } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
 import { Empty, releaseTagLabel } from "../components/ui";
 import { plural, stashCount } from "../lib/format";
+import { useNav } from "../lib/nav";
 import { BranchSplit, type BranchActions, type BranchTarget } from "./BranchMenu";
 
 /** Branches this many commits behind the default branch count as falling behind. */
@@ -783,7 +784,12 @@ function BranchMeta({
   const typed = b.role === "branch" && !!b.kind;
   const wip = b.wip > 0 && <span className="wip-badge" title={`${plural(b.wip, "file")} with uncommitted changes`}>WIP {b.wip}</span>;
   const conflict = b.conflict && <span className="c-del">conflict</span>;
-  const agent = useAgents().data?.find((a) => a.cwd === b.worktree);
+  const nav = useNav();
+  // Off a worktree, the agent works in the main checkout.
+  const agent = useAgents().data?.find((a) => (b.worktree ? a.cwd === b.worktree : a.projectId === nav.projectId && a.branch === b.name));
+  // The state links to its row, selected, on the Worktrees & agents page: a worktree's goes by its path, an agent's elsewhere by its id.
+  const row = b.worktree ?? agent?.id;
+  const openRow = row ? (e: MouseEvent) => { e.stopPropagation(); nav.go({ name: "worktrees", key: row }); } : undefined;
   return (
     <>
     <span className="branch-meta">
@@ -791,7 +797,18 @@ function BranchMeta({
       {typed && !wip && <span className={`kind-chip ${b.kind === "fix" ? "c-del" : "c-mod"}`}>{b.kind}</span>}
       {(b.role === "release" || showName) && <span className="mono">{b.name}</span>}
       {current && <span className="c-current">checked out</span>}
-      {!b.worktree && b.running && <span className="row c-acc" style={{ gap: 4 }}><span className="pulse" style={{ width: 5, height: 5 }} /><span className="ai-fade">AI working</span></span>}
+      {!b.worktree && b.running && (
+        <span
+          className={`row c-acc${openRow ? " meta-link meta-link-icon" : ""}`}
+          style={{ gap: 4 }}
+          data-tip={openRow && "Open its session in Worktrees & agents"}
+          onClick={openRow}
+          onDoubleClick={(e) => e.stopPropagation()}
+        >
+          <span className="pulse" style={{ width: 5, height: 5 }} />
+          <span className="ai-fade">AI working</span>
+        </span>
+      )}
       {!b.worktree && conflict}
       {!typed && !b.worktree && wip}
       {!b.exists && <span className="c-del">branch deleted</span>}
@@ -858,8 +875,15 @@ function BranchMeta({
     {b.worktree && (
       <span className="branch-meta">
         {/* Its checkout's state: the worktree tag says when the AI works there. */}
-        <span className={`row${b.running ? " c-acc" : ""}`} style={{ gap: 4 }} title={b.worktree}><Icon name="layers" size={11} stroke={1.4} />{b.running ? <span className="ai-fade">AI working</span> : "worktree"}</span>
-        {!b.running && b.waiting && <span className="c-add ai-fade">{agent && shownStatus(agent, b) === "done" ? "done" : "waiting"}</span>}
+        <span className={`row meta-link meta-link-icon${b.running ? " c-acc" : ""}`} style={{ gap: 4 }} data-tip={`${b.worktree}. Click to open it in Worktrees & agents.`} onClick={openRow} onDoubleClick={(e) => e.stopPropagation()}>
+          <Icon name="layers" size={11} stroke={1.4} />
+          {b.running ? <span className="ai-fade">AI working</span> : "worktree"}
+        </span>
+        {!b.running && b.waiting && (
+          <span className="c-add ai-fade meta-link" data-tip="Open it in Worktrees & agents" onClick={openRow} onDoubleClick={(e) => e.stopPropagation()}>
+            {agent && shownStatus(agent, b) === "done" ? "done" : "waiting"}
+          </span>
+        )}
         {conflict}
         {!typed && wip}
       </span>
