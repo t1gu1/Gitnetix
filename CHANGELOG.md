@@ -11,6 +11,8 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-10-28
+
 ### Added
 - Commit graph preview beside the branch tree: it shows the selected branches down to where they meet, with local and origin tips, tags and HEAD.
 - Previewed and hovered rows are peeked in the graph.
