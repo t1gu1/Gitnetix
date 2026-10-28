@@ -15,6 +15,7 @@ import { plural } from "../lib/format";
 import { copyToClipboard } from "../lib/toast";
 import { KINDS, kindOfBranch, type Kind } from "../lib/kinds";
 import { useNav } from "../lib/nav";
+import { useStored } from "../lib/stored";
 import { useBranchActions } from "./BranchMenu";
 import { ConflictModal } from "./ConflictModal";
 import { DiscardWorktreeModal, FinishWorktreeCard, MergeModal, mergeTargets, TargetBranchModal, useFinishHandlers } from "./Workspace";
@@ -58,6 +59,10 @@ export function Worktrees({ initial }: { initial?: string }) {
   const agents = useAgents();
   const projects = useProjects().data ?? [];
   const [filter, setFilter] = useState<Filter>("all");
+  // Projects left out of the list; ones added later show.
+  const [hidden, setHidden] = useStored<string[]>("gnx.worktrees.hidden", []);
+  const off = projects.filter((p) => hidden.includes(p.id));
+  const shown = projects.filter((p) => !hidden.includes(p.id));
   const [sel, setSel] = useState<string | undefined>(initial);
   const [pane, setPane] = useState<"list" | "detail">(initial ? "detail" : "list");
   const listW = usePaneWidth("gnx.pane.worktrees", 400, 280, 720);
@@ -77,7 +82,7 @@ export function Worktrees({ initial }: { initial?: string }) {
   };
 
   // One row per linked worktree; agents elsewhere (main checkout, removed directory) still show up.
-  const rows: Row[] = useMemo(() => {
+  const all: Row[] = useMemo(() => {
     const list: Row[] = (wts.data ?? []).filter((w) => !w.main).map((w) => {
       const a = (agents.data ?? []).find((x) => x.cwd === w.path) ?? w.agent ?? undefined;
       return { key: w.path, wt: w, agent: a, projectId: w.projectId, projectName: w.projectName, branch: w.branch ?? "(detached)", path: w.path, status: a ? shownStatus(a, w) : "idle" };
@@ -91,11 +96,13 @@ export function Worktrees({ initial }: { initial?: string }) {
     }
     return list;
   }, [wts.data, agents.data, projects]);
+  // A hidden project's rows are gone, from the counts too.
+  const rows = all.filter((r) => !hidden.includes(r.projectId));
 
   const cur = rows.find((r) => r.key === sel) ?? rows[0];
   // Projects with matching rows first; the rest sink to the bottom as bare headers.
-  const groups = [...new Set([...projects.map((p) => p.name), ...rows.map((r) => r.projectName)])]
-    .map((name) => ({ name, id: projects.find((p) => p.name === name)?.id, items: rows.filter((r) => r.projectName === name && match(r.status, filter)) }))
+  const groups = [...new Set([...shown.map((p) => p.name), ...rows.map((r) => r.projectName)])]
+    .map((name) => ({ name, id: shown.find((p) => p.name === name)?.id, items: rows.filter((r) => r.projectName === name && match(r.status, filter)) }))
     .filter((g) => g.items.length || filter === "all")
     .sort((a, b) => +!a.items.length - +!b.items.length);
   const loading = wts.isLoading || agents.isLoading;
@@ -106,20 +113,25 @@ export function Worktrees({ initial }: { initial?: string }) {
 
   return (
     <>
-      <Header title="Worktrees & agents" sub="All projects" hideWide onBack={pane === "detail" ? () => setPane("list") : undefined} />
+      <Header title="Worktrees & agents" sub={off.length ? `${shown.length} of ${plural(projects.length, "project")}` : "All projects"} hideWide onBack={pane === "detail" ? () => setPane("list") : undefined} />
       <div className="body split">
         <section className="master" style={{ "--master-w": `${listW.width}px` } as CSSProperties} data-pane data-active={pane === "list"} aria-label="Worktrees">
           <div className="master-tools">
-            <Seg<Filter>
-              grid
-              label="Filter"
-              value={filter}
-              onChange={setFilter}
-              options={(["all", "running", "needs"] as Filter[]).map((f) => ({
-                value: f,
-                label: <>{{ all: "All", running: "Running", needs: "Needs you" }[f]} <span className="faint">{rows.filter((r) => match(r.status, f)).length}</span></>,
-              }))}
-            />
+            <div className="row" style={{ margin: 0, gap: 8, alignItems: "stretch" }}>
+              <div className="grow" style={{ minWidth: 0 }}>
+                <Seg<Filter>
+                  grid
+                  label="Filter"
+                  value={filter}
+                  onChange={setFilter}
+                  options={(["all", "running", "needs"] as Filter[]).map((f) => ({
+                    value: f,
+                    label: <>{{ all: "All", running: "Running", needs: "Needs you" }[f]} <span className="faint">{rows.filter((r) => match(r.status, f)).length}</span></>,
+                  }))}
+                />
+              </div>
+              <ProjectFilter projects={projects} hidden={off.map((p) => p.id)} onChange={setHidden} />
+            </div>
           </div>
           <div className="scroll" style={{ flex: "1 1 auto", paddingBottom: 12 }} aria-busy={refreshing || undefined}>
             {groups.map((g, i) => (
@@ -181,7 +193,16 @@ export function Worktrees({ initial }: { initial?: string }) {
               </div>
             ))}
             {!loading && !groups.some((g) => g.items.length) && filter !== "all" && <Empty>{filter === "running" ? "No agent running." : "Nothing waiting on you."}</Empty>}
-            {!loading && groups.length === 0 && filter === "all" && <Empty>Nothing here right now.</Empty>}
+            {!loading && groups.length === 0 && filter === "all" && (
+              off.length ? (
+                <Empty>
+                  Every project is hidden.{" "}
+                  <button className="btn btn-sm" onClick={() => setHidden([])}>Show all projects</button>
+                </Empty>
+              ) : (
+                <Empty>Nothing here right now.</Empty>
+              )
+            )}
           </div>
           <div className="master-tools" style={{ borderBottom: 0, borderTop: "1px solid var(--line)" }}>
             <button className="btn btn-primary" style={{ height: 48, fontSize: 13.5 }} disabled={!projects.length} onClick={() => setStarting(nav.projectId ?? cur?.projectId ?? projects[0]?.id)}>
@@ -196,6 +217,53 @@ export function Worktrees({ initial }: { initial?: string }) {
         </main>
       </div>
       {starting && <StartModal initial={starting} onClose={() => setStarting(undefined)} />}
+    </>
+  );
+}
+
+/** Dropdown picking the projects to list; unchecked ones (ids in `hidden`) are left out. Hidden with a single project. */
+function ProjectFilter({ projects, hidden, onChange }: { projects: { id: string; name: string }[]; hidden: string[]; onChange: (hidden: string[]) => void }) {
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  if (projects.length < 2 && !hidden.length) return null;
+  const check = <Icon name="check" size={13} />;
+  return (
+    <>
+      {/* Same label filtered or not: a wider one cuts "Needs you" short. The accent border tells it is on. */}
+      <button
+        className="btn"
+        style={{ flex: "none", height: "auto", fontSize: 12, ...(hidden.length && { borderColor: "var(--accent)", background: "var(--raised)" }) }}
+        aria-haspopup="menu"
+        aria-label="Filter by project"
+        data-tip={hidden.length ? `${projects.length - hidden.length} of ${plural(projects.length, "project")} shown` : "Show only these projects"}
+        onClick={(e) => {
+          const b = e.currentTarget.getBoundingClientRect();
+          setMenu({ x: b.right, y: b.bottom + 2 });
+        }}
+      >
+        Projects
+        <Icon name="chevronDown" size={10} />
+      </button>
+      {menu && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          alignRight
+          label="Filter by project"
+          onClose={() => setMenu(null)}
+          items={[
+            { id: "all", label: "All projects", icon: null, hint: !hidden.length && check, keep: true, run: () => onChange([]) },
+            "sep",
+            ...projects.map((p) => ({
+              id: p.id,
+              label: p.name,
+              icon: null,
+              hint: !hidden.includes(p.id) && check,
+              keep: true,
+              run: () => onChange(hidden.includes(p.id) ? hidden.filter((x) => x !== p.id) : [...hidden, p.id]),
+            })),
+          ]}
+        />
+      )}
     </>
   );
 }
