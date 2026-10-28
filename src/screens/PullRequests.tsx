@@ -1,3 +1,4 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState, type CSSProperties } from "react";
 
 import { useAction, useOverview, usePendingBranches, usePr, usePrs } from "../api/hooks";
@@ -43,14 +44,23 @@ function stateOf(p: PrSummary, d?: PrDetail): [string, string] {
 export function PullRequests({ initial }: { initial?: number }) {
   const nav = useNav();
   const pid = nav.projectId!;
+  const qc = useQueryClient();
   const prs = usePrs(pid);
   const ov = useOverview(pid).data;
   const [tab, setTab] = useState<Tab>("open");
   const [who, setWho] = useStored<Who>("gnx.prs.who", "mine", (s) => (s === "others" || s === "all" ? s : "mine"), String);
+  const [search, setSearch] = useStored("gnx.prs.search", "");
   const [sel, setSel] = useState<number | undefined>(initial);
   const [pane, setPane] = useState<"list" | "detail">(initial ? "detail" : "list");
   const listW = usePaneWidth("gnx.pane.prs", 460, 280, 720);
-  const items = prs.data?.items ?? [];
+  const all = prs.data?.items ?? [];
+  const term = search.trim().toLowerCase();
+  const items = all.filter((p) => !term || `#${p.number} ${p.title} ${p.head} ${p.author}`.toLowerCase().includes(term));
+  // The open pull request's checks and reviews are fetched on their own, so a sync refreshes them too.
+  const sync = () => {
+    prs.refetch();
+    qc.invalidateQueries({ queryKey: ["pr", pid] });
+  };
   // Review requests are always on someone else's pull requests, so the author filter skips them.
   const inTab = (p: PrSummary, t: Tab) =>
     t === "review"
@@ -88,6 +98,13 @@ export function PullRequests({ initial }: { initial?: number }) {
         <div className="body split">
           <section aria-label="Pull request list" className="master" style={{ "--master-w": `${listW.width}px` } as CSSProperties} data-pane data-active={pane === "list"}>
             <div className="master-tools">
+              <label htmlFor="pr-q" className="sr-only">Search pull requests</label>
+              <div className="row" style={{ gap: 6, margin: 0 }}>
+                <input id="pr-q" className="input grow" placeholder="Search by number, title, branch or author" value={search} onChange={(e) => setSearch(e.target.value, false)} onBlur={() => setSearch(search)} />
+                <button className="btn btn-icon" aria-label="Sync now" data-tip={prs.dataUpdatedAt ? `Sync now · synced ${ago(new Date(prs.dataUpdatedAt).toISOString())}` : "Sync now"} onClick={sync}>
+                  <Busy on={prs.isFetching}><Icon name="refresh" size={13} /></Busy>
+                </button>
+              </div>
               <Seg<Tab>
                 grid
                 label="Filter"
@@ -110,7 +127,7 @@ export function PullRequests({ initial }: { initial?: number }) {
             </div>
             <div className="scroll" style={{ flex: "1 1 auto", paddingBottom: 12 }}>
               {prs.isLoading && <Loading />}
-              {!prs.isLoading && list.length === 0 && <Empty>Nothing here.</Empty>}
+              {!prs.isLoading && list.length === 0 && <Empty>{term && all.length ? "No pull requests match this search." : "Nothing here."}</Empty>}
               {GROUPS.map((s) => ({ s, items: list.filter((p) => p.state === s) }))
                 .filter((g) => g.items.length)
                 .map(({ s, items }) => {
