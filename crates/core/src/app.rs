@@ -4153,7 +4153,10 @@ impl Gitnetix {
         let tmp = std::env::temp_dir().join(format!("gitnetix-rebase-{}", new_id()));
         git.worktree_add(&tmp, from, None).await?;
         let done = self.rebase_resolving(p, &self.git_at(p, &tmp), from, into).await;
-        git.worktree_remove(&tmp, true).await?;
+        // The rebase stands either way: a folder that won't go (a tool still writing there) is only logged.
+        if let Err(e) = git.worktree_remove(&tmp, true).await {
+            crate::log::error(format!("Could not remove the temporary checkout {}: {e}", tmp.display()));
+        }
         done
     }
 
@@ -4227,7 +4230,10 @@ impl Gitnetix {
                 let tmp = std::env::temp_dir().join(format!("gitnetix-merge-{}", new_id()));
                 git.worktree_add(&tmp, into, None).await?;
                 let sha = self.merge_resolving(p, &self.git_at(p, &tmp), from, into, &message).await;
-                git.worktree_remove(&tmp, true).await?;
+                // The merge stands either way: a folder that won't go (a tool still writing there) is only logged.
+                if let Err(e) = git.worktree_remove(&tmp, true).await {
+                    crate::log::error(format!("Could not remove the temporary checkout {}: {e}", tmp.display()));
+                }
                 sha?
             }
             (None, Some(tree)) => {

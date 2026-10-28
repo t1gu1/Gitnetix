@@ -11,6 +11,9 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+### Fixed
+- A merge, rebase merge or pull that went through no longer shows an error when its temporary checkout can't be deleted. The leftover folder is noted in Menu › Logs instead.
+
 ## [0.10.0] - 2026-10-27
 
 ### Added

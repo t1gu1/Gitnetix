@@ -156,4 +156,27 @@ async fn ai_resolves_conflicts_and_the_operation_goes_through() {
     assert_eq!(rev(&repo, "feat/k~1"), rev(&repo, "main"));
     assert_eq!(std::fs::read_to_string(repo.join("KEEP.md")).unwrap(), "k main\n");
     assert!(asked().contains("KEEP.md was changed by main and deleted by feat/k"), "{}", asked());
+
+    // A throwaway checkout that won't go (locked from the AI step): the merge, or the rebase and its
+    // fast-forward, still land and report done; the leftover folder is only logged.
+    std::fs::write(&script, "#!/bin/sh\ncat >/dev/null\ngit worktree lock \"$(pwd)\" 2>/dev/null\necho resolved locked\n").unwrap();
+    sh(&repo, &["switch", "-q", "main"]);
+    for (into, from, rebase) in [("feat/lz", "feat/ly", false), ("feat/rz", "feat/ry", true)] {
+        sh(&repo, &["switch", "-qc", into, "main"]);
+        commit_file(&repo, "README.md", &format!("# {into}\n"));
+        sh(&repo, &["switch", "-qc", from, "main"]);
+        commit_file(&repo, "README.md", &format!("# {from}\n"));
+        sh(&repo, &["switch", "-q", "main"]);
+        call(&k, "branches.merge", json!({ "projectId": pid, "branch": from, "into": into, "deleteBranch": false, "stay": true, "rebase": rebase })).await;
+        assert_eq!(git_out(&repo, &["show", &format!("{into}:README.md")]), "resolved locked\n");
+        let landed = if rebase { into.to_string() } else { format!("{into}^2") };
+        assert_eq!(rev(&repo, &landed), rev(&repo, from));
+        let left: Vec<String> = git_out(&repo, &["worktree", "list", "--porcelain"]).lines().filter_map(|l| l.strip_prefix("worktree ")).filter(|p| p.contains("gitnetix-")).map(String::from).collect();
+        assert_eq!(left.len(), 1, "the throwaway checkout should have stayed locked");
+        sh(&repo, &["worktree", "unlock", &left[0]]);
+        sh(&repo, &["worktree", "remove", "--force", &left[0]]);
+    }
+    let log = call(&k, "log.get", json!({})).await;
+    let logged = log.as_array().unwrap().iter().filter(|e| e["error"] == true && e["text"].as_str().unwrap().contains("Could not remove the temporary checkout")).count();
+    assert_eq!(logged, 2, "{log}");
 }
