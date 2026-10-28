@@ -13,12 +13,17 @@ release notes and the in-app update prompt.
 
 ### Added
 - Switching branch when uncommitted changes are in the way now asks what to do with them: bring them along to the other branch, or stash them and switch to a clean branch. Before, the switch failed with git's error.
+- Worktrees have a Change target branch action.
+- The worktrees list can be filtered by project.
+- Long context menus and pickers (merge, fix version, branch, author filter) have a search field to narrow the choices.
 
 ### Changed
 - Merging, deleting a branch or a worktree, continuing on a branch and clearing a session close their dialog at once and run in the background. What they remove leaves the lists right away, and comes back if the action fails.
 - A toast with a spinner shows a background action until it is done, then how it went. A failure stays on screen until clicked.
 
 ### Fixed
+- AI conflict resolution now sees the whole file instead of a few lines around each conflict, so a resolution can rename or import things outside the markers. Edits that don't apply are retried, resolutions that leave conflict markers behind are rejected, and CRLF line endings are kept.
+- Gitnetix no longer stalls on huge diffs or on a project with an unignored `node_modules` full of untracked files.
 - Settings › Companion & MCP no longer shows a pairing QR code phones can't reach. Until Gitnetix restarts after the companion settings change, it says so and offers a Restart button.
 
 ## [0.11.0] - 2026-10-27
