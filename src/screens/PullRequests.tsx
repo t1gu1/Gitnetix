@@ -1,4 +1,4 @@
-import { useQueryClient } from "@tanstack/react-query";
+import { useMutationState, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState, type CSSProperties } from "react";
 
 import { useAction, useOverview, usePendingBranches, usePr, usePrs } from "../api/hooks";
@@ -180,7 +180,21 @@ function Detail({ pid, number }: { pid: string; number: number }) {
   const q = usePr(pid, number);
   const host = useHost(pid);
   const inv = [["pr", pid, number], ["prs", pid]];
-  const merge = useAction("prs.merge", { invalidate: inv, success: `Merged #${number}` });
+  // The branch tree refreshes on its own: the merge fetches origin, which says the project changed.
+  const merge = useAction("prs.merge", {
+    invalidate: inv,
+    // Shows it merged at once (out of the open list), while the refetches come back.
+    patch: (qc) => {
+      qc.setQueryData<PrDetail>(["pr", pid, number], (p) => p && { ...p, state: "merged" });
+      qc.setQueryData<{ items: PrSummary[] }>(["prs", pid], (l) => l && { ...l, items: l.items.map((p) => (p.number === number ? { ...p, state: "merged" } : p)) });
+    },
+    success: `Merged #${number}`,
+  });
+  // From the mutation cache, so it still shows after picking another pull request and coming back.
+  const merging = useMutationState({
+    filters: { mutationKey: ["prs.merge"], status: "pending" },
+    select: (m) => m.state.variables as { projectId?: string; number?: number } | undefined,
+  }).some((v) => v?.projectId === pid && v.number === number);
   const update = useAction("prs.update", { invalidate: inv, success: `Saved to ${host}` });
   const close = useAction<{ deleteError: string | null }>("prs.close", {
     invalidate: [...inv, ["overview", pid], ["files", pid], ["worktrees"]],
@@ -246,9 +260,9 @@ function Detail({ pid, number }: { pid: string; number: number }) {
 
       <div className="row wrap" style={{ gap: 6, margin: 0 }}>
         {open && !d.conflict && d.state !== "draft" && (
-          <button className="btn btn-primary" disabled={merge.isPending || running + waiting > 0} onClick={() => merge.mutate({ projectId: pid, number })}>
-            {merge.isPending && <span className="spinner" />}
-            Merge into {d.base}
+          <button className="btn btn-primary" disabled={merging || running + waiting > 0} onClick={() => merge.mutate({ projectId: pid, number })}>
+            {merging && <span className="spinner" />}
+            {merging ? `Merging into ${d.base}…` : `Merge into ${d.base}`}
           </button>
         )}
         {d.conflict && (

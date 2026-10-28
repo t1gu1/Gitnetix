@@ -884,8 +884,11 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
             ok()
         }
         "prs.merge" => {
-            let gh = k.pr_host(&s(&p, "projectId")?).await?;
+            let pid = s(&p, "projectId")?;
+            let gh = k.pr_host(&pid).await?;
             gh.merge(u(&p, "number")?, &os(&p, "method").unwrap_or_else(|| "merge".into())).await?;
+            // The merge happened on origin: fetch it so the branch shows merged here. The merge stands even if this fails.
+            let _ = k.fetch(&pid).await;
             ok()
         }
         "prs.close" => {

@@ -395,7 +395,20 @@ impl Azure {
             "lastMergeSourceCommit": p["lastMergeSourceCommit"],
             "completionOptions": { "mergeStrategy": merge_strategy(method, &policies) },
         });
-        self.send(reqwest::Method::PATCH, &format!("/pullrequests/{number}"), b).await.map(|_| ())
+        self.send(reqwest::Method::PATCH, &format!("/pullrequests/{number}"), b).await?;
+        // Azure DevOps completes it in the background: wait until it has (or says why not), so a refresh right after shows it merged.
+        for _ in 0..20 {
+            let p = self.get(&format!("/pullrequests/{number}")).await?;
+            if p["status"] != "active" {
+                break;
+            }
+            if let Some(why @ ("conflicts" | "failure" | "rejectedByPolicy")) = p["mergeStatus"].as_str() {
+                let msg = p["mergeFailureMessage"].as_str().unwrap_or(why);
+                return Err(Error::Http(format!("Azure DevOps couldn't merge #{number}: {msg}")));
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        }
+        Ok(())
     }
 
     /// Abandons a PR, or reactivates an abandoned one.
