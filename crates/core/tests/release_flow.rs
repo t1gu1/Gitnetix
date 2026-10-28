@@ -1658,7 +1658,7 @@ async fn rename_on_origin_and_follow_it_elsewhere() {
     let stopped = Command::new("git").current_dir(&repo).args(["rebase", "-q", "-f", "-x", "false", "main"]).output().unwrap();
     assert!(!stopped.status.success());
     let err = rpc::call(&k, "branches.rename", json!({ "projectId": pid, "branch": "feat/b", "name": "feat/r", "remote": true })).await.unwrap_err();
-    assert!(err.to_string().contains("being rebased"), "{err}");
+    assert!(err.to_string().contains("middle of a rebase"), "{err}");
     assert_eq!(rev(&origin, "refs/heads/feat/b"), tip);
     sh(&repo, &["rebase", "--abort"]);
     sh(&repo, &["switch", "-q", "main"]);

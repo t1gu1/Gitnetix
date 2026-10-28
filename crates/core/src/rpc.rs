@@ -49,7 +49,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("workspace.commitMessage", "AI-written commit message for the staged changes", "projectId, branch"),
     ("workspace.commit", "Commit staged changes (all = stage everything first); empty message = AI writes it", "projectId, branch, message?, all?"),
     ("workspace.push", "Push a branch to origin; force = replace its upstream after a rebase (--force-with-lease --force-if-includes)", "projectId, branch, force?"),
-    ("workspace.rebase", "Rebase a branch onto its release; returns conflicts, and forcePushTo when it was already pushed", "projectId, branch"),
+    ("workspace.rebase", "Rebase a branch onto onto (a local or origin-only branch), else onto its release; its target stays; returns conflicts, and forcePushTo when it was already pushed", "projectId, branch, onto?"),
     ("workspace.rebaseContinue", "Continue a paused rebase", "projectId, branch"),
     ("workspace.rebaseAbort", "Abort a paused rebase", "projectId, branch"),
     ("workspace.conflictPropose", "AI proposal for a conflicted file", "projectId, branch, path"),
@@ -538,7 +538,7 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
         }
         "workspace.commit" => to(k.commit(&s(&p, "projectId")?, &s(&p, "branch")?, os(&p, "message"), b(&p, "all")).await?),
         "workspace.push" => to(json!({ "output": k.push(&s(&p, "projectId")?, &s(&p, "branch")?, b(&p, "force")).await? })),
-        "workspace.rebase" => to(k.rebase(&s(&p, "projectId")?, &s(&p, "branch")?).await?),
+        "workspace.rebase" => to(k.rebase(&s(&p, "projectId")?, &s(&p, "branch")?, os(&p, "onto").as_deref()).await?),
         "workspace.rebaseContinue" => to(k.rebase_continue(&s(&p, "projectId")?, &s(&p, "branch")?).await?),
         "workspace.rebaseAbort" => {
             k.rebase_abort(&s(&p, "projectId")?, &s(&p, "branch")?).await?;

@@ -268,6 +268,8 @@ export function Workspace() {
   }, [o, stash]);
 
   const inRebase = (branch === o?.currentBranch && o?.rebasing) || !!view?.conflict;
+  /** Where `b` is being replayed: the checked-out branch's paused rebase may go elsewhere than its target. */
+  const rebasingOnto = (b: string) => labelOf(b === o?.currentBranch && o?.rebaseOnto ? o.rebaseOnto : baseFor(b));
 
   if (ov.isLoading) return <Loading />;
   return (
@@ -510,7 +512,7 @@ export function Workspace() {
             {inRebase && (
               <div className="col note-box" style={{ margin: "10px 12px 0" }}>
                 <span style={{ fontSize: 12, lineHeight: 1.45 }}>
-                  Rebase onto <span className="mono">{base}</span> stopped on {o.conflicts.length || "a"} conflict{o.conflicts.length === 1 ? "" : "s"}.
+                  Rebase onto <span className="mono">{rebasingOnto(branch!)}</span> stopped on {o.conflicts.length || "a"} conflict{o.conflicts.length === 1 ? "" : "s"}.
                 </span>
                 <button className="btn btn-primary btn-sm" style={{ height: 30 }} onClick={() => branch && setDialog({ kind: "conflicts", branch })}>
                   <Icon name="sparkle" size={12} />
@@ -568,7 +570,7 @@ export function Workspace() {
       )}
       {shipping && <ShipModal pid={pid} release={shipping} defaultBranch={o?.defaultBranch ?? "main"} onClose={() => setShipping(null)} />}
       {actions.menuEl}
-      {dialog?.kind === "conflicts" && <ConflictModal pid={pid} branch={dialog.branch} base={baseFor(dialog.branch)} onClose={() => setDialog(null)} />}
+      {dialog?.kind === "conflicts" && <ConflictModal pid={pid} branch={dialog.branch} base={rebasingOnto(dialog.branch)} onClose={() => setDialog(null)} />}
       {dialog?.kind === "merge" && dialogView && (
         <MergeModal
           pid={pid}
@@ -620,6 +622,9 @@ export function Workspace() {
         />
       )}
       {dialog?.kind === "rebase" && dialog.onto && <RebaseOntoModal pid={pid} branch={dialog.branch} onto={labelOf(dialog.onto)} onClose={() => setDialog(null)} />}
+      {dialog?.kind === "rebaseOnto" && o && (
+        <RebaseOntoBranchModal pid={pid} branch={dialog.branch} onto={dialog.onto} branches={o.branches} labelOf={labelOf} onClose={() => setDialog(null)} />
+      )}
       {dialog?.kind === "delete" && dialogView?.worktree && (
         <DiscardWorktreeModal branch={dialog.branch} path={dialogView.worktree} onClose={() => setDialog(null)} onConfirm={() => finish.discard({ projectId: pid, branch: dialog.branch, cwd: dialogView.worktree! })} />
       )}
@@ -1332,7 +1337,6 @@ function TargetBranchModal({
   onClose: () => void;
   onTargeted: (parent: string) => void;
 }) {
-  const [query, setQuery] = useState("");
   const [picked, setPicked] = useState<string | null>(null);
   const move = useAction("branches.setParent", { invalidate: [["overview", pid], ["files", pid], ["diff", pid], ["commits", pid]], success: () => `${branch} now targets ${labelOf(picked ?? "")}` });
   const base = branches.find((b) => b.name === branch)?.parent ?? "";
@@ -1347,13 +1351,8 @@ function TargetBranchModal({
       }
       return false;
     };
-    const rank = (b: BranchView) => (b.role === "trunk" ? 0 : b.role === "release" ? 1 : 2);
-    return branches
-      .filter((b) => b.exists && b.name !== branch && b.name !== base && !below(b.name))
-      .sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
+    return branches.filter((b) => b.exists && b.name !== branch && b.name !== base && !below(b.name));
   }, [branches, branch, base]);
-  const q = query.trim().toLowerCase();
-  const shown = q ? choices.filter((b) => b.name.toLowerCase().includes(q) || labelOf(b.name).toLowerCase().includes(q)) : choices;
   const submit = () => picked && move.mutate({ projectId: pid, branch, parent: picked }, { onSuccess: () => onTargeted(picked) });
   return (
     <Modal
@@ -1369,12 +1368,29 @@ function TargetBranchModal({
         </>
       }
     >
+      <BranchPicker choices={choices} labelOf={labelOf} picked={picked} onPick={setPicked} />
+      {move.error && <ErrorBox error={move.error} />}
+    </Modal>
+  );
+}
+
+/** Filterable radio list of branches: trunks first, then releases, then the rest by name. */
+function BranchPicker({ choices, labelOf, picked, onPick }: { choices: BranchView[]; labelOf: (b: string) => string; picked: string | null; onPick: (b: string) => void }) {
+  const [query, setQuery] = useState("");
+  const sorted = useMemo(() => {
+    const rank = (b: BranchView) => (b.role === "trunk" ? 0 : b.role === "release" ? 1 : 2);
+    return [...choices].sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
+  }, [choices]);
+  const q = query.trim().toLowerCase();
+  const shown = q ? sorted.filter((b) => b.name.toLowerCase().includes(q) || labelOf(b.name).toLowerCase().includes(q)) : sorted;
+  return (
+    <>
       <input className="input" placeholder="Filter branches" autoFocus value={query} onChange={(e) => setQuery(e.target.value)} />
       <ul className="col" style={{ margin: 0, padding: 0, listStyle: "none", gap: 4, maxHeight: 320, overflowY: "auto" }}>
         {shown.map((b) => (
           <li key={b.name}>
             <label className="check">
-              <input type="radio" name="target" checked={picked === b.name} onChange={() => setPicked(b.name)} />
+              <input type="radio" name="branch" checked={picked === b.name} onChange={() => onPick(b.name)} />
               <span className="mono ellipsis">{labelOf(b.name)}</span>
               {b.role === "trunk" && <span className="tag">trunk</span>}
               {b.role === "release" && <span className="tag">release</span>}
@@ -1385,8 +1401,7 @@ function TargetBranchModal({
         ))}
         {!shown.length && <li className="faint">No branch matches “{query}”.</li>}
       </ul>
-      {move.error && <ErrorBox error={move.error} />}
-    </Modal>
+    </>
   );
 }
 
@@ -1411,6 +1426,40 @@ function RebaseOntoModal({ pid, branch, onto, onClose }: { pid: string; branch: 
       }
     >
       <p className="muted" style={{ margin: 0 }}>Replays the commits of {branch} on top of {onto}. Already pushed: it then needs a force push.</p>
+      {rebase.error && <ErrorBox error={rebase.error} />}
+    </Modal>
+  );
+}
+
+/** Replays the checked-out `branch` on top of `onto`, or of a branch picked here; its target stays. */
+function RebaseOntoBranchModal({ pid, branch, onto, branches, labelOf, onClose }: { pid: string; branch: string; onto?: string; branches: BranchView[]; labelOf: (b: string) => string; onClose: () => void }) {
+  const [picked, setPicked] = useState<string | null>(onto ?? null);
+  const rebase = useAction<RebaseResult, { projectId: string; branch: string; onto: string }>("workspace.rebase", {
+    invalidate: [["overview", pid], ["files", pid], ["diff", pid], ["commits", pid]],
+    success: rebaseMessage,
+  });
+  const choices = useMemo(() => branches.filter((b) => b.exists && b.name !== branch), [branches, branch]);
+  const parent = branches.find((b) => b.name === branch)?.parent;
+  const name = labelOf(branch);
+  const to = picked ? labelOf(picked) : undefined;
+  return (
+    <Modal
+      title={onto ? `Rebase onto ${labelOf(onto)}?` : "Rebase onto a specific branch"}
+      sub={<><span className="mono">{name}</span> is checked out</>}
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn btn-md btn-primary" autoFocus={!!onto} disabled={!picked || rebase.isPending} onClick={() => picked && rebase.mutate({ projectId: pid, branch, onto: picked }, { onSuccess: onClose })}>
+            {rebase.isPending && <span className="spinner" />}
+            Rebase {name} onto {to ?? "it"}
+          </button>
+        </>
+      }
+    >
+      {!onto && <BranchPicker choices={choices} labelOf={labelOf} picked={picked} onPick={setPicked} />}
+      <p className="muted" style={{ margin: 0 }}>
+        Replays the commits of {name} on top of {to ?? "the branch picked"}.{parent && <> {name} keeps targeting {labelOf(parent)}.</>} Already pushed: it then needs a force push.
+      </p>
       {rebase.error && <ErrorBox error={rebase.error} />}
     </Modal>
   );

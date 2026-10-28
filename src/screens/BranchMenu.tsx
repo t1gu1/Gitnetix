@@ -8,7 +8,7 @@ import { plural } from "../lib/format";
 import { useNav } from "../lib/nav";
 import { copyToClipboard, toast } from "../lib/toast";
 
-export type BranchDialog = "merge" | "delete" | "rename" | "continue" | "conflicts" | "reset" | "forcePush" | "tag" | "target" | "rebase" | "abortSwitch";
+export type BranchDialog = "merge" | "delete" | "rename" | "continue" | "conflicts" | "reset" | "forcePush" | "tag" | "target" | "rebase" | "rebaseOnto" | "abortSwitch";
 
 export interface BranchTarget {
   view: BranchView;
@@ -112,6 +112,14 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
   const abortAndSwitch = (b: string) => sw.mutate({ projectId: pid, branch: b, abort: true }, { onSuccess: () => toast(`Aborted the ${ov?.inProgress ?? "operation"} and switched to ${b}`, "ok") });
   const continueOn = (branch: string, path: string) => removeWt.mutate({ projectId: pid, branch, path }, { onSuccess: () => switchOrAsk(branch, `Worktree deleted, continuing on ${branch}`) });
 
+  // The branch checked out here: any other branch can be the one it gets rebased onto.
+  const cur = ov?.currentBranch ?? undefined;
+  /** A release branch reads as its version. */
+  const labelOf = (name: string) => {
+    const x = ov?.branches.find((y) => y.name === name);
+    return x?.role === "release" && x.release ? `v${x.release}` : name;
+  };
+
   const all = (t: BranchTarget) => {
     const v = t.view;
     const b = v.name;
@@ -211,6 +219,24 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
         hint: v.checkedOut ? (v.behind ? `${v.behind} behind` : undefined) : "check out first",
         disabled: !v.checkedOut || !t.base,
         run: () => rebase.mutate({ projectId: pid, branch: b }),
+      },
+      rebaseActive: {
+        id: "rebaseActive",
+        label: <>Rebase <span className="mono">{cur && labelOf(cur)}</span> onto <span className="mono">{labelOf(b)}</span>…</>,
+        tip: ov?.inProgress ? `Finish or abort the ${ov.inProgress} first` : `Replay the commits of ${cur} on top of ${labelOf(b)}. Its target stays as it is`,
+        icon: "branch",
+        hint: ov?.inProgress ? `${ov.inProgress} in progress` : undefined,
+        disabled: !!ov?.inProgress,
+        run: () => cur && openDialog("rebaseOnto", cur, b),
+      },
+      rebasePick: {
+        id: "rebasePick",
+        label: "Rebase onto a specific branch…",
+        tip: ov?.inProgress ? `Finish or abort the ${ov.inProgress} first` : `Pick a branch to replay the commits of ${b} on top of. Its target stays as it is`,
+        icon: "branch",
+        hint: ov?.inProgress ? `${ov.inProgress} in progress` : undefined,
+        disabled: !!ov?.inProgress,
+        run: () => openDialog("rebaseOnto", b),
       },
       sync: {
         id: "sync",
@@ -337,6 +363,12 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
         list.push(a.sync);
         if (v.role !== "release") list.push(a.merge);
       }
+    }
+    // Rebase the checked-out branch onto this one; on the checked-out branch itself, onto one picked.
+    if (cur) {
+      // Joins the rebase group; otherwise starts its own.
+      if (v.local && !t.base) list.push("sep");
+      list.push(v.name === cur ? a.rebasePick : a.rebaseActive);
     }
     // A worktree's branch ends by merging or deleting it, not through a PR or a tag.
     if (t.base && !v.worktree) list.push(a.pr);

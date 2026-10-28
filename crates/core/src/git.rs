@@ -358,6 +358,29 @@ impl Git {
         Ok(paths.iter().find_map(|p| std::fs::read_to_string(p).ok()).map(|s| s.trim().trim_start_matches("refs/heads/").to_string()))
     }
 
+    /// The branch this checkout is rebasing (not bisecting), its HEAD detached meanwhile.
+    pub async fn rebasing_branch(&self) -> Result<Option<String>> {
+        let paths = self.git_paths(&["rebase-merge/head-name", "rebase-apply/head-name"]).await?;
+        Ok(paths.iter().find_map(|p| std::fs::read_to_string(p).ok()).and_then(|s| s.trim().strip_prefix("refs/heads/").map(String::from)))
+    }
+
+    /// Commit the paused rebase replays onto.
+    pub async fn rebase_onto(&self) -> Result<Option<String>> {
+        let paths = self.git_paths(&["rebase-merge/onto", "rebase-apply/onto"]).await?;
+        Ok(paths.iter().find_map(|p| std::fs::read_to_string(p).ok()).map(|s| s.trim().to_string()).filter(|s| !s.is_empty()))
+    }
+
+    /// Branches whose tip is `sha`: local ones first, then origin's (without `origin/`).
+    pub async fn branches_at(&self, sha: &str) -> Result<Vec<String>> {
+        let out = self.run(&["for-each-ref", "--points-at", sha, "--format=%(refname)", "refs/heads", "refs/remotes/origin"]).await?;
+        Ok(out
+            .lines()
+            .filter_map(|l| l.strip_prefix("refs/heads/").or_else(|| l.strip_prefix("refs/remotes/origin/")))
+            .filter(|n| *n != "HEAD")
+            .map(String::from)
+            .collect())
+    }
+
     // ---------- refs ----------
 
     pub async fn branches(&self) -> Result<Vec<BranchInfo>> {
@@ -748,6 +771,11 @@ impl Git {
         }
         if let Some(w) = cur {
             list.push(w);
+        }
+        // Rebasing detaches HEAD: the checkout still belongs to the branch being rebased.
+        // A folder deleted outside git (still listed, prunable) is skipped.
+        for w in list.iter_mut().filter(|w| w.branch.is_none() && Path::new(&w.path).exists()) {
+            w.branch = Git::new(&w.path).rebasing_branch().await.ok().flatten();
         }
         Ok(list)
     }
@@ -1300,6 +1328,9 @@ impl Git {
     /// `git <op> --continue` once its conflicts are staged (rebase, merge, cherry-pick, revert),
     /// keeping the prepared message. Returns false when it stopped on conflicts again (a rebase's next commit).
     pub async fn continue_op(&self, op: &str) -> Result<bool> {
+        if op == "rebase" {
+            self.commit_commented_pick().await?;
+        }
         let (ok, _, err) = self.try_run(&["-c", "core.editor=true", op, "--continue"]).await?;
         if ok {
             return Ok(true);
@@ -1308,6 +1339,23 @@ impl Git {
             return Ok(false);
         }
         Err(Error::Git { cmd: op.into(), stderr: err.trim().into() })
+    }
+
+    /// A paused rebase pick whose message is all `#` lines (`#42 fix login`): `--continue` takes them for
+    /// comments, finds the message empty and refuses. Commit it here instead, message and author as they were.
+    async fn commit_commented_pick(&self) -> Result<()> {
+        let paths = self.git_paths(&["rebase-merge/done", "rebase-merge/message"]).await?;
+        let (Ok(done), Ok(message)) = (std::fs::read_to_string(&paths[0]), std::fs::read_to_string(&paths[1])) else {
+            return Ok(());
+        };
+        // Squash, fixup and edit steps make their commit differently: git's own path for those.
+        let pick = done.lines().rev().find(|l| !l.trim().is_empty()).is_some_and(|l| l.starts_with("pick ") || l.starts_with("p "));
+        let commented = message.lines().all(|l| l.trim().is_empty() || l.starts_with('#'));
+        if pick && commented && self.conflicted_files().await?.is_empty() && self.has_staged().await? {
+            // No hooks, as git's own continue commits it.
+            self.run(&["commit", "--no-verify", "-C", "REBASE_HEAD"]).await?;
+        }
+        Ok(())
     }
 
     pub async fn abort_op(&self, op: &str) -> Result<()> {

@@ -255,6 +255,8 @@ export interface Overview {
   /** Every branch (local, origin-only, tracked-but-gone), each with its parent. */
   branches: BranchView[];
   rebasing: boolean;
+  /** Branch the main checkout's paused rebase replays onto (the commit when no branch is there). */
+  rebaseOnto?: string | null;
   /** The rebase, merge, cherry-pick or revert the main checkout is stopped in the middle of. */
   inProgress?: "rebase" | "merge" | "cherry-pick" | "revert" | null;
   conflicts: string[];

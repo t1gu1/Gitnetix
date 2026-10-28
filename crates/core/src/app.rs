@@ -206,6 +206,8 @@ pub struct Overview {
     /// Every branch (local, origin-only and tracked-but-gone), each with its parent.
     pub branches: Vec<BranchView>,
     pub rebasing: bool,
+    /// Branch the main checkout's paused rebase replays onto (the commit when no branch is there).
+    pub rebase_onto: Option<String>,
     /// The rebase, merge, cherry-pick or revert the main checkout is stopped in the middle of.
     pub in_progress: Option<&'static str>,
     pub conflicts: Vec<String>,
@@ -2130,6 +2132,13 @@ impl Gitnetix {
             git.ref_fingerprint(),
         );
         let (default, current, branches, wts) = (default?, current?, branches?, wts?);
+        let in_progress = in_progress.ok().flatten();
+        let rebasing = in_progress == Some("rebase");
+        // Rebasing detaches HEAD: the checkout is still on the branch being rebased.
+        let current = match current {
+            None if rebasing => git.rebasing_branch().await.ok().flatten(),
+            c => c,
+        };
         let tags = tags.unwrap_or_default();
         let remote_branches = remote_branches.unwrap_or_default();
         // Release branches created outside Gitnetix (or after the project was added), and releases tagged without it.
@@ -2154,8 +2163,6 @@ impl Gitnetix {
             })?;
         }
         let agents = self.agents.list();
-        let in_progress = in_progress.ok().flatten();
-        let rebasing = in_progress == Some("rebase");
         let conflicts = if rebasing { git.conflicted_files().await.unwrap_or_default() } else { Vec::new() };
 
         let refs = Refs::new(branches, remote_branches).batched();
@@ -2304,7 +2311,11 @@ impl Gitnetix {
         let remote = remote.ok().flatten();
         let has_changelog = Path::new(&p.path).join(CHANGELOG).is_file();
         let changelog_version = std::fs::read_to_string(Path::new(&p.path).join(CHANGELOG)).ok().and_then(|t| latest_changelog_version(&t));
-        Ok((Overview { project: p, current_branch: current, default_branch: default, releases, other_branches, default_view, branches: all, rebasing, in_progress, conflicts, remote, stashes, has_changelog, changelog_version }, built))
+        let rebase_onto = match current.as_deref().filter(|_| rebasing) {
+            Some(b) => Self::rebasing_onto(&git, b, all.iter().find(|v| v.name == b).and_then(|v| v.parent.as_deref()).unwrap_or(&default)).await,
+            None => None,
+        };
+        Ok((Overview { project: p, current_branch: current, default_branch: default, releases, other_branches, default_view, branches: all, rebasing, rebase_onto, in_progress, conflicts, remote, stashes, has_changelog, changelog_version }, built))
     }
 
     /// Every branch's view with counts, merge state and parent: a few git calls per branch,
@@ -2785,12 +2796,24 @@ impl Gitnetix {
         Ok(out)
     }
 
-    /// Rebase a branch onto its release.
-    pub async fn rebase(&self, project_id: &str, branch: &str) -> Result<RebaseResult> {
+    /// Rebase a branch onto `onto`, else onto its release. Its target stays as it was.
+    pub async fn rebase(&self, project_id: &str, branch: &str, onto: Option<&str>) -> Result<RebaseResult> {
         let p = self.store.project(project_id)?;
         let git = self.require_checkout(&p, branch).await?;
         let default = git.default_branch().await?;
-        let base = self.base_of(&p, branch, &default).await;
+        let target = self.base_of(&p, branch, &default).await;
+        let base = match onto {
+            Some(o) => {
+                // A work branch's target follows its history unless given: pin it, or landing on `o` would move it there.
+                let given = p.branches.get(branch).is_some_and(|m| m.parent.is_some() || m.release.is_some());
+                let shared = branch == default || branch.starts_with("release/") || is_trunk(branch) || p.releases.iter().any(|r| r.branch == branch);
+                if o != target && !given && !shared {
+                    self.set_parent(project_id, branch, &target)?;
+                }
+                o.to_string()
+            }
+            None => target,
+        };
         let ok = git.rebase(&git.rev_of(&base).await).await?;
         let ok = ok || self.resolve_and_continue(&p, &git, Some("rebase"), branch, &base).await?.done;
         self.changed(project_id);
@@ -2802,12 +2825,28 @@ impl Gitnetix {
         let git = self.require_checkout(&p, branch).await?;
         let ok = git.rebase_continue().await?;
         let ok = ok || {
-            let default = git.default_branch().await?;
-            let base = self.base_of(&p, branch, &default).await;
+            let base = self.conflict_base(&p, &git, branch).await?;
             self.resolve_and_continue(&p, &git, Some("rebase"), branch, &base).await?.done
         };
         self.changed(project_id);
         Self::rebase_result(&git, branch, ok).await
+    }
+
+    /// What a paused rebase of `branch` replays onto, as a branch: `target` when it is there, else another
+    /// branch there (local first), else the commit. None when nothing is being rebased.
+    async fn rebasing_onto(git: &Git, branch: &str, target: &str) -> Option<String> {
+        let sha = git.rebase_onto().await.ok().flatten()?;
+        let at: Vec<String> = git.branches_at(&sha).await.unwrap_or_default().into_iter().filter(|n| n != branch).collect();
+        Some(match at.iter().find(|n| *n == target).or(at.first()) {
+            Some(n) => n.clone(),
+            None => sha.get(..7).unwrap_or(&sha).to_string(),
+        })
+    }
+
+    /// The other side of `branch`'s conflicts: where its paused rebase goes, else its target.
+    async fn conflict_base(&self, p: &Project, git: &Git, branch: &str) -> Result<String> {
+        let target = self.base_of(p, branch, &git.default_branch().await?).await;
+        Ok(Self::rebasing_onto(git, branch, &target).await.unwrap_or(target))
     }
 
     async fn rebase_result(git: &Git, branch: &str, done: bool) -> Result<RebaseResult> {
@@ -2832,8 +2871,7 @@ impl Gitnetix {
     pub async fn conflict_propose(&self, project_id: &str, branch: &str, path: &str) -> Result<String> {
         let p = self.store.project(project_id)?;
         let git = self.require_checkout(&p, branch).await?;
-        let default = git.default_branch().await?;
-        let base = self.base_of(&p, branch, &default).await;
+        let base = self.conflict_base(&p, &git, branch).await?;
         self.propose_resolution(&p, &git, path, branch, &base).await
     }
 
@@ -3527,7 +3565,7 @@ impl Gitnetix {
                 return Err(Error::Invalid(format!("{branch} is in the middle of a {op}. Finish or abort it first.")));
             }
         }
-        // Rebasing or bisecting detaches HEAD, so no checkout has `branch` then; git would refuse the local rename after origin's.
+        // Bisecting detaches HEAD, so no checkout has `branch` then (a rebase's is found above); git would refuse the local rename after origin's.
         // A folder deleted outside git (still listed, prunable) is skipped: it can't be rebasing anything.
         for w in git.worktrees().await?.iter().filter(|w| w.branch.is_none() && Path::new(&w.path).exists()) {
             if Git::new(&w.path).detached_from().await?.as_deref() == Some(branch) {
