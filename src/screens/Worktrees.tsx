@@ -418,15 +418,17 @@ function StartModal({ initial, onClose }: { initial?: string; onClose: () => voi
     >
       <Seg<"existing" | "new"> grid label="Branch" value={mode} onChange={setMode} options={[{ value: "existing", label: "Existing branch" }, { value: "new", label: "New branch" }]} />
       <div className="row" style={{ gap: 10, alignItems: "flex-start" }}>
-        <div className="field grow">
+        {/* Set shares, twice as much for the branch: a long picked name gets cut instead of squeezing the project. */}
+        <div className="field" style={{ flex: "1 1 0", minWidth: 0 }}>
           <span>Project</span>
           <MenuChoice className="select menu-select" label="Project" value={pid} options={projects.map((p) => ({ value: p.id, label: p.name }))} onChange={(v) => { setPid(v); setBranch(""); setFrom(""); setMode(undefined); setTicket(undefined); }} />
         </div>
-        <div className="field grow">
+        <div className="field" style={{ flex: "2 1 0", minWidth: 0 }}>
           <span>{fresh ? "Branches off" : "Branch"}</span>
           <MenuChoice
             className="select menu-select"
             label={fresh ? "Branches off" : "Branch"}
+            search="Filter branches"
             value={fresh ? from : branch}
             options={(fresh ? all : branches).map((b) => ({ value: b.name, label: label(b) }))}
             onChange={fresh ? setFrom : setBranch}

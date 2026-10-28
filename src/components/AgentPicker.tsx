@@ -2,7 +2,7 @@ import { useState, type CSSProperties } from "react";
 
 import { useAiCatalog } from "../api/hooks";
 import { useStored } from "../lib/stored";
-import { ContextMenu } from "./ContextMenu";
+import { ContextMenu, SEARCH_ABOVE } from "./ContextMenu";
 import { Icon } from "./Icon";
 
 export const EFFORTS = ["low", "medium", "high", "xhigh", "max"];
@@ -42,10 +42,13 @@ export function AgentPicker({ value, onChange, compact }: { value: AgentPick; on
   );
 }
 
-type ChoiceProps = { label: string; value: string; options: { value: string; label: string }[]; onChange: (v: string) => void; className?: string; id?: string; style?: CSSProperties };
+type ChoiceProps = { label: string; value: string; options: { value: string; label: string }[]; onChange: (v: string) => void; className?: string; id?: string; style?: CSSProperties; search?: string };
 
-/** A button opening the options as a menu, like a branch's right-click one; `select menu-select` styles it as a form field. */
-export function MenuChoice({ label, value, options, onChange, className = "picker-act", id, style }: ChoiceProps) {
+/**
+ * A button opening the options as a menu, like a branch's right-click one; `select menu-select` styles it as a form field.
+ * `search`: the placeholder of a field filtering the options, in a wider menu (e.g. branches, whose names run long); on by itself for long lists.
+ */
+export function MenuChoice({ label, value, options, onChange, className = "picker-act", id, style, search }: ChoiceProps) {
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   return (
     <>
@@ -70,6 +73,7 @@ export function MenuChoice({ label, value, options, onChange, className = "picke
           y={menu.y}
           label={label}
           onClose={() => setMenu(null)}
+          search={search ?? (options.length > SEARCH_ABOVE ? "Filter" : undefined)}
           items={options.map((o) => ({ id: o.value || "default", label: o.label, icon: null, hint: o.value === value && <Icon name="check" size={13} />, run: () => onChange(o.value) }))}
         />
       )}

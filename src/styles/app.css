@@ -2584,6 +2584,24 @@ button.tree-twist:hover {
   margin: 4px 2px;
   background: var(--line);
 }
+/* A searchable menu (e.g. branches): room for long names, and the filter field stays on top while the list scrolls. */
+.ctx-menu.ctx-search {
+  max-width: min(480px, calc(100vw - 16px));
+}
+.ctx-filter {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin: -4px -4px 0;
+  padding: 4px;
+  background: var(--raised);
+}
+.ctx-filter .input {
+  width: 100%;
+  height: 30px;
+  padding: 0 10px;
+  font-size: 12.5px;
+}
 .ctx-col {
   display: flex;
   flex-direction: column;

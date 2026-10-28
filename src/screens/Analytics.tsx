@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { useAnalytics, useAnalyticsDay, useProjects } from "../api/hooks";
 import type { Analytics as A, DayCommit, ProjectSummary } from "../api/types";
+import { SEARCH_ABOVE } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
 import { Empty, ErrorBox, Header, initials, Loading, Modal, Seg } from "../components/ui";
 import { plural } from "../lib/format";
@@ -70,7 +71,10 @@ export function Analytics() {
 /** Dropdown of project checkboxes; nothing checked means all projects. */
 function ProjectPicker({ projects, value, onChange }: { projects: ProjectSummary[]; value: string[]; onChange: (ids: string[]) => void }) {
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
   const ref = useRef<HTMLDivElement>(null);
+  const q = query.trim().toLowerCase();
+  const shown = q ? projects.filter((p) => p.name.toLowerCase().includes(q)) : projects;
   // Ids of removed projects are dropped from the label and the count.
   const chosen = projects.filter((p) => value.includes(p.id));
   const label = chosen.length === 0 || chosen.length === projects.length ? "All projects" : chosen.length === 1 ? chosen[0].name : `${chosen.length} projects`;
@@ -93,19 +97,29 @@ function ProjectPicker({ projects, value, onChange }: { projects: ProjectSummary
 
   return (
     <div ref={ref} style={{ position: "relative" }}>
-      <button className="select row" style={{ height: 32, gap: 8 }} aria-haspopup="true" aria-expanded={open} onClick={() => setOpen(!open)}>
+      <button className="select row" style={{ height: 32, gap: 8 }} aria-haspopup="true" aria-expanded={open} onClick={() => { setOpen(!open); setQuery(""); }}>
         <span className="sr-only">Projects: </span>
         <span className="ellipsis" style={{ maxWidth: 220 }}>{label}</span>
         <Icon name="chevronDown" size={12} />
       </button>
       {open && (
         <div className="ctx-menu" role="group" aria-label="Projects to include" style={{ position: "absolute", top: 36, left: 0, maxHeight: 360, overflowY: "auto" }}>
-          <label className="check ctx-item">
-            <input type="checkbox" checked={chosen.length === 0 || chosen.length === projects.length} onChange={() => onChange([])} />
-            <span className="grow ellipsis">All projects</span>
-          </label>
-          <div className="ctx-sep" role="separator" />
-          {projects.map((p) => (
+          {projects.length > SEARCH_ABOVE && (
+            <div className="ctx-filter">
+              <input className="input" autoFocus aria-label="Filter projects" placeholder="Filter projects" spellCheck={false} autoComplete="off" value={query} onChange={(e) => setQuery(e.target.value)} />
+            </div>
+          )}
+          {!q && (
+            <>
+              <label className="check ctx-item">
+                <input type="checkbox" checked={chosen.length === 0 || chosen.length === projects.length} onChange={() => onChange([])} />
+                <span className="grow ellipsis">All projects</span>
+              </label>
+              <div className="ctx-sep" role="separator" />
+            </>
+          )}
+          {!shown.length && <button className="ctx-item" disabled>No match for “{query.trim()}”</button>}
+          {shown.map((p) => (
             <label key={p.id} className="check ctx-item">
               <input type="checkbox" checked={chosen.some((c) => c.id === p.id)} onChange={() => toggle(p.id)} />
               <span className="grow ellipsis">{p.name}</span>

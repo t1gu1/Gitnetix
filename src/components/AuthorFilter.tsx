@@ -1,7 +1,7 @@
 import { useState } from "react";
 
 import { Avatar } from "./Avatar";
-import { ContextMenu } from "./ContextMenu";
+import { ContextMenu, SEARCH_ABOVE } from "./ContextMenu";
 import { Icon } from "./Icon";
 
 export interface Author {
@@ -59,6 +59,7 @@ export function AuthorFilter({ authors, who, onChange, tip }: { authors: Author[
           y={menu.y}
           alignRight
           label="Filter by author"
+          search={authors.length > SEARCH_ABOVE ? "Filter authors" : undefined}
           onClose={() => setMenu(null)}
           items={[
             { id: "all", label: "All", icon: null, hint: picked.length === 0 && <Icon name="check" size={13} />, keep: true, run: () => onChange([]) },
@@ -74,6 +75,7 @@ export function AuthorFilter({ authors, who, onChange, tip }: { authors: Author[
                   </span>
                 </span>
               ),
+              text: `${a.name} ${a.emails.join(" ")}`,
               icon: null,
               hint: who.includes(a.email) && <Icon name="check" size={13} />,
               keep: true,

@@ -1084,7 +1084,8 @@ export function MergeModal({
           y={pick.y}
           alignRight
           label="Merge into"
-          items={others.map((b) => ({ id: b, label: <span className="mono">{b}</span>, icon: b === base ? "check" : undefined, hint: b === defaultBase ? "its base" : undefined, run: () => setBase(b) }))}
+          search="Filter branches"
+          items={others.map((b) => ({ id: b, label: <span className="mono">{b}</span>, text: b, icon: b === base ? "check" : undefined, hint: b === defaultBase ? "its base" : undefined, run: () => setBase(b) }))}
           onClose={() => setPick(null)}
         />
       )}
@@ -2155,7 +2156,8 @@ function CloseWorktreeModal({ session: s, finish, onClose, inline }: { session: 
           y={pick.y}
           alignRight
           label="Merge into"
-          items={others.map((b) => ({ id: b, label: <span className="mono">{b}</span>, icon: b === target ? "check" : undefined, hint: b === base ? "its base" : undefined, run: () => setInto(b) }))}
+          search="Filter branches"
+          items={others.map((b) => ({ id: b, label: <span className="mono">{b}</span>, text: b, icon: b === target ? "check" : undefined, hint: b === base ? "its base" : undefined, run: () => setInto(b) }))}
           onClose={() => setPick(null)}
         />
       )}

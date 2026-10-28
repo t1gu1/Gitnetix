@@ -173,6 +173,7 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
             id="ni-rel"
             className="select menu-select"
             label="Branches off"
+            search="Filter branches"
             value={from}
             options={[
               ...(draft.tag ? [{ value: draft.tag, label: `${draft.tag} (tag)` }] : []),

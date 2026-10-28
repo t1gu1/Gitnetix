@@ -63,14 +63,14 @@ export function ReleaseNotes() {
               <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 32px minmax(0,1fr)", gap: 6, alignItems: "end" }}>
                 <div className="field">
                   <label htmlFor="rn-from">From</label>
-                  <MenuChoice id="rn-from" className="select menu-select mono" style={{ fontSize: 12 }} label="From" value={from} options={refOptions.map((o) => ({ value: o.v, label: o.l }))} onChange={setFrom} />
+                  <MenuChoice id="rn-from" className="select menu-select mono" style={{ fontSize: 12 }} label="From" search="Filter tags and branches" value={from} options={refOptions.map((o) => ({ value: o.v, label: o.l }))} onChange={setFrom} />
                 </div>
                 <button className="btn btn-ghost btn-icon" style={{ height: 36 }} aria-label="Swap" onClick={() => { setFrom(to); setTo(from); }}>
                   <Icon name="swap" />
                 </button>
                 <div className="field">
                   <label htmlFor="rn-to">To</label>
-                  <MenuChoice id="rn-to" className="select menu-select mono" style={{ fontSize: 12 }} label="To" value={to} options={refOptions.map((o) => ({ value: o.v, label: o.l }))} onChange={setTo} />
+                  <MenuChoice id="rn-to" className="select menu-select mono" style={{ fontSize: 12 }} label="To" search="Filter tags and branches" value={to} options={refOptions.map((o) => ({ value: o.v, label: o.l }))} onChange={setTo} />
                 </div>
               </div>
               <div className="row note-box muted" style={{ gap: 14, fontSize: 12, background: "var(--bg)" }}>

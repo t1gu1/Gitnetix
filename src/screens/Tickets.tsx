@@ -6,7 +6,7 @@ import type { Suggestion, Ticket } from "../api/types";
 import { MenuChoice } from "../components/AgentPicker";
 import { Adf } from "../components/Adf";
 import { Avatar } from "../components/Avatar";
-import { ContextMenu } from "../components/ContextMenu";
+import { ContextMenu, SEARCH_ABOVE } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
 import { Resizer, usePaneWidth } from "../components/Resizer";
 import { ago, Busy, Empty, EmptyState, ErrorBox, Header, Loading, Markdown, releaseTagLabel, Seg } from "../components/ui";
@@ -431,6 +431,7 @@ function FixVersions({ t }: { t: Ticket }) {
           x={menu.x}
           y={menu.y}
           label="Fix versions"
+          search={offered.length > SEARCH_ABOVE ? "Filter versions" : undefined}
           onClose={close}
           items={
             versions.isLoading
