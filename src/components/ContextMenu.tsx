@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
+import { endPreview, holdPreview, previewHandlers, type GraphIntent } from "../lib/graphPreview";
 import { Icon } from "./Icon";
 
 export type MenuItem =
@@ -19,6 +20,8 @@ export type MenuItem =
       keep?: boolean;
       /** What the search field matches when the label isn't plain text. */
       text?: string;
+      /** What it would do to the branches: the commit graph shows it while the item is hovered or focused. */
+      preview?: GraphIntent;
       run: () => void;
     };
 
@@ -126,6 +129,7 @@ export function ContextMenu({ x, y, items, label, alignRight, columns, search, o
       window.removeEventListener("scroll", away, true);
       window.removeEventListener("resize", onClose);
       prev?.focus?.();
+      endPreview();
     };
   }, []);
 
@@ -149,8 +153,11 @@ export function ContextMenu({ x, y, items, label, alignRight, columns, search, o
         // Names too long for the menu read in full on hover.
         title={search && typeof it.label === "string" ? it.label : undefined}
         disabled={it.disabled}
+        {...previewHandlers(it.preview)}
         onClick={() => {
           if (!it.keep) closeRef.current();
+          // The graph keeps showing what it does while it runs.
+          holdPreview(it.preview);
           it.run();
         }}
       >

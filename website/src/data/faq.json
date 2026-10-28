@@ -12,6 +12,10 @@
     "a": "Most Git clients are built around the commit graph, which shows what git stored. Gitnetix drops it and shows intent: which release a branch belongs to, what is still open, what shipped and what is falling behind. It works out each branch's real parent, even after a squash-merged pull request."
   },
   {
+    "q": "Can I still see a commit graph?",
+    "a": "Yes, when you want one. A Graph column opens beside the branches, limited to the branch you're on, where it started and a few around it. Hover an action (rebase, merge, push, tag, reset) and it shows your branches as they will be once it's done, before you click."
+  },
+  {
     "q": "Is Gitnetix an alternative to GitKraken, Fork or Sourcetree?",
     "a": "Yes. Like GitKraken, Fork, Sourcetree, Tower or GitHub Desktop, it is a desktop Git GUI for everyday branching, committing, merging and pull requests. The difference is the picture: those clients are built around the commit graph, while Gitnetix shows branches as a tree of releases and the work inside them, with a one-click release flow and an AI agent per branch."
   },

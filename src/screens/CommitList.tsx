@@ -8,9 +8,10 @@ import { ContextMenu, type MenuItem } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
 import { Empty, ErrorBox, Loading, Modal } from "../components/ui";
 import { ago, plural } from "../lib/format";
+import { useDialogPreview } from "../lib/graphPreview";
 import { copyToClipboard } from "../lib/toast";
 
-type ResetMode = "soft" | "mixed" | "hard";
+export type ResetMode = "soft" | "mixed" | "hard";
 
 /**
  * A branch's own commits, in place of the branch tree. One is always picked,
@@ -87,22 +88,23 @@ export function CommitList({
     return [
       { id: "copy", label: "Copy SHA", icon: "edit", hint: short, run: () => copyToClipboard(c.sha) },
       "sep",
-      { id: "revert", label: "Revert commit", icon: "undo", hint: needLocal, disabled: !!needLocal, run: () => revert.mutate({ projectId: pid, branch, sha: c.sha }) },
+      { id: "revert", label: "Revert commit", icon: "undo", hint: needLocal, disabled: !!needLocal, preview: { kind: "revert", branch, sha: c.sha }, run: () => revert.mutate({ projectId: pid, branch, sha: c.sha }) },
       {
         id: "pick",
         label: <>Cherry-pick onto <span className="mono">{current ?? "…"}</span></>,
         icon: "commit",
         hint: onto,
         disabled: !!onto,
+        preview: current ? { kind: "cherryPick", onto: current, sha: c.sha } : undefined,
         run: () => pick.mutate({ projectId: pid, onto: current, sha: c.sha }),
       },
       "sep",
-      { id: "soft", label: "Reset here · soft", icon: "back", hint: needLocal ?? "keep staged", disabled: !!needLocal, run: () => setReset({ c, mode: "soft" }) },
-      { id: "mixed", label: "Reset here · mixed", icon: "back", hint: needLocal ?? "keep unstaged", disabled: !!needLocal, run: () => setReset({ c, mode: "mixed" }) },
-      { id: "hard", label: "Reset here · hard", icon: "trash", hint: needCheckout ?? "discard", danger: true, disabled: !!needCheckout, run: () => setReset({ c, mode: "hard" }) },
+      { id: "soft", label: "Reset here · soft", icon: "back", hint: needLocal ?? "keep staged", disabled: !!needLocal, preview: { kind: "resetTo", branch, sha: c.sha, mode: "soft" }, run: () => setReset({ c, mode: "soft" }) },
+      { id: "mixed", label: "Reset here · mixed", icon: "back", hint: needLocal ?? "keep unstaged", disabled: !!needLocal, preview: { kind: "resetTo", branch, sha: c.sha, mode: "mixed" }, run: () => setReset({ c, mode: "mixed" }) },
+      { id: "hard", label: "Reset here · hard", icon: "trash", hint: needCheckout ?? "discard", danger: true, disabled: !!needCheckout, preview: { kind: "resetTo", branch, sha: c.sha, mode: "hard" }, run: () => setReset({ c, mode: "hard" }) },
       "sep",
-      { id: "tag", label: "Create tag…", icon: "tag", run: () => setTagging(c) },
-      ...c.tags.map((t): MenuItem => ({ id: `deleteTag:${t}`, label: <>Delete tag <span className="mono">{t}</span>…</>, icon: "trash", danger: true, run: () => setDeletingTag(t) })),
+      { id: "tag", label: "Create tag…", icon: "tag", preview: { kind: "tag", sha: c.sha }, run: () => setTagging(c) },
+      ...c.tags.map((t): MenuItem => ({ id: `deleteTag:${t}`, label: <>Delete tag <span className="mono">{t}</span>…</>, icon: "trash", danger: true, preview: { kind: "deleteTag", tag: t }, run: () => setDeletingTag(t) })),
     ];
   };
 
@@ -204,7 +206,7 @@ function marked(text: string, q: string): ReactNode {
   return <>{text.slice(0, i)}<mark className="tree-hit">{text.slice(i, i + q.length)}</mark>{text.slice(i + q.length)}</>;
 }
 
-function ResetModal({
+export function ResetModal({
   pid,
   branch,
   commit,
@@ -233,6 +235,7 @@ function ResetModal({
   onClose: () => void;
 }) {
   const short = commit.sha.slice(0, 7);
+  const holdPreview = useDialogPreview({ kind: "resetTo", branch, sha: commit.sha, mode });
   const reset = useAction("commits.reset", {
     invalidate: [["overview", pid], ["files", pid], ["diff", pid], ["commits", pid]],
     success: `Reset ${branch} to ${short} (${mode})`,
@@ -241,7 +244,7 @@ function ResetModal({
   // At origin's tip, the branch already matches origin: nothing to push.
   const canPush = upstream && !commit.origin;
   const push = useAction("workspace.push", { invalidate: [["overview", pid], ["commits", pid]], success: `Force pushed ${branch}` });
-  const done = () => { onDone(); onClose(); };
+  const done = () => { holdPreview(); onDone(); onClose(); };
   const pending = reset.isPending || push.isPending;
   return (
     <Modal
@@ -320,8 +323,9 @@ export function TagModal({ pid, branch, commit, onClose }: { pid: string; branch
   const [name, setName] = useState("");
   const [message, setMessage] = useState("");
   const what = commit ? commit.sha.slice(0, 7) : branch;
+  const holdPreview = useDialogPreview({ kind: "tag", sha: commit?.sha, branch: commit ? undefined : branch, name: name.trim() || undefined });
   const tag = useAction(commit ? "commits.tag" : "branches.tag", { invalidate: [["overview", pid], ["commits", pid]], success: `Tagged ${what} as ${name.trim()} and pushed it` });
-  const submit = () => name.trim() && tag.mutate({ projectId: pid, ...(commit ? { sha: commit.sha } : { branch }), name: name.trim(), message }, { onSuccess: onClose });
+  const submit = () => name.trim() && tag.mutate({ projectId: pid, ...(commit ? { sha: commit.sha } : { branch }), name: name.trim(), message }, { onSuccess: () => (holdPreview(), onClose()) });
   return (
     <Modal
       title="Create tag"

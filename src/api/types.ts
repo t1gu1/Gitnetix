@@ -198,6 +198,45 @@ export interface Commit {
   unpushed?: boolean;
 }
 
+/** One commit of the commit graph (`workspace.graph`). */
+export interface GraphCommit {
+  sha: string;
+  /** First parent first. */
+  parents: string[];
+  author: string;
+  email: string;
+  /** Author date (ISO 8601). */
+  date: string;
+  subject: string;
+  /** Tags pointing at it. */
+  tags: string[];
+}
+
+/** A branch tip in the commit graph: the local branch, or its origin copy. */
+export interface GraphRef {
+  name: string;
+  remote: boolean;
+  sha: string;
+}
+
+/** History the graph left out under a shown commit: `count` commits down the first parents of `parent`, back to `join`. */
+export interface GraphGap {
+  parent: string;
+  count: number;
+  /** Shown commit the run leads to; none when it runs past what was read. */
+  join?: string | null;
+}
+
+export interface GraphView {
+  /** Newest first per tip, in no overall order. */
+  commits: GraphCommit[];
+  refs: GraphRef[];
+  /** Checked-out branch; null when HEAD is detached. */
+  head?: string | null;
+  headSha?: string | null;
+  gaps: GraphGap[];
+}
+
 export interface CleanupResult {
   deleted: string[];
   skipped: { branch: string; reason: string }[];

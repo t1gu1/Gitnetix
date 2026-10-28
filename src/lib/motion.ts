@@ -9,6 +9,7 @@ import type { Config } from "../api/types";
 export const ANIMATIONS: { id: string; label: string; hint: string }[] = [
   { id: "path", label: "Branch path pulse", hint: "The streak running down the orange path to the checked-out branch, and its glow on arrival" },
   { id: "shine", label: "Current branch shine", hint: "The light sweeping over the checked-out branch's name and its group label, and over project names while the worktree list loads" },
+  { id: "graph", label: "Graph preview", hint: "Commits sliding into place in the graph, what an action would change fading in and pulsing, what it would remove fading out" },
   { id: "commit", label: "New commit pop", hint: "The commit link popping and glowing when a branch gets a new commit" },
   { id: "nudge", label: "Push button nudge", hint: "The push button wiggling while commits wait to be pushed" },
   { id: "wip", label: "WIP badge pulse", hint: "The WIP badge fading in and out while files have uncommitted changes" },

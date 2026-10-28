@@ -1,11 +1,12 @@
 import { useState, type MouseEvent } from "react";
 
-import { droppedWorktree, patchOverview, patchWip, pushed, queryClient, settle, switchedOverview, useAction, useAiOn, useOverview, usePendingBranches } from "../api/hooks";
+import { droppedWorktree, patchOverview, patchWip, pushed, queryClient, settle, switchedOverview, useAction, useAiOn, useOverview, usePendingBranches, useProjectPrefs } from "../api/hooks";
 import { RpcError } from "../api/transport";
 import type { BranchView, Overview, RebaseResult, RenameResult, Stash, StashApplied } from "../api/types";
 import { ContextMenu, type MenuItem } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
 import { plural } from "../lib/format";
+import { holdPreview, pinBranch, previewHandlers } from "../lib/graphPreview";
 import { useNav } from "../lib/nav";
 import { call, runTask, wtKey } from "../lib/tasks";
 import { copyToClipboard, toast } from "../lib/toast";
@@ -110,6 +111,8 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
   // Changelog entries are written by the AI that writes release notes.
   const canChangelog = useAiOn("release") && hasChangelog;
   const move = useAction("branches.setParent", { invalidate: inv });
+  // What a merge or a delete does depends on the options last picked in their dialogs: the graph previews those.
+  const prefs = useProjectPrefs(pid);
   const follow = useAction<RenameResult, { projectId: string; branch: string; name: string }>("branches.rename", { invalidate: [...inv, ["worktrees"], ["agents"]] });
   const [menu, setMenu] = useState<{ x: number; y: number; alignRight: boolean; t: BranchTarget } | null>(null);
 
@@ -190,6 +193,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
         short: originOnly ? "Check out" : "Switch",
         tip: originOnly ? `Only on origin: create a local ${b} that tracks it and switch to it` : `Check out ${b}`,
         icon: "swap",
+        preview: { kind: "switch", branch: b },
         run: () => switchOrAsk(b, `Switched to ${b}`),
       },
       continue: {
@@ -199,6 +203,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
         tip: `Delete the worktree of ${b} and check ${b} out here. Uncommitted changes there get committed or discarded first`,
         icon: "swap",
         warn: true,
+        preview: { kind: "switch", branch: b },
         run: () => openDialog("continue", b),
       },
       worktree: { id: "worktree", label: "Open in worktree", tip: `Open ${b} in its own worktree`, icon: "layers", run: () => wt.mutate({ projectId: pid, branch: b }) },
@@ -210,6 +215,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
         icon: "refresh",
         hint: v.upstreamBehind ? `↓${v.upstreamBehind}` : undefined,
         disabled: !v.upstream,
+        preview: { kind: "pull", branch: b },
         run: () => run(pull, b, `Pulled ${b}`),
       },
       reset: {
@@ -218,6 +224,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
         tip: `Move ${b} to where ${v.upstream} is, dropping what differs locally`,
         icon: "undo",
         danger: true,
+        preview: { kind: "reset", branch: b },
         run: () => openDialog("reset", b),
       },
       push: {
@@ -227,6 +234,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
         tip: !v.upstream ? `Publish ${b} to origin${home ? `, then switch to ${home}` : ""}` : v.upstreamAhead ? `Push ${plural(v.upstreamAhead, "commit")} to ${v.upstream}` : `Push to ${v.upstream}`,
         icon: "push",
         hint: v.upstreamAhead ? `↑${v.upstreamAhead}` : undefined,
+        preview: { kind: "push", branch: b, home },
         run: () => (home ? push.mutate({ projectId: pid, branch: b }, { onSuccess: () => run(sw, home, `Published ${b}, switched to ${home}`) }) : run(push, b, `Pushed ${b}`)),
       },
       forcePush: {
@@ -237,6 +245,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
         icon: "push",
         hint: diverged ? `↑${v.upstreamAhead} ↓${v.upstreamBehind}` : undefined,
         danger: true,
+        preview: { kind: "push", branch: b, force: true },
         run: () => openDialog("forcePush", b),
       },
       stash: {
@@ -246,6 +255,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
         icon: "stash",
         hint: v.checkedOut ? (v.wip ? plural(v.wip, "file") : "nothing to stash") : "check out first",
         disabled: !v.checkedOut || !v.wip,
+        preview: { kind: "stash", branch: b },
         run: () => run(stash, b, `Stashed changes on ${b}`),
       },
       unstash: {
@@ -255,6 +265,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
         icon: "unstash",
         hint: t.latestStash?.message,
         disabled: !t.latestStash,
+        preview: { kind: "unstash", branch: b },
         run: () =>
           t.latestStash &&
           unstash.mutate(
@@ -273,6 +284,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
         icon: "branch",
         hint: v.checkedOut ? (v.behind ? `${v.behind} behind` : undefined) : "check out first",
         disabled: !v.checkedOut || !t.base,
+        preview: t.base ? { kind: "rebase", branch: b, onto: t.base } : undefined,
         run: () => rebase.mutate({ projectId: pid, branch: b }),
       },
       rebaseActive: {
@@ -282,6 +294,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
         icon: "branch",
         hint: ov?.inProgress ? `${ov.inProgress} in progress` : undefined,
         disabled: !!ov?.inProgress,
+        preview: cur ? { kind: "rebase", branch: cur, onto: b } : undefined,
         run: () => cur && openDialog("rebaseOnto", cur, b),
       },
       rebasePick: {
@@ -301,6 +314,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
         icon: "refresh",
         hint: v.behind ? `↓${v.behind}` : undefined,
         disabled: !t.base || !v.behind,
+        preview: t.base ? { kind: "sync", branch: b, from: t.base } : undefined,
         run: () => run(sync, b, `${b} is up to date with ${parent}`),
       },
       merge: {
@@ -311,6 +325,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
         icon: "merged",
         hint: v.ahead ? plural(v.ahead, "commit") : "nothing to merge",
         disabled: !t.base || !v.ahead,
+        preview: t.base ? { kind: "merge", branch: b, into: t.base, squash: prefs.merge.squash, rebase: prefs.merge.rebase, deleteBranch: prefs.merge.deleteBranch, push: prefs.merge.push } : undefined,
         run: () => openDialog("merge", b),
       },
       conflicts: { id: "conflicts", label: "Resolve conflicts…", short: "Resolve", tip: `Resolve conflicts with ${parent}`, icon: "sparkle", run: () => openDialog("conflicts", b) },
@@ -329,6 +344,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
         label: "Create a branch from here",
         tip: "Create a branch from here",
         icon: "plus",
+        preview: { kind: "create", from: b },
         run: () => nav.openNewItem(v.role === "release" && v.release ? { release: v.release } : { from: b }),
       },
       changelog: {
@@ -336,6 +352,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
         label: "Update changelog",
         tip: `AI adds what ${b} changes${t.base && v.ahead ? ` over ${parent}` : " since its latest tag"} to the Unreleased section of CHANGELOG.md, committed on ${b}`,
         icon: "sparkle",
+        preview: { kind: "changelog", branch: b, what: "Update CHANGELOG.md" },
         run: () => changelog.mutate({ projectId: pid, branch: b }),
       },
       stampChangelog: {
@@ -343,6 +360,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
         label: `Move unreleased changelog into ${v.release}`,
         tip: `Rename the Unreleased section of CHANGELOG.md to ${v.release}, dated today, committed on ${b}. When ${v.release} already has entries, AI merges both, highlights first`,
         icon: "tag",
+        preview: { kind: "changelog", branch: b, what: `Move unreleased changelog into ${v.release}` },
         run: () => v.release && stampChangelog.mutate({ projectId: pid, branch: b, version: v.release }),
       },
       latestChangelog: {
@@ -350,9 +368,10 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
         label: `Add unreleased changelog to v${ov?.changelogVersion}`,
         tip: `Merge the Unreleased section of CHANGELOG.md into ${ov?.changelogVersion}, committed on ${b}. AI combines it with the entries already there, highlights first`,
         icon: "tag",
+        preview: { kind: "changelog", branch: b, what: `Add unreleased changelog to v${ov?.changelogVersion}` },
         run: () => latestChangelog.mutate({ projectId: pid, branch: b }),
       },
-      tag: { id: "tag", label: "Create tag…", tip: `Tag the tip of ${b}`, icon: "tag", run: () => openDialog("tag", b) },
+      tag: { id: "tag", label: "Create tag…", tip: `Tag the tip of ${b}`, icon: "tag", preview: { kind: "tag", branch: b }, run: () => openDialog("tag", b) },
       copy: { id: "copy", label: "Copy branch name", icon: "edit", run: () => copyToClipboard(b) },
       // `worktree` is the folder path; its last segment is the workspace name.
       copyWorkspace: { id: "copyWorkspace", label: "Copy workspace name", icon: "copy", run: () => v.worktree && copyToClipboard(v.worktree.split(/[\\/]/).pop() ?? v.worktree) },
@@ -386,6 +405,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
         tip: !v.exists ? `${b} no longer exists: remove it from the list` : originOnly ? `Delete ${b} on origin` : v.merged && !v.likelyMerged ? `${b} is merged into ${parent}: delete the local branch` : `Delete ${b}`,
         icon: "trash",
         danger: true,
+        preview: { kind: "delete", branch: b, local: !originOnly, remote: originOnly || (v.remote && prefs.dialogs.deleteOrigin) },
         run: () => openDialog("delete", b),
       },
     } satisfies Record<string, Action>;
@@ -489,6 +509,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
     const fromKey = e.type === "contextmenu" && e.clientX === 0 && e.clientY === 0;
     if (e.type !== "contextmenu") setMenu({ x: r.right, y: r.bottom + 2, alignRight: true, t });
     else setMenu({ x: fromKey ? r.left : e.clientX, y: fromKey ? r.bottom + 2 : e.clientY, alignRight: false, t });
+    pinBranch(t.view.name);
   };
 
   const switchTo = (b: string) => switchOrAsk(b, `Switched to ${b}`);
@@ -496,7 +517,19 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
   /** Start a new branch off this one; gone branches have nothing to start from. */
   const create = (t: BranchTarget): Action | undefined => (t.view.exists ? all(t).create : undefined);
 
-  const menuEl = menu && <ContextMenu x={menu.x} y={menu.y} alignRight={menu.alignRight} label={`Actions for ${menu.t.view.name}`} items={items(menu.t)} onClose={() => setMenu(null)} />;
+  const menuEl = menu && (
+    <ContextMenu
+      x={menu.x}
+      y={menu.y}
+      alignRight={menu.alignRight}
+      label={`Actions for ${menu.t.view.name}`}
+      items={items(menu.t)}
+      onClose={() => {
+        setMenu(null);
+        pinBranch(null);
+      }}
+    />
+  );
 
   return { primary, create, openMenu, menuEl, busy, switchTo, continueOn, abortAndSwitch, switchWith, pullWith };
 }
@@ -518,12 +551,22 @@ export function BranchSplit({ t, actions }: { t: BranchTarget; actions: BranchAc
   const nudge = p.id === "push" && !busy && !p.disabled && (v.upstreamAhead > 0 || (!v.upstream && v.ahead > 0));
   return (
     <span className="acts" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
-      <button className={`act act-main${p.danger ? " btn-danger" : p.warn ? " act-warn" : ""}${nudge ? " act-nudge" : ""}`} disabled={p.disabled || busy} aria-label={tip} data-tip={tip} onClick={p.run}>
+      <button
+        className={`act act-main${p.danger ? " btn-danger" : p.warn ? " act-warn" : ""}${nudge ? " act-nudge" : ""}`}
+        disabled={p.disabled || busy}
+        aria-label={tip}
+        data-tip={tip}
+        {...previewHandlers(p.preview)}
+        onClick={() => {
+          holdPreview(p.preview);
+          p.run();
+        }}
+      >
         {busy ? <span className="spinner" /> : <Icon name={p.icon ?? "check"} size={14} />}
       </button>
       <span className="act-stack">
         {add && (
-          <button className="act" aria-label={add.tip} data-tip={add.tip} onClick={add.run}>
+          <button className="act" aria-label={add.tip} data-tip={add.tip} {...previewHandlers(add.preview)} onClick={add.run}>
             <Icon name="plus" size={12} />
           </button>
         )}

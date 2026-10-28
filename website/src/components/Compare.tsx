@@ -28,6 +28,7 @@ const GROUPS: { title: string; rows: [string, Cell, Cell, Cell, Cell][] }[] = [
     rows: [
       ['Main view', t('Branch tree: main, then releases, then features and fixes'), t('Commit graph'), t('Commit graph'), t('Commit graph')],
       ['Knows which release a branch belongs to', y('Even after a squash-merged pull request'), n(), n(), n()],
+      ['Preview an action before running it', y('Hover rebase, merge, push or tag: a graph shows the result. Conflicts are not predicted.'), n(), p('Merge, rebase and cherry-pick dialogs say if it will conflict'), n()],
     ],
   },
   {

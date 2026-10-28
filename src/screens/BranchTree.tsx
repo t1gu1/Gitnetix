@@ -10,6 +10,7 @@ import { ContextMenu, type MenuItem } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
 import { Empty, releaseTagLabel } from "../components/ui";
 import { plural, stashCount } from "../lib/format";
+import { hoverBranch } from "../lib/graphPreview";
 import { useNav } from "../lib/nav";
 import { BranchSplit, type BranchActions, type BranchTarget } from "./BranchMenu";
 
@@ -119,6 +120,8 @@ export function BranchTree({
   cleanupLeft,
   tagItems,
   onStashes,
+  graph,
+  onGraph,
   building,
   updating,
   progress,
@@ -142,6 +145,9 @@ export function BranchTree({
   tagItems: (tag: string, checkedOut: boolean) => MenuItem[];
   /** Opens every stash of the project. */
   onStashes: () => void;
+  /** The commit graph shows left of the tree; `onGraph` shows or hides it. */
+  graph?: boolean;
+  onGraph?: () => void;
   /** First look at the project: branches are not filed under their parents yet. */
   building?: boolean;
   /** The overview is being read again (after an action, a fetch, a change in git). */
@@ -481,6 +487,17 @@ export function BranchTree({
       <div className="pane-head">
         <span className="row" style={{ gap: 6 }}>
           <span className="label">Branches</span>
+          {onGraph && (
+            <button
+              className="btn btn-sm btn-icon graph-toggle hide-narrow"
+              aria-pressed={!!graph}
+              aria-label={graph ? "Hide the commit graph" : "Show the commit graph"}
+              data-tip={graph ? "Hide the graph" : "Show the graph: hover an action to preview it"}
+              onClick={onGraph}
+            >
+              <Icon name="graph" size={13} />
+            </button>
+          )}
           {updating && !building && (
             <span className="tree-updating faint" role="status">
               <span className="spinner" />
@@ -704,6 +721,8 @@ function Row({
       data-dim={b.merged || !b.exists || undefined}
       data-role={shipped ? "release" : b.role}
       onContextMenu={(e) => actions.openMenu(t, e)}
+      onPointerEnter={() => b.exists && hoverBranch(b.name)}
+      onPointerLeave={() => hoverBranch(null)}
     >
       <button className="tree-btn" aria-pressed={selected} onClick={onSelect} onDoubleClick={() => b.exists && !b.checkedOut && actions.switchTo(b.name)}>
         <span className="tree-lead">
