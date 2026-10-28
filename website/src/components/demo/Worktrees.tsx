@@ -317,7 +317,7 @@ function StartModal({ initial, onClose, onStarted }: { initial: string; onClose:
   return (
     <Modal
       title="New agent session"
-      sub={fresh ? `Runs in a new worktree on a branch off ${from}` : branch && `Runs in its own worktree on ${branch}`}
+      sub={fresh ? <>Runs in a new worktree on a branch off <strong className="c-acc">{from}</strong></> : branch && <>Runs in its own worktree on <strong className="c-acc">{branch}</strong></>}
       onClose={onClose}
       footer={
         <>
