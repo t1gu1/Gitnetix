@@ -2,7 +2,7 @@ import { type CSSProperties, type KeyboardEvent, type ReactNode, useEffect, useL
 import { createPortal } from "react-dom";
 
 import { useAgentFile, useAiCatalog, useConfig } from "../api/hooks";
-import { onPathDrop } from "../api/transport";
+import { copyAgentFile, downloadAgentFile, isLocal, onPathDrop } from "../api/transport";
 import type { LogLine } from "../api/types";
 import { blocks, questions, said, type Block, type Opt, type Question } from "../lib/agentLog";
 import { bytes } from "../lib/format";
@@ -107,11 +107,15 @@ function Choices({ qs, picks, onPicks }: { qs: Question[]; picks: Choice[]; onPi
   );
 }
 
-/** Files in the log, one chip each; images preview from agent `session`. */
+/** Files in the log, one chip each; images preview from agent `session`, and open full size in a gallery of this group's images. */
 function Files({ files, session }: { files: string[]; session?: string }) {
+  const [open, setOpen] = useState<number>();
+  const shots = files.filter(isImage);
   return files.length > 0 && (
     <span className="ag-files">
-      {files.map((f) => <FileChip key={f} file={f} session={session} />)}
+      {/* A key on the chip still focused behind the gallery must not jump it back. */}
+      {files.map((f) => <FileChip key={f} file={f} session={session} onOpen={() => setOpen((o) => o ?? shots.indexOf(f))} />)}
+      {open !== undefined && session && <Gallery session={session} paths={shots} at={open} onClose={() => setOpen(undefined)} />}
     </span>
   );
 }
@@ -306,19 +310,76 @@ function Preview({ at, children }: { at: HTMLElement; children: ReactNode }) {
   );
 }
 
-/** A file sent, or about to be: images in hand show a thumbnail, others their icon; images sent to agent `session` preview on hover or focus, and open full size on click. `onRemove` takes it off the message. */
-export function FileChip({ file, session, onRemove }: { file: Attachment; session?: string; onRemove?: () => void }) {
+/** Image `path` agent `session` was sent or shows, loaded when it first appears. */
+function Shot({ session, path }: { session: string; path: string }) {
+  const shot = useAgentFile(session, path);
+  return shot.data ? <img src={dataUrl(path, shot.data)} alt={nameOf(path)} /> : shot.isError ? <span className="faint">Could not load {nameOf(path)}</span> : <span className="spinner" />;
+}
+
+/** The images `paths` agent `session` was sent or shows, full size from the `at`th: the arrows and ←/→ step through them, round. On the desktop, Copy puts the file itself on the clipboard (a GIF pasted still moves) and Download saves it in Downloads. */
+function Gallery({ session, paths, at, onClose }: { session: string; paths: string[]; at: number; onClose: () => void }) {
+  const [i, setI] = useState(at);
+  const n = paths.length;
+  const path = paths[i];
+  const name = nameOf(path);
+  const step = (d: number) => setI((j) => (j + d + n) % n);
+  // The next and previous load meanwhile, so stepping shows them at once.
+  useAgentFile(session, paths[(i + 1) % n]);
+  useAgentFile(session, paths[(i - 1 + n) % n]);
+  useEffect(() => {
+    if (n < 2) return;
+    const k = (e: globalThis.KeyboardEvent) => {
+      if (e.key === "ArrowLeft") step(-1);
+      else if (e.key === "ArrowRight") step(1);
+    };
+    window.addEventListener("keydown", k);
+    return () => window.removeEventListener("keydown", k);
+  }, [n]);
+  const copy = () => copyAgentFile(session, path).then(() => toast("Copied", "ok"), (e) => toast(`Could not copy ${name}: ${e}`, "error"));
+  const download = () => downloadAgentFile(session, path).then((to) => toast(`Saved to ${to}`, "ok"), (e) => toast(`Could not save ${name}: ${e}`, "error"));
+  return (
+    <Modal
+      title={name}
+      sub={n > 1 && `${i + 1} / ${n}`}
+      onClose={onClose}
+      actions={isLocal && (
+        <>
+          <button type="button" className="btn btn-ghost btn-icon" aria-label={`Copy ${name}`} data-tip="Copy the file" onClick={copy}>
+            <Icon name="copy" />
+          </button>
+          <button type="button" className="btn btn-ghost btn-icon" aria-label={`Download ${name}`} data-tip="Save to Downloads" onClick={download}>
+            <Icon name="download" />
+          </button>
+        </>
+      )}
+    >
+      <div className="ag-shot">
+        <Shot session={session} path={path} />
+        {n > 1 && (
+          <>
+            <button type="button" className="ag-shot-nav ag-shot-prev" aria-label="Previous image" onClick={() => step(-1)}>
+              <Icon name="chevronLeft" />
+            </button>
+            <button type="button" className="ag-shot-nav ag-shot-next" aria-label="Next image" onClick={() => step(1)}>
+              <Icon name="chevronRight" />
+            </button>
+          </>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+/** A file sent, or about to be: images in hand show a thumbnail, others their icon; images sent to agent `session` preview on hover or focus, and `onOpen` on click. `onRemove` takes it off the message. */
+export function FileChip({ file, session, onOpen, onRemove }: { file: Attachment; session?: string; onOpen?: () => void; onRemove?: () => void }) {
   const name = nameOf(file);
   const [url, setUrl] = useState<string>();
   const sent = typeof file === "string" && !!session && isImage(file) ? file : undefined;
-  // The chip of a sent image while it is hovered or focused; its contents load on the first one.
+  // The chip of a sent image while it is hovered or focused.
   const [at, setAt] = useState<HTMLElement | null>(null);
-  const [big, setBig] = useState(false);
-  const shot = useAgentFile(session, sent, !!at || big);
-  const view = sent && shot.data ? <img src={dataUrl(sent, shot.data)} alt={name} /> : shot.isError ? <span className="faint">Could not load {name}</span> : <span className="spinner" />;
   const open = () => {
     setAt(null);
-    setBig(true);
+    onOpen?.();
   };
   useEffect(() => {
     if (!at) return;
@@ -336,43 +397,39 @@ export function FileChip({ file, session, onRemove }: { file: Attachment; sessio
     return () => URL.revokeObjectURL(u);
   }, [file]);
   return (
-    <>
-      <span
-        className="ag-file"
-        // The preview stands where tooltips would.
-        title={sent ? undefined : typeof file === "string" ? file : name}
-        tabIndex={sent ? 0 : undefined}
-        role={sent ? "button" : undefined}
-        onClick={() => sent && open()}
-        onPointerEnter={(e) => sent && setAt(e.currentTarget)}
-        onPointerLeave={() => setAt(null)}
-        onFocus={(e) => sent && setAt(e.currentTarget)}
-        onBlur={() => setAt(null)}
-        onKeyDown={(e) => {
-          if (e.key === "Escape") setAt(null);
-          else if (sent && (e.key === "Enter" || e.key === " ")) {
-            e.preventDefault();
-            open();
-          }
-        }}
-      >
-        {url ? <img src={url} alt="" /> : <Icon name={isImage(name) ? "image" : "file"} size={15} />}
-        <span className="ellipsis" data-tip-off={sent ? "" : undefined}>{name}</span>
-        {typeof file !== "string" && <span className="faint">{bytes(file.size)}</span>}
-        {onRemove && (
-          <button type="button" className="ag-file-x" aria-label={`Remove ${name}`} onClick={onRemove}>
-            <Icon name="close" size={10} />
-          </button>
-        )}
-        {at && sent && <Preview at={at}>{view}</Preview>}
-      </span>
-      {/* Outside the chip: clicks in the portaled modal bubble up the React tree and would reopen it. */}
-      {big && (
-        <Modal title={name} onClose={() => setBig(false)}>
-          <div className="ag-shot">{view}</div>
-        </Modal>
+    <span
+      className="ag-file"
+      // The preview stands where tooltips would.
+      title={sent ? undefined : typeof file === "string" ? file : name}
+      tabIndex={sent ? 0 : undefined}
+      role={sent ? "button" : undefined}
+      onClick={() => sent && open()}
+      onPointerEnter={(e) => sent && setAt(e.currentTarget)}
+      onPointerLeave={() => setAt(null)}
+      onFocus={(e) => sent && setAt(e.currentTarget)}
+      onBlur={() => setAt(null)}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") setAt(null);
+        else if (sent && (e.key === "Enter" || e.key === " ")) {
+          e.preventDefault();
+          open();
+        }
+      }}
+    >
+      {url ? <img src={url} alt="" /> : <Icon name={isImage(name) ? "image" : "file"} size={15} />}
+      <span className="ellipsis" data-tip-off={sent ? "" : undefined}>{name}</span>
+      {typeof file !== "string" && <span className="faint">{bytes(file.size)}</span>}
+      {onRemove && (
+        <button type="button" className="ag-file-x" aria-label={`Remove ${name}`} onClick={onRemove}>
+          <Icon name="close" size={10} />
+        </button>
       )}
-    </>
+      {at && sent && session && (
+        <Preview at={at}>
+          <Shot session={session} path={sent} />
+        </Preview>
+      )}
+    </span>
   );
 }
 

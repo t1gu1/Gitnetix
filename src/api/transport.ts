@@ -164,6 +164,18 @@ export async function allowFirewall(): Promise<string> {
   return invoke<string>("allow_firewall");
 }
 
+/** Put a file agent `id` was sent, or shows, on this computer's clipboard as the file itself (desktop only). */
+export async function copyAgentFile(id: string, path: string) {
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<void>("agent_file_copy", { id, path });
+}
+
+/** Save a copy of that file in the Downloads folder (desktop only). Returns where it landed. */
+export async function downloadAgentFile(id: string, path: string) {
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<string>("agent_file_download", { id, path });
+}
+
 /** Native folder picker on desktop; null elsewhere. */
 export async function pickFolders(): Promise<string[] | null> {
   if (!isLocal) return null;

@@ -128,7 +128,8 @@ export function Header({ title, sub, back = "back", right, onBack, hideWide }: {
 }
 
 /** Without `onClose` it stays up (no close button): while what it started is still running. */
-export function Modal({ title, sub, onClose, children, footer, width }: { title: ReactNode; sub?: ReactNode; onClose?: () => void; children: ReactNode; footer?: ReactNode; width?: number }) {
+/** `actions` stand in the head, before the close button. */
+export function Modal({ title, sub, onClose, children, footer, width, actions }: { title: ReactNode; sub?: ReactNode; onClose?: () => void; children: ReactNode; footer?: ReactNode; width?: number; actions?: ReactNode }) {
   useEffect(() => {
     const k = (e: KeyboardEvent) => e.key === "Escape" && onClose?.();
     window.addEventListener("keydown", k);
@@ -143,6 +144,7 @@ export function Modal({ title, sub, onClose, children, footer, width }: { title:
             <h1>{title}</h1>
             {sub && <span className="muted" style={{ fontSize: 12 }}>{sub}</span>}
           </div>
+          {actions && <div className="modal-actions">{actions}</div>}
           {onClose && (
             <button className="btn btn-ghost btn-icon" aria-label="Close" onClick={onClose}>
               <Icon name="close" />

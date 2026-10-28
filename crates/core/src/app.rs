@@ -510,16 +510,21 @@ async fn attach(cwd: &Path, text: &str, files: &[Attachment]) -> Result<String> 
     Ok(format!("{text}\n\nAttached files:{list}").trim_start().to_string())
 }
 
-/// A file `attach` saved, or an image the agent shows, for the checkout at `cwd`, base64; any path outside its attachments folder is refused.
-async fn attachment(cwd: &Path, path: &str) -> Result<String> {
-    use base64::Engine as _;
+/// Where a file `attach` saved, or an image the agent shows, is for the checkout at `cwd`; any path outside its attachments folder is refused.
+async fn attachment_path(cwd: &Path, path: &str) -> Result<PathBuf> {
     let dir = attach_root(cwd).await?;
     // Canonical on both sides: "..", symlinks and the git dir's spelling cannot step out.
     let file = Path::new(path).canonicalize()?;
     if !file.starts_with(dir.canonicalize()?) {
         return Err(Error::Invalid("Not a file sent to this agent".into()));
     }
-    Ok(base64::engine::general_purpose::STANDARD.encode(std::fs::read(file)?))
+    Ok(file)
+}
+
+/// The contents of `attachment_path`, base64.
+async fn attachment(cwd: &Path, path: &str) -> Result<String> {
+    use base64::Engine as _;
+    Ok(base64::engine::general_purpose::STANDARD.encode(std::fs::read(attachment_path(cwd, path).await?)?))
 }
 
 /// How long an agent start waits for the branch's ticket.
@@ -4718,6 +4723,11 @@ impl Gitnetix {
     /// A file sent to agent `id`, base64, as its log lists it.
     pub async fn agent_file(&self, id: &str, path: &str) -> Result<String> {
         attachment(Path::new(&self.agents.get(id)?.cwd), path).await
+    }
+
+    /// Where `agent_file` reads from, for the desktop window to copy or save it.
+    pub async fn agent_file_path(&self, id: &str, path: &str) -> Result<PathBuf> {
+        attachment_path(Path::new(&self.agents.get(id)?.cwd), path).await
     }
 
     /// Applies from the next message on. Resolved like a new session's pick,

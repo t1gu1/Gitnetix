@@ -4048,16 +4048,57 @@ button.picker-act {
 }
 .modal:has(.ag-shot) {
   width: auto;
+  min-width: 320px;
+}
+.modal:has(.ag-shot) h1 {
+  overflow-wrap: anywhere;
 }
 .ag-shot {
+  position: relative;
   text-align: center;
 }
 .ag-shot > img {
   display: block;
   margin: 0 auto;
   max-width: 100%;
-  max-height: calc(100vh - 120px);
+  max-height: calc(100vh - 140px);
   border-radius: 3px;
+}
+/* Step through the message's images, over its edges. */
+.ag-shot-nav {
+  position: absolute;
+  top: 50%;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--raised);
+  color: var(--fg);
+  box-shadow: var(--shadow-pop);
+  opacity: 0.85;
+  transform: translateY(-50%);
+  cursor: pointer;
+  transition: opacity var(--t-fast) var(--ease);
+}
+.ag-shot-nav:hover,
+.ag-shot-nav:focus-visible {
+  opacity: 1;
+}
+.ag-shot-prev {
+  left: 8px;
+}
+.ag-shot-next {
+  right: 8px;
+}
+/* Head buttons beside close (a gallery's Copy and Download). */
+.modal-actions {
+  display: flex;
+  gap: 2px;
+  margin-left: auto;
+  margin-right: -8px;
 }
 .ag-drop {
   position: absolute;

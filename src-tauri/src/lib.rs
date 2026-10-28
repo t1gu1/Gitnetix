@@ -62,6 +62,39 @@ mod desktop {
         mic.0.lock().unwrap().take();
     }
 
+    /// The clipboard, opened on the first copy. Kept open: on Linux the app itself serves what it copied.
+    #[derive(Default)]
+    pub struct Clip(std::sync::Mutex<Option<arboard::Clipboard>>);
+
+    /// Puts a file an agent was sent, or shows, on the clipboard as the file itself, so it pastes whole (a GIF still moves) in file managers and chat apps.
+    /// Window commands, not RPC methods: a paired phone must not reach the desktop's clipboard or Downloads folder.
+    #[tauri::command]
+    pub async fn agent_file_copy(engine: State<'_, Engine>, clip: State<'_, Clip>, id: String, path: String) -> Result<(), String> {
+        let file = engine.0.agent_file_path(&id, &path).await.map_err(|e| e.to_string())?;
+        let mut c = clip.0.lock().unwrap();
+        if c.is_none() {
+            *c = Some(arboard::Clipboard::new().map_err(|e| e.to_string())?);
+        }
+        c.as_mut().unwrap().set().file_list(&[file]).map_err(|e| e.to_string())
+    }
+
+    /// Saves a copy of that file in the Downloads folder, numbered when its name is taken there, and returns where.
+    #[tauri::command]
+    pub async fn agent_file_download(app: tauri::AppHandle, engine: State<'_, Engine>, id: String, path: String) -> Result<String, String> {
+        let file = engine.0.agent_file_path(&id, &path).await.map_err(|e| e.to_string())?;
+        let dir = app.path().download_dir().map_err(|e| e.to_string())?;
+        let stem = file.file_stem().unwrap_or_default().to_string_lossy();
+        let ext = file.extension().map(|e| format!(".{}", e.to_string_lossy())).unwrap_or_default();
+        let mut dest = dir.join(file.file_name().unwrap_or_default());
+        let mut i = 0;
+        while dest.exists() {
+            i += 1;
+            dest = dir.join(format!("{stem} ({i}){ext}"));
+        }
+        std::fs::copy(&file, &dest).map_err(|e| format!("Could not save to {}: {e}", dir.display()))?;
+        Ok(dest.display().to_string())
+    }
+
     /// Save the agent logs' latest lines and end their runs before quitting, so a resumed run keeps them and never runs twice.
     pub fn on_event(app: &tauri::AppHandle, ev: tauri::RunEvent) {
         if let tauri::RunEvent::Exit = ev {
@@ -227,8 +260,9 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .manage(desktop::Mic::default())
         .manage(desktop::Companion::default())
+        .manage(desktop::Clip::default())
         .setup(desktop::setup)
-        .invoke_handler(tauri::generate_handler![desktop::rpc, desktop::companion, desktop::allow_firewall, desktop::open_url, desktop::dictation_start, desktop::dictation_stop, desktop::dictation_cancel]);
+        .invoke_handler(tauri::generate_handler![desktop::rpc, desktop::companion, desktop::allow_firewall, desktop::open_url, desktop::dictation_start, desktop::dictation_stop, desktop::dictation_cancel, desktop::agent_file_copy, desktop::agent_file_download]);
 
     // The pairing screen scans the desktop's QR code with the phone camera.
     #[cfg(mobile)]
