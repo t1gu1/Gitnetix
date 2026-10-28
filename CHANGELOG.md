@@ -14,9 +14,17 @@ release notes and the in-app update prompt.
 ### Added
 - Stage or unstage part of a file from its WIP diff: select lines in the line numbers (pointing at a changed line shows its checkbox; click, drag or shift-click), or take a whole hunk from its header. A file can then be both staged and unstaged.
 - Discard selected unstaged lines or a whole unstaged hunk from the diff, after a confirmation.
+- Rebase a branch onto any other branch from the branch menu with "Rebase onto…". The branch's target stays as it was.
+
+### Changed
+- The Worktrees screen shows the last known list while the fresh one loads.
 
 ### Fixed
 - A merge, rebase merge or pull that went through no longer shows an error when its temporary checkout can't be deleted. The leftover folder is noted in Menu › Logs instead.
+- Text boxes no longer show a horizontal scrollbar on wrapped text.
+- The dictation mic button now sits at the edge of its box and fits short boxes.
+
+Skipped: nothing checked beyond commit messages. Dictation and textarea entries come from commit subjects only.
 
 ## [0.10.0] - 2026-10-27
 
