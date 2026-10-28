@@ -11,6 +11,8 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+## [0.11.2] - 2026-10-28
+
 ### Added
 - Pulling a branch when uncommitted changes are in the way now asks what to do with them: keep them on top of the pulled branch, or stash them and pull a clean branch. Before, the pull failed with git's error.
 - The reset dialog now lists unpushed local commits that a hard reset would lose.
