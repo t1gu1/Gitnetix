@@ -9,7 +9,8 @@ import '../styles/site.css';
 import Header, { type Page } from '../components/Header';
 import Footer from '../components/Footer';
 import { u } from '../lib/changelog';
-import { THEMES } from '../../../src/lib/themes';
+import { resolveTheme, SYSTEM, THEMES } from '../../../src/lib/themes';
+import { logoSvg } from '../../../src/lib/logo';
 // The hero headline's weight: preloaded so the largest text paints in its own font, not a fallback.
 import heading from '@fontsource/instrument-sans/files/instrument-sans-latin-700-normal.woff2?url';
 
@@ -36,20 +37,23 @@ const og = new URL(u('og.png'), Astro.site).href;
 <meta name="color-scheme" content="dark light">
 <link rel="preload" href={heading} as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href={u('themes.css')}>
-<script is:inline define:vars={{ themes: THEMES.map((t) => ({ id: t.id, light: t.light, own: t.family !== 'Gitnetix' })) }}>
-  // The app's resolveTheme + applyTheme, before the first paint: the saved pick, or Gitnetix in the computer's mode.
+<script is:inline define:vars={{ themes: THEMES.map((t) => ({ id: t.id, light: t.light, own: t.family !== 'Gitnetix', accent: t.accent, panel: t.panel })), system: SYSTEM, mark: logoSvg('{accent}', '{panel}') }}>
+  // The app's resolveTheme + applyTheme, before the first paint: the saved pick, or SYSTEM's theme in the computer's mode.
   // Picks come from ThemePicker.tsx's [data-pick] buttons and HeroDemo's light / dark toggle (a "themechange" event); every picker shows the one in use.
+  // The favicon is the logo redrawn in the theme's colors, which a file can't read off the page.
   let pref;
   try { pref = localStorage.getItem('theme'); } catch {}
   const sys = matchMedia('(prefers-color-scheme: light)');
   const apply = () => {
-    const t = themes.find((x) => x.id === pref) ?? themes.find((x) => x.id === (sys.matches ? 'light' : 'dark'));
+    const t = themes.find((x) => x.id === pref) ?? themes.find((x) => x.id === system[sys.matches ? 'light' : 'dark']);
     const root = document.documentElement;
     root.dataset.theme = t.light ? 'light' : 'dark';
     if (t.own) root.dataset.palette = t.id;
     else delete root.dataset.palette;
     document.querySelectorAll('[data-pick]').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.pick === t.id)));
     document.querySelectorAll('[data-pick-name]').forEach((s) => (s.textContent = document.querySelector(`[data-pick="${t.id}"]`).getAttribute('aria-label')));
+    const icon = `data:image/svg+xml,${encodeURIComponent(mark.replaceAll('{accent}', t.accent).replaceAll('{panel}', t.panel))}`;
+    document.querySelectorAll('link[data-mark]').forEach((l) => (l.href = icon));
   };
   const pick = (id) => {
     pref = id;
@@ -64,9 +68,10 @@ const og = new URL(u('og.png'), Astro.site).href;
 </script>
 <link rel="canonical" href={canonical}>
 <meta name="robots" content="index, follow, max-image-preview:large">
-<meta name="theme-color" content="#0e0f11" media="(prefers-color-scheme: dark)">
-<meta name="theme-color" content="#f3f3f1" media="(prefers-color-scheme: light)">
-<link rel="icon" type="image/png" href={u('favicon.png')}>
+<meta name="theme-color" content={resolveTheme('system', 'dark').bg} media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content={resolveTheme('system', 'light').bg} media="(prefers-color-scheme: light)">
+<link rel="icon" type="image/png" sizes="64x64" href={u('favicon.png')}>
+<link rel="icon" type="image/svg+xml" href={u('favicon.svg')} data-mark>
 <link rel="apple-touch-icon" href={u('apple-touch-icon.png')}>
 <link rel="manifest" href={u('site.webmanifest')}>
 <link rel="alternate" type="application/rss+xml" title="Gitnetix releases" href={u('releases.xml')}>

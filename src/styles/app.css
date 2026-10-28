@@ -1030,7 +1030,7 @@ body.dragging-tab * {
   align-items: center;
   gap: 18px;
 }
-.welcome-hero > img {
+.welcome-hero > svg {
   flex: none;
   border-radius: 14px;
   box-shadow: var(--shadow-pop);

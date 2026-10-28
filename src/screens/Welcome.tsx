@@ -4,6 +4,7 @@ import { useAction, useProjects } from "../api/hooks";
 import { isLocal, onPathDrop, pickFolders } from "../api/transport";
 import type { Project } from "../api/types";
 import { Icon } from "../components/Icon";
+import { Logo } from "../components/Logo";
 import { ThemeToggle } from "../components/ThemeToggle";
 import { Busy, initials } from "../components/ui";
 import { useNav } from "../lib/nav";
@@ -52,7 +53,7 @@ export function Welcome() {
       <main className="scroll" style={{ flex: 1, display: "flex", justifyContent: "center", padding: "72px 24px 48px" }}>
         <div className="col" style={{ width: "100%", maxWidth: 640, gap: 40 }}>
           <div className="welcome-hero">
-            <img src="/logo.png" alt="" width={56} height={56} />
+            <Logo size={56} />
             <div className="col" style={{ gap: 8 }}>
               <h1>{list.length ? "Open a project" : "Welcome to Gitnetix"}</h1>
               <p className="muted">

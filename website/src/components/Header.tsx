@@ -1,5 +1,6 @@
 import { REPO, u } from '../lib/changelog';
 import { THEMES } from '../../../src/lib/themes';
+import { Logo } from '../../../src/components/Logo';
 import ThemePicker from './ThemePicker';
 
 export type Page = 'home' | 'releases' | 'download' | 'compare';
@@ -19,7 +20,7 @@ export default function Header({ page }: { page?: Page }) {
     <header className="site-hdr">
     <nav aria-label="Main" style={{ maxWidth: '1240px', margin: '0 auto', padding: '16px 24px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '12px 28px' }}>
     <a href={u()} style={{ display: 'flex', alignItems: 'center', gap: '10px', fontWeight: '700', fontSize: '19px', letterSpacing: '-0.01em' }} aria-label="Gitnetix home">
-    <img src={u('favicon.png')} alt="" width="32" height="32" style={{ width: '32px', height: '32px', borderRadius: '8px' }} />
+    <Logo size={32} />
     <span>Gitnetix</span>
     </a>
     <div className="muted-links" style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 22px', fontSize: '15px', flex: '1 1 auto' }}>

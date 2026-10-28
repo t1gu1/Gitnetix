@@ -4,6 +4,7 @@ import { useAction, useConfig, useProjectPrefs } from "../api/hooks";
 import { currentRemote, isLocal, isTauri, saveRemote } from "../api/transport";
 import type { GitProfile } from "../api/types";
 import { Icon } from "../components/Icon";
+import { Logo } from "../components/Logo";
 import { LANGS, Seg } from "../components/ui";
 import { animates } from "../lib/motion";
 import { useNav } from "../lib/nav";
@@ -81,7 +82,7 @@ export function Menu({ onUnpair }: { onUnpair: () => void }) {
             </button>
           )}
           <div className="hdr-title">
-            {!view && <img className="hdr-logo" src="/logo.png" alt="" />}
+            {!view && <Logo className="hdr-logo" />}
             <strong>{view ? VIEW_TITLE[view.name] : "Gitnetix"}</strong>
             {!view && project && (
               <>

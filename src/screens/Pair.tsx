@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { isTauri, remoteFromLink, saveRemote, testRemote, type Remote } from "../api/transport";
 import { queryClient } from "../api/hooks";
 import { Icon } from "../components/Icon";
+import { Logo } from "../components/Logo";
 import { Busy, ErrorBox } from "../components/ui";
 import zxingWasm from "zxing-wasm/reader/zxing_reader.wasm?url";
 
@@ -136,7 +137,7 @@ export function Pair({ onPaired, error, scan, onBack }: { onPaired: () => void; 
           }}
         >
           <div className="welcome-hero">
-            <img src="/logo.png" alt="" width={56} height={56} />
+            <Logo size={56} />
             <div className="col" style={{ gap: 8 }}>
               <h1>Pair with Gitnetix</h1>
               <p className="muted">Your repositories stay on the computer; from here you manage releases, agents, PRs and tickets remotely.</p>

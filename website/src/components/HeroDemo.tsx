@@ -637,7 +637,7 @@ export default function HeroDemo() {
             aria-label="Switch light / dark"
             onClick={() => {
               const root = document.documentElement;
-              dispatchEvent(new CustomEvent('themechange', { detail: otherMode(resolveTheme(root.dataset.palette ?? '', root.dataset.theme === 'light' ? 'light' : 'dark')) }));
+              dispatchEvent(new CustomEvent('themechange', { detail: otherMode(resolveTheme(root.dataset.palette ?? root.dataset.theme ?? '', root.dataset.theme === 'light' ? 'light' : 'dark')) }));
             }}
           >
             <Icon name="sun" size={15} stroke={1.4} className="hd-dark" />

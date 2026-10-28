@@ -11,6 +11,10 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+### Changed
+- Tokyo Night is the default theme, in the app and on the website: Storm when the computer is in dark mode, Day in light mode. Installs left on System switch to it. Gitnetix Dark and Light are still in the theme list, and the light / dark toggle on a theme without the other mode now goes to Tokyo Night.
+- The logo is drawn in the theme's colors, in the app, in the website's header and footer, and in its favicon. The app icon, the home-screen icons and the website's fallback icons use the new logo in Tokyo Night Storm.
+
 ## [0.11.2] - 2026-10-28
 
 ### Added

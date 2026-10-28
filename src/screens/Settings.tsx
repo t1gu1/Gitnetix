@@ -16,7 +16,7 @@ import { comboOf, DEFAULT_KEYS, DICTATION_LANGS, showKeys, useDictationKeys } fr
 import { ANIMATIONS, useAnimations } from "../lib/motion";
 import { useNav } from "../lib/nav";
 import { useStoredFlag } from "../lib/stored";
-import { ansi, THEMES, type Theme } from "../lib/themes";
+import { ansi, resolveTheme, THEMES, type Theme } from "../lib/themes";
 import { copyToClipboard, toast } from "../lib/toast";
 
 const JIRA_TOKENS = "https://id.atlassian.com/manage-profile/security/api-tokens";
@@ -163,14 +163,14 @@ function Appearance() {
     <>
       <div className="col" style={{ gap: 6 }}>
         <h1>Appearance</h1>
-        <p className="muted" style={{ margin: 0 }}>For every project. System follows your computer's light or dark mode, in the Gitnetix colors.</p>
+        <p className="muted" style={{ margin: 0 }}>For every project. System follows your computer's light or dark mode, in Tokyo Night Storm or Day.</p>
       </div>
       <div role="radiogroup" aria-label="Theme" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 8 }}>
         {card(
           "system",
           "System",
           <span className="row" style={{ gap: 4 }}>
-            {THEMES.filter((t) => t.family === "Gitnetix").map((t) => <Swatch key={t.id} t={t} />)}
+            {(["dark", "light"] as const).map((m) => <Swatch key={m} t={resolveTheme("system", m)} />)}
           </span>,
         )}
         {THEMES.map((t) => card(t.id, t.name, <Swatch t={t} />))}

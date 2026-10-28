@@ -32,7 +32,8 @@ function theme(): ITheme {
   const root = document.documentElement;
   const css = getComputedStyle(root);
   const v = (n: string) => css.getPropertyValue(n).trim();
-  const t = resolveTheme(root.dataset.palette ?? "", root.dataset.theme === "light" ? "light" : "dark");
+  // The Gitnetix themes set no palette: their ids are the mode.
+  const t = resolveTheme(root.dataset.palette ?? root.dataset.theme ?? "", root.dataset.theme === "light" ? "light" : "dark");
   const colors = Object.fromEntries(ansi(t).map((c, i) => [ANSI[i], c]));
   return { ...colors, background: v("--term"), foreground: v("--fg"), cursor: v("--accent"), cursorAccent: v("--term"), selectionBackground: v("--accent") + (t.light ? "66" : "44") };
 }

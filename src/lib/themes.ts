@@ -22,8 +22,18 @@ export interface Theme {
   ansi: string;
 }
 
-// The two Gitnetix themes keep the ids of the old light / dark preference; their colors live in app.css.
 export const THEMES: Theme[] = [
+  // The default (SYSTEM), first. Storm leads its family, so the light / dark toggle takes Day back to it.
+  { id: "tokyo-night-storm", name: "Tokyo Night Storm", family: "Tokyo Night", light: false, bg: "#1f2335", panel: "#24283b", fg: "#c0caf5", muted: "#a9b1d6", faint: "#737aa2", accent: "#7aa2f7", trunk: "#ff9e64",
+    ansi: "1d202f f7768e 9ece6a e0af68 7aa2f7 bb9af7 7dcfff a9b1d6 414868 f7768e 9ece6a e0af68 7aa2f7 bb9af7 7dcfff c0caf5" },
+  { id: "tokyo-night", name: "Tokyo Night", family: "Tokyo Night", light: false, bg: "#16161e", panel: "#1a1b26", fg: "#c0caf5", muted: "#a9b1d6", faint: "#737aa2", accent: "#7aa2f7", trunk: "#ff9e64",
+    ansi: "15161e f7768e 9ece6a e0af68 7aa2f7 bb9af7 7dcfff a9b1d6 414868 f7768e 9ece6a e0af68 7aa2f7 bb9af7 7dcfff c0caf5" },
+  { id: "tokyo-night-moon", name: "Tokyo Night Moon", family: "Tokyo Night", light: false, bg: "#1e2030", panel: "#222436", fg: "#c8d3f5", muted: "#828bb8", faint: "#636da6", accent: "#82aaff", trunk: "#ff966c",
+    ansi: "1b1d2b ff757f c3e88d ffc777 82aaff c099ff 86e1fc 828bb8 444a73 ff757f c3e88d ffc777 82aaff c099ff 86e1fc c8d3f5" },
+  { id: "tokyo-night-day", name: "Tokyo Night Day", family: "Tokyo Night", light: true, bg: "#d0d5e3", panel: "#e1e2e7", fg: "#3760bf", muted: "#6172b0", faint: "#848cb5", accent: "#2e7de9", trunk: "#b15c00",
+    ansi: "e9e9ed f52a65 587539 8c6c3e 2e7de9 9854f1 007197 6172b0 a1a6c5 f52a65 587539 8c6c3e 2e7de9 9854f1 007197 3760bf" },
+
+  // The two Gitnetix themes keep the ids of the old light / dark preference; their colors live in app.css.
   { id: "dark", name: "Gitnetix Dark", family: "Gitnetix", light: false, bg: "#0e0f11", panel: "#15171a", fg: "#e8e9eb", muted: "#a0a5ae", faint: "#7a808a", accent: "#f0a43a", trunk: "#f7c48a",
     ansi: "1c1f23 ff7b72 62d6ae e3b45a 86aeff c4a7ff 5fd0e0 c9ccd1 7a808a ff9089 7ee8c2 f5b65c a5c3ff d6c0ff 8ae3ef ffffff" },
   { id: "light", name: "Gitnetix Light", family: "Gitnetix", light: true, bg: "#f3f3f1", panel: "#ffffff", fg: "#16171a", muted: "#575c65", faint: "#787d86", accent: "#f6b860", trunk: "#a85a12",
@@ -45,15 +55,6 @@ export const THEMES: Theme[] = [
   // Pine, not rose, for the accent: light text on Dawn's rose is hard to read.
   { id: "rose-pine-dawn", name: "Rosé Pine Dawn", family: "Rosé Pine", light: true, bg: "#faf4ed", panel: "#fffaf3", fg: "#575279", muted: "#797593", faint: "#9893a5", accent: "#286983", trunk: "#d7827e",
     ansi: "f2e9e1 b4637a 286983 ea9d34 56949f 907aa9 d7827e 575279 9893a5 b4637a 286983 ea9d34 56949f 907aa9 d7827e 575279" },
-
-  { id: "tokyo-night", name: "Tokyo Night", family: "Tokyo Night", light: false, bg: "#16161e", panel: "#1a1b26", fg: "#c0caf5", muted: "#a9b1d6", faint: "#737aa2", accent: "#7aa2f7", trunk: "#ff9e64",
-    ansi: "15161e f7768e 9ece6a e0af68 7aa2f7 bb9af7 7dcfff a9b1d6 414868 f7768e 9ece6a e0af68 7aa2f7 bb9af7 7dcfff c0caf5" },
-  { id: "tokyo-night-storm", name: "Tokyo Night Storm", family: "Tokyo Night", light: false, bg: "#1f2335", panel: "#24283b", fg: "#c0caf5", muted: "#a9b1d6", faint: "#737aa2", accent: "#7aa2f7", trunk: "#ff9e64",
-    ansi: "1d202f f7768e 9ece6a e0af68 7aa2f7 bb9af7 7dcfff a9b1d6 414868 f7768e 9ece6a e0af68 7aa2f7 bb9af7 7dcfff c0caf5" },
-  { id: "tokyo-night-moon", name: "Tokyo Night Moon", family: "Tokyo Night", light: false, bg: "#1e2030", panel: "#222436", fg: "#c8d3f5", muted: "#828bb8", faint: "#636da6", accent: "#82aaff", trunk: "#ff966c",
-    ansi: "1b1d2b ff757f c3e88d ffc777 82aaff c099ff 86e1fc 828bb8 444a73 ff757f c3e88d ffc777 82aaff c099ff 86e1fc c8d3f5" },
-  { id: "tokyo-night-day", name: "Tokyo Night Day", family: "Tokyo Night", light: true, bg: "#d0d5e3", panel: "#e1e2e7", fg: "#3760bf", muted: "#6172b0", faint: "#848cb5", accent: "#2e7de9", trunk: "#b15c00",
-    ansi: "e9e9ed f52a65 587539 8c6c3e 2e7de9 9854f1 007197 6172b0 a1a6c5 f52a65 587539 8c6c3e 2e7de9 9854f1 007197 3760bf" },
 
   { id: "dracula", name: "Dracula", family: "Dracula", light: false, bg: "#21222c", panel: "#282a36", fg: "#f8f8f2", faint: "#6272a4", accent: "#bd93f9", trunk: "#ffb86c",
     ansi: "21222c ff5555 50fa7b f1fa8c bd93f9 ff79c6 8be9fd f8f8f2 6272a4 ff6e6e 69ff94 ffffa5 d6acff ff92df a4ffff ffffff" },
@@ -114,14 +115,17 @@ export const THEMES: Theme[] = [
 /** The 16 terminal colors as "#rrggbb". */
 export const ansi = (t: Theme) => t.ansi.split(" ").map((h) => `#${h}`);
 
-/** The theme a preference shows: a theme's id, or "system" (or a gone id) for Gitnetix in the computer's mode. */
-export const resolveTheme = (pref: string, system: "dark" | "light") => THEMES.find((t) => t.id === pref) ?? THEMES.find((t) => t.id === system)!;
+/** The themes "system" shows in the computer's dark and light modes. */
+export const SYSTEM = { dark: "tokyo-night-storm", light: "tokyo-night-day" };
 
-/** The light / dark toggle's next theme: the same theme's other mode, same contrast when it has one (Gruvbox Dark Hard → Light Hard, Catppuccin Mocha → Latte); Gitnetix's when it has none. */
+/** The theme a preference shows: a theme's id, or "system" (or a gone id) for SYSTEM's in the computer's mode. */
+export const resolveTheme = (pref: string, system: "dark" | "light") => THEMES.find((t) => t.id === pref) ?? THEMES.find((t) => t.id === SYSTEM[system])!;
+
+/** The light / dark toggle's next theme: the same theme's other mode, same contrast when it has one (Gruvbox Dark Hard → Light Hard, Catppuccin Mocha → Latte); SYSTEM's when it has none. */
 export function otherMode(cur: Theme) {
   const other = THEMES.filter((t) => t.family === cur.family && t.light !== cur.light);
   const bare = (name: string) => name.replace(/Dark|Light/, "");
-  return (other.find((t) => bare(t.name) === bare(cur.name)) ?? other[0])?.id ?? (cur.light ? "dark" : "light");
+  return (other.find((t) => bare(t.name) === bare(cur.name)) ?? other[0])?.id ?? SYSTEM[cur.light ? "dark" : "light"];
 }
 
 /** The app.css tokens a theme replaces; the bright ANSI colors carry the diff and status colors. */

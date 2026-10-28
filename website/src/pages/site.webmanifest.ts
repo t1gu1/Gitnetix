@@ -1,8 +1,10 @@
 import type { APIRoute } from 'astro';
+import { resolveTheme } from '../../../src/lib/themes';
 
 // Built from BASE_URL, like robots.txt, so it follows a move to a custom domain.
 export const GET: APIRoute = () => {
   const base = import.meta.env.BASE_URL;
+  const bg = resolveTheme('system', 'dark').bg;
   return new Response(
     JSON.stringify({
       name: 'Gitnetix',
@@ -11,8 +13,8 @@ export const GET: APIRoute = () => {
       start_url: base,
       scope: base,
       display: 'browser',
-      background_color: '#0e0f11',
-      theme_color: '#0e0f11',
+      background_color: bg,
+      theme_color: bg,
       icons: [
         { src: `${base}icon-192.png`, sizes: '192x192', type: 'image/png' },
         { src: `${base}apple-touch-icon.png`, sizes: '180x180', type: 'image/png' },
