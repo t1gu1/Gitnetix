@@ -10,7 +10,7 @@ import { ContextMenu, type MenuItem } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
 import { Resizer, usePaneWidth } from "../components/Resizer";
 import { ShellPane, TermTabs, useTermView } from "../components/Shell";
-import { ago, Busy, Confirm, Empty, EmptyState, Header, Loading, Modal, Seg } from "../components/ui";
+import { ago, Busy, Confirm, Empty, EmptyState, Header, Modal, Seg } from "../components/ui";
 import { plural } from "../lib/format";
 import { copyToClipboard } from "../lib/toast";
 import { KINDS, kindOfBranch, type Kind } from "../lib/kinds";
@@ -99,8 +99,10 @@ export function Worktrees({ initial }: { initial?: string }) {
     .filter((g) => g.items.length || filter === "all")
     .sort((a, b) => +!a.items.length - +!b.items.length);
   const loading = wts.isLoading || agents.isLoading;
+  // Until the fresh list lands (last time's may show meanwhile), the project names glint.
+  const refreshing = loading || wts.isPlaceholderData;
   // A closed or merged worktree drops out: on narrow screens go back to the list, not into the next one.
-  if (pane === "detail" && !loading && !rows.some((r) => r.key === sel)) setPane("list");
+  if (pane === "detail" && !refreshing && !rows.some((r) => r.key === sel)) setPane("list");
 
   return (
     <>
@@ -119,13 +121,15 @@ export function Worktrees({ initial }: { initial?: string }) {
               }))}
             />
           </div>
-          <div className="scroll" style={{ flex: "1 1 auto", paddingBottom: 12 }}>
-            {loading && <Loading />}
-            {groups.map((g) => (
-              <div key={g.name} className="wt-group" data-empty={!g.items.length || undefined}>
+          <div className="scroll" style={{ flex: "1 1 auto", paddingBottom: 12 }} aria-busy={refreshing || undefined}>
+            {groups.map((g, i) => (
+              // Loading, every project keeps a full header: the ones with worktrees don't grow when they arrive.
+              <div key={g.name} className="wt-group" data-empty={(!loading && !g.items.length) || undefined}>
                 <div className="wt-group-head">
-                  <span className="ellipsis grow">{g.name}</span>
-                  <span className="faint">{g.items.length || "No worktrees"}</span>
+                  {/* Not a spinner above the list: nothing moves when the glint stops. */}
+                  <span className="ellipsis" data-glint={refreshing || undefined} style={{ "--i": i } as CSSProperties}>{g.name}</span>
+                  <span className="grow" />
+                  {!loading && <span className="faint">{g.items.length || "No worktrees"}</span>}
                   {g.id && (
                     <button className="btn btn-ghost btn-sm btn-icon" aria-label={`New agent session in ${g.name}`} data-tip="New agent session" onClick={() => setStarting(g.id)}>
                       <Icon name="plus" size={12} />

@@ -4068,6 +4068,22 @@ button.picker-act {
   font-weight: 400;
   font-variant-numeric: tabular-nums;
 }
+/* Until the fresh list lands, an accent glint sweeps across each project name like the checked-out branch's shine, but quicker,
+   one project a beat after the other down the list. It starts after a moment, so quick loads show nothing. */
+.wt-group-head > [data-glint] {
+  background:
+    linear-gradient(100deg, transparent 40%, var(--accent-fg) 50%, transparent 60%) 100% 0 / 250% 100% no-repeat,
+    linear-gradient(currentColor, currentColor);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: shine 1.6s ease-in-out calc(0.3s + min(var(--i), 8) * 0.1s) infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .wt-group-head > [data-glint] {
+    animation: none;
+  }
+}
 .wt-group[data-empty] .wt-group-head {
   min-height: 34px;
   padding-top: 2px;
@@ -4078,8 +4094,7 @@ button.picker-act {
 .wt-group:not([data-empty]) + .wt-group[data-empty] {
   margin-top: 12px;
 }
-/* First project only; :first-child misses it while the loading spinner sits above. */
-.wt-group:not(.wt-group + .wt-group) {
+.wt-group:first-child {
   margin-top: 6px;
 }
 /* Yellow hairline fading at both ends between projects, like the commit list. */
@@ -5531,7 +5546,8 @@ body:has(> .modal-scrim) #root * {
 :root[data-anim-off~="shine"]
   :is(
     .tree-row[data-current] .tree-name > .mono,
-    :is(.child-label, .group-label, .shipped-label)[data-active]
+    :is(.child-label, .group-label, .shipped-label)[data-active],
+    .wt-group-head > [data-glint]
   ) {
   animation: none !important;
 }

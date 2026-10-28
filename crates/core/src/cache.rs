@@ -108,6 +108,35 @@ impl<T> Saved<T> {
     }
 }
 
+/// The last answer of a slow listing, on disk so the next look (even after a restart) shows it at once while a fresh one builds.
+pub struct LastCache {
+    file: PathBuf,
+    /// What the file holds: an unchanged answer isn't written again.
+    json: Mutex<Option<String>>,
+}
+
+impl LastCache {
+    /// A missing or unreadable file holds nothing.
+    pub fn open(file: PathBuf) -> LastCache {
+        let json = std::fs::read_to_string(&file).ok();
+        LastCache { file, json: Mutex::new(json) }
+    }
+
+    /// The last answer; none when nothing was saved or it no longer reads as a `T`.
+    pub fn get<T: DeserializeOwned>(&self) -> Option<T> {
+        serde_json::from_str(self.json.lock().unwrap().as_deref()?).ok()
+    }
+
+    pub fn set(&self, value: &impl Serialize) {
+        let Ok(json) = serde_json::to_string(value) else { return };
+        let mut held = self.json.lock().unwrap();
+        if held.as_deref() != Some(json.as_str()) {
+            write_atomic(&self.file, json.clone());
+            *held = Some(json);
+        }
+    }
+}
+
 /// Stable hash of the parts a cached value was built from.
 pub fn key_of(parts: &[&str]) -> u64 {
     let mut h = std::collections::hash_map::DefaultHasher::new();
@@ -141,5 +170,17 @@ mod tests {
         assert_eq!(again.get::<bool>("squash2", "a", "b"), Some(true));
         assert_eq!(again.get::<Vec<String>>("patches", "a", "c"), Some(vec!["p1".to_string(), "p2".to_string()]));
         assert_eq!(again.get::<bool>("patches", "a", "c"), None);
+    }
+
+    #[test]
+    fn last_answer_survives_reopening() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("last.json");
+        assert_eq!(LastCache::open(file.clone()).get::<Vec<String>>(), None);
+        LastCache::open(file.clone()).set(&["a", "b"]);
+        let again = LastCache::open(file.clone());
+        assert_eq!(again.get::<Vec<String>>(), Some(vec!["a".to_string(), "b".to_string()]));
+        // Saved in another shape: read as nothing, not an error.
+        assert_eq!(again.get::<Vec<u32>>(), None);
     }
 }

@@ -89,7 +89,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("submodules.stage", "Stage the commit checked out in a submodule as its new pin", "projectId, path"),
     ("submodules.remove", "Remove a submodule: deinit, delete its folder and clone; the removal is staged", "projectId, path"),
     ("submodules.fetch", "Fetch every initialized submodule's origin", "projectId"),
-    ("worktrees.list", "Every worktree across projects with its agent", ""),
+    ("worktrees.list", "Every worktree across projects with its agent; cached = the list last built (null before the first), at once and without agents", "cached?"),
     ("worktrees.create", "Open a branch in a new worktree", "projectId, branch"),
     ("worktrees.remove", "Remove a worktree", "projectId, path, force?"),
     ("agents.list", "Agent sessions", ""),
@@ -651,6 +651,7 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
         "submodules.fetch" => to(k.fetch_submodules(&s(&p, "projectId")?).await?),
 
         // ---- worktrees & agents ----
+        "worktrees.list" if b(&p, "cached") => to(k.saved_worktrees()),
         "worktrees.list" => to(k.worktrees().await?),
         "worktrees.create" => to(json!({ "path": k.create_worktree(&s(&p, "projectId")?, &s(&p, "branch")?).await? })),
         "worktrees.remove" => {

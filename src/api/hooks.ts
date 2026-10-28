@@ -334,8 +334,23 @@ export const useAutoFetch = (projectId?: string, enabled = true) => {
 export const useAgents = () =>
   useQuery({ queryKey: ["agents"], queryFn: () => rpc<AgentSession[]>("agents.list") });
 
-export const useWorktrees = () =>
-  useQuery({ queryKey: ["worktrees"], queryFn: () => rpc<WorktreeView[]>("worktrees.list"), refetchInterval: 10_000 });
+export const useWorktrees = () => {
+  const qc = useQueryClient();
+  // The list as last built, kept on disk (agents left out): shows at once, even after a restart,
+  // while the fresh one builds. Only asked until that has arrived once.
+  const saved = useQuery({
+    queryKey: ["worktreesSaved"],
+    queryFn: () => rpc<WorktreeView[] | null>("worktrees.list", { cached: true }),
+    enabled: qc.getQueryData(["worktrees"]) === undefined,
+    staleTime: Infinity,
+  });
+  return useQuery({
+    queryKey: ["worktrees"],
+    queryFn: () => rpc<WorktreeView[]>("worktrees.list"),
+    refetchInterval: 10_000,
+    placeholderData: saved.data ?? undefined,
+  });
+};
 
 export const useSubmodules = (projectId?: string) =>
   useQuery({

@@ -13,7 +13,7 @@ use tokio::sync::{broadcast, OnceCell};
 
 use crate::agents::{AgentManager, AgentSession, AgentStatus, LogLine, StartArgs};
 use crate::ai::{self, Resolved};
-use crate::cache::{key_of, CommitCache, ViewCache};
+use crate::cache::{key_of, CommitCache, LastCache, ViewCache};
 use crate::dictation::Audio;
 use crate::error::{Error, Result};
 use crate::events::Event;
@@ -48,6 +48,8 @@ pub struct Gitnetix {
     shipped: std::sync::Mutex<HashMap<String, (u64, Arc<ShippedIndex>)>>,
     /// What the git host said about each project's branch tips.
     hosted: std::sync::Mutex<HashMap<String, HostedPrs>>,
+    /// The worktree list as last built, without agents: shown while the next one builds.
+    worktrees: LastCache,
 }
 
 /// Completed pull requests the git host says took in a project's branch tips.
@@ -233,7 +235,7 @@ pub struct CommitResult {
     pub ai_written: bool,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorktreeView {
     pub project_id: String,
@@ -1687,7 +1689,7 @@ impl Gitnetix {
         let agents = AgentManager::new(events.clone(), dir);
         let shells = crate::shell::Shells::new(events.clone());
         crate::log::attach(events.clone());
-        let k = Arc::new(Gitnetix { store, agents, shells, events, dir: dir.to_path_buf(), dictation: Default::default(), protected: Default::default(), watcher: Default::default(), commits: CommitCache::open(dir), views: ViewCache::open(dir.join("overview-cache")), building: Default::default(), shipped: Default::default(), hosted: Default::default() });
+        let k = Arc::new(Gitnetix { store, agents, shells, events, dir: dir.to_path_buf(), dictation: Default::default(), protected: Default::default(), watcher: Default::default(), commits: CommitCache::open(dir), views: ViewCache::open(dir.join("overview-cache")), building: Default::default(), shipped: Default::default(), hosted: Default::default(), worktrees: LastCache::open(dir.join("worktrees-cache.json")) });
         k.rewatch();
         Ok(k)
     }
@@ -4304,7 +4306,16 @@ impl Gitnetix {
                 });
             }
         }
+        // Agents come from their own list, and their logs would make the file big.
+        self.worktrees.set(&out.iter().map(|w| WorktreeView { agent: None, ..w.clone() }).collect::<Vec<_>>());
         Ok(out)
+    }
+
+    /// The list [`Self::worktrees`] last built (none before the first), at once: for the projects still open, under their current names.
+    pub fn saved_worktrees(&self) -> Option<Vec<WorktreeView>> {
+        let names: HashMap<String, String> = self.store.read(|c| c.projects.iter().map(|p| (p.id.clone(), p.name.clone())).collect());
+        let list: Vec<WorktreeView> = self.worktrees.get()?;
+        Some(list.into_iter().filter_map(|w| Some(WorktreeView { project_name: names.get(&w.project_id)?.clone(), ..w })).collect())
     }
 
     pub async fn create_worktree(&self, project_id: &str, branch: &str) -> Result<String> {

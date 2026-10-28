@@ -136,8 +136,14 @@ async fn release_flow() {
     .await;
     let path = wt["worktree"].as_str().unwrap().to_string();
     assert!(std::path::Path::new(&path).exists());
+    assert!(call(&k, "worktrees.list", json!({ "cached": true })).await.is_null());
     let list = call(&k, "worktrees.list", json!({})).await;
     assert!(list.as_array().unwrap().iter().any(|w| w["path"] == path.as_str()));
+    // Saved for the next look, even after a restart: the same worktrees at once, agents left out.
+    let saved = call(&k, "worktrees.list", json!({ "cached": true })).await;
+    let paths = |v: &serde_json::Value| v.as_array().unwrap().iter().map(|w| w["path"].clone()).collect::<Vec<_>>();
+    assert_eq!(paths(&saved), paths(&list));
+    assert!(saved.as_array().unwrap().iter().all(|w| w["agent"].is_null()), "{saved}");
     // Dirty: refused, and its terminal keeps running (writing to a closed one fails).
     call(&k, "shell.open", json!({ "projectId": pid, "path": path, "cols": 80, "rows": 24 })).await;
     std::fs::write(std::path::Path::new(&path).join("scratch.txt"), "wip\n").unwrap();
