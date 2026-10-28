@@ -50,6 +50,9 @@ export function useEngineEvents() {
           case "overviewProgress":
             qc.setQueryData(["overviewProgress", e.projectId], { done: e.done, total: e.total });
             break;
+          case "filesProgress":
+            qc.setQueryData<FilesProgress | null>(["filesProgress", e.projectId], (prev) => filesProgressStep(prev, e.done, e.total, Date.now()));
+            break;
           case "agentLine":
             // A message of yours going out takes the queued ones with it.
             qc.setQueryData<AgentSession[]>(["agents"], (list) =>
@@ -242,16 +245,35 @@ export function patchWip(qc: QueryClient, pid: string, branch: string, f: (list:
 
 /** WIP files once `paths` (none: the whole side) move to the `staged` side. A partly staged file keeps one line. */
 export function movedWip(list: FileChange[], paths: string[], staged: boolean): FileChange[] {
-  const moves = (f: FileChange) => !!f.staged !== staged && (!paths.length || paths.includes(f.path));
+  const picked = new Set(paths);
+  const moves = (f: FileChange) => !!f.staged !== staged && (!paths.length || picked.has(f.path));
   const moving = new Set(list.filter(moves).map((f) => f.path));
   return list.filter((f) => moves(f) || !(!!f.staged === staged && moving.has(f.path))).map((f) => (moves(f) ? { ...f, staged } : f));
 }
 
 /** WIP files once `paths` (none: the whole side) are discarded: unstaged edits only, or with `staged` the files' every change. */
 export function discardedWip(list: FileChange[], paths: string[], staged: boolean): FileChange[] {
-  const gone = new Set(list.filter((f) => !!f.staged === staged && (!paths.length || paths.includes(f.path))).map((f) => f.path));
+  const picked = new Set(paths);
+  const gone = new Set(list.filter((f) => !!f.staged === staged && (!paths.length || picked.has(f.path))).map((f) => f.path));
   return list.filter((f) => !gone.has(f.path) || (!staged && f.staged));
 }
+
+/** How far a long stage, unstage or discard has got, as the engine reports it every thousand files.
+ * `left`: seconds to go at the pace since its first report, once there is a second of it. */
+export type FilesProgress = { done: number; total: number; left?: number; since: { done: number; at: number } };
+
+export function filesProgressStep(prev: FilesProgress | null | undefined, done: number, total: number, now: number): FilesProgress {
+  const since = prev && prev.total === total && prev.done <= done ? prev.since : { done, at: now };
+  const secs = (now - since.at) / 1000;
+  const left = secs >= 1 && done > since.done ? ((total - done) * secs) / (done - since.done) : undefined;
+  return { done, total, left, since };
+}
+
+export const useFilesProgress = (projectId: string) =>
+  useQuery<FilesProgress | null>({ queryKey: ["filesProgress", projectId], queryFn: () => null, enabled: false, staleTime: Infinity }).data;
+
+/** Forget the last run's progress before starting one, so its end doesn't show as this one's. */
+export const resetFilesProgress = (qc: QueryClient, projectId: string) => qc.setQueryData(["filesProgress", projectId], null);
 
 /** How far a long rebuild of the project's branches has got, as the engine reports it. */
 export const useOverviewProgress = (projectId?: string) =>

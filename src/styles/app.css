@@ -1379,16 +1379,28 @@ html.scanning body {
   font-size: 12px;
 }
 /* Shows only once a refresh takes a while: quick ones would flicker. */
-.tree-updating {
+.tree-updating,
+.files-busy {
   display: inline-flex;
   align-items: center;
   gap: 5px;
   font-size: 11px;
   animation: page-in 0.2s var(--ease) 0.5s both;
 }
-.tree-updating .spinner {
+.tree-updating .spinner,
+.files-busy .spinner {
   width: 10px;
   height: 10px;
+}
+.files-busy,
+.files-note {
+  display: flex;
+  padding: 0 8px 6px 14px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.modal-body .files-busy {
+  padding: 12px 0 0;
 }
 .ws-files {
   flex: 1 1 0;

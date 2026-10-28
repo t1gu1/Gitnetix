@@ -127,24 +127,27 @@ export function Header({ title, sub, back = "back", right, onBack, hideWide }: {
   );
 }
 
-export function Modal({ title, sub, onClose, children, footer, width }: { title: ReactNode; sub?: ReactNode; onClose: () => void; children: ReactNode; footer?: ReactNode; width?: number }) {
+/** Without `onClose` it stays up (no close button): while what it started is still running. */
+export function Modal({ title, sub, onClose, children, footer, width }: { title: ReactNode; sub?: ReactNode; onClose?: () => void; children: ReactNode; footer?: ReactNode; width?: number }) {
   useEffect(() => {
-    const k = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    const k = (e: KeyboardEvent) => e.key === "Escape" && onClose?.();
     window.addEventListener("keydown", k);
     return () => window.removeEventListener("keydown", k);
   }, [onClose]);
   // Portaled out of #root so the rule hiding scrollbars behind the modal (app.css) skips the modal's own.
   return createPortal(
-    <div className="modal-scrim" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="modal-scrim" onMouseDown={(e) => e.target === e.currentTarget && onClose?.()}>
       <div className="modal" role="dialog" aria-modal="true" style={width ? { width } : undefined}>
         <div className="modal-head">
           <div className="col" style={{ gap: 3 }}>
             <h1>{title}</h1>
             {sub && <span className="muted" style={{ fontSize: 12 }}>{sub}</span>}
           </div>
-          <button className="btn btn-ghost btn-icon" aria-label="Close" onClick={onClose}>
-            <Icon name="close" />
-          </button>
+          {onClose && (
+            <button className="btn btn-ghost btn-icon" aria-label="Close" onClick={onClose}>
+              <Icon name="close" />
+            </button>
+          )}
         </div>
         <div className="modal-body">{children}</div>
         {footer && <div className="modal-foot">{footer}</div>}

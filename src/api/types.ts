@@ -656,4 +656,5 @@ export type GitnetixEvent =
   | { type: "shellData"; cwd: string; data: string; end: number }
   | { type: "shellExit"; cwd: string }
   | { type: "dictationModel"; done: number; total: number }
-  | { type: "overviewProgress"; projectId: string; done: number; total: number };
+  | { type: "overviewProgress"; projectId: string; done: number; total: number }
+  | { type: "filesProgress"; projectId: string; done: number; total: number };

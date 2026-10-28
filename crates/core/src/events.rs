@@ -31,6 +31,9 @@ pub enum Event {
     /// A long rebuild of a project's branches: `done` of the `total` it redoes so far.
     #[serde(rename_all = "camelCase")]
     OverviewProgress { project_id: String, done: u32, total: u32 },
+    /// A long stage, unstage or discard: `done` of the `total` files it handles so far.
+    #[serde(rename_all = "camelCase")]
+    FilesProgress { project_id: String, done: u32, total: u32 },
     /// The speech model's first download, for voice dictation: `done` bytes of `total`.
     #[serde(rename_all = "camelCase")]
     DictationModel { done: u64, total: u64 },

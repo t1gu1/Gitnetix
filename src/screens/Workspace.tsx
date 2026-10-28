@@ -11,6 +11,7 @@ import {
   patchWip,
   pushed,
   queryClient,
+  resetFilesProgress,
   settle,
   switchedOverview,
   useAction,
@@ -20,6 +21,7 @@ import {
   useBlobs,
   useDiff,
   useFiles,
+  useFilesProgress,
   useOverview,
   useOverviewProgress,
   usePendingBranches,
@@ -37,7 +39,7 @@ import { Icon } from "../components/Icon";
 import { Resizer, usePaneWidth } from "../components/Resizer";
 import { ShellPane, TermTabs, useTermView } from "../components/Shell";
 import { Busy, Confirm, ErrorBox, Loading, Markdown, Modal, Seg } from "../components/ui";
-import { ago, plural } from "../lib/format";
+import { ago, plural, timeLeft } from "../lib/format";
 import { shownStatus } from "../lib/agentLog";
 import { startCleanup, useCleaning } from "../lib/cleanups";
 import { useNav } from "../lib/nav";
@@ -786,14 +788,18 @@ function WipList({
   const busy = stage.isPending || unstage.isPending;
   const [closed, setClosed] = useState<Record<string, boolean>>({});
   // No files = the whole side.
-  const move = (staged: boolean, fs: FileChange[] = []) =>
+  const move = (staged: boolean, fs: FileChange[] = []) => {
+    resetFilesProgress(queryClient, pid);
     (staged ? unstage : stage).mutate({ projectId: pid, branch, paths: fs.map((f) => f.path) }, { onSuccess: () => fs.forEach(onMoved) });
+  };
 
   return (
     <>
       {[true, false].map((staged) => {
         const side = list.filter((f) => !!f.staged === staged);
         if (!side.length) return null;
+        const leaving = staged ? unstage : stage;
+        const moving = leaving.isPending ? leaving.variables?.paths.length || side.length : 0;
         return (
           <li key={String(staged)}>
             <div className="file-sec">
@@ -823,6 +829,15 @@ function WipList({
                 </button>
               </span>
             </div>
+            {moving >= MANY_FILES ? (
+              <FilesBusy pid={pid} verb={staged ? "Unstaging" : "Staging"} count={moving} />
+            ) : (
+              side.length > UNCOUNTED_PAST && (
+                <div className="files-note faint" data-tip={`Past ${UNCOUNTED_PAST.toLocaleString()} files, lines are not counted: it would slow the list down.`}>
+                  {UNCOUNTED_PAST.toLocaleString()}+ files · line counts skipped
+                </div>
+              )
+            )}
             <ul style={{ listStyle: "none", margin: 0, padding: 0 }} hidden={closed[String(staged)]}>
               <FileList
                 key={fold.n}
@@ -874,18 +889,22 @@ function DiscardModal({ pid, branch, staged, paths, total, onClose }: { pid: str
     patch: (qc) => patchWip(qc, pid, branch, (l) => discardedWip(l, paths, staged)),
     success: "Changes discarded",
   });
-  const what = paths.length === 1 ? <span className="mono">{paths[0]}</span> : <>{paths.length || total} file{(paths.length || total) === 1 ? "" : "s"}</>;
+  const count = paths.length || total;
+  const what = paths.length === 1 ? <span className="mono">{paths[0]}</span> : <>{count} file{count === 1 ? "" : "s"}</>;
   return (
     <Modal
       title={staged ? "Discard staged changes" : "Discard unstaged changes"}
       sub={what}
-      onClose={onClose}
+      onClose={discard.isPending ? undefined : onClose}
       footer={
         <>
           <button
             className="btn btn-md btn-danger"
             disabled={discard.isPending}
-            onClick={() => discard.mutate({ projectId: pid, branch, staged, paths }, { onSuccess: onClose })}
+            onClick={() => {
+              resetFilesProgress(queryClient, pid);
+              discard.mutate({ projectId: pid, branch, staged, paths }, { onSuccess: onClose });
+            }}
           >
             {discard.isPending && <span className="spinner" />}
             Discard
@@ -899,8 +918,31 @@ function DiscardModal({ pid, branch, staged, paths, total, onClose }: { pid: str
           : "Throws away edits that are not staged — staged changes are kept, and untracked files are deleted."}{" "}
         This cannot be undone.
       </p>
+      {discard.isPending && count >= MANY_FILES && <FilesBusy pid={pid} verb="Discarding" count={count} />}
       {discard.error && <ErrorBox error={discard.error} />}
     </Modal>
+  );
+}
+
+/** From here the engine reports how far a stage or discard is (`files_progress` in app.rs). */
+const MANY_FILES = 1000;
+/** Past this many files on a side the engine counts no lines (`MAX_COUNTED` in git.rs). */
+const UNCOUNTED_PAST = 2000;
+
+/** Spinner and how far a long stage, unstage or discard is, with the time left once the pace shows. */
+function FilesBusy({ pid, verb, count }: { pid: string; verb: string; count: number }) {
+  const p = useFilesProgress(pid);
+  const n = (x: number) => x.toLocaleString();
+  const text = !p
+    ? `${verb} ${n(count)} files…`
+    : p.done >= p.total
+      ? `${verb} ${n(p.total)} files · finishing…`
+      : `${verb} ${n(p.done)} of ${n(p.total)} files${p.left === undefined ? "…" : ` · ${timeLeft(p.left)}`}`;
+  return (
+    <div className="files-busy faint" role="status">
+      <span className="spinner" />
+      {text}
+    </div>
   );
 }
 

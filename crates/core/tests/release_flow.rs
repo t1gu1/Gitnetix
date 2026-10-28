@@ -625,6 +625,31 @@ async fn stage_unstage_discard() {
 }
 
 #[tokio::test]
+async fn discard_unstaged_refuses_conflicts() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("atlas-api");
+    init_repo(&repo);
+    commit_file(&repo, "c.txt", "base\n");
+    commit_file(&repo, "a.txt", "one\n");
+    sh(&repo, &["switch", "-qc", "other"]);
+    commit_file(&repo, "c.txt", "theirs\n");
+    sh(&repo, &["switch", "-q", "main"]);
+    commit_file(&repo, "c.txt", "ours\n");
+    git_out(&repo, &["merge", "-q", "other"]);
+    std::fs::write(repo.join("a.txt"), "two\n").unwrap();
+    std::fs::write(repo.join("new.txt"), "fresh\n").unwrap();
+
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let added = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await;
+    let pid = added[0]["id"].as_str().unwrap().to_string();
+    // Discarding everything unstaged while a file is in conflict changes nothing.
+    let err = rpc::call(&k, "workspace.discard", json!({ "projectId": pid, "branch": "main", "staged": false })).await.unwrap_err();
+    assert!(err.to_string().contains("c.txt has conflicts"), "{err}");
+    assert_eq!(std::fs::read_to_string(repo.join("a.txt")).unwrap(), "two\n");
+    assert!(repo.join("new.txt").exists());
+}
+
+#[tokio::test]
 async fn merged_branches_are_flagged() {
     let tmp = tempfile::tempdir().unwrap();
     let repo = tmp.path().join("atlas-api");
@@ -1770,4 +1795,37 @@ async fn rename_on_origin_and_follow_it_elsewhere() {
     sh(&mate, &["branch", "-q", "-u", "origin/feat/c", "feat/d"]);
     call(&k, "workspace.push", json!({ "projectId": mid, "branch": "feat/d" })).await;
     assert_eq!(git_out(&mate, &["rev-parse", "--abbrev-ref", "feat/d@{upstream}"]).trim(), "origin/feat/d");
+}
+
+#[tokio::test]
+async fn stage_nested_repo_and_discard_staged_rename() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("atlas-api");
+    init_repo(&repo);
+    commit_file(&repo, "a.txt", "one\n");
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let added = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await;
+    let pid = added[0]["id"].as_str().unwrap().to_string();
+    let wip = || call(&k, "workspace.files", json!({ "projectId": pid, "branch": "main", "mode": "wip" }));
+
+    // A nested repository is listed as `sub/` and staged as a gitlink; unstaging drops it again.
+    let sub = repo.join("sub");
+    std::fs::create_dir(&sub).unwrap();
+    sh(&sub, &["init", "-q"]);
+    std::fs::write(sub.join("z"), "z\n").unwrap();
+    sh(&sub, &["add", "."]);
+    sh(&sub, &["-c", "user.email=t@example.com", "-c", "user.name=Test", "-c", "commit.gpgsign=false", "commit", "-qm", "z"]);
+    assert_eq!(wip().await[0]["path"], "sub/");
+    call(&k, "workspace.stage", json!({ "projectId": pid, "branch": "main", "paths": ["sub/"] })).await;
+    assert!(git_out(&repo, &["ls-files", "-s", "sub"]).starts_with("160000 "));
+    call(&k, "workspace.unstage", json!({ "projectId": pid, "branch": "main", "paths": ["sub"] })).await;
+    assert!(git_out(&repo, &["ls-files", "sub"]).is_empty());
+    std::fs::remove_dir_all(&sub).unwrap();
+
+    // Discarding a staged rename brings its old path back.
+    sh(&repo, &["mv", "a.txt", "b.txt"]);
+    call(&k, "workspace.discard", json!({ "projectId": pid, "branch": "main", "staged": true, "paths": ["b.txt"] })).await;
+    assert_eq!(std::fs::read_to_string(repo.join("a.txt")).unwrap(), "one\n");
+    assert!(!repo.join("b.txt").exists());
+    assert!(wip().await.as_array().unwrap().is_empty());
 }

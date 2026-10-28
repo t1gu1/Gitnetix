@@ -14,8 +14,9 @@ use crate::error::{Error, Result};
 /// Git's empty tree: the base to diff a root commit (or a stash's untracked files) against.
 const EMPTY_TREE: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 
-/// Untracked files get their lines counted up to this many. Past it (an unignored node_modules) they go
-/// uncounted: reading every one of them on each WIP poll stalls the app.
+/// Uncommitted files get their lines counted up to this many (per side in `wip_split`). Past it (an
+/// unignored node_modules) none are: `diff --numstat` takes half a minute on 60k changed files, and
+/// reading every untracked one on each WIP poll stalls the app. The UI says so (`UNCOUNTED_PAST`).
 const MAX_COUNTED: usize = 2000;
 
 /// `git log -E` filter for pull request squashes named after their branch.
@@ -82,6 +83,9 @@ pub fn ticket_keys(s: &str, any_case: bool) -> Vec<String> {
     }
     keys
 }
+
+/// Told (done, total) files as a long stage or discard goes.
+pub type Progress<'a> = &'a (dyn Fn(usize, usize) + Sync);
 
 #[derive(Debug, Clone)]
 pub struct Git {
@@ -838,12 +842,8 @@ impl Git {
     pub async fn wip_changes(&self) -> Result<Vec<FileChange>> {
         let (status, has_head) = tokio::try_join!(self.run(&["status", "--porcelain=v1", "-z", "-uall"]), self.ref_exists("HEAD"))?;
         let mut entries = parse_status_z(&status);
-        let stats = if has_head {
-            parse_numstat_z(&self.run(&["diff", "--numstat", "-z", "HEAD"]).await?)
-        } else {
-            HashMap::new()
-        };
-        let count = entries.iter().filter(|e| e.status == 'A' && !stats.contains_key(&e.path)).count() <= MAX_COUNTED;
+        let count = entries.len() <= MAX_COUNTED;
+        let stats = self.numstat(count && has_head, &["diff", "--numstat", "-z", "HEAD"]).await?;
         for e in entries.iter_mut() {
             if let Some((a, d)) = stats.get(&e.path) {
                 e.additions = *a;
@@ -925,25 +925,30 @@ impl Git {
     /// unstaged (working tree vs index, plus untracked). A partially staged
     /// file appears once on each side.
     pub async fn wip_split(&self) -> Result<Vec<FileChange>> {
-        let (status, staged, unstaged) = tokio::try_join!(
-            self.run(&["status", "--porcelain=v1", "-z", "-uall"]),
-            self.run(&["diff", "--cached", "--numstat", "-z"]),
-            self.run(&["diff", "--numstat", "-z"]),
-        )?;
-        let (staged_stats, unstaged_stats) = (parse_numstat_z(&staged), parse_numstat_z(&unstaged));
+        let status = self.run(&["status", "--porcelain=v1", "-z", "-uall"]).await?;
         let mut out = parse_status_split_z(&status);
-        let count = out.iter().filter(|e| e.status == 'A' && e.staged == Some(false) && !unstaged_stats.contains_key(&e.path)).count() <= MAX_COUNTED;
+        let count = |staged: bool| out.iter().filter(|e| e.staged == Some(staged)).count() <= MAX_COUNTED;
+        let (count_staged, count_unstaged) = (count(true), count(false));
+        let (staged_stats, unstaged_stats) = tokio::try_join!(
+            self.numstat(count_staged, &["diff", "--cached", "--numstat", "-z"]),
+            self.numstat(count_unstaged, &["diff", "--numstat", "-z"]),
+        )?;
         for e in out.iter_mut() {
             let stats = if e.staged == Some(true) { &staged_stats } else { &unstaged_stats };
             if let Some((a, d)) = stats.get(&e.path) {
                 e.additions = *a;
                 e.deletions = *d;
-            } else if count && e.status == 'A' && e.staged == Some(false) {
+            } else if count_unstaged && e.status == 'A' && e.staged == Some(false) {
                 e.additions = count_lines(&self.cwd.join(&e.path));
             }
         }
         out.sort_by(|a, b| a.path.cmp(&b.path));
         Ok(out)
+    }
+
+    /// Lines added and deleted per file by the `diff --numstat` in `args`; none when not `on`.
+    async fn numstat(&self, on: bool, args: &[&str]) -> Result<HashMap<String, (u32, u32)>> {
+        Ok(if on { parse_numstat_z(&self.run(args).await?) } else { HashMap::new() })
     }
 
     /// Everything a branch changed since it left `base` (three-dot range).
@@ -1068,20 +1073,48 @@ impl Git {
         Ok(self.try_run(&["ls-files", "--error-unmatch", "--", path]).await?.0)
     }
 
-    /// Stage paths (all when empty), including deletions.
-    pub async fn stage(&self, paths: &[String]) -> Result<()> {
-        let mut args = vec!["add", "-A", "--"];
-        args.extend(paths.iter().map(String::as_str));
-        self.run(&args).await.map(|_| ())
+    // Picked paths go through stdin to plumbing that looks each one up. On the command line tens of
+    // thousands pass the OS argument limit (os error 7), and porcelain pathspecs (`add`, `reset`,
+    // `checkout`) match every index entry against every path: ~30 s more at 60k files.
+
+    /// Every file on one side of the uncommitted work, as `wip_split` has them. Status alone: the
+    /// line counts can take a minute on tens of thousands of changed files.
+    pub async fn wip_side(&self, staged: bool) -> Result<Vec<String>> {
+        let status = self.run(&["status", "--porcelain=v1", "-z", "-uall"]).await?;
+        Ok(parse_status_split_z(&status).into_iter().filter(|f| f.staged == Some(staged)).map(|f| f.path).collect())
     }
 
-    /// Move paths (all when empty) back out of the index; the working tree is untouched.
+    /// Stage `paths`, including deletions.
+    pub async fn stage(&self, paths: &[String], tell: Progress<'_>) -> Result<()> {
+        // A nested repository is listed as `dir/`; update-index ignores it unless the slash goes.
+        let list: Vec<&str> = paths.iter().map(|p| p.trim_end_matches('/')).collect();
+        self.run_paths(&["update-index", "--add", "--remove", "-z", "--stdin"], &list, &|n| tell(n, list.len())).await
+    }
+
+    /// Move `paths` back out of the index; the working tree is untouched.
     pub async fn unstage(&self, paths: &[String]) -> Result<()> {
-        let all = [".".to_string()];
-        let paths = if paths.is_empty() { &all[..] } else { paths };
-        let mut args = if self.ref_exists("HEAD").await? { vec!["reset", "-q", "--"] } else { vec!["rm", "-r", "-q", "--cached", "--"] };
-        args.extend(paths.iter().map(String::as_str));
-        self.run(&args).await.map(|_| ())
+        let paths: Vec<&str> = paths.iter().map(String::as_str).collect();
+        self.index_to_head(&paths).await.map(|_| ())
+    }
+
+    /// Put the index entries of `paths` back to HEAD, dropping those HEAD lacks; the working tree is
+    /// untouched. Returns the paths split into (in HEAD, not in HEAD).
+    async fn index_to_head<'a>(&self, paths: &[&'a str]) -> Result<(Vec<&'a str>, Vec<&'a str>)> {
+        if paths.is_empty() {
+            return Ok((Vec::new(), Vec::new()));
+        }
+        let tree =if self.ref_exists("HEAD").await? { self.run(&["ls-tree", "-r", "-z", "HEAD"]).await? } else { String::new() };
+        // `<mode> <type> <object>\t<path>`, the line `update-index --index-info` takes back.
+        let entries: HashMap<&str, &str> = tree.split('\0').filter_map(|e| Some((e.split_once('\t')?.1, e))).collect();
+        let (in_head, gone): (Vec<&str>, Vec<&str>) = paths.iter().copied().partition(|p| entries.contains_key(p));
+        if !in_head.is_empty() {
+            let info: String = in_head.iter().map(|p| format!("{}\0", entries[p])).collect();
+            self.run_stdin(&["update-index", "-z", "--index-info"], info).await?;
+        }
+        if !gone.is_empty() {
+            self.run_stdin(&["update-index", "--force-remove", "-z", "--stdin"], gone.join("\0")).await?;
+        }
+        Ok((in_head, gone))
     }
 
     /// Stage only the `picked` lines of `path`'s unstaged changes or, with `unstage`, take them back
@@ -1113,44 +1146,50 @@ impl Git {
 
     /// Throw away working-tree changes to `paths`: tracked files go back to
     /// their staged state, untracked ones are deleted.
-    pub async fn discard_unstaged(&self, paths: &[String]) -> Result<()> {
+    pub async fn discard_unstaged(&self, paths: &[String], tell: Progress<'_>) -> Result<()> {
         if paths.is_empty() {
             return Ok(());
         }
-        // shortcut: every path goes on the command line, so tens of thousands of files can hit the
-        // OS argument limit; pass `.` for "discard all" if that shows up.
-        // One git call for all paths. Only paths git names as untracked get deleted.
-        let mut args = vec!["ls-files", "-z", "--others", "--exclude-standard", "--"];
-        args.extend(paths.iter().map(String::as_str));
-        let listed = self.run(&args).await?;
+        // Only paths git names as untracked get deleted.
+        let (listed, unmerged) = tokio::try_join!(
+            self.run(&["ls-files", "-z", "--others", "--exclude-standard"]),
+            self.run(&["diff", "--name-only", "--diff-filter=U", "-z"]),
+        )?;
         let others: HashSet<&str> = listed.split('\0').collect();
         let (untracked, tracked): (Vec<&str>, Vec<&str>) = paths.iter().map(String::as_str).partition(|p| others.contains(p));
-        if !tracked.is_empty() {
-            let mut args = vec!["checkout", "--"];
-            args.extend(tracked);
-            self.run(&args).await?;
+        // checkout-index would restore the other files and only then fail on a conflict: refuse up front.
+        if let Some(p) = unmerged.split('\0').find(|p| tracked.contains(p)) {
+            return Err(Error::Invalid(format!("{p} has conflicts: resolve them first")));
         }
-        if !untracked.is_empty() {
-            let mut args = vec!["clean", "-f", "-q", "--"];
-            args.extend(untracked);
-            self.run(&args).await?;
+        self.run_paths(&["checkout-index", "-f", "-u", "-z", "--stdin"], &tracked, &|n| tell(n, paths.len())).await?;
+        // What `git clean -f` does to these files, which it only takes as arguments: emptied folders
+        // stay, and so does a nested repository (listed as `dir/`).
+        for (i, p) in untracked.iter().enumerate() {
+            if !p.ends_with('/') {
+                match std::fs::remove_file(self.cwd.join(p)) {
+                    Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e.into()),
+                    _ => {}
+                }
+            }
+            tell(tracked.len() + i + 1, paths.len());
         }
         Ok(())
     }
 
     /// Throw away staged changes to `paths` entirely: index and working tree
     /// go back to HEAD (files added since HEAD are deleted, rename sources restored).
-    pub async fn discard_staged(&self, paths: &[String]) -> Result<()> {
+    pub async fn discard_staged(&self, paths: &[String], tell: Progress<'_>) -> Result<()> {
         let has_head = self.ref_exists("HEAD").await?;
         let mut targets: Vec<String> = paths.to_vec();
         if has_head {
             // A staged rename only lists its new path; bring the old one back too.
             let ns = self.run(&["diff", "--cached", "--name-status", "-z", "-M"]).await?;
+            let picked: HashSet<&str> = paths.iter().map(String::as_str).collect();
             let mut parts = ns.split('\0').filter(|p| !p.is_empty());
             while let Some(code) = parts.next() {
                 if code.starts_with('R') || code.starts_with('C') {
                     let (old, new) = (parts.next().unwrap_or(""), parts.next().unwrap_or(""));
-                    if code.starts_with('R') && paths.iter().any(|p| p == new) {
+                    if code.starts_with('R') && picked.contains(new) {
                         targets.push(old.to_string());
                     }
                 } else {
@@ -1158,31 +1197,12 @@ impl Git {
                 }
             }
         }
-        if targets.is_empty() {
-            return Ok(());
-        }
-        // One git call for all paths, not one per path.
-        let listed = if has_head {
-            let mut args = vec!["ls-tree", "-r", "-z", "--name-only", "HEAD", "--"];
-            args.extend(targets.iter().map(String::as_str));
-            self.run(&args).await?
-        } else {
-            String::new()
-        };
-        let in_head: HashSet<&str> = listed.split('\0').collect();
-        let (restore, remove): (Vec<&str>, Vec<&str>) = targets.iter().map(String::as_str).partition(|p| in_head.contains(p));
-        if !restore.is_empty() {
-            let mut args = vec!["checkout", "HEAD", "--"];
-            args.extend(&restore);
-            self.run(&args).await?;
-        }
-        if !remove.is_empty() {
-            let mut args = vec!["rm", "-f", "-q", "--ignore-unmatch", "--"];
-            args.extend(&remove);
-            self.run(&args).await?;
-            for p in remove {
-                let _ = std::fs::remove_file(self.cwd.join(p));
-            }
+        let targets: Vec<&str> = targets.iter().map(String::as_str).collect();
+        let (restore, remove) = self.index_to_head(&targets).await?;
+        self.run_paths(&["checkout-index", "-f", "-u", "-z", "--stdin"], &restore, &|n| tell(n, targets.len())).await?;
+        for (i, p) in remove.iter().enumerate() {
+            let _ = std::fs::remove_file(self.cwd.join(p));
+            tell(restore.len() + i + 1, targets.len());
         }
         Ok(())
     }
@@ -1262,6 +1282,31 @@ impl Git {
         let sha = self.commit_tree(&tree, &[&old], message).await?;
         self.update_ref_from(&r, &sha, &old).await?;
         Ok(sha)
+    }
+
+    /// Run git with `paths` NUL-separated on its stdin, a thousand at a time; `tell` gets how many it
+    /// has taken so far. git handles each path as it reads it, so that is how far it got, give or take
+    /// a pipe's worth. Nothing to run without paths.
+    async fn run_paths(&self, args: &[&str], paths: &[&str], tell: &(dyn Fn(usize) + Sync)) -> Result<()> {
+        use std::process::Stdio;
+        use tokio::io::AsyncWriteExt;
+        if paths.is_empty() {
+            return Ok(());
+        }
+        let mut child = self.command(args).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
+        let mut stdin = child.stdin.take().expect("piped stdin");
+        let mut sent = 0;
+        for batch in paths.chunks(1000) {
+            let buf: Vec<u8> = batch.iter().flat_map(|p| p.bytes().chain([0])).collect();
+            // git stopped reading: its exit status and stderr say why.
+            if stdin.write_all(&buf).await.is_err() {
+                break;
+            }
+            sent += batch.len();
+            tell(sent);
+        }
+        drop(stdin);
+        Self::stdout_or_err(args, child.wait_with_output().await?).map(|_| ())
     }
 
     async fn run_stdin(&self, args: &[&str], input: impl AsRef<[u8]>) -> Result<String> {

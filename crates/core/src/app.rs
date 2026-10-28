@@ -116,6 +116,15 @@ fn ignore_line(path: &str, dir: bool) -> String {
     out + if dir { "/\n" } else { "\n" }
 }
 
+/// `paths`, or when empty every file on that side of the checkout's uncommitted work.
+async fn or_whole_side(git: &Git, staged: bool, paths: &[String]) -> Result<Vec<String>> {
+    if paths.is_empty() {
+        git.wip_side(staged).await
+    } else {
+        Ok(paths.to_vec())
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BranchView {
@@ -2718,7 +2727,9 @@ impl Gitnetix {
     /// Stage `paths` (all when empty) in the branch's checkout.
     pub async fn stage(&self, project_id: &str, branch: &str, paths: &[String]) -> Result<()> {
         let p = self.store.project(project_id)?;
-        self.require_checkout(&p, branch).await?.stage(paths).await?;
+        let git = self.require_checkout(&p, branch).await?;
+        let paths = or_whole_side(&git, false, paths).await?;
+        git.stage(&paths, &self.files_progress(&p.id)).await?;
         self.changed(project_id);
         Ok(())
     }
@@ -2726,9 +2737,19 @@ impl Gitnetix {
     /// Unstage `paths` (all when empty), keeping the working tree.
     pub async fn unstage(&self, project_id: &str, branch: &str, paths: &[String]) -> Result<()> {
         let p = self.store.project(project_id)?;
-        self.require_checkout(&p, branch).await?.unstage(paths).await?;
+        let git = self.require_checkout(&p, branch).await?;
+        git.unstage(&or_whole_side(&git, true, paths).await?).await?;
         self.changed(project_id);
         Ok(())
+    }
+
+    /// Tells the UI how far a stage or discard of a thousand files or more is, every thousand.
+    fn files_progress<'a>(&'a self, project_id: &'a str) -> impl Fn(usize, usize) + Sync + 'a {
+        move |done, total| {
+            if total >= 1000 && (done % 1000 == 0 || done == total) {
+                let _ = self.events.send(Event::FilesProgress { project_id: project_id.to_string(), done: done as u32, total: total as u32 });
+            }
+        }
     }
 
     /// Stage only `lines` of `path`'s unstaged changes or, with `unstage`, take them out of its staged ones.
@@ -2751,15 +2772,12 @@ impl Gitnetix {
     pub async fn discard(&self, project_id: &str, branch: &str, staged: bool, paths: &[String]) -> Result<()> {
         let p = self.store.project(project_id)?;
         let git = self.require_checkout(&p, branch).await?;
-        let paths: Vec<String> = if paths.is_empty() {
-            git.wip_split().await?.into_iter().filter(|f| f.staged == Some(staged)).map(|f| f.path).collect()
-        } else {
-            paths.to_vec()
-        };
+        let paths = or_whole_side(&git, staged, paths).await?;
+        let tell = self.files_progress(&p.id);
         if staged {
-            git.discard_staged(&paths).await?;
+            git.discard_staged(&paths, &tell).await?;
         } else {
-            git.discard_unstaged(&paths).await?;
+            git.discard_unstaged(&paths, &tell).await?;
         }
         self.changed(project_id);
         Ok(())

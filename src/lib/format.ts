@@ -1,6 +1,12 @@
 export const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
 export const bytes = (n: number) => (n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1024 / 1024).toFixed(2)} MB`);
 export const stashCount = (n: number) => `${n} stash${n === 1 ? "" : "es"}`;
+/** Rough time to go, for a progress line. */
+export function timeLeft(secs: number) {
+  if (secs < 10) return "a few seconds left";
+  if (secs < 60) return `about ${Math.round(secs / 5) * 5} s left`;
+  return `about ${Math.round(secs / 60)} min left`;
+}
 
 /** "just now", "5m ago", "3h ago", "2d ago", then the date. */
 export function ago(iso: string) {
