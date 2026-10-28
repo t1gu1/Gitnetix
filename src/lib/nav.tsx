@@ -52,8 +52,8 @@ interface Nav {
   closeNewItem: () => void;
   selectedBranch?: string;
   selectBranch: (b: string | undefined) => void;
-  /** Drop the selection if it is one of these deleted branches and `projectId` is still open. */
-  forgetBranches: (projectId: string, branches: string[]) => void;
+  /** Drop `projectId`'s selection if it is one of these branches (deleted, merged away), for `to` if given. Reads the selection as it is now: safe from work that ends after the user moved on. */
+  forgetBranches: (projectId: string, branches: string[], to?: string) => void;
 }
 
 /** Where one project was left: its page, open menu or dialog, selected branch. */
@@ -132,7 +132,7 @@ export function NavProvider({ children, initialProject, initialTheme }: { childr
   const closeNewItem = useCallback(() => update((v) => ({ ...v, newItem: null })), [update]);
   const selectBranch = useCallback((b: string | undefined) => update((v) => ({ ...v, selectedBranch: b })), [update]);
   const forgetBranches = useCallback(
-    (id: string, branches: string[]) => update((v) => (v.selectedBranch && branches.includes(v.selectedBranch) ? { ...v, selectedBranch: undefined } : v), id),
+    (id: string, branches: string[], to?: string) => update((v) => (v.selectedBranch && branches.includes(v.selectedBranch) ? { ...v, selectedBranch: to } : v), id),
     [update],
   );
 

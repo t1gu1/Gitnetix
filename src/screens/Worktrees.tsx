@@ -12,13 +12,14 @@ import { Resizer, usePaneWidth } from "../components/Resizer";
 import { ShellPane, TermTabs, useTermView } from "../components/Shell";
 import { ago, Busy, Confirm, Empty, EmptyState, Header, Modal, Seg } from "../components/ui";
 import { plural } from "../lib/format";
+import { agentKey, useHidden, wtKey } from "../lib/tasks";
 import { copyToClipboard } from "../lib/toast";
 import { KINDS, kindOfBranch, type Kind } from "../lib/kinds";
 import { useNav } from "../lib/nav";
 import { useStored } from "../lib/stored";
 import { useBranchActions } from "./BranchMenu";
 import { ConflictModal } from "./ConflictModal";
-import { DiscardWorktreeModal, FinishWorktreeCard, MergeModal, mergeTargets, TargetBranchModal, useFinishHandlers } from "./Workspace";
+import { clearSession, DiscardWorktreeModal, FinishWorktreeCard, MergeModal, mergeTargets, TargetBranchModal, useFinishHandlers } from "./Workspace";
 
 const STATUS: Record<AgentStatus | "idle", [string, string]> = {
   running: ["Running", "c-acc"],
@@ -81,7 +82,9 @@ export function Worktrees({ initial }: { initial?: string }) {
     else setMenu({ key: r.key, x: fromKey ? b.left : e.clientX, y: fromKey ? b.bottom + 2 : e.clientY });
   };
 
+  const hidden = useHidden();
   // One row per linked worktree; agents elsewhere (main checkout, removed directory) still show up.
+  // Worktrees and sessions a background action is taking away are gone from the click on.
   const all: Row[] = useMemo(() => {
     const list: Row[] = (wts.data ?? []).filter((w) => !w.main).map((w) => {
       const a = (agents.data ?? []).find((x) => x.cwd === w.path) ?? w.agent ?? undefined;
@@ -94,8 +97,8 @@ export function Worktrees({ initial }: { initial?: string }) {
         list.push({ key: a.id, wt: w, agent: a, projectId: a.projectId, projectName: p?.name ?? "?", branch: a.branch, path: a.cwd, status: shownStatus(a, w) });
       }
     }
-    return list;
-  }, [wts.data, agents.data, projects]);
+    return list.filter((r) => !hidden.has(wtKey(r.path)) && !(r.agent && hidden.has(agentKey(r.agent.id))));
+  }, [wts.data, agents.data, projects, hidden]);
   // A hidden project's rows are gone, from the counts too.
   const rows = all.filter((r) => !hidden.includes(r.projectId));
 
@@ -278,18 +281,17 @@ function Detail({ r, menu, onMenuClose }: { r: Row; menu?: { x: number; y: numbe
   const msg = useAction("agents.message", { invalidate: inv });
   const configure = useAction("agents.configure", { invalidate: inv });
   const start = useAction("agents.start", { invalidate: inv });
-  const removeAgent = useAction("agents.remove", { invalidate: inv });
   const [text, setText] = useState("");
   const [files, setFiles] = useState<Attachment[]>([]);
   const [picks, setPicks] = useState<Choice[]>([]);
   const actions = useBranchActions(r.projectId, () => {});
   const ov = useOverview(r.projectId);
-  // Merging closes the worktree once done (`then`); `stay` leaves the main checkout where it is.
-  const [merging, setMerging] = useState<{ then: () => void; stay: boolean; into?: string } | null>(null);
+  // Merging deletes the worktree at `cwd` once done; `stay` leaves the main checkout where it is.
+  const [merging, setMerging] = useState<{ cwd: string; stay: boolean; into?: string } | null>(null);
   const [discarding, setDiscarding] = useState(false);
   const [clearing, setClearing] = useState(false);
   const [targeting, setTargeting] = useState(false);
-  const finish = useFinishHandlers(r.projectId, actions.continueOn, (_, then, stay, into) => setMerging({ then, stay, into }));
+  const finish = useFinishHandlers(r.projectId, actions.continueOn, (_, cwd, stay, into) => setMerging({ cwd, stay, into }));
   const isWorktree = !!r.wt && !r.wt.main;
   const session = { projectId: r.projectId, branch: r.branch, cwd: r.path };
   // Commits like the Workspace commit box with an empty summary: AI writes the message, staged files only if any, else everything.
@@ -402,10 +404,9 @@ function Detail({ r, menu, onMenuClose }: { r: Row; menu?: { x: number; y: numbe
           branch={r.branch}
           base={merging.into ?? base}
           others={mergeTargets(ov.data?.branches ?? [], r.branch)}
+          worktree={merging.cwd}
           stay={merging.stay}
           onClose={() => setMerging(null)}
-          onDeleted={(into) => nav.projectId === r.projectId && nav.selectedBranch === r.branch && nav.selectBranch(into)}
-          onMerged={merging.then}
         />
       )}
       {targeting && ov.data && (
@@ -418,9 +419,11 @@ function Detail({ r, menu, onMenuClose }: { r: Row; menu?: { x: number; y: numbe
           title="Clear agent session"
           sub={<span className="mono">{r.branch}</span>}
           action="Clear session"
-          busy={removeAgent.isPending}
           onBack={() => setClearing(false)}
-          onConfirm={() => removeAgent.mutate({ id: a.id }, { onSuccess: () => setClearing(false) })}
+          onConfirm={() => {
+            clearSession(a);
+            setClearing(false);
+          }}
         >
           The agent stops if it is working, and its conversation is deleted.
         </Confirm>

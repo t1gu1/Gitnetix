@@ -1,11 +1,12 @@
 import { useState, type MouseEvent } from "react";
 
-import { patchOverview, patchWip, pushed, switchedOverview, useAction, useAiOn, useOverview, usePendingBranches } from "../api/hooks";
+import { droppedWorktree, patchOverview, patchWip, pushed, queryClient, settle, switchedOverview, useAction, useAiOn, useOverview, usePendingBranches } from "../api/hooks";
 import type { BranchView, Overview, RebaseResult, RenameResult, Stash, StashApplied } from "../api/types";
 import { ContextMenu, type MenuItem } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
 import { plural } from "../lib/format";
 import { useNav } from "../lib/nav";
+import { call, runTask, wtKey } from "../lib/tasks";
 import { copyToClipboard, toast } from "../lib/toast";
 
 export type BranchDialog = "merge" | "delete" | "rename" | "continue" | "conflicts" | "reset" | "forcePush" | "tag" | "target" | "rebase" | "rebaseOnto" | "abortSwitch";
@@ -68,8 +69,6 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
     patch: (qc, v) => qc.setQueryData<Overview>(["overview", pid], (o) => o && switchedOverview(o, v.branch)),
   });
   const wt = useAction<{ path: string }, { projectId: string; branch: string }>("worktrees.create", { invalidate: [...inv, ["worktrees"]], success: (r) => `Worktree at ${r.path}` });
-  // `branch` only marks the row busy; the worktree is found by its path.
-  const removeWt = useAction<unknown, { projectId: string; branch: string; path: string }>("worktrees.remove", { invalidate: [...inv, ["worktrees"], ["agents"]] });
   // Pull, push and stash show on the row at once; counts against the parent wait for the overview.
   const pull = useAction<{ output: string }, { projectId: string; branch: string }>("branches.pull", {
     invalidate: inv,
@@ -101,16 +100,37 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
   const follow = useAction<RenameResult, { projectId: string; branch: string; name: string }>("branches.rename", { invalidate: [...inv, ["worktrees"], ["agents"]] });
   const [menu, setMenu] = useState<{ x: number; y: number; alignRight: boolean; t: BranchTarget } | null>(null);
 
-  const mutations = [sw, wt, removeWt, pull, push, rebase, sync, stash, unstash, pr, changelog, stampChangelog, latestChangelog, follow];
-  // Pushes started elsewhere count too: the commit box's auto push spins the branch's Push button.
-  const pushing = usePendingBranches("workspace.push", pid);
-  const busy = new Set([...mutations.flatMap((m) => (m.isPending && m.variables?.branch ? [m.variables.branch] : [])), ...pushing]);
+  const mutations = [sw, wt, pull, push, rebase, sync, stash, unstash, pr, changelog, stampChangelog, latestChangelog, follow];
+  // Started elsewhere counts too: the commit box's auto push spins the branch's Push button, and so do merges and deletes running in the background.
+  const elsewhere = usePendingBranches(["workspace.push", "workspace.switch", "worktrees.remove", "branches.merge", "branches.delete"], pid);
+  const busy = new Set([...mutations.flatMap((m) => (m.isPending && m.variables?.branch ? [m.variables.branch] : [])), ...elsewhere]);
   const run = (m: BranchMutation, branch: string, ok: string) => m.mutate({ projectId: pid, branch }, { onSuccess: () => toast(ok, "ok") });
-  /** Deletes the worktree (refused with uncommitted changes there), then checks its branch out here. */
   // Git refuses to switch in the middle of a rebase, merge…: ask to abort it first.
   const switchOrAsk = (b: string, ok: string) => (ov?.inProgress ? openDialog("abortSwitch", b) : run(sw, b, ok));
   const abortAndSwitch = (b: string) => sw.mutate({ projectId: pid, branch: b, abort: true }, { onSuccess: () => toast(`Aborted the ${ov?.inProgress ?? "operation"} and switched to ${b}`, "ok") });
-  const continueOn = (branch: string, path: string) => removeWt.mutate({ projectId: pid, branch, path }, { onSuccess: () => switchOrAsk(branch, `Worktree deleted, continuing on ${branch}`) });
+  /** Deletes the worktree (refused with uncommitted changes there), then checks its branch out here. In the background: its row goes at once. */
+  const continueOn = (branch: string, path: string) => {
+    // Mid rebase, merge… here: the worktree still goes, then the abort dialog asks.
+    const ask = !!ov?.inProgress;
+    void runTask({
+      label: `Deleting the worktree of ${branch}…`,
+      hide: [wtKey(path)],
+      invalidate: [...inv, ["worktrees"], ["agents"]],
+      run: async (say) => {
+        // `branch` only marks the row busy; the worktree is found by its path.
+        await call("worktrees.remove", { projectId: pid, branch, path });
+        await droppedWorktree(queryClient, pid, branch, path);
+        if (ask) return false;
+        say(`Switching to ${branch}…`);
+        await call("workspace.switch", { projectId: pid, branch }).catch((e: Error) => {
+          throw new Error(`Worktree deleted, but switching to ${branch} failed: ${e.message}`);
+        });
+        await settle(queryClient, [["overview", pid]], () => queryClient.setQueryData<Overview>(["overview", pid], (o) => o && switchedOverview(o, branch)));
+        return true;
+      },
+      done: (switched) => (switched ? `Worktree deleted, continuing on ${branch}` : `Deleted the worktree of ${branch}`),
+    }).then((switched) => switched === false && openDialog("abortSwitch", branch));
+  };
 
   // The branch checked out here: any other branch can be the one it gets rebased onto.
   const cur = ov?.currentBranch ?? undefined;

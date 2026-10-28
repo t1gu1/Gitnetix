@@ -4832,6 +4832,14 @@ body:has(> .modal-scrim) #root * {
   flex: none;
   margin-top: 2px;
 }
+/* Work running in the background: stays until it is done, a click does nothing. */
+.toast.busy {
+  cursor: default;
+}
+.toast > .spinner {
+  margin-top: 3px;
+  color: var(--accent-fg);
+}
 .toast.error {
   border-color: color-mix(in srgb, var(--del-fg) 55%, var(--line));
 }

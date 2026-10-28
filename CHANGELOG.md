@@ -11,6 +11,10 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+### Changed
+- Merging, deleting a branch or a worktree, continuing on a branch and clearing a session close their dialog at once and run in the background. What they remove leaves the lists right away, and comes back if the action fails.
+- A toast with a spinner shows a background action until it is done, then how it went. A failure stays on screen until clicked.
+
 ## [0.11.0] - 2026-10-27
 
 ### Added

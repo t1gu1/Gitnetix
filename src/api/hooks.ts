@@ -29,7 +29,7 @@ import type {
 } from "./types";
 import { shownStatus } from "../lib/agentLog";
 import { dictationModel } from "../lib/dictation";
-import { toast } from "../lib/toast";
+import { sayIn, toast } from "../lib/toast";
 
 export const queryClient = new QueryClient({
   defaultOptions: {
@@ -91,9 +91,12 @@ export function useEngineEvents() {
             qc.invalidateQueries({ queryKey: ["projects"] });
             qc.invalidateQueries({ queryKey: ["submodules", e.projectId] });
             break;
-          case "conflictResolving":
-            toast(`Conflicts in ${e.files.join(", ")}: resolving them with AI. This can take a few minutes; Menu › Logs shows progress.`, "info", 12_000);
+          case "conflictResolving": {
+            const text = `Conflicts in ${e.files.join(", ")}: resolving them with AI. This can take a few minutes; Menu › Logs shows progress.`;
+            // A merge running in the background says it in its own toast.
+            if (!sayIn(e.projectId, text)) toast(text, "info", 12_000);
             break;
+          }
           case "log":
             qc.setQueryData<LogEntry[]>(["log"], (l) => l && [...l.slice(-1999), e.entry]);
             break;
@@ -183,6 +186,12 @@ export function patchBranch(o: Overview, name: string, f: (b: BranchView) => Bra
 export const patchOverview = (qc: QueryClient, pid: string, name: string, f: (b: BranchView) => BranchView) =>
   qc.setQueryData<Overview>(["overview", pid], (o) => o && patchBranch(o, name, f));
 
+/** Put what an action did in the cache once the reloads of `keys` started before it ended are cancelled: landing after, they would undo it. */
+export async function settle(qc: QueryClient, keys: unknown[][], patch: () => void) {
+  await Promise.all(keys.map((k) => qc.cancelQueries({ queryKey: k })));
+  patch();
+}
+
 /** A branch once a commit lands on it: one more of its own and to push, so not merged any more. */
 export const committed = (b: BranchView): BranchView => ({
   ...b,
@@ -207,6 +216,18 @@ export function deletedOverview(o: Overview, name: string, remote: boolean): Ove
   const drop = (l: BranchView[]) => l.filter((b) => b.name !== name);
   return { ...o, branches: drop(o.branches), otherBranches: drop(o.otherBranches), releases: o.releases.map((r) => ({ ...r, items: drop(r.items) })) };
 }
+
+/** Show at once that branch `name` is deleted (`remote`: from origin too); the refreshed overview replaces it. */
+export const droppedBranch = (qc: QueryClient, pid: string, name: string, remote: boolean) =>
+  settle(qc, [["overview", pid]], () => qc.setQueryData<Overview>(["overview", pid], (o) => o && deletedOverview(o, name, remote)));
+
+/** Show at once that `branch`'s worktree at `path` is gone, its agent sessions with it; the refreshed lists replace this. */
+export const droppedWorktree = (qc: QueryClient, pid: string, branch: string, path: string) =>
+  settle(qc, [["worktrees"], ["worktreesSaved"], ["agents"], ["overview", pid]], () => {
+    for (const k of [["worktrees"], ["worktreesSaved"]]) qc.setQueryData<WorktreeView[] | null>(k, (l) => l?.filter((w) => w.path !== path));
+    qc.setQueryData<AgentSession[]>(["agents"], (l) => l?.filter((a) => a.cwd !== path));
+    patchOverview(qc, pid, branch, (b) => (b.worktree === path ? { ...b, worktree: null, checkedOut: false, wip: 0 } : b));
+  });
 
 /** Cache key of a branch's uncommitted files, as `useFiles(pid, branch, "wip")` reads them. */
 export const wipKey = (pid: string, branch: string) => ["files", pid, branch, "wip", undefined, undefined];
@@ -439,10 +460,11 @@ export const useAnalyticsDay = (projectIds: string[], date: string) =>
     staleTime: 60_000,
   });
 
-/** Branches of a project a method is running on right now, wherever it was started. */
-export function usePendingBranches(method: string, projectId: string): string[] {
+/** Branches of a project a method (or any of several) is running on right now, wherever it was started. */
+export function usePendingBranches(method: string | string[], projectId: string): string[] {
+  const methods = ([] as string[]).concat(method);
   const vars = useMutationState({
-    filters: { mutationKey: [method], status: "pending" },
+    filters: { status: "pending", predicate: (m) => methods.includes(m.options.mutationKey?.[0] as string) },
     select: (m) => m.state.variables as { projectId?: string; branch?: string } | undefined,
   });
   return vars.flatMap((v) => (v?.projectId === projectId && v.branch ? [v.branch] : []));
@@ -468,11 +490,8 @@ export function useAction<T = unknown, V extends Record<string, unknown> = Recor
     mutationKey: [method],
     mutationFn: (vars) => rpc<T>(method, vars),
     onSuccess: async (r, vars) => {
-      if (opts.patch) {
-        // A fetch started before the action would land after the patch and undo it.
-        await Promise.all((opts.invalidate ?? []).map((k) => qc.cancelQueries({ queryKey: k })));
-        opts.patch(qc, vars, r);
-      }
+      const { patch } = opts;
+      if (patch) await settle(qc, opts.invalidate ?? [], () => patch(qc, vars, r));
       for (const k of opts.invalidate ?? []) qc.invalidateQueries({ queryKey: k });
       const msg = typeof opts.success === "function" ? opts.success(r) : opts.success;
       if (msg) toast(msg, "ok");

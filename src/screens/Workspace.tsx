@@ -4,10 +4,14 @@ import {
   committed,
   deletedOverview,
   discardedWip,
+  droppedBranch,
+  droppedWorktree,
   movedWip,
   patchOverview,
   patchWip,
   pushed,
+  queryClient,
+  settle,
   switchedOverview,
   useAction,
   useAgents,
@@ -38,6 +42,7 @@ import { shownStatus } from "../lib/agentLog";
 import { startCleanup, useCleaning } from "../lib/cleanups";
 import { useNav } from "../lib/nav";
 import { useStoredChoice, useStoredFlag } from "../lib/stored";
+import { agentKey, branchKey, call, runTask, useHidden, wtKey } from "../lib/tasks";
 import { copyToClipboard, toast } from "../lib/toast";
 import { offersRebase, rebaseMessage, useBranchActions, type BranchDialog, type BranchTarget } from "./BranchMenu";
 import { BranchTree } from "./BranchTree";
@@ -74,8 +79,8 @@ export function Workspace() {
   const [slide, setSlide] = useState<{ pane: Pane; dir?: "next" | "prev" }>({ pane });
   if (slide.pane !== pane) setSlide({ pane, dir: PANES.indexOf(pane) > PANES.indexOf(slide.pane) ? "next" : "prev" });
   const [shipping, setShipping] = useState<ReleaseView | null>(null);
-  // `then` runs once the merge is done (closing a worktree session after merging it).
-  const [dialog, setDialog] = useState<{ kind: BranchDialog; branch: string; onto?: string; then?: () => void; stay?: boolean; into?: string } | null>(null);
+  // `cwd`: the worktree a merge deletes once done (closing a worktree session after merging it).
+  const [dialog, setDialog] = useState<{ kind: BranchDialog; branch: string; onto?: string; cwd?: string; stay?: boolean; into?: string } | null>(null);
   const [closingSession, setClosingSession] = useState<AgentSession | null>(null);
   const [deletingTag, setDeletingTag] = useState<string | null>(null);
   const checkoutTag = useAction<unknown, { projectId: string; name: string }>("tags.checkout", {
@@ -104,9 +109,14 @@ export function Workspace() {
     if (wt && kind === "merge") finish.merge({ projectId: pid, branch, cwd: wt }, true);
     else setDialog({ kind, branch, onto });
   });
-  const finish = useFinishHandlers(pid, actions.continueOn, (branch, then, stay, into) => setDialog({ kind: "merge", branch, then, stay, into }));
+  const finish = useFinishHandlers(pid, actions.continueOn, (branch, cwd, stay, into) => setDialog({ kind: "merge", branch, cwd, stay, into }));
 
-  const o = ov.data;
+  const hidden = useHidden();
+  // Branches a background action is deleting leave the tree at the click; they come back if it fails.
+  const o = useMemo(() => {
+    const prefix = branchKey(pid, "");
+    return [...hidden].filter((k) => k.startsWith(prefix)).reduce((x, k) => x && deletedOverview(x, k.slice(prefix.length), true), ov.data);
+  }, [ov.data, hidden, pid]);
   const byName = useMemo(() => new Map((o?.branches ?? []).map((b) => [b.name, b])), [o]);
   const branch = nav.selectedBranch ?? o?.currentBranch ?? o?.defaultBranch ?? undefined;
   const baseFor = (b: string) => byName.get(b)?.parent ?? "";
@@ -629,8 +639,10 @@ export function Workspace() {
           base={dialog.into ?? baseFor(dialog.branch)}
           // Any other local branch can take it: releases first, then trunks, then work branches.
           others={mergeTargets(o?.branches ?? [], dialog.branch)}
+          worktree={dialog.cwd}
           stay={dialog.stay}
-          onClose={() => setDialog(null)} onDeleted={(into) => dialog.branch === branch && nav.selectBranch(into)} onMerged={dialog.then} />
+          onClose={() => setDialog(null)}
+        />
       )}
       {closingSession && (
         <CloseWorktreeModal session={closingSession} finish={finish} onClose={() => setClosingSession(null)} />
@@ -695,7 +707,6 @@ export function Workspace() {
           remote={dialogView.remote}
           worktree={dialogView.worktree ?? undefined}
           onClose={() => setDialog(null)}
-          onDeleted={() => dialog.branch === branch && nav.selectBranch(undefined)}
         />
       )}
     </>
@@ -1064,8 +1075,7 @@ export function MergeModal({
   base: defaultBase,
   others,
   onClose,
-  onDeleted,
-  onMerged,
+  worktree,
   stay,
   inline,
 }: {
@@ -1075,8 +1085,8 @@ export function MergeModal({
   /** Every other branch it could merge into instead. */
   others: string[];
   onClose: () => void;
-  onDeleted: (into: string) => void;
-  onMerged?: () => void;
+  /** Worktree to delete once merged: a worktree session ending. */
+  worktree?: string;
   /** Leave the main checkout where it is after merging. */
   stay?: boolean;
   /** Show it in the agent chat instead of a modal, these buttons in place of Cancel. */
@@ -1086,38 +1096,55 @@ export function MergeModal({
   const { merge: opts, setMerge: set } = useProjectPrefs(pid);
   const [base, setBase] = useState(defaultBase);
   const [pick, setPick] = useState<{ x: number; y: number } | null>(null);
-  const merge = useAction<MergeResult>("branches.merge", {
-    invalidate: [["overview", pid], ["files", pid], ["diff", pid], ["commits", pid]],
-    success: (r) =>
-      `${r.alreadyMerged ? `${branch} was already in ${r.into}` : `Merged ${branch} into ${r.into}`}${r.switched ? ` · switched to ${r.into}` : ""}${r.deleted ? " · branch deleted" : ""}${r.pushed ? " · pushed" : ""}${r.retagged ? ` · ${r.retagged} moved` : ""}${r.stayed ? ` · stayed put: ${r.stayed}` : ""}`,
-  });
+  const nav = useNav();
   // Uncommitted work on the branch would be left out of the merge: commit or discard it first.
   const wip = useOverview(pid).data?.branches.find((x) => x.name === branch)?.wip ?? 0;
   const [asking, setAsking] = useState(false);
-  // Chained on the promise: deleting a worktree's branch removes the worktree, and with it the row this modal lives in,
-  // which drops `mutate`'s per-call callbacks (and so any delete error).
-  const run = () =>
-    void merge
-      .mutateAsync({ projectId: pid, branch, into: base, deleteBranch: opts.deleteBranch, squash: opts.squash, squashAi: opts.squashMessage === "ai", rebase: opts.rebase, push: opts.push, stay })
-      .then((r) => {
-        if (r.pushError) toast(`Merged, but pushing ${r.into} failed: ${r.pushError}`, "error");
-        if (r.tagError) toast(`Merged, but moving its release tag failed: ${r.tagError}`, "error");
-        if (r.deleteError) toast(`Merged, but deleting ${branch} failed: ${r.deleteError}`, "error");
-        if (r.deleted || r.switched) onDeleted(r.into);
-        onMerged?.();
-        onClose();
-      })
-      .catch(() => {}); // useAction already toasts the error
+  // In the background: the dialog closes and what the merge deletes leaves the lists at once; a toast tells how it goes.
+  const run = () => {
+    const into = base;
+    const deleting = opts.deleteBranch;
+    onClose();
+    // No base known: the engine works out where it goes.
+    if (deleting) nav.forgetBranches(pid, [branch], into || undefined);
+    void runTask({
+      label: into ? `Merging ${branch} into ${into}…` : `Merging ${branch}…`,
+      conflictsIn: pid,
+      hide: [...(deleting ? [branchKey(pid, branch)] : []), ...(worktree ? [wtKey(worktree)] : [])],
+      invalidate: [["overview", pid], ["files", pid], ["diff", pid], ["commits", pid], ...(worktree ? [["worktrees"], ["agents"]] : [])],
+      run: async (say) => {
+        const r = await call<MergeResult>("branches.merge", { projectId: pid, branch, into, deleteBranch: deleting, squash: opts.squash, squashAi: opts.squashMessage === "ai", rebase: opts.rebase, push: opts.push, stay });
+        if (r.deleted) await droppedBranch(queryClient, pid, branch, true);
+        let wtError: string | undefined;
+        // Deleting the branch took its worktree along.
+        if (worktree && !r.deleted) {
+          say(`Merged ${branch} into ${r.into}, deleting its worktree…`);
+          wtError = await call("worktrees.remove", { projectId: pid, branch, path: worktree }).then(() => undefined, (e: Error) => e.message);
+        }
+        if (worktree && !wtError) await droppedWorktree(queryClient, pid, branch, worktree);
+        return { ...r, wtError };
+      },
+      done: (r) =>
+        `${r.alreadyMerged ? `${branch} was already in ${r.into}` : `Merged ${branch} into ${r.into}`}${r.switched ? ` · switched to ${r.into}` : ""}${r.deleted ? " · branch deleted" : ""}${worktree && !r.wtError ? " · worktree deleted" : ""}${r.pushed ? " · pushed" : ""}${r.retagged ? ` · ${r.retagged} moved` : ""}${r.stayed ? ` · stayed put: ${r.stayed}` : ""}`,
+    }).then((r) => {
+      if (!r) return;
+      // The merge went through but a step after it did not: each stays until clicked, like a failed merge.
+      const failed = [
+        r.pushError && `Merged, but pushing ${r.into} failed: ${r.pushError}`,
+        r.tagError && `Merged, but moving its release tag failed: ${r.tagError}`,
+        r.deleteError && `Merged, but deleting ${branch} failed: ${r.deleteError}`,
+        r.wtError && `Merged, but deleting the worktree failed: ${r.wtError}`,
+      ];
+      for (const e of failed) if (e) toast(e, "error", Infinity);
+      // The selection follows the main checkout to where the work landed.
+      if (r.switched) nav.forgetBranches(pid, [branch], r.into);
+    });
+  };
   const footer = (
     <>
       {inline}
       <span className="split-btn">
-        <button
-          className="btn btn-primary btn-md split-main"
-          disabled={merge.isPending}
-          onClick={() => (wip ? setAsking(true) : run())}
-        >
-          {merge.isPending && <span className="spinner" />}
+        <button className="btn btn-primary btn-md split-main" onClick={() => (wip ? setAsking(true) : run())}>
           Merge into {base}
         </button>
         <button
@@ -1125,7 +1152,7 @@ export function MergeModal({
           aria-label="Merge into another branch"
           data-tip="Merge into another branch"
           aria-haspopup="menu"
-          disabled={merge.isPending || !others.length}
+          disabled={!others.length}
           onClick={(e) => {
             const r = e.currentTarget.getBoundingClientRect();
             setPick({ x: r.right, y: r.bottom + 2 });
@@ -1167,8 +1194,6 @@ export function MergeModal({
           ? "Conflicts are resolved with AI, which can take a few minutes; if it can't, nothing changes."
           : `Nothing changes when the merge would conflict: rebase onto ${base} and resolve first.`}
       </p>
-      {merge.isPending && <p className="hint" style={{ margin: 0 }}>Merging… Menu › Logs shows each step.</p>}
-      {merge.error && <ErrorBox error={merge.error} />}
       <div className="col" style={{ gap: 0 }}>
         <label className="check">
           <input type="checkbox" checked={opts.squash} onChange={() => set({ squash: !opts.squash })} />
@@ -1622,7 +1647,6 @@ function DeleteBranchModal({
   remote,
   worktree,
   onClose,
-  onDeleted,
 }: {
   pid: string;
   branch: string;
@@ -1632,18 +1656,28 @@ function DeleteBranchModal({
   remote: boolean;
   worktree?: string;
   onClose: () => void;
-  onDeleted: () => void;
 }) {
   const [force, setForce] = useState(false);
   // Origin-only branches can only go from origin; otherwise origin keeps its copy unless the project's settings or the user ask.
   const [alsoOrigin, setAlsoOrigin] = useState(useProjectPrefs(pid).dialogs.deleteOrigin);
   const onOrigin = remote && (!local || alsoOrigin);
   const exists = local || remote;
-  const del = useAction<unknown, { projectId: string; branch: string; force: boolean; remote: boolean }>("branches.delete", {
-    invalidate: [["overview", pid], ["files", pid], ["worktrees"]],
-    patch: (qc, v) => qc.setQueryData<Overview>(["overview", pid], (o) => o && deletedOverview(o, v.branch, v.remote)),
-    success: `Deleted ${branch}`,
-  });
+  const nav = useNav();
+  // In the background: the dialog closes and the row leaves the tree at once, unless origin keeps a copy (it stays, busy).
+  const del = () => {
+    onClose();
+    nav.forgetBranches(pid, [branch]);
+    void runTask({
+      label: `Deleting ${branch}…`,
+      hide: remote && !onOrigin ? [] : [branchKey(pid, branch)],
+      invalidate: [["overview", pid], ["files", pid], ["worktrees"]],
+      run: async () => {
+        await call("branches.delete", { projectId: pid, branch, force, remote: onOrigin });
+        await droppedBranch(queryClient, pid, branch, onOrigin);
+      },
+      done: () => `Deleted ${branch}`,
+    });
+  };
   return (
     <Modal
       title="Delete branch"
@@ -1651,12 +1685,7 @@ function DeleteBranchModal({
       onClose={onClose}
       footer={
         <>
-          <button
-            className="btn btn-md btn-danger"
-            disabled={del.isPending}
-            onClick={() => del.mutate({ projectId: pid, branch, force, remote: onOrigin }, { onSuccess: () => { onDeleted(); onClose(); } })}
-          >
-            {del.isPending && <span className="spinner" />}
+          <button className="btn btn-md btn-danger" onClick={del}>
             {exists ? "Delete branch" : "Forget branch"}
           </button>
         </>
@@ -1675,7 +1704,6 @@ function DeleteBranchModal({
               <>Deletes <span className="mono">{branch}</span> on origin, for everyone who uses it.</>
             )}
           </p>
-          {del.error && <ErrorBox error={del.error} />}
           {local && remote && (
             <label className="check">
               <input type="checkbox" checked={alsoOrigin} onChange={() => setAlsoOrigin(!alsoOrigin)} />
@@ -1945,7 +1973,11 @@ function CommitBox({ pid, branch, enabled, staged, changed }: { pid: string; bra
 /** The agent of the selected branch, or the shell of its checkout (`cwd`). Several agents at once are managed on the Worktrees & agents page. */
 function Terminal({ pid, branch, cwd, worktree, open, setOpen, onCloseWorktree, finish }: { pid: string; branch?: string; cwd?: string; worktree: boolean; open: boolean; setOpen: (b: boolean) => void; onCloseWorktree: (s: AgentSession) => void; finish: FinishHandlers }) {
   const agents = useAgents();
-  const cur = (agents.data ?? []).find((a) => a.projectId === pid && a.branch === branch);
+  const hidden = useHidden();
+  // A session being cleared, or whose worktree is being deleted, is gone already.
+  const cur = (agents.data ?? []).find((a) => a.projectId === pid && a.branch === branch && !hidden.has(agentKey(a.id)) && !hidden.has(wtKey(a.cwd)));
+  // Its worktree is being deleted (merged, closed): nothing new starts there meanwhile.
+  const leaving = worktree && !!cwd && hidden.has(wtKey(cwd));
   const curBranch = useOverview(pid).data?.branches.find((b) => b.name === cur?.branch);
   const [text, setText] = useState("");
   const [files, setFiles] = useState<Attachment[]>([]);
@@ -1955,7 +1987,6 @@ function Terminal({ pid, branch, cwd, worktree, open, setOpen, onCloseWorktree, 
   const start = useAction<{ id: string }>("agents.start", { invalidate: [["agents"], ["worktrees"], ["overview", pid]] });
   const message = useAction("agents.message", { invalidate: [["agents"]] });
   const configure = useAction("agents.configure", { invalidate: [["agents"]] });
-  const remove = useAction("agents.remove", { invalidate: [["agents"]] });
   const stop = useAction("agents.stop", { invalidate: [["agents"]] });
   const height = usePaneWidth("gnx.pane.term", 248, 120, 900);
   const [view, setView] = useTermView(pid, branch, !!cur, worktree);
@@ -2041,9 +2072,11 @@ function Terminal({ pid, branch, cwd, worktree, open, setOpen, onCloseWorktree, 
               empty={
                 cur
                   ? undefined
-                  : branch
-                    ? `Start an agent on ${branch}: it gets its own worktree, so it keeps working while you switch branches.`
-                    : "Start an agent on the main checkout: describe what it should do below."
+                  : leaving
+                    ? "Deleting this worktree…"
+                    : branch
+                      ? `Start an agent on ${branch}: it gets its own worktree, so it keeps working while you switch branches.`
+                      : "Start an agent on the main checkout: describe what it should do below."
               }
             />
             <AgentInput
@@ -2058,7 +2091,7 @@ function Terminal({ pid, branch, cwd, worktree, open, setOpen, onCloseWorktree, 
               onSend={send}
               onStop={busy && cur ? () => halt(cur) : undefined}
               log={cur?.lines}
-              disabled={false}
+              disabled={leaving}
               pending={start.isPending || message.isPending}
               picker={!cur ? <AgentPicker value={pick} onChange={setPick} compact /> : cur.ai && <AgentPicker value={cur.ai} onChange={(p) => configure.mutate({ id: cur.id, ...p })} compact />}
               placeholder={busy ? "Agent is working… a message now waits for it to finish" : cur ? "Reply to the agent…" : "Ask the agent anything…"}
@@ -2071,9 +2104,11 @@ function Terminal({ pid, branch, cwd, worktree, open, setOpen, onCloseWorktree, 
           title="Clear agent session"
           sub={<span className="mono">{clearing.branch}</span>}
           action="Clear session"
-          busy={remove.isPending}
           onBack={() => setClearing(null)}
-          onConfirm={() => remove.mutate({ id: clearing.id }, { onSuccess: () => setClearing(null) })}
+          onConfirm={() => {
+            clearSession(clearing);
+            setClearing(null);
+          }}
         >
           The agent stops if it is working, and its conversation is deleted.
         </Confirm>
@@ -2082,46 +2117,76 @@ function Terminal({ pid, branch, cwd, worktree, open, setOpen, onCloseWorktree, 
   );
 }
 
+/** Deletes agent session `a` in the background: its row and log go at once, and come back if that fails. */
+export function clearSession(a: AgentSession) {
+  void runTask({
+    label: `Clearing the session on ${a.branch}…`,
+    hide: [agentKey(a.id)],
+    invalidate: [["agents"], ["worktrees"]],
+    run: async () => {
+      await call("agents.remove", { id: a.id });
+      await settle(queryClient, [["agents"]], () => queryClient.setQueryData<AgentSession[]>(["agents"], (l) => l?.filter((x) => x.id !== a.id)));
+    },
+    done: () => `Cleared the session on ${a.branch}`,
+  });
+}
+
 /** The worktree a session runs in; a worktree without an agent closes the same way. */
 type WtSession = Pick<AgentSession, "projectId" | "branch" | "cwd">;
 /** How a worktree session ends; each gets the session and whether to switch to where the code lands. */
 type FinishHandlers = { discard: (s: WtSession) => void; continue: (s: WtSession, sw: boolean) => void; merge: (s: WtSession, sw: boolean, into?: string) => void };
 
-/** `continueOn` deletes the worktree and checks its branch out; `openMerge` shows the merge options (into `into`, else the base), `then` running once merged.
- * `modal` asks to commit or discard uncommitted changes before a continue: render it. */
+/** `continueOn` deletes the worktree and checks its branch out; `openMerge` shows the merge options (into `into`, else the base) for a merge that deletes worktree `cwd` once done.
+ * Each runs in the background, the worktree's row going at once. `modal` asks to commit or discard uncommitted changes before a continue: render it. */
 export function useFinishHandlers(
   pid: string,
   continueOn: (branch: string, path: string) => void,
-  openMerge: (branch: string, then: () => void, stay: boolean, into?: string) => void,
+  openMerge: (branch: string, cwd: string, stay: boolean, into?: string) => void,
 ): FinishHandlers & { modal: ReactNode } {
   const branches = useOverview(pid).data?.branches;
   // Deleting the worktree is refused with uncommitted changes there.
   const [dirty, setDirty] = useState<{ s: WtSession; sw: boolean; files: number } | null>(null);
   const keepOn = (s: WtSession, sw: boolean) => (sw ? continueOn(s.branch, s.cwd) : drop(s));
-  const removeWt = useAction("worktrees.remove", { invalidate: [["agents"], ["worktrees"], ["overview", pid]], success: "Worktree removed" });
-  // Removing the worktree also removes its agent session.
-  const drop = (s: WtSession) => removeWt.mutate({ projectId: s.projectId, path: s.cwd });
-  const deleteBranch = useAction<unknown, { projectId: string; branch: string; force: boolean }>("branches.delete", {
-    invalidate: [["overview", pid], ["commits", pid]],
-    patch: (qc, v) => qc.setQueryData<Overview>(["overview", v.projectId], (o) => o && deletedOverview(o, v.branch, false)),
-    success: "Branch deleted",
-  });
+  // Removing the worktree also removes its agent session. `branch` only marks the row busy.
+  const drop = (s: WtSession) =>
+    void runTask({
+      label: `Deleting the worktree of ${s.branch}…`,
+      hide: [wtKey(s.cwd)],
+      invalidate: [["agents"], ["worktrees"], ["overview", s.projectId]],
+      run: async () => {
+        await call("worktrees.remove", { projectId: s.projectId, branch: s.branch, path: s.cwd });
+        await droppedWorktree(queryClient, s.projectId, s.branch, s.cwd);
+      },
+      done: () => `Deleted the worktree of ${s.branch}`,
+    });
   const nav = useNav();
   return {
-    // Throws the session's work away: the worktree even with uncommitted changes, then its local branch even unmerged (origin's copy stays).
-    // Chained on promises: `mutate`'s per-call callbacks are dropped once the caller unmounts (the worktree's row or dialog going away).
-    discard: (s) =>
-      void (async () => {
-        await removeWt.mutateAsync({ projectId: s.projectId, path: s.cwd, force: true });
-        await deleteBranch.mutateAsync({ projectId: s.projectId, branch: s.branch, force: true });
-        nav.forgetBranches(s.projectId, [s.branch]);
-      })().catch(() => {}), // useAction already toasts the error
+    // Throws the session's work away: the worktree even with uncommitted changes, then its local branch even unmerged
+    // (origin's copy stays, and so does its row).
+    discard: (s) => {
+      const gone = !branches?.find((b) => b.name === s.branch)?.remote;
+      nav.forgetBranches(s.projectId, [s.branch]);
+      void runTask({
+        label: `Deleting ${s.branch} and its worktree…`,
+        hide: [wtKey(s.cwd), ...(gone ? [branchKey(s.projectId, s.branch)] : [])],
+        invalidate: [["agents"], ["worktrees"], ["overview", s.projectId], ["commits", s.projectId]],
+        run: async () => {
+          await call("worktrees.remove", { projectId: s.projectId, branch: s.branch, path: s.cwd, force: true });
+          await droppedWorktree(queryClient, s.projectId, s.branch, s.cwd);
+          await call("branches.delete", { projectId: s.projectId, branch: s.branch, force: true }).catch((e: Error) => {
+            throw new Error(`Worktree deleted, but deleting ${s.branch} failed: ${e.message}`);
+          });
+          await droppedBranch(queryClient, s.projectId, s.branch, false);
+        },
+        done: () => `Deleted ${s.branch} and its worktree`,
+      });
+    },
     continue: (s, sw) => {
       const files = branches?.find((b) => b.name === s.branch)?.wip ?? 0;
       if (files) setDirty({ s, sw, files });
       else keepOn(s, sw);
     },
-    merge: (s, sw, into) => openMerge(s.branch, () => drop(s), !sw, into),
+    merge: (s, sw, into) => openMerge(s.branch, s.cwd, !sw, into),
     modal: dirty && (
       <WipModal pid={dirty.s.projectId} branch={dirty.s.branch} files={dirty.files} op="Continue" onClose={() => setDirty(null)} onClean={() => { setDirty(null); keepOn(dirty.s, dirty.sw); }} />
     ),
