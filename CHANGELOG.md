@@ -13,11 +13,17 @@ release notes and the in-app update prompt.
 
 ### Added
 - Pulling a branch when uncommitted changes are in the way now asks what to do with them: keep them on top of the pulled branch, or stash them and pull a clean branch. Before, the pull failed with git's error.
+- The reset dialog now lists unpushed local commits that a hard reset would lose.
+- Worktree rows have an eye button that opens the branch in the workspace.
+- State badges in the branch tree (AI working, worktree, waiting, done) now open the matching row in Worktrees & agents.
+- The pull request list has a search box and a sync button.
 
 ### Changed
 - Desktop zoom defaults to 1.5.
 
 ### Fixed
+- Staging, unstaging and discarding tens of thousands of files no longer hits the OS argument limit and runs faster.
+- Resetting forward onto origin's unpulled commits now works.
 - Pulling a branch with uncommitted changes no longer fails when git's `pull.rebase` setting is on and the changes don't touch the files the pull brings in.
 
 ## [0.11.1] - 2026-10-28
