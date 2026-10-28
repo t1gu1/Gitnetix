@@ -11,9 +11,19 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+### Added
+- Commit graph preview beside the branch tree: it shows the selected branches down to where they meet, with local and origin tips, tags and HEAD.
+- Previewed and hovered rows are peeked in the graph.
+- Chat images open in a gallery that steps through the message's images with arrows and ←/→. On desktop, Copy puts the file on the clipboard and Download saves a copy to Downloads.
+
 ### Changed
 - Tokyo Night is the default theme, in the app and on the website: Storm when the computer is in dark mode, Day in light mode. Installs left on System switch to it. Gitnetix Dark and Light are still in the theme list, and the light / dark toggle on a theme without the other mode now goes to Tokyo Night.
 - The logo is drawn in the theme's colors, in the app, in the website's header and footer, and in its favicon. The app icon, the home-screen icons and the website's fallback icons use the new logo in Tokyo Night Storm.
+- The worktree start modal preselects the checked-out branch.
+
+### Fixed
+- The merge action on pull requests shows at once, and the list refetches after an Azure merge completes.
+- The graph no longer drifts when zoomed in WebKit, and the branch list keeps a minimum width.
 
 ## [0.11.2] - 2026-10-28
 
