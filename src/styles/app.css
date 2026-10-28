@@ -48,6 +48,8 @@
   --t-fast: 0.12s;
   --t: 0.2s;
   --t-slow: 0.32s;
+  /* A ticked checkbox's tick: --on-accent, the same in both themes. */
+  --tick: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M2 5.2 4.1 7.3 8 2.9' fill='none' stroke='%231b1205' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }
 
 /* Light rules with Gitnetix's own hues carry :not([data-palette]), so the other themes (src/lib/themes.ts) keep theirs. */
@@ -917,11 +919,10 @@ body.dragging-tab * {
 .check:hover input:not(:disabled, :checked) {
   border-color: var(--muted);
 }
-/* The tick is --on-accent, the same in both themes. */
 .check input:checked {
   border-color: var(--accent);
   background-color: var(--accent);
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M2 5.2 4.1 7.3 8 2.9' fill='none' stroke='%231b1205' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-image: var(--tick);
   background-size: 10px 10px;
 }
 .check input:focus-visible {
@@ -3209,6 +3210,33 @@ input.img-slider {
 .diff-row.pick.picked > .ln:first-child,
 .diff-half.pick.picked > .ln {
   box-shadow: inset 3px 0 0 var(--accent);
+}
+/* Hovering a changed line turns its sign into a checkbox, so the gutter shows it picks lines; a picked line's is ticked. */
+:is(.diff-row, .diff-half).pick > .sg {
+  position: relative;
+}
+:is(.diff-row, .diff-half).pick:is(:hover, .picked) > .sg {
+  color: transparent;
+}
+/* Level with the first line of a wrapped one. */
+:is(.diff-row, .diff-half).pick:is(:hover, .picked) > .sg::after {
+  content: "";
+  position: absolute;
+  inset: 4px 0 auto;
+  box-sizing: border-box;
+  width: 12px;
+  height: 12px;
+  margin: 0 auto;
+  border: 1px solid var(--muted);
+  border-radius: 3px;
+}
+/* Bolder on the gutter itself, where a press picks. Not --accent: the light theme's is too pale on these tints. */
+:is(.diff-row, .diff-half).pick:not(.picked):has(> .ln:hover, > .sg:hover) > .sg::after {
+  border-color: var(--fg);
+}
+:is(.diff-row, .diff-half).pick.picked > .sg::after {
+  border-color: var(--accent);
+  background: var(--accent) var(--tick) center / 8px no-repeat;
 }
 .hunk-tx {
   display: flex;

@@ -12,7 +12,7 @@ release notes and the in-app update prompt.
 ## [Unreleased]
 
 ### Added
-- Stage or unstage part of a file from its WIP diff: select lines in the line numbers (click, drag or shift-click), or take a whole hunk from its header. A file can then be both staged and unstaged.
+- Stage or unstage part of a file from its WIP diff: select lines in the line numbers (pointing at a changed line shows its checkbox; click, drag or shift-click), or take a whole hunk from its header. A file can then be both staged and unstaged.
 - Discard selected unstaged lines or a whole unstaged hunk from the diff, after a confirmation.
 
 ### Fixed
