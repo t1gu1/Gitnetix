@@ -48,7 +48,7 @@ export function PullRequests({ initial }: { initial?: number }) {
   const prs = usePrs(pid);
   const ov = useOverview(pid).data;
   const [tab, setTab] = useState<Tab>("open");
-  const [who, setWho] = useStored<Who>("gnx.prs.who", "mine", (s) => (s === "others" || s === "all" ? s : "mine"), String);
+  const [who, setWho] = useStored<Who>("gnx.prs.who", "all", (s) => (s === "mine" || s === "others" ? s : "all"), String);
   const [search, setSearch] = useStored("gnx.prs.search", "");
   const [sel, setSel] = useState<number | undefined>(initial);
   const [pane, setPane] = useState<"list" | "detail">(initial ? "detail" : "list");
@@ -121,7 +121,7 @@ export function PullRequests({ initial }: { initial?: number }) {
                   label="Author"
                   value={who}
                   onChange={(w) => { setWho(w); setSel(undefined); }}
-                  options={[{ value: "mine", label: "Mine" }, { value: "others", label: "Others" }, { value: "all", label: "All" }]}
+                  options={[{ value: "all", label: "All" }, { value: "others", label: "Others" }, { value: "mine", label: "Mine" }]}
                 />
               )}
             </div>
@@ -206,6 +206,8 @@ function Detail({ pid, number }: { pid: string; number: number }) {
   const running = d.checks.filter((c) => c.status === "run").length;
   const waiting = d.checks.filter((c) => c.status === "wait").length;
   const pending = [running && `${running} running`, waiting && `${waiting} waiting`].filter(Boolean).join(", ");
+  // A queued build will start on its own; a policy waiting on people will not, so only the first spins.
+  const queued = !failing && d.checks.some((c) => c.status === "wait" && c.ci);
   const unresolved = d.threads.filter((t) => t.resolvable && !t.resolved).length;
   const approvals = d.reviewers.filter((r) => r.vote === "approve").length;
   const changes = d.reviewers.filter((r) => r.vote === "changes").length;
@@ -350,14 +352,16 @@ function Detail({ pid, number }: { pid: string; number: number }) {
         <section className="section">
           <div className="row" style={{ margin: 0 }}>
             <h2>Checks</h2>
-            <span className={failing ? "c-del" : pending ? "c-acc" : "c-add"} style={{ fontSize: 12.5 }}>
-              {failing ? `${failing} failing` : pending ? `${d.checks.length - running - waiting} of ${d.checks.length} passed, ${pending}` : `All ${d.checks.length} passing`}
-            </span>
             <span className="grow" />
             <button className="btn btn-sm" aria-expanded={checksOpen} onClick={() => setChecksOpen(!checksOpen)}>
               <Icon name="chevronDown" size={12} className="chev" />
               {checksOpen ? "Hide" : "Show all"}
             </button>
+          </div>
+          {/* Pulled up against the heading, closer than the section gap. */}
+          <div className={`row ${failing ? "c-del" : pending ? "c-acc" : "c-add"}`} style={{ fontSize: 12.5, gap: 6, margin: "-6px 0 0" }}>
+            {queued && <span className="spinner" aria-hidden style={{ width: 10, height: 10, flex: "0 0 10px" }} />}
+            {failing ? `${failing} failing` : pending ? `${d.checks.length - running - waiting} of ${d.checks.length} passed, ${pending}` : `All ${d.checks.length} passing`}
           </div>
           {checksOpen && (
             <ul className="list">

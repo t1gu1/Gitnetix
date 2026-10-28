@@ -133,7 +133,7 @@ fn status_check(st: &Value, latest: Option<u64>) -> Option<Check> {
         _ => st["description"].as_str().unwrap_or("Status").into(),
     };
     let url = st["targetUrl"].as_str().filter(|u| u.starts_with("http")).map(Into::into);
-    Some(Check { name, status: status.into(), url })
+    Some(Check { name, status: status.into(), url, ci: true })
 }
 
 /// pass | fail | run, or None for a policy or status that does not apply.
@@ -279,7 +279,7 @@ impl Azure {
             if let Some(status) = eval_status(e) {
                 // Build policies point at their pipeline run.
                 let url = e["context"]["buildId"].as_u64().map(|id| format!("https://dev.azure.com/{}/{}/_build/results?buildId={id}", self.repo.org, self.repo.project));
-                checks.push(Check { name: name.into(), status: status.into(), url });
+                checks.push(Check { name: name.into(), status: status.into(), url, ci: c["type"]["id"] == BUILD_POLICY });
             }
         }
         // Statuses are posted again on each push and run (pending, then succeeded); the newest

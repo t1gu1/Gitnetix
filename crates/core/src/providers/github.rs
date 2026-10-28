@@ -38,6 +38,9 @@ pub struct Check {
     /// Where the run's logs live, when the host gives one.
     #[serde(default)]
     pub url: Option<String>,
+    /// Run by a pipeline, so a wait means the build is queued rather than held on people.
+    #[serde(default)]
+    pub ci: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -258,6 +261,7 @@ impl GitHub {
                     }
                     .into(),
                     url: r["html_url"].as_str().map(Into::into),
+                    ci: true,
                 })
                 .collect(),
             Err(_) => Vec::new(),
