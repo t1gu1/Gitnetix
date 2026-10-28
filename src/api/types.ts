@@ -24,6 +24,13 @@ export interface Hunk {
   lines: DiffLine[];
 }
 
+/** A changed line picked in a diff: a removal by its old line number, an addition by its new one, with its text. */
+export interface LinePick {
+  kind: "+" | "-";
+  n: number;
+  text: string;
+}
+
 /** Both versions of a file, base64; null when absent on that side. */
 export interface Blobs {
   old: string | null;

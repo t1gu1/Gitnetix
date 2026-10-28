@@ -1,7 +1,10 @@
-import { Fragment, startTransition, useEffect, useId, useLayoutEffect, useRef, useState, type PointerEvent, type ReactElement, type ReactNode } from "react";
+import { Fragment, startTransition, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent, type ReactElement, type ReactNode } from "react";
 
-import type { Hunk } from "../api/types";
+import type { Hunk, LinePick } from "../api/types";
+import { plural } from "../lib/format";
 import type { Token, Tokens } from "../lib/highlight.worker";
+import { Icon } from "./Icon";
+import { ErrorBox, Modal } from "./ui";
 
 const MARKER = /^(<<<<<<<|=======|>>>>>>>)/;
 // #rgb, #rgba, #rrggbb or #rrggbbaa; not inside a word or an `&#123;` entity.
@@ -48,16 +51,233 @@ function useTokens(path: string, hunks: Hunk[]): { hunks: Hunk[]; tokens?: Token
 /** "full" is unified with the whole file as context (the hunks must be fetched that way). */
 export type DiffMode = "unified" | "split" | "full";
 
-export function DiffView({ path, hunks, mode }: { path: string; hunks: Hunk[]; mode: DiffMode }) {
+/** Staging from the diff of one side of a WIP file. */
+export interface Staging {
+  /** The diff is the staged side: its lines get unstaged. */
+  staged: boolean;
+  busy: boolean;
+  apply: (lines: LinePick[]) => Promise<unknown>;
+  /** Unstaged side only: throws the lines away from the working tree. */
+  discard?: (lines: LinePick[]) => Promise<unknown>;
+}
+
+export function DiffView({ path, hunks, mode, staging }: { path: string; hunks: Hunk[]; mode: DiffMode; staging?: Staging }) {
   const shown = useTokens(path, hunks);
+  const picking = usePicking(path, shown.hunks, staging);
   return (
-    <Heatmapped hunks={shown.hunks} split={mode === "split"}>
-      {mode === "split" ? <Split hunks={shown.hunks} tokens={shown.tokens} /> : <Unified hunks={shown.hunks} tokens={shown.tokens} headers={mode === "unified"} />}
-    </Heatmapped>
+    <>
+      <Heatmapped hunks={shown.hunks} split={mode === "split"}>
+        {mode === "split" ? (
+          <Split hunks={shown.hunks} tokens={shown.tokens} picking={picking} />
+        ) : (
+          <Unified hunks={shown.hunks} tokens={shown.tokens} headers={mode === "unified"} picking={picking} />
+        )}
+      </Heatmapped>
+      {picking && picking.picked.size > 0 && <PickBar picking={picking} />}
+      {picking?.discarding && <DiscardLines path={path} picking={picking} />}
+    </>
   );
 }
 
-function Unified({ hunks, tokens, headers = true }: { hunks: Hunk[]; tokens: Tokens | undefined; headers?: boolean }) {
+interface Picking {
+  staging: Staging;
+  /** Each line's pick by hunk, none for context lines. */
+  lines: (LinePick | undefined)[][];
+  picked: ReadonlyMap<string, LinePick>;
+  /** Mouse handlers for a changed line's row. */
+  row: (p: LinePick) => { onMouseDown: (e: MouseEvent<HTMLElement>) => void; onMouseEnter: (e: MouseEvent<HTMLElement>) => void };
+  /** Stages or unstages `lines`, then lets go of every pick. */
+  apply: (lines: LinePick[]) => void;
+  clear: () => void;
+  /** Lines waiting for their discard to be confirmed. */
+  discarding: LinePick[] | null;
+  askDiscard: (lines: LinePick[] | null) => void;
+  /** Throws `lines` away (unstaged side only), then lets go of every pick. */
+  discard: (lines: LinePick[]) => Promise<void>;
+}
+
+const keyOf = (p: LinePick) => p.kind + p.n;
+
+/** Each line's pick by hunk: its kind, its number on its side and its text; none for context lines. */
+function linePicks(hunks: Hunk[]): (LinePick | undefined)[][] {
+  return hunks.map((h) => {
+    let o = h.oldStart;
+    let n = h.newStart;
+    return h.lines.map((l) => {
+      const p: LinePick | undefined = l.kind === "-" ? { kind: "-", n: o, text: l.text } : l.kind === "+" ? { kind: "+", n, text: l.text } : undefined;
+      if (l.kind !== "+") o++;
+      if (l.kind !== "-") n++;
+      return p;
+    });
+  });
+}
+
+/** Changed lines picked in the gutter, when the diff can stage. A click toggles one and dragging on sets the lines it
+ * passes the same way; shift-click picks the range from the line last clicked. A pick keeps its text, so it drops out
+ * once its line changes. */
+function usePicking(path: string, hunks: Hunk[], staging?: Staging): Picking | undefined {
+  const lines = useMemo(() => linePicks(hunks), [hunks]);
+  const order = useMemo(() => lines.flat().filter((p) => p !== undefined), [lines]);
+  // Picks belong to one side of one file.
+  const scope = `${staging?.staged}:${path}`;
+  const [keys, setKeys] = useState({ scope, texts: new Map<string, string>() });
+  if (keys.scope !== scope) setKeys({ scope, texts: new Map() });
+  const picked = useMemo(() => {
+    const m = new Map<string, LinePick>();
+    if (keys.scope === scope) for (const p of order) if (keys.texts.get(keyOf(p)) === p.text) m.set(keyOf(p), p);
+    return m;
+  }, [order, keys, scope]);
+  const set = (ps: LinePick[], on: boolean) =>
+    setKeys((k) => {
+      const texts = new Map(k.texts);
+      for (const p of ps) {
+        if (on) texts.set(keyOf(p), p.text);
+        else texts.delete(keyOf(p));
+      }
+      return { ...k, texts };
+    });
+  const clear = () => setKeys((k) => ({ ...k, texts: new Map() }));
+  // The lines from the one keyed `from` to `to`, in diff order.
+  const between = (from: string, to: LinePick) => {
+    const i = order.findIndex((p) => keyOf(p) === from);
+    const j = order.indexOf(to);
+    return i < 0 ? [to] : order.slice(Math.min(i, j), Math.max(i, j) + 1);
+  };
+  const [discarding, setDiscarding] = useState<LinePick[] | null>(null);
+  const anchor = useRef("");
+  // A drag under way: what it sets lines to, and the last line it passed.
+  const drag = useRef<{ on: boolean; at: string } | null>(null);
+  useEffect(() => {
+    const end = () => (drag.current = null);
+    window.addEventListener("mouseup", end);
+    return () => window.removeEventListener("mouseup", end);
+  }, []);
+  // Escape lets go of the picks before it closes the diff.
+  const any = picked.size > 0;
+  useEffect(() => {
+    if (!any) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || (e.target as HTMLElement).closest("input, textarea") || document.querySelector("[role=dialog], [role=menu]")) return;
+      e.stopImmediatePropagation();
+      setKeys((k) => ({ ...k, texts: new Map() }));
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [any]);
+  if (!staging) return undefined;
+  return {
+    staging,
+    lines,
+    picked,
+    // The gutter picks; the text stays selectable. A tap comes as a mouse press too, a swipe doesn't: it scrolls.
+    row: (p) => ({
+      onMouseDown: (e) => {
+        if (e.button !== 0 || (e.target as HTMLElement).closest(".tx")) return;
+        e.preventDefault();
+        if (e.shiftKey && anchor.current) return set(between(anchor.current, p), true);
+        const on = !picked.has(keyOf(p));
+        set([p], on);
+        anchor.current = keyOf(p);
+        drag.current = { on, at: keyOf(p) };
+      },
+      onMouseEnter: (e) => {
+        const d = drag.current;
+        if (!d || !(e.buttons & 1)) return;
+        // Lines a fast drag skipped over are passed too.
+        set(between(d.at, p), d.on);
+        d.at = keyOf(p);
+      },
+    }),
+    apply: (ls) => void staging.apply(ls).then(clear, () => {}),
+    clear,
+    discarding,
+    askDiscard: setDiscarding,
+    discard: (ls) =>
+      staging.discard!(ls).then(() => {
+        clear();
+        setDiscarding(null);
+      }),
+  };
+}
+
+/** Class and handlers of a line's row: a changed line can be picked when the diff can stage. */
+function rowPick(picking: Picking | undefined, p: LinePick | undefined) {
+  if (!picking || !p) return { cls: "", props: {} };
+  return { cls: picking.picked.has(keyOf(p)) ? " pick picked" : " pick", props: picking.row(p) };
+}
+
+/** Stages, unstages or discards a whole hunk, from its header. */
+function HunkAction({ picking, hunk }: { picking: Picking; hunk: number }) {
+  const { staging } = picking;
+  const what = staging.staged ? "Unstage" : "Stage";
+  const lines = picking.lines[hunk].filter((p) => p !== undefined);
+  return (
+    <span className="hunk-acts">
+      <button
+        className="btn btn-ghost hunk-act"
+        disabled={staging.busy}
+        data-tip={`${what} this hunk. To ${what.toLowerCase()} only some lines, select them in the line numbers`}
+        onClick={() => picking.apply(lines)}
+      >
+        <Icon name={staging.staged ? "minus" : "plus"} size={11} />
+        {what} hunk
+      </button>
+      {staging.discard && (
+        <button className="btn btn-ghost btn-act btn-danger hunk-act" disabled={staging.busy} aria-label="Discard hunk" data-tip="Discard this hunk" onClick={() => picking.askDiscard(lines)}>
+          <Icon name="undo" size={11} />
+        </button>
+      )}
+    </span>
+  );
+}
+
+/** What to do with the selected lines, floating over the foot of the diff. */
+function PickBar({ picking }: { picking: Picking }) {
+  const { staging, picked } = picking;
+  return (
+    <div className="diff-picks" role="toolbar" aria-label="Selected lines">
+      <span>{plural(picked.size, "line")} selected</span>
+      <button className="btn btn-sm btn-primary" disabled={staging.busy} onClick={() => picking.apply([...picked.values()])}>
+        {staging.busy ? <span className="spinner" /> : <Icon name={staging.staged ? "minus" : "plus"} size={12} />}
+        {staging.staged ? "Unstage" : "Stage"}
+      </button>
+      {staging.discard && (
+        <button className="btn btn-ghost btn-act btn-danger" disabled={staging.busy} aria-label="Discard selected lines" data-tip="Discard lines" onClick={() => picking.askDiscard([...picked.values()])}>
+          <Icon name="undo" size={12} />
+        </button>
+      )}
+      <button className="btn btn-ghost btn-act" aria-label="Clear selection" data-tip="Clear selection (Esc)" onClick={picking.clear}>
+        <Icon name="close" size={12} />
+      </button>
+    </div>
+  );
+}
+
+/** Asks before throwing lines away, like discarding whole files. */
+function DiscardLines({ path, picking }: { path: string; picking: Picking }) {
+  const [error, setError] = useState<unknown>();
+  const lines = picking.discarding ?? [];
+  return (
+    <Modal
+      title={`Discard ${plural(lines.length, "unstaged line")}`}
+      sub={<span className="mono">{path}</span>}
+      onClose={() => picking.askDiscard(null)}
+      footer={
+        <button className="btn btn-md btn-danger" disabled={picking.staging.busy} onClick={() => picking.discard(lines).catch(setError)}>
+          {picking.staging.busy && <span className="spinner" />}
+          Discard
+        </button>
+      }
+    >
+      <p style={{ margin: 0, lineHeight: 1.55 }}>
+        Throws away the selected edits — staged changes are kept, and an untracked file left with no lines is deleted. This cannot be undone.
+      </p>
+      <ErrorBox error={error} />
+    </Modal>
+  );
+}
+
+function Unified({ hunks, tokens, headers = true, picking }: { hunks: Hunk[]; tokens: Tokens | undefined; headers?: boolean; picking?: Picking }) {
   const rows: ReactElement[] = [];
   hunks.forEach((h, hi) => {
     if (headers)
@@ -66,7 +286,14 @@ function Unified({ hunks, tokens, headers = true }: { hunks: Hunk[]; tokens: Tok
           <span className="ln" />
           <span className="ln" />
           <span className="sg" />
-          <span className="tx">{h.header}</span>
+          {picking ? (
+            <span className="tx hunk-tx">
+              <span>{h.header}</span>
+              <HunkAction picking={picking} hunk={hi} />
+            </span>
+          ) : (
+            <span className="tx">{h.header}</span>
+          )}
         </div>,
       );
     let o = h.oldStart;
@@ -74,8 +301,9 @@ function Unified({ hunks, tokens, headers = true }: { hunks: Hunk[]; tokens: Tok
     h.lines.forEach((l, li) => {
       const cls = l.kind === "+" ? "add" : l.kind === "-" ? "del" : "";
       const marker = MARKER.test(l.text) ? " marker" : "";
+      const pick = rowPick(picking, picking?.lines[hi][li]);
       rows.push(
-        <div key={`${hi}-${li}`} className={`diff-row ${cls}${marker}`}>
+        <div key={`${hi}-${li}`} className={`diff-row ${cls}${marker}${pick.cls}`} {...pick.props}>
           <span className="ln">{l.kind === "+" ? "" : o}</span>
           <span className="ln">{l.kind === "-" ? "" : n}</span>
           <span className="sg">{l.kind === " " ? "" : l.kind === "-" ? "−" : "+"}</span>
@@ -86,7 +314,7 @@ function Unified({ hunks, tokens, headers = true }: { hunks: Hunk[]; tokens: Tok
       if (l.kind !== "-") n++;
     });
   });
-  return <div className="diff-u">{chunked(rows)}</div>;
+  return <div className={picking ? "diff-u picking" : "diff-u"}>{chunked(rows)}</div>;
 }
 
 const CHUNK = 200;
@@ -108,14 +336,17 @@ interface Half {
   text: string;
   toks?: Token[] | null;
   cls: string;
+  pick?: LinePick;
+  /** On the right of a hunk's header row: that hunk. */
+  hunk?: number;
 }
 
 const empty: Half = { num: "", sign: "", text: "", cls: "blank" };
 
-function Split({ hunks, tokens }: { hunks: Hunk[]; tokens: Tokens | undefined }) {
+function Split({ hunks, tokens, picking }: { hunks: Hunk[]; tokens: Tokens | undefined; picking?: Picking }) {
   const rows: [Half, Half][] = [];
   hunks.forEach((h, hi) => {
-    rows.push([{ num: "", sign: "", text: h.header, cls: "hunk" }, { num: "", sign: "", text: "", cls: "hunk" }]);
+    rows.push([{ num: "", sign: "", text: h.header, cls: "hunk" }, { num: "", sign: "", text: "", cls: "hunk", hunk: hi }]);
     let o = h.oldStart;
     let n = h.newStart;
     let dels: Half[] = [];
@@ -128,8 +359,9 @@ function Split({ hunks, tokens }: { hunks: Hunk[]; tokens: Tokens | undefined })
     };
     h.lines.forEach((l, li) => {
       const toks = tokens?.[hi][li];
-      if (l.kind === "-") dels.push({ num: String(o++), sign: "−", text: l.text, toks, cls: "del" });
-      else if (l.kind === "+") adds.push({ num: String(n++), sign: "+", text: l.text, toks, cls: "add" });
+      const pick = picking?.lines[hi][li];
+      if (l.kind === "-") dels.push({ num: String(o++), sign: "−", text: l.text, toks, cls: "del", pick });
+      else if (l.kind === "+") adds.push({ num: String(n++), sign: "+", text: l.text, toks, cls: "add", pick });
       else {
         flush();
         rows.push([
@@ -141,16 +373,26 @@ function Split({ hunks, tokens }: { hunks: Hunk[]; tokens: Tokens | undefined })
     flush();
   });
   return (
-    <div className="diff-split">
+    <div className={picking ? "diff-split picking" : "diff-split"}>
       {chunked(rows.map(([l, r], i) => (
         <div key={i} className="diff-split-row">
-          {[l, r].map((x, j) => (
-            <div key={j} className={`diff-half ${x.cls}`}>
-              <span className="ln">{x.num}</span>
-              <span className="sg">{x.sign}</span>
-              <span className="tx">{code(x.text, x.toks)}</span>
-            </div>
-          ))}
+          {[l, r].map((x, j) => {
+            const pick = rowPick(picking, x.pick);
+            return (
+              <div key={j} className={`diff-half ${x.cls}${pick.cls}`} {...pick.props}>
+                <span className="ln">{x.num}</span>
+                <span className="sg">{x.sign}</span>
+                {picking && x.hunk !== undefined ? (
+                  <span className="tx hunk-tx">
+                    <span />
+                    <HunkAction picking={picking} hunk={x.hunk} />
+                  </span>
+                ) : (
+                  <span className="tx">{code(x.text, x.toks)}</span>
+                )}
+              </div>
+            );
+          })}
         </div>
       )))}
     </div>

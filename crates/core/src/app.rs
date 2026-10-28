@@ -17,7 +17,7 @@ use crate::cache::{key_of, CommitCache, LastCache, ViewCache};
 use crate::dictation::Audio;
 use crate::error::{Error, Result};
 use crate::events::Event;
-use crate::git::{ticket_keys, Blobs, BranchInfo, Commit, FileChange, Git, Hunk, PrSquash, Side, Identity, StashInfo, TagInfo, WorktreeInfo};
+use crate::git::{ticket_keys, Blobs, BranchInfo, Commit, FileChange, Git, Hunk, LinePick, PrSquash, Side, Identity, StashInfo, TagInfo, WorktreeInfo};
 use crate::project_commands::{self, Scripts};
 use crate::providers::azure::{self, MergedPr};
 use crate::providers::{azure_auth, github::GitHub, parse_remote, PrHost};
@@ -2686,6 +2686,22 @@ impl Gitnetix {
     pub async fn unstage(&self, project_id: &str, branch: &str, paths: &[String]) -> Result<()> {
         let p = self.store.project(project_id)?;
         self.require_checkout(&p, branch).await?.unstage(paths).await?;
+        self.changed(project_id);
+        Ok(())
+    }
+
+    /// Stage only `lines` of `path`'s unstaged changes or, with `unstage`, take them out of its staged ones.
+    pub async fn stage_lines(&self, project_id: &str, branch: &str, path: &str, lines: &[LinePick], unstage: bool) -> Result<()> {
+        let p = self.store.project(project_id)?;
+        self.require_checkout(&p, branch).await?.stage_lines(path, lines, unstage).await?;
+        self.changed(project_id);
+        Ok(())
+    }
+
+    /// Throw away only `lines` of `path`'s unstaged changes, from the working tree.
+    pub async fn discard_lines(&self, project_id: &str, branch: &str, path: &str, lines: &[LinePick]) -> Result<()> {
+        let p = self.store.project(project_id)?;
+        self.require_checkout(&p, branch).await?.discard_lines(path, lines).await?;
         self.changed(project_id);
         Ok(())
     }

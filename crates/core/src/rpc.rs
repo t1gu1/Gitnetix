@@ -6,6 +6,7 @@ use serde_json::{json, Value};
 
 use crate::app::{Attachment, Gitnetix, MergeOptions, NewItem, NotesInclude, ViewMode};
 use crate::error::{Error, Result};
+use crate::git::LinePick;
 use crate::store::{upsert, ConnectMethod, Connection, GitProfile, JiraConf, ReleaseKind, Route, TrelloConf, AsanaConf, new_id};
 use crate::templates::{self, Template};
 use crate::providers::github_auth::{self, Poll};
@@ -44,6 +45,9 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("workspace.switch", "Check out a branch (uncommitted work comes along); abort = first abort the rebase/merge/cherry-pick/revert the checkout is stopped in", "projectId, branch, abort?"),
     ("workspace.stage", "Stage files (all when paths is empty)", "projectId, branch, paths?"),
     ("workspace.unstage", "Unstage files (all when paths is empty)", "projectId, branch, paths?"),
+    ("workspace.stageLines", "Stage some changed lines of one file, picked from its unstaged diff: each a removal (kind \"-\", n = old line number) or an addition (kind \"+\", n = new line number) with its text; refused when the file changed since", "projectId, branch, path, lines: [{kind, n, text}]"),
+    ("workspace.unstageLines", "Unstage some changed lines of one file, picked from its staged diff like workspace.stageLines", "projectId, branch, path, lines: [{kind, n, text}]"),
+    ("workspace.discardLines", "Throw away some changed lines of one file, picked from its unstaged diff like workspace.stageLines: they go back to their staged version in the working tree", "projectId, branch, path, lines: [{kind, n, text}]"),
     ("workspace.discard", "Discard staged or unstaged changes (all on that side when paths is empty)", "projectId, branch, staged, paths?"),
     ("workspace.ignore", "Add a file or folder (dir = true) to the checkout's root .gitignore", "projectId, branch, path, dir?"),
     ("workspace.commitMessage", "AI-written commit message for the staged changes", "projectId, branch"),
@@ -210,6 +214,10 @@ fn list(v: &Value, k: &str) -> Result<Vec<String>> {
 }
 
 /// Files sent with an agent message, empty when missing.
+fn line_picks(v: &Value) -> Result<Vec<LinePick>> {
+    Ok(serde_json::from_value(v.get("lines").cloned().unwrap_or(json!([])))?)
+}
+
 fn files(v: &Value) -> Result<Vec<Attachment>> {
     Ok(serde_json::from_value(v.get("files").cloned().unwrap_or(json!([])))?)
 }
@@ -526,6 +534,14 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
         }
         "workspace.unstage" => {
             k.unstage(&s(&p, "projectId")?, &s(&p, "branch")?, &list(&p, "paths")?).await?;
+            ok()
+        }
+        "workspace.stageLines" | "workspace.unstageLines" => {
+            k.stage_lines(&s(&p, "projectId")?, &s(&p, "branch")?, &s(&p, "path")?, &line_picks(&p)?, method == "workspace.unstageLines").await?;
+            ok()
+        }
+        "workspace.discardLines" => {
+            k.discard_lines(&s(&p, "projectId")?, &s(&p, "branch")?, &s(&p, "path")?, &line_picks(&p)?).await?;
             ok()
         }
         "workspace.discard" => {

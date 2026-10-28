@@ -23,10 +23,10 @@ import {
   useProjects,
 } from "../api/hooks";
 import { isLocal, revealPath } from "../api/transport";
-import type { AgentSession, BranchView, Commit, FileChange, Hunk, MergeResult, Overview, RebaseResult, ReleaseView, RenameResult, Stash } from "../api/types";
+import type { AgentSession, BranchView, Commit, FileChange, Hunk, LinePick, MergeResult, Overview, RebaseResult, ReleaseView, RenameResult, Stash } from "../api/types";
 import { AgentInput, AgentLog, type Attachment, type Choice, type Upload } from "../components/AgentLog";
 import { AgentPicker, useAgentPick } from "../components/AgentPicker";
-import { DiffView, type DiffMode } from "../components/DiffView";
+import { DiffView, type DiffMode, type Staging } from "../components/DiffView";
 import { IMAGE_MODES, ImageDiff, comparable, isImage, useImageMode, type ImageMode } from "../components/ImageDiff";
 import { ContextMenu, type MenuItem } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
@@ -209,6 +209,25 @@ export function Workspace() {
     [unchanged, text],
   );
   const showPreview = markdown && preview && typeof text === "string";
+  // A WIP file's diff stages or unstages some of its lines. Like whole files, that moves no ref (see WipList).
+  type LineMove = { projectId: string; branch: string; path: string; lines: LinePick[] };
+  const lineInv = [["files", pid], ["diff", pid], ["blobs", pid], ...(o?.inProgress || view?.conflict ? [["overview", pid]] : [])];
+  const stageLines = useAction<unknown, LineMove>("workspace.stageLines", { invalidate: lineInv });
+  const unstageLines = useAction<unknown, LineMove>("workspace.unstageLines", { invalidate: lineInv });
+  // Discarding a file's last lines takes it out of the WIP count the overview shows.
+  const discardLines = useAction<unknown, LineMove>("workspace.discardLines", {
+    invalidate: [["files", pid], ["diff", pid], ["blobs", pid], ["overview", pid]],
+    success: "Changes discarded",
+  });
+  const staging: Staging | undefined =
+    mode === "wip" && !commit && !stash && branch && checkedOut && current?.staged !== undefined && current.status !== "C"
+      ? {
+          staged: current.staged,
+          busy: stageLines.isPending || unstageLines.isPending || discardLines.isPending,
+          apply: (lines) => (current.staged ? unstageLines : stageLines).mutateAsync({ projectId: pid, branch, path: current.path, lines }),
+          discard: current.staged ? undefined : (lines) => discardLines.mutateAsync({ projectId: pid, branch, path: current.path, lines }),
+        }
+      : undefined;
   const [discarding, setDiscarding] = useState<{ staged: boolean; paths: string[] } | null>(null);
   // The main checkout has no worktree path: it lives at the project's own path.
   const projects = useProjects().data;
@@ -243,13 +262,20 @@ export function Workspace() {
   };
 
   useEffect(() => setFile(undefined), [branch, mode, commit, stash]);
-  // Escape closes the diff, unless it is closing something else or typing; captured so the commit or stash list under it stays open.
+  // A WIP file whose last lines on its side were staged (or unstaged) lives on the other side now: follow it there.
+  useEffect(() => {
+    if (current || !file || mode !== "wip") return;
+    const moved = list.find((f) => f.staged !== undefined && fileKey({ ...f, staged: !f.staged }) === file);
+    if (moved) setFile(fileKey(moved));
+  }, [current, file, mode, list]);
+  // Escape closes the diff, unless it is closing something else (or letting go of selected lines) or typing; captured so
+  // the commit or stash list under it stays open.
   const fileOpen = !!current;
   useEffect(() => {
     if (!fileOpen) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape" || (e.target as HTMLElement).closest("input, textarea")) return;
-      if (document.querySelector("[role=dialog], [role=menu]")) return;
+      if (document.querySelector("[role=dialog], [role=menu], .diff-picks")) return;
       e.stopImmediatePropagation();
       setFile(undefined);
       setPane("files");
@@ -419,7 +445,7 @@ export function Workspace() {
                 ) : (
                   <>
                     {raw && current && <DiffView path={current.path} hunks={raw} mode="full" />}
-                    {!image && current && diff.data && diff.data.length > 0 && <DiffView path={current.path} hunks={diff.data} mode={diffMode} />}
+                    {!image && current && diff.data && diff.data.length > 0 && <DiffView path={current.path} hunks={diff.data} mode={diffMode} staging={staging} />}
                   </>
                 )}
                 {(!current || (diff.data && diff.data.length === 0 && !image) || (unchanged && !image && blobs.data && text === null)) && (

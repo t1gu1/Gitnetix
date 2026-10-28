@@ -114,6 +114,15 @@ pub struct Hunk {
     pub lines: Vec<DiffLine>,
 }
 
+/// A changed line picked in a diff: a removal (`-`) by its old line number, an addition (`+`) by its
+/// new one. `text` is the line as it was shown, so a pick the file changed under is refused.
+#[derive(Debug, Clone, Deserialize)]
+pub struct LinePick {
+    pub kind: char,
+    pub n: u32,
+    pub text: String,
+}
+
 /// Where to read one version of a file from.
 #[derive(Debug, Clone, Copy)]
 pub enum Side<'a> {
@@ -1066,6 +1075,33 @@ impl Git {
         self.run(&args).await.map(|_| ())
     }
 
+    /// Stage only the `picked` lines of `path`'s unstaged changes or, with `unstage`, take them back
+    /// out of its staged ones. Every other line stays on its side; the working tree is untouched.
+    pub async fn stage_lines(&self, path: &str, picked: &[LinePick], unstage: bool) -> Result<()> {
+        let patch = pick_patch(&self.raw_side_diff(path, unstage).await?, path, picked, unstage)?;
+        let args: &[&str] = if unstage { &["apply", "--cached", "-R", "--whitespace=nowarn", "-"] } else { &["apply", "--cached", "--whitespace=nowarn", "-"] };
+        self.run_stdin(args, &patch).await.map(|_| ())
+    }
+
+    /// Throw away only the `picked` lines of `path`'s unstaged changes: the working tree takes them back
+    /// to their staged version (an untracked file left with none of its lines is deleted). The index is untouched.
+    pub async fn discard_lines(&self, path: &str, picked: &[LinePick]) -> Result<()> {
+        let patch = pick_patch(&self.raw_side_diff(path, false).await?, path, picked, true)?;
+        self.run_stdin(&["apply", "-R", "--whitespace=nowarn", "-"], &patch).await.map(|_| ())
+    }
+
+    /// Git's diff of one side of `path`'s uncommitted work, byte for byte. Three lines of context
+    /// whatever diff.context says: `git apply` wants some.
+    async fn raw_side_diff(&self, path: &str, staged: bool) -> Result<Vec<u8>> {
+        if staged {
+            self.run_raw(&["diff", "--cached", "--no-color", "--no-ext-diff", "-U3", "--", path], false).await
+        } else if self.is_tracked(path).await? {
+            self.run_raw(&["diff", "--no-color", "--no-ext-diff", "-U3", "--", path], false).await
+        } else {
+            self.run_raw(&["diff", "--no-color", "--no-ext-diff", "-U3", "--no-index", "--", "/dev/null", path], true).await
+        }
+    }
+
     /// Throw away working-tree changes to `paths`: tracked files go back to
     /// their staged state, untracked ones are deleted.
     pub async fn discard_unstaged(&self, paths: &[String]) -> Result<()> {
@@ -1219,14 +1255,24 @@ impl Git {
         Ok(sha)
     }
 
-    async fn run_stdin(&self, args: &[&str], input: &str) -> Result<String> {
+    async fn run_stdin(&self, args: &[&str], input: impl AsRef<[u8]>) -> Result<String> {
         use std::process::Stdio;
         use tokio::io::AsyncWriteExt;
         let mut child = self.command(args).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
         let mut stdin = child.stdin.take().expect("piped stdin");
-        stdin.write_all(input.as_bytes()).await?;
+        stdin.write_all(input.as_ref()).await?;
         drop(stdin);
         Self::stdout_or_err(args, child.wait_with_output().await?)
+    }
+
+    /// Run git and return its stdout byte for byte (a diff, whatever the files' encoding).
+    /// `differ_ok` takes exit code 1 as success: `diff --no-index` exits with it when files differ.
+    async fn run_raw(&self, args: &[&str], differ_ok: bool) -> Result<Vec<u8>> {
+        let out = self.command(args).output().await?;
+        if out.status.success() || (differ_ok && out.status.code() == Some(1)) {
+            return Ok(out.stdout);
+        }
+        Self::stdout_or_err(args, out).map(String::into_bytes)
     }
 
     pub async fn push(&self, branch: &str, set_upstream: bool) -> Result<String> {
@@ -1710,6 +1756,190 @@ pub fn parse_unified(s: &str) -> Vec<Hunk> {
     hunks
 }
 
+/// A patch of only the `picked` changes of `diff` (git's raw diff of `path`) for `git apply --cached`,
+/// built to be applied with `-R` when `reverse`. Unpicked changes stay as they are: a line the patch's
+/// base has (the old side, or the new one in reverse) turns to context, any other is left out.
+fn pick_patch(diff: &[u8], path: &str, picked: &[LinePick], reverse: bool) -> Result<Vec<u8>> {
+    let stale = || Error::Invalid(format!("{path} changed since its diff was shown: pick the lines again"));
+    let unreadable = || Error::Invalid(format!("Could not read the diff of {path}"));
+    let mut want: HashMap<(u8, u32), &str> = HashMap::new();
+    for p in picked {
+        if p.kind != '+' && p.kind != '-' {
+            return Err(Error::Invalid(format!("Not a changed line: {:?}", p.kind)));
+        }
+        want.insert((p.kind as u8, p.n), &p.text);
+    }
+    if want.is_empty() {
+        return Err(Error::Invalid("No lines picked".into()));
+    }
+    let lines: Vec<&[u8]> = diff.split(|&b| b == b'\n').collect();
+    let (mut created, mut deleted, mut mode) = (false, false, String::from("100644"));
+    let mut i = 0;
+    while i < lines.len() && !lines[i].starts_with(b"@@ ") {
+        let l = lines[i];
+        if l.starts_with(b"diff --cc ") {
+            return Err(Error::Invalid(format!("{path} has conflicts: resolve them first")));
+        }
+        if (l.starts_with(b"index ") && l.ends_with(b" 160000")) || l.ends_with(b"mode 160000") {
+            return Err(Error::Invalid(format!("{path} is a submodule: stage it whole")));
+        }
+        if let Some(m) = l.strip_prefix(b"new file mode ") {
+            (created, mode) = (true, String::from_utf8_lossy(m).into());
+        }
+        if let Some(m) = l.strip_prefix(b"deleted file mode ") {
+            (deleted, mode) = (true, String::from_utf8_lossy(m).into());
+        }
+        i += 1;
+    }
+    let mut body = Vec::new();
+    // What the hunks written so far add to the line count, and each side's total.
+    let (mut delta, mut old_total, mut new_total) = (0i64, 0u32, 0u32);
+    while i < lines.len() {
+        let Some(range) = lines[i].strip_prefix(b"@@ ") else {
+            if lines[i].starts_with(b"diff ") {
+                return Err(Error::Invalid("Pick lines of one file at a time".into()));
+            }
+            i += 1;
+            continue;
+        };
+        let (os, oc, ns, nc) = hunk_range(range).ok_or_else(unreadable)?;
+        i += 1;
+        // Kind, text, "\ No newline at end of file" after it, number on its side.
+        let mut hunk: Vec<(u8, &[u8], bool, u32)> = Vec::new();
+        let (mut o, mut n, mut left_o, mut left_n) = (os, ns, oc, nc);
+        while i < lines.len() {
+            let l = lines[i];
+            if l.first() == Some(&b'\\') {
+                if let Some(last) = hunk.last_mut() {
+                    last.2 = true;
+                }
+                i += 1;
+                continue;
+            }
+            if left_o == 0 && left_n == 0 {
+                break;
+            }
+            let (kind, text) = match l.first() {
+                // An empty context line (diff.suppressBlankEmpty).
+                None => (b' ', l),
+                Some(&k) if matches!(k, b' ' | b'-' | b'+') => (k, &l[1..]),
+                _ => return Err(unreadable()),
+            };
+            hunk.push((kind, text, false, if kind == b'-' { o } else { n }));
+            if kind != b'+' {
+                (o, left_o) = (o + 1, left_o.checked_sub(1).ok_or_else(unreadable)?);
+            }
+            if kind != b'-' {
+                (n, left_n) = (n + 1, left_n.checked_sub(1).ok_or_else(unreadable)?);
+            }
+            i += 1;
+        }
+        if left_o > 0 || left_n > 0 {
+            return Err(unreadable());
+        }
+        let mut out: Vec<(u8, &[u8], bool)> = Vec::new();
+        let mut any = false;
+        for (kind, text, no_eol, num) in hunk {
+            let pick = kind != b' ' && match want.remove(&(kind, num)) {
+                Some(shown) if same_text(text, shown) => true,
+                Some(_) => return Err(stale()),
+                None => false,
+            };
+            any |= pick;
+            // The patch's base has context lines, removals going forward and additions in reverse.
+            let in_base = kind == b' ' || (kind == b'-') != reverse;
+            if pick || in_base {
+                out.push((if pick { kind } else { b' ' }, text, no_eol));
+            }
+        }
+        if !any {
+            continue;
+        }
+        let old_count = out.iter().filter(|l| l.0 != b'+').count() as u32;
+        let new_count = out.iter().filter(|l| l.0 != b'-').count() as u32;
+        // The base side keeps its numbers; the other moves by what the hunks before changed.
+        // A side with no lines is numbered from the line before it.
+        let first = |start: u32, count: u32| i64::from(start) + i64::from(count == 0);
+        let (old_first, new_first) = if reverse {
+            let f = first(ns, nc);
+            (f - delta, f)
+        } else {
+            let f = first(os, oc);
+            (f, f + delta)
+        };
+        let start = |first: i64, count: u32| first - i64::from(count == 0);
+        body.extend_from_slice(format!("@@ -{},{old_count} +{},{new_count} @@\n", start(old_first, old_count), start(new_first, new_count)).as_bytes());
+        for (kind, text, no_eol) in out {
+            body.push(kind);
+            body.extend_from_slice(text);
+            body.push(b'\n');
+            if no_eol {
+                body.extend_from_slice(b"\\ No newline at end of file\n");
+            }
+        }
+        delta += i64::from(new_count) - i64::from(old_count);
+        old_total += old_count;
+        new_total += new_count;
+    }
+    if !want.is_empty() {
+        return Err(stale());
+    }
+    // Still a new file when the patch's base has none of it, still a deletion when nothing is left.
+    let (created, deleted) = (created && old_total == 0, deleted && new_total == 0);
+    let (a, b) = (quoted("a/", path), quoted("b/", path));
+    let mut patch = format!("diff --git {a} {b}\n");
+    if created {
+        patch.push_str(&format!("new file mode {mode}\n"));
+    }
+    if deleted {
+        patch.push_str(&format!("deleted file mode {mode}\n"));
+    }
+    patch.push_str(&format!("--- {}\n+++ {}\n", if created { "/dev/null" } else { &a }, if deleted { "/dev/null" } else { &b }));
+    let mut patch = patch.into_bytes();
+    patch.extend_from_slice(&body);
+    Ok(patch)
+}
+
+/// `-a,b +c,d @@…` after a hunk's `@@ ` (a count left out is 1) → (a, b, c, d).
+fn hunk_range(s: &[u8]) -> Option<(u32, u32, u32, u32)> {
+    let end = s.windows(3).position(|w| w == b" @@")?;
+    let mut sides = std::str::from_utf8(&s[..end]).ok()?.split_whitespace();
+    let side = |t: &str, sign: char| -> Option<(u32, u32)> {
+        let t = t.strip_prefix(sign)?;
+        Some(match t.split_once(',') {
+            Some((start, count)) => (start.parse().ok()?, count.parse().ok()?),
+            None => (t.parse().ok()?, 1),
+        })
+    };
+    let (a, b) = side(sides.next()?, '-')?;
+    let (c, d) = side(sides.next()?, '+')?;
+    Some((a, b, c, d))
+}
+
+/// Whether a diff line's raw text is the `shown` one: shown lines went through lossy UTF-8 and lost a CR.
+fn same_text(raw: &[u8], shown: &str) -> bool {
+    String::from_utf8_lossy(raw.strip_suffix(b"\r").unwrap_or(raw)) == shown
+}
+
+/// `prefix` + `path` as a quoted patch file name, which `git apply` reads whatever the path holds.
+fn quoted(prefix: &str, path: &str) -> String {
+    let mut s = format!("\"{prefix}");
+    for c in path.chars() {
+        match c {
+            '"' | '\\' => {
+                s.push('\\');
+                s.push(c);
+            }
+            '\n' => s.push_str("\\n"),
+            '\t' => s.push_str("\\t"),
+            c if c.is_ascii_control() => s.push_str(&format!("\\{:03o}", c as u32)),
+            c => s.push(c),
+        }
+    }
+    s.push('"');
+    s
+}
+
 fn count_lines(p: &Path) -> u32 {
     std::fs::read(p).map(|b| bytecount_newlines(&b)).unwrap_or(0)
 }
@@ -1812,6 +2042,79 @@ mod tests {
         assert_eq!(h[0].new_start, 1);
         assert_eq!(h[0].lines.len(), 5);
         assert_eq!(h[0].lines[1].kind, '-');
+    }
+
+    fn pick(kind: char, n: u32, text: &str) -> LinePick {
+        LinePick { kind, n, text: text.into() }
+    }
+
+    fn patch(diff: &str, path: &str, picked: &[LinePick], reverse: bool) -> String {
+        String::from_utf8(pick_patch(diff.as_bytes(), path, picked, reverse).unwrap()).unwrap()
+    }
+
+    const MODIFIED: &str = "diff --git a/f b/f\nindex 1..2 100644\n--- a/f\n+++ b/f\n@@ -1,3 +1,3 @@\n a\n-b\n+B\n c\n";
+
+    #[test]
+    fn picks_lines_of_a_hunk() {
+        let head = "diff --git \"a/f\" \"b/f\"\n--- \"a/f\"\n+++ \"b/f\"\n";
+        // Staging the addition only: the removal it replaces stays, as context.
+        assert_eq!(patch(MODIFIED, "f", &[pick('+', 2, "B")], false), format!("{head}@@ -1,3 +1,4 @@\n a\n b\n+B\n c\n"));
+        // Unstaging the removal only: the staged addition stays, as context.
+        assert_eq!(patch(MODIFIED, "f", &[pick('-', 2, "b")], true), format!("{head}@@ -1,4 +1,3 @@\n a\n-b\n B\n c\n"));
+    }
+
+    #[test]
+    fn later_hunks_move_by_what_earlier_ones_change() {
+        let diff = "diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1,4 +1,5 @@\n a\n+x\n b\n c\n d\n@@ -10,3 +11,3 @@\n j\n-k\n+K\n l\n";
+        let hunks = |p: &str| p.lines().filter(|l| l.starts_with("@@")).map(String::from).collect::<Vec<_>>();
+        assert_eq!(hunks(&patch(diff, "f", &[pick('+', 12, "K")], false)), ["@@ -10,3 +10,4 @@"]);
+        assert_eq!(hunks(&patch(diff, "f", &[pick('+', 2, "x"), pick('+', 12, "K")], false)), ["@@ -1,4 +1,5 @@", "@@ -10,3 +11,4 @@"]);
+        assert_eq!(hunks(&patch(diff, "f", &[pick('-', 11, "k")], true)), ["@@ -11,4 +11,3 @@"]);
+        assert_eq!(hunks(&patch(diff, "f", &[pick('+', 2, "x"), pick('-', 11, "k")], true)), ["@@ -1,4 +1,5 @@", "@@ -10,4 +11,3 @@"]);
+    }
+
+    #[test]
+    fn keeps_missing_newline_markers_with_their_line() {
+        let diff = "diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1,2 +1,2 @@\n a\n-b\n\\ No newline at end of file\n+B\n\\ No newline at end of file\n";
+        let p = patch(diff, "f", &[pick('-', 2, "b")], false);
+        assert!(p.ends_with("@@ -1,2 +1,1 @@\n a\n-b\n\\ No newline at end of file\n"), "{p}");
+        let p = patch(diff, "f", &[pick('-', 2, "b"), pick('+', 2, "B")], false);
+        assert!(p.ends_with("@@ -1,2 +1,2 @@\n a\n-b\n\\ No newline at end of file\n+B\n\\ No newline at end of file\n"), "{p}");
+    }
+
+    #[test]
+    fn new_and_deleted_files_stay_so_only_when_whole() {
+        let new = "diff --git a/n b/n\nnew file mode 100755\nindex 0000000..1\n--- /dev/null\n+++ b/n\n@@ -0,0 +1,3 @@\n+one\n+two\n+three\n";
+        // Staging part of an untracked file creates it with those lines.
+        let p = patch(new, "n", &[pick('+', 1, "one"), pick('+', 3, "three")], false);
+        assert_eq!(p, "diff --git \"a/n\" \"b/n\"\nnew file mode 100755\n--- /dev/null\n+++ \"b/n\"\n@@ -0,0 +1,2 @@\n+one\n+three\n");
+        // Unstaging part of a staged new file edits it; unstaging all of it removes it.
+        let p = patch(new, "n", &[pick('+', 2, "two")], true);
+        assert_eq!(p, "diff --git \"a/n\" \"b/n\"\n--- \"a/n\"\n+++ \"b/n\"\n@@ -1,2 +1,3 @@\n one\n+two\n three\n");
+        let all = [pick('+', 1, "one"), pick('+', 2, "two"), pick('+', 3, "three")];
+        assert!(patch(new, "n", &all, true).contains("new file mode 100755\n--- /dev/null\n+++ \"b/n\"\n@@ -0,0 +1,3 @@\n"));
+
+        let gone = "diff --git a/d b/d\ndeleted file mode 100644\nindex 1..0000000\n--- a/d\n+++ /dev/null\n@@ -1,2 +0,0 @@\n-x\n-y\n";
+        let p = patch(gone, "d", &[pick('-', 1, "x")], false);
+        assert_eq!(p, "diff --git \"a/d\" \"b/d\"\n--- \"a/d\"\n+++ \"b/d\"\n@@ -1,2 +1,1 @@\n-x\n y\n");
+        let p = patch(gone, "d", &[pick('-', 1, "x"), pick('-', 2, "y")], false);
+        assert!(p.contains("deleted file mode 100644\n--- \"a/d\"\n+++ /dev/null\n@@ -1,2 +0,0 @@\n-x\n-y\n"), "{p}");
+    }
+
+    #[test]
+    fn keeps_bytes_and_refuses_stale_picks() {
+        let diff = b"diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1,1 +1,2 @@\n a\r\n+caf\xe9\r\n";
+        let p = pick_patch(diff, "f", &[pick('+', 2, "caf\u{fffd}")], false).unwrap();
+        assert!(p.ends_with(b" a\r\n+caf\xe9\r\n"));
+        assert!(pick_patch(MODIFIED.as_bytes(), "f", &[pick('+', 2, "changed")], false).is_err());
+        assert!(pick_patch(MODIFIED.as_bytes(), "f", &[pick('+', 9, "B")], false).is_err());
+        assert!(pick_patch(MODIFIED.as_bytes(), "f", &[], false).is_err());
+    }
+
+    #[test]
+    fn quotes_patch_names() {
+        assert_eq!(quoted("a/", "dir/a \"b\"\\c\td.txt"), "\"a/dir/a \\\"b\\\"\\\\c\\td.txt\"");
+        assert_eq!(quoted("b/", "é\u{1}"), "\"b/é\\001\"");
     }
 }
 

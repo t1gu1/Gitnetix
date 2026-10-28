@@ -3178,6 +3178,90 @@ input.img-slider {
   background: var(--hunk-bg);
   color: var(--muted);
 }
+/* Staging from a WIP diff: a changed line's gutter selects it, a hunk's header stages the whole hunk. */
+.diff-row.pick > .ln,
+.diff-row.pick > .sg,
+.diff-half.pick > .ln,
+.diff-half.pick > .sg {
+  cursor: pointer;
+  user-select: none;
+}
+.diff-row.pick:hover > .ln,
+.diff-row.pick:hover > .sg,
+.diff-half.pick:hover > .ln,
+.diff-half.pick:hover > .sg {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.diff-row.pick.picked,
+.diff-half.pick.picked {
+  background-image: linear-gradient(color-mix(in srgb, var(--accent) 10%, transparent), color-mix(in srgb, var(--accent) 10%, transparent));
+}
+.diff-row.pick.picked > .ln,
+.diff-row.pick.picked > .sg,
+.diff-half.pick.picked > .ln,
+.diff-half.pick.picked > .sg {
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+}
+.diff-row.pick.picked > .ln,
+.diff-half.pick.picked > .ln {
+  color: var(--fg);
+}
+.diff-row.pick.picked > .ln:first-child,
+.diff-half.pick.picked > .ln {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.hunk-tx {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.hunk-tx > span:first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.hunk-acts {
+  display: flex;
+  flex: none;
+  gap: 2px;
+}
+.hunk-act {
+  flex: none;
+  gap: 4px;
+  height: 19px;
+  padding: 0 7px;
+  font-family: var(--sans);
+  font-size: 11.5px;
+}
+.hunk-act.btn-act {
+  padding: 0;
+}
+/* Room to scroll the last lines above the bar of selected lines. */
+.diff-u.picking,
+.diff-split.picking {
+  padding-bottom: 64px;
+}
+/* What to do with the selected lines, floating over the foot of the diff, centred beside the heatmap. */
+.diff-picks {
+  position: absolute;
+  bottom: 16px;
+  left: 0;
+  right: 28px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  margin: 0 auto;
+  padding: 5px 5px 5px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--raised);
+  box-shadow: var(--shadow-pop);
+  font-family: var(--sans);
+  font-size: 12.5px;
+  white-space: nowrap;
+  animation: page-in 0.2s var(--ease);
+}
 
 .term {
   animation: term-in 0.26s var(--ease);
