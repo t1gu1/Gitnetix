@@ -903,14 +903,29 @@ function Integrations({ cfg }: { cfg: Config }) {
   );
 }
 
-/** QR that opens Gitnetix on a phone, already paired; nothing until the companion is reachable on the LAN. Also shown in the menu panel. */
+/** QR that opens Gitnetix on a phone, already paired; a restart prompt until the companion listens on the LAN. Also shown in the menu panel. */
 export function PairQr({ server: s }: { server: Config["server"] }) {
   const [info, setInfo] = useState<CompanionInfo | null>(null);
   useEffect(() => {
     companionInfo().then(setInfo).catch(() => {});
-  }, [s.token]);
+  }, [s.token, s.enabled, s.lan, s.port]);
   const host = info?.hosts[0];
-  if (!isLocal || !s.enabled || !s.lan || !host) return null;
+  if (!isLocal || !s.enabled || !s.lan || !info) return null;
+  if (!info.listening)
+    return (
+      <div className="col" style={{ alignItems: "flex-start" }}>
+        <p className="hint" style={{ margin: 0 }}>
+          {/* Relaunching a dev build ends `pnpm app`'s Vite server, and the new window would stay blank. */}
+          Phones can't connect yet: Gitnetix isn't listening on port <span className="mono">{s.port}</span> with these settings. {import.meta.env.DEV ? "Restart pnpm app" : "Restart Gitnetix"} to apply them. If this stays after a restart, another app is using the port.
+        </p>
+        {!import.meta.env.DEV && (
+          <button className="btn" onClick={() => import("@tauri-apps/plugin-process").then((p) => p.relaunch()).catch((e) => toast(String(e), "error"))}>
+            Restart Gitnetix
+          </button>
+        )}
+      </div>
+    );
+  if (!host) return null;
   return (
     <div className="row" style={{ gap: 16, alignItems: "center" }}>
       <div

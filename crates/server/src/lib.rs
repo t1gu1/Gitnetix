@@ -22,7 +22,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use futures_util::Stream;
-use gitnetix_core::{rpc, store::write_private, ErrorBody, Gitnetix};
+use gitnetix_core::{rpc, store::write_private, store::ServerConfig, ErrorBody, Gitnetix};
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use hyper_util::server::conn::auto::Builder;
 use hyper_util::service::TowerToHyperService;
@@ -166,15 +166,19 @@ fn tls(dir: &Path) -> anyhow::Result<TlsAcceptor> {
     Ok(TlsAcceptor::from(Arc::new(rustls::ServerConfig::builder().with_no_client_auth().with_single_cert(chain, key)?)))
 }
 
+/// Where the companion listens with these settings.
+pub fn bind_addr(cfg: &ServerConfig) -> SocketAddr {
+    let host = if cfg.lan { [0, 0, 0, 0] } else { [127, 0, 0, 1] };
+    SocketAddr::from((host, cfg.port))
+}
+
 /// Bind and serve until the process exits. Returns the bound address.
 pub async fn spawn(k: Arc<Gitnetix>, ui: Option<Ui>) -> anyhow::Result<Option<SocketAddr>> {
     let cfg = k.store.read(|c| c.server.clone());
     if !cfg.enabled {
         return Ok(None);
     }
-    let host = if cfg.lan { [0, 0, 0, 0] } else { [127, 0, 0, 1] };
-    let addr = SocketAddr::from((host, cfg.port));
-    let listener = tokio::net::TcpListener::bind(addr).await?;
+    let listener = tokio::net::TcpListener::bind(bind_addr(&cfg)).await?;
     let bound = listener.local_addr()?;
     // Without it the API still answers over plain HTTP, the way the MCP bridge talks to it.
     let tls = tls(&k.dir).inspect_err(|e| tracing::warn!("companion HTTPS off: {e:#}")).ok();

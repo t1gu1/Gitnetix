@@ -2,13 +2,16 @@
 // This runs it without its watcher and restarts it only once no action has run for 2s:
 // the app keeps GITNETIX_BUSY_FILE while one does (see `Busy` in crates/core/src/rpc.rs). Vite holds page reloads the same way (vite.config.ts).
 // shortcut: process-group kill is POSIX only; on Windows use `pnpm tauri dev`.
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync, rmSync, watch } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const busy = join(tmpdir(), `gitnetix-busy-${process.pid}`);
 const env = { ...process.env, GITNETIX_BUSY_FILE: busy };
+// The companion serves phones the built UI from dist/ (`dev_asset` in src-tauri/src/lib.rs); without it they get a blank page.
+// shortcut: built only when missing; `pnpm build` again to show UI changes on the phone.
+if (!existsSync("dist/index.html")) spawnSync("vite", ["build"], { stdio: "inherit" });
 // Vite lives across app restarts; tauri only rebuilds and relaunches the app.
 const vite = spawn("vite", { stdio: "inherit", env });
 let tauri;

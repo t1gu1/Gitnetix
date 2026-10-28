@@ -86,7 +86,7 @@ PRs and tickets. The layout switches to single-pane with a bottom tab bar under 
 2. Phone: enter the address and pairing token shown there.
 
 Or scan the QR code on that page: the companion serves the UI itself, so the phone's browser opens
-Gitnetix already paired, no native build needed. In dev (`pnpm app`) it serves `dist/`, so run `pnpm build` first.
+Gitnetix already paired, no native build needed. In dev (`pnpm app`) it serves `dist/`: `pnpm app` builds it when missing, and `pnpm build` refreshes it after UI changes.
 On Linux with ufw on, use **Allow through firewall** there (it opens the port to your subnet only).
 
 ```sh

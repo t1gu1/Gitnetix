@@ -9,10 +9,11 @@ mod mic;
 
 #[cfg(desktop)]
 mod desktop {
-    use std::sync::Arc;
+    use std::net::SocketAddr;
+    use std::sync::{Arc, OnceLock};
 
     use gitnetix_core::{rpc, store::data_dir, ErrorBody, Event, Gitnetix};
-    use gitnetix_server::lan_hosts;
+    use gitnetix_server::{bind_addr, lan_hosts};
     use serde_json::Value;
     use tauri::ipc::Channel;
     use tauri::{Emitter, Manager, State};
@@ -24,6 +25,10 @@ mod desktop {
     /// The microphone while dictating.
     #[derive(Default)]
     pub struct Mic(std::sync::Mutex<Option<Recording>>);
+
+    /// Where the companion listens. Bound once at launch, so settings changed since then wait for a restart.
+    #[derive(Default)]
+    pub struct Companion(OnceLock<SocketAddr>);
 
     /// Records the microphone for voice dictation; `on_level` gets its loudness meanwhile.
     /// A window command, not an RPC method: a paired phone must not turn on the desktop's microphone.
@@ -73,9 +78,10 @@ mod desktop {
     }
 
     #[tauri::command]
-    pub fn companion(engine: State<'_, Engine>) -> Value {
+    pub fn companion(engine: State<'_, Engine>, served: State<'_, Companion>) -> Value {
         let s = engine.0.store.read(|c| c.server.clone());
-        serde_json::json!({ "enabled": s.enabled, "port": s.port, "lan": s.lan, "token": s.token, "hosts": lan_hosts(), "ufw": ufw_active() })
+        let listening = s.enabled && served.0.get() == Some(&bind_addr(&s));
+        serde_json::json!({ "enabled": s.enabled, "port": s.port, "lan": s.lan, "token": s.token, "hosts": lan_hosts(), "ufw": ufw_active(), "listening": listening })
     }
 
     // shortcut: ufw only (CachyOS, Ubuntu, Manjaro default); add firewalld if someone needs it.
@@ -174,9 +180,14 @@ mod desktop {
             Some(a) => Some((a.bytes().to_vec(), a.mime_type().to_string())),
             None => dev_asset(path),
         });
+        let server_app = app.handle().clone();
         tauri::async_runtime::spawn(async move {
-            if let Err(e) = gitnetix_server::spawn(server_k, Some(ui)).await {
-                tracing::warn!("companion API not started: {e}");
+            match gitnetix_server::spawn(server_k, Some(ui)).await {
+                Ok(Some(addr)) => {
+                    let _ = server_app.state::<Companion>().0.set(addr);
+                }
+                Ok(None) => {}
+                Err(e) => tracing::warn!("companion API not started: {e}"),
             }
         });
         app.manage(Engine(k));
@@ -215,6 +226,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .manage(desktop::Mic::default())
+        .manage(desktop::Companion::default())
         .setup(desktop::setup)
         .invoke_handler(tauri::generate_handler![desktop::rpc, desktop::companion, desktop::allow_firewall, desktop::open_url, desktop::dictation_start, desktop::dictation_stop, desktop::dictation_cancel]);
 

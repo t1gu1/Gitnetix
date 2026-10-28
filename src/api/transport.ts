@@ -148,6 +148,8 @@ export interface CompanionInfo {
   hosts: string[];
   /** Linux ufw firewall is on: the phone can't connect until the port is allowed. */
   ufw: boolean;
+  /** The companion listens with these settings. False until Gitnetix restarts after they change. */
+  listening: boolean;
 }
 
 export async function companionInfo(): Promise<CompanionInfo | null> {

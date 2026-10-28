@@ -15,6 +15,9 @@ release notes and the in-app update prompt.
 - Merging, deleting a branch or a worktree, continuing on a branch and clearing a session close their dialog at once and run in the background. What they remove leaves the lists right away, and comes back if the action fails.
 - A toast with a spinner shows a background action until it is done, then how it went. A failure stays on screen until clicked.
 
+### Fixed
+- Settings › Companion & MCP no longer shows a pairing QR code phones can't reach. Until Gitnetix restarts after the companion settings change, it says so and offers a Restart button.
+
 ## [0.11.0] - 2026-10-27
 
 ### Added
