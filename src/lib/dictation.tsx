@@ -299,30 +299,39 @@ function FieldMic({ phase, keys }: { phase: Phase; keys: string }) {
     // What scrolls the box (a dialog's body, say) hides part of it: the mic stays in the part in view, not over the dialog's footer.
     const clips: HTMLElement[] = [];
     for (let el = field.parentElement; el; el = el.parentElement) if (getComputedStyle(el).overflowY !== "visible") clips.push(el);
+    const b = mic.current!;
+    const one = field.tagName === "INPUT";
+    // A one-line box under 36px tall shrinks the mic, keeping it 4px clear of its top and bottom (the stylesheet caps it at 28px).
+    if (one) b.style.setProperty("--mic-fit", `${field.offsetHeight - 8}px`);
+    // A multi-line box's last line, from its bottom edge: border, padding, then half a line less half the mic. "normal" lines are about 1.2 times the font.
+    const s = getComputedStyle(field);
+    const last = parseFloat(s.borderBottomWidth) + parseFloat(s.paddingBottom) + ((parseFloat(s.lineHeight) || parseFloat(s.fontSize) * 1.2) - b.offsetHeight) / 2;
     let raf = 0;
     const place = () => {
       const r = field.getBoundingClientRect();
-      const b = mic.current!;
       let [lo, hi] = [-Infinity, Infinity];
       for (const c of clips) {
         const top = c.getBoundingClientRect().top + c.clientTop;
         lo = Math.max(lo, top);
         hi = Math.min(hi, top + c.clientHeight);
       }
-      // Centered in a one-line box, in the bottom corner of a multi-line one (or of its part in view), with the bottom of its resize grip left to grab.
-      const top = field.tagName === "TEXTAREA" ? Math.max(r.top, Math.min(r.bottom, hi) - b.offsetHeight - 8) : r.top + (r.height - b.offsetHeight) / 2;
-      b.style.transform = `translate(${r.right - b.offsetWidth - 4}px, ${top}px)`;
+      // Centered in a one-line box; on the last line of a multi-line one (or of its part in view), so it keeps to the bottom corner as the box grows.
+      // As far from the right edge as from the bottom.
+      const gap = one ? (r.height - b.offsetHeight) / 2 : last;
+      const top = one ? r.top + gap : Math.max(r.top, Math.min(r.bottom, hi) - b.offsetHeight - gap);
+      b.style.transform = `translate(${r.right - b.offsetWidth - gap}px, ${top}px)`;
       // Cut where the box is cut, clicks included.
       b.style.clipPath = `inset(${Math.max(0, lo - top)}px 0 ${Math.max(0, top + b.offsetHeight - hi)}px)`;
       raf = requestAnimationFrame(place);
     };
     place();
     field.dataset.mic = ""; // room for it on the right, in the stylesheet
-    field.style.setProperty("--mic-w", `${mic.current!.offsetWidth}px`);
+    field.style.setProperty("--mic-w", `${b.offsetWidth}px`);
     return () => {
       cancelAnimationFrame(raf);
       delete field.dataset.mic;
       field.style.removeProperty("--mic-w");
+      b.style.removeProperty("--mic-fit");
     };
   }, [field]);
   return (

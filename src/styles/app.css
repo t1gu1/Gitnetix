@@ -4804,16 +4804,24 @@ body:has(> .modal-scrim) #root * {
   align-items: center;
   justify-content: center;
   gap: 5px;
-  min-width: 28px;
-  height: 28px;
+  /* Shorter in a one-line box under 36px tall (--mic-fit). */
+  --mic-h: min(28px, var(--mic-fit, 28px));
+  min-width: var(--mic-h);
+  height: var(--mic-h);
   padding: 0 6px;
   border: 0;
   border-radius: 14px;
   background: color-mix(in srgb, var(--accent) 16%, var(--raised));
   /* Not --accent-fg: the light theme's is too pale to read on this tint. */
   color: var(--fg);
-  font: 500 11px var(--mono);
+  /* 11px in a 28px mic, shrinking with it like the icon. */
+  font: 500 calc(var(--mic-h) * 11 / 28) var(--mono);
   white-space: nowrap;
+}
+/* The icon shrinks with the mic too: 15px of its 28px. */
+.field-mic > svg {
+  width: calc(var(--mic-h) * 15 / 28);
+  height: calc(var(--mic-h) * 15 / 28);
 }
 .field-mic:hover:not([data-on]) {
   background: color-mix(in srgb, var(--accent) 26%, var(--raised));
