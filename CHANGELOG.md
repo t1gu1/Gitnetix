@@ -82,11 +82,11 @@ Skipped: nothing checked beyond commit messages. Dictation and textarea entries 
 ## [0.9.2] - 2026-10-26
 
 ### Added
-- Settings › Terminal sets the tab a branch's terminal opens on until one is picked there: Agent (the default) or Shell. Branches with an agent session open on Agent.
 - Message an agent while it works: your messages wait in a queue and go out together when its run ends. If it had asked you questions, it asks them again after answering, unless you told it not to ask questions. Stopping the agent puts the queued messages back in the prompt box.
 - Scan QR code button on the pairing screen on iOS and Android: it opens the camera and pairs with the desktop from the scanned link.
 - Pair from a photo of the QR code when the camera is unavailable.
 - The app can be installed to a home screen with its own icon and name.
+- Settings › Terminal sets the tab a branch's terminal opens on until one is picked there: Agent (the default) or Shell. Branches with an agent session open on Agent.
 - Attach files and pick the agent in the new item modal.
 
 ### Fixed
@@ -97,10 +97,10 @@ Skipped: nothing checked beyond commit messages. Dictation and textarea entries 
 
 ### Added
 - Ship dialog can update and date the changelog as the release ships, when AI is on for releases and the project has a `CHANGELOG.md`. A Settings toggle controls the default.
+- Pulling a diverged branch now offers to rebase or merge.
 - Delete tag action in the commit menu.
 - Images sent to an agent, and images it shows, preview on hover or focus in the agent log.
 - Click a sent image to open it full size.
-- Pulling a diverged branch now offers to rebase or merge.
 
 ### Changed
 - Main tabs in the top bar are reordered.
@@ -112,18 +112,18 @@ Skipped: nothing checked beyond commit messages. Dictation and textarea entries 
 
 ### Added
 - Project commands menu in the terminal for Cargo, Go, Make, just, Docker, Compose, Gradle, Maven, .NET, CMake, Python, Ruby, Godot, LÖVE, Odin and shell scripts, plus package.json scripts. Commands whose program is not installed are hidden.
-- Hide and show command sections per project. Hidden sections fold into a small pill.
-- Rename branches and open releases, locally and on origin when asked.
 - Rebase a worktree onto its base and resolve conflicts from the worktree actions.
+- Rename branches and open releases, locally and on origin when asked.
+- Claude runs cut off by quit are resumed on next start.
+- Phone notification when an agent is waiting or failed.
+- Hide and show command sections per project. Hidden sections fold into a small pill.
 - Right-click actions menu and an actions button on worktree rows.
 - Worktree rows show how many commits they are behind base.
 - Copy workspace name action for worktrees.
 - Setting to expand the terminal by default in worktrees.
 - AI answers fit in conflict resolution, and modify/delete conflicts can be resolved.
-- Claude runs cut off by quit are resumed on next start.
 - Finished worktree agent runs show as done instead of waiting.
 - First task is pinned to the top of the agent log.
-- Phone notification when an agent is waiting or failed.
 - Analytics: click a day bar to see its commits by person and type, and a release bar to see its features, fixes and merged branches.
 - Pairing QR code in the settings menu panel.
 - Appearance settings open from the theme row in the menu.
@@ -150,9 +150,9 @@ Skipped: nothing checked beyond commit messages. Dictation and textarea entries 
 
 ### Added
 - Selectable color themes beyond light and dark, with an Appearance pane in Settings showing swatches.
+- Commit or discard uncommitted work before continuing on a branch.
 - Attach files to a new agent session by button, paste or drop.
 - New worktrees clone their submodules at the branch's pinned commits.
-- Commit or discard uncommitted work before continuing on a branch.
 
 ### Changed
 - The header toggle switches to the same theme's other mode when one exists, and the menu theme picker lists every theme.
@@ -170,12 +170,12 @@ Skipped: nothing checked beyond commit messages. Dictation and textarea entries 
 ## [0.7.0] - 2026-10-25
 
 ### Added
+- Files and images can be attached to agent messages and new agent starts, up to 25 MB each.
+- Mobile: a More menu in the tab bar opens the pages that do not fit as tabs.
+- Agent sessions take an optional ticket, linked to the branch before the agent starts.
 - Ctrl+Enter (⌘+Enter on macOS) in the commit summary or description commits.
 - Settings › Animations has three more switches: Page fade, List entrances and Dialog pop.
 - Notifications can be clicked away, and show a check or a cross on success and errors.
-- Mobile: a More menu in the tab bar opens the pages that do not fit as tabs.
-- Files and images can be attached to agent messages and new agent starts, up to 25 MB each.
-- Agent sessions take an optional ticket, linked to the branch before the agent starts.
 - Each project stores defaults for the finish, new branch, new agent, ship, delete origin and cleanup origin dialogs.
 - The website has a Compare page with Gitnetix, GitKraken, Fork and Sourcetree side by side.
 
@@ -232,10 +232,10 @@ Skipped: nothing checked beyond commit messages. Dictation and textarea entries 
 
 ### Added
 - Agents started on a branch linked to a Jira, Trello or Asana ticket get the ticket's title, description and acceptance criteria in their first prompt, with a copy in the checkout's git dir to read again later. Agent templates can place it with `{ticket}`.
-- `tickets.get` API method (and `tickets_get` MCP tool): one ticket with its full description, by key or by branch.
 - Replies with several questions show as one group of buttons per question, lettered when the reply letters them, with a single Send.
 - Merge, rebase, cherry-pick, revert and stash apply now resolve conflicts automatically and carry on. If a file cannot be resolved, the operation is aborted, the checkout is left unchanged, and the error gives the reason. Turn it off in the Menu.
 - Logs page under Menu: the last 2000 operations and errors, with copy and clear actions. The conflict toast and merge dialog link to it.
+- `tickets.get` API method (and `tickets_get` MCP tool): one ticket with its full description, by key or by branch.
 - Switching branch while the main checkout is stopped mid-rebase, merge, cherry-pick or revert asks to abort that operation first. `workspace.switch` accepts `abort` to do it before the checkout.
 - Merging a branch with uncommitted changes asks for confirmation first.
 - The website install script falls back to a user-level install when permission is denied.
@@ -289,17 +289,17 @@ Skipped: nothing checked beyond commit messages. Dictation and textarea entries 
 ## [0.4.0] - 2026-10-22
 
 ### Added
+- Pull request list, detail, create, edit, merge, close, review, comment, reply, resolve and react now work on Azure DevOps, with a personal access token as an alternative to Entra sign-in.
+- Each checkout gets a shell terminal beside the agent, with an Agent/Shell tab switch on the workspace and worktree screens.
+- Origin is fetched and pruned when a project opens and every five minutes, so branches deleted on PR merge disappear without a manual refresh.
+- Jira, Trello and Asana connections can be added several times, each limited to chosen projects. Jira also signs in with Atlassian (OAuth).
 - Closing a worktree can merge it into a branch you choose.
 - Escape closes the open diff in the workspace.
 - Resizable panels on the AI setup, pull request, release notes, settings, submodules, templates, tickets and worktrees screens.
-- Origin is fetched and pruned when a project opens and every five minutes, so branches deleted on PR merge disappear without a manual refresh.
-- Pull request list, detail, create, edit, merge, close, review, comment, reply, resolve and react now work on Azure DevOps, with a personal access token as an alternative to Entra sign-in.
-- Jira, Trello and Asana connections can be added several times, each limited to chosen projects. Jira also signs in with Atlassian (OAuth).
 - Tickets gain mine and sprint filters and a place label. Filters are remembered.
 - Ticket status can be changed from the detail pane, and Jira fix versions can be edited there.
 - Jira tickets show rich descriptions, priority, time tracking and parent.
 - Release is guessed from Jira fix versions, and branches are matched to tickets by key, including in other linked projects.
-- Each checkout gets a shell terminal beside the agent, with an Agent/Shell tab switch on the workspace and worktree screens.
 - The terminal can be maximized and restored in the workspace and worktree detail card.
 - The agent input has a Stop button while the agent works, and Up and Down recall earlier messages.
 - Suggestion choices in the agent log allow multiple selections.
@@ -317,9 +317,9 @@ Skipped: nothing checked beyond commit messages. Dictation and textarea entries 
 - Removed status counts from worktrees and moved the session button down.
 
 ### Fixed
+- Commits can run per branch across worktrees.
 - Deleting a remote branch that origin already dropped no longer fails with "stale info".
 - The terminal session label now sits after the agent picker.
-- Commits can run per branch across worktrees.
 - The diff pane no longer bounces when scrolled past its end.
 - The context menu flips above its button instead of running off screen.
 - Choosing an option from the agent input menu no longer submits the prompt form.
@@ -332,14 +332,14 @@ Skipped: nothing checked beyond commit messages. Dictation and textarea entries 
 ## [0.3.0] - 2026-10-21
 
 ### Added
+- Pick the provider, model and effort for each agent session. Agents on a branch always run in that branch's own worktree.
+- Search the commit list, with matches highlighted in branch names and commit text.
 - Show the contents of unchanged files in the project view.
 - Show +/- totals on folder rows in the changed files list.
 - Offer a rebase after changing a branch target.
 - Right-click a changed file or folder for a menu with copy path, open in file explorer (desktop only) and add to .gitignore. Folder rows and the staged/unstaged lists also gain stage and unstage actions.
-- Pick the provider, model and effort for each agent session. Agents on a branch always run in that branch's own worktree.
 - Close agent sessions from a button on each agent tab. Worktree sessions ask whether to delete the worktree, or merge it first and then delete it.
 - Filter branches and commits by author.
-- Search the commit list, with matches highlighted in branch names and commit text.
 - Show author avatars on branch and commit rows. Gravatar pictures are optional and off by default, in Settings > Avatars.
 - Force push when resetting a branch, and remember the delete-origin choice.
 - Show progress while cleaning up branches.
@@ -386,10 +386,10 @@ Skipped: the TODO, graphify and avatar-placement refactor commits. I did not che
 - Analytics can now be filtered by project; no selection means all projects.
 
 ### Changed
+- Switching projects now returns you to where you left each one: same page, open dialogs and menu, selected branch, and that project's analytics.
 - Path dots on branches the path only passes through are now dimmed.
 - Dimmed path runs now fade in and out at their ends.
 - Tree now shows the checked-out branch or tag as soon as a switch completes.
-- Switching projects now returns you to where you left each one: same page, open dialogs and menu, selected branch, and that project's analytics.
 - Checked-out row in the tree now has a faint yellow tint.
 - Analytics now show lead time in hours.
 - Analytics now show total commits in place of the AI-share KPI.
@@ -406,6 +406,7 @@ Skipped: the TODO, graphify and avatar-placement refactor commits. I did not che
 ## [0.1.1] - 2026-10-19
 
 ### Added
+- "Move unreleased changelog into x.y.z" release branch action: renames the `Unreleased` section of `CHANGELOG.md` to the release's version, dated today, and commits it on the branch before shipping.
 - Release branches can change the branch they were cut from. Trunks can take a parent, and work branches can target any existing branch.
 - Branches falling behind are grouped under their parent branch.
 - Azure DevOps pull requests are read to place merged branches under the release that shipped them.
@@ -413,13 +414,12 @@ Skipped: the TODO, graphify and avatar-placement refactor commits. I did not che
 - The push button wiggles when commits are waiting to go to origin.
 - The commit link animates when new commits land.
 - An empty state is shown when no pull request provider is connected.
-- "Move unreleased changelog into x.y.z" release branch action: renames the `Unreleased` section of `CHANGELOG.md` to the release's version, dated today, and commits it on the branch before shipping.
 
 ### Changed
-- Open releases are sorted newest version first.
 - Branch views are cached per project, and a quick overview shows first when nothing is cached, so reopening a project is faster.
-- Squash merge checks are persisted per commit pair, so they are not repeated.
 - The terminal panel is hidden by default.
+- Open releases are sorted newest version first.
+- Squash merge checks are persisted per commit pair, so they are not repeated.
 - Light mode accent colors are tuned.
 - Section Clean up buttons are now a brush icon in line with the group row.
 - Branch tree rows sit on a raised background, and Shipped has a thin separator above it.
@@ -436,22 +436,22 @@ Skipped: the TODO, graphify and avatar-placement refactor commits. I did not che
 ### Added
 - Sign in with GitHub through the OAuth device flow in Settings › Git providers, no token to create; personal access tokens still work.
 - Sign in with Azure DevOps from Settings › Git providers using a Microsoft device code. The token is renewed automatically before it expires.
+- "Update changelog" branch action: AI adds the branch's changes to the `Unreleased` section of `CHANGELOG.md` and commits it on the branch, falling back to the latest tag when the branch has no diff. Shown when the project has a changelog and AI is set up.
+- Image and SVG previews in the file diff. A replaced image can be compared side by side, with a swipe slider, as an onion skin or as a pixel difference.
+- Submodules page: every submodule of the project with its pinned and checked-out commits, uncommitted files and new commits on its remote. Add, clone, update to the pin or pull the latest, pin the checked-out commit, sync or edit the URL and tracked branch, open its repository page on GitHub, GitLab or Azure DevOps, open one as a project, or remove it. "Update all" clones missing submodules and checks each out at its pin; its menu pulls the latest for all, syncs every URL or checks remotes for updates.
+- The app checks for new releases on launch and offers to download, install and restart.
+- macOS (universal `.dmg`) and Windows (`-setup.exe`) builds on every release, next to the Linux AppImage.
 - Close (abandon) a pull request without merging, after a confirmation, optionally deleting its branch locally and on origin, and reopen a closed one. The "Merged" tab is now "Closed" and also lists your closed PRs.
 - Edit your own PR comments, review thread replies and review summaries, with "Improve" to polish the wording with AI.
 - "Improve reply" on PR review threads: AI fixes spelling, grammar and wording of a started reply, keeping its meaning, tone and language.
-- "Update changelog" branch action: AI adds the branch's changes to the `Unreleased` section of `CHANGELOG.md` and commits it on the branch, falling back to the latest tag when the branch has no diff. Shown when the project has a changelog and AI is set up.
 - Shipping a release dates the `Unreleased` section of the project's `CHANGELOG.md` and commits it before tagging.
 - Stash management: list stashes per branch or project-wide, view their files and diffs, then pop, apply or drop them.
-- Image and SVG previews in the file diff. A replaced image can be compared side by side, with a swipe slider, as an onion skin or as a pixel difference.
 - Full mode in the file diff to show the whole file around the changes, next to Split and Unified, and a change heatmap beside the diff that doubles as a draggable scrollbar.
-- Submodules page: every submodule of the project with its pinned and checked-out commits, uncommitted files and new commits on its remote. Add, clone, update to the pin or pull the latest, pin the checked-out commit, sync or edit the URL and tracked branch, open its repository page on GitHub, GitLab or Azure DevOps, open one as a project, or remove it. "Update all" clones missing submodules and checks each out at its pin; its menu pulls the latest for all, syncs every URL or checks remotes for updates.
 - Row actions on stashes and a bulk cleanup to drop several stashes at once.
 - "Branches falling behind" group in the branch tree for branches 25 or more commits behind the default branch, with a Clean up action to pick which ones to delete.
 - Branch commit list shows origin's commits next to the local branch, with local and origin tips tagged. Unpulled commits can't be reverted or reset until pulled.
 - Local-only and origin-only branches get labels in the branch tree.
 - 7, 14 and 21 day ranges in analytics, and a richer release tooltip.
-- The app checks for new releases on launch and offers to download, install and restart.
-- macOS (universal `.dmg`) and Windows (`-setup.exe`) builds on every release, next to the Linux AppImage.
 
 ### Changed
 - Review summaries show as threads labeled Approved, Requested changes or Reviewed, with the text reviewers submit with their vote. Every review thread, comment, review and review request now loads, not just the first 60.
@@ -462,9 +462,9 @@ Skipped: the TODO, graphify and avatar-placement refactor commits. I did not che
 - Analytics remembers the selected time range and defaults to 14 days.
 
 ### Fixed
+- Branches merged on origin are detected even when the local base branch lags behind.
 - Tab and segment labels no longer widen and shift nearby controls when they turn bold.
 - "New PR from …" stays busy while the PR is being created, even after leaving the page and coming back.
-- Branches merged on origin are detected even when the local base branch lags behind.
 - An open release is dropped when its branch is deleted.
 
 ## [0.0.6] - 2026-10-18
