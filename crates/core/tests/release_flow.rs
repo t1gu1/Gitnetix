@@ -495,6 +495,59 @@ async fn reset_back_after_push_force_pushes() {
 }
 
 #[tokio::test]
+async fn reset_forward_onto_pushed_commits() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("forward");
+    init_repo(&repo);
+    let origin = tmp.path().join("origin.git");
+    sh(tmp.path(), &["init", "-q", "--bare", "-b", "main", origin.to_str().unwrap()]);
+    sh(&repo, &["remote", "add", "origin", origin.to_str().unwrap()]);
+    commit_file(&repo, "a.txt", "a\n");
+    commit_file(&repo, "b.txt", "b\n");
+    sh(&repo, &["push", "-q", "-u", "origin", "main"]);
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let added = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await;
+    let pid = added[0]["id"].as_str().unwrap().to_string();
+
+    // Hard reset back past pushed commits: they stay listed as origin's, and a hard reset brings main forward onto them.
+    let (mid, tip) = (rev(&repo, "main~1"), rev(&repo, "main"));
+    sh(&repo, &["reset", "-q", "--hard", "HEAD~2"]);
+    let commits = call(&k, "workspace.commits", json!({ "projectId": pid, "branch": "main" })).await;
+    let unpulled: Vec<&str> = commits.as_array().unwrap().iter().filter(|c| c["unpulled"] == true).map(|c| c["sha"].as_str().unwrap()).collect();
+    assert_eq!(unpulled, [tip.as_str(), mid.as_str()]);
+    call(&k, "commits.reset", json!({ "projectId": pid, "branch": "main", "sha": mid, "mode": "hard" })).await;
+    assert_eq!(rev(&repo, "main"), mid);
+    call(&k, "commits.reset", json!({ "projectId": pid, "branch": "main", "sha": tip, "mode": "hard" })).await;
+    assert_eq!(rev(&repo, "main"), tip);
+    assert!(repo.join("b.txt").exists());
+}
+
+#[tokio::test]
+async fn commits_flag_unpushed() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("unpushed");
+    init_repo(&repo);
+    let origin = tmp.path().join("origin.git");
+    sh(tmp.path(), &["init", "-q", "--bare", "-b", "main", origin.to_str().unwrap()]);
+    sh(&repo, &["remote", "add", "origin", origin.to_str().unwrap()]);
+    commit_file(&repo, "a.txt", "a\n");
+    sh(&repo, &["push", "-q", "-u", "origin", "main"]);
+    commit_file(&repo, "b.txt", "b\n");
+    sh(&repo, &["switch", "-q", "-c", "feat/x"]);
+    commit_file(&repo, "x.txt", "x\n");
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let added = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await;
+    let pid = added[0]["id"].as_str().unwrap().to_string();
+    let unpushed = |v: &Value| -> Vec<String> { v.as_array().unwrap().iter().filter(|c| c["unpushed"] == true).map(|c| c["sha"].as_str().unwrap().to_string()).collect() };
+
+    // Only main's commit after the push; a branch never pushed has all its own commits unpushed.
+    let main = call(&k, "workspace.commits", json!({ "projectId": pid, "branch": "main" })).await;
+    assert_eq!(unpushed(&main), [rev(&repo, "main")]);
+    let feat = call(&k, "workspace.commits", json!({ "projectId": pid, "branch": "feat/x" })).await;
+    assert_eq!(unpushed(&feat), [rev(&repo, "feat/x")]);
+}
+
+#[tokio::test]
 async fn release_branch_created_after_add_is_picked_up() {
     let tmp = tempfile::tempdir().unwrap();
     let repo = tmp.path().join("late");

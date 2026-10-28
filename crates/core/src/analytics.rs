@@ -134,7 +134,7 @@ async fn log_since(git: &Git, day: &str) -> Vec<Commit> {
     raw.split('\x1e')
         .filter_map(|rec| {
             let f: Vec<&str> = rec.trim_start_matches('\n').splitn(6, '\x1f').collect();
-            (f.len() == 6).then(|| Commit { sha: f[0].into(), author: f[1].into(), email: f[2].into(), date: f[3].into(), subject: f[4].into(), body: f[5].into(), tags: Vec::new(), local: false, origin: false, unpulled: false })
+            (f.len() == 6).then(|| Commit { sha: f[0].into(), author: f[1].into(), email: f[2].into(), date: f[3].into(), subject: f[4].into(), body: f[5].into(), tags: Vec::new(), local: false, origin: false, unpulled: false, unpushed: false })
         })
         .collect()
 }
@@ -385,7 +385,7 @@ mod tests {
     use super::*;
 
     fn commit(author: &str, email: &str) -> (Commit, bool) {
-        let c = Commit { sha: String::new(), author: author.into(), email: email.into(), date: String::new(), subject: String::new(), body: String::new(), tags: Vec::new(), local: false, origin: false, unpulled: false };
+        let c = Commit { sha: String::new(), author: author.into(), email: email.into(), date: String::new(), subject: String::new(), body: String::new(), tags: Vec::new(), local: false, origin: false, unpulled: false, unpushed: false };
         (c, false)
     }
 

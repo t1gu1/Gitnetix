@@ -1170,6 +1170,13 @@ html.scanning body {
   color: var(--warn-fg);
   background: color-mix(in srgb, var(--warn-fg) 12%, transparent);
 }
+.lost-commits {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  max-height: 140px;
+  overflow: auto;
+}
 .note-box {
   padding: 10px 12px;
   border: 1px solid var(--line);

@@ -2580,10 +2580,16 @@ impl Gitnetix {
             (Some(l), Some(o)) if l != o => git.rev_list(&format!("{l}..{o}")).await.unwrap_or_default(),
             _ => Vec::new(),
         };
+        // Local commits on no origin branch: a hard reset past them loses them.
+        let unpushed: Vec<String> = match &local {
+            Some(l) => git.run(&["rev-list", &format!("-n{limit}"), l, "--not", "--remotes=origin"]).await.map(|o| o.lines().map(Into::into).collect()).unwrap_or_default(),
+            None => Vec::new(),
+        };
         for c in &mut list {
             c.local = local.as_deref() == Some(c.sha.as_str());
             c.origin = origin.as_deref() == Some(c.sha.as_str());
             c.unpulled = unpulled.contains(&c.sha);
+            c.unpushed = unpushed.contains(&c.sha);
         }
         Ok(list)
     }

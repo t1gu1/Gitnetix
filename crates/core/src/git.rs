@@ -180,6 +180,9 @@ pub struct Commit {
     /// On origin but not pulled into the local branch yet.
     #[serde(default)]
     pub unpulled: bool,
+    /// On the local branch but on no origin branch: a hard reset past it loses it.
+    #[serde(default)]
+    pub unpushed: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1591,6 +1594,7 @@ impl Git {
                     local: false,
                     origin: false,
                     unpulled: false,
+                    unpushed: false,
                 })
             })
             .collect())

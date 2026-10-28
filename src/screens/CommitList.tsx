@@ -47,8 +47,9 @@ export function CommitList({
 }) {
   const commits = useCommits(pid, branch);
   const list = commits.data ?? [];
-  // Commits of the local branch; origin's unpulled ones are listed too, but can't be reverted or reset to.
+  // Commits of the local branch; origin's unpulled ones are listed too: they can't be reverted, only hard reset to.
   const local = list.filter((c) => !c.unpulled);
+  const unpulled = list.filter((c) => c.unpulled);
   const [query, setQuery] = useState("");
   const q = query.trim().toLowerCase();
   const authors = useMemo(() => authorsOf(list), [list]);
@@ -78,12 +79,15 @@ export function CommitList({
 
   const items = (c: Commit): MenuItem[] => {
     const short = c.sha.slice(0, 7);
-    const needCheckout = c.unpulled ? "pull first" : checkedOut ? undefined : "check out first";
+    const needCheckout = checkedOut ? undefined : "check out first";
+    // Origin's unpulled commits can't be reverted, and a soft or mixed reset forward onto one would
+    // leave the commits it brings back as reversed changes: only a hard reset goes there.
+    const needLocal = c.unpulled ? "pull first" : needCheckout;
     const onto = !current ? "nothing checked out" : current === branch ? "already on it" : undefined;
     return [
       { id: "copy", label: "Copy SHA", icon: "edit", hint: short, run: () => copyToClipboard(c.sha) },
       "sep",
-      { id: "revert", label: "Revert commit", icon: "undo", hint: needCheckout, disabled: !!needCheckout, run: () => revert.mutate({ projectId: pid, branch, sha: c.sha }) },
+      { id: "revert", label: "Revert commit", icon: "undo", hint: needLocal, disabled: !!needLocal, run: () => revert.mutate({ projectId: pid, branch, sha: c.sha }) },
       {
         id: "pick",
         label: <>Cherry-pick onto <span className="mono">{current ?? "…"}</span></>,
@@ -93,8 +97,8 @@ export function CommitList({
         run: () => pick.mutate({ projectId: pid, onto: current, sha: c.sha }),
       },
       "sep",
-      { id: "soft", label: "Reset here · soft", icon: "back", hint: needCheckout ?? "keep staged", disabled: !!needCheckout, run: () => setReset({ c, mode: "soft" }) },
-      { id: "mixed", label: "Reset here · mixed", icon: "back", hint: needCheckout ?? "keep unstaged", disabled: !!needCheckout, run: () => setReset({ c, mode: "mixed" }) },
+      { id: "soft", label: "Reset here · soft", icon: "back", hint: needLocal ?? "keep staged", disabled: !!needLocal, run: () => setReset({ c, mode: "soft" }) },
+      { id: "mixed", label: "Reset here · mixed", icon: "back", hint: needLocal ?? "keep unstaged", disabled: !!needLocal, run: () => setReset({ c, mode: "mixed" }) },
       { id: "hard", label: "Reset here · hard", icon: "trash", hint: needCheckout ?? "discard", danger: true, disabled: !!needCheckout, run: () => setReset({ c, mode: "hard" }) },
       "sep",
       { id: "tag", label: "Create tag…", icon: "tag", run: () => setTagging(c) },
@@ -171,6 +175,9 @@ export function CommitList({
           branch={branch}
           commit={reset.c}
           dropped={local.findIndex((c) => c.sha === reset.c.sha)}
+          restored={reset.c.unpulled ? unpulled.length - unpulled.findIndex((c) => c.sha === reset.c.sha) : 0}
+          // Going forward onto origin drops every unpushed commit; going back, the ones above the target.
+          lost={(reset.c.unpulled ? local : local.slice(0, local.findIndex((c) => c.sha === reset.c.sha))).filter((c) => c.unpushed)}
           mode={reset.mode}
           upstream={upstream}
           onMode={(mode) => setReset({ ...reset, mode })}
@@ -202,6 +209,8 @@ function ResetModal({
   branch,
   commit,
   dropped,
+  restored,
+  lost,
   mode,
   upstream,
   onMode,
@@ -211,8 +220,12 @@ function ResetModal({
   pid: string;
   branch: string;
   commit: Commit;
-  /** Newer commits that leave the branch. */
+  /** Newer commits that leave the branch on a reset back. */
   dropped: number;
+  /** Origin's commits a reset forward brings onto the branch (0: a reset back). */
+  restored: number;
+  /** Never pushed commits that leave the branch: a hard reset loses them. */
+  lost: Commit[];
   mode: ResetMode;
   upstream: boolean;
   onMode: (m: ResetMode) => void;
@@ -225,6 +238,8 @@ function ResetModal({
     success: `Reset ${branch} to ${short} (${mode})`,
   });
   const [forcePush, setForcePush] = useState(false);
+  // At origin's tip, the branch already matches origin: nothing to push.
+  const canPush = upstream && !commit.origin;
   const push = useAction("workspace.push", { invalidate: [["overview", pid], ["commits", pid]], success: `Force pushed ${branch}` });
   const done = () => { onDone(); onClose(); };
   const pending = reset.isPending || push.isPending;
@@ -242,32 +257,53 @@ function ResetModal({
               reset.mutate(
                 { projectId: pid, branch, sha: commit.sha, mode },
                 // A failed push keeps the modal open on its error; the reset already happened.
-                { onSuccess: () => (forcePush && upstream ? push.mutate({ projectId: pid, branch, force: true }, { onSuccess: done }) : done()) },
+                { onSuccess: () => (forcePush && canPush ? push.mutate({ projectId: pid, branch, force: true }, { onSuccess: done }) : done()) },
               )
             }
           >
             {pending && <span className="spinner" />}
-            Reset ({mode}){forcePush && upstream && " & force push"}
+            Reset ({mode}){forcePush && canPush && " & force push"}
           </button>
         </>
       }
     >
-      <p style={{ margin: 0, lineHeight: 1.55 }}>
-        Moves <span className="mono">{branch}</span> back to this commit.{" "}
-        {dropped > 0 ? <>The {plural(dropped, "newer commit")} leave the branch.</> : "No commits leave the branch."} If they were pushed, the next push must be forced.
-      </p>
-      <div role="radiogroup" aria-label="Reset mode" className="col" style={{ gap: 6 }}>
-        {RESET_MODES.map((m) => (
-          <button key={m.mode} className="radio-card" role="radio" aria-checked={mode === m.mode} onClick={() => onMode(m.mode)}>
-            <span className="radio-dot" />
-            <span className="col" style={{ gap: 2 }}>
-              <span style={{ fontWeight: 500 }} className={m.mode === "hard" ? "c-del" : undefined}>{m.label}</span>
-              <span className="hint">{m.hint}</span>
-            </span>
-          </button>
-        ))}
-      </div>
-      {upstream && (
+      {restored > 0 ? (
+        <p style={{ margin: 0, lineHeight: 1.55 }}>
+          Moves <span className="mono">{branch}</span> forward to this commit, bringing back {plural(restored, "commit")} from origin.
+          Uncommitted work is thrown away.
+        </p>
+      ) : (
+        <>
+          <p style={{ margin: 0, lineHeight: 1.55 }}>
+            Moves <span className="mono">{branch}</span> back to this commit.{" "}
+            {dropped > 0 ? <>The {plural(dropped, "newer commit")} leave the branch.</> : "No commits leave the branch."} If they were pushed, the next push must be forced.
+          </p>
+          <div role="radiogroup" aria-label="Reset mode" className="col" style={{ gap: 6 }}>
+            {RESET_MODES.map((m) => (
+              <button key={m.mode} className="radio-card" role="radio" aria-checked={mode === m.mode} onClick={() => onMode(m.mode)}>
+                <span className="radio-dot" />
+                <span className="col" style={{ gap: 2 }}>
+                  <span style={{ fontWeight: 500 }} className={m.mode === "hard" ? "c-del" : undefined}>{m.label}</span>
+                  <span className="hint">{m.hint}</span>
+                </span>
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+      {mode === "hard" && lost.length > 0 && (
+        <div className="err-box warn">
+          {lost.length === 1 ? "This commit was" : `These ${lost.length} commits were`} never pushed: a hard reset loses {lost.length === 1 ? "it" : "them"}.
+          <ul className="lost-commits">
+            {lost.map((c) => (
+              <li key={c.sha} className="ellipsis">
+                <span className="mono">{c.sha.slice(0, 7)}</span> {c.subject}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {canPush && (
         <label className="check">
           <input type="checkbox" checked={forcePush} onChange={() => setForcePush(!forcePush)} />
           <span>Force push to origin after the reset</span>

@@ -194,6 +194,8 @@ export interface Commit {
   origin?: boolean;
   /** On origin, not pulled into the local branch yet. */
   unpulled?: boolean;
+  /** On the local branch, on no origin branch: a hard reset past it loses it. */
+  unpushed?: boolean;
 }
 
 export interface CleanupResult {
