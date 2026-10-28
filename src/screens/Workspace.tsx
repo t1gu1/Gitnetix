@@ -65,6 +65,8 @@ const BIG_FOLDER = 200;
 const MAX_ROWS = 1000;
 /** Branches next to the selected one (siblings and children) the graph shows besides it, its base and the checked-out one. */
 const GRAPH_NEARBY = 2;
+/** The branches never get narrower than this, in pixels, to make room for the graph: the files pane gives way past it. */
+const BRANCHES_MIN = 260;
 
 export function Workspace() {
   const nav = useNav();
@@ -104,7 +106,7 @@ export function Workspace() {
   // Stash list in place of the tree: one branch's ("" = every stash), and the stash picked there.
   const [stashesOf, setStashesOf] = useState<string | null>(null);
   const [stash, setStash] = useState<Stash | undefined>();
-  // Left pane (branches, or the diff over them) as a percent of the workspace (of what the graph leaves of it): two thirds by default.
+  // Left pane (branches, or the diff over them) as a percent of the workspace: two thirds by default. The graph takes its column out of it, so the files pane keeps its width.
   const leftW = usePaneWidth("gnx.pane.left", 67, 20, 80);
   // The commit graph, in a column left of the branches when shown.
   const [graphOn, setGraphOn] = useStoredFlag("gnx.pane.graph");
@@ -397,7 +399,7 @@ export function Workspace() {
       {o && (
         <main
           className="ws"
-          style={{ "--branches-w": graphOn ? `calc((100% - min(${graphW.width}px, 45%)) * ${leftW.width / 100})` : `${leftW.width}%`, "--graph-w": `${graphW.width}px` } as CSSProperties}
+          style={{ "--branches-w": graphOn ? `max(${BRANCHES_MIN}px, ${leftW.width}% - min(${graphW.width}px, 45%))` : `${leftW.width}%`, "--graph-w": `${graphW.width}px` } as CSSProperties}
           data-file-open={current ? true : undefined}
           data-slide={slide.dir}
           onTouchStart={(e) => {

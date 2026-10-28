@@ -231,7 +231,8 @@ a:hover {
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
   display: inline-block;
-  flex: 0 0 12px;
+  /* Its own width and height, never squeezed: a smaller one stays round. */
+  flex: none;
 }
 
 /* ---------- shell ---------- */
@@ -627,9 +628,11 @@ body.dragging-tab * {
   padding: 0 8px;
   font-size: 12px;
 }
+/* Square, even beside a long label in a narrow header. */
 .btn-icon {
   width: 32px;
   padding: 0;
+  flex-shrink: 0;
 }
 .btn-icon.btn-sm {
   width: 26px;
@@ -5851,6 +5854,9 @@ body:has(> .modal-scrim) #root * {
   top: 0;
   overflow: visible;
   pointer-events: none;
+}
+.g-probe {
+  fill: none;
 }
 .g-el {
   transition:

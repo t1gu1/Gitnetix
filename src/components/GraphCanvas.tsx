@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useReducer, useRef, type CSSProperties, type MouseEvent, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type CSSProperties, type MouseEvent, type ReactNode, type RefObject } from "react";
 
 import { ago, plural } from "../lib/format";
 import type { GLabel, GPiece, GRow, Layout, Node, Preview } from "../lib/graph";
@@ -53,6 +53,35 @@ function usePresence<T extends { key: string }>(items: T[], ms: number): { item:
   return list;
 }
 
+/**
+ * How many times too far WebKit moves an SVG shape by a CSS `translate` while the page is zoomed (the app's window zoom,
+ * Safari's): it zooms the move twice, and the shapes drift off their rows. 1 where it doesn't. Two probes in `svg` tell.
+ * Null until they have, before the first paint: shapes drawn before would slide from the wrong place to the right one.
+ */
+function useShiftScale(svg: RefObject<SVGSVGElement | null>) {
+  const [k, setK] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    const el = svg.current;
+    if (!el) return;
+    const measure = () => {
+      const [moved, placed] = el.querySelectorAll(".g-probe");
+      const top = el.getBoundingClientRect().top;
+      const got = moved.getBoundingClientRect().top - top;
+      const want = placed.getBoundingClientRect().top - top;
+      // Hidden (a narrow window): nothing to tell yet, the next resize does.
+      setK((old) => (got > 0 && want > 0 ? Math.round((got / want) * 100) / 100 : (old ?? 1)));
+    };
+    measure();
+    // Zooming resizes the window's CSS viewport.
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [svg]);
+  return k;
+}
+
+/** A CSS move to (`x`, `y`) in the canvas, undoing WebKit's extra zoom `k`. */
+const at = (x: number, y: number, k: number) => `translate(${x / k}px, ${y / k}px)`;
+
 
 export interface GraphCanvasProps {
   /** What to draw: the graph as it is, or as a previewed action would leave it. */
@@ -95,6 +124,8 @@ export function GraphCanvas({ shown, base, selected, hl, wip, age = dateOf, onOp
   }, [base, shown]);
   const rows = usePresence(shown.rows, FADE_MS);
   const pieces = usePresence(shown.pieces, FADE_MS);
+  const svg = useRef<SVGSVGElement>(null);
+  const k = useShiftScale(svg);
   const textX = cx(shown.lanes - 1) + LANE;
   const height = TOP * 2 + shown.rows.length * ROW;
   const onLine = (line: number, branch?: string) => !!hl && (branch ?? shown.lineBranch[line]) === hl;
@@ -120,17 +151,23 @@ export function GraphCanvas({ shown, base, selected, hl, wip, age = dateOf, onOp
           age={age}
         />
       ))}
-      <svg className="graph-svg" width={textX} height={height} aria-hidden>
-        <g>
-          {pieces.map(({ item: p, gone }) => (
-            <PieceView key={p.key} p={p} gone={gone} isNew={!!changed?.piece(p) && !gone} on={onLine(p.line)} />
-          ))}
-        </g>
-        <g>
-          {rows.map(({ item: r, gone }) => (
-            <Dot key={r.key} r={r} gone={gone} isNew={!!changed?.row(r) && !gone} on={onLine(r.line, r.branch)} />
-          ))}
-        </g>
+      <svg ref={svg} className="graph-svg" width={textX} height={height} aria-hidden>
+        <rect className="g-probe" width={1} height={1} style={{ transform: "translate(0px, 100px)" }} />
+        <rect className="g-probe" y={100} width={1} height={1} />
+        {k !== null && (
+          <>
+            <g>
+              {pieces.map(({ item: p, gone }) => (
+                <PieceView key={p.key} p={p} k={k} gone={gone} isNew={!!changed?.piece(p) && !gone} on={onLine(p.line)} />
+              ))}
+            </g>
+            <g>
+              {rows.map(({ item: r, gone }) => (
+                <Dot key={r.key} r={r} k={k} gone={gone} isNew={!!changed?.row(r) && !gone} on={onLine(r.line, r.branch)} />
+              ))}
+            </g>
+          </>
+        )}
       </svg>
     </div>
   );
@@ -158,31 +195,31 @@ export function PreviewBanner({ active, preview, loading }: { active: boolean; p
   );
 }
 
-function PieceView({ p, gone, isNew, on }: { p: GPiece; gone: boolean; isNew: boolean; on: boolean }) {
+function PieceView({ p, k, gone, isNew, on }: { p: GPiece; k: number; gone: boolean; isNew: boolean; on: boolean }) {
   const style = { "--c": p.color } as CSSProperties;
   const flags = { "data-gone": gone || undefined, "data-new": isNew || undefined, "data-on": on || undefined };
   if (p.kind === "rail") {
     const y1 = cy(p.y1);
     const h = cy(p.y2) - y1;
-    if (p.dashed) return <line className="g-el g-rail g-dashed" x1={0} y1={0} x2={0} y2={h} style={{ ...style, transform: `translate(${cx(p.x)}px, ${y1}px)` }} {...flags} />;
-    return <rect className="g-el g-rail" x={-1} y={0} width={2} height={1} style={{ ...style, transform: `translate(${cx(p.x)}px, ${y1}px) scaleY(${h})` }} {...flags} />;
+    if (p.dashed) return <line className="g-el g-rail g-dashed" x1={0} y1={0} x2={0} y2={h} style={{ ...style, transform: at(cx(p.x), y1, k) }} {...flags} />;
+    return <rect className="g-el g-rail" x={-1} y={0} width={2} height={1} style={{ ...style, transform: `${at(cx(p.x), y1, k)} scaleY(${h})` }} {...flags} />;
   }
   if (p.kind === "stub") {
-    return <path className="g-el g-stub" d={`M0 0 L${p.dx * LANE * 0.6} ${ROW * 0.6}`} style={{ ...style, transform: `translate(${cx(p.x)}px, ${cy(p.y)}px)` }} {...flags} />;
+    return <path className="g-el g-stub" d={`M0 0 L${p.dx * LANE * 0.6} ${ROW * 0.6}`} style={{ ...style, transform: at(cx(p.x), cy(p.y), k) }} {...flags} />;
   }
   const w = p.dx * LANE;
   return (
     <path
       className={`g-el g-elbow${p.dashed ? " g-dashed" : ""}`}
       d={`M0 0 C0 ${ROW * 0.55} ${w} ${ROW * 0.45} ${w} ${ROW}`}
-      style={{ ...style, transform: `translate(${cx(p.x)}px, ${cy(p.y)}px)` }}
+      style={{ ...style, transform: at(cx(p.x), cy(p.y), k) }}
       {...flags}
     />
   );
 }
 
-function Dot({ r, gone, isNew, on }: { r: GRow; gone: boolean; isNew: boolean; on: boolean }) {
-  const style = { "--c": r.color, transform: `translate(${cx(r.lane)}px, ${cy(r.row)}px)` } as CSSProperties;
+function Dot({ r, k, gone, isNew, on }: { r: GRow; k: number; gone: boolean; isNew: boolean; on: boolean }) {
+  const style = { "--c": r.color, transform: at(cx(r.lane), cy(r.row), k) } as CSSProperties;
   const flags = { "data-gone": gone || undefined, "data-new": isNew || undefined, "data-on": on || undefined };
   if (r.kind === "gap") return null;
   if (r.kind === "fold") return <g className="g-el g-fold" style={style} {...flags}><circle r={1.6} cy={-5} /><circle r={1.6} /><circle r={1.6} cy={5} /></g>;

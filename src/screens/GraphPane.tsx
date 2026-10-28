@@ -152,6 +152,19 @@ export function GraphPane(props: GraphPaneProps) {
     const y = rowCenter(row.row);
     if (y < el.scrollTop + GRAPH_ROW || y > el.scrollTop + el.clientHeight - GRAPH_ROW) el.scrollTo({ top: y - el.clientHeight / 3, behavior: "smooth" });
   }, [selected]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The branch picked, once its graph is read: scrolled to when out of sight, one row above it showing what came after it. Once per pick.
+  const scrolledTo = useRef<string | undefined>(undefined);
+  const picked = first[0];
+  useLayoutEffect(() => {
+    const el = scroller.current;
+    if (!el || !base || !picked || graph.isPlaceholderData || scrolledTo.current === picked) return;
+    const tip = base.rows.find((r) => r.labels.some((l) => l.branch === picked)) ?? base.rows.find((r) => r.branch === picked);
+    if (!tip) return;
+    scrolledTo.current = picked;
+    const top = rowCenter(tip.row) - GRAPH_ROW / 2;
+    if (top >= el.scrollTop && top + GRAPH_ROW <= el.scrollTop + el.clientHeight) return;
+    el.scrollTo({ top: Math.max(0, top - GRAPH_ROW), behavior: "smooth" });
+  }, [picked, base, graph.isPlaceholderData]);
 
   const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[]; label: string } | null>(null);
   const [reset, setReset] = useState<{ node: Node; branch: string; mode: ResetMode } | null>(null);

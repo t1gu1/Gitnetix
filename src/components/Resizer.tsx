@@ -22,7 +22,7 @@ export type PaneWidth = ReturnType<typeof usePaneWidth>;
 /**
  * Vertical drag handle on a pane's right edge, or with `top` a horizontal one
  * on a bottom pane's top edge (the value is then its height). Double-click
- * resets; arrow keys nudge. With `percent` the value is a percent of the width of the two panes it sits between.
+ * resets; arrow keys nudge. With `percent` the value is a percent of the parent's width.
  */
 export function Resizer({ pane, label, top, percent }: { pane: PaneWidth; label: string; top?: boolean; percent?: boolean }) {
   // `k` turns dragged pixels into the value's unit.
@@ -48,10 +48,7 @@ export function Resizer({ pane, label, top, percent }: { pane: PaneWidth; label:
         if (e.button !== 0) return;
         e.preventDefault();
         e.currentTarget.setPointerCapture(e.pointerId);
-        // The two panes share what other columns (the commit graph) leave of the parent.
-        const span = (el: Element | null) => (el instanceof HTMLElement ? el.offsetWidth : 0);
-        const el = e.currentTarget;
-        start.current = { x: pos(e), w: pane.width, k: percent ? 100 / (span(el.previousElementSibling) + span(el.nextElementSibling) || el.parentElement!.clientWidth) : 1 };
+        start.current = { x: pos(e), w: pane.width, k: percent ? 100 / e.currentTarget.parentElement!.clientWidth : 1 };
         document.body.classList.add("resizing", ...(top ? ["resizing-rows"] : []));
       }}
       onPointerMove={(e) => start.current && pane.set(start.current.w + (pos(e) - start.current.x) * start.current.k)}
