@@ -11,6 +11,8 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-10-28
+
 ### Added
 - Switching branch when uncommitted changes are in the way now asks what to do with them: bring them along to the other branch, or stash them and switch to a clean branch. Before, the switch failed with git's error.
 - Worktrees have a Change target branch action.
