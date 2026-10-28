@@ -25,6 +25,28 @@ export const GRAPH_ROW = ROW;
 /** Whether branch `b` shows in `l`: on a line of its own or as a label. */
 export const showsBranch = (l: Layout | null | undefined, b: string | null | undefined) => !!b && !!l?.rows.some((r) => r.branch === b || r.labels.some((x) => x.branch === b));
 
+/** The row of branch `b`'s tip in `l`: its label, else the first commit on its line. */
+export const tipRow = (l: Layout, b: string) => l.rows.find((r) => r.labels.some((x) => x.branch === b)) ?? l.rows.find((r) => r.branch === b);
+
+/** Whether a row, label (or its flags) or piece is new against `base`. */
+export function changesFrom(base: Layout) {
+  const sig = (r: GRow, l: GLabel) => `${r.key}|${l.key}|${+!!l.local}${+!!l.remote}${+!!l.head}`;
+  const rows = new Set(base.rows.map((r) => r.key));
+  const labels = new Set(base.rows.flatMap((r) => r.labels.map((l) => sig(r, l))));
+  const pieces = new Set(base.pieces.map((p) => p.key));
+  return {
+    row: (r: GRow) => !rows.has(r.key),
+    label: (r: GRow, l: GLabel) => !labels.has(sig(r, l)),
+    piece: (p: GPiece) => !pieces.has(p.key),
+  };
+}
+
+/** The rows a previewed action touches, where they're drawn: what comes in `shown`, what goes where it was in `base`. */
+export function changedRows(base: Layout, shown: Layout): number[] {
+  const touched = (c: ReturnType<typeof changesFrom>, l: Layout) => l.rows.filter((r) => c.row(r) || r.labels.some((x) => c.label(r, x))).map((r) => r.row);
+  return [...touched(changesFrom(base), shown), ...touched(changesFrom(shown), base)];
+}
+
 /** `items` plus the ones just gone, kept `ms` with `gone` set so they can fade out where they were. */
 function usePresence<T extends { key: string }>(items: T[], ms: number): { item: T; gone: boolean }[] {
   const kept = useRef(new Map<string, { item: T; goneAt?: number }>());
@@ -110,18 +132,7 @@ const dateOf = (n: Node) => ago(n.date);
 /** The rows and lanes of a laid-out graph. Its column (`.ws-graph`) says whether a preview shows (`data-preview`) and a branch is brought forward (`data-hl`). */
 export function GraphCanvas({ shown, base, selected, hl, wip, age = dateOf, onOpen = nothing, onMenu = nothing, onLabel = nothing, onLabelSwitch = nothing, onLabelMenu = nothing, onLabelHover = nothing }: GraphCanvasProps) {
   // What changed against the graph as it is: drawn pulsing while the preview shows.
-  const changed = useMemo(() => {
-    if (!base || base === shown) return null;
-    const sig = (r: GRow, l: GLabel) => `${r.key}|${l.key}|${+!!l.local}${+!!l.remote}${+!!l.head}`;
-    const rows = new Set(base.rows.map((r) => r.key));
-    const labels = new Set(base.rows.flatMap((r) => r.labels.map((l) => sig(r, l))));
-    const pieces = new Set(base.pieces.map((p) => p.key));
-    return {
-      row: (r: GRow) => !rows.has(r.key),
-      label: (r: GRow, l: GLabel) => !labels.has(sig(r, l)),
-      piece: (p: GPiece) => !pieces.has(p.key),
-    };
-  }, [base, shown]);
+  const changed = useMemo(() => (!base || base === shown ? null : changesFrom(base)), [base, shown]);
   const rows = usePresence(shown.rows, FADE_MS);
   const pieces = usePresence(shown.pieces, FADE_MS);
   const svg = useRef<SVGSVGElement>(null);

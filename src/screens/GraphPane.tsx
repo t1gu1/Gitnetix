@@ -3,7 +3,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent 
 import { useAction, useGraph } from "../api/hooks";
 import type { BranchView, Commit, Overview } from "../api/types";
 import { ContextMenu, type MenuItem } from "../components/ContextMenu";
-import { GRAPH_ROW, GraphCanvas, PreviewBanner, rowCenter, showsBranch } from "../components/GraphCanvas";
+import { changedRows, GRAPH_ROW, GraphCanvas, PreviewBanner, rowCenter, showsBranch, tipRow } from "../components/GraphCanvas";
 import { Icon } from "../components/Icon";
 import { ErrorBox } from "../components/ui";
 import { above, holds, layout, NEW_BRANCH, ownerOf, reachable, repoOf, simulate, tipOf, type Focus, type GLabel, type GRow, type Node, type Preview, type Repo } from "../lib/graph";
@@ -39,6 +39,14 @@ function colorsFor(o: Overview, lanes: string[]) {
     picked.set(b, v?.role === "trunk" || b === o.defaultBranch ? "var(--trunk-fg)" : v?.role === "release" ? "var(--release-fg)" : work[n++ % work.length]);
   }
   return (b: string) => picked.get(b) ?? (b === NEW_BRANCH ? "var(--accent)" : work[n % work.length]);
+}
+
+/** Scrolls rows `a` to `b` into `el`'s view when they're out of it, one row above them showing what came after; false when they were in it. */
+function reveal(el: HTMLElement, a: number, b = a) {
+  const top = rowCenter(a) - GRAPH_ROW / 2;
+  if (top >= el.scrollTop && rowCenter(b) + GRAPH_ROW / 2 <= el.scrollTop + el.clientHeight) return false;
+  el.scrollTo({ top: Math.max(0, top - GRAPH_ROW), behavior: "smooth" });
+  return true;
 }
 
 export interface GraphPaneProps {
@@ -144,27 +152,54 @@ export function GraphPane(props: GraphPaneProps) {
   }, []);
 
   const scroller = useRef<HTMLDivElement>(null);
+  // Where the graph was scrolled before a hover elsewhere scrolled it to what it shows: it goes back there once the hover ends.
+  const peekFrom = useRef<number | null>(null);
   // The commit picked elsewhere (the commit list) scrolls into view here.
   useLayoutEffect(() => {
     const row = selected && shown?.rows.find((r) => r.node?.sha === selected || r.hidden?.some((n) => n.sha === selected));
     const el = scroller.current;
     if (!row || !el) return;
+    peekFrom.current = null;
     const y = rowCenter(row.row);
     if (y < el.scrollTop + GRAPH_ROW || y > el.scrollTop + el.clientHeight - GRAPH_ROW) el.scrollTo({ top: y - el.clientHeight / 3, behavior: "smooth" });
   }, [selected]); // eslint-disable-line react-hooks/exhaustive-deps
-  // The branch picked, once its graph is read: scrolled to when out of sight, one row above it showing what came after it. Once per pick.
+  // The branch picked, once its graph is read: scrolled to when out of sight. Once per pick; picked while hovered, the graph stays on it.
   const scrolledTo = useRef<string | undefined>(undefined);
   const picked = first[0];
   useLayoutEffect(() => {
     const el = scroller.current;
     if (!el || !base || !picked || graph.isPlaceholderData || scrolledTo.current === picked) return;
-    const tip = base.rows.find((r) => r.labels.some((l) => l.branch === picked)) ?? base.rows.find((r) => r.branch === picked);
+    const tip = tipRow(base, picked);
     if (!tip) return;
     scrolledTo.current = picked;
-    const top = rowCenter(tip.row) - GRAPH_ROW / 2;
-    if (top >= el.scrollTop && top + GRAPH_ROW <= el.scrollTop + el.clientHeight) return;
-    el.scrollTo({ top: Math.max(0, top - GRAPH_ROW), behavior: "smooth" });
+    peekFrom.current = null;
+    reveal(el, tip.row);
   }, [picked, base, graph.isPlaceholderData]);
+  // A previewed action, or a branch row hovered in the tree, scrolls the graph to what it shows when that's out of sight: the rows the action
+  // changes, else the branch's tip. Rows the graph still has to read for it scroll to once it has them.
+  const peekBranch = hoverLabel ? null : hoveredRow;
+  const peeking = !!intent || !!peekBranch;
+  const [peekTop, peekEnd] = useMemo(() => {
+    const rows = shown && previewing && base ? changedRows(base, shown) : [];
+    const tip = !rows.length && shown && peekBranch ? tipRow(shown, peekBranch) : undefined;
+    if (tip) rows.push(tip.row);
+    return rows.length ? [Math.min(...rows), Math.max(...rows)] : [-1, -1];
+  }, [shown, base, previewing, peekBranch]);
+  useLayoutEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    if (!peeking) {
+      if (peekFrom.current !== null) el.scrollTo({ top: peekFrom.current, behavior: "smooth" });
+      peekFrom.current = null;
+      return;
+    }
+    const from = el.scrollTop;
+    if (peekTop >= 0 && reveal(el, peekTop, peekEnd)) peekFrom.current ??= from;
+  }, [peeking, peekTop, peekEnd]);
+  // A picked action lands where it was previewed: the graph stays there.
+  useEffect(() => {
+    if (held && updated > held.at) peekFrom.current = null;
+  }, [held, updated]);
 
   const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[]; label: string } | null>(null);
   const [reset, setReset] = useState<{ node: Node; branch: string; mode: ResetMode } | null>(null);
