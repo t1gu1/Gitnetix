@@ -1405,7 +1405,7 @@ function RenameBranchModal({ pid, view, onClose, onRenamed }: { pid: string; vie
 }
 
 /** Pick any branch for `branch` to merge into: not itself, its current base, or a branch below it. */
-function TargetBranchModal({
+export function TargetBranchModal({
   pid,
   branch,
   branches,

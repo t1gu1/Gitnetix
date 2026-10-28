@@ -17,7 +17,7 @@ import { KINDS, kindOfBranch, type Kind } from "../lib/kinds";
 import { useNav } from "../lib/nav";
 import { useBranchActions } from "./BranchMenu";
 import { ConflictModal } from "./ConflictModal";
-import { DiscardWorktreeModal, FinishWorktreeCard, MergeModal, mergeTargets, useFinishHandlers } from "./Workspace";
+import { DiscardWorktreeModal, FinishWorktreeCard, MergeModal, mergeTargets, TargetBranchModal, useFinishHandlers } from "./Workspace";
 
 const STATUS: Record<AgentStatus | "idle", [string, string]> = {
   running: ["Running", "c-acc"],
@@ -220,6 +220,7 @@ function Detail({ r, menu, onMenuClose }: { r: Row; menu?: { x: number; y: numbe
   const [merging, setMerging] = useState<{ then: () => void; stay: boolean; into?: string } | null>(null);
   const [discarding, setDiscarding] = useState(false);
   const [clearing, setClearing] = useState(false);
+  const [targeting, setTargeting] = useState(false);
   const finish = useFinishHandlers(r.projectId, actions.continueOn, (_, then, stay, into) => setMerging({ then, stay, into }));
   const isWorktree = !!r.wt && !r.wt.main;
   const session = { projectId: r.projectId, branch: r.branch, cwd: r.path };
@@ -281,6 +282,7 @@ function Detail({ r, menu, onMenuClose }: { r: Row; menu?: { x: number; y: numbe
     isWorktree && "sep",
     isWorktree && { id: "continue", label: "Continue on branch", icon: "swap", run: () => finish.continue(session, true) },
     isWorktree && view?.conflict && { id: "conflicts", label: "Resolve conflicts…", icon: "sparkle", run: () => setResolving(true) },
+    isWorktree && view?.exists && r.branch !== ov.data?.defaultBranch && { id: "target", label: "Change target branch…", icon: "merged", run: () => setTargeting(true) },
     // Work branches only: shared ones (releases, dev) catch up by merging. Not under a working agent.
     isWorktree && !view?.conflict && view?.role === "branch" && !view.protected && !!base && {
       id: "rebase",
@@ -337,6 +339,10 @@ function Detail({ r, menu, onMenuClose }: { r: Row; menu?: { x: number; y: numbe
           onDeleted={(into) => nav.projectId === r.projectId && nav.selectedBranch === r.branch && nav.selectBranch(into)}
           onMerged={merging.then}
         />
+      )}
+      {targeting && ov.data && (
+        // This screen shows branch names as they are, releases included.
+        <TargetBranchModal pid={r.projectId} branch={r.branch} branches={ov.data.branches} labelOf={(b) => b} onClose={() => setTargeting(false)} onTargeted={() => setTargeting(false)} />
       )}
       {discarding && <DiscardWorktreeModal branch={r.branch} path={r.path} onClose={() => setDiscarding(false)} onConfirm={() => finish.discard(session)} />}
       {clearing && a && (
