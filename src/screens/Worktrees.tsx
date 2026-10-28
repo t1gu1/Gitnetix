@@ -463,9 +463,11 @@ function StartModal({ initial, onClose }: { initial?: string; onClose: () => voi
   const ov = useOverview(pid).data;
   const all = (ov?.branches ?? []).filter((b) => b.exists);
   const branches = all.filter((b) => b.name !== ov?.defaultBranch);
-  const branch = branches.find((b) => b.name === picked)?.name ?? branches[0]?.name ?? "";
+  // The checked-out branch is the one picked until another is.
+  const current = all.find((b) => b.name === ov?.currentBranch);
+  const branch = branches.find((b) => b.name === picked)?.name ?? branches.find((b) => b === current)?.name ?? branches[0]?.name ?? "";
   // Checked out on a trunk (main, master, dev) or release branch: offer a new branch off it.
-  const on = all.find((b) => b.name === ov?.currentBranch && b.role !== "branch");
+  const on = current?.role !== "branch" ? current : undefined;
   const mode = pickedMode ?? (on || (ov && !branches.length) ? "new" : "existing");
   const from = all.find((b) => b.name === pickedFrom)?.name ?? on?.name ?? ov?.defaultBranch ?? "";
   const fresh = mode === "new";
