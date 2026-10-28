@@ -482,6 +482,8 @@ export function useAction<T = unknown, V extends Record<string, unknown> = Recor
     success?: string | ((r: T) => string | undefined);
     /** Updates the cache with what is already known, so it shows before the invalidated queries come back. */
     patch?: (qc: QueryClient, vars: V, r: T) => void;
+    /** Handles an error itself (returns true): no toast then. */
+    onError?: (e: Error, vars: V) => boolean;
   } = {},
 ) {
   const qc = useQueryClient();
@@ -496,6 +498,6 @@ export function useAction<T = unknown, V extends Record<string, unknown> = Recor
       const msg = typeof opts.success === "function" ? opts.success(r) : opts.success;
       if (msg) toast(msg, "ok");
     },
-    onError: (e) => toast(e.message, "error"),
+    onError: (e, vars) => opts.onError?.(e, vars) || toast(e.message, "error"),
   });
 }

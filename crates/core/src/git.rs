@@ -859,10 +859,10 @@ impl Git {
         Ok(parse_status_z(&status).len() as u32)
     }
 
-    /// Set aside every uncommitted change, untracked files included.
-    pub async fn stash(&self, message: &str) -> Result<()> {
+    /// Set aside every uncommitted change, untracked files included; returns the new stash's sha.
+    pub async fn stash(&self, message: &str) -> Result<String> {
         self.run(&["stash", "push", "--include-untracked", "-m", message]).await?;
-        Ok(())
+        self.rev_parse("refs/stash").await
     }
 
     /// Every stash of the repository (shared by all its worktrees), newest first.

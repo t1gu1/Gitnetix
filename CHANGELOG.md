@@ -11,6 +11,9 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+### Added
+- Switching branch when uncommitted changes are in the way now asks what to do with them: bring them along to the other branch, or stash them and switch to a clean branch. Before, the switch failed with git's error.
+
 ### Changed
 - Merging, deleting a branch or a worktree, continuing on a branch and clearing a session close their dialog at once and run in the background. What they remove leaves the lists right away, and comes back if the action fails.
 - A toast with a spinner shows a background action until it is done, then how it went. A failure stays on screen until clicked.

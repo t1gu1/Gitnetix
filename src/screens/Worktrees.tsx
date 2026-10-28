@@ -61,9 +61,9 @@ export function Worktrees({ initial }: { initial?: string }) {
   const projects = useProjects().data ?? [];
   const [filter, setFilter] = useState<Filter>("all");
   // Projects left out of the list; ones added later show.
-  const [hidden, setHidden] = useStored<string[]>("gnx.worktrees.hidden", []);
-  const off = projects.filter((p) => hidden.includes(p.id));
-  const shown = projects.filter((p) => !hidden.includes(p.id));
+  const [hiddenProjects, setHiddenProjects] = useStored<string[]>("gnx.worktrees.hidden", []);
+  const off = projects.filter((p) => hiddenProjects.includes(p.id));
+  const shown = projects.filter((p) => !hiddenProjects.includes(p.id));
   const [sel, setSel] = useState<string | undefined>(initial);
   const [pane, setPane] = useState<"list" | "detail">(initial ? "detail" : "list");
   const listW = usePaneWidth("gnx.pane.worktrees", 400, 280, 720);
@@ -100,7 +100,7 @@ export function Worktrees({ initial }: { initial?: string }) {
     return list.filter((r) => !hidden.has(wtKey(r.path)) && !(r.agent && hidden.has(agentKey(r.agent.id))));
   }, [wts.data, agents.data, projects, hidden]);
   // A hidden project's rows are gone, from the counts too.
-  const rows = all.filter((r) => !hidden.includes(r.projectId));
+  const rows = all.filter((r) => !hiddenProjects.includes(r.projectId));
 
   const cur = rows.find((r) => r.key === sel) ?? rows[0];
   // Projects with matching rows first; the rest sink to the bottom as bare headers.
@@ -133,7 +133,7 @@ export function Worktrees({ initial }: { initial?: string }) {
                   }))}
                 />
               </div>
-              <ProjectFilter projects={projects} hidden={off.map((p) => p.id)} onChange={setHidden} />
+              <ProjectFilter projects={projects} hidden={off.map((p) => p.id)} onChange={setHiddenProjects} />
             </div>
           </div>
           <div className="scroll" style={{ flex: "1 1 auto", paddingBottom: 12 }} aria-busy={refreshing || undefined}>
@@ -200,7 +200,7 @@ export function Worktrees({ initial }: { initial?: string }) {
               off.length ? (
                 <Empty>
                   Every project is hidden.{" "}
-                  <button className="btn btn-sm" onClick={() => setHidden([])}>Show all projects</button>
+                  <button className="btn btn-sm" onClick={() => setHiddenProjects([])}>Show all projects</button>
                 </Empty>
               ) : (
                 <Empty>Nothing here right now.</Empty>

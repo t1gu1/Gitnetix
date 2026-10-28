@@ -1,6 +1,7 @@
 import { useState, type MouseEvent } from "react";
 
 import { droppedWorktree, patchOverview, patchWip, pushed, queryClient, settle, switchedOverview, useAction, useAiOn, useOverview, usePendingBranches } from "../api/hooks";
+import { RpcError } from "../api/transport";
 import type { BranchView, Overview, RebaseResult, RenameResult, Stash, StashApplied } from "../api/types";
 import { ContextMenu, type MenuItem } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
@@ -9,7 +10,7 @@ import { useNav } from "../lib/nav";
 import { call, runTask, wtKey } from "../lib/tasks";
 import { copyToClipboard, toast } from "../lib/toast";
 
-export type BranchDialog = "merge" | "delete" | "rename" | "continue" | "conflicts" | "reset" | "forcePush" | "tag" | "target" | "rebase" | "rebaseOnto" | "abortSwitch";
+export type BranchDialog = "merge" | "delete" | "rename" | "continue" | "conflicts" | "reset" | "forcePush" | "tag" | "target" | "rebase" | "rebaseOnto" | "abortSwitch" | "switchWip";
 
 export interface BranchTarget {
   view: BranchView;
@@ -63,10 +64,16 @@ const isDiverged = (v: BranchView) => !!v.upstream && v.upstreamAhead > 0 && v.u
 export function useBranchActions(pid: string, openDialog: (d: BranchDialog, branch: string, onto?: string) => void) {
   const nav = useNav();
   const inv = [["overview", pid], ["files", pid], ["diff", pid], ["commits", pid]];
-  const sw = useAction<unknown, { projectId: string; branch: string; abort?: boolean }>("workspace.switch", {
+  const sw = useAction<{ conflicts: string[] }, { projectId: string; branch: string; abort?: boolean; wip?: "stash" | "carry" }>("workspace.switch", {
     invalidate: inv,
     // The tree follows the checkout at once instead of waiting for the full overview.
     patch: (qc, v) => qc.setQueryData<Overview>(["overview", pid], (o) => o && switchedOverview(o, v.branch)),
+    // Uncommitted changes in the way: ask whether they come along or wait in a stash.
+    onError: (e, v) => {
+      if (!(e instanceof RpcError && e.code === "would_overwrite")) return false;
+      openDialog("switchWip", v.branch);
+      return true;
+    },
   });
   const wt = useAction<{ path: string }, { projectId: string; branch: string }>("worktrees.create", { invalidate: [...inv, ["worktrees"]], success: (r) => `Worktree at ${r.path}` });
   // Pull, push and stash show on the row at once; counts against the parent wait for the overview.
@@ -108,6 +115,17 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
   // Git refuses to switch in the middle of a rebase, merge…: ask to abort it first.
   const switchOrAsk = (b: string, ok: string) => (ov?.inProgress ? openDialog("abortSwitch", b) : run(sw, b, ok));
   const abortAndSwitch = (b: string) => sw.mutate({ projectId: pid, branch: b, abort: true }, { onSuccess: () => toast(`Aborted the ${ov?.inProgress ?? "operation"} and switched to ${b}`, "ok") });
+  /** Switches with the uncommitted changes git refused to switch with: carried along, or left in a stash. */
+  const switchWith = (b: string, wip: "stash" | "carry") =>
+    sw.mutate(
+      { projectId: pid, branch: b, wip },
+      {
+        onSuccess: (r) =>
+          r.conflicts.length
+            ? toast(`Switched to ${b} with ${plural(r.conflicts.length, "conflict")}: resolve them in the WIP files. The stash is kept.`, "error")
+            : toast(wip === "carry" ? `Switched to ${b}, your changes came along` : `Stashed your changes, switched to ${b}`, "ok"),
+      },
+    );
   /** Deletes the worktree (refused with uncommitted changes there), then checks its branch out here. In the background: its row goes at once. */
   const continueOn = (branch: string, path: string) => {
     // Mid rebase, merge… here: the worktree still goes, then the abort dialog asks.
@@ -463,7 +481,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
 
   const menuEl = menu && <ContextMenu x={menu.x} y={menu.y} alignRight={menu.alignRight} label={`Actions for ${menu.t.view.name}`} items={items(menu.t)} onClose={() => setMenu(null)} />;
 
-  return { primary, create, openMenu, menuEl, busy, switchTo, continueOn, abortAndSwitch };
+  return { primary, create, openMenu, menuEl, busy, switchTo, continueOn, abortAndSwitch, switchWith };
 }
 
 export type BranchActions = ReturnType<typeof useBranchActions>;

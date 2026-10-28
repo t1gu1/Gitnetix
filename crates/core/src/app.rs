@@ -2640,13 +2640,16 @@ impl Gitnetix {
 
     /// Check out `branch` in the main checkout; `abort` first aborts the rebase, merge, cherry-pick
     /// or revert it's stopped in the middle of (git refuses to switch then).
-    pub async fn switch_branch(&self, project_id: &str, branch: &str, abort: bool) -> Result<()> {
+    /// Uncommitted changes the checkout would overwrite refuse it (`WouldOverwrite`) unless `wip` says
+    /// what to do with them: "stash" leaves them in a stash, "carry" stashes them, switches and puts
+    /// them back. Returns the files left conflicted by carrying them (the stash is kept then).
+    pub async fn switch_branch(&self, project_id: &str, branch: &str, abort: bool, wip: Option<&str>) -> Result<Vec<String>> {
         let p = self.store.project(project_id)?;
         if let Some(dir) = self.checkout_dir(&p, branch).await? {
             if dir != Path::new(&p.path) {
                 return Err(Error::Invalid(format!("{branch} is open in a worktree at {}", dir.display())));
             }
-            return Ok(());
+            return Ok(Vec::new());
         }
         let git = self.git(&p);
         if abort {
@@ -2656,9 +2659,41 @@ impl Gitnetix {
                 out?;
             }
         }
-        git.switch(branch).await?;
+        let Some(wip) = wip else {
+            return match git.switch(branch).await {
+                Err(Error::Git { stderr, .. }) if stderr.contains("would be overwritten by checkout") => {
+                    Err(Error::WouldOverwrite(format!("Uncommitted changes would be overwritten by switching to {branch}.")))
+                }
+                out => {
+                    out?;
+                    self.changed(project_id);
+                    Ok(Vec::new())
+                }
+            };
+        };
+        if !matches!(wip, "stash" | "carry") {
+            return Err(Error::Invalid(format!("wip: {wip:?}")));
+        }
+        let files = git.wip_changes().await?;
+        if files.is_empty() {
+            git.switch(branch).await?;
+            self.changed(project_id);
+            return Ok(Vec::new());
+        }
+        let sha = git.stash(&stash_message(&files)).await?;
+        let out = git.switch(branch).await;
         self.changed(project_id);
-        Ok(())
+        if let Err(e) = out {
+            // Still on the branch the stash was made on: it goes back cleanly.
+            if git.stash_apply(&sha).await.is_ok_and(|c| c.is_empty()) {
+                git.stash_drop(&sha).await?;
+            }
+            return Err(e);
+        }
+        if wip == "stash" {
+            return Ok(Vec::new());
+        }
+        Ok(self.apply_stash(project_id, branch, &sha, true).await?.conflicts)
     }
 
     /// The branch's checkout, with everything staged first when `all`;

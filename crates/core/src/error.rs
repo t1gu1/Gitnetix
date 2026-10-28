@@ -20,6 +20,9 @@ pub enum Error {
     Io(#[from] std::io::Error),
     #[error(transparent)]
     Json(#[from] serde_json::Error),
+    /// Uncommitted changes a checkout would overwrite: git refused to switch.
+    #[error("{0}")]
+    WouldOverwrite(String),
     #[error("{0}")]
     Other(String),
 }
@@ -48,6 +51,7 @@ impl Error {
             Error::Ai(_) => "ai",
             Error::Io(_) => "io",
             Error::Json(_) => "json",
+            Error::WouldOverwrite(_) => "would_overwrite",
             Error::Other(_) => "other",
         }
     }

@@ -694,6 +694,9 @@ export function Workspace() {
       {dialog?.kind === "abortSwitch" && o?.inProgress && (
         <AbortSwitchModal op={o.inProgress} branch={dialog.branch} path={o.project.path} onClose={() => setDialog(null)} onConfirm={() => actions.abortAndSwitch(dialog.branch)} />
       )}
+      {dialog?.kind === "switchWip" && o && (
+        <SwitchWipModal from={o.currentBranch} branch={dialog.branch} onClose={() => setDialog(null)} onConfirm={(wip) => actions.switchWith(dialog.branch, wip)} />
+      )}
       {dialog?.kind === "continue" && dialogView?.worktree && (
         <ContinueOnBranchModal branch={dialog.branch} path={dialogView.worktree} onClose={() => setDialog(null)} onConfirm={() => finish.continue({ projectId: pid, branch: dialog.branch, cwd: dialogView.worktree! }, true)} />
       )}
@@ -1609,6 +1612,36 @@ function AbortSwitchModal({ op, branch, path, onClose, onConfirm }: { op: string
       <p style={{ margin: 0, lineHeight: 1.55 }}>
         The checkout at <span className="mono">{path}</span> is stopped in the middle of a {op}, so git can't switch to <span className="mono">{branch}</span>.
         Aborting puts it back as it was before the {op}, then switches. <span className="c-warn">Every change made to its files since the {op} started is lost, conflict fixes included.</span>
+      </p>
+    </Modal>
+  );
+}
+
+function SwitchWipModal({ from, branch, onClose, onConfirm }: { from?: string | null; branch: string; onClose: () => void; onConfirm: (wip: "stash" | "carry") => void }) {
+  const pick = (wip: "stash" | "carry") => {
+    onConfirm(wip);
+    onClose();
+  };
+  return (
+    <Modal
+      title="Uncommitted changes in the way"
+      sub={<span className="mono">{branch}</span>}
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn btn-md" onClick={() => pick("stash")}>Stash and switch</button>
+          <button className="btn btn-md btn-primary" onClick={() => pick("carry")}>Bring them along</button>
+        </>
+      }
+    >
+      <p style={{ margin: 0, lineHeight: 1.55 }}>
+        Some files you changed {from ? <>on <span className="mono">{from}</span> </> : ""}are also different on <span className="mono">{branch}</span>, so git can't switch with your changes as they are.
+      </p>
+      <p style={{ margin: 0, lineHeight: 1.55 }}>
+        <b>Bring them along</b>: they're stashed, then put back on <span className="mono">{branch}</span>. If they clash with its version, you resolve the conflicts and the stash stays until then.
+      </p>
+      <p style={{ margin: 0, lineHeight: 1.55 }}>
+        <b>Stash and switch</b>: they wait in a stash{from ? <> made on <span className="mono">{from}</span></> : ""}, and <span className="mono">{branch}</span> opens clean. Pop it when you're back.
       </p>
     </Modal>
   );

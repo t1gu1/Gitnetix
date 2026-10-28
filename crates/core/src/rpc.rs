@@ -42,7 +42,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("commits.cherryPick", "Copy a commit onto a checked-out branch", "projectId, onto, sha"),
     ("commits.reset", "Reset a checked-out branch to a commit", "projectId, branch, sha, mode: soft|mixed|hard"),
     ("commits.tag", "Tag a commit (annotated, message defaults to the name) and push it to origin", "projectId, sha, name, message?"),
-    ("workspace.switch", "Check out a branch (uncommitted work comes along); abort = first abort the rebase/merge/cherry-pick/revert the checkout is stopped in", "projectId, branch, abort?"),
+    ("workspace.switch", "Check out a branch (uncommitted work comes along); abort = first abort the rebase/merge/cherry-pick/revert the checkout is stopped in; wip = stash|carry the uncommitted changes the checkout would overwrite (refused otherwise); returns conflicts left by carrying them", "projectId, branch, abort?, wip?"),
     ("workspace.stage", "Stage files (all when paths is empty)", "projectId, branch, paths?"),
     ("workspace.unstage", "Unstage files (all when paths is empty)", "projectId, branch, paths?"),
     ("workspace.stageLines", "Stage some changed lines of one file, picked from its unstaged diff: each a removal (kind \"-\", n = old line number) or an addition (kind \"+\", n = new line number) with its text; refused when the file changed since", "projectId, branch, path, lines: [{kind, n, text}]"),
@@ -523,10 +523,7 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
             k.tag_commit(&s(&p, "projectId")?, &s(&p, "sha")?, &s(&p, "name")?, os(&p, "message").as_deref()).await?;
             ok()
         }
-        "workspace.switch" => {
-            k.switch_branch(&s(&p, "projectId")?, &s(&p, "branch")?, b(&p, "abort")).await?;
-            ok()
-        }
+        "workspace.switch" => to(json!({ "conflicts": k.switch_branch(&s(&p, "projectId")?, &s(&p, "branch")?, b(&p, "abort"), os(&p, "wip").as_deref()).await? })),
         "workspace.commitMessage" => to(json!({ "message": k.generate_commit_message(&s(&p, "projectId")?, &s(&p, "branch")?).await? })),
         "workspace.stage" => {
             k.stage(&s(&p, "projectId")?, &s(&p, "branch")?, &list(&p, "paths")?).await?;
