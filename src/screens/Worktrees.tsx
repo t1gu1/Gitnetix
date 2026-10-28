@@ -82,7 +82,7 @@ export function Worktrees({ initial }: { initial?: string }) {
     else setMenu({ key: r.key, x: fromKey ? b.left : e.clientX, y: fromKey ? b.bottom + 2 : e.clientY });
   };
 
-  const hidden = useHidden();
+  const gone = useHidden();
   // One row per linked worktree; agents elsewhere (main checkout, removed directory) still show up.
   // Worktrees and sessions a background action is taking away are gone from the click on.
   const all: Row[] = useMemo(() => {
@@ -97,8 +97,8 @@ export function Worktrees({ initial }: { initial?: string }) {
         list.push({ key: a.id, wt: w, agent: a, projectId: a.projectId, projectName: p?.name ?? "?", branch: a.branch, path: a.cwd, status: shownStatus(a, w) });
       }
     }
-    return list.filter((r) => !hidden.has(wtKey(r.path)) && !(r.agent && hidden.has(agentKey(r.agent.id))));
-  }, [wts.data, agents.data, projects, hidden]);
+    return list.filter((r) => !gone.has(wtKey(r.path)) && !(r.agent && gone.has(agentKey(r.agent.id))));
+  }, [wts.data, agents.data, projects, gone]);
   // A hidden project's rows are gone, from the counts too.
   const rows = all.filter((r) => !hiddenProjects.includes(r.projectId));
 

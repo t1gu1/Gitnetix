@@ -2937,37 +2937,50 @@ impl Gitnetix {
     }
 
     /// AI's take on conflicted file `path` in `git`'s checkout: the change from `ours` brought onto `theirs`.
-    /// AI is asked about each conflict with a few lines around it, not the whole file: a big file
-    /// would take minutes to write back, or never come back at all.
+    /// AI sees the whole file and answers with edits, not the file: a big file would take minutes to
+    /// write back. Edits go anywhere, as resolving may take lines outside the conflicts (a name both
+    /// sides declare, an import). An answer that can't be applied is asked again, AI told why.
     async fn propose_resolution(&self, p: &Project, git: &Git, path: &str, ours: &str, theirs: &str) -> Result<String> {
+        const TRIES: usize = 3;
         let content = std::fs::read_to_string(git.cwd().join(path))?;
         let lines: Vec<&str> = content.lines().collect();
-        let regions = conflict_regions(&lines, 10);
-        if regions.is_empty() {
+        if conflict_regions(&lines, 0).is_empty() {
             return Err(Error::Invalid(format!("{path} has no conflict markers to resolve")));
         }
-        let t = self.template("conflict", None, Some(&p.id))?;
-        let mut out: Vec<String> = Vec::new();
-        let mut at = 0;
-        for (start, end) in regions {
-            out.extend(lines[at..start].iter().map(|l| l.to_string()));
+        let mut t = self.template("conflict", None, Some(&p.id))?;
+        t.body = format!("{}\n\n{}", t.body, templates::CONFLICT_EDITS);
+        // A huge file would not fit some models: its conflicts then, with room around each.
+        let (shown, about) = if content.len() <= 200_000 {
+            (lines.join("\n"), path.to_string())
+        } else {
+            let parts: Vec<String> = conflict_regions(&lines, 30).iter().map(|&(s, e)| format!("Lines {}-{} of {}:\n{}", s + 1, e, lines.len(), lines[s..e].join("\n"))).collect();
+            (parts.join("\n\n"), format!("{path} (only its conflicts and the lines around them are shown)"))
+        };
+        let mut why = String::new();
+        for n in 1..=TRIES {
+            let mut t = t.clone();
+            if !why.is_empty() {
+                t.body.push_str("\n\nYour last answer could not be applied: {why}. Answer again with every edit.");
+            }
             let mut vars = BTreeMap::new();
-            vars.insert("conflict".into(), lines[start..end].join("\n"));
-            vars.insert("path".into(), format!("{path} (excerpt: lines {}-{} of {})", start + 1, end, lines.len()));
+            vars.insert("conflict".into(), shown.clone());
+            vars.insert("path".into(), about.clone());
             vars.insert("ours".into(), ours.to_string());
             vars.insert("theirs".into(), theirs.to_string());
+            vars.insert("why".into(), why.clone());
             let answer = self.ask("conflict", &t, vars, "en", Some(git.cwd())).await?;
-            let fitted = fit_answer(&lines[start..end], &answer)
-                .ok_or_else(|| Error::Ai("The AI answer does not match the lines around the conflict. Try again or resolve by hand.".into()))?;
-            if fitted.iter().any(|l| l.starts_with("<<<<<<<") || l.starts_with(">>>>>>>")) {
-                return Err(Error::Ai("The AI answer still has conflict markers. Try again or resolve by hand.".into()));
+            match resolve_answer(&lines, &answer) {
+                // `lines()` drops the `\r`: a CRLF file keeps its line endings.
+                Ok(out) => return Ok(out.join(if content.contains("\r\n") { "\r\n" } else { "\n" })),
+                Err(e) => {
+                    let mut said = answer;
+                    crate::git::truncate_utf8(&mut said, 4_000);
+                    crate::log::error(format!("AI answer for {path} could not be applied (try {n} of {TRIES}): {e}\n{said}"));
+                    why = e;
+                }
             }
-            out.extend(fitted);
-            at = end;
         }
-        out.extend(lines[at..].iter().map(|l| l.to_string()));
-        // `lines()` drops the `\r`: a CRLF file keeps its line endings.
-        Ok(out.join(if content.contains("\r\n") { "\r\n" } else { "\n" }))
+        Err(Error::Ai(format!("No answer in {TRIES} tries could be applied: {why}")))
     }
 
     /// Write a resolved file and stage it.
@@ -5824,10 +5837,85 @@ fn conflict_regions(lines: &[&str], context: usize) -> Vec<(usize, usize)> {
     regions
 }
 
-/// AI's answer for `excerpt` (conflicts with their context) cut back to the excerpt: an AI that can
-/// read the checkout may answer with the whole file, or add a preamble. The context on each side of the
-/// conflicts is found in the answer (whitespace aside) and kept as it was, what's between them taken.
-/// None when the answer doesn't hold that context: it can't be placed safely.
+/// The new lines of conflicted file `lines` from AI's answer: its edits made in order, or, answered
+/// with no edits, the whole text when the lines around the conflicts came back as they were.
+/// Err says why it can't be used, for AI to be told when asked again.
+fn resolve_answer(lines: &[&str], answer: &str) -> std::result::Result<Vec<String>, String> {
+    let edits = parse_edits(answer)?;
+    let out = if edits.is_empty() { fit_answer(lines, answer).ok_or("it has no [[FIND]] … [[END]] edit")? } else { apply_edits(lines, &edits)? };
+    // Markers outside the conflicts (a page about them) stay.
+    let marker = |l: &str| l.starts_with("<<<<<<<") || l.starts_with("|||||||") || l.starts_with(">>>>>>>") || l.trim_end() == "=======";
+    let inside: usize = conflict_regions(lines, 0).iter().map(|&(s, e)| lines[s..e].iter().filter(|l| marker(l)).count()).sum();
+    if out.iter().filter(|l| marker(l)).count() + inside > lines.iter().filter(|l| marker(l)).count() {
+        return Err("conflict markers are left in the file: each conflict, from <<<<<<< to >>>>>>>, goes inside the FIND of an edit".into());
+    }
+    Ok(out)
+}
+
+/// One of AI's edits to a conflicted file: lines copied from it (FIND), and the ones that take their place (REPLACE).
+type Edit<'a> = (Vec<&'a str>, Vec<&'a str>);
+
+/// AI's edits to a conflicted file, each written as [[FIND]] lines [[REPLACE]] lines [[END]]. What's
+/// around them is left out.
+fn parse_edits(answer: &str) -> std::result::Result<Vec<Edit<'_>>, String> {
+    let mut edits: Vec<Edit> = Vec::new();
+    // 0: between edits, 1: in a FIND, 2: in a REPLACE.
+    let mut part = 0;
+    for l in answer.lines() {
+        match (l.trim(), part) {
+            ("[[FIND]]", 0) => {
+                edits.push((Vec::new(), Vec::new()));
+                part = 1;
+            }
+            ("[[REPLACE]]", 1) => part = 2,
+            ("[[END]]", 2) => part = 0,
+            (d @ ("[[FIND]]" | "[[REPLACE]]" | "[[END]]"), _) => return Err(format!("{d} is out of place")),
+            (_, 1) => edits.last_mut().expect("open edit").0.push(l),
+            (_, 2) => edits.last_mut().expect("open edit").1.push(l),
+            _ => {}
+        }
+    }
+    if part != 0 {
+        return Err(format!("edit {} has no [[END]]", edits.len()));
+    }
+    Ok(edits)
+}
+
+/// `lines` with each edit made in turn: its FIND, found in one place of the lines as the edits before
+/// left them, swapped for its REPLACE. Found as written, else whitespace aside: its REPLACE then
+/// takes the file's indent.
+fn apply_edits(lines: &[&str], edits: &[Edit]) -> std::result::Result<Vec<String>, String> {
+    let mut out: Vec<String> = lines.iter().map(|l| l.to_string()).collect();
+    for (n, (find, replace)) in edits.iter().enumerate() {
+        let Some(k) = find.iter().position(|l| !l.trim().is_empty()) else {
+            return Err(format!("the FIND of edit {} is empty", n + 1));
+        };
+        let at = |same: fn(&str, &str) -> bool| -> Vec<usize> { (0..(out.len() + 1).saturating_sub(find.len())).filter(|&i| find.iter().zip(&out[i..]).all(|(f, o)| same(f, o))).collect() };
+        let exact = at(|f, o| f == o);
+        let (found, loose) = if exact.is_empty() { (at(|f, o| f.trim() == o.trim()), true) } else { (exact, false) };
+        let i = match found[..] {
+            [i] => i,
+            [] => return Err(format!("the FIND of edit {} (from \"{}\") is not in the file", n + 1, find[k].trim())),
+            _ => return Err(format!("the FIND of edit {} (from \"{}\") matches {} places", n + 1, find[k].trim(), found.len())),
+        };
+        let indent = |l: &str| l.len() - l.trim_start().len();
+        let (given, real) = (&find[k][..indent(find[k])], out[i + k][..indent(&out[i + k])].to_string());
+        let new: Vec<String> = replace
+            .iter()
+            .map(|l| match l.strip_prefix(given) {
+                Some(rest) if loose && !l.trim().is_empty() => format!("{real}{rest}"),
+                _ => l.to_string(),
+            })
+            .collect();
+        out.splice(i..i + find.len(), new);
+    }
+    Ok(out)
+}
+
+/// AI's answer with the whole text of `excerpt` (conflicts with the lines around them) cut back to it:
+/// AI may add a preamble. The lines on each side of the conflicts are found in the answer (whitespace
+/// aside) and kept as they were, what's between them taken.
+/// None when the answer doesn't hold them: it can't be placed safely.
 fn fit_answer(excerpt: &[&str], answer: &str) -> Option<Vec<String>> {
     let first = excerpt.iter().position(|l| l.starts_with("<<<<<<<"))?;
     let last = excerpt.iter().rposition(|l| l.starts_with(">>>>>>>"))?;
@@ -5879,6 +5967,99 @@ mod fit_answer_tests {
         let end = ["", "c", "<<<<<<< HEAD", "a", "=======", "b", ">>>>>>> x"];
         assert_eq!(fit_answer(&end, "c\na\nb").unwrap(), ["", "c", "a", "b"]);
         assert_eq!(fit_answer(&["<<<<<<< HEAD", "a", "=======", "b", ">>>>>>> x"], "ab").unwrap(), ["ab"]);
+    }
+}
+
+#[cfg(test)]
+mod resolve_answer_tests {
+    use super::resolve_answer;
+
+    /// Rebasing a branch onto a release: both declare `hidden`, the branch's line merged cleanly next
+    /// to the conflicts. Resolving takes renaming it, outside the markers.
+    const FILE: [&str; 22] = [
+        "export function Worktrees() {",
+        "  const [hidden, setHidden] = useStored<string[]>(\"gnx.worktrees.hidden\", []);",
+        "",
+        "  const hidden = useHidden();",
+        "<<<<<<< 5647557",
+        "  const all: Row[] = useMemo(() => {",
+        "=======",
+        "  // Worktrees a background action is taking away are gone from the click on.",
+        "  const rows: Row[] = useMemo(() => {",
+        ">>>>>>> 32867d5",
+        "    const list = load();",
+        "<<<<<<< 5647557",
+        "    return list;",
+        "  }, [wts.data]);",
+        "  const rows = all.filter((r) => !hidden.includes(r.projectId));",
+        "=======",
+        "    return list.filter((r) => !hidden.has(wtKey(r.path)));",
+        "  }, [wts.data, hidden]);",
+        ">>>>>>> 32867d5",
+        "",
+        "  const cur = rows[0];",
+        "}",
+    ];
+
+    #[test]
+    fn edits_change_lines_outside_the_conflicts_too() {
+        let answer = "[[FIND]]\n  const hidden = useHidden();\n<<<<<<< 5647557\n  const all: Row[] = useMemo(() => {\n=======\n  // Worktrees a background action is taking away are gone from the click on.\n  const rows: Row[] = useMemo(() => {\n>>>>>>> 32867d5\n[[REPLACE]]\n  const leaving = useHidden();\n  // Worktrees a background action is taking away are gone from the click on.\n  const all: Row[] = useMemo(() => {\n[[END]]\n\n[[FIND]]\n<<<<<<< 5647557\n    return list;\n  }, [wts.data]);\n  const rows = all.filter((r) => !hidden.includes(r.projectId));\n=======\n    return list.filter((r) => !hidden.has(wtKey(r.path)));\n  }, [wts.data, hidden]);\n>>>>>>> 32867d5\n[[REPLACE]]\n    return list.filter((r) => !leaving.has(wtKey(r.path)));\n  }, [wts.data, leaving]);\n  const rows = all.filter((r) => !hidden.includes(r.projectId));\n[[END]]";
+        let got = resolve_answer(&FILE, answer).unwrap();
+        assert_eq!(
+            got,
+            [
+                "export function Worktrees() {",
+                "  const [hidden, setHidden] = useStored<string[]>(\"gnx.worktrees.hidden\", []);",
+                "",
+                "  const leaving = useHidden();",
+                "  // Worktrees a background action is taking away are gone from the click on.",
+                "  const all: Row[] = useMemo(() => {",
+                "    const list = load();",
+                "    return list.filter((r) => !leaving.has(wtKey(r.path)));",
+                "  }, [wts.data, leaving]);",
+                "  const rows = all.filter((r) => !hidden.includes(r.projectId));",
+                "",
+                "  const cur = rows[0];",
+                "}",
+            ]
+        );
+        // Far from any conflict, with a preamble and the edits fenced.
+        let far = format!("Here are the edits:\n```\n[[FIND]]\nexport function Worktrees() {{\n[[REPLACE]]\nexport function Worktrees({{ initial }}: Props) {{\n[[END]]\n{}\n```", &answer);
+        assert_eq!(resolve_answer(&FILE, &far).unwrap()[0], "export function Worktrees({ initial }: Props) {");
+    }
+
+    #[test]
+    fn find_whitespace_aside_takes_the_file_indent() {
+        let file = ["fn a() {", "\tone();  ", "<<<<<<< HEAD", "\ttwo();", "=======", "\tthree();", ">>>>>>> b", "}"];
+        let answer = "[[FIND]]\n    one();\n<<<<<<< HEAD\n    two();\n=======\n    three();\n>>>>>>> b\n[[REPLACE]]\n    one();\n    two();\n\n        three();\n[[END]]";
+        assert_eq!(resolve_answer(&file, answer).unwrap(), ["fn a() {", "\tone();", "\ttwo();", "", "\t    three();", "}"]);
+    }
+
+    #[test]
+    fn whole_file_answer_still_fits() {
+        let file = ["a", "<<<<<<< HEAD", "b", "=======", "c", ">>>>>>> x", "d"];
+        assert_eq!(resolve_answer(&file, "a\nb\nc\nd").unwrap(), ["a", "b", "c", "d"]);
+    }
+
+    #[test]
+    fn markers_outside_the_conflicts_stay() {
+        let doc = ["```", "<<<<<<< HEAD", "```", "<<<<<<< HEAD", "a", "=======", "b", ">>>>>>> x"];
+        let answer = "[[FIND]]\n```\n<<<<<<< HEAD\na\n=======\nb\n>>>>>>> x\n[[REPLACE]]\n```\na b\n[[END]]";
+        assert_eq!(resolve_answer(&doc, answer).unwrap(), ["```", "<<<<<<< HEAD", "```", "a b"]);
+    }
+
+    #[test]
+    fn unusable_answers_say_why() {
+        let why = |answer: &str| resolve_answer(&FILE, answer).unwrap_err();
+        assert!(why("[[FIND]]\n  const nope = 1;\n[[REPLACE]]\n[[END]]").contains("the FIND of edit 1 (from \"const nope = 1;\") is not in the file"));
+        assert!(why("[[FIND]]\n\n[[REPLACE]]\nx\n[[END]]").contains("the FIND of edit 1 is empty"));
+        assert!(why("[[FIND]]\n  }, [wts.data, hidden]);\n[[REPLACE]]\n[[END]]\n[[FIND]]\n\n[[REPLACE]]\n[[END]]").contains("edit 2"));
+        assert!(why("[[FIND]]\n\n  const cur = rows[0];\n[[REPLACE]]\n[[END]]").contains("conflict markers are left"));
+        assert!(why("[[FIND]]\n  const cur = rows[0];\n[[REPLACE]]\n  const cur = rows[1];").contains("edit 1 has no [[END]]"));
+        assert!(why("[[FIND]]\n  const cur = rows[0];\n[[FIND]]").contains("[[FIND]] is out of place"));
+        assert!(why("Resolved: I kept both.").contains("it has no [[FIND]]"));
+        let twice = ["x();", "<<<<<<< HEAD", "a", "=======", "b", ">>>>>>> y", "x();"];
+        assert!(resolve_answer(&twice, "[[FIND]]\nx();\n[[REPLACE]]\nz();\n[[END]]").unwrap_err().contains("matches 2 places"));
     }
 }
 

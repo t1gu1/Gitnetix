@@ -36,12 +36,13 @@ fn commit_file(repo: &std::path::Path, path: &str, body: &str) {
 #[tokio::test]
 async fn ai_resolves_conflicts_and_the_operation_goes_through() {
     let tmp = tempfile::tempdir().unwrap();
-    // Each answer differs ("resolved 1", "resolved 2"…), so no resolution leaves a commit empty.
+    // Answers with an edit swapping the conflict it's shown for a line that differs each time ("resolved 1",
+    // "resolved 2"…), so no resolution leaves a commit empty.
     let bin = tmp.path().join("bin");
     std::fs::create_dir(&bin).unwrap();
     let counter = tmp.path().join("answers");
     let script = bin.join("ollama");
-    std::fs::write(&script, format!("#!/bin/sh\ncat >/dev/null\nn=$(($(cat '{0}' 2>/dev/null || echo 0) + 1))\necho $n > '{0}'\nprintf 'resolved %s\\n' \"$n\"\n", counter.display())).unwrap();
+    std::fs::write(&script, format!("#!/bin/sh\nprompt=$(cat)\nn=$(($(cat '{0}' 2>/dev/null || echo 0) + 1))\necho $n > '{0}'\necho '[[FIND]]'\nprintf '%s\\n' \"$prompt\" | awk '/^<<<<<<< /{{f=1}} f{{print}} /^>>>>>>> /{{f=0}}'\nprintf '[[REPLACE]]\\nresolved %s\\n[[END]]\\n' \"$n\"\n", counter.display())).unwrap();
     use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
     std::env::set_var("PATH", format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default()));
