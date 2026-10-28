@@ -73,7 +73,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("stashes.blobs", "Old and new contents of one file of a stash, base64", "projectId, sha, path"),
     ("stashes.apply", "Apply a stash onto a checked-out branch; pop = drop it once applied cleanly (kept on conflicts, which are returned)", "projectId, branch, sha, pop?"),
     ("stashes.drop", "Delete a stash for good", "projectId, sha"),
-    ("branches.pull", "Fast-forward a branch to its upstream (checked out or not)", "projectId, branch"),
+    ("branches.pull", "Fast-forward a branch to its upstream (checked out or not); wip = stash|carry the uncommitted changes the pull would overwrite (refused otherwise); returns conflicts left by carrying them", "projectId, branch, wip?"),
     ("branches.tag", "Tag a branch's tip (annotated, message defaults to the name) and push it to origin", "projectId, branch, name, message?"),
     ("tags.checkout", "Check out a tag's commit (detached HEAD; uncommitted work comes along)", "projectId, name"),
     ("tags.delete", "Delete a tag, locally and on origin", "projectId, name"),
@@ -604,7 +604,10 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
             k.drop_stash(&s(&p, "projectId")?, &s(&p, "sha")?).await?;
             ok()
         }
-        "branches.pull" => to(json!({ "output": k.pull_branch(&s(&p, "projectId")?, &s(&p, "branch")?).await? })),
+        "branches.pull" => {
+            let (output, conflicts) = k.pull_branch(&s(&p, "projectId")?, &s(&p, "branch")?, os(&p, "wip").as_deref()).await?;
+            to(json!({ "output": output, "conflicts": conflicts }))
+        }
         "branches.tag" => {
             k.tag_branch(&s(&p, "projectId")?, &s(&p, "branch")?, &s(&p, "name")?, os(&p, "message").as_deref()).await?;
             ok()

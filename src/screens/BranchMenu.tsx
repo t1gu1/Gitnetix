@@ -10,7 +10,7 @@ import { useNav } from "../lib/nav";
 import { call, runTask, wtKey } from "../lib/tasks";
 import { copyToClipboard, toast } from "../lib/toast";
 
-export type BranchDialog = "merge" | "delete" | "rename" | "continue" | "conflicts" | "reset" | "forcePush" | "tag" | "target" | "rebase" | "rebaseOnto" | "abortSwitch" | "switchWip";
+export type BranchDialog = "merge" | "delete" | "rename" | "continue" | "conflicts" | "reset" | "forcePush" | "tag" | "target" | "rebase" | "rebaseOnto" | "abortSwitch" | "switchWip" | "pullWip";
 
 export interface BranchTarget {
   view: BranchView;
@@ -77,9 +77,15 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
   });
   const wt = useAction<{ path: string }, { projectId: string; branch: string }>("worktrees.create", { invalidate: [...inv, ["worktrees"]], success: (r) => `Worktree at ${r.path}` });
   // Pull, push and stash show on the row at once; counts against the parent wait for the overview.
-  const pull = useAction<{ output: string }, { projectId: string; branch: string }>("branches.pull", {
+  const pull = useAction<{ output: string; conflicts: string[] }, { projectId: string; branch: string; wip?: "stash" | "carry" }>("branches.pull", {
     invalidate: inv,
     patch: (qc, v) => patchOverview(qc, pid, v.branch, (b) => ({ ...b, upstreamBehind: 0 })),
+    // Uncommitted changes in the way: ask whether they stay or wait in a stash.
+    onError: (e, v) => {
+      if (!(e instanceof RpcError && e.code === "would_overwrite")) return false;
+      openDialog("pullWip", v.branch);
+      return true;
+    },
   });
   const push = useAction<{ output: string }, { projectId: string; branch: string }>("workspace.push", { invalidate: inv, patch: (qc, v) => patchOverview(qc, pid, v.branch, pushed) });
   const rebase = useAction<RebaseResult, { projectId: string; branch: string }>("workspace.rebase", { invalidate: inv, success: rebaseMessage });
@@ -124,6 +130,17 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
           r.conflicts.length
             ? toast(`Switched to ${b} with ${plural(r.conflicts.length, "conflict")}: resolve them in the WIP files. The stash is kept.`, "error")
             : toast(wip === "carry" ? `Switched to ${b}, your changes came along` : `Stashed your changes, switched to ${b}`, "ok"),
+      },
+    );
+  /** Pulls with the uncommitted changes git refused to pull with: kept on the pulled branch, or left in a stash. */
+  const pullWith = (b: string, wip: "stash" | "carry") =>
+    pull.mutate(
+      { projectId: pid, branch: b, wip },
+      {
+        onSuccess: (r) =>
+          r.conflicts.length
+            ? toast(`Pulled ${b} with ${plural(r.conflicts.length, "conflict")}: resolve them in the WIP files. The stash is kept.`, "error")
+            : toast(wip === "carry" ? `Pulled ${b}, your changes are back on top` : `Stashed your changes, pulled ${b}`, "ok"),
       },
     );
   /** Deletes the worktree (refused with uncommitted changes there), then checks its branch out here. In the background: its row goes at once. */
@@ -481,7 +498,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
 
   const menuEl = menu && <ContextMenu x={menu.x} y={menu.y} alignRight={menu.alignRight} label={`Actions for ${menu.t.view.name}`} items={items(menu.t)} onClose={() => setMenu(null)} />;
 
-  return { primary, create, openMenu, menuEl, busy, switchTo, continueOn, abortAndSwitch, switchWith };
+  return { primary, create, openMenu, menuEl, busy, switchTo, continueOn, abortAndSwitch, switchWith, pullWith };
 }
 
 export type BranchActions = ReturnType<typeof useBranchActions>;

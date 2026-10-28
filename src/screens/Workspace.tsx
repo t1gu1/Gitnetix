@@ -697,6 +697,9 @@ export function Workspace() {
       {dialog?.kind === "switchWip" && o && (
         <SwitchWipModal from={o.currentBranch} branch={dialog.branch} onClose={() => setDialog(null)} onConfirm={(wip) => actions.switchWith(dialog.branch, wip)} />
       )}
+      {dialog?.kind === "pullWip" && (
+        <PullWipModal branch={dialog.branch} upstream={dialogView?.upstream} onClose={() => setDialog(null)} onConfirm={(wip) => actions.pullWith(dialog.branch, wip)} />
+      )}
       {dialog?.kind === "continue" && dialogView?.worktree && (
         <ContinueOnBranchModal branch={dialog.branch} path={dialogView.worktree} onClose={() => setDialog(null)} onConfirm={() => finish.continue({ projectId: pid, branch: dialog.branch, cwd: dialogView.worktree! }, true)} />
       )}
@@ -1642,6 +1645,37 @@ function SwitchWipModal({ from, branch, onClose, onConfirm }: { from?: string | 
       </p>
       <p style={{ margin: 0, lineHeight: 1.55 }}>
         <b>Stash and switch</b>: they wait in a stash{from ? <> made on <span className="mono">{from}</span></> : ""}, and <span className="mono">{branch}</span> opens clean. Pop it when you're back.
+      </p>
+    </Modal>
+  );
+}
+
+function PullWipModal({ branch, upstream, onClose, onConfirm }: { branch: string; upstream?: string | null; onClose: () => void; onConfirm: (wip: "stash" | "carry") => void }) {
+  const pick = (wip: "stash" | "carry") => {
+    onConfirm(wip);
+    onClose();
+  };
+  const from = upstream ? <span className="mono">{upstream}</span> : "origin";
+  return (
+    <Modal
+      title="Uncommitted changes in the way"
+      sub={<span className="mono">{branch}</span>}
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn btn-md" onClick={() => pick("stash")}>Stash and pull</button>
+          <button className="btn btn-md btn-primary" onClick={() => pick("carry")}>Pull and keep them</button>
+        </>
+      }
+    >
+      <p style={{ margin: 0, lineHeight: 1.55 }}>
+        Some files you changed on <span className="mono">{branch}</span> are also changed on {from}, so git can't pull with your changes as they are.
+      </p>
+      <p style={{ margin: 0, lineHeight: 1.55 }}>
+        <b>Pull and keep them</b>: they're stashed, <span className="mono">{branch}</span> is pulled, then they're put back. If they clash with what came in, you resolve the conflicts and the stash stays until then.
+      </p>
+      <p style={{ margin: 0, lineHeight: 1.55 }}>
+        <b>Stash and pull</b>: they wait in a stash, and <span className="mono">{branch}</span> is pulled clean. Pop it when you're ready.
       </p>
     </Modal>
   );

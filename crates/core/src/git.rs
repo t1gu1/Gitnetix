@@ -1341,7 +1341,8 @@ impl Git {
     /// this pulls; elsewhere it fetches straight into the ref (ff-only too).
     pub async fn pull_ff(&self, branch: &str, upstream: &str, checked_out: bool) -> Result<String> {
         let (ok, out, err) = if checked_out {
-            self.try_run(&["pull", "--ff-only"]).await?
+            // --no-rebase: with pull.rebase set, git refuses any uncommitted change, even ones the fast-forward leaves alone.
+            self.try_run(&["pull", "--ff-only", "--no-rebase"]).await?
         } else {
             let (remote, rbranch) = upstream.split_once('/').unwrap_or(("origin", upstream));
             self.try_run(&["fetch", remote, &format!("refs/heads/{rbranch}:refs/heads/{branch}")]).await?

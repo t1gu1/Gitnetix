@@ -3954,10 +3954,16 @@ impl Gitnetix {
     /// Bring a branch up to its upstream, checked out or not: a fast-forward or, when both moved,
     /// its local commits replayed on top, or the upstream merged in when they hold merges (AI resolving
     /// conflicts either way, aborted when it can't).
-    pub async fn pull_branch(&self, project_id: &str, branch: &str) -> Result<String> {
+    /// Uncommitted changes in its checkout that the pull would overwrite refuse it (`WouldOverwrite`) unless
+    /// `wip` says what to do with them: "stash" leaves them in a stash, "carry" stashes them, pulls and puts
+    /// them back. Returns git's output and the files left conflicted by carrying them (the stash is kept then).
+    pub async fn pull_branch(&self, project_id: &str, branch: &str, wip: Option<&str>) -> Result<(String, Vec<String>)> {
+        if wip.is_some_and(|w| !matches!(w, "stash" | "carry")) {
+            return Err(Error::Invalid(format!("wip: {wip:?}")));
+        }
         let p = self.store.project(project_id)?;
-        let git = self.git(&p);
-        let upstream = git
+        let upstream = self
+            .git(&p)
             .branches()
             .await?
             .into_iter()
@@ -3966,29 +3972,67 @@ impl Gitnetix {
             .upstream
             .ok_or_else(|| Error::Invalid(format!("{branch} has no upstream. Push it first.")))?;
         let dir = self.checkout_dir(&p, branch).await?;
-        let pulled = match &dir {
-            Some(dir) => self.git_at(&p, dir).pull_ff(branch, &upstream, true).await,
-            None => git.pull_ff(branch, &upstream, false).await,
+        let stashed = match (wip, &dir) {
+            (Some(_), Some(dir)) => {
+                let g = self.git_at(&p, dir);
+                let files = g.wip_changes().await?;
+                if files.is_empty() {
+                    None
+                } else {
+                    let sha = g.stash(&stash_message(&files)).await?;
+                    Some((g, sha))
+                }
+            }
+            _ => None,
+        };
+        let pulled = self.pull_upstream(&p, branch, &upstream, dir.as_deref()).await;
+        self.changed(project_id);
+        let Some((g, sha)) = stashed else {
+            return Ok((pulled?, Vec::new()));
         };
         let out = match pulled {
+            Ok(out) => out,
+            Err(e) => {
+                // The failed pull left the branch where it was: the stash goes back cleanly.
+                if g.stash_apply(&sha).await.is_ok_and(|c| c.is_empty()) {
+                    g.stash_drop(&sha).await?;
+                }
+                return Err(e);
+            }
+        };
+        if wip == Some("stash") {
+            return Ok((out, Vec::new()));
+        }
+        Ok((out, self.apply_stash(project_id, branch, &sha, true).await?.conflicts))
+    }
+
+    /// `pull_branch` once its uncommitted changes are dealt with; `dir` is the branch's checkout.
+    async fn pull_upstream(&self, p: &Project, branch: &str, upstream: &str, dir: Option<&Path>) -> Result<String> {
+        let git = self.git(p);
+        let pulled = match dir {
+            Some(dir) => self.git_at(p, dir).pull_ff(branch, upstream, true).await,
+            None => git.pull_ff(branch, upstream, false).await,
+        };
+        Ok(match pulled {
+            Err(Error::Git { stderr, .. }) if stderr.contains("would be overwritten by merge") => {
+                return Err(Error::WouldOverwrite(format!("Uncommitted changes on {branch} would be overwritten by pulling {upstream}.")));
+            }
             // Diverged; the pull above fetched origin's side. Only commits origin never had get rewritten, and
             // not merges: rebasing those would rewrite the branches they took in, so they'd look unmerged.
             Err(Error::Git { stderr, .. }) if stderr.contains("non-fast-forward") || stderr.contains("Not possible to fast-forward") || stderr.contains("rejected") => {
                 if git.run(&["rev-list", "--merges", "--count", &format!("{upstream}..{branch}")]).await?.trim() != "0" {
-                    self.merge_refs(&p, &upstream, branch).await?;
+                    self.merge_refs(p, upstream, branch).await?;
                     format!("{branch} and {upstream} had diverged: merged {upstream} into {branch}")
                 } else {
-                    if let Some(dir) = &dir {
-                        self.check_wip_clear(&p, dir, &upstream, branch).await?;
+                    if let Some(dir) = dir {
+                        self.check_wip_clear(p, dir, upstream, branch).await?;
                     }
-                    self.rebase_branch(&p, branch, &upstream).await?;
+                    self.rebase_branch(p, branch, upstream).await?;
                     format!("{branch} and {upstream} had diverged: rebased {branch} onto {upstream}")
                 }
             }
             out => out?,
-        };
-        self.changed(project_id);
-        Ok(out)
+        })
     }
 
     /// Move a branch to exactly where its upstream is, dropping local commits. In its
@@ -4031,7 +4075,7 @@ impl Gitnetix {
         // Caught up with origin first, so the merge lands on top of origin's commits and the push goes through.
         // shortcut: when `branch` was started from commits of `into` never pushed, rebasing them here duplicates them in the history.
         if git.upstream(&into).await.ok().flatten().is_some() {
-            if let Err(e) = self.pull_branch(project_id, &into).await {
+            if let Err(e) = self.pull_branch(project_id, &into, None).await {
                 crate::log::info(format!("Merging into {into} as it is: updating it from origin failed: {e}"));
             }
         }
@@ -4186,7 +4230,7 @@ impl Gitnetix {
         if hit.is_empty() {
             return Ok(());
         }
-        Err(Error::Invalid(format!("{into} has uncommitted changes at {} to files {from} changes: {}. Commit or stash them first.", dir.display(), hit.join(", "))))
+        Err(Error::WouldOverwrite(format!("{into} has uncommitted changes at {} to files {from} changes: {}. Commit or stash them first.", dir.display(), hit.join(", "))))
     }
 
     /// Collapse `branch`'s commits since it left `onto` into one, its files unchanged.
