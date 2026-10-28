@@ -472,8 +472,9 @@ function ReviewForm({ pid, d, onDone }: { pid: string; d: PrDetail; onDone: () =
   const draft = useAction<{ text: string }>("prs.draftReview");
   return (
     <section aria-label="Submit review" className="col card" style={{ padding: 16, gap: 12 }}>
-      <div className="row">
-        <h2 className="grow">Submit review</h2>
+      {/* Not a .section, so the h2's browser margins and .row's 10px margin are reset here. */}
+      <div className="row wrap" style={{ margin: "0 0 4px", alignItems: "baseline", rowGap: 2 }}>
+        <h2 className="grow" style={{ margin: 0, fontSize: 15, fontWeight: 600 }}>Submit review</h2>
         <span className="hint">{host === "GitHub" ? "Posted to GitHub as a review" : "Posted to Azure DevOps as your vote and a comment"}</span>
       </div>
       <div className="field">
@@ -481,7 +482,7 @@ function ReviewForm({ pid, d, onDone }: { pid: string; d: PrDetail; onDone: () =
         <textarea id="pr-review-text" className="textarea" rows={3} placeholder="Overall feedback for the author…" value={text} onChange={(e) => setText(e.target.value)} />
       </div>
       <fieldset className="col" style={{ margin: 0, padding: 0, border: 0, gap: 6 }}>
-        <legend className="muted" style={{ fontSize: 12, paddingBottom: 6 }}>Review type</legend>
+        <legend className="muted" style={{ fontSize: 12, fontWeight: 500, padding: "0 0 6px" }}>Review type</legend>
         {opts.map(([v, t, s]) => (
           <button key={v} type="button" className="radio-card" aria-pressed={vote === v} onClick={() => setVote(v)}>
             <span className="radio-dot" />
@@ -493,7 +494,7 @@ function ReviewForm({ pid, d, onDone }: { pid: string; d: PrDetail; onDone: () =
         ))}
       </fieldset>
       {authorOnly && <span className="hint">You opened this pull request, so GitHub only lets you comment on it.</span>}
-      <div className="row wrap">
+      <div className="row wrap" style={{ margin: 0 }}>
         <button className="btn" disabled={draft.isPending} onClick={() => draft.mutate({ projectId: pid, number: d.number }, { onSuccess: (r) => setText(r.text) })}>
           <Busy on={draft.isPending}><Icon name="sparkle" size={12} className="c-acc" /></Busy>
           Draft with AI
