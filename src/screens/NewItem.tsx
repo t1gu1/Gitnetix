@@ -29,7 +29,7 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
   const [desc, setDesc] = useState(draft.description ?? "");
   const [from, setFrom] = useState(firstBase);
   const [ticket, setTicket] = useState(draft.ticket ?? "");
-  const { dialogs } = useProjectPrefs(pid);
+  const { dialogs, setDialogs } = useProjectPrefs(pid);
   // An agent always gets its own worktree.
   const [where, setWhere] = useState<"switch" | "worktree">(dialogs.newWorktree || dialogs.newAgent ? "worktree" : "switch");
   const [agent, setAgent] = useState(dialogs.newAgent);
@@ -134,6 +134,8 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
   const ready = !!(base || fromTag) && (agent ? !!desc.trim() : !!name.trim() || nameFromWip) && !create.isPending;
   const submit = async () => {
     const up = agent ? await uploads(files) : undefined;
+    // The next new branch starts where this one went.
+    setDialogs({ newWorktree: where === "worktree", newAgent: agent });
     create.mutate(
       { projectId: pid, release: rel?.version ?? "", from: rel ? undefined : from, kind, description: agent ? desc : "", branchName: branch || undefined, ticket: ticket || undefined, where, startAgent: agent, files: up, ...(agent && pick) },
       {

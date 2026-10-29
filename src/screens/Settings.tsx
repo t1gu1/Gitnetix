@@ -112,7 +112,7 @@ function ProjectSection({ cfg }: { cfg: Config }) {
       </div>
       <section className="section">
         <h2>Dialog defaults</h2>
-        <p className="hint" style={{ margin: 0 }}>What the dialogs start with in this project. Changing an option in a dialog applies to that time only.</p>
+        <p className="hint" style={{ margin: 0 }}>What the dialogs start with in this project. The new branch dialog remembers where you worked and whether an agent started; other dialogs apply a change to that time only.</p>
         <Seg
           grid
           label="Finishing a worktree session"
