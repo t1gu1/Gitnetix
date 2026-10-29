@@ -44,7 +44,6 @@ import { shownStatus } from "../lib/agentLog";
 import { startCleanup, useCleaning } from "../lib/cleanups";
 import { useDraft } from "../lib/drafts";
 import { useNav } from "../lib/nav";
-import { previewHandlers, useDialogPreview, type GraphIntent } from "../lib/graphPreview";
 import { useStoredChoice, useStoredFlag } from "../lib/stored";
 import { agentKey, branchKey, call, runTask, useHidden, wtKey } from "../lib/tasks";
 import { copyToClipboard, toast } from "../lib/toast";
@@ -52,7 +51,6 @@ import { offersRebase, rebaseMessage, useBranchActions, type BranchDialog, type 
 import { BranchTree } from "./BranchTree";
 import { CommitList, DeleteTagModal, TagModal } from "./CommitList";
 import { ConflictModal } from "./ConflictModal";
-import { GraphPane } from "./GraphPane";
 import { StashList } from "./StashList";
 
 type Mode = "branch" | "wip" | "project";
@@ -64,10 +62,6 @@ const HUGE_DIFF = 20_000;
 const BIG_FOLDER = 200;
 /** The flat list draws this many files until "Show all". */
 const MAX_ROWS = 1000;
-/** Branches next to the selected one (siblings and children) the graph shows besides it, its base and the checked-out one. */
-const GRAPH_NEARBY = 2;
-/** The branches never get narrower than this, in pixels, to make room for the graph: the files pane gives way past it. */
-const BRANCHES_MIN = 260;
 
 export function Workspace() {
   const nav = useNav();
@@ -107,11 +101,8 @@ export function Workspace() {
   // Stash list in place of the tree: one branch's ("" = every stash), and the stash picked there.
   const [stashesOf, setStashesOf] = useState<string | null>(null);
   const [stash, setStash] = useState<Stash | undefined>();
-  // Left pane (branches, or the diff over them) as a percent of the workspace: two thirds by default. The graph takes its column out of it, so the files pane keeps its width.
+  // Left pane (branches, or the diff over them) as a percent of the workspace: two thirds by default.
   const leftW = usePaneWidth("gnx.pane.left", 67, 20, 80);
-  // The commit graph, in a column left of the branches when shown.
-  const [graphOn, setGraphOn] = useStoredFlag("gnx.pane.graph");
-  const graphW = usePaneWidth("gnx.pane.graphWidth", 380, 260, 760);
   const [asTree, setAsTree] = useStoredFlag("gnx.files.tree");
   // Collapse/expand all: a new `n` remounts the file lists, dropping per-folder toggles.
   const [fold, setFold] = useState({ closed: false, n: 0 });
@@ -142,12 +133,10 @@ export function Workspace() {
     const v = byName.get(b);
     return v?.role === "release" && v.release ? `v${v.release}` : b;
   };
-  const shipPrefs = useProjectPrefs(pid).dialogs;
   const target = (b: string): BranchTarget => {
     const v = byName.get(b) ?? synthetic(b, b === o?.currentBranch);
     const base = v.parent ?? "";
     const rel = v.role === "release" ? o?.releases.find((r) => r.open && r.branch === b) : undefined;
-    const ship: GraphIntent | undefined = rel && o ? { kind: "ship", release: b, into: o.defaultBranch, version: rel.version, push: shipPrefs.shipPush, changelog: o.hasChangelog } : undefined;
     const shippedRel = v.shipped ? o?.releases.find((r) => !r.open && r.version === v.shipped) : undefined;
     return {
       view: v,
@@ -155,7 +144,7 @@ export function Workspace() {
       baseLabel: labelOf(base),
       isDefault: b === o?.defaultBranch,
       extra: rel
-        ? [{ id: "ship", label: <>Ship v{rel.version}…</>, icon: "ship", hint: "fast-forward + tag", preview: ship, run: () => setShipping(rel) }]
+        ? [{ id: "ship", label: <>Ship v{rel.version}…</>, icon: "ship", hint: "fast-forward + tag", run: () => setShipping(rel) }]
         : shippedRel?.tagName
           ? tagItems(shippedRel.tagName, shippedRel.checkedOut)
           : undefined,
@@ -163,7 +152,7 @@ export function Workspace() {
       showStashes: v.stashes ? () => openStashes(b) : undefined,
       latestStash: o?.stashes.find((s) => s.branch === b),
       next: rel
-        ? { id: "ship", label: `Ship v${rel.version}…`, short: "Ship", tip: `Fast-forward ${o?.defaultBranch} to ${b} and tag v${rel.version}`, icon: "ship", disabled: !v.ahead, preview: ship, run: () => setShipping(rel) }
+        ? { id: "ship", label: `Ship v${rel.version}…`, short: "Ship", tip: `Fast-forward ${o?.defaultBranch} to ${b} and tag v${rel.version}`, icon: "ship", disabled: !v.ahead, run: () => setShipping(rel) }
         : undefined,
       // Work branches can be re-targeted to any release or trunk.
       moveTo:
@@ -211,46 +200,10 @@ export function Workspace() {
     setHistory(null);
     setCommit(undefined);
   };
-  /** A commit picked in the graph: its files show, the branches stay. In the open commit list when it holds it. */
-  const openGraphCommit = (c: Commit, owner: string) => {
-    setPane("files");
-    if (history && history === owner) return setCommit(c);
-    closeStashes();
-    if (history) closeHistory();
-    else if (!commit) modeBeforeHistory.current = mode;
-    setCommit(c);
-    setMode("branch");
-  };
-  /** Back from a commit picked in the graph to the branch's files. */
-  const closeCommit = () => {
-    setCommit(undefined);
-    setMode(modeBeforeHistory.current);
-  };
   const view: BranchView | undefined = branch ? byName.get(branch) : undefined;
   const dialogView = dialog && (byName.get(dialog.branch) ?? synthetic(dialog.branch, dialog.branch === o?.currentBranch));
   const base = branch ? baseFor(branch) : "";
   const checkedOut = view?.checkedOut ?? branch === o?.currentBranch;
-  // The graph's branches: the selected one, where it started (and where that started, when a trunk), the checked-out one,
-  // and a few near it (its newest siblings and children). Lanes go left to right from the trunk; rows start with the selected branch.
-  const graphBranches = useMemo(() => {
-    if (!o || !branch) return { lanes: [] as string[], first: [] as string[] };
-    const live = (b?: string | null): b is string => !!b && !!byName.get(b)?.exists;
-    const parentOf = (b: string) => {
-      const p = byName.get(b)?.parent;
-      return p && p !== b ? p : undefined;
-    };
-    const from = parentOf(branch);
-    const root = from && parentOf(from);
-    const chain = [root && byName.get(root)?.role === "trunk" ? root : undefined, from].filter(live);
-    const time = (b: BranchView) => Date.parse(b.date) || 0;
-    const near = o.branches
-      .filter((b) => b.exists && !b.merged && b.name !== branch && b.name !== from && (b.parent === branch || (!!from && b.parent === from)))
-      .sort((a, b) => time(b) - time(a))
-      .slice(0, GRAPH_NEARBY)
-      .map((b) => b.name);
-    const lanes = [...new Set([...chain, branch, ...(live(o.currentBranch) ? [o.currentBranch] : []), ...near])].filter(live);
-    return { lanes, first: [...new Set([branch, ...(live(o.currentBranch) ? [o.currentBranch] : []), ...[...chain].reverse(), ...near])].filter(live) };
-  }, [o, branch, byName]);
 
   const files = useFiles(pid, branch, mode, commit?.sha, stash?.sha);
   const wipList = useFiles(pid, branch, "wip").data ?? [];
@@ -356,29 +309,11 @@ export function Workspace() {
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
   }, [fileOpen]);
-  // Escape closes a commit picked in the graph, unless it is closing something else or typing.
-  const graphCommit = !!commit && !history;
-  useEffect(() => {
-    if (!graphCommit) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape" || (e.target as HTMLElement).closest("input, textarea")) return;
-      if (document.querySelector("[role=dialog], [role=menu]")) return;
-      closeCommit();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [graphCommit]); // eslint-disable-line react-hooks/exhaustive-deps
-  // Picking another branch (e.g. from a ticket) leaves its commit or stash list, and a commit picked in the graph.
+  // Picking another branch (e.g. from a ticket) leaves its commit or stash list.
   useEffect(() => {
     if (history && branch !== history) closeHistory();
     if (stashesOf && branch !== stashesOf) closeStashes();
   }, [branch, history, stashesOf]);
-  const shownFor = useRef(branch);
-  useEffect(() => {
-    if (shownFor.current === branch) return;
-    shownFor.current = branch;
-    if (!history && commit) closeCommit();
-  }, [branch]); // eslint-disable-line react-hooks/exhaustive-deps
   // A stash popped or dropped elsewhere is gone: stop showing it.
   useEffect(() => {
     if (stash && o && !o.stashes.some((s) => s.sha === stash.sha)) setStash(undefined);
@@ -400,7 +335,7 @@ export function Workspace() {
       {o && (
         <main
           className="ws"
-          style={{ "--branches-w": graphOn ? `max(${BRANCHES_MIN}px, ${leftW.width}% - min(${graphW.width}px, 45%))` : `${leftW.width}%`, "--graph-w": `${graphW.width}px` } as CSSProperties}
+          style={{ "--branches-w": `${leftW.width}%` } as CSSProperties}
           data-file-open={current ? true : undefined}
           data-slide={slide.dir}
           onTouchStart={(e) => {
@@ -419,33 +354,6 @@ export function Workspace() {
             if (next) setPane(next);
           }}
         >
-          {graphOn && (
-            <>
-              <GraphPane
-                pid={pid}
-                o={o}
-                lanes={graphBranches.lanes}
-                first={graphBranches.first}
-                selected={commit?.sha}
-                wip={o.currentBranch ? (byName.get(o.currentBranch)?.wip ?? 0) : 0}
-                baseOf={baseFor}
-                actions={actions}
-                target={target}
-                tagItems={tagItems}
-                onOpenCommit={openGraphCommit}
-                onOpenWip={() => {
-                  if (!o.currentBranch) return;
-                  closeHistory();
-                  closeStashes();
-                  nav.selectBranch(o.currentBranch);
-                  setMode("wip");
-                }}
-                onSelectBranch={(b) => nav.selectBranch(b)}
-                onClose={() => setGraphOn(false)}
-              />
-              <Resizer pane={graphW} label="Resize the graph" />
-            </>
-          )}
           <div className="ws-left" data-pane data-active={pane !== "files"}>
             {stashesOf !== null ? (
               <StashList
@@ -498,8 +406,6 @@ export function Workspace() {
                 cleanupLeft={cleanupLeft}
                 tagItems={tagItems}
                 onStashes={() => openStashes()}
-                graph={graphOn}
-                onGraph={() => setGraphOn(!graphOn)}
                 building={ov.isPlaceholderData}
                 updating={ov.isFetching && !ov.isPlaceholderData}
                 progress={progress}
@@ -639,11 +545,6 @@ export function Workspace() {
                       <span style={{ whiteSpace: "nowrap" }}>{ago(commit.date)}</span>
                     </span>
                   </div>
-                  {!history && (
-                    <button className="btn btn-sm btn-icon" aria-label="Close commit" data-tip="Back to the branch's files" onClick={closeCommit}>
-                      <Icon name="close" size={12} />
-                    </button>
-                  )}
                 </div>
               ) : (
                 <Seg<Mode>
@@ -706,7 +607,7 @@ export function Workspace() {
                 <li className="empty engraved">{stash ? "This stash holds no files." : commit ? "This commit changes no files." : mode === "wip" ? (checkedOut ? "No uncommitted changes." : "This branch is not checked out.") : "No changes on this branch yet."}</li>
               )}
             </ul>
-            {branch && !history && !commit && <CommitBox key={branch} pid={pid} branch={branch} enabled={checkedOut} staged={stagedCount} changed={wipCount} />}
+            {branch && !history && <CommitBox key={branch} pid={pid} branch={branch} enabled={checkedOut} staged={stagedCount} changed={wipCount} />}
           </section>
 
         </main>
@@ -785,7 +686,7 @@ export function Workspace() {
           onTargeted={(onto) => setDialog(offersRebase(byName.get(dialog.branch)) ? { kind: "rebase", branch: dialog.branch, onto } : null)}
         />
       )}
-      {dialog?.kind === "rebase" && dialog.onto && <RebaseOntoModal pid={pid} branch={dialog.branch} onto={labelOf(dialog.onto)} target={dialog.onto} onClose={() => setDialog(null)} />}
+      {dialog?.kind === "rebase" && dialog.onto && <RebaseOntoModal pid={pid} branch={dialog.branch} onto={labelOf(dialog.onto)} onClose={() => setDialog(null)} />}
       {dialog?.kind === "rebaseOnto" && o && (
         <RebaseOntoBranchModal pid={pid} branch={dialog.branch} onto={dialog.onto} branches={o.branches} labelOf={labelOf} onClose={() => setDialog(null)} />
       )}
@@ -1247,14 +1148,10 @@ export function MergeModal({
   // Uncommitted work on the branch would be left out of the merge: commit or discard it first.
   const wip = useOverview(pid).data?.branches.find((x) => x.name === branch)?.wip ?? 0;
   const [asking, setAsking] = useState(false);
-  // As a dialog, the graph shows the merge as the options picked here would do it, and keeps showing it while it runs.
-  // Not in the agent chat, where the card stays up long after it was looked at.
-  const holdPreview = useDialogPreview(base && !inline ? { kind: "merge", branch, into: base, squash: opts.squash, rebase: opts.rebase, deleteBranch: opts.deleteBranch, push: opts.push, stay } : null);
   // In the background: the dialog closes and what the merge deletes leaves the lists at once; a toast tells how it goes.
   const run = () => {
     const into = base;
     const deleting = opts.deleteBranch;
-    holdPreview();
     onClose();
     // No base known: the engine works out where it goes.
     if (deleting) nav.forgetBranches(pid, [branch], into || undefined);
@@ -1459,7 +1356,6 @@ function WipModal({ pid, branch, files, op, onClose, onClean }: { pid: string; b
 function ResetBranchModal({ pid, view, onClose }: { pid: string; view: BranchView; onClose: () => void }) {
   const { name: branch, upstream } = view;
   const reset = useAction("branches.reset", { invalidate: [["overview", pid], ["files", pid], ["diff", pid], ["commits", pid]], success: `Reset ${branch} to ${upstream}` });
-  const holdPreview = useDialogPreview({ kind: "reset", branch });
   return (
     <Modal
       title="Reset to origin"
@@ -1467,7 +1363,7 @@ function ResetBranchModal({ pid, view, onClose }: { pid: string; view: BranchVie
       onClose={onClose}
       footer={
         <>
-          <button className="btn btn-md btn-danger" disabled={reset.isPending} onClick={() => reset.mutate({ projectId: pid, branch }, { onSuccess: () => (holdPreview(), onClose()) })}>
+          <button className="btn btn-md btn-danger" disabled={reset.isPending} onClick={() => reset.mutate({ projectId: pid, branch }, { onSuccess: onClose })}>
             {reset.isPending && <span className="spinner" />}
             Reset branch
           </button>
@@ -1492,7 +1388,6 @@ function ForcePushModal({ pid, view, onClose }: { pid: string; view: BranchView;
     patch: (qc) => patchOverview(qc, pid, branch, (b) => pushed(b, true)),
     success: `Force pushed ${branch}`,
   });
-  const holdPreview = useDialogPreview({ kind: "push", branch, force: true });
   return (
     <Modal
       title="Force push"
@@ -1500,7 +1395,7 @@ function ForcePushModal({ pid, view, onClose }: { pid: string; view: BranchView;
       onClose={onClose}
       footer={
         <>
-          <button className="btn btn-md btn-danger" disabled={push.isPending} onClick={() => push.mutate({ projectId: pid, branch, force: true }, { onSuccess: () => (holdPreview(), onClose()) })}>
+          <button className="btn btn-md btn-danger" disabled={push.isPending} onClick={() => push.mutate({ projectId: pid, branch, force: true }, { onSuccess: onClose })}>
             {push.isPending && <span className="spinner" />}
             Force push
           </button>
@@ -1667,13 +1562,11 @@ function BranchPicker({ choices, labelOf, picked, onPick }: { choices: BranchVie
 }
 
 /** Asked right after `branch` got a new target: replay it on top of that target now? */
-/** `onto` names the new target as shown, `target` is its branch. */
-function RebaseOntoModal({ pid, branch, onto, target, onClose }: { pid: string; branch: string; onto: string; target: string; onClose: () => void }) {
+function RebaseOntoModal({ pid, branch, onto, onClose }: { pid: string; branch: string; onto: string; onClose: () => void }) {
   const rebase = useAction<RebaseResult, { projectId: string; branch: string }>("workspace.rebase", {
     invalidate: [["overview", pid], ["files", pid], ["diff", pid], ["commits", pid]],
     success: rebaseMessage,
   });
-  const holdPreview = useDialogPreview({ kind: "rebase", branch, onto: target });
   return (
     <Modal
       title="Rebase onto the new target?"
@@ -1681,7 +1574,7 @@ function RebaseOntoModal({ pid, branch, onto, target, onClose }: { pid: string; 
       onClose={onClose}
       footer={
         <>
-          <button className="btn btn-md btn-primary" autoFocus disabled={rebase.isPending} onClick={() => rebase.mutate({ projectId: pid, branch }, { onSuccess: () => (holdPreview(), onClose()) })}>
+          <button className="btn btn-md btn-primary" autoFocus disabled={rebase.isPending} onClick={() => rebase.mutate({ projectId: pid, branch }, { onSuccess: onClose })}>
             {rebase.isPending && <span className="spinner" />}
             Rebase onto {onto}
           </button>
@@ -1703,8 +1596,6 @@ function RebaseOntoBranchModal({ pid, branch, onto, branches, labelOf, onClose }
   });
   const choices = useMemo(() => branches.filter((b) => b.exists && b.name !== branch), [branches, branch]);
   const parent = branches.find((b) => b.name === branch)?.parent;
-  // The graph shows the rebase onto the branch picked so far.
-  const holdPreview = useDialogPreview(picked ? { kind: "rebase", branch, onto: picked } : null);
   const name = labelOf(branch);
   const to = picked ? labelOf(picked) : undefined;
   return (
@@ -1714,7 +1605,7 @@ function RebaseOntoBranchModal({ pid, branch, onto, branches, labelOf, onClose }
       onClose={onClose}
       footer={
         <>
-          <button className="btn btn-md btn-primary" autoFocus={!!onto} disabled={!picked || rebase.isPending} onClick={() => picked && rebase.mutate({ projectId: pid, branch, onto: picked }, { onSuccess: () => (holdPreview(), onClose()) })}>
+          <button className="btn btn-md btn-primary" autoFocus={!!onto} disabled={!picked || rebase.isPending} onClick={() => picked && rebase.mutate({ projectId: pid, branch, onto: picked }, { onSuccess: onClose })}>
             {rebase.isPending && <span className="spinner" />}
             Rebase {name} onto {to ?? "it"}
           </button>
@@ -1881,10 +1772,8 @@ function DeleteBranchModal({
   const onOrigin = remote && (!local || alsoOrigin);
   const exists = local || remote;
   const nav = useNav();
-  const holdPreview = useDialogPreview(exists ? { kind: "delete", branch, local, remote: onOrigin } : null);
   // In the background: the dialog closes and the row leaves the tree at once, unless origin keeps a copy (it stays, busy).
   const del = () => {
-    holdPreview();
     onClose();
     nav.forgetBranches(pid, [branch]);
     void runTask({
@@ -2155,7 +2044,6 @@ function CommitBox({ pid, branch, enabled, staged, changed }: { pid: string; bra
       <span className="split-btn" style={{ display: "flex", width: "100%" }}>
         <button className="btn btn-primary split-main commit-btn" style={{ flex: "1 1 auto" }} disabled={!canCommit}
           title={orphanBody ? "Add a summary to go with the description" : open ? "Commit (Ctrl+Enter in the message)" : undefined}
-          {...previewHandlers(canCommit ? { kind: "commit", branch, message, all, push: autoPush } : undefined)}
           onClick={doCommit}>
           <Busy on={busy}><Icon name="sparkle" size={12} /></Busy>
           <span>{all ? "Stage all & Commit" : "Commit"}<span style={{ fontWeight: 400, opacity: 0.75, marginLeft: 6 }}>{all ? changed || null : staged}</span></span>
@@ -2532,8 +2420,7 @@ function ShipModal({ pid, release, defaultBranch, onClose }: { pid: string; rele
   const [updateLog, setUpdateLog] = useState(prefs.shipChangelog);
   const changelog = useAction<{ message: string }, { projectId: string; branch: string }>("changelog.update", { invalidate: [["overview", pid], ["commits", pid]], success: (r) => r.message });
   const ship = useAction<{ tag: string }>("releases.ship", { invalidate: [["overview", pid], ["projects"]], success: (r) => `Shipped ${r.tag}` });
-  const holdPreview = useDialogPreview({ kind: "ship", release: release.branch, into: defaultBranch, version: release.version, push, changelog: hasChangelog });
-  const shipIt = () => ship.mutate({ projectId: pid, version: release.version, push }, { onSuccess: () => (holdPreview(), onClose()) });
+  const shipIt = () => ship.mutate({ projectId: pid, version: release.version, push }, { onSuccess: onClose });
   const busy = changelog.isPending || ship.isPending;
   return (
     <Modal

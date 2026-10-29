@@ -70,7 +70,7 @@ function TreeRow({ row, role, icon, author, name, tag, current, act, meta, ai }:
 }
 
 /** The landing page, ported from the "Gitnetix website" design canvas. */
-export default function Home({ version, demo, agents, graph }: { version: string; demo?: ReactNode; agents?: ReactNode; graph?: ReactNode }) {
+export default function Home({ version, demo, agents }: { version: string; demo?: ReactNode; agents?: ReactNode }) {
   const first = releases[releases.length - 1];
   const days = Math.round((Date.parse(releases[0].date) - Date.parse(first.date)) / 864e5) + 1;
   const featured = releases.filter((r) => r.story).slice(0, 3);
@@ -86,7 +86,7 @@ export default function Home({ version, demo, agents, graph }: { version: string
     <span aria-hidden="true">→</span>
     </a>
     <h1 id="hero-h" style={{ margin: '0', fontSize: 'clamp(44px, 7.2vw, 92px)', lineHeight: '1.02', letterSpacing: '-0.035em', fontWeight: '700', textWrap: 'balance', maxWidth: '980px' }}>See your work, <span style={{ color: 'var(--accent-fg)' }}>not your commits.</span></h1>
-    <p style={{ margin: '0', fontSize: 'clamp(18px, 2vw, 22px)', color: 'var(--muted)', maxWidth: '680px', textWrap: 'pretty' }}>Gitnetix is a Git client with no commit graph in your way, and a preview when you want one. Branches as a tree. Releases as a button. An agent on every branch.</p>
+    <p style={{ margin: '0', fontSize: 'clamp(18px, 2vw, 22px)', color: 'var(--muted)', maxWidth: '680px', textWrap: 'pretty' }}>Gitnetix is a Git client with no commit graph. Branches as a tree. Releases as a button. An agent on every branch.</p>
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', justifyContent: 'center', marginTop: '8px' }}>
     <a className="btn-p" data-dl href={u("download/")} style={{ display: 'flex', alignItems: 'center', gap: '10px', background: 'var(--accent)', color: 'var(--accent-ink)', fontWeight: '600', fontSize: '17px', padding: '15px 24px', borderRadius: '12px', boxShadow: '0 8px 30px -8px color-mix(in srgb,var(--accent) 60%,transparent)' }}>
     <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v12m0 0-5-5m5 5 5-5M4 21h16"></path></svg>
@@ -199,19 +199,6 @@ export default function Home({ version, demo, agents, graph }: { version: string
     <figcaption style={{ fontSize: '16px', color: 'var(--fg)' }}>Where you are, what ships next, what's done. At a glance.</figcaption>
     </figure>
     </div>
-    </section>
-
-    {/* GRAPH PREVIEW: the graph, only when asked, showing what an action would leave */}
-    <section id="preview" className="sec" aria-labelledby="pv-h" style={{ paddingTop: '96px', paddingBottom: '40px', position: 'relative' }}>
-    <div style={{ position: 'relative', maxWidth: '760px' }}>
-    <span className="knot" aria-hidden="true"></span>
-    <p style={{ margin: '0 0 12px', fontSize: '13px', letterSpacing: '.14em', color: 'var(--accent-fg)', fontWeight: '600' }}>A GRAPH WHEN YOU WANT ONE</p>
-    <h2 id="pv-h" style={{ margin: '0', fontSize: 'clamp(34px, 4.6vw, 56px)', lineHeight: '1.05', letterSpacing: '-0.03em', textWrap: 'balance' }}>See the result before you click.</h2>
-    <p style={{ margin: '18px 0 0', fontSize: '19px', color: 'var(--muted)', textWrap: 'pretty' }}>No graph in your way: open one beside your branches when you need it, just the branch you're on, where it started and a few around it. Then hover an action, rebase, merge, push, tag, and it shows your branches the way they'll be once it's done. What changes fades in, what goes fades out.</p>
-    </div>
-    {/* the app's Graph column, playing (GraphDemo.tsx, an island from index.astro) */}
-    {graph}
-    <p style={{ margin: '16px 0 0', fontSize: '13px', color: 'var(--faint)', textAlign: 'center' }}>Hover an action, or tap it, to preview it yourself. The merge dialog's options and the commit list's resets preview too.</p>
     </section>
 
     {/* TREE EXPLAINED */}

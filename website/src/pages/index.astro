@@ -2,7 +2,6 @@
 import Home from '../components/Home';
 import AgentCards from '../components/AgentCards';
 import HeroDemo from '../components/HeroDemo';
-import GraphDemo from '../components/GraphDemo';
 import Base from '../layouts/Base.astro';
 import faq from '../data/faq.json';
 import { REPO, releases, latestRelease, u } from '../lib/changelog';
@@ -25,7 +24,6 @@ const jsonLd = [
     keywords: 'git client, git gui, git desktop app, release branches, branch tree, worktrees, AI coding agent, Claude Code, Codex, Gemini, MCP',
     featureList: [
       'Branches shown as a tree of releases instead of a commit graph',
-      'An optional commit graph that previews a rebase, merge, push or tag before it runs',
       'One-click release: dates the changelog, fast-forwards main, tags and pushes',
       'An AI agent (Claude Code, Codex, Gemini, Copilot, Ollama) per branch, each in its own worktree',
       'AI commit messages, branch names, PR descriptions, release notes and conflict resolutions',
@@ -53,7 +51,7 @@ const jsonLd = [
 ];
 ---
 <Base title="Gitnetix: the Git client that shows your work, not your commits" description={description} page="home" jsonLd={jsonLd}>
-<Home version={latest.version}><HeroDemo slot="demo" client:visible /><GraphDemo slot="graph" client:visible /><AgentCards slot="agents" client:visible /></Home>
+<Home version={latest.version}><HeroDemo slot="demo" client:visible /><AgentCards slot="agents" client:visible /></Home>
 </Base>
 
 <script is:inline define:vars={{ downloads: latest.downloads, version: latest.version }}>

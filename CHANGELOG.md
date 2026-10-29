@@ -11,6 +11,9 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+### Removed
+- The commit graph preview beside the branch tree, with its action previews.
+
 ## [0.12.0] - 2026-10-28
 
 ### Added

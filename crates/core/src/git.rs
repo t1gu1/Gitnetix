@@ -189,21 +189,6 @@ pub struct Commit {
     pub unpushed: bool,
 }
 
-/// One commit of the commit graph: its parents and what its row shows.
-#[derive(Debug, Clone, Serialize)]
-pub struct GraphCommit {
-    pub sha: String,
-    /// First parent first.
-    pub parents: Vec<String>,
-    pub author: String,
-    pub email: String,
-    /// Author date (ISO 8601).
-    pub date: String,
-    pub subject: String,
-    /// Tags pointing at it.
-    pub tags: Vec<String>,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StashInfo {
     /// Identity of the stash: its `stash@{n}` position shifts as others come and go.
@@ -1658,36 +1643,6 @@ impl Git {
                 })
             })
             .collect())
-    }
-
-    /// Up to `limit` commits reachable from `revs` (`^rev` excludes, options like `--first-parent` allowed), newest first, with their parents.
-    pub async fn graph_log(&self, revs: &[&str], limit: u32) -> Result<Vec<GraphCommit>> {
-        let n = format!("-n{limit}");
-        let mut args = vec!["log", "--decorate-refs=refs/tags/", "--format=%H%x1f%P%x1f%an%x1f%ae%x1f%aI%x1f%D%x1f%s%x1e", &n];
-        args.extend_from_slice(revs);
-        args.push("--");
-        let out = self.run(&args).await?;
-        Ok(out
-            .split('\x1e')
-            .filter_map(|rec| {
-                let f: Vec<&str> = rec.trim_start_matches('\n').splitn(7, '\x1f').collect();
-                (f.len() == 7).then(|| GraphCommit {
-                    sha: f[0].into(),
-                    parents: f[1].split_whitespace().map(Into::into).collect(),
-                    author: f[2].into(),
-                    email: f[3].into(),
-                    date: f[4].into(),
-                    tags: f[5].split(", ").filter_map(|d| d.strip_prefix("tag: ")).map(Into::into).collect(),
-                    subject: f[6].trim_end().into(),
-                })
-            })
-            .collect())
-    }
-
-    /// Commit `r` points at; None when it doesn't resolve (no error logged: a missing ref is an answer here).
-    pub async fn resolve(&self, r: &str) -> Option<String> {
-        let (ok, out, _) = self.try_run(&["rev-parse", "--verify", "-q", &format!("{r}^{{commit}}")]).await.ok()?;
-        ok.then(|| out.trim().to_string())
     }
 }
 

@@ -15,7 +15,6 @@ import type {
   LogEntry,
   Config,
   FileChange,
-  GraphView,
   Hunk,
   MergePrefs,
   Overview,
@@ -357,19 +356,6 @@ export const useCommits = (projectId?: string, branch?: string) =>
     queryKey: ["commits", projectId, branch],
     queryFn: () => rpc<Commit[]>("workspace.commits", { projectId, branch }),
     enabled: !!projectId && !!branch,
-  });
-
-/**
- * Commit graph of `branches`. Under the commit lists' key, so whatever refreshes those (an action, a change in git)
- * refreshes it too; `state` stands for what the overview says of those branches, so a fetch that moves origin's tips does as well.
- * The previous graph stays on screen while the next one loads.
- */
-export const useGraph = (projectId: string | undefined, branches: string[], state: string, enabled: boolean) =>
-  useQuery({
-    queryKey: ["commits", projectId, { graph: branches, state }],
-    queryFn: () => rpc<GraphView>("workspace.graph", { projectId, branches }),
-    enabled: enabled && !!projectId && branches.length > 0,
-    placeholderData: (prev, prevQuery) => (prevQuery?.queryKey[1] === projectId ? prev : undefined),
   });
 
 /** Fetch origin (pruning branches deleted there) when a project opens, then every 5 minutes. Quiet on failure: it runs unasked. */

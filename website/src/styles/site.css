@@ -108,8 +108,8 @@ details[open] .chev{transform:rotate(45deg)}
 .node.on{border-color:var(--accent);background:var(--accent);box-shadow:var(--glow)}
 @media (max-width:760px){.tl::before,.node{display:none}.tl>li{grid-template-columns:minmax(0,1fr);row-gap:12px}.tl .meta{flex-direction:row;flex-wrap:wrap;align-items:center;gap:4px 12px;text-align:left}}
 /* Hero demo (HeroDemo.tsx): the app's Workspace, playable. Same class names as the app; each rule is a copy of the src/styles/app.css one, scoped to .hd. */
-.hd{--bg:#0e0f11;--panel:#15171a;--raised:#1c1f23;--sel:#24282e;--line:#272a30;--fg:#e8e9eb;--muted:#a0a5ae;--faint:#7a808a;--accent:#f0a43a;--accent-fg:#f5b65c;--on-accent:#1b1205;--add-bg:rgba(64,190,150,.13);--add-fg:#62d6ae;--warn-fg:#e3b45a;--del-bg:rgba(244,104,96,.13);--del-fg:#ff9089;--mod-fg:#86aeff;--trunk-fg:#f7c48a;--release-fg:#c4a7ff;--prop-fg:#5fd0e0;--hunk-bg:rgba(134,174,255,.08);--term:#0b0c0e;--shadow:0 6px 20px rgba(0,0,0,.35);--shadow-pop:0 1px 2px rgba(0,0,0,.4),0 10px 28px -6px rgba(0,0,0,.55);--shadow-lg:0 2px 6px rgba(0,0,0,.35),0 24px 64px -12px rgba(0,0,0,.7);--scrim:rgba(5,6,8,.55);--ring:0 0 0 3px color-mix(in srgb,var(--accent) 28%,transparent);--r-sm:4px;--r:6px;--r-lg:10px;--ease:cubic-bezier(.2,.8,.2,1);--ease-spring:cubic-bezier(.34,1.4,.64,1);--t-fast:.12s;--t:.2s;--sans:'Instrument Sans','Helvetica Neue',system-ui,sans-serif;--mono:'JetBrains Mono',ui-monospace,'SF Mono',Menlo,monospace;position:relative;display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden;box-shadow:0 40px 120px -40px rgba(0,0,0,.7);text-align:left;color:var(--fg);font-family:var(--sans);font-size:13px;line-height:normal;-webkit-font-smoothing:antialiased}
-[data-theme=light] .hd{--bg:#f3f3f1;--panel:#ffffff;--raised:#f4f4f2;--sel:#ecece8;--line:#e2e2de;--fg:#16171a;--muted:#575c65;--faint:#787d86;--accent:#f6b860;--accent-fg:#f6b860;--add-bg:#e2f4eb;--add-fg:#17744d;--warn-fg:#8a5a00;--del-bg:#fce6e4;--del-fg:#b0271f;--mod-fg:#2452c2;--trunk-fg:#a85a12;--release-fg:#6b46c1;--prop-fg:#0e7490;--hunk-bg:#eef2fb;--term:#fafaf8;--shadow:0 6px 20px rgba(0,0,0,.12);--shadow-pop:0 1px 2px rgba(20,20,30,.08),0 10px 28px -6px rgba(20,20,30,.18);--shadow-lg:0 2px 6px rgba(20,20,30,.08),0 24px 64px -12px rgba(20,20,30,.28);--scrim:rgba(30,30,36,.32);--ring:0 0 0 3px color-mix(in srgb,var(--accent) 38%,transparent)}
+.hd{--bg:#0e0f11;--panel:#15171a;--raised:#1c1f23;--sel:#24282e;--line:#272a30;--fg:#e8e9eb;--muted:#a0a5ae;--faint:#7a808a;--accent:#f0a43a;--accent-fg:#f5b65c;--on-accent:#1b1205;--add-bg:rgba(64,190,150,.13);--add-fg:#62d6ae;--warn-fg:#e3b45a;--del-bg:rgba(244,104,96,.13);--del-fg:#ff9089;--mod-fg:#86aeff;--trunk-fg:#f7c48a;--release-fg:#c4a7ff;--hunk-bg:rgba(134,174,255,.08);--term:#0b0c0e;--shadow:0 6px 20px rgba(0,0,0,.35);--shadow-pop:0 1px 2px rgba(0,0,0,.4),0 10px 28px -6px rgba(0,0,0,.55);--shadow-lg:0 2px 6px rgba(0,0,0,.35),0 24px 64px -12px rgba(0,0,0,.7);--scrim:rgba(5,6,8,.55);--ring:0 0 0 3px color-mix(in srgb,var(--accent) 28%,transparent);--r-sm:4px;--r:6px;--r-lg:10px;--ease:cubic-bezier(.2,.8,.2,1);--ease-spring:cubic-bezier(.34,1.4,.64,1);--t-fast:.12s;--t:.2s;--sans:'Instrument Sans','Helvetica Neue',system-ui,sans-serif;--mono:'JetBrains Mono',ui-monospace,'SF Mono',Menlo,monospace;position:relative;display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden;box-shadow:0 40px 120px -40px rgba(0,0,0,.7);text-align:left;color:var(--fg);font-family:var(--sans);font-size:13px;line-height:normal;-webkit-font-smoothing:antialiased}
+[data-theme=light] .hd{--bg:#f3f3f1;--panel:#ffffff;--raised:#f4f4f2;--sel:#ecece8;--line:#e2e2de;--fg:#16171a;--muted:#575c65;--faint:#787d86;--accent:#f6b860;--accent-fg:#f6b860;--add-bg:#e2f4eb;--add-fg:#17744d;--warn-fg:#8a5a00;--del-bg:#fce6e4;--del-fg:#b0271f;--mod-fg:#2452c2;--trunk-fg:#a85a12;--release-fg:#6b46c1;--hunk-bg:#eef2fb;--term:#fafaf8;--shadow:0 6px 20px rgba(0,0,0,.12);--shadow-pop:0 1px 2px rgba(20,20,30,.08),0 10px 28px -6px rgba(20,20,30,.18);--shadow-lg:0 2px 6px rgba(20,20,30,.08),0 24px 64px -12px rgba(20,20,30,.28);--scrim:rgba(30,30,36,.32);--ring:0 0 0 3px color-mix(in srgb,var(--accent) 38%,transparent)}
 .hd *{box-sizing:border-box;scrollbar-width:thin;scrollbar-color:color-mix(in srgb,var(--fg) 18%,transparent) transparent}
 .hd ::selection{background:color-mix(in srgb,var(--accent) 34%,transparent)}
 .hd button,.hd input,.hd textarea{font:inherit;color:inherit}
@@ -581,63 +581,3 @@ details[open] .chev{transform:rotate(45deg)}
 @media (prefers-reduced-motion:reduce){.hd :is(.tree-kids,.file-row,.item-btn,.ag-log>*,.term,.ws-diff,.ws-releases,.toast,.ws,.pg,.chart-bar>span,.kpi,.ctx-menu,.modal,.modal-scrim){animation:none}.hd :is(.seg-thumb,.tabs-ink){transition:none}.hd .hd-beam{display:none}.hd :is(.wip-badge,.pulse,.ai-fade,.ag-wait-chip,.ag-dots i),.hd .tree-row[data-current] .tree-name>.mono,.hd :is(.child-label,.group-label,.shipped-label)[data-active]{animation:none}.hd .chev{transition:none}}
 @container (max-width:520px){.hd .hd-opt{display:none}}
 @container (max-width:420px){.hd .picker-acts,.hd .term-tabs>.term-tab{display:none}}
-/* Graph demo (GraphDemo.tsx): the app's Graph column beside a branch's open menu. The .g-* and .graph-* rules are copies of the src/styles/app.css ones, scoped to .hd. */
-.hd .ws-graph{--g-move:.34s;--g-fade:.26s;min-width:0;display:flex;flex-direction:column;min-height:0;position:relative;background:var(--panel)}
-.hd .ws-graph>.pane-head .label{font-weight:700;color:var(--fg)}
-.hd .graph-toggle[data-on]{color:var(--accent-fg);background:color-mix(in srgb,var(--accent) 14%,transparent);border-color:color-mix(in srgb,var(--accent) 40%,transparent)}
-.hd .graph-scroll{flex:1 1 auto;position:relative;overflow:hidden}
-.hd .graph-canvas{position:relative;min-width:100%}
-.hd .graph-svg{position:absolute;left:0;top:0;overflow:visible;pointer-events:none}
-.hd .g-el{transition:transform var(--g-move) var(--ease),opacity var(--g-fade) ease;animation:hd-g-in var(--g-fade) ease backwards}
-@keyframes hd-g-in{from{opacity:0}}
-@keyframes hd-g-pulse{50%{opacity:.35}}
-.hd .g-rail{fill:var(--c)}
-.hd .g-elbow{fill:none;stroke:var(--c);stroke-width:2}
-.hd .g-dashed{fill:none;stroke:var(--c);stroke-width:1.6;stroke-dasharray:2 3;opacity:.8}
-.hd .g-stub{fill:none;stroke:var(--c);stroke-width:1.6;stroke-dasharray:2 3;stroke-linecap:round;opacity:.5}
-.hd .g-dot circle{fill:var(--c);stroke:var(--panel);stroke-width:2}
-.hd .g-dot[data-merge] circle:last-child{fill:var(--panel);stroke:var(--c)}
-.hd .g-dot .g-head{fill:none;stroke:var(--accent);stroke-width:1.6}
-.hd .g-dot[data-sim] circle:last-child{stroke:var(--c);stroke-width:1.5;fill:color-mix(in srgb,var(--c) 45%,var(--panel))}
-.hd .g-wip,.hd .g-stash{fill:var(--panel);stroke:var(--muted);stroke-width:1.6}
-.hd .g-wip{stroke-dasharray:2.6 2}
-.hd .g-fold circle{fill:var(--c);stroke:none}
-.hd .g-row{position:absolute;top:0;left:0;right:0;transition:transform var(--g-move) var(--ease),opacity var(--g-fade) ease,background-color var(--t-fast);animation:hd-g-in var(--g-fade) ease backwards;outline:none}
-.hd .g-row[data-sel]{background:color-mix(in srgb,var(--c) 16%,transparent)}
-.hd .g-text{position:absolute;top:0;bottom:0;left:var(--text-x);right:8px;display:flex;align-items:center;gap:5px;min-width:0;overflow:hidden;font-size:12px;transition:left var(--g-move) var(--ease)}
-.hd .g-subject{flex:1 1 auto;min-width:24px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;transition:opacity var(--g-fade) ease}
-.hd .g-row[data-sim] .g-subject{font-style:italic}
-.hd .g-when{flex:0 0 auto;color:var(--faint);font-size:10.5px;white-space:nowrap}
-.hd .g-note{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--faint);font-size:11.5px;font-style:italic}
-.hd .g-more{padding:1px 8px;border:1px dashed var(--line);border-radius:999px;color:var(--muted);font-size:11px;white-space:nowrap}
-.hd .g-label{--c:var(--muted);flex:0 0 auto;max-width:48%;display:inline-flex;align-items:center;gap:4px;height:18px;padding:0 6px;border:1px solid color-mix(in srgb,var(--c) 45%,transparent);border-radius:var(--r-sm);background:color-mix(in srgb,var(--c) 14%,var(--panel));color:var(--c);font-family:var(--mono);font-size:10.5px;white-space:nowrap;animation:hd-g-in var(--g-fade) ease backwards;transition:opacity var(--g-fade) ease,box-shadow var(--t-fast)}
-.hd .g-label svg{flex:0 0 auto}.hd .g-label>span{min-width:0}
-.hd .g-label[data-kind=remote]{background:var(--panel);border-style:dashed}
-.hd .g-label[data-kind=tag]{--c:var(--warn-fg)}
-.hd .g-label[data-head]{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 26%,var(--panel));color:var(--fg)}
-.hd .g-label[data-made]{border-style:dashed}
-.hd .ws-graph [data-gone]{opacity:0;pointer-events:none}
-.hd .ws-graph[data-preview] :is(.g-el,.g-label)[data-new]:not([data-gone]),.hd .ws-graph[data-preview] .g-row[data-new]:not([data-gone]) .g-subject{animation:hd-g-in var(--g-fade) ease backwards,hd-g-pulse 1.4s ease-in-out var(--g-fade) infinite}
-.hd .ws-graph[data-preview] .g-el[data-new]:not([data-gone]){filter:drop-shadow(0 0 3px color-mix(in srgb,var(--c) 70%,transparent))}
-.hd .ws-graph[data-preview] .g-el:not([data-new]):not([data-gone]),.hd .ws-graph[data-preview] .g-row:not([data-new]) :is(.g-subject,.g-when,.g-note,.g-more),.hd .ws-graph[data-preview] .g-label:not([data-new]):not([data-gone]){opacity:.42}
-.hd .graph-banner{position:absolute;left:10px;right:10px;bottom:10px;z-index:4;display:flex;align-items:center;gap:9px;padding:8px 11px;border:1px solid color-mix(in srgb,var(--accent) 50%,var(--line));border-radius:var(--r);background:color-mix(in srgb,var(--raised) 94%,transparent);box-shadow:var(--shadow-pop);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);opacity:0;transform:translateY(6px);pointer-events:none;transition:opacity var(--t) var(--ease),transform var(--t) var(--ease),border-color var(--t)}
-.hd .graph-banner[data-on]{opacity:1;transform:none}
-.hd .graph-banner[data-noop]{border-color:var(--line)}
-.hd .graph-banner[data-warn]{border-color:color-mix(in srgb,var(--del-fg) 55%,var(--line))}
-.hd .graph-banner-icon{display:flex;flex:0 0 auto;color:var(--accent-fg)}
-.hd .graph-banner[data-noop] .graph-banner-icon{color:var(--add-fg)}
-.hd .graph-banner .col{gap:1px}
-.hd .graph-banner-title{font-size:12px;font-weight:600}
-.hd .graph-banner-note{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;color:var(--muted);font-size:11px;line-height:1.35}
-/* The demo's frame: the graph, then the branches with the menu open under the checked-out one's "…" and a pointer hovering its actions. */
-.gd{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);height:580px;margin-top:48px;border:1px solid var(--line);border-radius:14px;overflow:hidden;background:var(--panel);box-shadow:0 30px 80px -40px rgba(0,0,0,.6)}
-.gd .gd-graph{border-right:1px solid var(--line)}
-.gd .gd-tree{position:relative;min-height:0}
-.gd .gd-menu{position:absolute;z-index:2;animation:none;visibility:hidden}
-.gd .gd-menu[data-placed]{visibility:visible}
-.gd .ctx-item[data-hover]{background:var(--sel)}
-.gd .act[data-open]{background:var(--sel);color:var(--fg)}
-.gd-cursor{position:absolute;left:0;top:0;z-index:3;fill:#fff;stroke:#16171a;stroke-width:1.2;stroke-linejoin:round;filter:drop-shadow(0 2px 3px rgba(0,0,0,.45));opacity:0;pointer-events:none;transition:transform var(--move) cubic-bezier(.45,.05,.25,1),opacity .3s}
-.gd-cursor[data-on]{opacity:1}
-@media (max-width:760px){.gd{grid-template-columns:minmax(0,1fr);height:auto}.gd .gd-graph{height:480px;border-right:0;border-bottom:1px solid var(--line)}.gd .gd-tree{height:560px}}
-@media (prefers-reduced-motion:reduce){.gd *{animation:none!important;transition:none!important}}

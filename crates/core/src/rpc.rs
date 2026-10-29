@@ -38,7 +38,6 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("workspace.diff", "Diff of one file; in wip mode `staged` picks the side; `commit` diffs that commit; `full` keeps the whole file", "projectId, branch, mode, path, staged?, commit?, full?"),
     ("workspace.blobs", "Old and new contents of one file, base64 (image previews); same picking as workspace.diff", "projectId, branch, mode, path, staged?, commit?"),
     ("workspace.commits", "Commits a branch has that its base does not (a trunk: recent history)", "projectId, branch"),
-    ("workspace.graph", "Commit graph of a few branches: each one's newest commits down to where they all meet and a few shared ones under that, with parents, tags, the local and origin tips and HEAD; gaps say how much history was left out under a shown commit", "projectId, branches: string[]"),
     ("commits.revert", "Revert a commit with a new commit on its branch", "projectId, branch, sha"),
     ("commits.cherryPick", "Copy a commit onto a checked-out branch", "projectId, onto, sha"),
     ("commits.reset", "Reset a checked-out branch to a commit", "projectId, branch, sha, mode: soft|mixed|hard"),
@@ -254,7 +253,7 @@ fn drop_unused_atlassian_sign_in(k: &Gitnetix) -> Result<()> {
 }
 
 /// Reads polled all the time: logged only when they fail.
-const QUIET: &[&str] = &[".info", ".get", ".list", ".overview", ".files", ".diff", ".blobs", ".commits", ".graph", ".catalog", ".statuses", ".versions", ".projects", ".refs", ".range", ".preview", ".clear", "analytics.day", "shell.write", "shell.resize", "shell.scripts", "ui.setView", "github.signInPoll", "azure.signInPoll"];
+const QUIET: &[&str] = &[".info", ".get", ".list", ".overview", ".files", ".diff", ".blobs", ".commits", ".catalog", ".statuses", ".versions", ".projects", ".refs", ".range", ".preview", ".clear", "analytics.day", "shell.write", "shell.resize", "shell.scripts", "ui.setView", "github.signInPoll", "azure.signInPoll"];
 
 /// Actions in flight.
 static BUSY: std::sync::Mutex<usize> = std::sync::Mutex::new(0);
@@ -514,7 +513,6 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
             None => to(k.blobs(&s(&p, "projectId")?, &s(&p, "branch")?, mode(&p)?, &s(&p, "path")?, p.get("staged").and_then(Value::as_bool)).await?),
         },
         "workspace.commits" => to(k.commits(&s(&p, "projectId")?, &s(&p, "branch")?).await?),
-        "workspace.graph" => to(k.graph(&s(&p, "projectId")?, &list(&p, "branches")?).await?),
         "commits.revert" => to(json!({ "sha": k.revert_commit(&s(&p, "projectId")?, &s(&p, "branch")?, &s(&p, "sha")?).await? })),
         "commits.cherryPick" => to(json!({ "sha": k.cherry_pick(&s(&p, "projectId")?, &s(&p, "onto")?, &s(&p, "sha")?).await? })),
         "commits.reset" => {

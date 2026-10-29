@@ -4,7 +4,7 @@
 
 <p align="center"><b>See your work, not your commits.</b></p>
 
-Gitnetix is a Git client with no commit graph in your way, and a preview when you want one. Branches as a tree. Releases as a button. An agent on every branch.
+Gitnetix is a Git client with no commit graph. Branches as a tree. Releases as a button. An agent on every branch.
 Runs on macOS, Windows and Linux; pair your phone by QR code to manage it remotely.
 
 Built with a Rust engine, a React UI and a Tauri 2 shell.

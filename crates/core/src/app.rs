@@ -17,7 +17,7 @@ use crate::cache::{key_of, CommitCache, LastCache, ViewCache};
 use crate::dictation::Audio;
 use crate::error::{Error, Result};
 use crate::events::Event;
-use crate::git::{ticket_keys, Blobs, BranchInfo, Commit, FileChange, Git, GraphCommit, Hunk, LinePick, PrSquash, Side, Identity, StashInfo, TagInfo, WorktreeInfo};
+use crate::git::{ticket_keys, Blobs, BranchInfo, Commit, FileChange, Git, Hunk, LinePick, PrSquash, Side, Identity, StashInfo, TagInfo, WorktreeInfo};
 use crate::project_commands::{self, Scripts};
 use crate::providers::azure::{self, MergedPr};
 use crate::providers::{azure_auth, github::GitHub, parse_remote, PrHost};
@@ -394,53 +394,6 @@ pub struct RebaseResult {
     /// Upstream that now needs a force push: the branch was already pushed before the rebase.
     pub force_push_to: Option<String>,
 }
-
-/// The commit graph of a few branches: their own commits, a few shared ones under where they meet, and their tips.
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct GraphView {
-    /// Newest first per tip, in no overall order: the UI lays them out.
-    pub commits: Vec<GraphCommit>,
-    /// Tips of the branches asked for: the local branch and its origin copy, when they exist.
-    pub refs: Vec<GraphRef>,
-    /// Checked-out branch; None when HEAD is detached.
-    pub head: Option<String>,
-    /// Commit HEAD points at.
-    pub head_sha: Option<String>,
-    /// History left out under a shown commit: each missing parent with where it leads back to the shown ones.
-    pub gaps: Vec<GraphGap>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct GraphRef {
-    pub name: String,
-    /// The origin copy (`origin/<name>`), not the local branch.
-    pub remote: bool,
-    pub sha: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct GraphGap {
-    /// The parent left out.
-    pub parent: String,
-    /// Commits left out down its first parents, it included.
-    pub count: u32,
-    /// Shown commit that run leads to; None when it doesn't within the commits looked at.
-    pub join: Option<String>,
-}
-
-/// Commits the graph reads per branch tip: plenty for one branch, few enough to answer quickly on a big repository.
-const GRAPH_VIEW_PER_TIP: u32 = 60;
-/// The graph takes at least this many commits, more of the shared history when the branches have few of their own.
-const GRAPH_VIEW_MIN: u32 = 24;
-/// Branches one graph takes at most.
-const GRAPH_VIEW_BRANCHES: usize = 12;
-/// Missing parents traced back to the shown commits at most; past that they just end.
-const GRAPH_VIEW_GAPS: usize = 12;
-/// How far down its first parents a missing parent is traced.
-const GRAPH_VIEW_TRACE: u32 = 5000;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -2653,91 +2606,6 @@ impl Gitnetix {
             c.unpushed = unpushed.contains(&c.sha);
         }
         Ok(list)
-    }
-
-    /// Commit graph of `branches`: each tip's newest commits down to where they all meet, a few shared
-    /// ones under that (first parents), the tips (local and origin), tags and HEAD. Each tip reads a
-    /// bounded number of commits, so a long branch costs no more than a short one; what is left out comes back as gaps.
-    pub async fn graph(&self, project_id: &str, branches: &[String]) -> Result<GraphView> {
-        let p = self.store.project(project_id)?;
-        let git = self.git(&p);
-        let mut names: Vec<&str> = Vec::new();
-        for b in branches.iter().map(String::as_str).filter(|b| !b.is_empty()) {
-            if !names.contains(&b) && names.len() < GRAPH_VIEW_BRANCHES {
-                names.push(b);
-            }
-        }
-        let tips = futures_util::future::join_all(names.iter().map(|&name| {
-            let git = &git;
-            async move {
-                let (l, o) = (format!("refs/heads/{name}"), format!("refs/remotes/origin/{name}"));
-                let (local, origin) = tokio::join!(git.resolve(&l), git.resolve(&o));
-                [(false, local), (true, origin)].into_iter().filter_map(|(remote, sha)| Some(GraphRef { name: name.to_string(), remote, sha: sha? })).collect::<Vec<_>>()
-            }
-        }))
-        .await;
-        let refs: Vec<GraphRef> = tips.into_iter().flatten().collect();
-        let (head, head_sha) = tokio::join!(git.current_branch(), git.resolve("HEAD"));
-        let head = head.ok().flatten();
-        let mut tips: Vec<&str> = refs.iter().map(|r| r.sha.as_str()).chain(head_sha.as_deref()).collect();
-        tips.sort_unstable();
-        tips.dedup();
-        if tips.is_empty() {
-            return Ok(GraphView { commits: Vec::new(), refs, head, head_sha, gaps: Vec::new() });
-        }
-        // Where they all meet: above it each tip shows its own commits, under it a few shared ones.
-        let mut args = vec!["merge-base", "--octopus"];
-        args.extend(&tips);
-        let base = match git.try_run(&args).await? {
-            (true, out, _) => out.lines().next().map(str::to_string),
-            _ => None,
-        };
-        let not_base = base.as_ref().map(|b| format!("^{b}"));
-        let logs = futures_util::future::join_all(tips.iter().map(|&t| {
-            let revs: Vec<&str> = std::iter::once(t).chain(not_base.as_deref()).collect();
-            let git = &git;
-            async move { git.graph_log(&revs, GRAPH_VIEW_PER_TIP).await }
-        }))
-        .await;
-        let mut seen = std::collections::HashSet::new();
-        let mut commits = Vec::new();
-        for c in logs.into_iter().collect::<Result<Vec<_>>>()?.into_iter().flatten() {
-            if seen.insert(c.sha.clone()) {
-                commits.push(c);
-            }
-        }
-        let own = commits.len();
-        if let Some(b) = &base {
-            let below = GRAPH_VIEW_MIN.saturating_sub(own as u32).max(4);
-            for c in git.graph_log(&["--first-parent", b], below).await? {
-                if seen.insert(c.sha.clone()) {
-                    commits.push(c);
-                }
-            }
-        }
-        // Parents the tips' own commits lead to but that were left out: how far down their first
-        // parents a shown commit comes back. The shared history under the meeting point just ends.
-        let mut missing: Vec<&str> = Vec::new();
-        for parent in commits[..own].iter().flat_map(|c| &c.parents) {
-            if !seen.contains(parent) && !missing.contains(&parent.as_str()) {
-                missing.push(parent);
-            }
-        }
-        let limit = format!("-n{GRAPH_VIEW_TRACE}");
-        let traced = futures_util::future::join_all(missing.iter().take(GRAPH_VIEW_GAPS).map(|&parent| {
-            let (git, seen, limit) = (&git, &seen, &limit);
-            async move {
-                let chain = git.run(&["rev-list", "--first-parent", limit, parent]).await.unwrap_or_default();
-                let at = chain.lines().position(|s| seen.contains(s));
-                GraphGap {
-                    parent: parent.to_string(),
-                    count: at.unwrap_or_else(|| chain.lines().count()) as u32,
-                    join: at.and_then(|i| chain.lines().nth(i)).map(str::to_string),
-                }
-            }
-        }))
-        .await;
-        Ok(GraphView { commits, refs, head, head_sha, gaps: traced })
     }
 
     /// Files one commit changed, against its first parent.
