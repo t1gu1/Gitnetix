@@ -66,16 +66,57 @@ mod desktop {
     #[derive(Default)]
     pub struct Clip(std::sync::Mutex<Option<arboard::Clipboard>>);
 
+    impl Clip {
+        fn with<T>(&self, f: impl FnOnce(&mut arboard::Clipboard) -> Result<T, arboard::Error>) -> Result<T, String> {
+            let mut c = self.0.lock().unwrap();
+            if c.is_none() {
+                *c = Some(arboard::Clipboard::new().map_err(|e| e.to_string())?);
+            }
+            f(c.as_mut().unwrap()).map_err(|e| e.to_string())
+        }
+    }
+
     /// Puts a file an agent was sent, or shows, on the clipboard as the file itself, so it pastes whole (a GIF still moves) in file managers and chat apps.
     /// Window commands, not RPC methods: a paired phone must not reach the desktop's clipboard or Downloads folder.
     #[tauri::command]
     pub async fn agent_file_copy(engine: State<'_, Engine>, clip: State<'_, Clip>, id: String, path: String) -> Result<(), String> {
         let file = engine.0.agent_file_path(&id, &path).await.map_err(|e| e.to_string())?;
-        let mut c = clip.0.lock().unwrap();
-        if c.is_none() {
-            *c = Some(arboard::Clipboard::new().map_err(|e| e.to_string())?);
+        clip.with(|c| c.set().file_list(&[file]))
+    }
+
+    /// The files on the clipboard (copied in a file manager, or with a chat image's Copy), none when it holds something else.
+    /// The page asks when a paste brings it nothing: WebKitGTK hands it no copied files or images.
+    #[tauri::command]
+    pub async fn clipboard_files(clip: State<'_, Clip>) -> Result<Vec<std::path::PathBuf>, String> {
+        clip.with(|c| Ok(c.get().file_list().unwrap_or_default()))
+    }
+
+    /// The image on the clipboard as a PNG, empty when there is none.
+    #[tauri::command]
+    pub async fn clipboard_image(clip: State<'_, Clip>) -> Result<tauri::ipc::Response, String> {
+        let Some(img) = clip.with(|c| Ok(c.get_image().ok()))? else {
+            return Ok(tauri::ipc::Response::new(Vec::new()));
+        };
+        let mut out = Vec::new();
+        let mut enc = png::Encoder::new(&mut out, img.width as u32, img.height as u32);
+        enc.set_color(png::ColorType::Rgba);
+        enc.set_depth(png::BitDepth::Eight);
+        let mut w = enc.write_header().map_err(|e| e.to_string())?;
+        w.write_image_data(&img.bytes).map_err(|e| e.to_string())?;
+        w.finish().map_err(|e| e.to_string())?;
+        Ok(tauri::ipc::Response::new(out))
+    }
+
+    /// An image dropped or pasted on the window, by its path, for its thumbnail in a message box. Not SVG: an `<img>` needs its type to show it.
+    #[tauri::command]
+    pub async fn local_image(path: String) -> Result<tauri::ipc::Response, String> {
+        let p = std::path::Path::new(&path);
+        let ext = p.extension().and_then(|e| e.to_str()).unwrap_or_default().to_ascii_lowercase();
+        // The message box's upload cap (AgentLog.tsx): a bigger file is never sent.
+        if !["png", "jpg", "jpeg", "gif", "webp", "avif", "bmp", "ico"].contains(&ext.as_str()) || p.metadata().map_err(|e| e.to_string())?.len() > 25 << 20 {
+            return Err("Not an image to preview".into());
         }
-        c.as_mut().unwrap().set().file_list(&[file]).map_err(|e| e.to_string())
+        std::fs::read(p).map(tauri::ipc::Response::new).map_err(|e| e.to_string())
     }
 
     /// Saves a copy of that file in the Downloads folder, numbered when its name is taken there, and returns where.
@@ -262,7 +303,7 @@ pub fn run() {
         .manage(desktop::Companion::default())
         .manage(desktop::Clip::default())
         .setup(desktop::setup)
-        .invoke_handler(tauri::generate_handler![desktop::rpc, desktop::companion, desktop::allow_firewall, desktop::open_url, desktop::dictation_start, desktop::dictation_stop, desktop::dictation_cancel, desktop::agent_file_copy, desktop::agent_file_download]);
+        .invoke_handler(tauri::generate_handler![desktop::rpc, desktop::companion, desktop::allow_firewall, desktop::open_url, desktop::dictation_start, desktop::dictation_stop, desktop::dictation_cancel, desktop::agent_file_copy, desktop::agent_file_download, desktop::clipboard_files, desktop::clipboard_image, desktop::local_image]);
 
     // The pairing screen scans the desktop's QR code with the phone camera.
     #[cfg(mobile)]

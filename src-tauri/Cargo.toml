@@ -32,7 +32,9 @@ tauri-plugin-process = "2"
 # Voice dictation's microphone: webview recording depends on codecs each OS (and Linux distro) may lack.
 cpal = "0.18"
 # Copies chat images as files (the web clipboard holds still PNGs only, so GIFs would stop moving). Wayland when the compositor allows it, else X11.
-arboard = { version = "3.6", default-features = false, features = ["wayland-data-control"] }
+# Also reads pasted images and copied files, which WebKitGTK never hands the page.
+arboard = { version = "3.6", default-features = false, features = ["wayland-data-control", "image-data"] }
+png = "0.18"
 
 [target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
 tauri-plugin-barcode-scanner = "2"

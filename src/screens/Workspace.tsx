@@ -30,7 +30,7 @@ import {
 } from "../api/hooks";
 import { isLocal, revealPath } from "../api/transport";
 import type { AgentSession, BranchView, Commit, FileChange, Hunk, LinePick, MergeResult, Overview, RebaseResult, ReleaseView, RenameResult, Stash } from "../api/types";
-import { AgentInput, AgentLog, type Attachment, type Choice, type Upload } from "../components/AgentLog";
+import { AgentInput, AgentLog, type Choice, type Upload } from "../components/AgentLog";
 import { AgentPicker, useAgentPick } from "../components/AgentPicker";
 import { DiffView, LargeDiff, type DiffMode, type Staging } from "../components/DiffView";
 import { IMAGE_MODES, ImageDiff, comparable, isImage, useImageMode, type ImageMode } from "../components/ImageDiff";
@@ -42,6 +42,7 @@ import { Busy, Confirm, ErrorBox, Loading, Markdown, Modal, Seg } from "../compo
 import { ago, plural, timeLeft } from "../lib/format";
 import { shownStatus } from "../lib/agentLog";
 import { startCleanup, useCleaning } from "../lib/cleanups";
+import { useDraft } from "../lib/drafts";
 import { useNav } from "../lib/nav";
 import { previewHandlers, useDialogPreview, type GraphIntent } from "../lib/graphPreview";
 import { useStoredChoice, useStoredFlag } from "../lib/stored";
@@ -2199,8 +2200,7 @@ function Terminal({ pid, branch, cwd, worktree, open, setOpen, onCloseWorktree, 
   // Its worktree is being deleted (merged, closed): nothing new starts there meanwhile.
   const leaving = worktree && !!cwd && hidden.has(wtKey(cwd));
   const curBranch = useOverview(pid).data?.branches.find((b) => b.name === cur?.branch);
-  const [text, setText] = useState("");
-  const [files, setFiles] = useState<Attachment[]>([]);
+  const { text, setText, files, setFiles } = useDraft(`${pid}:${branch ?? ""}`);
   const [picks, setPicks] = useState<Choice[]>([]);
   const [pick, setPick] = useAgentPick(pid);
   // Starting on a branch makes its worktree and may move the main checkout off it.

@@ -4865,6 +4865,15 @@ body:has(> .modal-scrim) #root * {
 .modal-foot > .split-btn > .split-main {
   flex: 1 1 auto;
 }
+/* A minimized new agent session (Worktrees.tsx): bottom left, clear of the toasts; under any modal. */
+.start-chip {
+  position: fixed;
+  left: 16px;
+  bottom: calc(16px + env(safe-area-inset-bottom));
+  z-index: 45;
+  height: 40px;
+  box-shadow: var(--shadow);
+}
 .toasts {
   position: fixed;
   right: 16px;
@@ -5333,6 +5342,10 @@ body:has(> .modal-scrim) #root * {
   }
   .mobile-tabs button[aria-pressed="true"] {
     color: var(--accent-fg);
+  }
+  /* Above the bottom tabs. */
+  .start-chip {
+    bottom: calc(70px + env(safe-area-inset-bottom));
   }
   .mobile-tabs button > span {
     display: flex;

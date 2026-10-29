@@ -1,8 +1,8 @@
-import { type CSSProperties, type KeyboardEvent, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type ClipboardEvent, type CSSProperties, type KeyboardEvent, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { useAgentFile, useAiCatalog, useConfig } from "../api/hooks";
-import { copyAgentFile, downloadAgentFile, isLocal, onPathDrop } from "../api/transport";
+import { clipboardFiles, copyAgentFile, downloadAgentFile, isLocal, localImage, onPathDrop } from "../api/transport";
 import type { LogLine } from "../api/types";
 import { blocks, questions, said, type Block, type Opt, type Question } from "../lib/agentLog";
 import { bytes } from "../lib/format";
@@ -388,14 +388,20 @@ export function FileChip({ file, session, onOpen, onRemove }: { file: Attachment
     return () => window.removeEventListener("scroll", off, true);
   }, [at]);
   useEffect(() => {
-    if (typeof file === "string" || !file.type.startsWith("image/")) {
-      setUrl(undefined);
-      return;
-    }
-    const u = URL.createObjectURL(file);
-    setUrl(u);
-    return () => URL.revokeObjectURL(u);
-  }, [file]);
+    // A path dropped or pasted on the desktop window loads from it. Pasted files may come untyped.
+    const shown = typeof file === "string" ? isLocal && !session && isImage(file) : file.type.startsWith("image/") || isImage(file.name);
+    if (!shown) return setUrl(undefined);
+    let u = "";
+    let live = true;
+    (typeof file === "string" ? localImage(file) : Promise.resolve(file)).then(
+      (b) => live && setUrl((u = URL.createObjectURL(b))),
+      () => live && setUrl(undefined),
+    );
+    return () => {
+      live = false;
+      if (u) URL.revokeObjectURL(u);
+    };
+  }, [file, session]);
   return (
     <span
       className="ag-file"
@@ -483,6 +489,18 @@ export function useAttach(target: () => HTMLElement | null | undefined, files: A
   return { over, add };
 }
 
+/** Screenshots, copied images and copied files attach instead of pasting nothing. WebKitGTK (the desktop app on Linux) hands the page none of them: they come from the desktop's clipboard. */
+function paste(e: ClipboardEvent<HTMLTextAreaElement>, add: (f: Attachment[]) => void) {
+  const pasted = [...e.clipboardData.files];
+  if (pasted.length) {
+    e.preventDefault();
+    return add(pasted);
+  }
+  if (!isLocal || e.clipboardData.getData("text/plain")) return;
+  e.preventDefault();
+  clipboardFiles().then(add, (err) => toast(`Could not paste: ${err}`, "error"));
+}
+
 /** What a new agent session should do, in a modal: files are picked, pasted, or dropped anywhere on it. ⌘↵ runs `onSubmit`. */
 export function RequestField({ value, onChange, files, onFiles, onSubmit }: { value: string; onChange: (v: string) => void; files: Attachment[]; onFiles: (f: Attachment[]) => void; onSubmit: () => void }) {
   const field = useRef<HTMLDivElement>(null);
@@ -499,13 +517,7 @@ export function RequestField({ value, onChange, files, onFiles, onSubmit }: { va
         value={value}
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) onSubmit(); }}
-        onPaste={(e) => {
-          // Screenshots and copied images attach instead of pasting nothing.
-          const pasted = [...e.clipboardData.files];
-          if (!pasted.length) return;
-          e.preventDefault();
-          add(pasted);
-        }}
+        onPaste={(e) => paste(e, add)}
         autoFocus
       />
       {files.length > 0 && (
@@ -656,13 +668,7 @@ export function AgentInput({ id, label, value, onChange, files, onFiles, picks, 
           value={value}
           disabled={disabled}
           onKeyDown={keys}
-          onPaste={(e) => {
-            // Screenshots and copied images attach instead of pasting nothing.
-            const pasted = [...e.clipboardData.files];
-            if (!pasted.length) return;
-            e.preventDefault();
-            add(pasted);
-          }}
+          onPaste={(e) => paste(e, add)}
           onChange={(e) => {
             setAt(null);
             onChange(e.target.value);

@@ -26,7 +26,7 @@ import { Templates } from "./screens/Templates";
 import { Tickets } from "./screens/Tickets";
 import { Welcome } from "./screens/Welcome";
 import { Workspace } from "./screens/Workspace";
-import { Worktrees } from "./screens/Worktrees";
+import { StartSession, Worktrees } from "./screens/Worktrees";
 
 export function App() {
   const [paired, setPaired] = useState(isLocal || !!currentRemote());
@@ -87,6 +87,7 @@ function Shell({ onUnpair }: { onUnpair: () => void }) {
           </div>
           {nav.projectId && <MobileTabs />}
           {each(() => <NewItemDialog />)}
+          <StartSession />
           <UpdatePrompt />
           <Toasts />
           <Dictation />

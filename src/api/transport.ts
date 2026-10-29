@@ -176,6 +176,21 @@ export async function downloadAgentFile(id: string, path: string) {
   return invoke<string>("agent_file_download", { id, path });
 }
 
+/** What this computer's clipboard holds, for a paste that brought the page nothing (WebKitGTK passes on no images or copied files): the files' paths, else the image as a PNG (desktop only). */
+export async function clipboardFiles(): Promise<(File | string)[]> {
+  const { invoke } = await import("@tauri-apps/api/core");
+  const paths = await invoke<string[]>("clipboard_files");
+  if (paths.length) return paths;
+  const png = await invoke<ArrayBuffer>("clipboard_image");
+  return png.byteLength ? [new File([png], "image.png", { type: "image/png" })] : [];
+}
+
+/** An image file on this computer, dropped or pasted on the window, for its thumbnail (desktop only). */
+export async function localImage(path: string) {
+  const { invoke } = await import("@tauri-apps/api/core");
+  return new Blob([await invoke<ArrayBuffer>("local_image", { path })]);
+}
+
 /** Native folder picker on desktop; null elsewhere. */
 export async function pickFolders(): Promise<string[] | null> {
   if (!isLocal) return null;

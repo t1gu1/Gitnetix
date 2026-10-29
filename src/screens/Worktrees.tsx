@@ -3,8 +3,9 @@ import { useMemo, useState, type CSSProperties, type MouseEvent } from "react";
 import { useAction, useAgents, useFiles, useOverview, useProjects, useWorktrees } from "../api/hooks";
 import { rpc } from "../api/transport";
 import type { AgentSession, AgentStatus, RebaseResult, WorktreeView } from "../api/types";
-import { AgentInput, AgentLog, RequestField, uploads, type Attachment, type Choice, type Upload } from "../components/AgentLog";
+import { AgentInput, AgentLog, RequestField, uploads, type Choice, type Upload } from "../components/AgentLog";
 import { shownStatus } from "../lib/agentLog";
+import { useDraft } from "../lib/drafts";
 import { AgentPicker, MenuChoice, useAgentPick } from "../components/AgentPicker";
 import { ContextMenu, type MenuItem } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
@@ -76,8 +77,9 @@ export function Worktrees({ initial }: { initial?: string }) {
   const [sel, setSel] = useState<string | undefined>(initial);
   const [pane, setPane] = useState<"list" | "detail">(initial ? "detail" : "list");
   const listW = usePaneWidth("gnx.pane.worktrees", 400, 280, 720);
-  // The project the new session modal opens on; undefined while it is closed.
-  const [starting, setStarting] = useState<string>();
+  const session = useDraft<Session>(START);
+  // A session left open or minimized comes back as it was; otherwise a new one on project `pid`.
+  const openStart = (pid?: string) => session.setForm(session.form ? { ...session.form, min: false } : { pid: pid ?? "", min: false });
   // Right-click or "…" selects the row and opens its actions: they and their modals live in its Detail.
   const [menu, setMenu] = useState<{ key: string; x: number; y: number; alignRight?: boolean } | null>(null);
   const openMenu = (r: Row, e: MouseEvent<HTMLElement>) => {
@@ -155,7 +157,7 @@ export function Worktrees({ initial }: { initial?: string }) {
                   <span className="grow" />
                   {!loading && <span className="faint">{g.items.length || "No worktrees"}</span>}
                   {g.id && (
-                    <button className="btn btn-ghost btn-sm btn-icon" aria-label={`New agent session in ${g.name}`} data-tip="New agent session" onClick={() => setStarting(g.id)}>
+                    <button className="btn btn-ghost btn-sm btn-icon" aria-label={`New agent session in ${g.name}`} data-tip="New agent session" onClick={() => openStart(g.id)}>
                       <Icon name="plus" size={12} />
                     </button>
                   )}
@@ -223,7 +225,7 @@ export function Worktrees({ initial }: { initial?: string }) {
             )}
           </div>
           <div className="master-tools" style={{ borderBottom: 0, borderTop: "1px solid var(--line)" }}>
-            <button className="btn btn-primary" style={{ height: 48, fontSize: 13.5 }} disabled={!projects.length} onClick={() => setStarting(nav.projectId ?? cur?.projectId ?? projects[0]?.id)}>
+            <button className="btn btn-primary" style={{ height: 48, fontSize: 13.5 }} disabled={!projects.length} onClick={() => openStart(nav.projectId ?? cur?.projectId ?? projects[0]?.id)}>
               <Icon name="sparkle" size={13} />
               New agent session
             </button>
@@ -234,7 +236,6 @@ export function Worktrees({ initial }: { initial?: string }) {
           {cur ? <Detail key={cur.key} r={cur} menu={menu?.key === cur.key ? menu : undefined} onMenuClose={() => setMenu(null)} /> : <EmptyState icon="layers" title="No worktree selected">Pick one from the list, or start a new agent session to give a branch its own folder and agent.</EmptyState>}
         </main>
       </div>
-      {starting && <StartModal initial={starting} onClose={() => setStarting(undefined)} />}
     </>
   );
 }
@@ -296,8 +297,7 @@ function Detail({ r, menu, onMenuClose }: { r: Row; menu?: { x: number; y: numbe
   const msg = useAction("agents.message", { invalidate: inv });
   const configure = useAction("agents.configure", { invalidate: inv });
   const start = useAction("agents.start", { invalidate: inv });
-  const [text, setText] = useState("");
-  const [files, setFiles] = useState<Attachment[]>([]);
+  const { text, setText, files, setFiles } = useDraft(`${r.projectId}:${r.branch}`);
   const [picks, setPicks] = useState<Choice[]>([]);
   const actions = useBranchActions(r.projectId, () => {});
   const ov = useOverview(r.projectId);
@@ -445,20 +445,50 @@ function Detail({ r, menu, onMenuClose }: { r: Row; menu?: { x: number; y: numbe
   );
 }
 
-function StartModal({ initial, onClose }: { initial?: string; onClose: () => void }) {
-  const projects = useProjects().data ?? [];
-  const [pid, setPid] = useState(initial ?? "");
+/** The new agent session, one for the whole app, as it was left: open or minimized to a chip, and what was picked. Its request and files are the draft's text and files. */
+interface Session {
+  min: boolean;
+  pid: string;
   // Each session gets its own worktree (made by the backend if needed); the default branch is reserved.
-  const [picked, setBranch] = useState("");
+  branch?: string;
   // "new": branch off `from` into a fresh worktree; the default branch can be the base.
-  const [pickedMode, setMode] = useState<"existing" | "new">();
-  const [pickedFrom, setFrom] = useState("");
-  const [name, setName] = useState("");
-  const [kind, setKind] = useState<Kind>("feat");
-  const [typedTicket, setTicket] = useState<string>();
-  const [request, setRequest] = useState("");
+  mode?: "existing" | "new";
+  from?: string;
+  name?: string;
+  kind?: Kind;
+  ticket?: string;
+}
+// Kept like the prompt boxes' drafts: it outlives page changes and restarts.
+const START = "new agent session";
+
+/** The new agent session modal, or its chip while minimized. Mounted once, in the app shell. */
+export function StartSession() {
+  const d = useDraft<Session>(START);
+  const s = d.form;
+  if (!s) return null;
+  const close = () => {
+    d.setForm(undefined);
+    d.setText("");
+    d.setFiles([]);
+  };
+  return s.min ? (
+    <button className="btn start-chip" onClick={() => d.setForm({ ...s, min: false })}>
+      <Icon name="sparkle" size={13} />
+      New agent session
+    </button>
+  ) : (
+    <StartModal onClose={close} onMinimize={() => d.setForm({ ...s, min: true })} />
+  );
+}
+
+function StartModal({ onClose, onMinimize }: { onClose: () => void; onMinimize: () => void }) {
+  const projects = useProjects().data ?? [];
+  const d = useDraft<Session>(START);
+  const s = d.form ?? { min: false, pid: "" };
+  const set = (p: Partial<Session>) => d.setForm({ ...s, ...p });
+  const { pid, branch: picked = "", mode: pickedMode, from: pickedFrom = "", name = "", kind = "feat", ticket: typedTicket } = s;
   // Files for the agent, like in its prompt box: picked, pasted, or dropped anywhere on the modal.
-  const [files, setFiles] = useState<Attachment[]>([]);
+  const { text: request, setText: setRequest, files, setFiles } = d;
   const [pick, setPick] = useAgentPick(pid);
   const ov = useOverview(pid).data;
   const all = (ov?.branches ?? []).filter((b) => b.exists);
@@ -494,6 +524,11 @@ function StartModal({ initial, onClose }: { initial?: string; onClose: () => voi
   return (
     <Modal
       title="New agent session"
+      actions={
+        <button className="btn btn-ghost btn-icon" aria-label="Minimize" data-tip="Minimize · comes back from the chip in the corner" onClick={onMinimize}>
+          <Icon name="minus" />
+        </button>
+      }
       sub={fresh ? from && <>Runs in a new worktree on a branch off <strong className="c-acc">{from}</strong></> : branch && <>Runs in its own worktree on <strong className="c-acc">{branch}</strong></>}
       onClose={onClose}
       footer={
@@ -505,12 +540,12 @@ function StartModal({ initial, onClose }: { initial?: string; onClose: () => voi
         </>
       }
     >
-      <Seg<"existing" | "new"> grid label="Branch" value={mode} onChange={setMode} options={[{ value: "existing", label: "Existing branch" }, { value: "new", label: "New branch" }]} />
+      <Seg<"existing" | "new"> grid label="Branch" value={mode} onChange={(m) => set({ mode: m })} options={[{ value: "existing", label: "Existing branch" }, { value: "new", label: "New branch" }]} />
       <div className="row" style={{ gap: 10, alignItems: "flex-start" }}>
         {/* Set shares, twice as much for the branch: a long picked name gets cut instead of squeezing the project. */}
         <div className="field" style={{ flex: "1 1 0", minWidth: 0 }}>
           <span>Project</span>
-          <MenuChoice className="select menu-select" label="Project" value={pid} options={projects.map((p) => ({ value: p.id, label: p.name }))} onChange={(v) => { setPid(v); setBranch(""); setFrom(""); setMode(undefined); setTicket(undefined); }} />
+          <MenuChoice className="select menu-select" label="Project" value={pid} options={projects.map((p) => ({ value: p.id, label: p.name }))} onChange={(v) => set({ pid: v, branch: undefined, from: undefined, mode: undefined, ticket: undefined })} />
         </div>
         <div className="field" style={{ flex: "2 1 0", minWidth: 0 }}>
           <span>{fresh ? "Branches off" : "Branch"}</span>
@@ -520,16 +555,16 @@ function StartModal({ initial, onClose }: { initial?: string; onClose: () => voi
             search="Filter branches"
             value={fresh ? from : branch}
             options={(fresh ? all : branches).map((b) => ({ value: b.name, label: label(b) }))}
-            onChange={fresh ? setFrom : setBranch}
+            onChange={(v) => set(fresh ? { from: v } : { branch: v })}
           />
         </div>
         {/* Linked to the branch: the agent gets the ticket's content from Jira, Trello or Asana. */}
         <div className="field" style={{ flex: "0 1 140px", minWidth: 0 }}>
           <label htmlFor="ag-ticket">Ticket <span className="faint" style={{ fontWeight: 400 }}>optional</span></label>
-          <input id="ag-ticket" className="input mono" placeholder="ATL-212" value={ticket} onChange={(e) => setTicket(e.target.value)} />
+          <input id="ag-ticket" className="input mono" placeholder="ATL-212" value={ticket} onChange={(e) => set({ ticket: e.target.value })} />
         </div>
       </div>
-      {fresh && <Seg<Kind> grid cols={6} label="Type" value={kind} onChange={setKind} options={KINDS.map((k) => ({ value: k.id, label: k.label }))} />}
+      {fresh && <Seg<Kind> grid cols={6} label="Type" value={kind} onChange={(k) => set({ kind: k })} options={KINDS.map((k) => ({ value: k.id, label: k.label }))} />}
       {fresh && (
         <div className="field">
           <label htmlFor="ag-name">Branch name <span className="faint" style={{ fontWeight: 400 }}>optional</span></label>
@@ -539,7 +574,7 @@ function StartModal({ initial, onClose }: { initial?: string; onClose: () => voi
             placeholder="Leave empty to name it from the request"
             value={name}
             // Git names can't hold spaces: each one becomes a dash as you type.
-            onChange={(e) => setName(e.target.value.replace(/\s/g, "-"))}
+            onChange={(e) => set({ name: e.target.value.replace(/\s/g, "-") })}
           />
         </div>
       )}
