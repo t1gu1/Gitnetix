@@ -2,7 +2,7 @@ import { createContext, type ReactNode, useCallback, useContext, useEffect, useM
 
 import { rpc } from "../api/transport";
 import type { Kind } from "./kinds";
-import { applyTheme, resolveTheme } from "./themes";
+import { applyTheme, DEFAULT_THEME, resolveTheme } from "./themes";
 
 export type Route =
   | { name: "home" }
@@ -81,7 +81,7 @@ function systemTheme(): "dark" | "light" {
 export function NavProvider({ children, initialProject, initialTheme }: { children: ReactNode; initialProject?: string; initialTheme?: string }) {
   const [projectId, setProjectId] = useState<string | undefined>(initialProject);
   const [views, setViews] = useState<Record<string, View>>(() => ({ [initialProject ?? NONE]: freshView(initialProject ?? NONE) }));
-  const [themePref, setThemePrefState] = useState(initialTheme ?? "system");
+  const [themePref, setThemePrefState] = useState(initialTheme ?? DEFAULT_THEME);
   const [sys, setSys] = useState(systemTheme());
   // Read by work that finishes after the user moved on (e.g. a background cleanup), and by
   // calls made right after `setProject` in the same handler, which act on the new project.

@@ -118,6 +118,9 @@ export const ansi = (t: Theme) => t.ansi.split(" ").map((h) => `#${h}`);
 /** The themes "system" shows in the computer's dark and light modes. */
 export const SYSTEM = { dark: "tokyo-night-storm", light: "tokyo-night-day" };
 
+/** The theme shown until the user picks one, in either of the computer's modes. Keep in step with UiPrefs' default (crates/core/src/store.rs). */
+export const DEFAULT_THEME = "tokyo-night-storm";
+
 /** The theme a preference shows: a theme's id, or "system" (or a gone id) for SYSTEM's in the computer's mode. */
 export const resolveTheme = (pref: string, system: "dark" | "light") => THEMES.find((t) => t.id === pref) ?? THEMES.find((t) => t.id === SYSTEM[system])!;
 
