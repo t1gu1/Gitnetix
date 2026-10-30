@@ -193,11 +193,14 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
         </div>
       </div>
       <div className="field">
-        <label htmlFor="ni-branch">
+        <label htmlFor="ni-branch" style={{ justifyContent: "flex-start", alignItems: "center" }}>
           <span>Branch name</span>
-          <span className="row c-acc" style={{ gap: 5, fontWeight: 400 }}>
+          <span className="c-acc" style={{ display: "inline-flex", alignItems: "center", gap: 5, fontWeight: 400 }}>
             {naming ? <span className="spinner" /> : named === "ai" ? <><Icon name="sparkle" size={11} />Named by AI</> : named === "auto" ? "From description" : null}
           </span>
+          {branch && branch !== name.trim() && (
+            <span className="faint ellipsis" style={{ fontWeight: 400 }}>Creates <span className="mono">{branch}</span></span>
+          )}
         </label>
         <input
           id="ni-branch"
@@ -215,9 +218,6 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
             if (k) setKind(k);
           }}
         />
-        {branch && branch !== name.trim() && (
-          <span className="faint" style={{ fontSize: 12 }}>Creates <span className="mono">{branch}</span></span>
-        )}
       </div>
       <fieldset className="col" style={{ margin: 0, padding: 0, border: 0, gap: 6 }}>
         <legend className="muted" style={{ padding: "0 0 6px", fontSize: 12, fontWeight: 500 }}>Where to work</legend>
@@ -227,7 +227,17 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
             ["worktree", "Open in a new worktree", "Runs alongside your current branch — good for parallel AI work"],
           ] as const
         ).map(([v, t, s]) => (
-          <button key={v} type="button" className="radio-card" aria-pressed={where === v} disabled={agent && v === "switch"} onClick={() => setWhere(v)}>
+          <button
+            key={v}
+            type="button"
+            className="radio-card"
+            aria-pressed={where === v}
+            onClick={() => {
+              setWhere(v);
+              // An agent needs its own worktree, so switching drops it.
+              if (v === "switch") setAgent(false);
+            }}
+          >
             <span className="radio-dot" />
             <span className="col" style={{ gap: 2 }}>
               <span style={{ fontWeight: 500 }}>{t}</span>
