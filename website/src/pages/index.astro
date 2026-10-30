@@ -51,7 +51,7 @@ const jsonLd = [
 ];
 ---
 <Base title="Gitnetix: the Git client that shows your work, not your commits" description={description} page="home" jsonLd={jsonLd}>
-<Home version={latest.version}><HeroDemo slot="demo" client:visible /><AgentCards slot="agents" client:visible /></Home>
+<Home version={latest.version}><HeroDemo slot="demo" client:visible /><AgentCards slot="agents" client:visible /><HeroDemo slot="phone" phone client:visible /></Home>
 </Base>
 
 <script is:inline define:vars={{ downloads: latest.downloads, version: latest.version }}>

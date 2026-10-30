@@ -578,6 +578,60 @@ details[open] .chev{transform:rotate(45deg)}
 [data-theme=light] .hd .hd-light{display:block}
 @media (hover:none){.hd .tree-acts,.hd .file-acts,.hd .wt-item>.tree-acts{opacity:1;pointer-events:auto}.hd .file-row .file-nums{visibility:hidden}}
 @media (max-width:760px){.hd .ws{flex-direction:column;height:auto}.hd .ws-left{flex:none;width:100%;border-right:0;border-bottom:1px solid var(--line)}.hd .ws-releases,.hd .ws-diff,.hd .ws-files{flex:none}.hd .diff{min-height:320px}.hd .term{flex-basis:300px;max-height:none}.hd .ws-files>.scroll{max-height:280px}.hd .pg{flex-direction:column;height:auto}.hd :is(.master,.sidenav){flex:none;border-right:0;border-bottom:1px solid var(--line)}.hd .pg>:is(.detail,main){flex:none}.hd .pg>:is(.wt-pane,main:not(.detail,.page)){height:560px}.hd :is(.detail,.page){padding:20px 16px 40px}.hd .detail:has(.term-max){padding:0}.hd :is(.hide-sm,.hide-narrow),.hd .term-max .picker-acts{display:none}.hd .page .hd-seg{max-width:100%;overflow-x:auto;scrollbar-width:none}}
-@media (prefers-reduced-motion:reduce){.hd :is(.tree-kids,.file-row,.item-btn,.ag-log>*,.term,.ws-diff,.ws-releases,.toast,.ws,.pg,.chart-bar>span,.kpi,.ctx-menu,.modal,.modal-scrim){animation:none}.hd :is(.seg-thumb,.tabs-ink){transition:none}.hd .hd-beam{display:none}.hd :is(.wip-badge,.pulse,.ai-fade,.ag-wait-chip,.ag-dots i),.hd .tree-row[data-current] .tree-name>.mono,.hd :is(.child-label,.group-label,.shipped-label)[data-active]{animation:none}.hd .chev{transition:none}}
+@media (prefers-reduced-motion:reduce){.hd :is(.tree-kids,.file-row,.commit-row,.item-btn,.ag-log>*,.term,.ws-diff,.ws-releases,.toast,.ws,.pg,.chart-bar>span,.kpi,.ctx-menu,.modal,.modal-scrim){animation:none}.hd :is(.seg-thumb,.tabs-ink,.mobile-tabs-bubble){transition:none}.hd .hd-beam{display:none}.hd :is(.wip-badge,.pulse,.ai-fade,.ag-wait-chip,.ag-dots i),.hd .tree-row[data-current] .tree-name>.mono,.hd :is(.child-label,.group-label,.shipped-label)[data-active]{animation:none}.hd .chev{transition:none}}
 @container (max-width:520px){.hd .hd-opt{display:none}}
 @container (max-width:420px){.hd .picker-acts,.hd .term-tabs>.term-tab{display:none}}
+/* commit list (CommitList.tsx), in place of the branch tree */
+.hd .ws-releases>.pane-head:has(.pane-toggle){padding-left:8px}
+.hd .commits{display:flex;flex-direction:column;padding:6px 0}
+.hd .commit-row{display:flex;flex-direction:column;gap:3px;margin:0 6px;padding:8px 10px;border:0;border-radius:var(--r);background:transparent;color:var(--fg);text-align:left;animation:hd-row .24s var(--ease)}
+.hd .commit-row:hover{background:var(--raised)}
+.hd .commit-row[aria-pressed=true]{background:var(--sel)}
+.hd .commit-list>.commit-row{position:relative}
+.hd .commit-list>.commit-row+.commit-row{margin-top:7px}
+.hd .commit-list>.commit-row+.commit-row::before{content:"";position:absolute;left:0;right:0;top:-4px;height:1px;background:linear-gradient(90deg,transparent,var(--warn-fg) 15%,var(--warn-fg) 85%,transparent);opacity:.6;pointer-events:none}
+[data-theme=light]:not([data-palette]) .hd .commit-list>.commit-row+.commit-row::before{background:linear-gradient(90deg,transparent,#c8960c 12%,#f5c518 50%,#c8960c 88%,transparent)}
+.hd .commit-list>.commit-row[aria-pressed=true]{background:color-mix(in srgb,var(--raised),var(--warn-fg) 5%)}
+[data-theme=light] .hd .commit-list>.commit-row[aria-pressed=true]{background:color-mix(in srgb,var(--raised),var(--warn-fg) 9%)}
+.hd .commit-subject{font-size:12.5px;font-weight:500;line-height:1.4;overflow-wrap:anywhere}
+.hd .commit-body{font-size:11.5px;line-height:1.45;color:var(--muted);white-space:pre-line;overflow-wrap:anywhere}
+.hd .commit-tags{display:flex;flex-wrap:wrap;align-items:center;gap:4px}
+.hd .commit-tag{display:inline-flex;align-items:center;gap:3px;padding:0 5px;border:1px solid color-mix(in srgb,var(--add-fg) 45%,transparent);border-radius:var(--r-sm);font-size:10.5px;line-height:16px;color:var(--add-fg)}
+.hd .commit-meta{display:flex;align-items:center;gap:8px;min-width:0;font-size:11px;color:var(--faint)}
+.hd .commit-head{display:flex;align-items:flex-start;gap:8px;min-width:0}
+/* phone (HeroDemo phone): app.css's max-width:900px layout, whatever the window. One pane at a time, the page tabs at the bottom. After the 760px rules, so it wins over them. */
+.hd-phone{height:620px}
+.hd-phone .tabs-pages{display:none}
+.hd-phone .ws{flex:1 1 0;flex-direction:row;height:auto}
+.hd-phone :is(.ws-left,.ws-files){flex:1 1 100%;width:100%;border:0}
+.hd-phone :is(.ws-releases,.ws-diff){flex:1 1 0}
+.hd-phone .ws>[data-pane]:not([data-active=true]),.hd-phone .ws-left>[data-pane]:not([data-active=true]){display:none}
+.hd-phone .ws-files>.scroll{max-height:none}
+.hd-phone .diff{min-height:0}
+.hd-phone .term{flex:0 0 45%;max-height:none}
+.hd-phone .tree-row{min-height:52px}
+.hd-phone .tree-row .acts>.act-main{width:52px}
+.hd-phone .ws-releases>.pane-head:has(.pane-toggle){padding-left:16px}
+.hd-phone .btn{min-height:36px}
+.hd-phone .btn-icon{min-width:36px}
+.hd-phone .hd-seg>button{min-height:32px}
+.hd-phone .pane-switch{display:flex;padding:8px 12px;border-top:1px solid var(--line);background:var(--panel)}
+.hd-phone .pane-switch .hd-seg{flex:1 1 auto}
+.hd-phone .mobile-tabs{display:flex;flex:0 0 auto;position:relative;isolation:isolate;border-top:1px solid var(--line);background:var(--panel);user-select:none}
+.hd-phone .mobile-tabs>button{flex:1 1 0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-height:54px;border:0;background:transparent;color:var(--faint);font-size:11px}
+.hd-phone .mobile-tabs>button[aria-pressed=true]{color:var(--accent-fg)}
+.hd-phone .mobile-tabs>button>span{display:flex;padding:4px 16px}
+.hd-phone .mobile-tabs>button svg{transition:transform var(--t-fast) var(--ease)}
+.hd-phone .mobile-tabs>button:active svg{transform:scale(.9)}
+.hd-phone .mobile-tabs-bubble{position:absolute;top:0;left:0;z-index:-1;border-radius:999px;background:color-mix(in srgb,var(--accent) 16%,transparent);transition:transform .26s var(--ease),width .26s var(--ease),height .26s var(--ease)}
+.hd-phone .pg{flex:1 1 0;flex-direction:column;height:auto;overflow-y:auto}
+.hd-phone :is(.master,.sidenav){flex:none;border-right:0;border-bottom:1px solid var(--line)}
+.hd-phone .pg>:is(.detail,main){flex:none}
+.hd-phone .pg>:is(.wt-pane,main:not(.detail,.page)){height:480px}
+.hd-phone :is(.detail,.page){padding:20px 16px 40px}
+.hd-phone .detail:has(.term-max){padding:0}
+.hd-phone :is(.hide-sm,.hide-narrow),.hd-phone .term-max .picker-acts{display:none}
+.hd-phone .page .hd-seg{max-width:100%;overflow-x:auto;scrollbar-width:none}
+/* Smaller code, line numbers smaller still in one column (the old one on a removed line, the new one on the others), as wide as the diff's highest one (--ln digits): like app.css on a narrow screen. */
+.hd-phone .diff{line-height:18px}.hd-phone :is(.diff-row,.diff-half){font-size:10px;grid-template-columns:calc(var(--ln,4)*1ch + 5px) 12px minmax(0,1fr)}.hd-phone :is(.diff-row,.diff-half) .tx{padding-left:2px;font-size:11px}.hd-phone .diff-row:not(.del)>.ln:first-child,.hd-phone .diff-row.del>.ln+.ln{display:none}.hd-phone :is(.diff-row,.diff-half) .ln{padding:0 1px 0 4px}.hd-phone :is(.diff-row,.diff-half) .sg{padding-right:2px}
+@media (max-width:760px){.hd .diff{line-height:18px}.hd :is(.diff-row,.diff-half){font-size:10px;grid-template-columns:calc(var(--ln,4)*1ch + 5px) 12px minmax(0,1fr)}.hd :is(.diff-row,.diff-half) .tx{padding-left:2px;font-size:11px}.hd .diff-row:not(.del)>.ln:first-child,.hd .diff-row.del>.ln+.ln{display:none}.hd :is(.diff-row,.diff-half) .ln{padding:0 1px 0 4px}.hd :is(.diff-row,.diff-half) .sg{padding-right:2px}}

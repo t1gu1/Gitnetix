@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ComponentType, type ReactNode } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ComponentType, type CSSProperties, type MouseEvent, type ReactNode } from 'react';
 // The app's own icon set, so the demo draws the same glyphs.
 import { Icon } from '../../../src/components/Icon';
 import { plural } from '../../../src/lib/format';
@@ -10,7 +10,7 @@ import PullRequests from './demo/PullRequests';
 import ReleaseNotes from './demo/ReleaseNotes';
 import Submodules from './demo/Submodules';
 import Tickets from './demo/Tickets';
-import { Avatar, DemoContext, FixedWidth, Seg, useThumb, type Demo } from './demo/ui';
+import { Avatar, DemoContext, FixedWidth, Menu, Seg, useMenu, useThumb, type Demo } from './demo/ui';
 import Worktrees from './demo/Worktrees';
 
 /**
@@ -35,7 +35,11 @@ export type Branch = {
   kids?: string[];
   /** Checked out in its own worktree, where an agent works. */
   wt?: boolean;
+  /** Commits made in the demo, newest first; the older ones come from LOG. */
+  log?: Commit[];
 };
+/** A row of the commit list (src/screens/CommitList.tsx), with the files it changed. */
+export type Commit = { sha: string; subject: string; body?: string; author: string; when: string; files: File[]; tags?: string[] };
 /** The orange path from the trunk to the checked-out row, measured off the rendered tree. No `top`: that row is folded away. */
 export type Path = { d: string; len: number; x: number; top?: number; mid: number; bottom: number };
 
@@ -60,6 +64,41 @@ const BRANCHES: Record<string, Branch> = {
     name: 'feat/agent-pane', kind: 'feat', role: 'branch', base: 'main', author: 'Riya Kapoor', ahead: 0, behind: 13, wip: [], files: [],
   },
 };
+const ch = (path: string, add: number, del: number, s: File['s'] = 'M'): File => ({ path, add, del, s });
+/** Each branch's history before the demo starts, newest first: as many as it is ahead of its base, main's recent ones. */
+const LOG: Record<string, Commit[]> = {
+  main: [
+    { sha: '9c41e07', subject: 'Release 0.5.2', author: 'Ana Moreau', when: '4 days ago', files: [ch('CHANGELOG.md', 14, 0), ch('package.json', 1, 1)], tags: ['v0.5.2'] },
+    { sha: '3fa8d21', subject: 'Keep the scroll position when a branch moves', author: 'Riya Kapoor', when: '5 days ago', files: [ch('src/screens/BranchTree.tsx', 18, 5)] },
+    { sha: 'b27e6c4', subject: 'Fix the tab order of the commit box', author: 'Jules Laurent', when: '6 days ago', files: [ch('src/screens/Workspace.tsx', 6, 4)] },
+    { sha: '58d0a9f', subject: 'Show stashes next to their branch', body: 'A stash counter on the row opens the stashes made on that branch.', author: ME, when: '1 week ago', files: [ch('src/screens/BranchTree.tsx', 41, 3), ch('src/screens/StashList.tsx', 96, 0, 'A')] },
+    { sha: 'e19b3d2', subject: 'Release 0.5.1', author: 'Ana Moreau', when: '2 weeks ago', files: [ch('CHANGELOG.md', 9, 0), ch('package.json', 1, 1)], tags: ['v0.5.1'] },
+    { sha: '07c5f8a', subject: 'Group branches falling behind', author: 'Riya Kapoor', when: '2 weeks ago', files: [ch('src/screens/BranchTree.tsx', 64, 12), ch('src/styles/app.css', 22, 0)] },
+  ],
+  'release/0.6.0': [
+    { sha: 'a4e1c90', subject: 'Update changelog for 0.6.0', author: 'Ana Moreau', when: '3 hours ago', files: [ch('CHANGELOG.md', 22, 0)] },
+    { sha: '6d2b7f3', subject: "Merge branch 'feat/commit-folds' into release/0.6.0", author: ME, when: 'yesterday', files: [ch('src/screens/BranchTree.tsx', 38, 9)] },
+    { sha: 'c80f5e1', subject: 'Fold runs of commits into one row', author: ME, when: 'yesterday', files: [ch('src/screens/BranchTree.tsx', 30, 11), ch('src/styles/app.css', 16, 2)] },
+    { sha: '1b9a6d4', subject: 'Count WIP files under a closed group', author: 'Riya Kapoor', when: '2 days ago', files: [ch('src/screens/BranchTree.tsx', 12, 3)] },
+    { sha: 'f3c7e28', subject: 'Slide the page tab underline', author: 'Jules Laurent', when: '2 days ago', files: [ch('src/styles/app.css', 14, 4)] },
+    { sha: '5e08b1a', subject: 'Show the release tag on the next release', author: 'Ana Moreau', when: '3 days ago', files: [ch('src/screens/BranchTree.tsx', 9, 2)] },
+    { sha: '92d4f6c', subject: 'Draw the child branches toggle', author: 'Riya Kapoor', when: '3 days ago', files: [ch('src/screens/BranchTree.tsx', 21, 6), ch('src/styles/app.css', 10, 0)] },
+    { sha: '4a7c3e9', subject: 'Taller rows for touch', author: 'Jules Laurent', when: '4 days ago', files: [ch('src/styles/app.css', 8, 0)] },
+    { sha: 'd61e0b5', subject: 'Start 0.6.0', author: 'Ana Moreau', when: '4 days ago', files: [ch('package.json', 1, 1)] },
+  ],
+  'feat/branch-tree': [
+    { sha: '7f3a2c8', subject: 'Draw the path from the trunk to the checked-out branch', body: 'Measured off the rendered rows, so it follows folded groups.', author: ME, when: '2 hours ago', files: [ch('src/screens/BranchTree.tsx', 58, 12), ch('src/lib/path.ts', 12, 0)] },
+    { sha: '2c9e4b1', subject: 'Measure rows with layout offsets, not client rects', author: ME, when: '5 hours ago', files: [ch('src/screens/BranchTree.tsx', 38, 9)] },
+    { sha: 'e5b8d03', subject: 'Add usePath', author: ME, when: 'yesterday', files: [ch('src/lib/path.ts', 52, 0, 'A')] },
+    { sha: '8a1f6e7', subject: 'Style the dotted path line', author: ME, when: 'yesterday', files: [ch('src/styles/app.css', 30, 4)] },
+  ],
+  'fix/stale-remote': [
+    { sha: '3d7c9a2', subject: 'Test pruning of stale remote refs', author: 'Jules Laurent', when: '1 hour ago', files: [ch('crates/core/src/git.rs', 4, 2)] },
+    { sha: 'b6e2f15', subject: 'Drop remote refs that are gone on fetch', author: 'Jules Laurent', when: '3 hours ago', files: [ch('crates/core/src/git.rs', 10, 7)] },
+  ],
+};
+/** `b`'s commits, newest first: a tracked branch lists the ones its base doesn't have, a trunk its recent history. */
+const logOf = (b: Branch) => [...(b.log ?? []), ...(LOG[b.name] ?? [])].slice(0, b.base ? b.ahead : undefined);
 const PROJECT = ['package.json', 'src/App.tsx', 'src/screens/BranchTree.tsx', 'src/screens/Workspace.tsx', 'src/styles/app.css'];
 
 /** Same pages as PAGES in src/components/TopBar.tsx. */
@@ -87,13 +126,16 @@ const ABOVE = ["import { usePath } from '../lib/path';", "import { usePulse } fr
 
 const labelOf = (b: string) => (b.startsWith('release/') ? `v${b.slice(8)}` : b);
 /** `b` once `done` (some of its WIP) is committed: those changes join the branch's own. */
-function fold(b: Branch, done: File[]): Branch {
+function fold(b: Branch, done: File[], subject = "Apply the agent's changes", body?: string): Branch {
   const files = b.files.map((f) => {
     const w = done.find((x) => x.path === f.path);
     return w ? { ...f, add: f.add + w.add, del: f.del + w.del } : f;
   });
-  const added = done.filter((w) => !b.files.some((f) => f.path === w.path)).map(({ staged: _, ...f }) => f);
-  return { ...b, ahead: b.ahead + 1, wip: b.wip.filter((f) => !done.includes(f)), files: [...files, ...added] };
+  const plain = done.map(({ staged: _, ...f }) => f);
+  const added = plain.filter((w) => !b.files.some((f) => f.path === w.path));
+  const sha = Math.random().toString(16).slice(2, 9).padEnd(7, '0');
+  const c: Commit = { sha, subject, body, author: ME, when: 'just now', files: plain };
+  return { ...b, ahead: b.ahead + 1, wip: b.wip.filter((f) => !done.includes(f)), files: [...files, ...added], log: [c, ...(b.log ?? [])] };
 }
 
 function Nums({ add, del }: { add: number; del: number }) {
@@ -188,6 +230,8 @@ function Diff({ mode }: { mode: 'split' | 'unified' | 'full' }) {
   let o = 88;
   let n = 88;
   for (const [k, t] of DIFF) rows.push({ k, t, o: k === '+' ? undefined : o++, n: k === '-' ? undefined : n++ });
+  // Digits of the highest line number: on a narrow screen the number columns fit just that, like lnWidth in DiffView.tsx.
+  const ln = { '--ln': String(Math.max(o, n) - 1).length } as CSSProperties;
   const cls = (k: Row['k']) => (k === '+' ? ' add' : k === '-' ? ' del' : k === '@' ? ' hunk' : '');
   const sign = (k: Row['k']) => (k === '+' ? '+' : k === '-' ? '−' : '');
   // Marks come from the rendered rows (wrapped lines are taller), as fractions of the content, like Heatmapped in DiffView.tsx.
@@ -233,7 +277,7 @@ function Diff({ mode }: { mode: 'split' | 'unified' | 'full' }) {
       <div className="diff-pane">
         <div ref={scroller} className="diff-pane-scroll">
           {mode === 'split' ? (
-            <div className="diff-split">
+            <div className="diff-split" style={ln}>
               {pairs.map(([l, r], i) => (
                 <div key={i} className="diff-split-row">
                   {[l && { ...l, num: l.k === '@' ? undefined : l.o }, r && { ...r, num: r.k === '@' ? undefined : r.n }].map((x, j) => (
@@ -247,7 +291,7 @@ function Diff({ mode }: { mode: 'split' | 'unified' | 'full' }) {
               ))}
             </div>
           ) : (
-            <div className="diff-u">
+            <div className="diff-u" style={ln}>
               {rows.map((r, i) => (
                 <div key={i} className={`diff-row${cls(r.k)}`}>
                   <span className="ln">{r.k === '+' ? '' : r.o}</span>
@@ -271,11 +315,13 @@ function Diff({ mode }: { mode: 'split' | 'unified' | 'full' }) {
 export function PathLine({ p }: { p: Path }) {
   const dur = Math.max(p.len, 1) / 90;
   const arrive = p.len / (p.len + 12);
+  // Several trees on the page (hero, phone, the static one): each needs its own gradient.
+  const id = useId();
   return (
     <svg className="hd-path" aria-hidden="true" key={p.d}>
       {p.top !== undefined && (
         <defs>
-          <linearGradient id="hd-cur" gradientUnits="userSpaceOnUse" x1="0" y1={p.top} x2="0" y2={p.bottom}>
+          <linearGradient id={id} gradientUnits="userSpaceOnUse" x1="0" y1={p.top} x2="0" y2={p.bottom}>
             <stop offset="0" stopColor="var(--path-fg)" stopOpacity=".45" />
             <stop offset=".38" stopColor="var(--path-fg)" />
             <stop offset=".62" stopColor="var(--path-fg)" />
@@ -286,7 +332,7 @@ export function PathLine({ p }: { p: Path }) {
       {/* The row's lower half hides the grey nesting line behind it. */}
       {p.top !== undefined && <path d={`M${p.x} ${p.mid}V${p.bottom}`} stroke="var(--panel)" />}
       <path d={p.d} stroke="var(--path-fg)" strokeDasharray="1 2" />
-      {p.top !== undefined && <path d={`M${p.x} ${p.top}V${p.bottom}`} stroke="url(#hd-cur)" />}
+      {p.top !== undefined && <path d={`M${p.x} ${p.top}V${p.bottom}`} stroke={`url(#${id})`} />}
       <g className="hd-beam">
         <path d={p.d} stroke="var(--path-fg)" strokeWidth="5" strokeOpacity=".5" strokeDasharray={`12 ${p.len + 24}`} filter="blur(1.5px)">
           <animate attributeName="stroke-dashoffset" from="12" to={-p.len} dur={`${dur}s`} repeatCount="indefinite" />
@@ -302,18 +348,53 @@ export function PathLine({ p }: { p: Path }) {
   );
 }
 
-export default function HeroDemo() {
+/** Same as MOBILE_TABS in src/App.tsx: [page, label, icon]. The other pages go under "More". */
+const TABS = [['workspace', 'Releases', 'tag'], ['worktrees', 'Agents', 'layers'], ['prs', 'PRs', 'pr'], ['tickets', 'Tickets', 'ticket']];
+
+/** The phone's bottom tabs, like MobileTabs in src/App.tsx: the open one's icon in a sliding pill. */
+function MobileTabs({ page, go }: { page: string; go: (p: string) => void }) {
+  const bar = useRef<HTMLElement>(null);
+  const more = useMenu();
+  const tab = TABS.findIndex(([id]) => id === page);
+  const bubble = useThumb(bar, tab < 0 ? TABS.length : tab, TABS.length + 1, ':scope > button > span');
+  return (
+    <nav ref={bar} className="mobile-tabs" aria-label="Sections">
+      {bubble && <span className="mobile-tabs-bubble" style={bubble} aria-hidden="true" />}
+      {TABS.map(([id, label, icon]) => (
+        <button key={id} type="button" aria-pressed={id === page} onClick={() => go(id)}>
+          <span><Icon name={icon} size={18} /></span>
+          {label}
+        </button>
+      ))}
+      <button type="button" aria-haspopup="menu" aria-pressed={tab < 0} onClick={(e) => more.toggle(e, true)}>
+        <span><Icon name="more" size={18} /></span>
+        More
+      </button>
+      {more.at && <Menu {...more.at} up alignRight label="More pages" onClose={more.close} items={PAGES.filter((p) => !TABS.some(([id]) => id === p.id)).map((p) => ({ id: p.id, label: p.label, icon: p.icon, run: () => go(p.id) }))} />}
+    </nav>
+  );
+}
+
+/** `phone`: the app as a phone browser shows it, one pane at a time and tabs at the bottom. */
+export default function HeroDemo({ phone }: { phone?: boolean }) {
   const [bs, setBs] = useState(BRANCHES);
   const [head, setHead] = useState('feat/branch-tree');
   const [sel, setSel] = useState('feat/branch-tree');
   const [mode, setMode] = useState<'wip' | 'branch' | 'project'>('wip');
   const [tree, setTree] = useState(false);
   const [file, setFile] = useState<File>();
+  // On a phone, the pane on screen (Workspace.tsx PANES).
+  const [pane, setPane] = useState<'releases' | 'files' | 'diff'>('releases');
+  // Branch whose commits list in place of the tree, the picked one (none: the newest), and the list's filter.
+  const [history, setHistory] = useState<string | null>(null);
+  const [picked, setPicked] = useState<string>();
+  const [commitQ, setCommitQ] = useState('');
   const [diffMode, setDiffMode] = useState<'split' | 'unified' | 'full'>('unified');
   const [filter, setFilter] = useState('');
   const [closed, setClosed] = useState<Record<string, boolean>>({});
   const [secOpen, setSecOpen] = useState({ true: true, false: true });
-  const [term, setTerm] = useState<'agent' | 'shell' | null>('agent');
+  // Closed on a phone, leaving the screen to the tree.
+  const [term, setTerm] = useState<'agent' | 'shell' | null>(phone ? null : 'agent');
   const [text, setText] = useState(TRY);
   const [picks, setPicks] = useState<Pick[]>([]);
   // Why the agent pane would not start an agent on a branch.
@@ -384,7 +465,7 @@ export default function HeroDemo() {
     const ro = new ResizeObserver(() => reflow((n) => n + 1));
     if (treeRef.current) ro.observe(treeRef.current);
     return () => ro.disconnect();
-  }, [file, term]);
+  }, [file, term, history]);
 
   const b = bs[sel];
   const isHead = sel === head;
@@ -419,8 +500,16 @@ export default function HeroDemo() {
   const select = (n: string) => {
     setSel(n);
     setFile(undefined);
+    setHistory(null);
     setMode((n === head || bs[n].wt) && bs[n].wip.length ? 'wip' : 'branch');
     agents.wake(keyOf('acme-web', n));
+  };
+  // Like openHistory in Workspace.tsx: the branch is picked, its newest commit too.
+  const openHistory = (n: string) => {
+    select(n);
+    setHistory(n);
+    setPicked(undefined);
+    setCommitQ('');
   };
   /** An agent on the branch, in its own worktree: same rules as start_agent_on in crates/core/src/app.rs. */
   const agentOn = (n: string, t: string, base = bs[n]?.base ?? 'main', ai?: Ai) => {
@@ -450,7 +539,12 @@ export default function HeroDemo() {
         setBs((y) => ({ ...y, [n]: { ...(y[n].wip.length ? fold(y[n], y[n].wip) : y[n]), wt: false } }));
         if (sw && how === 'continue') checkout(n);
       } else {
-        setBs(({ [n]: gone, ...y }) => ({ ...y, [base]: { ...y[base], kids: y[base].kids?.filter((c) => c !== n), ahead: y[base].ahead + (how === 'merge' ? gone.ahead + (gone.wip.length ? 1 : 0) : 0) } }));
+        setBs(({ [n]: gone, ...y }) => {
+          // Merged, its commits (uncommitted work as one more) join the base's.
+          const g = gone.wip.length ? fold(gone, gone.wip) : gone;
+          const merged = how === 'merge' && { ahead: y[base].ahead + g.ahead, log: [...logOf(g), ...(y[base].log ?? [])] };
+          return { ...y, [base]: { ...y[base], kids: y[base].kids?.filter((c) => c !== n), ...merged } };
+        });
         if (sel === n) select(base);
       }
       if (sw && how === 'merge') checkout(base);
@@ -483,7 +577,7 @@ export default function HeroDemo() {
     if (!canCommit) return;
     // With nothing staged, everything goes.
     const done = all ? b.wip : b.wip.filter((f) => f.staged);
-    setBs((x) => ({ ...x, [sel]: fold(b, done) }));
+    setBs((x) => ({ ...x, [sel]: fold(b, done, summary.trim() || 'Pulse along the branch path', body.trim() || undefined) }));
     flash(summary.trim() ? `Committed: ${summary.trim()}` : 'AI wrote: Pulse along the branch path');
     setSummary('');
     setBody('');
@@ -525,10 +619,12 @@ export default function HeroDemo() {
     const pathLive = below(n).includes(head);
     const wipBelow = open ? 0 : below(n).reduce((t, k) => t + bs[k].wip.length, 0);
     const st = stOf(n);
+    // Inside the row's button: a click lists the commits instead of picking the row, a double-click doesn't check it out.
+    const toCommits = { onClick: (e: MouseEvent) => { e.stopPropagation(); openHistory(n); }, onDoubleClick: (e: MouseEvent) => e.stopPropagation() };
     return (
       <div key={n} role="group" className="tree-node">
         <div className="tree-row" data-row={n} data-current={cur || undefined} data-role={x.role}>
-          <button className="tree-btn" aria-pressed={n === sel} onClick={() => select(n)} onDoubleClick={() => !x.wt && checkout(n)}>
+          <button className="tree-btn" aria-pressed={n === sel} onClick={() => { select(n); setPane('files'); }} onDoubleClick={() => !x.wt && checkout(n)}>
             <span className="tree-lead">
               <span className="tree-icon"><Icon name={x.role === 'trunk' ? 'home' : x.role === 'release' ? 'tag' : 'branch'} size={13} stroke={1.5} /></span>
               <Avatar name={x.author} />
@@ -544,9 +640,9 @@ export default function HeroDemo() {
                 {x.role === 'release' && <span className="mono">{n}</span>}
                 {cur && <span className="c-current">checked out</span>}
                 {!typed && !x.wt && wip}
-                {tracked && x.ahead > 0 && <span className="meta-link">{plural(x.ahead, 'commit')}</span>}
+                {tracked && x.ahead > 0 && <span className="meta-link" title={`${plural(x.ahead, 'commit')} not in ${labelOf(x.base!)} yet. Click to list them.`} {...toCommits}>{plural(x.ahead, 'commit')}</span>}
                 {tracked && x.ahead === 0 && x.role === 'branch' && <span>no commits yet</span>}
-                {!tracked && <span className="meta-link">all commits</span>}
+                {!tracked && <span className="meta-link" title={`Browse the recent commits of ${n}`} {...toCommits}>all commits</span>}
                 {tracked && x.behind > 0 && <span className="c-warn">↓{x.behind} from {labelOf(x.base!)}</span>}
               </span>
               {x.wt && (
@@ -589,7 +685,13 @@ export default function HeroDemo() {
     );
   };
 
-  const list: File[] = mode === 'wip' ? b.wip : mode === 'branch' ? b.files : PROJECT.map((p) => ({ path: p, add: 0, del: 0, s: ' ' as const }));
+  const hb = history ? bs[history] : undefined;
+  const log = hb ? logOf(hb) : [];
+  // Like CommitList: one is always picked, the newest unless another was.
+  const viewed = log.find((c) => c.sha === picked) ?? log[0];
+  const cq = commitQ.trim().toLowerCase();
+  const shownLog = log.filter((c) => !cq || [c.subject, c.body ?? '', c.author, ...(c.tags ?? [])].some((t) => t.toLowerCase().includes(cq)) || c.sha.startsWith(cq));
+  const list: File[] = viewed ? viewed.files : mode === 'wip' ? b.wip : mode === 'branch' ? b.files : PROJECT.map((p) => ({ path: p, add: 0, del: 0, s: ' ' as const }));
   const fileActs = (fs: File[], name: string) => {
     const up = !fs[0]?.staged;
     const paths = fs.map((f) => f.path);
@@ -605,10 +707,14 @@ export default function HeroDemo() {
     );
   };
   const agentHere = !!b.wt && !!ses;
+  const pickFile = (f: File) => {
+    setFile(f);
+    setPane('diff');
+  };
 
   return (
     <DemoContext.Provider value={demo}>
-    <div className="ap hd">
+    <div className={phone ? 'ap hd hd-phone' : 'ap hd'}>
       {/* project tabs (src/components/TopBar.tsx) */}
       <header className="hdr">
         <span className="hdr-icon" aria-hidden="true"><Icon name="menu" size={18} stroke={1.4} /></span>
@@ -657,26 +763,47 @@ export default function HeroDemo() {
       </nav>
 
       <div className="ws" data-file-open={file ? true : undefined} hidden={page !== 'workspace'}>
-        {/* left: branches and the agent, or the open file's diff */}
-        <div className="ws-left">
-          {file ? (
-            <section aria-label="Diff" className="ws-diff">
-              <div className="pane-head" style={{ background: 'var(--panel)' }}>
-                <span className="mono ellipsis" style={{ fontSize: 12.5 }}>{file.path}</span>
-                <span className="row mono" style={{ fontSize: 11.5, gap: 6 }}>
-                  {file.add > 0 && <span className="c-add">+{file.add}</span>}
-                  {file.del > 0 && <span className="c-del">−{file.del}</span>}
+        {/* left: branches (or a branch's commits) and the agent, or the open file's diff; a phone keeps both and shows one */}
+        <div className="ws-left" data-pane data-active={pane !== 'files'}>
+          {(phone || !file) && (hb ? (
+            // CommitList in src/screens/CommitList.tsx
+            <section aria-label={`Commits of ${history}`} className="ws-releases" data-pane data-active={pane === 'releases'}>
+              <div className="pane-head">
+                <span className="row" style={{ gap: 6, minWidth: 0 }}>
+                  <button className="btn btn-sm btn-icon pane-toggle" aria-label="Back to branches" title="Back to branches" onClick={() => { setHistory(null); setFile(undefined); }}>
+                    <Icon name="back" size={13} />
+                  </button>
+                  <span className="mono ellipsis" style={{ fontSize: 12.5 }}>{history}</span>
                 </span>
-                <span className="grow" />
-                <Seg label="Diff mode" value={diffMode} onChange={setDiffMode} options={[['split', 'Split'], ['unified', 'Unified'], ['full', 'Full']]} />
-                <button className="btn btn-sm btn-icon" style={{ marginLeft: 8 }} aria-label="Close file" title="Back to branches" onClick={() => setFile(undefined)}>
-                  <Icon name="close" size={13} />
-                </button>
+                <span className="faint" style={{ fontSize: 11.5, whiteSpace: 'nowrap' }}>{plural(log.length, 'commit')}</span>
               </div>
-              <Diff mode={diffMode} />
+              <div className="tree-filter">
+                <Icon name="search" size={12} className="faint" />
+                <input type="search" className="input" placeholder="Filter commits" aria-label="Filter commits" value={commitQ} onChange={(e) => setCommitQ(e.target.value)} />
+              </div>
+              <div className="scroll commits commit-list" style={{ flex: '1 1 auto' }}>
+                {shownLog.map((c) => (
+                  <button key={c.sha} className="commit-row" aria-pressed={c === viewed} onClick={() => { setPicked(c.sha); setFile(undefined); setPane('files'); }}>
+                    {c.tags && (
+                      <span className="commit-tags">
+                        {c.tags.map((t) => <span key={t} className="commit-tag mono" title={`Tag ${t}`}><Icon name="tag" size={10} stroke={1.6} />{t}</span>)}
+                      </span>
+                    )}
+                    <span className="commit-subject">{c.subject}</span>
+                    {c.body && <span className="commit-body">{c.body}</span>}
+                    <span className="commit-meta">
+                      <Avatar name={c.author} size={14} />
+                      <span className="ellipsis">{c.author}</span>
+                      <span className="mono">{c.sha}</span>
+                      <span style={{ whiteSpace: 'nowrap' }}>{c.when}</span>
+                    </span>
+                  </button>
+                ))}
+                {log.length > 0 && !shownLog.length && <div className="empty">No commit matches “{commitQ}”.</div>}
+              </div>
             </section>
           ) : (
-            <section aria-label="Branches" className="ws-releases">
+            <section aria-label="Branches" className="ws-releases" data-pane data-active={pane === 'releases'}>
               <div className="pane-head">
                 <span className="row" style={{ gap: 6 }}>
                   <span className="label">Branches</span>
@@ -722,9 +849,30 @@ export default function HeroDemo() {
                 </div>
               </div>
             </section>
+          ))}
+          {(phone || file) && (
+            <section aria-label="Diff" className="ws-diff" data-pane data-active={pane === 'diff'}>
+              <div className="pane-head" style={{ background: 'var(--panel)' }}>
+                <span className="mono ellipsis" style={{ fontSize: 12.5 }}>{file?.path ?? 'No file selected'}</span>
+                {file && (
+                  <>
+                    <span className="row mono" style={{ fontSize: 11.5, gap: 6 }}>
+                      {file.add > 0 && <span className="c-add">+{file.add}</span>}
+                      {file.del > 0 && <span className="c-del">−{file.del}</span>}
+                    </span>
+                    <span className="grow" />
+                    <Seg label="Diff mode" value={diffMode} onChange={setDiffMode} options={[['split', 'Split'], ['unified', 'Unified'], ['full', 'Full']]} />
+                    <button className="btn btn-sm btn-icon" style={{ marginLeft: 8 }} aria-label="Close file" title="Back to branches" onClick={() => { setFile(undefined); setPane('files'); }}>
+                      <Icon name="close" size={13} />
+                    </button>
+                  </>
+                )}
+              </div>
+              {file && <Diff mode={diffMode} />}
+            </section>
           )}
           {/* agent / shell (Terminal in src/screens/Workspace.tsx) */}
-          {!file && (term ? (
+          {(phone || !file) && (term ? (
             <div className="term">
               <div className="term-tabs term-bar" onClick={(e) => !(e.target as HTMLElement).closest('button') && setTerm(null)}>
                 <div className="term-side" style={{ flex: 'none' }}>
@@ -763,7 +911,7 @@ export default function HeroDemo() {
                     actions={ses && b.wt && ses.add + ses.del > 0 && <FinishCard s={ses} />}
                   />
                   <AgentInput
-                    id="hd-ask"
+                    id={phone ? 'hdp-ask' : 'hd-ask'}
                     value={text}
                     onChange={setText}
                     picks={picks}
@@ -794,7 +942,7 @@ export default function HeroDemo() {
         </div>
 
         {/* right: the selected branch's files */}
-        <section aria-label="Changed files" className="ws-files">
+        <section aria-label="Changed files" className="ws-files" data-pane data-active={pane === 'files'}>
           <div className="col" style={{ gap: 10, padding: '12px 14px', borderBottom: '1px solid var(--line)' }}>
             <div className="row" style={{ alignItems: 'center', minWidth: 0, margin: 0 }}>
               <span className="mono ellipsis" style={{ fontSize: 13, fontWeight: 500 }}>{b.name}</span>
@@ -808,20 +956,33 @@ export default function HeroDemo() {
                 <Icon name={tree ? 'menu' : 'folder'} size={12} />
               </button>
             </div>
-            <Seg
-              label="File view"
-              grid
-              value={mode}
-              onChange={setMode}
-              options={[
-                ['wip', wipCount > 0 ? <span className="wip-badge">WIP {wipCount}</span> : <>WIP <span className="faint">{wipCount}</span></>],
-                ['branch', <>Branch <span className="faint">{b.files.length}</span></>],
-                ['project', 'Project'],
-              ]}
-            />
+            {viewed ? (
+              <div className="commit-head">
+                <div className="col" style={{ gap: 3, minWidth: 0, flex: '1 1 auto' }}>
+                  <span className="commit-subject">{viewed.subject}</span>
+                  <span className="commit-meta">
+                    <span className="mono">{viewed.sha}</span>
+                    <span className="ellipsis">{viewed.author}</span>
+                    <span style={{ whiteSpace: 'nowrap' }}>{viewed.when}</span>
+                  </span>
+                </div>
+              </div>
+            ) : (
+              <Seg
+                label="File view"
+                grid
+                value={mode}
+                onChange={setMode}
+                options={[
+                  ['wip', wipCount > 0 ? <span className="wip-badge">WIP {wipCount}</span> : <>WIP <span className="faint">{wipCount}</span></>],
+                  ['branch', <>Branch <span className="faint">{b.files.length}</span></>],
+                  ['project', 'Project'],
+                ]}
+              />
+            )}
           </div>
-          <ul className="scroll" style={{ flex: '1 1 auto', margin: 0, padding: mode === 'wip' && list.length > 0 ? '0 0 6px' : '6px 0' }}>
-            {mode === 'wip' && list.length > 0 ? (
+          <ul className="scroll" style={{ flex: '1 1 auto', margin: 0, padding: mode === 'wip' && !viewed && list.length > 0 ? '0 0 6px' : '6px 0' }}>
+            {mode === 'wip' && !viewed && list.length > 0 ? (
               [true, false].map((st) => {
                 const side = list.filter((f) => !!f.staged === st);
                 if (!side.length) return null;
@@ -837,20 +998,20 @@ export default function HeroDemo() {
                       <span className="file-sec-acts">{fileActs(side, st ? 'all staged files' : 'all unstaged files')}</span>
                     </div>
                     <ul hidden={!secOpen[k]}>
-                      <FileList list={side} tree={tree} current={file} onPick={setFile} actions={fileActs} />
+                      <FileList list={side} tree={tree} current={file} onPick={pickFile} actions={fileActs} />
                     </ul>
                   </li>
                 );
               })
             ) : (
-              <FileList list={list} tree={tree} current={file} onPick={setFile} />
+              <FileList list={list} tree={tree} current={file} onPick={pickFile} />
             )}
             {list.length === 0 && (
-              <li className="empty engraved">{mode === 'wip' ? (isHead || b.wt ? 'No uncommitted changes.' : 'This branch is not checked out.') : 'No changes on this branch yet.'}</li>
+              <li className="empty engraved">{viewed ? 'This commit changes no files.' : mode === 'wip' ? (isHead || b.wt ? 'No uncommitted changes.' : 'This branch is not checked out.') : 'No changes on this branch yet.'}</li>
             )}
           </ul>
-          {/* CommitBox in src/screens/Workspace.tsx */}
-          <div className="col" style={{ padding: '6px 12px 10px', gap: 6, borderTop: '1px solid var(--line)' }}>
+          {/* CommitBox in src/screens/Workspace.tsx, gone while commits list */}
+          {!hb && <div className="col" style={{ padding: '6px 12px 10px', gap: 6, borderTop: '1px solid var(--line)' }}>
             <div className="row faint" style={{ justifyContent: 'space-between', fontSize: 11, margin: 0 }}>
               <button className="row hd-msg-toggle" aria-expanded={msgOpen} onClick={() => setMsgOpen(!msgOpen)}>
                 <Icon name="chevronDown" size={12} className="chev" />
@@ -878,15 +1039,21 @@ export default function HeroDemo() {
                 <Icon name="more" size={14} />
               </span>
             </span>
-          </div>
+          </div>}
         </section>
       </div>
+      {phone && page === 'workspace' && (
+        <div className="pane-switch">
+          <Seg label="Panel" grid value={pane} onChange={setPane} options={[['releases', 'Branches'], ['files', `Files${list.length ? ` ${list.length}` : ''}`], ['diff', 'Diff & agent']]} />
+        </div>
+      )}
       {/* the other pages (src/components/demo), mounted on their first visit */}
       {PAGES.map(({ id, Page }) => Page && seen.includes(id) && (
         <div key={id} className="pg" hidden={page !== id}>
           <Page />
         </div>
       ))}
+      {phone && <MobileTabs page={page} go={go} />}
       {toast && <div className={`toast${toast.error ? ' error' : ''}`} role="status">{toast.text}</div>}
     </div>
     </DemoContext.Provider>

@@ -1,4 +1,4 @@
-import { Fragment, startTransition, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent, type ReactElement, type ReactNode } from "react";
+import { Fragment, startTransition, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent, type ReactElement, type ReactNode } from "react";
 
 import type { Hunk, LinePick } from "../api/types";
 import { plural } from "../lib/format";
@@ -343,7 +343,14 @@ function Unified({ hunks, tokens, headers = true, picking }: { hunks: Hunk[]; to
       if (l.kind !== "-") n++;
     });
   });
-  return <div className={picking ? "diff-u picking" : "diff-u"}>{chunked(rows)}</div>;
+  return <div className={picking ? "diff-u picking" : "diff-u"} style={lnWidth(hunks)}>{chunked(rows)}</div>;
+}
+
+/** Digits of the diff's highest line number (its last hunk's end), as `--ln`: on a narrow screen the number columns fit just that. */
+function lnWidth(hunks: Hunk[]): CSSProperties {
+  const h = hunks.at(-1);
+  const end = (skip: string, start: number) => (h ? start + h.lines.filter((l) => l.kind !== skip).length - 1 : 1);
+  return { "--ln": String(Math.max(end("+", h?.oldStart ?? 1), end("-", h?.newStart ?? 1), 1)).length } as CSSProperties;
 }
 
 const CHUNK = 200;
@@ -402,7 +409,7 @@ function Split({ hunks, tokens, picking }: { hunks: Hunk[]; tokens: Tokens | und
     flush();
   });
   return (
-    <div className={picking ? "diff-split picking" : "diff-split"}>
+    <div className={picking ? "diff-split picking" : "diff-split"} style={lnWidth(hunks)}>
       {chunked(rows.map(([l, r], i) => (
         <div key={i} className="diff-split-row">
           {[l, r].map((x, j) => {

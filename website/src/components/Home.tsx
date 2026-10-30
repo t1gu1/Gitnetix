@@ -70,7 +70,7 @@ function TreeRow({ row, role, icon, author, name, tag, current, act, meta, ai }:
 }
 
 /** The landing page, ported from the "Gitnetix website" design canvas. */
-export default function Home({ version, demo, agents }: { version: string; demo?: ReactNode; agents?: ReactNode }) {
+export default function Home({ version, demo, agents, phone }: { version: string; demo?: ReactNode; agents?: ReactNode; phone?: ReactNode }) {
   const first = releases[releases.length - 1];
   const days = Math.round((Date.parse(releases[0].date) - Date.parse(first.date)) / 864e5) + 1;
   const featured = releases.filter((r) => r.story).slice(0, 3);
@@ -297,12 +297,12 @@ export default function Home({ version, demo, agents }: { version: string; demo?
     <h2 id="mo-h" style={{ margin: '0', fontSize: 'clamp(34px, 4.6vw, 56px)', lineHeight: '1.05', letterSpacing: '-0.03em', textWrap: 'balance' }}>Your desktop, in your pocket.</h2>
     <p style={{ margin: '18px 0 0', fontSize: '19px', color: 'var(--muted)', textWrap: 'pretty' }}>Scan the QR code from your desktop and the same app opens in your phone's browser. Approve agents, ship hotfixes, review PRs.</p>
     </div>
-    <div style={{ flex: '1 1 260px', display: 'flex', justifyContent: 'center' }}>
+    <div style={{ flex: '1 1 344px', display: 'flex', justifyContent: 'center' }}>
     <figure style={{ margin: '0', display: 'flex', flexDirection: 'column', gap: '14px', alignItems: 'center' }}>
-    <div style={{ position: 'relative', width: '264px', maxWidth: '100%', background: '#0b0c0e', border: '2px solid var(--rail)', borderRadius: '18px', padding: '10px', boxSizing: 'border-box', boxShadow: '0 30px 80px -30px rgba(0,0,0,.8), 0 0 50px -20px color-mix(in srgb,var(--accent) 45%,transparent)' }}>
-    <img src={u("phone.jpg")} alt="Gitnetix on a phone browser: the branch tree with main, a merged-into-main group, the checked-out v0.7.0 next release, a Shipped group, and Releases, Agents, PRs, Tickets and More tabs" width="640" height="1152" loading="lazy" style={{ display: 'block', width: '100%', height: 'auto', borderRadius: '9px' }} />
+    <div style={{ position: 'relative', width: '344px', maxWidth: '100%', background: '#0b0c0e', border: '2px solid var(--rail)', borderRadius: '18px', padding: '10px', boxSizing: 'border-box', boxShadow: '0 30px 80px -30px rgba(0,0,0,.8), 0 0 50px -20px color-mix(in srgb,var(--accent) 45%,transparent)' }}>
+    {phone}
     </div>
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--add)', background: 'var(--panel)', border: '1px solid var(--line)', padding: '4px 12px', borderRadius: '999px' }}><span aria-hidden="true" style={{ width: '7px', height: '7px', borderRadius: '50%', background: 'var(--add)' }}></span>Real screenshot · paired by QR code</span>
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--add)', background: 'var(--panel)', border: '1px solid var(--line)', padding: '4px 12px', borderRadius: '999px' }}><span aria-hidden="true" style={{ width: '7px', height: '7px', borderRadius: '50%', background: 'var(--add)' }}></span>Playable · the same app, paired by QR code</span>
     </figure>
     </div>
     </div>

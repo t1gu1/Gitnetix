@@ -5369,6 +5369,48 @@ body:has(> .modal-scrim) #root * {
   .term {
     flex-basis: 45%;
   }
+  /* Smaller code, and line numbers smaller still in one column, as wide as the diff's highest one (--ln digits, set
+     by DiffView). The row takes the numbers' font so the column's ch matches it; the code sets its own. */
+  .diff {
+    line-height: 18px;
+  }
+  .diff-row,
+  .diff-half {
+    font-size: 10px;
+  }
+  .diff-row .tx,
+  .diff-half .tx {
+    padding-left: 2px;
+    font-size: 11px;
+  }
+  /* One number per row: the old one on a removed line, the new one on the others. */
+  .diff-row:not(.del) > .ln:first-child,
+  .diff-row.del > .ln + .ln {
+    display: none;
+  }
+  .diff-row,
+  .diff-half {
+    grid-template-columns: calc(var(--ln, 4) * 1ch + 5px) 12px minmax(0, 1fr);
+  }
+  .diff-row .ln,
+  .diff-half .ln {
+    padding: 0 1px 0 4px;
+  }
+  /* The sign and checkbox keep 2px clear of the gutter's edge. */
+  .diff-row .sg,
+  .diff-half .sg {
+    padding-right: 2px;
+  }
+  /* A picked line's bar on the number shown, and its checkbox fitting the narrower sign column. */
+  .diff-row.pick.picked > .ln {
+    box-shadow: inset 3px 0 0 var(--accent);
+  }
+  :is(.diff-row, .diff-half).pick:is(:hover, .picked) > .sg::after {
+    inset: 4px 2px auto 0;
+    width: 10px;
+    height: 10px;
+    background-size: 6px;
+  }
   .hide-narrow {
     display: none !important;
   }

@@ -67,10 +67,10 @@ export function FixedWidth({ children }: { children: ReactNode }) {
 }
 
 /** Box of the `index`th button of `ref`, for a highlight that slides to it, like useThumb in src/components/ui.tsx. */
-export function useThumb(ref: RefObject<HTMLElement | null>, index: number, count: number) {
+export function useThumb(ref: RefObject<HTMLElement | null>, index: number, count: number, sel = ':scope > button') {
   const [thumb, setThumb] = useState<{ width: number; height: number; transform: string }>();
   useLayoutEffect(() => {
-    const btns = ref.current!.querySelectorAll<HTMLElement>(':scope > button');
+    const btns = ref.current!.querySelectorAll<HTMLElement>(sel);
     // Hidden (no box): no highlight, so it appears in place rather than sliding in when shown.
     const place = () => {
       const b = btns[index];
@@ -141,7 +141,8 @@ export type MenuItem = 'sep' | { id: string; label: ReactNode; icon?: string | n
 const ITEM = '[role="menuitem"]:not(:disabled)';
 
 /** A floating menu at a viewport point; an outside click, Escape or a scroll closes it. */
-export function Menu({ x, y, items, label, alignRight, onClose }: { x: number; y: number; items: MenuItem[]; label: string; alignRight?: boolean; onClose: () => void }) {
+/** `up`: opens above its button whatever the room below, like a menu off a bottom bar. */
+export function Menu({ x, y, items, label, alignRight, up: above, onClose }: { x: number; y: number; items: MenuItem[]; label: string; alignRight?: boolean; up?: boolean; onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<CSSProperties>({ left: x, top: y });
   const close = useRef(onClose);
@@ -152,7 +153,7 @@ export function Menu({ x, y, items, label, alignRight, onClose }: { x: number; y
     const el = ref.current!;
     const { width, height } = el.getBoundingClientRect();
     // Short of room below, it opens above its button.
-    const up = y + height > innerHeight - 8;
+    const up = above || y + height > innerHeight - 8;
     const top = up ? (opener?.getBoundingClientRect().top ?? y) - 2 - height : y;
     setPos({ left: Math.max(8, Math.min(alignRight ? x - width : x, innerWidth - width - 8)), top: Math.max(8, top), '--origin': `${up ? 'bottom' : 'top'} ${alignRight ? 'right' : 'left'}` } as CSSProperties);
     el.querySelector<HTMLElement>(ITEM)?.focus({ preventScroll: true });
