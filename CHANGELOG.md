@@ -11,6 +11,10 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+### Changed
+- A branch's worktree tag shows its agent's status (working, waiting or done) in place of "worktree", with the icon in the status color. A worktree with no agent working or waiting still reads "worktree".
+- In the agent message box, the microphone button shows at all times, not only while typing, at the far right. The attach button moved next to it, at its size: left of it on one line, above it from two lines. The text keeps the full width on the left, and no longer rewraps when the box gets focus.
+
 ## [0.13.1] - 2026-10-30
 
 ### Added

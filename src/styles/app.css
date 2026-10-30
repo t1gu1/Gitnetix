@@ -3979,17 +3979,33 @@ button.picker-act {
 .term-input-row {
   display: flex;
   align-items: flex-end;
-  gap: 8px;
   min-height: 40px;
-  padding: 0 16px 0 6px;
+  padding: 0 16px;
 }
-/* Sits on the last line of text as the box grows. */
+/* Attach and dictate, right of the text: side by side on one line, the attach button above the mic from 2 lines.
+   The mic keeps 9px from the bottom (centered on the last line) and from the next column. */
+.term-tools {
+  flex: none;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin: 0 9px 0 6px;
+}
+.term-input-multi .term-tools {
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 4px 0 9px;
+}
 .term-attach {
   flex: none;
-  width: 28px;
-  height: 28px;
-  margin-bottom: 6px;
+  width: 22px;
+  height: 22px;
   padding: 0;
+}
+/* In the row, not floating over the box like other fields' mics (src/lib/dictation.tsx). */
+.term-tools .field-mic {
+  position: static;
 }
 /* Full-height, flush with the panel's right edge. Square while the text grows to 3 lines (40, 58, 76px), then only taller. */
 .term-send {
@@ -4002,10 +4018,6 @@ button.picker-act {
   border: 0;
   border-left: 1px solid color-mix(in srgb, white 35%, transparent);
   border-radius: 0;
-}
-/* Picker sits flush against the send button. */
-.term-input .picker-acts {
-  margin-right: -8px;
 }
 /* The plane's tip points right: nudge it to look centered. */
 .term-send svg {
@@ -4027,10 +4039,6 @@ button.picker-act {
   font-family: var(--mono);
   font-size: 12px;
   line-height: 18px;
-}
-/* The mic keeps as far from the picker as from the bottom: the box takes the row's gap. */
-.term-input textarea[data-mic] {
-  margin-right: -8px;
 }
 /* The placeholder stays on one line, cut with "…": wrapped, it grew the empty box, whose height is measured with it. */
 .term-input textarea::placeholder {
@@ -4241,17 +4249,16 @@ button.picker-act {
 @media (max-width: 900px) {
   .term-input-row {
     flex-wrap: wrap;
-    row-gap: 0;
   }
-  /* Touch buttons are 36px tall here, not 28: still centered on the 40px last line. */
-  .term-attach {
-    margin-bottom: 2px;
+  /* The mic's 22px, not the 36px touch height of buttons here. */
+  .term-input .term-attach {
+    min-height: 0;
   }
   .term-input .picker-acts {
     order: -1;
-    flex: 0 0 calc(100% + 22px);
+    flex: 0 0 calc(100% + 32px);
     height: 34px;
-    margin: 0 -16px 0 -6px;
+    margin: 0 -16px;
     border-bottom: 1px solid var(--line);
   }
   .term-input .picker-act {

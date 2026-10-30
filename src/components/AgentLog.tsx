@@ -5,6 +5,7 @@ import { useAgentFile, useAiCatalog, useConfig } from "../api/hooks";
 import { clipboardFiles, copyAgentFile, downloadAgentFile, isLocal, localImage, onPathDrop } from "../api/transport";
 import type { LogLine } from "../api/types";
 import { blocks, questions, said, type Block, type Opt, type Question } from "../lib/agentLog";
+import { OwnMic } from "../lib/dictation";
 import { bytes } from "../lib/format";
 import { toast } from "../lib/toast";
 import { Avatar } from "./Avatar";
@@ -598,17 +599,25 @@ export function AgentInput({ id, label, value, onChange, files, onFiles, picks, 
     el.style.height = "auto";
     // Mounted in a hidden pane (mobile detail, inactive tab) it measures 0: keep the one-line height.
     if (!el.scrollHeight) return;
-    // Count lines side by side: stacked, the picker frees width and the text rewraps shorter, which would unstack it at the next key.
-    // Already stacked with 3+ lines, side by side is only longer: no unstacking then, which rewraps the whole text twice per key.
-    const row = el.parentElement!;
+    // Each layout widens the text: from 2 lines the attach button moves above the mic, from 3 the picker stacks beside Send.
+    // Count lines in the narrower layout below, or the text rewraps shorter and drops back at the next key.
+    // A layout whose own count still needs it stays: the narrower one is only longer, and recounting rewraps the whole text again.
+    const row = el.parentElement!.classList;
     // The textarea's 11px padding and 18px lines (app.css).
-    const stacked = Math.round((el.scrollHeight - 22) / 18);
-    const stay = row.classList.contains("term-input-tall") && stacked >= 3;
-    if (!stay) row.classList.remove("term-input-tall");
-    const n = stay ? stacked : Math.max(1, Math.round((el.scrollHeight - 22) / 18));
-    row.classList.toggle("term-input-tall", n >= 3);
-    // Stacked keeps the 3-line height even if the wider text now fits in 2.
-    const h = Math.min(n >= 3 ? Math.max(el.scrollHeight, 76) : el.scrollHeight, cap);
+    const count = () => Math.max(1, Math.round((el.scrollHeight - 22) / 18));
+    let n = count();
+    if (!(row.contains("term-input-tall") && n >= 3)) {
+      row.remove("term-input-tall");
+      n = count();
+      if (!(row.contains("term-input-multi") && n >= 2)) {
+        row.remove("term-input-multi");
+        n = count();
+      }
+    }
+    row.toggle("term-input-multi", n >= 2);
+    row.toggle("term-input-tall", n >= 3);
+    // A wider layout keeps its 2- or 3-line height even if the text now fits in fewer.
+    const h = Math.min(Math.max(el.scrollHeight, n >= 3 ? 76 : n >= 2 ? 58 : 0), cap);
     el.style.height = `${h}px`;
     el.style.overflowY = el.scrollHeight > cap ? "auto" : "hidden";
     setLines(n);
@@ -668,10 +677,7 @@ export function AgentInput({ id, label, value, onChange, files, onFiles, picks, 
           ))}
         </div>
       )}
-      <div className={lines >= 3 ? "term-input-row term-input-tall" : "term-input-row"} style={{ "--lines": Math.min(lines, 3) } as CSSProperties}>
-        <button type="button" className="btn btn-ghost term-attach" aria-label="Attach files" data-tip="Attach files or images" disabled={disabled} onClick={() => chooser.current?.click()}>
-          <Icon name="attach" size={15} />
-        </button>
+      <div className={`term-input-row${lines >= 2 ? " term-input-multi" : ""}${lines >= 3 ? " term-input-tall" : ""}`} style={{ "--lines": Math.min(lines, 3) } as CSSProperties}>
         <input
           ref={chooser}
           type="file"
@@ -697,6 +703,12 @@ export function AgentInput({ id, label, value, onChange, files, onFiles, picks, 
           }}
           placeholder={placeholder}
         />
+        <div className="term-tools">
+          <button type="button" className="btn btn-ghost term-attach" aria-label="Attach files" data-tip="Attach files or images" disabled={disabled} onClick={() => chooser.current?.click()}>
+            <Icon name="attach" size={14} />
+          </button>
+          <OwnMic field={input} disabled={disabled} />
+        </div>
         {picker}
         {onStop && !typed ? (
           <button type="button" className="btn btn-danger term-send" aria-label="Stop the agent" data-tip="Stop" onClick={onStop}>

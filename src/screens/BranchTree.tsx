@@ -800,6 +800,7 @@ function BranchMeta({
   // The state links to its row, selected, on the Worktrees & agents page: a worktree's goes by its path, an agent's elsewhere by its id.
   const row = b.worktree ?? agent?.id;
   const openRow = row ? (e: MouseEvent) => { e.stopPropagation(); nav.go({ name: "worktrees", key: row }); } : undefined;
+  const state = b.running ? "working" : b.waiting ? (agent && shownStatus(agent, b) === "done" ? "done" : "waiting") : undefined;
   return (
     <>
     <span className="branch-meta">
@@ -884,16 +885,11 @@ function BranchMeta({
     </span>
     {b.worktree && (
       <span className="branch-meta">
-        {/* Its checkout's state: the worktree tag says when the AI works there. */}
-        <span className={`row meta-link meta-link-icon${b.running ? " c-acc" : ""}`} style={{ gap: 4 }} data-tip={`${b.worktree}. Click to open it in Worktrees & agents.`} onClick={openRow} onDoubleClick={(e) => e.stopPropagation()}>
+        {/* Its checkout's state: the agent's status, icon in its color, or "worktree" with no agent working or waiting there. */}
+        <span className={`row meta-link meta-link-icon${b.running ? " c-acc" : state ? " c-add" : ""}`} style={{ gap: 4 }} data-tip={`${b.worktree}. Click to open it in Worktrees & agents.`} onClick={openRow} onDoubleClick={(e) => e.stopPropagation()}>
           <Icon name="layers" size={11} stroke={1.4} />
-          {b.running ? <span className="ai-fade">AI working</span> : "worktree"}
+          {state ? <span className="ai-fade">{state}</span> : "worktree"}
         </span>
-        {!b.running && b.waiting && (
-          <span className="c-add ai-fade meta-link" data-tip="Open it in Worktrees & agents" onClick={openRow} onDoubleClick={(e) => e.stopPropagation()}>
-            {agent && shownStatus(agent, b) === "done" ? "done" : "waiting"}
-          </span>
-        )}
         {conflict}
         {!typed && wip}
       </span>

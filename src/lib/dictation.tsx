@@ -1,4 +1,4 @@
-import { type CSSProperties, type Ref, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { type CSSProperties, type Ref, type RefObject, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import { useConfig } from "../api/hooks";
 import { isLocal, rpc } from "../api/transport";
@@ -337,11 +337,12 @@ function attach(field: Field, b: HTMLElement) {
 }
 
 /** The mic for `field`; lit while dictating into that box. */
-function Mic({ ref, field, phase, keys = "" }: { ref: Ref<HTMLButtonElement>; field: Field; phase: Phase; keys?: string }) {
+function Mic({ ref, field, phase, keys = "", disabled }: { ref?: Ref<HTMLButtonElement>; field: Field; phase: Phase; keys?: string; disabled?: boolean }) {
   return (
     <button
       ref={ref}
       className="field-mic"
+      disabled={disabled}
       data-on={(phase === "listening" && session?.field === field) || undefined}
       aria-label={`${phase === "idle" ? "Dictate" : phase === "listening" ? "Stop dictating" : "Cancel dictation"} ${keys}`.trim()}
       // Keeps the box focused, and the keyboard up (or down).
@@ -364,7 +365,7 @@ function BoxMics({ phase }: { phase: Phase }) {
     let until = 0;
     const frame = () => {
       raf = 0;
-      const now = [...document.querySelectorAll(FIELD)].flatMap((el) => asField(el) ?? []);
+      const now = [...document.querySelectorAll(FIELD)].flatMap((el) => floating(asField(el)) ?? []);
       if (now.length !== fields.length || now.some((f, i) => f !== fields[i])) return setFields(now);
       for (const [f, b, { place }] of placed) {
         place();
@@ -395,13 +396,31 @@ function BoxMics({ phase }: { phase: Phase }) {
   return fields.map((f, i) => <Mic key={i} ref={(b) => void (mics.current[i] = b)} field={f} phase={phase} />);
 }
 
+/** Boxes with a mic of their own in their layout (OwnMic): the floating mics leave them alone. */
+const own = new Set<Field>();
+const floating = (f: Field | null) => (f && !own.has(f) ? f : null);
+
+/** `field`'s mic in the box's own layout, shown at all times, with the shortcut in its tooltip. */
+export function OwnMic({ field, disabled }: { field: RefObject<Field | null>; disabled?: boolean }) {
+  const p = useSyncExternalStore(subscribe, () => phase);
+  const [keys] = useDictationKeys();
+  const [f, setF] = useState<Field | null>(null);
+  useEffect(() => {
+    const el = field.current!;
+    own.add(el);
+    setF(el);
+    return () => void own.delete(el);
+  }, [field]);
+  return f && <Mic field={f} phase={p} keys={coarse ? "" : showKeys(keys)} disabled={disabled} />;
+}
+
 /** The mic inside the right edge of the text box being typed in, with the shortcut in its tooltip. */
 function FieldMic({ phase, keys }: { phase: Phase; keys: string }) {
   const [field, setField] = useState<Field | null>(null);
   const mic = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     // Read once focus has settled: a webview that blurs the box when the mic is touched must not remove the mic before its click.
-    const sync = () => setTimeout(() => setField(asField(document.activeElement)));
+    const sync = () => setTimeout(() => setField(floating(asField(document.activeElement))));
     document.addEventListener("focusin", sync);
     document.addEventListener("focusout", sync);
     return () => {
