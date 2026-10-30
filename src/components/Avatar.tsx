@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 
 import { useStoredFlag } from "../lib/stored";
 
@@ -56,7 +56,7 @@ export function Avatar({ name, email, size = 16 }: { name: string; email?: strin
       data-tip={name}
       aria-label={name}
       role="img"
-      style={{ width: size, height: size, fontSize: Math.round(size * 0.45), background: `hsl(${hue(name)} 45% 42%)` }}
+      style={{ width: size, height: size, fontSize: Math.round(size * 0.45), "--avatar-hue": hue(name) } as CSSProperties}
     >
       {src ? <img src={src} alt="" width={size} height={size} onError={() => setSrc(null)} /> : initials(name)}
     </span>

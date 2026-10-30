@@ -1987,7 +1987,8 @@ button.tree-twist:hover {
   white-space: normal;
   overflow-wrap: anywhere;
 }
-/* Author's initial or picture, round; see Avatar.tsx. */
+/* Author's initial or picture, round; see Avatar.tsx.
+   A glow in the author's colour, not a solid disc: it fades out before its edge, so it never crowds a card's rounded corner. */
 .user-avatar {
   flex: none;
   display: inline-flex;
@@ -1995,8 +1996,9 @@ button.tree-twist:hover {
   justify-content: center;
   overflow: hidden;
   border-radius: 50%;
+  background: radial-gradient(closest-side, hsl(var(--avatar-hue) 60% 50% / 0.5) 35%, transparent);
   letter-spacing: -0.02em;
-  color: #fff;
+  color: hsl(var(--avatar-hue) 70% 75%);
   font-weight: 600;
   line-height: 1;
   user-select: none;
@@ -2008,9 +2010,15 @@ button.tree-twist:hover {
     padding-top: 0.12em;
   }
 }
+/* The picture fades into the card the same way. */
 .user-avatar > img {
   display: block;
   object-fit: cover;
+  mask-image: radial-gradient(closest-side, #000 65%, transparent);
+}
+[data-theme="light"] .user-avatar {
+  background: radial-gradient(closest-side, hsl(var(--avatar-hue) 60% 50% / 0.55) 35%, transparent);
+  color: hsl(var(--avatar-hue) 60% 27%);
 }
 /* As tall as the name line, so the icon sits on its middle (a flex basis would set its height inside .tree-lead's column). */
 .tree-icon {
