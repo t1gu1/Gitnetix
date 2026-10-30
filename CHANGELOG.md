@@ -11,6 +11,9 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+### Added
+- A branch's commit list loads older commits as you scroll near its end, back to the first commit; a filtered list loads them with a "Load older commits" button.
+
 ### Removed
 - The commit graph preview beside the branch tree, with its action previews.
 

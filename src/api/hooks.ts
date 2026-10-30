@@ -351,11 +351,13 @@ export const useAgentFile = (id?: string, path?: string, enabled = true) =>
     staleTime: Infinity,
   });
 
-export const useCommits = (projectId?: string, branch?: string) =>
+/** Newest `limit` commits of `branch`: raising it keeps the shorter list shown while the longer one loads. */
+export const useCommits = (projectId?: string, branch?: string, limit?: number) =>
   useQuery({
-    queryKey: ["commits", projectId, branch],
-    queryFn: () => rpc<Commit[]>("workspace.commits", { projectId, branch }),
+    queryKey: ["commits", projectId, branch, limit],
+    queryFn: () => rpc<Commit[]>("workspace.commits", { projectId, branch, limit }),
     enabled: !!projectId && !!branch,
+    placeholderData: (prev, prevQuery) => (prevQuery?.queryKey[2] === branch ? prev : undefined),
   });
 
 /** Fetch origin (pruning branches deleted there) when a project opens, then every 5 minutes. Quiet on failure: it runs unasked. */

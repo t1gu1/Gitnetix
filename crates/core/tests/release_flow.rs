@@ -548,6 +548,26 @@ async fn commits_flag_unpushed() {
 }
 
 #[tokio::test]
+async fn commits_limit_reaches_older_history() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("long");
+    init_repo(&repo);
+    commit_file(&repo, "a.txt", "a\n");
+    commit_file(&repo, "b.txt", "b\n");
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let added = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await;
+    let pid = added[0]["id"].as_str().unwrap().to_string();
+    let shas = |v: &Value| -> Vec<String> { v.as_array().unwrap().iter().map(|c| c["sha"].as_str().unwrap().to_string()).collect() };
+
+    // A limit keeps the newest; a bigger one adds the older ones below them.
+    let first = call(&k, "workspace.commits", json!({ "projectId": pid, "branch": "main", "limit": 2 })).await;
+    assert_eq!(shas(&first), [rev(&repo, "main"), rev(&repo, "main~1")]);
+    let more = call(&k, "workspace.commits", json!({ "projectId": pid, "branch": "main", "limit": 4 })).await;
+    assert_eq!(shas(&more)[..2], shas(&first)[..]);
+    assert_eq!(shas(&more).len(), 3, "all of main, init included");
+}
+
+#[tokio::test]
 async fn release_branch_created_after_add_is_picked_up() {
     let tmp = tempfile::tempdir().unwrap();
     let repo = tmp.path().join("late");

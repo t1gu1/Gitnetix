@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type MouseEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
 
 import { useAction, useCommits } from "../api/hooks";
 import type { Commit } from "../api/types";
@@ -11,6 +11,9 @@ import { ago, plural } from "../lib/format";
 import { copyToClipboard } from "../lib/toast";
 
 type ResetMode = "soft" | "mixed" | "hard";
+
+/** Commits fetched at a time: scrolling near the end of the list asks for this many more. */
+const PAGE = 200;
 
 /**
  * A branch's own commits, in place of the branch tree. One is always picked,
@@ -45,8 +48,11 @@ export function CommitList({
   onPick: (c?: Commit, auto?: boolean) => void;
   onBack: () => void;
 }) {
-  const commits = useCommits(pid, branch);
+  const [limit, setLimit] = useState(PAGE);
+  const commits = useCommits(pid, branch, limit);
   const list = commits.data ?? [];
+  // Fewer than asked for: the list reached the first commit (or the base).
+  const more = !commits.isPlaceholderData && list.length >= limit;
   // Commits of the local branch; origin's unpulled ones are listed too: they can't be reverted, only hard reset to.
   const local = list.filter((c) => !c.unpulled);
   const unpulled = list.filter((c) => c.unpulled);
@@ -61,6 +67,16 @@ export function CommitList({
       (!q || [c.subject, c.body, c.author, c.email, ...c.tags].some((t) => t.toLowerCase().includes(q)) || c.sha.startsWith(q)) &&
       (mine.length === 0 || mine.includes(c.email.toLowerCase())),
   );
+  const filtered = !!q || mine.length > 0;
+  const end = useRef<HTMLButtonElement>(null);
+  // Older commits load as the end nears; a filtered list waits for a click, so a rare match doesn't pull the whole history.
+  useEffect(() => {
+    const el = end.current;
+    if (!el || filtered) return;
+    const io = new IntersectionObserver(([e]) => e.isIntersecting && setLimit((l) => l + PAGE), { root: el.parentElement, rootMargin: "400px" });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [more, filtered]);
   const [menu, setMenu] = useState<{ x: number; y: number; c: Commit } | null>(null);
   const [reset, setReset] = useState<{ c: Commit; mode: ResetMode } | null>(null);
   const [deletingTag, setDeletingTag] = useState<string | null>(null);
@@ -167,6 +183,12 @@ export function CommitList({
         ))}
         {list.length > 0 && shown.length === 0 && <Empty>{q ? <>No commit matches “{query}”{mine.length > 0 && " by them"}.</> : "No commit by them."}</Empty>}
         {commits.data && list.length === 0 && <Empty>{base ? <>No commits that <span className="mono">{base}</span> doesn't have.</> : "No commits yet."}</Empty>}
+        {commits.isPlaceholderData && <Loading />}
+        {more && (
+          <button ref={end} className="btn btn-ghost btn-sm" style={{ alignSelf: "center", margin: 8 }} onClick={() => setLimit((l) => l + PAGE)}>
+            Load older commits
+          </button>
+        )}
       </div>
       {menu && <ContextMenu x={menu.x} y={menu.y} label={`Actions for ${menu.c.sha.slice(0, 7)}`} items={items(menu.c)} onClose={() => setMenu(null)} />}
       {reset && (

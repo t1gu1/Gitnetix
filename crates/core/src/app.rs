@@ -2570,7 +2570,8 @@ impl Gitnetix {
     }
 
     /// Commits a branch has that its base does not, newest first; a trunk lists its recent history.
-    pub async fn commits(&self, project_id: &str, branch: &str) -> Result<Vec<Commit>> {
+    /// `limit` caps how many (200 for a trunk, 500 for a branch when not given): raised to load older ones.
+    pub async fn commits(&self, project_id: &str, branch: &str, limit: Option<u32>) -> Result<Vec<Commit>> {
         let p = self.store.project(project_id)?;
         let git = self.git(&p);
         let default = git.default_branch().await?;
@@ -2583,21 +2584,20 @@ impl Gitnetix {
         if revs.is_empty() {
             revs.push(git.rev_of(branch).await);
         }
-        let limit = if base == branch {
-            200
-        } else {
+        let trunk = base == branch;
+        if !trunk {
             revs.push(format!("^{}", git.rev_of(&base).await));
-            500
-        };
+        }
+        let limit = limit.unwrap_or(if trunk { 200 } else { 500 });
         let mut list = git.log_revs(&revs.iter().map(String::as_str).collect::<Vec<_>>(), Some(limit)).await?;
         let unpulled = match (&local, &origin) {
-            (Some(l), Some(o)) if l != o => git.rev_list(&format!("{l}..{o}")).await.unwrap_or_default(),
-            _ => Vec::new(),
+            (Some(l), Some(o)) if l != o => git.rev_list(&format!("{l}..{o}")).await.unwrap_or_default().into_iter().collect(),
+            _ => std::collections::HashSet::new(),
         };
         // Local commits on no origin branch: a hard reset past them loses them.
-        let unpushed: Vec<String> = match &local {
+        let unpushed: std::collections::HashSet<String> = match &local {
             Some(l) => git.run(&["rev-list", &format!("-n{limit}"), l, "--not", "--remotes=origin"]).await.map(|o| o.lines().map(Into::into).collect()).unwrap_or_default(),
-            None => Vec::new(),
+            None => std::collections::HashSet::new(),
         };
         for c in &mut list {
             c.local = local.as_deref() == Some(c.sha.as_str());
