@@ -1,7 +1,7 @@
 //! Long-running AI agent sessions (Claude Code CLI and friends), one per
 //! branch or worktree. They keep running when the UI switches project.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::{Arc, Mutex};
@@ -63,7 +63,8 @@ pub struct AgentSession {
     /// Messages sent while it works, in order; they go out together when the run ends.
     #[serde(default)]
     pub queued: Vec<String>,
-    #[serde(skip)]
+    /// The CLI's process while it works. Saved so another Gitnetix on this folder sees the run is still going.
+    #[serde(default)]
     pub pid: Option<u32>,
 }
 
@@ -75,6 +76,8 @@ struct Inner {
     interrupted: Vec<String>,
     /// Set by `shutdown`: nothing is saved after it.
     quitting: bool,
+    /// Deleted here: `persist` must not keep them from the file.
+    removed: HashSet<String>,
 }
 
 #[derive(Clone)]
@@ -92,6 +95,11 @@ const MAX_LINES: usize = 2000;
 
 /// Closes the messages sent while the agent worked: it reads them only after its last reply.
 const QUEUED_NOTE: &str = "(I sent this while you were still working, before your last reply. If that reply asked me questions this does not answer, ask them again at the end of this reply, unless I told you not to ask questions.)";
+
+/// The sessions saved in `file`; none when it is missing or unreadable.
+fn saved(file: &std::path::Path) -> Vec<AgentSession> {
+    std::fs::read_to_string(file).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
+}
 
 fn agent_label(r: &Resolved) -> Result<String> {
     Ok(format!("{} CLI · {}", ai::provider_info(&r.provider)?.name, r.label()))
@@ -114,16 +122,16 @@ pub struct StartArgs {
 impl AgentManager {
     pub fn new(events: broadcast::Sender<Event>, dir: &std::path::Path) -> Self {
         let file = dir.join("agents.json");
-        let mut sessions: HashMap<String, AgentSession> = std::fs::read_to_string(&file)
-            .ok()
-            .and_then(|s| serde_json::from_str::<Vec<AgentSession>>(&s).ok())
-            .unwrap_or_default()
-            .into_iter()
-            .map(|s| (s.id.clone(), s))
-            .collect();
+        let mut sessions: HashMap<String, AgentSession> = saved(&file).into_iter().map(|s| (s.id.clone(), s)).collect();
         // Processes do not survive an app restart.
         let mut interrupted = Vec::new();
         for s in sessions.values_mut() {
+            // Still working in its checkout: another Gitnetix on this folder (a dev build next to the installed app) runs it,
+            // so it is neither stopped nor resumed here, and its process is not ours to pause or kill.
+            // shortcut: Linux only (/proc); elsewhere such a run still resumes twice, check the process another way if that shows up.
+            if s.pid.take().is_some_and(|p| std::fs::read_link(format!("/proc/{p}/cwd")).is_ok_and(|d| d == std::path::Path::new(&s.cwd))) {
+                continue;
+            }
             // Only Claude Code can pick its conversation back up; a paused run stays as the user left it.
             if s.status == AgentStatus::Running && s.resume_id.is_some() && s.ai.as_ref().is_some_and(|r| r.provider == "claude") {
                 interrupted.push(s.id.clone());
@@ -136,7 +144,7 @@ impl AgentManager {
                 s.lines.push(LogLine::new("dim", "  ■ Stopped when Gitnetix quit"));
             }
         }
-        AgentManager { inner: Arc::new(Mutex::new(Inner { sessions, kills: HashMap::new(), interrupted, quitting: false })), events, file, write_lock: Arc::default(), turn: Arc::default() }
+        AgentManager { inner: Arc::new(Mutex::new(Inner { sessions, interrupted, ..Inner::default() })), events, file, write_lock: Arc::default(), turn: Arc::default() }
     }
 
     /// On quit: save the sessions, then kill their processes, which a quit never drops (`kill_on_drop`), so a
@@ -185,19 +193,28 @@ impl AgentManager {
     }
 
     fn persist(&self) {
+        // Held from the snapshot to the rename, so a slower save never lands an older snapshot.
+        let _guard = self.write_lock.lock().unwrap();
         // Snapshot under the session lock, serialize and write outside it so
         // log readers are not blocked. Order does not matter on disk: `new`
         // loads sessions into a map.
-        let snapshot: Vec<AgentSession> = {
+        let (mut snapshot, removed) = {
             let g = self.inner.lock().unwrap();
             if g.quitting {
                 return;
             }
-            g.sessions.values().cloned().collect()
+            (g.sessions.clone(), g.removed.clone())
         };
-        let Ok(json) = serde_json::to_string(&snapshot) else { return };
+        // Another Gitnetix on this folder (a dev build next to the installed app) saves its sessions here too:
+        // keep the ones only it holds, and its copy of a shared one when newer, so neither wipes the other's.
+        // shortcut: a session deleted here comes back if the other one still holds it and saves after; save deletions in the file if that bites.
+        for s in saved(&self.file) {
+            if !removed.contains(&s.id) && snapshot.get(&s.id).is_none_or(|m| s.updated_at > m.updated_at) {
+                snapshot.insert(s.id.clone(), s);
+            }
+        }
+        let Ok(json) = serde_json::to_string(&snapshot.into_values().collect::<Vec<_>>()) else { return };
         // Write to a temp file and rename so a reader never sees a torn file.
-        let _guard = self.write_lock.lock().unwrap();
         let tmp = self.file.with_extension("json.tmp");
         if crate::store::write_private(&tmp, json).is_ok() {
             let _ = std::fs::rename(&tmp, &self.file);
@@ -387,7 +404,11 @@ impl AgentManager {
 
     pub fn remove(&self, id: &str) -> Result<()> {
         let _ = self.stop(id);
-        self.inner.lock().unwrap().sessions.remove(id);
+        {
+            let mut g = self.inner.lock().unwrap();
+            g.sessions.remove(id);
+            g.removed.insert(id.into());
+        }
         self.persist();
         Ok(())
     }
@@ -665,6 +686,27 @@ mod tests {
         assert_eq!(m.get("run").unwrap().status, AgentStatus::Stopped);
     }
 
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_run_another_instance_still_works_on_is_left_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        // This test's own process stands in for the other instance's agent, working in its checkout.
+        let cwd = std::env::current_dir().unwrap().to_string_lossy().to_string();
+        let s = |id: &str, pid| AgentSession {
+            id: id.into(), project_id: "p".into(), branch: "b".into(), cwd: cwd.clone(), worktree: false,
+            status: AgentStatus::Running, request: "r".into(), agent_label: String::new(), lines: vec![],
+            started_at: now(), updated_at: now(), resume_id: Some("rid".into()), ai: Some(cli("claude")), queued: vec!["q".into()], pid: Some(pid),
+        };
+        let saved = vec![s("live", std::process::id()), s("killed", u32::MAX)];
+        std::fs::write(dir.path().join("agents.json"), serde_json::to_string(&saved).unwrap()).unwrap();
+
+        let m = AgentManager::new(broadcast::channel(8).0, dir.path());
+        assert_eq!(m.inner.lock().unwrap().interrupted, vec!["killed".to_string()]);
+        let live = m.get("live").unwrap();
+        assert_eq!((live.status, live.queued.len(), live.pid), (AgentStatus::Running, 1, None));
+        assert_eq!(m.get("killed").unwrap().status, AgentStatus::Stopped);
+    }
+
     #[test]
     fn messages_sent_while_working_go_out_when_the_run_ends() {
         let dir = tempfile::tempdir().unwrap();
@@ -747,5 +789,34 @@ mod tests {
         assert!(!saved().contains("x.rs"));
         m.handle_stream_json("a", r#"{"type":"assistant","message":{"content":[{"type":"text","text":"Done reading"}]}}"#);
         assert!(saved().contains("x.rs") && saved().contains("Done reading"));
+    }
+
+    #[test]
+    fn another_instance_on_the_folder_keeps_our_sessions() {
+        let dir = tempfile::tempdir().unwrap();
+        let s = |id: &str| AgentSession {
+            id: id.into(), project_id: "p".into(), branch: "b".into(), cwd: ".".into(), worktree: false,
+            status: AgentStatus::Waiting, request: "r".into(), agent_label: String::new(), lines: vec![],
+            started_at: now(), updated_at: "2000-01-01T00:00:00+00:00".into(), resume_id: None, ai: None, queued: vec![], pid: None,
+        };
+        std::fs::write(dir.path().join("agents.json"), serde_json::to_string(&[s("shared")]).unwrap()).unwrap();
+        // The installed app and a dev build, both opened before either started a session.
+        let app = AgentManager::new(broadcast::channel(8).0, dir.path());
+        let dev = AgentManager::new(broadcast::channel(8).0, dir.path());
+        app.inner.lock().unwrap().sessions.insert("mine".into(), s("mine"));
+        app.persist();
+        dev.inner.lock().unwrap().sessions.insert("gone".into(), s("gone"));
+        dev.push("shared", LogLine::new("ai", "newer"));
+        dev.persist();
+        // Its older copy of "shared" and its lack of "mine" undo nothing.
+        app.persist();
+        let next = AgentManager::new(broadcast::channel(8).0, dir.path());
+        assert!(next.get("mine").is_ok() && next.get("gone").is_ok());
+        assert_eq!(next.get("shared").unwrap().lines.len(), 1);
+
+        // A deleted session does not come back from the file.
+        dev.remove("gone").unwrap();
+        app.persist();
+        assert!(AgentManager::new(broadcast::channel(8).0, dir.path()).get("gone").is_err());
     }
 }
