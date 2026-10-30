@@ -585,11 +585,17 @@ export function AgentInput({ id, label, value, onChange, files, onFiles, picks, 
     el.style.height = "auto";
     // Mounted in a hidden pane (mobile detail, inactive tab) it measures 0: keep the one-line height.
     if (!el.scrollHeight) return;
-    const h = Math.min(el.scrollHeight, cap);
+    // Count lines side by side: stacked, the picker frees width and the text rewraps shorter, which would unstack it at the next key.
+    const row = el.parentElement!;
+    row.classList.remove("term-input-tall");
+    // The textarea's 11px padding and 18px lines (app.css).
+    const n = Math.max(1, Math.round((el.scrollHeight - 22) / 18));
+    row.classList.toggle("term-input-tall", n >= 3);
+    // Stacked keeps the 3-line height even if the wider text now fits in 2.
+    const h = Math.min(n >= 3 ? Math.max(el.scrollHeight, 76) : el.scrollHeight, cap);
     el.style.height = `${h}px`;
     el.style.overflowY = el.scrollHeight > cap ? "auto" : "hidden";
-    // The textarea's 11px padding and 18px lines (app.css).
-    setLines(Math.max(1, Math.round((h - 22) / 18)));
+    setLines(n);
   }, [value]);
 
   const keys = (e: KeyboardEvent<HTMLTextAreaElement>) => {
