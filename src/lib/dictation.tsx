@@ -399,7 +399,7 @@ function Wave({ listening, polishing, keys }: { listening: boolean; polishing: b
     return () => cancelAnimationFrame(raf);
   }, [listening]);
   return (
-    <div className="dictation" role="status" aria-live="polite" data-polishing={polishing || undefined}>
+    <div className="dictation" role="status" aria-live="polite">
       <div className="dictation-head">
         <span className="dictation-mic" data-on={listening || undefined}>
           <Icon name="mic" size={14} stroke={1.7} />

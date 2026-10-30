@@ -5038,11 +5038,12 @@ body:has(> .modal-scrim) #root * {
 }
 
 /* ---------- voice dictation ---------- */
-/* Centered over everything but tooltips, without a scrim: the box being dictated into stays in view. */
+/* At the bottom, over everything but tooltips, without a scrim: the box being dictated into stays in view.
+   It keeps that spot while listening and rewriting, so it doesn't jump when the rewrite starts. */
 .dictation {
   position: fixed;
   left: 50%;
-  top: 50%;
+  bottom: 24px;
   z-index: 65;
   display: flex;
   flex-direction: column;
@@ -5055,14 +5056,8 @@ body:has(> .modal-scrim) #root * {
   box-shadow:
     var(--shadow-lg),
     0 0 80px -18px color-mix(in srgb, var(--accent) 45%, transparent);
-  translate: -50% -50%;
-  animation: dictation-in 0.36s var(--ease-spring);
-}
-/* Rewriting: the words are in their box already, so the card keeps to the bottom, out of their way. */
-.dictation[data-polishing] {
-  top: auto;
-  bottom: 24px;
   translate: -50% 0;
+  animation: dictation-in 0.36s var(--ease-spring);
 }
 .dictation-head {
   display: flex;
@@ -5166,9 +5161,11 @@ body:has(> .modal-scrim) #root * {
   color: var(--accent-fg);
 }
 @media (max-width: 900px) {
-  /* Clear of the on-screen keyboard. */
+  /* Clear of the on-screen keyboard, the same spot while listening and rewriting. */
   .dictation {
     top: 36%;
+    bottom: auto;
+    translate: -50% -50%;
   }
 }
 @media (hover: none) and (pointer: coarse) {
