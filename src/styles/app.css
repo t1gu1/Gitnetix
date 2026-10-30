@@ -5026,6 +5026,12 @@ body:has(> .modal-scrim) #root * {
   translate: -50% -50%;
   animation: dictation-in 0.36s var(--ease-spring);
 }
+/* Rewriting: the words are in their box already, so the card keeps to the bottom, out of their way. */
+.dictation[data-polishing] {
+  top: auto;
+  bottom: 24px;
+  translate: -50% 0;
+}
 .dictation-head {
   display: flex;
   align-items: center;

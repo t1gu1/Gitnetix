@@ -12,7 +12,7 @@ import { Icon } from "../components/Icon";
 import { Resizer, usePaneWidth } from "../components/Resizer";
 import { useTermDefault } from "../components/Shell";
 import { Confirm, Header, Seg } from "../components/ui";
-import { comboOf, DEFAULT_KEYS, DICTATION_LANGS, showKeys, useDictationKeys } from "../lib/dictation";
+import { comboOf, DEFAULT_KEYS, showKeys, useDictationKeys } from "../lib/dictation";
 import { ANIMATIONS, useAnimations } from "../lib/motion";
 import { useNav } from "../lib/nav";
 import { useStoredFlag } from "../lib/stored";
@@ -247,7 +247,6 @@ function DictationSection() {
   const [keys, setKeys] = useDictationKeys();
   const [picking, setPicking] = useState(false);
   const ui = useConfig().data?.ui;
-  const langs = ui?.dictationLanguages ?? [];
   const polish = ui?.dictationPolish ?? true;
   const setUi = useAction("ui.set", { invalidate: [["config"]] });
   return (
@@ -255,7 +254,8 @@ function DictationSection() {
       <div className="col" style={{ gap: 6 }}>
         <h1>Voice dictation</h1>
         <p className="muted" style={{ margin: 0 }}>Speak into any text box. Press the shortcut or click the mic at the right of the box to start listening, then press either again or Stop to put the words in.</p>
-        <p className="hint" style={{ margin: 0 }}>Speech is turned into text on this computer by Whisper, which hears only the parts with speech and expects the open project's names. The first time downloads its models (575 MB) from Hugging Face, and the first time it hears French, a model made for French (790 MB). Without Rewrite with AI, nothing you say leaves the computer.</p>
+        <p className="hint" style={{ margin: 0 }}>Speech is turned into text on this computer, in English, French and 23 more European languages, even mixed in one sentence. The first time downloads the speech model (740 MB) from Hugging Face. Without Rewrite with AI, nothing you say leaves the computer.</p>
+        <p className="hint" style={{ margin: 0 }}>Speech model: Parakeet Ultra by Moondream, built on NVIDIA Parakeet TDT 0.6B v3, both under CC BY 4.0 (creativecommons.org/licenses/by/4.0), quantized to 8 bits for transcribe.cpp.</p>
       </div>
       <ul className="list">
         <li className="list-row" style={{ gap: 12 }}>
@@ -308,13 +308,6 @@ function DictationSection() {
           </label>
         </li>
       </ul>
-      <Checks
-        label="Languages you speak"
-        hint="Each stretch of speech between pauses is written in the likeliest of these, so you can switch language mid-dictation. None ticked means any language, and short phrases may then be taken for another one."
-        options={DICTATION_LANGS}
-        value={langs}
-        onChange={(v) => setUi.mutate({ dictationLanguages: v })}
-      />
     </>
   );
 }

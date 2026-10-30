@@ -20,7 +20,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("log.get", "Recent operations and errors, oldest first", ""),
     ("log.clear", "Empty the log", ""),
     ("config.get", "Full app configuration (no secrets)", ""),
-    ("ui.set", "Save UI preferences", "language?, theme?, lastProject?, animationsOff?, dictationLanguages?, dictationPolish?"),
+    ("ui.set", "Save UI preferences", "language?, theme?, lastProject?, animationsOff?, dictationPolish?"),
     ("ui.setView", "Remember how a screen was left (pane width, collapsed section…); no value forgets it", "key, value?"),
     ("server.set", "Configure the companion API", "enabled?, lan?, port?, regenerateToken?"),
     ("projects.list", "List saved projects", ""),
@@ -114,7 +114,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("ai.saveProvider", "Configure an AI provider", "id, method?, model?, effort?, baseUrl?, apiKey?"),
     ("ai.setDefault", "Default AI provider", "id"),
     ("ai.test", "Test an AI provider", "id"),
-    ("dictation.transcribe", "Turn recorded speech into text on this computer, expecting the project's names (the first time downloads a 575 MB speech model, and a 790 MB French one the first time it hears French)", "audio (base64), mime, projectId?, branch?"),
+    ("dictation.transcribe", "Turn recorded speech into text on this computer (the first time downloads a 740 MB speech model)", "audio (base64), mime"),
     ("dictation.cancel", "Stop the transcriptions under way; they end with an error", ""),
     ("dictation.polish", "Rewrite dictated text into clear text with AI and the project's context; unchanged when turned off or no AI is set up", "text, projectId?, branch?, field?, typed?"),
     ("ai.setRoute", "Which AI handles a task", "task, provider?, model?, effort?"),
@@ -372,9 +372,6 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
                 }
                 if let Some(x) = p.get("animationsOff").and_then(Value::as_array) {
                     c.ui.animations_off = x.iter().filter_map(|v| v.as_str().map(String::from)).collect();
-                }
-                if let Some(x) = p.get("dictationLanguages").and_then(Value::as_array) {
-                    c.ui.dictation_languages = x.iter().filter_map(|v| v.as_str().map(String::from)).collect();
                 }
                 if let Some(x) = p.get("dictationPolish").and_then(Value::as_bool) {
                     c.ui.dictation_polish = x;
@@ -791,7 +788,7 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
                 let _ = events.send(crate::events::Event::DictationModel { done, total });
             };
             let audio = crate::dictation::Audio::Recorded { bytes: audio, mime: os(&p, "mime").unwrap_or_default() };
-            let text = k.dictate(audio, os(&p, "projectId").as_deref(), os(&p, "branch").as_deref(), progress).await?;
+            let text = k.dictate(audio, progress).await?;
             to(json!({ "text": text }))
         }
         "dictation.cancel" => {

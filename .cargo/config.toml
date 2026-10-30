@@ -1,4 +1,6 @@
 [env]
-# whisper.cpp (voice dictation) otherwise tunes itself to the building machine's CPU,
-# and a release built in CI could crash on users' CPUs. whisper-rs-sys hands GGML_* to cmake.
-GGML_NATIVE = "OFF"
+# transcribe.cpp (voice dictation) otherwise tunes itself to the building machine's CPU, so a release built in CI could
+# crash on users' CPUs; and with native tuning off it turns every SIMD set off, 4 times slower. AVX2 and FMA are the floor
+# whisper.cpp held here before (CPUs since 2013), so it stays 30 times faster than speech. No system BLAS: the AppImage
+# would need the build machine's libblas. macOS ignores the x86 flags on Apple Silicon.
+TRANSCRIBE_CMAKE_ARGS = "-DTRANSCRIBE_USE_SYSTEM_BLAS=OFF -DGGML_NATIVE=OFF -DGGML_AVX=ON -DGGML_AVX2=ON -DGGML_FMA=ON -DGGML_F16C=ON -DGGML_BMI2=ON"

@@ -577,7 +577,10 @@ fn insert_ticket(prompt: &str, ticket: &str) -> String {
     }
 }
 
-/// Where a dictation is spoken, for the words it may hold.
+/// The language a dictation is rewritten in, for `{language}`: AI hears it in the words, any of the speech model's 25.
+const SAME_LANGUAGE: &str = "the language it was spoken in";
+
+/// Where a dictation is spoken, for AI's rewrite.
 struct Scene {
     project: String,
     branch: String,
@@ -586,34 +589,6 @@ struct Scene {
     commits: String,
     /// The uncommitted changes, as `git status --short` lists them.
     files: String,
-    /// Every saved project's name, this one included.
-    projects: Vec<String>,
-}
-
-/// Longest vocabulary given to Whisper, in characters: it reads about 220 tokens of it.
-const VOCABULARY_MAX: usize = 600;
-
-impl Scene {
-    /// The names Whisper should expect, most telling first: the project, branch and ticket, the other projects,
-    /// then the files being worked on. Names only: sentences in one language make Whisper translate speech in another.
-    fn vocabulary(&self) -> String {
-        let paths = self.commits.lines().filter(|l| !l.starts_with("- ")).chain(self.files.lines().filter_map(|l| l.get(3..)));
-        let mut names: Vec<&str> = paths.filter_map(|p| Path::new(p.rsplit(' ').next()?.trim_matches('"')).file_stem()?.to_str()).collect();
-        names.sort_unstable();
-        names.dedup();
-        let mut out = String::new();
-        let projects = self.projects.iter().map(String::as_str).filter(|p| *p != self.project);
-        for w in [&*self.project, &self.branch, self.ticket.as_deref().unwrap_or("")].into_iter().chain(projects).chain(names) {
-            if w.is_empty() || out.len() + w.len() + 2 > VOCABULARY_MAX {
-                continue;
-            }
-            if !out.is_empty() {
-                out.push_str(", ");
-            }
-            out.push_str(w);
-        }
-        out
-    }
 }
 
 /// Start the part after the prefix with the ticket key and an underscore (`feat/ATL-212_login`).
@@ -1947,13 +1922,9 @@ impl Gitnetix {
 
     // ---------- dictation ----------
 
-    /// `audio` as text, with Whisper expecting the names of `project_id` on `branch` (its checked-out one when none).
-    pub async fn dictate(&self, audio: Audio, project_id: Option<&str>, branch: Option<&str>, progress: impl Fn(u64, u64) + Send + Sync) -> Result<String> {
-        let vocabulary = match project_id {
-            Some(id) => self.scene(id, branch).await.map(|s| s.vocabulary()).unwrap_or_default(),
-            None => String::new(),
-        };
-        self.dictation.transcribe(&self.dir, &self.store, audio, vocabulary, progress).await
+    /// `audio` as text, on this computer.
+    pub async fn dictate(&self, audio: Audio, progress: impl Fn(u64, u64) + Send + Sync) -> Result<String> {
+        self.dictation.transcribe(&self.dir, &self.store, audio, progress).await
     }
 
     /// `text` as dictated after `typed` into `field` (what the box is: "one-line field “Branch name”"), rewritten
@@ -1989,7 +1960,7 @@ impl Gitnetix {
         vars.insert("commits".into(), or_none(commits));
         vars.insert("projects".into(), or_none(self.store.read(|c| c.projects.iter().map(|p| p.name.as_str()).collect::<Vec<_>>().join(", "))));
         // The words are already there: a stuck provider must not hold them for minutes.
-        tokio::time::timeout(std::time::Duration::from_secs(30), self.ask("dictation", &t, vars, "spoken", None))
+        tokio::time::timeout(std::time::Duration::from_secs(30), self.ask("dictation", &t, vars, SAME_LANGUAGE, None))
             .await
             .map_err(|_| Error::Other("AI took more than 30 s to rewrite the dictation".into()))?
     }
@@ -2010,8 +1981,7 @@ impl Gitnetix {
             None => String::new(),
         };
         let ticket = p.branches.get(&branch).and_then(|m| m.ticket.clone()).or_else(|| ticket_keys(&branch, true).into_iter().next());
-        let projects = self.store.read(|c| c.projects.iter().map(|p| p.name.clone()).collect());
-        Ok(Scene { project: p.name, branch, ticket, commits, files, projects })
+        Ok(Scene { project: p.name, branch, ticket, commits, files })
     }
 
     // ---------- projects ----------
@@ -5538,23 +5508,6 @@ fn fix_version_release(fix_versions: &[String], releases: &[Release]) -> Option<
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn vocabulary_puts_the_project_names_first() {
-        let scene = |commits: &str| Scene {
-            project: "Gitnetix".into(),
-            branch: "feat/GNX-12_voice".into(),
-            ticket: Some("GNX-12".into()),
-            commits: commits.into(),
-            files: " M crates/core/src/dictation.rs\nR  old.ts -> src/lib/Wave.tsx\n?? \"notes/my notes.md\"\n".into(),
-            projects: vec!["Gitnetix".into(), "Hivemind".into()],
-        };
-        let v = scene("- feat(dictation): split speech by language\n\ncrates/core/src/dictation.rs\nsrc/App.tsx\n- fix: stop overlap\n").vocabulary();
-        assert_eq!(v, "Gitnetix, feat/GNX-12_voice, GNX-12, Hivemind, App, Wave, dictation, notes");
-        // Too long: what fits goes in, in that order.
-        let long = scene(&format!("- big\n{}.rs\nzz.rs\n", "x".repeat(VOCABULARY_MAX))).vocabulary();
-        assert!(long.ends_with("notes, zz") && long.len() <= VOCABULARY_MAX, "{long}");
-    }
 
     #[test]
     fn fix_version_names_a_release() {

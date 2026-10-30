@@ -1,6 +1,6 @@
 //! The desktop microphone, for voice dictation. A webview records in the codecs its OS ships:
 //! WebKitGTK writes only MP4 or WebM, and many Linux installs lack the GStreamer plugins for them.
-//! So the desktop app records here and hands Whisper plain samples.
+//! So the desktop app records here and hands the speech model plain samples.
 
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError};

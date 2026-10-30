@@ -10,8 +10,8 @@ import { useStored } from "./stored";
 import { toast } from "./toast";
 
 // Voice dictation into any text box: the shortcut (or the mic on phones) records here,
-// the desktop turns the recording into text with its local Whisper model, AI rewrites it with the project's context
-// when that is on, and the text lands at the box's caret.
+// the desktop turns the recording into text with its local speech model, the words land at the box's caret at once,
+// and AI's rewrite with the project's context takes their place when that is on.
 
 const MAC = /Mac|iPhone|iPad/.test(navigator.userAgent);
 const MODS = ["Ctrl", "Alt", "Shift", "Meta"] as const;
@@ -49,15 +49,8 @@ export const canDictate = isLocal || (typeof MediaRecorder !== "undefined" && !!
 // shortcut: Firefox records only Opus, so the companion page in Firefox can't dictate; decode Opus on the desktop if that matters.
 const TYPE = canDictate && !isLocal ? ["audio/webm;codecs=pcm", "audio/mp4"].find((t) => MediaRecorder.isTypeSupported(t)) : undefined;
 
-const names = new Intl.DisplayNames([navigator.language], { type: "language" });
-/** The languages Whisper hears, by name. It writes Javanese "jw". */
-export const DICTATION_LANGS = "en zh de es ru ko fr ja pt tr pl ca nl ar sv it id hi fi vi he uk el ms cs ro da hu ta no th ur hr bg lt la mi ml cy sk te fa lv bn sr az sl kn et mk br eu is hy ne mn bs kk sq sw gl mr pa si km sn yo so af oc ka be tg sd gu am yi lo uz fo ht ps tk nn mt sa lb my bo tl mg as tt haw ln ha ba jw su yue"
-  .split(" ")
-  .map((value) => ({ value, label: names.of(value === "jw" ? "jv" : value) ?? value }))
-  .sort((a, b) => a.label.localeCompare(b.label));
-
 type Phase = "idle" | "listening" | "transcribing" | "polishing";
-/** Where dictations are spoken (the open project and branch), for the names Whisper expects and AI's context. */
+/** Where dictations are spoken (the open project and branch), for AI's context. */
 let at: { projectId?: string; branch?: string } = {};
 let polishOn = true;
 /** The speech model's first download, while it runs. */
@@ -155,8 +148,18 @@ async function finish() {
   try {
     const heard = (s.mic ? await stopMic(s.mic) : await transcribe(s, rec!)).trim();
     if (session !== s) return;
-    const text = heard && polishOn ? await polish(s.field, heard) : heard;
-    if (session === s) put(s.field, text);
+    const el = s.field;
+    const placed = put(el, heard);
+    if (!placed || !polishOn) return;
+    // The words are in already: AI's rewrite takes their place when it comes, unless the box changed meanwhile.
+    const rewriting = polish(el, heard, placed.typed);
+    // Read once the box's own onChange (a trim, say) has had its turn.
+    await new Promise((ok) => setTimeout(ok));
+    const after = el.value;
+    const text = flat(el, await rewriting);
+    if (session !== s || !el.isConnected || text === flat(el, heard)) return;
+    if (el.value !== after) return toast("The text box changed meanwhile, so the words stay as heard");
+    write(el, placed.glue + text, placed.at, after.length - placed.tail);
   } catch (e) {
     if (session === s) toast(e instanceof Error ? e.message : String(e), "error");
   } finally {
@@ -186,7 +189,7 @@ export function cancelDictation() {
 async function stopMic(started: Promise<unknown>) {
   await started;
   const { invoke } = await import("@tauri-apps/api/core");
-  return invoke<string>("dictation_stop", at);
+  return invoke<string>("dictation_stop");
 }
 
 /** What `el` is, for AI: "one-line field “Branch name”". */
@@ -195,12 +198,11 @@ function describe(el: Field) {
   return `${el.tagName === "INPUT" ? "one-line field" : "multi-line text box"}${name ? ` “${name}”` : ""}`;
 }
 
-/** `text` rewritten by AI for `el`, after what it already holds; the words as heard when AI fails. */
-async function polish(el: Field, text: string) {
+/** `text` rewritten by AI for `el`, after `typed`; the words as heard when AI fails. */
+async function polish(el: Field, text: string, typed: string) {
   set("polishing");
   try {
-    const typed = el.value.slice(0, el.selectionStart ?? el.value.length).slice(-2000);
-    const r = await rpc<{ text: string }>("dictation.polish", { ...at, text, field: describe(el), typed });
+    const r = await rpc<{ text: string }>("dictation.polish", { ...at, text, field: describe(el), typed: typed.slice(-2000) });
     return r.text.trim() || text;
   } catch (e) {
     toast(`AI couldn't rewrite it, so the words went in as heard: ${e instanceof Error ? e.message : e}`, "error");
@@ -218,7 +220,7 @@ async function transcribe(s: Session, rec: MediaRecorder) {
     rec.stop();
   });
   release(s);
-  const { text } = await rpc<{ text: string }>("dictation.transcribe", { audio: await base64(blob), mime: blob.type, ...at });
+  const { text } = await rpc<{ text: string }>("dictation.transcribe", { audio: await base64(blob), mime: blob.type });
   return text;
 }
 
@@ -228,17 +230,32 @@ export function dictationModel(done: number, total: number) {
   set(phase);
 }
 
+/** `text` on one line in a one-line box. */
+const flat = (el: Field, text: string) => (el.tagName === "INPUT" ? text.replace(/\s*\n\s*/g, " ") : text);
+
+/** `text` in at `el`'s caret, and where it went: from `at`, with `glue` before it and `tail` characters after it. */
 function put(el: Field, text: string) {
-  if (!text) return toast("No speech heard");
-  if (el.tagName === "INPUT") text = text.replace(/\s*\n\s*/g, " ");
+  if (!text) return void toast("No speech heard");
+  text = flat(el, text);
   // The box closed meanwhile (its dialog, say): keep the words rather than drop them.
   if (!el.isConnected) return void navigator.clipboard.writeText(text).then(() => toast("The text box closed, so the text was copied", "ok"), () => toast(text, "info", 15000));
   el.focus();
   const at = el.selectionStart ?? el.value.length;
-  const glue = at > 0 && !/\s$/.test(el.value.slice(0, at)) ? " " : "";
-  // execCommand keeps the box's undo and React's onChange; setRangeText where a browser dropped it.
-  if (!document.execCommand("insertText", false, glue + text)) {
-    el.setRangeText(glue + text, at, el.selectionEnd ?? at, "end");
+  const end = el.selectionEnd ?? at;
+  const typed = el.value.slice(0, at);
+  const glue = at > 0 && !/\s$/.test(typed) ? " " : "";
+  const tail = el.value.length - end;
+  write(el, glue + text, at, end);
+  return { at, glue, tail, typed };
+}
+
+/** `text` over `from`…`to` of `el`, as typing puts it. execCommand keeps the box's undo (Ctrl+Z brings back the words as heard)
+ *  and React's onChange, but works only in the focused box: setRangeText elsewhere, and where a browser dropped execCommand. */
+function write(el: Field, text: string, from: number, to: number) {
+  const focused = document.activeElement === el;
+  if (focused) el.setSelectionRange(from, to);
+  if (!focused || !document.execCommand("insertText", false, text)) {
+    el.setRangeText(text, from, to, "end");
     el.dispatchEvent(new Event("input", { bubbles: true }));
   }
 }
@@ -382,7 +399,7 @@ function Wave({ listening, polishing, keys }: { listening: boolean; polishing: b
     return () => cancelAnimationFrame(raf);
   }, [listening]);
   return (
-    <div className="dictation" role="status" aria-live="polite">
+    <div className="dictation" role="status" aria-live="polite" data-polishing={polishing || undefined}>
       <div className="dictation-head">
         <span className="dictation-mic" data-on={listening || undefined}>
           <Icon name="mic" size={14} stroke={1.7} />

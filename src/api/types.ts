@@ -416,8 +416,6 @@ export interface Config {
     view: Record<string, string>;
     /** Animations turned off, by id (see `ANIMATIONS`). */
     animationsOff: string[];
-    /** Languages dictation listens for, as Whisper codes; empty = any. */
-    dictationLanguages: string[];
     /** The language the last dictation was mostly in. */
     spokenLanguage?: string | null;
     /** AI rewrites each dictation with the project's context, when a provider is set up. */

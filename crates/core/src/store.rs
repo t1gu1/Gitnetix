@@ -394,8 +394,6 @@ pub struct UiPrefs {
     pub view: BTreeMap<String, String>,
     /// Animations the user turned off, by id (see the UI's list); every other one plays.
     pub animations_off: Vec<String>,
-    /// Languages voice dictation listens for, as Whisper codes ("fr"); empty = any.
-    pub dictation_languages: Vec<String>,
     /// The language the last dictation was mostly in: what the "spoken" generation language follows.
     pub spoken_language: Option<String>,
     /// AI rewrites each dictation into clear text, with the project's context, when a provider is set up.
@@ -404,7 +402,7 @@ pub struct UiPrefs {
 
 impl Default for UiPrefs {
     fn default() -> Self {
-        UiPrefs { language: "en".into(), theme: "tokyo-night-storm".into(), last_project: None, view: BTreeMap::new(), animations_off: Vec::new(), dictation_languages: Vec::new(), spoken_language: None, dictation_polish: true }
+        UiPrefs { language: "en".into(), theme: "tokyo-night-storm".into(), last_project: None, view: BTreeMap::new(), animations_off: Vec::new(), spoken_language: None, dictation_polish: true }
     }
 }
 
