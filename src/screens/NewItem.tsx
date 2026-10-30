@@ -38,6 +38,9 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
   const [name, setName] = useState("");
   const [named, setNamed] = useState<"ai" | "auto" | "you" | null>(null);
   const [naming, setNaming] = useState(false);
+  // Minimized to a chip, the form stays as it was; opening a new branch again brings it back.
+  const [min, setMin] = useState(false);
+  useEffect(() => setMin(false), [draft]);
 
   useEffect(() => {
     if (!from && ov.data) setFrom(firstBase());
@@ -85,11 +88,25 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
     if (k !== "release" && kindOfBranch(name)) setName(`${k}/${name.slice(name.indexOf("/") + 1)}`);
   };
 
+  if (min)
+    return (
+      <button className="btn start-chip" onClick={() => setMin(false)}>
+        <Icon name="branch" size={13} />
+        {kind === "release" ? "New release" : "New branch"}
+      </button>
+    );
+  const minimize = (
+    <button className="btn btn-ghost btn-icon" aria-label="Minimize" data-tip="Minimize · comes back from the chip in the corner" onClick={() => setMin(true)}>
+      <Icon name="minus" />
+    </button>
+  );
+
   if (kind === "release") {
     return (
       <Modal
         title="New release"
         sub={relKind === "next" ? "Branches off your default branch" : "Branches off the latest tag"}
+        actions={minimize}
         onClose={onClose}
         footer={
           <>
@@ -157,6 +174,7 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
         : fromTag ? <>Branches off tag <span className="mono">{draft.tag}</span> and merges into <span className="mono">{ov.data?.defaultBranch}</span></>
         : "Pick where it starts"
       }
+      actions={minimize}
       onClose={onClose}
       footer={
         <>

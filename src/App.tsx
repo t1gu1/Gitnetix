@@ -86,8 +86,11 @@ function Shell({ onUnpair }: { onUnpair: () => void }) {
             {each(() => <Screen onUnpair={onUnpair} />)}
           </div>
           {nav.projectId && <MobileTabs />}
-          {each(() => <NewItemDialog />)}
-          <StartSession />
+          {/* Minimized dialogs' chips stack in one corner instead of covering each other. */}
+          <div className="start-chips">
+            {each(() => <NewItemDialog />)}
+            <StartSession />
+          </div>
           <UpdatePrompt />
           <Toasts />
           <Dictation />
