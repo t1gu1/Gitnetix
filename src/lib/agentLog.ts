@@ -56,7 +56,8 @@ export type Opt = { n: string; label: string };
 export type Question = { id: string; text: string; opts: Opt[] };
 
 // The agent may reply in French ("Quelle option ?", "Réponds 1, 2 ou 3").
-const PICK = /\b(which|prefer|choose|pick|quel(le)?s?|lequel|laquelle|choisi\w*|choix|préf[éè]r\w*)\b/i;
+// Not after a hyphen: "cherry-pick" is not asking you to pick. A hyphen after is fine: "Préfères-tu".
+const PICK = /(?<![\w-])(which|prefer|choose|pick|quel(le)?s?|lequel|laquelle|choisi\w*|choix|préf[éè]r\w*)\b/i;
 
 /** Numbered options ("1. **Foo:** bar") in the agent's last reply, when it now waits for you to pick: one entry per question. */
 export function questions(lines: LogLine[]): Question[] {
