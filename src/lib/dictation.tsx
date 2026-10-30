@@ -279,7 +279,7 @@ export function Dictation() {
 /** Touch screens, with no keyboard for the shortcut. */
 const coarse = matchMedia("(pointer: coarse)").matches;
 
-/** The mic inside the right edge of the text box being typed in, with the shortcut beside it where there's a keyboard. */
+/** The mic inside the right edge of the text box being typed in, with the shortcut in its tooltip where there's a keyboard. */
 function FieldMic({ phase, keys }: { phase: Phase; keys: string }) {
   const [field, setField] = useState<Field | null>(null);
   const mic = useRef<HTMLButtonElement>(null);
@@ -301,7 +301,7 @@ function FieldMic({ phase, keys }: { phase: Phase; keys: string }) {
     for (let el = field.parentElement; el; el = el.parentElement) if (getComputedStyle(el).overflowY !== "visible") clips.push(el);
     const b = mic.current!;
     const one = field.tagName === "INPUT";
-    // A one-line box under 36px tall shrinks the mic, keeping it 4px clear of its top and bottom (the stylesheet caps it at 28px).
+    // A one-line box under 30px tall shrinks the mic, keeping it 4px clear of its top and bottom (the stylesheet caps it at 22px).
     if (one) b.style.setProperty("--mic-fit", `${field.offsetHeight - 8}px`);
     // A multi-line box's last line, from its bottom edge: border, padding, then half a line less half the mic. "normal" lines are about 1.2 times the font.
     const s = getComputedStyle(field);
@@ -345,8 +345,7 @@ function FieldMic({ phase, keys }: { phase: Phase; keys: string }) {
         onPointerDown={(e) => e.preventDefault()}
         onClick={() => toggleDictation(field)}
       >
-        <Icon name="mic" size={15} stroke={1.7} />
-        {keys && <span>{keys}</span>}
+        <Icon name="mic" size={14} stroke={1.7} />
       </button>
     )
   );
