@@ -2081,10 +2081,9 @@ function CommitBox({ pid, branch, enabled, staged, changed }: { pid: string; bra
 
 /** The agent of the selected branch, or the shell of its checkout (`cwd`). Several agents at once are managed on the Worktrees & agents page. */
 function Terminal({ pid, branch, cwd, worktree, open, setOpen, onCloseWorktree, finish }: { pid: string; branch?: string; cwd?: string; worktree: boolean; open: boolean; setOpen: (b: boolean) => void; onCloseWorktree: (s: AgentSession) => void; finish: FinishHandlers }) {
-  const agents = useAgents();
   const hidden = useHidden();
   // A session being cleared, or whose worktree is being deleted, is gone already.
-  const cur = (agents.data ?? []).find((a) => a.projectId === pid && a.branch === branch && !hidden.has(agentKey(a.id)) && !hidden.has(wtKey(a.cwd)));
+  const cur = useAgents((l) => l.find((a) => a.projectId === pid && a.branch === branch && !hidden.has(agentKey(a.id)) && !hidden.has(wtKey(a.cwd)))).data;
   // Its worktree is being deleted (merged, closed): nothing new starts there meanwhile.
   const leaving = worktree && !!cwd && hidden.has(wtKey(cwd));
   const curBranch = useOverview(pid).data?.branches.find((b) => b.name === cur?.branch);

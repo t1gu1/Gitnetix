@@ -73,10 +73,9 @@ function moveTo<T extends { id: string }>(
 export function TopBar() {
   const nav = useNav();
   const projects = useProjects();
-  const agents = useAgents();
-  const runningAll = (agents.data ?? []).filter(
-    (a) => a.status === "running",
-  ).length;
+  const runningAll =
+    useAgents((l) => l.filter((a) => a.status === "running").length).data ??
+    0;
   const hide = useAction("projects.setHidden", {
     invalidate: [["projects"], ["config"]],
   });

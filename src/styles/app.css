@@ -5886,6 +5886,25 @@ body:has(> .modal-scrim) #root * {
 :root[data-anim-off~="activity"] :is(.pulse, .ai-fade, .ag-wait-chip, .ag-dots i) {
   animation: none !important;
 }
+/* No input for 30 s or window hidden (usePauseWhenIdle): every endless animation waits where it stands, as any one of them keeps the webview
+   drawing every frame. A new endless animation belongs here too. Not dictation's: you speak to it without touching anything. */
+:root[data-idle]
+  :is(
+    .pulse,
+    .ai-fade,
+    .ag-wait-chip,
+    .ag-dots i,
+    .spinner,
+    .wip-badge,
+    .act-nudge > svg,
+    .tree-row[data-current] .tree-name > .mono,
+    :is(.child-label, .group-label, .shipped-label)[data-active],
+    .wt-group-head > [data-glint]
+  ),
+:root[data-idle] :is(.tree-row, .tree-node, .tree-sep)[data-path]::before,
+:root[data-idle] :is(.tree-toggle[data-path] + .tree-open, .tree-merged + .tree-kids[data-path])::after {
+  animation-play-state: paused !important;
+}
 :root[data-anim-off~="tabs"] .tab-project {
   transform: none !important;
   transition: none !important;

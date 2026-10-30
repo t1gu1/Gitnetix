@@ -11,6 +11,15 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+### Changed
+- Endless animations (activity pulses, branch shine and path, WIP badge, push nudge, spinners) pause after 30 seconds without mouse, wheel or keyboard input, or while the window is hidden, and pick up again at the next input. Dictation keeps moving.
+- On Linux, WebKitGTK's DMA-BUF renderer is no longer turned off. If Gitnetix closes at start with "Error 71 (Protocol error) dispatching to Wayland display" (seen with some NVIDIA drivers), start it with `WEBKIT_DISABLE_DMABUF_RENDERER=1`.
+
+### Fixed
+- Typing in the agent message box stays fast with long agent logs and long messages: a key no longer redraws the whole log.
+- An agent's new output redraws only its own log, not the other agents' logs, the branch tree and the top bar.
+- The worktree list, refreshed every 10 seconds, no longer carries every agent's full log.
+
 ## [0.13.0] - 2026-10-29
 
 ### Added

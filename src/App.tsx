@@ -9,7 +9,7 @@ import { isPageRoute, PAGES, TopBar } from "./components/TopBar";
 import { UpdatePrompt } from "./components/UpdatePrompt";
 import { Loading, useThumb } from "./components/ui";
 import { Dictation } from "./lib/dictation";
-import { useApplyAnimations } from "./lib/motion";
+import { useApplyAnimations, usePauseWhenIdle } from "./lib/motion";
 import { NavProvider, ProjectView, useNav, useVisited, type Route } from "./lib/nav";
 import { Toasts } from "./lib/toast";
 import { useZoomKeys } from "./lib/zoom";
@@ -38,6 +38,7 @@ function Engine({ onUnpair }: { onUnpair: () => void }) {
   const cfg = useConfig();
   useEngineEvents();
   useApplyAnimations(cfg.data?.ui.animationsOff);
+  usePauseWhenIdle();
   useZoomKeys();
   if (cfg.isLoading) return <Loading />;
   // Reload, not refetch: the event stream above is still open to the address that failed.

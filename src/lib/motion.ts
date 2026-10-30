@@ -40,6 +40,44 @@ export function useApplyAnimations(off: string[] | undefined) {
   }, [v]);
 }
 
+/** After `ms` without pointer, wheel or keys, or while the window is hidden, puts `data-idle` on the root element: the stylesheet pauses the endless animations
+ * there, any one of which keeps the webview drawing every frame. The next input plays them on from where they stood. */
+export function usePauseWhenIdle(ms = 30_000) {
+  useEffect(() => {
+    const root = document.documentElement;
+    let last = performance.now();
+    let timer = 0;
+    // Input only moves `last`: the pending check sleeps again for what is left.
+    const check = () => {
+      const left = last + ms - performance.now();
+      if (left > 0) timer = window.setTimeout(check, left);
+      else root.dataset.idle = "";
+    };
+    const wake = () => {
+      last = performance.now();
+      if (!("idle" in root.dataset)) return;
+      delete root.dataset.idle;
+      timer = window.setTimeout(check, ms);
+    };
+    const shown = () => {
+      if (!document.hidden) return wake();
+      clearTimeout(timer);
+      root.dataset.idle = "";
+    };
+    const opts = { capture: true, passive: true };
+    const inputs = ["pointermove", "pointerdown", "wheel", "keydown"];
+    for (const t of inputs) window.addEventListener(t, wake, opts);
+    document.addEventListener("visibilitychange", shown);
+    timer = window.setTimeout(check, ms);
+    return () => {
+      for (const t of inputs) window.removeEventListener(t, wake, opts);
+      document.removeEventListener("visibilitychange", shown);
+      clearTimeout(timer);
+      delete root.dataset.idle;
+    };
+  }, [ms]);
+}
+
 /** The turned-off animations and a toggle for one, saved to the app's config. */
 export function useAnimations() {
   const qc = useQueryClient();

@@ -784,7 +784,7 @@ function BranchMeta({
   const conflict = b.conflict && <span className="c-del">conflict</span>;
   const nav = useNav();
   // Off a worktree, the agent works in the main checkout.
-  const agent = useAgents().data?.find((a) => (b.worktree ? a.cwd === b.worktree : a.projectId === nav.projectId && a.branch === b.name));
+  const agent = useAgents((l) => l.find((a) => (b.worktree ? a.cwd === b.worktree : a.projectId === nav.projectId && a.branch === b.name))).data;
   // The state links to its row, selected, on the Worktrees & agents page: a worktree's goes by its path, an agent's elsewhere by its id.
   const row = b.worktree ?? agent?.id;
   const openRow = row ? (e: MouseEvent) => { e.stopPropagation(); nav.go({ name: "worktrees", key: row }); } : undefined;

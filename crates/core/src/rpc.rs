@@ -93,7 +93,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("submodules.stage", "Stage the commit checked out in a submodule as its new pin", "projectId, path"),
     ("submodules.remove", "Remove a submodule: deinit, delete its folder and clone; the removal is staged", "projectId, path"),
     ("submodules.fetch", "Fetch every initialized submodule's origin", "projectId"),
-    ("worktrees.list", "Every worktree across projects with its agent; cached = the list last built (null before the first), at once and without agents", "cached?"),
+    ("worktrees.list", "Every worktree across projects with its agent (log left out: agents.list has it); cached = the list last built (null before the first), at once and without agents", "cached?"),
     ("worktrees.create", "Open a branch in a new worktree", "projectId, branch"),
     ("worktrees.remove", "Remove a worktree", "projectId, path, force?"),
     ("agents.list", "Agent sessions", ""),

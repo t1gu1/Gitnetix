@@ -16,9 +16,15 @@ export function said(msg: string) {
   return { text, files: list.split("\n").flatMap((f) => (f.startsWith("- ") ? [f.slice(2)] : [])) };
 }
 
-/** Group raw log lines into chat blocks: your messages, replies, tool steps, status. */
+// A new line replaces a session's array, never changes it: each array is grouped once, however often it redraws.
+const grouped = new WeakMap<LogLine[], Block[]>();
+
+/** Group raw log lines into chat blocks: your messages, replies, tool steps, status. Shared per `lines`: read it, don't change it. */
 export function blocks(lines: LogLine[]): Block[] {
+  const done = grouped.get(lines);
+  if (done) return done;
   const out: Block[] = [];
+  grouped.set(lines, out);
   for (const l of lines) {
     const last = out.at(-1);
     switch (l.kind) {

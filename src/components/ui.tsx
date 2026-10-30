@@ -1,4 +1,4 @@
-import { type CSSProperties, Fragment, type ReactNode, type RefObject, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type CSSProperties, Fragment, memo, type ReactNode, type RefObject, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { link } from "./Adf";
@@ -280,7 +280,8 @@ const item = (t: string, j: number) => {
   );
 };
 
-export function Markdown({ text }: { text: string }) {
+// Memo: an agent log redraws every reply when a line arrives; only new text is parsed again.
+export const Markdown = memo(function Markdown({ text }: { text: string }) {
   const blocks: ReactNode[] = [];
   // PR templates leave <!-- hints --> behind.
   const lines = text.replace(/\r/g, "").replace(/<!--[\s\S]*?-->/g, "").split("\n");
@@ -348,4 +349,4 @@ export function Markdown({ text }: { text: string }) {
     blocks.push(<p key={i}>{inline(para.join(" "), "p")}</p>);
   }
   return <div className="md">{blocks}</div>;
-}
+});

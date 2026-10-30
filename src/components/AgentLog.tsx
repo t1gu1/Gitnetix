@@ -1,4 +1,4 @@
-import { type ClipboardEvent, type CSSProperties, type KeyboardEvent, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type ClipboardEvent, type CSSProperties, type KeyboardEvent, type ReactNode, memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { useAgentFile, useAiCatalog, useConfig } from "../api/hooks";
@@ -22,7 +22,10 @@ function summary(lines: LogLine[]) {
   return [...counts].map(([n, c]) => (c > 1 ? `${n} ×${c}` : n)).join(" · ");
 }
 
-function Steps({ lines, open }: { lines: LogLine[]; open: boolean }) {
+// A new line regroups the whole log: every block gets fresh arrays of the same line objects, so compare items.
+const same = (a: unknown[], b: unknown[]) => a.length === b.length && a.every((x, i) => x === b[i]);
+
+const Steps = memo(function Steps({ lines, open }: { lines: LogLine[]; open: boolean }) {
   return (
     <details className="ag-steps" open={open}>
       <summary>
@@ -42,7 +45,7 @@ function Steps({ lines, open }: { lines: LogLine[]; open: boolean }) {
       </div>
     </details>
   );
-}
+}, (a, b) => a.open === b.open && same(a.lines, b.lines));
 
 /** Who "you" are: the project's git profile, else the first one. */
 function useMe(projectId?: string) {
@@ -108,7 +111,7 @@ function Choices({ qs, picks, onPicks }: { qs: Question[]; picks: Choice[]; onPi
 }
 
 /** Files in the log, one chip each; images preview from agent `session`, and open full size in a gallery of this group's images. */
-function Files({ files, session }: { files: string[]; session?: string }) {
+const Files = memo(function Files({ files, session }: { files: string[]; session?: string }) {
   const [open, setOpen] = useState<number>();
   const shots = files.filter(isImage);
   return files.length > 0 && (
@@ -118,7 +121,7 @@ function Files({ files, session }: { files: string[]; session?: string }) {
       {open !== undefined && session && <Gallery session={session} paths={shots} at={open} onClose={() => setOpen(undefined)} />}
     </span>
   );
-}
+}, (a, b) => a.session === b.session && same(a.files, b.files));
 
 /** What you sent: its text, then the files that went with it. */
 function Said({ b, session }: { b: { text: string; files: string[] }; session?: string }) {
@@ -146,16 +149,19 @@ export function AgentLog({ lines, empty, picks, onPicks, projectId, actions, thi
     if (live.length !== picks.length) onPicks(live);
   });
   // One mark per answer: on the first reply or steps after each message of yours.
-  const opens = new Set<number>();
-  let fresh = true;
-  list.forEach((b, i) => {
-    if (b.kind === "you") fresh = true;
-    else if (fresh && (b.kind === "ai" || b.kind === "steps")) {
-      opens.add(i);
-      fresh = false;
-    }
-  });
-  const mark = <AgentMark provider={provider} />;
+  const { opens, fresh } = useMemo(() => {
+    const opens = new Set<number>();
+    let fresh = true;
+    list.forEach((b, i) => {
+      if (b.kind === "you") fresh = true;
+      else if (fresh && (b.kind === "ai" || b.kind === "steps")) {
+        opens.add(i);
+        fresh = false;
+      }
+    });
+    return { opens, fresh };
+  }, [list]);
+  const mark = useMemo(() => <AgentMark provider={provider} />, [provider]);
   useEffect(() => {
     const el = ref.current;
     if (el && stick.current) el.scrollTop = el.scrollHeight;
@@ -177,34 +183,10 @@ export function AgentLog({ lines, empty, picks, onPicks, projectId, actions, thi
     io.observe(el);
     return () => io.disconnect();
   }, [ti, task?.text]);
-  return (
-    <div
-      ref={ref}
-      className="term-log ag-log"
-      onScroll={(e) => {
-        const el = e.currentTarget;
-        stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
-      }}
-    >
-      {task && gone && (
-        <div className="ag-task">
-          <div className="ag-task-card">
-            <button type="button" className="ag-task-bar" aria-expanded={peek} data-tip={peek ? "Fold" : "Read the whole task"} onClick={() => setPeek(!peek)}>
-              <Avatar name={me.name} email={me.email} size={18} />
-              <span className="ag-task-label">Task</span>
-              <span className="ellipsis grow">{!peek && (task.text || task.files.join(", "))}</span>
-              <Icon name={peek ? "chevronUp" : "chevronDown"} size={12} />
-            </button>
-            {peek && (
-              <div className="ag-task-full">
-                <Said b={task} session={session} />
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-      {lines.length === 0 && <div className="ag-empty">{empty ?? "No output yet."}</div>}
-      {list.map((b, i) => {
+  // Redrawn only when the log grows: not on each key typed in the box below, nor on another session's output.
+  const history = useMemo(
+    () =>
+      list.map((b, i) => {
         switch (b.kind) {
           case "you":
             return (
@@ -234,19 +216,8 @@ export function AgentLog({ lines, empty, picks, onPicks, projectId, actions, thi
               </div>
             );
           case "wait":
-            // Only the latest wait matters; older ones are history.
-            return i !== list.length - 1 ? null : (
-              <div key={i} className="ag-wait">
-                <span className="ag-wait-chip">Your turn!</span>
-                {qs.length > 0 && (
-                  <div className="ag-sugg" role="group" aria-labelledby="ag-sugg-label">
-                    <span id="ag-sugg-label" className="ag-sugg-label">Suggestions</span>
-                    <Choices qs={qs} picks={picks} onPicks={onPicks} />
-                  </div>
-                )}
-                {qs.length === 0 && actions && <div className="ag-choices">{actions}</div>}
-              </div>
-            );
+            // Only the latest wait matters, drawn after the history; older ones are history.
+            return null;
           case "err":
             return <div key={i} className="ag-err">✕ {b.text}</div>;
           case "ok":
@@ -254,7 +225,49 @@ export function AgentLog({ lines, empty, picks, onPicks, projectId, actions, thi
           default:
             return <div key={i} className="ag-note">{b.text}</div>;
         }
-      })}
+      }),
+    [list, task, opens, mark, me.name, me.email, session],
+  );
+  return (
+    <div
+      ref={ref}
+      className="term-log ag-log"
+      onScroll={(e) => {
+        const el = e.currentTarget;
+        stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+      }}
+    >
+      {task && gone && (
+        <div className="ag-task">
+          <div className="ag-task-card">
+            <button type="button" className="ag-task-bar" aria-expanded={peek} data-tip={peek ? "Fold" : "Read the whole task"} onClick={() => setPeek(!peek)}>
+              <Avatar name={me.name} email={me.email} size={18} />
+              <span className="ag-task-label">Task</span>
+              <span className="ellipsis grow">{!peek && (task.text || task.files.join(", "))}</span>
+              <Icon name={peek ? "chevronUp" : "chevronDown"} size={12} />
+            </button>
+            {peek && (
+              <div className="ag-task-full">
+                <Said b={task} session={session} />
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+      {lines.length === 0 && <div className="ag-empty">{empty ?? "No output yet."}</div>}
+      {history}
+      {list.at(-1)?.kind === "wait" && (
+        <div className="ag-wait">
+          <span className="ag-wait-chip">Your turn!</span>
+          {qs.length > 0 && (
+            <div className="ag-sugg" role="group" aria-labelledby="ag-sugg-label">
+              <span id="ag-sugg-label" className="ag-sugg-label">Suggestions</span>
+              <Choices qs={qs} picks={picks} onPicks={onPicks} />
+            </div>
+          )}
+          {qs.length === 0 && actions && <div className="ag-choices">{actions}</div>}
+        </div>
+      )}
       {thinking && (
         <div className="ag-act" role="status" aria-label="Agent is thinking">
           {fresh && mark}
@@ -586,10 +599,13 @@ export function AgentInput({ id, label, value, onChange, files, onFiles, picks, 
     // Mounted in a hidden pane (mobile detail, inactive tab) it measures 0: keep the one-line height.
     if (!el.scrollHeight) return;
     // Count lines side by side: stacked, the picker frees width and the text rewraps shorter, which would unstack it at the next key.
+    // Already stacked with 3+ lines, side by side is only longer: no unstacking then, which rewraps the whole text twice per key.
     const row = el.parentElement!;
-    row.classList.remove("term-input-tall");
     // The textarea's 11px padding and 18px lines (app.css).
-    const n = Math.max(1, Math.round((el.scrollHeight - 22) / 18));
+    const stacked = Math.round((el.scrollHeight - 22) / 18);
+    const stay = row.classList.contains("term-input-tall") && stacked >= 3;
+    if (!stay) row.classList.remove("term-input-tall");
+    const n = stay ? stacked : Math.max(1, Math.round((el.scrollHeight - 22) / 18));
     row.classList.toggle("term-input-tall", n >= 3);
     // Stacked keeps the 3-line height even if the wider text now fits in 2.
     const h = Math.min(n >= 3 ? Math.max(el.scrollHeight, 76) : el.scrollHeight, cap);

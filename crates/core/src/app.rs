@@ -4439,7 +4439,8 @@ impl Gitnetix {
                     project_name: p.name.clone(),
                     base,
                     ticket: meta.and_then(|m| m.ticket.clone()),
-                    agent: agents.iter().find(|a| a.cwd == w.path).cloned(),
+                    // Without its log: agents.list carries it, and here it rode along on every poll (MBs with long sessions).
+                    agent: agents.iter().find(|a| a.cwd == w.path).map(|a| AgentSession { lines: Vec::new(), ..a.clone() }),
                     path: w.path,
                     branch: w.branch,
                     main: w.main,

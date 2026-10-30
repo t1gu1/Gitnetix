@@ -376,8 +376,9 @@ export const useAutoFetch = (projectId?: string, enabled = true) => {
   });
 };
 
-export const useAgents = () =>
-  useQuery({ queryKey: ["agents"], queryFn: () => rpc<AgentSession[]>("agents.list") });
+/** `select` picks the part shown: the caller then redraws when that part changes, not on every line any agent logs. */
+export const useAgents = <T = AgentSession[]>(select?: (list: AgentSession[]) => T) =>
+  useQuery({ queryKey: ["agents"], queryFn: () => rpc<AgentSession[]>("agents.list"), select });
 
 export const useWorktrees = () => {
   const qc = useQueryClient();
