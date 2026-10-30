@@ -11,9 +11,21 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+### Added
+- A Shipped cleanup button deletes shipped release branches locally and on origin, keeping their tags. Only the branches filed under them are rebuilt.
+- On narrow screens, a left-to-right swipe in Pull requests, Submodules, Tickets and Worktrees steps back from the detail pane to the list.
+- On touch screens, every text box in view shows a dictation mic. A tap explains why dictation is unavailable.
+
 ### Changed
 - A branch's worktree tag shows its agent's status (working, waiting or done) in place of "worktree", with the icon in the status color. A worktree with no agent working or waiting still reads "worktree".
 - In the agent message box, the microphone button shows at all times, not only while typing, at the far right. The attach button moved next to it, at its size: left of it on one line, above it from two lines. The text keeps the full width on the left, and no longer rewraps when the box gets focus.
+- A branch's worktree details fit on one row, and the kind chip moved.
+
+### Fixed
+- A dev build no longer overwrites the installed app's config. Config saved by another instance on the same folder is picked up.
+- The dictation mic button stays below the top corner of the text field.
+
+Skipped: I didn't check the diff of the worktree row change, so that line is based on the commit title alone. I also assumed the Shipped cleanup commit (982f130) belongs to this release.
 
 ## [0.13.1] - 2026-10-30
 
