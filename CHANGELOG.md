@@ -14,15 +14,23 @@ release notes and the in-app update prompt.
 ### Added
 - A branch's commit list loads older commits as you scroll near its end, back to the first commit; a filtered list loads them with a "Load older commits" button.
 - Several terminals per checkout: the button beside the Shell tab lists them, opens a new one and closes the one shown.
+- Agent prompt drafts and the new session dialog are kept across page changes and restarts, and the dialog can be minimized to a chip.
+- On desktop, pasting images and files from the clipboard into the agent message box works, with a preview of local image paths.
 
 ### Changed
+- The app and website start on the tokyo-night-storm theme until you pick one, in both light and dark computer modes; "system" no longer follows the computer's color scheme.
 - Branch tree polish: icons sit level with branch names, every row keeps one height, the filter, group labels and branch names share one column, row actions have larger icons, and the stash count in the Branches header matches Fetch and Release.
+- The new branch dialog remembers your worktree and agent choices per project for the next new branch.
+- Author avatars fade into a soft glow tinted with the author's color.
 
 ### Removed
 - The commit graph preview beside the branch tree, with its action previews.
 
 ### Fixed
+- Agent sessions saved by another instance on the same folder are merged instead of being lost.
+- The context menu stays open while logs and terminals scroll.
 - Keyboard focus on a branch row rings the whole row, and the ring is no longer cut off on its action buttons.
+- The chat input row keeps its size when the text wraps to three lines.
 
 ## [0.12.0] - 2026-10-28
 
