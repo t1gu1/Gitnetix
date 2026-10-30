@@ -26,9 +26,25 @@ export type MenuItem =
 
 /** A group title in the menu, not a choice. */
 type MenuHeading = { heading: ReactNode };
+type Entry = MenuItem | MenuHeading;
 
 /** Pickers with more choices than this get a search field. */
 export const SEARCH_ABOVE = 10;
+/** Menus with more choices than this split into two columns. */
+const TWO_ABOVE = 12;
+
+/** The groups in two columns, as even as whole groups allow; null for a single group. */
+function halves(groups: Entry[][]): Entry[][] | null {
+  const full = groups.filter((g) => g.length);
+  const half = full.flat().length / 2;
+  let k = 0;
+  let left = 0;
+  // The left column takes groups while each brings it nearer half the rows.
+  while (k < full.length - 1 && Math.abs(left + full[k].length - half) <= Math.abs(left - half)) left += full[k++].length;
+  if (!k) return null;
+  const join = (gs: Entry[][]) => gs.flatMap((g, i) => (i ? ["sep" as const, ...g] : g));
+  return [join(full.slice(0, k)), join(full.slice(k))];
+}
 
 const TRIGGER = '[aria-haspopup="menu"]';
 // Buttons inside a heading (e.g. "Hide") stay out of the arrow keys and the first focus.
@@ -40,9 +56,10 @@ window.addEventListener("mousedown", (e) => (lastDown = (e.target as Element).cl
 /**
  * Floating menu at a viewport point; closes on outside click, Escape, the user scrolling or resize.
  * `columns`: each run between separators is a column, side by side on wide screens.
+ * Without it, a long menu splits its groups into two such columns.
  * `search`: the placeholder of a filter field atop the items (e.g. a long branch list), matching their `text` or plain-text label.
  */
-export function ContextMenu({ x, y, items, label, alignRight, columns, search, onClose }: { x: number; y: number; items: (MenuItem | MenuHeading)[]; label: string; alignRight?: boolean; columns?: boolean; search?: string; onClose: () => void }) {
+export function ContextMenu({ x, y, items, label, alignRight, columns, search, onClose }: { x: number; y: number; items: Entry[]; label: string; alignRight?: boolean; columns?: boolean; search?: string; onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
   const field = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
@@ -110,9 +127,20 @@ export function ContextMenu({ x, y, items, label, alignRight, columns, search, o
       if (e.key === "Escape") return onClose();
       // Typing on an item lands in the filter field.
       if (field.current && e.key.length === 1 && e.key !== " " && !e.metaKey && !e.ctrlKey && document.activeElement !== field.current) return field.current.focus();
+      // Columns side by side: up and down stay in the column, left and right go to the nearest row of the next one.
+      const col = ref.current && getComputedStyle(ref.current).flexDirection === "row" ? document.activeElement?.closest(".ctx-col") : null;
+      if (col && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
+        const cols = [...ref.current!.querySelectorAll(".ctx-col")];
+        const next = cols[cols.indexOf(col) + (e.key === "ArrowRight" ? 1 : -1)];
+        if (!next) return;
+        e.preventDefault();
+        const y = document.activeElement!.getBoundingClientRect().top;
+        const off = (b: Element) => Math.abs(b.getBoundingClientRect().top - y);
+        return [...next.querySelectorAll<HTMLButtonElement>(ITEM)].sort((a, b) => off(a) - off(b))[0]?.focus();
+      }
       if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
       e.preventDefault();
-      const btns = [...(ref.current?.querySelectorAll<HTMLButtonElement>(ITEM) ?? [])];
+      const btns = [...((col ?? ref.current)?.querySelectorAll<HTMLButtonElement>(ITEM) ?? [])];
       const i = btns.indexOf(document.activeElement as HTMLButtonElement);
       const step = e.key === "ArrowDown" ? 1 : -1;
       btns[i < 0 && step < 0 ? btns.length - 1 : (i + step + btns.length) % btns.length]?.focus();
@@ -137,7 +165,7 @@ export function ContextMenu({ x, y, items, label, alignRight, columns, search, o
   const q = query.trim().toLowerCase();
   // While filtering, only the matching choices show: no headings or separators.
   const matching = q ? items.filter((it) => it !== "sep" && !("heading" in it) && (it.text ?? (typeof it.label === "string" ? it.label : "")).toLowerCase().includes(q)) : items;
-  const shown: (MenuItem | MenuHeading)[] = matching.length || !q ? matching : [{ id: "none", label: `No match for “${query.trim()}”`, icon: null, disabled: true, run: () => {} }];
+  const shown: Entry[] = matching.length || !q ? matching : [{ id: "none", label: `No match for “${query.trim()}”`, icon: null, disabled: true, run: () => {} }];
 
   const item = (it: Exclude<MenuItem, "sep">) => (
     <button
@@ -157,7 +185,7 @@ export function ContextMenu({ x, y, items, label, alignRight, columns, search, o
       {it.hint && <span className="ctx-hint">{it.hint}</span>}
     </button>
   );
-  const row = (it: MenuItem | MenuHeading, i: number) =>
+  const row = (it: Entry, i: number) =>
     it === "sep" ? (
       <div key={`sep-${i}`} className="ctx-sep" role="separator" />
     ) : "heading" in it ? (
@@ -174,15 +202,17 @@ export function ContextMenu({ x, y, items, label, alignRight, columns, search, o
     ) : (
       item(it)
     );
-  const cols: (MenuItem | MenuHeading)[][] = [[]];
-  if (columns)
-    for (const it of shown) {
-      if (it === "sep") cols.push([]);
-      else cols[cols.length - 1].push(it);
-    }
+  const groups: Entry[][] = [[]];
+  for (const it of shown) {
+    if (it === "sep") groups.push([]);
+    else groups[groups.length - 1].push(it);
+  }
+  // Pickers with a search field stay one list: it is what keeps them short.
+  const two = !columns && !search && items.filter((it) => it !== "sep" && !("heading" in it)).length > TWO_ABOVE ? halves(groups) : null;
+  const cols = columns ? groups : two;
 
   return createPortal(
-    <div ref={ref} className={`ctx-menu${columns ? " ctx-cols" : ""}${search ? " ctx-search" : ""}`} role="menu" aria-label={label} style={pos as CSSProperties} onContextMenu={(e) => e.preventDefault()}>
+    <div ref={ref} className={`ctx-menu${cols ? " ctx-cols" : ""}${two ? " ctx-two" : ""}${search ? " ctx-search" : ""}`} role="menu" aria-label={label} style={pos as CSSProperties} onContextMenu={(e) => e.preventDefault()}>
       {search && (
         <div className="ctx-filter">
           <input
@@ -199,7 +229,7 @@ export function ContextMenu({ x, y, items, label, alignRight, columns, search, o
           />
         </div>
       )}
-      {columns
+      {cols
         ? cols.map((c, i) => (
             <div key={i} className="ctx-col" role="group">
               {c.map(row)}

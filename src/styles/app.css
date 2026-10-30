@@ -2715,6 +2715,11 @@ button.tree-twist:hover {
     min-width: 160px;
     max-width: 240px;
   }
+  /* A long menu in two: each half as roomy as a one-column menu. */
+  .ctx-two .ctx-col {
+    min-width: 200px;
+    max-width: 320px;
+  }
   .ctx-col + .ctx-col {
     margin: 0 0 0 4px;
     padding: 0 0 0 4px;
