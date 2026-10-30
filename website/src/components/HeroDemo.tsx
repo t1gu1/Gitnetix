@@ -410,6 +410,7 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
   const toastId = useRef(0);
   const treeRef = useRef<HTMLDivElement>(null);
   const tabsRef = useRef<HTMLElement>(null);
+  const root = useRef<HTMLDivElement>(null);
   const [path, setPath] = useState<Path | null>(null);
   useEffect(() => () => timers.current.forEach(clearTimeout), []);
   const setWip = (n: string, f: (w: File[]) => File[]) => setBs((x) => (x[n] ? { ...x, [n]: { ...x[n], wip: f(x[n].wip) } } : x));
@@ -598,6 +599,7 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
     setBranch: (n, p) => setBs((x) => ({ ...x, [n]: { ...x[n], ...p } })),
     commit: (n) => setBs((x) => (x[n]?.wip.length ? { ...x, [n]: fold(x[n], x[n].wip) } : x)),
     agents,
+    root,
     agentOn,
     finish,
   };
@@ -714,7 +716,7 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
 
   return (
     <DemoContext.Provider value={demo}>
-    <div className={phone ? 'ap hd hd-phone' : 'ap hd'}>
+    <div ref={root} className={phone ? 'ap hd hd-phone' : 'ap hd'}>
       {/* project tabs (src/components/TopBar.tsx) */}
       <header className="hdr">
         <span className="hdr-icon" aria-hidden="true"><Icon name="menu" size={18} stroke={1.4} /></span>

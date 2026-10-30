@@ -27,6 +27,8 @@ export type Demo = {
   agentOn: (name: string, text: string, base?: string, ai?: Ai) => string | undefined;
   /** Ends a worktree session: keep the branch, merge it, or delete it all. `note` ends the toast. */
   finish: (key: string, how: 'continue' | 'merge' | 'discard', sw: boolean, note?: string) => void;
+  /** The demo window: menus and modals of a pane the phone hides go here instead. */
+  root: RefObject<HTMLDivElement | null>;
 };
 export const DemoContext = createContext<Demo>(null!);
 export const useDemo = () => useContext(DemoContext);
@@ -110,6 +112,28 @@ export function EmptyState({ icon, title, children, action }: { icon: string; ti
       {children && <p>{children}</p>}
       {action}
     </div>
+  );
+}
+
+/** Header in src/components/ui.tsx with hideWide: only on the phone, the back arrow taking a detail back to its list. */
+export function PageHead({ title, sub, onBack }: { title: string; sub?: ReactNode; onBack?: () => void }) {
+  return (
+    <header className="hdr pg-head">
+      {onBack && (
+        <button type="button" className="hdr-icon" aria-label="Back" onClick={onBack}>
+          <Icon name="back" size={16} />
+        </button>
+      )}
+      <div className="hdr-title">
+        <strong>{title}</strong>
+        {sub && (
+          <>
+            <span className="faint">·</span>
+            <span className="muted ellipsis">{sub}</span>
+          </>
+        )}
+      </div>
+    </header>
   );
 }
 

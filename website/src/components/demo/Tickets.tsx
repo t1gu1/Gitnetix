@@ -2,7 +2,7 @@ import { useState, type CSSProperties } from 'react';
 import { Icon } from '../../../../src/components/Icon';
 import { plural } from '../../../../src/lib/format';
 import { withPrefix, withTicket } from '../../../../src/lib/kinds';
-import { Avatar, Busy, Choice, Empty, EmptyState, Markdown, Menu, Seg, useDemo, useLater, useMenu } from './ui';
+import { Avatar, Busy, Choice, Empty, EmptyState, Markdown, Menu, PageHead, Seg, useDemo, useLater, useMenu } from './ui';
 
 /** src/screens/Tickets.tsx on a made-up Jira project, a Trello board and an Asana project: filter, triage, move, plan, start a branch. */
 
@@ -119,6 +119,8 @@ export default function Tickets() {
   const [group, setGroup] = useState<'release' | 'status'>('status');
   const [search, setSearch] = useState('');
   const [sel, setSel] = useState<string>();
+  // On the phone: the list, or the picked ticket in its place.
+  const [pane, setPane] = useState<'list' | 'detail'>('list');
   const [suggestions, setSuggestions] = useState<Record<string, Suggestion>>({});
   const [busy, setBusy] = useState<'sync' | 'triage'>();
   const [synced, setSynced] = useState('2 min ago');
@@ -138,7 +140,8 @@ export default function Tickets() {
 
   return (
     <>
-      <section className="master" style={{ '--master-w': '360px' } as CSSProperties} aria-label="Ticket list">
+      <PageHead title="Tickets" sub={['acme-web', place === 'all' ? '' : place].filter(Boolean).join(' · ')} onBack={pane === 'detail' ? () => setPane('list') : undefined} />
+      <section className="master" style={{ '--master-w': '360px' } as CSSProperties} data-pane data-active={pane === 'list'} aria-label="Ticket list">
         <div className="master-tools">
           <label htmlFor="tk-q" className="sr-only">Search tickets</label>
           <div className="row" style={{ gap: 6, margin: 0 }}>
@@ -180,7 +183,7 @@ export default function Tickets() {
               </div>
               <div className="col" style={{ gap: 2 }}>
                 {g.items.map((x) => (
-                  <button key={x.key} className="item-btn" style={{ gap: 1, padding: '7px 12px' }} aria-pressed={x.key === t?.key} onClick={() => setSel(x.key)}>
+                  <button key={x.key} className="item-btn" style={{ gap: 1, padding: '7px 12px' }} aria-pressed={x.key === t?.key} onClick={() => { setSel(x.key); setPane('detail'); }}>
                     <span className="row" style={{ gap: 8, margin: '0 0 2px', fontSize: 11.5 }}>
                       <Avatar name={x.assignee} />
                       <span className="mono faint">{x.key}</span>
@@ -219,7 +222,7 @@ export default function Tickets() {
           </div>
         )}
       </section>
-      <main className="detail">
+      <main className="detail" data-pane data-active={pane === 'detail'}>
         {t ? (
           <TicketDetail
             key={t.key}

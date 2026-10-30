@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, type CSSProperties, type MouseEvent } from 'react';
+import { createPortal } from 'react-dom';
 import { Icon } from '../../../../src/components/Icon';
 import { plural } from '../../../../src/lib/format';
 import { KINDS, kindOfBranch, withPrefix, withTicket, type Kind } from '../../../../src/lib/kinds';
 import { blocks } from '../../../../src/lib/agentLog';
 import { AgentInput, AgentLog, AgentPicker, DiscardModal, FinishCard, RETRY, keyOf, pathOf, shown, type Pick, type Session } from './agents';
-import { Choice, Empty, EmptyState, Menu, Modal, Seg, useDemo, useLater, type MenuItem } from './ui';
+import { Choice, Empty, EmptyState, Menu, Modal, PageHead, Seg, useDemo, useLater, type MenuItem } from './ui';
 
 /**
  * src/screens/Worktrees.tsx: every worktree of every project with its agent. Agents stream their steps, ask questions you answer
@@ -35,6 +36,8 @@ export default function Worktrees() {
   const { agents } = useDemo();
   const [filter, setFilter] = useState<Filter>('all');
   const [sel, setSel] = useState<string>();
+  // On the phone: the list, or the picked worktree in its place.
+  const [pane, setPane] = useState<'list' | 'detail'>('list');
   const [starting, setStarting] = useState<string>();
   // Right-click or "…" selects the row and opens its actions: they and their modals live in its Detail.
   const [menu, setMenu] = useState<{ key: string; x: number; y: number; alignRight?: boolean } | null>(null);
@@ -56,10 +59,17 @@ export default function Worktrees() {
   const groups = PROJECTS.map((name) => ({ name, items: rows.filter((r) => r.s.project === name && match(r.st, filter)) }))
     .filter((g) => g.items.length || filter === 'all')
     .sort((a, b) => +!a.items.length - +!b.items.length);
+  // A closed or merged worktree drops out: on the phone go back to the list, not into the next one.
+  if (pane === 'detail' && !rows.some((r) => r.s.key === sel)) setPane('list');
+  const open = (key: string) => {
+    setSel(key);
+    setPane('detail');
+  };
 
   return (
     <>
-      <section className="master" style={{ '--master-w': '340px' } as CSSProperties} aria-label="Worktrees">
+      <PageHead title="Worktrees & agents" sub="All projects" onBack={pane === 'detail' ? () => setPane('list') : undefined} />
+      <section className="master" style={{ '--master-w': '340px' } as CSSProperties} data-pane data-active={pane === 'list'} aria-label="Worktrees">
         <div className="master-tools">
           <Seg<Filter>
             grid
@@ -85,7 +95,7 @@ export default function Worktrees() {
                 const more = `More actions for ${s.branch}`;
                 return (
                   <div key={s.key} className="wt-item" onContextMenu={(e) => openMenu(s, e)}>
-                    <button className="item-btn wt-row" aria-pressed={s.key === cur?.s.key} title={pathOf(s)} onClick={() => setSel(s.key)}>
+                    <button className="item-btn wt-row" aria-pressed={s.key === cur?.s.key} title={pathOf(s)} onClick={() => open(s.key)}>
                       <span className="row" style={{ gap: 8 }}>
                         <span className="mono ellipsis grow">{s.branch}</span>
                         {s.add + s.del > 0 && <span className="mono wt-stat"><span className="c-add">+{s.add}</span> <span className="c-del">−{s.del}</span></span>}
@@ -124,20 +134,20 @@ export default function Worktrees() {
           </button>
         </div>
       </section>
-      <main className="detail wt-pane">
+      <main className="detail wt-pane" data-pane data-active={pane === 'detail'}>
         {cur ? (
           <Detail key={cur.s.key} s={cur.s} menu={menu?.key === cur.s.key ? menu : undefined} onMenuClose={() => setMenu(null)} />
         ) : (
           <EmptyState icon="layers" title="No worktree selected">Pick one from the list, or start a new agent session to give a branch its own folder and agent.</EmptyState>
         )}
       </main>
-      {starting && <StartModal initial={starting} onClose={() => setStarting(undefined)} onStarted={setSel} />}
+      {starting && <StartModal initial={starting} onClose={() => setStarting(undefined)} onStarted={open} />}
     </>
   );
 }
 
 function Detail({ s, menu, onMenuClose }: { s: Session; menu?: { x: number; y: number; alignRight?: boolean }; onMenuClose: () => void }) {
-  const { agents, flash, openBranch, setBranch, commit, finish } = useDemo();
+  const { agents, flash, openBranch, setBranch, commit, finish, root } = useDemo();
   const later = useLater();
   const [text, setText] = useState('');
   const [picks, setPicks] = useState<Pick[]>([]);
@@ -222,9 +232,15 @@ function Detail({ s, menu, onMenuClose }: { s: Session; menu?: { x: number; y: n
           </>
         )}
       </div>
-      {merging && <MergeModal s={s} onClose={() => setMerging(false)} />}
-      {discarding && <DiscardModal s={s} onClose={() => setDiscarding(false)} />}
-      {menu && <Menu {...menu} label={`Actions for ${s.branch}`} items={items} onClose={onMenuClose} />}
+      {/* Opened from the list, these show while the phone hides this pane. */}
+      {(merging || discarding || menu) && createPortal(
+        <>
+          {merging && <MergeModal s={s} onClose={() => setMerging(false)} />}
+          {discarding && <DiscardModal s={s} onClose={() => setDiscarding(false)} />}
+          {menu && <Menu {...menu} label={`Actions for ${s.branch}`} items={items} onClose={onMenuClose} />}
+        </>,
+        root.current!,
+      )}
     </div>
   );
 }
