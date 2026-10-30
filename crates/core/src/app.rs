@@ -44,6 +44,8 @@ pub struct Gitnetix {
     views: ViewCache<BuiltViews>,
     /// Held while a project's branch views build: a refresh asked meanwhile waits, then reuses them.
     building: std::sync::Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+    /// Projects with a branch cleanup running, once per cleanup: their views wait for it to end to rebuild.
+    cleaning: std::sync::Mutex<Vec<String>>,
     /// Each project's [`shipped_patches`], with the key of the tips it was read at.
     shipped: std::sync::Mutex<HashMap<String, (u64, Arc<ShippedIndex>)>>,
     /// What the git host said about each project's branch tips.
@@ -1522,15 +1524,22 @@ struct BuiltViews {
 fn unmoved_views(p: &Project, default: &str, built: &BuiltViews, now: &str) -> std::result::Result<HashMap<String, BranchView>, String> {
     let lines = |s: &str| s.lines().map(str::to_string).collect::<std::collections::HashSet<String>>();
     let (before, after) = (lines(&built.refs), lines(now));
+    fn branch(r: &str) -> Option<&str> {
+        r.strip_prefix("refs/heads/").or_else(|| r.strip_prefix("refs/remotes/origin/"))
+    }
     let mut moved = std::collections::HashSet::new();
     for line in before.symmetric_difference(&after) {
         let r = line.split(' ').next().unwrap_or_default();
-        match r.strip_prefix("refs/heads/").or_else(|| r.strip_prefix("refs/remotes/origin/")) {
+        match branch(r) {
             Some(name) => moved.insert(name.to_string()),
             None => return Err(format!("{} changed", r.strip_prefix("refs/").unwrap_or(r))),
         };
     }
-    let mut shared = DEV_TRUNKS.iter().map(|t| t.to_string()).chain([default.to_string()]).chain(p.releases.iter().map(|r| r.branch.clone()));
+    let here: std::collections::HashSet<&str> = after.iter().filter_map(|l| branch(l.split(' ').next()?)).collect();
+    // A shipped release branch deleted everywhere (the Shipped cleanup) only moves the branches filed under it.
+    // shortcut: a branch it held only partly may now match a later unmerged release's patches; rebuilt on the next shared move.
+    let kept = p.releases.iter().filter(|r| r.shipped_at.is_none() || here.contains(r.branch.as_str()));
+    let mut shared = DEV_TRUNKS.iter().map(|t| t.to_string()).chain([default.to_string()]).chain(kept.map(|r| r.branch.clone()));
     if let Some(b) = shared.find(|b| moved.contains(b)) {
         return Err(format!("{b} moved"));
     }
@@ -1540,6 +1549,25 @@ fn unmoved_views(p: &Project, default: &str, built: &BuiltViews, now: &str) -> s
         .filter(|v| !moved.contains(&v.name) && v.parent.as_ref().is_none_or(|b| !moved.contains(b)))
         .map(|v| (v.name.clone(), v.clone()))
         .collect())
+}
+
+/// A project listed in [`Gitnetix::cleaning`] while alive, even if the cleanup is dropped halfway.
+struct Cleaning<'a>(&'a std::sync::Mutex<Vec<String>>, String);
+
+impl<'a> Cleaning<'a> {
+    fn enter(all: &'a std::sync::Mutex<Vec<String>>, project_id: &str) -> Cleaning<'a> {
+        all.lock().unwrap().push(project_id.to_string());
+        Cleaning(all, project_id.to_string())
+    }
+}
+
+impl Drop for Cleaning<'_> {
+    fn drop(&mut self) {
+        let mut all = self.0.lock().unwrap();
+        if let Some(i) = all.iter().position(|p| *p == self.1) {
+            all.swap_remove(i);
+        }
+    }
 }
 
 /// Mark open releases whose version is tagged as shipped: they went out without
@@ -1680,7 +1708,7 @@ impl Gitnetix {
         let agents = AgentManager::new(events.clone(), dir);
         let shells = crate::shell::Shells::new(events.clone());
         crate::log::attach(events.clone());
-        let k = Arc::new(Gitnetix { store, agents, shells, events, dir: dir.to_path_buf(), dictation: Default::default(), protected: Default::default(), watcher: Default::default(), commits: CommitCache::open(dir), views: ViewCache::open(dir.join("overview-cache")), building: Default::default(), shipped: Default::default(), hosted: Default::default(), worktrees: LastCache::open(dir.join("worktrees-cache.json")) });
+        let k = Arc::new(Gitnetix { store, agents, shells, events, dir: dir.to_path_buf(), dictation: Default::default(), protected: Default::default(), watcher: Default::default(), commits: CommitCache::open(dir), views: ViewCache::open(dir.join("overview-cache")), building: Default::default(), cleaning: Default::default(), shipped: Default::default(), hosted: Default::default(), worktrees: LastCache::open(dir.join("worktrees-cache.json")) });
         k.rewatch();
         Ok(k)
     }
@@ -2157,9 +2185,10 @@ impl Gitnetix {
         let digest = self.hosted_digest(&p.id);
         let key = fingerprint.as_deref().map(|f| view_key(&p, &default, f, &digest));
         let mut built = None;
+        let cleaning = self.cleaning.lock().unwrap().iter().any(|c| c == project_id);
         let mut all = match key.and_then(|k| self.views.get(project_id, k)) {
             Some(saved) => saved.value().views.clone(),
-            None if quick => match self.views.last(project_id) {
+            None if quick || cleaning => match self.views.last(project_id) {
                 // The last build's views, a little behind but already filed under their parents.
                 Some(saved) => saved.value().views.clone(),
                 None => branch_names(&p, &refs)
@@ -3732,6 +3761,8 @@ impl Gitnetix {
         for b in branches {
             bases.push((b.clone(), self.base_of(&p, b, &default).await));
         }
+        // Each delete's refresh meanwhile shows the views as last built: one rebuild once all are gone, not one per delete.
+        let cleaning = Cleaning::enter(&self.cleaning, project_id);
         // Kept small: deletes share git's packed-refs lock, and remote ones a connection to origin.
         let results = stream::iter(bases)
             .map(|(b, base)| async move {
@@ -3742,6 +3773,8 @@ impl Gitnetix {
             .buffered(4)
             .collect::<Vec<_>>()
             .await;
+        drop(cleaning);
+        self.changed(project_id);
         let mut out = CleanupResult::default();
         for (b, r) in results {
             match r {
@@ -5520,6 +5553,30 @@ mod tests {
         assert_eq!(fix_version_release(&["mauril-api v2.4.0".into()], &releases).as_deref(), Some("2.4.0"));
         assert_eq!(fix_version_release(&["api-2.3.0".into()], &releases).as_deref(), Some("2.3.0"));
         assert_eq!(fix_version_release(&["2.4.0-rc1".into()], &releases), None);
+    }
+
+    #[test]
+    fn deleting_a_shipped_release_branch_rebuilds_only_its_branches() {
+        let p = Project {
+            releases: vec![
+                Release { version: "1.0.0".into(), branch: "release/1.0.0".into(), shipped_at: Some(now()), ..Default::default() },
+                Release { version: "1.1.0".into(), branch: "release/1.1.0".into(), ..Default::default() },
+            ],
+            ..Default::default()
+        };
+        let refs = Refs::new(vec![], vec![]);
+        let view = |n: &str, parent: &str| plain_view(&p, &refs, n, Some(parent.into()));
+        let built = BuiltViews {
+            refs: "refs/heads/main a\nrefs/heads/release/1.0.0 b\nrefs/remotes/origin/release/1.0.0 b\nrefs/heads/release/1.1.0 c\nrefs/heads/feat/x d\nrefs/heads/feat/y e".into(),
+            shared: 0,
+            views: vec![view("release/1.0.0", "main"), view("feat/x", "release/1.0.0"), view("feat/y", "main")],
+        };
+        // Gone locally and on origin: only it and the branch under it rebuild.
+        let kept = unmoved_views(&p, "main", &built, "refs/heads/main a\nrefs/heads/release/1.1.0 c\nrefs/heads/feat/x d\nrefs/heads/feat/y e").unwrap();
+        assert_eq!(kept.keys().collect::<Vec<_>>(), ["feat/y"]);
+        // Still on origin, or an open release gone: everything rebuilds.
+        assert!(unmoved_views(&p, "main", &built, "refs/heads/main a\nrefs/remotes/origin/release/1.0.0 b\nrefs/heads/release/1.1.0 c\nrefs/heads/feat/x d\nrefs/heads/feat/y e").is_err());
+        assert!(unmoved_views(&p, "main", &built, "refs/heads/main a\nrefs/heads/release/1.0.0 b\nrefs/remotes/origin/release/1.0.0 b\nrefs/heads/feat/x d\nrefs/heads/feat/y e").is_err());
     }
 
     #[test]

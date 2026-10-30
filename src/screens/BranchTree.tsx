@@ -115,6 +115,7 @@ export function BranchTree({
   onNewRelease,
   onCleanup,
   onCleanupBehind,
+  onCleanupShipped,
   isCleaning,
   cleanupLeft,
   tagItems,
@@ -134,7 +135,9 @@ export function BranchTree({
   onCleanup: (parent: string, label: string, branches: BranchView[]) => void;
   /** Clean up (delete) branches falling behind: the ones in `section`, far behind `base`. */
   onCleanupBehind: (section: string, base: string, branches: BranchView[]) => void;
-  /** Whether a cleanup is running on a section ("merged:<parent>", "behind:<parent>" or "behind"); it stays locked until done. */
+  /** Clean up (delete) shipped release branches still around; their tags stay. */
+  onCleanupShipped: (branches: BranchView[]) => void;
+  /** Whether a cleanup is running on a section ("merged:<parent>", "behind:<parent>", "behind" or "shipped"); it stays locked until done. */
   isCleaning: (section: string) => boolean;
   /** Branches a running cleanup has left on a section; undefined when none runs. */
   cleanupLeft: (section: string) => number | undefined;
@@ -239,6 +242,7 @@ export function BranchTree({
   const shippedOnPath = shipped.findIndex((r) => shippedShown(r) && (r.checkedOut || path.has(shippedBranches.get(r.version)?.name ?? "")));
   const shippedActive = shippedOnPath >= 0;
   const pastShipped = shippedActive;
+  const shippedRemovable = [...shippedBranches.values()].filter((b) => b.exists && shown(b) && cleanable(b));
   // Only the groups the path runs through start open: live children or the merged ones.
   const pathSections: string[] = [];
   for (const name of path) for (const c of kids(name)) if (path.has(c.name)) pathSections.push(sectionOf(name, c));
@@ -548,56 +552,64 @@ export function BranchTree({
         {shipped.some(shippedShown) && (
           <>
             <div className="tree-sep" role="separator" data-path={shippedActive || undefined} />
-            <button className="tree-row tree-group" data-path={shippedActive || undefined} aria-expanded={opened("shipped")} onClick={() => flip("shipped")}>
-              <span className="tree-twist"><Icon name="chevronDown" size={12} className="chev" /></span>
-              <span className="shipped-label" data-active={shippedActive || undefined}>Shipped</span>
-              <span className="faint">{shipped.filter(shippedShown).length}</span>
-            </button>
-            {opened("shipped") &&
-              shipped.map((r, i) => {
-                if (!shippedShown(r)) return null;
-                const b = shippedBranches.get(r.version);
-                if (b) return node(b, i < shippedOnPath);
-                const tag = r.tagName;
-                const checkout = tag ? tagItems(tag, r.checkedOut)[0] : undefined;
-                return (
-                  <div
-                    key={`${r.version}-${r.tag}`}
-                    className="tree-row tree-static"
-                    data-role="release"
-                    data-current={r.checkedOut || undefined}
-                    data-path={i < shippedOnPath ? "past" : r.checkedOut || undefined}
-                    onContextMenu={tag ? (e) => openTagMenu(tag, r.checkedOut, e) : undefined}
-                    onDoubleClick={checkout && checkout !== "sep" && !checkout.disabled ? checkout.run : undefined}
-                  >
-                    <span className="tree-btn">
-                      <span className="tree-icon"><Icon name="tag" size={14} /></span>
-                      <span className="tree-main">
-                        <span className="tree-name"><span className="mono ellipsis">v{r.version}</span><span className={`tag${r.tag === "released" ? " released" : ""}`}>{releaseTagLabel(r.tag)}</span></span>
-                        <span className="branch-meta">
-                          <span className="mono">{r.base}</span>
-                          {r.checkedOut && <span className="c-current">checked out</span>}
-                          {r.note && <span>{r.note}</span>}
-                        </span>
-                      </span>
-                    </span>
-                    {tag && checkout && checkout !== "sep" && (
-                      <span className="tree-acts">
-                        <span className="acts" onDoubleClick={(e) => e.stopPropagation()}>
-                          <button className="act act-main" disabled={checkout.disabled} aria-label={`Check out ${tag}`} data-tip={`Check out the commit ${tag} points at (detached HEAD)`} onClick={checkout.run}>
-                            <Icon name="swap" size={16} />
-                          </button>
-                          <span className="act-stack">
-                            <button className="act" aria-label={`More actions for ${tag}`} data-tip={`More actions for ${tag}`} aria-haspopup="menu" onClick={(e) => openTagMenu(tag, r.checkedOut, e)}>
-                              <Icon name="more" size={14} />
-                            </button>
+            <div className="tree-row tree-group" data-path={shippedActive || undefined}>
+              <button className="tree-merged-toggle" aria-expanded={opened("shipped")} onClick={() => flip("shipped")}>
+                <span className="tree-twist"><Icon name="chevronDown" size={12} className="chev" /></span>
+                <span className="shipped-label" data-active={shippedActive || undefined}>Shipped</span>
+                <span className="faint">{shipped.filter(shippedShown).length}</span>
+              </button>
+              {(shippedRemovable.length > 0 || isCleaning("shipped")) && (
+                <CleanupButton left={cleanupLeft("shipped")} title={`Delete the ${shippedRemovable.length} shipped release branch${shippedRemovable.length === 1 ? "" : "es"}, locally and on origin. Their tags stay.`} onClick={() => onCleanupShipped(shippedRemovable)} />
+              )}
+            </div>
+            {opened("shipped") && (
+              <div className="tree-node" aria-busy={isCleaning("shipped") || undefined} inert={isCleaning("shipped")}>
+                {shipped.map((r, i) => {
+                  if (!shippedShown(r)) return null;
+                  const b = shippedBranches.get(r.version);
+                  if (b) return node(b, i < shippedOnPath);
+                  const tag = r.tagName;
+                  const checkout = tag ? tagItems(tag, r.checkedOut)[0] : undefined;
+                  return (
+                    <div
+                      key={`${r.version}-${r.tag}`}
+                      className="tree-row tree-static"
+                      data-role="release"
+                      data-current={r.checkedOut || undefined}
+                      data-path={i < shippedOnPath ? "past" : r.checkedOut || undefined}
+                      onContextMenu={tag ? (e) => openTagMenu(tag, r.checkedOut, e) : undefined}
+                      onDoubleClick={checkout && checkout !== "sep" && !checkout.disabled ? checkout.run : undefined}
+                    >
+                      <span className="tree-btn">
+                        <span className="tree-icon"><Icon name="tag" size={14} /></span>
+                        <span className="tree-main">
+                          <span className="tree-name"><span className="mono ellipsis">v{r.version}</span><span className={`tag${r.tag === "released" ? " released" : ""}`}>{releaseTagLabel(r.tag)}</span></span>
+                          <span className="branch-meta">
+                            <span className="mono">{r.base}</span>
+                            {r.checkedOut && <span className="c-current">checked out</span>}
+                            {r.note && <span>{r.note}</span>}
                           </span>
                         </span>
                       </span>
-                    )}
-                  </div>
-                );
-              })}
+                      {tag && checkout && checkout !== "sep" && (
+                        <span className="tree-acts">
+                          <span className="acts" onDoubleClick={(e) => e.stopPropagation()}>
+                            <button className="act act-main" disabled={checkout.disabled} aria-label={`Check out ${tag}`} data-tip={`Check out the commit ${tag} points at (detached HEAD)`} onClick={checkout.run}>
+                              <Icon name="swap" size={16} />
+                            </button>
+                            <span className="act-stack">
+                              <button className="act" aria-label={`More actions for ${tag}`} data-tip={`More actions for ${tag}`} aria-haspopup="menu" onClick={(e) => openTagMenu(tag, r.checkedOut, e)}>
+                                <Icon name="more" size={14} />
+                              </button>
+                            </span>
+                          </span>
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </>
         )}
       </div>

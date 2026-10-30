@@ -92,6 +92,7 @@ export function Workspace() {
   });
   const [cleanup, setCleanup] = useState<{ parent: string; label: string; branches: BranchView[] } | null>(null);
   const [cleanupBehind, setCleanupBehind] = useState<{ section: string; base: string; branches: BranchView[] } | null>(null);
+  const [cleanupShipped, setCleanupShipped] = useState<BranchView[] | null>(null);
   const cleanupLeft = useCleaning(pid);
   // Branch whose commits replace the tree, and the commit picked there (none = all changes).
   const [history, setHistory] = useState<string | null>(null);
@@ -402,6 +403,7 @@ export function Workspace() {
                 onNewRelease={() => nav.openNewItem({ kind: "release" })}
                 onCleanup={(parent, label, branches) => setCleanup({ parent, label, branches })}
                 onCleanupBehind={(section, base, branches) => setCleanupBehind({ section, base, branches })}
+                onCleanupShipped={setCleanupShipped}
                 isCleaning={(s) => cleanupLeft(s) !== undefined}
                 cleanupLeft={cleanupLeft}
                 tagItems={tagItems}
@@ -651,9 +653,22 @@ export function Workspace() {
       )}
       {cleanup && (
         <CleanupModal
-          {...cleanup}
+          title="Clean up merged branches"
+          sub={<>merged into <span className="mono">{cleanup.label}</span></>}
+          note={<>Their commits are all in <span className="mono">{cleanup.label}</span>, so nothing is lost.</>}
+          branches={cleanup.branches}
           onClose={() => setCleanup(null)}
           onConfirm={(names) => cleanUp(`merged:${cleanup.parent}`, names, { remote: true }, "merged branch")}
+        />
+      )}
+      {cleanupShipped && (
+        <CleanupModal
+          title="Clean up shipped release branches"
+          sub="their tags stay"
+          note="Their releases stay tagged, and a branch with commits its base lacks is kept, so nothing is lost. Branches merged into them file under where they landed."
+          branches={cleanupShipped}
+          onClose={() => setCleanupShipped(null)}
+          onConfirm={(names) => cleanUp("shipped", names, { remote: true }, "release branch")}
         />
       )}
       {cleanupBehind && (
@@ -1831,24 +1846,27 @@ function DeleteBranchModal({
   );
 }
 
-/** Confirm deleting the merged children of a branch; the delete itself runs in the background. */
+/** Confirm deleting branches whose work is kept elsewhere (merged children, shipped releases); the delete itself runs in the background. */
 function CleanupModal({
-  label,
+  title,
+  sub,
+  note,
   branches,
   onClose,
   onConfirm,
 }: {
-  parent: string;
-  /** How to show the branch they were merged into. */
-  label: string;
+  title: string;
+  sub: ReactNode;
+  /** Why deleting them loses nothing. */
+  note: ReactNode;
   branches: BranchView[];
   onClose: () => void;
   onConfirm: (branches: string[]) => void;
 }) {
   return (
     <Modal
-      title="Clean up merged branches"
-      sub={<>merged into <span className="mono">{label}</span></>}
+      title={title}
+      sub={sub}
       onClose={onClose}
       footer={
         <>
@@ -1866,7 +1884,7 @@ function CleanupModal({
       }
     >
       <p style={{ margin: 0, lineHeight: 1.55 }}>
-        Their commits are all in <span className="mono">{label}</span>, so nothing is lost. They are deleted locally and on origin, and worktrees they have go too.
+        {note} They are deleted locally and on origin, and worktrees they have go too.
       </p>
       <ul className="col" style={{ margin: 0, padding: 0, listStyle: "none", gap: 4 }}>
         {branches.map((b) => (
