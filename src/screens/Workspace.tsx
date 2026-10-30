@@ -38,7 +38,7 @@ import { ContextMenu, type MenuItem } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
 import { Resizer, usePaneWidth } from "../components/Resizer";
 import { ShellPane, TermTabs, useTermView } from "../components/Shell";
-import { Busy, Confirm, ErrorBox, Loading, Markdown, Modal, Seg } from "../components/ui";
+import { Busy, Confirm, ErrorBox, Loading, Markdown, Modal, Seg, swipeProps } from "../components/ui";
 import { ago, plural, timeLeft } from "../lib/format";
 import { shownStatus } from "../lib/agentLog";
 import { startCleanup, useCleaning } from "../lib/cleanups";
@@ -77,7 +77,6 @@ export function Workspace() {
   const [imageMode, setImageMode] = useImageMode();
   const [termOpen, setTermOpen] = useStoredFlag("gnx.pane.termOpen");
   const [pane, setPane] = useState<Pane>("releases");
-  const swipe = useRef<{ x: number; y: number } | null>(null);
   // Which way the narrow layout slides the new pane in; none until the first switch.
   const [slide, setSlide] = useState<{ pane: Pane; dir?: "next" | "prev" }>({ pane });
   if (slide.pane !== pane) setSlide({ pane, dir: PANES.indexOf(pane) > PANES.indexOf(slide.pane) ? "next" : "prev" });
@@ -339,21 +338,13 @@ export function Workspace() {
           style={{ "--branches-w": `${leftW.width}%` } as CSSProperties}
           data-file-open={current ? true : undefined}
           data-slide={slide.dir}
-          onTouchStart={(e) => {
-            // Leave horizontal swipes to content that scrolls sideways (diff lines, terminal).
-            const sideways = (el: Element | null): boolean => !!el && el !== e.currentTarget && (el.scrollWidth > el.clientWidth + 1 || sideways(el.parentElement));
-            swipe.current = e.touches.length === 1 && !sideways(e.target as Element) ? { x: e.touches[0].clientX, y: e.touches[0].clientY } : null;
-          }}
-          onTouchEnd={(e) => {
-            const s = swipe.current;
-            swipe.current = null;
-            if (!s) return;
-            const dx = e.changedTouches[0].clientX - s.x;
-            const dy = e.changedTouches[0].clientY - s.y;
-            if (Math.abs(dx) < 60 || Math.abs(dx) < 2 * Math.abs(dy)) return;
-            const next = PANES[PANES.indexOf(pane) + (dx < 0 ? 1 : -1)];
+          {...swipeProps((dir) => {
+            // Past the first pane, a commit or stash list steps back to the branches, like its back button.
+            if (dir < 0 && pane === PANES[0] && history) return closeHistory();
+            if (dir < 0 && pane === PANES[0] && stashesOf !== null) return closeStashes();
+            const next = PANES[PANES.indexOf(pane) + dir];
             if (next) setPane(next);
-          }}
+          })}
         >
           <div className="ws-left" data-pane data-active={pane !== "files"}>
             {stashesOf !== null ? (

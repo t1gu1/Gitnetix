@@ -1,4 +1,4 @@
-import { type CSSProperties, Fragment, memo, type ReactNode, type RefObject, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type CSSProperties, Fragment, memo, type ReactNode, type RefObject, type TouchEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { link } from "./Adf";
@@ -125,6 +125,28 @@ export function Header({ title, sub, back = "back", right, onBack, hideWide }: {
       {right && <div className="hdr-tools">{right}</div>}
     </header>
   );
+}
+
+// One finger swipes at a time, so every swipe area can share the start point.
+let swipeStart: { x: number; y: number } | null = null;
+
+/** Touch handlers calling `onSwipe(1)` on a swipe to the left (next) and `onSwipe(-1)` on one to the right (back). */
+export function swipeProps(onSwipe: (dir: 1 | -1) => void) {
+  return {
+    onTouchStart: (e: TouchEvent) => {
+      // Leave horizontal swipes to content that scrolls sideways (diff lines, terminal).
+      const sideways = (el: Element | null): boolean => !!el && el !== e.currentTarget && (el.scrollWidth > el.clientWidth + 1 || sideways(el.parentElement));
+      swipeStart = e.touches.length === 1 && !sideways(e.target as Element) ? { x: e.touches[0].clientX, y: e.touches[0].clientY } : null;
+    },
+    onTouchEnd: (e: TouchEvent) => {
+      const s = swipeStart;
+      swipeStart = null;
+      if (!s) return;
+      const dx = e.changedTouches[0].clientX - s.x;
+      const dy = e.changedTouches[0].clientY - s.y;
+      if (Math.abs(dx) >= 60 && Math.abs(dx) >= 2 * Math.abs(dy)) onSwipe(dx < 0 ? 1 : -1);
+    },
+  };
 }
 
 /** Without `onClose` it stays up (no close button): while what it started is still running. */

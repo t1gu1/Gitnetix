@@ -6,7 +6,7 @@ import type { Project, Submodule } from "../api/types";
 import { ContextMenu, type MenuItem } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
 import { Resizer, usePaneWidth } from "../components/Resizer";
-import { ago, Empty, EmptyState, ErrorBox, Header, Loading, Modal, Seg } from "../components/ui";
+import { ago, Empty, EmptyState, ErrorBox, Header, Loading, Modal, Seg, swipeProps } from "../components/ui";
 import { plural } from "../lib/format";
 import { useNav } from "../lib/nav";
 import { copyToClipboard, toast } from "../lib/toast";
@@ -200,7 +200,7 @@ export function Submodules() {
           )}
         </section>
         <Resizer pane={listW} label="Resize submodule list" />
-        <main className="detail" data-pane data-active={pane === "detail"}>
+        <main className="detail" data-pane data-active={pane === "detail"} {...swipeProps((dir) => dir < 0 && setPane("list"))}>
           <div className="detail-inner">
             {cur ? (
               <Detail key={cur.path} pid={pid} root={project?.path} s={cur} onOutput={setOutput} />

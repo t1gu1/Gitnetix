@@ -9,7 +9,7 @@ import { Avatar } from "../components/Avatar";
 import { ContextMenu, SEARCH_ABOVE } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
 import { Resizer, usePaneWidth } from "../components/Resizer";
-import { ago, Busy, Empty, EmptyState, ErrorBox, Header, Loading, Markdown, releaseTagLabel, Seg } from "../components/ui";
+import { ago, Busy, Empty, EmptyState, ErrorBox, Header, Loading, Markdown, releaseTagLabel, Seg, swipeProps } from "../components/ui";
 import { plural } from "../lib/format";
 import { useNav } from "../lib/nav";
 import { useStored } from "../lib/stored";
@@ -186,7 +186,7 @@ export function Tickets({ initial }: { initial?: string }) {
             )}
           </section>
           <Resizer pane={listW} label="Resize ticket list" />
-          <main className="detail" data-pane data-active={pane === "detail"}>
+          <main className="detail" data-pane data-active={pane === "detail"} {...swipeProps((dir) => dir < 0 && setPane("list"))}>
             {t ? (
               <TicketDetail
                 t={t}

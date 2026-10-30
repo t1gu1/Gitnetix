@@ -7,7 +7,7 @@ import type { PrDetail, PrSummary, PrThread } from "../api/types";
 import { Avatar } from "../components/Avatar";
 import { Icon } from "../components/Icon";
 import { Resizer, usePaneWidth } from "../components/Resizer";
-import { ago, Busy, Empty, EmptyState, Header, initials, Loading, Markdown, Modal, Seg } from "../components/ui";
+import { ago, Busy, Empty, EmptyState, Header, initials, Loading, Markdown, Modal, Seg, swipeProps } from "../components/ui";
 import { plural } from "../lib/format";
 import { useNav } from "../lib/nav";
 import { useStored } from "../lib/stored";
@@ -166,7 +166,7 @@ export function PullRequests({ initial }: { initial?: number }) {
             </div>
           </section>
           <Resizer pane={listW} label="Resize pull request list" />
-          <main className="detail" data-pane data-active={pane === "detail"}>
+          <main className="detail" data-pane data-active={pane === "detail"} {...swipeProps((dir) => dir < 0 && setPane("list"))}>
             {current ? <Detail key={current} pid={pid} number={current} /> : <EmptyState icon="pr" title="No pull request selected">Pick one from the list to read its description, checks and reviews.</EmptyState>}
           </main>
         </div>

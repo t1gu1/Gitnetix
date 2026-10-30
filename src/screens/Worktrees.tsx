@@ -11,7 +11,7 @@ import { ContextMenu, type MenuItem } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
 import { Resizer, usePaneWidth } from "../components/Resizer";
 import { ShellPane, TermTabs, useTermView } from "../components/Shell";
-import { ago, Busy, Confirm, Empty, EmptyState, Header, Modal, Seg } from "../components/ui";
+import { ago, Busy, Confirm, Empty, EmptyState, Header, Modal, Seg, swipeProps } from "../components/ui";
 import { plural } from "../lib/format";
 import { agentKey, useHidden, wtKey } from "../lib/tasks";
 import { copyToClipboard } from "../lib/toast";
@@ -232,7 +232,7 @@ export function Worktrees({ initial }: { initial?: string }) {
           </div>
         </section>
         <Resizer pane={listW} label="Resize worktree list" />
-        <main className="detail wt-pane" data-pane data-active={pane === "detail"}>
+        <main className="detail wt-pane" data-pane data-active={pane === "detail"} {...swipeProps((dir) => dir < 0 && setPane("list"))}>
           {cur ? <Detail key={cur.key} r={cur} menu={menu?.key === cur.key ? menu : undefined} onMenuClose={() => setMenu(null)} /> : <EmptyState icon="layers" title="No worktree selected">Pick one from the list, or start a new agent session to give a branch its own folder and agent.</EmptyState>}
         </main>
       </div>
