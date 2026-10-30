@@ -150,7 +150,7 @@ export function CommitList({
         {commits.data && <span className="faint" style={{ fontSize: 11.5, whiteSpace: "nowrap" }}>{plural(list.length, "commit")}</span>}
       </div>
       <div className="tree-filter">
-        <Icon name="search" size={12} className="faint" />
+        <Icon name="search" size={14} className="faint" />
         <input type="search" className="input" placeholder="Filter commits" aria-label="Filter commits" value={query} onChange={(e) => setQuery(e.target.value)} />
         <AuthorFilter authors={authors} who={who} onChange={setWho} tip="Show only the commits of these authors" />
       </div>

@@ -15,8 +15,14 @@ release notes and the in-app update prompt.
 - A branch's commit list loads older commits as you scroll near its end, back to the first commit; a filtered list loads them with a "Load older commits" button.
 - Several terminals per checkout: the button beside the Shell tab lists them, opens a new one and closes the one shown.
 
+### Changed
+- Branch tree polish: icons sit level with branch names, every row keeps one height, the filter, group labels and branch names share one column, row actions have larger icons, and the stash count in the Branches header matches Fetch and Release.
+
 ### Removed
 - The commit graph preview beside the branch tree, with its action previews.
+
+### Fixed
+- Keyboard focus on a branch row rings the whole row, and the ring is no longer cut off on its action buttons.
 
 ## [0.12.0] - 2026-10-28
 

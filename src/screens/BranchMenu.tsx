@@ -519,16 +519,16 @@ export function BranchSplit({ t, actions }: { t: BranchTarget; actions: BranchAc
   return (
     <span className="acts" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
       <button className={`act act-main${p.danger ? " btn-danger" : p.warn ? " act-warn" : ""}${nudge ? " act-nudge" : ""}`} disabled={p.disabled || busy} aria-label={tip} data-tip={tip} onClick={p.run}>
-        {busy ? <span className="spinner" /> : <Icon name={p.icon ?? "check"} size={14} />}
+        {busy ? <span className="spinner" /> : <Icon name={p.icon ?? "check"} size={16} />}
       </button>
       <span className="act-stack">
         {add && (
           <button className="act" aria-label={add.tip} data-tip={add.tip} onClick={add.run}>
-            <Icon name="plus" size={12} />
+            <Icon name="plus" size={14} />
           </button>
         )}
         <button className="act" aria-label={more} data-tip={more} aria-haspopup="menu" onClick={(e) => actions.openMenu(t, e)}>
-          <Icon name="more" size={13} />
+          <Icon name="more" size={14} />
         </button>
       </span>
     </span>

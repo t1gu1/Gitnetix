@@ -488,26 +488,24 @@ export function BranchTree({
             </span>
           )}
         </span>
-        <span className="row" style={{ gap: 4 }}>
+        <span className="acts">
           {o.stashes.length > 0 && (
-            <button className="btn btn-sm" aria-label={`Show ${stashCount(o.stashes.length)}`} data-tip={`${stashCount(o.stashes.length)} set aside`} onClick={onStashes}>
-              <Icon name="stash" size={12} stroke={1.6} />
+            <button className="act act-text" aria-label={`Show ${stashCount(o.stashes.length)}`} data-tip={`${stashCount(o.stashes.length)} set aside`} onClick={onStashes}>
+              <Icon name="stash" size={14} />
               <span>{o.stashes.length}</span>
             </button>
           )}
-          <span className="acts">
-            <button className="act act-main" aria-label="Fetch origin" data-tip="Fetch origin" disabled={fetchOrigin.isPending || !o.remote} onClick={() => fetchOrigin.mutate({ projectId: pid })}>
-              {fetchOrigin.isPending ? <span className="spinner" /> : <Icon name="refresh" size={14} />}
-            </button>
-            <button className="act act-main act-text" onClick={onNewRelease}>
-              <Icon name="plus" size={14} />
-              <span>Release</span>
-            </button>
-          </span>
+          <button className="act act-main" aria-label="Fetch origin" data-tip="Fetch origin" disabled={fetchOrigin.isPending || !o.remote} onClick={() => fetchOrigin.mutate({ projectId: pid })}>
+            {fetchOrigin.isPending ? <span className="spinner" /> : <Icon name="refresh" size={16} />}
+          </button>
+          <button className="act act-main act-text" onClick={onNewRelease}>
+            <Icon name="plus" size={14} />
+            <span>Release</span>
+          </button>
         </span>
       </div>
       <div className="tree-filter">
-        <Icon name="search" size={12} className="faint" />
+        <Icon name="search" size={14} className="faint" />
         <input type="search" className="input" placeholder="Filter branches" aria-label="Filter branches" value={query} onChange={(e) => setQuery(e.target.value)} />
         <AuthorFilter authors={authors} who={who} onChange={setWho} tip="Show only the branches of these authors" />
       </div>
@@ -573,7 +571,7 @@ export function BranchTree({
                     onDoubleClick={checkout && checkout !== "sep" && !checkout.disabled ? checkout.run : undefined}
                   >
                     <span className="tree-btn">
-                      <span className="tree-icon"><Icon name="tag" size={13} stroke={1.4} /></span>
+                      <span className="tree-icon"><Icon name="tag" size={14} /></span>
                       <span className="tree-main">
                         <span className="tree-name"><span className="mono ellipsis">v{r.version}</span><span className={`tag${r.tag === "released" ? " released" : ""}`}>{releaseTagLabel(r.tag)}</span></span>
                         <span className="branch-meta">
@@ -587,11 +585,11 @@ export function BranchTree({
                       <span className="tree-acts">
                         <span className="acts" onDoubleClick={(e) => e.stopPropagation()}>
                           <button className="act act-main" disabled={checkout.disabled} aria-label={`Check out ${tag}`} data-tip={`Check out the commit ${tag} points at (detached HEAD)`} onClick={checkout.run}>
-                            <Icon name="swap" size={14} />
+                            <Icon name="swap" size={16} />
                           </button>
                           <span className="act-stack">
                             <button className="act" aria-label={`More actions for ${tag}`} data-tip={`More actions for ${tag}`} aria-haspopup="menu" onClick={(e) => openTagMenu(tag, r.checkedOut, e)}>
-                              <Icon name="more" size={13} />
+                              <Icon name="more" size={14} />
                             </button>
                           </span>
                         </span>
@@ -707,7 +705,7 @@ function Row({
     >
       <button className="tree-btn" aria-pressed={selected} onClick={onSelect} onDoubleClick={() => b.exists && !b.checkedOut && actions.switchTo(b.name)}>
         <span className="tree-lead">
-          <span className={`tree-icon ${cls}`}><Icon name={icon} size={13} stroke={1.5} /></span>
+          <span className={`tree-icon ${cls}`}><Icon name={icon} size={14} /></span>
           <Avatar name={b.author} email={b.email} />
         </span>
         <span className="tree-main">

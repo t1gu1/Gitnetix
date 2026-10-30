@@ -147,14 +147,14 @@ export function StashList({
               <span className="tree-acts">
                 <span className="acts">
                   <button className="act act-main" disabled={!to || apply.isPending} aria-label={pop} data-tip={pop} onClick={() => run(s, true)}>
-                    {applying === s.sha ? <span className="spinner" /> : <Icon name="unstash" size={14} />}
+                    {applying === s.sha ? <span className="spinner" /> : <Icon name="unstash" size={16} />}
                   </button>
                   <span className="act-stack">
                     <button className="act btn-danger" aria-label="Drop stash" data-tip="Drop stash" onClick={() => setDropping(s)}>
-                      <Icon name="trash" size={12} />
+                      <Icon name="trash" size={14} />
                     </button>
                     <button className="act" aria-label={more} data-tip={more} aria-haspopup="menu" onClick={(e) => openMenu(s, e)}>
-                      <Icon name="more" size={13} />
+                      <Icon name="more" size={14} />
                     </button>
                   </span>
                 </span>
