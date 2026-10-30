@@ -453,7 +453,7 @@ export function Workspace() {
                   )
                 )}
                 {current && (
-                  <button className="btn btn-sm btn-icon" style={{ marginLeft: 8 }} aria-label="Close file" data-tip="Back to branches" onClick={() => { setFile(undefined); setPane("files"); }}>
+                  <button className="btn btn-sm btn-icon pane-back pane-close" aria-label="Close file" data-tip="Back to branches" onClick={() => { setFile(undefined); setPane("files"); }}>
                     <Icon name="close" size={13} />
                   </button>
                 )}

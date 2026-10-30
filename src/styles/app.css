@@ -1428,6 +1428,30 @@ html.scanning body {
     padding-left: 16px;
   }
 }
+/* Commit and stash list back button: a full-height square flush with the pane's left edge (head is 44px less its 1px border). */
+.ws-releases > .pane-head:has(.pane-back) {
+  padding-left: 0;
+}
+.pane-head .pane-back {
+  width: 43px;
+  height: 43px;
+  border: 0;
+  border-right: 1px solid var(--line);
+  border-radius: 0;
+  margin-right: 6px;
+}
+.pane-head .pane-back:active:not(:disabled) {
+  transform: none;
+}
+/* The diff's close file button: the same square, mirrored onto the right edge. */
+.ws-diff > .pane-head:has(.pane-close) {
+  padding-right: 0;
+}
+.pane-head .pane-close {
+  border-right: 0;
+  border-left: 1px solid var(--line);
+  margin: 0 0 0 6px;
+}
 /* Drag handle over a pane's right border; the line lights up on hover and while dragging. */
 .resizer {
   position: relative;

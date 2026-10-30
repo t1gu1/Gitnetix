@@ -142,7 +142,7 @@ export function CommitList({
     <section aria-label={`Commits of ${branch}`} className="ws-releases" data-pane data-active={active}>
       <div className="pane-head">
         <span className="row" style={{ gap: 6, minWidth: 0 }}>
-          <button className="btn btn-sm btn-icon pane-toggle" aria-label="Back to branches" data-tip="Back to branches (Esc)" onClick={onBack}>
+          <button className="btn btn-sm btn-icon pane-toggle pane-back" aria-label="Back to branches" data-tip="Back to branches (Esc)" onClick={onBack}>
             <Icon name="back" size={13} />
           </button>
           <span className="mono ellipsis" style={{ fontSize: 12.5 }}>{branch}</span>
