@@ -323,7 +323,8 @@ function attach(field: Field, b: HTMLElement) {
     // As far from the right edge as from the bottom. A multi-line box's last line, from its bottom edge: border, padding, then half a line less half the mic.
     // "normal" lines are about 1.2 times the font.
     const gap = one ? (r.height - b.offsetHeight) / 2 : parseFloat(s.borderBottomWidth) + parseFloat(s.paddingBottom) + ((parseFloat(s.lineHeight) || parseFloat(s.fontSize) * 1.2) - b.offsetHeight) / 2;
-    const top = one ? r.top + gap : Math.max(r.top, Math.min(r.bottom, hi) - b.offsetHeight - gap);
+    // Never above the box's top corner (a sliver in view): the clip below cuts it there instead of it riding the box's border.
+    const top = one ? r.top + gap : Math.max(r.top + gap, Math.min(r.bottom, hi) - b.offsetHeight - gap);
     b.style.transform = `translate(${r.right - b.offsetWidth - gap}px, ${top}px)`;
     // Cut where the box is cut, clicks included.
     b.style.clipPath = `inset(${Math.max(0, lo - top)}px 0 ${Math.max(0, top + b.offsetHeight - hi)}px)`;
