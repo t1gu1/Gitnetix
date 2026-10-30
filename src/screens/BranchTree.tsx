@@ -722,11 +722,9 @@ function Row({
         </span>
         <span className="tree-main">
           <span className="tree-name">
+            {b.role === "branch" && b.kind && <span className={`kind-chip ${b.kind === "fix" ? "c-del" : "c-mod"}`}>{b.kind}</span>}
             <span className="mono ellipsis">{marked(name, b, hit)}</span>
             {shipped ? <span className="tag released">{releaseTagLabel("released")}</span> : tag}
-            {b.likelyMerged && <span className="tag" title={`A pull request carrying its ticket went into ${t.baseLabel} after its last commit. Not proof: it is never cleaned up as merged.`}>likely</span>}
-            {b.local && !b.remote && <span className="tag local" title={`${b.name} doesn't exist on origin. Push it to share it.`}>local</span>}
-            {b.remote && !b.local && <span className="tag accent" title={`${b.name} was never fetched into a local branch. Check it out to work on it locally.`}>origin</span>}
           </span>
           <BranchMeta b={b} parent={t.baseLabel} current={current} showName={!!shipped} onCommits={t.showCommits} onStashes={t.showStashes} />
         </span>
@@ -790,8 +788,6 @@ function BranchMeta({
   const merging = useIsMutating({ mutationKey: ["branches.merge"] }) > 0;
   const grew = useGrowth(parent ? b.ahead : Date.parse(b.date) || 0, merging);
   const growCls = grew > 0 ? " meta-link-grow" : "";
-  // A typed branch shows WIP in place of its type chip.
-  const typed = b.role === "branch" && !!b.kind;
   const wip = b.wip > 0 && <span className="wip-badge" title={`${plural(b.wip, "file")} with uncommitted changes`}>WIP {b.wip}</span>;
   const conflict = b.conflict && <span className="c-del">conflict</span>;
   const nav = useNav();
@@ -802,13 +798,19 @@ function BranchMeta({
   const openRow = row ? (e: MouseEvent) => { e.stopPropagation(); nav.go({ name: "worktrees", key: row }); } : undefined;
   const state = b.running ? "working" : b.waiting ? (agent && shownStatus(agent, b) === "done" ? "done" : "waiting") : undefined;
   return (
-    <>
     <span className="branch-meta">
-      {typed && wip}
-      {typed && !wip && <span className={`kind-chip ${b.kind === "fix" ? "c-del" : "c-mod"}`}>{b.kind}</span>}
+      {b.likelyMerged && <span className="tag" title={`A pull request carrying its ticket went into ${parent} after its last commit. Not proof: it is never cleaned up as merged.`}>likely</span>}
+      {b.local && !b.remote && <span className="tag local" title={`${b.name} doesn't exist on origin. Push it to share it.`}>local</span>}
+      {b.remote && !b.local && <span className="tag accent" title={`${b.name} was never fetched into a local branch. Check it out to work on it locally.`}>origin</span>}
       {(b.role === "release" || showName) && <span className="mono">{b.name}</span>}
       {current && <span className="c-current">checked out</span>}
-      {!b.worktree && b.running && (
+      {b.worktree ? (
+        // Its checkout's state: the agent's status, icon in its color, or "worktree" with no agent working or waiting there.
+        <span className={`row meta-link meta-link-icon${b.running ? " c-acc" : state ? " c-add" : ""}`} style={{ gap: 4 }} data-tip={`${b.worktree}. Click to open it in Worktrees & agents.`} onClick={openRow} onDoubleClick={(e) => e.stopPropagation()}>
+          <Icon name="layers" size={11} stroke={1.4} />
+          {state ? <span className="ai-fade">{state}</span> : "worktree"}
+        </span>
+      ) : b.running && (
         <span
           className={`row c-acc${openRow ? " meta-link meta-link-icon" : ""}`}
           style={{ gap: 4 }}
@@ -820,8 +822,8 @@ function BranchMeta({
           <span className="ai-fade">AI working</span>
         </span>
       )}
-      {!b.worktree && conflict}
-      {!typed && !b.worktree && wip}
+      {conflict}
+      {wip}
       {!b.exists && <span className="c-del">branch deleted</span>}
       {b.merged && (
         <span className="pill c-add" title={`All its commits are in ${parent}`}>
@@ -883,17 +885,5 @@ function BranchMeta({
       )}
       {b.ticket && <span className="mono">{b.ticket}</span>}
     </span>
-    {b.worktree && (
-      <span className="branch-meta">
-        {/* Its checkout's state: the agent's status, icon in its color, or "worktree" with no agent working or waiting there. */}
-        <span className={`row meta-link meta-link-icon${b.running ? " c-acc" : state ? " c-add" : ""}`} style={{ gap: 4 }} data-tip={`${b.worktree}. Click to open it in Worktrees & agents.`} onClick={openRow} onDoubleClick={(e) => e.stopPropagation()}>
-          <Icon name="layers" size={11} stroke={1.4} />
-          {state ? <span className="ai-fade">{state}</span> : "worktree"}
-        </span>
-        {conflict}
-        {!typed && wip}
-      </span>
-    )}
-    </>
   );
 }

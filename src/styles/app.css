@@ -2070,7 +2070,7 @@ button.tree-twist:hover {
   font-size: 12.5px;
 }
 /* A long name ellipsizes; its tags stay whole. */
-.tree-name > .tag {
+.tree-name > :is(.tag, .kind-chip) {
   flex: none;
 }
 /* Tags and the merged pill fit the 16px status line, so every two-line row is the same height. */
@@ -2093,8 +2093,7 @@ button.tree-twist:hover {
     animation: none;
   }
 }
-.tree-row[data-dim] .tree-name,
-.tree-row[data-dim] .kind-chip {
+.tree-row[data-dim] .tree-name {
   opacity: 0.6;
 }
 /* Shared branches read apart from work: trunks (main, dev…) orange, releases (open or shipped) purple. */
