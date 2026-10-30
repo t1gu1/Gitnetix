@@ -1849,3 +1849,26 @@ async fn stage_nested_repo_and_discard_staged_rename() {
     assert!(!repo.join("b.txt").exists());
     assert!(wip().await.as_array().unwrap().is_empty());
 }
+
+#[tokio::test]
+async fn branch_merged_by_another_instance_leaves_this_one() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("atlas-api");
+    init_repo(&repo);
+    let home = tmp.path().join("home");
+    let installed = Gitnetix::open(&home).unwrap();
+    let pid = call(&installed, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await[0]["id"].as_str().unwrap().to_string();
+    call(&installed, "releases.create", json!({ "projectId": pid, "version": "1.0.0", "kind": "next" })).await;
+    call(&installed, "items.create", json!({ "projectId": pid, "release": "1.0.0", "kind": "feat", "description": "x", "branchName": "feat/x", "where": "switch" })).await;
+    commit_file(&repo, "x.txt", "x\n");
+    sh(&repo, &["switch", "-q", "main"]);
+    call(&installed, "workspace.overview", json!({ "projectId": pid })).await;
+
+    // A dev build on the same config folder merges and deletes it.
+    let dev = Gitnetix::open(&home).unwrap();
+    call(&dev, "branches.merge", json!({ "projectId": pid, "branch": "feat/x", "deleteBranch": true })).await;
+
+    let o = call(&installed, "workspace.overview", json!({ "projectId": pid })).await;
+    let names: Vec<&str> = o["branches"].as_array().unwrap().iter().map(|b| b["name"].as_str().unwrap()).collect();
+    assert!(!names.contains(&"feat/x"), "{names:?}");
+}
