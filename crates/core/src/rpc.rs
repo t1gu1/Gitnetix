@@ -105,9 +105,10 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("agents.resume", "Resume an agent", "id"),
     ("agents.stop", "Stop an agent", "id"),
     ("agents.remove", "Delete an agent session", "id"),
-    ("shell.open", "Terminal of a checkout (main checkout or worktree) of the project: starts its shell if needed, returns recent output", "projectId, path, cols, rows"),
-    ("shell.write", "Type into a checkout's terminal", "path, data"),
-    ("shell.resize", "Resize a checkout's terminal", "path, cols, rows"),
+    ("shell.open", "Terminal of a checkout (main checkout or worktree) of the project, numbered from 0: starts its shell if needed, returns recent output", "projectId, path, tab?, cols, rows"),
+    ("shell.write", "Type into a checkout's terminal", "path, tab?, data"),
+    ("shell.resize", "Resize a checkout's terminal", "path, tab?, cols, rows"),
+    ("shell.close", "End a checkout's terminal and forget its output", "path, tab"),
     ("shell.scripts", "Commands of every project tool in a checkout of the project (package.json scripts, Cargo, Docker Compose, Make, LÖVE…) whose program is installed, each with the command line that runs it from the checkout root", "projectId, path"),
     ("ai.catalog", "AI providers, their status and settings", ""),
     ("ai.saveProvider", "Configure an AI provider", "id, method?, model?, effort?, baseUrl?, apiKey?"),
@@ -228,6 +229,11 @@ fn b(v: &Value, k: &str) -> bool {
 
 fn u(v: &Value, k: &str) -> Result<u64> {
     v.get(k).and_then(Value::as_u64).ok_or_else(|| Error::Invalid(format!("missing `{k}`")))
+}
+
+/// A checkout's terminal number; its first one when missing.
+fn tab(v: &Value) -> u32 {
+    v.get("tab").and_then(Value::as_u64).unwrap_or(0) as u32
 }
 
 fn ok() -> Result<Value> {
@@ -705,13 +711,17 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
             k.agents.remove(&s(&p, "id")?)?;
             ok()
         }
-        "shell.open" => to(k.shell_open(&s(&p, "projectId")?, &s(&p, "path")?, u(&p, "cols")? as u16, u(&p, "rows")? as u16).await?),
+        "shell.open" => to(k.shell_open(&s(&p, "projectId")?, &s(&p, "path")?, tab(&p), u(&p, "cols")? as u16, u(&p, "rows")? as u16).await?),
         "shell.write" => {
-            k.shells.write(&s(&p, "path")?, &s(&p, "data")?).await?;
+            k.shells.write(&s(&p, "path")?, tab(&p), &s(&p, "data")?).await?;
             ok()
         }
         "shell.resize" => {
-            k.shells.resize(&s(&p, "path")?, u(&p, "cols")? as u16, u(&p, "rows")? as u16)?;
+            k.shells.resize(&s(&p, "path")?, tab(&p), u(&p, "cols")? as u16, u(&p, "rows")? as u16)?;
+            ok()
+        }
+        "shell.close" => {
+            k.shells.remove(&s(&p, "path")?, Some(u(&p, "tab")? as u32));
             ok()
         }
         "shell.scripts" => to(k.shell_scripts(&s(&p, "projectId")?, &s(&p, "path")?).await?),

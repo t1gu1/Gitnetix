@@ -2137,7 +2137,7 @@ function Terminal({ pid, branch, cwd, worktree, open, setOpen, onCloseWorktree, 
         <div className="term-tabs term-bar" style={{ cursor: "pointer" }} onClick={(e) => !(e.target as HTMLElement).closest("button, select, input") && setOpen(false)}>
           {/* Only the right side grows, so the session label sits left, after the tabs. */}
           <div className="term-side" style={{ flex: "none" }}>
-            <TermTabs value={view} onChange={setView} />
+            <TermTabs value={view} onChange={setView} path={cwd} />
           </div>
           {!shell && cur && (
             <>

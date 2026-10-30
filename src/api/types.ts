@@ -653,8 +653,8 @@ export type GitnetixEvent =
   | { type: "cleanupStep"; projectId: string; branch: string }
   | { type: "conflictResolving"; projectId: string; files: string[] }
   | { type: "log"; entry: LogEntry }
-  | { type: "shellData"; cwd: string; data: string; end: number }
-  | { type: "shellExit"; cwd: string }
+  | { type: "shellData"; cwd: string; tab: number; data: string; end: number }
+  | { type: "shellExit"; cwd: string; tab: number }
   | { type: "dictationModel"; done: number; total: number }
   | { type: "overviewProgress"; projectId: string; done: number; total: number }
   | { type: "filesProgress"; projectId: string; done: number; total: number };

@@ -4536,7 +4536,7 @@ impl Gitnetix {
         }
         let agents: Vec<String> = self.agents.list().into_iter().filter(|a| a.cwd == path).map(|a| a.id).collect();
         // Its shell first, so nothing it started keeps writing in the folder.
-        self.shells.remove(path);
+        self.shells.remove(path, None);
         for id in &agents {
             let _ = self.agents.stop(id);
         }
@@ -4570,10 +4570,10 @@ impl Gitnetix {
     }
 
     /// Opens the terminal of one of the project's checkouts; any other folder is refused.
-    pub async fn shell_open(&self, project_id: &str, path: &str, cols: u16, rows: u16) -> Result<crate::shell::Snapshot> {
+    pub async fn shell_open(&self, project_id: &str, path: &str, tab: u32, cols: u16, rows: u16) -> Result<crate::shell::Snapshot> {
         let p = self.store.project(project_id)?;
         self.require_own_checkout(&p, path).await?;
-        self.shells.open(path, cols, rows)
+        self.shells.open(path, tab, cols, rows)
     }
 
     /// Commands of every project tool found in one of the project's checkouts (tracked or not ignored files),

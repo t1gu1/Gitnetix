@@ -3457,6 +3457,24 @@ button.picker-act {
   background: var(--term);
   color: var(--fg);
 }
+/* The terminals button closes the Shell tab: no line between them, and lit with it. */
+.term-tab-menu {
+  padding: 0 9px 0 2px;
+  border-left: 0;
+  border-right: 1px solid var(--line);
+  cursor: pointer;
+}
+.term-tab[aria-pressed="true"] + .term-tab-menu {
+  background: var(--term);
+  color: var(--fg);
+}
+.term-tab-menu:hover > svg {
+  color: var(--fg);
+  transform: translateY(1px);
+}
+.term-tab-menu > svg {
+  transition: transform 0.12s;
+}
 /* Nerd Font icons for the shell (prompts, ls icons); fetched only when a terminal draws one. */
 @font-face {
   font-family: "Symbols Nerd Font Mono";

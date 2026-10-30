@@ -22,12 +22,12 @@ pub enum Event {
     ConflictResolving { project_id: String, files: Vec<String> },
     /// A new line in the Logs page.
     Log { entry: crate::log::Entry },
-    /// Output of a checkout's terminal, base64; `end` counts its bytes so far.
+    /// Output of terminal `tab` of a checkout, base64; `end` counts its bytes so far.
     #[serde(rename_all = "camelCase")]
-    ShellData { cwd: String, data: String, end: u64 },
+    ShellData { cwd: String, tab: u32, data: String, end: u64 },
     /// A checkout's shell exited or its terminal was removed.
     #[serde(rename_all = "camelCase")]
-    ShellExit { cwd: String },
+    ShellExit { cwd: String, tab: u32 },
     /// A long rebuild of a project's branches: `done` of the `total` it redoes so far.
     #[serde(rename_all = "camelCase")]
     OverviewProgress { project_id: String, done: u32, total: u32 },

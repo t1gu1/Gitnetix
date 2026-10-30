@@ -379,7 +379,7 @@ function Detail({ r, menu, onMenuClose }: { r: Row; menu?: { x: number; y: numbe
     <div className="detail-inner" style={{ flex: 1, minHeight: 0 }}>
       <div className="col card term-max" style={{ flex: "1 1 320px", minHeight: 280, gap: 0, overflow: "hidden", background: "var(--term)" }}>
         <div className="term-tabs">
-          <TermTabs value={termView} onChange={setTermView} />
+          <TermTabs value={termView} onChange={setTermView} path={r.wt ? r.path : undefined} />
           <span className="grow" />
           <span className="hint row hide-narrow" style={{ padding: "0 14px" }}>Keeps running when you switch project</span>
         </div>

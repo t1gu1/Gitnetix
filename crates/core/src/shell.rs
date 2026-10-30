@@ -1,10 +1,11 @@
-//! Interactive terminals, one per checkout: the main checkout (shared by
+//! Interactive terminals, numbered per checkout: the main checkout (shared by
 //! every branch on it) and each worktree. Each runs the user's login shell
 //! in a pseudo-terminal; the UI renders it with a terminal emulator. In
 //! memory only; a worktree's terminal goes with it.
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use base64::Engine as _;
@@ -28,6 +29,8 @@ pub struct Snapshot {
 }
 
 struct Live {
+    /// Which shell this is: a closed one's reader must leave a terminal reopened under the same number alone.
+    run: u64,
     master: Box<dyn MasterPty + Send>,
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
     killer: Box<dyn ChildKiller + Send + Sync>,
@@ -43,12 +46,15 @@ struct Term {
 
 #[derive(Clone)]
 pub struct Shells {
-    terms: Arc<Mutex<HashMap<String, Term>>>,
+    /// By canonical checkout path and terminal number.
+    terms: Arc<Mutex<HashMap<(String, u32), Term>>>,
     events: broadcast::Sender<Event>,
 }
 
 /// Output kept for a UI that opens the terminal later.
 const BACKLOG: usize = 512 * 1024;
+
+static RUNS: AtomicU64 = AtomicU64::new(0);
 
 /// The same folder reached through a symlink or a trailing slash is one terminal.
 pub fn key(path: &str) -> String {
@@ -100,21 +106,21 @@ impl Shells {
         Shells { terms: Arc::default(), events }
     }
 
-    /// The terminal of `path`, starting its shell if none runs.
-    pub fn open(&self, path: &str, cols: u16, rows: u16) -> Result<Snapshot> {
+    /// Terminal `tab` of `path`, starting its shell if none runs.
+    pub fn open(&self, path: &str, tab: u32, cols: u16, rows: u16) -> Result<Snapshot> {
         let cwd = key(path);
         let mut g = self.terms.lock().unwrap();
-        let t = g.entry(cwd.clone()).or_default();
+        let t = g.entry((cwd.clone(), tab)).or_default();
         match &t.live {
             Some(l) => {
                 let _ = l.master.resize(size(cols, rows));
             }
-            None => t.live = Some(self.spawn(&cwd, cols, rows)?),
+            None => t.live = Some(self.spawn(&cwd, tab, cols, rows)?),
         }
         Ok(Snapshot { cwd, data: b64(&t.backlog), end: t.end })
     }
 
-    fn spawn(&self, cwd: &str, cols: u16, rows: u16) -> Result<Live> {
+    fn spawn(&self, cwd: &str, tab: u32, cols: u16, rows: u16) -> Result<Live> {
         let pair = native_pty_system().openpty(size(cols, rows))?;
         // The user's login shell: a desktop app's PATH lacks what their profile adds.
         let mut cmd = CommandBuilder::new_default_prog();
@@ -141,7 +147,9 @@ impl Shells {
         let mut reader = pair.master.try_clone_reader()?;
 
         let me = self.clone();
-        let cwd = cwd.to_string();
+        let k = (cwd.to_string(), tab);
+        let run = RUNS.fetch_add(1, Ordering::Relaxed);
+        let ours = move |t: &Term| t.live.as_ref().is_some_and(|l| l.run == run);
         std::thread::spawn(move || {
             let mut buf = vec![0u8; 64 * 1024];
             loop {
@@ -150,7 +158,7 @@ impl Shells {
                     Ok(n) => n,
                 };
                 let mut g = me.terms.lock().unwrap();
-                let Some(t) = g.get_mut(&cwd) else { break };
+                let Some(t) = g.get_mut(&k).filter(|t| ours(t)) else { break };
                 t.backlog.extend_from_slice(&buf[..n]);
                 if t.backlog.len() > BACKLOG {
                     let drop = t.backlog.len() - BACKLOG;
@@ -158,22 +166,23 @@ impl Shells {
                 }
                 t.end += n as u64;
                 // Sent under the lock, so a snapshot and the events after it never overlap or leave a gap.
-                let _ = me.events.send(Event::ShellData { cwd: cwd.clone(), data: b64(&buf[..n]), end: t.end });
+                let _ = me.events.send(Event::ShellData { cwd: k.0.clone(), tab, data: b64(&buf[..n]), end: t.end });
             }
             let _ = child.wait();
-            if let Some(t) = me.terms.lock().unwrap().get_mut(&cwd) {
-                t.live = None;
-            }
-            let _ = me.events.send(Event::ShellExit { cwd });
+            // Closed: `remove` already told the UI.
+            let mut g = me.terms.lock().unwrap();
+            let Some(t) = g.get_mut(&k).filter(|t| ours(t)) else { return };
+            t.live = None;
+            let _ = me.events.send(Event::ShellExit { cwd: k.0, tab });
         });
-        Ok(Live { master: pair.master, writer, killer })
+        Ok(Live { run, master: pair.master, writer, killer })
     }
 
-    /// Types `data` (keystrokes, a paste) into the terminal of `path`.
-    pub async fn write(&self, path: &str, data: &str) -> Result<()> {
+    /// Types `data` (keystrokes, a paste) into terminal `tab` of `path`.
+    pub async fn write(&self, path: &str, tab: u32, data: &str) -> Result<()> {
         let w = {
             let g = self.terms.lock().unwrap();
-            g.get(&key(path)).and_then(|t| t.live.as_ref()).map(|l| l.writer.clone()).ok_or_else(|| Error::NotFound("No shell runs in this checkout".into()))?
+            g.get(&(key(path), tab)).and_then(|t| t.live.as_ref()).map(|l| l.writer.clone()).ok_or_else(|| Error::NotFound("No shell runs in this checkout".into()))?
         };
         let data = data.as_bytes().to_vec();
         // A shell that does not read blocks a big paste; that must not stall the engine.
@@ -181,20 +190,27 @@ impl Shells {
         Ok(())
     }
 
-    pub fn resize(&self, path: &str, cols: u16, rows: u16) -> Result<()> {
-        if let Some(l) = self.terms.lock().unwrap().get(&key(path)).and_then(|t| t.live.as_ref()) {
+    pub fn resize(&self, path: &str, tab: u32, cols: u16, rows: u16) -> Result<()> {
+        if let Some(l) = self.terms.lock().unwrap().get(&(key(path), tab)).and_then(|t| t.live.as_ref()) {
             l.master.resize(size(cols, rows))?;
         }
         Ok(())
     }
 
-    /// Ends the shell and forgets the terminal (its worktree is going away).
-    pub fn remove(&self, path: &str) {
+    /// Ends the shell and forgets terminal `tab` of `path`; every one of them when None (its worktree is going away).
+    pub fn remove(&self, path: &str, tab: Option<u32>) {
         let cwd = key(path);
-        if let Some(mut l) = self.terms.lock().unwrap().remove(&cwd).and_then(|t| t.live) {
-            let _ = l.killer.kill();
+        let gone: Vec<_> = {
+            let mut g = self.terms.lock().unwrap();
+            let keys: Vec<_> = g.keys().filter(|(c, t)| *c == cwd && tab.is_none_or(|n| n == *t)).cloned().collect();
+            keys.into_iter().filter_map(|k| g.remove(&k).map(|t| (k.1, t))).collect()
+        };
+        for (tab, t) in gone {
+            if let Some(mut l) = t.live {
+                let _ = l.killer.kill();
+            }
+            let _ = self.events.send(Event::ShellExit { cwd: cwd.clone(), tab });
         }
-        let _ = self.events.send(Event::ShellExit { cwd });
     }
 }
 
@@ -211,30 +227,39 @@ mod tests {
         let (tx, mut rx) = broadcast::channel(1024);
         let sh = Shells::new(tx);
         let path = std::env::temp_dir().to_string_lossy().to_string();
-        let first = sh.open(&path, 80, 24).unwrap();
+        let first = sh.open(&path, 0, 80, 24).unwrap();
+        // A second terminal of the same checkout: its own shell, closed alone.
+        sh.open(&path, 1, 80, 24).unwrap();
+        sh.remove(&path, Some(1));
+        assert!(sh.write(&path, 1, "x").await.is_err());
+        // Opened again under its number, the closed shell's end leaves the new one running.
+        sh.open(&path, 1, 80, 24).unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        sh.write(&path, 1, "").await.unwrap();
+        sh.remove(&path, Some(1));
         // Any login shell (fish has no `$((…))`); the echoed input reads gnx-4''2, the output gnx-42.
-        sh.write(&path, "echo gnx-4''2; exit\n").await.unwrap();
+        sh.write(&path, 0, "echo gnx-4''2; exit\n").await.unwrap();
         let mut out = decode(&first.data);
         let mut end = first.end;
         loop {
             match tokio::time::timeout(std::time::Duration::from_secs(10), rx.recv()).await.expect("shell output").unwrap() {
-                Event::ShellData { data, end: e, .. } => {
+                Event::ShellData { data, end: e, tab: 0, .. } => {
                     let d = decode(&data);
                     // Answer the device-attributes query as the UI's emulator does; fish waits for it.
                     if String::from_utf8_lossy(&d).contains("\x1b[0c") {
-                        sh.write(&path, "\x1b[?62c").await.unwrap();
+                        sh.write(&path, 0, "\x1b[?62c").await.unwrap();
                     }
                     assert_eq!(e - d.len() as u64, end, "no gap between snapshot and events");
                     end = e;
                     out.extend(d);
                 }
-                Event::ShellExit { .. } => break,
+                Event::ShellExit { tab: 0, .. } => break,
                 _ => {}
             }
         }
         assert!(String::from_utf8_lossy(&out).contains("gnx-42"));
-        assert_eq!(sh.open(&path, 80, 24).unwrap().end, end, "reopening keeps the output and starts a new shell");
-        sh.remove(&path);
-        assert!(sh.write(&path, "x").await.is_err());
+        assert_eq!(sh.open(&path, 0, 80, 24).unwrap().end, end, "reopening keeps the output and starts a new shell");
+        sh.remove(&path, None);
+        assert!(sh.write(&path, 0, "x").await.is_err());
     }
 }

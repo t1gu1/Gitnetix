@@ -13,6 +13,7 @@ release notes and the in-app update prompt.
 
 ### Added
 - A branch's commit list loads older commits as you scroll near its end, back to the first commit; a filtered list loads them with a "Load older commits" button.
+- Several terminals per checkout: the button beside the Shell tab lists them, opens a new one and closes the one shown.
 
 ### Removed
 - The commit graph preview beside the branch tree, with its action previews.

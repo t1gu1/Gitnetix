@@ -45,8 +45,8 @@ function bytes(b64: string) {
   return out;
 }
 
-/** A checkout's terminal: the login shell running in `path` (no `path`: the checkout is gone). */
-export default function ShellPane({ projectId, path }: { projectId: string; path?: string }) {
+/** Terminal `tab` of a checkout: a login shell running in `path` (no `path`: the checkout is gone). */
+export default function ShellPane({ projectId, path, tab }: { projectId: string; path?: string; tab: number }) {
   const host = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal>(null);
   const searchRef = useRef<SearchAddon>(null);
@@ -120,7 +120,7 @@ export default function ShellPane({ projectId, path }: { projectId: string; path
       opening = true;
       early = [];
       end = -1;
-      rpc<ShellSnapshot>("shell.open", { projectId, path, cols: term.cols, rows: term.rows })
+      rpc<ShellSnapshot>("shell.open", { projectId, path, tab, cols: term.cols, rows: term.rows })
         .then((s) => {
           if (dead) return;
           cwd = s.cwd;
@@ -135,10 +135,11 @@ export default function ShellPane({ projectId, path }: { projectId: string; path
         .finally(() => (opening = false));
     };
     const unsub = subscribe((e) => {
+      if ((e.type !== "shellData" && e.type !== "shellExit") || e.tab !== tab) return;
       if (e.type === "shellData") {
         if (end < 0) early.push(e);
         else if (e.cwd === cwd) show(e.data, e.end);
-      } else if (e.type === "shellExit" && e.cwd === cwd && !exited) {
+      } else if (e.cwd === cwd && !exited) {
         exited = true;
         term.write("\r\n\x1b[2m[Shell exited. Press any key to start a new one.]\x1b[0m\r\n");
       }
@@ -152,7 +153,7 @@ export default function ShellPane({ projectId, path }: { projectId: string; path
       while (queued && cwd && !dead) {
         const data = queued;
         queued = "";
-        await rpc("shell.write", { path: cwd, data }).catch(() => {});
+        await rpc("shell.write", { path: cwd, tab, data }).catch(() => {});
       }
       sending = false;
     };
@@ -161,7 +162,7 @@ export default function ShellPane({ projectId, path }: { projectId: string; path
       queued += d;
       if (!sending) pump();
     });
-    term.onResize(({ cols, rows }) => cwd && rpc("shell.resize", { path: cwd, cols, rows }).catch(() => {}));
+    term.onResize(({ cols, rows }) => cwd && rpc("shell.resize", { path: cwd, tab, cols, rows }).catch(() => {}));
 
     let frame = 0;
     const ro = new ResizeObserver(() => {
@@ -197,7 +198,7 @@ export default function ShellPane({ projectId, path }: { projectId: string; path
       term.dispose();
       termRef.current = searchRef.current = null;
     };
-  }, [projectId, path]);
+  }, [projectId, path, tab]);
 
   const find = (back = false, incremental = false) => {
     const s = searchRef.current;

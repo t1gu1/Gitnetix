@@ -1,6 +1,8 @@
 import { lazy, Suspense, useState } from "react";
 
+import { rpc } from "../api/transport";
 import { useStored } from "../lib/stored";
+import { ContextMenu } from "./ContextMenu";
 import { Icon } from "./Icon";
 
 export type TermView = "agent" | "shell";
@@ -25,18 +27,62 @@ export function useTermView(projectId: string, branch: string | undefined, agent
   return worktree ? ([shown.view, (view: TermView) => setShown({ key, view })] as const) : kept;
 }
 
-/** The terminal icon, split into the Agent and Shell tabs. */
-export function TermTabs({ value, onChange }: { value: TermView; onChange: (v: TermView) => void }) {
+// shortcut: lists of deleted worktrees stay in the config too, prune them along with the view map.
+/** A checkout's terminals (numbers the engine knows them by) and the one its Shell tab shows. */
+const useShells = (path = "") => useStored<{ tabs: number[]; cur: number }>(`gnx.term.shells.${path}`, { tabs: [0], cur: 0 });
+
+/** The terminal icon, split into the Agent and Shell tabs; the button after them lists the checkout's terminals (`path`). */
+export function TermTabs({ value, onChange, path }: { value: TermView; onChange: (v: TermView) => void; path?: string }) {
+  const [{ tabs, cur }, setShells] = useShells(path);
+  const [menu, setMenu] = useState<{ x: number; y: number }>();
+  const pick = (n: number, list = tabs) => {
+    setShells({ tabs: list, cur: n });
+    onChange("shell");
+  };
+  const close = () => {
+    rpc("shell.close", { path, tab: cur }).catch(() => {});
+    const rest = tabs.filter((n) => n !== cur);
+    pick(rest[Math.max(0, tabs.indexOf(cur) - 1)], rest);
+  };
+  const next = Math.max(...tabs) + 1;
   return (
     <>
       <button type="button" className="term-tab" style={{ borderLeft: 0 }} aria-pressed={value === "agent"} onClick={() => onChange("agent")}>
         <Icon name="sparkle" size={12} />
         Agent
       </button>
-      <button type="button" className="term-tab" style={{ borderRight: "1px solid var(--line)" }} aria-pressed={value === "shell"} onClick={() => onChange("shell")}>
+      <button type="button" className="term-tab" style={path ? { paddingRight: 8 } : { borderRight: "1px solid var(--line)" }} aria-pressed={value === "shell"} onClick={() => onChange("shell")}>
         <Icon name="terminal" size={12} />
         Shell
       </button>
+      {path && (
+        <button
+          type="button"
+          className="term-tab term-tab-menu"
+          aria-haspopup="menu"
+          aria-label="Terminals"
+          data-tip="Terminals"
+          onClick={(e) => {
+            const r = e.currentTarget.getBoundingClientRect();
+            setMenu({ x: r.left, y: r.bottom + 2 });
+          }}
+        >
+          <Icon name="chevronDown" size={11} />
+        </button>
+      )}
+      {menu && (
+        <ContextMenu
+          {...menu}
+          label="Terminals"
+          onClose={() => setMenu(undefined)}
+          items={[
+            ...tabs.map((n, i) => ({ id: `t${n}`, label: `Terminal ${i + 1}`, icon: n === cur ? "check" : undefined, run: () => pick(n) })),
+            "sep",
+            { id: "new", label: "New terminal", icon: "plus", run: () => pick(next, [...tabs, next]) },
+            ...(tabs.length > 1 ? [{ id: "close", label: `Close Terminal ${tabs.indexOf(cur) + 1}`, icon: "close", danger: true, run: close }] : []),
+          ]}
+        />
+      )}
     </>
   );
 }
@@ -44,11 +90,12 @@ export function TermTabs({ value, onChange }: { value: TermView; onChange: (v: T
 // xterm.js is big; loaded the first time a shell is shown.
 const Pane = lazy(() => import("./ShellPane"));
 
-/** A checkout's terminal: the login shell running in `path` (no `path`: the checkout is gone). */
+/** The terminal of a checkout picked in its Shell tab: a login shell running in `path` (no `path`: the checkout is gone). */
 export function ShellPane(props: { projectId: string; path?: string }) {
+  const [{ cur }] = useShells(props.path);
   return (
     <Suspense fallback={<div className="shell-pane" />}>
-      <Pane {...props} />
+      <Pane {...props} tab={cur} />
     </Suspense>
   );
 }
