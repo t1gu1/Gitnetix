@@ -1,7 +1,7 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 import { Icon } from '../../../../src/components/Icon';
 import { plural } from '../../../../src/lib/format';
-import { Avatar, Busy, Empty, EmptyState, Markdown, Modal, Seg, useDemo, useLater } from './ui';
+import { Avatar, Busy, Empty, EmptyState, Markdown, Modal, PageHead, Seg, useDemo, useLater } from './ui';
 
 /** src/screens/PullRequests.tsx on a made-up GitHub repo: merge, close, review, comment, react, resolve; checks finish as you watch. */
 
@@ -111,6 +111,8 @@ export default function PullRequests() {
   const [tab, setTab] = useState<Tab>('open');
   const [who, setWho] = useState<Who>('mine');
   const [sel, setSel] = useState<number>();
+  // On the phone: the list, or the picked pull request in its place.
+  const [pane, setPane] = useState<'list' | 'detail'>('list');
   const [creating, setCreating] = useState(false);
   const list = prs.filter((p) => inTab(p, tab, who));
   const current = prs.find((p) => p.number === (sel ?? list[0]?.number));
@@ -127,6 +129,7 @@ export default function PullRequests() {
     if (open) {
       setTab('open');
       setSel(open.number);
+      setPane('detail');
       return flash(`#${open.number} is already open for ${branch}`);
     }
     setCreating(true);
@@ -147,13 +150,15 @@ export default function PullRequests() {
       setCreating(false);
       setTab('open');
       setSel(number);
+      setPane('detail');
       flash(`Opened #${number}`);
     });
   };
 
   return (
     <>
-      <section aria-label="Pull request list" className="master" style={{ '--master-w': '380px' } as CSSProperties}>
+      <PageHead title="Pull requests" sub="acme-web · GitHub" onBack={pane === 'detail' ? () => setPane('list') : undefined} />
+      <section aria-label="Pull request list" className="master" style={{ '--master-w': '380px' } as CSSProperties} data-pane data-active={pane === 'list'}>
         <div className="master-tools">
           <Seg
             grid
@@ -186,7 +191,7 @@ export default function PullRequests() {
                   </div>
                   <div className="col" style={{ gap: 2 }}>
                     {items.map((p) => (
-                      <button key={p.number} className="item-btn" style={{ gap: 1, padding: '7px 12px' }} aria-pressed={p.number === current?.number} onClick={() => setSel(p.number)}>
+                      <button key={p.number} className="item-btn" style={{ gap: 1, padding: '7px 12px' }} aria-pressed={p.number === current?.number} onClick={() => { setSel(p.number); setPane('detail'); }}>
                         <span className="row" style={{ gap: 8, margin: '0 0 2px', fontSize: 11.5 }}>
                           <Avatar name={p.author} />
                           <span className="mono faint">#{p.number}</span>
@@ -211,7 +216,7 @@ export default function PullRequests() {
           </button>
         </div>
       </section>
-      <main className="detail">
+      <main className="detail" data-pane data-active={pane === 'detail'}>
         {current ? <Detail key={current.number} p={current} set={update(current.number)} /> : <EmptyState icon="pr" title="No pull request selected">Pick one from the list to read its description, checks and reviews.</EmptyState>}
       </main>
     </>

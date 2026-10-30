@@ -1,7 +1,7 @@
 import { useState, type CSSProperties, type ReactNode } from 'react';
 import { Icon } from '../../../../src/components/Icon';
 import { plural } from '../../../../src/lib/format';
-import { Empty, EmptyState, Menu, Modal, Seg, useDemo, useLater, useMenu } from './ui';
+import { Empty, EmptyState, Menu, Modal, PageHead, Seg, useDemo, useLater, useMenu } from './ui';
 
 /** src/screens/Submodules.tsx on made-up submodules: one of each state, each fixed by its button, with the git output it would print. */
 
@@ -64,6 +64,8 @@ export default function Submodules() {
   const [list, setList] = useState(SUBS);
   const [filter, setFilter] = useState<'all' | 'attention'>('all');
   const [sel, setSel] = useState<string>();
+  // On the phone: the list, or the picked submodule in its place.
+  const [pane, setPane] = useState<'list' | 'detail'>('list');
   const [adding, setAdding] = useState(false);
   const [output, setOutput] = useState<Output>();
   // The path being updated, or '*' for all of them.
@@ -100,7 +102,8 @@ export default function Submodules() {
 
   return (
     <>
-      <section className="master" style={{ '--master-w': '340px' } as CSSProperties} aria-label="Submodules">
+      <PageHead title="Submodules" sub="acme-web" onBack={pane === 'detail' ? () => setPane('list') : undefined} />
+      <section className="master" style={{ '--master-w': '340px' } as CSSProperties} data-pane data-active={pane === 'list'} aria-label="Submodules">
         {list.length > 0 && (
           <div className="master-tools">
             <div className="row" style={{ gap: 2, margin: 0 }}>
@@ -121,7 +124,7 @@ export default function Submodules() {
             {shown.map((s) => {
               const [label, cls] = status(s);
               return (
-                <button key={s.path} className="item-btn" aria-pressed={s.path === cur?.path} onClick={() => setSel(s.path)}>
+                <button key={s.path} className="item-btn" aria-pressed={s.path === cur?.path} onClick={() => { setSel(s.path); setPane('detail'); }}>
                   <span className="row">
                     {busy === s.path || busy === '*' ? <span className="spinner" /> : <Icon name="box" size={13} />}
                     <span className="mono ellipsis grow" style={{ fontSize: 12.5 }}>{s.path}</span>
@@ -163,7 +166,7 @@ export default function Submodules() {
           </div>
         )}
       </section>
-      <main className="detail">
+      <main className="detail" data-pane data-active={pane === 'detail'}>
         <div className="detail-inner">
           {cur ? (
             <Detail key={cur.path} s={cur} busy={busy === cur.path || busy === '*'} set={(f) => set(cur.path, f)} onRemove={() => setList((l) => l.filter((s) => s.path !== cur.path))} onRun={(remote) => run([cur.path], remote, remote ? `${cur.path} moved to the latest of ${cur.upstream ?? 'its remote'}` : cur.head ? `${cur.path} checked out at its pin` : `${cur.path} cloned`, `${remote ? 'Pull latest' : 'Update'} · ${cur.path}`)} />
@@ -203,6 +206,7 @@ export default function Submodules() {
           onAdded={(s) => {
             setList((l) => [...l, s]);
             setSel(s.path);
+            setPane('detail');
             setOutput({ title: `Added ${s.path}`, text: `Cloning into '${ROOT}/${s.path}'...\nremote: Enumerating objects: 214, done.\nremote: Total 214 (delta 61), reused 198 (delta 52)\nReceiving objects: 100% (214/214), 88.41 KiB | 2.1 MiB/s, done.\nResolving deltas: 100% (61/61), done.` });
             flash(`Added ${s.path}: commit it from the workspace`);
           }}

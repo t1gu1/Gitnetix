@@ -1,4 +1,4 @@
-import { type CSSProperties, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { type CSSProperties, type Ref, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import { useConfig } from "../api/hooks";
 import { isLocal, rpc } from "../api/transport";
@@ -288,7 +288,8 @@ export function Dictation() {
   return (
     <>
       {p !== "idle" && <Wave listening={p === "listening"} polishing={p === "polishing"} keys={keys} />}
-      {canDictate && <FieldMic phase={p} keys={coarse ? "" : showKeys(keys)} />}
+      {/* Touch screens show their mics even where the page can't record: a tap tells why. */}
+      {coarse ? <BoxMics phase={p} /> : canDictate && <FieldMic phase={p} keys={showKeys(keys)} />}
     </>
   );
 }
@@ -296,7 +297,105 @@ export function Dictation() {
 /** Touch screens, with no keyboard for the shortcut. */
 const coarse = matchMedia("(pointer: coarse)").matches;
 
-/** The mic inside the right edge of the text box being typed in, with the shortcut in its tooltip where there's a keyboard. */
+/** Fits mic `b` to `field`, with room made for it on the box's right; `place` puts it inside the box's right edge. */
+function attach(field: Field, b: HTMLElement) {
+  // What scrolls the box (a dialog's body, say) hides part of it: the mic stays in the part in view, not over the dialog's footer.
+  const clips: HTMLElement[] = [];
+  for (let el = field.parentElement; el; el = el.parentElement) if (getComputedStyle(el).overflowY !== "visible") clips.push(el);
+  const one = field.tagName === "INPUT";
+  const s = getComputedStyle(field);
+  field.dataset.mic = ""; // room for it on the right, in the stylesheet
+  const place = () => {
+    // A one-line box under 30px tall shrinks the mic, keeping it 4px clear of its top and bottom (the stylesheet caps it at 22px).
+    // Read each time: a box hidden when its mic came (another project's screen, say) has no height until shown.
+    if (one) b.style.setProperty("--mic-fit", `${field.offsetHeight - 8}px`);
+    const w = `${b.offsetWidth}px`;
+    // Only on a change: touch screens re-place their mics when the page changes.
+    if (field.style.getPropertyValue("--mic-w") !== w) field.style.setProperty("--mic-w", w);
+    const r = field.getBoundingClientRect();
+    let [lo, hi] = [-Infinity, Infinity];
+    for (const c of clips) {
+      const top = c.getBoundingClientRect().top + c.clientTop;
+      lo = Math.max(lo, top);
+      hi = Math.min(hi, top + c.clientHeight);
+    }
+    // Centered in a one-line box; on the last line of a multi-line one (or of its part in view), so it keeps to the bottom corner as the box grows.
+    // As far from the right edge as from the bottom. A multi-line box's last line, from its bottom edge: border, padding, then half a line less half the mic.
+    // "normal" lines are about 1.2 times the font.
+    const gap = one ? (r.height - b.offsetHeight) / 2 : parseFloat(s.borderBottomWidth) + parseFloat(s.paddingBottom) + ((parseFloat(s.lineHeight) || parseFloat(s.fontSize) * 1.2) - b.offsetHeight) / 2;
+    const top = one ? r.top + gap : Math.max(r.top, Math.min(r.bottom, hi) - b.offsetHeight - gap);
+    b.style.transform = `translate(${r.right - b.offsetWidth - gap}px, ${top}px)`;
+    // Cut where the box is cut, clicks included.
+    b.style.clipPath = `inset(${Math.max(0, lo - top)}px 0 ${Math.max(0, top + b.offsetHeight - hi)}px)`;
+  };
+  const detach = () => {
+    delete field.dataset.mic;
+    field.style.removeProperty("--mic-w");
+    b.style.removeProperty("--mic-fit");
+  };
+  return { place, detach };
+}
+
+/** The mic for `field`; lit while dictating into that box. */
+function Mic({ ref, field, phase, keys = "" }: { ref: Ref<HTMLButtonElement>; field: Field; phase: Phase; keys?: string }) {
+  return (
+    <button
+      ref={ref}
+      className="field-mic"
+      data-on={(phase === "listening" && session?.field === field) || undefined}
+      aria-label={`${phase === "idle" ? "Dictate" : phase === "listening" ? "Stop dictating" : "Cancel dictation"} ${keys}`.trim()}
+      // Keeps the box focused, and the keyboard up (or down).
+      onPointerDown={(e) => e.preventDefault()}
+      onClick={() => toggleDictation(field)}
+    >
+      <Icon name="mic" size={14} stroke={1.7} />
+    </button>
+  );
+}
+
+// shortcut: mics move for a second after each touch, scroll, animation or change to the page, not every frame (battery); a box moved by none of those keeps its mic behind until the next one.
+/** Touch screens: a mic in every text box in view, without tapping the box first. */
+function BoxMics({ phase }: { phase: Phase }) {
+  const [fields, setFields] = useState<Field[]>([]);
+  const mics = useRef<(HTMLButtonElement | null)[]>([]);
+  useEffect(() => {
+    const placed = fields.map((f, i) => [f, mics.current[i]!, attach(f, mics.current[i]!)] as const);
+    let raf = 0;
+    let until = 0;
+    const frame = () => {
+      raf = 0;
+      const now = [...document.querySelectorAll(FIELD)].flatMap((el) => asField(el) ?? []);
+      if (now.length !== fields.length || now.some((f, i) => f !== fields[i])) return setFields(now);
+      for (const [f, b, { place }] of placed) {
+        place();
+        // Only where the box is what's seen there: not under a dialog or menu, nor in a hidden screen or scrolled out of view.
+        const r = b.getBoundingClientRect();
+        const seen = f.getClientRects().length > 0 && document.elementsFromPoint(r.x + r.width / 2, r.y + r.height / 2).find((el) => !el.closest(".field-mic")) === f;
+        b.style.visibility = seen ? "" : "hidden";
+      }
+      if (performance.now() < until) raf = requestAnimationFrame(frame);
+    };
+    const wake = () => {
+      until = performance.now() + 1000;
+      raf ||= requestAnimationFrame(frame);
+    };
+    // The mics' own moves don't count.
+    const mo = new MutationObserver((rs) => rs.some((r) => !(r.target as Element).classList?.contains("field-mic")) && wake());
+    mo.observe(document.body, { childList: true, subtree: true, attributes: true });
+    const events = ["pointerdown", "scroll", "resize", "transitionrun", "transitionend", "animationstart", "animationend"];
+    for (const e of events) window.addEventListener(e, wake, { capture: true, passive: true });
+    wake();
+    return () => {
+      cancelAnimationFrame(raf);
+      mo.disconnect();
+      for (const e of events) window.removeEventListener(e, wake, { capture: true });
+      for (const [, , { detach }] of placed) detach();
+    };
+  }, [fields]);
+  return fields.map((f, i) => <Mic key={i} ref={(b) => void (mics.current[i] = b)} field={f} phase={phase} />);
+}
+
+/** The mic inside the right edge of the text box being typed in, with the shortcut in its tooltip. */
 function FieldMic({ phase, keys }: { phase: Phase; keys: string }) {
   const [field, setField] = useState<Field | null>(null);
   const mic = useRef<HTMLButtonElement>(null);
@@ -313,59 +412,19 @@ function FieldMic({ phase, keys }: { phase: Phase; keys: string }) {
   // shortcut: reads the box's place every frame while it is focused, which follows scrolling, the keyboard and animations alike; use scroll and visualViewport listeners if battery matters.
   useEffect(() => {
     if (!field) return;
-    // What scrolls the box (a dialog's body, say) hides part of it: the mic stays in the part in view, not over the dialog's footer.
-    const clips: HTMLElement[] = [];
-    for (let el = field.parentElement; el; el = el.parentElement) if (getComputedStyle(el).overflowY !== "visible") clips.push(el);
-    const b = mic.current!;
-    const one = field.tagName === "INPUT";
-    // A one-line box under 30px tall shrinks the mic, keeping it 4px clear of its top and bottom (the stylesheet caps it at 22px).
-    if (one) b.style.setProperty("--mic-fit", `${field.offsetHeight - 8}px`);
-    // A multi-line box's last line, from its bottom edge: border, padding, then half a line less half the mic. "normal" lines are about 1.2 times the font.
-    const s = getComputedStyle(field);
-    const last = parseFloat(s.borderBottomWidth) + parseFloat(s.paddingBottom) + ((parseFloat(s.lineHeight) || parseFloat(s.fontSize) * 1.2) - b.offsetHeight) / 2;
+    const { place, detach } = attach(field, mic.current!);
     let raf = 0;
-    const place = () => {
-      const r = field.getBoundingClientRect();
-      let [lo, hi] = [-Infinity, Infinity];
-      for (const c of clips) {
-        const top = c.getBoundingClientRect().top + c.clientTop;
-        lo = Math.max(lo, top);
-        hi = Math.min(hi, top + c.clientHeight);
-      }
-      // Centered in a one-line box; on the last line of a multi-line one (or of its part in view), so it keeps to the bottom corner as the box grows.
-      // As far from the right edge as from the bottom.
-      const gap = one ? (r.height - b.offsetHeight) / 2 : last;
-      const top = one ? r.top + gap : Math.max(r.top, Math.min(r.bottom, hi) - b.offsetHeight - gap);
-      b.style.transform = `translate(${r.right - b.offsetWidth - gap}px, ${top}px)`;
-      // Cut where the box is cut, clicks included.
-      b.style.clipPath = `inset(${Math.max(0, lo - top)}px 0 ${Math.max(0, top + b.offsetHeight - hi)}px)`;
-      raf = requestAnimationFrame(place);
+    const frame = () => {
+      place();
+      raf = requestAnimationFrame(frame);
     };
-    place();
-    field.dataset.mic = ""; // room for it on the right, in the stylesheet
-    field.style.setProperty("--mic-w", `${b.offsetWidth}px`);
+    frame();
     return () => {
       cancelAnimationFrame(raf);
-      delete field.dataset.mic;
-      field.style.removeProperty("--mic-w");
-      b.style.removeProperty("--mic-fit");
+      detach();
     };
   }, [field]);
-  return (
-    field && (
-      <button
-        ref={mic}
-        className="field-mic"
-        data-on={phase === "listening" || undefined}
-        aria-label={`${phase === "idle" ? "Dictate" : phase === "listening" ? "Stop dictating" : "Cancel dictation"} ${keys}`.trim()}
-        // Keeps the box focused, and the keyboard up.
-        onPointerDown={(e) => e.preventDefault()}
-        onClick={() => toggleDictation(field)}
-      >
-        <Icon name="mic" size={14} stroke={1.7} />
-      </button>
-    )
-  );
+  return field && <Mic ref={mic} field={field} phase={phase} keys={keys} />;
 }
 
 function Wave({ listening, polishing, keys }: { listening: boolean; polishing: boolean; keys: string }) {
@@ -399,7 +458,7 @@ function Wave({ listening, polishing, keys }: { listening: boolean; polishing: b
     return () => cancelAnimationFrame(raf);
   }, [listening]);
   return (
-    <div className="dictation" role="status" aria-live="polite" data-polishing={polishing || undefined}>
+    <div className="dictation" role="status" aria-live="polite">
       <div className="dictation-head">
         <span className="dictation-mic" data-on={listening || undefined}>
           <Icon name="mic" size={14} stroke={1.7} />

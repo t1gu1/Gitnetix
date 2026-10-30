@@ -4,7 +4,8 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::RwLock;
+use std::sync::{Mutex, RwLock};
+use std::time::SystemTime;
 
 use serde::{Deserialize, Serialize};
 
@@ -463,13 +464,44 @@ pub fn write_private(path: &Path, contents: impl AsRef<[u8]>) -> std::io::Result
 pub struct Store {
     path: PathBuf,
     data: RwLock<Config>,
+    /// The file as this process last read or wrote it. Another instance on the same folder (a dev
+    /// build next to the installed app) writes it too: a different stamp means take theirs in first.
+    seen: Mutex<Option<Stamp>>,
 }
 
-fn save(path: &Path, cfg: &Config) -> Result<()> {
-    let tmp = path.with_extension("json.tmp");
+/// Modification time and size of a file.
+type Stamp = (SystemTime, u64);
+
+fn stamp(path: &Path) -> Option<Stamp> {
+    let m = std::fs::metadata(path).ok()?;
+    Some((m.modified().ok()?, m.len()))
+}
+
+/// Returns the stamp of what it wrote.
+fn save(path: &Path, cfg: &Config) -> Result<Option<Stamp>> {
+    // One temp file per process: two instances saving at once would mix their writes in a shared one.
+    let tmp = path.with_extension(format!("json.{}.tmp", std::process::id()));
     write_private(&tmp, serde_json::to_string_pretty(cfg)?)?;
+    // Before the rename: a save by another instance right after it then still reads as theirs.
+    let saved = stamp(&tmp);
     std::fs::rename(&tmp, path)?;
-    Ok(())
+    Ok(saved)
+}
+
+/// A config file, with templates added since it was written and unedited default ones brought up to date.
+fn parse(raw: &str) -> Result<Config> {
+    let mut cfg: Config = serde_json::from_str(raw)?;
+    // Kinds added since the config was written get their default templates, and
+    // defaults never edited get the body this version ships.
+    for t in default_templates() {
+        if let Some(x) = cfg.templates.iter_mut().find(|x| x.id == t.id && OLD_BODIES.contains(&(&*x.id, &*x.body))) {
+            x.body = t.body.clone();
+        }
+        if !cfg.templates.iter().any(|x| x.kind == t.kind) {
+            cfg.templates.push(t);
+        }
+    }
+    Ok(cfg)
 }
 
 impl Store {
@@ -482,37 +514,42 @@ impl Store {
             let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700));
         }
         let path = dir.join("config.json");
-        let data = if path.exists() {
-            let raw = std::fs::read_to_string(&path)?;
-            let mut cfg: Config = serde_json::from_str(&raw)?;
-            // Kinds added since the config was written get their default templates, and
-            // defaults never edited get the body this version ships.
-            for t in default_templates() {
-                if let Some(x) = cfg.templates.iter_mut().find(|x| x.id == t.id && OLD_BODIES.contains(&(&*x.id, &*x.body))) {
-                    x.body = t.body.clone();
-                }
-                if !cfg.templates.iter().any(|x| x.kind == t.kind) {
-                    cfg.templates.push(t);
-                }
-            }
-            cfg
-        } else {
-            Config::default()
-        };
-        save(&path, &data)?;
-        Ok(Store { path, data: RwLock::new(data) })
+        let data = if path.exists() { parse(&std::fs::read_to_string(&path)?)? } else { Config::default() };
+        let seen = save(&path, &data)?;
+        Ok(Store { path, data: RwLock::new(data), seen: Mutex::new(seen) })
     }
 
     pub fn read<R>(&self, f: impl FnOnce(&Config) -> R) -> R {
+        if stamp(&self.path) != *self.seen.lock().unwrap() {
+            // Never waits: while anyone reads (this thread included) the next read takes it in.
+            if let Ok(mut g) = self.data.try_write() {
+                self.take_in(&mut g);
+            }
+        }
         f(&self.data.read().expect("config lock"))
     }
 
-    /// Mutate and persist. Saved under the lock: concurrent saves would share the temp file.
+    /// Mutate and persist, on top of what another instance saved meanwhile. Saved under the lock: concurrent saves would share the temp file.
     pub fn write<R>(&self, f: impl FnOnce(&mut Config) -> Result<R>) -> Result<R> {
         let mut g = self.data.write().expect("config lock");
+        self.take_in(&mut g);
         let r = f(&mut g)?;
-        save(&self.path, &g)?;
+        let saved = save(&self.path, &g)?;
+        *self.seen.lock().unwrap() = saved;
         Ok(r)
+    }
+
+    /// Replace `cfg` (held under the write lock) with the file when another instance saved it since. Kept as is when unreadable.
+    fn take_in(&self, cfg: &mut Config) {
+        let mut seen = self.seen.lock().unwrap();
+        let now = stamp(&self.path);
+        if now == *seen {
+            return;
+        }
+        if let Some(theirs) = std::fs::read_to_string(&self.path).ok().and_then(|raw| parse(&raw).ok()) {
+            *cfg = theirs;
+            *seen = now;
+        }
     }
 
     pub fn snapshot(&self) -> Config {
@@ -582,6 +619,21 @@ mod tests {
         });
         let reopened = super::Store::open(dir.path()).unwrap();
         assert_eq!(reopened.read(|c| c.ui.view.len()), 16 * 20);
+    }
+
+    #[test]
+    fn another_instance_on_the_same_folder_is_seen_and_never_overwritten() {
+        let dir = tempfile::tempdir().unwrap();
+        let (mine, theirs) = (super::Store::open(dir.path()).unwrap(), super::Store::open(dir.path()).unwrap());
+        let set = |s: &super::Store, k: &str| s.write(|c| Ok(c.ui.view.insert(k.into(), "1".into()))).unwrap();
+        let keys = |s: &super::Store| s.read(|c| c.ui.view.keys().cloned().collect::<Vec<_>>());
+        set(&theirs, "a");
+        assert_eq!(keys(&mine), ["a"]);
+        // Written without reading first: theirs is taken in, then saved with mine.
+        set(&theirs, "b");
+        set(&mine, "c");
+        assert_eq!(keys(&super::Store::open(dir.path()).unwrap()), ["a", "b", "c"]);
+        assert_eq!(keys(&theirs), ["a", "b", "c"]);
     }
 
     #[test]

@@ -158,6 +158,11 @@ details[open] .chev{transform:rotate(45deg)}
 .hd .hdr{display:flex;align-items:stretch;height:43px;flex:0 0 43px;border-bottom:1px solid var(--line);background:var(--bg)}
 .hd .hdr-icon{display:flex;align-items:center;justify-content:center;width:48px;flex:0 0 48px;color:var(--fg);border-right:1px solid var(--line)}
 .hd .hdr-tools{display:flex;align-items:center;gap:8px;margin-left:auto}
+/* a page's Header (demo/ui.tsx PageHead): the phone's only */
+.hd .pg-head{display:none}
+.hd button.hdr-icon{border:0;border-right:1px solid var(--line);background:transparent}
+.hd .hdr-title{display:flex;align-items:center;gap:10px;padding:0 16px;min-width:0}
+.hd .hdr-title strong{font-weight:600;white-space:nowrap}
 .hd .tabs-projects{display:flex;align-items:stretch;min-width:0;overflow:hidden;border-right:1px solid var(--line)}
 .hd .tab-project{position:relative;display:flex;align-items:stretch;border-right:1px solid var(--line);color:var(--muted);--fixed-w-weight:500}
 .hd .tab-project[data-active]{background:var(--panel);color:var(--fg);font-weight:500;box-shadow:inset 0 -2px 0 var(--accent)}
@@ -628,6 +633,11 @@ details[open] .chev{transform:rotate(45deg)}
 .hd-phone :is(.master,.sidenav){flex:none;border-right:0;border-bottom:1px solid var(--line)}
 .hd-phone .pg>:is(.detail,main){flex:none}
 .hd-phone .pg>:is(.wt-pane,main:not(.detail,.page)){height:480px}
+/* A list page shows its list or the picked item, filling the screen: app.css's .split > [data-pane]. */
+.hd-phone .pg-head{display:flex}
+.hd-phone .pg>[data-pane]{flex:1 1 0;min-height:0;border-bottom:0}
+.hd-phone .pg>[data-pane]:not([data-active=true]){display:none}
+.hd-phone .pg:has(>[data-pane]){overflow:hidden}
 .hd-phone :is(.detail,.page){padding:20px 16px 40px}
 .hd-phone .detail:has(.term-max){padding:0}
 .hd-phone :is(.hide-sm,.hide-narrow),.hd-phone .term-max .picker-acts{display:none}
