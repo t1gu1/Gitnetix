@@ -4028,6 +4028,10 @@ button.picker-act {
   font-size: 12px;
   line-height: 18px;
 }
+/* The mic keeps as far from the picker as from the bottom: the box takes the row's gap. */
+.term-input textarea[data-mic] {
+  margin-right: -8px;
+}
 /* The placeholder stays on one line, cut with "…": wrapped, it grew the empty box, whose height is measured with it. */
 .term-input textarea::placeholder {
   white-space: nowrap;
