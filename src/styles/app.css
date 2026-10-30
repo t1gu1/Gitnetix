@@ -4020,11 +4020,19 @@ button.picker-act {
   resize: none;
   /* Text wraps; with no side padding the caret at a line's end overflows by a pixel and brings up a sideways scrollbar. */
   overflow-x: hidden;
+  /* Chromium draws the placeholder's "…" only with this on the textarea too. */
+  text-overflow: ellipsis;
   background: transparent;
   color: var(--fg);
   font-family: var(--mono);
   font-size: 12px;
   line-height: 18px;
+}
+/* The placeholder stays on one line, cut with "…": wrapped, it grew the empty box, whose height is measured with it. */
+.term-input textarea::placeholder {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 /* Files waiting to go with the next message: a band of its own, so the bar's columns start on its line. */
 .ag-attach {

@@ -19,6 +19,7 @@ release notes and the in-app update prompt.
 - Typing in the agent message box stays fast with long agent logs and long messages: a key no longer redraws the whole log.
 - An agent's new output redraws only its own log, not the other agents' logs, the branch tree and the top bar.
 - The worktree list, refreshed every 10 seconds, no longer carries every agent's full log.
+- In a narrow window, the agent message box's placeholder stays on one line, cut with "…": it no longer grows the empty box to two or three lines, or shows half a line after the window shrinks.
 
 ## [0.13.0] - 2026-10-29
 
