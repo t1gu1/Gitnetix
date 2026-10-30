@@ -11,13 +11,24 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+### Added
+- The new branch dialog can be minimized to a chip in the corner of the window.
+- Terminal menu rows have a close icon.
+
 ### Changed
+- Dictation now runs on the Parakeet Ultra model, which detects the language itself, so the per-language models and vocabulary setup are gone.
 - Endless animations (activity pulses, branch shine and path, WIP badge, push nudge, spinners) pause after 30 seconds without mouse, wheel or keyboard input, or while the window is hidden, and pick up again at the next input. Dictation keeps moving.
 - On Linux, WebKitGTK's DMA-BUF renderer is no longer turned off. If Gitnetix closes at start with "Error 71 (Protocol error) dispatching to Wayland display" (seen with some NVIDIA drivers), start it with `WEBKIT_DISABLE_DMABUF_RENDERER=1`.
+- Commit and stash list panes have a full-height square back button on the left edge, and the diff pane's close button mirrors it on the right edge.
+- Long context menus split into two columns.
+- The microphone button in text fields is a small square, and its shortcut moved to the tooltip.
+- Narrow diffs size their line-number columns from the highest line number.
 
 ### Fixed
 - Typing in the agent message box stays fast with long agent logs and long messages: a key no longer redraws the whole log.
 - An agent's new output redraws only its own log, not the other agents' logs, the branch tree and the top bar.
+- Words after a hyphen in an agent's question are no longer taken as pick words.
+- Switching to the current branch in the new branch dialog turns the agent off.
 - The worktree list, refreshed every 10 seconds, no longer carries every agent's full log.
 - In a narrow window, the agent message box's placeholder stays on one line, cut with "…": it no longer grows the empty box to two or three lines, or shows half a line after the window shrinks.
 
