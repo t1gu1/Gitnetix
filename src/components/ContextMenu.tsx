@@ -19,6 +19,8 @@ export type MenuItem =
       keep?: boolean;
       /** What the search field matches when the label isn't plain text. */
       text?: string;
+      /** A trash icon at the right end of the row; it leaves the menu open. */
+      del?: { label: string; run: () => void };
       run: () => void;
     };
 
@@ -137,6 +139,24 @@ export function ContextMenu({ x, y, items, label, alignRight, columns, search, o
   const matching = q ? items.filter((it) => it !== "sep" && !("heading" in it) && (it.text ?? (typeof it.label === "string" ? it.label : "")).toLowerCase().includes(q)) : items;
   const shown: (MenuItem | MenuHeading)[] = matching.length || !q ? matching : [{ id: "none", label: `No match for “${query.trim()}”`, icon: null, disabled: true, run: () => {} }];
 
+  const item = (it: Exclude<MenuItem, "sep">) => (
+    <button
+      key={it.id}
+      role="menuitem"
+      className={`ctx-item${it.danger ? " c-del" : ""}`}
+      // Names too long for the menu read in full on hover.
+      title={search && typeof it.label === "string" ? it.label : undefined}
+      disabled={it.disabled}
+      onClick={() => {
+        if (!it.keep) closeRef.current();
+        it.run();
+      }}
+    >
+      {it.icon !== null && <span className={`ctx-icon${it.warn ? " ctx-warn" : ""}`}>{it.icon && <Icon name={it.icon} size={13} />}</span>}
+      <span className="grow ellipsis">{it.label}</span>
+      {it.hint && <span className="ctx-hint">{it.hint}</span>}
+    </button>
+  );
   const row = (it: MenuItem | MenuHeading, i: number) =>
     it === "sep" ? (
       <div key={`sep-${i}`} className="ctx-sep" role="separator" />
@@ -144,23 +164,15 @@ export function ContextMenu({ x, y, items, label, alignRight, columns, search, o
       <div key={`head-${i}`} className="ctx-head ellipsis" role="presentation">
         {it.heading}
       </div>
+    ) : it.del ? (
+      <div key={it.id} className="ctx-row">
+        {item(it)}
+        <button type="button" className="act ctx-del" aria-label={it.del.label} data-tip={it.del.label} onClick={it.del.run}>
+          <Icon name="trash" size={12} />
+        </button>
+      </div>
     ) : (
-      <button
-        key={it.id}
-        role="menuitem"
-        className={`ctx-item${it.danger ? " c-del" : ""}`}
-        // Names too long for the menu read in full on hover.
-        title={search && typeof it.label === "string" ? it.label : undefined}
-        disabled={it.disabled}
-        onClick={() => {
-          if (!it.keep) closeRef.current();
-          it.run();
-        }}
-      >
-        {it.icon !== null && <span className={`ctx-icon${it.warn ? " ctx-warn" : ""}`}>{it.icon && <Icon name={it.icon} size={13} />}</span>}
-        <span className="grow ellipsis">{it.label}</span>
-        {it.hint && <span className="ctx-hint">{it.hint}</span>}
-      </button>
+      item(it)
     );
   const cols: (MenuItem | MenuHeading)[][] = [[]];
   if (columns)

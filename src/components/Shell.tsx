@@ -39,10 +39,11 @@ export function TermTabs({ value, onChange, path }: { value: TermView; onChange:
     setShells({ tabs: list, cur: n });
     onChange("shell");
   };
-  const close = () => {
-    rpc("shell.close", { path, tab: cur }).catch(() => {});
-    const rest = tabs.filter((n) => n !== cur);
-    pick(rest[Math.max(0, tabs.indexOf(cur) - 1)], rest);
+  const close = (n: number) => {
+    rpc("shell.close", { path, tab: n }).catch(() => {});
+    const rest = tabs.filter((t) => t !== n);
+    if (n === cur) pick(rest[Math.max(0, tabs.indexOf(n) - 1)], rest);
+    else setShells({ tabs: rest, cur });
   };
   const next = Math.max(...tabs) + 1;
   return (
@@ -76,10 +77,15 @@ export function TermTabs({ value, onChange, path }: { value: TermView; onChange:
           label="Terminals"
           onClose={() => setMenu(undefined)}
           items={[
-            ...tabs.map((n, i) => ({ id: `t${n}`, label: `Terminal ${i + 1}`, icon: n === cur ? "check" : undefined, run: () => pick(n) })),
+            ...tabs.map((n, i) => ({
+              id: `t${n}`,
+              label: `Terminal ${i + 1}`,
+              icon: n === cur ? "check" : undefined,
+              del: tabs.length > 1 ? { label: `Close Terminal ${i + 1}`, run: () => close(n) } : undefined,
+              run: () => pick(n),
+            })),
             "sep",
             { id: "new", label: "New terminal", icon: "plus", run: () => pick(next, [...tabs, next]) },
-            ...(tabs.length > 1 ? [{ id: "close", label: `Close Terminal ${tabs.indexOf(cur) + 1}`, icon: "close", danger: true, run: close }] : []),
           ]}
         />
       )}

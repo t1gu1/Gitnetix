@@ -2600,6 +2600,22 @@ button.tree-twist:hover {
   color: var(--faint);
   cursor: default;
 }
+/* An item with a trash icon at its right end (e.g. a terminal). */
+.ctx-row {
+  display: flex;
+}
+.ctx-row > .ctx-item {
+  flex: 1;
+  min-width: 0;
+}
+/* Square: as wide as .ctx-item's min-height. */
+.ctx-del {
+  width: 30px;
+  border-radius: var(--r);
+}
+.ctx-del:hover:not(:disabled) {
+  color: var(--del-fg);
+}
 .ctx-icon {
   width: 14px;
   display: inline-flex;
@@ -2734,6 +2750,9 @@ button.tree-twist:hover {
 @media (pointer: coarse) {
   .ctx-item {
     min-height: 40px;
+  }
+  .ctx-del {
+    width: 40px;
   }
   .ctx-head .act {
     width: 32px;
