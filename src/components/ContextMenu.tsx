@@ -36,7 +36,7 @@ let lastDown: Element | null = null;
 window.addEventListener("mousedown", (e) => (lastDown = (e.target as Element).closest?.(TRIGGER) ?? null), true);
 
 /**
- * Floating menu at a viewport point; closes on outside click, Escape, scroll or resize.
+ * Floating menu at a viewport point; closes on outside click, Escape, the user scrolling or resize.
  * `columns`: each run between separators is a column, side by side on wide screens.
  * `search`: the placeholder of a filter field atop the items (e.g. a long branch list), matching their `text` or plain-text label.
  */
@@ -115,15 +115,18 @@ export function ContextMenu({ x, y, items, label, alignRight, columns, search, o
       const step = e.key === "ArrowDown" ? 1 : -1;
       btns[i < 0 && step < 0 ? btns.length - 1 : (i + step + btns.length) % btns.length]?.focus();
     };
+    // Only the user scrolling closes it: a log or terminal following new output scrolls too, and must leave it open.
     const away = (e: Event) => !ref.current?.contains(e.target as Node) && onClose();
     window.addEventListener("mousedown", down, true);
     window.addEventListener("keydown", key);
-    window.addEventListener("scroll", away, true);
+    window.addEventListener("wheel", away, true);
+    window.addEventListener("touchmove", away, true);
     window.addEventListener("resize", onClose);
     return () => {
       window.removeEventListener("mousedown", down, true);
       window.removeEventListener("keydown", key);
-      window.removeEventListener("scroll", away, true);
+      window.removeEventListener("wheel", away, true);
+      window.removeEventListener("touchmove", away, true);
       window.removeEventListener("resize", onClose);
       prev?.focus?.();
     };
