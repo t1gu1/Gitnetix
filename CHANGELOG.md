@@ -11,6 +11,8 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+## [0.13.2] - 2026-10-30
+
 ### Added
 - A Shipped cleanup button deletes shipped release branches locally and on origin, keeping their tags. Only the branches filed under them are rebuilt.
 - On narrow screens, a left-to-right swipe in Pull requests, Submodules, Tickets and Worktrees steps back from the detail pane to the list.
