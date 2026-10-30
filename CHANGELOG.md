@@ -11,6 +11,8 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+## [0.13.1] - 2026-10-30
+
 ### Added
 - The new branch dialog can be minimized to a chip in the corner of the window.
 - Terminal menu rows have a close icon.
