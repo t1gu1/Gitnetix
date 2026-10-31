@@ -889,8 +889,10 @@ body.dragging-tab * {
   text-align: left;
   cursor: pointer;
 }
-/* The new agent session's project and branch (Worktrees.tsx): names in flowing colours with a soft glow, so a session never starts on the wrong one unnoticed. */
-.glow-name > .ellipsis {
+/* The new agent session's project and branch (Worktrees.tsx): names in flowing colours with a soft glow, so a session never starts on the wrong one unnoticed.
+   A branch's worktree link while its agent works (BranchTree.tsx) wears the same. */
+.glow-name > .ellipsis,
+.glow-working > span {
   font-weight: 600;
   background: linear-gradient(90deg, var(--trunk-fg), var(--release-fg), var(--prop-fg), var(--add-fg), var(--trunk-fg)) 0 0 / 300% 100%;
   -webkit-background-clip: text;
@@ -899,13 +901,34 @@ body.dragging-tab * {
   filter: drop-shadow(0 0 5px color-mix(in srgb, var(--release-fg) 45%, transparent));
   animation: glow-name 8s linear infinite;
 }
+/* An icon can't clip a gradient: its stroke steps through the same colours on the same clock. */
+.glow-working > svg {
+  filter: drop-shadow(0 0 5px color-mix(in srgb, var(--release-fg) 45%, transparent));
+  animation: glow-stroke 8s linear infinite;
+}
 @keyframes glow-name {
   to {
     background-position: 300% 0;
   }
 }
+@keyframes glow-stroke {
+  0%,
+  100% {
+    color: var(--trunk-fg);
+  }
+  25% {
+    color: var(--release-fg);
+  }
+  50% {
+    color: var(--prop-fg);
+  }
+  75% {
+    color: var(--add-fg);
+  }
+}
 @media (prefers-reduced-motion: reduce) {
-  .glow-name > .ellipsis {
+  .glow-name > .ellipsis,
+  .glow-working > * {
     animation: none;
   }
 }
@@ -5961,7 +5984,8 @@ body:has(> .modal-scrim) #root * {
     .tree-row[data-current] .tree-name > .mono,
     :is(.child-label, .group-label, .shipped-label)[data-active],
     .wt-group-head > [data-glint],
-    .glow-name > .ellipsis
+    .glow-name > .ellipsis,
+    .glow-working > *
   ) {
   animation: none !important;
 }
@@ -5995,6 +6019,7 @@ body:has(> .modal-scrim) #root * {
     :is(.child-label, .group-label, .shipped-label)[data-active],
     .wt-group-head > [data-glint],
     .glow-name > .ellipsis,
+    .glow-working > *,
     :is(.input, .select, .textarea):focus
   ),
 :root[data-idle] :is(.tree-row, .tree-node, .tree-sep)[data-path]::before,

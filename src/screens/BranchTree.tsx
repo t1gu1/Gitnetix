@@ -806,9 +806,9 @@ function BranchMeta({
       {current && <span className="c-current">checked out</span>}
       {b.worktree ? (
         // Its checkout's state: the agent's status, icon in its color, or "worktree" with no agent working or waiting there.
-        <span className={`row meta-link meta-link-icon${b.running ? " c-acc" : state ? " c-add" : ""}`} style={{ gap: 4 }} data-tip={`${b.worktree}. Click to open it in Worktrees & agents.`} onClick={openRow} onDoubleClick={(e) => e.stopPropagation()}>
+        <span className={`row meta-link meta-link-icon${b.running ? " glow-working" : state ? " c-add" : ""}`} style={{ gap: 4 }} data-tip={`${b.worktree}. Click to open it in Worktrees & agents.`} onClick={openRow} onDoubleClick={(e) => e.stopPropagation()}>
           <Icon name="layers" size={11} stroke={1.4} />
-          {state ? <span className="ai-fade">{state}</span> : "worktree"}
+          {state ? <span className={b.running ? undefined : "ai-fade"}>{state}</span> : "worktree"}
         </span>
       ) : b.running && (
         <span
