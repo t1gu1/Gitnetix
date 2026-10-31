@@ -28,8 +28,9 @@
   /* Floating layers: a tight contact shadow under a wide soft one. */
   --shadow-pop: 0 1px 2px rgba(0, 0, 0, 0.4), 0 10px 28px -6px rgba(0, 0, 0, 0.55);
   --shadow-lg: 0 2px 6px rgba(0, 0, 0, 0.35), 0 24px 64px -12px rgba(0, 0, 0, 0.7);
-  /* Keyboard focus and focused fields: a soft accent halo outside the border. */
-  --ring: 0 0 0 3px color-mix(in srgb, var(--accent) 28%, transparent);
+  /* Focused fields: a soft accent halo that fades out from the border, no hard band. */
+  --ring-alpha: 40%;
+  --ring: 0 0 10px color-mix(in srgb, var(--accent) var(--ring-alpha), transparent);
   --scrim: rgba(5, 6, 8, 0.55);
   --sans: "Instrument Sans", "Helvetica Neue", system-ui, sans-serif;
   --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
@@ -80,7 +81,7 @@
   --shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
   --shadow-pop: 0 1px 2px rgba(20, 20, 30, 0.08), 0 10px 28px -6px rgba(20, 20, 30, 0.18);
   --shadow-lg: 0 2px 6px rgba(20, 20, 30, 0.08), 0 24px 64px -12px rgba(20, 20, 30, 0.28);
-  --ring: 0 0 0 3px color-mix(in srgb, var(--accent) 38%, transparent);
+  --ring-alpha: 50%;
   --scrim: rgba(30, 30, 36, 0.32);
   color-scheme: light;
 }
@@ -916,12 +917,33 @@ body.dragging-tab * {
   line-height: 1.5;
   overflow-x: hidden;
 }
+/* Focused fields: the halo's lighter and deeper accent shades sit on opposite sides and slowly trade places around the field. */
+@property --ring-a {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
 .input:focus,
 .select:focus,
 .textarea:focus {
   border-color: var(--accent);
   outline: none;
-  box-shadow: var(--ring);
+  box-shadow:
+    calc(cos(var(--ring-a)) * 3px) calc(sin(var(--ring-a)) * 3px) 10px
+      color-mix(in srgb, color-mix(in srgb, var(--accent), #fff 35%) var(--ring-alpha), transparent),
+    calc(cos(var(--ring-a)) * -3px) calc(sin(var(--ring-a)) * -3px) 10px
+      color-mix(in srgb, color-mix(in srgb, var(--accent), #e8590c 45%) var(--ring-alpha), transparent);
+  animation: ring-flow 6s linear infinite;
+}
+@keyframes ring-flow {
+  to {
+    --ring-a: 360deg;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  :is(.input, .select, .textarea):focus {
+    animation: none;
+  }
 }
 .check {
   display: flex;
@@ -5943,6 +5965,9 @@ body:has(> .modal-scrim) #root * {
   ) {
   animation: none !important;
 }
+:root[data-anim-off~="focus"] :is(.input, .select, .textarea):focus {
+  animation: none !important;
+}
 :root[data-anim-off~="commit"] .meta-link-grow {
   animation: none !important;
 }
@@ -5969,7 +5994,8 @@ body:has(> .modal-scrim) #root * {
     .tree-row[data-current] .tree-name > .mono,
     :is(.child-label, .group-label, .shipped-label)[data-active],
     .wt-group-head > [data-glint],
-    .glow-name > .ellipsis
+    .glow-name > .ellipsis,
+    :is(.input, .select, .textarea):focus
   ),
 :root[data-idle] :is(.tree-row, .tree-node, .tree-sep)[data-path]::before,
 :root[data-idle] :is(.tree-toggle[data-path] + .tree-open, .tree-merged + .tree-kids[data-path])::after {
