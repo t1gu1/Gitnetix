@@ -33,7 +33,7 @@ const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').split('-
 const requestOf = (s: Session) => blocks(s.lines).find((b) => b.kind === 'you')?.text.split('\n')[0];
 
 export default function Worktrees() {
-  const { agents } = useDemo();
+  const { agents, openBranch, wtPick } = useDemo();
   const [filter, setFilter] = useState<Filter>('all');
   const [sel, setSel] = useState<string>();
   // On the phone: the list, or the picked worktree in its place.
@@ -65,6 +65,8 @@ export default function Worktrees() {
     setSel(key);
     setPane('detail');
   };
+  // A branch's worktree link picks its row, this view mounted or not (the route key in src/screens/Worktrees.tsx).
+  useEffect(() => void (wtPick && open(wtPick.key)), [wtPick]);
 
   return (
     <>
@@ -83,16 +85,19 @@ export default function Worktrees() {
           {groups.map((g) => (
             <div key={g.name} className="wt-group" data-empty={!g.items.length || undefined}>
               <div className="wt-group-head">
-                <span className="ellipsis grow">{g.name}</span>
-                <span className="faint">{g.items.length || 'No worktrees'}</span>
+                <span className="ellipsis">{g.name}</span>
+                {g.items.length > 0 && <span className="wt-count">{g.items.length}</span>}
+                <span className="grow" />
+                {!g.items.length && <span className="faint">No worktrees</span>}
                 <button className="btn btn-ghost btn-sm btn-icon" aria-label={`New agent session in ${g.name}`} title="New agent session" onClick={() => setStarting(g.name)}>
-                  <Icon name="plus" size={12} />
+                  <Icon name="plus" size={14} />
                 </button>
               </div>
               {g.items.map(({ s, st }) => {
                 const [label, cls] = STATUS[st];
                 const sub = requestOf(s);
                 const more = `More actions for ${s.branch}`;
+                const show = `Show ${s.branch} in the workspace`;
                 return (
                   <div key={s.key} className="wt-item" onContextMenu={(e) => openMenu(s, e)}>
                     <button className="item-btn wt-row" aria-pressed={s.key === cur?.s.key} title={pathOf(s)} onClick={() => open(s.key)}>
@@ -105,16 +110,21 @@ export default function Worktrees() {
                         {s.behind > 0 && <span className="c-warn mono" style={{ flex: 'none' }} title={`${s.base} has ${plural(s.behind, 'commit')} that ${s.branch} doesn't. Update or rebase to catch up.`}>↓{s.behind}</span>}
                       </span>
                       <span className="row wt-meta">
-                        <span className={st === 'running' ? 'pulse' : `wt-dot ${cls}`} />
-                        <span className={cls} style={{ flex: 'none' }}>{label}</span>
+                        <span className={st === 'running' ? 'pulse glow-dot' : `wt-dot ${cls}`} />
+                        <span className={st === 'running' ? 'glow-working' : cls} style={{ flex: 'none' }}><span>{label}</span></span>
                         {sub && <span className="faint">·</span>}
                         <span className="faint ellipsis grow">{sub}</span>
                         {s.ago && <span className="faint" style={{ flex: 'none' }}>{s.ago}</span>}
                       </span>
                     </button>
-                    {/* Like a branch's "…", but alone: it takes the whole height. */}
+                    {/* Stacked like a branch's "+" over its "…"; alone (another project, not in this demo's workspace), the "…" takes the whole height. */}
                     <span className="tree-acts">
-                      <span className="acts">
+                      <span className="acts act-stack">
+                        {s.project === 'acme-web' && (
+                          <button className="act act-main" aria-label={show} title={show} onClick={() => openBranch(s.branch)}>
+                            <Icon name="eye" size={14} />
+                          </button>
+                        )}
                         <button className="act act-main" aria-label={more} title={more} aria-haspopup="menu" onClick={(e) => openMenu(s, e)}>
                           <Icon name="more" size={14} />
                         </button>
@@ -348,11 +358,11 @@ function StartModal({ initial, onClose, onStarted }: { initial: string; onClose:
       <div className="row" style={{ gap: 10, alignItems: 'flex-start' }}>
         <div className="field grow">
           <span>Project</span>
-          <Choice className="select menu-select" label="Project" value={pid} options={PROJECTS.map((p) => ({ value: p, label: p }))} onChange={(v) => { setPid(v); setPicked(''); setFrom(''); setMode(undefined); setError(''); }} />
+          <Choice className="select menu-select glow-name" label="Project" value={pid} options={PROJECTS.map((p) => ({ value: p, label: p }))} onChange={(v) => { setPid(v); setPicked(''); setFrom(''); setMode(undefined); setError(''); }} />
         </div>
         <div className="field grow">
           <span>{fresh ? 'Branches off' : 'Branch'}</span>
-          <Choice className="select menu-select" label={fresh ? 'Branches off' : 'Branch'} value={fresh ? from : branch} options={(fresh ? all : free).map((b) => ({ value: b, label: b }))} onChange={fresh ? setFrom : setPicked} />
+          <Choice className="select menu-select glow-name" label={fresh ? 'Branches off' : 'Branch'} value={fresh ? from : branch} options={(fresh ? all : free).map((b) => ({ value: b, label: b }))} onChange={fresh ? setFrom : setPicked} />
         </div>
         {/* Linked to the branch: the agent gets the ticket's content from Jira, Trello or Asana. */}
         <div className="field" style={{ flex: '0 1 140px', minWidth: 0 }}>

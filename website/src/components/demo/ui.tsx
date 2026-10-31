@@ -14,6 +14,10 @@ export type Demo = {
   go: (page: string) => void;
   /** Workspace page, with this branch picked in the tree. */
   openBranch: (name: string) => void;
+  /** Worktrees & agents with this row picked, from a branch's worktree link. */
+  openWorktree: (key: string) => void;
+  /** The row it last asked for: a new object each time, so the same row is picked again. */
+  wtPick?: { key: string };
   branches: Record<string, Branch>;
   /** Selected and checked-out branches in the workspace. */
   sel: string;

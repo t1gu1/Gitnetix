@@ -7,7 +7,7 @@ import ThemePicker from './ThemePicker';
 import { PathLine, type Path } from './HeroDemo';
 import { Avatar } from './demo/ui';
 
-/** The orange path from main to the checked-out row in the "subway map" tree, measured once off the rendered rows like HeroDemo does. */
+/** The accent path from main to the checked-out row in the "subway map" tree, measured once off the rendered rows like HeroDemo does. */
 const TREE_PATH: Path = { d: 'M6.5 6V127H12.5V214H18.5V239.5', len: 245.5, x: 18.5, top: 214, mid: 239.5, bottom: 265 };
 
 /** The "other Git clients" graph: one commit per row like a real log, seven lanes forking off and merging across each other. */
@@ -53,15 +53,14 @@ function HeroRails({ side }: { side: 'l' | 'r' }) {
 }
 
 /** A static branch row, in HeroDemo's markup (from src/screens/BranchTree.tsx). */
-function TreeRow({ row, role, icon, author, name, tag, current, act, meta, ai }: { row: string; role: string; icon: string; author: string; name: string; tag?: string; current?: boolean; act: string; meta: ReactNode; ai?: boolean }) {
+function TreeRow({ row, role, icon, author, name, kind, tag, current, act, meta, ai }: { row: string; role: string; icon: string; author: string; name: string; kind?: string; tag?: string; current?: boolean; act: string; meta: ReactNode; ai?: boolean }) {
   return (
     <div className="tree-row" data-row={row} data-role={role} data-current={current || undefined}>
       <span className="tree-btn">
         <span className="tree-lead"><span className="tree-icon"><Icon name={icon} size={13} stroke={1.5} /></span><Avatar name={author} /></span>
         <span className="tree-main">
-          <span className="tree-name"><span className="mono ellipsis">{name}</span>{tag && <span className="tag accent">{tag}</span>}</span>
-          <span className="branch-meta">{meta}</span>
-          {ai && <span className="branch-meta"><span className="row c-acc" style={{ gap: 4 }}><Icon name="layers" size={11} stroke={1.4} /><span className="ai-fade">AI working</span></span></span>}
+          <span className="tree-name">{kind && <span className={`kind-chip ${kind === 'fix' ? 'c-del' : 'c-mod'}`}>{kind}</span>}<span className="mono ellipsis">{name}</span>{tag && <span className="tag accent">{tag}</span>}</span>
+          <span className="branch-meta">{ai && <span className="row meta-link meta-link-icon glow-working" style={{ gap: 4 }}><Icon name="layers" size={11} stroke={1.4} /><span>working</span></span>}{meta}</span>
         </span>
       </span>
       <span className="tree-acts"><span className="acts"><span className="act act-main"><Icon name={act} size={14} /></span><span className="act-stack"><span className="act"><Icon name="plus" size={12} /></span><span className="act"><Icon name="more" size={13} /></span></span></span></span>
@@ -111,7 +110,7 @@ export default function Home({ version, demo, agents, phone }: { version: string
     <figure style={{ maxWidth: '1120px', margin: '32px auto 0', padding: '0' }}>
     <p style={{ margin: '0 auto 16px', width: 'fit-content', maxWidth: '100%', boxSizing: 'border-box', fontSize: '13px', color: 'var(--muted)', background: 'var(--panel)', border: '1px solid var(--line)', padding: '6px 14px', borderRadius: '999px', textAlign: 'center' }}>Heads up: this web demo runs on made-up data and is a bit clunkier than the real app. Not every button works.</p>
     {demo}
-    <figcaption style={{ textAlign: 'center', fontSize: '13px', color: 'var(--faint)', marginTop: '16px' }}>Try it: pick a branch, open a file, ask the agent, commit; double-click a branch to check it out. Every tab opens too: answer the agents in Worktrees &amp; agents, review a pull request, triage tickets.</figcaption>
+    <figcaption style={{ textAlign: 'center', fontSize: '13px', color: 'var(--faint)', marginTop: '16px' }}>Try it: pick a branch, open a file, ask the agent, commit; double-click a branch to check it out. Every tab opens too: review a pull request, triage tickets, or answer the agents in Worktrees &amp; agents, the square button beside the menu.</figcaption>
     </figure>
     </section>
 
@@ -183,8 +182,8 @@ export default function Home({ version, demo, agents, phone }: { version: string
     <div className="tree-sub">
     <div className="tree-row tree-group tree-toggle"><span className="tree-twist"><Icon name="chevronDown" size={12} className="chev" /></span><span className="child-label" data-active>Child branches</span><span className="faint">2</span></div>
     <div className="tree-open"><div className="tree-kids">
-    <div className="tree-node"><TreeRow row="feat" role="branch" icon="branch" author="Grace Hopper" name="checkout-redesign" current act="merged" meta={<><span className="kind-chip c-mod">feat</span><span className="c-current">checked out</span><span className="meta-link">4 commits</span></>} /></div>
-    <div className="tree-node"><TreeRow row="fix" role="branch" icon="branch" author="Jules Laurent" name="cart-total" act="swap" meta={<><span className="kind-chip c-del">fix</span><span className="meta-link">2 commits</span></>} ai /></div>
+    <div className="tree-node"><TreeRow row="feat" role="branch" icon="branch" author="Grace Hopper" name="checkout-redesign" kind="feat" current act="merged" meta={<><span className="c-current">checked out</span><span className="meta-link">4 commits</span></>} /></div>
+    <div className="tree-node"><TreeRow row="fix" role="branch" icon="branch" author="Jules Laurent" name="cart-total" kind="fix" act="swap" meta={<span className="meta-link">2 commits</span>} ai /></div>
     </div></div>
     </div>
     </div>
@@ -211,7 +210,7 @@ export default function Home({ version, demo, agents, phone }: { version: string
     </div>
     <ol style={{ listStyle: 'none', margin: '48px 0 0', padding: '0', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(300px, 100%), 1fr))', gap: '16px' }}>
     <li style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: '14px', padding: '24px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}><span aria-hidden="true" style={{ width: '30px', height: '4px', borderRadius: '2px', background: 'var(--trunk)', boxShadow: 'var(--glow)' }}></span><h3 style={{ margin: '0', fontSize: '20px', letterSpacing: '-0.01em' }}>The orange path</h3></div>
+    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}><span aria-hidden="true" style={{ width: '30px', height: '4px', borderRadius: '2px', background: 'var(--accent)', boxShadow: 'var(--glow)' }}></span><h3 style={{ margin: '0', fontSize: '20px', letterSpacing: '-0.01em' }}>The path to your branch</h3></div>
     <p style={{ margin: '0', color: 'var(--muted)', fontSize: '16px' }}>Where you are, and what this merges into. A soft pulse travels from <code>main</code> to your checkout.</p>
     </li>
     <li style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: '14px', padding: '24px', display: 'flex', flexDirection: 'column', gap: '10px' }}>

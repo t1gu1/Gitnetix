@@ -59,7 +59,7 @@ const TICKETS: Ticket[] = [
   jira({
     key: 'WEB-212', kind: 'Story', title: 'Animate the path to the checked-out branch', status: 'progress', assignee: ME, mine: true, sprint: true, release: '0.6.0', branch: 'feat/branch-tree',
     priority: 'High', timeRemaining: '3h', timeEstimate: '1d', parentKey: 'WEB-180', parentTitle: 'Branch tree polish', fixVersions: ['0.6.0'], comments: 3,
-    description: 'When you check a branch out, a soft light should run along the orange path, from `main` down to the branch, so you see at once where you are.\n\nIt restarts on every switch, and stays still when the system asks for **reduced motion**.',
+    description: 'When you check a branch out, a soft light should run along the path, from `main` down to the branch, so you see at once where you are.\n\nIt restarts on every switch, and stays still when the system asks for **reduced motion**.',
     criteria: [{ text: 'The pulse starts at the trunk and ends on the checked-out row', done: true }, { text: 'It restarts when you switch branch', done: true }, { text: 'Reduced motion turns it off', done: false }],
   }),
   jira({

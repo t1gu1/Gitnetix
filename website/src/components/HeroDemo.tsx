@@ -5,7 +5,7 @@ import { plural } from '../../../src/lib/format';
 import { kindOfBranch } from '../../../src/lib/kinds';
 import { otherMode, resolveTheme } from '../../../src/lib/themes';
 import Analytics from './demo/Analytics';
-import { AgentInput, AgentLog, AgentPicker, FinishCard, ME, TRY, keyOf, shown, useAgents, type Ai, type Pick } from './demo/agents';
+import { AgentInput, AgentLog, AgentPicker, FinishCard, ME, TRY, keyOf, pathOf, shown, useAgents, type Ai, type Pick } from './demo/agents';
 import PullRequests from './demo/PullRequests';
 import ReleaseNotes from './demo/ReleaseNotes';
 import Submodules from './demo/Submodules';
@@ -40,7 +40,7 @@ export type Branch = {
 };
 /** A row of the commit list (src/screens/CommitList.tsx), with the files it changed. */
 export type Commit = { sha: string; subject: string; body?: string; author: string; when: string; files: File[]; tags?: string[] };
-/** The orange path from the trunk to the checked-out row, measured off the rendered tree. No `top`: that row is folded away. */
+/** The accent path from the trunk to the checked-out row, measured off the rendered tree. No `top`: that row is folded away. */
 export type Path = { d: string; len: number; x: number; top?: number; mid: number; bottom: number };
 
 const BRANCHES: Record<string, Branch> = {
@@ -104,13 +104,14 @@ const PROJECT = ['package.json', 'src/App.tsx', 'src/screens/BranchTree.tsx', 's
 /** Same pages as PAGES in src/components/TopBar.tsx. */
 const PAGES: { id: string; label: string; icon: string; Page?: ComponentType }[] = [
   { id: 'workspace', label: 'Workspace', icon: 'home' },
-  { id: 'worktrees', label: 'Worktrees & agents', icon: 'layers', Page: Worktrees },
   { id: 'prs', label: 'Pull requests', icon: 'pr', Page: PullRequests },
   { id: 'tickets', label: 'Tickets', icon: 'ticket', Page: Tickets },
   { id: 'notes', label: 'Release notes', icon: 'tag', Page: ReleaseNotes },
   { id: 'submodules', label: 'Submodules', icon: 'box', Page: Submodules },
   { id: 'analytics', label: 'Analytics', icon: 'chart', Page: Analytics },
 ];
+/** Worktrees & agents has no page tab: its own square button beside the menu opens it over the project's page (TopBar.tsx). */
+const VIEWS = [{ id: 'worktrees', Page: Worktrees }, ...PAGES];
 
 const HUNK = '@@ -88,6 +88,7 @@ export function BranchTree';
 const DIFF: [' ' | '+' | '-', string][] = [
@@ -337,7 +338,7 @@ export function PathLine({ p }: { p: Path }) {
         <path d={p.d} stroke="var(--path-fg)" strokeWidth="5" strokeOpacity=".5" strokeDasharray={`12 ${p.len + 24}`} filter="blur(1.5px)">
           <animate attributeName="stroke-dashoffset" from="12" to={-p.len} dur={`${dur}s`} repeatCount="indefinite" />
         </path>
-        <path d={p.d} stroke="#fff3dd" strokeDasharray={`12 ${p.len + 24}`}>
+        <path d={p.d} stroke="var(--path-core)" strokeDasharray={`12 ${p.len + 24}`}>
           <animate attributeName="stroke-dashoffset" from="12" to={-p.len} dur={`${dur}s`} repeatCount="indefinite" />
         </path>
         <circle cx={p.x} cy={p.mid} r="3" fill="var(--path-fg)" filter="blur(1.5px)" opacity="0">
@@ -404,6 +405,10 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
   const [body, setBody] = useState('');
   const [toast, setToast] = useState<{ text: string; error?: boolean }>();
   const [page, setPage] = useState('workspace');
+  // The worktrees view, shown over the project's page, which stays as it was left (nav.inWorktrees), and the row a link picks there.
+  const [wt, setWt] = useState(false);
+  const [wtPick, setWtPick] = useState<{ key: string }>();
+  const view = wt ? 'worktrees' : page;
   // Pages mount on their first visit and stay: their state, and the agents they show, carry on while you look elsewhere.
   const [seen, setSeen] = useState(['workspace']);
   const timers = useRef<number[]>([]);
@@ -416,7 +421,7 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
   const setWip = (n: string, f: (w: File[]) => File[]) => setBs((x) => (x[n] ? { ...x, [n]: { ...x[n], wip: f(x[n].wip) } } : x));
   // An agent's answer leaves its files in its worktree, uncommitted.
   const agents = useAgents((s, wip) => s.project === 'acme-web' && setWip(s.branch, (w) => [...w.filter((f) => !wip.some((x) => x.path === f.path)), ...wip]));
-  const ink = useThumb(tabsRef, PAGES.findIndex((p) => p.id === page), PAGES.length);
+  const ink = useThumb(tabsRef, wt ? -1 : PAGES.findIndex((p) => p.id === page), PAGES.length);
 
   // Like the app's tree: the line runs 6px left of each row on the path and steps in at the top of each level's
   // child list (just under its "Child branches" toggle), down to the middle of the checked-out row,
@@ -489,7 +494,8 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
     later(2600, () => id === toastId.current && setToast(undefined));
   };
   const go = (p: string) => {
-    setPage(p);
+    setWt(p === 'worktrees');
+    if (p !== 'worktrees') setPage(p);
     setSeen((s) => (s.includes(p) ? s : [...s, p]));
   };
   // Like workspace.switch: uncommitted work comes along.
@@ -592,6 +598,11 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
       go('workspace');
       select(n);
     },
+    openWorktree: (key) => {
+      setWtPick({ key });
+      go('worktrees');
+    },
+    wtPick,
     branches: bs,
     sel,
     head,
@@ -621,6 +632,8 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
     const pathLive = below(n).includes(head);
     const wipBelow = open ? 0 : below(n).reduce((t, k) => t + bs[k].wip.length, 0);
     const st = stOf(n);
+    // Its worktree's state: the agent's status, or "worktree" with no agent working or waiting there.
+    const state = st === 'running' ? 'working' : st === 'waiting' || st === 'done' ? st : undefined;
     // Inside the row's button: a click lists the commits instead of picking the row, a double-click doesn't check it out.
     const toCommits = { onClick: (e: MouseEvent) => { e.stopPropagation(); openHistory(n); }, onDoubleClick: (e: MouseEvent) => e.stopPropagation() };
     return (
@@ -633,27 +646,31 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
             </span>
             <span className="tree-main">
               <span className="tree-name">
+                {typed && <span className={`kind-chip ${x.kind === 'fix' ? 'c-del' : 'c-mod'}`}>{x.kind}</span>}
                 <span className="mono ellipsis">{name}</span>
                 {x.tag && <span className="tag accent">{x.tag}</span>}
               </span>
               <span className="branch-meta">
-                {typed && wip}
-                {typed && !wip && <span className={`kind-chip ${x.kind === 'fix' ? 'c-del' : 'c-mod'}`}>{x.kind}</span>}
                 {x.role === 'release' && <span className="mono">{n}</span>}
                 {cur && <span className="c-current">checked out</span>}
-                {!typed && !x.wt && wip}
+                {x.wt && (
+                  <span
+                    className={`row meta-link meta-link-icon${state === 'working' ? ' glow-working' : state ? ' c-add' : ''}`}
+                    style={{ gap: 4 }}
+                    title={`${pathOf({ project: 'acme-web', branch: n })}. Click to open it in Worktrees & agents.`}
+                    onClick={(e) => { e.stopPropagation(); demo.openWorktree(keyOf('acme-web', n)); }}
+                    onDoubleClick={(e) => e.stopPropagation()}
+                  >
+                    <Icon name="layers" size={11} stroke={1.4} />
+                    {state ? <span className={state === 'working' ? undefined : 'ai-fade'}>{state}</span> : 'worktree'}
+                  </span>
+                )}
+                {wip}
                 {tracked && x.ahead > 0 && <span className="meta-link" title={`${plural(x.ahead, 'commit')} not in ${labelOf(x.base!)} yet. Click to list them.`} {...toCommits}>{plural(x.ahead, 'commit')}</span>}
                 {tracked && x.ahead === 0 && x.role === 'branch' && <span>no commits yet</span>}
                 {!tracked && <span className="meta-link" title={`Browse the recent commits of ${n}`} {...toCommits}>all commits</span>}
                 {tracked && x.behind > 0 && <span className="c-warn">↓{x.behind} from {labelOf(x.base!)}</span>}
               </span>
-              {x.wt && (
-                <span className="branch-meta">
-                  <span className={`row${st === 'running' ? ' c-acc' : ''}`} style={{ gap: 4 }}><Icon name="layers" size={11} stroke={1.4} />{st === 'running' ? <span className="ai-fade">AI working</span> : 'worktree'}</span>
-                  {(st === 'waiting' || st === 'done') && <span className="c-add ai-fade">{st}</span>}
-                  {!typed && wip}
-                </span>
-              )}
             </span>
           </button>
           <span className="tree-acts">
@@ -720,17 +737,29 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
       {/* project tabs (src/components/TopBar.tsx) */}
       <header className="hdr">
         <span className="hdr-icon" aria-hidden="true"><Icon name="menu" size={18} stroke={1.4} /></span>
-        <span className="tabs-projects" aria-hidden="true">
-          {['acme-web', 'acme-api', 'design-system'].map((p, i) => (
-            <span key={p} className={i === 2 ? 'tab-project hide-sm' : 'tab-project'} data-active={i === 0 || undefined}>
-              <span className="tab-project-open">
+        {/* Worktrees & agents: a tab of its own, marked like the open project's; the phone has its Agents tab instead. */}
+        {!phone && (
+          <button type="button" className="hdr-icon" aria-label="Worktrees & agents" title="Worktrees & agents" aria-current={wt ? 'page' : undefined} onClick={() => go('worktrees')}>
+            <Icon name="layers" size={16} />
+          </button>
+        )}
+        <span className="tabs-projects">
+          {['acme-web', 'acme-api', 'design-system'].map((p, i) => {
+            const label = (
+              <>
                 {running.some((s) => s.project === p) && <span className="pulse" />}
                 <FixedWidth>{p}</FixedWidth>
+              </>
+            );
+            return (
+              <span key={p} className={i === 2 ? 'tab-project hide-sm' : 'tab-project'} data-active={(i === 0 && !wt) || undefined}>
+                {/* The open project's tab leaves the worktrees view for its page, as it was left; the others are for show. */}
+                {i === 0 ? <button type="button" className="tab-project-open" aria-pressed={!wt} onClick={() => go(page)}>{label}</button> : <span className="tab-project-open" aria-hidden="true">{label}</span>}
+                <span className="tab-project-close" aria-hidden="true"><Icon name="close" size={12} /></span>
               </span>
-              <span className="tab-project-close"><Icon name="close" size={12} /></span>
-            </span>
-          ))}
-          <span className="btn btn-ghost btn-icon" style={{ height: 'auto', width: 42, flex: 'none', border: 0, borderRadius: 0 }}><Icon name="plus" /></span>
+            );
+          })}
+          <span className="btn btn-ghost btn-icon" aria-hidden="true" style={{ height: 'auto', width: 42, flex: 'none', border: 0, borderRadius: 0 }}><Icon name="plus" /></span>
         </span>
         <span className="hdr-tools">
           {running.length > 0 && (
@@ -753,18 +782,18 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
           </button>
         </span>
       </header>
-      {/* page tabs, the accent underline sliding to the open one */}
-      <nav ref={tabsRef} aria-label="Pages" className="tabs-pages">
+      {/* page tabs, the accent underline sliding to the open one; the worktrees view has none */}
+      <nav ref={tabsRef} aria-label="Pages" className="tabs-pages" hidden={wt}>
         {ink && <span className="tabs-ink" style={ink} aria-hidden="true" />}
         {PAGES.map((p) => (
-          <button key={p.id} type="button" className="tab-page" aria-current={p.id === page ? 'page' : undefined} onClick={() => go(p.id)}>
+          <button key={p.id} type="button" className="tab-page" aria-current={p.id === view ? 'page' : undefined} onClick={() => go(p.id)}>
             <Icon name={p.icon} size={14} />
             <FixedWidth>{p.label}</FixedWidth>
           </button>
         ))}
       </nav>
 
-      <div className="ws" data-file-open={file ? true : undefined} hidden={page !== 'workspace'}>
+      <div className="ws" data-file-open={file ? true : undefined} hidden={view !== 'workspace'}>
         {/* left: branches (or a branch's commits) and the agent, or the open file's diff; a phone keeps both and shows one */}
         <div className="ws-left" data-pane data-active={pane !== 'files'}>
           {(phone || !file) && (hb ? (
@@ -1044,18 +1073,18 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
           </div>}
         </section>
       </div>
-      {phone && page === 'workspace' && (
+      {phone && view === 'workspace' && (
         <div className="pane-switch">
           <Seg label="Panel" grid value={pane} onChange={setPane} options={[['releases', 'Branches'], ['files', `Files${list.length ? ` ${list.length}` : ''}`], ['diff', 'Diff & agent']]} />
         </div>
       )}
       {/* the other pages (src/components/demo), mounted on their first visit */}
-      {PAGES.map(({ id, Page }) => Page && seen.includes(id) && (
-        <div key={id} className="pg" hidden={page !== id}>
+      {VIEWS.map(({ id, Page }) => Page && seen.includes(id) && (
+        <div key={id} className="pg" hidden={view !== id}>
           <Page />
         </div>
       ))}
-      {phone && <MobileTabs page={page} go={go} />}
+      {phone && <MobileTabs page={view} go={go} />}
       {toast && <div className={`toast${toast.error ? ' error' : ''}`} role="status">{toast.text}</div>}
     </div>
     </DemoContext.Provider>
