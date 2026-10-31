@@ -30,7 +30,7 @@ export function AgentPicker({ value, onChange, compact }: { value: AgentPick; on
   const efforts = [{ value: "", label: "Default effort" }, ...EFFORTS.map((x) => ({ value: x, label: x }))];
   const cls = compact ? "picker-act" : "select menu-select";
   return (
-    <div className={compact ? "picker-acts" : "row"} style={compact ? undefined : { gap: 6 }}>
+    <div className={compact ? "picker-acts" : "row"} style={compact ? undefined : { gap: 6, margin: 0 }}>
       <MenuChoice className={cls} label="Agent provider" value={provider} options={provs} onChange={(v) => set({ provider: v, model: "" })} />
       {prov?.info.models.length ? (
         <MenuChoice className={cls} label="Agent model" value={model} options={models} onChange={(v) => set({ model: v })} />
