@@ -890,7 +890,7 @@ body.dragging-tab * {
   cursor: pointer;
 }
 /* The new agent session's project and branch (Worktrees.tsx): names in flowing colours with a soft glow, so a session never starts on the wrong one unnoticed.
-   A branch's worktree link while its agent works (BranchTree.tsx) wears the same. */
+   A branch's worktree link while its agent works (BranchTree.tsx) and a "Running" row on Worktrees & agents (Worktrees.tsx) wear the same. */
 .glow-name > .ellipsis,
 .glow-working > span {
   font-weight: 600;
@@ -905,6 +905,14 @@ body.dragging-tab * {
 .glow-working > svg {
   filter: drop-shadow(0 0 5px color-mix(in srgb, var(--release-fg) 45%, transparent));
   animation: glow-stroke 8s linear infinite;
+}
+/* A "Running" row's dot (Worktrees.tsx): it keeps its pulse and takes the same colours on the same clock. */
+.pulse.glow-dot {
+  background: currentColor;
+  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--release-fg) 45%, transparent));
+  animation:
+    agpulse 1.4s ease-in-out infinite,
+    glow-stroke 8s linear infinite;
 }
 @keyframes glow-name {
   to {

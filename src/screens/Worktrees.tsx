@@ -194,8 +194,8 @@ export function Worktrees({ route }: { route: { key?: string } }) {
                           </span>
                         )}
                         <span className="row wt-meta">
-                          <span className={r.status === "running" ? "pulse" : `wt-dot ${cls}`} />
-                          <span className={cls} style={{ flex: "none" }}>{label}</span>
+                          <span className={r.status === "running" ? "pulse glow-dot" : `wt-dot ${cls}`} />
+                          <span className={r.status === "running" ? "glow-working" : cls} style={{ flex: "none" }}><span>{label}</span></span>
                           {sub && <span className="faint">·</span>}
                           <span className="faint ellipsis grow">{sub}</span>
                           {r.agent && <span className="faint" style={{ flex: "none" }}>{ago(r.agent.updatedAt)}</span>}
