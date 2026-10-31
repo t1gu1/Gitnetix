@@ -11,6 +11,24 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+### Added
+- Worktrees & agents opens as its own tab: a square button beside the menu, with its own view slot in the nav. Opening it no longer disturbs the open project's page, dialogs or scroll.
+- Running agent rows in worktrees glow on the dot and status label.
+- The branch tree's worktree link glows while an agent works.
+- Worktree rows are boxed and groups show a count badge.
+- Input, select and textarea focus rings glow with a slow ring-flow animation, with a reduced-motion guard and a per-animation off switch.
+
+### Changed
+- Commit messages are written ahead when a worktree session ends, so a commit made afterwards takes the message at once.
+- Selected tree rows get an accent-tinted border.
+- Hovered tree rows are tinted with the accent color instead of the warning color.
+- Half-screen media queries now depend on pointer type.
+- Branch base label in worktree rows is offset.
+
+### Fixed
+- Big untracked files no longer stall the workspace: line counts use an 8 MiB budget per listing.
+- Row margin is reset in the non-compact agent picker.
+
 ## [0.13.2] - 2026-10-30
 
 ### Added
