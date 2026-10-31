@@ -964,7 +964,8 @@ body.dragging-tab * {
       color-mix(in srgb, color-mix(in srgb, var(--accent), #fff 35%) var(--ring-alpha), transparent),
     calc(cos(var(--ring-a)) * -3px) calc(sin(var(--ring-a)) * -3px) 10px
       color-mix(in srgb, color-mix(in srgb, var(--accent), #e8590c 45%) var(--ring-alpha), transparent);
-  animation: ring-flow 6s linear infinite;
+  /* 12 moves a second, not one per frame: each repaints the field with all its text, and at every frame (144 a second on fast screens) typing lagged in WebKitGTK. */
+  animation: ring-flow 6s steps(72) infinite;
 }
 @keyframes ring-flow {
   to {
