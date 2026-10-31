@@ -18,7 +18,6 @@ import { FixedWidth, useThumb } from "./ui";
 
 export const PAGES: { label: string; icon: string; route: Route }[] = [
   { label: "Workspace", icon: "home", route: { name: "workspace" } },
-  { label: "Worktrees & agents", icon: "layers", route: { name: "worktrees" } },
   { label: "Pull requests", icon: "pr", route: { name: "prs" } },
   { label: "Tickets", icon: "ticket", route: { name: "tickets" } },
   { label: "Release notes", icon: "tag", route: { name: "notes" } },
@@ -26,8 +25,9 @@ export const PAGES: { label: string; icon: string; route: Route }[] = [
   { label: "Analytics", icon: "chart", route: { name: "analytics" } },
 ];
 
+/** Worktrees has its own square button next to the menu instead of a page tab. */
 export const isPageRoute = (r: Route) =>
-  PAGES.some((p) => p.route.name === r.name);
+  r.name === "worktrees" || PAGES.some((p) => p.route.name === r.name);
 
 /** Pointer travel before a press on a project tab becomes a drag; until then the tab stretches toward the pointer. */
 const DRAG_THRESHOLD = 32;
@@ -97,6 +97,8 @@ export function TopBar() {
   const cancelHold = () => clearTimeout(hold.current);
   const shown = drag?.active ? moveTo(open, drag.id, drag.index) : open;
   const pagesBar = useRef<HTMLElement>(null);
+  // Worktrees is a tab of its own: while it is on, no project tab is the current one and their page tabs hide.
+  const wt = nav.inWorktrees;
   const page = PAGES.findIndex((p) => p.route.name === nav.route.name);
   const ink = useThumb(pagesBar, page, PAGES.length);
   // On a narrow window the page bar scrolls: keep the current page's tab in sight.
@@ -241,6 +243,7 @@ export function TopBar() {
           const next = open[i + 1] ?? open[i - 1];
           nav.setProject(next?.id);
           if (!next) nav.go({ name: "home" });
+          else if (wt) nav.go({ name: "worktrees" });
         },
       },
     );
@@ -255,6 +258,15 @@ export function TopBar() {
           onClick={() => nav.go({ name: "menu" })}
         >
           <Icon name="menu" size={18} stroke={1.4} />
+        </button>
+        <button
+          className="hdr-icon hide-narrow"
+          aria-label="Worktrees & agents"
+          data-tip="Worktrees & agents"
+          aria-current={wt ? "page" : undefined}
+          onClick={() => nav.go({ name: "worktrees" })}
+        >
+          <Icon name="layers" size={16} />
         </button>
         <nav
           ref={bar}
@@ -274,14 +286,14 @@ export function TopBar() {
                   : tabs.current.delete(p.id))
               }
               className="tab-project"
-              data-active={p.id === nav.projectId || undefined}
+              data-active={(!wt && p.id === nav.projectId) || undefined}
               data-dragging={(drag?.active && drag.id === p.id) || undefined}
               data-landed={landed === p.id || undefined}
               style={stretch(p.id)}
             >
               <button
                 className="tab-project-open"
-                aria-pressed={p.id === nav.projectId}
+                aria-pressed={!wt && p.id === nav.projectId}
                 title="Drag to reorder"
                 onPointerDown={(e) => {
                   touch.current = e.pointerType === "touch";
@@ -325,7 +337,7 @@ export function TopBar() {
             <DragGhost
               drag={drag}
               project={open.find((p) => p.id === drag.id)}
-              active={drag.id === nav.projectId}
+              active={!wt && drag.id === nav.projectId}
             />
           )}
           <button
@@ -353,7 +365,7 @@ export function TopBar() {
           <ThemeToggle />
         </div>
       </header>
-      <nav ref={pagesBar} aria-label="Pages" className="tabs-pages">
+      <nav ref={pagesBar} aria-label="Pages" className="tabs-pages" hidden={wt}>
         {/* The accent underline, sliding from the previous page's tab to the new one. */}
         {ink && <span className="tabs-ink" style={ink} aria-hidden />}
         {PAGES.map((p) => {

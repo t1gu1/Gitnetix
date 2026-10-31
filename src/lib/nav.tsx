@@ -45,6 +45,8 @@ interface Nav {
   closeMenu: () => void;
   projectId?: string;
   setProject: (id: string | undefined) => void;
+  /** The worktrees view is on screen instead of the open project's page; `go({ name: "worktrees" })` opens it, `setProject` leaves it. */
+  inWorktrees: boolean;
   theme: "dark" | "light";
   themePref: string;
   setThemePref: (t: string) => void;
@@ -69,7 +71,9 @@ interface View {
 
 /** Key of the view shown while no project is open. */
 const NONE = "";
-const freshView = (key: string): View => ({ route: key ? { name: "workspace" } : { name: "home" }, menuOpen: false, newItem: null, returnTo: null });
+/** Key of the worktrees & agents view: a tab of its own beside the projects, so opening it leaves their pages as they were. */
+export const WORKTREES = "\0worktrees";
+const freshView = (key: string): View => ({ route: key === WORKTREES ? { name: "worktrees" } : key ? { name: "workspace" } : { name: "home" }, menuOpen: false, newItem: null, returnTo: null });
 
 const Ctx = createContext<Nav | null>(null);
 const ViewsCtx = createContext<{ views: Record<string, View>; base: Nav } | null>(null);
@@ -87,6 +91,14 @@ export function NavProvider({ children, initialProject, initialTheme }: { childr
   // calls made right after `setProject` in the same handler, which act on the new project.
   const projectRef = useRef(projectId);
   const viewsRef = useRef(views);
+  const [worktrees, setWorktrees] = useState(false);
+  const worktreesRef = useRef(worktrees);
+  const showWorktrees = useCallback((on: boolean) => {
+    worktreesRef.current = on;
+    setWorktrees(on);
+  }, []);
+  /** Key of the view on screen: the worktrees one while open, else the open project's. */
+  const shownKey = useCallback(() => (worktreesRef.current ? WORKTREES : (projectRef.current ?? NONE)), []);
 
   useEffect(() => {
     const m = matchMedia("(prefers-color-scheme: light)");
@@ -110,25 +122,32 @@ export function NavProvider({ children, initialProject, initialTheme }: { childr
     (id: string | undefined) => {
       projectRef.current = id;
       setProjectId(id);
+      // Back on the project's page, as it was left.
+      showWorktrees(false);
       if (!viewsRef.current[id ?? NONE]) update((v) => v, id ?? NONE);
       if (id) rpc("ui.set", { lastProject: id }).catch(() => {});
     },
-    [update],
+    [update, showWorktrees],
   );
 
   const go = useCallback(
-    (r: Route) =>
+    (r: Route) => {
+      // Worktrees keeps its menu and detours (settings…) in its own view; any other page is the open project's.
+      const wt = r.name === "worktrees" || (worktreesRef.current && (r.name === "menu" || DETOURS.has(r.name)));
+      if (wt && !worktreesRef.current) update((v) => ({ ...v, menuOpen: false }));
+      showWorktrees(wt);
       update((v) => {
         if (r.name === "menu") return { ...v, menuOpen: true };
         return { ...v, menuOpen: false, route: r, returnTo: DETOURS.has(v.route.name) ? v.returnTo : v.route };
-      }),
-    [update],
+      }, shownKey());
+    },
+    [update, showWorktrees, shownKey],
   );
   const back = useCallback(() => {
-    const v = viewsRef.current[projectRef.current ?? NONE];
+    const v = viewsRef.current[shownKey()];
     go(v?.returnTo ?? (projectRef.current ? { name: "workspace" } : { name: "home" }));
-  }, [go]);
-  const closeMenu = useCallback(() => update((v) => ({ ...v, menuOpen: false })), [update]);
+  }, [go, shownKey]);
+  const closeMenu = useCallback(() => update((v) => ({ ...v, menuOpen: false }), shownKey()), [update, shownKey]);
   const openNewItem = useCallback((d?: NewItemDraft) => update((v) => ({ ...v, newItem: d ?? {} })), [update]);
   const closeNewItem = useCallback(() => update((v) => ({ ...v, newItem: null })), [update]);
   const selectBranch = useCallback((b: string | undefined) => update((v) => ({ ...v, selectedBranch: b })), [update]);
@@ -144,14 +163,16 @@ export function NavProvider({ children, initialProject, initialTheme }: { childr
 
   const base = useMemo<Nav>(() => {
     const v = views[projectId ?? NONE] ?? freshView(projectId ?? NONE);
+    const shown = worktrees ? (views[WORKTREES] ?? freshView(WORKTREES)) : v;
     return {
-      route: v.route,
+      route: shown.route,
       go,
       back,
-      menuOpen: v.menuOpen,
+      menuOpen: shown.menuOpen,
       closeMenu,
       projectId,
       setProject,
+      inWorktrees: worktrees,
       theme,
       themePref,
       setThemePref,
@@ -162,7 +183,7 @@ export function NavProvider({ children, initialProject, initialTheme }: { childr
       selectBranch,
       forgetBranches,
     };
-  }, [views, projectId, go, back, closeMenu, setProject, theme, themePref, setThemePref, openNewItem, closeNewItem, selectBranch, forgetBranches]);
+  }, [views, projectId, worktrees, go, back, closeMenu, setProject, theme, themePref, setThemePref, openNewItem, closeNewItem, selectBranch, forgetBranches]);
   const all = useMemo(() => ({ views, base }), [views, base]);
   return (
     <ViewsCtx.Provider value={all}>
@@ -189,7 +210,8 @@ export function ProjectView({ projectKey, children }: { projectKey: string; chil
   const { views, base } = all;
   const v = views[projectKey] ?? freshView(projectKey);
   const value = useMemo<Nav>(
-    () => ({ ...base, projectId: projectKey || undefined, route: v.route, menuOpen: v.menuOpen, newItem: v.newItem, selectedBranch: v.selectedBranch }),
+    // The worktrees view works on the open project (its new session's default, its links).
+    () => ({ ...base, projectId: projectKey === WORKTREES ? base.projectId : projectKey || undefined, route: v.route, menuOpen: v.menuOpen, newItem: v.newItem, selectedBranch: v.selectedBranch }),
     [base, projectKey, v],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

@@ -430,6 +430,10 @@ body.dragging-tab * {
   overflow-x: auto;
   scrollbar-width: none;
 }
+/* The worktrees tab is on: its view has no pages of its own (TopBar). */
+.tabs-pages[hidden] {
+  display: none;
+}
 .tab-page {
   display: flex;
   align-items: center;
@@ -673,6 +677,11 @@ body.dragging-tab * {
 .hdr-icon:hover {
   background: var(--raised);
 }
+/* The worktrees button (TopBar) while its view is open: a tab of its own, marked like the current project's. */
+.hdr-icon[aria-current="page"] {
+  background: var(--panel);
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
 
 .seg {
   display: flex;
@@ -878,6 +887,26 @@ body.dragging-tab * {
   gap: 6px;
   text-align: left;
   cursor: pointer;
+}
+/* The new agent session's project and branch (Worktrees.tsx): names in flowing colours with a soft glow, so a session never starts on the wrong one unnoticed. */
+.glow-name > .ellipsis {
+  font-weight: 600;
+  background: linear-gradient(90deg, var(--trunk-fg), var(--release-fg), var(--prop-fg), var(--add-fg), var(--trunk-fg)) 0 0 / 300% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 0 5px color-mix(in srgb, var(--release-fg) 45%, transparent));
+  animation: glow-name 8s linear infinite;
+}
+@keyframes glow-name {
+  to {
+    background-position: 300% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .glow-name > .ellipsis {
+    animation: none;
+  }
 }
 /* Text wraps, so a horizontal scrollbar never has anything to scroll to. */
 .textarea {
@@ -5909,7 +5938,8 @@ body:has(> .modal-scrim) #root * {
   :is(
     .tree-row[data-current] .tree-name > .mono,
     :is(.child-label, .group-label, .shipped-label)[data-active],
-    .wt-group-head > [data-glint]
+    .wt-group-head > [data-glint],
+    .glow-name > .ellipsis
   ) {
   animation: none !important;
 }
@@ -5938,7 +5968,8 @@ body:has(> .modal-scrim) #root * {
     .act-nudge > svg,
     .tree-row[data-current] .tree-name > .mono,
     :is(.child-label, .group-label, .shipped-label)[data-active],
-    .wt-group-head > [data-glint]
+    .wt-group-head > [data-glint],
+    .glow-name > .ellipsis
   ),
 :root[data-idle] :is(.tree-row, .tree-node, .tree-sep)[data-path]::before,
 :root[data-idle] :is(.tree-toggle[data-path] + .tree-open, .tree-merged + .tree-kids[data-path])::after {

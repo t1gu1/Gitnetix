@@ -1,4 +1,4 @@
-import { useMemo, useState, type CSSProperties, type MouseEvent } from "react";
+import { useEffect, useMemo, useState, type CSSProperties, type MouseEvent } from "react";
 
 import { useAction, useAgents, useFiles, useOverview, useProjects, useWorktrees } from "../api/hooks";
 import { rpc } from "../api/transport";
@@ -64,8 +64,9 @@ function openInWorkspace(nav: ReturnType<typeof useNav>, r: Row) {
   nav.go({ name: "workspace" });
 }
 
-export function Worktrees({ initial }: { initial?: string }) {
+export function Worktrees({ route }: { route: { key?: string } }) {
   const nav = useNav();
+  const initial = route.key;
   const wts = useWorktrees();
   const agents = useAgents();
   const projects = useProjects().data ?? [];
@@ -76,10 +77,16 @@ export function Worktrees({ initial }: { initial?: string }) {
   const shown = projects.filter((p) => !hiddenProjects.includes(p.id));
   const [sel, setSel] = useState<string | undefined>(initial);
   const [pane, setPane] = useState<"list" | "detail">(initial ? "detail" : "list");
+  // The view stays mounted between visits: a link to a row (a branch's worktree badge) still selects it.
+  useEffect(() => {
+    if (!initial) return;
+    setSel(initial);
+    setPane("detail");
+  }, [route]); // eslint-disable-line react-hooks/exhaustive-deps
   const listW = usePaneWidth("gnx.pane.worktrees", 400, 280, 720);
   const session = useDraft<Session>(START);
-  // A session left open or minimized comes back as it was; otherwise a new one on project `pid`.
-  const openStart = (pid?: string) => session.setForm(session.form ? { ...session.form, min: false } : { pid: pid ?? "", min: false });
+  // On project `pid`: a session left open or minimized comes back with its request, otherwise a new one.
+  const openStart = (pid?: string) => session.setForm(session.form ? reopen(session.form, pid) : { pid: pid ?? "", min: false });
   // Right-click or "…" selects the row and opens its actions: they and their modals live in its Detail.
   const [menu, setMenu] = useState<{ key: string; x: number; y: number; alignRight?: boolean } | null>(null);
   const openMenu = (r: Row, e: MouseEvent<HTMLElement>) => {
@@ -461,8 +468,13 @@ interface Session {
 // Kept like the prompt boxes' drafts: it outlives page changes and restarts.
 const START = "new agent session";
 
+/** `s` brought back open on project `pid` (none: its own). Another project drops the branch picks, like picking it in the modal; the request stays. */
+const reopen = (s: Session, pid?: string): Session =>
+  !pid || pid === s.pid ? { ...s, min: false } : { ...s, min: false, pid, branch: undefined, from: undefined, mode: undefined, ticket: undefined };
+
 /** The new agent session modal, or its chip while minimized. Mounted once, in the app shell. */
 export function StartSession() {
+  const nav = useNav();
   const d = useDraft<Session>(START);
   const s = d.form;
   if (!s) return null;
@@ -472,7 +484,7 @@ export function StartSession() {
     d.setFiles([]);
   };
   return s.min ? (
-    <button className="btn start-chip" onClick={() => d.setForm({ ...s, min: false })}>
+    <button className="btn start-chip" onClick={() => d.setForm(reopen(s, nav.projectId))}>
       <Icon name="sparkle" size={13} />
       New agent session
     </button>
@@ -545,12 +557,12 @@ function StartModal({ onClose, onMinimize }: { onClose: () => void; onMinimize: 
         {/* Set shares, twice as much for the branch: a long picked name gets cut instead of squeezing the project. */}
         <div className="field" style={{ flex: "1 1 0", minWidth: 0 }}>
           <span>Project</span>
-          <MenuChoice className="select menu-select" label="Project" value={pid} options={projects.map((p) => ({ value: p.id, label: p.name }))} onChange={(v) => set({ pid: v, branch: undefined, from: undefined, mode: undefined, ticket: undefined })} />
+          <MenuChoice className="select menu-select glow-name" label="Project" value={pid} options={projects.map((p) => ({ value: p.id, label: p.name }))} onChange={(v) => set({ pid: v, branch: undefined, from: undefined, mode: undefined, ticket: undefined })} />
         </div>
         <div className="field" style={{ flex: "2 1 0", minWidth: 0 }}>
           <span>{fresh ? "Branches off" : "Branch"}</span>
           <MenuChoice
-            className="select menu-select"
+            className="select menu-select glow-name"
             label={fresh ? "Branches off" : "Branch"}
             search="Filter branches"
             value={fresh ? from : branch}

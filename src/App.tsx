@@ -10,7 +10,7 @@ import { UpdatePrompt } from "./components/UpdatePrompt";
 import { Loading, useThumb } from "./components/ui";
 import { Dictation } from "./lib/dictation";
 import { useApplyAnimations, usePauseWhenIdle } from "./lib/motion";
-import { NavProvider, ProjectView, useNav, useVisited, type Route } from "./lib/nav";
+import { NavProvider, ProjectView, useNav, useVisited, WORKTREES, type Route } from "./lib/nav";
 import { Toasts } from "./lib/toast";
 import { useZoomKeys } from "./lib/zoom";
 import { AISetup } from "./screens/AISetup";
@@ -69,10 +69,13 @@ function Shell({ onUnpair }: { onUnpair: () => void }) {
   // Every project opened this session keeps its screens mounted (hidden while another is open),
   // so coming back to it finds the same page, dialog, scroll and filters.
   const open = new Set(projects?.filter((p) => !p.hidden).map((p) => p.id));
-  const keys = useVisited().filter((k) => k === (nav.projectId ?? "") || open.has(k));
-  const each = (render: () => ReactNode) =>
+  // The worktrees view too, once opened: its own tab beside the projects, kept as left like theirs.
+  const keys = useVisited().filter((k) => k === WORKTREES || k === (nav.projectId ?? "") || open.has(k));
+  const shown = nav.inWorktrees ? WORKTREES : (nav.projectId ?? "");
+  // `on`: the dialogs stay with the open project, shown over the worktrees view too.
+  const each = (render: () => ReactNode, on = shown) =>
     keys.map((k) => (
-      <Activity key={k} mode={k === (nav.projectId ?? "") ? "visible" : "hidden"}>
+      <Activity key={k} mode={k === on ? "visible" : "hidden"}>
         <ProjectView projectKey={k}>{render()}</ProjectView>
       </Activity>
     ));
@@ -89,7 +92,7 @@ function Shell({ onUnpair }: { onUnpair: () => void }) {
           {nav.projectId && <MobileTabs />}
           {/* Minimized dialogs' chips stack in one corner instead of covering each other. */}
           <div className="start-chips">
-            {each(() => <NewItemDialog />)}
+            {each(() => <NewItemDialog />, nav.projectId ?? "")}
             <StartSession />
           </div>
           <UpdatePrompt />
@@ -205,7 +208,7 @@ function Screen({ onUnpair }: { onUnpair: () => void }) {
       screen = <Analytics />;
       break;
     case "worktrees":
-      screen = <Worktrees initial={r.key} />;
+      screen = <Worktrees route={r} />;
       break;
     case "submodules":
       screen = nav.projectId ? <Submodules /> : <Welcome />;
