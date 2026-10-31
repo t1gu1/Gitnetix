@@ -1505,7 +1505,7 @@ html.scanning body {
   font-weight: 700;
   color: var(--fg);
 }
-@media (max-width: 900px) {
+@media (max-width: 900px) and (pointer: coarse), (max-width: 480px) {
   .ws-releases > .pane-head:has(.pane-toggle) {
     padding-left: 16px;
   }
@@ -1583,7 +1583,7 @@ body.resizing iframe,
 body.resizing .term {
   pointer-events: none;
 }
-@media (min-width: 901px) {
+@media (min-width: 901px), (min-width: 481px) and (not (pointer: coarse)) {
   /* Shown again (a file's diff opened or closed), each crossfades in rather than popping. */
   .ws-releases,
   .ws-diff {
@@ -2279,7 +2279,7 @@ button.tree-twist:hover {
   cursor: pointer;
 }
 /* Taller touch targets on mobile. */
-@media (max-width: 900px) {
+@media (max-width: 900px) and (pointer: coarse), (max-width: 480px) {
   .tree-row {
     min-height: 52px;
   }
@@ -2518,7 +2518,7 @@ button.tree-twist:hover {
 .tree-row .acts > .act-main {
   width: 44px;
 }
-@media (max-width: 900px) {
+@media (max-width: 900px) and (pointer: coarse), (max-width: 480px) {
   .tree-row .acts > .act-main {
     width: 52px;
   }
@@ -2811,7 +2811,7 @@ button.tree-twist:hover {
   outline: none;
 }
 /* Wide screens: the columns sit side by side. */
-@media (min-width: 901px) {
+@media (min-width: 901px), (min-width: 481px) and (not (pointer: coarse)) {
   .ctx-cols {
     flex-direction: row;
     width: max-content;
@@ -3315,7 +3315,7 @@ input.img-slider {
 input.img-slider {
   flex: 0 1 auto;
 }
-@media (max-width: 900px) {
+@media (max-width: 900px) and (pointer: coarse), (max-width: 480px) {
   .img-side {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -4317,7 +4317,7 @@ button.picker-act {
   background: color-mix(in srgb, var(--panel) 88%, transparent);
 }
 /* From 3 lines, provider, model and effort stack beside Send. */
-@media (min-width: 901px) {
+@media (min-width: 901px), (min-width: 481px) and (not (pointer: coarse)) {
   .term-input-tall .picker-acts {
     flex-direction: column;
   }
@@ -4330,7 +4330,7 @@ button.picker-act {
   }
 }
 /* Narrow: the picker takes its own full-width row above the text. */
-@media (max-width: 900px) {
+@media (max-width: 900px) and (pointer: coarse), (max-width: 480px) {
   .term-input-row {
     flex-wrap: wrap;
   }
@@ -5278,7 +5278,7 @@ body:has(> .modal-scrim) #root * {
   box-shadow: var(--ring);
   color: var(--accent-fg);
 }
-@media (max-width: 900px) {
+@media (max-width: 900px) and (pointer: coarse), (max-width: 480px) {
   /* Clear of the on-screen keyboard, the same spot while listening and rewriting. */
   .dictation {
     top: 36%;
@@ -5458,7 +5458,7 @@ body:has(> .modal-scrim) #root * {
   display: none;
 }
 
-@media (max-width: 900px) {
+@media (max-width: 900px) and (pointer: coarse), (max-width: 480px) {
   body {
     font-size: 14px;
   }
@@ -5638,7 +5638,7 @@ body:has(> .modal-scrim) #root * {
     min-height: 32px;
   }
 }
-@media (min-width: 901px) {
+@media (min-width: 901px), (min-width: 481px) and (not (pointer: coarse)) {
   .show-narrow {
     display: none !important;
   }
