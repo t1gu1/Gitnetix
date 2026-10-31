@@ -1724,6 +1724,7 @@ body.resizing .term {
   position: absolute;
   z-index: -1;
   inset: 0;
+  border: 1px solid var(--line);
   border-radius: var(--r);
   background: var(--raised);
   pointer-events: none;
@@ -1766,7 +1767,9 @@ body.resizing .term {
     var(--warn-fg) 8%
   );
 }
+/* Selected: its border takes a soft tint of the accent; the fill rules above still apply. */
 .tree-row:has(> .tree-btn[aria-pressed="true"])::after {
+  border-color: color-mix(in srgb, var(--accent) 25%, var(--line));
   background: color-mix(in srgb, var(--sel), var(--fg) 4%);
 }
 [data-theme="light"] .tree-row:has(> .tree-btn[aria-pressed="true"])::after {
