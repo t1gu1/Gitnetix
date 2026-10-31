@@ -52,7 +52,12 @@ pub struct Gitnetix {
     hosted: std::sync::Mutex<HashMap<String, HostedPrs>>,
     /// The worktree list as last built, without agents: shown while the next one builds.
     worktrees: LastCache,
+    /// Commit messages written ahead ([`Gitnetix::prepare_commit_message`]), per checkout, with the key of the prompt they answer.
+    drafts: std::sync::Mutex<HashMap<PathBuf, (u64, Draft)>>,
 }
+
+/// A commit message being written ahead, shared with whoever waits for it; `None` once writing it failed.
+type Draft = Arc<OnceCell<Option<String>>>;
 
 /// Completed pull requests the git host says took in a project's branch tips.
 #[derive(Default)]
@@ -1708,7 +1713,7 @@ impl Gitnetix {
         let agents = AgentManager::new(events.clone(), dir);
         let shells = crate::shell::Shells::new(events.clone());
         crate::log::attach(events.clone());
-        let k = Arc::new(Gitnetix { store, agents, shells, events, dir: dir.to_path_buf(), dictation: Default::default(), protected: Default::default(), watcher: Default::default(), commits: CommitCache::open(dir), views: ViewCache::open(dir.join("overview-cache")), building: Default::default(), cleaning: Default::default(), shipped: Default::default(), hosted: Default::default(), worktrees: LastCache::open(dir.join("worktrees-cache.json")) });
+        let k = Arc::new(Gitnetix { store, agents, shells, events, dir: dir.to_path_buf(), dictation: Default::default(), protected: Default::default(), watcher: Default::default(), commits: CommitCache::open(dir), views: ViewCache::open(dir.join("overview-cache")), building: Default::default(), cleaning: Default::default(), shipped: Default::default(), hosted: Default::default(), worktrees: LastCache::open(dir.join("worktrees-cache.json")), drafts: Default::default() });
         k.rewatch();
         Ok(k)
     }
@@ -1936,10 +1941,15 @@ impl Gitnetix {
     async fn ask(&self, task: &str, t: &Template, vars: BTreeMap<String, String>, lang: &str, cwd: Option<&Path>) -> Result<String> {
         let r = self.route(task, Some(t))?;
         let prompt = templates::render(t, &vars, &self.gen_lang(lang));
+        self.complete(task, &r, &prompt, cwd).await
+    }
+
+    /// `prompt` answered on `r`, logged as `task`.
+    async fn complete(&self, task: &str, r: &Resolved, prompt: &str, cwd: Option<&Path>) -> Result<String> {
         let how = format!("{} {:?}{}", r.provider, r.method, if r.model.is_empty() { String::new() } else { format!(" ({})", r.model) });
         crate::log::info(format!("Will attempt to ask AI for {task} with {how}"));
         let start = Instant::now();
-        let out = ai::complete(&r, &prompt, cwd).await;
+        let out = ai::complete(r, prompt, cwd).await;
         let secs = start.elapsed().as_secs_f32();
         match &out {
             Ok(_) => crate::log::info(format!("AI answered {task} in {secs:.1}s")),
@@ -2819,7 +2829,26 @@ impl Gitnetix {
         self.commit_message_for(&p, &git, branch).await
     }
 
+    /// AI commit message for what `git` has staged: the one [`Self::prepare_commit_message`] wrote ahead for this very prompt
+    /// (waited for while it is still being written), else a new one.
     async fn commit_message_for(&self, p: &Project, git: &Git, branch: &str) -> Result<String> {
+        let (r, prompt) = self.commit_prompt(p, git, branch).await?;
+        let key = key_of(&[&format!("{r:?}"), &prompt]);
+        let ahead = {
+            let mut drafts = self.drafts.lock().unwrap();
+            if drafts.get(git.cwd()).is_some_and(|(k, _)| *k == key) { drafts.remove(git.cwd()).map(|(_, cell)| cell) } else { None }
+        };
+        if let Some(cell) = ahead {
+            if let Some(m) = cell.get_or_init(|| async { self.complete("commit", &r, &prompt, Some(git.cwd())).await.ok() }).await {
+                crate::log::info("Took the commit message written ahead of time");
+                return Ok(m.clone());
+            }
+        }
+        self.complete("commit", &r, &prompt, Some(git.cwd())).await
+    }
+
+    /// What [`Self::commit_message_for`] asks: the route, and the prompt for what `git` has staged.
+    async fn commit_prompt(&self, p: &Project, git: &Git, branch: &str) -> Result<(Resolved, String)> {
         let t = self.template("commit", None, Some(&p.id))?;
         let diff = git.staged_diff(60_000).await?;
         let files = git.run(&["diff", "--cached", "--name-status"]).await?;
@@ -2829,7 +2858,45 @@ impl Gitnetix {
         vars.insert("files".into(), files);
         vars.insert("branch".into(), branch.to_string());
         vars.insert("ticket".into(), if ticket.is_empty() { "(none)".into() } else { ticket });
-        self.ask("commit", &t, vars, &p.gen_lang.commit, Some(git.cwd())).await
+        Ok((self.route("commit", Some(&t))?, templates::render(&t, &vars, &self.gen_lang(&p.gen_lang.commit))))
+    }
+
+    /// Writes the AI commit message that staging everything and committing would ask for now, staging nothing: such a
+    /// commit made before anything changes takes it at once, or waits for the rest of it. Asked when a worktree session ends.
+    pub async fn prepare_commit_message(&self, project_id: &str, branch: &str) -> Result<()> {
+        let p = self.store.project(project_id)?;
+        let git = self.require_checkout(&p, branch).await?;
+        let cwd = git.cwd().to_path_buf();
+        let Some(index) = git.git_paths(&["index"]).await?.pop() else { return Ok(()) };
+        // Staged into a copy of the index, outside the git dir: the watcher would refresh the UI on each write there.
+        let copy = std::env::temp_dir().join(format!("gitnetix-{}.index", new_id()));
+        let staged = git.with_index(&copy);
+        let built: Result<Option<(Resolved, String)>> = async {
+            tokio::fs::copy(&index, &copy).await?;
+            staged.add_all().await?;
+            if !staged.has_staged().await? {
+                return Ok(None);
+            }
+            self.commit_prompt(&p, &staged, branch).await.map(Some)
+        }
+        .await;
+        let _ = tokio::fs::remove_file(&copy).await;
+        let Some((r, prompt)) = built? else { return Ok(()) };
+        let key = key_of(&[&format!("{r:?}"), &prompt]);
+        let cell = {
+            let mut drafts = self.drafts.lock().unwrap();
+            match drafts.get(&cwd) {
+                // Asked again for the same changes (another screen, another device): one answer for both.
+                Some((k, cell)) if *k == key => cell.clone(),
+                _ => {
+                    let cell = Arc::new(OnceCell::new());
+                    drafts.insert(cwd.clone(), (key, cell.clone()));
+                    cell
+                }
+            }
+        };
+        cell.get_or_init(|| async { self.complete("commit, ahead of time", &r, &prompt, Some(&cwd)).await.ok() }).await;
+        Ok(())
     }
 
     /// Commit what is staged (`all` stages everything first). An empty message is written by AI.

@@ -137,12 +137,38 @@ function Said({ b, session }: { b: { text: string; files: string[] }; session?: 
 /** Images a reply shows, as its prompt asks: the local paths of its Markdown images, `![What it shows](/path.png)`. */
 const shown = (text: string) => [...new Set([...text.matchAll(/!\[[^\]]*\]\(<?([^<>)]+?)>?\)/g)].map((m) => m[1].trim()))].filter((p) => isImage(p) && !/^\w+:\/\//.test(p));
 
+/** Blocks a log draws when opened, and adds each time it is scrolled near its top: drawn whole, a 600-line log froze WebKitGTK
+ * ~100 ms on each switch to it, ~40 ms this way. (content-visibility on the blocks gained ~10% more there, but their guessed
+ * heights made the log jump while scrolled up: WebKit has no scroll anchoring.) */
+const TAIL = 60;
+
 /** `actions` show under "Your turn!" when the agent did not ask a question; `picks` are its options picked for the prompt box; `session` is the agent's id, for the files you sent it; `queued` are your messages waiting for its run to end. */
 export function AgentLog({ lines, empty, picks, onPicks, projectId, actions, thinking, provider, session, queued = [] }: { lines: LogLine[]; empty?: string; picks: Choice[]; onPicks: (c: Choice[]) => void; projectId?: string; actions?: ReactNode; thinking?: boolean; provider?: string; session?: string; queued?: string[] }) {
   const me = useMe(projectId);
   const ref = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
   const list = blocks(lines);
+  // Drawn from block `from` on: a session opens on its last TAIL blocks, new ones join after them (the start stays put, so
+  // nothing shifts under someone reading back) and older ones come as the log is scrolled up.
+  const [tail, setTail] = useState({ session, from: Infinity });
+  if (tail.session !== session || (tail.from === Infinity && list.length)) setTail({ session, from: list.length ? Math.max(0, list.length - TAIL) : Infinity });
+  const from = Math.min(tail.session === session ? tail.from : Infinity, Math.max(0, list.length - TAIL));
+  // Distance to the bottom kept while blocks are added above, so what is on screen stays put (WebKit has no scroll anchoring).
+  const keep = useRef<number | null>(null);
+  const more = () => {
+    const el = ref.current;
+    if (!el || from === 0) return;
+    keep.current = el.scrollHeight - el.scrollTop;
+    setTail({ session, from: Math.max(0, from - TAIL) });
+  };
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    if (keep.current !== null) el.scrollTop = el.scrollHeight - keep.current;
+    keep.current = null;
+    // Too short to scroll up: nothing would ask for more.
+    if (el.scrollHeight - el.clientHeight < 400) more();
+  }, [from]); // eslint-disable-line react-hooks/exhaustive-deps
   const qs = questions(lines);
   // Picks for questions no longer asked (answered, another session) leave the prompt box.
   const live = picks.filter((p) => qs[p.qi]?.text === p.q && qs[p.qi].opts.some((o) => o.n === p.n));
@@ -173,21 +199,24 @@ export function AgentLog({ lines, empty, picks, onPicks, projectId, actions, thi
   const first = useRef<HTMLDivElement>(null);
   const [gone, setGone] = useState(false);
   const [peek, setPeek] = useState(false);
+  // Not drawn yet: it is above what is, so out of view.
+  const taskOut = ti >= 0 && ti < from;
   useEffect(() => {
     setPeek(false);
     const el = first.current;
-    if (!el) return setGone(false);
+    if (!el) return setGone(taskOut);
     const io = new IntersectionObserver(([e]) => {
       setGone(!e.isIntersecting);
       if (e.isIntersecting) setPeek(false);
     }, { root: ref.current });
     io.observe(el);
     return () => io.disconnect();
-  }, [ti, task?.text]);
+  }, [ti, task?.text, taskOut]);
   // Redrawn only when the log grows: not on each key typed in the box below, nor on another session's output.
   const history = useMemo(
     () =>
       list.map((b, i) => {
+        if (i < from) return null;
         switch (b.kind) {
           case "you":
             return (
@@ -227,7 +256,7 @@ export function AgentLog({ lines, empty, picks, onPicks, projectId, actions, thi
             return <div key={i} className="ag-note">{b.text}</div>;
         }
       }),
-    [list, task, opens, mark, me.name, me.email, session],
+    [list, from, task, opens, mark, me.name, me.email, session],
   );
   return (
     <div
@@ -236,6 +265,7 @@ export function AgentLog({ lines, empty, picks, onPicks, projectId, actions, thi
       onScroll={(e) => {
         const el = e.currentTarget;
         stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+        if (el.scrollTop < 400) more();
       }}
     >
       {task && gone && (

@@ -51,6 +51,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("workspace.discard", "Discard staged or unstaged changes (all on that side when paths is empty)", "projectId, branch, staged, paths?"),
     ("workspace.ignore", "Add a file or folder (dir = true) to the checkout's root .gitignore", "projectId, branch, path, dir?"),
     ("workspace.commitMessage", "AI-written commit message for the staged changes", "projectId, branch"),
+    ("workspace.prepareCommitMessage", "Write ahead, staging nothing, the AI commit message that staging everything and committing would ask for; such a commit made before anything changes takes it", "projectId, branch"),
     ("workspace.commit", "Commit staged changes (all = stage everything first); empty message = AI writes it", "projectId, branch, message?, all?"),
     ("workspace.push", "Push a branch to origin; force = replace its upstream after a rebase (--force-with-lease --force-if-includes)", "projectId, branch, force?"),
     ("workspace.rebase", "Rebase a branch onto onto (a local or origin-only branch), else onto its release; its target stays; returns conflicts, and forcePushTo when it was already pushed", "projectId, branch, onto?"),
@@ -528,6 +529,10 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
         }
         "workspace.switch" => to(json!({ "conflicts": k.switch_branch(&s(&p, "projectId")?, &s(&p, "branch")?, b(&p, "abort"), os(&p, "wip").as_deref()).await? })),
         "workspace.commitMessage" => to(json!({ "message": k.generate_commit_message(&s(&p, "projectId")?, &s(&p, "branch")?).await? })),
+        "workspace.prepareCommitMessage" => {
+            k.prepare_commit_message(&s(&p, "projectId")?, &s(&p, "branch")?).await?;
+            ok()
+        }
         "workspace.stage" => {
             k.stage(&s(&p, "projectId")?, &s(&p, "branch")?, &list(&p, "paths")?).await?;
             ok()

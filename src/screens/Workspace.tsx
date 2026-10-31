@@ -28,7 +28,7 @@ import {
   useProjectPrefs,
   useProjects,
 } from "../api/hooks";
-import { isLocal, revealPath } from "../api/transport";
+import { isLocal, revealPath, rpc } from "../api/transport";
 import type { AgentSession, BranchView, Commit, FileChange, Hunk, LinePick, MergeResult, Overview, RebaseResult, ReleaseView, RenameResult, Stash } from "../api/types";
 import { AgentInput, AgentLog, type Choice, type Upload } from "../components/AgentLog";
 import { AgentPicker, useAgentPick } from "../components/AgentPicker";
@@ -2413,6 +2413,12 @@ function CloseWorktreeModal({ session: s, finish, onClose, inline }: { session: 
 /** Under the agent's last reply: the close options for the worktree, a click away. */
 export function FinishWorktreeCard({ session: s, finish }: { session: WtSession; finish: FinishHandlers }) {
   const branches = useOverview(s.projectId).data?.branches;
+  const aiOn = useAiOn("commit");
+  const wip = (branches?.find((x) => x.name === s.branch)?.wip ?? 0) > 0;
+  // The session is done: the AI commit message a merge or commit here would wait seconds for gets written meanwhile.
+  useEffect(() => {
+    if (aiOn && wip) rpc("workspace.prepareCommitMessage", { projectId: s.projectId, branch: s.branch }).catch(() => {});
+  }, [aiOn, wip, s.projectId, s.branch]);
   if (!branches) return null;
   // Not in the overview: no base to merge into.
   if (!branches.some((x) => x.name === s.branch)) return null;

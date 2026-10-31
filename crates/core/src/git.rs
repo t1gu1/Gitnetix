@@ -19,6 +19,10 @@ const EMPTY_TREE: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 /// reading every untracked one on each WIP poll stalls the app. The UI says so (`UNCOUNTED_PAST`).
 const MAX_COUNTED: usize = 2000;
 
+/// Bytes of untracked files read per listing to count their lines. A file past what is left of it (a dump, a video,
+/// a folder of images) shows no count: each WIP poll read it whole (400 MB: 170 ms and 400 MB allocated every 4 s).
+const COUNT_BUDGET: u64 = 8 << 20;
+
 /// `git log -E` filter for pull request squashes named after their branch.
 const PR_GREP: &str = "--grep=^Merged PR [0-9]+: [^ ]+$";
 
@@ -92,6 +96,8 @@ pub struct Git {
     cwd: PathBuf,
     /// Extra `-c key=value` pairs (author identity, signing).
     config: Vec<(String, String)>,
+    /// Another index file than the checkout's own (`GIT_INDEX_FILE`), see [`Git::with_index`].
+    index: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -220,7 +226,13 @@ pub struct Identity {
 
 impl Git {
     pub fn new(cwd: impl Into<PathBuf>) -> Self {
-        Git { cwd: cwd.into(), config: Vec::new() }
+        Git { cwd: cwd.into(), config: Vec::new(), index: None }
+    }
+
+    /// The same checkout staging into `index` instead of its own index file, which stays as the user left it.
+    pub fn with_index(mut self, index: impl Into<PathBuf>) -> Self {
+        self.index = Some(index.into());
+        self
     }
 
     pub fn cwd(&self) -> &Path {
@@ -246,7 +258,8 @@ impl Git {
         let _ = STARTED.try_with(|n| n.set(n.get() + 1));
         let writes = changes_repo(args);
         if writes {
-            crate::log::info(format!("Will attempt git {} (in {})", args.join(" "), self.cwd.display()));
+            let copy = if self.index.is_some() { ", into a copy of its index" } else { "" };
+            crate::log::info(format!("Will attempt git {} (in {}{copy})", args.join(" "), self.cwd.display()));
         }
         // Writes can run hooks: they keep the git the user's PATH gives, with its environment.
         let mut cmd = Command::new(if writes { Path::new("git") } else { read_git() });
@@ -260,6 +273,9 @@ impl Git {
         cmd.env("LC_ALL", "C");
         // Never let git open an editor inside the app.
         cmd.env("GIT_EDITOR", "true");
+        if let Some(index) = &self.index {
+            cmd.env("GIT_INDEX_FILE", index);
+        }
         cmd.kill_on_drop(true);
         cmd
     }
@@ -844,12 +860,13 @@ impl Git {
         let mut entries = parse_status_z(&status);
         let count = entries.len() <= MAX_COUNTED;
         let stats = self.numstat(count && has_head, &["diff", "--numstat", "-z", "HEAD"]).await?;
+        let mut budget = COUNT_BUDGET;
         for e in entries.iter_mut() {
             if let Some((a, d)) = stats.get(&e.path) {
                 e.additions = *a;
                 e.deletions = *d;
             } else if count && e.status == 'A' {
-                e.additions = count_lines(&self.cwd.join(&e.path));
+                e.additions = count_lines(&self.cwd.join(&e.path), &mut budget);
             }
         }
         entries.sort_by(|a, b| a.path.cmp(&b.path));
@@ -933,13 +950,14 @@ impl Git {
             self.numstat(count_staged, &["diff", "--cached", "--numstat", "-z"]),
             self.numstat(count_unstaged, &["diff", "--numstat", "-z"]),
         )?;
+        let mut budget = COUNT_BUDGET;
         for e in out.iter_mut() {
             let stats = if e.staged == Some(true) { &staged_stats } else { &unstaged_stats };
             if let Some((a, d)) = stats.get(&e.path) {
                 e.additions = *a;
                 e.deletions = *d;
             } else if count_unstaged && e.status == 'A' && e.staged == Some(false) {
-                e.additions = count_lines(&self.cwd.join(&e.path));
+                e.additions = count_lines(&self.cwd.join(&e.path), &mut budget);
             }
         }
         out.sort_by(|a, b| a.path.cmp(&b.path));
@@ -1996,7 +2014,13 @@ fn quoted(prefix: &str, path: &str) -> String {
     s
 }
 
-fn count_lines(p: &Path) -> u32 {
+/// Lines of an untracked file, read only while `budget` (bytes, see [`COUNT_BUDGET`]) lasts: a bigger one counts none.
+fn count_lines(p: &Path, budget: &mut u64) -> u32 {
+    let Ok(len) = std::fs::metadata(p).map(|m| m.len()) else { return 0 };
+    if len > *budget {
+        return 0;
+    }
+    *budget -= len;
     std::fs::read(p).map(|b| bytecount_newlines(&b)).unwrap_or(0)
 }
 
@@ -2024,6 +2048,20 @@ pub fn truncate_utf8(s: &mut String, max: usize) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn counts_untracked_lines_within_budget() {
+        let dir = tempfile::tempdir().unwrap();
+        let (small, big) = (dir.path().join("a.txt"), dir.path().join("b.bin"));
+        std::fs::write(&small, "1\n2\n3").unwrap();
+        std::fs::write(&big, [b'\n'; 100]).unwrap();
+        let mut budget = 50;
+        assert_eq!(count_lines(&small, &mut budget), 3);
+        assert_eq!(budget, 45);
+        assert_eq!(count_lines(&big, &mut budget), 0, "past the budget: not read");
+        assert_eq!(budget, 45);
+        assert_eq!(count_lines(&dir.path().join("gone"), &mut budget), 0);
+    }
 
     #[test]
     fn reads_ticket_keys() {

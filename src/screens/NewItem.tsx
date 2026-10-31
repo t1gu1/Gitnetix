@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { useAction, useAiOn, useOverview, useProjectPrefs, useSuggestedVersion } from "../api/hooks";
 import { rpc } from "../api/transport";
@@ -49,13 +49,20 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
   const suggested = useSuggestedVersion(pid, relKind, kind === "release" && typedVersion === null);
   const version = typedVersion ?? suggested.data?.version ?? "";
 
-  // Ask AI for a branch name once the description settles.
+  // Ask AI for a branch name once the description settles. One call at a time, each a CLI run of seconds: what is typed meanwhile
+  // is asked once it returns, so answers land in order. Spaces alone ask nothing; a name typed by hand meanwhile stays.
+  const about = desc.trim().replace(/\s+/g, " ");
+  const asked = useRef("");
+  const typed = useRef(false);
   useEffect(() => {
-    if (!agent || named === "you" || desc.trim().length < 6) return;
+    const ask = JSON.stringify([about, kind, ticket, pid]);
+    if (!agent || named === "you" || naming || about.length < 6 || ask === asked.current) return;
     const t = setTimeout(async () => {
+      asked.current = ask;
       setNaming(true);
       try {
         const r = await rpc<{ name: string; ai: boolean }>("items.suggestName", { projectId: pid, kind, description: desc, ticket });
+        if (typed.current) return;
         setName(r.name.replace(/\s/g, "-"));
         setNamed(r.ai ? "ai" : "auto");
       } catch {
@@ -63,9 +70,9 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
       } finally {
         setNaming(false);
       }
-    }, 700);
+    }, 1500);
     return () => clearTimeout(t);
-  }, [agent, desc, kind, ticket, pid]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [agent, about, kind, ticket, pid, naming]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const create = useAction<{ branch: string; worktree?: string; agentSession?: string }>("items.create", {
     invalidate: [["overview", pid], ["agents"], ["worktrees"]],
@@ -232,6 +239,7 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
             const v = e.target.value.replace(/\s/g, "-");
             setName(v);
             setNamed("you");
+            typed.current = true;
             const k = kindOfBranch(v);
             if (k) setKind(k);
           }}
