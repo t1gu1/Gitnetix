@@ -4435,17 +4435,34 @@ button.picker-act {
   align-items: center;
   gap: 8px;
   min-height: 42px;
-  padding: 8px 14px 4px 20px;
+  padding: 8px 14px 4px;
   background: var(--panel);
   font-size: 15px;
   font-weight: 600;
 }
+/* As big as a worktree's stacked buttons, right above their column (1px in, like them inside the box's border). */
 .wt-group-head .btn-icon {
+  width: 34px;
+  height: 34px;
+  margin-right: 1px;
   color: var(--faint);
 }
 .wt-group-head > .faint {
   font-weight: 400;
+}
+.wt-count {
+  flex: none;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
+  line-height: 18px;
+  text-align: center;
 }
 /* Until the fresh list lands, an accent glint sweeps across each project name like the checked-out branch's shine, but quicker,
    one project a beat after the other down the list. It starts after a moment, so quick loads show nothing. */
@@ -4501,18 +4518,23 @@ button.picker-act {
     transparent
   );
 }
-/* A worktree: the row's button beside its "…" (like a stash row), sharing one hover and selection background. */
+/* A worktree: the row's button beside its "…" (like a stash row), sharing one hover and selection background.
+   Boxed like a branch row, and as wide as the filter tabs above. */
 .wt-item {
   display: flex;
   align-items: stretch;
-  margin: 0 8px 2px;
+  margin: 0 14px 2px;
+  border: 1px solid var(--line);
   border-radius: var(--r);
+  background: var(--raised);
+  transition: background-color var(--t-fast) var(--ease);
 }
 .wt-item:hover {
-  background: var(--raised);
+  background: color-mix(in srgb, var(--raised), var(--fg) 6%);
 }
 .wt-item:has(> .item-btn[aria-pressed="true"]) {
-  background: var(--sel);
+  border-color: color-mix(in srgb, var(--accent) 25%, var(--line));
+  background: color-mix(in srgb, var(--sel), var(--fg) 4%);
 }
 .wt-item > .item-btn {
   flex: 1 1 auto;

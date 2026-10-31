@@ -161,11 +161,12 @@ export function Worktrees({ route }: { route: { key?: string } }) {
                 <div className="wt-group-head">
                   {/* Not a spinner above the list: nothing moves when the glint stops. */}
                   <span className="ellipsis" data-glint={refreshing || undefined} style={{ "--i": i } as CSSProperties}>{g.name}</span>
+                  {!loading && g.items.length > 0 && <span className="wt-count">{g.items.length}</span>}
                   <span className="grow" />
-                  {!loading && <span className="faint">{g.items.length || "No worktrees"}</span>}
+                  {!loading && !g.items.length && <span className="faint">No worktrees</span>}
                   {g.id && (
                     <button className="btn btn-ghost btn-sm btn-icon" aria-label={`New agent session in ${g.name}`} data-tip="New agent session" onClick={() => openStart(g.id)}>
-                      <Icon name="plus" size={12} />
+                      <Icon name="plus" size={14} />
                     </button>
                   )}
                 </div>
