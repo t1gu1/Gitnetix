@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 
@@ -34,8 +34,19 @@ function holdWhileBusy(busy: string): Plugin {
   };
 }
 
+/** The phone fetches the home-screen icon on its own, without the companion's self-signed certificate the user accepted,
+ * and gets nothing: the icon rides inside the page instead. */
+const inlineTouchIcon: Plugin = {
+  name: "gitnetix-inline-touch-icon",
+  transformIndexHtml: (html) =>
+    html.replace(
+      'href="/apple-touch-icon.png"',
+      `href="data:image/png;base64,${readFileSync(new URL("public/apple-touch-icon.png", import.meta.url)).toString("base64")}"`,
+    ),
+};
+
 export default defineConfig({
-  plugins: [react(), busy ? holdWhileBusy(busy) : null],
+  plugins: [react(), inlineTouchIcon, busy ? holdWhileBusy(busy) : null],
   clearScreen: false,
   server: {
     port: 1420,

@@ -11,6 +11,9 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+### Fixed
+- The web app's home-screen icon is back. Since the companion moved to HTTPS, the phone could not fetch the icon past the self-signed certificate, so the icon now comes inside the page.
+
 ## [0.14.0] - 2026-10-31
 
 ### Added
