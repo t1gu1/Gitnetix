@@ -11,6 +11,8 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-10-31
+
 ### Added
 - Worktrees & agents opens as its own tab: a square button beside the menu, with its own view slot in the nav. Opening it no longer disturbs the open project's page, dialogs or scroll.
 - Running agent rows in worktrees glow on the dot and status label.
