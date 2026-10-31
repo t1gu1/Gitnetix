@@ -1764,7 +1764,7 @@ body.resizing .term {
   background: color-mix(
     in srgb,
     color-mix(in srgb, var(--raised), var(--fg) 6%),
-    var(--warn-fg) 6%
+    var(--accent) 6%
   );
 }
 .tree-row[data-current]:hover::after,
@@ -1772,7 +1772,7 @@ body.resizing .term {
   background: color-mix(
     in srgb,
     color-mix(in srgb, var(--raised), var(--fg) 5%),
-    var(--warn-fg) 8%
+    var(--accent) 8%
   );
 }
 /* Selected: its border takes a soft tint of the accent; the fill rules above still apply. */
