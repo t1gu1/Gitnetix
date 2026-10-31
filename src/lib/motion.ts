@@ -7,7 +7,7 @@ import type { Config } from "../api/types";
 
 /** The app's animations that can be turned off one by one, by id. The stylesheet stops each under `:root[data-anim-off~="<id>"]`. */
 export const ANIMATIONS: { id: string; label: string; hint: string }[] = [
-  { id: "path", label: "Branch path pulse", hint: "The streak running down the orange path to the checked-out branch, and its glow on arrival" },
+  { id: "path", label: "Branch path pulse", hint: "The streak running down the accent-coloured path to the checked-out branch, and its glow on arrival" },
   { id: "shine", label: "Current branch shine", hint: "The light sweeping over the checked-out branch's name and its group label, and over project names while the worktree list loads, and the colours flowing through the new agent session's project and branch names" },
   { id: "focus", label: "Field focus glow", hint: "The lighter and deeper accent shades flowing around a text field's glow while it has focus" },
   { id: "commit", label: "New commit pop", hint: "The commit link popping and glowing when a branch gets a new commit" },

@@ -1940,7 +1940,7 @@ body.resizing .term {
 .tree-node[data-path]::before,
 .tree-row[data-path="past"]::before,
 .tree-merged + .tree-kids[data-path="past"]::after {
-  --path-dim: color-mix(in srgb, var(--trunk-fg) 55%, var(--panel));
+  --path-dim: color-mix(in srgb, var(--path-fg) 55%, var(--panel));
   background:
     var(--path-pulse-v) 4px var(--pulse-y) / 1px 12px no-repeat,
     var(--path-glow) 0 var(--pulse-y) / 9px 12px no-repeat,
@@ -1959,10 +1959,10 @@ body.resizing .term {
 [data-theme="light"] .tree-merged + .tree-kids[data-path="past"]::after {
   --path-dim: color-mix(in srgb, var(--accent), var(--fg) 25%);
 }
-/* The pulse: a white-hot streak in a soft glow of the path's colour. */
+/* The path takes the theme's accent; the pulse is a white-hot streak, tinted by it, in a soft glow of the path's colour. */
 .tree {
-  --path-fg: var(--trunk-fg);
-  --path-core: #fff3dd;
+  --path-fg: var(--accent);
+  --path-core: color-mix(in srgb, var(--path-fg) 15%, #fff);
   --path-pulse-v: linear-gradient(
     to bottom,
     transparent,
