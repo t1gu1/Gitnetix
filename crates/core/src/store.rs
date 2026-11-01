@@ -25,6 +25,8 @@ pub struct Config {
     pub integrations: Integrations,
     pub ui: UiPrefs,
     pub server: ServerConfig,
+    /// Paths copied from the main checkout into each new worktree of every project, with the project's own.
+    pub worktree_files: Vec<String>,
 }
 
 impl Default for Config {
@@ -38,6 +40,7 @@ impl Default for Config {
             integrations: Integrations::default(),
             ui: UiPrefs::default(),
             server: ServerConfig::default(),
+            worktree_files: Vec::new(),
         }
     }
 }
@@ -70,6 +73,8 @@ pub struct Project {
     pub commit: CommitPrefs,
     /// What the other dialogs start with, set in the project's settings.
     pub dialogs: DialogPrefs,
+    /// Paths from the checkout root (ignored files git leaves out) copied from the main checkout into each new worktree.
+    pub worktree_files: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

@@ -110,6 +110,8 @@ export interface Project {
   merge: MergePrefs;
   commit: CommitPrefs;
   dialogs: DialogPrefs;
+  /** Paths from the checkout root copied from the main checkout into each new worktree. */
+  worktreeFiles: string[];
   releases: Release[];
   branches: Record<string, BranchMeta>;
   ticketReleases: Record<string, string>;
@@ -394,6 +396,8 @@ export interface JiraConn {
 export interface Config {
   version: number;
   projects: Project[];
+  /** Paths copied from the main checkout into new worktrees of every project, with the project's own `worktreeFiles`. */
+  worktreeFiles: string[];
   profiles: GitProfile[];
   ai: { defaultProvider: string; providers: Record<string, ProviderConf>; routing: Record<string, Route> };
   templates: Template[];

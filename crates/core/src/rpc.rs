@@ -2,6 +2,8 @@
 //! The Tauri command, the companion HTTP API and the MCP bridge all go
 //! through here, so an action added once is available everywhere.
 
+use std::path::{Component, Path};
+
 use serde_json::{json, Value};
 
 use crate::app::{Attachment, Gitnetix, MergeOptions, NewItem, NotesInclude, ViewMode};
@@ -29,7 +31,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("projects.setHidden", "Close or reopen a project's tab (data kept)", "projectId, hidden"),
     ("projects.reorder", "Set the order of projects", "ids: string[]"),
     ("projects.setGenLang", "Language AI writes in for a project", "projectId, commit?, pr?, release?"),
-    ("projects.setPrefs", "Remembered merge, commit and dialog options for a project", "projectId, merge?: {squash?, squashMessage?: branch|ai, rebase?, deleteBranch?, push?, resolveConflicts?}, commit?: {autoPush?}, dialogs?: {finish?: continue|merge, finishSwitch?, newWorktree?, newAgent?, shipPush?, shipChangelog?, deleteOrigin?, cleanupOrigin?}"),
+    ("projects.setPrefs", "Remembered merge, commit and dialog options for a project", "projectId, merge?: {squash?, squashMessage?: branch|ai, rebase?, deleteBranch?, push?, resolveConflicts?}, commit?: {autoPush?}, dialogs?: {finish?: continue|merge, finishSwitch?, newWorktree?, newAgent?, shipPush?, shipChangelog?, deleteOrigin?, cleanupOrigin?}, worktreeFiles?: string[] (paths copied from the main checkout into new worktrees)"),
     ("projects.setProfile", "Git profile used for commits in a project", "projectId, profileId"),
     ("profiles.save", "Create or update a Git profile", "profile: {id?, label, name, email, sign, signingKey?}"),
     ("profiles.delete", "Delete a Git profile", "id"),
@@ -96,6 +98,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("submodules.fetch", "Fetch every initialized submodule's origin", "projectId"),
     ("worktrees.list", "Every worktree across projects with its agent (log left out: agents.list has it); cached = the list last built (null before the first), at once and without agents", "cached?"),
     ("worktrees.create", "Open a branch in a new worktree", "projectId, branch"),
+    ("worktrees.setFiles", "Paths copied from the main checkout into new worktrees of every project", "files: string[]"),
     ("worktrees.remove", "Remove a worktree", "projectId, path, force?"),
     ("agents.list", "Agent sessions", ""),
     ("agents.get", "One agent session with its log", "id"),
@@ -458,6 +461,17 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
                 if let Some(d) = p.get("dialogs") {
                     pr.dialogs = overlay(&pr.dialogs, d)?;
                 }
+                if let Some(f) = p.get("worktreeFiles") {
+                    pr.worktree_files = worktree_files(f)?;
+                }
+                Ok(())
+            })?;
+            ok()
+        }
+        "worktrees.setFiles" => {
+            let files = worktree_files(p.get("files").unwrap_or(&Value::Null))?;
+            k.store.write(|c| {
+                c.worktree_files = files;
                 Ok(())
             })?;
             ok()
@@ -1230,5 +1244,15 @@ fn open_terminal(cmd: &str) -> Result<()> {
             }
         }
         Err(Error::Unsupported("no terminal found; run the CLI yourself to sign in".into()))
+    }
+}
+
+/// Paths copied into new worktrees, joined to both checkouts: `..` or an absolute path would write outside the worktree.
+fn worktree_files(v: &Value) -> Result<Vec<String>> {
+    let files: Vec<String> = serde_json::from_value(v.clone())?;
+    let inside = |f: &String| Path::new(f).components().all(|c| matches!(c, Component::Normal(_) | Component::CurDir));
+    match files.iter().find(|f| !inside(f)) {
+        Some(bad) => Err(Error::Invalid(format!("“{bad}” is not a path inside the project"))),
+        None => Ok(files),
     }
 }

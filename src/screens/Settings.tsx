@@ -22,7 +22,7 @@ import { copyToClipboard, toast } from "../lib/toast";
 const JIRA_TOKENS = "https://id.atlassian.com/manage-profile/security/api-tokens";
 
 const GROUPS: [string, [string, string][]][] = [
-  ["General", [["project", "Project"], ["appearance", "Appearance"], ["animations", "Animations"], ["avatars", "Avatars"], ["terminal", "Terminal"], ["dictation", "Voice dictation"]]],
+  ["General", [["project", "Project"], ["appearance", "Appearance"], ["animations", "Animations"], ["avatars", "Avatars"], ["terminal", "Terminal"], ["worktrees", "Worktrees"], ["dictation", "Voice dictation"]]],
   ["AI", [["ai", "AI setup"], ["templates", "Templates"]]],
   ["Git", [["profiles", "Git profiles"], ["git", "Git providers"]]],
   ["Integrations", [["tools", "Jira, Trello, Asana"], ["companion", "Companion & MCP"]]],
@@ -75,6 +75,7 @@ export function SettingsPanes({ section, onAi, onTemplates }: { section?: string
             {sec === "animations" && <Animations />}
             {sec === "avatars" && <Avatars />}
             {sec === "terminal" && <TerminalSection />}
+            {sec === "worktrees" && <WorktreesSection cfg={cfg} />}
             {sec === "dictation" && <DictationSection />}
             {sec === "profiles" && <Profiles cfg={cfg} />}
             {sec === "git" && <GitProviders cfg={cfg} />}
@@ -87,11 +88,31 @@ export function SettingsPanes({ section, onAi, onTemplates }: { section?: string
   );
 }
 
+/** Saved on blur, so a half-typed path is not copied into the next worktree. */
+function WorktreeFiles({ files, onSave }: { files: string[]; onSave: (files: string[]) => void }) {
+  const [text, setText] = useState(files.join("\n"));
+  const save = () => {
+    const next = text.split("\n").map((l) => l.trim()).filter(Boolean);
+    if (next.join("\n") !== files.join("\n")) onSave(next);
+  };
+  return (
+    <textarea
+      aria-label="Worktree files"
+      className="textarea mono"
+      rows={4}
+      placeholder={"graphify-out\n.env"}
+      value={text}
+      onChange={(e) => setText(e.target.value)}
+      onBlur={save}
+    />
+  );
+}
+
 function ProjectSection({ cfg }: { cfg: Config }) {
   const nav = useNav();
   const p = cfg.projects.find((x) => x.id === nav.projectId);
   const remove = useAction("projects.remove", { invalidate: [["config"], ["projects"]] });
-  const { dialogs: d, setDialogs } = useProjectPrefs(p?.id);
+  const { dialogs: d, setDialogs, worktreeFiles, setWorktreeFiles } = useProjectPrefs(p?.id);
   if (!p) return <p className="muted">No project open.</p>;
   const check = (k: Exclude<keyof DialogPrefs, "finish">, label: ReactNode) => (
     <label className="check">
@@ -127,6 +148,11 @@ function ProjectSection({ cfg }: { cfg: Config }) {
         {check("shipChangelog", "Let AI update the changelog before shipping a release")}
         {check("deleteOrigin", "Also delete a deleted branch on origin")}
         {check("cleanupOrigin", "Also delete cleaned-up behind branches on origin")}
+      </section>
+      <section className="section">
+        <h2>Worktree files</h2>
+        <p className="hint" style={{ margin: 0 }}>Git leaves ignored files out of a new worktree. These are copied from the main checkout into it, one path from the project root per line: a knowledge graph, .env, local settings. The ones set in Worktrees are copied for every project too.</p>
+        <WorktreeFiles key={p.id} files={worktreeFiles} onSave={setWorktreeFiles} />
       </section>
       <p className="hint">Generation languages, merge and commit options and the Git profile for this project are in the menu.</p>
       <div>
@@ -324,6 +350,23 @@ function TerminalSection() {
         <h2>Default tab</h2>
         <p className="hint" style={{ margin: 0 }}>What a branch opens on until a tab is picked there. A branch with an agent session opens on Agent.</p>
         <Seg grid label="Default terminal tab" value={tab} onChange={setTab} options={[{ value: "agent", label: "Agent" }, { value: "shell", label: "Shell" }]} />
+      </section>
+    </>
+  );
+}
+
+function WorktreesSection({ cfg }: { cfg: Config }) {
+  const save = useAction("worktrees.setFiles", { invalidate: [["config"]] });
+  return (
+    <>
+      <div className="col" style={{ gap: 6 }}>
+        <h1>Worktrees</h1>
+        <p className="muted" style={{ margin: 0 }}>For every project. A project's settings can add more.</p>
+      </div>
+      <section className="section">
+        <h2>Worktree files</h2>
+        <p className="hint" style={{ margin: 0 }}>Git leaves ignored files out of a new worktree. These are copied from the main checkout into it when the project has them, one path from the project root per line: a knowledge graph, .env, local settings.</p>
+        <WorktreeFiles files={cfg.worktreeFiles} onSave={(files) => save.mutate({ files })} />
       </section>
     </>
   );

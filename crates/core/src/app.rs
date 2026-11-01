@@ -3501,6 +3501,7 @@ impl Gitnetix {
             let path = worktree_path(&p, &branch);
             git.worktree_add(&path, &branch, Some(&start)).await?;
             init_submodules(&path).await;
+            copy_worktree_files(&self.store, &p, &path).await;
             worktree = Some(path.to_string_lossy().to_string());
             path
         } else {
@@ -4579,6 +4580,7 @@ impl Gitnetix {
             git.worktree_add(&path, branch, Some(&default)).await?;
         }
         init_submodules(&path).await;
+        copy_worktree_files(&self.store, &p, &path).await;
         self.store.with_project(project_id, |p| {
             if let Some(m) = p.branches.get_mut(branch) {
                 m.worktree = Some(path.to_string_lossy().to_string());
@@ -5555,6 +5557,45 @@ async fn init_submodules(path: &Path) {
     if let Err(e) = submodules::update(&Git::new(path), None, false).await {
         crate::log::error(format!("Could not clone the submodules of {}: {e}", path.display()));
     }
+}
+
+/// `git worktree add` leaves ignored files out too: copy the listed ones (a graph, `.env`), for every project and this one, from the main checkout.
+/// Copies, not links: tools that rewrite them in the worktree must not change the main checkout's.
+async fn copy_worktree_files(store: &Store, p: &Project, path: &Path) {
+    let mut files = store.read(|c| c.worktree_files.clone());
+    files.extend(p.worktree_files.iter().cloned());
+    let (top, path) = (top_path(p), path.to_path_buf());
+    let _ = tokio::task::spawn_blocking(move || {
+        for f in files {
+            let (from, to) = (top.join(&f), path.join(&f));
+            // Tracked paths are already checked out; missing ones have nothing to copy.
+            if !from.exists() || to.exists() {
+                continue;
+            }
+            let res = to.parent().map_or(Ok(()), std::fs::create_dir_all).and_then(|_| copy_tree(&from, &to));
+            if let Err(e) = res {
+                crate::log::error(format!("Could not copy {f} into {}: {e}", path.display()));
+            }
+        }
+    })
+    .await;
+}
+
+fn copy_tree(from: &Path, to: &Path) -> std::io::Result<()> {
+    let kind = std::fs::symlink_metadata(from)?.file_type();
+    if kind.is_dir() {
+        std::fs::create_dir_all(to)?;
+        for e in std::fs::read_dir(from)? {
+            let e = e?;
+            copy_tree(&e.path(), &to.join(e.file_name()))?;
+        }
+    } else if kind.is_symlink() {
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(std::fs::read_link(from)?, to)?;
+    } else {
+        std::fs::copy(from, to)?;
+    }
+    Ok(())
 }
 
 /// A commit id from the UI goes straight to `git diff`, so it must not read as an option.
