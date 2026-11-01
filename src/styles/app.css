@@ -5611,6 +5611,10 @@ body:has(> .modal-scrim) #root * {
   padding: 4px 20px 20px;
   overflow-y: auto;
 }
+/* Stacked checkboxes read as one list, not separate sections. */
+.modal-body > .check + .check {
+  margin-top: -14px;
+}
 .modal-foot {
   display: flex;
   gap: 8px;
