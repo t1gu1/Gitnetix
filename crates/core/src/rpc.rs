@@ -9,7 +9,7 @@ use serde_json::{json, Value};
 use crate::app::{Attachment, Gitnetix, MergeOptions, NewItem, NotesInclude, ViewMode};
 use crate::error::{Error, Result};
 use crate::git::LinePick;
-use crate::store::{upsert, ConnectMethod, Connection, GitProfile, JiraConf, ReleaseKind, Route, TrelloConf, AsanaConf, new_id};
+use crate::store::{upsert, ConnectMethod, Connection, GitProfile, JiraConf, ReleaseKind, Route, TrelloConf, AsanaConf, UserProfile, new_id};
 use crate::templates::{self, Template};
 use crate::providers::github_auth::{self, Poll};
 use crate::providers::azure_auth;
@@ -21,7 +21,10 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("app.info", "App version and companion server address", ""),
     ("log.get", "Recent operations and errors, oldest first", ""),
     ("log.clear", "Empty the log", ""),
-    ("config.get", "Full app configuration (no secrets)", ""),
+    ("config.get", "Full app configuration of the active profile (no secrets), with every profile", ""),
+    ("userProfiles.switch", "Use another profile: its projects, connections, AI setup and settings", "id"),
+    ("userProfiles.save", "Create a profile, blank or a copy of profile `from` with its saved tokens; with `id`, rename one or change its avatar (an emoji, an image data URL, \"gravatar:\" and an email, or \"\" for the default one) and color hue", "id?, name, avatar?, hue?, from?"),
+    ("userProfiles.delete", "Delete a profile with its settings and saved tokens (repositories stay on disk); deleting the active one switches to another, the last one stays", "id"),
     ("ui.set", "Save UI preferences", "language?, theme?, lastProject?, animationsOff?, dictationPolish?"),
     ("ui.setView", "Remember how a screen was left (pane width, collapsed section…); no value forgets it", "key, value?"),
     ("server.set", "Configure the companion API", "enabled?, lan?, port?, regenerateToken?"),
@@ -262,6 +265,26 @@ fn drop_unused_atlassian_sign_in(k: &Gitnetix) -> Result<()> {
     Ok(())
 }
 
+/// What a profile's avatar may be: an emoji, a photo as an image data URL (kept in profiles.json, so small), or "gravatar:" and an email.
+fn valid_avatar(a: &str) -> bool {
+    if a.starts_with("data:image/") {
+        a.len() <= 256 * 1024
+    } else if let Some(email) = a.strip_prefix("gravatar:") {
+        email.contains('@') && email.len() <= 254
+    } else {
+        a.chars().count() <= 16
+    }
+}
+
+#[test]
+fn avatars_are_an_emoji_a_photo_or_a_gravatar_email() {
+    assert!(valid_avatar("") && valid_avatar("🦊") && valid_avatar("👩‍💻"));
+    assert!(valid_avatar("data:image/jpeg;base64,/9j/4AAQ"));
+    assert!(!valid_avatar(&format!("data:image/png;base64,{}", "A".repeat(300 * 1024))), "too big for profiles.json");
+    assert!(valid_avatar("gravatar:me@example.com") && !valid_avatar("gravatar:nobody"));
+    assert!(!valid_avatar("a sentence, not an avatar"));
+}
+
 /// Reads polled all the time: logged only when they fail.
 const QUIET: &[&str] = &[".info", ".get", ".list", ".overview", ".files", ".diff", ".blobs", ".commits", ".catalog", ".statuses", ".versions", ".projects", ".refs", ".range", ".preview", ".clear", "analytics.day", "shell.write", "shell.resize", "shell.scripts", "ui.setView", "github.signInPoll", "azure.signInPoll"];
 
@@ -362,7 +385,38 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
                 "dataDir": k.dir.to_string_lossy(),
             }))
         }
-        "config.get" => to(k.store.snapshot()),
+        "config.get" => {
+            let mut c = to(k.store.snapshot())?;
+            let profiles = k.store.profiles();
+            c["userProfiles"] = to(profiles.list)?;
+            c["activeProfile"] = profiles.active.into();
+            Ok(c)
+        }
+        "userProfiles.switch" => {
+            k.switch_profile(&s(&p, "id")?)?;
+            ok()
+        }
+        "userProfiles.save" => {
+            let name = s(&p, "name")?.trim().to_string();
+            if name.is_empty() {
+                return Err(Error::Invalid("A profile needs a name".into()));
+            }
+            let avatar = os(&p, "avatar").unwrap_or_default();
+            if !valid_avatar(&avatar) {
+                return Err(Error::Invalid("An avatar is an emoji, a photo or a Gravatar email".into()));
+            }
+            let hue = p.get("hue").and_then(Value::as_u64).map(|h| (h % 360) as u16);
+            let prof = UserProfile { id: os(&p, "id").unwrap_or_default(), name, avatar, hue };
+            if prof.id.is_empty() {
+                return to(k.create_profile(prof, os(&p, "from").as_deref())?);
+            }
+            k.store.update_profile(prof.clone())?;
+            to(prof)
+        }
+        "userProfiles.delete" => {
+            k.delete_profile(&s(&p, "id")?)?;
+            ok()
+        }
         "ui.set" => {
             k.store.write(|c| {
                 if let Some(x) = os(&p, "language") {

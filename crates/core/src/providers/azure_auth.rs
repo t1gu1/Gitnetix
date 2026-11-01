@@ -26,7 +26,7 @@ const TENANT: &str = "organizations";
 const SCOPE: &str = "499b84ac-1321-427f-aa17-267ca6975798/user_impersonation offline_access";
 
 /// Keychain key holding the stored `Tokens` as JSON.
-const KEY: &str = "azure";
+pub const KEY: &str = "azure";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

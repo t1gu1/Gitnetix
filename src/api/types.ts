@@ -426,6 +426,18 @@ export interface Config {
     dictationPolish: boolean;
   };
   server: { enabled: boolean; port: number; lan: boolean; token: string };
+  /** Everyone sharing Gitnetix here (work, personal…); every setting above is the active one's. */
+  userProfiles: UserProfile[];
+  activeProfile: string;
+}
+
+export interface UserProfile {
+  id: string;
+  name: string;
+  /** An emoji, a photo as an image data URL, "gravatar:" and an email, or "" for the default avatar. */
+  avatar: string;
+  /** Hue of its color; none follows the theme's accent. */
+  hue?: number | null;
 }
 
 export type AgentStatus = "running" | "waiting" | "paused" | "failed" | "done" | "stopped";

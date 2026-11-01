@@ -8,7 +8,7 @@
 use std::io::{BufRead, Write};
 
 use gitnetix_core::rpc::METHODS;
-use gitnetix_core::store::{data_dir, Config};
+use gitnetix_core::store::{active_config_path, data_dir, Config};
 use serde_json::{json, Value};
 
 fn tool_name(method: &str) -> String {
@@ -31,7 +31,7 @@ fn tools() -> Value {
 }
 
 fn load_config() -> anyhow::Result<Config> {
-    let raw = std::fs::read_to_string(data_dir().join("config.json"))
+    let raw = std::fs::read_to_string(active_config_path(&data_dir()))
         .map_err(|_| anyhow::anyhow!("Gitnetix config not found. Open the app once first."))?;
     Ok(serde_json::from_str(&raw)?)
 }

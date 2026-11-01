@@ -1,5 +1,5 @@
 //! Persistent app state: projects, release metadata, profiles, AI setup,
-//! templates and integration settings. One JSON file, written atomically.
+//! templates and integration settings. One JSON file per user profile, written atomically.
 //! Secrets never live here — see `secrets`.
 
 use std::collections::BTreeMap;
@@ -442,6 +442,51 @@ pub fn now() -> String {
     chrono::Utc::now().to_rfc3339()
 }
 
+/// Id of the profile made before there were profiles: its settings stay in config.json.
+pub const FIRST_PROFILE: &str = "default";
+
+/// The people or contexts sharing Gitnetix on this computer (work, personal…), each with its own
+/// projects, connections, AI setup and settings file. In profiles.json, which older versions never
+/// read: they keep using config.json, the first profile's settings.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Profiles {
+    /// The profile Gitnetix opens on.
+    pub active: String,
+    pub list: Vec<UserProfile>,
+}
+
+impl Default for Profiles {
+    fn default() -> Self {
+        Profiles { active: FIRST_PROFILE.into(), list: vec![UserProfile { id: FIRST_PROFILE.into(), name: "Default".into(), ..Default::default() }] }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct UserProfile {
+    pub id: String,
+    pub name: String,
+    /// An emoji, a photo as an image data URL, "gravatar:" and an email, or "" for the default avatar.
+    pub avatar: String,
+    /// Hue (0-359) of its color; none follows the theme's accent.
+    pub hue: Option<u16>,
+}
+
+/// Where profile `id`'s settings live.
+fn profile_path(dir: &Path, id: &str) -> PathBuf {
+    if id == FIRST_PROFILE { dir.join("config.json") } else { dir.join("profiles").join(format!("{id}.json")) }
+}
+
+fn load_profiles(dir: &Path) -> Profiles {
+    std::fs::read_to_string(dir.join("profiles.json")).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
+}
+
+/// The settings file of the profile Gitnetix opens on.
+pub fn active_config_path(dir: &Path) -> PathBuf {
+    profile_path(dir, &load_profiles(dir).active)
+}
+
 /// Where config, logs and (without keychain) secrets live.
 pub fn data_dir() -> PathBuf {
     if let Ok(p) = std::env::var("GITNETIX_HOME") {
@@ -467,7 +512,9 @@ pub fn write_private(path: &Path, contents: impl AsRef<[u8]>) -> std::io::Result
 }
 
 pub struct Store {
-    path: PathBuf,
+    dir: PathBuf,
+    /// The profile whose settings `data` holds.
+    active: Mutex<String>,
     data: RwLock<Config>,
     /// The file as this process last read or wrote it. Another instance on the same folder (a dev
     /// build next to the installed app) writes it too: a different stamp means take theirs in first.
@@ -483,7 +530,10 @@ fn stamp(path: &Path) -> Option<Stamp> {
 }
 
 /// Returns the stamp of what it wrote.
-fn save(path: &Path, cfg: &Config) -> Result<Option<Stamp>> {
+fn save(path: &Path, cfg: &impl Serialize) -> Result<Option<Stamp>> {
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
     // One temp file per process: two instances saving at once would mix their writes in a shared one.
     let tmp = path.with_extension(format!("json.{}.tmp", std::process::id()));
     write_private(&tmp, serde_json::to_string_pretty(cfg)?)?;
@@ -509,6 +559,11 @@ fn parse(raw: &str) -> Result<Config> {
     Ok(cfg)
 }
 
+/// The settings at `path`; defaults when there is no file yet.
+fn read_config(path: &Path) -> Result<Config> {
+    if path.exists() { parse(&std::fs::read_to_string(path)?) } else { Ok(Config::default()) }
+}
+
 impl Store {
     pub fn open(dir: &Path) -> Result<Store> {
         std::fs::create_dir_all(dir)?;
@@ -518,14 +573,109 @@ impl Store {
             // Best effort: a GITNETIX_HOME owned by someone else must still open.
             let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700));
         }
-        let path = dir.join("config.json");
-        let data = if path.exists() { parse(&std::fs::read_to_string(&path)?)? } else { Config::default() };
+        let active = load_profiles(dir).active;
+        let path = profile_path(dir, &active);
+        let data = read_config(&path)?;
         let seen = save(&path, &data)?;
-        Ok(Store { path, data: RwLock::new(data), seen: Mutex::new(seen) })
+        crate::secrets::use_profile(&active);
+        Ok(Store { dir: dir.to_path_buf(), active: Mutex::new(active), data: RwLock::new(data), seen: Mutex::new(seen) })
+    }
+
+    /// The active profile's settings file.
+    fn path(&self) -> PathBuf {
+        profile_path(&self.dir, &self.active.lock().unwrap())
+    }
+
+    pub fn active(&self) -> String {
+        self.active.lock().unwrap().clone()
+    }
+
+    /// Every profile, the one in use here as the active one.
+    pub fn profiles(&self) -> Profiles {
+        Profiles { active: self.active(), ..load_profiles(&self.dir) }
+    }
+
+    /// Profile `id`'s settings.
+    pub fn profile_config(&self, id: &str) -> Result<Config> {
+        if id == self.active() {
+            return Ok(self.snapshot());
+        }
+        if !load_profiles(&self.dir).list.iter().any(|p| p.id == id) {
+            return Err(Error::NotFound(format!("profile {id}")));
+        }
+        read_config(&profile_path(&self.dir, id))
+    }
+
+    /// Load profile `id`'s settings in place of the current ones, and open on it from now on.
+    pub fn switch(&self, id: &str) -> Result<()> {
+        // Under the lock: profile changes are read-modify-writes of profiles.json.
+        let mut g = self.data.write().expect("config lock");
+        if id == self.active() {
+            return Ok(());
+        }
+        let mut profiles = load_profiles(&self.dir);
+        if !profiles.list.iter().any(|p| p.id == id) {
+            return Err(Error::NotFound(format!("profile {id}")));
+        }
+        let path = profile_path(&self.dir, id);
+        let mut next = read_config(&path)?;
+        // The companion API belongs to the computer, not to a profile: the paired phone stays paired.
+        next.server = g.server.clone();
+        let seen = save(&path, &next)?;
+        profiles.active = id.into();
+        save(&self.dir.join("profiles.json"), &profiles)?;
+        *self.active.lock().unwrap() = id.into();
+        *self.seen.lock().unwrap() = seen;
+        *g = next;
+        crate::secrets::use_profile(id);
+        Ok(())
+    }
+
+    /// Add profile `p` with settings `data`.
+    pub fn add_profile(&self, p: UserProfile, mut data: Config) -> Result<()> {
+        let g = self.data.write().expect("config lock");
+        data.server = g.server.clone();
+        save(&profile_path(&self.dir, &p.id), &data)?;
+        let mut profiles = load_profiles(&self.dir);
+        profiles.list.push(p);
+        save(&self.dir.join("profiles.json"), &profiles)?;
+        Ok(())
+    }
+
+    /// Rename profile `p.id` or change its avatar.
+    pub fn update_profile(&self, p: UserProfile) -> Result<()> {
+        let _g = self.data.write().expect("config lock");
+        let mut profiles = load_profiles(&self.dir);
+        let x = profiles.list.iter_mut().find(|x| x.id == p.id).ok_or_else(|| Error::NotFound(format!("profile {}", p.id)))?;
+        *x = p;
+        save(&self.dir.join("profiles.json"), &profiles)?;
+        Ok(())
+    }
+
+    /// Forget profile `id`, which must not be the one in use, and delete its settings file. Returns what they were.
+    pub fn remove_profile(&self, id: &str) -> Result<Config> {
+        let _g = self.data.write().expect("config lock");
+        if id == self.active() {
+            return Err(Error::Invalid("Switch to another profile before deleting this one".into()));
+        }
+        let mut profiles = load_profiles(&self.dir);
+        if !profiles.list.iter().any(|p| p.id == id) {
+            return Err(Error::NotFound(format!("profile {id}")));
+        }
+        profiles.list.retain(|p| p.id != id);
+        if profiles.active == id {
+            profiles.active = self.active();
+        }
+        let path = profile_path(&self.dir, id);
+        // Unreadable settings still go: only the tokens they point to are lost track of.
+        let data = read_config(&path).unwrap_or_default();
+        save(&self.dir.join("profiles.json"), &profiles)?;
+        let _ = std::fs::remove_file(&path);
+        Ok(data)
     }
 
     pub fn read<R>(&self, f: impl FnOnce(&Config) -> R) -> R {
-        if stamp(&self.path) != *self.seen.lock().unwrap() {
+        if stamp(&self.path()) != *self.seen.lock().unwrap() {
             // Never waits: while anyone reads (this thread included) the next read takes it in.
             if let Ok(mut g) = self.data.try_write() {
                 self.take_in(&mut g);
@@ -539,19 +689,20 @@ impl Store {
         let mut g = self.data.write().expect("config lock");
         self.take_in(&mut g);
         let r = f(&mut g)?;
-        let saved = save(&self.path, &g)?;
+        let saved = save(&self.path(), &*g)?;
         *self.seen.lock().unwrap() = saved;
         Ok(r)
     }
 
     /// Replace `cfg` (held under the write lock) with the file when another instance saved it since. Kept as is when unreadable.
     fn take_in(&self, cfg: &mut Config) {
+        let path = self.path();
         let mut seen = self.seen.lock().unwrap();
-        let now = stamp(&self.path);
+        let now = stamp(&path);
         if now == *seen {
             return;
         }
-        if let Some(theirs) = std::fs::read_to_string(&self.path).ok().and_then(|raw| parse(&raw).ok()) {
+        if let Some(theirs) = std::fs::read_to_string(&path).ok().and_then(|raw| parse(&raw).ok()) {
             *cfg = theirs;
             *seen = now;
         }
@@ -639,6 +790,46 @@ mod tests {
         set(&mine, "c");
         assert_eq!(keys(&super::Store::open(dir.path()).unwrap()), ["a", "b", "c"]);
         assert_eq!(keys(&theirs), ["a", "b", "c"]);
+    }
+
+    #[test]
+    fn each_profile_keeps_its_own_settings_and_config_json_the_first_ones() {
+        use super::{Config, Project, Store, UserProfile, FIRST_PROFILE};
+        let dir = tempfile::tempdir().unwrap();
+        let names = |s: &Store| s.read(|c| c.projects.iter().map(|p| p.name.clone()).collect::<Vec<_>>());
+        let add = |s: &Store, name: &str| {
+            s.write(|c| {
+                c.projects.push(Project { name: name.into(), ..Default::default() });
+                Ok(())
+            })
+            .unwrap()
+        };
+        let store = Store::open(dir.path()).unwrap();
+        add(&store, "home");
+        store
+            .write(|c| {
+                c.server.port = 7500;
+                Ok(())
+            })
+            .unwrap();
+        store.add_profile(UserProfile { id: "w1".into(), name: "Work".into(), ..Default::default() }, Config::default()).unwrap();
+        store.switch("w1").unwrap();
+        assert!(names(&store).is_empty());
+        assert_eq!(store.read(|c| c.server.port), 7500, "the companion API stays the computer's");
+        add(&store, "job");
+        // What an older version reads, and rewrites without knowing profiles: the first profile's settings.
+        let first: Config = serde_json::from_str(&std::fs::read_to_string(dir.path().join("config.json")).unwrap()).unwrap();
+        assert_eq!(first.projects[0].name, "home");
+
+        let reopened = Store::open(dir.path()).unwrap();
+        assert_eq!(names(&reopened), ["job"], "opens on the profile last switched to");
+        assert_eq!(reopened.profiles().list.len(), 2);
+        assert!(reopened.remove_profile("w1").is_err(), "the profile in use stays");
+        reopened.switch(FIRST_PROFILE).unwrap();
+        assert_eq!(names(&reopened), ["home"]);
+        assert_eq!(reopened.remove_profile("w1").unwrap().projects[0].name, "job");
+        assert!(!dir.path().join("profiles").join("w1.json").exists());
+        assert_eq!(reopened.profiles().list.len(), 1);
     }
 
     #[test]

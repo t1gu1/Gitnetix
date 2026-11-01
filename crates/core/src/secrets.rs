@@ -148,7 +148,50 @@ mod imp {
     }
 }
 
-pub use imp::{delete, get, set};
+/// Prefix of the keys of the profile in use: none for the first profile, whose keys predate profiles.
+static SCOPE: std::sync::RwLock<String> = std::sync::RwLock::new(String::new());
+
+fn scope_of(profile: &str) -> String {
+    if profile == crate::store::FIRST_PROFILE { String::new() } else { format!("profile.{profile}.") }
+}
+
+/// Point `get`, `set` and `delete` at profile `id`'s secrets.
+pub fn use_profile(id: &str) {
+    *SCOPE.write().unwrap() = scope_of(id);
+}
+
+fn scoped(key: &str) -> String {
+    format!("{}{key}", SCOPE.read().unwrap())
+}
+
+pub fn get(key: &str) -> Result<Option<String>> {
+    imp::get(&scoped(key))
+}
+
+pub fn set(key: &str, value: &str) -> Result<()> {
+    imp::set(&scoped(key), value)
+}
+
+pub fn delete(key: &str) -> Result<()> {
+    imp::delete(&scoped(key))
+}
+
+/// Copy profile `from`'s secrets among `keys` to profile `to`. One the keychain won't give is left out.
+pub fn copy(keys: &[String], from: &str, to: &str) -> Result<()> {
+    let (from, to) = (scope_of(from), scope_of(to));
+    for k in keys {
+        if let Some(v) = imp::get(&format!("{from}{k}")).ok().flatten() {
+            imp::set(&format!("{to}{k}"), &v)?;
+        }
+    }
+    Ok(())
+}
+
+/// Delete profile `id`'s secrets among `keys`.
+pub fn forget(keys: &[String], id: &str) -> Result<()> {
+    let scope = scope_of(id);
+    keys.iter().try_for_each(|k| imp::delete(&format!("{scope}{k}")))
+}
 
 pub fn require(key: &str, what: &str) -> Result<String> {
     get(key)?.filter(|s| !s.is_empty()).ok_or_else(|| Error::NotConnected(what.to_string()))

@@ -13,7 +13,7 @@ import type { ProjectSummary } from "../api/types";
 import { animates } from "../lib/motion";
 import { useNav, type Route } from "../lib/nav";
 import { Icon } from "./Icon";
-import { ThemeToggle } from "./ThemeToggle";
+import { ProfileButton } from "./Profiles";
 import { FixedWidth, useThumb } from "./ui";
 
 export const PAGES: { label: string; icon: string; route: Route }[] = [
@@ -253,13 +253,6 @@ export function TopBar() {
     <>
       <header className="hdr">
         <button
-          className="hdr-icon"
-          aria-label="Open menu"
-          onClick={() => nav.go({ name: "menu" })}
-        >
-          <Icon name="menu" size={18} stroke={1.4} />
-        </button>
-        <button
           className={`hdr-icon hide-narrow${runningAll > 0 ? " glow-working" : ""}`}
           aria-label="Worktrees & agents"
           data-tip={runningAll > 0 ? `Worktrees & agents (${runningAll} running)` : "Worktrees & agents"}
@@ -350,7 +343,7 @@ export function TopBar() {
           </button>
         </nav>
         <div className="hdr-tools">
-          <ThemeToggle />
+          <ProfileButton />
         </div>
       </header>
       <nav ref={pagesBar} aria-label="Pages" className="tabs-pages" hidden={wt}>

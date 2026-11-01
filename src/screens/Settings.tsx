@@ -23,7 +23,7 @@ const JIRA_TOKENS = "https://id.atlassian.com/manage-profile/security/api-tokens
 export const GROUPS: [string, [string, string, string][]][] = [
   ["General", [["appearance", "Appearance", "brush"], ["animations", "Animations", "play"], ["avatars", "Avatars", "smile"], ["terminal", "Terminal", "terminal"], ["worktrees", "Worktrees", "layers"], ["dictation", "Voice dictation", "mic"]]],
   ["AI", [["ai", "AI setup", "sparkle"], ["templates", "Templates", "edit"]]],
-  ["Git", [["profiles", "Git profiles", "user"], ["git", "Git providers", "pr"]]],
+  ["Git", [["profiles", "Git identities", "user"], ["git", "Git providers", "pr"]]],
   ["Integrations", [["tools", "Jira, Trello, Asana", "ticket"], ["companion", "Companion & MCP", "phone"]]],
 ];
 
@@ -263,14 +263,14 @@ function WorktreesSection({ cfg }: { cfg: Config }) {
 }
 
 function Profiles({ cfg }: { cfg: Config }) {
-  const save = useAction<GitProfile>("profiles.save", { invalidate: [["config"]], success: "Profile saved" });
+  const save = useAction<GitProfile>("profiles.save", { invalidate: [["config"]], success: "Identity saved" });
   const del = useAction("profiles.delete", { invalidate: [["config"]] });
   const [edit, setEdit] = useState<GitProfile | null>(null);
   const [deleting, setDeleting] = useState<GitProfile | null>(null);
   return (
     <>
       <div className="col page-intro" style={{ gap: 6 }}>
-        <h1>Git profiles</h1>
+        <h1>Git identities</h1>
         <p className="muted" style={{ margin: 0 }}>Identities applied per project with <span className="mono">git -c</span>. Your global git config is never changed.</p>
       </div>
       <ul className="list">
@@ -284,10 +284,10 @@ function Profiles({ cfg }: { cfg: Config }) {
             <button className="btn btn-sm btn-danger" onClick={() => setDeleting(p)}>Delete</button>
           </li>
         ))}
-        {cfg.profiles.length === 0 && <li className="empty">No profile yet.</li>}
+        {cfg.profiles.length === 0 && <li className="empty">No identity yet.</li>}
       </ul>
       <div>
-        <button className="btn" onClick={() => setEdit({ id: "", label: "", name: "", email: "", sign: false })}>Add profile</button>
+        <button className="btn" onClick={() => setEdit({ id: "", label: "", name: "", email: "", sign: false })}>Add identity</button>
       </div>
       {edit && (
         <form
@@ -300,7 +300,7 @@ function Profiles({ cfg }: { cfg: Config }) {
         >
           {(
             [
-              ["label", "Profile name"],
+              ["label", "Identity name"],
               ["name", "Author name"],
               ["email", "Email"],
               ["signingKey", "SSH signing key (optional, path to .pub)"],
@@ -323,9 +323,9 @@ function Profiles({ cfg }: { cfg: Config }) {
       )}
       {deleting && (
         <Confirm
-          title="Delete Git profile"
+          title="Delete Git identity"
           sub={deleting.label}
-          action="Delete profile"
+          action="Delete identity"
           busy={del.isPending}
           onBack={() => setDeleting(null)}
           onConfirm={() => del.mutate({ id: deleting.id }, { onSuccess: () => setDeleting(null) })}

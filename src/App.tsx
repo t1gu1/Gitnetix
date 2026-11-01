@@ -4,6 +4,7 @@ import { useConfig, useEngineEvents, useProjects } from "./api/hooks";
 import { currentRemote, isLocal } from "./api/transport";
 import { ContextMenu, type MenuItem } from "./components/ContextMenu";
 import { Icon } from "./components/Icon";
+import { ProfileSplash } from "./components/Profiles";
 import { TooltipLayer } from "./components/Tooltip";
 import { isPageRoute, PAGES, TopBar } from "./components/TopBar";
 import { UpdatePrompt } from "./components/UpdatePrompt";
@@ -44,7 +45,8 @@ function Engine({ onUnpair }: { onUnpair: () => void }) {
   const open = c?.projects.filter((p) => !p.hidden) ?? [];
   const last = c?.ui.lastProject && open.some((p) => p.id === c.ui.lastProject) ? c.ui.lastProject : open[0]?.id;
   return (
-    <NavProvider initialProject={last ?? undefined} initialTheme={c?.ui.theme}>
+    // Another profile is another set of projects and settings: everything starts over on it, as at launch.
+    <NavProvider key={c?.activeProfile} initialProject={last ?? undefined} initialTheme={c?.ui.theme}>
       <Shell onUnpair={onUnpair} />
     </NavProvider>
   );
@@ -93,6 +95,7 @@ function Shell({ onUnpair }: { onUnpair: () => void }) {
             <StartSession />
           </div>
           <UpdatePrompt />
+          <ProfileSplash />
           <Toasts />
           <Dictation />
           <TooltipLayer />

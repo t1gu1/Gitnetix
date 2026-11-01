@@ -22,7 +22,7 @@ use crate::project_commands::{self, Scripts};
 use crate::providers::azure::{self, MergedPr};
 use crate::providers::{azure_auth, github::GitHub, parse_remote, PrHost};
 use crate::secrets;
-use crate::store::{new_id, now, BranchMeta, Connection, ConnectMethod, GitProfile, Project, Release, ReleaseKind, Route, Store};
+use crate::store::{new_id, now, BranchMeta, Config, Connection, ConnectMethod, GitProfile, Project, Release, ReleaseKind, Route, Store, UserProfile};
 use crate::submodules::{self, FetchReport, Submodule};
 use crate::templates::{self, Template};
 use crate::tickets::{self, Ticket};
@@ -1699,6 +1699,17 @@ fn home_among(p: &Project, refs: &Refs, default: &str, name: &str, holders: &std
     releases.into_iter().map(|(_, b)| b).chain(rest).find(|t| t != name && refs.rev(t).is_some_and(|r| holders.contains(&r)))
 }
 
+/// Keychain keys a profile's settings can point to.
+fn secret_keys(c: &Config) -> Vec<String> {
+    let i = &c.integrations;
+    let mut keys = vec!["github".to_string(), azure_auth::KEY.into(), tickets::jira_auth::KEY.into()];
+    keys.extend(i.jira.iter().map(Connection::secret));
+    keys.extend(i.trello.iter().map(Connection::secret));
+    keys.extend(i.asana.iter().map(Connection::secret));
+    keys.extend(ai::catalog().into_iter().map(|p| secrets::ai_key(p.id)));
+    keys
+}
+
 fn merge_targets(p: &Project, refs: &Refs, default: &str) -> Vec<String> {
     let mut t: Vec<String> = p.releases.iter().filter(|r| r.shipped_at.is_none() && refs.rev(&r.branch).is_some()).map(|r| r.branch.clone()).collect();
     t.extend(DEV_TRUNKS.iter().filter(|d| **d != default && refs.rev(d).is_some()).map(|d| d.to_string()));
@@ -2115,6 +2126,43 @@ impl Gitnetix {
             Ok(())
         })?;
         self.rewatch();
+        self.config_changed();
+        Ok(())
+    }
+
+    // ---------- user profiles ----------
+
+    /// Use profile `id`: its projects, connections, tokens, AI setup and settings.
+    pub fn switch_profile(&self, id: &str) -> Result<()> {
+        self.store.switch(id)?;
+        self.rewatch();
+        self.config_changed();
+        Ok(())
+    }
+
+    /// A new profile: blank, or a copy of profile `from` with its saved tokens.
+    pub fn create_profile(&self, mut p: UserProfile, from: Option<&str>) -> Result<UserProfile> {
+        p.id = new_id();
+        let data = match from {
+            Some(f) => {
+                let data = self.store.profile_config(f)?;
+                secrets::copy(&secret_keys(&data), f, &p.id)?;
+                data
+            }
+            None => Config::default(),
+        };
+        self.store.add_profile(p.clone(), data)?;
+        Ok(p)
+    }
+
+    /// Delete profile `id` with its settings and saved tokens; the repositories stay on disk. The one in use hands over to another first.
+    pub fn delete_profile(&self, id: &str) -> Result<()> {
+        if self.store.active() == id {
+            let next = self.store.profiles().list.into_iter().find(|p| p.id != id);
+            self.switch_profile(&next.ok_or_else(|| Error::Invalid("The last profile can't be deleted".into()))?.id)?;
+        }
+        let gone = self.store.remove_profile(id)?;
+        secrets::forget(&secret_keys(&gone), id)?;
         self.config_changed();
         Ok(())
     }

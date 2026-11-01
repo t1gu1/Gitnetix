@@ -1,11 +1,13 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 
 import { useAction, useConfig, useProjectPrefs } from "../api/hooks";
 import { currentRemote, isLocal, isTauri, saveRemote } from "../api/transport";
-import type { Config, DialogPrefs, GitProfile, Project } from "../api/types";
+import type { Config, DialogPrefs, GitProfile, Project, UserProfile } from "../api/types";
 import { GRAVATAR_KEY } from "../components/Avatar";
 import { Icon } from "../components/Icon";
 import { Logo } from "../components/Logo";
+import { DeleteProfile, ProfileAvatar, ProfileDialog, useProfiles } from "../components/Profiles";
+import { plural } from "../lib/format";
 import { useTermDefault } from "../components/Shell";
 import { Confirm, LANGS, Seg } from "../components/ui";
 import { showKeys, useDictationKeys } from "../lib/dictation";
@@ -113,6 +115,7 @@ export function Menu({ onUnpair }: { onUnpair: () => void }) {
           ) : (
             <nav aria-label="Main menu" className="menu">
               <div className={`menu-grid${project ? "" : " solo"}`}>
+                {cfg && <ProfileCard cfg={cfg} />}
                 {project && <ProjectSettings key={project.id} project={project} profiles={cfg?.profiles ?? []} />}
                 <AppSettings cfg={cfg} open={open} onUnpair={onUnpair} />
               </div>
@@ -122,6 +125,63 @@ export function Menu({ onUnpair }: { onUnpair: () => void }) {
       </div>
       <div className="menu-scrim" onClick={close} aria-hidden="true" />
     </div>
+  );
+}
+
+/** The active profile atop the settings, which are all its own; the other profiles to switch to, and new ones. */
+function ProfileCard({ cfg }: { cfg: Config }) {
+  const { list, active, switchTo } = useProfiles();
+  const [dialog, setDialog] = useState<{ profile?: UserProfile; from?: string } | null>(null);
+  const [deleting, setDeleting] = useState<UserProfile | null>(null);
+  if (!active) return null;
+  const i = cfg.integrations;
+  const facts = [plural(cfg.projects.length, "project"), i.githubConnected && "GitHub", i.azureConnected && "Azure DevOps", i.jira.length && "Jira", i.trello.length && "Trello", i.asana.length && "Asana"];
+  const others = list.filter((p) => p.id !== active.id);
+  return (
+    <section className="menu-col menu-profile" aria-labelledby="menu-profile-name">
+      <div className="profile-card" data-hue={active.hue != null || undefined} style={{ "--p-hue": active.hue ?? undefined } as CSSProperties}>
+        <ProfileAvatar profile={active} size={64} />
+        <div className="col" style={{ gap: 2, minWidth: 0 }}>
+          <h2 className="label menu-section">Profile</h2>
+          <strong id="menu-profile-name" className="menu-head-name">{active.name}</strong>
+          <span className="hint">{facts.filter(Boolean).join(" · ")}</span>
+        </div>
+        <div className="profile-card-actions">
+          <button className="btn btn-sm" onClick={() => setDialog({ profile: active })}>
+            <Icon name="edit" size={12} />
+            Edit
+          </button>
+          <button className="btn btn-sm" onClick={() => setDialog({ from: active.id })}>
+            <Icon name="copy" size={12} />
+            Duplicate
+          </button>
+          <button className="btn btn-sm btn-ghost btn-danger" disabled={!others.length} title={others.length ? undefined : "The only profile stays"} onClick={() => setDeleting(active)}>
+            <Icon name="trash" size={12} />
+            Delete
+          </button>
+        </div>
+        <p className="hint profile-card-note">Projects, connections, AI setup and every setting below belong to this profile. Each profile keeps its own.</p>
+        <div className="profile-others">
+          {others.map((p) => (
+            <div key={p.id} className="profile-chip">
+              <button className="profile-chip-open" data-tip={`Switch to ${p.name}`} onClick={() => void switchTo(p, true)}>
+                <ProfileAvatar profile={p} size={22} />
+                <span className="ellipsis">{p.name}</span>
+              </button>
+              <button className="act" aria-label={`Delete ${p.name}`} data-tip={`Delete ${p.name}`} onClick={() => setDeleting(p)}>
+                <Icon name="trash" size={12} />
+              </button>
+            </div>
+          ))}
+          <button className="profile-chip profile-chip-new" onClick={() => setDialog({})}>
+            <Icon name="plus" size={12} />
+            New profile
+          </button>
+        </div>
+      </div>
+      {dialog && <ProfileDialog {...dialog} menu onClose={() => setDialog(null)} />}
+      {deleting && <DeleteProfile profile={deleting} onClose={() => setDeleting(null)} />}
+    </section>
   );
 }
 
@@ -257,7 +317,7 @@ function ProjectSettings({ project: p, profiles }: { project: Project; profiles:
       </Group>
 
       <Group
-        title="Git profile"
+        title="Git identity"
         id="menu-profile"
         hint="Author name, email and signing key used for commits in this project."
         bare
@@ -265,7 +325,7 @@ function ProjectSettings({ project: p, profiles }: { project: Project; profiles:
           !adding && (
             <button className="btn btn-sm" onClick={() => setAdding(true)}>
               <Icon name="plus" size={12} />
-              Add profile
+              Add identity
             </button>
           )
         }
@@ -307,11 +367,11 @@ function ProjectSettings({ project: p, profiles }: { project: Project; profiles:
               );
             }}
           >
-            <span style={{ fontWeight: 500 }}>New profile</span>
+            <span style={{ fontWeight: 500 }}>New identity</span>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 8 }}>
               {(
                 [
-                  ["label", "Profile name", "Client work"],
+                  ["label", "Identity name", "Client work"],
                   ["name", "Author name", "Your name"],
                   ["email", "Email", "you@client.com"],
                 ] as const
@@ -387,7 +447,7 @@ function AppSettings({ cfg, open, onUnpair }: { cfg?: Config; open: (id: string)
     dictation: <span className="mono">{showKeys(keys)}</span>,
     ai: "Providers, models and task routing",
     templates: "Prompts for commits, PRs and release notes",
-    profiles: cfg && count(cfg.profiles.length, "profile"),
+    profiles: cfg && (cfg.profiles.length ? `${cfg.profiles.length} ${cfg.profiles.length > 1 ? "identities" : "identity"}` : "None yet"),
     git: i && ([i.githubConnected && "GitHub", i.azureConnected && "Azure DevOps"].filter(Boolean).join(" · ") || "Not connected"),
     tools: i && ([i.jira.length && "Jira", i.trello.length && "Trello", i.asana.length && "Asana"].filter(Boolean).join(" · ") || "Not connected"),
     companion: !isLocal ? "Set on the computer" : s && (s.enabled ? `On · ${s.lan ? "your network" : "this computer only"}` : "Off"),

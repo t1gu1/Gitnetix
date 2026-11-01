@@ -305,12 +305,75 @@ a:hover {
   padding: 0 12px;
   margin-left: auto;
 }
-/* theme toggle is a flush full-height square: drop the padding, re-space whatever precedes it */
-.hdr-tools:has(> .theme-toggle) {
+/* The profile button is a flush full-height square: drop the padding, re-space whatever precedes it. */
+.hdr-tools:has(> .profile-btn) {
   padding: 0;
 }
-.hdr-tools:has(> .theme-toggle) > :first-child:not(.theme-toggle) {
+.hdr-tools:has(> .profile-btn) > :first-child:not(.profile-btn) {
   margin-left: 12px;
+}
+.profile-btn {
+  align-self: stretch;
+  display: grid;
+  place-items: center;
+  width: 48px;
+  flex: none;
+  padding: 0;
+  border: 0;
+  border-left: 1px solid var(--line);
+  background: transparent;
+  transition: background-color var(--t-fast) var(--ease);
+}
+.profile-btn:hover,
+.profile-btn[aria-expanded="true"] {
+  background: var(--raised);
+}
+.profile-btn > .profile-avatar {
+  transition:
+    transform var(--t-fast) var(--ease),
+    box-shadow var(--t-fast) var(--ease);
+}
+.profile-btn:is(:hover, [aria-expanded="true"]) > .profile-avatar {
+  transform: scale(1.08);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--p-color) 55%, transparent),
+    0 0 0 3px color-mix(in srgb, var(--p-color) 24%, transparent);
+}
+
+/* A profile's picture (Profiles.tsx): its emoji, or the default silhouette, on a disc of its color. */
+:is(.profile-avatar, .profile-card, .profile-splash, .profile-hues > button) {
+  --p-color: var(--accent);
+}
+:is(.profile-avatar, .profile-card, .profile-splash, .profile-hues > button)[data-hue] {
+  --p-color: hsl(var(--p-hue) 68% 62%);
+}
+[data-theme="light"] :is(.profile-avatar, .profile-card, .profile-splash, .profile-hues > button)[data-hue] {
+  --p-color: hsl(var(--p-hue) 58% 50%);
+}
+.profile-avatar {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 50%;
+  background: linear-gradient(160deg, color-mix(in srgb, var(--p-color) 36%, var(--raised)), color-mix(in srgb, var(--p-color) 14%, var(--raised)));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--p-color) 50%, transparent);
+  color: color-mix(in srgb, var(--p-color) 88%, #fff);
+  line-height: 1;
+  user-select: none;
+}
+[data-theme="light"] .profile-avatar {
+  background: linear-gradient(160deg, color-mix(in srgb, var(--p-color) 34%, var(--panel)), color-mix(in srgb, var(--p-color) 14%, var(--panel)));
+  color: color-mix(in srgb, var(--p-color) 72%, #000);
+}
+.profile-avatar > svg {
+  fill: currentColor;
+}
+.profile-avatar > img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 .tabs-projects {
   display: flex;
@@ -2758,6 +2821,32 @@ button.tree-twist:hover {
   margin: 4px 2px;
   background: var(--line);
 }
+/* The profile menu (Profiles.tsx): who is active atop it, then the other profiles, avatar in the icon column. */
+.profile-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+.profile-head strong {
+  color: var(--fg);
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.ctx-profile {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  vertical-align: middle;
+}
+/* The 18px avatar centers on the 14px icon column of the other rows; its label clips, so the row makes the room. */
+.ctx-item:has(.ctx-profile) {
+  padding-left: 6px;
+}
 /* A searchable menu (e.g. branches): room for long names, and the filter field stays on top while the list scrolls. */
 .ctx-menu.ctx-search {
   max-width: min(480px, calc(100vw - 16px));
@@ -4859,17 +4948,21 @@ button.picker-act {
   inset: 0;
   z-index: 40;
   display: flex;
+  /* Not hidden: the panel waiting off to the right would widen the app's scroll area, and focusing its close button scroll the whole app sideways. */
+  overflow: clip;
 }
+/* Slides in from the right, where the profile button that opens it sits. */
 .menu-panel {
   position: relative;
   z-index: 1;
   flex: 0 0 auto;
   width: min(1100px, calc(100% - 160px));
+  margin-left: auto;
   display: flex;
   flex-direction: column;
   min-height: 0;
   background: var(--panel);
-  border-right: 1px solid var(--line);
+  border-left: 1px solid var(--line);
   box-shadow: var(--shadow-lg);
   animation: menu-in 0.34s var(--ease-drawer);
 }
@@ -4888,7 +4981,7 @@ button.picker-act {
 }
 @keyframes menu-in {
   from {
-    transform: translateX(-100%);
+    transform: translateX(100%);
   }
 }
 @keyframes fade-in {
@@ -4907,7 +5000,7 @@ button.picker-act {
 }
 @keyframes menu-out {
   to {
-    transform: translateX(-100%);
+    transform: translateX(100%);
   }
 }
 @keyframes menu-fade-out {
@@ -4950,9 +5043,12 @@ button.picker-act {
   margin-inline: auto;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  grid-template-areas: "project" "app";
+  grid-template-areas: "profile" "project" "app";
   gap: 22px;
   align-items: start;
+}
+.menu-profile {
+  grid-area: profile;
 }
 .menu-col {
   display: flex;
@@ -4977,7 +5073,7 @@ button.picker-act {
   .menu-grid {
     max-width: 1040px;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    grid-template-areas: "project app";
+    grid-template-areas: "profile profile" "project app";
     column-gap: 40px;
   }
 }
@@ -4985,7 +5081,234 @@ button.picker-act {
 .menu-grid.solo {
   max-width: 560px;
   grid-template-columns: minmax(0, 1fr);
-  grid-template-areas: "app";
+  grid-template-areas: "profile" "app";
+}
+
+/* The active profile atop the settings (Menu.tsx): avatar, name and what it holds, its actions, then the other profiles. */
+.profile-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px 18px;
+  padding: 18px;
+  border: 1px solid color-mix(in srgb, var(--p-color) 30%, var(--line));
+  border-radius: var(--r-lg);
+  background: radial-gradient(120% 160% at 0% 0%, color-mix(in srgb, var(--p-color) 12%, transparent), transparent 60%), var(--panel);
+}
+.profile-card > .profile-avatar {
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--p-color) 50%, transparent),
+    0 8px 22px -8px color-mix(in srgb, var(--p-color) 60%, transparent);
+}
+.profile-card .menu-section {
+  padding: 0;
+}
+.profile-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.profile-card-note {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+.profile-others {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+.profile-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--bg);
+}
+.profile-chip-open {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 220px;
+  min-height: 32px;
+  padding: 0 10px 0 5px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  transition: background-color var(--t-fast) var(--ease);
+}
+.profile-chip-open:hover {
+  background: var(--raised);
+}
+.profile-chip > .act {
+  height: 26px;
+  margin-right: 4px;
+  border-radius: 50%;
+}
+.profile-chip-new {
+  gap: 6px;
+  padding: 0 14px 0 12px;
+  border-style: dashed;
+  color: var(--muted);
+  transition:
+    color var(--t-fast) var(--ease),
+    border-color var(--t-fast) var(--ease);
+}
+.profile-chip-new:hover {
+  color: var(--fg);
+  border-color: color-mix(in srgb, var(--line), var(--fg) 30%);
+}
+@container (max-width: 560px) {
+  .profile-card {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .profile-card-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+  }
+}
+
+/* New / edit profile dialog (Profiles.tsx). */
+.profile-form {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.profile-form-top {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+/* The avatar label carries its Emoji / Photo / Gravatar switch. */
+.profile-form .flabel {
+  align-items: center;
+}
+.profile-photo {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+.profile-form-top > .profile-avatar {
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--p-color) 50%, transparent),
+    0 8px 22px -8px color-mix(in srgb, var(--p-color) 60%, transparent);
+  transition: background var(--t) var(--ease);
+}
+.profile-avatars {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(38px, 1fr));
+  gap: 4px;
+}
+.profile-avatars > button {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--r);
+  background: transparent;
+  font-size: 19px;
+  line-height: 1;
+  transition:
+    background-color var(--t-fast) var(--ease),
+    border-color var(--t-fast) var(--ease),
+    transform var(--t-fast) var(--ease);
+}
+.profile-avatars > button:hover {
+  background: var(--raised);
+  transform: scale(1.1);
+}
+.profile-avatars > button[aria-checked="true"] {
+  border-color: var(--accent);
+  background: var(--raised);
+}
+.profile-hues {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 2px;
+}
+.profile-hues > button {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--p-color);
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.15);
+  transition:
+    transform var(--t-fast) var(--ease),
+    box-shadow var(--t-fast) var(--ease);
+}
+.profile-hues > button:hover {
+  transform: scale(1.12);
+}
+.profile-hues > button[aria-checked="true"] {
+  box-shadow:
+    0 0 0 2px var(--panel),
+    0 0 0 4px var(--p-color);
+}
+
+/* Right after a profile switch (Profiles.tsx): its avatar pops and its name rises, a moment, then all fades off the app it opened on. */
+.profile-splash {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  pointer-events: none;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--p-color) 18%, color-mix(in srgb, var(--bg) 80%, transparent)), color-mix(in srgb, var(--bg) 60%, transparent));
+  animation: profile-splash 1.4s var(--ease) forwards;
+}
+.profile-splash > .profile-avatar {
+  margin-bottom: 10px;
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--p-color) 50%, transparent),
+    0 0 0 7px color-mix(in srgb, var(--p-color) 16%, transparent),
+    0 14px 44px -10px color-mix(in srgb, var(--p-color) 70%, transparent);
+  animation: profile-pop 0.55s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+.profile-splash > strong {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  animation: rise-in 0.4s var(--ease) 0.08s both;
+}
+.profile-splash > span {
+  color: var(--muted);
+  font-size: 12.5px;
+  animation: rise-in 0.4s var(--ease) 0.14s both;
+}
+@keyframes profile-splash {
+  0% {
+    opacity: 0;
+  }
+  12%,
+  70% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+@keyframes profile-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .profile-splash {
+    display: none;
+  }
 }
 /* A page opened inside the menu panel: fills the panel, its section list and content scroll on their own. */
 .menu-grid.menu-embed {
@@ -5734,7 +6057,7 @@ body:has(> .modal-scrim) #root * {
   }
   .menu-panel {
     width: 100%;
-    border-right: 0;
+    border-left: 0;
     box-shadow: none;
   }
   .menu-scrim {
@@ -6219,6 +6542,9 @@ body:has(> .modal-scrim) #root * {
 /* Animations turned off in the menu's Animations page, one by one (ids from src/lib/motion.ts). */
 :root[data-anim-off~="pages"] :is(.app-main > *, .ws-releases, .ws-diff, .term) {
   animation: none !important;
+}
+:root[data-anim-off~="pages"] .profile-splash {
+  display: none;
 }
 :root[data-anim-off~="lists"] :is(.tree-kids, .file-row, .commit-row, .stash-row, .item-btn, .ag-log > *, .chart-bar > span, .kpi) {
   animation: none !important;

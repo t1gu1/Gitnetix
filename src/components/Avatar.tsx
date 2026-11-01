@@ -34,12 +34,11 @@ function hue(name: string) {
   return h;
 }
 
-/** Small round picture of a commit author: their initials, or their Gravatar when turned on in the settings. Full name in the tooltip. */
-export function Avatar({ name, email, size = 16 }: { name: string; email?: string; size?: number }) {
-  const [gravatar] = useStoredFlag(GRAVATAR_KEY);
+/** `email`'s Gravatar picture, `size` px wide: null without an email, until its hash is known, or once `failed` (none set). */
+export function useGravatar(email: string | undefined, size: number) {
   const [src, setSrc] = useState<string | null>(null);
-  // No crypto.subtle outside a secure context: initials only.
-  const want = gravatar && !!email && !!globalThis.crypto?.subtle;
+  // No crypto.subtle outside a secure context: no picture.
+  const want = !!email && !!globalThis.crypto?.subtle;
   useEffect(() => {
     setSrc(null);
     if (!want) return;
@@ -49,6 +48,13 @@ export function Avatar({ name, email, size = 16 }: { name: string; email?: strin
       live = false;
     };
   }, [want, email, size]);
+  return [src, () => setSrc(null)] as const;
+}
+
+/** Small round picture of a commit author: their initials, or their Gravatar when turned on in the settings. Full name in the tooltip. */
+export function Avatar({ name, email, size = 16 }: { name: string; email?: string; size?: number }) {
+  const [gravatar] = useStoredFlag(GRAVATAR_KEY);
+  const [src, failed] = useGravatar(gravatar ? email : undefined, size);
   if (!name) return null;
   return (
     <span
@@ -58,7 +64,7 @@ export function Avatar({ name, email, size = 16 }: { name: string; email?: strin
       role="img"
       style={{ width: size, height: size, fontSize: Math.round(size * 0.45), "--avatar-hue": hue(name) } as CSSProperties}
     >
-      {src ? <img src={src} alt="" width={size} height={size} onError={() => setSrc(null)} /> : initials(name)}
+      {src ? <img src={src} alt="" width={size} height={size} onError={failed} /> : initials(name)}
     </span>
   );
 }

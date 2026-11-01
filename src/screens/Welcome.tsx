@@ -5,7 +5,7 @@ import { isLocal, onPathDrop, pickFolders } from "../api/transport";
 import type { Project } from "../api/types";
 import { Icon } from "../components/Icon";
 import { Logo } from "../components/Logo";
-import { ThemeToggle } from "../components/ThemeToggle";
+import { ProfileButton } from "../components/Profiles";
 import { Busy, initials } from "../components/ui";
 import { useNav } from "../lib/nav";
 
@@ -42,12 +42,9 @@ export function Welcome() {
   return (
     <>
       <header className="hdr">
-        <button className="hdr-icon" aria-label="Open menu" onClick={() => nav.go({ name: "menu" })}>
-          <Icon name="menu" size={18} stroke={1.4} />
-        </button>
         <div className="hdr-title muted">No project open</div>
         <div className="hdr-tools">
-          <ThemeToggle />
+          <ProfileButton />
         </div>
       </header>
       <main className="scroll" style={{ flex: 1, display: "flex", justifyContent: "center", padding: "72px 24px 48px" }}>
