@@ -4871,12 +4871,8 @@ impl Gitnetix {
         let t0 = Instant::now();
         let reply = ai::complete(&r, "Reply with the single word: ok", None).await?;
         let ms = t0.elapsed().as_millis() as u64;
-        self.store.write(|c| {
-            if let Some(p) = c.ai.providers.get_mut(provider) {
-                p.connected = true;
-            }
-            Ok(())
-        })?;
+        // A CLI found on PATH has no saved settings until now: it works the same with defaults.
+        self.store.write(|c| Ok(c.ai.providers.entry(provider.into()).or_default().connected = true))?;
         self.config_changed();
         Ok(serde_json::json!({ "ms": ms, "model": r.label(), "reply": reply.chars().take(80).collect::<String>() }))
     }

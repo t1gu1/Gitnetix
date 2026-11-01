@@ -404,11 +404,13 @@ pub struct UiPrefs {
     pub spoken_language: Option<String>,
     /// AI rewrites each dictation into clear text, with the project's context, when a provider is set up.
     pub dictation_polish: bool,
+    /// The first-run setup is still to show: set on a first launch only, so files from older versions read false.
+    pub onboarding: bool,
 }
 
 impl Default for UiPrefs {
     fn default() -> Self {
-        UiPrefs { language: "en".into(), theme: "tokyo-night-storm".into(), last_project: None, view: BTreeMap::new(), animations_off: Vec::new(), spoken_language: None, dictation_polish: true }
+        UiPrefs { language: "en".into(), theme: "tokyo-night-storm".into(), last_project: None, view: BTreeMap::new(), animations_off: Vec::new(), spoken_language: None, dictation_polish: true, onboarding: false }
     }
 }
 
@@ -575,7 +577,10 @@ impl Store {
         }
         let active = load_profiles(dir).active;
         let path = profile_path(dir, &active);
-        let data = read_config(&path)?;
+        // Nothing saved yet, not even another profile: a first launch.
+        let fresh = !path.exists() && !dir.join("profiles.json").exists();
+        let mut data = read_config(&path)?;
+        data.ui.onboarding |= fresh;
         let seen = save(&path, &data)?;
         crate::secrets::use_profile(&active);
         Ok(Store { dir: dir.to_path_buf(), active: Mutex::new(active), data: RwLock::new(data), seen: Mutex::new(seen) })
@@ -742,6 +747,20 @@ mod tests {
         super::write_private(&f, "new").unwrap();
         assert_eq!(std::fs::metadata(&f).unwrap().permissions().mode() & 0o777, 0o600);
         assert_eq!(std::fs::read_to_string(&f).unwrap(), "new");
+    }
+
+    #[test]
+    fn only_a_first_launch_gets_the_first_run_setup() {
+        let onboarding = |dir: &std::path::Path| super::Store::open(dir).unwrap().read(|c| c.ui.onboarding);
+        let fresh = tempfile::tempdir().unwrap();
+        assert!(onboarding(fresh.path()));
+        assert!(onboarding(fresh.path()), "shows again until it is finished");
+        super::Store::open(fresh.path()).unwrap().write(|c| Ok(c.ui.onboarding = false)).unwrap();
+        assert!(!onboarding(fresh.path()));
+        // Saved by a version without the setup: the user already went through the app.
+        let old = tempfile::tempdir().unwrap();
+        std::fs::write(old.path().join("config.json"), r#"{"projects":[]}"#).unwrap();
+        assert!(!onboarding(old.path()));
     }
 
     #[test]

@@ -424,6 +424,8 @@ export interface Config {
     spokenLanguage?: string | null;
     /** AI rewrites each dictation with the project's context, when a provider is set up. */
     dictationPolish: boolean;
+    /** First launch: the first-run setup shows until it is finished. */
+    onboarding: boolean;
   };
   server: { enabled: boolean; port: number; lan: boolean; token: string };
   /** Everyone sharing Gitnetix here (work, personal…); every setting above is the active one's. */

@@ -166,16 +166,11 @@ export function ProfileButton() {
   );
 }
 
-/**
- * Make a profile, fresh or a copy of profile `from`, then switch to it; or edit `profile`'s name and looks.
- * `menu`: opened from the settings, which open again on the new profile.
- */
-export function ProfileDialog({ profile, from, menu, onClose }: { profile?: UserProfile; from?: string; menu?: boolean; onClose: () => void }) {
-  const { list, switchTo } = useProfiles();
+/** Name, avatar and color fields, starting from `init`, and what they make. `ready`: the chosen kind of avatar is complete. */
+export function useProfileForm(init: { name: string; avatar: string; hue: number | null }) {
   const identity = useConfig().data?.profiles[0]?.email ?? "";
-  const source = list.find((p) => p.id === from);
-  const [name, setName] = useState(profile?.name ?? (source ? `${source.name} copy` : ""));
-  const old = profile?.avatar ?? "";
+  const [name, setName] = useState(init.name);
+  const old = init.avatar;
   const [kind, setKind] = useState<"emoji" | "photo" | "gravatar">(old.startsWith(PHOTO) ? "photo" : old.startsWith(GRAVATAR) ? "gravatar" : "emoji");
   const [emoji, setEmoji] = useState(kind === "emoji" ? old : "");
   const [photo, setPhoto] = useState(kind === "photo" ? old : "");
@@ -183,15 +178,110 @@ export function ProfileDialog({ profile, from, menu, onClose }: { profile?: User
   const chooser = useRef<HTMLInputElement>(null);
   const avatar = kind === "photo" ? photo : kind === "gravatar" ? GRAVATAR + email.trim() : emoji;
   const ready = kind === "photo" ? !!photo : kind === "emoji" || EMAIL.test(email.trim());
-  // A new profile gets a color no other one has.
-  const [hue, setHue] = useState<number | null>(profile ? (profile.hue ?? null) : (HUES.find((h) => !list.some((p) => p.hue === h)) ?? null));
+  const [hue, setHue] = useState(init.hue);
+  const fields = (
+    <>
+      <div className="profile-form-top">
+        {/* An email still being typed would ask Gravatar about each keystroke. */}
+        <ProfileAvatar profile={{ avatar: ready ? avatar : "", hue }} size={72} />
+        <div className="field grow">
+          <label htmlFor="profile-name">Name</label>
+          <input id="profile-name" className="input" autoFocus maxLength={40} placeholder="Work, Personal, a client…" value={name} onChange={(e) => setName(e.target.value)} />
+        </div>
+      </div>
+      <div className="field">
+        <span className="flabel">
+          Avatar
+          <Seg
+            label="Avatar"
+            value={kind}
+            onChange={setKind}
+            options={[
+              { value: "emoji", label: "Emoji" },
+              { value: "photo", label: "Photo" },
+              { value: "gravatar", label: "Gravatar" },
+            ]}
+          />
+        </span>
+        {kind === "emoji" && (
+          <div className="profile-avatars" role="radiogroup" aria-label="Emoji">
+            {["", ...EMOJIS].map((a) => (
+              <button key={a || "default"} type="button" role="radio" aria-checked={emoji === a} aria-label={a || "Default avatar"} onClick={() => setEmoji(a)}>
+                {a || <ProfileAvatar profile={{ avatar: "", hue }} size={24} />}
+              </button>
+            ))}
+          </div>
+        )}
+        {kind === "photo" && (
+          <div className="profile-photo">
+            <button type="button" className="btn" onClick={() => chooser.current?.click()}>
+              <Icon name="image" size={13} />
+              {photo ? "Choose another photo…" : "Choose a photo…"}
+            </button>
+            <span className="hint">Cropped to a circle, kept on this computer.</span>
+            <input
+              ref={chooser}
+              type="file"
+              accept="image/*"
+              hidden
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                e.target.value = "";
+                if (f) squarePhoto(f).then(setPhoto, () => toast("That file isn't a picture Gitnetix can read", "error"));
+              }}
+            />
+          </div>
+        )}
+        {kind === "gravatar" && (
+          <>
+            <input className="input" type="email" aria-label="Gravatar email" placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} />
+            <span className="hint">The picture set for this email on gravatar.com. Without one, the default avatar shows.</span>
+          </>
+        )}
+      </div>
+      <div className="field">
+        <span className="flabel" id="profile-color">Color</span>
+        <div className="profile-hues" role="radiogroup" aria-labelledby="profile-color">
+          {[null, ...HUES].map((h) => (
+            <button
+              key={h ?? "accent"}
+              type="button"
+              role="radio"
+              aria-checked={hue === h}
+              aria-label={h === null ? "Theme accent" : `Hue ${h}`}
+              data-tip={h === null ? "Theme accent" : undefined}
+              data-hue={h !== null || undefined}
+              style={{ "--p-hue": h ?? undefined } as CSSProperties}
+              onClick={() => setHue(h)}
+            />
+          ))}
+        </div>
+      </div>
+    </>
+  );
+  return { name: name.trim(), avatar, hue, ready, fields };
+}
+
+/**
+ * Make a profile, fresh or a copy of profile `from`, then switch to it; or edit `profile`'s name and looks.
+ * `menu`: opened from the settings, which open again on the new profile.
+ */
+export function ProfileDialog({ profile, from, menu, onClose }: { profile?: UserProfile; from?: string; menu?: boolean; onClose: () => void }) {
+  const { list, switchTo } = useProfiles();
+  const source = list.find((p) => p.id === from);
+  const f = useProfileForm({
+    name: profile?.name ?? (source ? `${source.name} copy` : ""),
+    avatar: profile?.avatar ?? "",
+    // A new profile gets a color no other one has.
+    hue: profile ? (profile.hue ?? null) : (HUES.find((h) => !list.some((p) => p.hue === h)) ?? null),
+  });
   const [start, setStart] = useState(from ?? "");
   const save = useAction<UserProfile>("userProfiles.save", { invalidate: [["config"]] });
   const submit = (e: FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || !ready) return;
+    if (!f.name || !f.ready) return;
     save.mutate(
-      { id: profile?.id, name: name.trim(), avatar, hue, from: profile ? undefined : start || undefined },
+      { id: profile?.id, name: f.name, avatar: f.avatar, hue: f.hue, from: profile ? undefined : start || undefined },
       {
         onSuccess: (p) => {
           onClose();
@@ -209,7 +299,7 @@ export function ProfileDialog({ profile, from, menu, onClose }: { profile?: User
       footer={
         <>
           <button type="button" className="btn btn-md" onClick={onClose}>Cancel</button>
-          <button type="submit" form="profile-form" className="btn btn-md btn-primary" disabled={!name.trim() || !ready || save.isPending}>
+          <button type="submit" form="profile-form" className="btn btn-md btn-primary" disabled={!f.name || !f.ready || save.isPending}>
             {save.isPending && <span className="spinner" />}
             {profile ? "Save" : "Create and switch"}
           </button>
@@ -217,82 +307,7 @@ export function ProfileDialog({ profile, from, menu, onClose }: { profile?: User
       }
     >
       <form id="profile-form" className="profile-form" onSubmit={submit}>
-        <div className="profile-form-top">
-          {/* An email still being typed would ask Gravatar about each keystroke. */}
-          <ProfileAvatar profile={{ avatar: ready ? avatar : "", hue }} size={72} />
-          <div className="field grow">
-            <label htmlFor="profile-name">Name</label>
-            <input id="profile-name" className="input" autoFocus maxLength={40} placeholder="Work, Personal, a client…" value={name} onChange={(e) => setName(e.target.value)} />
-          </div>
-        </div>
-        <div className="field">
-          <span className="flabel">
-            Avatar
-            <Seg
-              label="Avatar"
-              value={kind}
-              onChange={setKind}
-              options={[
-                { value: "emoji", label: "Emoji" },
-                { value: "photo", label: "Photo" },
-                { value: "gravatar", label: "Gravatar" },
-              ]}
-            />
-          </span>
-          {kind === "emoji" && (
-            <div className="profile-avatars" role="radiogroup" aria-label="Emoji">
-              {["", ...EMOJIS].map((a) => (
-                <button key={a || "default"} type="button" role="radio" aria-checked={emoji === a} aria-label={a || "Default avatar"} onClick={() => setEmoji(a)}>
-                  {a || <ProfileAvatar profile={{ avatar: "", hue }} size={24} />}
-                </button>
-              ))}
-            </div>
-          )}
-          {kind === "photo" && (
-            <div className="profile-photo">
-              <button type="button" className="btn" onClick={() => chooser.current?.click()}>
-                <Icon name="image" size={13} />
-                {photo ? "Choose another photo…" : "Choose a photo…"}
-              </button>
-              <span className="hint">Cropped to a circle, kept on this computer.</span>
-              <input
-                ref={chooser}
-                type="file"
-                accept="image/*"
-                hidden
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  e.target.value = "";
-                  if (f) squarePhoto(f).then(setPhoto, () => toast("That file isn't a picture Gitnetix can read", "error"));
-                }}
-              />
-            </div>
-          )}
-          {kind === "gravatar" && (
-            <>
-              <input className="input" type="email" aria-label="Gravatar email" placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} />
-              <span className="hint">The picture set for this email on gravatar.com. Without one, the default avatar shows.</span>
-            </>
-          )}
-        </div>
-        <div className="field">
-          <span className="flabel" id="profile-color">Color</span>
-          <div className="profile-hues" role="radiogroup" aria-labelledby="profile-color">
-            {[null, ...HUES].map((h) => (
-              <button
-                key={h ?? "accent"}
-                type="button"
-                role="radio"
-                aria-checked={hue === h}
-                aria-label={h === null ? "Theme accent" : `Hue ${h}`}
-                data-tip={h === null ? "Theme accent" : undefined}
-                data-hue={h !== null || undefined}
-                style={{ "--p-hue": h ?? undefined } as CSSProperties}
-                onClick={() => setHue(h)}
-              />
-            ))}
-          </div>
-        </div>
+        {f.fields}
         {!profile && (
           <div className="field">
             <span className="flabel" id="profile-start">Start with</span>

@@ -52,7 +52,7 @@ export function Welcome() {
           <div className="welcome-hero">
             <Logo size={56} />
             <div className="col" style={{ gap: 8 }}>
-              <h1>{list.length ? "Open a project" : "Welcome to Gitnetix"}</h1>
+              <h1>{list.length ? "Open a project" : "Add your first project"}</h1>
               <p className="muted">
                 Add one or more local Git repositories. They stay in your project bar until you remove them.
               </p>

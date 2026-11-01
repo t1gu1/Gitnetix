@@ -1196,6 +1196,29 @@ body.dragging-tab * {
   line-height: 1.5;
   text-wrap: pretty;
 }
+/* First-run setup: one bar per step, lit up to the current one. */
+.onboard-dots {
+  display: flex;
+  gap: 6px;
+}
+.onboard-dots > i {
+  width: 28px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--line);
+  transition: background-color var(--t) var(--ease);
+}
+.onboard-dots > i[data-on] {
+  background: var(--accent);
+}
+/* Back, Skip and Continue stay in sight under a long step, like the theme list. */
+.onboard-foot {
+  position: sticky;
+  bottom: 0;
+  margin: 0;
+  padding: 16px 0 24px;
+  background: linear-gradient(transparent, var(--bg) 16px);
+}
 /* Numbered how-to: each step's number in an accent circle. */
 .steps {
   counter-reset: step;

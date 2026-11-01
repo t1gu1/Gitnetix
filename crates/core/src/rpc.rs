@@ -25,7 +25,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("userProfiles.switch", "Use another profile: its projects, connections, AI setup and settings", "id"),
     ("userProfiles.save", "Create a profile, blank or a copy of profile `from` with its saved tokens; with `id`, rename one or change its avatar (an emoji, an image data URL, \"gravatar:\" and an email, or \"\" for the default one) and color hue", "id?, name, avatar?, hue?, from?"),
     ("userProfiles.delete", "Delete a profile with its settings and saved tokens (repositories stay on disk); deleting the active one switches to another, the last one stays", "id"),
-    ("ui.set", "Save UI preferences", "language?, theme?, lastProject?, animationsOff?, dictationPolish?"),
+    ("ui.set", "Save UI preferences; `onboarding: false` ends the first-run setup", "language?, theme?, lastProject?, animationsOff?, dictationPolish?, onboarding?"),
     ("ui.setView", "Remember how a screen was left (pane width, collapsed section…); no value forgets it", "key, value?"),
     ("server.set", "Configure the companion API", "enabled?, lan?, port?, regenerateToken?"),
     ("projects.list", "List saved projects", ""),
@@ -119,7 +119,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("shell.scripts", "Commands of every project tool in a checkout of the project (package.json scripts, Cargo, Docker Compose, Make, LÖVE…) whose program is installed, each with the command line that runs it from the checkout root", "projectId, path"),
     ("ai.catalog", "AI providers, their status and settings", ""),
     ("ai.saveProvider", "Configure an AI provider", "id, method?, model?, effort?, baseUrl?, apiKey?"),
-    ("ai.setDefault", "Default AI provider", "id"),
+    ("ai.setDefault", "Default AI provider; `routeAll` hands it every task too (Claude keeps its per-task models)", "id, routeAll?"),
     ("ai.test", "Test an AI provider", "id"),
     ("dictation.transcribe", "Turn recorded speech into text on this computer (the first time downloads a 740 MB speech model)", "audio (base64), mime"),
     ("dictation.cancel", "Stop the transcriptions under way; they end with an error", ""),
@@ -433,6 +433,9 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
                 }
                 if let Some(x) = p.get("dictationPolish").and_then(Value::as_bool) {
                     c.ui.dictation_polish = x;
+                }
+                if let Some(x) = p.get("onboarding").and_then(Value::as_bool) {
+                    c.ui.onboarding = x;
                 }
                 Ok(())
             })?;
@@ -845,8 +848,13 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
         "ai.setDefault" => {
             let id = s(&p, "id")?;
             ai::provider_info(&id)?;
+            let route_all = p.get("routeAll").and_then(Value::as_bool).unwrap_or(false);
             k.store.write(|c| {
                 c.ai.providers.entry(id.clone()).or_default();
+                // The default routes name Claude's models: another provider runs every task on its own model.
+                if route_all {
+                    c.ai.routing = if id == "claude" { crate::store::AiConfig::default().routing } else { Default::default() };
+                }
                 c.ai.default_provider = id;
                 Ok(())
             })?;

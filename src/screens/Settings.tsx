@@ -66,6 +66,19 @@ export function WorktreeFiles({ files, onSave }: { files: string[]; onSave: (fil
 }
 
 function Appearance() {
+  return (
+    <>
+      <div className="col page-intro" style={{ gap: 6 }}>
+        <h1>Appearance</h1>
+        <p className="muted" style={{ margin: 0 }}>For every project. System follows your computer's light or dark mode, in Tokyo Night Storm or Day.</p>
+      </div>
+      <ThemeChoices />
+    </>
+  );
+}
+
+/** Every theme with its colors, System first; a pick applies at once. Also the first step of the first-run setup. */
+export function ThemeChoices() {
   const nav = useNav();
   const card = (id: string, label: string, preview: ReactNode) => (
     <button key={id} className="radio-card" role="radio" aria-checked={nav.themePref === id} style={{ alignItems: "center" }} onClick={() => nav.setThemePref(id)}>
@@ -74,22 +87,16 @@ function Appearance() {
     </button>
   );
   return (
-    <>
-      <div className="col page-intro" style={{ gap: 6 }}>
-        <h1>Appearance</h1>
-        <p className="muted" style={{ margin: 0 }}>For every project. System follows your computer's light or dark mode, in Tokyo Night Storm or Day.</p>
-      </div>
-      <div role="radiogroup" aria-label="Theme" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 8 }}>
-        {card(
-          "system",
-          "System",
-          <span className="row" style={{ gap: 4 }}>
-            {(["dark", "light"] as const).map((m) => <Swatch key={m} t={resolveTheme("system", m)} />)}
-          </span>,
-        )}
-        {THEMES.map((t) => card(t.id, t.name, <Swatch t={t} />))}
-      </div>
-    </>
+    <div role="radiogroup" aria-label="Theme" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 8 }}>
+      {card(
+        "system",
+        "System",
+        <span className="row" style={{ gap: 4, margin: 0 }}>
+          {(["dark", "light"] as const).map((m) => <Swatch key={m} t={resolveTheme("system", m)} />)}
+        </span>,
+      )}
+      {THEMES.map((t) => card(t.id, t.name, <Swatch t={t} />))}
+    </div>
   );
 }
 
@@ -160,8 +167,6 @@ function Avatars() {
 }
 
 function DictationSection() {
-  const [keys, setKeys] = useDictationKeys();
-  const [picking, setPicking] = useState(false);
   const ui = useConfig().data?.ui;
   const polish = ui?.dictationPolish ?? true;
   const setUi = useAction("ui.set", { invalidate: [["config"]] });
@@ -174,44 +179,7 @@ function DictationSection() {
         <p className="hint" style={{ margin: 0 }}>Speech model: Parakeet Ultra by Moondream, built on NVIDIA Parakeet TDT 0.6B v3, both under CC BY 4.0 (creativecommons.org/licenses/by/4.0), quantized to 8 bits for transcribe.cpp.</p>
       </div>
       <ul className="list">
-        <li className="list-row" style={{ gap: 12 }}>
-          <span className="col grow" style={{ gap: 2 }}>
-            <span style={{ fontWeight: 500 }}>Shortcut</span>
-            <span className="hint">Click it, then press the new keys. They need Ctrl, Alt or ⌘. Esc keeps the current one.</span>
-          </span>
-          <button
-            data-keys-input
-            className="btn keys-input mono"
-            aria-label={`Dictation shortcut: ${showKeys(keys)}. Press to change`}
-            aria-pressed={picking}
-            // Focused by hand: WebKit doesn't focus clicked buttons, and the keys must come here.
-            onClick={(e) => {
-              e.currentTarget.focus();
-              setPicking(true);
-            }}
-            onBlur={() => setPicking(false)}
-            onKeyDown={(e) => {
-              if (!picking) return;
-              // Kept here: Esc would also close the menu this can sit in.
-              if (e.key === "Escape") {
-                e.stopPropagation();
-                return setPicking(false);
-              }
-              const combo = comboOf(e.nativeEvent);
-              if (!combo) return;
-              e.preventDefault();
-              setKeys(combo);
-              setPicking(false);
-            }}
-          >
-            {picking ? "Press keys…" : showKeys(keys)}
-          </button>
-          {keys !== DEFAULT_KEYS && (
-            <button className="btn btn-ghost btn-sm" onClick={() => setKeys("")}>
-              Reset
-            </button>
-          )}
-        </li>
+        <DictationKeys />
         <li className="list-row">
           <label className="check grow">
             <input type="checkbox" checked={polish} onChange={() => setUi.mutate({ dictationPolish: !polish })} />
@@ -225,6 +193,52 @@ function DictationSection() {
         </li>
       </ul>
     </>
+  );
+}
+
+/** The dictation shortcut as a list row: click it, then press the new keys. Also in the first-run setup. */
+export function DictationKeys() {
+  const [keys, setKeys] = useDictationKeys();
+  const [picking, setPicking] = useState(false);
+  return (
+    <li className="list-row" style={{ gap: 12 }}>
+      <span className="col grow" style={{ gap: 2 }}>
+        <span style={{ fontWeight: 500 }}>Shortcut</span>
+        <span className="hint">Click it, then press the new keys. They need Ctrl, Alt or ⌘. Esc keeps the current one.</span>
+      </span>
+      <button
+        data-keys-input
+        className="btn keys-input mono"
+        aria-label={`Dictation shortcut: ${showKeys(keys)}. Press to change`}
+        aria-pressed={picking}
+        // Focused by hand: WebKit doesn't focus clicked buttons, and the keys must come here.
+        onClick={(e) => {
+          e.currentTarget.focus();
+          setPicking(true);
+        }}
+        onBlur={() => setPicking(false)}
+        onKeyDown={(e) => {
+          if (!picking) return;
+          // Kept here: Esc would also close the menu this can sit in.
+          if (e.key === "Escape") {
+            e.stopPropagation();
+            return setPicking(false);
+          }
+          const combo = comboOf(e.nativeEvent);
+          if (!combo) return;
+          e.preventDefault();
+          setKeys(combo);
+          setPicking(false);
+        }}
+      >
+        {picking ? "Press keys…" : showKeys(keys)}
+      </button>
+      {keys !== DEFAULT_KEYS && (
+        <button className="btn btn-ghost btn-sm" onClick={() => setKeys("")}>
+          Reset
+        </button>
+      )}
+    </li>
   );
 }
 
@@ -412,6 +426,29 @@ function DeviceSignIn({ method, name, site }: { method: "github" | "azure"; name
 }
 
 function GitProviders({ cfg }: { cfg: Config }) {
+  return (
+    <>
+      <div className="col page-intro" style={{ gap: 6 }}>
+        <h1>Git providers</h1>
+        <p className="muted" style={{ margin: 0 }}>Used to open PRs, read reviews and publish releases. Tokens are stored in your OS keychain.</p>
+      </div>
+      <ul className="list">
+        <GitHosts cfg={cfg} />
+        {["GitLab", "Bitbucket", "Gitea"].map((n) => (
+          <li key={n} className="list-row">
+            <span className="col grow" style={{ gap: 2 }}>
+              <span style={{ fontWeight: 500 }}>{n}</span>
+              <span className="faint" style={{ fontSize: 12 }}>Not supported yet — push, pull and local work still behave normally</span>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </>
+  );
+}
+
+/** The GitHub and Azure DevOps rows of a list: sign in with a code, or paste a token. Also in the first-run setup. */
+export function GitHosts({ cfg }: { cfg: Config }) {
   const [token, setToken] = useState("");
   const [api, setApi] = useState(cfg.integrations.githubApi ?? "");
   const [manual, setManual] = useState(!!cfg.integrations.githubApi);
@@ -427,102 +464,88 @@ function GitProviders({ cfg }: { cfg: Config }) {
   const azureOn = cfg.integrations.azureConnected;
   return (
     <>
-      <div className="col page-intro" style={{ gap: 6 }}>
-        <h1>Git providers</h1>
-        <p className="muted" style={{ margin: 0 }}>Used to open PRs, read reviews and publish releases. Tokens are stored in your OS keychain.</p>
-      </div>
-      <ul className="list">
-        <li className="col" style={{ padding: 16, gap: 12 }}>
-          <div className="row">
-            <span className="col grow" style={{ gap: 2 }}>
-              <span style={{ fontWeight: 500 }}>GitHub</span>
-              <span className={on ? "c-add" : "faint"} style={{ fontSize: 12 }}>
-                {on ? (user ? `Signed in as ${user}` : "Connected · token in keychain") : "Not connected"}
-              </span>
+      <li className="col" style={{ padding: 16, gap: 12 }}>
+        <div className="row">
+          <span className="col grow" style={{ gap: 2 }}>
+            <span style={{ fontWeight: 500 }}>GitHub</span>
+            <span className={on ? "c-add" : "faint"} style={{ fontSize: 12 }}>
+              {on ? (user ? `Signed in as ${user}` : "Connected · token in keychain") : "Not connected"}
             </span>
-            {on && <button className="btn" onClick={() => disc.mutate({ kind: "github" })}>Disconnect</button>}
+          </span>
+          {on && <button className="btn" onClick={() => disc.mutate({ kind: "github" })}>Disconnect</button>}
+        </div>
+        {!on && <DeviceSignIn method="github" name="GitHub" site="GitHub" />}
+        {!manual ? (
+          <div>
+            <button className="btn btn-sm" onClick={() => setManual(true)}>
+              {on ? "Replace with a personal access token" : "Use a personal access token or GitHub Enterprise"}
+            </button>
           </div>
-          {!on && <DeviceSignIn method="github" name="GitHub" site="GitHub" />}
-          {!manual ? (
-            <div>
-              <button className="btn btn-sm" onClick={() => setManual(true)}>
-                {on ? "Replace with a personal access token" : "Use a personal access token or GitHub Enterprise"}
-              </button>
+        ) : (
+          <form
+            className="col"
+            style={{ gap: 10 }}
+            onSubmit={(e) => {
+              e.preventDefault();
+              save.mutate({ kind: "github", token, config: { apiBase: api } }, { onSuccess: () => setToken("") });
+            }}
+          >
+            <div className="field">
+              <label htmlFor="gh-token">{on ? "Replace token" : "Personal access token"}</label>
+              <input id="gh-token" type="password" className="input mono" placeholder="github_pat_…" value={token} onChange={(e) => setToken(e.target.value)} />
+              <span className="hint">Fine-grained token with Pull requests, Contents, Checks (read) and Issues permissions on your repos.</span>
             </div>
-          ) : (
-            <form
-              className="col"
-              style={{ gap: 10 }}
-              onSubmit={(e) => {
-                e.preventDefault();
-                save.mutate({ kind: "github", token, config: { apiBase: api } }, { onSuccess: () => setToken("") });
-              }}
-            >
-              <div className="field">
-                <label htmlFor="gh-token">{on ? "Replace token" : "Personal access token"}</label>
-                <input id="gh-token" type="password" className="input mono" placeholder="github_pat_…" value={token} onChange={(e) => setToken(e.target.value)} />
-                <span className="hint">Fine-grained token with Pull requests, Contents, Checks (read) and Issues permissions on your repos.</span>
-              </div>
-              <div className="field">
-                <label htmlFor="gh-api">API base <span className="faint" style={{ fontWeight: 400 }}>GitHub Enterprise only</span></label>
-                <input id="gh-api" className="input mono" placeholder="https://github.example.com/api/v3" value={api} onChange={(e) => setApi(e.target.value)} />
-              </div>
-              <div>
-                <button className="btn btn-primary" disabled={!token && !on}>{on ? "Save" : "Connect"}</button>
-              </div>
-            </form>
-          )}
-        </li>
-        <li className="col" style={{ padding: 16, gap: 12 }}>
-          <div className="row">
-            <span className="col grow" style={{ gap: 2 }}>
-              <span style={{ fontWeight: 500 }}>Azure DevOps</span>
-              <span className={azureOn ? "c-add" : "faint"} style={{ fontSize: 12 }}>
-                {azureOn ? (cfg.integrations.azureUser ? `Signed in as ${cfg.integrations.azureUser}` : "Connected · token in keychain") : "Not connected"}
-              </span>
+            <div className="field">
+              <label htmlFor="gh-api">API base <span className="faint" style={{ fontWeight: 400 }}>GitHub Enterprise only</span></label>
+              <input id="gh-api" className="input mono" placeholder="https://github.example.com/api/v3" value={api} onChange={(e) => setApi(e.target.value)} />
+            </div>
+            <div>
+              <button className="btn btn-primary" disabled={!token && !on}>{on ? "Save" : "Connect"}</button>
+            </div>
+          </form>
+        )}
+      </li>
+      <li className="col" style={{ padding: 16, gap: 12 }}>
+        <div className="row">
+          <span className="col grow" style={{ gap: 2 }}>
+            <span style={{ fontWeight: 500 }}>Azure DevOps</span>
+            <span className={azureOn ? "c-add" : "faint"} style={{ fontSize: 12 }}>
+              {azureOn ? (cfg.integrations.azureUser ? `Signed in as ${cfg.integrations.azureUser}` : "Connected · token in keychain") : "Not connected"}
             </span>
-            {azureOn && <button className="btn" onClick={() => discAzure.mutate({ kind: "azure" })}>Disconnect</button>}
+          </span>
+          {azureOn && <button className="btn" onClick={() => discAzure.mutate({ kind: "azure" })}>Disconnect</button>}
+        </div>
+        {!azureOn && <DeviceSignIn method="azure" name="Azure DevOps" site="Microsoft" />}
+        {!azureManual ? (
+          <div>
+            <button className="btn btn-sm" onClick={() => setAzureManual(true)}>
+              {azureOn ? "Replace with a personal access token" : "Use a personal access token"}
+            </button>
           </div>
-          {!azureOn && <DeviceSignIn method="azure" name="Azure DevOps" site="Microsoft" />}
-          {!azureManual ? (
-            <div>
-              <button className="btn btn-sm" onClick={() => setAzureManual(true)}>
-                {azureOn ? "Replace with a personal access token" : "Use a personal access token"}
-              </button>
+        ) : (
+          <form
+            className="col"
+            style={{ gap: 10 }}
+            onSubmit={(e) => {
+              e.preventDefault();
+              saveAzure.mutate({ kind: "azure", token: azureToken, config: { org: azureOrg } }, { onSuccess: () => { setAzureToken(""); setAzureManual(false); } });
+            }}
+          >
+            <div className="field">
+              <label htmlFor="az-token">{azureOn ? "Replace token" : "Personal access token"}</label>
+              <input id="az-token" type="password" className="input mono" value={azureToken} onChange={(e) => setAzureToken(e.target.value)} />
+              <span className="hint">Token with the Code (Read &amp; write) scope, to read and act on pull requests.</span>
             </div>
-          ) : (
-            <form
-              className="col"
-              style={{ gap: 10 }}
-              onSubmit={(e) => {
-                e.preventDefault();
-                saveAzure.mutate({ kind: "azure", token: azureToken, config: { org: azureOrg } }, { onSuccess: () => { setAzureToken(""); setAzureManual(false); } });
-              }}
-            >
-              <div className="field">
-                <label htmlFor="az-token">{azureOn ? "Replace token" : "Personal access token"}</label>
-                <input id="az-token" type="password" className="input mono" value={azureToken} onChange={(e) => setAzureToken(e.target.value)} />
-                <span className="hint">Token with the Code (Read &amp; write) scope, to read and act on pull requests.</span>
-              </div>
-              <div className="field">
-                <label htmlFor="az-org">Organization</label>
-                <input id="az-org" className="input mono" placeholder="https://dev.azure.com/your-org" value={azureOrg} onChange={(e) => setAzureOrg(e.target.value)} />
-              </div>
-              <div>
-                <button className="btn btn-primary" disabled={!azureToken || !azureOrg.trim() || saveAzure.isPending}>{azureOn ? "Save" : "Connect"}</button>
-              </div>
-            </form>
-          )}
-        </li>
-        {["GitLab", "Bitbucket", "Gitea"].map((n) => (
-          <li key={n} className="list-row">
-            <span className="col grow" style={{ gap: 2 }}>
-              <span style={{ fontWeight: 500 }}>{n}</span>
-              <span className="faint" style={{ fontSize: 12 }}>Not supported yet — push, pull and local work still behave normally</span>
-            </span>
-          </li>
-        ))}
-      </ul>
+            <div className="field">
+              <label htmlFor="az-org">Organization</label>
+              <input id="az-org" className="input mono" placeholder="https://dev.azure.com/your-org" value={azureOrg} onChange={(e) => setAzureOrg(e.target.value)} />
+            </div>
+            <div>
+              <button className="btn btn-primary" disabled={!azureToken || !azureOrg.trim() || saveAzure.isPending}>{azureOn ? "Save" : "Connect"}</button>
+            </div>
+          </form>
+        )}
+      </li>
     </>
   );
 }
@@ -611,8 +634,9 @@ function Checks({ label, hint, options, value, onChange }: { label: string; hint
   );
 }
 
-/** Which Gitnetix projects show a connection's tickets. */
+/** Which Gitnetix projects show a connection's tickets; nothing to pick before the first project. */
 function RepoChecks({ cfg, value, onChange }: { cfg: Config; value: string[]; onChange: (v: string[]) => void }) {
+  if (!cfg.projects.length) return null;
   return (
     <Checks
       label="Show in these projects"
@@ -814,6 +838,11 @@ function ConnectionList<T extends { id: string }>({ items, add, row }: { items: 
   );
 }
 
+/** The Jira connections, then the form adding one. Also a step of the first-run setup. */
+export function JiraConnections({ cfg }: { cfg: Config }) {
+  return <ConnectionList items={cfg.integrations.jira} add="Add a Jira connection" row={(c, onDone) => <JiraConnection cfg={cfg} conn={c} onDone={onDone} />} />;
+}
+
 function Integrations({ cfg }: { cfg: Config }) {
   const i = cfg.integrations;
   return (
@@ -822,7 +851,7 @@ function Integrations({ cfg }: { cfg: Config }) {
         <h1>Jira, Trello, Asana</h1>
         <p className="muted" style={{ margin: 0 }}>Tickets show in Tickets, linked to their branch and release. Tokens go to your OS keychain.</p>
       </div>
-      <ConnectionList items={i.jira} add="Add a Jira connection" row={(c, onDone) => <JiraConnection cfg={cfg} conn={c} onDone={onDone} />} />
+      <JiraConnections cfg={cfg} />
       <ConnectionList items={i.trello} add="Add a Trello connection" row={(c, onDone) => <TokenConnection cfg={cfg} k={TRELLO} conn={c} onDone={onDone} />} />
       <ConnectionList items={i.asana} add="Add an Asana connection" row={(c, onDone) => <TokenConnection cfg={cfg} k={ASANA} conn={c} onDone={onDone} />} />
     </>

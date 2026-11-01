@@ -17,6 +17,7 @@ import { useZoomKeys } from "./lib/zoom";
 import { Analytics } from "./screens/Analytics";
 import { Menu } from "./screens/Menu";
 import { NewItem } from "./screens/NewItem";
+import { Onboarding } from "./screens/Onboarding";
 import { Pair } from "./screens/Pair";
 import { PullRequests } from "./screens/PullRequests";
 import { ReleaseNotes } from "./screens/ReleaseNotes";
@@ -178,13 +179,15 @@ function NewItemDialog() {
 function Screen({ onUnpair }: { onUnpair: () => void }) {
   const nav = useNav();
   const r = nav.route;
+  // A first launch sets things up before the first project is added.
+  const welcome = useConfig().data?.ui.onboarding ? <Onboarding /> : <Welcome />;
   let screen;
   switch (r.name) {
     case "home":
-      screen = <Welcome />;
+      screen = welcome;
       break;
     case "workspace":
-      screen = nav.projectId ? <Workspace /> : <Welcome />;
+      screen = nav.projectId ? <Workspace /> : welcome;
       break;
     case "notes":
       screen = <ReleaseNotes />;
@@ -202,7 +205,7 @@ function Screen({ onUnpair }: { onUnpair: () => void }) {
       screen = <Worktrees route={r} />;
       break;
     case "submodules":
-      screen = nav.projectId ? <Submodules /> : <Welcome />;
+      screen = nav.projectId ? <Submodules /> : welcome;
       break;
   }
   return (
