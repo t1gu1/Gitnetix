@@ -11,6 +11,8 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-11-01
+
 ### Added
 - First-run setup for new profiles: theme, profile, AI CLI, Git host, Jira, then commit identity, dictation shortcut and phone pairing. Each step can be skipped and resumes where you left off after a restart.
 
