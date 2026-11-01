@@ -11,6 +11,8 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-11-01
+
 ### Added
 - User profiles: each keeps its own projects, connections, tokens, AI setup and settings, with a name, emoji, photo or Gravatar avatar and a color
 - Ctrl+F (Cmd+F) find in the diff view and the branch tree, marking every match and stepping with the arrows
