@@ -13,11 +13,11 @@ async fn main() -> anyhow::Result<()> {
             println!("Gitnetix companion API on http(s)://{addr}");
             println!("Pairing token: {}", cfg.token);
             if !cfg.lan {
-                println!("Listening on localhost only. Turn on LAN access in Settings › Companion to pair a phone.");
+                println!("Listening on localhost only. Allow devices on your network in the Gitnetix menu to pair a phone.");
             }
         }
         None => {
-            println!("Companion API is disabled in Settings.");
+            println!("Companion API is disabled in the Gitnetix menu, under Companion & MCP.");
             return Ok(());
         }
     }

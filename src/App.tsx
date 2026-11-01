@@ -13,16 +13,13 @@ import { useApplyAnimations, usePauseWhenIdle } from "./lib/motion";
 import { NavProvider, ProjectView, useNav, useVisited, WORKTREES, type Route } from "./lib/nav";
 import { Toasts } from "./lib/toast";
 import { useZoomKeys } from "./lib/zoom";
-import { AISetup } from "./screens/AISetup";
 import { Analytics } from "./screens/Analytics";
 import { Menu } from "./screens/Menu";
 import { NewItem } from "./screens/NewItem";
 import { Pair } from "./screens/Pair";
 import { PullRequests } from "./screens/PullRequests";
 import { ReleaseNotes } from "./screens/ReleaseNotes";
-import { Settings } from "./screens/Settings";
 import { Submodules } from "./screens/Submodules";
-import { Templates } from "./screens/Templates";
 import { Tickets } from "./screens/Tickets";
 import { Welcome } from "./screens/Welcome";
 import { Workspace } from "./screens/Workspace";
@@ -186,20 +183,11 @@ function Screen({ onUnpair }: { onUnpair: () => void }) {
     case "workspace":
       screen = nav.projectId ? <Workspace /> : <Welcome />;
       break;
-    case "settings":
-      screen = <Settings key={r.section} section={r.section} />;
-      break;
-    case "ai":
-      screen = <AISetup />;
-      break;
     case "notes":
       screen = <ReleaseNotes />;
       break;
     case "prs":
       screen = <PullRequests initial={r.number} />;
-      break;
-    case "templates":
-      screen = <Templates />;
       break;
     case "tickets":
       screen = <Tickets initial={r.key} />;

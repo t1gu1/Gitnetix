@@ -108,7 +108,7 @@ export function Pair({ onPaired, error, scan, onBack }: { onPaired: () => void; 
   if (scanning)
     return (
       <div className="scan-view">
-        <p>Point the camera at the QR code in Settings › Companion &amp; MCP on your computer.</p>
+        <p>Point the camera at the QR code in the Gitnetix menu on your computer.</p>
         <button type="button" className="btn btn-lg" onClick={stopScan}>Cancel</button>
       </div>
     );
@@ -144,8 +144,8 @@ export function Pair({ onPaired, error, scan, onBack }: { onPaired: () => void; 
             </div>
           </div>
           <ol className="steps">
-            <li><span>On your computer, open Menu › Settings › Companion &amp; MCP.</span></li>
-            <li><span>Turn on <b>Allow devices on my network</b>.</span></li>
+            <li><span>On your computer, open the Gitnetix menu.</span></li>
+            <li><span>Under App, press <b>Allow devices on my network</b>.</span></li>
             <li><span>Scan the QR code shown there, or copy its address and pairing token below.</span></li>
           </ol>
           <div className="field">

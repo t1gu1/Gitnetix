@@ -47,7 +47,7 @@ export function saveRemote(r: Remote | null) {
 
 let remote: Remote | null = isLocal ? null : loadRemote();
 
-/** The Settings QR code is the companion's own page with `#token=…`. */
+/** The menu's QR code is the companion's own page with `#token=…`. */
 export function remoteFromLink(link: URL | Location): Remote | null {
   const token = new URLSearchParams(link.hash.slice(1)).get("token");
   return token ? { url: link.origin, token } : null;

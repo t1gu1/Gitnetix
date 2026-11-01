@@ -2080,7 +2080,7 @@ function CommitBox({ pid, branch, enabled, staged, changed }: { pid: string; bra
           items={[
             { id: "push", label: "Auto push commits", icon: autoPush ? "check" : undefined, hint: autoPush ? "on" : "off", run: () => setCommit({ autoPush: !autoPush }) },
             "sep",
-            { id: "templates", label: "Show AI templates", icon: "sparkle", run: () => nav.go({ name: "templates" }) },
+            { id: "templates", label: "Show AI templates", icon: "sparkle", run: () => nav.go({ name: "menu", section: "templates" }) },
           ]}
           onClose={() => setMore(null)}
         />

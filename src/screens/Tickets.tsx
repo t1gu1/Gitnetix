@@ -71,7 +71,7 @@ export function Tickets({ initial }: { initial?: string }) {
         <EmptyState
           icon="ticket"
           title="No ticket tracker connected"
-          action={<button className="btn btn-primary btn-md" onClick={() => nav.go({ name: "settings", section: "tools" })}>Connect a tracker</button>}
+          action={<button className="btn btn-primary btn-md" onClick={() => nav.go({ name: "menu", section: "tools" })}>Connect a tracker</button>}
         >
           Connect Jira, Trello or Asana to see tickets here, plan them into releases and start a branch from one.
         </EmptyState>
@@ -93,7 +93,7 @@ export function Tickets({ initial }: { initial?: string }) {
             <ErrorBox error={q.error} />
             <div className="row" style={{ marginTop: 14, justifyContent: "center" }}>
               <button className="btn" onClick={() => q.refetch()}><Busy on={q.isFetching}>Retry</Busy></button>
-              <button className="btn btn-primary" onClick={() => nav.go({ name: "settings", section: "tools" })}>Open settings</button>
+              <button className="btn btn-primary" onClick={() => nav.go({ name: "menu", section: "tools" })}>Open settings</button>
             </div>
           </div>
         </div>
@@ -118,7 +118,7 @@ export function Tickets({ initial }: { initial?: string }) {
                   ...places.map((p) => ({ value: p, label: `${p} · ${base.filter((x) => x.place === p).length}` })),
                   { value: ADD, label: "Connect another tracker…" },
                 ]}
-                onChange={(v) => (v === ADD ? nav.go({ name: "settings", section: "tools" }) : setPlace(v))}
+                onChange={(v) => (v === ADD ? nav.go({ name: "menu", section: "tools" }) : setPlace(v))}
               />
               <div className="row wrap">
                 <Seg label="Group by" value={group} onChange={setGroup} options={[{ value: "release", label: "By release" }, { value: "status", label: "By status" }]} />
@@ -164,9 +164,9 @@ export function Tickets({ initial }: { initial?: string }) {
                   <Empty>No tickets match these filters.</Empty>
                 ) : (
                   <Empty>
-                    No open tickets from {(q.data?.sources ?? []).map((s) => SRC[s as keyof typeof SRC]).join(", ")}. Check the query in Settings.
+                    No open tickets from {(q.data?.sources ?? []).map((s) => SRC[s as keyof typeof SRC]).join(", ")}. Check the query in its settings.
                     <div style={{ marginTop: 14 }}>
-                      <button className="btn" onClick={() => nav.go({ name: "settings", section: "tools" })}>Open settings</button>
+                      <button className="btn" onClick={() => nav.go({ name: "menu", section: "tools" })}>Open settings</button>
                     </div>
                   </Empty>
                 ))}

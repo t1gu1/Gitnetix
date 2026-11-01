@@ -45,7 +45,7 @@ async fn forward(http: &reqwest::Client, method: &str, params: Value) -> Result<
         .json(&json!({ "method": method, "params": params }))
         .send()
         .await
-        .map_err(|_| "Gitnetix is not running (or its companion API is off in Settings).".to_string())?;
+        .map_err(|_| "Gitnetix is not running (or its companion API is off in the menu, under Companion & MCP).".to_string())?;
     let ok = res.status().is_success();
     let v: Value = res.json().await.map_err(|e| e.to_string())?;
     if ok {

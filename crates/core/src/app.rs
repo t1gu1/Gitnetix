@@ -4905,11 +4905,11 @@ impl Gitnetix {
         let api =self.store.read(|c| c.integrations.github_api.clone()).filter(|s| !s.is_empty());
         if !github_host_ok(&repo.host, api.is_some()) {
             return Err(Error::Unsupported(format!(
-                "{} remotes need a GitHub Enterprise API URL in Settings › Git providers — github.com only otherwise",
+                "{} remotes need a GitHub Enterprise API URL in the menu, under Git providers — github.com only otherwise",
                 repo.host
             )));
         }
-        let token = secrets::require("github", "Connect GitHub in Settings › Git providers")?;
+        let token = secrets::require("github", "Connect GitHub in the menu, under Git providers")?;
         Ok(GitHub::new(repo, token, api))
     }
 

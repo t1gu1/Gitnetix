@@ -1,17 +1,15 @@
-import { Fragment, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { useAction, useConfig, useProjectPrefs } from "../api/hooks";
+import { useAction, useConfig } from "../api/hooks";
 import { renderSVG } from "uqr";
 
 import { allowFirewall, companionInfo, isLocal, openExternal, rpc, type CompanionInfo } from "../api/transport";
-import type { Config, DialogPrefs, GitProfile, JiraConn } from "../api/types";
-import { MenuChoice } from "../components/AgentPicker";
+import type { Config, GitProfile, JiraConn } from "../api/types";
 import { GRAVATAR_KEY } from "../components/Avatar";
 import { Icon } from "../components/Icon";
-import { Resizer, usePaneWidth } from "../components/Resizer";
 import { useTermDefault } from "../components/Shell";
-import { Confirm, Header, Seg } from "../components/ui";
+import { Confirm, Seg } from "../components/ui";
 import { comboOf, DEFAULT_KEYS, showKeys, useDictationKeys } from "../lib/dictation";
 import { ANIMATIONS, useAnimations } from "../lib/motion";
 import { useNav } from "../lib/nav";
@@ -21,75 +19,34 @@ import { copyToClipboard, toast } from "../lib/toast";
 
 const JIRA_TOKENS = "https://id.atlassian.com/manage-profile/security/api-tokens";
 
-const GROUPS: [string, [string, string][]][] = [
-  ["General", [["project", "Project"], ["appearance", "Appearance"], ["animations", "Animations"], ["avatars", "Avatars"], ["terminal", "Terminal"], ["worktrees", "Worktrees"], ["dictation", "Voice dictation"]]],
-  ["AI", [["ai", "AI setup"], ["templates", "Templates"]]],
-  ["Git", [["profiles", "Git profiles"], ["git", "Git providers"]]],
-  ["Integrations", [["tools", "Jira, Trello, Asana"], ["companion", "Companion & MCP"]]],
+/** App settings by group: id, label, icon, listed as rows in the menu. Project settings are in the menu too, beside them. */
+export const GROUPS: [string, [string, string, string][]][] = [
+  ["General", [["appearance", "Appearance", "brush"], ["animations", "Animations", "play"], ["avatars", "Avatars", "smile"], ["terminal", "Terminal", "terminal"], ["worktrees", "Worktrees", "layers"], ["dictation", "Voice dictation", "mic"]]],
+  ["AI", [["ai", "AI setup", "sparkle"], ["templates", "Templates", "edit"]]],
+  ["Git", [["profiles", "Git profiles", "user"], ["git", "Git providers", "pr"]]],
+  ["Integrations", [["tools", "Jira, Trello, Asana", "ticket"], ["companion", "Companion & MCP", "phone"]]],
 ];
 
-export function Settings({ section }: { section?: string }) {
-  const nav = useNav();
+/** One section of GROUPS (but AI setup and templates, framed pages of their own), opened from the menu. */
+export function SettingsSection({ id, cfg }: { id: string; cfg: Config }) {
   return (
     <>
-      <Header title="Settings" />
-      <div className="body split">
-        <SettingsPanes section={section} onAi={() => nav.go({ name: "ai" })} onTemplates={() => nav.go({ name: "templates" })} />
-      </div>
-    </>
-  );
-}
-
-/** Section list and content panes, also shown inside the menu panel; `onAi` / `onTemplates` open those pages wherever the host shows them. */
-export function SettingsPanes({ section, onAi, onTemplates }: { section?: string; onAi: () => void; onTemplates: () => void }) {
-  const [sec, setSec] = useState(section ?? "git");
-  const navW = usePaneWidth("gnx.pane.settings", 260, 200, 480);
-  const cfg = useConfig().data;
-  const pick = (id: string) => {
-    if (id === "ai") onAi();
-    else if (id === "templates") onTemplates();
-    else setSec(id);
-  };
-  return (
-    <>
-      <nav aria-label="Settings sections" className="sidenav hide-narrow" style={{ "--sidenav-w": `${navW.width}px` } as CSSProperties}>
-        {GROUPS.map(([g, items]) => (
-          <div key={g} className="col" style={{ gap: 2 }}>
-            <span className="group-label">{g}</span>
-            {items.map(([id, label]) => (
-              <button key={id} className="nav-item" aria-current={sec === id ? "page" : undefined} onClick={() => pick(id)}>{label}</button>
-            ))}
-          </div>
-        ))}
-      </nav>
-      <Resizer pane={navW} label="Resize settings sections" />
-      <main className="page">
-        <div className="show-narrow" style={{ marginBottom: 16 }}>
-          <label htmlFor="st-sec" className="sr-only">Section</label>
-          <MenuChoice id="st-sec" className="select menu-select" style={{ width: "100%" }} label="Section" value={sec} options={GROUPS.flatMap(([, items]) => items).map(([id, l]) => ({ value: id, label: l }))} onChange={pick} />
-        </div>
-        {cfg && (
-          <div className="page-inner">
-            {sec === "project" && <ProjectSection cfg={cfg} />}
-            {sec === "appearance" && <Appearance />}
-            {sec === "animations" && <Animations />}
-            {sec === "avatars" && <Avatars />}
-            {sec === "terminal" && <TerminalSection />}
-            {sec === "worktrees" && <WorktreesSection cfg={cfg} />}
-            {sec === "dictation" && <DictationSection />}
-            {sec === "profiles" && <Profiles cfg={cfg} />}
-            {sec === "git" && <GitProviders cfg={cfg} />}
-            {sec === "tools" && <Integrations cfg={cfg} />}
-            {sec === "companion" && <Companion cfg={cfg} />}
-          </div>
-        )}
-      </main>
+      {id === "appearance" && <Appearance />}
+      {id === "animations" && <Animations />}
+      {id === "avatars" && <Avatars />}
+      {id === "terminal" && <TerminalSection />}
+      {id === "worktrees" && <WorktreesSection cfg={cfg} />}
+      {id === "dictation" && <DictationSection />}
+      {id === "profiles" && <Profiles cfg={cfg} />}
+      {id === "git" && <GitProviders cfg={cfg} />}
+      {id === "tools" && <Integrations cfg={cfg} />}
+      {id === "companion" && <Companion cfg={cfg} />}
     </>
   );
 }
 
 /** Saved on blur, so a half-typed path is not copied into the next worktree. */
-function WorktreeFiles({ files, onSave }: { files: string[]; onSave: (files: string[]) => void }) {
+export function WorktreeFiles({ files, onSave }: { files: string[]; onSave: (files: string[]) => void }) {
   const [text, setText] = useState(files.join("\n"));
   const save = () => {
     const next = text.split("\n").map((l) => l.trim()).filter(Boolean);
@@ -108,75 +65,6 @@ function WorktreeFiles({ files, onSave }: { files: string[]; onSave: (files: str
   );
 }
 
-function ProjectSection({ cfg }: { cfg: Config }) {
-  const nav = useNav();
-  const p = cfg.projects.find((x) => x.id === nav.projectId);
-  const remove = useAction("projects.remove", { invalidate: [["config"], ["projects"]] });
-  const { dialogs: d, setDialogs, worktreeFiles, setWorktreeFiles } = useProjectPrefs(p?.id);
-  if (!p) return <p className="muted">No project open.</p>;
-  const check = (k: Exclude<keyof DialogPrefs, "finish">, label: ReactNode) => (
-    <label className="check">
-      <input type="checkbox" checked={d[k]} onChange={() => setDialogs({ [k]: !d[k] })} />
-      <span>{label}</span>
-    </label>
-  );
-  return (
-    <>
-      <div className="col" style={{ gap: 6 }}>
-        <h1>{p.name}</h1>
-        <p className="mono muted" style={{ margin: 0 }}>{p.path}</p>
-      </div>
-      <div className="kv">
-        <div><span>Releases</span><span>{p.releases.filter((r) => !r.shippedAt).length} open · {p.releases.filter((r) => r.shippedAt).length} shipped</span></div>
-        <div><span>Tracked branches</span><span>{Object.keys(p.branches).length}</span></div>
-        <div><span>AI-written commits</span><span>{p.aiCommits.length}</span></div>
-      </div>
-      <section className="section">
-        <h2>Dialog defaults</h2>
-        <p className="hint" style={{ margin: 0 }}>What the dialogs start with in this project. The new branch dialog remembers where you worked and whether an agent started; other dialogs apply a change to that time only.</p>
-        <Seg
-          grid
-          label="Finishing a worktree session"
-          value={d.finish}
-          onChange={(finish) => setDialogs({ finish })}
-          options={[{ value: "continue", label: "Continue on branch" }, { value: "merge", label: "Merge it" }]}
-        />
-        {check("finishSwitch", "Switch to where the worktree's code lands once it is closed")}
-        {check("newWorktree", "Give a new branch its own worktree instead of switching to it")}
-        {check("newAgent", "Start an AI agent on a new branch right away (always in a worktree)")}
-        {check("shipPush", "Push the default branch and the tag when shipping a release")}
-        {check("shipChangelog", "Let AI update the changelog before shipping a release")}
-        {check("deleteOrigin", "Also delete a deleted branch on origin")}
-        {check("cleanupOrigin", "Also delete cleaned-up behind branches on origin")}
-      </section>
-      <section className="section">
-        <h2>Worktree files</h2>
-        <p className="hint" style={{ margin: 0 }}>Git leaves ignored files out of a new worktree. These are copied from the main checkout into it, one path from the project root per line: a knowledge graph, .env, local settings. The ones set in Worktrees are copied for every project too.</p>
-        <WorktreeFiles key={p.id} files={worktreeFiles} onSave={setWorktreeFiles} />
-      </section>
-      <p className="hint">Generation languages, merge and commit options and the Git profile for this project are in the menu.</p>
-      <div>
-        <button
-          className="btn btn-danger"
-          onClick={() =>
-            remove.mutate(
-              { projectId: p.id },
-              {
-                onSuccess: () => {
-                  nav.setProject(undefined);
-                  nav.go({ name: "home" });
-                },
-              },
-            )
-          }
-        >
-          Remove from Gitnetix (files stay on disk)
-        </button>
-      </div>
-    </>
-  );
-}
-
 function Appearance() {
   const nav = useNav();
   const card = (id: string, label: string, preview: ReactNode) => (
@@ -187,7 +75,7 @@ function Appearance() {
   );
   return (
     <>
-      <div className="col" style={{ gap: 6 }}>
+      <div className="col page-intro" style={{ gap: 6 }}>
         <h1>Appearance</h1>
         <p className="muted" style={{ margin: 0 }}>For every project. System follows your computer's light or dark mode, in Tokyo Night Storm or Day.</p>
       </div>
@@ -221,9 +109,15 @@ function Animations() {
   const { off, toggle, setAll } = useAnimations();
   return (
     <>
-      <div className="col" style={{ gap: 6 }}>
-        <h1>Animations</h1>
-        <p className="muted" style={{ margin: 0 }}>For every project. With reduced motion on in your system settings, they all stay off.</p>
+      <div className="anim-head">
+        <div className="col page-intro" style={{ gap: 6 }}>
+          <h1>Animations</h1>
+          <p className="muted" style={{ margin: 0 }}>For every project. With reduced motion on in your system settings, they all stay off.</p>
+        </div>
+        <div className="row" style={{ margin: "0 0 0 auto" }}>
+          <button className="btn" disabled={off.length === 0} onClick={() => setAll(true)}>Turn all on</button>
+          <button className="btn" disabled={off.length === ANIMATIONS.length} onClick={() => setAll(false)}>Turn all off</button>
+        </div>
       </div>
       <ul className="list">
         {ANIMATIONS.map((a) => (
@@ -238,10 +132,6 @@ function Animations() {
           </li>
         ))}
       </ul>
-      <div className="row">
-        <button className="btn" disabled={off.length === 0} onClick={() => setAll(true)}>Turn all on</button>
-        <button className="btn" disabled={off.length === ANIMATIONS.length} onClick={() => setAll(false)}>Turn all off</button>
-      </div>
     </>
   );
 }
@@ -250,7 +140,7 @@ function Avatars() {
   const [gravatar, setGravatar] = useStoredFlag(GRAVATAR_KEY);
   return (
     <>
-      <div className="col" style={{ gap: 6 }}>
+      <div className="col page-intro" style={{ gap: 6 }}>
         <h1>Avatars</h1>
         <p className="muted" style={{ margin: 0 }}>Authors on branches and commits show as their initials.</p>
       </div>
@@ -277,7 +167,7 @@ function DictationSection() {
   const setUi = useAction("ui.set", { invalidate: [["config"]] });
   return (
     <>
-      <div className="col" style={{ gap: 6 }}>
+      <div className="col page-intro" style={{ gap: 6 }}>
         <h1>Voice dictation</h1>
         <p className="muted" style={{ margin: 0 }}>Speak into any text box. Press the shortcut or click the mic at the right of the box to start listening, then press either again or Stop to put the words in.</p>
         <p className="hint" style={{ margin: 0 }}>Speech is turned into text on this computer, in English, French and 23 more European languages, even mixed in one sentence. The first time downloads the speech model (740 MB) from Hugging Face. Without Rewrite with AI, nothing you say leaves the computer.</p>
@@ -342,7 +232,7 @@ function TerminalSection() {
   const [tab, setTab] = useTermDefault();
   return (
     <>
-      <div className="col" style={{ gap: 6 }}>
+      <div className="col page-intro" style={{ gap: 6 }}>
         <h1>Terminal</h1>
         <p className="muted" style={{ margin: 0 }}>For every project. Each branch keeps the tab last picked in its terminal. Worktrees open on Agent every time you come back to them.</p>
       </div>
@@ -359,9 +249,9 @@ function WorktreesSection({ cfg }: { cfg: Config }) {
   const save = useAction("worktrees.setFiles", { invalidate: [["config"]] });
   return (
     <>
-      <div className="col" style={{ gap: 6 }}>
+      <div className="col page-intro" style={{ gap: 6 }}>
         <h1>Worktrees</h1>
-        <p className="muted" style={{ margin: 0 }}>For every project. A project's settings can add more.</p>
+        <p className="muted" style={{ margin: 0 }}>For every project. Each project can add its own in the menu, under This project.</p>
       </div>
       <section className="section">
         <h2>Worktree files</h2>
@@ -379,7 +269,7 @@ function Profiles({ cfg }: { cfg: Config }) {
   const [deleting, setDeleting] = useState<GitProfile | null>(null);
   return (
     <>
-      <div className="col" style={{ gap: 6 }}>
+      <div className="col page-intro" style={{ gap: 6 }}>
         <h1>Git profiles</h1>
         <p className="muted" style={{ margin: 0 }}>Identities applied per project with <span className="mono">git -c</span>. Your global git config is never changed.</p>
       </div>
@@ -537,7 +427,7 @@ function GitProviders({ cfg }: { cfg: Config }) {
   const azureOn = cfg.integrations.azureConnected;
   return (
     <>
-      <div className="col" style={{ gap: 6 }}>
+      <div className="col page-intro" style={{ gap: 6 }}>
         <h1>Git providers</h1>
         <p className="muted" style={{ margin: 0 }}>Used to open PRs, read reviews and publish releases. Tokens are stored in your OS keychain.</p>
       </div>
@@ -928,7 +818,7 @@ function Integrations({ cfg }: { cfg: Config }) {
   const i = cfg.integrations;
   return (
     <>
-      <div className="col" style={{ gap: 6 }}>
+      <div className="col page-intro" style={{ gap: 6 }}>
         <h1>Jira, Trello, Asana</h1>
         <p className="muted" style={{ margin: 0 }}>Tickets show in Tickets, linked to their branch and release. Tokens go to your OS keychain.</p>
       </div>
@@ -939,43 +829,82 @@ function Integrations({ cfg }: { cfg: Config }) {
   );
 }
 
-/** QR that opens Gitnetix on a phone, already paired; a restart prompt until the companion listens on the LAN. Also shown in the menu panel. */
-export function PairQr({ server: s }: { server: Config["server"] }) {
+/**
+ * Gitnetix on a phone: a QR code that opens it there already paired, with the address and token to type instead.
+ * Until phones can connect: what allows them, or the restart that applies it. In the menu and in Companion & MCP.
+ */
+export function PhoneCard({ server: s }: { server: Config["server"] }) {
   const [info, setInfo] = useState<CompanionInfo | null>(null);
+  const set = useAction("server.set", { invalidate: [["config"]] });
   useEffect(() => {
     companionInfo().then(setInfo).catch(() => {});
   }, [s.token, s.enabled, s.lan, s.port]);
-  const host = info?.hosts[0];
-  if (!isLocal || !s.enabled || !s.lan || !info) return null;
-  if (!info.listening)
+  if (!isLocal) return null;
+  const head = (text: ReactNode) => (
+    <div className="col" style={{ gap: 4, minWidth: 0 }}>
+      <strong className="phone-title">Gitnetix on your phone</strong>
+      <p className="hint" style={{ margin: 0 }}>{text}</p>
+    </div>
+  );
+  const icon = (
+    <span className="phone-icon">
+      <Icon name="phone" size={18} />
+    </span>
+  );
+  if (!s.enabled || !s.lan)
     return (
-      <div className="col" style={{ alignItems: "flex-start" }}>
-        <p className="hint" style={{ margin: 0 }}>
-          {/* Relaunching a dev build ends `pnpm app`'s Vite server, and the new window would stay blank. */}
-          Phones can't connect yet: Gitnetix isn't listening on port <span className="mono">{s.port}</span> with these settings. {import.meta.env.DEV ? "Restart pnpm app" : "Restart Gitnetix"} to apply them. If this stays after a restart, another app is using the port.
-        </p>
-        {!import.meta.env.DEV && (
-          <button className="btn" onClick={() => import("@tauri-apps/plugin-process").then((p) => p.relaunch()).catch((e) => toast(String(e), "error"))}>
-            Restart Gitnetix
+      <div className="phone-card">
+        {icon}
+        <div className="col" style={{ gap: 12, alignItems: "flex-start", minWidth: 0 }}>
+          {head("Manage releases, agents, PRs and tickets from your phone. Anyone on your network with the pairing token can then run Git commands and agents on this computer: allow it only on networks you trust, or use a VPN like Tailscale.")}
+          <button className="btn btn-sm" disabled={set.isPending} onClick={() => set.mutate({ enabled: true, lan: true })}>
+            Allow devices on my network
           </button>
-        )}
+        </div>
       </div>
     );
+  if (!info) return null;
+  if (!info.listening)
+    return (
+      <div className="phone-card">
+        {icon}
+        <div className="col" style={{ gap: 12, alignItems: "flex-start", minWidth: 0 }}>
+          {/* Relaunching a dev build ends `pnpm app`'s Vite server, and the new window would stay blank. */}
+          {head(<>Phones can't connect yet: Gitnetix isn't listening on port <span className="mono">{s.port}</span> with these settings. {import.meta.env.DEV ? "Restart pnpm app" : "Restart Gitnetix"} to apply them. If this stays after a restart, another app is using the port.</>)}
+          {!import.meta.env.DEV && (
+            <button className="btn btn-sm btn-primary" onClick={() => import("@tauri-apps/plugin-process").then((p) => p.relaunch()).catch((e) => toast(String(e), "error"))}>
+              Restart Gitnetix
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  const host = info.hosts[0];
   if (!host) return null;
+  const address = `${host}:${s.port}`;
+  const copy = (label: string, text: string) => (
+    <button className="btn btn-ghost btn-icon btn-sm" aria-label={label} data-tip={label} onClick={() => copyToClipboard(text)}>
+      <Icon name="copy" size={13} />
+    </button>
+  );
   return (
-    <div className="row" style={{ gap: 16, alignItems: "center" }}>
-      <div
-        role="img"
-        aria-label="QR code to open Gitnetix on your phone"
-        style={{ width: 160, flexShrink: 0, background: "#fff", padding: 8, borderRadius: 8 }}
-        dangerouslySetInnerHTML={{ __html: renderSVG(`https://${host}:${s.port}/#token=${s.token}`) }}
-      />
-      <div className="col" style={{ alignItems: "flex-start" }}>
-        <p className="hint" style={{ margin: 0 }}>
-          Scan with the phone camera to open Gitnetix in its browser, already paired. The first time, the browser warns that the connection isn't private: open the details and continue to the site. The code contains the token: don't share it.
-        </p>
+    <div className="phone-card">
+      <div className="phone-qr" role="img" aria-label="QR code to open Gitnetix on your phone" dangerouslySetInnerHTML={{ __html: renderSVG(`https://${address}/#token=${s.token}`) }} />
+      <div className="col" style={{ gap: 12, minWidth: 0 }}>
+        {head("Scan it with the phone camera: Gitnetix opens in its browser, already paired.")}
+        <div className="phone-kv">
+          <span>Address</span>
+          <span className="mono ellipsis">{address}</span>
+          {copy("Copy address", address)}
+          <span>Token</span>
+          <span className="mono ellipsis">{s.token.slice(0, 12)}…</span>
+          {copy("Copy token", s.token)}
+        </div>
+      </div>
+      <div className="phone-foot">
+        <p className="hint" style={{ margin: 0 }}>The first time, the browser warns that the connection isn't private: open the details and continue to the site. The code holds the token: don't share it.</p>
         {info.ufw && (
-          <button className="btn" title="Lets devices on this network reach the companion port (asks for your password)" onClick={() => allowFirewall().then((m) => toast(m || "Allowed through the firewall", "ok"), (e) => toast(String(e), "error"))}>
+          <button className="btn btn-sm" title="Lets devices on this network reach the companion port (asks for your password)" onClick={() => allowFirewall().then((m) => toast(m || "Allowed through the firewall", "ok"), (e) => toast(String(e), "error"))}>
             Allow through firewall
           </button>
         )}
@@ -985,17 +914,12 @@ export function PairQr({ server: s }: { server: Config["server"] }) {
 }
 
 function Companion({ cfg }: { cfg: Config }) {
-  const [info, setInfo] = useState<CompanionInfo | null>(null);
   const [regenerating, setRegenerating] = useState(false);
   const set = useAction<{ restartRequired: boolean }>("server.set", { invalidate: [["config"]], success: "Saved — restart Gitnetix to apply" });
-  useEffect(() => {
-    companionInfo().then(setInfo).catch(() => {});
-  }, [cfg.server.token]);
   const s = cfg.server;
-  const host = s.lan ? info?.hosts[0] ?? "<this computer's IP>" : "127.0.0.1";
   return (
     <>
-      <div className="col" style={{ gap: 6 }}>
+      <div className="col page-intro" style={{ gap: 6 }}>
         <h1>Companion & MCP</h1>
         <p className="muted" style={{ margin: 0, lineHeight: 1.5 }}>
           The companion API exposes every Gitnetix action over HTTP. The mobile app uses it to manage releases, agents, PRs and tickets, and the MCP server uses it so AI agents can drive Gitnetix.
@@ -1018,19 +942,9 @@ function Companion({ cfg }: { cfg: Config }) {
       {isLocal && (
         <section className="section">
           <h2>Pair a phone</h2>
-          <div className="kv">
-            <div>
-              <span>Address</span>
-              <span className="mono">{host}:{s.port}</span>
-            </div>
-            <div>
-              <span>Pairing token</span>
-              <span className="mono ellipsis" title={s.token}>{s.token.slice(0, 12)}…</span>
-            </div>
-          </div>
-          <PairQr server={s} />
+          {s.enabled && s.lan ? <PhoneCard server={s} /> : <p className="hint" style={{ margin: 0 }}>Allow devices on your network above to show the QR code.</p>}
           <div className="row wrap">
-            <button className="btn" onClick={() => copyToClipboard(`${host}:${s.port}`)}>Copy address</button>
+            {/* Also for scripts and browsers on this computer, which reach 127.0.0.1 without network access. */}
             <button className="btn" onClick={() => copyToClipboard(s.token)}>Copy token</button>
             <button className="btn btn-danger" onClick={() => setRegenerating(true)}>New token (unpairs devices)</button>
           </div>

@@ -6,7 +6,7 @@
 //! - any other `GET` → the web UI's files, when the host provides them (no auth: the bundle holds no secrets)
 //!
 //! Every API call except `/health` needs `Authorization: Bearer <token>`. The
-//! server listens on 127.0.0.1 unless LAN access is turned on in Settings.
+//! server listens on 127.0.0.1 unless LAN access is turned on in the menu.
 //! HTTPS uses a self-signed certificate: phone browsers give the microphone only to https pages.
 
 use std::convert::Infallible;

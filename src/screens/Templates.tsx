@@ -5,21 +5,8 @@ import type { Template } from "../api/types";
 import { MenuChoice } from "../components/AgentPicker";
 import { Icon } from "../components/Icon";
 import { Resizer, usePaneWidth } from "../components/Resizer";
-import { Busy, Confirm, Header, LANGS, Loading, Seg } from "../components/ui";
+import { Busy, Confirm, LANGS, Loading, Seg } from "../components/ui";
 import { useNav } from "../lib/nav";
-
-export function Templates() {
-  const nav = useNav();
-  const project = useConfig().data?.projects.find((p) => p.id === nav.projectId);
-  return (
-    <>
-      <Header title="AI templates" sub={project?.name} />
-      <div className="body split">
-        <TemplatesPanes />
-      </div>
-    </>
-  );
-}
 
 /** Template list and editor panes, also shown inside the menu panel. */
 export function TemplatesPanes() {

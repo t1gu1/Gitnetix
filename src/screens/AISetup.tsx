@@ -4,7 +4,7 @@ import { useAction, useAiCatalog } from "../api/hooks";
 import type { AiCatalog, ConnectMethod } from "../api/types";
 import { EFFORTS, MenuChoice } from "../components/AgentPicker";
 import { Resizer, usePaneWidth } from "../components/Resizer";
-import { Header, Loading, Seg } from "../components/ui";
+import { Loading, Seg } from "../components/ui";
 
 const TASKS: [string, string][] = [
   ["commit", "Commit messages"],
@@ -22,23 +22,7 @@ const METHOD_TEXT: Record<ConnectMethod, [string, string]> = {
   api: ["API key", "Talks to the provider directly with your key. Billed to your API account."],
 };
 
-export function AISetup() {
-  const cat = useAiCatalog();
-  if (!cat.data) return (<><Header title="AI setup" /><Loading /></>);
-  const c = cat.data;
-  const connected = c.providers.filter((p) => p.status?.status === "connected").length;
-  const defName = c.providers.find((p) => p.info.id === c.defaultProvider)?.info.name ?? c.defaultProvider;
-  return (
-    <>
-      <Header title="AI setup" sub={`${connected} connected · default: ${defName}`} />
-      <div className="body">
-        <AISetupPanes />
-      </div>
-    </>
-  );
-}
-
-/** Provider list and detail panes, also shown inside Settings; `top` goes above the detail (e.g. a section picker). */
+/** Provider list and detail panes, shown inside the menu; `top` goes above the detail (e.g. a section picker). */
 export function AISetupPanes({ top }: { top?: ReactNode }) {
   const cat = useAiCatalog();
   const [sel, setSel] = useState("claude");

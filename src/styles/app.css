@@ -4966,6 +4966,10 @@ button.picker-act {
 .menu-app {
   grid-area: app;
 }
+.menu-project,
+.menu-app {
+  gap: 24px;
+}
 .menu-section {
   padding: 4px 0 6px;
 }
@@ -4976,6 +4980,12 @@ button.picker-act {
     grid-template-areas: "project app";
     column-gap: 40px;
   }
+}
+/* No project open: the app column alone, centered. */
+.menu-grid.solo {
+  max-width: 560px;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: "app";
 }
 /* A page opened inside the menu panel: fills the panel, its section list and content scroll on their own. */
 .menu-grid.menu-embed {
@@ -5006,8 +5016,8 @@ button.picker-act {
   display: flex;
   align-items: center;
   gap: 12px;
-  min-height: 52px;
-  padding: 0 16px;
+  min-height: 48px;
+  padding: 0 14px 0 16px;
   border: 0;
   background: transparent;
   color: var(--fg);
@@ -5036,6 +5046,190 @@ button.app-row:hover {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* The row opens a page. */
+.app-row > .app-row-chev {
+  color: var(--faint);
+  margin-left: -4px;
+  transition: color var(--t-fast) var(--ease);
+}
+button.app-row:hover > .app-row-chev {
+  color: var(--fg);
+}
+
+/* Menu settings: a title and hint over a framed list of rows. */
+.menu-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.menu-head-name {
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+.menu-head > .mono {
+  font-size: 12px;
+}
+.menu-head > .hint {
+  margin-top: 6px;
+}
+.set-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.set-group-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  padding-inline: 2px;
+}
+.set-group-head h3,
+.set-group-title {
+  margin: 0;
+  padding-inline: 2px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.set-group-head h3 {
+  padding: 0;
+}
+.set-group-head .hint {
+  margin: 0;
+  max-width: 64ch;
+}
+.set-card {
+  display: flex;
+  flex-direction: column;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+}
+.set-card > * {
+  padding-block: 6px;
+}
+.set-card > * + * {
+  border-top: 1px solid var(--line);
+}
+.set-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  min-height: 44px;
+}
+.set-row > .seg.grid {
+  flex: 1 1 100%;
+}
+.set-sub {
+  margin: 0 0 8px 26px;
+}
+.set-danger {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+.set-danger > .btn {
+  margin-left: -8px;
+}
+
+/* Gitnetix on a phone: the QR code with the address and token it holds, or what makes it possible. */
+.phone-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 14px 16px;
+  padding: 16px;
+  border: 1px solid color-mix(in srgb, var(--accent) 26%, var(--line));
+  border-radius: var(--r-lg);
+  background: radial-gradient(130% 150% at 0% 0%, color-mix(in srgb, var(--accent) 9%, transparent), transparent 62%), var(--panel);
+}
+.phone-title {
+  font-size: 14px;
+  font-weight: 600;
+}
+.phone-icon {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--r);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent-fg);
+}
+.phone-qr {
+  width: 132px;
+  padding: 8px;
+  border-radius: var(--r);
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+.phone-qr > svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.phone-kv {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0 12px;
+  padding: 4px 4px 4px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--bg);
+  font-size: 12.5px;
+}
+.phone-kv > span:nth-child(3n + 1) {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.phone-foot {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+}
+
+/* A settings section opened from the menu: one centered column, its title in the menu's header. */
+.menu-page .page-inner {
+  margin-inline: auto;
+}
+.menu-page .page-intro > h1 {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+/* Animations' Turn all on / off: beside the intro, or under it on a phone, nearer the list they act on than the text. */
+.anim-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+}
+@media (max-width: 900px) and (pointer: coarse), (max-width: 480px) {
+  .anim-head {
+    grid-template-columns: minmax(0, 1fr);
+    margin-bottom: -16px;
+  }
 }
 
 /* ---------- modal & toasts ---------- */
@@ -6022,7 +6216,7 @@ body:has(> .modal-scrim) #root * {
   }
 }
 
-/* Animations turned off in Settings › Animations, one by one (ids from src/lib/motion.ts). */
+/* Animations turned off in the menu's Animations page, one by one (ids from src/lib/motion.ts). */
 :root[data-anim-off~="pages"] :is(.app-main > *, .ws-releases, .ws-diff, .term) {
   animation: none !important;
 }

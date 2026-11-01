@@ -90,7 +90,7 @@ export function PullRequests({ initial }: { initial?: number }) {
         <EmptyState
           icon="pr"
           title={errCode === "unsupported" ? "Git provider not supported" : errCode === "not_connected" ? "No Git provider connected" : "Couldn't load pull requests"}
-          action={<button className="btn btn-primary btn-md" onClick={() => nav.go({ name: "settings", section: "git" })}>Open Git providers</button>}
+          action={<button className="btn btn-primary btn-md" onClick={() => nav.go({ name: "menu", section: "git" })}>Open Git providers</button>}
         >
           {prs.error.message}
         </EmptyState>

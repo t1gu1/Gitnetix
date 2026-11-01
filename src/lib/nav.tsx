@@ -7,12 +7,10 @@ import { applyTheme, DEFAULT_THEME, resolveTheme } from "./themes";
 export type Route =
   | { name: "home" }
   | { name: "workspace" }
-  | { name: "menu" }
-  | { name: "settings"; section?: string }
-  | { name: "ai" }
+  /** `section`: a settings page of the menu to open on (an id from GROUPS: "git", "tools"…). */
+  | { name: "menu"; section?: string }
   | { name: "notes" }
   | { name: "prs"; number?: number }
-  | { name: "templates" }
   | { name: "tickets"; key?: string }
   | { name: "analytics" }
   /** `key`: the row to select, a linked worktree's path or the id of an agent outside one. */
@@ -20,8 +18,8 @@ export type Route =
   | { name: "submodules" }
   | { name: "pair" };
 
-/** Screens opened from the menu or a link, with no tab bar of their own: leaving them goes back to where the user came from. */
-const DETOURS = new Set<Route["name"]>(["settings", "ai", "templates", "pair"]);
+/** Screens opened from a link, with no tab bar of their own: leaving them goes back to where the user came from. */
+const DETOURS = new Set<Route["name"]>(["pair"]);
 
 export interface NewItemDraft {
   release?: string;
@@ -42,6 +40,8 @@ interface Nav {
   /** Leave a detour screen (settings, AI setup…) for the page it was opened from. */
   back: () => void;
   menuOpen: boolean;
+  /** The settings page the menu was opened on, if any. */
+  menuSection?: string;
   closeMenu: () => void;
   projectId?: string;
   setProject: (id: string | undefined) => void;
@@ -63,6 +63,7 @@ interface Nav {
 interface View {
   route: Route;
   menuOpen: boolean;
+  menuSection?: string;
   newItem: NewItemDraft | null;
   selectedBranch?: string;
   /** Page a detour screen goes back to. */
@@ -137,7 +138,7 @@ export function NavProvider({ children, initialProject, initialTheme }: { childr
       if (wt && !worktreesRef.current) update((v) => ({ ...v, menuOpen: false }));
       showWorktrees(wt);
       update((v) => {
-        if (r.name === "menu") return { ...v, menuOpen: true };
+        if (r.name === "menu") return { ...v, menuOpen: true, menuSection: r.section };
         return { ...v, menuOpen: false, route: r, returnTo: DETOURS.has(v.route.name) ? v.returnTo : v.route };
       }, shownKey());
     },
@@ -169,6 +170,7 @@ export function NavProvider({ children, initialProject, initialTheme }: { childr
       go,
       back,
       menuOpen: shown.menuOpen,
+      menuSection: shown.menuSection,
       closeMenu,
       projectId,
       setProject,
@@ -211,7 +213,7 @@ export function ProjectView({ projectKey, children }: { projectKey: string; chil
   const v = views[projectKey] ?? freshView(projectKey);
   const value = useMemo<Nav>(
     // The worktrees view works on the open project (its new session's default, its links).
-    () => ({ ...base, projectId: projectKey === WORKTREES ? base.projectId : projectKey || undefined, route: v.route, menuOpen: v.menuOpen, newItem: v.newItem, selectedBranch: v.selectedBranch }),
+    () => ({ ...base, projectId: projectKey === WORKTREES ? base.projectId : projectKey || undefined, route: v.route, menuOpen: v.menuOpen, menuSection: v.menuSection, newItem: v.newItem, selectedBranch: v.selectedBranch }),
     [base, projectKey, v],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
