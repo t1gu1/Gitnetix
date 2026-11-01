@@ -2177,7 +2177,6 @@ function Terminal({ pid, branch, cwd, worktree, open, setOpen, onCloseWorktree, 
             <AgentLog
               lines={cur?.lines ?? []}
               session={cur?.id}
-              projectId={pid}
               provider={cur ? cur.ai?.provider : pick.provider}
               thinking={cur?.status === "running" || start.isPending || message.isPending}
               queued={cur?.queued}

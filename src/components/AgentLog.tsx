@@ -48,11 +48,10 @@ const Steps = memo(function Steps({ lines, open }: { lines: LogLine[]; open: boo
   );
 }, (a, b) => a.open === b.open && same(a.lines, b.lines));
 
-/** Who "you" are: the project's git profile, else the first one. */
-function useMe(projectId?: string) {
+/** Who "you" are: the profile's Git identity. */
+function useMe() {
   const c = useConfig().data;
-  const pid = c?.projects.find((p) => p.id === projectId)?.profileId;
-  const prof = c?.profiles.find((x) => x.id === pid) ?? c?.profiles[0];
+  const prof = c?.profiles[0];
   return { name: prof?.name || c?.integrations.githubUser || "You", email: prof?.email };
 }
 
@@ -143,8 +142,8 @@ const shown = (text: string) => [...new Set([...text.matchAll(/!\[[^\]]*\]\(<?([
 const TAIL = 60;
 
 /** `actions` show under "Your turn!" when the agent did not ask a question; `picks` are its options picked for the prompt box; `session` is the agent's id, for the files you sent it; `queued` are your messages waiting for its run to end. */
-export function AgentLog({ lines, empty, picks, onPicks, projectId, actions, thinking, provider, session, queued = [] }: { lines: LogLine[]; empty?: string; picks: Choice[]; onPicks: (c: Choice[]) => void; projectId?: string; actions?: ReactNode; thinking?: boolean; provider?: string; session?: string; queued?: string[] }) {
-  const me = useMe(projectId);
+export function AgentLog({ lines, empty, picks, onPicks, actions, thinking, provider, session, queued = [] }: { lines: LogLine[]; empty?: string; picks: Choice[]; onPicks: (c: Choice[]) => void; actions?: ReactNode; thinking?: boolean; provider?: string; session?: string; queued?: string[] }) {
+  const me = useMe();
   const ref = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
   const list = blocks(lines);

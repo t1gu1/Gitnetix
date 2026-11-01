@@ -19,6 +19,8 @@ pub const CONFIG_VERSION: u32 = 1;
 pub struct Config {
     pub version: u32,
     pub projects: Vec<Project>,
+    /// This profile's Git identity: Gitnetix commits with it in all its projects; none leaves it to the Git config.
+    /// A list under its old name, so versions that kept several still read it: only the first counts.
     pub profiles: Vec<GitProfile>,
     pub ai: AiConfig,
     pub templates: Vec<Template>,
@@ -51,7 +53,6 @@ pub struct Project {
     pub id: String,
     pub name: String,
     pub path: String,
-    pub profile_id: Option<String>,
     pub gen_lang: GenLangs,
     pub releases: Vec<Release>,
     /// Branch name → what Gitnetix knows about it.
@@ -206,8 +207,6 @@ pub struct BranchMeta {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default, rename_all = "camelCase")]
 pub struct GitProfile {
-    pub id: String,
-    pub label: String,
     pub name: String,
     pub email: String,
     pub sign: bool,

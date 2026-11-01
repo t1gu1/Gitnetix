@@ -5,7 +5,7 @@ import { useAction, useConfig } from "../api/hooks";
 import { renderSVG } from "uqr";
 
 import { allowFirewall, companionInfo, isLocal, openExternal, rpc, type CompanionInfo } from "../api/transport";
-import type { Config, GitProfile, JiraConn } from "../api/types";
+import type { Config, JiraConn } from "../api/types";
 import { GRAVATAR_KEY } from "../components/Avatar";
 import { Icon } from "../components/Icon";
 import { useTermDefault } from "../components/Shell";
@@ -23,7 +23,7 @@ const JIRA_TOKENS = "https://id.atlassian.com/manage-profile/security/api-tokens
 export const GROUPS: [string, [string, string, string][]][] = [
   ["General", [["appearance", "Appearance", "brush"], ["animations", "Animations", "play"], ["avatars", "Avatars", "smile"], ["terminal", "Terminal", "terminal"], ["worktrees", "Worktrees", "layers"], ["dictation", "Voice dictation", "mic"]]],
   ["AI", [["ai", "AI setup", "sparkle"], ["templates", "Templates", "edit"]]],
-  ["Git", [["profiles", "Git identities", "user"], ["git", "Git providers", "pr"]]],
+  ["Git", [["git", "Git providers", "pr"]]],
   ["Integrations", [["tools", "Jira, Trello, Asana", "ticket"], ["companion", "Companion & MCP", "phone"]]],
 ];
 
@@ -37,7 +37,6 @@ export function SettingsSection({ id, cfg }: { id: string; cfg: Config }) {
       {id === "terminal" && <TerminalSection />}
       {id === "worktrees" && <WorktreesSection cfg={cfg} />}
       {id === "dictation" && <DictationSection />}
-      {id === "profiles" && <Profiles cfg={cfg} />}
       {id === "git" && <GitProviders cfg={cfg} />}
       {id === "tools" && <Integrations cfg={cfg} />}
       {id === "companion" && <Companion cfg={cfg} />}
@@ -272,81 +271,6 @@ function WorktreesSection({ cfg }: { cfg: Config }) {
         <p className="hint" style={{ margin: 0 }}>Git leaves ignored files out of a new worktree. These are copied from the main checkout into it when the project has them, one path from the project root per line: a knowledge graph, .env, local settings.</p>
         <WorktreeFiles files={cfg.worktreeFiles} onSave={(files) => save.mutate({ files })} />
       </section>
-    </>
-  );
-}
-
-function Profiles({ cfg }: { cfg: Config }) {
-  const save = useAction<GitProfile>("profiles.save", { invalidate: [["config"]], success: "Identity saved" });
-  const del = useAction("profiles.delete", { invalidate: [["config"]] });
-  const [edit, setEdit] = useState<GitProfile | null>(null);
-  const [deleting, setDeleting] = useState<GitProfile | null>(null);
-  return (
-    <>
-      <div className="col page-intro" style={{ gap: 6 }}>
-        <h1>Git identities</h1>
-        <p className="muted" style={{ margin: 0 }}>Identities applied per project with <span className="mono">git -c</span>. Your global git config is never changed.</p>
-      </div>
-      <ul className="list">
-        {cfg.profiles.map((p) => (
-          <li key={p.id} className="list-row">
-            <span className="col grow" style={{ gap: 2, minWidth: 0 }}>
-              <span style={{ fontWeight: 500 }}>{p.label}</span>
-              <span className="hint ellipsis">{p.name} &lt;{p.email}&gt;{p.sign ? ` · signs with ${p.signingKey || "default SSH key"}` : ""}</span>
-            </span>
-            <button className="btn btn-sm" onClick={() => setEdit(p)}>Edit</button>
-            <button className="btn btn-sm btn-danger" onClick={() => setDeleting(p)}>Delete</button>
-          </li>
-        ))}
-        {cfg.profiles.length === 0 && <li className="empty">No identity yet.</li>}
-      </ul>
-      <div>
-        <button className="btn" onClick={() => setEdit({ id: "", label: "", name: "", email: "", sign: false })}>Add identity</button>
-      </div>
-      {edit && (
-        <form
-          className="col card"
-          style={{ padding: 16, gap: 12 }}
-          onSubmit={(e) => {
-            e.preventDefault();
-            save.mutate({ profile: edit }, { onSuccess: () => setEdit(null) });
-          }}
-        >
-          {(
-            [
-              ["label", "Identity name"],
-              ["name", "Author name"],
-              ["email", "Email"],
-              ["signingKey", "SSH signing key (optional, path to .pub)"],
-            ] as const
-          ).map(([k, l]) => (
-            <div key={k} className="field">
-              <label htmlFor={`pf-${k}`}>{l}</label>
-              <input id={`pf-${k}`} className="input" value={(edit[k] as string) ?? ""} onChange={(e) => setEdit({ ...edit, [k]: e.target.value })} />
-            </div>
-          ))}
-          <label className="check">
-            <input type="checkbox" checked={edit.sign} onChange={() => setEdit({ ...edit, sign: !edit.sign })} />
-            <span>Sign commits with SSH</span>
-          </label>
-          <div className="row" style={{ justifyContent: "flex-end" }}>
-            <button type="button" className="btn" onClick={() => setEdit(null)}>Cancel</button>
-            <button className="btn btn-primary" disabled={!edit.label || !edit.email}>Save</button>
-          </div>
-        </form>
-      )}
-      {deleting && (
-        <Confirm
-          title="Delete Git identity"
-          sub={deleting.label}
-          action="Delete identity"
-          busy={del.isPending}
-          onBack={() => setDeleting(null)}
-          onConfirm={() => del.mutate({ id: deleting.id }, { onSuccess: () => setDeleting(null) })}
-        >
-          Projects using it go back to your global git identity.
-        </Confirm>
-      )}
     </>
   );
 }

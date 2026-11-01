@@ -1752,9 +1752,9 @@ impl Gitnetix {
 
     // ---------- git helpers ----------
 
-    fn identity(&self, p: &Project) -> Option<Identity> {
-        let pid = p.profile_id.as_ref()?;
-        let prof: GitProfile = self.store.read(|c| c.profiles.iter().find(|x| &x.id == pid).cloned())?;
+    /// The profile's Git identity, applied to every project; none leaves it to the Git config.
+    fn identity(&self) -> Option<Identity> {
+        let prof: GitProfile = self.store.read(|c| c.profiles.first().cloned())?;
         let key = if prof.sign {
             prof.signing_key.clone().or_else(|| {
                 let home = dirs::home_dir()?;
@@ -1770,16 +1770,16 @@ impl Gitnetix {
         Some(Identity { name: prof.name, email: prof.email, ssh_signing_key: key })
     }
 
-    fn git_at(&self, p: &Project, cwd: &Path) -> Git {
+    fn git_at(&self, cwd: &Path) -> Git {
         let g = Git::new(cwd);
-        match self.identity(p) {
+        match self.identity() {
             Some(id) => g.with_identity(&id),
             None => g,
         }
     }
 
     fn git(&self, p: &Project) -> Git {
-        self.git_at(p, Path::new(&p.path))
+        self.git_at(Path::new(&p.path))
     }
 
     /// Directory where `branch` is checked out, if any.
@@ -1793,7 +1793,7 @@ impl Gitnetix {
             .checkout_dir(p, branch)
             .await?
             .ok_or_else(|| Error::Invalid(format!("{branch} is not checked out. Switch to it or open it in a worktree first.")))?;
-        Ok(self.git_at(p, &dir))
+        Ok(self.git_at(&dir))
     }
 
     /// Branch `branch` merges into (rebases onto, diffs against); the default branch maps to itself.
@@ -2026,7 +2026,7 @@ impl Gitnetix {
         let commits = git.run(&["log", "-10", "--name-only", "--format=- %s", rev, "--"]).await.unwrap_or_default();
         // A branch checked out nowhere has no uncommitted changes.
         let files = match self.checkout_dir(&p, &branch).await? {
-            Some(dir) => self.git_at(&p, &dir).run(&["status", "--short"]).await.unwrap_or_default(),
+            Some(dir) => self.git_at(&dir).run(&["status", "--short"]).await.unwrap_or_default(),
             None => String::new(),
         };
         let ticket = p.branches.get(&branch).and_then(|m| m.ticket.clone()).or_else(|| ticket_keys(&branch, true).into_iter().next());
@@ -2077,7 +2077,6 @@ impl Gitnetix {
             }
             let name = top.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| path.clone());
             let mut project = Project { id: new_id(), name, path, added_at: now(), ..Default::default() };
-            project.profile_id = self.store.read(|c| c.profiles.first().map(|p| p.id.clone()));
             self.import_release_branches(&mut project).await;
             self.store.write(|c| {
                 c.projects.push(project.clone());
@@ -2140,10 +2139,10 @@ impl Gitnetix {
         Ok(())
     }
 
-    /// A new profile: blank, or a copy of profile `from` with its saved tokens.
-    pub fn create_profile(&self, mut p: UserProfile, from: Option<&str>) -> Result<UserProfile> {
+    /// A new profile: blank, or a copy of profile `from` with its saved tokens. `git`: its Git identity instead of the copied one.
+    pub fn create_profile(&self, mut p: UserProfile, from: Option<&str>, git: Option<Vec<GitProfile>>) -> Result<UserProfile> {
         p.id = new_id();
-        let data = match from {
+        let mut data = match from {
             Some(f) => {
                 let data = self.store.profile_config(f)?;
                 secrets::copy(&secret_keys(&data), f, &p.id)?;
@@ -2151,6 +2150,9 @@ impl Gitnetix {
             }
             None => Config::default(),
         };
+        if let Some(g) = git {
+            data.profiles = g;
+        }
         self.store.add_profile(p.clone(), data)?;
         Ok(p)
     }
@@ -2974,7 +2976,7 @@ impl Gitnetix {
     pub async fn push(&self, project_id: &str, branch: &str, force: bool) -> Result<String> {
         let p = self.store.project(project_id)?;
         let git = match self.checkout_dir(&p, branch).await? {
-            Some(d) => self.git_at(&p, &d),
+            Some(d) => self.git_at(&d),
             None => self.git(&p),
         };
         let out = if force {
@@ -3336,9 +3338,9 @@ impl Gitnetix {
         }
         let default_dir = self.checkout_dir(&p, &default).await?;
         if let Some(dir) = &default_dir {
-            self.check_wip_clear(&p, dir, &r.branch, &default).await?;
+            self.check_wip_clear(dir, &r.branch, &default).await?;
             // The stamp below changes it on the release after this check.
-            clean_changelog(&self.git_at(&p, dir), dir).await?;
+            clean_changelog(&self.git_at(dir), dir).await?;
         }
         self.stamp_release_changelog(&p, &git, &r.branch, version, &format!("docs(changelog): release v{version}")).await?;
         let sha = git.rev_parse(&r.branch).await?;
@@ -3444,7 +3446,7 @@ impl Gitnetix {
     async fn commit_changelog(&self, p: &Project, git: &Git, branch: &str, text: &str, message: &str) -> Result<()> {
         match self.checkout_dir(p, branch).await? {
             Some(dir) => {
-                let g = self.git_at(p, &dir);
+                let g = self.git_at(&dir);
                 clean_changelog(&g, &dir).await?;
                 tokio::fs::write(dir.join(CHANGELOG), text).await?;
                 g.commit_paths(&[CHANGELOG], message).await
@@ -3792,7 +3794,7 @@ impl Gitnetix {
             _ => None,
         };
         if let (Some(_), Some(dir)) = (&changelog, &dir) {
-            clean_changelog(&self.git_at(&p, dir), dir).await?;
+            clean_changelog(&self.git_at(dir), dir).await?;
         }
         // As configured: `@{upstream}` fails once origin dropped it.
         let upstream = git.run(&["for-each-ref", "--format=%(upstream:short)", &format!("refs/heads/{branch}")]).await?;
@@ -4122,7 +4124,7 @@ impl Gitnetix {
         let dir = self.checkout_dir(&p, branch).await?;
         let stashed = match (wip, &dir) {
             (Some(_), Some(dir)) => {
-                let g = self.git_at(&p, dir);
+                let g = self.git_at(dir);
                 let files = g.wip_changes().await?;
                 if files.is_empty() {
                     None
@@ -4158,7 +4160,7 @@ impl Gitnetix {
     async fn pull_upstream(&self, p: &Project, branch: &str, upstream: &str, dir: Option<&Path>) -> Result<String> {
         let git = self.git(p);
         let pulled = match dir {
-            Some(dir) => self.git_at(p, dir).pull_ff(branch, upstream, true).await,
+            Some(dir) => self.git_at(dir).pull_ff(branch, upstream, true).await,
             None => git.pull_ff(branch, upstream, false).await,
         };
         Ok(match pulled {
@@ -4173,7 +4175,7 @@ impl Gitnetix {
                     format!("{branch} and {upstream} had diverged: merged {upstream} into {branch}")
                 } else {
                     if let Some(dir) = dir {
-                        self.check_wip_clear(p, dir, upstream, branch).await?;
+                        self.check_wip_clear(dir, upstream, branch).await?;
                     }
                     self.rebase_branch(p, branch, upstream).await?;
                     format!("{branch} and {upstream} had diverged: rebased {branch} onto {upstream}")
@@ -4198,7 +4200,7 @@ impl Gitnetix {
             .ok_or_else(|| Error::Invalid(format!("{branch} has no upstream to reset to.")))?;
         let sha = git.rev_parse(&upstream).await?;
         match self.checkout_dir(&p, branch).await? {
-            Some(dir) => self.git_at(&p, &dir).reset(&sha, "hard").await?,
+            Some(dir) => self.git_at(&dir).reset(&sha, "hard").await?,
             None => git.update_ref(&format!("refs/heads/{branch}"), &sha).await?,
         }
         self.changed(project_id);
@@ -4350,11 +4352,11 @@ impl Gitnetix {
             }
         }
         if let Some(dir) = self.checkout_dir(p, into).await? {
-            self.check_wip_clear(p, &dir, from, into).await?;
+            self.check_wip_clear(&dir, from, into).await?;
         }
         // Rebased where it's checked out: its uncommitted work would be left out of the merge.
         if let (true, Some(dir)) = (rebase, self.checkout_dir(p, from).await?) {
-            let g = self.git_at(p, &dir);
+            let g = self.git_at(&dir);
             if g.is_rebasing().await? || !g.wip_changes().await?.is_empty() {
                 return Err(Error::Invalid(format!("{from} has uncommitted changes at {}", dir.display())));
             }
@@ -4364,8 +4366,8 @@ impl Gitnetix {
 
     /// Uncommitted work in `into`'s checkout at `dir` stays there while `from` comes in, as long as
     /// `from` leaves those files alone (git won't overwrite them) and no rebase is in progress there.
-    async fn check_wip_clear(&self, p: &Project, dir: &Path, from: &str, into: &str) -> Result<()> {
-        let g = self.git_at(p, dir);
+    async fn check_wip_clear(&self, dir: &Path, from: &str, into: &str) -> Result<()> {
+        let g = self.git_at(dir);
         if g.is_rebasing().await? {
             return Err(Error::Invalid(format!("{into} is in the middle of a rebase at {}", dir.display())));
         }
@@ -4431,7 +4433,7 @@ impl Gitnetix {
         }
         let tip = git.rev_parse(from).await?;
         match self.checkout_dir(p, into).await? {
-            Some(dir) => self.git_at(p, &dir).merge_ff_only(from).await?,
+            Some(dir) => self.git_at(&dir).merge_ff_only(from).await?,
             None => {
                 let old = git.rev_parse(into).await?;
                 git.update_ref_from(&format!("refs/heads/{into}"), &tip, &old).await?;
@@ -4443,12 +4445,12 @@ impl Gitnetix {
     /// Rebase `from` onto `into` where it's checked out, else in a throwaway worktree. See [`Self::rebase_resolving`].
     async fn rebase_branch(&self, p: &Project, from: &str, into: &str) -> Result<()> {
         if let Some(dir) = self.checkout_dir(p, from).await? {
-            return self.rebase_resolving(p, &self.git_at(p, &dir), from, into).await;
+            return self.rebase_resolving(p, &self.git_at(&dir), from, into).await;
         }
         let git = self.git(p);
         let tmp = std::env::temp_dir().join(format!("gitnetix-rebase-{}", new_id()));
         git.worktree_add(&tmp, from, None).await?;
-        let done = self.rebase_resolving(p, &self.git_at(p, &tmp), from, into).await;
+        let done = self.rebase_resolving(p, &self.git_at(&tmp), from, into).await;
         // The rebase stands either way: a folder that won't go (a tool still writing there) is only logged.
         if let Err(e) = git.worktree_remove(&tmp, true).await {
             crate::log::error(format!("Could not remove the temporary checkout {}: {e}", tmp.display()));
@@ -4510,8 +4512,8 @@ impl Gitnetix {
         let message = format!("Merge branch '{from}' into {into}");
         let sha = match (self.checkout_dir(p, into).await?, tree) {
             (Some(dir), tree) => {
-                self.check_wip_clear(p, &dir, from, into).await?;
-                let g = self.git_at(p, &dir);
+                self.check_wip_clear(&dir, from, into).await?;
+                let g = self.git_at(&dir);
                 // Git won't start a merge commit over staged changes.
                 if g.has_staged().await? {
                     return Err(Error::Invalid(format!("{into} has staged changes at {}. Commit or unstage them first.", dir.display())));
@@ -4525,7 +4527,7 @@ impl Gitnetix {
             (None, None) => {
                 let tmp = std::env::temp_dir().join(format!("gitnetix-merge-{}", new_id()));
                 git.worktree_add(&tmp, into, None).await?;
-                let sha = self.merge_resolving(p, &self.git_at(p, &tmp), from, into, &message).await;
+                let sha = self.merge_resolving(p, &self.git_at(&tmp), from, into, &message).await;
                 // The merge stands either way: a folder that won't go (a tool still writing there) is only logged.
                 if let Err(e) = git.worktree_remove(&tmp, true).await {
                     crate::log::error(format!("Could not remove the temporary checkout {}: {e}", tmp.display()));
@@ -4705,7 +4707,7 @@ impl Gitnetix {
         let mut args = vec!["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--"];
         args.extend_from_slice(project_commands::PATHSPECS);
         let root = Path::new(path);
-        let out = self.git_at(&p, root).run(&args).await?;
+        let out = self.git_at(root).run(&args).await?;
         let files: Vec<&str> = out.split('\0').filter(|f| !f.is_empty()).collect();
         let mut all = project_commands::project_commands(&files, |f| std::fs::read_to_string(root.join(f)).ok(), |f| project_commands::executable(&root.join(f)), &p.name);
         let installed = project_commands::installed().await;
@@ -5438,7 +5440,7 @@ impl Gitnetix {
         let message = format!("docs(changelog): add changes from {branch}");
         match self.checkout_dir(&p, branch).await? {
             Some(dir) => {
-                let g = self.git_at(&p, &dir);
+                let g = self.git_at(&dir);
                 if !g.run(&["status", "--porcelain", "--", CHANGELOG]).await?.trim().is_empty() {
                     return Err(Error::Invalid(format!("{CHANGELOG} has uncommitted changes at {}", dir.display())));
                 }

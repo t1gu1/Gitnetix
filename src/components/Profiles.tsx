@@ -4,7 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 
 import { useAction, useConfig } from "../api/hooks";
 import { rpc } from "../api/transport";
-import type { ProjectSummary, UserProfile } from "../api/types";
+import type { GitProfile, ProjectSummary, UserProfile } from "../api/types";
 import { plural } from "../lib/format";
 import { useNav } from "../lib/nav";
 import { otherMode, resolveTheme } from "../lib/themes";
@@ -166,28 +166,60 @@ export function ProfileButton() {
   );
 }
 
-/** Name, avatar and color fields, starting from `init`, and what they make. `ready`: the chosen kind of avatar is complete. */
-export function useProfileForm(init: { name: string; avatar: string; hue: number | null }) {
-  const identity = useConfig().data?.profiles[0]?.email ?? "";
+/**
+ * Name, Git identity, avatar and color fields, starting from `init`, and what they make.
+ * `ready`: the email and the chosen kind of avatar are complete. `touched`: something differs from `init`.
+ */
+export function useProfileForm(init: { name: string; avatar: string; hue: number | null; git?: GitProfile }) {
   const [name, setName] = useState(init.name);
   const old = init.avatar;
+  // One email for commits and Gravatar: a Gravatar picked before identities were part of profiles fills it when empty.
+  const start = { name: init.git?.name ?? "", email: init.git?.email || (old.startsWith(GRAVATAR) ? old.slice(GRAVATAR.length) : ""), sign: !!init.git?.sign, signingKey: init.git?.signingKey ?? "" };
+  const [git, setGit] = useState(start);
   const [kind, setKind] = useState<"emoji" | "photo" | "gravatar">(old.startsWith(PHOTO) ? "photo" : old.startsWith(GRAVATAR) ? "gravatar" : "emoji");
   const [emoji, setEmoji] = useState(kind === "emoji" ? old : "");
   const [photo, setPhoto] = useState(kind === "photo" ? old : "");
-  const [email, setEmail] = useState(kind === "gravatar" ? old.slice(GRAVATAR.length) : identity);
   const chooser = useRef<HTMLInputElement>(null);
-  const avatar = kind === "photo" ? photo : kind === "gravatar" ? GRAVATAR + email.trim() : emoji;
-  const ready = kind === "photo" ? !!photo : kind === "emoji" || EMAIL.test(email.trim());
+  const email = git.email.trim();
+  const avatar = kind === "photo" ? photo : kind === "gravatar" ? GRAVATAR + email : emoji;
+  const pictured = kind === "photo" ? !!photo : kind === "emoji" || EMAIL.test(email);
+  const badEmail = !!email && !EMAIL.test(email);
   const [hue, setHue] = useState(init.hue);
   const fields = (
     <>
       <div className="profile-form-top">
         {/* An email still being typed would ask Gravatar about each keystroke. */}
-        <ProfileAvatar profile={{ avatar: ready ? avatar : "", hue }} size={72} />
+        <ProfileAvatar profile={{ avatar: pictured ? avatar : "", hue }} size={72} />
         <div className="field grow">
-          <label htmlFor="profile-name">Name</label>
+          <label htmlFor="profile-name">Profile name</label>
           <input id="profile-name" className="input" autoFocus maxLength={40} placeholder="Work, Personal, a client…" value={name} onChange={(e) => setName(e.target.value)} />
         </div>
+      </div>
+      <div className="field">
+        <span className="flabel">Git identity</span>
+        <div className="profile-git">
+          <input className="input" aria-label="Author name" placeholder="Author name" autoComplete="name" value={git.name} onChange={(e) => setGit({ ...git, name: e.target.value })} />
+          <input className="input" type="email" aria-label="Email" aria-invalid={badEmail || undefined} placeholder="Email" autoComplete="email" value={git.email} onChange={(e) => setGit({ ...git, email: e.target.value })} />
+        </div>
+        {/* Wrapped: a label right under .field takes the field-label look. */}
+        <div>
+          <label className="check">
+            <input type="checkbox" checked={git.sign} onChange={() => setGit({ ...git, sign: !git.sign })} />
+            <span>Sign commits with my SSH key</span>
+          </label>
+        </div>
+        {git.sign && (
+          <input
+            className="input mono"
+            aria-label="SSH public key"
+            // Left empty, the first of id_ed25519, id_ecdsa, id_rsa in ~/.ssh.
+            placeholder="~/.ssh/id_ed25519.pub"
+            value={git.signingKey}
+            onChange={(e) => setGit({ ...git, signingKey: e.target.value })}
+          />
+        )}
+        {/* Agents and the terminal run git themselves: their commits follow the Git config. */}
+        <span className="hint">{badEmail ? "Finish the email to save." : "On the commits Gitnetix makes in this profile's projects. Left empty, your Git config decides."}</span>
       </div>
       <div className="field">
         <span className="flabel">
@@ -232,12 +264,7 @@ export function useProfileForm(init: { name: string; avatar: string; hue: number
             />
           </div>
         )}
-        {kind === "gravatar" && (
-          <>
-            <input className="input" type="email" aria-label="Gravatar email" placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} />
-            <span className="hint">The picture set for this email on gravatar.com. Without one, the default avatar shows.</span>
-          </>
-        )}
+        {kind === "gravatar" && <span className="hint">The picture set for the email above on gravatar.com. Without one, the default avatar shows.</span>}
       </div>
       <div className="field">
         <span className="flabel" id="profile-color">Color</span>
@@ -259,7 +286,15 @@ export function useProfileForm(init: { name: string; avatar: string; hue: number
       </div>
     </>
   );
-  return { name: name.trim(), avatar, hue, ready, fields };
+  return {
+    name: name.trim(),
+    avatar,
+    hue,
+    git: { name: git.name.trim(), email, sign: git.sign, signingKey: git.signingKey.trim() || null },
+    ready: pictured && !badEmail,
+    touched: name !== init.name || avatar !== old || hue !== init.hue || JSON.stringify(git) !== JSON.stringify(start),
+    fields,
+  };
 }
 
 /**
@@ -267,6 +302,7 @@ export function useProfileForm(init: { name: string; avatar: string; hue: number
  * `menu`: opened from the settings, which open again on the new profile.
  */
 export function ProfileDialog({ profile, from, menu, onClose }: { profile?: UserProfile; from?: string; menu?: boolean; onClose: () => void }) {
+  const cfg = useConfig().data;
   const { list, switchTo } = useProfiles();
   const source = list.find((p) => p.id === from);
   const f = useProfileForm({
@@ -274,6 +310,8 @@ export function ProfileDialog({ profile, from, menu, onClose }: { profile?: User
     avatar: profile?.avatar ?? "",
     // A new profile gets a color no other one has.
     hue: profile ? (profile.hue ?? null) : (HUES.find((h) => !list.some((p) => p.hue === h)) ?? null),
+    // Editing or copying the profile in use: its identity, the only one loaded. A new profile starts without.
+    git: (profile?.id ?? from) === cfg?.activeProfile ? cfg?.profiles[0] : undefined,
   });
   const [start, setStart] = useState(from ?? "");
   const save = useAction<UserProfile>("userProfiles.save", { invalidate: [["config"]] });
@@ -281,7 +319,7 @@ export function ProfileDialog({ profile, from, menu, onClose }: { profile?: User
     e.preventDefault();
     if (!f.name || !f.ready) return;
     save.mutate(
-      { id: profile?.id, name: f.name, avatar: f.avatar, hue: f.hue, from: profile ? undefined : start || undefined },
+      { id: profile?.id, name: f.name, avatar: f.avatar, hue: f.hue, git: f.git, from: profile ? undefined : start || undefined },
       {
         onSuccess: (p) => {
           onClose();
@@ -293,7 +331,7 @@ export function ProfileDialog({ profile, from, menu, onClose }: { profile?: User
   return (
     <Modal
       title={profile ? "Edit profile" : "New profile"}
-      sub={profile ? undefined : "Its own projects, connections, AI setup and settings"}
+      sub={profile ? undefined : "Its own Git identity, projects, connections, AI setup and settings"}
       onClose={onClose}
       width={500}
       footer={

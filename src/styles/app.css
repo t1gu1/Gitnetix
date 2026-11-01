@@ -5210,6 +5210,12 @@ button.picker-act {
 .profile-form .flabel {
   align-items: center;
 }
+/* Author name and email side by side, stacked when narrow. */
+.profile-git {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 8px;
+}
 .profile-photo {
   display: flex;
   flex-wrap: wrap;

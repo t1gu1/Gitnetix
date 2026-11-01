@@ -23,7 +23,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("log.clear", "Empty the log", ""),
     ("config.get", "Full app configuration of the active profile (no secrets), with every profile", ""),
     ("userProfiles.switch", "Use another profile: its projects, connections, AI setup and settings", "id"),
-    ("userProfiles.save", "Create a profile, blank or a copy of profile `from` with its saved tokens; with `id`, rename one or change its avatar (an emoji, an image data URL, \"gravatar:\" and an email, or \"\" for the default one) and color hue", "id?, name, avatar?, hue?, from?"),
+    ("userProfiles.save", "Create a profile, blank or a copy of profile `from` with its saved tokens; with `id`, rename one or change its avatar (an emoji, an image data URL, \"gravatar:\" and an email, or \"\" for the default one) and color hue. `git`: the identity Gitnetix commits with in all the profile's projects, all empty to leave it to the Git config; only the active profile's can change", "id?, name, avatar?, hue?, from?, git?: {name, email, sign, signingKey?}"),
     ("userProfiles.delete", "Delete a profile with its settings and saved tokens (repositories stay on disk); deleting the active one switches to another, the last one stays", "id"),
     ("ui.set", "Save UI preferences; `onboarding: false` ends the first-run setup", "language?, theme?, lastProject?, animationsOff?, dictationPolish?, onboarding?"),
     ("ui.setView", "Remember how a screen was left (pane width, collapsed section…); no value forgets it", "key, value?"),
@@ -35,9 +35,6 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("projects.reorder", "Set the order of projects", "ids: string[]"),
     ("projects.setGenLang", "Language AI writes in for a project", "projectId, commit?, pr?, release?"),
     ("projects.setPrefs", "Remembered merge, commit and dialog options for a project", "projectId, merge?: {squash?, squashMessage?: branch|ai, rebase?, deleteBranch?, push?, resolveConflicts?}, commit?: {autoPush?}, dialogs?: {finish?: continue|merge, finishSwitch?, newWorktree?, newAgent?, shipPush?, shipChangelog?, deleteOrigin?, cleanupOrigin?}, worktreeFiles?: string[] (paths copied from the main checkout into new worktrees)"),
-    ("projects.setProfile", "Git profile used for commits in a project", "projectId, profileId"),
-    ("profiles.save", "Create or update a Git profile", "profile: {id?, label, name, email, sign, signingKey?}"),
-    ("profiles.delete", "Delete a Git profile", "id"),
     ("workspace.overview", "Releases, their branches and repo state; `quick` skips history checks when nothing is cached", "projectId, quick?"),
     ("workspace.files", "Changed files of a branch, or of one commit when `commit` is given", "projectId, branch, mode: branch|wip|project, commit?"),
     ("workspace.diff", "Diff of one file; in wip mode `staged` picks the side; `commit` diffs that commit; `full` keeps the whole file", "projectId, branch, mode, path, staged?, commit?, full?"),
@@ -276,6 +273,18 @@ fn valid_avatar(a: &str) -> bool {
     }
 }
 
+/// A profile's Git identity as sent, trimmed: none when all empty, which leaves commits to the Git config.
+fn git_identity(v: &Value) -> Result<Vec<GitProfile>> {
+    let mut g: GitProfile = serde_json::from_value(v.clone())?;
+    g.name = g.name.trim().into();
+    g.email = g.email.trim().into();
+    g.signing_key = g.signing_key.map(|k| k.trim().to_string()).filter(|k| !k.is_empty());
+    if !g.email.is_empty() && !g.email.contains('@') {
+        return Err(Error::Invalid("That email has no @".into()));
+    }
+    Ok(if g.name.is_empty() && g.email.is_empty() && !g.sign { Vec::new() } else { vec![g] })
+}
+
 #[test]
 fn avatars_are_an_emoji_a_photo_or_a_gravatar_email() {
     assert!(valid_avatar("") && valid_avatar("🦊") && valid_avatar("👩‍💻"));
@@ -406,11 +415,22 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
                 return Err(Error::Invalid("An avatar is an emoji, a photo or a Gravatar email".into()));
             }
             let hue = p.get("hue").and_then(Value::as_u64).map(|h| (h % 360) as u16);
+            let git = p.get("git").map(git_identity).transpose()?;
             let prof = UserProfile { id: os(&p, "id").unwrap_or_default(), name, avatar, hue };
             if prof.id.is_empty() {
-                return to(k.create_profile(prof, os(&p, "from").as_deref())?);
+                return to(k.create_profile(prof, os(&p, "from").as_deref(), git)?);
+            }
+            // The other profiles' settings are on disk only, unloaded.
+            if git.is_some() && prof.id != k.store.active() {
+                return Err(Error::Invalid("Switch to this profile to change its Git identity".into()));
             }
             k.store.update_profile(prof.clone())?;
+            if let Some(g) = git {
+                k.store.write(|c| {
+                    c.profiles = g;
+                    Ok(())
+                })?;
+            }
             to(prof)
         }
         "userProfiles.delete" => {
@@ -529,45 +549,6 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
             let files = worktree_files(p.get("files").unwrap_or(&Value::Null))?;
             k.store.write(|c| {
                 c.worktree_files = files;
-                Ok(())
-            })?;
-            ok()
-        }
-        "projects.setProfile" => {
-            let pid = os(&p, "profileId");
-            k.store.with_project(&s(&p, "projectId")?, |pr| {
-                pr.profile_id = pid;
-                Ok(())
-            })?;
-            ok()
-        }
-        "profiles.save" => {
-            let mut prof: GitProfile = serde_json::from_value(p.get("profile").cloned().unwrap_or_default())?;
-            if prof.email.trim().is_empty() {
-                return Err(Error::Invalid("Email is required".into()));
-            }
-            if prof.id.is_empty() {
-                prof.id = new_id();
-            }
-            let saved = prof.clone();
-            k.store.write(|c| {
-                match c.profiles.iter_mut().find(|x| x.id == prof.id) {
-                    Some(x) => *x = prof,
-                    None => c.profiles.push(prof),
-                }
-                Ok(())
-            })?;
-            to(saved)
-        }
-        "profiles.delete" => {
-            let id = s(&p, "id")?;
-            k.store.write(|c| {
-                c.profiles.retain(|x| x.id != id);
-                for pr in c.projects.iter_mut() {
-                    if pr.profile_id.as_deref() == Some(id.as_str()) {
-                        pr.profile_id = None;
-                    }
-                }
                 Ok(())
             })?;
             ok()

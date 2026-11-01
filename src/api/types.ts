@@ -105,7 +105,6 @@ export interface Project {
   id: string;
   name: string;
   path: string;
-  profileId?: string | null;
   genLang: GenLangs;
   merge: MergePrefs;
   commit: CommitPrefs;
@@ -336,9 +335,8 @@ export interface StashApplied {
   dropped: boolean;
 }
 
+/** Who commits are by: the name, email and SSH signing set on a profile. */
 export interface GitProfile {
-  id: string;
-  label: string;
   name: string;
   email: string;
   sign: boolean;
@@ -398,6 +396,7 @@ export interface Config {
   projects: Project[];
   /** Paths copied from the main checkout into new worktrees of every project, with the project's own `worktreeFiles`. */
   worktreeFiles: string[];
+  /** The profile's Git identity: Gitnetix commits with it in all its projects; empty, the Git config decides. Only the first counts. */
   profiles: GitProfile[];
   ai: { defaultProvider: string; providers: Record<string, ProviderConf>; routing: Record<string, Route> };
   templates: Template[];

@@ -83,24 +83,25 @@ function ThemeStep(s: Steps) {
 
 function ProfileStep(s: Steps) {
   const active = useProfiles().active!;
+  // The identity saved here, when Back led to this step again.
+  const mine = useConfig().data?.profiles[0];
   // Left empty, the profile keeps its name: Default on a first launch.
-  const f = useProfileForm({ name: "", avatar: active.avatar, hue: active.hue ?? null });
+  const f = useProfileForm({ name: "", avatar: active.avatar, hue: active.hue ?? null, git: mine });
   const save = useAction<UserProfile>("userProfiles.save", { invalidate: [["config"]] });
-  const entered = !!f.name || f.avatar !== active.avatar || f.hue !== (active.hue ?? null);
-  const go = () => (entered ? save.mutate({ id: active.id, name: f.name || active.name, avatar: f.avatar, hue: f.hue }, { onSuccess: s.next }) : s.next());
+  const go = () => (f.touched ? save.mutate({ id: active.id, name: f.name || active.name, avatar: f.avatar, hue: f.hue, git: f.git }, { onSuccess: s.next }) : s.next());
   return (
     <>
-      <Head title="Create your profile">Your projects, connections and settings live in it. Left empty, it stays Default; add others later, for work or a client.</Head>
+      <Head title="Create your profile">Your commit name and email, projects, connections and settings live in it. Left empty, it stays Default; add others later, for work or a client.</Head>
       <form
         className="profile-form"
         onSubmit={(e) => {
           e.preventDefault();
-          if (!entered || f.ready) go();
+          if (!f.touched || f.ready) go();
         }}
       >
         {f.fields}
       </form>
-      <Foot {...s} entered={entered} ready={f.ready} busy={save.isPending} onNext={go} />
+      <Foot {...s} entered={f.touched} ready={f.ready} busy={save.isPending} onNext={go} />
     </>
   );
 }
@@ -202,35 +203,11 @@ function GitHostStep(s: Steps) {
 
 function ExtrasStep(s: Steps) {
   const cfg = useConfig().data!;
-  // The identity made here, when Back led to this step again.
-  const mine = cfg.profiles[0];
-  const [who, setWho] = useState({ name: mine?.name ?? "", email: mine?.email ?? "" });
   const [keys] = useDictationKeys();
   const [start] = useState({ keys, lan: cfg.server.lan });
-  const save = useAction("profiles.save", { invalidate: [["config"]] });
-  const typed = who.name !== (mine?.name ?? "") || who.email !== (mine?.email ?? "");
-  const name = who.name.trim();
-  const go = () =>
-    typed ? save.mutate({ profile: { ...mine, label: mine?.label || name, name, email: who.email.trim(), sign: mine?.sign ?? false } }, { onSuccess: s.next }) : s.next();
   return (
     <>
       <Head title="A few last touches">Each one optional, and all in Settings later.</Head>
-      <section className="section">
-        <div className="col" style={{ gap: 2 }}>
-          <h2>Your commits</h2>
-          <span className="hint">The name and email on commits in every project you add. Left empty, your Git config decides.</span>
-        </div>
-        <div className="row wrap" style={{ margin: 0, alignItems: "flex-start" }}>
-          <div className="field grow">
-            <label htmlFor="ob-git-name">Name</label>
-            <input id="ob-git-name" className="input" autoComplete="name" value={who.name} onChange={(e) => setWho({ ...who, name: e.target.value })} />
-          </div>
-          <div className="field grow">
-            <label htmlFor="ob-git-email">Email</label>
-            <input id="ob-git-email" className="input" type="email" autoComplete="email" value={who.email} onChange={(e) => setWho({ ...who, email: e.target.value })} />
-          </div>
-        </div>
-      </section>
       <section className="section">
         <div className="col" style={{ gap: 2 }}>
           <h2>Voice dictation</h2>
@@ -241,13 +218,7 @@ function ExtrasStep(s: Steps) {
         </ul>
       </section>
       <PhoneCard server={cfg.server} />
-      <Foot
-        {...s}
-        entered={typed || keys !== start.keys || cfg.server.lan !== start.lan}
-        ready={!typed || (!!name && who.email.includes("@"))}
-        busy={save.isPending}
-        onNext={go}
-      />
+      <Foot {...s} entered={keys !== start.keys || cfg.server.lan !== start.lan} onNext={s.next} />
     </>
   );
 }

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties, type Reac
 
 import { useAction, useConfig, useProjectPrefs } from "../api/hooks";
 import { currentRemote, isLocal, isTauri, saveRemote } from "../api/transport";
-import type { Config, DialogPrefs, GitProfile, Project, UserProfile } from "../api/types";
+import type { Config, DialogPrefs, Project, UserProfile } from "../api/types";
 import { GRAVATAR_KEY } from "../components/Avatar";
 import { Icon } from "../components/Icon";
 import { Logo } from "../components/Logo";
@@ -116,7 +116,7 @@ export function Menu({ onUnpair }: { onUnpair: () => void }) {
             <nav aria-label="Main menu" className="menu">
               <div className={`menu-grid${project ? "" : " solo"}`}>
                 {cfg && <ProfileCard cfg={cfg} />}
-                {project && <ProjectSettings key={project.id} project={project} profiles={cfg?.profiles ?? []} />}
+                {project && <ProjectSettings key={project.id} project={project} />}
                 <AppSettings cfg={cfg} open={open} onUnpair={onUnpair} />
               </div>
             </nav>
@@ -135,6 +135,8 @@ function ProfileCard({ cfg }: { cfg: Config }) {
   const [deleting, setDeleting] = useState<UserProfile | null>(null);
   if (!active) return null;
   const i = cfg.integrations;
+  const me = cfg.profiles[0];
+  const who = [me?.name, me?.email && `<${me.email}>`].filter(Boolean).join(" ");
   const facts = [plural(cfg.projects.length, "project"), i.githubConnected && "GitHub", i.azureConnected && "Azure DevOps", i.jira.length && "Jira", i.trello.length && "Trello", i.asana.length && "Asana"];
   const others = list.filter((p) => p.id !== active.id);
   return (
@@ -144,6 +146,9 @@ function ProfileCard({ cfg }: { cfg: Config }) {
         <div className="col" style={{ gap: 2, minWidth: 0 }}>
           <h2 className="label menu-section">Profile</h2>
           <strong id="menu-profile-name" className="menu-head-name">{active.name}</strong>
+          <span className="hint ellipsis" title={who || undefined}>
+            {who ? `Commits as ${who}${me?.sign ? ", signed" : ""}` : "Commits with your Git config's name and email"}
+          </span>
           <span className="hint">{facts.filter(Boolean).join(" · ")}</span>
         </div>
         <div className="profile-card-actions">
@@ -160,7 +165,7 @@ function ProfileCard({ cfg }: { cfg: Config }) {
             Delete
           </button>
         </div>
-        <p className="hint profile-card-note">Projects, connections, AI setup and every setting below belong to this profile. Each profile keeps its own.</p>
+        <p className="hint profile-card-note">The Git identity, projects, connections, AI setup and every setting below belong to this profile. Each profile keeps its own.</p>
         <div className="profile-others">
           {others.map((p) => (
             <div key={p.id} className="profile-chip">
@@ -210,18 +215,14 @@ function check(on: boolean, flip: () => void, label: ReactNode) {
   );
 }
 
-/** Everything set for the open project: what the AI writes in, what the dialogs start with, worktree files, the Git identity. */
-function ProjectSettings({ project: p, profiles }: { project: Project; profiles: GitProfile[] }) {
+/** Everything set for the open project: what the AI writes in, what the dialogs start with, worktree files. */
+function ProjectSettings({ project: p }: { project: Project }) {
   const nav = useNav();
   const inv = [["config"]];
   const setLang = useAction("projects.setGenLang", { invalidate: inv });
-  const setProfile = useAction("projects.setProfile", { invalidate: inv });
-  const saveProfile = useAction<GitProfile>("profiles.save", { invalidate: inv });
   const remove = useAction("projects.remove", { invalidate: [["config"], ["projects"]] });
   const prefs = useProjectPrefs(p.id);
   const { merge, dialogs: d } = prefs;
-  const [adding, setAdding] = useState(false);
-  const [draft, setDraft] = useState({ label: "", name: "", email: "", sign: true });
   const [removing, setRemoving] = useState(false);
   const mergeCheck = (k: "squash" | "deleteBranch" | "push" | "resolveConflicts", label: string) => check(merge[k], () => prefs.setMerge({ [k]: !merge[k] }), label);
   const dialogCheck = (k: Exclude<keyof DialogPrefs, "finish">, label: string) => check(d[k], () => prefs.setDialogs({ [k]: !d[k] }), label);
@@ -316,84 +317,6 @@ function ProjectSettings({ project: p, profiles }: { project: Project; profiles:
         {dialogCheck("cleanupOrigin", "Also delete cleaned-up behind branches on origin")}
       </Group>
 
-      <Group
-        title="Git identity"
-        id="menu-profile"
-        hint="Author name, email and signing key used for commits in this project."
-        bare
-        action={
-          !adding && (
-            <button className="btn btn-sm" onClick={() => setAdding(true)}>
-              <Icon name="plus" size={12} />
-              Add identity
-            </button>
-          )
-        }
-      >
-        <div role="radiogroup" aria-labelledby="menu-profile" className="col" style={{ gap: 6 }}>
-          <button className="radio-card" role="radio" aria-checked={!p.profileId} onClick={() => setProfile.mutate({ projectId: p.id, profileId: null })}>
-            <span className="radio-dot" />
-            <span className="col" style={{ gap: 2 }}>
-              <span style={{ fontWeight: 500 }}>Repository config</span>
-              <span className="hint">Whatever user.name / user.email git already uses here</span>
-            </span>
-          </button>
-          {profiles.map((x) => (
-            <button key={x.id} className="radio-card" role="radio" aria-checked={p.profileId === x.id} onClick={() => setProfile.mutate({ projectId: p.id, profileId: x.id })}>
-              <span className="radio-dot" />
-              <span className="col grow" style={{ gap: 2, minWidth: 0 }}>
-                <span style={{ fontWeight: 500 }}>{x.label}</span>
-                <span className="hint ellipsis">{x.name} &lt;{x.email}&gt;</span>
-              </span>
-              <span className={`pill ${x.sign ? "c-add" : "faint"}`}>{x.sign ? "Signed" : "Unsigned"}</span>
-            </button>
-          ))}
-        </div>
-        {adding && (
-          <form
-            className="col note-box"
-            style={{ gap: 10 }}
-            onSubmit={(e) => {
-              e.preventDefault();
-              saveProfile.mutate(
-                { profile: draft },
-                {
-                  onSuccess: (x) => {
-                    setProfile.mutate({ projectId: p.id, profileId: x.id });
-                    setAdding(false);
-                    setDraft({ label: "", name: "", email: "", sign: true });
-                  },
-                },
-              );
-            }}
-          >
-            <span style={{ fontWeight: 500 }}>New identity</span>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 8 }}>
-              {(
-                [
-                  ["label", "Identity name", "Client work"],
-                  ["name", "Author name", "Your name"],
-                  ["email", "Email", "you@client.com"],
-                ] as const
-              ).map(([k, l, ph]) => (
-                <div key={k} className="field">
-                  <label htmlFor={`np-${k}`}>{l}</label>
-                  <input id={`np-${k}`} className="input" type={k === "email" ? "email" : "text"} placeholder={ph} value={draft[k]} onChange={(e) => setDraft({ ...draft, [k]: e.target.value })} />
-                </div>
-              ))}
-            </div>
-            <label className="check">
-              <input type="checkbox" checked={draft.sign} onChange={() => setDraft({ ...draft, sign: !draft.sign })} />
-              <span>Sign commits with my SSH key</span>
-            </label>
-            <div className="row" style={{ justifyContent: "flex-end" }}>
-              <button type="button" className="btn" onClick={() => setAdding(false)}>Cancel</button>
-              <button className="btn btn-primary" disabled={!draft.label.trim() || !draft.email.trim()}>Save and use</button>
-            </div>
-          </form>
-        )}
-      </Group>
-
       <div className="set-danger">
         <button className="btn btn-sm btn-ghost btn-danger" onClick={() => setRemoving(true)}>
           <Icon name="trash" size={13} />
@@ -447,7 +370,6 @@ function AppSettings({ cfg, open, onUnpair }: { cfg?: Config; open: (id: string)
     dictation: <span className="mono">{showKeys(keys)}</span>,
     ai: "Providers, models and task routing",
     templates: "Prompts for commits, PRs and release notes",
-    profiles: cfg && (cfg.profiles.length ? `${cfg.profiles.length} ${cfg.profiles.length > 1 ? "identities" : "identity"}` : "None yet"),
     git: i && ([i.githubConnected && "GitHub", i.azureConnected && "Azure DevOps"].filter(Boolean).join(" · ") || "Not connected"),
     tools: i && ([i.jira.length && "Jira", i.trello.length && "Trello", i.asana.length && "Asana"].filter(Boolean).join(" · ") || "Not connected"),
     companion: !isLocal ? "Set on the computer" : s && (s.enabled ? `On · ${s.lan ? "your network" : "this computer only"}` : "Off"),
