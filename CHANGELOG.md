@@ -11,6 +11,12 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+### Added
+- First-run setup for new profiles: theme, profile, AI CLI, Git host, Jira, then commit identity, dictation shortcut and phone pairing. Each step can be skipped and resumes where you left off after a restart.
+
+### Changed
+- A profile now has one Git identity that applies to every project, replacing per-project Git profiles. Leave it empty to keep the Git default.
+
 ## [0.15.0] - 2026-11-01
 
 ### Added
