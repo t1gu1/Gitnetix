@@ -160,7 +160,7 @@ export default function Tickets() {
               ...places.map((p) => ({ value: p, label: `${p} · ${base.filter((x) => x.place === p).length}` })),
               { value: ADD, label: 'Connect another tracker…' },
             ]}
-            onChange={(v) => (v === ADD ? flash('Jira, Trello and Asana connect in Settings → Tools') : setPlace(v))}
+            onChange={(v) => (v === ADD ? flash('Jira, Trello and Asana connect in the menu, under Integrations') : setPlace(v))}
           />
           <div className="row wrap">
             <Seg label="Group by" value={group} onChange={setGroup} options={[['release', 'By release'], ['status', 'By status']]} />

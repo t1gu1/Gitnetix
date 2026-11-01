@@ -158,7 +158,7 @@ details[open] .chev{transform:rotate(45deg)}
 .hd .textarea{height:auto;padding:10px 12px;resize:vertical;line-height:1.5;overflow-x:hidden}
 /* Focused fields: the halo's lighter and deeper accent shades sit on opposite sides and slowly trade places around the field. */
 @property --ring-a{syntax:"<angle>";inherits:false;initial-value:0deg}
-.hd :is(.input,.select,.textarea):focus{border-color:var(--accent);outline:none;box-shadow:calc(cos(var(--ring-a))*3px) calc(sin(var(--ring-a))*3px) 10px color-mix(in srgb,color-mix(in srgb,var(--accent),#fff 35%) var(--ring-alpha),transparent),calc(cos(var(--ring-a))*-3px) calc(sin(var(--ring-a))*-3px) 10px color-mix(in srgb,color-mix(in srgb,var(--accent),#e8590c 45%) var(--ring-alpha),transparent);animation:ring-flow 6s linear infinite}
+.hd :is(.input,.select,.textarea):focus{border-color:var(--accent);outline:none;box-shadow:calc(cos(var(--ring-a))*3px) calc(sin(var(--ring-a))*3px) 10px color-mix(in srgb,color-mix(in srgb,var(--accent),#fff 35%) var(--ring-alpha),transparent),calc(cos(var(--ring-a))*-3px) calc(sin(var(--ring-a))*-3px) 10px color-mix(in srgb,color-mix(in srgb,var(--accent),#e8590c 45%) var(--ring-alpha),transparent);animation:ring-flow 6s steps(72) infinite}
 @keyframes ring-flow{to{--ring-a:360deg}}
 .hd .label{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0}
 .hd .ws-releases>.pane-head .label{font-weight:700;color:var(--fg)}
@@ -182,8 +182,18 @@ details[open] .chev{transform:rotate(45deg)}
 .hd .tab-project-open{display:flex;align-items:center;gap:8px;padding:0 4px 1px 16px;border:0;background:transparent;white-space:nowrap;font-size:13px}
 .hd .tab-project-close{display:flex;align-items:center;justify-content:center;width:28px;margin-right:4px;color:var(--muted);opacity:.5}
 .hd .tab-project:hover .tab-project-close{opacity:1}
-.hd .theme-toggle{height:auto;width:42px;align-self:stretch;border:0;border-left:1px solid var(--line);border-radius:0}
-.hd .hd-light{display:none}
+.hd .profile-btn{align-self:stretch;display:grid;place-items:center;width:48px;flex:none;padding:0;border:0;border-left:1px solid var(--line);background:transparent;transition:background-color var(--t-fast) var(--ease)}
+.hd .profile-btn:hover,.hd .profile-btn[aria-expanded=true]{background:var(--raised)}
+.hd .profile-btn>.profile-avatar{transition:transform var(--t-fast) var(--ease),box-shadow var(--t-fast) var(--ease)}
+.hd .profile-btn:is(:hover,[aria-expanded=true])>.profile-avatar{transform:scale(1.08);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--p-color) 55%,transparent),0 0 0 3px color-mix(in srgb,var(--p-color) 24%,transparent)}
+/* a profile's picture (Profiles.tsx): its emoji, or the default silhouette, on a disc of its color */
+.hd .profile-avatar{--p-color:var(--accent);flex:none;display:inline-grid;place-items:center;overflow:hidden;border-radius:50%;background:linear-gradient(160deg,color-mix(in srgb,var(--p-color) 36%,var(--raised)),color-mix(in srgb,var(--p-color) 14%,var(--raised)));box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--p-color) 50%,transparent);color:color-mix(in srgb,var(--p-color) 88%,#fff);line-height:1;user-select:none}
+.hd .profile-avatar[data-hue]{--p-color:hsl(var(--p-hue) 68% 62%)}
+.hd .profile-avatar>svg{fill:currentColor}
+.hd .profile-head{display:flex;align-items:center;gap:10px;padding:4px 0 6px;color:var(--muted);font-size:12px;font-weight:400}
+.hd .profile-head strong{color:var(--fg);font-size:13.5px;font-weight:600}
+.hd .ctx-profile{display:inline-flex;align-items:center;gap:6px;max-width:100%;vertical-align:middle}
+.hd .ctx-item:has(.ctx-profile){padding-left:6px}
 .hd .tabs-pages{position:relative;display:flex;align-items:stretch;flex:0 0 40px;height:40px;padding:0 8px;gap:2px;border-bottom:1px solid var(--line);background:var(--panel);overflow-x:auto;scrollbar-width:none}
 .hd .tab-page{display:flex;align-items:center;gap:7px;padding:0 12px;border:0;background:transparent;color:var(--muted);white-space:nowrap;font-size:12.5px;box-shadow:inset 0 -2px 0 transparent}
 .hd .tab-page:hover{color:var(--fg)}
@@ -213,6 +223,14 @@ details[open] .chev{transform:rotate(45deg)}
 .hd .tree-filter:focus-within>svg{color:var(--accent)}
 .hd .tree-filter .input,.hd .tree-filter .input:focus{flex:1 1 auto;min-width:0;height:auto;padding:0 12px 0 38px;border:0;border-radius:0;background:transparent;box-shadow:none;font-size:12.5px}
 .hd .tree-filter>.btn{height:auto;padding:0 14px;border:0;border-left:1px solid var(--line);border-radius:0;background:transparent;color:var(--muted)}
+.hd .tree-filter>.btn-icon{width:40px;padding:0}
+.hd .find-bar{display:flex;align-items:center;gap:4px}
+.hd .find-count{align-self:center;min-width:44px;font-size:11.5px;text-align:center}
+/* part of a branch name the find matches; the one its arrows are on is solid. A match wraps rather than hide behind the ellipsis. */
+.hd .tree-hit{border-radius:2px;background:color-mix(in srgb,var(--accent) 35%,transparent);color:inherit}
+.hd .tree-hit.at{background:var(--accent);color:var(--on-accent)}
+.hd .tree-name:has(.tree-hit){height:auto;min-height:20px}
+.hd .tree-name:has(.tree-hit)>.mono{white-space:normal;overflow-wrap:anywhere}
 .hd .tree-filter>.btn:hover:not(:disabled){background:color-mix(in srgb,var(--fg) 6%,transparent);color:var(--fg)}
 .hd .tree{--path-fg:var(--accent);--path-core:color-mix(in srgb,var(--path-fg) 15%,#fff);position:relative;flex:1 1 auto;display:flex;flex-direction:column;padding:6px 0 6px 6px}
 .hd .tree>*{flex-shrink:0}
@@ -525,6 +543,7 @@ details[open] .chev{transform:rotate(45deg)}
 .hd .ctx-item:hover:not(:disabled),.hd .ctx-item:focus-visible{background:var(--sel);outline:none}
 .hd .ctx-item:disabled{color:var(--faint);cursor:default}
 .hd .ctx-icon{width:14px;display:inline-flex;color:var(--muted)}
+.hd .ctx-head{padding:6px 10px 2px 8px;color:var(--faint);font-size:11px;font-weight:600}
 .hd .ctx-hint{margin-left:12px;color:var(--faint);font-family:var(--mono);font-size:11px;white-space:nowrap}
 .hd .ctx-sep{height:1px;margin:4px 2px;background:var(--line)}
 .hd .modal-scrim{position:absolute;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;padding:16px;background:var(--scrim);animation:hd-fade var(--t) var(--ease)}
@@ -596,8 +615,8 @@ details[open] .chev{transform:rotate(45deg)}
 [data-theme=light]:not([data-palette]) .hd .diff-heatmap .hm.add{background:#4fd6a4}
 [data-theme=light]:not([data-palette]) .hd .diff-heatmap .hm.del{background:#ff7d74}
 [data-theme=light]:not([data-palette]) .hd .wt-group+.wt-group::before{background:linear-gradient(90deg,transparent,#c8960c 12%,#f5c518 50%,#c8960c 88%,transparent)}
-[data-theme=light] .hd .hd-dark{display:none}
-[data-theme=light] .hd .hd-light{display:block}
+[data-theme=light] .hd .profile-avatar{background:linear-gradient(160deg,color-mix(in srgb,var(--p-color) 34%,var(--panel)),color-mix(in srgb,var(--p-color) 14%,var(--panel)));color:color-mix(in srgb,var(--p-color) 72%,#000)}
+[data-theme=light] .hd .profile-avatar[data-hue]{--p-color:hsl(var(--p-hue) 58% 50%)}
 @media (hover:none){.hd .tree-acts,.hd .file-acts,.hd .wt-item>.tree-acts{opacity:1;pointer-events:auto}.hd .file-row .file-nums{visibility:hidden}}
 @media (max-width:760px){.hd .ws{flex-direction:column;height:auto}.hd .ws-left{flex:none;width:100%;border-right:0;border-bottom:1px solid var(--line)}.hd .ws-releases,.hd .ws-diff,.hd .ws-files{flex:none}.hd .diff{min-height:320px}.hd .term{flex-basis:300px;max-height:none}.hd .ws-files>.scroll{max-height:280px}.hd .pg{flex-direction:column;height:auto}.hd :is(.master,.sidenav){flex:none;border-right:0;border-bottom:1px solid var(--line)}.hd .pg>:is(.detail,main){flex:none}.hd .pg>:is(.wt-pane,main:not(.detail,.page)){height:560px}.hd :is(.detail,.page){padding:20px 16px 40px}.hd .detail:has(.term-max){padding:0}.hd :is(.hide-sm,.hide-narrow),.hd .term-max .picker-acts{display:none}.hd .page .hd-seg{max-width:100%;overflow-x:auto;scrollbar-width:none}}
 @media (prefers-reduced-motion:reduce){.hd :is(.tree-kids,.file-row,.commit-row,.item-btn,.ag-log>*,.term,.ws-diff,.ws-releases,.toast,.ws,.pg,.chart-bar>span,.kpi,.ctx-menu,.modal,.modal-scrim){animation:none}.hd :is(.seg-thumb,.tabs-ink,.mobile-tabs-bubble){transition:none}.hd .hd-beam{display:none}.hd :is(.wip-badge,.pulse,.ai-fade,.ag-wait-chip,.ag-dots i),.hd .pulse.glow-dot,.hd :is(.glow-name>.ellipsis,.glow-working>*,.input:focus,.select:focus,.textarea:focus),.hd .tree-row[data-current] .tree-name>.mono,.hd :is(.child-label,.group-label,.shipped-label)[data-active]{animation:none}.hd .chev{transition:none}}

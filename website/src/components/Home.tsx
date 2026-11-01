@@ -110,7 +110,7 @@ export default function Home({ version, demo, agents, phone }: { version: string
     <figure style={{ maxWidth: '1120px', margin: '32px auto 0', padding: '0' }}>
     <p style={{ margin: '0 auto 16px', width: 'fit-content', maxWidth: '100%', boxSizing: 'border-box', fontSize: '13px', color: 'var(--muted)', background: 'var(--panel)', border: '1px solid var(--line)', padding: '6px 14px', borderRadius: '999px', textAlign: 'center' }}>Heads up: this web demo runs on made-up data and is a bit clunkier than the real app. Not every button works.</p>
     {demo}
-    <figcaption style={{ textAlign: 'center', fontSize: '13px', color: 'var(--faint)', marginTop: '16px' }}>Try it: pick a branch, open a file, ask the agent, commit; double-click a branch to check it out. Every tab opens too: review a pull request, triage tickets, or answer the agents in Worktrees &amp; agents, the square button beside the menu.</figcaption>
+    <figcaption style={{ textAlign: 'center', fontSize: '13px', color: 'var(--faint)', marginTop: '16px' }}>Try it: pick a branch, open a file, ask the agent, commit; double-click a branch to check it out. Every tab opens too: review a pull request, triage tickets, or answer the agents in Worktrees &amp; agents, the square button at the top left. Ctrl+F finds a branch.</figcaption>
     </figure>
     </section>
 
@@ -159,12 +159,7 @@ export default function Home({ version, demo, agents, phone }: { version: string
     <div className="ws-releases" style={{ display: 'flex', flexDirection: 'column', flex: '1', minHeight: '0' }}>
     <div className="pane-head">
     <span className="label">Branches</span>
-    <span className="row"><span className="acts"><span className="act act-main"><Icon name="refresh" size={14} /></span><span className="act act-main act-text"><Icon name="plus" size={14} />Release</span></span></span>
-    </div>
-    <div className="tree-filter">
-    <Icon name="search" size={12} className="faint" />
-    <span className="input" style={{ display: 'flex', alignItems: 'center', color: 'var(--faint)' }}>Filter branches</span>
-    <span className="btn btn-sm" style={{ flex: '0 0 auto' }}><span className="ellipsis">All</span><Icon name="chevronDown" size={10} /></span>
+    <span className="row"><span className="acts"><span className="act act-text"><span className="ellipsis">All</span><Icon name="chevronDown" size={10} /></span><span className="act act-main"><Icon name="search" size={15} /></span><span className="act act-main"><Icon name="refresh" size={14} /></span><span className="act act-main act-text"><Icon name="plus" size={14} />Release</span></span></span>
     </div>
     <div className="tree">
     <PathLine p={TREE_PATH} />
@@ -226,8 +221,12 @@ export default function Home({ version, demo, agents, phone }: { version: string
     <p style={{ margin: '0', color: 'var(--muted)', fontSize: '16px' }}>Branches 25 or more commits behind are gathered in one place. Pick the ones to delete and clean up in one click.</p>
     </li>
     <li style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: '14px', padding: '24px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}><span aria-hidden="true" style={{ width: '16px', height: '16px', borderRadius: '4px', border: '2px solid var(--accent-fg)', boxSizing: 'border-box' }}></span><h3 style={{ margin: '0', fontSize: '20px', letterSpacing: '-0.01em' }}>Shipped, with its tag</h3></div>
+    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}><span aria-hidden="true" style={{ display: 'inline-flex', color: 'var(--accent-fg)' }}><Icon name="tag" size={18} /></span><h3 style={{ margin: '0', fontSize: '20px', letterSpacing: '-0.01em' }}>Shipped, with its tag</h3></div>
     <p style={{ margin: '0', color: 'var(--muted)', fontSize: '16px' }}>Past releases sit below a separator with their version. Delete a tag and the release reopens.</p>
+    </li>
+    <li style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: '14px', padding: '24px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}><span aria-hidden="true" style={{ display: 'inline-flex', color: 'var(--accent-fg)' }}><Icon name="user" size={18} /></span><h3 style={{ margin: '0', fontSize: '20px', letterSpacing: '-0.01em' }}>Work and personal, apart</h3></div>
+    <p style={{ margin: '0', color: 'var(--muted)', fontSize: '16px' }}>A profile keeps its own projects, connections, tokens, AI setup and settings. Switch from your avatar at the top right and the whole app follows. Its settings open from the same menu.</p>
     </li>
     </ol>
     </section>
@@ -271,7 +270,7 @@ export default function Home({ version, demo, agents, phone }: { version: string
     <span className="knot" aria-hidden="true"></span>
     <p style={{ margin: '0 0 12px', fontSize: '13px', letterSpacing: '.14em', color: 'var(--accent-fg)', fontWeight: '600' }}>PARALLEL WORKSTATIONS</p>
     <h2 id="ag-h" style={{ margin: '0', fontSize: 'clamp(34px, 4.6vw, 56px)', lineHeight: '1.05', letterSpacing: '-0.03em', textWrap: 'balance' }}>One branch. One worktree. One agent.</h2>
-    <p style={{ margin: '18px 0 0', fontSize: '19px', color: 'var(--muted)', textWrap: 'pretty' }}>Open any branch in its own worktree with one click, put an AI agent on it, and keep a shell beside it. Run them side by side. When you close a worktree, Gitnetix can merge it into the branch you choose.</p>
+    <p style={{ margin: '18px 0 0', fontSize: '19px', color: 'var(--muted)', textWrap: 'pretty' }}>Open any branch in its own worktree with one click, put an AI agent on it, and keep a shell beside it. Run them side by side. When you close a worktree, Gitnetix can merge it into the branch you choose. Ignored files you list, like <code>.env</code>, are copied into every new worktree.</p>
     </div>
     {/* the three agent cards, playing (AgentCards.tsx, an island from index.astro) */}
     {agents}

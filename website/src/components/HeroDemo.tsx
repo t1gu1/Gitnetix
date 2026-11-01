@@ -10,7 +10,7 @@ import PullRequests from './demo/PullRequests';
 import ReleaseNotes from './demo/ReleaseNotes';
 import Submodules from './demo/Submodules';
 import Tickets from './demo/Tickets';
-import { Avatar, DemoContext, FixedWidth, Menu, Seg, useMenu, useThumb, type Demo } from './demo/ui';
+import { Avatar, DemoContext, FindBar, FixedWidth, Menu, ProfileAvatar, Seg, useMenu, useThumb, type Demo } from './demo/ui';
 import Worktrees from './demo/Worktrees';
 
 /**
@@ -350,6 +350,9 @@ export function PathLine({ p }: { p: Path }) {
 }
 
 /** Same as MOBILE_TABS in src/App.tsx: [page, label, icon]. The other pages go under "More". */
+/** The demo's other profiles, for the profile menu: name, emoji, hue. */
+const PROFILES: [string, string, number][] = [['Personal', '🦊', 22], ['Open source', '🐙', 270]];
+
 const TABS = [['workspace', 'Releases', 'tag'], ['worktrees', 'Agents', 'layers'], ['prs', 'PRs', 'pr'], ['tickets', 'Tickets', 'ticket']];
 
 /** The phone's bottom tabs, like MobileTabs in src/App.tsx: the open one's icon in a sliding pill. */
@@ -391,7 +394,13 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
   const [picked, setPicked] = useState<string>();
   const [commitQ, setCommitQ] = useState('');
   const [diffMode, setDiffMode] = useState<'split' | 'unified' | 'full'>('unified');
-  const [filter, setFilter] = useState('');
+  // The branch find (Ctrl+F): its text, the match its arrows are on and how many there are.
+  const [finding, setFinding] = useState(false);
+  const [query, setQuery] = useState('');
+  const [at, setAt] = useState(0);
+  const [hitCount, setHitCount] = useState(0);
+  const jump = useRef(false);
+  const profile = useMenu();
   const [closed, setClosed] = useState<Record<string, boolean>>({});
   const [secOpen, setSecOpen] = useState({ true: true, false: true });
   // Closed on a phone, leaving the screen to the tree.
@@ -615,11 +624,42 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
     finish,
   };
 
-  const shows = (n: string): boolean => !filter || n.includes(filter) || !!bs[n].kids?.some(shows);
   const below = (n: string): string[] => (bs[n].kids ?? []).flatMap((k) => [k, ...below(k)]);
+  // Find marks the matching branches and hides none (BranchTree.tsx); the groups holding a match open as it is typed.
+  const q = finding ? query.trim().toLowerCase() : '';
+  const marked = (name: string, n: string): ReactNode => {
+    if (!q) return name;
+    const i = name.toLowerCase().indexOf(q);
+    if (i >= 0) return <>{name.slice(0, i)}<mark className="tree-hit">{name.slice(i, i + q.length)}</mark>{name.slice(i + q.length)}</>;
+    return n.toLowerCase().includes(q) ? <mark className="tree-hit">{name}</mark> : name;
+  };
+  const onQuery = (v: string) => {
+    const t = v.trim().toLowerCase();
+    setQuery(v);
+    setAt(0);
+    jump.current = true;
+    if (t) setClosed((c) => Object.fromEntries(Object.entries(c).filter(([k]) => !below(k).some((b) => b.toLowerCase().includes(t)))));
+  };
+  const hitAt = Math.max(0, Math.min(at, hitCount - 1));
+  useLayoutEffect(() => {
+    const tree = treeRef.current;
+    const marks = [...(tree?.querySelectorAll('.tree-hit') ?? [])];
+    setHitCount(marks.length);
+    const i = Math.min(at, marks.length - 1);
+    marks.forEach((m, j) => m.classList.toggle('at', j === i));
+    if (jump.current && tree && i >= 0) {
+      jump.current = false;
+      // Scrolls the tree only: scrollIntoView would move the site's page too.
+      const r = marks[i].getBoundingClientRect(), t = tree.getBoundingClientRect();
+      if (r.top < t.top || r.bottom > t.bottom) tree.scrollTop += r.top - t.top - t.height / 2;
+    }
+  });
+  const openFind = () => {
+    setFinding(true);
+    root.current?.querySelector<HTMLInputElement>('.find-bar input')?.focus();
+  };
 
   const row = (n: string): ReactNode => {
-    if (!shows(n)) return null;
     const x = bs[n];
     const cur = n === head;
     const tracked = !!x.base;
@@ -627,8 +667,8 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
     const name = x.role === 'release' ? labelOf(n) : typed ? n.slice(n.indexOf('/') + 1) : n;
     const wip = x.wip.length > 0 && <span className="wip-badge">WIP {x.wip.length}</span>;
     const p = primary(n);
-    const kids = (x.kids ?? []).filter(shows);
-    const open = !closed[n] || !!filter;
+    const kids = x.kids ?? [];
+    const open = !closed[n];
     const pathLive = below(n).includes(head);
     const wipBelow = open ? 0 : below(n).reduce((t, k) => t + bs[k].wip.length, 0);
     const st = stOf(n);
@@ -647,7 +687,7 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
             <span className="tree-main">
               <span className="tree-name">
                 {typed && <span className={`kind-chip ${x.kind === 'fix' ? 'c-del' : 'c-mod'}`}>{x.kind}</span>}
-                <span className="mono ellipsis">{name}</span>
+                <span className="mono ellipsis">{marked(name, n)}</span>
                 {x.tag && <span className="tag accent">{x.tag}</span>}
               </span>
               <span className="branch-meta">
@@ -733,13 +773,21 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
 
   return (
     <DemoContext.Provider value={demo}>
-    <div ref={root} className={phone ? 'ap hd hd-phone' : 'ap hd'}>
+    <div
+      ref={root}
+      className={phone ? 'ap hd hd-phone' : 'ap hd'}
+      onKeyDown={(e) => {
+        // Ctrl+F (⌘F) in the demo finds branches while the tree shows; anywhere else on the site it stays the browser's.
+        if (e.key.toLowerCase() !== 'f' || e.shiftKey || e.altKey || !(e.ctrlKey || e.metaKey) || !treeRef.current?.offsetParent) return;
+        e.preventDefault();
+        openFind();
+      }}
+    >
       {/* project tabs (src/components/TopBar.tsx) */}
       <header className="hdr">
-        <span className="hdr-icon" aria-hidden="true"><Icon name="menu" size={18} stroke={1.4} /></span>
         {/* Worktrees & agents: a tab of its own, marked like the open project's; the phone has its Agents tab instead. */}
         {!phone && (
-          <button type="button" className="hdr-icon" aria-label="Worktrees & agents" title="Worktrees & agents" aria-current={wt ? 'page' : undefined} onClick={() => go('worktrees')}>
+          <button type="button" className={`hdr-icon${running.length ? ' glow-working' : ''}`} aria-label="Worktrees & agents" title={running.length ? `Worktrees & agents (${running.length} running)` : 'Worktrees & agents'} aria-current={wt ? 'page' : undefined} onClick={() => go('worktrees')}>
             <Icon name="layers" size={16} />
           </button>
         )}
@@ -747,7 +795,7 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
           {['acme-web', 'acme-api', 'design-system'].map((p, i) => {
             const label = (
               <>
-                {running.some((s) => s.project === p) && <span className="pulse" />}
+                {running.some((s) => s.project === p) && <span className="pulse glow-dot" />}
                 <FixedWidth>{p}</FixedWidth>
               </>
             );
@@ -761,27 +809,60 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
           })}
           <span className="btn btn-ghost btn-icon" aria-hidden="true" style={{ height: 'auto', width: 42, flex: 'none', border: 0, borderRadius: 0 }}><Icon name="plus" /></span>
         </span>
+        {/* The app's ProfileButton (src/components/Profiles.tsx); its Light / Dark mode is read off the page as src/components/ShellPane.tsx does, and Base.astro's script saves and shows the pick. */}
         <span className="hdr-tools">
-          {running.length > 0 && (
-            <button className="btn hide-sm" style={{ height: 28 }} onClick={() => go('worktrees')}>
-              <span className="pulse" />
-              <span className="muted">{running.length} {running.length === 1 ? 'agent' : 'agents'} running</span>
-            </button>
-          )}
-          {/* The app's ThemeToggle, read off the page as src/components/ShellPane.tsx does; Base.astro's script saves and shows the pick. */}
-          <button
-            className="btn btn-ghost btn-icon theme-toggle"
-            aria-label="Switch light / dark"
-            onClick={() => {
-              const root = document.documentElement;
-              dispatchEvent(new CustomEvent('themechange', { detail: otherMode(resolveTheme(root.dataset.palette ?? root.dataset.theme ?? '', root.dataset.theme === 'light' ? 'light' : 'dark')) }));
-            }}
-          >
-            <Icon name="sun" size={15} stroke={1.4} className="hd-dark" />
-            <Icon name="moon" size={15} stroke={1.4} className="hd-light" />
+          <button className="profile-btn" aria-haspopup="menu" aria-expanded={!!profile.at} aria-label="Profile Work, settings" title={profile.at ? undefined : 'Work'} onClick={(e) => profile.toggle(e, true)}>
+            <ProfileAvatar size={26} />
           </button>
         </span>
       </header>
+      {profile.at && (
+        <Menu
+          {...profile.at}
+          x={profile.at.x - 6}
+          alignRight
+          label="Profile"
+          onClose={profile.close}
+          items={[
+            {
+              heading: (
+                <span className="profile-head">
+                  <ProfileAvatar size={34} />
+                  <span className="col" style={{ gap: 1, minWidth: 0 }}>
+                    <strong className="ellipsis">Work</strong>
+                    <span>3 projects</span>
+                  </span>
+                </span>
+              ),
+            },
+            'sep',
+            { heading: 'Switch to' },
+            ...PROFILES.map(([name, emoji, hue]) => ({
+              id: name,
+              icon: null,
+              label: (
+                <span className="ctx-profile">
+                  <ProfileAvatar emoji={emoji} hue={hue} size={18} />
+                  <span className="ellipsis">{name}</span>
+                </span>
+              ),
+              run: () => flash(`${name} keeps its own projects, connections, tokens and AI setup`),
+            })),
+            { id: 'new', label: 'New profile…', icon: 'plus', run: () => flash('A profile gets a name, an emoji, photo or Gravatar, and a color') },
+            'sep',
+            { id: 'settings', label: 'Settings', icon: 'gear', run: () => flash('In the app, the settings open here') },
+            {
+              id: 'theme',
+              label: document.documentElement.dataset.theme === 'light' ? 'Dark mode' : 'Light mode',
+              icon: document.documentElement.dataset.theme === 'light' ? 'moon' : 'sun',
+              run: () => {
+                const root = document.documentElement;
+                dispatchEvent(new CustomEvent('themechange', { detail: otherMode(resolveTheme(root.dataset.palette ?? root.dataset.theme ?? '', root.dataset.theme === 'light' ? 'light' : 'dark')) }));
+              },
+            },
+          ]}
+        />
+      )}
       {/* page tabs, the accent underline sliding to the open one; the worktrees view has none */}
       <nav ref={tabsRef} aria-label="Pages" className="tabs-pages" hidden={wt}>
         {ink && <span className="tabs-ink" style={ink} aria-hidden="true" />}
@@ -844,6 +925,13 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
                     <Icon name="stash" size={12} stroke={1.6} />2
                   </button>
                   <span className="acts">
+                    <span className="act act-text" aria-hidden="true">
+                      <span className="ellipsis">All</span>
+                      <Icon name="chevronDown" size={10} />
+                    </span>
+                    <button className="act act-main" aria-label="Search branches" title="Search branches (Ctrl+F)" onClick={openFind}>
+                      <Icon name="search" size={15} />
+                    </button>
                     <button className="act act-main" aria-label="Fetch origin" onClick={() => flash('Fetched origin')}>
                       <Icon name="refresh" size={14} />
                     </button>
@@ -853,14 +941,22 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
                   </span>
                 </span>
               </div>
-              <div className="tree-filter">
-                <Icon name="search" size={12} className="faint" />
-                <input type="search" className="input" placeholder="Filter branches" aria-label="Filter branches" value={filter} onChange={(e) => setFilter(e.target.value)} />
-                <span className="btn btn-sm" aria-hidden="true" style={{ flex: '0 0 auto' }}>
-                  <span className="ellipsis">All</span>
-                  <Icon name="chevronDown" size={10} />
-                </span>
-              </div>
+              {finding && (
+                <FindBar
+                  className="tree-filter"
+                  label="Search branches"
+                  icon={<Icon name="search" size={14} className="faint" />}
+                  query={query}
+                  onQuery={onQuery}
+                  hits={{ i: hitAt, n: hitCount }}
+                  onStep={(back) => {
+                    if (!hitCount) return;
+                    setAt((hitAt + (back ? -1 : 1) + hitCount) % hitCount);
+                    jump.current = true;
+                  }}
+                  onClose={() => setFinding(false)}
+                />
+              )}
               <div className="scroll tree" ref={treeRef}>
                 {path && <PathLine p={path} />}
                 {row('main')}

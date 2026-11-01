@@ -4,7 +4,7 @@ import type { Branch } from '../HeroDemo';
 import type { Ai, Agents } from './agents';
 
 /**
- * The demo's copies of src/components/ui.tsx, Avatar.tsx, ContextMenu.tsx and MenuChoice in AgentPicker.tsx:
+ * The demo's copies of src/components/ui.tsx, Avatar.tsx, ProfileAvatar in Profiles.tsx, ContextMenu.tsx and MenuChoice in AgentPicker.tsx:
  * the app's own pull in its server API. Same markup and class names, so site.css can keep copying app.css.
  */
 
@@ -63,6 +63,40 @@ export function Avatar({ name, size = 16 }: { name: string; size?: number }) {
 }
 
 /** Reserves the width of the bold rendering, like FixedWidth in src/components/ui.tsx. */
+/** A profile's round picture: its emoji, else the default silhouette, on its color. */
+export function ProfileAvatar({ emoji, hue, size = 24 }: { emoji?: string; hue?: number; size?: number }) {
+  return (
+    <span className="profile-avatar" data-hue={hue != null || undefined} style={{ width: size, height: size, fontSize: Math.round(size * 0.55), '--p-hue': hue } as CSSProperties} aria-hidden="true">
+      {emoji ?? (
+        <svg viewBox="0 0 32 32" width="100%" height="100%">
+          <circle cx="16" cy="12.5" r="5.75" />
+          <path d="M4.5 31c1-6.4 5.6-10.2 11.5-10.2S26.5 24.6 27.5 31z" />
+        </svg>
+      )}
+    </span>
+  );
+}
+
+/** A find bar: the text, which match of how many, previous / next and close. Enter steps forward, Shift+Enter back, Escape closes. */
+export function FindBar({ className, label, query, onQuery, hits, onStep, onClose, icon }: { className: string; label: string; query: string; onQuery: (q: string) => void; hits: { i: number; n: number }; onStep: (back: boolean) => void; onClose: () => void; icon?: ReactNode }) {
+  return (
+    <div className={`find-bar ${className}`} role="search" onKeyDown={(e) => e.key === 'Escape' && (e.stopPropagation(), onClose())}>
+      {icon}
+      <input className="input" autoFocus aria-label={label} placeholder={label} value={query} onChange={(e) => onQuery(e.target.value)} onFocus={(e) => e.currentTarget.select()} onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), onStep(e.shiftKey))} />
+      <span className="faint find-count">{query ? (hits.n ? `${hits.i + 1}/${hits.n}` : '0/0') : ''}</span>
+      <button type="button" className="btn btn-sm btn-icon" aria-label="Previous match" title="Previous (Shift+Enter)" disabled={!hits.n} onClick={() => onStep(true)}>
+        <Icon name="chevronUp" size={12} />
+      </button>
+      <button type="button" className="btn btn-sm btn-icon" aria-label="Next match" title="Next (Enter)" disabled={!hits.n} onClick={() => onStep(false)}>
+        <Icon name="chevronDown" size={12} />
+      </button>
+      <button type="button" className="btn btn-sm btn-icon" aria-label="Close find" title="Close (Esc)" onClick={onClose}>
+        <Icon name="close" size={11} />
+      </button>
+    </div>
+  );
+}
+
 export function FixedWidth({ children }: { children: ReactNode }) {
   return (
     <span className="fixed-w">
@@ -165,7 +199,7 @@ export function Modal({ title, sub, onClose, children, footer, width }: { title:
   );
 }
 
-export type MenuItem = 'sep' | { id: string; label: ReactNode; icon?: string | null; hint?: ReactNode; danger?: boolean; disabled?: boolean; keep?: boolean; run: () => void };
+export type MenuItem = 'sep' | { heading: ReactNode } | { id: string; label: ReactNode; icon?: string | null; hint?: ReactNode; danger?: boolean; disabled?: boolean; keep?: boolean; run: () => void };
 const ITEM = '[role="menuitem"]:not(:disabled)';
 
 /** A floating menu at a viewport point; an outside click, Escape or a scroll closes it. */
@@ -215,6 +249,8 @@ export function Menu({ x, y, items, label, alignRight, up: above, onClose }: { x
       {items.map((it, i) =>
         it === 'sep' ? (
           <div key={`sep-${i}`} className="ctx-sep" role="separator" />
+        ) : 'heading' in it ? (
+          <div key={`head-${i}`} className="ctx-head ellipsis" role="presentation">{it.heading}</div>
         ) : (
           <button key={it.id} type="button" role="menuitem" className={`ctx-item${it.danger ? ' c-del' : ''}`} disabled={it.disabled} onClick={() => { if (!it.keep) close.current(); it.run(); }}>
             {it.icon !== null && <span className="ctx-icon">{it.icon && <Icon name={it.icon} size={13} />}</span>}
