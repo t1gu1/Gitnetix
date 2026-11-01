@@ -260,9 +260,9 @@ export function TopBar() {
           <Icon name="menu" size={18} stroke={1.4} />
         </button>
         <button
-          className="hdr-icon hide-narrow"
+          className={`hdr-icon hide-narrow${runningAll > 0 ? " glow-working" : ""}`}
           aria-label="Worktrees & agents"
-          data-tip="Worktrees & agents"
+          data-tip={runningAll > 0 ? `Worktrees & agents (${runningAll} running)` : "Worktrees & agents"}
           aria-current={wt ? "page" : undefined}
           onClick={() => nav.go({ name: "worktrees" })}
         >
@@ -318,7 +318,7 @@ export function TopBar() {
                 }
               >
                 {p.runningAgents > 0 && (
-                  <span className="pulse" title="AI task running" />
+                  <span className="pulse glow-dot" title="AI task running" />
                 )}
                 <FixedWidth>{p.name}</FixedWidth>
               </button>
@@ -350,18 +350,6 @@ export function TopBar() {
           </button>
         </nav>
         <div className="hdr-tools">
-          {runningAll > 0 && (
-            <button
-              className="btn hide-narrow"
-              style={{ height: 28 }}
-              onClick={() => nav.go({ name: "worktrees" })}
-            >
-              <span className="pulse" />
-              <span className="muted">
-                {runningAll} {runningAll === 1 ? "agent" : "agents"} running
-              </span>
-            </button>
-          )}
           <ThemeToggle />
         </div>
       </header>
@@ -416,7 +404,7 @@ function DragGhost({
       aria-hidden
     >
       <span className="tab-project-open">
-        {project.runningAgents > 0 && <span className="pulse" />}
+        {project.runningAgents > 0 && <span className="pulse glow-dot" />}
         <FixedWidth>{project.name}</FixedWidth>
       </span>
       <span className="tab-project-close">
