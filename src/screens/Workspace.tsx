@@ -301,7 +301,7 @@ export function Workspace() {
     if (!fileOpen) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape" || (e.target as HTMLElement).closest("input, textarea")) return;
-      if (document.querySelector("[role=dialog], [role=menu], .diff-picks")) return;
+      if (document.querySelector("[role=dialog], [role=menu], .diff-picks, .diff-find")) return;
       e.stopImmediatePropagation();
       setFile(undefined);
       setPane("files");
@@ -402,6 +402,7 @@ export function Workspace() {
                 building={ov.isPlaceholderData}
                 updating={ov.isFetching && !ov.isPlaceholderData}
                 progress={progress}
+                fileOpen={fileOpen}
               />
             )}
 

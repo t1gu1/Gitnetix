@@ -13,6 +13,7 @@ import { useStored } from "../lib/stored";
 import { ansi, resolveTheme } from "../lib/themes";
 import { ContextMenu } from "./ContextMenu";
 import { Icon } from "./Icon";
+import { FindBar } from "./ui";
 
 const MAC = /Mac|iPhone|iPad/.test(navigator.userAgent);
 // WebKitGTK without its DMA-BUF renderer (main.rs turns it off) copies each WebGL frame back through the CPU: typing lags.
@@ -281,32 +282,7 @@ export default function ShellPane({ projectId, path, tab }: { projectId: string;
           ]}
         />
       )}
-      {finding && (
-        <div className="shell-find" onKeyDown={(e) => e.key === "Escape" && (e.stopPropagation(), closeFind())}>
-          <input
-            className="input"
-            autoFocus
-            aria-label="Find in terminal"
-            placeholder="Find"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onFocus={(e) => e.currentTarget.select()}
-            onKeyDown={(e) => e.key === "Enter" && find(e.shiftKey)}
-          />
-          <span className="faint" style={{ minWidth: 44, fontSize: 11.5, textAlign: "center" }}>
-            {query && hits ? (hits.n ? `${hits.i + 1}/${hits.n}` : "0/0") : ""}
-          </span>
-          <button type="button" className="btn btn-sm btn-icon" aria-label="Previous match" data-tip="Previous (Shift+Enter)" onClick={() => find(true)}>
-            <Icon name="chevronUp" size={12} />
-          </button>
-          <button type="button" className="btn btn-sm btn-icon" aria-label="Next match" data-tip="Next (Enter)" onClick={() => find()}>
-            <Icon name="chevronDown" size={12} />
-          </button>
-          <button type="button" className="btn btn-sm btn-icon" aria-label="Close find" onClick={closeFind}>
-            <Icon name="close" size={11} />
-          </button>
-        </div>
-      )}
+      {finding && <FindBar className="shell-find" label="Find in terminal" query={query} onQuery={setQuery} hits={hits} onStep={(back) => find(back)} onClose={closeFind} />}
     </div>
   );
 }

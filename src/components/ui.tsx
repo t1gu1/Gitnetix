@@ -213,6 +213,93 @@ export function ErrorBox({ error }: { error: unknown }) {
   return <div className="err-box">{msg}</div>;
 }
 
+const MAC = /Mac|iPhone|iPad/.test(navigator.userAgent);
+/** The find shortcut, as shown in tooltips. */
+export const FIND_KEY = MAC ? "⌘F" : "Ctrl+F";
+
+/** Calls `open` on Ctrl+F (Cmd+F on macOS), outside a terminal (its Ctrl+F is the shell's) and with no dialog or menu up.
+ * A `capture` one runs first and keeps the key to itself: the diff's find wins over the branches'. */
+export function useFindKey(open: () => void, capture = false) {
+  const run = useRef(open);
+  run.current = open;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() !== "f" || e.shiftKey || e.altKey || !(MAC ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey)) return;
+      if ((e.target as HTMLElement).closest?.(".xterm") || document.querySelector("[role=dialog], [role=menu]")) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      run.current();
+    };
+    window.addEventListener("keydown", onKey, capture);
+    return () => window.removeEventListener("keydown", onKey, capture);
+  }, [capture]);
+}
+
+/** A find bar: the text, which match of how many, previous / next and close. Enter steps forward, Shift+Enter back; Escape
+ * closes it from inside it, or from anywhere with `escapeAnywhere` (no dialog or menu up). */
+export function FindBar({
+  className,
+  label,
+  query,
+  onQuery,
+  hits,
+  onStep,
+  onClose,
+  inputRef,
+  icon,
+  escapeAnywhere,
+}: {
+  className: string;
+  label: string;
+  query: string;
+  onQuery: (q: string) => void;
+  hits?: { i: number; n: number };
+  onStep: (back: boolean) => void;
+  onClose: () => void;
+  inputRef?: RefObject<HTMLInputElement | null>;
+  icon?: ReactNode;
+  escapeAnywhere?: boolean;
+}) {
+  const close = useRef(onClose);
+  close.current = onClose;
+  useEffect(() => {
+    if (!escapeAnywhere) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || document.querySelector("[role=dialog], [role=menu]")) return;
+      e.stopImmediatePropagation();
+      close.current();
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [escapeAnywhere]);
+  return (
+    <div className={`find-bar ${className}`} role="search" onKeyDown={(e) => e.key === "Escape" && (e.stopPropagation(), onClose())}>
+      {icon}
+      <input
+        ref={inputRef}
+        className="input"
+        autoFocus
+        aria-label={label}
+        placeholder={label}
+        value={query}
+        onChange={(e) => onQuery(e.target.value)}
+        onFocus={(e) => e.currentTarget.select()}
+        onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), onStep(e.shiftKey))}
+      />
+      <span className="faint find-count">{query && hits ? (hits.n ? `${hits.i + 1}/${hits.n}` : "0/0") : ""}</span>
+      <button type="button" className="btn btn-sm btn-icon" aria-label="Previous match" data-tip="Previous (Shift+Enter)" disabled={hits?.n === 0} onClick={() => onStep(true)}>
+        <Icon name="chevronUp" size={12} />
+      </button>
+      <button type="button" className="btn btn-sm btn-icon" aria-label="Next match" data-tip="Next (Enter)" disabled={hits?.n === 0} onClick={() => onStep(false)}>
+        <Icon name="chevronDown" size={12} />
+      </button>
+      <button type="button" className="btn btn-sm btn-icon" aria-label="Close find" data-tip="Close (Esc)" onClick={onClose}>
+        <Icon name="close" size={11} />
+      </button>
+    </div>
+  );
+}
+
 export function Empty({ children }: { children: ReactNode }) {
   return <div className="empty">{children}</div>;
 }

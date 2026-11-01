@@ -33,14 +33,14 @@ export function authorsOf(items: { author: string; email: string }[]): Author[] 
 }
 
 /** Dropdown picking the authors to show (their emails in `who`); none picked = all. Hidden with fewer than two authors. */
-export function AuthorFilter({ authors, who, onChange, tip }: { authors: Author[]; who: string[]; onChange: (who: string[]) => void; tip: string }) {
+export function AuthorFilter({ authors, who, onChange, tip, className = "btn btn-sm" }: { authors: Author[]; who: string[]; onChange: (who: string[]) => void; tip: string; className?: string }) {
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   if (authors.length < 2) return null;
   const picked = authors.filter((a) => who.includes(a.email));
   return (
     <>
       <button
-        className="btn btn-sm"
+        className={className}
         style={{ flex: "0 0 auto", maxWidth: 120 }}
         aria-haspopup="menu"
         aria-label="Filter by author"

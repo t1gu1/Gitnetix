@@ -2088,6 +2088,11 @@ button.tree-twist:hover {
   background: color-mix(in srgb, var(--accent) 35%, transparent);
   color: inherit;
 }
+/* The match the find bar's arrows are on. */
+.tree-hit.at {
+  background: var(--accent);
+  color: var(--on-accent);
+}
 /* A match never hides behind the ellipsis: the name wraps instead. */
 .tree-name:has(.tree-hit) {
   height: auto;
@@ -2468,6 +2473,11 @@ button.tree-twist:hover {
   border-radius: 0;
   background: transparent;
   color: var(--muted);
+}
+/* The find arrows and close: square cells as tall as the row. */
+.tree-filter > .btn-icon {
+  width: 40px;
+  padding: 0;
 }
 .tree-filter > .btn:hover:not(:disabled) {
   background: color-mix(in srgb, var(--fg) 6%, transparent);
@@ -3638,15 +3648,24 @@ button.picker-act {
   background: var(--term);
   position: relative;
 }
-.shell-find {
+.find-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.find-count {
+  align-self: center;
+  min-width: 44px;
+  font-size: 11.5px;
+  text-align: center;
+}
+.shell-find,
+.diff-find {
   position: absolute;
   top: 6px;
   right: 18px;
   /* Over the commands button, which it overlaps. */
   z-index: 13;
-  display: flex;
-  align-items: center;
-  gap: 4px;
   padding: 4px;
   border: 1px solid var(--line);
   border-radius: var(--r-lg);
@@ -3661,10 +3680,23 @@ button.picker-act {
   /* Above xterm's visible scrollbar (z-index 11). */
   z-index: 12;
 }
-.shell-find .input {
+.shell-find .input,
+.diff-find .input {
   width: 180px;
   height: 26px;
   padding: 0 8px;
+}
+/* Clear of the heatmap. */
+.diff-find {
+  right: 40px;
+}
+/* Diff find matches (CSS highlights, see DiffView), the current one stronger. */
+::highlight(diff-find) {
+  background-color: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+::highlight(diff-find-at) {
+  background-color: var(--accent);
+  color: var(--on-accent);
 }
 .term-log {
   flex: 1 1 auto;

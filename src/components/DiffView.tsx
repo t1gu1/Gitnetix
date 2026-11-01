@@ -1,10 +1,10 @@
-import { Fragment, startTransition, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent, type ReactElement, type ReactNode } from "react";
+import { Fragment, startTransition, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent, type ReactElement, type ReactNode, type RefObject } from "react";
 
 import type { Hunk, LinePick } from "../api/types";
 import { plural } from "../lib/format";
 import type { Token, Tokens } from "../lib/highlight.worker";
 import { Icon } from "./Icon";
-import { ErrorBox, Modal } from "./ui";
+import { ErrorBox, FindBar, Modal, useFindKey } from "./ui";
 
 const MARKER = /^(<<<<<<<|=======|>>>>>>>)/;
 // #rgb, #rgba, #rrggbb or #rrggbbaa; not inside a word or an `&#123;` entity.
@@ -93,9 +93,11 @@ export function DiffView({ path, hunks, mode, staging, anyway, onAnyway }: { pat
 function Diff({ path, hunks, mode, staging }: { path: string; hunks: Hunk[]; mode: DiffMode; staging?: Staging }) {
   const shown = useTokens(path, hunks);
   const picking = usePicking(path, shown.hunks, staging);
+  const scroller = useRef<HTMLDivElement>(null);
+  const find = useFind(scroller, [shown.hunks, shown.tokens, mode]);
   return (
     <>
-      <Heatmapped hunks={shown.hunks} split={mode === "split"}>
+      <Heatmapped scroller={scroller} hunks={shown.hunks} split={mode === "split"}>
         {mode === "split" ? (
           <Split hunks={shown.hunks} tokens={shown.tokens} picking={picking} />
         ) : (
@@ -104,7 +106,100 @@ function Diff({ path, hunks, mode, staging }: { path: string; hunks: Hunk[]; mod
       </Heatmapped>
       {picking && picking.picked.size > 0 && <PickBar picking={picking} />}
       {picking?.discarding && <DiscardLines path={path} picking={picking} />}
+      {find}
     </>
+  );
+}
+
+/** Ranges of `q` (lower case) in the code of each drawn line under `root`; a match may run across syntax color spans. */
+function findRanges(root: HTMLElement, q: string): Range[] {
+  const out: Range[] = [];
+  for (const tx of root.querySelectorAll(".diff-row:not(.hunk) > .tx, .diff-half:not(.hunk) > .tx")) {
+    const nodes: Text[] = [];
+    const walk = document.createTreeWalker(tx, NodeFilter.SHOW_TEXT);
+    while (walk.nextNode()) nodes.push(walk.currentNode as Text);
+    // shortcut: assumes lower-casing keeps each character's length (not so for a few, like İ), fine for code.
+    const text = nodes.map((n) => n.data).join("").toLowerCase();
+    // The text node holding character `off` of the line, and where in it; an end may sit at a node's very end.
+    const point = (off: number, end: boolean): [Text, number] => {
+      for (const n of nodes) {
+        if (off < n.length || (end && off === n.length)) return [n, off];
+        off -= n.length;
+      }
+      return [nodes.at(-1)!, nodes.at(-1)!.length];
+    };
+    for (let i = text.indexOf(q); i >= 0; i = text.indexOf(q, i + q.length)) {
+      const r = document.createRange();
+      r.setStart(...point(i, false));
+      r.setEnd(...point(i + q.length, true));
+      out.push(r);
+    }
+  }
+  return out;
+}
+
+/** Ctrl+F (Cmd+F) over the drawn lines: every match marked, the current one stronger, and the arrows scroll from one to
+ * the next. Matches are found again when `drawn` changes (the syntax colors redraw the lines' text). */
+function useFind(scroller: RefObject<HTMLDivElement | null>, drawn: unknown[]): ReactNode {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [at, setAt] = useState(0);
+  const [ranges, setRanges] = useState<Range[]>([]);
+  const input = useRef<HTMLInputElement>(null);
+  // Typing and the arrows bring the current match into view; lines redrawn under it don't.
+  const jump = useRef(false);
+  useFindKey(() => {
+    setOpen(true);
+    input.current?.focus();
+    input.current?.select();
+  }, true);
+  useEffect(() => {
+    const q = query.toLowerCase();
+    setRanges(open && q && scroller.current ? findRanges(scroller.current, q) : []);
+  }, [open, query, ...drawn]); // eslint-disable-line react-hooks/exhaustive-deps
+  const i = ranges.length ? Math.min(at, ranges.length - 1) : -1;
+  useEffect(() => {
+    // Without the highlight API (older WebKit) the arrows still scroll to each match.
+    if ("highlights" in CSS && i >= 0) {
+      CSS.highlights.set("diff-find", new Highlight(...ranges));
+      const current = new Highlight(ranges[i]);
+      current.priority = 1;
+      CSS.highlights.set("diff-find-at", current);
+    }
+    const row = i >= 0 && jump.current ? ranges[i].startContainer.parentElement?.closest(".diff-row, .diff-half") : null;
+    if (row && scroller.current) {
+      jump.current = false;
+      const r = row.getBoundingClientRect();
+      const v = scroller.current.getBoundingClientRect();
+      if (r.top < v.top || r.bottom > v.bottom) row.scrollIntoView({ block: "center" });
+    }
+    return () => {
+      if (!("highlights" in CSS)) return;
+      CSS.highlights.delete("diff-find");
+      CSS.highlights.delete("diff-find-at");
+    };
+  }, [ranges, i, scroller]);
+  if (!open) return null;
+  return (
+    <FindBar
+      className="diff-find"
+      label="Find in file"
+      query={query}
+      onQuery={(q) => {
+        setQuery(q);
+        setAt(0);
+        jump.current = true;
+      }}
+      hits={query ? { i: Math.max(i, 0), n: ranges.length } : undefined}
+      onStep={(back) => {
+        if (!ranges.length) return;
+        setAt((i + (back ? -1 : 1) + ranges.length) % ranges.length);
+        jump.current = true;
+      }}
+      onClose={() => setOpen(false)}
+      inputRef={input}
+      escapeAnywhere
+    />
   );
 }
 
@@ -186,7 +281,7 @@ function usePicking(path: string, hunks: Hunk[], staging?: Staging): Picking | u
   useEffect(() => {
     if (!any) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape" || (e.target as HTMLElement).closest("input, textarea") || document.querySelector("[role=dialog], [role=menu]")) return;
+      if (e.key !== "Escape" || (e.target as HTMLElement).closest("input, textarea") || document.querySelector("[role=dialog], [role=menu], .diff-find")) return;
       e.stopImmediatePropagation();
       setKeys((k) => ({ ...k, texts: new Map() }));
     };
@@ -443,8 +538,7 @@ interface Mark {
 
 /** A diff view beside a heatmap of its changes that also scrolls it. In split mode removals
  * sit on the bar's left half and additions on its right, like the columns. */
-function Heatmapped({ hunks, split, children }: { hunks: Hunk[]; split: boolean; children: ReactNode }) {
-  const scroller = useRef<HTMLDivElement>(null);
+function Heatmapped({ scroller, hunks, split, children }: { scroller: RefObject<HTMLDivElement | null>; hunks: Hunk[]; split: boolean; children: ReactNode }) {
   const id = useId();
   const [marks, setMarks] = useState<Mark[]>([]);
   const [view, setView] = useState({ top: 0, height: 1 });

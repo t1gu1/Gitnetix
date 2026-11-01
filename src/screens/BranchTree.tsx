@@ -8,7 +8,7 @@ import { AuthorFilter, authorsOf } from "../components/AuthorFilter";
 import { Avatar } from "../components/Avatar";
 import { ContextMenu, type MenuItem } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
-import { Empty, releaseTagLabel } from "../components/ui";
+import { Empty, FIND_KEY, FindBar, releaseTagLabel, useFindKey } from "../components/ui";
 import { plural, stashCount } from "../lib/format";
 import { useNav } from "../lib/nav";
 import { BranchSplit, type BranchActions, type BranchTarget } from "./BranchMenu";
@@ -123,6 +123,7 @@ export function BranchTree({
   building,
   updating,
   progress,
+  fileOpen,
 }: {
   active: boolean;
   o: Overview;
@@ -151,9 +152,20 @@ export function BranchTree({
   updating?: boolean;
   /** Branches worked out so far of those a long rebuild redoes. */
   progress?: { done: number; total: number } | null;
+  /** A file's diff is open: Escape outside the find bar is the diff's, to close it. */
+  fileOpen?: boolean;
 }) {
   const pid = o.project.id;
+  // The search, shown on Ctrl+F (Cmd+F): it marks the matching branches and steps through them, it hides none.
+  const [finding, setFinding] = useState(false);
   const [query, setQuery] = useState("");
+  const findInput = useRef<HTMLInputElement>(null);
+  const openFind = () => {
+    setFinding(true);
+    findInput.current?.focus();
+    findInput.current?.select();
+  };
+  useFindKey(openFind);
   // Everyone who authored a branch tip; the ones picked are shown, none picked = all.
   const authors = useMemo(() => authorsOf(o.branches), [o.branches]);
   const [who, setWho] = useState<string[]>([]);
@@ -198,25 +210,26 @@ export function BranchTree({
   // Protected, checked-out, busy or dirty branches stay put.
   const cleanable = (b: BranchView) => !b.protected && !b.checkedOut && !b.running && b.wip === 0;
 
-  const q = query.trim().toLowerCase();
+  const q = finding ? query.trim().toLowerCase() : "";
   const picked = authors.filter((a) => who.includes(a.email));
   const emails = picked.flatMap((a) => a.emails).join("\n");
+  // The branches the author pick keeps.
   const matches = useMemo(() => {
-    if (!q && !emails) return null;
+    if (!emails) return null;
     const mine = new Set(emails.split("\n"));
     const hit = new Set<string>();
     const walk = (b: BranchView): boolean => {
       // Branches falling behind show in their own section (alone, without children): a match there keeps no parent, and only one of their own keeps them.
       const child = !behind.includes(b) && kids(b.name).map((c) => walk(c) && !behind.includes(c)).some(Boolean);
       if (behind.includes(b)) kids(b.name).forEach(walk);
-      const self = (!q || b.name.toLowerCase().includes(q) || (b.release ?? "").includes(q)) && (!emails || b.role !== "branch" || !!b.shipped || mine.has(b.email.toLowerCase()));
+      const self = b.role !== "branch" || !!b.shipped || mine.has(b.email.toLowerCase());
       if (self || child) hit.add(b.name);
       return self || child;
     };
     tops.forEach(walk);
     return hit;
-  }, [q, emails, tops, kids, behind]);
-  // Picking authors only hides branches: trunks and releases stay, and so does the tree's layout (unlike a search).
+  }, [emails, tops, kids, behind]);
+  // Picking authors only hides branches: trunks and releases stay, and so does the tree's layout.
   const shown = (b: BranchView) => !matches || matches.has(b.name);
   const behindShown = behind.filter(shown);
   const behindRemovable = behindShown.filter(cleanable);
@@ -234,10 +247,10 @@ export function BranchTree({
   }, [tops, kids, o.currentBranch, matches]);
   // Shipped holds the checked-out release tag, or a shipped branch the path runs through: the path then runs down past
   // everything above it, into Shipped and to that release.
-  // A shipped release without its branch any more: kept by an author pick, by a search only when its version matches.
+  // A shipped release without its branch any more: kept by an author pick.
   const shippedShown = (r: ReleaseView) => {
     const b = shippedBranches.get(r.version);
-    return b ? shown(b) : !q || `v${r.version}`.includes(q);
+    return !b || shown(b);
   };
   const shippedOnPath = shipped.findIndex((r) => shippedShown(r) && (r.checkedOut || path.has(shippedBranches.get(r.version)?.name ?? "")));
   const shippedActive = shippedOnPath >= 0;
@@ -253,9 +266,24 @@ export function BranchTree({
     pathOpened.set(pid, pathKey);
     openAll(pathSections);
   }
-  // While searching, every group holding a match is open; what the user closes then is kept apart, and forgotten with the search.
+  // While searching, every group holding a match opens too; what the user opens or closes then is kept apart, and forgotten with the search.
+  const isHit = (b: BranchView) => b.name.toLowerCase().includes(q) || (b.release ?? "").includes(q);
+  const hitSections = new Set<string>();
+  if (q) {
+    const holds = (b: BranchView): boolean => {
+      let hit = isHit(b);
+      for (const c of kids(b.name)) {
+        if (!holds(c) || !shown(c)) continue;
+        hitSections.add(sectionOf(b.name, c));
+        hit = true;
+      }
+      return hit;
+    };
+    roots.forEach(holds);
+    if (shipped.map((r) => (shippedBranches.has(r.version) ? holds(shippedBranches.get(r.version)!) : `v${r.version}`.includes(q))).some(Boolean)) hitSections.add("shipped");
+  }
   const [shut, setShut] = useState<{ q: string; keys: Set<string> }>({ q: "", keys: new Set() });
-  const opened = (key: string) => (q ? !(shut.q === q && shut.keys.has(key)) : isOpen(key));
+  const opened = (key: string) => (isOpen(key) || hitSections.has(key)) !== (!!q && shut.q === q && shut.keys.has(key));
   const flip = (key: string) => {
     if (!q) return toggle(key);
     const keys = new Set(shut.q === q ? shut.keys : []);
@@ -474,6 +502,22 @@ export function BranchTree({
     };
   });
 
+  // The match the find bar's arrows are on, among the marked names in the tree's order.
+  const [at, setAt] = useState(0);
+  const [hitCount, setHitCount] = useState(0);
+  const jump = useRef(false);
+  useLayoutEffect(() => {
+    const marks = [...(pane.current?.querySelectorAll(".tree-hit") ?? [])];
+    setHitCount(marks.length);
+    const i = Math.min(at, marks.length - 1);
+    marks.forEach((m, j) => m.classList.toggle("at", j === i));
+    if (jump.current && i >= 0) {
+      jump.current = false;
+      marks[i].scrollIntoView({ block: "nearest" });
+    }
+  });
+  const hitAt = Math.max(0, Math.min(at, hitCount - 1));
+
   return (
     <section ref={pane} aria-label="Branches" className="ws-releases" data-pane data-active={active} aria-busy={building || undefined}>
       {building && (
@@ -493,6 +537,10 @@ export function BranchTree({
           )}
         </span>
         <span className="acts">
+          <AuthorFilter className="act act-text" authors={authors} who={who} onChange={setWho} tip="Show only the branches of these authors" />
+          <button className="act act-main" aria-label="Search branches" data-tip={`Search branches (${FIND_KEY})`} onClick={openFind}>
+            <Icon name="search" size={15} />
+          </button>
           {o.stashes.length > 0 && (
             <button className="act act-text" aria-label={`Show ${stashCount(o.stashes.length)}`} data-tip={`${stashCount(o.stashes.length)} set aside`} onClick={onStashes}>
               <Icon name="stash" size={14} />
@@ -508,14 +556,31 @@ export function BranchTree({
           </button>
         </span>
       </div>
-      <div className="tree-filter">
-        <Icon name="search" size={14} className="faint" />
-        <input type="search" className="input" placeholder="Filter branches" aria-label="Filter branches" value={query} onChange={(e) => setQuery(e.target.value)} />
-        <AuthorFilter authors={authors} who={who} onChange={setWho} tip="Show only the branches of these authors" />
-      </div>
+      {finding && (
+        <FindBar
+          className="tree-filter"
+          label="Search branches"
+          icon={<Icon name="search" size={14} className="faint" />}
+          query={query}
+          onQuery={(v) => {
+            setQuery(v);
+            setAt(0);
+            jump.current = true;
+          }}
+          hits={q ? { i: hitAt, n: hitCount } : undefined}
+          onStep={(back) => {
+            if (!hitCount) return;
+            setAt((hitAt + (back ? -1 : 1) + hitCount) % hitCount);
+            jump.current = true;
+          }}
+          onClose={() => setFinding(false)}
+          inputRef={findInput}
+          escapeAnywhere={!fileOpen}
+        />
+      )}
       <div className="scroll tree" style={{ flex: "1 1 auto" }}>
         {roots.map((b) => node(b, pastShipped))}
-        {matches?.size === 0 && !shipped.some(shippedShown) && <Empty>{q ? <>No branch matches “{query}”{picked.length > 0 && " by them"}.</> : "No branch by them."}</Empty>}
+        {matches?.size === 0 && !shipped.some(shippedShown) && <Empty>No branch by them.</Empty>}
         {behindShown.length > 0 && (
           <>
             <div className="tree-row tree-group tree-merged tree-behind" data-path={pastShipped ? "past" : undefined}>
@@ -583,7 +648,7 @@ export function BranchTree({
                       <span className="tree-btn">
                         <span className="tree-icon"><Icon name="tag" size={14} /></span>
                         <span className="tree-main">
-                          <span className="tree-name"><span className="mono ellipsis">v{r.version}</span><span className={`tag${r.tag === "released" ? " released" : ""}`}>{releaseTagLabel(r.tag)}</span></span>
+                          <span className="tree-name"><span className="mono ellipsis">{marked(`v${r.version}`, undefined, q)}</span><span className={`tag${r.tag === "released" ? " released" : ""}`}>{releaseTagLabel(r.tag)}</span></span>
                           <span className="branch-meta">
                             <span className="mono">{r.base}</span>
                             {r.checkedOut && <span className="c-current">checked out</span>}
@@ -668,11 +733,11 @@ function CleanupButton({ left, title, onClick }: { left: number | undefined; tit
 }
 
 /** `name` with the search marked in it; all of it when the search only matches the full branch name or release. */
-function marked(name: string, b: BranchView, hit?: string): ReactNode {
+function marked(name: string, b: BranchView | undefined, hit?: string): ReactNode {
   if (!hit) return name;
   const i = name.toLowerCase().indexOf(hit);
   if (i >= 0) return <>{name.slice(0, i)}<mark className="tree-hit">{name.slice(i, i + hit.length)}</mark>{name.slice(i + hit.length)}</>;
-  return b.name.toLowerCase().includes(hit) || (b.release ?? "").includes(hit) ? <mark className="tree-hit">{name}</mark> : name;
+  return b && (b.name.toLowerCase().includes(hit) || (b.release ?? "").includes(hit)) ? <mark className="tree-hit">{name}</mark> : name;
 }
 
 /** One branch, laid out the same whatever its role: icon, name + status line, actions. */
