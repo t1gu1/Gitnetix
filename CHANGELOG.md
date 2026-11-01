@@ -11,6 +11,18 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+### Added
+- User profiles: each keeps its own projects, connections, tokens, AI setup and settings, with a name, emoji, photo or Gravatar avatar and a color
+- Ctrl+F (Cmd+F) find in the diff view and the branch tree, marking every match and stepping with the arrows
+- Merge worktree branches that have uncommitted changes
+- Copy listed ignored files into new worktrees, from a global list plus a per-project list set in the menu
+- Running agents show in the top bar with a glow and a count in the tooltip
+
+### Changed
+- Settings, AI setup and templates open inside the menu panel instead of separate screens, and the menu now includes project settings
+- Author filter moved into the branch tree header, with a search button beside it
+- The terminal find bar uses the shared find bar
+
 ## [0.14.1] - 2026-10-31
 
 ### Fixed
