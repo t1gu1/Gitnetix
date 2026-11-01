@@ -1,6 +1,6 @@
 import { useState, type MouseEvent } from "react";
 
-import { droppedWorktree, patchOverview, patchWip, pushed, queryClient, settle, switchedOverview, useAction, useAiOn, useOverview, usePendingBranches } from "../api/hooks";
+import { droppedWorktree, patchOverview, patchWip, pushed, queryClient, settle, switchedOverview, useAction, useAgents, useAiOn, useOverview, usePendingBranches } from "../api/hooks";
 import { RpcError } from "../api/transport";
 import type { BranchView, Overview, RebaseResult, RenameResult, Stash, StashApplied } from "../api/types";
 import { ContextMenu, type MenuItem } from "../components/ContextMenu";
@@ -112,6 +112,8 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
   const move = useAction("branches.setParent", { invalidate: inv });
   const follow = useAction<RenameResult, { projectId: string; branch: string; name: string }>("branches.rename", { invalidate: [...inv, ["worktrees"], ["agents"]] });
   const [menu, setMenu] = useState<{ x: number; y: number; alignRight: boolean; t: BranchTarget } | null>(null);
+  // Worktrees whose agent is still at work: finishing them would pull the folder out from under it.
+  const working = useAgents((l) => l.filter((a) => a.status === "running" || a.status === "paused").map((a) => a.cwd)).data;
 
   const mutations = [sw, wt, pull, push, rebase, sync, stash, unstash, pr, changelog, stampChangelog, latestChangelog, follow];
   // Started elsewhere counts too: the commit box's auto push spins the branch's Push button, and so do merges and deletes running in the background.
@@ -183,6 +185,9 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
     const diverged = isDiverged(v);
     // Publishing the branch checked out here hands the checkout back to its parent ("" base: the default branch).
     const home = !v.upstream && v.checkedOut && !v.worktree ? t.base || ov?.defaultBranch : undefined;
+    // A worktree's branch merges as its session ends: uncommitted changes count (committed or discarded first), then the worktree goes.
+    const agentBusy = !!v.worktree && !!working?.includes(v.worktree);
+    const toMerge = v.ahead || (v.worktree ? v.wip : 0);
     return {
       switch: {
         id: "switch",
@@ -305,12 +310,18 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
       },
       merge: {
         id: "merge",
-        label: <>Merge into <span className="mono">{parent}</span>…</>,
+        label: <>{v.worktree ? "Finish and merge" : "Merge"} into <span className="mono">{parent}</span>…</>,
         short: "Merge",
-        tip: v.ahead ? `Merge ${plural(v.ahead, "commit")} into ${parent}` : `Nothing to merge into ${parent}`,
+        tip: agentBusy
+          ? `The agent is still working in the worktree of ${b}`
+          : !toMerge
+            ? `Nothing to merge into ${parent}`
+            : v.worktree
+              ? `Merge ${b} into ${parent}, then delete its worktree. Uncommitted changes get committed or discarded first`
+              : `Merge ${plural(v.ahead, "commit")} into ${parent}`,
         icon: "merged",
-        hint: v.ahead ? plural(v.ahead, "commit") : "nothing to merge",
-        disabled: !t.base || !v.ahead,
+        hint: agentBusy ? "agent working" : !toMerge ? "nothing to merge" : v.ahead ? plural(v.ahead, "commit") : plural(v.wip, "file"),
+        disabled: !t.base || !toMerge || agentBusy,
         run: () => openDialog("merge", b),
       },
       conflicts: { id: "conflicts", label: "Resolve conflicts…", short: "Resolve", tip: `Resolve conflicts with ${parent}`, icon: "sparkle", run: () => openDialog("conflicts", b) },
