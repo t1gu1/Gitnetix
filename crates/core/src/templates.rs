@@ -170,6 +170,7 @@ pub const OLD_BODIES: &[(&str, &str)] = &[
     ("changelog", "Update the Unreleased section of a Keep a Changelog file with the changes {branch} brings over {base}.\n\n- Return the complete new body of the section, without the \"## [Unreleased]\" heading.\n- Keep every existing entry word for word; add one line per user-facing change that is not listed yet, here or under the release's version.\n- Group under ### Added, ### Changed, ### Fixed, ### Removed, in that order, skipping empty ones.\n- Match the tone and length of the existing entries.\n- Leave out refactors, tests, CI and formatting unless users would notice them.\n- When nothing new is worth listing, return the current section unchanged.\n\nCurrent Unreleased section:\n{unreleased}\n\nAlready listed under this release's version (do not add these again):\n{released}\n\nCommits:\n{commits}\n\nWrite the result in {language}."),
     ("conflict", "Resolve the merge conflicts in {path} between {ours} and {theirs}.\n\n- Keep the structure from {theirs} (the release branch)\n- Re-apply the intent of the change from {ours} on top\n- Never drop a change silently\n\nReturn the COMPLETE resolved file content, with no conflict markers left.\n\nFile with conflict markers:\n{conflict}"),
     ("conflict", "Resolve the merge conflicts in {path} between {ours} and {theirs}.\n\n- Keep the structure from {theirs} (the release branch)\n- Re-apply the intent of the change from {ours} on top\n- Never drop a change silently\n\nReturn the COMPLETE resolved text below, every line of it, with no conflict markers left.\n\nText with conflict markers:\n{conflict}"),
+    ("agent", "You work for the user in {worktree} on branch {branch}.\n\nBefore acting, state the plan and the exact commands.\nNever force-push to main or release/* branches.\nStop and ask if the request is ambiguous.\n\nRequest:\n{request}"),
 ];
 
 pub fn default_templates() -> Vec<Template> {
@@ -289,7 +290,7 @@ pub fn default_templates() -> Vec<Template> {
                 rule("noForcePush", "Never force-push to main or release/*", "check", json!(true)),
                 rule("rewriteUnpushed", "Allow history rewrite on unpushed branches", "check", json!(true)),
             ],
-            body: "You work for the user in {worktree} on branch {branch}.\n\nBefore acting, state the plan and the exact commands.\nNever force-push to main or release/* branches.\nStop and ask if the request is ambiguous.\n\nRequest:\n{request}".into(),
+            body: "You work for the user in {worktree} on branch {branch}.\n\nBefore acting, state the plan and the exact commands.\nNever force-push to main or release/* branches.\nStop and ask if the request is ambiguous.\nShare an example image of the result, like a screenshot of the change, when it makes sense and you can make one.\n\nRequest:\n{request}".into(),
             ..Default::default()
         },
         Template {
