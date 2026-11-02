@@ -184,7 +184,10 @@ pub struct BranchView {
     pub running: bool,
     /// An agent on it stopped and waits for the user.
     pub waiting: bool,
+    /// Its checkout is stopped in a rebase, merge, cherry-pick or revert with conflicts left.
     pub conflict: bool,
+    /// The rebase, merge, cherry-pick or revert its checkout is stopped in the middle of.
+    pub in_progress: Option<String>,
     /// Files with uncommitted changes in its checkout (0 when not checked out).
     pub wip: u32,
     /// Stashes made on it.
@@ -1515,6 +1518,7 @@ fn plain_view(p: &Project, refs: &Refs, name: &str, parent: Option<String>) -> B
         running: false,
         waiting: false,
         conflict: false,
+        in_progress: None,
         wip: 0,
         stashes: 0,
         ahead: 0,
@@ -2516,23 +2520,25 @@ impl Gitnetix {
     async fn decorate(&self, p: &Project, views: &mut [BranchView], wts: &[WorktreeInfo], agents: &[AgentSession]) {
         let checkouts: Vec<Option<&WorktreeInfo>> = views.iter().map(|b| wts.iter().find(|w| w.branch.as_deref() == Some(b.name.as_str()))).collect();
         let dirs: Vec<Option<String>> = checkouts.iter().map(|w| w.map(|w| w.path.clone())).collect();
-        let state: Vec<(bool, u32)> = stream::iter(dirs)
+        let state: Vec<(Option<&'static str>, bool, u32)> = stream::iter(dirs)
             .map(|dir| async move {
-                let Some(dir) = dir else { return (false, 0) };
+                let Some(dir) = dir else { return (None, false, 0) };
                 let g = Git::new(&dir);
-                let conflict = g.is_rebasing().await.unwrap_or(false) && !g.conflicted_files().await.unwrap_or_default().is_empty();
-                (conflict, g.wip_count().await.unwrap_or(0))
+                let op = g.in_progress().await.ok().flatten();
+                let conflict = op.is_some() && !g.conflicted_files().await.unwrap_or_default().is_empty();
+                (op, conflict, g.wip_count().await.unwrap_or(0))
             })
             .buffered(8)
             .collect()
             .await;
-        for ((b, wt), (conflict, wip)) in views.iter_mut().zip(checkouts).zip(state) {
+        for ((b, wt), (op, conflict, wip)) in views.iter_mut().zip(checkouts).zip(state) {
             b.worktree = wt.filter(|w| !w.main).map(|w| w.path.clone());
             b.checked_out = wt.is_some();
             let has = |st| agents.iter().any(|a| a.branch == b.name && a.project_id == p.id && a.status == st);
             b.running = has(AgentStatus::Running);
             b.waiting = has(AgentStatus::Waiting);
             b.conflict = conflict;
+            b.in_progress = op.map(String::from);
             b.wip = wip;
         }
     }
@@ -3144,11 +3150,17 @@ impl Gitnetix {
         Ok(RebaseResult { conflicts: Vec::new(), force_push_to })
     }
 
-    pub async fn rebase_abort(&self, project_id: &str, branch: &str) -> Result<()> {
+    /// Abort the rebase, merge, cherry-pick or revert `branch`'s checkout is stopped in: the branch goes
+    /// back to where it was before it started, with the uncommitted changes a rebase stashed.
+    pub async fn abort_in_progress(&self, project_id: &str, branch: &str) -> Result<()> {
         let p = self.store.project(project_id)?;
-        self.require_checkout(&p, branch).await?.rebase_abort().await?;
+        let git = self.require_checkout(&p, branch).await?;
+        let Some(op) = git.in_progress().await? else {
+            return Err(Error::Invalid(format!("{branch} is not in the middle of a rebase, merge, cherry-pick or revert")));
+        };
+        let out = git.abort_op(op).await;
         self.changed(project_id);
-        Ok(())
+        out
     }
 
     pub async fn conflict_propose(&self, project_id: &str, branch: &str, path: &str) -> Result<String> {

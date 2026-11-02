@@ -20,7 +20,7 @@ import { useNav } from "../lib/nav";
 import { useStored } from "../lib/stored";
 import { useBranchActions } from "./BranchMenu";
 import { revealBranch } from "./BranchTree";
-import { ConflictModal } from "./ConflictModal";
+import { AbortModal, ConflictModal } from "./ConflictModal";
 import { clearSession, DiscardWorktreeModal, FinishWorktreeCard, MergeModal, mergeTargets, TargetBranchModal, useFinishHandlers } from "./Workspace";
 
 const STATUS: Record<AgentStatus | "idle", [string, string]> = {
@@ -331,6 +331,7 @@ function Detail({ r, menu, onMenuClose }: { r: Row; menu?: { x: number; y: numbe
   const base = view?.parent ?? "";
   const rebase = useAction<RebaseResult>("workspace.rebase", { invalidate: [...commitInv, ["worktrees"]], success: (x) => (x.conflicts.length ? undefined : `Rebased onto ${base}`) });
   const [resolving, setResolving] = useState(false);
+  const [aborting, setAborting] = useState(false);
   // Already on origin: the rewritten commits go up forced (with lease: refused if origin has commits never pulled here).
   const afterRebase = (x: RebaseResult) => (x.conflicts.length ? setResolving(true) : x.forcePushTo && push.mutate({ projectId: r.projectId, branch: r.branch, force: true }));
   const update = async () => {
@@ -369,10 +370,11 @@ function Detail({ r, menu, onMenuClose }: { r: Row; menu?: { x: number; y: numbe
     a && !busy && !isWorktree && { id: "clear", label: "Clear session…", icon: "close", danger: true, run: () => setClearing(true) },
     isWorktree && "sep",
     isWorktree && { id: "continue", label: "Continue on branch", icon: "swap", run: () => finish.continue(session, true) },
-    isWorktree && view?.conflict && { id: "conflicts", label: "Resolve conflicts…", icon: "sparkle", run: () => setResolving(true) },
+    isWorktree && view?.conflict && view.inProgress === "rebase" && { id: "conflicts", label: "Resolve conflicts…", icon: "sparkle", run: () => setResolving(true) },
+    isWorktree && view?.inProgress && { id: "abort", label: `Abort ${view.inProgress}…`, icon: "undo", danger: true, run: () => setAborting(true) },
     isWorktree && view?.exists && r.branch !== ov.data?.defaultBranch && { id: "target", label: "Change target branch…", icon: "merged", run: () => setTargeting(true) },
     // Work branches only: shared ones (releases, dev) catch up by merging. Not under a working agent.
-    isWorktree && !view?.conflict && view?.role === "branch" && !view.protected && !!base && {
+    isWorktree && !view?.inProgress && view?.role === "branch" && !view.protected && !!base && {
       id: "rebase",
       label: <>Rebase onto <span className="mono">{base}</span></>,
       icon: "branch",
@@ -448,6 +450,7 @@ function Detail({ r, menu, onMenuClose }: { r: Row; menu?: { x: number; y: numbe
       )}
       {finish.modal}
       {resolving && <ConflictModal pid={r.projectId} branch={r.branch} base={base} onClose={() => setResolving(false)} onDone={afterRebase} />}
+      {aborting && <AbortModal pid={r.projectId} branch={r.branch} op={view?.inProgress} base={base} onBack={() => setAborting(false)} onDone={() => setAborting(false)} />}
       {menu && <ContextMenu x={menu.x} y={menu.y} alignRight={menu.alignRight} label={`Actions for ${r.branch}`} items={items} onClose={onMenuClose} />}
     </div>
   );

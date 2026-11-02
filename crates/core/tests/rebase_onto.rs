@@ -117,7 +117,7 @@ async fn a_stopped_rebase_stays_on_its_branch_and_aborts() {
     assert_eq!(ov["rebaseOnto"], "feat/a");
     assert_eq!(ov["branches"].as_array().unwrap().iter().find(|b| b["name"] == "feat/b").unwrap()["checkedOut"], true);
 
-    rpc::call(&k, "workspace.rebaseAbort", json!({ "projectId": pid, "branch": "feat/b" })).await.unwrap();
+    rpc::call(&k, "workspace.abort", json!({ "projectId": pid, "branch": "feat/b" })).await.unwrap();
     assert_eq!(head(&repo), "feat/b");
     assert!(!is_ancestor(&repo, "feat/a", "feat/b"));
     let ov = rpc::call(&k, "workspace.overview", json!({ "projectId": pid })).await.unwrap();

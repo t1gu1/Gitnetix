@@ -50,7 +50,7 @@ import { copyToClipboard, toast } from "../lib/toast";
 import { offersRebase, rebaseMessage, useBranchActions, type BranchDialog, type BranchTarget } from "./BranchMenu";
 import { BranchTree } from "./BranchTree";
 import { CommitList, DeleteTagModal, TagModal } from "./CommitList";
-import { ConflictModal } from "./ConflictModal";
+import { AbortModal, ConflictModal } from "./ConflictModal";
 import { StashList } from "./StashList";
 
 type Mode = "branch" | "wip" | "project";
@@ -236,7 +236,7 @@ export function Workspace() {
   const showPreview = markdown && preview && typeof text === "string";
   // A WIP file's diff stages or unstages some of its lines. Like whole files, that moves no ref (see WipList).
   type LineMove = { projectId: string; branch: string; path: string; lines: LinePick[] };
-  const lineInv = [["files", pid], ["diff", pid], ["blobs", pid], ...(o?.inProgress || view?.conflict ? [["overview", pid]] : [])];
+  const lineInv = [["files", pid], ["diff", pid], ["blobs", pid], ...(o?.inProgress || view?.inProgress ? [["overview", pid]] : [])];
   const stageLines = useAction<unknown, LineMove>("workspace.stageLines", { invalidate: lineInv });
   const unstageLines = useAction<unknown, LineMove>("workspace.unstageLines", { invalidate: lineInv });
   // Discarding a file's last lines takes it out of the WIP count the overview shows.
@@ -319,7 +319,11 @@ export function Workspace() {
     if (stash && o && !o.stashes.some((s) => s.sha === stash.sha)) setStash(undefined);
   }, [o, stash]);
 
-  const inRebase = (branch === o?.currentBranch && o?.rebasing) || !!view?.conflict;
+  /** The rebase, merge, cherry-pick or revert `b`'s checkout is stopped in the middle of. */
+  const opOf = (b: string) => byName.get(b)?.inProgress ?? (b === o?.currentBranch ? o?.inProgress : null) ?? null;
+  const op = branch ? opOf(branch) : null;
+  // The main checkout's conflicts; another checkout's aren't counted.
+  const opConflicts = branch === o?.currentBranch ? (o?.conflicts.length ?? 0) : 0;
   /** Where `b` is being replayed: the checked-out branch's paused rebase may go elsewhere than its target. */
   const rebasingOnto = (b: string) => labelOf(b === o?.currentBranch && o?.rebaseOnto ? o.rebaseOnto : baseFor(b));
 
@@ -566,15 +570,24 @@ export function Workspace() {
                 </button>
               </div>
             )}
-            {inRebase && (
+            {op && branch && (
               <div className="col note-box" style={{ margin: "10px 12px 0" }}>
                 <span style={{ fontSize: 12, lineHeight: 1.45 }}>
-                  Rebase onto <span className="mono">{rebasingOnto(branch!)}</span> stopped on {o.conflicts.length || "a"} conflict{o.conflicts.length === 1 ? "" : "s"}.
+                  {op === "rebase" ? <>Rebase onto <span className="mono">{rebasingOnto(branch)}</span></> : op[0].toUpperCase() + op.slice(1)}
+                  {opConflicts ? ` stopped on ${plural(opConflicts, "conflict")}.` : view?.conflict ? " stopped on conflicts." : " is paused."}
                 </span>
-                <button className="btn btn-primary btn-sm" style={{ height: 30 }} onClick={() => branch && setDialog({ kind: "conflicts", branch })}>
-                  <Icon name="sparkle" size={12} />
-                  <span>Resolve with AI</span>
-                </button>
+                <div className="row" style={{ gap: 8 }}>
+                  {op === "rebase" && (
+                    <button className="btn btn-primary btn-sm grow" style={{ height: 30 }} onClick={() => setDialog({ kind: "conflicts", branch })}>
+                      <Icon name="sparkle" size={12} />
+                      <span>Resolve with AI</span>
+                    </button>
+                  )}
+                  <button className="btn btn-danger btn-sm" style={{ height: 30 }} data-tip={`Put ${branch} back to where it was before the ${op}`} onClick={() => setDialog({ kind: "abort", branch })}>
+                    <Icon name="undo" size={12} />
+                    <span>Abort {op}</span>
+                  </button>
+                </div>
               </div>
             )}
             <ul className="scroll" style={{ flex: "1 1 auto", listStyle: "none", margin: 0, padding: mode === "wip" && list.length > 0 ? "0 0 6px" : "6px 0" }}>
@@ -584,7 +597,7 @@ export function Workspace() {
                 <WipList
                   pid={pid}
                   branch={branch}
-                  midOp={!!o.inProgress || !!view?.conflict}
+                  midOp={!!o.inProgress || !!op}
                   list={list}
                   current={current}
                   tree={asTree}
@@ -628,6 +641,9 @@ export function Workspace() {
       {shipping && <ShipModal pid={pid} release={shipping} defaultBranch={o?.defaultBranch ?? "main"} onClose={() => setShipping(null)} />}
       {actions.menuEl}
       {dialog?.kind === "conflicts" && <ConflictModal pid={pid} branch={dialog.branch} base={rebasingOnto(dialog.branch)} onClose={() => setDialog(null)} />}
+      {dialog?.kind === "abort" && (
+        <AbortModal key={dialog.branch} pid={pid} branch={dialog.branch} op={opOf(dialog.branch)} base={rebasingOnto(dialog.branch)} onBack={() => setDialog(null)} onDone={() => setDialog(null)} />
+      )}
       {dialog?.kind === "merge" && dialogView && (
         <MergeModal
           pid={pid}

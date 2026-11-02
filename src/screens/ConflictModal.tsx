@@ -1,10 +1,31 @@
 import { useState } from "react";
 
 import { useAction, useFiles } from "../api/hooks";
-import type { RebaseResult } from "../api/types";
+import type { InProgress, RebaseResult } from "../api/types";
 import { Icon } from "../components/Icon";
 import { Busy, Confirm, Modal } from "../components/ui";
 import { rebaseMessage } from "./BranchMenu";
+
+/** Confirms aborting the rebase, merge, cherry-pick or revert `branch`'s checkout is stopped in. `base`: where a rebase goes. */
+export function AbortModal({ pid, branch, op: opened, base, onBack, onDone }: { pid: string; branch: string; op?: InProgress | null; base?: string; onBack: () => void; onDone: () => void }) {
+  // The one it opened on: once aborted, the refreshed overview has none left before this closes.
+  const [op] = useState(opened);
+  const abort = useAction("workspace.abort", { invalidate: [["overview", pid], ["files", pid], ["diff", pid], ["commits", pid]], success: `Aborted the ${op} of ${branch}` });
+  if (!op) return null;
+  return (
+    <Confirm
+      title={`Abort ${op}`}
+      sub={op === "rebase" && base ? <>Rebasing <span className="mono">{branch}</span> onto <span className="mono">{base}</span></> : <span className="mono">{branch}</span>}
+      action={`Abort ${op}`}
+      busy={abort.isPending}
+      onBack={onBack}
+      onConfirm={() => abort.mutate({ projectId: pid, branch }, { onSuccess: onDone })}
+    >
+      <span className="mono">{branch}</span> goes back to where it was before the {op}
+      {op === "rebase" && ", with the uncommitted changes it had then"}. Every conflict resolved so far is lost.
+    </Confirm>
+  );
+}
 
 export function ConflictModal({ pid, branch, base, onClose, onDone }: { pid: string; branch: string; base: string; onClose: () => void; onDone?: (r: RebaseResult) => void }) {
   const files = useFiles(pid, branch, "wip");
@@ -20,22 +41,9 @@ export function ConflictModal({ pid, branch, base, onClose, onDone }: { pid: str
     invalidate: inv,
     success: (r) => (r.conflicts.length ? `Next commit has ${r.conflicts.length} conflict(s)` : rebaseMessage(r)),
   });
-  const abort = useAction("workspace.rebaseAbort", { invalidate: inv, success: "Rebase aborted" });
 
   // Replaces this modal rather than stacking on it: one Escape would close both. Back keeps the AI proposals.
-  if (aborting)
-    return (
-      <Confirm
-        title="Abort rebase"
-        sub={<>Rebasing <span className="mono">{branch}</span> onto <span className="mono">{base}</span></>}
-        action="Abort rebase"
-        busy={abort.isPending}
-        onBack={() => setAborting(false)}
-        onConfirm={() => abort.mutate({ projectId: pid, branch }, { onSuccess: onClose })}
-      >
-        <span className="mono">{branch}</span> goes back to where it was before the rebase. Every conflict resolved so far is lost.
-      </Confirm>
-    );
+  if (aborting) return <AbortModal pid={pid} branch={branch} op="rebase" base={base} onBack={() => setAborting(false)} onDone={onClose} />;
   return (
     <Modal
       title="Resolve conflicts"

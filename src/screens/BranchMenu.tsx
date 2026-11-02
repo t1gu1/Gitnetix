@@ -10,7 +10,7 @@ import { useNav } from "../lib/nav";
 import { call, runTask, wtKey } from "../lib/tasks";
 import { copyToClipboard, toast } from "../lib/toast";
 
-export type BranchDialog = "merge" | "delete" | "rename" | "continue" | "conflicts" | "reset" | "forcePush" | "tag" | "target" | "rebase" | "rebaseOnto" | "abortSwitch" | "switchWip" | "pullWip";
+export type BranchDialog = "merge" | "delete" | "rename" | "continue" | "conflicts" | "reset" | "forcePush" | "tag" | "target" | "rebase" | "rebaseOnto" | "abortSwitch" | "abort" | "switchWip" | "pullWip";
 
 export interface BranchTarget {
   view: BranchView;
@@ -325,6 +325,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
         run: () => openDialog("merge", b),
       },
       conflicts: { id: "conflicts", label: "Resolve conflicts…", short: "Resolve", tip: `Resolve conflicts with ${parent}`, icon: "sparkle", run: () => openDialog("conflicts", b) },
+      abort: { id: "abort", label: `Abort ${v.inProgress ?? "operation"}…`, icon: "undo", danger: true, run: () => openDialog("abort", b) },
       pr: {
         id: "pr",
         label: <>Open pull request into <span className="mono">{parent}</span></>,
@@ -407,7 +408,9 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
     const v = t.view;
     if (!v.exists) return [a.delete];
     const list: MenuItem[] = t.extra?.length ? [...t.extra, "sep"] : [];
-    if (v.conflict) list.push(a.conflicts, "sep");
+    // The conflict dialog carries a rebase on; other operations are finished from the WIP files.
+    if (v.conflict && v.inProgress === "rebase") list.push(a.conflicts);
+    if (v.inProgress) list.push(a.abort, "sep");
     if (v.renamedTo) list.push(a.follow, "sep");
     if (!v.checkedOut) list.push(a.switch, a.worktree);
     else if (v.worktree) list.push(a.continue);
@@ -467,7 +470,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
     const a = all(t);
     const v = t.view;
     if (!v.exists) return a.delete;
-    if (v.conflict) return a.conflicts;
+    if (v.conflict && v.inProgress === "rebase") return a.conflicts;
     if (!v.local) return a.switch;
     if (v.renamedTo) return a.follow;
     // A rebased work branch: pulling would bring the old commits back, so suggest replacing origin's copy.

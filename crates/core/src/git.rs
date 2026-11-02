@@ -1440,10 +1440,6 @@ impl Git {
         self.continue_op("rebase").await
     }
 
-    pub async fn rebase_abort(&self) -> Result<()> {
-        self.abort_op("rebase").await
-    }
-
     /// `git <op> --continue` once its conflicts are staged (rebase, merge, cherry-pick, revert),
     /// keeping the prepared message. Returns false when it stopped on conflicts again (a rebase's next commit).
     pub async fn continue_op(&self, op: &str) -> Result<bool> {

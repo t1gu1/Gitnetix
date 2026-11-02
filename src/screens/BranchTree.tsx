@@ -861,7 +861,12 @@ function BranchMeta({
   const grew = useGrowth(parent ? b.ahead : Date.parse(b.date) || 0, merging);
   const growCls = grew > 0 ? " meta-link-grow" : "";
   const wip = b.wip > 0 && <span className="wip-badge" title={`${plural(b.wip, "file")} with uncommitted changes`}>WIP {b.wip}</span>;
-  const conflict = b.conflict && <span className="c-del">conflict</span>;
+  // Stopped in the middle of an operation: with conflicts left, else paused (e.g. all resolved, not finished yet).
+  const conflict = b.conflict ? (
+    <span className="c-del" title={`Its ${b.inProgress ?? "operation"} stopped on conflicts`}>conflict</span>
+  ) : b.inProgress ? (
+    <span className="c-warn" title={`Stopped in the middle of a ${b.inProgress}: finish or abort it`}>mid-{b.inProgress}</span>
+  ) : null;
   const nav = useNav();
   // Off a worktree, the agent works in the main checkout.
   const agent = useAgents((l) => l.find((a) => (b.worktree ? a.cwd === b.worktree : a.projectId === nav.projectId && a.branch === b.name))).data;

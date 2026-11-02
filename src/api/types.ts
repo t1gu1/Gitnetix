@@ -138,6 +138,9 @@ export interface RecentProject {
   profile: string;
 }
 
+/** What a checkout can be stopped in the middle of. */
+export type InProgress = "rebase" | "merge" | "cherry-pick" | "revert";
+
 export interface BranchView {
   name: string;
   kind: string;
@@ -147,7 +150,10 @@ export interface BranchView {
   running: boolean;
   /** An agent on it stopped and waits for the user. */
   waiting: boolean;
+  /** Its checkout is stopped in a rebase, merge, cherry-pick or revert with conflicts left. */
   conflict: boolean;
+  /** The rebase, merge, cherry-pick or revert its checkout is stopped in the middle of. */
+  inProgress?: InProgress | null;
   /** Files with uncommitted changes in its checkout (0 when not checked out). */
   wip: number;
   /** Stashes made on it. */
@@ -276,7 +282,7 @@ export interface Overview {
   /** Branch the main checkout's paused rebase replays onto (the commit when no branch is there). */
   rebaseOnto?: string | null;
   /** The rebase, merge, cherry-pick or revert the main checkout is stopped in the middle of. */
-  inProgress?: "rebase" | "merge" | "cherry-pick" | "revert" | null;
+  inProgress?: InProgress | null;
   conflicts: string[];
   remote?: string | null;
   /** Every stash, newest first (shared by all worktrees). */

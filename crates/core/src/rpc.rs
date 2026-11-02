@@ -60,7 +60,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("workspace.push", "Push a branch to origin; force = replace its upstream after a rebase (--force-with-lease --force-if-includes)", "projectId, branch, force?"),
     ("workspace.rebase", "Rebase a branch onto onto (a local or origin-only branch), else onto its release; its target stays; returns conflicts, and forcePushTo when it was already pushed", "projectId, branch, onto?"),
     ("workspace.rebaseContinue", "Continue a paused rebase", "projectId, branch"),
-    ("workspace.rebaseAbort", "Abort a paused rebase", "projectId, branch"),
+    ("workspace.abort", "Abort the rebase, merge, cherry-pick or revert a branch's checkout is stopped in: back to where it was before it started", "projectId, branch"),
     ("workspace.conflictPropose", "AI proposal for a conflicted file", "projectId, branch, path"),
     ("workspace.conflictApply", "Write and stage a resolved file", "projectId, branch, path, content"),
     ("releases.create", "Cut a release branch", "projectId, version, kind: next|hotfix, from?"),
@@ -617,8 +617,8 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
         "workspace.push" => to(json!({ "output": k.push(&s(&p, "projectId")?, &s(&p, "branch")?, b(&p, "force")).await? })),
         "workspace.rebase" => to(k.rebase(&s(&p, "projectId")?, &s(&p, "branch")?, os(&p, "onto").as_deref()).await?),
         "workspace.rebaseContinue" => to(k.rebase_continue(&s(&p, "projectId")?, &s(&p, "branch")?).await?),
-        "workspace.rebaseAbort" => {
-            k.rebase_abort(&s(&p, "projectId")?, &s(&p, "branch")?).await?;
+        "workspace.abort" => {
+            k.abort_in_progress(&s(&p, "projectId")?, &s(&p, "branch")?).await?;
             ok()
         }
         "workspace.conflictPropose" => to(json!({ "content": k.conflict_propose(&s(&p, "projectId")?, &s(&p, "branch")?, &s(&p, "path")?).await? })),

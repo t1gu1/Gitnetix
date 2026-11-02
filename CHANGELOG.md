@@ -11,6 +11,10 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+### Added
+- A branch stopped in the middle of a rebase, merge, cherry-pick or revert can be aborted from the banner above its files, its "⋯" menu, or its worktree's menu in Worktrees & agents. After a confirmation, the branch goes back to where it was before the operation started.
+- The branch list marks a stopped merge, cherry-pick or revert too: "conflict" while conflicts are left, else "mid-merge", "mid-rebase"…
+
 ## [0.17.1] - 2026-11-02
 
 ### Added
