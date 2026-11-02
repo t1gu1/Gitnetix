@@ -4,38 +4,14 @@ import { useConfig } from "../api/hooks";
 import { isLocal, rpc } from "../api/transport";
 import { base64 } from "../components/AgentLog";
 import { Icon } from "../components/Icon";
+import { comboOf, showKeys, useKeys } from "./keys";
 import { animates } from "./motion";
 import { useNav } from "./nav";
-import { useStored } from "./stored";
 import { toast } from "./toast";
 
 // Voice dictation into any text box: the shortcut (or the mic on phones) records here,
 // the desktop turns the recording into text with its local speech model, the words land at the box's caret at once,
 // and AI's rewrite with the project's context takes their place when that is on.
-
-const MAC = /Mac|iPhone|iPad/.test(navigator.userAgent);
-const MODS = ["Ctrl", "Alt", "Shift", "Meta"] as const;
-/** Modifiers always in this order, so a saved shortcut and a key press compare as strings. */
-const combo = (on: boolean[], code: string) => [...MODS.filter((_, i) => on[i]), code].join("+");
-
-export const DEFAULT_KEYS = combo([!MAC, false, false, MAC], "KeyD");
-/** Empty when never changed or reset, so each computer keeps its own default (⌘ on macOS, Ctrl elsewhere). */
-export const useDictationKeys = () => useStored("gnx.dictation.keys", DEFAULT_KEYS, (s) => s || DEFAULT_KEYS, String);
-
-/** The pressed keys as a shortcut ("Ctrl+Shift+KeyM"), or null when they can't be one: it needs Ctrl, Alt or ⌘ plus a key that isn't a modifier. */
-export function comboOf(e: KeyboardEvent) {
-  if (!(e.ctrlKey || e.altKey || e.metaKey) || !e.code || /^(Control|Alt|Shift|Meta|OS)/.test(e.code)) return null;
-  return combo([e.ctrlKey, e.altKey, e.shiftKey, e.metaKey], e.code);
-}
-
-// shortcut: keys are physical positions (e.code), so on AZERTY and other layouts the letter shown is the QWERTY one; map through navigator.keyboard.getLayoutMap() if that bothers anyone.
-/** How a shortcut reads on this computer: ⌘D on macOS, Ctrl+D elsewhere. */
-export function showKeys(keys: string) {
-  const parts = keys.split("+");
-  const key = parts.pop()!.replace(/^(Key|Digit)/, "");
-  if (MAC) return parts.map((m) => ({ Ctrl: "⌃", Alt: "⌥", Shift: "⇧", Meta: "⌘" })[m]).join("") + key;
-  return [...parts.map((m) => (m === "Meta" ? "Super" : m)), key].join("+");
-}
 
 type Field = HTMLInputElement | HTMLTextAreaElement;
 // The terminal's hidden textarea is left out: what it gets goes to the shell, not into a box.
@@ -267,7 +243,7 @@ const fromMiddle = (i: number) => Math.floor(Math.abs(i - (BARS - 1) / 2));
 /** The shortcut, anywhere in the app, and the centered card with the live wave while dictating. */
 export function Dictation() {
   const p = useSyncExternalStore(subscribe, () => phase);
-  const [keys] = useDictationKeys();
+  const keys = useKeys().dictation;
   const nav = useNav();
   const polish = useConfig().data?.ui.dictationPolish;
   useEffect(() => {
@@ -404,7 +380,7 @@ const floating = (f: Field | null) => (f && !own.has(f) ? f : null);
 /** `field`'s mic in the box's own layout, shown at all times, with the shortcut in its tooltip. */
 export function OwnMic({ field, disabled }: { field: RefObject<Field | null>; disabled?: boolean }) {
   const p = useSyncExternalStore(subscribe, () => phase);
-  const [keys] = useDictationKeys();
+  const keys = useKeys().dictation;
   const [f, setF] = useState<Field | null>(null);
   useEffect(() => {
     const el = field.current!;

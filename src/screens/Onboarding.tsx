@@ -5,7 +5,7 @@ import type { AiCatalog, UserProfile } from "../api/types";
 import { Logo } from "../components/Logo";
 import { useProfileForm, useProfiles } from "../components/Profiles";
 import { Loading } from "../components/ui";
-import { useDictationKeys } from "../lib/dictation";
+import { useKeys } from "../lib/keys";
 import { useNav } from "../lib/nav";
 import { useStored } from "../lib/stored";
 import { DictationKeys, GitHosts, JiraConnections, PhoneCard, ThemeChoices } from "./Settings";
@@ -203,7 +203,7 @@ function GitHostStep(s: Steps) {
 
 function ExtrasStep(s: Steps) {
   const cfg = useConfig().data!;
-  const [keys] = useDictationKeys();
+  const keys = useKeys().dictation;
   const [start] = useState({ keys, lan: cfg.server.lan });
   return (
     <>

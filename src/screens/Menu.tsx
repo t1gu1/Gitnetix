@@ -10,7 +10,7 @@ import { DeleteProfile, ProfileAvatar, ProfileDialog, useProfiles } from "../com
 import { plural } from "../lib/format";
 import { useTermDefault } from "../components/Shell";
 import { Confirm, LANGS, Seg } from "../components/ui";
-import { showKeys, useDictationKeys } from "../lib/dictation";
+import { DEFAULTS, SHORTCUTS, showKeys, useKeys } from "../lib/keys";
 import { animates, useAnimations } from "../lib/motion";
 import { useNav } from "../lib/nav";
 import { useStoredFlag } from "../lib/stored";
@@ -354,7 +354,8 @@ function ProjectSettings({ project: p }: { project: Project }) {
 function AppSettings({ cfg, open, onUnpair }: { cfg?: Config; open: (id: string) => void; onUnpair: () => void }) {
   const nav = useNav();
   const setUi = useAction("ui.set", { invalidate: [["config"]] });
-  const [keys] = useDictationKeys();
+  const keys = useKeys();
+  const changedKeys = SHORTCUTS.filter((s) => keys[s.id] !== DEFAULTS[s.id]).length;
   const { off } = useAnimations();
   const [gravatar] = useStoredFlag(GRAVATAR_KEY);
   const [term] = useTermDefault();
@@ -367,7 +368,8 @@ function AppSettings({ cfg, open, onUnpair }: { cfg?: Config; open: (id: string)
     avatars: gravatar ? "Gravatar" : "Initials",
     terminal: term === "shell" ? "Opens on Shell" : "Opens on Agent",
     worktrees: cfg && (cfg.worktreeFiles.length ? `${count(cfg.worktreeFiles.length, "file")} copied` : "No files copied"),
-    dictation: <span className="mono">{showKeys(keys)}</span>,
+    dictation: <span className="mono">{showKeys(keys.dictation)}</span>,
+    shortcuts: changedKeys ? `${changedKeys} changed` : "Defaults",
     ai: "Providers, models and task routing",
     templates: "Prompts for commits, PRs and release notes",
     git: i && ([i.githubConnected && "GitHub", i.azureConnected && "Azure DevOps"].filter(Boolean).join(" · ") || "Not connected"),

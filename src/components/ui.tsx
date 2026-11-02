@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 import { link } from "./Adf";
 import { Icon } from "./Icon";
 import { isPageRoute } from "./TopBar";
+import { comboOf, useKeys } from "../lib/keys";
 import { useNav } from "../lib/nav";
 
 export function Seg<T extends string>({
@@ -213,18 +214,15 @@ export function ErrorBox({ error }: { error: unknown }) {
   return <div className="err-box">{msg}</div>;
 }
 
-const MAC = /Mac|iPhone|iPad/.test(navigator.userAgent);
-/** The find shortcut, as shown in tooltips. */
-export const FIND_KEY = MAC ? "⌘F" : "Ctrl+F";
-
-/** Calls `open` on Ctrl+F (Cmd+F on macOS), outside a terminal (its Ctrl+F is the shell's) and with no dialog or menu up.
+/** Calls `open` on the find shortcut (Ctrl+F, Cmd+F on macOS), outside a terminal (its Ctrl+F is the shell's) and with no dialog or menu up.
  * A `capture` one runs first and keeps the key to itself: the diff's find wins over the branches'. */
 export function useFindKey(open: () => void, capture = false) {
   const run = useRef(open);
   run.current = open;
+  const keys = useKeys().find;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key.toLowerCase() !== "f" || e.shiftKey || e.altKey || !(MAC ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey)) return;
+      if (comboOf(e) !== keys) return;
       if ((e.target as HTMLElement).closest?.(".xterm") || document.querySelector("[role=dialog], [role=menu]")) return;
       e.preventDefault();
       e.stopImmediatePropagation();
@@ -232,7 +230,7 @@ export function useFindKey(open: () => void, capture = false) {
     };
     window.addEventListener("keydown", onKey, capture);
     return () => window.removeEventListener("keydown", onKey, capture);
-  }, [capture]);
+  }, [capture, keys]);
 }
 
 /** A find bar: the text, which match of how many, previous / next and close. Enter steps forward, Shift+Enter back; Escape

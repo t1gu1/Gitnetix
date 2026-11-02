@@ -6,12 +6,13 @@ import { ContextMenu, type MenuItem } from "./components/ContextMenu";
 import { Icon } from "./components/Icon";
 import { ProfileSplash } from "./components/Profiles";
 import { TooltipLayer } from "./components/Tooltip";
-import { isPageRoute, PAGES, TopBar } from "./components/TopBar";
+import { isPageRoute, TopBar } from "./components/TopBar";
 import { UpdatePrompt } from "./components/UpdatePrompt";
 import { Loading, useThumb } from "./components/ui";
 import { Dictation } from "./lib/dictation";
+import { useAppKeys } from "./lib/keys";
 import { useApplyAnimations, usePauseWhenIdle } from "./lib/motion";
-import { NavProvider, ProjectView, useNav, useVisited, WORKTREES, type Route } from "./lib/nav";
+import { NavProvider, PAGES, ProjectView, useNav, useVisited, WORKTREES, type Route } from "./lib/nav";
 import { Toasts } from "./lib/toast";
 import { useZoomKeys } from "./lib/zoom";
 import { Analytics } from "./screens/Analytics";
@@ -65,6 +66,7 @@ const MORE_PAGES = PAGES.filter((p) => !MOBILE_TABS.some((t) => t.route.name ===
 function Shell({ onUnpair }: { onUnpair: () => void }) {
   const nav = useNav();
   const r = nav.route;
+  useAppKeys();
   const projects = useProjects().data;
   // Every project opened this session keeps its screens mounted (hidden while another is open),
   // so coming back to it finds the same page, dialog, scroll and filters.

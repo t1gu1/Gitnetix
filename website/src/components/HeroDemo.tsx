@@ -101,7 +101,7 @@ const LOG: Record<string, Commit[]> = {
 const logOf = (b: Branch) => [...(b.log ?? []), ...(LOG[b.name] ?? [])].slice(0, b.base ? b.ahead : undefined);
 const PROJECT = ['package.json', 'src/App.tsx', 'src/screens/BranchTree.tsx', 'src/screens/Workspace.tsx', 'src/styles/app.css'];
 
-/** Same pages as PAGES in src/components/TopBar.tsx. */
+/** Same pages as PAGES in src/lib/nav.tsx. */
 const PAGES: { id: string; label: string; icon: string; Page?: ComponentType }[] = [
   { id: 'workspace', label: 'Workspace', icon: 'home' },
   { id: 'prs', label: 'Pull requests', icon: 'pr', Page: PullRequests },

@@ -8,8 +8,9 @@ import { AuthorFilter, authorsOf } from "../components/AuthorFilter";
 import { Avatar } from "../components/Avatar";
 import { ContextMenu, type MenuItem } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
-import { Empty, FIND_KEY, FindBar, releaseTagLabel, useFindKey } from "../components/ui";
+import { Empty, FindBar, releaseTagLabel, useFindKey } from "../components/ui";
 import { plural, stashCount } from "../lib/format";
+import { showKeys, useKeys } from "../lib/keys";
 import { useNav } from "../lib/nav";
 import { BranchSplit, type BranchActions, type BranchTarget } from "./BranchMenu";
 
@@ -166,6 +167,7 @@ export function BranchTree({
     findInput.current?.select();
   };
   useFindKey(openFind);
+  const findKeys = showKeys(useKeys().find);
   // Everyone who authored a branch tip; the ones picked are shown, none picked = all.
   const authors = useMemo(() => authorsOf(o.branches), [o.branches]);
   const [who, setWho] = useState<string[]>([]);
@@ -538,7 +540,7 @@ export function BranchTree({
         </span>
         <span className="acts">
           <AuthorFilter className="act act-text" authors={authors} who={who} onChange={setWho} tip="Show only the branches of these authors" />
-          <button className="act act-main" aria-label="Search branches" data-tip={`Search branches (${FIND_KEY})`} onClick={openFind}>
+          <button className="act act-main" aria-label="Search branches" data-tip={`Search branches (${findKeys})`} onClick={openFind}>
             <Icon name="search" size={15} />
           </button>
           {o.stashes.length > 0 && (

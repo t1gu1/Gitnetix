@@ -156,6 +156,16 @@ export const useConfig = () => useQuery({ queryKey: ["config"], queryFn: () => r
 export const useLog = () => useQuery({ queryKey: ["log"], queryFn: () => rpc<LogEntry[]>("log.get"), staleTime: Infinity });
 export const useProjects = () => useQuery({ queryKey: ["projects"], queryFn: () => rpc<ProjectSummary[]>("projects.list") });
 
+/** Saves the project tabs' order (every project's id, hidden ones too), shown at once. */
+export function useReorderProjects() {
+  const qc = useQueryClient();
+  const reorder = useAction("projects.reorder", { invalidate: [["projects"], ["config"]] });
+  return (ids: string[]) => {
+    qc.setQueryData<ProjectSummary[]>(["projects"], (old) => old && ids.map((id) => old.find((p) => p.id === id)!).filter(Boolean));
+    reorder.mutate({ ids }, { onError: () => qc.invalidateQueries({ queryKey: ["projects"] }) });
+  };
+}
+
 /**
  * The overview right after switching to `branch`, or to `tag` (detached HEAD, `branch` null): it is the
  * checked-out one now and the uncommitted work came along. Counts and the rest wait for the engine's full answer, which can take a while on a big repository.

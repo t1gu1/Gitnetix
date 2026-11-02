@@ -10,7 +10,7 @@ import { GRAVATAR_KEY } from "../components/Avatar";
 import { Icon } from "../components/Icon";
 import { useTermDefault } from "../components/Shell";
 import { Confirm, Seg } from "../components/ui";
-import { comboOf, DEFAULT_KEYS, showKeys, useDictationKeys } from "../lib/dictation";
+import { BUILT_IN, comboOf, DEFAULTS, keyCaps, SHORTCUTS, showKeys, usedBy, useKeys, useSetKeys } from "../lib/keys";
 import { ANIMATIONS, useAnimations } from "../lib/motion";
 import { useNav } from "../lib/nav";
 import { useStoredFlag } from "../lib/stored";
@@ -21,7 +21,7 @@ const JIRA_TOKENS = "https://id.atlassian.com/manage-profile/security/api-tokens
 
 /** App settings by group: id, label, icon, listed as rows in the menu. Project settings are in the menu too, beside them. */
 export const GROUPS: [string, [string, string, string][]][] = [
-  ["General", [["appearance", "Appearance", "brush"], ["animations", "Animations", "play"], ["avatars", "Avatars", "smile"], ["terminal", "Terminal", "terminal"], ["worktrees", "Worktrees", "layers"], ["dictation", "Voice dictation", "mic"]]],
+  ["General", [["appearance", "Appearance", "brush"], ["animations", "Animations", "play"], ["avatars", "Avatars", "smile"], ["terminal", "Terminal", "terminal"], ["worktrees", "Worktrees", "layers"], ["dictation", "Voice dictation", "mic"], ["shortcuts", "Shortcuts", "keyboard"]]],
   ["AI", [["ai", "AI setup", "sparkle"], ["templates", "Templates", "edit"]]],
   ["Git", [["git", "Git providers", "pr"]]],
   ["Integrations", [["tools", "Jira, Trello, Asana", "ticket"], ["companion", "Companion & MCP", "phone"]]],
@@ -37,6 +37,7 @@ export function SettingsSection({ id, cfg }: { id: string; cfg: Config }) {
       {id === "terminal" && <TerminalSection />}
       {id === "worktrees" && <WorktreesSection cfg={cfg} />}
       {id === "dictation" && <DictationSection />}
+      {id === "shortcuts" && <ShortcutsSection />}
       {id === "git" && <GitProviders cfg={cfg} />}
       {id === "tools" && <Integrations cfg={cfg} />}
       {id === "companion" && <Companion cfg={cfg} />}
@@ -197,47 +198,131 @@ function DictationSection() {
 
 /** The dictation shortcut as a list row: click it, then press the new keys. Also in the first-run setup. */
 export function DictationKeys() {
-  const [keys, setKeys] = useDictationKeys();
-  const [picking, setPicking] = useState(false);
   return (
-    <li className="list-row" style={{ gap: 12 }}>
+    <li className="list-row">
       <span className="col grow" style={{ gap: 2 }}>
         <span style={{ fontWeight: 500 }}>Shortcut</span>
         <span className="hint">Click it, then press the new keys. They need Ctrl, Alt or ⌘. Esc keeps the current one.</span>
       </span>
+      <KeysButton id="dictation" />
+    </li>
+  );
+}
+
+/** A shortcut as key caps. */
+function Keys({ keys }: { keys: string }) {
+  return (
+    <span className="keys">
+      {keyCaps(keys).map((k, i) => (
+        <kbd key={i} className={/^\W$/.test(k) ? "keys-sym" : undefined}>
+          {k}
+        </kbd>
+      ))}
+    </span>
+  );
+}
+
+/** Shortcut `id`'s keys: click them, then press the new ones. Keys another shortcut has are refused, and Reset shows once changed. */
+function KeysButton({ id }: { id: string }) {
+  const keys = useKeys();
+  const setKeys = useSetKeys();
+  const [picking, setPicking] = useState(false);
+  // What has the keys just pressed, while it keeps listening for others.
+  const [taken, setTaken] = useState("");
+  const label = SHORTCUTS.find((s) => s.id === id)?.label;
+  const btn = useRef<HTMLButtonElement>(null);
+  // Focused by hand: WebKit doesn't focus clicked buttons, and the keys must come here.
+  const listen = (why = "") => {
+    btn.current?.focus();
+    setPicking(true);
+    setTaken(why);
+  };
+  const stop = () => {
+    setPicking(false);
+    setTaken("");
+  };
+  // Another shortcut may have taken the default since: then Reset says so and listens for other keys instead.
+  const reset = () => {
+    const by = usedBy(DEFAULTS[id], id, keys);
+    if (by) listen(`${showKeys(DEFAULTS[id])} is ${by}`);
+    else setKeys(id, "");
+  };
+  return (
+    <>
+      {keys[id] !== DEFAULTS[id] && (
+        <button className="btn btn-ghost btn-sm" aria-label={`Reset ${label} to ${showKeys(DEFAULTS[id])}`} onClick={reset}>
+          Reset
+        </button>
+      )}
       <button
+        ref={btn}
         data-keys-input
-        className="btn keys-input mono"
-        aria-label={`Dictation shortcut: ${showKeys(keys)}. Press to change`}
+        className="keys-input"
         aria-pressed={picking}
-        // Focused by hand: WebKit doesn't focus clicked buttons, and the keys must come here.
-        onClick={(e) => {
-          e.currentTarget.focus();
-          setPicking(true);
-        }}
-        onBlur={() => setPicking(false)}
+        aria-label={picking ? taken || `Press the new keys for ${label}` : `${label}: ${showKeys(keys[id])}. Press to change`}
+        onClick={() => listen()}
+        onBlur={stop}
         onKeyDown={(e) => {
           if (!picking) return;
           // Kept here: Esc would also close the menu this can sit in.
           if (e.key === "Escape") {
             e.stopPropagation();
-            return setPicking(false);
+            return stop();
           }
           const combo = comboOf(e.nativeEvent);
           if (!combo) return;
           e.preventDefault();
-          setKeys(combo);
-          setPicking(false);
+          const by = usedBy(combo, id, keys);
+          if (by) return setTaken(`${showKeys(combo)} is ${by}`);
+          setKeys(id, combo);
+          stop();
         }}
       >
-        {picking ? "Press keys…" : showKeys(keys)}
+        {picking ? <span className={taken ? "keys-taken" : "keys-wait"}>{taken || "Press keys…"}</span> : <Keys keys={keys[id]} />}
       </button>
-      {keys !== DEFAULT_KEYS && (
-        <button className="btn btn-ghost btn-sm" onClick={() => setKeys("")}>
-          Reset
-        </button>
-      )}
+    </>
+  );
+}
+
+/** Every shortcut by group, each changed in place, then the keys the app keeps as they are. */
+function ShortcutsSection() {
+  const keys = useKeys();
+  const setKeys = useSetKeys();
+  const changed = SHORTCUTS.filter((s) => keys[s.id] !== DEFAULTS[s.id]);
+  // Zoom is the desktop app's: a browser has its own.
+  const groups = [...new Set(SHORTCUTS.map((s) => s.group))].filter((g) => isLocal || g !== "Window");
+  const row = (key: string, label: string, hint: string | undefined, keysEl: ReactNode) => (
+    <li key={key} className="list-row">
+      <span className="col grow" style={{ gap: 2 }}>
+        <span>{label}</span>
+        {hint && <span className="hint">{hint}</span>}
+      </span>
+      {keysEl}
     </li>
+  );
+  return (
+    <>
+      <div className="anim-head">
+        <div className="col page-intro" style={{ gap: 6 }}>
+          <h1>Keyboard shortcuts</h1>
+          <p className="muted" style={{ margin: 0 }}>For every project. Click a shortcut, then press the new keys: they need Ctrl, Alt or ⌘. Esc keeps the one it has.</p>
+          <p className="hint" style={{ margin: 0 }}>In a terminal, Ctrl or Alt with a letter stays the shell's, like Ctrl+W to delete a word: add Shift to use such a shortcut from there. In a text box, the arrows move the caret.</p>
+        </div>
+        <button className="btn" style={{ margin: "0 0 0 auto" }} disabled={!changed.length} onClick={() => changed.forEach((s) => setKeys(s.id, ""))}>
+          Reset all
+        </button>
+      </div>
+      {groups.map((g) => (
+        <section key={g} className="section">
+          <h2>{g}</h2>
+          <ul className="list keys-list">{SHORTCUTS.filter((s) => s.group === g).map((s) => row(s.id, s.label, s.hint, <KeysButton id={s.id} />))}</ul>
+        </section>
+      ))}
+      <section className="section">
+        <h2>Built in</h2>
+        <ul className="list keys-list">{BUILT_IN.map((b) => row(b.label, b.label, b.hint, <Keys keys={b.keys} />))}</ul>
+      </section>
+    </>
   );
 }
 

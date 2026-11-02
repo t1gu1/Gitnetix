@@ -6,6 +6,7 @@ import { useAction, useConfig } from "../api/hooks";
 import { rpc } from "../api/transport";
 import type { GitProfile, ProjectSummary, UserProfile } from "../api/types";
 import { plural } from "../lib/format";
+import { showKeys, useKeys } from "../lib/keys";
 import { useNav } from "../lib/nav";
 import { otherMode, resolveTheme } from "../lib/themes";
 import { toast } from "../lib/toast";
@@ -105,6 +106,7 @@ export function useProfiles() {
 /** The active profile's avatar at the right end of the top bar. Its menu switches profiles, makes new ones and opens the settings. */
 export function ProfileButton() {
   const nav = useNav();
+  const keys = useKeys();
   const cfg = useConfig().data;
   const { list, active, switchTo } = useProfiles();
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
@@ -142,7 +144,7 @@ export function ProfileButton() {
     ),
     { id: "new", label: "New profile…", icon: "plus", run: () => setCreating(true) },
     "sep",
-    { id: "settings", label: "Settings", icon: "gear", run: () => nav.go({ name: "menu" }) },
+    { id: "settings", label: "Settings", icon: "gear", hint: showKeys(keys.settings), run: () => nav.go({ name: "menu" }) },
     { id: "theme", label: dark ? "Light mode" : "Dark mode", icon: dark ? "sun" : "moon", run: () => nav.setThemePref(otherMode(resolveTheme(nav.themePref, nav.theme))) },
   ];
   return (

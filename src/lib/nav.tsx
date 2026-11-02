@@ -18,6 +18,16 @@ export type Route =
   | { name: "submodules" }
   | { name: "pair" };
 
+/** The page tabs of a project, in their order. */
+export const PAGES: { label: string; icon: string; route: Route }[] = [
+  { label: "Workspace", icon: "home", route: { name: "workspace" } },
+  { label: "Pull requests", icon: "pr", route: { name: "prs" } },
+  { label: "Tickets", icon: "ticket", route: { name: "tickets" } },
+  { label: "Release notes", icon: "tag", route: { name: "notes" } },
+  { label: "Submodules", icon: "box", route: { name: "submodules" } },
+  { label: "Analytics", icon: "chart", route: { name: "analytics" } },
+];
+
 /** Screens opened from a link, with no tab bar of their own: leaving them goes back to where the user came from. */
 const DETOURS = new Set<Route["name"]>(["pair"]);
 

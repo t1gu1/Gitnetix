@@ -1,9 +1,17 @@
 import { useEffect, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 
 import { useConfig } from "../api/hooks";
 import { rpc } from "../api/transport";
 import type { Config } from "../api/types";
+
+/** Saves view value `key` (see useStored), seen at once by every screen reading it. */
+export function saveView(qc: QueryClient, key: string, s: string) {
+  qc.setQueryData<Config>(["config"], (c) => c && { ...c, ui: { ...c.ui, view: { ...c.ui.view, [key]: s } } });
+  rpc("ui.setView", { key, value: s }).catch(() => {
+    /* view state only: the screen still works, it just won't be restored */
+  });
+}
 
 /**
  * How a screen was left (pane width, collapsed section…), kept in the app's
@@ -27,12 +35,7 @@ export function useStored<T>(key: string, def: T, parse: (s: string) => T = JSON
   };
   const value = pending?.key === key ? pending.value : parsed(saved);
 
-  const save = (s: string) => {
-    qc.setQueryData<Config>(["config"], (c) => c && { ...c, ui: { ...c.ui, view: { ...c.ui.view, [key]: s } } });
-    rpc("ui.setView", { key, value: s }).catch(() => {
-      /* view state only: the screen still works, it just won't be restored */
-    });
-  };
+  const save = (s: string) => saveView(qc, key, s);
 
   // Values from before view state moved into the config: carry them over once.
   useEffect(() => {

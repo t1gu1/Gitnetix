@@ -1,4 +1,3 @@
-import { useQueryClient } from "@tanstack/react-query";
 import {
   useEffect,
   useRef,
@@ -8,22 +7,14 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
-import { useAction, useAgents, useProjects } from "../api/hooks";
+import { useAction, useAgents, useProjects, useReorderProjects } from "../api/hooks";
 import type { ProjectSummary } from "../api/types";
+import { showKeys, useKeys } from "../lib/keys";
 import { animates } from "../lib/motion";
-import { useNav, type Route } from "../lib/nav";
+import { PAGES, useNav, type Route } from "../lib/nav";
 import { Icon } from "./Icon";
 import { ProfileButton } from "./Profiles";
 import { FixedWidth, useThumb } from "./ui";
-
-export const PAGES: { label: string; icon: string; route: Route }[] = [
-  { label: "Workspace", icon: "home", route: { name: "workspace" } },
-  { label: "Pull requests", icon: "pr", route: { name: "prs" } },
-  { label: "Tickets", icon: "ticket", route: { name: "tickets" } },
-  { label: "Release notes", icon: "tag", route: { name: "notes" } },
-  { label: "Submodules", icon: "box", route: { name: "submodules" } },
-  { label: "Analytics", icon: "chart", route: { name: "analytics" } },
-];
 
 /** Worktrees has its own square button next to the menu instead of a page tab. */
 export const isPageRoute = (r: Route) =>
@@ -80,12 +71,10 @@ export function TopBar() {
     invalidate: [["projects"], ["config"]],
   });
   const open = (projects.data ?? []).filter((p) => !p.hidden);
+  const keys = useKeys();
 
   // Tabs are reordered with pointer events: HTML5 drag-and-drop clashes with the webview's folder drop.
-  const qc = useQueryClient();
-  const reorder = useAction("projects.reorder", {
-    invalidate: [["projects"], ["config"]],
-  });
+  const saveOrder = useReorderProjects();
   const [drag, setDrag] = useState<Drag | null>(null);
   const [landed, setLanded] = useState<string>();
   const tabs = useRef(new Map<string, HTMLElement>());
@@ -217,18 +206,7 @@ export function TopBar() {
         ...shown,
         ...(projects.data ?? []).filter((p) => p.hidden),
       ].map((p) => p.id);
-      if (ids.join() !== (projects.data ?? []).map((p) => p.id).join()) {
-        qc.setQueryData<ProjectSummary[]>(
-          ["projects"],
-          (old) =>
-            old &&
-            ids.map((id) => old.find((p) => p.id === id)!).filter(Boolean),
-        );
-        reorder.mutate(
-          { ids },
-          { onError: () => qc.invalidateQueries({ queryKey: ["projects"] }) },
-        );
-      }
+      if (ids.join() !== (projects.data ?? []).map((p) => p.id).join()) saveOrder(ids);
     }
     setDrag(null);
   };
@@ -255,7 +233,7 @@ export function TopBar() {
         <button
           className={`hdr-icon hide-narrow${runningAll > 0 ? " glow-working" : ""}`}
           aria-label="Worktrees & agents"
-          data-tip={runningAll > 0 ? `Worktrees & agents (${runningAll} running)` : "Worktrees & agents"}
+          data-tip={`Worktrees & agents${runningAll > 0 ? `, ${runningAll} running` : ""} (${showKeys(keys.worktrees)})`}
           aria-current={wt ? "page" : undefined}
           onClick={() => nav.go({ name: "worktrees" })}
         >
@@ -287,7 +265,7 @@ export function TopBar() {
               <button
                 className="tab-project-open"
                 aria-pressed={!wt && p.id === nav.projectId}
-                title="Drag to reorder"
+                title={`Drag to reorder, or ${showKeys(keys.moveLeft)} and ${showKeys(keys.moveRight)}`}
                 onPointerDown={(e) => {
                   touch.current = e.pointerType === "touch";
                   if (e.button !== 0) return;
