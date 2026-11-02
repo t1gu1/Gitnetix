@@ -83,19 +83,22 @@ export type Choice = { q: string; qi: number; key: string; n: string; label: str
 /** "2. Postgres", or "A: 2. Postgres" when the agent asked several questions. */
 const choiceText = (c: Choice) => `${c.key ? `${c.key}: ` : ""}${c.n}. ${c.label}`;
 
-/** The agent's options as toggles: one pick per question goes to the prompt box, sent with Send. */
+/** The agent's options as toggles: each pick, several per question if you like, goes to the prompt box, sent with Send. */
 function Choices({ qs, picks, onPicks }: { qs: Question[]; picks: Choice[]; onPicks: (c: Choice[]) => void }) {
   const on = (qi: number, n: string) => picks.some((p) => p.qi === qi && p.n === n);
   const toggle = (qi: number, o: Opt) => {
-    const rest = picks.filter((p) => p.qi !== qi);
     const key = qs.length > 1 ? qs[qi].id || `Q${qi + 1}` : "";
-    onPicks(on(qi, o.n) ? rest : [...rest, { q: qs[qi].text, qi, key, n: o.n, label: o.label }].sort((a, b) => a.qi - b.qi));
+    onPicks(
+      on(qi, o.n)
+        ? picks.filter((p) => p.qi !== qi || p.n !== o.n)
+        : [...picks, { q: qs[qi].text, qi, key, n: o.n, label: o.label }].sort((a, b) => a.qi - b.qi || Number(a.n) - Number(b.n)),
+    );
   };
   return (
     <>
       {qs.map((q, i) => (
         <div key={i} className="ag-q">
-          {qs.length > 1 && <span className="ag-q-text">{q.text}</span>}
+          {q.text && <span className="ag-q-text">{q.text}</span>}
           <div className="ag-choices">
             {q.opts.map((o) => (
               <button key={o.n} type="button" className="btn btn-sm" title={o.label} aria-pressed={on(i, o.n)} onClick={() => toggle(i, o)}>
@@ -291,6 +294,7 @@ export function AgentLog({ lines, empty, picks, onPicks, actions, thinking, prov
           <span className="ag-wait-chip">Your turn!</span>
           {qs.length > 0 && (
             <div className="ag-sugg" role="group" aria-labelledby="ag-sugg-label">
+              {mark}
               <span id="ag-sugg-label" className="ag-sugg-label">Suggestions</span>
               <Choices qs={qs} picks={picks} onPicks={onPicks} />
             </div>
@@ -823,7 +827,7 @@ export function AgentInput({ id, label, value, onChange, files, onFiles, picks, 
       {picks.length + files.length > 0 && (
         <div className="ag-attach">
           {picks.map((p) => (
-            <span key={p.qi} className="ag-file ag-pick" title={p.q}>
+            <span key={`${p.qi}.${p.n}`} className="ag-file ag-pick" title={p.q}>
               <span className="c-acc">{p.key ? `${p.key} · ${p.n}` : p.n}</span>
               <span className="ellipsis">{p.label}</span>
               <button type="button" className="ag-file-x" aria-label={`Remove answer ${p.n}`} onClick={() => onPicks(picks.filter((x) => x !== p))}>

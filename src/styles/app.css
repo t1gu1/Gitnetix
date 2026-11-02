@@ -4163,12 +4163,22 @@ button.picker-act {
   color: var(--fg);
   animation: agpulse 2s steps(12) infinite;
 }
+/* The agent's questions as its chat bubbles: its mark in the gutter beside the first, like your messages beside your avatar. */
 .ag-sugg {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 6px;
-  max-width: 100%;
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  column-gap: 10px;
+  row-gap: 8px;
+  align-items: start;
+  width: 100%;
+}
+.ag-sugg > .ag-avatar {
+  grid-row: 2;
+  grid-column: 1;
+}
+.ag-sugg > :not(.ag-avatar) {
+  grid-column: 2;
+  justify-self: start;
 }
 .ag-sugg-label {
   font-size: 10.5px;
@@ -4177,19 +4187,26 @@ button.picker-act {
   text-transform: uppercase;
   color: var(--faint);
 }
-/* One question and its options, when the agent asks several. */
+/* One question and its options, in one bubble. */
 .ag-q {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  max-width: 100%;
-}
-.ag-q + .ag-q {
-  margin-top: 6px;
+  gap: 8px;
+  max-width: min(100%, 640px);
+  padding: 10px 12px 12px;
+  border: 1px solid var(--line);
+  border-radius: 3px 12px 12px 12px;
+  background: var(--raised);
 }
 .ag-q-text {
-  font-size: 12.5px;
-  color: var(--muted);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--accent-fg);
+}
+/* The light theme's --accent-fg is too pale to read as text. */
+[data-theme="light"]:not([data-palette]) .ag-q-text {
+  color: #a35f00;
 }
 /* Wrapped options line up with the question text. */
 .ag-q .ag-choices {

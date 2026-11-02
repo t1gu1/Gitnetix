@@ -15,6 +15,10 @@ release notes and the in-app update prompt.
 - A branch stopped in the middle of a rebase, merge, cherry-pick or revert can be aborted from the banner above its files, its "⋯" menu, or its worktree's menu in Worktrees & agents. After a confirmation, the branch goes back to where it was before the operation started.
 - The branch list marks a stopped merge, cherry-pick or revert too: "conflict" while conflicts are left, else "mid-merge", "mid-rebase"…
 
+### Changed
+- An agent's questions show as its chat bubbles under "Your turn!", one bubble per question with its title and answer buttons, and the agent's mark beside them. Question titles are bigger and in the accent color, and show for a single question too.
+- One question can take several answers: picking an option no longer drops the other one picked for that question.
+
 ## [0.17.1] - 2026-11-02
 
 ### Added
