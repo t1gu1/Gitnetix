@@ -1,4 +1,4 @@
-import { Fragment, startTransition, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent, type ReactElement, type ReactNode, type RefObject } from "react";
+import { Fragment, startTransition, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type CSSProperties, type MouseEvent, type PointerEvent, type ReactElement, type ReactNode, type RefObject } from "react";
 
 import type { Hunk, LinePick } from "../api/types";
 import { plural } from "../lib/format";
@@ -530,6 +530,31 @@ function Split({ hunks, tokens, picking }: { hunks: Hunk[]; tokens: Tokens | und
   );
 }
 
+/** Copying a selection of diff rows puts only their code on the clipboard: no line numbers, signs or hunk headers.
+ * In split mode only the column the selection started in, so old and new lines don't interleave. */
+function copyCode(e: ClipboardEvent<HTMLDivElement>) {
+  const sel = window.getSelection();
+  if (!sel || sel.isCollapsed || !sel.rangeCount) return;
+  const range = sel.getRangeAt(0);
+  const half = (n: Node | null) => (n instanceof Element ? n : n?.parentElement)?.closest(".diff-half");
+  const start = half(range.startContainer);
+  const side = start?.parentElement ? [...start.parentElement.children].indexOf(start) : -1;
+  const lines: string[] = [];
+  e.currentTarget.querySelectorAll<HTMLElement>(".diff-row:not(.hunk) > .tx, .diff-half:not(.hunk, .blank) > .tx").forEach((tx) => {
+    if (!range.intersectsNode(tx)) return;
+    const h = tx.parentElement!;
+    if (side >= 0 && h.classList.contains("diff-half") && [...h.parentElement!.children].indexOf(h) !== side) return;
+    const part = document.createRange();
+    part.selectNodeContents(tx);
+    if (tx.contains(range.startContainer)) part.setStart(range.startContainer, range.startOffset);
+    if (tx.contains(range.endContainer)) part.setEnd(range.endContainer, range.endOffset);
+    lines.push(part.toString());
+  });
+  if (!lines.length) return;
+  e.clipboardData.setData("text/plain", lines.join("\n"));
+  e.preventDefault();
+}
+
 interface Mark {
   kind: "add" | "del";
   top: number;
@@ -590,7 +615,7 @@ function Heatmapped({ scroller, hunks, split, children }: { scroller: RefObject<
 
   return (
     <div className="diff-pane">
-      <div ref={scroller} id={id} className="diff-pane-scroll" onScroll={onScroll}>
+      <div ref={scroller} id={id} className="diff-pane-scroll" onScroll={onScroll} onCopy={copyCode}>
         {children}
       </div>
       <div

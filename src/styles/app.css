@@ -3199,16 +3199,22 @@ button.tree-twist:hover {
   display: grid;
   grid-template-columns: 52px 52px 20px minmax(0, 1fr);
 }
+/* The app's WebKit view only honours the prefixed property: without it a selection takes the gutter along. */
+.diff-row .ln,
+.diff-row .sg,
+.diff-half .ln,
+.diff-half .sg {
+  -webkit-user-select: none;
+  user-select: none;
+}
 .diff-row .ln {
   padding: 0 8px;
   text-align: right;
   color: var(--faint);
-  user-select: none;
 }
 .diff-row .sg {
   text-align: center;
   color: var(--faint);
-  user-select: none;
 }
 .diff-row .tx {
   white-space: pre-wrap;
