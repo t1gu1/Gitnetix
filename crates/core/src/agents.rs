@@ -101,6 +101,18 @@ fn saved(file: &std::path::Path) -> Vec<AgentSession> {
     std::fs::read_to_string(file).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
 }
 
+/// The line shown for a failed tool call. Claude Code starts a failed command's output with
+/// "Exit code N" and puts the error under it, so that line is shown with the code after it.
+fn tool_error_line(msg: &str) -> String {
+    let mut lines = msg.lines().map(str::trim).filter(|l| !l.is_empty());
+    let first = lines.next().unwrap_or("");
+    let cut = |s: &str| s.chars().take(200).collect::<String>();
+    match (first.strip_prefix("Exit code "), lines.next()) {
+        (Some(code), Some(err)) => format!("{} (exit {code})", cut(err)),
+        _ => cut(first),
+    }
+}
+
 fn agent_label(r: &Resolved) -> Result<String> {
     Ok(format!("{} CLI · {}", ai::provider_info(&r.provider)?.name, r.label()))
 }
@@ -601,8 +613,7 @@ impl AgentManager {
                             Value::String(s) => s.clone(),
                             other => other.to_string(),
                         };
-                        let first = msg.lines().next().unwrap_or("").chars().take(200).collect::<String>();
-                        self.push(id, LogLine::new("err", format!("✕ {first}")));
+                        self.push(id, LogLine::new("err", format!("✕ {}", tool_error_line(&msg))));
                     }
                 }
                 None
@@ -630,6 +641,16 @@ mod tests {
 
     fn cli(provider: &str) -> Resolved {
         Resolved { provider: provider.into(), method: ConnectMethod::Cli, model: String::new(), effort: String::new(), base_url: None }
+    }
+
+    #[test]
+    fn failed_command_shows_its_error_and_exit_code() {
+        let msg = "Exit code 1\ncat: illegal option -- A\nusage: cat [-belnstuv] [file ...]";
+        assert_eq!(tool_error_line(msg), "cat: illegal option -- A (exit 1)");
+        // No output: the code is all there is.
+        assert_eq!(tool_error_line("Exit code 2\n"), "Exit code 2");
+        // Other tool errors keep their first line.
+        assert_eq!(tool_error_line("File does not exist.\nmore"), "File does not exist.");
     }
 
     #[test]
