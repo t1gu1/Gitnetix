@@ -126,7 +126,8 @@ function AiStep(s: Steps) {
         It writes your commits, branch names, PRs and release notes, resolves conflicts and runs agents, through the CLIs you already use. Pick the one that does it all.
       </Head>
       {cat ? (
-        <div role="radiogroup" aria-label="Main AI" className="col" style={{ gap: 6 }}>
+        // One grid for all rows (card | Sign in | Test) so every card gets the same width.
+        <div role="radiogroup" aria-label="Main AI" style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto auto", alignItems: "center", rowGap: 6 }}>
           {clis.map((p) => (
             <AiRow
               key={p.info.id}
@@ -138,7 +139,7 @@ function AiStep(s: Steps) {
               }}
             />
           ))}
-          <span className="hint">API keys, Mistral and a model per task: Settings › AI setup.</span>
+          <span className="hint" style={{ gridColumn: "1 / -1" }}>API keys, Mistral and a model per task: Settings › AI setup.</span>
         </div>
       ) : (
         <Loading />
@@ -154,8 +155,8 @@ function AiRow({ p, main, onPick }: { p: AiCatalog["providers"][number]; main: b
   const signIn = useAction("ai.signIn", { success: "Opened a terminal — sign in there, then press Test" });
   const found = !!p.status?.cliPath;
   return (
-    <div className="row" style={{ gap: 8, margin: 0 }}>
-      <button className="radio-card grow" role="radio" aria-checked={main} disabled={!found} style={{ alignItems: "center", minWidth: 0 }} onClick={onPick}>
+    <>
+      <button className="radio-card" role="radio" aria-checked={main} disabled={!found} style={{ gridColumn: 1, alignItems: "center", minWidth: 0 }} onClick={onPick}>
         <span className="radio-dot" />
         <span className="mono-badge">{mono}</span>
         <span className="col" style={{ gap: 2, minWidth: 0 }}>
@@ -171,14 +172,15 @@ function AiRow({ p, main, onPick }: { p: AiCatalog["providers"][number]; main: b
           )}
         </span>
       </button>
-      {test.isError && <button className="btn btn-md" onClick={() => signIn.mutate({ id })}>Sign in</button>}
+      {/* Margins, not column-gap: an empty column must take no space. */}
+      {test.isError && <button className="btn btn-md" style={{ gridColumn: 2, marginLeft: 8 }} onClick={() => signIn.mutate({ id })}>Sign in</button>}
       {found && (
-        <button className="btn btn-md" disabled={test.isPending} onClick={() => test.mutate({ id })}>
+        <button className="btn btn-md" style={{ gridColumn: 3, marginLeft: 8 }} disabled={test.isPending} onClick={() => test.mutate({ id })}>
           {test.isPending && <span className="spinner" />}
           Test
         </button>
       )}
-    </div>
+    </>
   );
 }
 
