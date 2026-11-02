@@ -11,6 +11,7 @@ import { Icon } from "../components/Icon";
 import { Empty, FindBar, releaseTagLabel, useFindKey } from "../components/ui";
 import { plural, stashCount } from "../lib/format";
 import { showKeys, useKeys } from "../lib/keys";
+import { onTick, TICK } from "../lib/motion";
 import { useNav } from "../lib/nav";
 import { BranchSplit, type BranchActions, type BranchTarget } from "./BranchMenu";
 
@@ -473,19 +474,23 @@ export function BranchTree({
       }
       if (gap) end = Math.max(end, gap.at + gap.len);
       layout.current = next;
-      // Past the end of the path the pulse runs on out of sight until the loop starts over.
-      const run = Math.max(PULSE_MIN_RUN, end + 12);
+      // Past the end of the path the pulse runs on out of sight until the loop starts over: a whole third of a second more at most, so the loop and
+      // its first quarter (the arrival glow's fade) are whole ticks of the shared animation clock.
+      const run = Math.ceil(Math.max(PULSE_MIN_RUN, end + 12) / (PULSE_SPEED / 3)) * (PULSE_SPEED / 3);
       const loop = (run / PULSE_SPEED) * 1000;
       // Already past the end of the new loop: the next one starts.
       const at = along < run ? along : 0;
       if (!prev) clock.current = { start: 0, loop };
-      else if (prev.loop !== loop || Math.abs(at - was) > 0.5) clock.current = { start: now - (at / PULSE_SPEED) * 1000, loop };
+      else if (prev.loop !== loop || Math.abs(at - was) > 0.5) clock.current = { start: onTick(now - (at / PULSE_SPEED) * 1000), loop };
       // Once the pulse is through the gap, sync again so the gap closes behind it.
       if (gap) timer = setTimeout(sync, ((gap.at + gap.len - at) / PULSE_SPEED) * 1000 + 50);
       const { start } = clock.current!;
       root.style.setProperty("--pulse-run", `${run}px`);
       root.style.setProperty("--pulse-loop", `${loop}ms`);
-      for (const [el, at] of arrivals) el.style.setProperty("--pulse-arrive", `${(at / PULSE_SPEED) * 1000}ms`);
+      // One step a tick, like every endless animation: the arrival glow fades over the loop's first quarter only.
+      root.style.setProperty("--pulse-steps", `${Math.round(loop / TICK)}`);
+      root.style.setProperty("--pulse-fade-steps", `${Math.round(loop / TICK / 4)}`);
+      for (const [el, at] of arrivals) el.style.setProperty("--pulse-arrive", `${onTick((at / PULSE_SPEED) * 1000)}ms`);
       // From the document: WebKit can leave the pseudo-elements' animations out of an element's subtree.
       for (const a of document.getAnimations()) {
         if (!(a instanceof CSSAnimation)) continue;

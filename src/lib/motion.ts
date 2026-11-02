@@ -41,13 +41,26 @@ export function useApplyAnimations(off: string[] | undefined) {
   }, [v]);
 }
 
+/** The endless animations' shared tick, in ms: their durations are whole ticks, so steps started on it land on the same frames. */
+export const TICK = 1000 / 12;
+export const onTick = (ms: number) => Math.round(ms / TICK) * TICK;
+
 /** After `ms` without pointer, wheel or keys, or while the window is hidden, puts `data-idle` on the root element: the stylesheet pauses the endless animations
- * there, any one of which keeps the webview drawing every frame. The next input plays them on from where they stood. */
+ * there, any one of which keeps the webview drawing every frame. The next input plays them on from where they stood.
+ * Meanwhile it keeps them on the shared tick: each starts when its element shows (or resumes), off it, and would draw frames of its own. */
 export function usePauseWhenIdle(ms = 30_000) {
   useEffect(() => {
     const root = document.documentElement;
     let last = performance.now();
     let timer = 0;
+    const align = () => {
+      for (const a of document.getAnimations()) {
+        if (!(a instanceof CSSAnimation) || a.playState !== "running" || a.startTime === null || a.effect?.getTiming().iterations !== Infinity) continue;
+        const at = onTick(Number(a.startTime));
+        if (Math.abs(at - Number(a.startTime)) > 0.5) a.startTime = at;
+      }
+    };
+    const aligner = window.setInterval(() => "idle" in root.dataset || align(), 2000);
     // Input only moves `last`: the pending check sleeps again for what is left.
     const check = () => {
       const left = last + ms - performance.now();
@@ -74,6 +87,7 @@ export function usePauseWhenIdle(ms = 30_000) {
       for (const t of inputs) window.removeEventListener(t, wake, opts);
       document.removeEventListener("visibilitychange", shown);
       clearTimeout(timer);
+      clearInterval(aligner);
       delete root.dataset.idle;
     };
   }, [ms]);

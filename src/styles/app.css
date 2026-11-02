@@ -207,17 +207,19 @@ a:hover {
     transform: rotate(360deg);
   }
 }
+/* Endless animations step on one shared tick, 12 a second: durations in whole ticks, steps() counted per keyframe segment, starts aligned by usePauseWhenIdle.
+   Smooth, or each on its own beat, they kept WebKitGTK drawing every frame (144 a second on fast screens) and typing lagged. */
 .pulse {
   width: 6px;
   height: 6px;
   border-radius: var(--r-sm);
   background: var(--accent);
-  animation: agpulse 1.4s ease-in-out infinite;
+  animation: agpulse 1.5s steps(9) infinite;
   flex: 0 0 6px;
 }
 /* A branch's agent label ("AI working", "waiting") fades in and out with the dot. */
 .ai-fade {
-  animation: agpulse 1.4s ease-in-out infinite;
+  animation: agpulse 1.5s steps(9) infinite;
 }
 @media (prefers-reduced-motion: reduce) {
   .ai-fade {
@@ -230,7 +232,7 @@ a:hover {
   border: 1.5px solid currentColor;
   border-right-color: transparent;
   border-radius: 50%;
-  animation: spin 0.8s linear infinite;
+  animation: spin 0.75s steps(9) infinite;
   display: inline-block;
   /* Its own width and height, never squeezed: a smaller one stays round. */
   flex: none;
@@ -962,20 +964,27 @@ body.dragging-tab * {
   background-clip: text;
   -webkit-text-fill-color: transparent;
   filter: drop-shadow(0 0 5px color-mix(in srgb, var(--release-fg) 45%, transparent));
-  animation: glow-name 8s linear infinite;
+  animation: glow-name 8s steps(96) infinite;
 }
 /* An icon can't clip a gradient: its stroke steps through the same colours on the same clock. */
 .glow-working > svg {
   filter: drop-shadow(0 0 5px color-mix(in srgb, var(--release-fg) 45%, transparent));
-  animation: glow-stroke 8s linear infinite;
+  animation: glow-stroke 8s steps(24) infinite;
 }
 /* A "Running" row's dot (Worktrees.tsx): it keeps its pulse and takes the same colours on the same clock. */
 .pulse.glow-dot {
   background: currentColor;
   filter: drop-shadow(0 0 4px color-mix(in srgb, var(--release-fg) 45%, transparent));
   animation:
-    agpulse 1.4s ease-in-out infinite,
-    glow-stroke 8s linear infinite;
+    agpulse 1.5s steps(9) infinite,
+    glow-stroke 8s steps(24) infinite;
+}
+/* Each glow on its own layer, blurred by the GPU: painted in place, every frame re-blurred it with all around it, once per running agent (input lag with several). */
+.glow-name > .ellipsis,
+.glow-working > span,
+.glow-working > svg,
+.pulse.glow-dot {
+  will-change: filter;
 }
 @keyframes glow-name {
   to {
@@ -1977,7 +1986,7 @@ body.resizing .term {
         transparent 1px 3px
       )
       4px var(--dot, 0px) / 1px 100% no-repeat;
-  animation: path-pulse var(--pulse-loop, 4s) linear infinite;
+  animation: path-pulse var(--pulse-loop, 4s) steps(var(--pulse-steps, 48)) infinite;
 }
 /* On the checked-out row the streak drains into the middle, and the glow riding under it hands over to a glow of its own centred there: the moving one
    is gone the moment its centre reaches the middle (squashed instead, it would linger as a flat sliver), just as the other shows (--pulse-arrive,
@@ -2010,8 +2019,8 @@ body.resizing .term {
       clamp(0px, (50% - 6px - var(--pulse-y)) * 100, 12px) no-repeat,
     linear-gradient(var(--panel), var(--panel)) 0 100% / 9px 50% no-repeat;
   animation:
-    path-pulse var(--pulse-loop, 4s) linear infinite,
-    path-glow-fade var(--pulse-loop, 4s) linear var(--pulse-arrive, 0s) infinite;
+    path-pulse var(--pulse-loop, 4s) steps(var(--pulse-steps, 48)) infinite,
+    path-glow-fade var(--pulse-loop, 4s) steps(var(--pulse-fade-steps, 12)) var(--pulse-arrive, 0s) infinite;
 }
 .tree-toggle[data-path] + .tree-open::after,
 .tree-merged + .tree-kids[data-path="in"]::after {
@@ -2031,7 +2040,7 @@ body.resizing .term {
         transparent 1px 3px
       )
       var(--dot, 0px) 4px / 100% 1px no-repeat;
-  animation: path-pulse var(--pulse-loop, 4s) linear infinite;
+  animation: path-pulse var(--pulse-loop, 4s) steps(var(--pulse-steps, 48)) infinite;
 }
 .tree-toggle[data-path] + .tree-open::after {
   left: 0;
@@ -2286,7 +2295,7 @@ button.tree-twist:hover {
 .wip-badge {
   color: #ff7a00;
   font-weight: 600;
-  animation: agpulse 1.6s ease-in-out infinite;
+  animation: agpulse 1.5s steps(9) infinite;
 }
 @media (prefers-reduced-motion: reduce) {
   .wip-badge {
@@ -2333,7 +2342,7 @@ button.tree-twist:hover {
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-  animation: shine 6s ease-in-out infinite;
+  animation: shine 6s steps(30) infinite;
 }
 .tree-row[data-current][data-role="trunk"] .tree-name > .mono {
   --name-fg: var(--trunk-fg);
@@ -2347,7 +2356,7 @@ button.tree-twist:hover {
       100% 0,
       0 0;
   }
-  40%,
+  41.6667%,
   100% {
     background-position:
       0 0,
@@ -2457,7 +2466,7 @@ button.tree-twist:hover {
     linear-gradient(90deg, var(--label-from, var(--label-fg)), var(--label-fg));
   -webkit-background-clip: text;
   background-clip: text;
-  animation: shine 6s ease-in-out infinite;
+  animation: shine 6s steps(30) infinite;
 }
 .child-label {
   --label-from: var(--warn-fg);
@@ -4094,20 +4103,20 @@ button.picker-act {
   height: 6px;
   border-radius: 50%;
   background: var(--muted);
-  animation: agdot 1.2s ease-in-out infinite;
+  animation: agdot calc(4s / 3) steps(4) infinite;
 }
 .ag-dots i:nth-child(2) {
-  animation-delay: 0.15s;
+  animation-delay: calc(1s / 6);
 }
 .ag-dots i:nth-child(3) {
-  animation-delay: 0.3s;
+  animation-delay: calc(1s / 3);
 }
 @keyframes agdot {
-  0%, 60%, 100% {
+  0%, 50%, 100% {
     opacity: 0.3;
     transform: translateY(0);
   }
-  30% {
+  25% {
     opacity: 1;
     transform: translateY(-3px);
   }
@@ -4146,7 +4155,7 @@ button.picker-act {
   font-size: 13px;
   font-weight: 500;
   color: var(--fg);
-  animation: agpulse 2s ease-in-out infinite;
+  animation: agpulse 2s steps(12) infinite;
 }
 .ag-sugg {
   display: flex;
@@ -4641,7 +4650,7 @@ button.picker-act {
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
-  animation: shine 1.6s ease-in-out calc(0.3s + min(var(--i), 8) * 0.1s) infinite;
+  animation: shine 1.6s steps(8) calc(0.3s + min(var(--i), 8) * 0.1s) infinite;
 }
 @media (prefers-reduced-motion: reduce) {
   .wt-group-head > [data-glint] {
@@ -6481,7 +6490,7 @@ body:has(> .modal-scrim) #root * {
 /* Text underlines skip icons: a border runs under both. */
 /* Unpushed commits: the Push icon gives a quick wiggle every 10 seconds, then rests. Calm while hovered. */
 .act-nudge > svg {
-  animation: push-nudge 10s ease-in-out 1.5s infinite;
+  animation: push-nudge 10s steps(1) 1.5s infinite;
   transform-origin: 50% 80%;
 }
 .act-nudge:hover > svg {
@@ -6713,7 +6722,7 @@ body:has(> .modal-scrim) #root * {
   animation: none !important;
 }
 /* No input for 30 s or window hidden (usePauseWhenIdle): every endless animation waits where it stands, as any one of them keeps the webview
-   drawing every frame. A new endless animation belongs here too. Not dictation's: you speak to it without touching anything. */
+   drawing every frame. A new endless animation belongs here too, stepped on the shared tick like the others. Not dictation's: you speak to it without touching anything. */
 :root[data-idle]
   :is(
     .pulse,
