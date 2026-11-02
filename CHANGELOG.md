@@ -11,6 +11,24 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+### Added
+- Welcome screen shows each project's own icon (favicon, app icon, PWA icon or logo) instead of initials when one exists.
+- Projects saved in other profiles are offered on a new profile's empty project list, and under "From your other profiles" once it has projects, so they can be added back in one click.
+- Fresh profiles open on the setup, which skips the profile step and names the profile in its heading.
+
+### Changed
+- Endless animations now run on one shared 12 fps tick, so typing no longer lags on fast screens.
+- The Gravatar setting for commit authors now lives in the profile dialog, so each profile keeps its own choice.
+- The remove X on the Welcome screen fills its slot and turns red on hover.
+- AI provider cards in the setup have equal width.
+- A copied profile keeps its source's settings and skips the setup, even if the source was mid-setup.
+
+### Fixed
+- The default profile avatar body is now drawn as a closed shape.
+
+### Removed
+- The Avatars settings page and its menu row.
+
 ## [0.17.0] - 2026-11-01
 
 ### Added
