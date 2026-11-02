@@ -121,6 +121,37 @@ pub struct RecentProject {
     pub profile: String,
 }
 
+/// How likely a repo file is the project's own icon, lower first: (name, format, depth). None: not an icon.
+fn icon_rank(path: &str) -> Option<(u8, u8, usize)> {
+    let lower = path.to_lowercase();
+    let (dir, file) = lower.rsplit_once('/').unwrap_or(("", &lower));
+    if dir.split('/').any(|d| matches!(d, "node_modules" | "vendor" | "third_party" | "test" | "tests" | "fixtures")) {
+        return None;
+    }
+    let (stem, ext) = file.rsplit_once('.')?;
+    let format = match ext {
+        "svg" => 0,
+        "png" | "webp" => 1,
+        "ico" => 2,
+        "jpg" | "jpeg" | "gif" | "avif" => 3,
+        _ => return None,
+    };
+    // `icon-512`, `logo192`, `favicon@2x` count; `iconography` does not.
+    let named = |p: &str| stem.strip_prefix(p).is_some_and(|rest| !rest.starts_with(|c: char| c.is_ascii_alphabetic()));
+    let name = if named("favicon") {
+        0
+    } else if named("apple-touch-icon") {
+        1
+    } else if ["icon", "app-icon", "pwa", "android-chrome"].into_iter().any(named) {
+        2
+    } else if named("logo") {
+        3
+    } else {
+        return None;
+    };
+    Some((name, format, lower.matches('/').count()))
+}
+
 /// .gitignore line matching exactly `path` from the repo root; glob characters are escaped.
 fn ignore_line(path: &str, dir: bool) -> String {
     let mut out = String::from("/");
@@ -2081,6 +2112,30 @@ impl Gitnetix {
             .map(|(_, r)| r)
             .filter(|r| !mine.contains(&r.path) && seen.insert(r.path.clone()) && Path::new(&r.path).exists())
             .collect()
+    }
+
+    /// A saved or recent project's own icon (favicon, app or PWA icon, logo) among its tracked files: (repo path, base64).
+    pub async fn project_icon(&self, path: &str) -> Result<Option<(String, String)>> {
+        let known = self.store.read(|c| c.projects.iter().any(|p| p.path == path)) || self.recent_projects().iter().any(|r| r.path == path);
+        if !known {
+            return Err(Error::Invalid(format!("{path} is not a saved project")));
+        }
+        let pathspecs = ["ls-files", "-z", "--", ":(icase)*icon*", ":(icase)*logo*", ":(icase)*pwa*", ":(icase)*android-chrome*"];
+        let Ok((true, out, _)) = Git::new(path).try_run(&pathspecs).await else {
+            return Ok(None);
+        };
+        let mut found: Vec<_> = out.split('\0').filter_map(|f| Some((icon_rank(f)?, f))).collect();
+        found.sort();
+        for (_, file) in found {
+            // The list shows it at 32 px: a bigger file is a banner or artwork, not worth sending.
+            if let Ok(b) = tokio::fs::read(Path::new(path).join(file)).await {
+                if b.len() <= 256 * 1024 {
+                    use base64::Engine;
+                    return Ok(Some((file.to_string(), base64::engine::general_purpose::STANDARD.encode(b))));
+                }
+            }
+        }
+        Ok(None)
     }
 
     pub async fn add_projects(&self, paths: Vec<String>) -> Result<Vec<Project>> {
@@ -5728,6 +5783,17 @@ fn fix_version_release(fix_versions: &[String], releases: &[Release]) -> Option<
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn project_icon_prefers_favicon_then_app_icon_then_logo() {
+        let mut files = vec![
+            "docs/logo.svg", "public/apple-touch-icon.png", "src/assets/icons/close.svg", "web/favicon.ico", "web/Favicon.svg",
+            "vendor/x/favicon.svg", "logo-dark.png", "README.md", "iconography.png", "src-tauri/icons/icon.png", "logo192.png",
+        ];
+        files.retain(|f| icon_rank(f).is_some());
+        files.sort_by_key(|f| icon_rank(f));
+        assert_eq!(files, ["web/Favicon.svg", "web/favicon.ico", "public/apple-touch-icon.png", "src-tauri/icons/icon.png", "docs/logo.svg", "logo-dark.png", "logo192.png"]);
+    }
 
     #[test]
     fn fix_version_names_a_release() {

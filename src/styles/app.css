@@ -1158,6 +1158,7 @@ body.dragging-tab * {
 }
 .list-link {
   width: 100%;
+  margin: 0;
   border: 0;
   background: none;
   color: inherit;
@@ -1171,6 +1172,18 @@ body.dragging-tab * {
 /* Hover fills reach the list's rounded corners without spilling past them. */
 .list:has(.list-link) {
   overflow: hidden;
+}
+/* Remove-from-list X: fills its slot edge to edge, red like a window close on hover. */
+.project-remove {
+  flex: none;
+  width: 44px;
+  height: auto;
+  border: 0;
+  border-radius: 0;
+}
+.project-remove:hover:not(:disabled) {
+  background: #d23a31;
+  color: #fff;
 }
 
 /* ---------- welcome ---------- */
@@ -1480,6 +1493,16 @@ html.scanning body {
   font-size: 11px;
   font-weight: 500;
   color: var(--muted);
+}
+.mono-badge > img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+/* App-icon corners (~25%, like a home screen), clipping the project's own icon to them. */
+.project-badge {
+  overflow: hidden;
+  border-radius: 25%;
 }
 
 .page {

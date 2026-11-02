@@ -5,6 +5,7 @@ import { useAction, useProjects } from "../api/hooks";
 import { isLocal, onPathDrop, pickFolders, rpc } from "../api/transport";
 import type { Project, RecentProject } from "../api/types";
 import { Icon } from "../components/Icon";
+import { dataUrl } from "../components/ImageDiff";
 import { Logo } from "../components/Logo";
 import { ProfileButton } from "../components/Profiles";
 import { Busy, initials } from "../components/ui";
@@ -54,7 +55,7 @@ export function Welcome() {
             disabled={add.isPending}
             onClick={() => addPaths([r.path])}
           >
-            <span className="mono-badge" aria-hidden="true">{initials(r.name)}</span>
+            <ProjectBadge name={r.name} path={r.path} />
             <span className="col" style={{ gap: 3, minWidth: 0 }}>
               <span style={{ fontWeight: 500 }}>{r.name}</span>
               <span className="mono faint ellipsis" style={{ fontSize: 11.5 }}>{r.path}</span>
@@ -138,7 +139,7 @@ export function Welcome() {
                         nav.go({ name: "workspace" });
                       }}
                     >
-                      <span className="mono-badge" aria-hidden="true">{initials(p.name)}</span>
+                      <ProjectBadge name={p.name} path={p.path} />
                       <span className="col" style={{ gap: 3, minWidth: 0 }}>
                         <span style={{ fontWeight: 500 }}>{p.name}</span>
                         <span className="mono faint ellipsis" style={{ fontSize: 11.5 }}>{p.path}</span>
@@ -150,7 +151,7 @@ export function Welcome() {
                         {p.nextRelease ? `Next: v${p.nextRelease}` : "No open release"}
                       </span>
                     </button>
-                    <button className="btn btn-ghost" style={{ width: 44, height: "auto", border: 0 }} aria-label={`Remove ${p.name} from list`} onClick={() => remove.mutate({ projectId: p.id })}>
+                    <button className="btn btn-ghost project-remove" aria-label={`Remove ${p.name} from list`} onClick={() => remove.mutate({ projectId: p.id })}>
                       <Icon name="close" size={12} stroke={1.6} />
                     </button>
                   </li>
@@ -168,5 +169,20 @@ export function Welcome() {
         </div>
       </main>
     </>
+  );
+}
+
+/** The repo's own icon (favicon, app icon, logo) when it has one, else its initials. */
+function ProjectBadge({ name, path }: { name: string; path: string }) {
+  const icon = useQuery({
+    queryKey: ["projectIcon", path],
+    queryFn: () => rpc<{ path: string; data: string } | null>("projects.icon", { path }),
+    staleTime: Infinity,
+    retry: false,
+  }).data;
+  return (
+    <span className="mono-badge project-badge" aria-hidden="true">
+      {icon ? <img src={dataUrl(icon.path, icon.data)} alt="" /> : initials(name)}
+    </span>
   );
 }

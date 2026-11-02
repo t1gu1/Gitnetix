@@ -30,6 +30,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("server.set", "Configure the companion API", "enabled?, lan?, port?, regenerateToken?"),
     ("projects.list", "List saved projects", ""),
     ("projects.recent", "Projects saved in the other profiles and not in this one, to add back", ""),
+    ("projects.icon", "A saved or recent project's own icon (favicon, app or PWA icon, logo) from its tracked files: { path, data (base64) } or null", "path"),
     ("projects.add", "Add local Git repositories", "paths: string[]"),
     ("projects.remove", "Remove a project from the list (files untouched)", "projectId"),
     ("projects.setHidden", "Close or reopen a project's tab (data kept)", "projectId, hidden"),
@@ -496,6 +497,7 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
         // ---- projects & profiles ----
         "projects.list" => to(k.projects().await),
         "projects.recent" => to(k.recent_projects()),
+        "projects.icon" => to(k.project_icon(&s(&p, "path")?).await?.map(|(path, data)| json!({ "path": path, "data": data }))),
         "projects.add" => {
             let paths = list(&p, "paths")?;
             to(k.add_projects(paths).await?)
