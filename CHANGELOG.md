@@ -11,6 +11,8 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+## [0.17.1] - 2026-11-02
+
 ### Added
 - Welcome screen shows each project's own icon (favicon, app icon, PWA icon or logo) instead of initials when one exists.
 - Projects saved in other profiles are offered on a new profile's empty project list, and under "From your other profiles" once it has projects, so they can be added back in one click.
