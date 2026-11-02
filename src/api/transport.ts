@@ -191,6 +191,12 @@ export async function localImage(path: string) {
   return new Blob([await invoke<ArrayBuffer>("local_image", { path })]);
 }
 
+/** The first MiB of a file on this computer, dropped or pasted on the window, and one byte more when it goes on: for its text preview (desktop only). */
+export async function localHead(path: string) {
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<ArrayBuffer>("local_head", { path });
+}
+
 /** Native folder picker on desktop; null elsewhere. */
 export async function pickFolders(): Promise<string[] | null> {
   if (!isLocal) return null;

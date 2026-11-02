@@ -119,6 +119,15 @@ mod desktop {
         std::fs::read(p).map(tauri::ipc::Response::new).map_err(|e| e.to_string())
     }
 
+    /// The first MiB of a file dropped or pasted on the window, and one byte more when it goes on, for its text preview in a message box.
+    #[tauri::command]
+    pub async fn local_head(path: String) -> Result<tauri::ipc::Response, String> {
+        use std::io::Read;
+        let mut out = Vec::new();
+        std::fs::File::open(&path).and_then(|f| f.take((1 << 20) + 1).read_to_end(&mut out)).map_err(|e| e.to_string())?;
+        Ok(tauri::ipc::Response::new(out))
+    }
+
     /// Saves a copy of that file in the Downloads folder, numbered when its name is taken there, and returns where.
     #[tauri::command]
     pub async fn agent_file_download(app: tauri::AppHandle, engine: State<'_, Engine>, id: String, path: String) -> Result<String, String> {
@@ -303,7 +312,7 @@ pub fn run() {
         .manage(desktop::Companion::default())
         .manage(desktop::Clip::default())
         .setup(desktop::setup)
-        .invoke_handler(tauri::generate_handler![desktop::rpc, desktop::companion, desktop::allow_firewall, desktop::open_url, desktop::dictation_start, desktop::dictation_stop, desktop::dictation_cancel, desktop::agent_file_copy, desktop::agent_file_download, desktop::clipboard_files, desktop::clipboard_image, desktop::local_image]);
+        .invoke_handler(tauri::generate_handler![desktop::rpc, desktop::companion, desktop::allow_firewall, desktop::open_url, desktop::dictation_start, desktop::dictation_stop, desktop::dictation_cancel, desktop::agent_file_copy, desktop::agent_file_download, desktop::clipboard_files, desktop::clipboard_image, desktop::local_image, desktop::local_head]);
 
     // The pairing screen scans the desktop's QR code with the phone camera.
     #[cfg(mobile)]

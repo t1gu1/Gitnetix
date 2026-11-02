@@ -4431,6 +4431,30 @@ button.picker-act {
   max-height: calc(100vh - 140px);
   border-radius: 3px;
 }
+/* A text file about to be sent, as written: long lines scroll sideways. */
+.modal:has(.ag-peek-text) {
+  width: min(880px, 100%);
+}
+.ag-peek-text {
+  margin: 0;
+  max-height: calc(100vh - 140px);
+  overflow: auto;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--raised);
+  color: var(--fg);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: left;
+  tab-size: 4;
+  user-select: text;
+}
+/* Clear of the arrows over its edges. */
+.ag-shot:has(.ag-shot-nav) > .ag-peek-text {
+  padding-inline: 48px;
+}
 /* Step through the message's images, over its edges. */
 .ag-shot-nav {
   position: absolute;

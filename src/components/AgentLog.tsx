@@ -2,7 +2,7 @@ import { type ClipboardEvent, type CSSProperties, type KeyboardEvent, type React
 import { createPortal } from "react-dom";
 
 import { useAgentFile, useAiCatalog, useConfig } from "../api/hooks";
-import { clipboardFiles, copyAgentFile, downloadAgentFile, isLocal, localImage, onPathDrop } from "../api/transport";
+import { clipboardFiles, copyAgentFile, downloadAgentFile, isLocal, localHead, localImage, onPathDrop } from "../api/transport";
 import type { LogLine } from "../api/types";
 import { blocks, questions, said, type Block, type Opt, type Question } from "../lib/agentLog";
 import { OwnMic } from "../lib/dictation";
@@ -359,6 +359,35 @@ function Shot({ session, path }: { session: string; path: string }) {
   return shot.data ? <img src={dataUrl(path, shot.data)} alt={nameOf(path)} /> : shot.isError ? <span className="faint">Could not load {nameOf(path)}</span> : <span className="spinner" />;
 }
 
+/** ←/→ `step` back and forth through `n` things shown full size, when there are several. */
+function useArrows(n: number, step: (d: number) => void) {
+  const latest = useRef(step);
+  latest.current = step;
+  useEffect(() => {
+    if (n < 2) return;
+    const k = (e: globalThis.KeyboardEvent) => {
+      if (e.key === "ArrowLeft") latest.current(-1);
+      else if (e.key === "ArrowRight") latest.current(1);
+    };
+    window.addEventListener("keydown", k);
+    return () => window.removeEventListener("keydown", k);
+  }, [n]);
+}
+
+/** The previous and next buttons over the edges of what is shown full size. */
+function Arrows({ what, step }: { what: string; step: (d: number) => void }) {
+  return (
+    <>
+      <button type="button" className="ag-shot-nav ag-shot-prev" aria-label={`Previous ${what}`} onClick={() => step(-1)}>
+        <Icon name="chevronLeft" />
+      </button>
+      <button type="button" className="ag-shot-nav ag-shot-next" aria-label={`Next ${what}`} onClick={() => step(1)}>
+        <Icon name="chevronRight" />
+      </button>
+    </>
+  );
+}
+
 /** The images `paths` agent `session` was sent or shows, full size from the `at`th: the arrows and ←/→ step through them, round. On the desktop, Copy puts the file itself on the clipboard (a GIF pasted still moves) and Download saves it in Downloads. */
 function Gallery({ session, paths, at, onClose }: { session: string; paths: string[]; at: number; onClose: () => void }) {
   const [i, setI] = useState(at);
@@ -369,15 +398,7 @@ function Gallery({ session, paths, at, onClose }: { session: string; paths: stri
   // The next and previous load meanwhile, so stepping shows them at once.
   useAgentFile(session, paths[(i + 1) % n]);
   useAgentFile(session, paths[(i - 1 + n) % n]);
-  useEffect(() => {
-    if (n < 2) return;
-    const k = (e: globalThis.KeyboardEvent) => {
-      if (e.key === "ArrowLeft") step(-1);
-      else if (e.key === "ArrowRight") step(1);
-    };
-    window.addEventListener("keydown", k);
-    return () => window.removeEventListener("keydown", k);
-  }, [n]);
+  useArrows(n, step);
   const copy = () => copyAgentFile(session, path).then(() => toast("Copied", "ok"), (e) => toast(`Could not copy ${name}: ${e}`, "error"));
   const download = () => downloadAgentFile(session, path).then((to) => toast(`Saved to ${to}`, "ok"), (e) => toast(`Could not save ${name}: ${e}`, "error"));
   return (
@@ -398,26 +419,127 @@ function Gallery({ session, paths, at, onClose }: { session: string; paths: stri
     >
       <div className="ag-shot">
         <Shot session={session} path={path} />
-        {n > 1 && (
-          <>
-            <button type="button" className="ag-shot-nav ag-shot-prev" aria-label="Previous image" onClick={() => step(-1)}>
-              <Icon name="chevronLeft" />
-            </button>
-            <button type="button" className="ag-shot-nav ag-shot-next" aria-label="Next image" onClick={() => step(1)}>
-              <Icon name="chevronRight" />
-            </button>
-          </>
-        )}
+        {n > 1 && <Arrows what="image" step={step} />}
       </div>
     </Modal>
   );
 }
 
-/** A file sent, or about to be: images in hand show a thumbnail, others their icon; images sent to agent `session` preview on hover or focus, and `onOpen` on click. `onRemove` takes it off the message. */
+// A text preview shows the first MiB: the most `local_head` (src-tauri) reads.
+const TEXT_CAP = 1 << 20;
+
+/** What a file about to be sent shows full size: the image, its text, or why it has none. */
+type Peeked = { url: string } | { text: string; cut: boolean } | { none: string };
+
+/** An image as an object URL (revoke it), else the text of a UTF-8 file, its first MiB: a NUL or invalid UTF-8 means it is not text. */
+async function peek(file: Attachment): Promise<Peeked> {
+  const path = typeof file === "string";
+  if (path ? isImage(file) : file.type.startsWith("image/") || isImage(file.name)) {
+    try {
+      return { url: URL.createObjectURL(path ? await localImage(file) : file) };
+    } catch {
+      // A dropped SVG: `local_image` turns it down, and its text shows instead.
+    }
+  }
+  const head = new Uint8Array(path ? await localHead(file) : await file.slice(0, TEXT_CAP + 1).arrayBuffer());
+  if (!head.length) return { none: "Empty file" };
+  const cut = head.length > TEXT_CAP;
+  try {
+    if (head.includes(0)) throw new Error("binary");
+    // Streamed when cut, so a character split at the cap is dropped, not an error.
+    return { text: new TextDecoder("utf-8", { fatal: true }).decode(head.subarray(0, TEXT_CAP), { stream: cut }), cut };
+  } catch {
+    return { none: "No preview" };
+  }
+}
+
+/** The files `files` about to be sent, full size from the `at`th: images, text files' text, else "No preview". The arrows and ←/→ `onStep` through them, round; Remove takes the one shown off the message. */
+function Peek({ files, at, onStep, onRemove, onClose }: { files: Attachment[]; at: number; onStep: (i: number) => void; onRemove: () => void; onClose: () => void }) {
+  const file = files[at];
+  const n = files.length;
+  const name = nameOf(file);
+  const [shown, setShown] = useState<{ file: Attachment; p: Peeked }>();
+  useEffect(() => {
+    let live = true;
+    let url = "";
+    peek(file).then(
+      (p) => {
+        if ("url" in p) url = p.url;
+        if (live) setShown({ file, p });
+        else if (url) URL.revokeObjectURL(url);
+      },
+      (e) => live && setShown({ file, p: { none: `Could not read ${name}: ${e}` } }),
+    );
+    return () => {
+      live = false;
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [file]); // eslint-disable-line react-hooks/exhaustive-deps
+  const p = shown?.file === file ? shown.p : undefined;
+  const step = (d: number) => onStep((at + d + n) % n);
+  useArrows(n, step);
+  // It may open over the new session modal: Escape closes this one alone.
+  useEffect(() => {
+    const k = (e: globalThis.KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.stopPropagation();
+      onClose();
+    };
+    window.addEventListener("keydown", k, true);
+    return () => window.removeEventListener("keydown", k, true);
+  }, [onClose]);
+  const sub = [n > 1 && `${at + 1} / ${n}`, typeof file !== "string" && bytes(file.size), p && "cut" in p && p.cut && `First ${bytes(TEXT_CAP)} shown`].filter(Boolean).join(" · ");
+  return (
+    <Modal
+      title={name}
+      sub={sub}
+      onClose={onClose}
+      actions={
+        <button type="button" className="btn btn-ghost btn-icon" aria-label={`Remove ${name}`} data-tip="Remove from the message" onClick={onRemove}>
+          <Icon name="trash" />
+        </button>
+      }
+    >
+      <div className="ag-shot">
+        {!p ? (
+          <span className="spinner" />
+        ) : "url" in p ? (
+          <img src={p.url} alt={name} onError={() => setShown({ file, p: { none: `Could not load ${name}` } })} />
+        ) : "text" in p ? (
+          <pre className="ag-peek-text">{p.text}</pre>
+        ) : (
+          <span className="faint">{p.none}</span>
+        )}
+        {n > 1 && <Arrows what="file" step={step} />}
+      </div>
+    </Modal>
+  );
+}
+
+/** Files about to be sent, one chip each: a click opens them full size; × there or Remove in the preview takes one off. */
+function Drafts({ files, onFiles }: { files: Attachment[]; onFiles: (f: Attachment[]) => void }) {
+  const [open, setOpen] = useState<number>();
+  const remove = (i: number) => {
+    onFiles(files.filter((_, j) => j !== i));
+    // The preview moves on to the next file, or the one before when it showed the last.
+    setOpen((o) => (o === undefined || files.length < 2 ? undefined : o > i ? o - 1 : Math.min(o, files.length - 2)));
+  };
+  return (
+    <>
+      {files.map((f, i) => (
+        <FileChip key={i} file={f} onOpen={() => setOpen(i)} onRemove={() => remove(i)} />
+      ))}
+      {open !== undefined && open < files.length && <Peek files={files} at={open} onStep={setOpen} onRemove={() => remove(open)} onClose={() => setOpen(undefined)} />}
+    </>
+  );
+}
+
+/** A file sent, or about to be: images in hand show a thumbnail, others their icon; images sent to agent `session` preview on hover or focus. A click runs `onOpen` on those, and on any file about to be sent (no `session`). `onRemove` takes it off the message. */
 export function FileChip({ file, session, onOpen, onRemove }: { file: Attachment; session?: string; onOpen?: () => void; onRemove?: () => void }) {
   const name = nameOf(file);
   const [url, setUrl] = useState<string>();
   const sent = typeof file === "string" && !!session && isImage(file) ? file : undefined;
+  const opens = !!sent || (!session && !!onOpen);
   // The chip of a sent image while it is hovered or focused.
   const [at, setAt] = useState<HTMLElement | null>(null);
   const open = () => {
@@ -450,16 +572,17 @@ export function FileChip({ file, session, onOpen, onRemove }: { file: Attachment
       className="ag-file"
       // The preview stands where tooltips would.
       title={sent ? undefined : typeof file === "string" ? file : name}
-      tabIndex={sent ? 0 : undefined}
-      role={sent ? "button" : undefined}
-      onClick={() => sent && open()}
+      tabIndex={opens ? 0 : undefined}
+      role={opens ? "button" : undefined}
+      onClick={() => opens && open()}
       onPointerEnter={(e) => sent && setAt(e.currentTarget)}
       onPointerLeave={() => setAt(null)}
       onFocus={(e) => sent && setAt(e.currentTarget)}
       onBlur={() => setAt(null)}
       onKeyDown={(e) => {
         if (e.key === "Escape") setAt(null);
-        else if (sent && (e.key === "Enter" || e.key === " ")) {
+        // Not from the × inside it.
+        else if (opens && e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) {
           e.preventDefault();
           open();
         }
@@ -469,7 +592,16 @@ export function FileChip({ file, session, onOpen, onRemove }: { file: Attachment
       <span className="ellipsis" data-tip-off={sent ? "" : undefined}>{name}</span>
       {typeof file !== "string" && <span className="faint">{bytes(file.size)}</span>}
       {onRemove && (
-        <button type="button" className="ag-file-x" aria-label={`Remove ${name}`} onClick={onRemove}>
+        <button
+          type="button"
+          className="ag-file-x"
+          aria-label={`Remove ${name}`}
+          // Not opening the chip's preview on the way.
+          onClick={(e) => {
+            e.stopPropagation();
+            onRemove();
+          }}
+        >
           <Icon name="close" size={10} />
         </button>
       )}
@@ -565,9 +697,7 @@ export function RequestField({ value, onChange, files, onFiles, onSubmit }: { va
       />
       {files.length > 0 && (
         <div className="ag-files">
-          {files.map((f, i) => (
-            <FileChip key={i} file={f} onRemove={() => onFiles(files.filter((_, j) => j !== i))} />
-          ))}
+          <Drafts files={files} onFiles={onFiles} />
         </div>
       )}
       <div className="row" style={{ justifyContent: "space-between" }}>
@@ -701,9 +831,7 @@ export function AgentInput({ id, label, value, onChange, files, onFiles, picks, 
               </button>
             </span>
           ))}
-          {files.map((f, i) => (
-            <FileChip key={i} file={f} onRemove={() => onFiles(files.filter((_, j) => j !== i))} />
-          ))}
+          <Drafts files={files} onFiles={onFiles} />
         </div>
       )}
       <div className={`term-input-row${lines >= 2 ? " term-input-multi" : ""}${lines >= 3 ? " term-input-tall" : ""}`} style={{ "--lines": Math.min(lines, 3) } as CSSProperties}>
