@@ -5,10 +5,10 @@ import { useConfig } from "../api/hooks";
 import { rpc } from "../api/transport";
 import type { Config } from "../api/types";
 
-/** Saves view value `key` (see useStored), seen at once by every screen reading it. */
+/** Saves view value `key` (see useStored), seen at once by every screen reading it. Resolves once stored. */
 export function saveView(qc: QueryClient, key: string, s: string) {
   qc.setQueryData<Config>(["config"], (c) => c && { ...c, ui: { ...c.ui, view: { ...c.ui.view, [key]: s } } });
-  rpc("ui.setView", { key, value: s }).catch(() => {
+  return rpc("ui.setView", { key, value: s }).catch(() => {
     /* view state only: the screen still works, it just won't be restored */
   });
 }

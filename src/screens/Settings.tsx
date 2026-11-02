@@ -6,14 +6,12 @@ import { renderSVG } from "uqr";
 
 import { allowFirewall, companionInfo, isLocal, openExternal, rpc, type CompanionInfo } from "../api/transport";
 import type { Config, JiraConn } from "../api/types";
-import { GRAVATAR_KEY } from "../components/Avatar";
 import { Icon } from "../components/Icon";
 import { useTermDefault } from "../components/Shell";
 import { Confirm, Seg } from "../components/ui";
 import { BUILT_IN, comboOf, DEFAULTS, keyCaps, SHORTCUTS, showKeys, usedBy, useKeys, useSetKeys } from "../lib/keys";
 import { ANIMATIONS, useAnimations } from "../lib/motion";
 import { useNav } from "../lib/nav";
-import { useStoredFlag } from "../lib/stored";
 import { ansi, resolveTheme, THEMES, type Theme } from "../lib/themes";
 import { copyToClipboard, toast } from "../lib/toast";
 
@@ -21,7 +19,7 @@ const JIRA_TOKENS = "https://id.atlassian.com/manage-profile/security/api-tokens
 
 /** App settings by group: id, label, icon, listed as rows in the menu. Project settings are in the menu too, beside them. */
 export const GROUPS: [string, [string, string, string][]][] = [
-  ["General", [["appearance", "Appearance", "brush"], ["animations", "Animations", "play"], ["avatars", "Avatars", "smile"], ["terminal", "Terminal", "terminal"], ["worktrees", "Worktrees", "layers"], ["dictation", "Voice dictation", "mic"], ["shortcuts", "Shortcuts", "keyboard"]]],
+  ["General", [["appearance", "Appearance", "brush"], ["animations", "Animations", "play"], ["terminal", "Terminal", "terminal"], ["worktrees", "Worktrees", "layers"], ["dictation", "Voice dictation", "mic"], ["shortcuts", "Shortcuts", "keyboard"]]],
   ["AI", [["ai", "AI setup", "sparkle"], ["templates", "Templates", "edit"]]],
   ["Git", [["git", "Git providers", "pr"]]],
   ["Integrations", [["tools", "Jira, Trello, Asana", "ticket"], ["companion", "Companion & MCP", "phone"]]],
@@ -33,7 +31,6 @@ export function SettingsSection({ id, cfg }: { id: string; cfg: Config }) {
     <>
       {id === "appearance" && <Appearance />}
       {id === "animations" && <Animations />}
-      {id === "avatars" && <Avatars />}
       {id === "terminal" && <TerminalSection />}
       {id === "worktrees" && <WorktreesSection cfg={cfg} />}
       {id === "dictation" && <DictationSection />}
@@ -138,29 +135,6 @@ function Animations() {
             </label>
           </li>
         ))}
-      </ul>
-    </>
-  );
-}
-
-function Avatars() {
-  const [gravatar, setGravatar] = useStoredFlag(GRAVATAR_KEY);
-  return (
-    <>
-      <div className="col page-intro" style={{ gap: 6 }}>
-        <h1>Avatars</h1>
-        <p className="muted" style={{ margin: 0 }}>Authors on branches and commits show as their initials.</p>
-      </div>
-      <ul className="list">
-        <li className="list-row">
-          <label className="check grow">
-            <input type="checkbox" checked={gravatar} onChange={() => setGravatar(!gravatar)} />
-            <span className="col" style={{ gap: 2 }}>
-              <span style={{ fontWeight: 500 }}>Use Gravatar</span>
-              <span className="hint">Show the author's Gravatar picture when they have one. Sends a hash of each author's email to gravatar.com.</span>
-            </span>
-          </label>
-        </li>
       </ul>
     </>
   );

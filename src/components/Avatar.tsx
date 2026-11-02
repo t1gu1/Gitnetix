@@ -2,7 +2,7 @@ import { useEffect, useState, type CSSProperties } from "react";
 
 import { useStoredFlag } from "../lib/stored";
 
-/** Settings key: show Gravatar pictures instead of initials. */
+/** Profile setting, edited with the profile: show authors' Gravatar pictures instead of initials. */
 export const GRAVATAR_KEY = "gnx.avatar.gravatar";
 
 const hashes = new Map<string, Promise<string>>();
@@ -51,7 +51,7 @@ export function useGravatar(email: string | undefined, size: number) {
   return [src, () => setSrc(null)] as const;
 }
 
-/** Small round picture of a commit author: their initials, or their Gravatar when turned on in the settings. Full name in the tooltip. */
+/** Small round picture of a commit author: their initials, or their Gravatar when turned on in the profile. Full name in the tooltip. */
 export function Avatar({ name, email, size = 16 }: { name: string; email?: string; size?: number }) {
   const [gravatar] = useStoredFlag(GRAVATAR_KEY);
   const [src, failed] = useGravatar(gravatar ? email : undefined, size);

@@ -9,8 +9,9 @@ import { plural } from "../lib/format";
 import { showKeys, useKeys } from "../lib/keys";
 import { useNav } from "../lib/nav";
 import { otherMode, resolveTheme } from "../lib/themes";
+import { saveView, useStoredFlag } from "../lib/stored";
 import { toast } from "../lib/toast";
-import { useGravatar } from "./Avatar";
+import { GRAVATAR_KEY, useGravatar } from "./Avatar";
 import { ContextMenu, type MenuItem } from "./ContextMenu";
 import { Icon } from "./Icon";
 import { Confirm, Modal, Seg } from "./ui";
@@ -171,9 +172,11 @@ export function ProfileButton() {
 /**
  * Name, Git identity, avatar and color fields, starting from `init`, and what they make.
  * `ready`: the email and the chosen kind of avatar are complete. `touched`: something differs from `init`.
+ * `authorGravatars`: given, a box beside the avatar to show commit authors' Gravatars, a setting of the profile in use.
  */
-export function useProfileForm(init: { name: string; avatar: string; hue: number | null; git?: GitProfile }) {
+export function useProfileForm(init: { name: string; avatar: string; hue: number | null; git?: GitProfile; authorGravatars?: boolean }) {
   const [name, setName] = useState(init.name);
+  const [authorGravatars, setAuthorGravatars] = useState(init.authorGravatars);
   const old = init.avatar;
   // One email for commits and Gravatar: a Gravatar picked before identities were part of profiles fills it when empty.
   const start = { name: init.git?.name ?? "", email: init.git?.email || (old.startsWith(GRAVATAR) ? old.slice(GRAVATAR.length) : ""), sign: !!init.git?.sign, signingKey: init.git?.signingKey ?? "" };
@@ -267,6 +270,18 @@ export function useProfileForm(init: { name: string; avatar: string; hue: number
           </div>
         )}
         {kind === "gravatar" && <span className="hint">The picture set for the email above on gravatar.com. Without one, the default avatar shows.</span>}
+        {authorGravatars !== undefined && (
+          // Wrapped: a label right under .field takes the field-label look.
+          <div>
+            <label className="check">
+              <input type="checkbox" checked={authorGravatars} onChange={() => setAuthorGravatars(!authorGravatars)} />
+              <span className="col" style={{ gap: 2 }}>
+                <span>Show authors' Gravatar pictures</span>
+                <span className="hint">On branches and commits, instead of their initials. Sends a hash of each author's email to gravatar.com.</span>
+              </span>
+            </label>
+          </div>
+        )}
       </div>
       <div className="field">
         <span className="flabel" id="profile-color">Color</span>
@@ -293,8 +308,9 @@ export function useProfileForm(init: { name: string; avatar: string; hue: number
     avatar,
     hue,
     git: { name: git.name.trim(), email, sign: git.sign, signingKey: git.signingKey.trim() || null },
+    authorGravatars,
     ready: pictured && !badEmail,
-    touched: name !== init.name || avatar !== old || hue !== init.hue || JSON.stringify(git) !== JSON.stringify(start),
+    touched: name !== init.name || avatar !== old || hue !== init.hue || authorGravatars !== init.authorGravatars || JSON.stringify(git) !== JSON.stringify(start),
     fields,
   };
 }
@@ -307,6 +323,8 @@ export function ProfileDialog({ profile, from, menu, onClose }: { profile?: User
   const cfg = useConfig().data;
   const { list, switchTo } = useProfiles();
   const source = list.find((p) => p.id === from);
+  const qc = useQueryClient();
+  const [authorGravatars] = useStoredFlag(GRAVATAR_KEY);
   const f = useProfileForm({
     name: profile?.name ?? (source ? `${source.name} copy` : ""),
     avatar: profile?.avatar ?? "",
@@ -314,6 +332,8 @@ export function ProfileDialog({ profile, from, menu, onClose }: { profile?: User
     hue: profile ? (profile.hue ?? null) : (HUES.find((h) => !list.some((p) => p.hue === h)) ?? null),
     // Editing or copying the profile in use: its identity, the only one loaded. A new profile starts without.
     git: (profile?.id ?? from) === cfg?.activeProfile ? cfg?.profiles[0] : undefined,
+    // Only edited for the profile in use, whose settings these are: a new one keeps those it starts with.
+    authorGravatars: profile ? authorGravatars : undefined,
   });
   const [start, setStart] = useState(from ?? "");
   const save = useAction<UserProfile>("userProfiles.save", { invalidate: [["config"]] });
@@ -324,6 +344,9 @@ export function ProfileDialog({ profile, from, menu, onClose }: { profile?: User
       { id: profile?.id, name: f.name, avatar: f.avatar, hue: f.hue, git: f.git, from: profile ? undefined : start || undefined },
       {
         onSuccess: (p) => {
+          // The config refetched for the profile is already on its way without it: refetch once it is stored.
+          if (f.authorGravatars !== undefined && f.authorGravatars !== authorGravatars)
+            void saveView(qc, GRAVATAR_KEY, f.authorGravatars ? "1" : "0").then(() => qc.invalidateQueries({ queryKey: ["config"] }));
           onClose();
           // A fresh one opens on its setup, not over it in the settings.
           if (!profile) void switchTo(p, menu && !!start);

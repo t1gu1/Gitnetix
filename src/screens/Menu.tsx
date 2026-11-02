@@ -3,7 +3,6 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties, type Reac
 import { useAction, useConfig, useProjectPrefs } from "../api/hooks";
 import { currentRemote, isLocal, isTauri, saveRemote } from "../api/transport";
 import type { Config, DialogPrefs, Project, UserProfile } from "../api/types";
-import { GRAVATAR_KEY } from "../components/Avatar";
 import { Icon } from "../components/Icon";
 import { Logo } from "../components/Logo";
 import { DeleteProfile, ProfileAvatar, ProfileDialog, useProfiles } from "../components/Profiles";
@@ -13,7 +12,6 @@ import { Confirm, LANGS, Seg } from "../components/ui";
 import { DEFAULTS, SHORTCUTS, showKeys, useKeys } from "../lib/keys";
 import { animates, useAnimations } from "../lib/motion";
 import { useNav } from "../lib/nav";
-import { useStoredFlag } from "../lib/stored";
 import { THEMES } from "../lib/themes";
 import { AISetupPanes } from "./AISetup";
 import { LogsPane } from "./Logs";
@@ -357,7 +355,6 @@ function AppSettings({ cfg, open, onUnpair }: { cfg?: Config; open: (id: string)
   const keys = useKeys();
   const changedKeys = SHORTCUTS.filter((s) => keys[s.id] !== DEFAULTS[s.id]).length;
   const { off } = useAnimations();
-  const [gravatar] = useStoredFlag(GRAVATAR_KEY);
   const [term] = useTermDefault();
   const i = cfg?.integrations;
   const s = cfg?.server;
@@ -365,7 +362,6 @@ function AppSettings({ cfg, open, onUnpair }: { cfg?: Config; open: (id: string)
   const value: Record<string, ReactNode> = {
     appearance: THEMES.find((t) => t.id === nav.themePref)?.name ?? "System",
     animations: off.length ? `${off.length} off` : "All on",
-    avatars: gravatar ? "Gravatar" : "Initials",
     terminal: term === "shell" ? "Opens on Shell" : "Opens on Agent",
     worktrees: cfg && (cfg.worktreeFiles.length ? `${count(cfg.worktreeFiles.length, "file")} copied` : "No files copied"),
     dictation: <span className="mono">{showKeys(keys.dictation)}</span>,
