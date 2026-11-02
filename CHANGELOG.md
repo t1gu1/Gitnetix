@@ -11,6 +11,8 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+## [0.17.2] - 2026-11-02
+
 ### Added
 - A branch stopped in the middle of a rebase, merge, cherry-pick or revert can be aborted from the banner above its files, its "⋯" menu, or its worktree's menu in Worktrees & agents. After a confirmation, the branch goes back to where it was before the operation started.
 - Global skills, a new list at the top of Templates: each one that is on goes in front of every other template (commits, branch names, PRs and review replies, release notes, changelogs, agents), conflict resolution and voice dictation aside. The shipped Unslop skill is on by default and keeps the writing free of the words and patterns that give machine-written text away. Each global skill has its own on/off switch and can apply to all projects or one.
