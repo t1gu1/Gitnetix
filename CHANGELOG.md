@@ -11,6 +11,9 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+### Added
+- Settings > Shortcuts page lists every keyboard shortcut and lets you edit each one. Changes save per computer, and a shortcut stays empty until you change it.
+
 ## [0.16.0] - 2026-11-01
 
 ### Added
