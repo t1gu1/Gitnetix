@@ -1764,6 +1764,10 @@ fn merge_targets(p: &Project, refs: &Refs, default: &str) -> Vec<String> {
 
 impl Gitnetix {
     pub fn open(dir: &Path) -> Result<Arc<Gitnetix>> {
+        // Tokens reach the keychain from the app's own folder only: a test's never asks the user or sees theirs.
+        if dir == crate::store::data_dir() {
+            secrets::save_for_good();
+        }
         let store = Store::open(dir)?;
         let (events, _) = broadcast::channel(1024);
         let agents = AgentManager::new(events.clone(), dir);
