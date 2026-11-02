@@ -13,15 +13,19 @@ release notes and the in-app update prompt.
 
 ### Added
 - A branch stopped in the middle of a rebase, merge, cherry-pick or revert can be aborted from the banner above its files, its "⋯" menu, or its worktree's menu in Worktrees & agents. After a confirmation, the branch goes back to where it was before the operation started.
-- The branch list marks a stopped merge, cherry-pick or revert too: "conflict" while conflicts are left, else "mid-merge", "mid-rebase"…
 - Global skills, a new list at the top of Templates: each one that is on goes in front of every other template (commits, branch names, PRs and review replies, release notes, changelogs, agents), conflict resolution and voice dictation aside. The shipped Unslop skill is on by default and keeps the writing free of the words and patterns that give machine-written text away. Each global skill has its own on/off switch and can apply to all projects or one.
+- Clicking a draft attachment opens a preview before sending: images at full size, text up to the first MiB, or a "No preview" notice. Arrow keys and buttons step through the drafts, and Remove drops the file shown.
+- The branch list marks a stopped merge, cherry-pick or revert too: "conflict" while conflicts are left, else "mid-merge", "mid-rebase"…
 
 ### Changed
 - An agent's questions show as its chat bubbles under "Your turn!", one bubble per question with its title and answer buttons, and the agent's mark beside them. Question titles are bigger and in the accent color, and show for a single question too.
 - One question can take several answers: picking an option no longer drops the other one picked for that question.
-
-### Changed
 - New worktrees get `graphify-out/`, `.claude/settings.local.json`, `.env`, `.env.local`, `.env.example` and `.env.example.local` copied from the main checkout by default, in new and existing profiles. Remove any of them in Settings > Worktrees and it stays removed.
+- A failed tool call in an agent's chat shows its exit code next to the error.
+- The agent template suggests sharing an example image.
+
+### Fixed
+- Copying from selected diff rows copies only the code, without line numbers or markers.
 
 ## [0.17.1] - 2026-11-02
 
