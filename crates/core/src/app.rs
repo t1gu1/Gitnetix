@@ -1969,21 +1969,33 @@ impl Gitnetix {
         index
     }
 
+    /// Template `id`, else the `kind` one for `project_id`, with the global skills on for
+    /// `project_id` in front of its body.
     fn template(&self, kind: &str, id: Option<&str>, project_id: Option<&str>) -> Result<Template> {
         self.store.read(|c| {
             let ok_scope = |t: &&Template| t.scope == "all" || Some(t.scope.as_str()) == project_id;
-            if let Some(id) = id {
-                return c.templates.iter().find(|t| t.id == id).cloned();
-            }
-            c.templates
-                .iter()
-                .filter(|t| t.kind == kind)
-                .filter(ok_scope)
-                .find(|t| t.is_default)
-                .or_else(|| c.templates.iter().filter(|t| t.kind == kind).find(ok_scope))
-                .cloned()
+            let found = match id {
+                Some(id) => c.templates.iter().find(|t| t.id == id),
+                None => c
+                    .templates
+                    .iter()
+                    .filter(|t| t.kind == kind)
+                    .filter(ok_scope)
+                    .find(|t| t.is_default)
+                    .or_else(|| c.templates.iter().filter(|t| t.kind == kind).find(ok_scope)),
+            };
+            found.cloned().map(|mut t| {
+                templates::apply_globals(&mut t, &c.templates, project_id);
+                t
+            })
         })
         .ok_or_else(|| Error::NotFound(format!("{kind} template")))
+    }
+
+    /// `t`, a prompt built here rather than stored, with the global skills on for `project_id` in front.
+    fn with_globals(&self, mut t: Template, project_id: &str) -> Template {
+        self.store.read(|c| templates::apply_globals(&mut t, &c.templates, Some(project_id)));
+        t
     }
 
     fn route(&self, task: &str, t: Option<&Template>) -> Result<Resolved> {
@@ -5036,6 +5048,9 @@ impl Gitnetix {
                     "“squash my last 3 commits”".into(),
                 ));
             }
+            templates::GLOBAL => {
+                return Ok(("Global skills that are on go in front of every other template, conflict resolution and voice dictation aside. Preview one of those to see them at work.".into(), "no data".into()));
+            }
             _ => {
                 return Ok(("Conflict templates run when a rebase stops on a conflict.".into(), "a conflicted file".into()));
             }
@@ -5144,7 +5159,7 @@ impl Gitnetix {
                 d.summary.title
             ),
         };
-        let t = Template { kind: "pr".into(), body: ask, ..Default::default() };
+        let t = self.with_globals(Template { kind: "pr".into(), body: ask, ..Default::default() }, project_id);
         self.ask("pr", &t, BTreeMap::new(), &p.gen_lang.pr, None).await
     }
 
@@ -5166,6 +5181,7 @@ impl Gitnetix {
             ),
             ..Default::default()
         };
+        let t = self.with_globals(t, project_id);
         self.ask("pr", &t, BTreeMap::new(), &p.gen_lang.pr, None).await
     }
 

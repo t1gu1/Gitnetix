@@ -9,11 +9,12 @@ use serde::{Deserialize, Serialize};
 #[serde(default, rename_all = "camelCase")]
 pub struct Template {
     pub id: String,
-    /// commit | branch | pr | release | changelog | conflict | agent | dictation
+    /// global | commit | branch | pr | release | changelog | changelogMerge | conflict | agent | dictation
     pub kind: String,
     pub name: String,
     /// "all" or a project id.
     pub scope: String,
+    /// The one used for its kind when none is picked. A global skill has it on while it is sent.
     pub is_default: bool,
     pub body: String,
     pub rules: Vec<Rule>,
@@ -47,7 +48,11 @@ pub struct Rule {
     pub value: serde_json::Value,
 }
 
+/// Kind of the global skills: sent in front of every other template, see [`apply_globals`].
+pub const GLOBAL: &str = "global";
+
 pub const KINDS: &[(&str, &str)] = &[
+    (GLOBAL, "Global skills"),
     ("commit", "Commit messages"),
     ("branch", "Branch names"),
     ("pr", "PR title & description"),
@@ -101,6 +106,27 @@ pub fn share_images(dir: &str) -> String {
 /// Appended to conflict prompts, stored and custom templates included: which side of a conflict is
 /// whose, and the edits Gitnetix applies to the file.
 pub const CONFLICT_EDITS: &str = "In each conflict, the lines after <<<<<<< come from {theirs} and the lines after ======= from {ours}; a ||||||| section, when there is one, holds the text both started from.\n\nAnswer with the edits that resolve the file, each one written as:\n[[FIND]]\nlines copied exactly from the file, conflict markers included\n[[REPLACE]]\nthe lines that take their place\n[[END]]\n\n- Every conflict, from its <<<<<<< line to its >>>>>>> line, is inside the FIND of an edit.\n- Change any other line the resolution needs with an edit too.\n- A FIND matches one place in the file only: add the lines around it when it could match another.\n- Edits apply in order, each to the file as the ones before it left it.";
+
+/// Kinds no global skill goes in front of. Conflict: the answer is edits to code, where writing rules
+/// could change quotes and dashes the code needs. Dictation: it keeps the speaker's own words.
+pub const NO_GLOBALS: &[&str] = &["conflict", "dictation"];
+
+/// Puts the global skills of `all` that are on for `project_id` in front of `t`'s body, in list order,
+/// unless `t` is a global skill itself or one of [`NO_GLOBALS`].
+pub fn apply_globals(t: &mut Template, all: &[Template], project_id: Option<&str>) {
+    if t.kind == GLOBAL || NO_GLOBALS.contains(&t.kind.as_str()) {
+        return;
+    }
+    let skills: Vec<&str> = all
+        .iter()
+        .filter(|g| g.kind == GLOBAL && g.is_default && (g.scope == "all" || Some(g.scope.as_str()) == project_id))
+        .map(|g| g.body.trim())
+        .filter(|b| !b.is_empty())
+        .collect();
+    if !skills.is_empty() {
+        t.body = format!("{}\n\n---\n\n{}", skills.join("\n\n"), t.body);
+    }
+}
 
 /// Fill `{var}` placeholders. Rules are exposed as `{ruleKey}` too.
 /// Unknown placeholders are left as they are, and so are the ones a value holds: a file
@@ -173,9 +199,97 @@ pub const OLD_BODIES: &[(&str, &str)] = &[
     ("agent", "You work for the user in {worktree} on branch {branch}.\n\nBefore acting, state the plan and the exact commands.\nNever force-push to main or release/* branches.\nStop and ask if the request is ambiguous.\n\nRequest:\n{request}"),
 ];
 
+/// Body of the Unslop global skill: plain writing without the patterns that give machine-written text away.
+/// Adapted from https://github.com/cursor/plugins/blob/main/pstack/skills/unslop/SKILL.md: frontmatter
+/// dropped, opening line written for a skill sent in front of every prompt.
+//
+// MIT License
+//
+// Copyright (c) 2026 Lauren Tan
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+pub const UNSLOP: &str = r#"# Unslop
+
+Follow these writing rules in everything you write.
+
+## Patterns to detect and fix
+
+### Content
+
+3. **Superficial -ing phrases.** "highlighting...", "ensuring...", "reflecting...", "showcasing...", "fostering...". Delete or expand with real sources.
+5. **Vague attributions.** "Experts believe", "Industry reports suggest", "Some critics argue". Name the source or delete.
+
+### Language
+
+7. **AI vocabulary.** Additionally, crucial, delve, enduring, enhance, fostering, garner, interplay, intricate, landscape (abstract), pivotal, showcase, tapestry (abstract), testament, underscore, vibrant. Replace with plain words.
+8. **Fancy ways to say "is".** "serves as", "stands as", "boasts", "features". Say "is" or "has".
+9. **"Not just X, but Y."** State the point directly instead.
+10. **Rule of three.** Don't force ideas into groups of three. Use the natural number.
+11. **Synonym cycling.** Protagonist, main character, central figure, hero all in one paragraph. Pick one, repeat it.
+12. **False ranges.** "from X to Y" where X and Y aren't on a meaningful scale. List topics directly.
+
+### Style
+
+13. **Em dash overuse.** Avoid em dashes entirely. Use periods or commas only (no parentheses, no en dashes, no hyphen-as-dash substitutes). If a thought needs separation, end the sentence or use a comma.
+14. **Colon overuse.** Colons are fine before a list or example, not as mid-sentence connectors. "If you're coming from traditional automation: instead of registering event handlers, you describe conditions" adds nothing with the colon. Rewrite to let the point stand on its own without comparison framing. "Describing when the scheduler should fire works best as plain English." Same meaning, no crutch punctuation.
+15. **Boldface overuse.** Don't bold every proper noun or acronym.
+16. **Inline-header lists.** The tell is a bold label and colon that restates the line: "**Performance:** Performance improved...". Convert those to prose. A bold lead-in that ends in a period, names the item, and is followed by genuinely new detail ("**Schema in TypeScript.** Tables live in one file.") is fine, not a tell.
+17. **Title case headings.** Use sentence case.
+18. **Decorative emojis.** Remove from headings and bullets.
+19. **Curly quotes.** Use straight quotes.
+
+### Communication artifacts
+
+20. **Chatbot phrases.** "I hope this helps!", "Let me know if...", "Of course!", "Certainly!", "Found the smoking gun!" Remove.
+22. **Sycophantic tone.** "Great question! You're absolutely right!" Respond directly.
+
+### Filler
+
+23. **Filler phrases.** "In order to" becomes "To". "Due to the fact that" becomes "Because". Delete "It is important to note that".
+24. **Excessive hedging.** "could potentially possibly be argued that it might" becomes "may".
+25. **Generic conclusions.** "The future looks bright." State specific plans or facts.
+
+### Jargon
+
+26. **Abstract metaphor nouns.** Substrate (base), wedge, wedge in (add), vector (way, method), locus, vantage, nexus, primitive as a noun, harness as a metaphor, surface as in "API surface", bedrock, scaffolding as a metaphor, modality, paradigm, gold-plating (more than the job needs), ratchet as a metaphor (the mechanism's real name, or a limit that only tightens), evacuate for moving code (move out), endgame (the last phase), north star, flywheel. These read as technical but usually have a plainer concrete word. Pick the concrete word.
+
+### Plain speech
+
+27. **Say what it does, not how it feels.** "the database stays close at hand", "SQL you can read", "types that follow your schema" name a feeling. The fix names the mechanism or a number: "`.toSQL()` returns the exact string sent to the database", "a column rename fails the build". Ask what the sentence tells the reader to do or know, then write that. If you can't restate it as a concrete instruction, fact, or number, cut it. One more check: if the sentence could appear unchanged in another project's docs, it says nothing about this one. Cut it.
+28. **Shorten or split dense sentences.** If the reader has to backtrack to parse a sentence, break it in two or drop clauses. One idea per sentence.
+29. **Active voice.** Prefer it. Catch "is/are/was/were + past participle" and name the actor: "queries are validated" becomes "the compiler validates queries", "the file is parsed by the loader" becomes "the loader parses the file". Passive is fine only when the actor is unknown or genuinely doesn't matter.
+30. **Cut adverbs, or use a stronger verb.** "runs quickly" becomes "is fast" or the number, and "significantly improves" becomes the measured delta. An adverb propping up a weak verb means the verb is wrong.
+31. **Prefer the plain word.** "utilize" and "leverage" become "use", "facilitate" becomes "help", "numerous" becomes "many", "in the event that" becomes "if". The fancier synonym is rarely clearer.
+32. **Mannered prose.** Metaphor or flourish where a literal phrase exists: aphorisms ("wire it or delete it"), rhetorical fragments for effect, personified code ("the plan holds it"), figurative verbs ("rides along", "stands on"), stock framing phrases. "A dial worth turning" becomes "a parameter worth varying". Say what you mean. Rule 26 covers the metaphor nouns.
+33. **Over-compression.** Dropped articles, verbless fragments, symbol-speak, and abbreviations that make the reader decode instead of read. "Parser rejects bad date → exit 2, no write" becomes "The parser rejects a bad date, exits with code 2, and writes nothing." Write whole sentences with their articles and verbs, and spell out arrows and abbreviations."#;
+
 pub fn default_templates() -> Vec<Template> {
     use serde_json::json;
     vec![
+        Template {
+            id: "unslop".into(),
+            kind: GLOBAL.into(),
+            name: "Unslop".into(),
+            is_default: true,
+            body: UNSLOP.into(),
+            ..Default::default()
+        },
         Template {
             id: "commit-conv".into(),
             kind: "commit".into(),
@@ -321,6 +435,43 @@ mod tests {
         assert!(out.contains("Write the result in French."));
         assert!(out.contains(NO_AI_CREDIT));
         assert!(out.contains("{files}")); // not provided → left alone
+    }
+
+    #[test]
+    fn global_skills_go_in_front_of_other_templates() {
+        let all = default_templates();
+        let mut t = all.iter().find(|t| t.id == "commit-conv").unwrap().clone();
+        let body = t.body.clone();
+        apply_globals(&mut t, &all, Some("p1"));
+        assert!(t.body.starts_with(UNSLOP.trim()), "{}", t.body);
+        assert!(t.body.ends_with(&format!("\n\n---\n\n{body}")));
+        let out = render(&t, &BTreeMap::new(), "en");
+        assert!(out.contains("Follow these writing rules in everything you write."));
+        assert!(!out.contains("Rule numbers are stable ids"));
+    }
+
+    #[test]
+    fn global_skills_follow_their_switch_and_scope() {
+        let mut all = default_templates();
+        all.push(Template { id: "p2-only".into(), kind: GLOBAL.into(), scope: "p2".into(), is_default: true, body: "Only in p2.".into(), ..Default::default() });
+        all.push(Template { id: "off".into(), kind: GLOBAL.into(), body: "Turned off.".into(), ..Default::default() });
+        let with = |all: &[Template], id: &str, project: &str| {
+            let mut t = all.iter().find(|t| t.id == id).unwrap().clone();
+            apply_globals(&mut t, all, Some(project));
+            t.body
+        };
+        let p1 = with(&all, "pr-std", "p1");
+        assert!(p1.contains("# Unslop") && !p1.contains("Only in p2.") && !p1.contains("Turned off."));
+        let p2 = with(&all, "pr-std", "p2");
+        assert!(p2.find("# Unslop").unwrap() < p2.find("Only in p2.").unwrap(), "in list order");
+        let conflict = all.iter().find(|t| t.id == "conflict").unwrap().body.clone();
+        assert_eq!(with(&all, "conflict", "p1"), conflict);
+        let dictation = all.iter().find(|t| t.id == "dictation").unwrap().body.clone();
+        assert_eq!(with(&all, "dictation", "p1"), dictation);
+        assert_eq!(with(&all, "unslop", "p1"), UNSLOP, "a global skill gets no other in front");
+        all.iter_mut().find(|t| t.id == "unslop").unwrap().is_default = false;
+        let commit = all.iter().find(|t| t.id == "commit-conv").unwrap().body.clone();
+        assert_eq!(with(&all, "commit-conv", "p1"), commit);
     }
 
     #[test]

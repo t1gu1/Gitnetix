@@ -431,7 +431,7 @@ export const useTemplates = () =>
   useQuery({
     queryKey: ["templates"],
     queryFn: () =>
-      rpc<{ templates: Template[]; kinds: { id: string; label: string; variables: { name: string; hint: string }[] }[] }>(
+      rpc<{ templates: Template[]; kinds: { id: string; label: string; globals: boolean; variables: { name: string; hint: string }[] }[] }>(
         "templates.list",
       ),
   });

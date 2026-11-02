@@ -889,7 +889,7 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
         "templates.list" => {
             let kinds: Vec<Value> = templates::KINDS
                 .iter()
-                .map(|(id, label)| json!({ "id": id, "label": label, "variables": templates::variables(id).into_iter().map(|(n, h)| json!({"name": n, "hint": h})).collect::<Vec<_>>() }))
+                .map(|(id, label)| json!({ "id": id, "label": label, "globals": *id != templates::GLOBAL && !templates::NO_GLOBALS.contains(id), "variables": templates::variables(id).into_iter().map(|(n, h)| json!({"name": n, "hint": h})).collect::<Vec<_>>() }))
                 .collect();
             to(json!({ "templates": k.store.read(|c| c.templates.clone()), "kinds": kinds }))
         }

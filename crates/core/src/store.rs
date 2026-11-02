@@ -778,6 +778,19 @@ mod tests {
     }
 
     #[test]
+    fn configs_from_before_global_skills_get_unslop_on() {
+        let dir = tempfile::tempdir().unwrap();
+        let globals = |templates: serde_json::Value| {
+            std::fs::write(dir.path().join("config.json"), serde_json::json!({ "templates": templates }).to_string()).unwrap();
+            super::Store::open(dir.path()).unwrap().read(|c| c.templates.iter().filter(|t| t.kind == "global").map(|t| (t.id.clone(), t.is_default)).collect::<Vec<_>>())
+        };
+        let old = serde_json::json!([{ "id": "commit-conv", "kind": "commit", "name": "Mine", "isDefault": true, "body": "Edited." }]);
+        assert_eq!(globals(old), [("unslop".to_string(), true)]);
+        let off = serde_json::json!([{ "id": "unslop", "kind": "global", "name": "Unslop", "isDefault": false, "body": "Edited." }]);
+        assert_eq!(globals(off), [("unslop".to_string(), false)], "a skill turned off stays off");
+    }
+
+    #[test]
     fn concurrent_writes_keep_the_file_whole() {
         let dir = tempfile::tempdir().unwrap();
         let store = super::Store::open(dir.path()).unwrap();

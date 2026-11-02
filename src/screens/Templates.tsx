@@ -36,12 +36,15 @@ export function TemplatesPanes() {
 
   if (!q.data) return <Loading />;
   const kind = kinds.find((k) => k.id === draft?.kind);
+  const isGlobal = draft?.kind === "global";
+  const unaffected = new Intl.ListFormat("en", { type: "conjunction" }).format(kinds.filter((k) => k.id !== "global" && !k.globals).map((k) => k.label));
   const dirty = draft && tpl && JSON.stringify(draft) !== JSON.stringify(tpl);
 
   const newTemplate = () => {
     const k = draft?.kind ?? "commit";
+    const body = k === "global" ? "Describe how the AI should write, whatever the template." : "Describe what the AI should write.\n\nWrite the result in {language}.";
     save.mutate(
-      { template: { id: "", kind: k, name: "New template", scope: "all", isDefault: false, body: "Describe what the AI should write.\n\nWrite the result in {language}.", rules: [], model: null } },
+      { template: { id: "", kind: k, name: "New template", scope: "all", isDefault: k === "global", body, rules: [], model: null } },
       { onSuccess: (t) => setSel(t.id) },
     );
   };
@@ -65,7 +68,7 @@ export function TemplatesPanes() {
                   <span>{t.name}</span>
                   <span className="faint" style={{ fontSize: 11.5 }}>{t.scope === "all" ? "All projects" : cfg?.projects.find((p) => p.id === t.scope)?.name ?? "One project"}</span>
                 </span>
-                {t.isDefault && <span className="tag accent">Default</span>}
+                {t.kind === "global" ? <span className={t.isDefault ? "tag accent" : "tag"}>{t.isDefault ? "On" : "Off"}</span> : t.isDefault && <span className="tag accent">Default</span>}
               </button>
             ))}
           </div>
@@ -80,9 +83,24 @@ export function TemplatesPanes() {
               Templates
             </button>
             <span className="tag">{kind?.label}</span>
-            {tpl?.isDefault ? <span className="c-acc" style={{ fontSize: 12 }}>Used by default</span> : null}
+            {isGlobal ? (
+              <label className="check">
+                <input
+                  type="checkbox"
+                  checked={!!tpl?.isDefault}
+                  disabled={!tpl || save.isPending}
+                  onChange={() => {
+                    if (!tpl) return;
+                    const on = !tpl.isDefault;
+                    save.mutate({ template: { ...tpl, isDefault: on } });
+                    setDraft({ ...draft, isDefault: on });
+                  }}
+                />
+                <span>On</span>
+              </label>
+            ) : tpl?.isDefault ? <span className="c-acc" style={{ fontSize: 12 }}>Used by default</span> : null}
             <span className="grow" />
-            {!tpl?.isDefault && <button className="btn" onClick={() => setDef.mutate({ id: draft.id })}>Set as default</button>}
+            {!isGlobal && !tpl?.isDefault && <button className="btn" onClick={() => setDef.mutate({ id: draft.id })}>Set as default</button>}
             <button className="btn" onClick={() => save.mutate({ template: { ...draft, id: "", name: `${draft.name} (copy)`, isDefault: false } }, { onSuccess: (t) => setSel(t.id) })}>Duplicate</button>
             <button className="btn btn-danger" onClick={() => setDeleting(true)}>Delete</button>
             <button className="btn btn-primary" disabled={!dirty || save.isPending} onClick={() => save.mutate({ template: draft })}>Save</button>
@@ -107,6 +125,8 @@ export function TemplatesPanes() {
                 <span>Instructions</span>
                 <span className="faint" style={{ fontWeight: 400 }}>{"{language}"} is filled in when you generate</span>
               </label>
+              {isGlobal && <span className="hint">While on, these instructions go in front of every other template. Not sent with {unaffected}.</span>}
+              {kind && !isGlobal && !kind.globals && <span className="hint">Global skills are not sent with this template.</span>}
               <textarea id="tp-body" className="textarea mono" rows={14} style={{ fontSize: 12.5 }} value={draft.body} onChange={(e) => setDraft({ ...draft, body: e.target.value })} />
               <div className="row wrap" style={{ gap: 6 }}>
                 <span className="faint" style={{ fontSize: 12 }}>Insert</span>
@@ -133,40 +153,50 @@ export function TemplatesPanes() {
                 )}
               </div>
             )}
-            <div className="field">
-              <label htmlFor="tp-model">Model</label>
-              <MenuChoice
-                id="tp-model"
-                className="select menu-select"
-                label="Model"
-                value={draft.model ?? ""}
-                options={[
-                  { value: "", label: "Use AI setup default" },
-                  { value: "claude-haiku-5-5", label: "Claude Haiku 5.5" },
-                  { value: "claude-sonnet-5-5", label: "Claude Sonnet 5.5" },
-                  { value: "claude-opus-5-5", label: "Claude Opus 5.5" },
-                ]}
-                onChange={(v) => setDraft({ ...draft, model: v || null })}
-              />
-              <span className="hint">Overrides the model from task routing in AI setup.</span>
-            </div>
+            {!isGlobal && (
+              <div className="field">
+                <label htmlFor="tp-model">Model</label>
+                <MenuChoice
+                  id="tp-model"
+                  className="select menu-select"
+                  label="Model"
+                  value={draft.model ?? ""}
+                  options={[
+                    { value: "", label: "Use AI setup default" },
+                    { value: "claude-haiku-5-5", label: "Claude Haiku 5.5" },
+                    { value: "claude-sonnet-5-5", label: "Claude Sonnet 5.5" },
+                    { value: "claude-opus-5-5", label: "Claude Opus 5.5" },
+                  ]}
+                  onChange={(v) => setDraft({ ...draft, model: v || null })}
+                />
+                <span className="hint">Overrides the model from task routing in AI setup.</span>
+              </div>
+            )}
           </section>
           <aside aria-label="Preview" className="col" style={{ flex: "1 1 360px", minWidth: 0, gap: 12, padding: 24, borderLeft: "1px solid var(--line)" }}>
             <div className="row">
               <h2 className="grow">Preview</h2>
-              <button className="btn" disabled={!nav.projectId || run.isPending || !!dirty} title={dirty ? "Save first" : undefined} onClick={() => run.mutate({ projectId: nav.projectId!, id: draft.id, language: lang }, { onSuccess: setPreview })}>
-                <Busy on={run.isPending}><Icon name="sparkle" size={12} className="c-acc" /></Busy>
-                {preview ? "Run again" : "Run preview"}
-              </button>
+              {!isGlobal && (
+                <button className="btn" disabled={!nav.projectId || run.isPending || !!dirty} title={dirty ? "Save first" : undefined} onClick={() => run.mutate({ projectId: nav.projectId!, id: draft.id, language: lang }, { onSuccess: setPreview })}>
+                  <Busy on={run.isPending}><Icon name="sparkle" size={12} className="c-acc" /></Busy>
+                  {preview ? "Run again" : "Run preview"}
+                </button>
+              )}
             </div>
-            <div className="row">
-              <span className="muted" id="tp-gen-lang">Generate in</span>
-              <Seg label="Generate in" value={lang} onChange={setLang} options={LANGS} />
-            </div>
-            <span className="hint">
-              {preview ? <>Ran on <span className="mono">{preview.source}</span>. Nothing is committed or posted.</> : nav.projectId ? "Runs this template on real data from the open project. Nothing is committed or posted." : "Open a project to preview."}
-            </span>
-            {preview ? <pre className="pre">{preview.output}</pre> : <div className="empty card">No preview yet.</div>}
+            {isGlobal ? (
+              <span className="hint">A global skill has no preview of its own. Preview another template to see its output with the global skills that are on.</span>
+            ) : (
+              <>
+                <div className="row">
+                  <span className="muted" id="tp-gen-lang">Generate in</span>
+                  <Seg label="Generate in" value={lang} onChange={setLang} options={LANGS} />
+                </div>
+                <span className="hint">
+                  {preview ? <>Ran on <span className="mono">{preview.source}</span>. Nothing is committed or posted.</> : nav.projectId ? "Runs this template on real data from the open project. Nothing is committed or posted." : "Open a project to preview."}
+                </span>
+                {preview ? <pre className="pre">{preview.output}</pre> : <div className="empty card">No preview yet.</div>}
+              </>
+            )}
           </aside>
           {deleting && (
             <Confirm
