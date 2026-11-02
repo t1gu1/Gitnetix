@@ -70,7 +70,7 @@ export function ProfileAvatar({ emoji, hue, size = 24 }: { emoji?: string; hue?:
       {emoji ?? (
         <svg viewBox="0 0 32 32" width="100%" height="100%">
           <circle cx="16" cy="12.5" r="5.75" />
-          <path d="M4.5 31c1-6.4 5.6-10.2 11.5-10.2S26.5 24.6 27.5 31z" />
+          <path d="M4.5 31c1-6.4 5.6-10.2 11.5-10.2S26.5 24.6 27.5 31V32H4.5z" />
         </svg>
       )}
     </span>
