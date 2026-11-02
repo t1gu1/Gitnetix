@@ -58,3 +58,21 @@ async fn projects_commit_with_the_profile_identity() {
     let pid = add(&k, &repo).await;
     assert_eq!(commit(&k, &pid, &repo, "5").await, "Me <me@home.org>");
 }
+
+/// Whether profile `id`'s screens open on the setup.
+async fn setup(k: &Gitnetix, id: &Value) -> Value {
+    call(k, "userProfiles.switch", json!({ "id": id })).await;
+    call(k, "config.get", json!({})).await["ui"]["onboarding"].clone()
+}
+
+#[tokio::test]
+async fn a_fresh_profile_opens_on_the_setup_and_a_copy_does_not() {
+    let tmp = tempfile::tempdir().unwrap();
+    let k = Gitnetix::open(tmp.path()).unwrap();
+    // The first launch's setup, still going: a copy of it skips it all the same.
+    assert_eq!(setup(&k, &json!("default")).await, true);
+    let copy = call(&k, "userProfiles.save", json!({ "name": "Copy", "from": "default" })).await;
+    let fresh = call(&k, "userProfiles.save", json!({ "name": "Fresh" })).await;
+    assert_eq!(setup(&k, &copy["id"]).await, false);
+    assert_eq!(setup(&k, &fresh["id"]).await, true);
+}

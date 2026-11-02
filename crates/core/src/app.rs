@@ -2150,6 +2150,8 @@ impl Gitnetix {
             }
             None => Config::default(),
         };
+        // A blank profile opens on the setup; a copy has its source's settings, even mid-setup.
+        data.ui.onboarding = from.is_none();
         if let Some(g) = git {
             data.profiles = g;
         }

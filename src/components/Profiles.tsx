@@ -325,7 +325,8 @@ export function ProfileDialog({ profile, from, menu, onClose }: { profile?: User
       {
         onSuccess: (p) => {
           onClose();
-          if (!profile) void switchTo(p, menu);
+          // A fresh one opens on its setup, not over it in the settings.
+          if (!profile) void switchTo(p, menu && !!start);
         },
       },
     );
@@ -358,7 +359,7 @@ export function ProfileDialog({ profile, from, menu, onClose }: { profile?: User
                   {p && <ProfileAvatar profile={p} size={22} />}
                   <span className="col" style={{ gap: 2, minWidth: 0 }}>
                     <span className="ellipsis" style={{ fontWeight: 500 }}>{p ? `A copy of ${p.name}` : "A fresh start"}</span>
-                    <span className="hint">{p ? "Its projects, connections and tokens, AI setup and settings" : "No projects or connections yet, default settings"}</span>
+                    <span className="hint">{p ? "Its projects, connections and tokens, AI setup and settings" : "No projects or connections yet, a short setup follows"}</span>
                   </span>
                 </button>
               ))}
