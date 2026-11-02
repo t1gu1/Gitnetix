@@ -111,6 +111,16 @@ pub struct ProjectSummary {
     pub hidden: bool,
 }
 
+/// A project saved in another profile, which this one can add back.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecentProject {
+    pub name: String,
+    pub path: String,
+    /// Name of the profile it comes from.
+    pub profile: String,
+}
+
 /// .gitignore line matching exactly `path` from the repo root; glob characters are escaped.
 fn ignore_line(path: &str, dir: bool) -> String {
     let mut out = String::from("/");
@@ -2051,6 +2061,26 @@ impl Gitnetix {
                 })
                 .collect()
         })
+    }
+
+    /// Projects of the other profiles that this one lacks and are still on disk, newest added first, each path once.
+    pub fn recent_projects(&self) -> Vec<RecentProject> {
+        let active = self.store.active();
+        let mine: Vec<String> = self.store.read(|c| c.projects.iter().map(|p| p.path.clone()).collect());
+        let mut all: Vec<(String, RecentProject)> = Vec::new();
+        for prof in self.store.profiles().list.into_iter().filter(|p| p.id != active) {
+            // An unreadable profile only hides its projects here.
+            let Ok(c) = self.store.profile_config(&prof.id) else { continue };
+            for p in c.projects {
+                all.push((p.added_at, RecentProject { name: p.name, path: p.path, profile: prof.name.clone() }));
+            }
+        }
+        all.sort_by(|a, b| b.0.cmp(&a.0));
+        let mut seen = std::collections::HashSet::new();
+        all.into_iter()
+            .map(|(_, r)| r)
+            .filter(|r| !mine.contains(&r.path) && seen.insert(r.path.clone()) && Path::new(&r.path).exists())
+            .collect()
     }
 
     pub async fn add_projects(&self, paths: Vec<String>) -> Result<Vec<Project>> {

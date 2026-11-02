@@ -130,6 +130,14 @@ export interface ProjectSummary {
   hidden?: boolean;
 }
 
+/** A project saved in another profile, which this one can add back. */
+export interface RecentProject {
+  name: string;
+  path: string;
+  /** Name of the profile it comes from. */
+  profile: string;
+}
+
 export interface BranchView {
   name: string;
   kind: string;

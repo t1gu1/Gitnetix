@@ -29,6 +29,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("ui.setView", "Remember how a screen was left (pane width, collapsed section…); no value forgets it", "key, value?"),
     ("server.set", "Configure the companion API", "enabled?, lan?, port?, regenerateToken?"),
     ("projects.list", "List saved projects", ""),
+    ("projects.recent", "Projects saved in the other profiles and not in this one, to add back", ""),
     ("projects.add", "Add local Git repositories", "paths: string[]"),
     ("projects.remove", "Remove a project from the list (files untouched)", "projectId"),
     ("projects.setHidden", "Close or reopen a project's tab (data kept)", "projectId, hidden"),
@@ -494,6 +495,7 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
 
         // ---- projects & profiles ----
         "projects.list" => to(k.projects().await),
+        "projects.recent" => to(k.recent_projects()),
         "projects.add" => {
             let paths = list(&p, "paths")?;
             to(k.add_projects(paths).await?)

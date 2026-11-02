@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 
 import { useAction, useProjects } from "../api/hooks";
-import { isLocal, onPathDrop, pickFolders } from "../api/transport";
-import type { Project } from "../api/types";
+import { isLocal, onPathDrop, pickFolders, rpc } from "../api/transport";
+import type { Project, RecentProject } from "../api/types";
 import { Icon } from "../components/Icon";
 import { Logo } from "../components/Logo";
 import { ProfileButton } from "../components/Profiles";
@@ -12,6 +13,8 @@ import { useNav } from "../lib/nav";
 export function Welcome() {
   const nav = useNav();
   const projects = useProjects();
+  // The other profiles' projects, to add back: in place of a new profile's empty list, else under it.
+  const recent = useQuery({ queryKey: ["projects", "recent"], queryFn: () => rpc<RecentProject[]>("projects.recent") }).data ?? [];
   const [over, setOver] = useState(false);
   const [manual, setManual] = useState("");
   const add = useAction<Project[], { paths: string[] }>("projects.add", {
@@ -39,6 +42,31 @@ export function Welcome() {
   useEffect(() => onPathDrop(addPaths, setOver), []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const list = projects.data ?? [];
+  const offer = !list.length && recent.length > 0;
+  const recentList = (
+    <ul className="list">
+      {recent.map((r) => (
+        <li key={r.path} className="row project-row" style={{ margin: 0 }}>
+          <button
+            className="row grow list-link"
+            style={{ gap: 14, minHeight: 60, padding: "0 16px", textAlign: "left", minWidth: 0 }}
+            aria-label={`Add ${r.name} from ${r.profile}`}
+            disabled={add.isPending}
+            onClick={() => addPaths([r.path])}
+          >
+            <span className="mono-badge" aria-hidden="true">{initials(r.name)}</span>
+            <span className="col" style={{ gap: 3, minWidth: 0 }}>
+              <span style={{ fontWeight: 500 }}>{r.name}</span>
+              <span className="mono faint ellipsis" style={{ fontSize: 11.5 }}>{r.path}</span>
+            </span>
+            <span className="grow" />
+            <span className="muted" style={{ fontSize: 12, whiteSpace: "nowrap" }}>{r.profile}</span>
+            <Icon name="plus" size={12} stroke={1.6} />
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
   return (
     <>
       <header className="hdr">
@@ -90,12 +118,12 @@ export function Welcome() {
             )}
           </div>
 
-          <section aria-label="Your projects" className="col">
+          <section aria-label={offer ? "Recent projects" : "Your projects"} className="col">
             <div className="row" style={{ justifyContent: "space-between" }}>
-              <h2 className="label">Your projects</h2>
-              <span className="faint" style={{ fontSize: 12 }}>{list.length} saved</span>
+              <h2 className="label">{offer ? "Recent projects" : "Your projects"}</h2>
+              <span className="faint" style={{ fontSize: 12 }}>{offer ? "From your other profiles" : `${list.length} saved`}</span>
             </div>
-            {list.length === 0 ? (
+            {offer ? recentList : list.length === 0 ? (
               <div className="empty card">Nothing here yet.</div>
             ) : (
               <ul className="list">
@@ -130,6 +158,13 @@ export function Welcome() {
               </ul>
             )}
           </section>
+
+          {list.length > 0 && recent.length > 0 && (
+            <section aria-label="From your other profiles" className="col">
+              <h2 className="label">From your other profiles</h2>
+              {recentList}
+            </section>
+          )}
         </div>
       </main>
     </>
