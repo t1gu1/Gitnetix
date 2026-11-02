@@ -14,6 +14,10 @@ use crate::templates::{default_templates, Template, OLD_BODIES};
 
 pub const CONFIG_VERSION: u32 = 1;
 
+/// Copied into every new worktree unless removed: ignored files a fresh checkout lacks.
+/// A knowledge graph (graphify), Claude Code's local settings, local environment variables and their examples.
+pub const DEFAULT_WORKTREE_FILES: &[&str] = &["graphify-out/", ".claude/settings.local.json", ".env", ".env.local", ".env.example", ".env.example.local"];
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Config {
@@ -29,6 +33,10 @@ pub struct Config {
     pub server: ServerConfig,
     /// Paths copied from the main checkout into each new worktree of every project, with the project's own.
     pub worktree_files: Vec<String>,
+    /// Defaults already put in `worktree_files`: each is added once, so one removed stays removed.
+    /// Empty in files saved before it, so those get every default.
+    #[serde(default)]
+    pub worktree_defaults_added: Vec<String>,
 }
 
 impl Default for Config {
@@ -42,7 +50,8 @@ impl Default for Config {
             integrations: Integrations::default(),
             ui: UiPrefs::default(),
             server: ServerConfig::default(),
-            worktree_files: Vec::new(),
+            worktree_files: DEFAULT_WORKTREE_FILES.iter().map(|f| f.to_string()).collect(),
+            worktree_defaults_added: DEFAULT_WORKTREE_FILES.iter().map(|f| f.to_string()).collect(),
         }
     }
 }
@@ -544,7 +553,7 @@ fn save(path: &Path, cfg: &impl Serialize) -> Result<Option<Stamp>> {
     Ok(saved)
 }
 
-/// A config file, with templates added since it was written and unedited default ones brought up to date.
+/// A config file, with templates and worktree files added since it was written and unedited default templates brought up to date.
 fn parse(raw: &str) -> Result<Config> {
     let mut cfg: Config = serde_json::from_str(raw)?;
     // Kinds added since the config was written get their default templates, and
@@ -555,6 +564,14 @@ fn parse(raw: &str) -> Result<Config> {
         }
         if !cfg.templates.iter().any(|x| x.kind == t.kind) {
             cfg.templates.push(t);
+        }
+    }
+    for f in DEFAULT_WORKTREE_FILES.iter().map(|f| f.to_string()) {
+        if !cfg.worktree_defaults_added.contains(&f) {
+            if !cfg.worktree_files.contains(&f) {
+                cfg.worktree_files.push(f.clone());
+            }
+            cfg.worktree_defaults_added.push(f);
         }
     }
     Ok(cfg)
@@ -788,6 +805,24 @@ mod tests {
         assert_eq!(globals(old), [("unslop".to_string(), true)]);
         let off = serde_json::json!([{ "id": "unslop", "kind": "global", "name": "Unslop", "isDefault": false, "body": "Edited." }]);
         assert_eq!(globals(off), [("unslop".to_string(), false)], "a skill turned off stays off");
+    }
+
+    #[test]
+    fn default_worktree_files_are_added_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let files = || super::Store::open(dir.path()).unwrap().read(|c| c.worktree_files.clone());
+        // Saved before the defaults, with its own list: kept, defaults added after it.
+        std::fs::write(dir.path().join("config.json"), r#"{"worktreeFiles":["data/", ".env"]}"#).unwrap();
+        assert_eq!(files(), ["data/", ".env", "graphify-out/", ".claude/settings.local.json", ".env.local", ".env.example", ".env.example.local"]);
+        // Removed ones stay removed.
+        super::Store::open(dir.path()).unwrap().write(|c| Ok(c.worktree_files = vec!["data/".into()])).unwrap();
+        assert_eq!(files(), ["data/"]);
+        // A new profile starts with them, and removing them sticks too.
+        let fresh = tempfile::tempdir().unwrap();
+        let store = super::Store::open(fresh.path()).unwrap();
+        assert_eq!(store.read(|c| c.worktree_files.clone()), super::DEFAULT_WORKTREE_FILES);
+        store.write(|c| Ok(c.worktree_files.clear())).unwrap();
+        assert!(super::Store::open(fresh.path()).unwrap().read(|c| c.worktree_files.is_empty()));
     }
 
     #[test]

@@ -40,6 +40,7 @@ async fn new_worktrees_get_the_listed_ignored_files_only() {
     std::fs::write(app.join("README.md"), "edited in main\n").unwrap();
 
     let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    assert_eq!(call(&k, "config.get", json!({})).await["worktreeFiles"], json!(["graphify-out/", ".claude/settings.local.json", ".env", ".env.local", ".env.example", ".env.example.local"]), "new profile defaults");
     let pid = call(&k, "projects.add", json!({ "paths": [app.to_string_lossy()] })).await[0]["id"].as_str().unwrap().to_string();
     for bad in ["../outside", "/etc"] {
         let err = rpc::call(&k, "projects.setPrefs", json!({ "projectId": pid, "worktreeFiles": [bad] })).await.unwrap_err();

@@ -20,6 +20,9 @@ release notes and the in-app update prompt.
 - An agent's questions show as its chat bubbles under "Your turn!", one bubble per question with its title and answer buttons, and the agent's mark beside them. Question titles are bigger and in the accent color, and show for a single question too.
 - One question can take several answers: picking an option no longer drops the other one picked for that question.
 
+### Changed
+- New worktrees get `graphify-out/`, `.claude/settings.local.json`, `.env`, `.env.local`, `.env.example` and `.env.example.local` copied from the main checkout by default, in new and existing profiles. Remove any of them in Settings > Worktrees and it stays removed.
+
 ## [0.17.1] - 2026-11-02
 
 ### Added
