@@ -32,7 +32,7 @@ async fn projects_commit_with_the_profile_identity() {
     let tmp = tempfile::tempdir().unwrap();
     let repo = tmp.path().join("repo");
     std::fs::create_dir(&repo).unwrap();
-    for args in [&["init", "-q", "-b", "main"][..], &["config", "user.email", "repo@example.com"], &["config", "user.name", "Repo"], &["config", "commit.gpgsign", "false"]] {
+    for args in [&["init", "-q", "-b", "main"][..], &["config", "user.email", "repo@example.com"], &["config", "user.name", "Repo"], &["config", "commit.gpgsign", "false"], &["config", "core.autocrlf", "false"], &["config", "core.longpaths", "true"]] {
         git(&repo, args);
     }
     std::fs::write(repo.join("a"), "0").unwrap();
@@ -96,7 +96,8 @@ async fn a_new_profile_lists_the_other_profiles_projects_to_add_back() {
 
     let fresh = call(&k, "userProfiles.save", json!({ "name": "Fresh" })).await;
     call(&k, "userProfiles.switch", json!({ "id": fresh["id"] })).await;
-    let recent = |r: &Path, profile: &str| json!({ "name": r.file_name().unwrap().to_string_lossy(), "path": r.to_string_lossy(), "profile": profile });
+    // Projects keep git's path, all `/` on Windows too.
+    let recent = |r: &Path, profile: &str| json!({ "name": r.file_name().unwrap().to_string_lossy(), "path": r.to_string_lossy().replace('\\', "/"), "profile": profile });
     assert_eq!(
         call(&k, "projects.recent", json!({})).await,
         json!([recent(&a, "Work"), recent(&b, "Default")]),

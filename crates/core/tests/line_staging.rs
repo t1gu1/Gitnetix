@@ -27,7 +27,7 @@ async fn picked_lines_move_between_sides() {
     let tmp = tempfile::tempdir().unwrap();
     let repo = tmp.path().join("repo");
     std::fs::create_dir(&repo).unwrap();
-    for args in [&["init", "-q", "-b", "main"][..], &["config", "user.email", "t@example.com"], &["config", "user.name", "Test"], &["config", "commit.gpgsign", "false"]] {
+    for args in [&["init", "-q", "-b", "main"][..], &["config", "user.email", "t@example.com"], &["config", "user.name", "Test"], &["config", "commit.gpgsign", "false"], &["config", "core.autocrlf", "false"], &["config", "core.longpaths", "true"]] {
         sh(&repo, args);
     }
     let lines = |edit: &[(usize, &str)]| (1..=20).map(|i| edit.iter().find(|e| e.0 == i).map_or(format!("l{i}\n"), |e| format!("{}\n", e.1))).collect::<String>();

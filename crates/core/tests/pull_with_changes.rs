@@ -27,7 +27,7 @@ async fn setup(tmp: &Path) -> (std::sync::Arc<Gitnetix>, String, std::path::Path
     let repo = tmp.join("repo");
     let other = tmp.join("other");
     sh(tmp, &["init", "-q", "--bare", "-b", "main", origin.to_str().unwrap()]);
-    sh(tmp, &["clone", "-q", origin.to_str().unwrap(), repo.to_str().unwrap()]);
+    sh(tmp, &["clone", "-q", "-c", "core.autocrlf=false", "-c", "core.longpaths=true", origin.to_str().unwrap(), repo.to_str().unwrap()]);
     configure(&repo);
     sh(&repo, &["config", "pull.rebase", "true"]);
     std::fs::write(repo.join("eas.json"), BASE).unwrap();
@@ -36,7 +36,7 @@ async fn setup(tmp: &Path) -> (std::sync::Arc<Gitnetix>, String, std::path::Path
     sh(&repo, &["commit", "-qm", "init"]);
     sh(&repo, &["push", "-q", "-u", "origin", "main"]);
 
-    sh(tmp, &["clone", "-q", origin.to_str().unwrap(), other.to_str().unwrap()]);
+    sh(tmp, &["clone", "-q", "-c", "core.autocrlf=false", "-c", "core.longpaths=true", origin.to_str().unwrap(), other.to_str().unwrap()]);
     configure(&other);
     std::fs::write(other.join("eas.json"), BASE.replace("one", "ONE")).unwrap();
     sh(&other, &["commit", "-qam", "upstream"]);

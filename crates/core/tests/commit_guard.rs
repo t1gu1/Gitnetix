@@ -15,7 +15,7 @@ async fn commit_with_conflict_markers_is_refused() {
     let tmp = tempfile::tempdir().unwrap();
     let repo = tmp.path().join("repo");
     std::fs::create_dir(&repo).unwrap();
-    for args in [&["init", "-q", "-b", "main"][..], &["config", "user.email", "t@example.com"], &["config", "user.name", "Test"], &["config", "commit.gpgsign", "false"]] {
+    for args in [&["init", "-q", "-b", "main"][..], &["config", "user.email", "t@example.com"], &["config", "user.name", "Test"], &["config", "commit.gpgsign", "false"], &["config", "core.autocrlf", "false"], &["config", "core.longpaths", "true"]] {
         sh(&repo, args);
     }
     std::fs::write(repo.join("a.rs"), "fn a() {}\n").unwrap();

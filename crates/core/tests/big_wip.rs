@@ -24,7 +24,7 @@ async fn many_untracked_files_list_uncounted() {
     let tmp = tempfile::tempdir().unwrap();
     let repo = tmp.path().join("repo");
     std::fs::create_dir(&repo).unwrap();
-    for args in [&["init", "-q", "-b", "main"][..], &["config", "user.email", "t@example.com"], &["config", "user.name", "Test"], &["config", "commit.gpgsign", "false"]] {
+    for args in [&["init", "-q", "-b", "main"][..], &["config", "user.email", "t@example.com"], &["config", "user.name", "Test"], &["config", "commit.gpgsign", "false"], &["config", "core.autocrlf", "false"], &["config", "core.longpaths", "true"]] {
         sh(&repo, args);
     }
     std::fs::write(repo.join("a.txt"), "a\n").unwrap();
@@ -57,7 +57,7 @@ async fn many_modified_files_list_uncounted() {
     let tmp = tempfile::tempdir().unwrap();
     let repo = tmp.path().join("repo");
     std::fs::create_dir_all(repo.join("src")).unwrap();
-    for args in [&["init", "-q", "-b", "main"][..], &["config", "user.email", "t@example.com"], &["config", "user.name", "Test"], &["config", "commit.gpgsign", "false"]] {
+    for args in [&["init", "-q", "-b", "main"][..], &["config", "user.email", "t@example.com"], &["config", "user.name", "Test"], &["config", "commit.gpgsign", "false"], &["config", "core.autocrlf", "false"], &["config", "core.longpaths", "true"]] {
         sh(&repo, args);
     }
     let file = |i: usize| repo.join(format!("src/f{i}.js"));
@@ -94,7 +94,7 @@ async fn bulk_actions_take_more_paths_than_a_command_line_holds() {
     let long = "x".repeat(200);
     std::fs::create_dir_all(repo.join(format!("t/{long}"))).unwrap();
     std::fs::create_dir_all(repo.join(format!("u/{long}"))).unwrap();
-    for args in [&["init", "-q", "-b", "main"][..], &["config", "user.email", "t@example.com"], &["config", "user.name", "Test"], &["config", "commit.gpgsign", "false"]] {
+    for args in [&["init", "-q", "-b", "main"][..], &["config", "user.email", "t@example.com"], &["config", "user.name", "Test"], &["config", "commit.gpgsign", "false"], &["config", "core.autocrlf", "false"], &["config", "core.longpaths", "true"]] {
         sh(&repo, args);
     }
     // ~410-byte paths: 6,000 tracked make 2.5 MB, 7,000 in all 2.9 MB, past macOS's 1 MB and Linux's 2 MB.

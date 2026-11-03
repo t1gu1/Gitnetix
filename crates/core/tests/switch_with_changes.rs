@@ -18,7 +18,7 @@ const BASE: &str = "one\ntwo\nthree\nfour\nfive\n";
 async fn setup(tmp: &Path, local: &str) -> (std::sync::Arc<Gitnetix>, String, std::path::PathBuf) {
     let repo = tmp.join("repo");
     std::fs::create_dir(&repo).unwrap();
-    for args in [&["init", "-q", "-b", "main"][..], &["config", "user.email", "t@example.com"], &["config", "user.name", "Test"], &["config", "commit.gpgsign", "false"]] {
+    for args in [&["init", "-q", "-b", "main"][..], &["config", "user.email", "t@example.com"], &["config", "user.name", "Test"], &["config", "commit.gpgsign", "false"], &["config", "core.autocrlf", "false"], &["config", "core.longpaths", "true"]] {
         sh(&repo, args);
     }
     std::fs::write(repo.join("eas.json"), BASE).unwrap();

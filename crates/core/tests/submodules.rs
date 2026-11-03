@@ -24,6 +24,8 @@ fn init_repo(repo: &Path, file: &str) {
     sh(repo, &["config", "user.email", "t@example.com"]);
     sh(repo, &["config", "user.name", "Test"]);
     sh(repo, &["config", "commit.gpgsign", "false"]);
+    sh(repo, &["config", "core.autocrlf", "false"]);
+    sh(repo, &["config", "core.longpaths", "true"]);
     commit_file(repo, file, "1\n");
 }
 
@@ -103,7 +105,7 @@ async fn submodule_manager() {
 
     // A fresh clone has it declared but empty until "update all".
     let clone = tmp.path().join("clone");
-    sh(tmp.path(), &["clone", "-q", &app.to_string_lossy(), &clone.to_string_lossy()]);
+    sh(tmp.path(), &["clone", "-q", "-c", "core.autocrlf=false", "-c", "core.longpaths=true", &app.to_string_lossy(), &clone.to_string_lossy()]);
     let added = call(&k, "projects.add", json!({ "paths": [clone.to_string_lossy()] })).await;
     let cid = added.as_array().unwrap().iter().find(|p| p["path"].as_str().unwrap().ends_with("clone")).unwrap()["id"].as_str().unwrap().to_string();
     assert_eq!(call(&k, "submodules.list", json!({ "projectId": cid })).await[0]["state"], "uninitialized");

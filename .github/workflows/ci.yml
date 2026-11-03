@@ -53,3 +53,18 @@ jobs:
 
       - name: Run tests
         run: cargo test --workspace
+
+  # Paths, line endings and spawned programs differ on Windows, which release builds ship.
+  test-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: windows
+
+      - name: Run tests
+        run: cargo test --workspace

@@ -588,6 +588,8 @@ mod tests {
         let found = installed().await;
         assert!(found("./gradlew build") && found("'./my dir/x.sh'"));
         assert!(found("sh -c x"));
+        // Off Unix every program counts as found (see `installed`).
+        #[cfg(unix)]
         assert!(!found("gnx-no-such-program run"));
         #[cfg(unix)]
         assert!(!login_path().await.is_empty(), "the login shell's PATH is read");

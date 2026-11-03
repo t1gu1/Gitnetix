@@ -28,6 +28,8 @@ async fn merge_deletes_the_branch_while_a_build_still_writes_in_its_worktree() {
     sh(&app, &["config", "user.email", "t@example.com"]);
     sh(&app, &["config", "user.name", "Test"]);
     sh(&app, &["config", "commit.gpgsign", "false"]);
+    sh(&app, &["config", "core.autocrlf", "false"]);
+    sh(&app, &["config", "core.longpaths", "true"]);
     std::fs::write(app.join(".gitignore"), "target/\n").unwrap();
     sh(&app, &["add", "."]);
     sh(&app, &["commit", "-qm", "init"]);

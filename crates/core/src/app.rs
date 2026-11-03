@@ -5717,7 +5717,8 @@ fn top_path(p: &Project) -> PathBuf {
 fn worktree_path(p: &Project, branch: &str) -> PathBuf {
     let top = top_path(p);
     let parent = top.parent().map(Path::to_path_buf).unwrap_or_else(|| top.clone());
-    parent.join(format!("{}.{}", p.name, branch.replace('/', "-")))
+    // `/`, not `join`: on Windows the project path is git's `C:/…` and `git worktree list` gives back all `/`.
+    PathBuf::from(format!("{}/{}.{}", parent.to_string_lossy().trim_end_matches('/'), p.name, branch.replace('/', "-")))
 }
 
 /// `git worktree add` leaves submodule folders empty: clone them at the branch's pins.
@@ -5984,8 +5985,10 @@ mod tests {
         let paths: Vec<&str> = text.lines().filter_map(|l| l.strip_prefix("- ")).collect();
         assert!(text.starts_with("look\n\nAttached files:\n- "));
         assert_eq!(paths.len(), 3);
-        assert!(paths[0].ends_with("/image.png") && paths[1].ends_with("/2-image.png") && paths[2].ends_with("/x.txt"));
-        assert!(paths.iter().all(|p| p.contains(&format!(".git/{ATTACH_DIR}/")) && std::fs::read(p).unwrap() == b"hi"));
+        // Either slash: on Windows the checkout path joins with `\`.
+        let slashed = |p: &str| p.replace('\\', "/");
+        assert!(slashed(paths[0]).ends_with("/image.png") && slashed(paths[1]).ends_with("/2-image.png") && slashed(paths[2]).ends_with("/x.txt"));
+        assert!(paths.iter().all(|p| slashed(p).contains(&format!(".git/{ATTACH_DIR}/")) && std::fs::read(p).unwrap() == b"hi"));
         assert!(attach(tmp.path(), "", &[up("a", "not base64!")]).await.is_err());
         // Read back for the log's previews, but nothing else of the checkout.
         assert_eq!(attachment(tmp.path(), paths[0]).await.unwrap(), "aGk=");

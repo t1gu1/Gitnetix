@@ -23,6 +23,8 @@ fn init_repo(repo: &std::path::Path) {
     sh(repo, &["config", "user.email", "t@example.com"]);
     sh(repo, &["config", "user.name", "Test"]);
     sh(repo, &["config", "commit.gpgsign", "false"]);
+    sh(repo, &["config", "core.autocrlf", "false"]);
+    sh(repo, &["config", "core.longpaths", "true"]);
     sh(repo, &["config", "tag.gpgsign", "false"]);
     std::fs::write(repo.join("README.md"), "# atlas\n").unwrap();
     sh(repo, &["add", "."]);
@@ -295,7 +297,7 @@ async fn diverged_pull_and_merge_past_uncommitted_work() {
     sh(&repo, &["remote", "add", "origin", origin.to_str().unwrap()]);
     sh(&repo, &["push", "-q", "-u", "origin", "main"]);
     let other = tmp.path().join("other");
-    sh(tmp.path(), &["clone", "-q", origin.to_str().unwrap(), other.to_str().unwrap()]);
+    sh(tmp.path(), &["clone", "-q", "-c", "core.autocrlf=false", "-c", "core.longpaths=true", origin.to_str().unwrap(), other.to_str().unwrap()]);
     sh(&other, &["config", "user.email", "o@example.com"]);
     sh(&other, &["config", "user.name", "Other"]);
     sh(&other, &["config", "commit.gpgsign", "false"]);
@@ -361,7 +363,7 @@ async fn pull_and_tracking() {
 
     // Someone else pushes to both branches.
     let other = tmp.path().join("other");
-    sh(tmp.path(), &["clone", "-q", origin.to_str().unwrap(), other.to_str().unwrap()]);
+    sh(tmp.path(), &["clone", "-q", "-c", "core.autocrlf=false", "-c", "core.longpaths=true", origin.to_str().unwrap(), other.to_str().unwrap()]);
     sh(&other, &["config", "user.email", "o@example.com"]);
     sh(&other, &["config", "user.name", "Other"]);
     sh(&other, &["config", "commit.gpgsign", "false"]);
@@ -1191,7 +1193,7 @@ async fn squash_and_rebase_merges_delete_the_branch_last() {
 
     // Origin got a commit the local branch never had: the merge lands, the branch stays everywhere.
     branch("feat/theirs");
-    sh(tmp.path(), &["clone", "-q", "-b", "feat/theirs", &origin.to_string_lossy(), "other"]);
+    sh(tmp.path(), &["clone", "-q", "-c", "core.autocrlf=false", "-c", "core.longpaths=true", "-b", "feat/theirs", &origin.to_string_lossy(), "other"]);
     let other = tmp.path().join("other");
     sh(&other, &["config", "user.email", "o@example.com"]);
     sh(&other, &["config", "user.name", "Other"]);
@@ -1363,7 +1365,7 @@ async fn merged_on_origin_while_local_base_lags() {
 
     // The host merges both PRs; the local main never pulls them.
     let other = tmp.path().join("other");
-    sh(tmp.path(), &["clone", "-q", origin.to_str().unwrap(), other.to_str().unwrap()]);
+    sh(tmp.path(), &["clone", "-q", "-c", "core.autocrlf=false", "-c", "core.longpaths=true", origin.to_str().unwrap(), other.to_str().unwrap()]);
     sh(&other, &["config", "user.email", "o@x"]);
     sh(&other, &["config", "user.name", "o"]);
     sh(&other, &["merge", "-q", "--no-ff", "origin/feat/via-pr", "-m", "Merge pull request #1"]);
@@ -1653,7 +1655,7 @@ async fn ship_and_push_waits_for_origin_then_pushes_branch_and_tag_together() {
 
     // A teammate lands work on origin's main meanwhile.
     let other = tmp.path().join("other");
-    sh(tmp.path(), &["clone", "-q", origin.to_str().unwrap(), other.to_str().unwrap()]);
+    sh(tmp.path(), &["clone", "-q", "-c", "core.autocrlf=false", "-c", "core.longpaths=true", origin.to_str().unwrap(), other.to_str().unwrap()]);
     sh(&other, &["config", "user.email", "o@example.com"]);
     sh(&other, &["config", "user.name", "Other"]);
     sh(&other, &["config", "commit.gpgsign", "false"]);
@@ -1786,7 +1788,7 @@ async fn rename_on_origin_and_follow_it_elsewhere() {
 
     // A teammate's copy: its upstream is gone after a fetch, and it follows the rename.
     let mate = tmp.path().join("mate");
-    sh(tmp.path(), &["clone", "-q", origin.to_str().unwrap(), mate.to_str().unwrap()]);
+    sh(tmp.path(), &["clone", "-q", "-c", "core.autocrlf=false", "-c", "core.longpaths=true", origin.to_str().unwrap(), mate.to_str().unwrap()]);
     sh(&mate, &["switch", "-q", "feat/b"]);
     sh(&mate, &["switch", "-q", "main"]);
     let added = call(&k, "projects.add", json!({ "paths": [mate.to_string_lossy()] })).await;

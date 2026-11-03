@@ -27,6 +27,8 @@ async fn new_worktrees_get_the_listed_ignored_files_only() {
     sh(&app, &["config", "user.email", "t@example.com"]);
     sh(&app, &["config", "user.name", "Test"]);
     sh(&app, &["config", "commit.gpgsign", "false"]);
+    sh(&app, &["config", "core.autocrlf", "false"]);
+    sh(&app, &["config", "core.longpaths", "true"]);
     std::fs::write(app.join(".gitignore"), "graph/\n.env\ntarget/\n").unwrap();
     std::fs::write(app.join("README.md"), "tracked\n").unwrap();
     sh(&app, &["add", "."]);

@@ -27,7 +27,7 @@ fn repo(tmp: &Path) -> std::path::PathBuf {
     sh(tmp, &["init", "-q", "--bare", "-b", "main", &origin.to_string_lossy()]);
     let repo = tmp.join("repo");
     std::fs::create_dir(&repo).unwrap();
-    for args in [&["init", "-q", "-b", "main"][..], &["config", "user.email", "t@example.com"], &["config", "user.name", "Test"], &["config", "commit.gpgsign", "false"]] {
+    for args in [&["init", "-q", "-b", "main"][..], &["config", "user.email", "t@example.com"], &["config", "user.name", "Test"], &["config", "commit.gpgsign", "false"], &["config", "core.autocrlf", "false"], &["config", "core.longpaths", "true"]] {
         sh(&repo, args);
     }
     sh(&repo, &["remote", "add", "origin", &origin.to_string_lossy()]);

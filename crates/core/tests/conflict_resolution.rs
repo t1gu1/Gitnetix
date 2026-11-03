@@ -1,5 +1,7 @@
 //! Conflicts get resolved by AI and the operation carries on. A fake `ollama` CLI on PATH stands
 //! in for the AI. Own test binary: PATH is process-wide.
+// The fake CLI is a `#!/bin/sh` script with an execute bit.
+#![cfg(unix)]
 
 use std::process::Command;
 
