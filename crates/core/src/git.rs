@@ -1495,6 +1495,12 @@ impl Git {
         self.run(&["fetch", "--prune", "--tags", "--force", "origin"]).await.map(|_| ())
     }
 
+    /// Origin's branch and tag tips, as `ls-remote` lists them: one round trip that writes nothing here
+    /// (a fetch with nothing new still rewrites FETCH_HEAD). Same refs as [`Git::fetch`] takes.
+    pub async fn remote_tips(&self) -> Result<String> {
+        self.run(&["ls-remote", "--heads", "--tags", "origin"]).await
+    }
+
     /// Rebase the current branch. Returns false when it stopped on conflicts.
     pub async fn rebase(&self, onto: &str) -> Result<bool> {
         let (ok, _, err) = self.try_run(&["rebase", "--autostash", onto]).await?;

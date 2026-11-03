@@ -50,6 +50,8 @@ pub struct Gitnetix {
     shipped: std::sync::Mutex<HashMap<String, (u64, Arc<ShippedIndex>)>>,
     /// What the git host said about each project's branch tips.
     hosted: std::sync::Mutex<HashMap<String, HostedPrs>>,
+    /// Origin's tips ([`Git::remote_tips`]) at each project's last fetch from [`Gitnetix::auto_fetch`].
+    remote_tips: std::sync::Mutex<HashMap<String, String>>,
     /// The worktree list as last built, without agents: shown while the next one builds.
     worktrees: LastCache,
     /// Commit messages written ahead ([`Gitnetix::prepare_commit_message`]), per checkout, with the key of the prompt they answer.
@@ -1775,7 +1777,7 @@ impl Gitnetix {
         let agents = AgentManager::new(events.clone(), dir);
         let shells = crate::shell::Shells::new(events.clone());
         crate::log::attach(events.clone());
-        let k = Arc::new(Gitnetix { store, agents, shells, events, dir: dir.to_path_buf(), dictation: Default::default(), protected: Default::default(), watcher: Default::default(), commits: CommitCache::open(dir), views: ViewCache::open(dir.join("overview-cache")), building: Default::default(), cleaning: Default::default(), shipped: Default::default(), hosted: Default::default(), worktrees: LastCache::open(dir.join("worktrees-cache.json")), drafts: Default::default() });
+        let k = Arc::new(Gitnetix { store, agents, shells, events, dir: dir.to_path_buf(), dictation: Default::default(), protected: Default::default(), watcher: Default::default(), commits: CommitCache::open(dir), views: ViewCache::open(dir.join("overview-cache")), building: Default::default(), cleaning: Default::default(), shipped: Default::default(), hosted: Default::default(), remote_tips: Default::default(), worktrees: LastCache::open(dir.join("worktrees-cache.json")), drafts: Default::default() });
         k.rewatch();
         Ok(k)
     }
@@ -4676,6 +4678,19 @@ impl Gitnetix {
         }
         self.changed(project_id);
         Ok(())
+    }
+
+    /// Fetch only when origin's tips moved since the last time this fetched (always the first time).
+    /// Returns whether it fetched. Read before the fetch: a push landing in between shows as moved next time.
+    pub async fn auto_fetch(&self, project_id: &str) -> Result<bool> {
+        let p = self.store.project(project_id)?;
+        let tips = self.git(&p).remote_tips().await?;
+        if self.remote_tips.lock().unwrap().get(project_id) == Some(&tips) {
+            return Ok(false);
+        }
+        self.fetch(project_id).await?;
+        self.remote_tips.lock().unwrap().insert(project_id.into(), tips);
+        Ok(true)
     }
 
     // ---------- worktrees & agents ----------

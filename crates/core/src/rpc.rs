@@ -88,6 +88,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("branches.sync", "Merge a branch's base into it to bring it up to date", "projectId, branch"),
     ("branches.setParent", "Choose what a branch merges into (an open release branch attaches it to that release; a release branch changes the branch it was cut from)", "projectId, branch, parent"),
     ("branches.fetch", "Fetch origin, pruning deleted branches", "projectId"),
+    ("branches.autoFetch", "Fetch origin only when its branch or tag tips moved since this last fetched (asked with ls-remote, which writes nothing); returns whether it fetched", "projectId"),
     ("branches.cleanup", "Delete branches, skipping the ones that can't go; force = even if unmerged, remote = on origin too", "projectId, branches: string[], force?, remote?"),
     ("branches.delete", "Delete a local branch and its worktree; force = even if unmerged, remote = on origin too. Not the default or a host-protected branch", "projectId, branch, force?, remote?"),
     ("branches.rename", "Rename a branch; remote = on origin too, for everyone (GitHub moves its open PRs along; Azure DevOps refuses while a PR is open from or into it). An open release's branch takes the version of its new name, release/<version>, and its CHANGELOG.md section is renamed in a commit (changelog = true; not pushed; changelogError says why that commit failed, the rename done). A local branch whose upstream is gone and whose renamedTo is set follows that rename and tracks it", "projectId, branch, name, remote?"),
@@ -721,6 +722,7 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
             k.fetch(&s(&p, "projectId")?).await?;
             ok()
         }
+        "branches.autoFetch" => to(k.auto_fetch(&s(&p, "projectId")?).await?),
         "branches.cleanup" => {
             let branches = list(&p, "branches")?;
             to(k.cleanup_branches(&s(&p, "projectId")?, &branches, b(&p, "force"), b(&p, "remote")).await?)

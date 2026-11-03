@@ -388,21 +388,17 @@ export const useCommits = (projectId?: string, branch?: string, limit?: number) 
     placeholderData: (prev, prevQuery) => (prevQuery?.queryKey[2] === branch ? prev : undefined),
   });
 
-/** Fetch origin (pruning branches deleted there) when a project opens, then every 5 minutes. Quiet on failure: it runs unasked. */
-export const useAutoFetch = (projectId?: string, enabled = true) => {
-  const qc = useQueryClient();
+/** Every 5 s while the window shows (and on coming back to it), ask origin for its tips and fetch only when they moved.
+ *  A fetch sends projectChanged, which reloads the overview. After a failure (offline, signed out) once a minute, quietly: it runs unasked. */
+export const useAutoFetch = (projectId?: string, enabled = true) =>
   useQuery({
     queryKey: ["autoFetch", projectId],
-    queryFn: async () => {
-      await rpc("branches.fetch", { projectId }).catch(() => {});
-      qc.invalidateQueries({ queryKey: ["overview", projectId] });
-      return null;
-    },
+    queryFn: () => rpc<boolean>("branches.autoFetch", { projectId }),
     enabled: enabled && !!projectId,
-    staleTime: 60_000,
-    refetchInterval: 5 * 60_000,
+    staleTime: 4_000,
+    retry: false,
+    refetchInterval: (q) => (q.state.status === "error" ? 60_000 : 5_000),
   });
-};
 
 /** `select` picks the part shown: the caller then redraws when that part changes, not on every line any agent logs. */
 export const useAgents = <T = AgentSession[]>(select?: (list: AgentSession[]) => T) =>
