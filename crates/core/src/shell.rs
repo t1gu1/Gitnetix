@@ -83,7 +83,11 @@ pub fn appimage_env() -> Option<Vec<(&'static str, Option<std::ffi::OsString>)>>
 }
 
 /// [`appimage_env`] applied to a process about to start (tokio's through `as_std_mut`).
+/// On Windows it also starts without a console window.
 pub fn without_appimage(cmd: &mut std::process::Command) -> &mut std::process::Command {
+    // A GUI app's console child (git.exe…) otherwise opens a console window per run.
+    #[cfg(windows)]
+    std::os::windows::process::CommandExt::creation_flags(cmd, 0x0800_0000); // CREATE_NO_WINDOW
     for (k, v) in appimage_env().into_iter().flatten() {
         match v {
             Some(v) => cmd.env(k, v),
