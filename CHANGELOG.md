@@ -11,6 +11,8 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+## [0.17.3] - 2026-11-02
+
 ### Added
 - GitHub sign-in now explains organization OAuth restrictions and links to the page where you can grant organization access.
 - New profiles prefill the Git name and email from your git config.
