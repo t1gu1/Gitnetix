@@ -11,9 +11,21 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+### Added
+- GitHub sign-in now explains organization OAuth restrictions and links to the page where you can grant organization access.
+- New profiles prefill the Git name and email from your git config.
+
+### Changed
+- Dialogs open faster. Modal windows no longer draw a blurred shadow, and animations pause while a dialog is open.
+- Text fields show a static focus ring instead of an animated glow, which uses less CPU.
+- Squash merges are detected with one `rev-list` call, so branch views load faster.
+- AI commit, branch, PR and release messages start faster because they no longer open a full Claude Code session in the repository.
+
 ### Fixed
 - The app stays responsive while agents build or test in their worktrees. Agents and every command they start now run below the app's CPU priority, so a build on every core no longer slows the app's own drawing about 4 times.
 - On Windows, the app no longer fails to open with "MSVCP140.dll is missing" on PCs without the Visual C++ Redistributable. The installer now puts the Visual C++ runtime files next to Gitnetix.exe.
+- On Windows, the app finds the Claude CLI, including Desktop installs.
+- On Windows, child processes no longer flash a console window.
 
 ## [0.17.2] - 2026-11-02
 
