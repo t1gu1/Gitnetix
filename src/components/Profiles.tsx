@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { useAction, useConfig } from "../api/hooks";
 import { rpc } from "../api/transport";
@@ -178,9 +178,20 @@ export function useProfileForm(init: { name: string; avatar: string; hue: number
   const [name, setName] = useState(init.name);
   const [authorGravatars, setAuthorGravatars] = useState(init.authorGravatars);
   const old = init.avatar;
+  // What Git already commits with fills an empty identity, so the fields show who the commits are by.
+  const fromGit = useQuery({ queryKey: ["gitIdentity"], queryFn: () => rpc<{ name: string; email: string }>("git.identity"), staleTime: Infinity }).data;
   // One email for commits and Gravatar: a Gravatar picked before identities were part of profiles fills it when empty.
-  const start = { name: init.git?.name ?? "", email: init.git?.email || (old.startsWith(GRAVATAR) ? old.slice(GRAVATAR.length) : ""), sign: !!init.git?.sign, signingKey: init.git?.signingKey ?? "" };
+  const start = {
+    name: init.git?.name || fromGit?.name || "",
+    email: init.git?.email || (old.startsWith(GRAVATAR) ? old.slice(GRAVATAR.length) : "") || fromGit?.email || "",
+    sign: !!init.git?.sign,
+    signingKey: init.git?.signingKey ?? "",
+  };
   const [git, setGit] = useState(start);
+  // Arrived after the form opened: fills only what is still empty.
+  useEffect(() => {
+    if (fromGit) setGit((g) => ({ ...g, name: g.name || fromGit.name, email: g.email || fromGit.email }));
+  }, [fromGit]);
   const [kind, setKind] = useState<"emoji" | "photo" | "gravatar">(old.startsWith(PHOTO) ? "photo" : old.startsWith(GRAVATAR) ? "gravatar" : "emoji");
   const [emoji, setEmoji] = useState(kind === "emoji" ? old : "");
   const [photo, setPhoto] = useState(kind === "photo" ? old : "");

@@ -8,7 +8,7 @@ use serde_json::{json, Value};
 
 use crate::app::{Attachment, Gitnetix, MergeOptions, NewItem, NotesInclude, ViewMode};
 use crate::error::{Error, Result};
-use crate::git::LinePick;
+use crate::git::{Git, LinePick};
 use crate::store::{upsert, ConnectMethod, Connection, GitProfile, JiraConf, ReleaseKind, Route, TrelloConf, AsanaConf, UserProfile, new_id};
 use crate::templates::{self, Template};
 use crate::providers::github_auth::{self, Poll};
@@ -22,6 +22,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("log.get", "Recent operations and errors, oldest first", ""),
     ("log.clear", "Empty the log", ""),
     ("config.get", "Full app configuration of the active profile (no secrets), with every profile", ""),
+    ("git.identity", "The name and email Git commits with outside any repository (empty when unset)", ""),
     ("userProfiles.switch", "Use another profile: its projects, connections, AI setup and settings", "id"),
     ("userProfiles.save", "Create a profile, blank or a copy of profile `from` with its saved tokens; with `id`, rename one or change its avatar (an emoji, an image data URL, \"gravatar:\" and an email, or \"\" for the default one) and color hue. `git`: the identity Gitnetix commits with in all the profile's projects, all empty to leave it to the Git config; only the active profile's can change", "id?, name, avatar?, hue?, from?, git?: {name, email, sign, signingKey?}"),
     ("userProfiles.delete", "Delete a profile with its settings and saved tokens (repositories stay on disk); deleting the active one switches to another, the last one stays", "id"),
@@ -287,6 +288,21 @@ fn git_identity(v: &Value) -> Result<Vec<GitProfile>> {
     Ok(if g.name.is_empty() && g.email.is_empty() && !g.sign { Vec::new() } else { vec![g] })
 }
 
+/// `git config --get-regexp` lines as `{ name, email }`; the last value wins, as in Git.
+fn git_user(out: &str) -> Value {
+    let mut user = json!({ "name": "", "email": "" });
+    for (key, v) in out.lines().filter_map(|l| l.split_once(' ')) {
+        user[key.trim_start_matches("user.")] = v.trim().into();
+    }
+    user
+}
+
+#[test]
+fn git_user_keeps_the_last_value_of_each() {
+    assert_eq!(git_user("user.name Old\nuser.email jo@example.com\nuser.name Jo Doe\n"), json!({ "name": "Jo Doe", "email": "jo@example.com" }));
+    assert_eq!(git_user(""), json!({ "name": "", "email": "" }));
+}
+
 #[test]
 fn avatars_are_an_emoji_a_photo_or_a_gravatar_email() {
     assert!(valid_avatar("") && valid_avatar("🦊") && valid_avatar("👩‍💻"));
@@ -402,6 +418,10 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
             c["userProfiles"] = to(profiles.list)?;
             c["activeProfile"] = profiles.active.into();
             Ok(c)
+        }
+        "git.identity" => {
+            let (_, out, _) = Git::new(dirs::home_dir().unwrap_or_default()).try_run(&["config", "--get-regexp", r"^user\.(name|email)$"]).await?;
+            to(git_user(&out))
         }
         "userProfiles.switch" => {
             k.switch_profile(&s(&p, "id")?)?;
