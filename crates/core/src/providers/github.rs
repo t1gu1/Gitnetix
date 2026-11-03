@@ -116,6 +116,16 @@ fn emoji(content: &str) -> String {
     EMOJI.iter().find(|(c, _)| *c == content).map(|(_, e)| e.to_string()).unwrap_or_else(|| content.into())
 }
 
+/// GitHub's error message, or what to do when an organization has not approved
+/// the Gitnetix OAuth app (GitHub names the organization between backticks).
+fn explain(msg: &str) -> String {
+    if !msg.contains("OAuth App access restrictions") {
+        return msg.into();
+    }
+    let org = msg.split('`').nth(1).map(|o| format!("The {o} organization")).unwrap_or_else(|| "This organization".into());
+    format!("{org} has not approved Gitnetix yet. In Git providers, use Organization access to grant or request it.")
+}
+
 impl GitHub {
     pub fn new(repo: RepoRef, token: String, api: Option<String>) -> Self {
         let api = api.filter(|s| !s.is_empty()).unwrap_or_else(|| "https://api.github.com".into());
@@ -148,7 +158,7 @@ impl GitHub {
         let v: Value = if text.is_empty() { Value::Null } else { serde_json::from_str(&text).unwrap_or(Value::String(text)) };
         if !status.is_success() {
             let msg = v["message"].as_str().map(String::from).unwrap_or_else(|| v.to_string());
-            return Err(Error::Http(format!("GitHub {status}: {msg}")));
+            return Err(Error::Http(format!("GitHub {status}: {}", explain(&msg))));
         }
         Ok(v)
     }
@@ -161,7 +171,7 @@ impl GitHub {
         let v = self.req(reqwest::Method::POST, &self.graphql_url(), Some(json!({ "query": query, "variables": vars }))).await?;
         if let Some(errs) = v["errors"].as_array() {
             if !errs.is_empty() {
-                return Err(Error::Http(format!("GitHub GraphQL: {}", errs[0]["message"].as_str().unwrap_or("error"))));
+                return Err(Error::Http(format!("GitHub GraphQL: {}", explain(errs[0]["message"].as_str().unwrap_or("error")))));
             }
         }
         Ok(v["data"].clone())
@@ -495,5 +505,18 @@ impl GitHub {
             )
             .await?;
         Ok(v["html_url"].as_str().unwrap_or("").into())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn explains_org_oauth_restrictions() {
+        let gh = "Although you appear to have the correct authorization credentials, the `acme` organization has enabled OAuth App access restrictions, meaning that data access to third-parties is limited.";
+        assert_eq!(explain(gh), "The acme organization has not approved Gitnetix yet. In Git providers, use Organization access to grant or request it.");
+        assert!(explain("the organization has enabled OAuth App access restrictions").starts_with("This organization "));
+        assert_eq!(explain("Not Found"), "Not Found");
     }
 }

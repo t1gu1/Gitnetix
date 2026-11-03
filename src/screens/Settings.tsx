@@ -396,7 +396,9 @@ function DeviceSignIn({ method, name, site }: { method: "github" | "azure"; name
     );
   return (
     <div className="col" style={{ gap: 8 }}>
-      <span className="hint">Enter this code on {site} (copied to your clipboard), then authorize Gitnetix. Waiting…</span>
+      <span className="hint">
+        Enter this code on {site} (copied to your clipboard), then authorize Gitnetix.{method === "github" && " For organization repos, click Grant or Request next to each organization."} Waiting…
+      </span>
       <div className="row" style={{ gap: 8 }}>
         <button className="btn mono" style={{ fontSize: 18, letterSpacing: 2 }} title="Copy code" onClick={() => copyToClipboard(code.userCode)}>
           {code.userCode}
@@ -455,6 +457,12 @@ export function GitHosts({ cfg }: { cfg: Config }) {
               {on ? (user ? `Signed in as ${user}` : "Connected · token in keychain") : "Not connected"}
             </span>
           </span>
+          {on && user && (
+            // The OAuth app's page on github.com (client ID from crates/core/src/providers/github_auth.rs), where each organization grants or requests access.
+            <button className="btn" data-tip="Grant or request access to your organizations' repos" onClick={() => openExternal("https://github.com/settings/connections/applications/Ov23liwKERI7iyaZzzMf")}>
+              Organization access
+            </button>
+          )}
           {on && <button className="btn" onClick={() => disc.mutate({ kind: "github" })}>Disconnect</button>}
         </div>
         {!on && <DeviceSignIn method="github" name="GitHub" site="GitHub" />}
