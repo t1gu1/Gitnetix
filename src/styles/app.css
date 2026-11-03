@@ -5666,7 +5666,7 @@ body:has(> .modal-scrim) #root * {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--r-lg);
-  box-shadow: var(--shadow-lg);
+  /* No blurred shadow: WebKitGTK 2.50 (the AppImage's) redraws it on the main thread each time anything under it repaints, so an open modal over a busy agent log tripled the page's CPU. */
   overflow: hidden;
   animation: modal-in 0.28s var(--ease);
 }
@@ -5811,9 +5811,7 @@ body:has(> .modal-scrim) #root * {
   border: 1px solid var(--line);
   border-radius: 16px;
   background: var(--raised);
-  box-shadow:
-    var(--shadow-lg),
-    0 0 80px -18px color-mix(in srgb, var(--accent) 45%, transparent);
+  /* No blurred shadow or glow, as on `.modal`: with the wave redrawn every frame, they nearly doubled the page's CPU while dictating. */
   translate: -50% 0;
   animation: dictation-in 0.36s var(--ease-spring);
 }
@@ -6744,8 +6742,10 @@ body:has(> .modal-scrim) #root * {
   animation: none !important;
 }
 /* No input for 30 s or window hidden (usePauseWhenIdle): every endless animation waits where it stands, as any one of them keeps the webview
-   drawing every frame. A new endless animation belongs here too, stepped on the shared tick like the others. Not dictation's: you speak to it without touching anything. */
-:root[data-idle]
+   drawing every frame. A new endless animation belongs here too, stepped on the shared tick like the others. Not dictation's: you speak to it without touching anything.
+   Behind the open Settings drawer or a dialog too: on WebKitGTK 2.50 each of their frames repainted the whole drawer or dialog on top, adding half or more to the page's CPU.
+   Only the pages (`.app-main`): toasts, chips and dictation sit beside them and stay above a dialog; the dialog's own animations are outside #root. */
+:is(:root[data-idle], .app-main:has(> .menu-overlay) > :not(.menu-overlay), body:has(> .modal-scrim) .app-main)
   :is(
     .pulse,
     .ai-fade,
@@ -6760,8 +6760,8 @@ body:has(> .modal-scrim) #root * {
     .glow-name > .ellipsis,
     .glow-working > *
   ),
-:root[data-idle] :is(.tree-row, .tree-node, .tree-sep)[data-path]::before,
-:root[data-idle] :is(.tree-toggle[data-path] + .tree-open, .tree-merged + .tree-kids[data-path])::after {
+:is(:root[data-idle], .app-main:has(> .menu-overlay) > :not(.menu-overlay), body:has(> .modal-scrim) .app-main) :is(.tree-row, .tree-node, .tree-sep)[data-path]::before,
+:is(:root[data-idle], .app-main:has(> .menu-overlay) > :not(.menu-overlay), body:has(> .modal-scrim) .app-main) :is(.tree-toggle[data-path] + .tree-open, .tree-merged + .tree-kids[data-path])::after {
   animation-play-state: paused !important;
 }
 :root[data-anim-off~="tabs"] .tab-project {
