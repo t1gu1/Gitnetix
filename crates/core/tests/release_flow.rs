@@ -672,6 +672,34 @@ async fn discard_unstaged_refuses_conflicts() {
 }
 
 #[tokio::test]
+async fn discard_unstaged_clears_stash_conflicts() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("atlas-api");
+    init_repo(&repo);
+    commit_file(&repo, "c.txt", "base\n");
+    commit_file(&repo, "d.txt", "base\n");
+    std::fs::write(repo.join("c.txt"), "stashed\n").unwrap();
+    std::fs::write(repo.join("d.txt"), "stashed\n").unwrap();
+    sh(&repo, &["stash", "-q"]);
+    commit_file(&repo, "c.txt", "committed\n");
+    sh(&repo, &["rm", "-q", "d.txt"]);
+    sh(&repo, &["commit", "-qm", "drop d.txt"]);
+    // Both files conflict: c.txt changed on both sides, d.txt deleted by the commit.
+    assert!(!Command::new("git").current_dir(&repo).args(["stash", "apply", "-q"]).status().unwrap().success());
+    assert_eq!(git_out(&repo, &["diff", "--name-only", "--diff-filter=U"]), "c.txt\nd.txt\n");
+
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let added = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await;
+    let pid = added[0]["id"].as_str().unwrap().to_string();
+    call(&k, "workspace.discard", json!({ "projectId": pid, "branch": "main", "staged": false })).await;
+    assert_eq!(std::fs::read_to_string(repo.join("c.txt")).unwrap(), "committed\n");
+    assert!(!repo.join("d.txt").exists());
+    assert_eq!(git_out(&repo, &["status", "--porcelain"]), "");
+    // The stash kept its changes.
+    assert_eq!(git_out(&repo, &["stash", "list"]).lines().count(), 1);
+}
+
+#[tokio::test]
 async fn merged_branches_are_flagged() {
     let tmp = tempfile::tempdir().unwrap();
     let repo = tmp.path().join("atlas-api");

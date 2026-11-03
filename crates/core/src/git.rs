@@ -1225,7 +1225,8 @@ impl Git {
     }
 
     /// Throw away working-tree changes to `paths`: tracked files go back to
-    /// their staged state, untracked ones are deleted.
+    /// their staged state, untracked ones are deleted. Conflicts left with no
+    /// operation paused (a stash apply) go back to HEAD.
     pub async fn discard_unstaged(&self, paths: &[String], tell: Progress<'_>) -> Result<()> {
         if paths.is_empty() {
             return Ok(());
@@ -1236,10 +1237,18 @@ impl Git {
             self.run(&["diff", "--name-only", "--diff-filter=U", "-z"]),
         )?;
         let others: HashSet<&str> = listed.split('\0').collect();
-        let (untracked, tracked): (Vec<&str>, Vec<&str>) = paths.iter().map(String::as_str).partition(|p| others.contains(p));
-        // checkout-index would restore the other files and only then fail on a conflict: refuse up front.
-        if let Some(p) = unmerged.split('\0').find(|p| tracked.contains(p)) {
-            return Err(Error::Invalid(format!("{p} has conflicts: resolve them first")));
+        let (mut untracked, mut tracked): (Vec<&str>, Vec<&str>) = paths.iter().map(String::as_str).partition(|p| others.contains(p));
+        let conflicted: Vec<&str> = tracked.iter().copied().filter(|p| unmerged.split('\0').any(|u| u == *p)).collect();
+        if let Some(p) = conflicted.first() {
+            // A paused rebase, merge, cherry-pick or revert settles its conflicts by resolving or aborting it. Refuse up
+            // front: checkout-index would restore the other files and only then fail on the conflict.
+            if self.in_progress().await?.is_some() {
+                return Err(Error::Invalid(format!("{p} has conflicts: resolve them first")));
+            }
+            // Nothing to resolve or abort (a stash apply keeps its stash): back to HEAD, as before the apply.
+            let (_, gone) = self.index_to_head(&conflicted).await?;
+            tracked.retain(|p| !gone.contains(p));
+            untracked.extend(gone);
         }
         self.run_paths(&["checkout-index", "-f", "-u", "-z", "--stdin"], &tracked, &|n| tell(n, paths.len())).await?;
         // What `git clean -f` does to these files, which it only takes as arguments: emptied folders
