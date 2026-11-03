@@ -94,6 +94,13 @@ export function useEngineEvents() {
             qc.invalidateQueries({ queryKey: ["projects"] });
             qc.invalidateQueries({ queryKey: ["submodules", e.projectId] });
             break;
+          case "filesChanged":
+            // A save moves no branch: only the uncommitted file lists, of that checkout when known.
+            qc.invalidateQueries({
+              queryKey: e.branch ? ["files", e.projectId, e.branch, "wip"] : ["files", e.projectId],
+              predicate: (q) => q.queryKey[3] === "wip" && !q.queryKey[4] && !q.queryKey[5],
+            });
+            break;
           case "conflictResolving": {
             const text = `Conflicts in ${e.files.join(", ")}: resolving them with AI. This can take a few minutes; Menu › Logs shows progress.`;
             // A merge running in the background says it in its own toast.
@@ -324,13 +331,22 @@ export const useSuggestedVersion = (projectId: string, kind: "next" | "hotfix", 
 export const useFiles = (projectId?: string, branch?: string, mode = "branch", commit?: string, stash?: string) =>
   useQuery({
     queryKey: ["files", projectId, branch, mode, commit, stash],
-    queryFn: () =>
-      stash
-        ? rpc<FileChange[]>("stashes.files", { projectId, sha: stash })
-        : rpc<FileChange[]>("workspace.files", { projectId, branch, mode, commit }),
+    queryFn: async () => {
+      if (stash) return rpc<FileChange[]>("stashes.files", { projectId, sha: stash });
+      const list = await rpc<FileChange[]>("workspace.files", { projectId, branch, mode, commit });
+      if (mode === "wip" && !commit) syncWipCount(projectId!, branch!, list);
+      return list;
+    },
+    // Uncommitted files refresh on the engine's filesChanged, sent when the checkout's files change.
     enabled: !!projectId && (!!branch || !!stash),
-    refetchInterval: mode === "wip" && !commit && !stash ? 4_000 : false,
   });
+
+/** The branch row's "WIP n" comes with the overview, which a save doesn't reload: take it from the list that just did. */
+function syncWipCount(pid: string, branch: string, list: FileChange[]) {
+  const n = new Set(list.map((f) => f.path)).size;
+  const v = queryClient.getQueryData<Overview>(["overview", pid])?.branches.find((b) => b.name === branch);
+  if (v?.checkedOut && v.wip !== n) patchOverview(queryClient, pid, branch, (b) => ({ ...b, wip: n }));
+}
 
 /** `full` keeps the whole file as context. */
 export const useDiff = (projectId?: string, branch?: string, mode = "branch", path?: string, staged?: boolean, commit?: string, stash?: string, full = false) =>

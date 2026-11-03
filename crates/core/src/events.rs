@@ -12,6 +12,10 @@ pub enum Event {
     AgentStatus { session_id: String, status: AgentStatus },
     #[serde(rename_all = "camelCase")]
     ProjectChanged { project_id: String },
+    /// Files of a checkout changed (a save, a `git add`): its uncommitted files are worth re-reading.
+    /// `branch`: the one checked out there; none: every checkout of the project.
+    #[serde(rename_all = "camelCase")]
+    FilesChanged { project_id: String, branch: Option<String> },
     #[serde(rename_all = "camelCase")]
     ConfigChanged {},
     /// One branch of a running cleanup is done with (deleted or kept).

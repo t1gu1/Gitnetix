@@ -678,6 +678,7 @@ export type GitnetixEvent =
   | { type: "agentLine"; sessionId: string; line: LogLine }
   | { type: "agentStatus"; sessionId: string; status: AgentStatus }
   | { type: "projectChanged"; projectId: string }
+  | { type: "filesChanged"; projectId: string; branch: string | null }
   | { type: "configChanged" }
   | { type: "cleanupStep"; projectId: string; branch: string }
   | { type: "conflictResolving"; projectId: string; files: string[] }

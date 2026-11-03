@@ -543,7 +543,9 @@ impl AgentManager {
                 _ = &mut kill_rx => {
                     // A .cmd shim runs the CLI as a child of cmd.exe, which killing cmd.exe alone leaves working.
                     if let (true, Some(pid)) = (cfg!(windows), child.id()) {
-                        let _ = Command::new("taskkill").args(["/T", "/F", "/PID", &pid.to_string()]).status().await;
+                        let mut kill = Command::new("taskkill");
+                        crate::shell::without_appimage(kill.as_std_mut());
+                        let _ = kill.args(["/T", "/F", "/PID", &pid.to_string()]).status().await;
                     }
                     let _ = child.kill().await;
                     None

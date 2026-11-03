@@ -37,7 +37,7 @@ pub struct Gitnetix {
     /// Branches the git host protects, per project, with when they were looked up.
     protected: std::sync::Mutex<HashMap<String, (Instant, Vec<String>)>>,
     /// Watches the projects' git dirs for changes made outside Gitnetix.
-    watcher: std::sync::Mutex<Option<notify::RecommendedWatcher>>,
+    watcher: std::sync::Mutex<Option<crate::watch::Watch>>,
     /// Merge checks already answered, by commit.
     commits: CommitCache,
     /// Every project's branch views as last built, with the refs they were built from.
@@ -2303,18 +2303,16 @@ impl Gitnetix {
     async fn read_overview(&self, project_id: &str, quick: bool) -> Result<(Overview, Option<String>)> {
         let mut p = self.store.project(project_id)?;
         let git = self.git(&p);
-        let (default, current, branches, remote_branches, wts, in_progress, tags, remote, fingerprint) = tokio::join!(
-            git.default_branch(),
-            git.current_branch(),
-            git.branches(),
-            git.remote_branches(),
-            git.worktrees(),
-            git.in_progress(),
-            git.tags(),
-            git.remote_url("origin"),
-            git.ref_fingerprint(),
-        );
-        let (default, current, branches, wts) = (default?, current?, branches?, wts?);
+        // Every ref in one git process: on Windows each costs ~40 ms.
+        let (listed, wts, in_progress, remote) = tokio::join!(git.read_refs(), git.worktrees(), git.in_progress(), git.remote_url("origin"));
+        let (listed, wts) = (listed?, wts?);
+        let current = match listed.current.clone() {
+            Some(c) => Some(c),
+            // Detached, or not born yet.
+            None => git.current_branch().await?,
+        };
+        let default = listed.default_branch(current.as_deref());
+        let crate::git::RefList { branches, remote_branches, tags, fingerprint, .. } = listed;
         let in_progress = in_progress.ok().flatten();
         let rebasing = in_progress == Some("rebase");
         // Rebasing detaches HEAD: the checkout is still on the branch being rebased.
@@ -2322,8 +2320,6 @@ impl Gitnetix {
             None if rebasing => git.rebasing_branch().await.ok().flatten(),
             c => c,
         };
-        let tags = tags.unwrap_or_default();
-        let remote_branches = remote_branches.unwrap_or_default();
         // Release branches created outside Gitnetix (or after the project was added), and releases tagged without it.
         let mut probe = p.clone();
         let imported = import_release_branches(&mut probe, &branches, &remote_branches, &default);
@@ -2331,7 +2327,13 @@ impl Gitnetix {
         // Shipped but untagged with commits main lacks: it never went out, back to open.
         let mut unshipped = Vec::new();
         for (v, branch) in untagged_shipped(&probe, &tags) {
-            if let Some(rev) = git.branch_rev(&branch).await.ok().flatten() {
+            // As `branch_rev` resolves it, from the refs already listed.
+            let rev = if branches.iter().any(|b| b.name == branch) {
+                Some(branch.clone())
+            } else {
+                remote_branches.iter().any(|b| b.name == branch).then(|| format!("origin/{branch}"))
+            };
+            if let Some(rev) = rev {
                 if !git.is_ancestor(&rev, &default).await.unwrap_or(true) {
                     unshipped.push(v);
                 }
@@ -2352,7 +2354,7 @@ impl Gitnetix {
         // Never wait on the git host for a first look.
         let hosted = self.hosted_prs(&p, &refs.tips(), !quick).await;
         let refs = refs.with_hosted(hosted);
-        let fingerprint = fingerprint.ok();
+        let fingerprint = Some(fingerprint);
         let digest = self.hosted_digest(&p.id);
         let key = fingerprint.as_deref().map(|f| view_key(&p, &default, f, &digest));
         let mut built = None;

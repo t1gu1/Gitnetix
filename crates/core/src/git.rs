@@ -224,6 +224,70 @@ pub struct Identity {
     pub ssh_signing_key: Option<String>,
 }
 
+/// State files of an operation in progress, kept in each checkout's own git dir.
+const OP_FILES: [&str; 6] = ["rebase-merge", "rebase-apply", "MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "BISECT_START"];
+
+/// Taken for the default branch, in this order, when origin/HEAD isn't set.
+const DEFAULT_NAMES: [&str; 4] = ["main", "master", "trunk", "develop"];
+
+/// One `for-each-ref` line per ref with all [`RefList`] needs.
+const REF_FORMAT: &str = "--format=%(refname)%1f%(objectname)%1f%(upstream)%1f%(upstream:short)%1f%(committerdate:iso-strict)%1f%(authorname)%1f%(authoremail)%1f%(symref)%1f%(HEAD)%1f%(refname:short)%1f%(creatordate:iso-strict)%1f%(creatordate:unix)%1f%(*objectname)";
+
+/// Refs as one [`REF_FORMAT`] listing gives them.
+#[derive(Debug, Default)]
+pub struct RefList {
+    pub branches: Vec<BranchInfo>,
+    /// Origin's, named without `origin/`, its HEAD left out.
+    pub remote_branches: Vec<BranchInfo>,
+    /// Newest first.
+    pub tags: Vec<TagInfo>,
+    /// The branch HEAD is on; none when detached or not born yet (see [`Git::current_branch`]).
+    pub current: Option<String>,
+    /// The branch origin/HEAD points to.
+    pub origin_head: Option<String>,
+    /// [`Git::ref_fingerprint`], when the listing covered heads, remotes and tags.
+    pub fingerprint: String,
+}
+
+impl RefList {
+    /// [`Git::default_branch`] from this listing; `current` as [`Git::current_branch`] gives it.
+    pub fn default_branch(&self, current: Option<&str>) -> String {
+        let local = DEFAULT_NAMES.into_iter().find(|n| self.branches.iter().any(|b| b.name == *n));
+        self.origin_head.as_deref().or(local).or(current).unwrap_or("main").to_string()
+    }
+}
+
+fn parse_refs(out: &str) -> RefList {
+    let mut r = RefList::default();
+    let mut tags = Vec::new();
+    for l in out.lines() {
+        let f: Vec<&str> = l.split('\x1f').collect();
+        let [refname, sha, upstream, upstream_short, date, author, email, symref, head, short, created, created_unix, peeled] = f[..] else { continue };
+        r.fingerprint.push_str(&format!("{refname} {sha} {upstream}\n"));
+        let info = |name: &str, upstream: Option<String>| BranchInfo { name: name.into(), sha: sha.into(), upstream, date: date.into(), author: author.into(), email: email.trim_matches(['<', '>']).into() };
+        if let Some(name) = refname.strip_prefix("refs/heads/") {
+            if head == "*" {
+                r.current = Some(name.into());
+            }
+            r.branches.push(info(name, (!upstream_short.is_empty()).then(|| upstream_short.to_string())));
+        } else if let Some(name) = refname.strip_prefix("refs/remotes/origin/") {
+            if name == "HEAD" {
+                r.origin_head = symref.strip_prefix("refs/remotes/origin/").map(String::from);
+            } else if symref.is_empty() {
+                r.remote_branches.push(info(name, None));
+            }
+        } else if refname.starts_with("refs/tags/") {
+            // Annotated tags point at a tag object; prefer the commit.
+            let sha = if peeled.is_empty() { sha } else { peeled };
+            tags.push((created_unix.parse::<i64>().unwrap_or(0), TagInfo { name: short.into(), date: created.into(), sha: sha.into() }));
+        }
+    }
+    // Newest first, as `--sort=-creatordate` gives them: a stable sort keeps ties in name order.
+    tags.sort_by_key(|(t, _)| std::cmp::Reverse(*t));
+    r.tags = tags.into_iter().map(|(_, t)| t).collect();
+    r
+}
+
 impl Git {
     pub fn new(cwd: impl Into<PathBuf>) -> Self {
         Git { cwd: cwd.into(), config: Vec::new(), index: None }
@@ -271,6 +335,10 @@ impl Git {
         cmd.args(args);
         cmd.env("GIT_TERMINAL_PROMPT", "0");
         cmd.env("LC_ALL", "C");
+        // A read leaves the index as it is (git status would refresh it): the watcher takes an index write for a change.
+        if !writes {
+            cmd.env("GIT_OPTIONAL_LOCKS", "0");
+        }
         // Never let git open an editor inside the app.
         cmd.env("GIT_EDITOR", "true");
         if let Some(index) = &self.index {
@@ -357,7 +425,7 @@ impl Git {
                 return Ok(name.to_string());
             }
         }
-        for name in ["main", "master", "trunk", "develop"] {
+        for name in DEFAULT_NAMES {
             if self.ref_exists(&format!("refs/heads/{name}")).await? {
                 return Ok(name.to_string());
             }
@@ -372,9 +440,26 @@ impl Git {
 
     /// Resolve paths inside the git dir (handles worktrees), in one call.
     pub(crate) async fn git_paths(&self, names: &[&str]) -> Result<Vec<PathBuf>> {
+        // An operation's state files sit in the checkout's own git dir, which its `.git` names: no git process,
+        // each one ~40 ms on Windows. Other names may live in the common dir or be redirected.
+        if names.iter().all(|n| OP_FILES.contains(&n.split('/').next().unwrap_or(""))) {
+            if let Some(dir) = self.own_git_dir() {
+                return Ok(names.iter().map(|n| dir.join(n)).collect());
+            }
+        }
         let args: Vec<&str> = ["rev-parse"].into_iter().chain(names.iter().flat_map(|n| ["--git-path", n])).collect();
         let out = self.run(&args).await?;
         Ok(out.lines().map(|l| self.cwd.join(l.trim())).collect())
+    }
+
+    /// The git dir `.git` is or names (`gitdir: …` in a worktree or submodule); None when `cwd` isn't a checkout's top.
+    fn own_git_dir(&self) -> Option<PathBuf> {
+        let dot = self.cwd.join(".git");
+        if dot.is_dir() {
+            return Some(dot);
+        }
+        let s = std::fs::read_to_string(&dot).ok()?;
+        Some(self.cwd.join(s.strip_prefix("gitdir:")?.trim()))
     }
 
     pub async fn is_rebasing(&self) -> Result<bool> {
@@ -419,51 +504,23 @@ impl Git {
 
     // ---------- refs ----------
 
+    /// Every ref the overview reads, in one git process: heads, remotes and tags.
+    pub async fn read_refs(&self) -> Result<RefList> {
+        self.list_refs(&["refs/heads", "refs/remotes", "refs/tags"]).await
+    }
+
+    async fn list_refs(&self, patterns: &[&str]) -> Result<RefList> {
+        let args: Vec<&str> = ["for-each-ref", REF_FORMAT].into_iter().chain(patterns.iter().copied()).collect();
+        Ok(parse_refs(&self.run(&args).await?))
+    }
+
     pub async fn branches(&self) -> Result<Vec<BranchInfo>> {
-        let out = self
-            .run(&[
-                "for-each-ref",
-                "refs/heads",
-                // Not refname:short: a branch named like a tag would come out as "heads/<name>".
-                "--format=%(refname:lstrip=2)%1f%(objectname)%1f%(upstream:short)%1f%(committerdate:iso-strict)%1f%(authorname)%1f%(authoremail)",
-            ])
-            .await?;
-        Ok(out
-            .lines()
-            .filter_map(|l| {
-                let f: Vec<&str> = l.split('\x1f').collect();
-                (f.len() == 6).then(|| BranchInfo {
-                    name: f[0].into(),
-                    sha: f[1].into(),
-                    upstream: (!f[2].is_empty()).then(|| f[2].to_string()),
-                    date: f[3].into(),
-                    author: f[4].into(),
-                    email: f[5].trim_matches(['<', '>']).into(),
-                })
-            })
-            .collect())
+        Ok(self.list_refs(&["refs/heads"]).await?.branches)
     }
 
     /// Branches on origin (names without the `origin/` prefix, `HEAD` left out).
     pub async fn remote_branches(&self) -> Result<Vec<BranchInfo>> {
-        let out = self
-            .run(&["for-each-ref", "refs/remotes/origin", "--format=%(refname:lstrip=2)%1f%(objectname)%1f%(committerdate:iso-strict)%1f%(symref)%1f%(authorname)%1f%(authoremail)"])
-            .await?;
-        Ok(out
-            .lines()
-            .filter_map(|l| {
-                let f: Vec<&str> = l.split('\x1f').collect();
-                let name = f.first()?.strip_prefix("origin/")?;
-                (f.len() == 6 && f[3].is_empty() && name != "HEAD").then(|| BranchInfo {
-                    name: name.into(),
-                    sha: f[1].into(),
-                    upstream: None,
-                    date: f[2].into(),
-                    author: f[4].into(),
-                    email: f[5].trim_matches(['<', '>']).into(),
-                })
-            })
-            .collect())
+        Ok(self.list_refs(&["refs/remotes/origin"]).await?.remote_branches)
     }
 
     /// Subjects of recent merge commits, keyed by each merged-in (non-first) parent.
@@ -511,26 +568,7 @@ impl Git {
     }
 
     pub async fn tags(&self) -> Result<Vec<TagInfo>> {
-        let out = self
-            .run(&[
-                "for-each-ref",
-                "refs/tags",
-                "--sort=-creatordate",
-                "--format=%(refname:short)%1f%(creatordate:iso-strict)%1f%(objectname)%1f%(*objectname)",
-            ])
-            .await?;
-        Ok(out
-            .lines()
-            .filter_map(|l| {
-                let f: Vec<&str> = l.split('\x1f').collect();
-                (f.len() == 4).then(|| TagInfo {
-                    name: f[0].into(),
-                    date: f[1].into(),
-                    // Annotated tags point at a tag object; prefer the commit.
-                    sha: if f[3].is_empty() { f[2].into() } else { f[3].into() },
-                })
-            })
-            .collect())
+        Ok(self.list_refs(&["refs/tags"]).await?.tags)
     }
 
     /// Commit SHAs in `range`, newest first.
@@ -2081,6 +2119,93 @@ mod tests {
         assert_eq!(count_lines(&big, &mut budget), 0, "past the budget: not read");
         assert_eq!(budget, 45);
         assert_eq!(count_lines(&dir.path().join("gone"), &mut budget), 0);
+    }
+
+    #[tokio::test]
+    async fn one_ref_listing_reads_what_the_separate_calls_did() {
+        let tmp = tempfile::tempdir().unwrap();
+        let git_in = |dir: &Path, args: &[&str], date: &str| {
+            let out = std::process::Command::new("git")
+                .current_dir(dir)
+                .args(["-c", "user.name=T", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false"])
+                .args(args)
+                .env("GIT_COMMITTER_DATE", date)
+                .env("GIT_AUTHOR_DATE", date)
+                .output()
+                .unwrap();
+            assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+            String::from_utf8_lossy(&out.stdout).into_owned()
+        };
+        let (origin, clone) = (tmp.path().join("origin"), tmp.path().join("clone"));
+        std::fs::create_dir_all(&origin).unwrap();
+        let o = |args: &[&str], date: &str| git_in(&origin, args, date);
+        o(&["init", "-q", "-b", "main"], "2020-01-01T00:00:00Z");
+        o(&["config", "core.autocrlf", "false"], "2020-01-01T00:00:00Z");
+        o(&["config", "core.longpaths", "true"], "2020-01-01T00:00:00Z");
+        o(&["commit", "-q", "--allow-empty", "-m", "a"], "2020-01-01T00:00:00Z");
+        o(&["tag", "v1"], "2020-01-01T00:00:00Z");
+        o(&["switch", "-qc", "feat/x"], "2020-01-02T00:00:00Z");
+        o(&["commit", "-q", "--allow-empty", "-m", "x"], "2020-01-02T00:00:00Z");
+        o(&["tag", "-a", "v2", "-m", "two"], "2021-06-01T12:00:00+02:00");
+        o(&["tag", "v0"], "2019-01-01T00:00:00Z");
+        o(&["switch", "-q", "main"], "2020-01-03T00:00:00Z");
+        git_in(tmp.path(), &["clone", "-q", "-c", "core.autocrlf=false", "-c", "core.longpaths=true", origin.to_str().unwrap(), clone.to_str().unwrap()], "2020-01-03T00:00:00Z");
+        let c = |args: &[&str]| git_in(&clone, args, "2020-01-04T00:00:00Z");
+        c(&["branch", "feat/y"]);
+        // A branch named like a tag: `refname:short` spells the tag `tags/v1`.
+        c(&["branch", "v1"]);
+
+        let g = Git::new(&clone);
+        let r = g.read_refs().await.unwrap();
+        assert_eq!(r.fingerprint, g.ref_fingerprint().await.unwrap());
+        assert_eq!(r.current, g.current_branch().await.unwrap());
+        assert_eq!(r.default_branch(r.current.as_deref()), g.default_branch().await.unwrap());
+        let tags: Vec<&str> = r.tags.iter().map(|t| t.name.as_str()).collect();
+        let want = c(&["for-each-ref", "refs/tags", "--sort=-creatordate", "--format=%(refname:short)"]);
+        assert_eq!(tags, want.lines().collect::<Vec<_>>());
+        let peeled = c(&["rev-parse", "v2^{commit}"]);
+        assert_eq!(r.tags.iter().find(|t| t.name == "v2").unwrap().sha, peeled.trim());
+        let heads: Vec<String> = r.branches.iter().map(|b| format!("{} {} {}", b.name, b.sha, b.upstream.as_deref().unwrap_or(""))).collect();
+        let want = c(&["for-each-ref", "refs/heads", "--format=%(refname:lstrip=2) %(objectname) %(upstream:short)"]);
+        assert_eq!(heads, want.lines().collect::<Vec<_>>());
+        let remote: Vec<&str> = r.remote_branches.iter().map(|b| b.name.as_str()).collect();
+        assert_eq!(remote, ["feat/x", "main"]);
+        assert_eq!(r.origin_head.as_deref(), Some("main"));
+
+        c(&["switch", "-q", "--detach"]);
+        assert_eq!(g.read_refs().await.unwrap().current, None);
+        assert_eq!(g.current_branch().await.unwrap(), None);
+    }
+
+    #[tokio::test]
+    async fn operation_paths_match_git_in_a_checkout_and_a_worktree() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (repo, wt) = (tmp.path().join("r"), tmp.path().join("wt"));
+        std::fs::create_dir_all(&repo).unwrap();
+        let run = |dir: &Path, args: &[&str]| {
+            let out = std::process::Command::new("git").current_dir(dir).args(["-c", "user.name=T", "-c", "user.email=t@x", "-c", "commit.gpgsign=false"]).args(args).output().unwrap();
+            assert!(out.status.success(), "git {args:?}");
+            String::from_utf8_lossy(&out.stdout).into_owned()
+        };
+        run(&repo, &["init", "-q", "-b", "main"]);
+        run(&repo, &["config", "core.autocrlf", "false"]);
+        run(&repo, &["config", "core.longpaths", "true"]);
+        run(&repo, &["commit", "-q", "--allow-empty", "-m", "a"]);
+        run(&repo, &["worktree", "add", "-q", "-b", "w", wt.to_str().unwrap()]);
+        let names = ["rebase-merge/head-name", "MERGE_HEAD", "BISECT_START"];
+        for dir in [&repo, &wt] {
+            let ours = Git::new(dir).git_paths(&names).await.unwrap();
+            let args: Vec<&str> = ["rev-parse"].into_iter().chain(names.iter().flat_map(|n| ["--git-path", *n])).collect();
+            let theirs: Vec<PathBuf> = run(dir, &args).lines().map(|l| dir.join(l.trim())).collect();
+            // Compared through the git dir, which exists: the files don't.
+            let real = |p: &Path| {
+                let dir = p.ancestors().find(|a| a.is_dir()).unwrap();
+                std::fs::canonicalize(dir).unwrap().join(p.strip_prefix(dir).unwrap())
+            };
+            for (a, b) in ours.iter().zip(&theirs) {
+                assert_eq!(real(a), real(b), "{}", dir.display());
+            }
+        }
     }
 
     #[tokio::test]

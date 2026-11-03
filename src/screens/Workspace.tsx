@@ -207,6 +207,8 @@ export function Workspace() {
 
   const files = useFiles(pid, branch, mode, commit?.sha, stash?.sha);
   const wipList = useFiles(pid, branch, "wip").data ?? [];
+  // Loaded even while another branch is shown: each refetch keeps the current branch's "WIP n" right (syncWipCount).
+  useFiles(pid, o?.currentBranch ?? undefined, "wip");
   const wipCount = new Set(wipList.map((f) => f.path)).size;
   const stagedCount = wipList.filter((f) => f.staged).length;
   const branchCount = useFiles(pid, branch, "branch").data?.length ?? 0;
