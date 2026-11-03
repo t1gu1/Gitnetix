@@ -97,6 +97,29 @@ pub fn without_appimage(cmd: &mut std::process::Command) -> &mut std::process::C
     cmd
 }
 
+/// Runs `cmd`, and all it starts (an agent's builds and tests), below the app's CPU priority: a build on every core
+/// otherwise stretches each UI frame about 4 times.
+pub fn below_app(cmd: &mut std::process::Command) -> &mut std::process::Command {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        // SAFETY: nice() is a single syscall, allowed between fork and exec. It adds to the app's own niceness.
+        unsafe {
+            cmd.pre_exec(|| {
+                libc::nice(10);
+                Ok(())
+            });
+        }
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // BELOW_NORMAL_PRIORITY_CLASS: processes the agent starts inherit it.
+        cmd.creation_flags(0x0000_4000);
+    }
+    cmd
+}
+
 fn b64(b: &[u8]) -> String {
     base64::engine::general_purpose::STANDARD.encode(b)
 }
@@ -221,6 +244,16 @@ impl Shells {
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
+
+    #[test]
+    fn below_app_lowers_the_priority_by_ten() {
+        let nice = |cmd: &mut std::process::Command| -> i32 {
+            let out = cmd.args(["-c", "ps -o nice= -p $$"]).output().unwrap();
+            String::from_utf8(out.stdout).unwrap().trim().parse().unwrap()
+        };
+        let ours = nice(&mut std::process::Command::new("sh"));
+        assert_eq!(nice(below_app(&mut std::process::Command::new("sh"))), (ours + 10).min(19));
+    }
 
     fn decode(s: &str) -> Vec<u8> {
         base64::engine::general_purpose::STANDARD.decode(s).unwrap()

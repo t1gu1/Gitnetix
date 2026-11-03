@@ -12,6 +12,7 @@ release notes and the in-app update prompt.
 ## [Unreleased]
 
 ### Fixed
+- The app stays responsive while agents build or test in their worktrees. Agents and every command they start now run below the app's CPU priority, so a build on every core no longer slows the app's own drawing about 4 times.
 - On Windows, the app no longer fails to open with "MSVCP140.dll is missing" on PCs without the Visual C++ Redistributable. The installer now puts the Visual C++ runtime files next to Gitnetix.exe.
 
 ## [0.17.2] - 2026-11-02
