@@ -37,6 +37,9 @@
     "category": "DeveloperTool",
     "shortDescription": "Release-centric Git client with AI agents",
     "createUpdaterArtifacts": true,
+    "windows": {
+      "bundleVCRuntime": true
+    },
     "macOS": {
       "signingIdentity": "-",
       "entitlements": "./Entitlements.plist",

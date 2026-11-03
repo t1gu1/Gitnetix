@@ -11,6 +11,9 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+### Fixed
+- On Windows, the app no longer fails to open with "MSVCP140.dll is missing" on PCs without the Visual C++ Redistributable. The installer now puts the Visual C++ runtime files next to Gitnetix.exe.
+
 ## [0.17.2] - 2026-11-02
 
 ### Added
