@@ -11,6 +11,24 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+### Added
+- Watch each checkout's files and refresh on save, replacing the 4-second poll of uncommitted files. Changes to git-ignored paths do not trigger a refresh.
+
+### Changed
+- Fetch origin only when its branch or tag tips moved. The app checks with `ls-remote` every 5 seconds while the window is visible, retries failed checks once a minute, and no longer fetches every five minutes.
+- Ask origin at most every 4 seconds per project, however many windows are open. A check that starts while another runs waits for it.
+- Read all refs in one git call, since each git process costs about 40 ms on Windows.
+- Read-only git calls set `GIT_OPTIONAL_LOCKS=0` so they do not rewrite the index.
+
+### Fixed
+- Discard stash-apply conflicts back to HEAD.
+- Find the desktop app's CLI in Store (MSIX) and Mac installs, including the nested `<version>/<hash>/` and `.app` bundle layouts.
+- Quote the program path in the macOS Terminal sign-in script, so paths with spaces work.
+- Show a sign-in hint when the CLI reports `/login`.
+- Keep the hidden console window on Windows when lowering the priority of agent processes.
+- Join worktree paths with `/` so they match the `C:/...` paths git returns on Windows.
+- Run `taskkill` on Windows without the AppImage environment.
+
 ## [0.17.3] - 2026-11-02
 
 ### Added
