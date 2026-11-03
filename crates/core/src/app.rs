@@ -2012,6 +2012,8 @@ impl Gitnetix {
         self.store.read(|c| c.ui.spoken_language.clone().unwrap_or_else(|| c.ui.language.clone()))
     }
 
+    /// `cwd` only when the AI must work in the repo (conflicts). Without it the CLI starts lean (no MCP, hooks or
+    /// CLAUDE.md), ~1.5 s sooner: the prompt already holds the diff or commits. Agents still read CLAUDE.md, in their worktree.
     async fn ask(&self, task: &str, t: &Template, vars: BTreeMap<String, String>, lang: &str, cwd: Option<&Path>) -> Result<String> {
         let r = self.route(task, Some(t))?;
         let prompt = templates::render(t, &vars, &self.gen_lang(lang));
@@ -3000,12 +3002,12 @@ impl Gitnetix {
             if drafts.get(git.cwd()).is_some_and(|(k, _)| *k == key) { drafts.remove(git.cwd()).map(|(_, cell)| cell) } else { None }
         };
         if let Some(cell) = ahead {
-            if let Some(m) = cell.get_or_init(|| async { self.complete("commit", &r, &prompt, Some(git.cwd())).await.ok() }).await {
+            if let Some(m) = cell.get_or_init(|| async { self.complete("commit", &r, &prompt, None).await.ok() }).await {
                 crate::log::info("Took the commit message written ahead of time");
                 return Ok(m.clone());
             }
         }
-        self.complete("commit", &r, &prompt, Some(git.cwd())).await
+        self.complete("commit", &r, &prompt, None).await
     }
 
     /// What [`Self::commit_message_for`] asks: the route, and the prompt for what `git` has staged.
@@ -3056,7 +3058,7 @@ impl Gitnetix {
                 }
             }
         };
-        cell.get_or_init(|| async { self.complete("commit, ahead of time", &r, &prompt, Some(&cwd)).await.ok() }).await;
+        cell.get_or_init(|| async { self.complete("commit, ahead of time", &r, &prompt, None).await.ok() }).await;
         Ok(())
     }
 
@@ -3548,7 +3550,7 @@ impl Gitnetix {
         vars.insert("version".into(), version.into());
         vars.insert("released".into(), released.into());
         vars.insert("unreleased".into(), unreleased.into());
-        let out = self.ask("release", &t, vars, &p.gen_lang.release, Some(Path::new(&p.path))).await.ok()?;
+        let out = self.ask("release", &t, vars, &p.gen_lang.release, None).await.ok()?;
         let out = out.trim();
         // Some models repeat the heading they were told to leave out.
         let body = if out.starts_with("## [") { out.split_once('\n').map_or("", |(_, b)| b).trim() } else { out };
@@ -3594,7 +3596,7 @@ impl Gitnetix {
         vars.insert("description".into(), description.to_string());
         vars.insert("type".into(), kind.to_string());
         vars.insert("ticket".into(), ticket.unwrap_or("").to_string());
-        match self.ask("branch", &t, vars, "en", Some(Path::new(&p.path))).await {
+        match self.ask("branch", &t, vars, "en", None).await {
             Ok(name) => {
                 let name = name.lines().next().unwrap_or("").trim().trim_matches('`').to_string();
                 if valid_branch_name(&name) && name.contains('/') {
@@ -4520,7 +4522,7 @@ impl Gitnetix {
             vars.insert("files".into(), git.run(&["diff", "--name-status", &range]).await?);
             vars.insert("branch".into(), branch.to_string());
             vars.insert("ticket".into(), ticket);
-            self.ask("commit", &t, vars, &p.gen_lang.commit, Some(Path::new(&p.path))).await?
+            self.ask("commit", &t, vars, &p.gen_lang.commit, None).await?
         } else {
             let list: Vec<String> = git.subjects(&range).await?.iter().map(|s| format!("* {s}")).collect();
             format!("{}\n\n{}", squash_title(branch), list.join("\n"))
@@ -5058,7 +5060,7 @@ impl Gitnetix {
             }
         }
         let task = t.kind.clone();
-        let out = self.ask(&task, &t, vars, language, Some(Path::new(&p.path))).await?;
+        let out = self.ask(&task, &t, vars, language, None).await?;
         Ok((out, source))
     }
 
@@ -5104,7 +5106,7 @@ impl Gitnetix {
         vars.insert("branch".into(), branch.into());
         vars.insert("base".into(), base);
         vars.insert("ticket".into(), ticket);
-        let out = self.ask("pr", &t, vars, &p.gen_lang.pr, Some(Path::new(&p.path))).await?;
+        let out = self.ask("pr", &t, vars, &p.gen_lang.pr, None).await?;
         let (title, body) = out.split_once('\n').map(|(a, b)| (a.trim().trim_start_matches('#').trim().to_string(), b.trim().to_string())).unwrap_or((out.clone(), String::new()));
         Ok((title, body))
     }
@@ -5497,7 +5499,7 @@ impl Gitnetix {
         vars.insert("from".into(), from.into());
         vars.insert("to".into(), to.into());
         let r = self.route("release", Some(&t))?;
-        let out = self.ask("release", &t, vars, language, Some(Path::new(&p.path))).await?;
+        let out = self.ask("release", &t, vars, language, None).await?;
         Ok((out, format!("{} · {} commits read", r.label(), kept.len())))
     }
 
@@ -5551,7 +5553,7 @@ impl Gitnetix {
         vars.insert("released".into(), if released.is_empty() { "(none)".into() } else { released });
         vars.insert("branch".into(), branch.into());
         vars.insert("base".into(), base);
-        let out = self.ask("release", &t, vars, &p.gen_lang.release, Some(Path::new(&p.path))).await?;
+        let out = self.ask("release", &t, vars, &p.gen_lang.release, None).await?;
         // Some models repeat the heading they were told to leave out.
         let body = out.trim().strip_prefix("## [Unreleased]").unwrap_or(out.trim()).trim().to_string();
         if body == current {

@@ -57,6 +57,9 @@ function save(k: string, v: unknown) {
     });
 }
 
+/** The draft under `key` right now, read outside a render (work ending after its dialog closed). */
+export const draftOf = (key: string): Draft | undefined => mem.get(key);
+
 /** The draft under `key` (a project's branch, or a dialog): it stays when its box goes away, across pages, projects and restarts. */
 export function useDraft<F extends object = never>(key: string) {
   const d = useSyncExternalStore(subscribe, () => mem.get(key)) ?? EMPTY;

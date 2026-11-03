@@ -5,15 +5,15 @@ import { rpc } from "../api/transport";
 import type { AgentSession, AgentStatus, RebaseResult, WorktreeView } from "../api/types";
 import { AgentInput, AgentLog, RequestField, uploads, type Choice, type Upload } from "../components/AgentLog";
 import { shownStatus } from "../lib/agentLog";
-import { useDraft } from "../lib/drafts";
+import { draftOf, useDraft } from "../lib/drafts";
 import { AgentPicker, MenuChoice, useAgentPick } from "../components/AgentPicker";
 import { ContextMenu, type MenuItem } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
 import { Resizer, usePaneWidth } from "../components/Resizer";
 import { ShellPane, TermTabs, useTermView } from "../components/Shell";
-import { ago, Busy, Confirm, Empty, EmptyState, Header, Modal, Seg, swipeProps } from "../components/ui";
+import { ago, Confirm, Empty, EmptyState, Header, Modal, Seg, swipeProps } from "../components/ui";
 import { plural } from "../lib/format";
-import { agentKey, useHidden, wtKey } from "../lib/tasks";
+import { agentKey, call, runTask, useHidden, wtKey } from "../lib/tasks";
 import { copyToClipboard } from "../lib/toast";
 import { KINDS, kindOfBranch, type Kind } from "../lib/kinds";
 import { useNav } from "../lib/nav";
@@ -520,22 +520,28 @@ function StartModal({ onClose, onMinimize }: { onClose: () => void; onMinimize: 
   // An existing branch shows the ticket it already carries (linked, or a key in its name) until one is typed.
   const ticket = typedTicket ?? (fresh ? "" : (branches.find((b) => b.name === branch)?.ticket ?? ""));
   const label = (b: { name: string; local: boolean }) => (b.local ? b.name : `${b.name} (origin)`);
-  const start = useAction("agents.start", { invalidate: [["agents"], ["worktrees"]], success: "Agent started" });
-  const create = useAction<{ branch: string }>("items.create", {
-    invalidate: [["overview", pid], ["agents"], ["worktrees"]],
-    success: (r) => `Agent started on ${r.branch}`,
-  });
-  const busy = start.isPending || create.isPending;
-  const ready = !!pid && !!(fresh ? from : branch) && !!request.trim() && !busy;
+  const ready = !!pid && !!(fresh ? from : branch) && !!request.trim();
+  // Closes at once: AI naming the branch takes seconds. A start that fails comes back as the chip, request kept.
   const go = async () => {
-    const up = await uploads(files);
-    if (fresh)
-      create.mutate(
-        // Empty name: the backend names the branch from the request.
-        { projectId: pid, from, kind: kindOfBranch(name) ?? kind, description: request, branchName: name.trim() || undefined, ticket: ticket.trim() || undefined, where: "worktree", startAgent: true, files: up, ...pick },
-        { onSuccess: onClose },
-      );
-    else start.mutate({ projectId: pid, branch, request, ticket: ticket.trim() || undefined, files: up, ...pick }, { onSuccess: onClose });
+    onClose();
+    const r = await runTask({
+      label: "Starting agent session…",
+      invalidate: [["overview", pid], ["agents"], ["worktrees"]],
+      run: async () => {
+        const up = await uploads(files);
+        return fresh
+          ? // Empty name: the backend names the branch from the request.
+            call<{ branch: string }>("items.create", { projectId: pid, from, kind: kindOfBranch(name) ?? kind, description: request, branchName: name.trim() || undefined, ticket: ticket.trim() || undefined, where: "worktree", startAgent: true, files: up, ...pick })
+          : call<{ branch: string }>("agents.start", { projectId: pid, branch, request, ticket: ticket.trim() || undefined, files: up, ...pick });
+      },
+      done: (r) => `Agent started on ${r.branch}`,
+    });
+    // Unless another session was opened meanwhile.
+    if (!r && !draftOf(START)?.form) {
+      d.setForm({ ...s, min: true });
+      d.setText(request);
+      d.setFiles(files);
+    }
   };
   return (
     <Modal
@@ -550,7 +556,7 @@ function StartModal({ onClose, onMinimize }: { onClose: () => void; onMinimize: 
       footer={
         <>
           <button className="btn btn-primary btn-md" disabled={!ready} onClick={go}>
-            <Busy on={busy}><Icon name="play" size={12} /></Busy>
+            <Icon name="play" size={12} />
             Start
           </button>
         </>
