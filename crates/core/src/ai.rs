@@ -114,7 +114,7 @@ pub fn resolve(cfg: &AiConfig, task: &str, template_model: Option<&str>) -> Resu
 pub fn resolve_route(cfg: &AiConfig, route: Route, template_model: Option<&str>) -> Result<Resolved> {
     let provider = route.provider.clone().unwrap_or_else(|| cfg.default_provider.clone());
     // A CLI found on this computer works without setup: it uses its own sign-in.
-    let detected = || provider_info(&provider).ok().and_then(|i| i.bin).and_then(which).map(|_| ProviderConf::default());
+    let detected = || cli_path(&provider).ok().map(|_| ProviderConf::default());
     let conf = cfg
         .providers
         .get(&provider)
@@ -142,7 +142,28 @@ pub fn which(bin: &str) -> Option<PathBuf> {
     for d in ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"] {
         dirs.push(PathBuf::from(d));
     }
-    dirs.into_iter().map(|d| d.join(bin)).find(|p| p.is_file())
+    // The native Claude Code installer on Windows puts claude.exe in ~/.local/bin, npm puts a claude.cmd shim on PATH.
+    let names = if cfg!(windows) { vec![format!("{bin}.exe"), format!("{bin}.cmd")] } else { vec![bin.to_string()] };
+    first_file(&dirs, &names)
+}
+
+/// The first of `names` found in any of `dirs`: a later dir's .exe wins over an earlier dir's .cmd.
+fn first_file(dirs: &[PathBuf], names: &[String]) -> Option<PathBuf> {
+    names.iter().find_map(|n| dirs.iter().map(|d| d.join(n)).find(|p| p.is_file()))
+}
+
+/// The newest copy of Claude Code that Claude Desktop downloads for its Code tab (`<config dir>/Claude/claude-code/<version>/`).
+// shortcut: undocumented path, and Store (MSIX) installs keep it under %LOCALAPPDATA%\Packages instead; look there if Store users can't find it.
+fn desktop_claude() -> Option<PathBuf> {
+    newest_version(&dirs::config_dir()?.join("Claude").join("claude-code"), if cfg!(windows) { "claude.exe" } else { "claude" })
+}
+
+fn newest_version(root: &Path, file: &str) -> Option<PathBuf> {
+    let version = |p: &PathBuf| -> Vec<u64> {
+        let name = p.parent().and_then(|d| d.file_name()).map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+        name.split('.').map(|n| n.parse().unwrap_or(0)).collect()
+    };
+    std::fs::read_dir(root).ok()?.flatten().map(|e| e.path().join(file)).filter(|p| p.is_file()).max_by_key(version)
 }
 
 /// Run a one-shot completion.
@@ -158,7 +179,9 @@ pub async fn complete(r: &Resolved, prompt: &str, cwd: Option<&Path>) -> Result<
 pub fn cli_path(provider: &str) -> Result<(&'static str, PathBuf)> {
     let info = provider_info(provider)?;
     let bin = info.bin.ok_or_else(|| Error::Unsupported(format!("{} has no CLI", info.name)))?;
-    let path = which(bin).ok_or_else(|| Error::NotConnected(format!("`{bin}` not found on your PATH")))?;
+    let path = which(bin)
+        .or_else(|| if bin == "claude" { desktop_claude() } else { None })
+        .ok_or_else(|| Error::NotConnected(format!("`{bin}` not found on your PATH")))?;
     Ok((bin, path))
 }
 
@@ -352,9 +375,9 @@ pub struct ProviderStatus {
 }
 
 pub fn status(cfg: &AiConfig, id: &str) -> Result<ProviderStatus> {
-    let info = provider_info(id)?;
+    provider_info(id)?;
     let conf = cfg.providers.get(id);
-    let cli_path = info.bin.and_then(which).map(|p| p.to_string_lossy().to_string());
+    let cli_path = cli_path(id).ok().map(|(_, p)| p.to_string_lossy().to_string());
     let has_key = secrets::get(&secrets::ai_key(id)).ok().flatten().is_some_and(|k| !k.is_empty());
     let status = match conf {
         Some(c) if c.connected => "connected",
@@ -373,6 +396,31 @@ mod tests {
     fn strips_fences() {
         assert_eq!(clean("```text\nfeat: x\n```"), "feat: x");
         assert_eq!(clean("  feat: y \n"), "feat: y");
+    }
+
+    #[test]
+    fn exe_beats_cmd_shim() {
+        let (a, b) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        std::fs::write(a.path().join("claude.cmd"), "").unwrap();
+        std::fs::write(b.path().join("claude.exe"), "").unwrap();
+        let dirs = [a.path().to_path_buf(), b.path().to_path_buf()];
+        let names = ["claude.exe".to_string(), "claude.cmd".to_string()];
+        assert_eq!(first_file(&dirs, &names), Some(b.path().join("claude.exe")));
+        std::fs::remove_file(b.path().join("claude.exe")).unwrap();
+        assert_eq!(first_file(&dirs, &names), Some(a.path().join("claude.cmd")));
+    }
+
+    #[test]
+    fn picks_newest_desktop_copy() {
+        let root = tempfile::tempdir().unwrap();
+        for v in ["2.1.99", "2.1.260", "2.2.0-empty"] {
+            std::fs::create_dir(root.path().join(v)).unwrap();
+        }
+        for v in ["2.1.99", "2.1.260"] {
+            std::fs::write(root.path().join(v).join("claude"), "").unwrap();
+        }
+        assert_eq!(newest_version(root.path(), "claude"), Some(root.path().join("2.1.260").join("claude")));
+        assert_eq!(newest_version(&root.path().join("missing"), "claude"), None);
     }
 
     #[test]

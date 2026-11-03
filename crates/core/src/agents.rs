@@ -540,7 +540,14 @@ impl AgentManager {
             });
             let exit = tokio::select! {
                 s = child.wait() => Some(s),
-                _ = &mut kill_rx => { let _ = child.kill().await; None }
+                _ = &mut kill_rx => {
+                    // A .cmd shim runs the CLI as a child of cmd.exe, which killing cmd.exe alone leaves working.
+                    if let (true, Some(pid)) = (cfg!(windows), child.id()) {
+                        let _ = Command::new("taskkill").args(["/T", "/F", "/PID", &pid.to_string()]).status().await;
+                    }
+                    let _ = child.kill().await;
+                    None
+                }
             };
             let outcome = out_task.await.ok().flatten();
             let _ = err_task.await;
