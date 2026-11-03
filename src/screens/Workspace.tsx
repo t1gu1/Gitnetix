@@ -43,6 +43,7 @@ import { ago, plural, timeLeft } from "../lib/format";
 import { shownStatus } from "../lib/agentLog";
 import { startCleanup, useCleaning } from "../lib/cleanups";
 import { useDraft } from "../lib/drafts";
+import { useIdle } from "../lib/motion";
 import { useNav } from "../lib/nav";
 import { useStoredChoice, useStoredFlag } from "../lib/stored";
 import { agentKey, branchKey, call, runTask, useHidden, wtKey } from "../lib/tasks";
@@ -68,7 +69,8 @@ export function Workspace() {
   const pid = nav.projectId!;
   const ov = useOverview(pid);
   const progress = useOverviewProgress(pid);
-  useAutoFetch(pid, !!ov.data?.remote);
+  const idle = useIdle();
+  useAutoFetch(pid, !!ov.data?.remote && !idle);
   const [mode, setMode] = useState<Mode>("wip");
   const [file, setFile] = useState<string | undefined>();
   const [diffMode, setDiffMode] = useState<DiffMode>("unified");

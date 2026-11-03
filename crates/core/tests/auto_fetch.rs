@@ -1,9 +1,10 @@
 //! `branches.autoFetch` fetches the first time, then only once origin's tips moved: a push from
-//! another clone, a new tag.
+//! another clone, a new tag. Origin is asked at most every `AUTO_FETCH_GAP`, however many windows ask.
 
 use std::path::Path;
 use std::process::Command;
 
+use gitnetix_core::app::AUTO_FETCH_GAP;
 use gitnetix_core::{rpc, Gitnetix};
 use serde_json::json;
 
@@ -35,18 +36,23 @@ async fn fetches_only_when_origin_moved() {
     let auto = || async { rpc::call(&k, "branches.autoFetch", json!({ "projectId": pid })).await.unwrap() };
     let tip = |dir: &Path, rev: &str| sh(dir, &["rev-parse", rev]);
 
-    assert_eq!(auto().await, json!(true), "the first look fetches");
+    // Two windows asking at once: one look at origin, one fetch.
+    let (a, b) = tokio::join!(auto(), auto());
+    assert_eq!([a, b].iter().filter(|v| **v == json!(true)).count(), 1, "the first look fetches, once");
     assert_eq!(tip(&repo, "origin/main"), tip(&other, "main"));
-    assert_eq!(auto().await, json!(false), "nothing moved: no fetch");
 
     commit(&other, "second");
     sh(&other, &["push", "-q", "origin", "main"]);
+    assert_eq!(auto().await, json!(false), "asked again too soon: origin isn't");
+    tokio::time::sleep(AUTO_FETCH_GAP).await;
     assert_eq!(auto().await, json!(true), "a push elsewhere fetches");
     assert_eq!(tip(&repo, "origin/main"), tip(&other, "main"));
-    assert_eq!(auto().await, json!(false));
+    tokio::time::sleep(AUTO_FETCH_GAP).await;
+    assert_eq!(auto().await, json!(false), "nothing moved: no fetch");
 
     sh(&other, &["tag", "v1"]);
     sh(&other, &["push", "-q", "origin", "v1"]);
+    tokio::time::sleep(AUTO_FETCH_GAP).await;
     assert_eq!(auto().await, json!(true), "a new tag fetches");
     assert_eq!(tip(&repo, "v1"), tip(&other, "v1"));
 }

@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { useConfig } from "../api/hooks";
@@ -91,6 +91,16 @@ export function usePauseWhenIdle(ms = 30_000) {
     };
   }, [ms]);
 }
+
+const watchIdle = (on: () => void) => {
+  const o = new MutationObserver(on);
+  o.observe(document.documentElement, { attributes: true, attributeFilter: ["data-idle"] });
+  return () => o.disconnect();
+};
+const isIdle = () => "idle" in document.documentElement.dataset;
+
+/** True while {@link usePauseWhenIdle} has the app idle (no input for 30 s, or the window hidden): polls only worth it for someone watching wait. */
+export const useIdle = () => useSyncExternalStore(watchIdle, isIdle);
 
 /** The turned-off animations and a toggle for one, saved to the app's config. */
 export function useAnimations() {

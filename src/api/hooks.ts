@@ -95,11 +95,15 @@ export function useEngineEvents() {
             qc.invalidateQueries({ queryKey: ["submodules", e.projectId] });
             break;
           case "filesChanged":
-            // A save moves no branch: only the uncommitted file lists, of that checkout when known.
-            qc.invalidateQueries({
-              queryKey: e.branch ? ["files", e.projectId, e.branch, "wip"] : ["files", e.projectId],
-              predicate: (q) => q.queryKey[3] === "wip" && !q.queryKey[4] && !q.queryKey[5],
-            });
+            // A save moves no branch: only the uncommitted files, their diffs and previews, of that checkout when known.
+            // Keys are [kind, project, branch, mode, …]: commit and stash sit at 4 and 5 in "files", at 6 and 7 in "diff" and "blobs".
+            for (const kind of ["files", "diff", "blobs"]) {
+              const [commit, stash] = kind === "files" ? [4, 5] : [6, 7];
+              qc.invalidateQueries({
+                queryKey: e.branch ? [kind, e.projectId, e.branch, "wip"] : [kind, e.projectId],
+                predicate: (q) => q.queryKey[3] === "wip" && !q.queryKey[commit] && !q.queryKey[stash],
+              });
+            }
             break;
           case "conflictResolving": {
             const text = `Conflicts in ${e.files.join(", ")}: resolving them with AI. This can take a few minutes; Menu › Logs shows progress.`;
@@ -388,7 +392,7 @@ export const useCommits = (projectId?: string, branch?: string, limit?: number) 
     placeholderData: (prev, prevQuery) => (prevQuery?.queryKey[2] === branch ? prev : undefined),
   });
 
-/** Every 5 s while the window shows (and on coming back to it), ask origin for its tips and fetch only when they moved.
+/** Every 5 s while someone uses the window (the caller turns it off while idle; coming back asks at once), ask origin for its tips and fetch only when they moved.
  *  A fetch sends projectChanged, which reloads the overview. After a failure (offline, signed out) once a minute, quietly: it runs unasked. */
 export const useAutoFetch = (projectId?: string, enabled = true) =>
   useQuery({

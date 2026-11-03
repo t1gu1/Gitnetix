@@ -50,8 +50,8 @@ pub struct Gitnetix {
     shipped: std::sync::Mutex<HashMap<String, (u64, Arc<ShippedIndex>)>>,
     /// What the git host said about each project's branch tips.
     hosted: std::sync::Mutex<HashMap<String, HostedPrs>>,
-    /// Origin's tips ([`Git::remote_tips`]) at each project's last fetch from [`Gitnetix::auto_fetch`].
-    remote_tips: std::sync::Mutex<HashMap<String, String>>,
+    /// What [`Gitnetix::auto_fetch`] knows of each project's origin; one check at a time per project.
+    auto_fetch: std::sync::Mutex<HashMap<String, Arc<tokio::sync::Mutex<AutoFetch>>>>,
     /// The worktree list as last built, without agents: shown while the next one builds.
     worktrees: LastCache,
     /// Commit messages written ahead ([`Gitnetix::prepare_commit_message`]), per checkout, with the key of the prompt they answer.
@@ -72,6 +72,22 @@ struct HostedPrs {
 
 /// How long the git host's "no pull request took it" is trusted before asking again.
 const HOSTED_TTL: std::time::Duration = std::time::Duration::from_secs(300);
+
+/// Least time between two looks at a project's origin, however many windows and phone pages ask.
+pub const AUTO_FETCH_GAP: std::time::Duration = std::time::Duration::from_secs(4);
+
+/// [`Gitnetix::auto_fetch`]'s state for one project.
+#[derive(Default)]
+struct AutoFetch {
+    /// When origin was last asked for its tips.
+    asked: Option<Instant>,
+    /// Origin's tips ([`Git::remote_tips`]) at the last fetch.
+    tips: Option<String>,
+    /// When the git host was last asked again about pull requests.
+    hosted: Option<Instant>,
+    /// [`Git::own_ssh`]; none until read, and again after a failed check (the ssh setting may be why).
+    own_ssh: Option<bool>,
+}
 
 /// How long the git host's protected branches are trusted before asking again.
 const PROTECTED_TTL: std::time::Duration = std::time::Duration::from_secs(300);
@@ -1777,7 +1793,7 @@ impl Gitnetix {
         let agents = AgentManager::new(events.clone(), dir);
         let shells = crate::shell::Shells::new(events.clone());
         crate::log::attach(events.clone());
-        let k = Arc::new(Gitnetix { store, agents, shells, events, dir: dir.to_path_buf(), dictation: Default::default(), protected: Default::default(), watcher: Default::default(), commits: CommitCache::open(dir), views: ViewCache::open(dir.join("overview-cache")), building: Default::default(), cleaning: Default::default(), shipped: Default::default(), hosted: Default::default(), remote_tips: Default::default(), worktrees: LastCache::open(dir.join("worktrees-cache.json")), drafts: Default::default() });
+        let k = Arc::new(Gitnetix { store, agents, shells, events, dir: dir.to_path_buf(), dictation: Default::default(), protected: Default::default(), watcher: Default::default(), commits: CommitCache::open(dir), views: ViewCache::open(dir.join("overview-cache")), building: Default::default(), cleaning: Default::default(), shipped: Default::default(), hosted: Default::default(), auto_fetch: Default::default(), worktrees: LastCache::open(dir.join("worktrees-cache.json")), drafts: Default::default() });
         k.rewatch();
         Ok(k)
     }
@@ -4670,27 +4686,57 @@ impl Gitnetix {
     /// Fetch origin (pruning branches deleted there).
     pub async fn fetch(&self, project_id: &str) -> Result<()> {
         let p = self.store.project(project_id)?;
-        self.git(&p).fetch().await?;
+        self.fetch_with(project_id, &self.git(&p)).await
+    }
+
+    async fn fetch_with(&self, project_id: &str, git: &Git) -> Result<()> {
+        git.fetch().await?;
         self.protected_branches(project_id, true).await;
-        // Ask the host again about every tip still without a pull request.
+        self.recheck_host(project_id);
+        Ok(())
+    }
+
+    /// Rebuild the overview, asking the git host again about every tip still without a pull request.
+    fn recheck_host(&self, project_id: &str) {
         if let Some(h) = self.hosted.lock().unwrap().get_mut(project_id) {
             h.asked.clear();
         }
         self.changed(project_id);
-        Ok(())
     }
 
     /// Fetch only when origin's tips moved since the last time this fetched (always the first time).
     /// Returns whether it fetched. Read before the fetch: a push landing in between shows as moved next time.
+    /// Asks origin at most every [`AUTO_FETCH_GAP`]; a call meanwhile, or while a check runs, returns false.
     pub async fn auto_fetch(&self, project_id: &str) -> Result<bool> {
         let p = self.store.project(project_id)?;
-        let tips = self.git(&p).remote_tips().await?;
-        if self.remote_tips.lock().unwrap().get(project_id) == Some(&tips) {
+        let slot = self.auto_fetch.lock().unwrap().entry(project_id.into()).or_default().clone();
+        // A second window asking while the first one's check runs waits for it, then shares it.
+        let mut s = slot.lock().await;
+        if s.asked.is_some_and(|t| t.elapsed() < AUTO_FETCH_GAP) {
             return Ok(false);
         }
-        self.fetch(project_id).await?;
-        self.remote_tips.lock().unwrap().insert(project_id.into(), tips);
-        Ok(true)
+        let git = self.git(&p);
+        let own_ssh = match s.own_ssh {
+            Some(own) => own,
+            None => git.own_ssh().await,
+        };
+        let git = git.unattended(own_ssh);
+        let tips = git.remote_tips().await;
+        s.asked = Some(Instant::now());
+        s.own_ssh = tips.is_ok().then_some(own_ssh);
+        let tips = tips?;
+        if s.tips.as_ref() != Some(&tips) {
+            self.fetch_with(project_id, &git).await?;
+            s.tips = Some(tips);
+            s.hosted = Some(Instant::now());
+            return Ok(true);
+        }
+        // Nothing moved on origin, but its host may have opened or merged a pull request: ask it as often as the timed fetch did.
+        if s.hosted.is_none_or(|t| t.elapsed() >= HOSTED_TTL) {
+            s.hosted = Some(Instant::now());
+            self.recheck_host(project_id);
+        }
+        Ok(false)
     }
 
     // ---------- worktrees & agents ----------

@@ -98,6 +98,8 @@ pub struct Git {
     config: Vec<(String, String)>,
     /// Another index file than the checkout's own (`GIT_INDEX_FILE`), see [`Git::with_index`].
     index: Option<PathBuf>,
+    /// Extra environment, see [`Git::unattended`].
+    env: Vec<(&'static str, &'static str)>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -290,7 +292,7 @@ fn parse_refs(out: &str) -> RefList {
 
 impl Git {
     pub fn new(cwd: impl Into<PathBuf>) -> Self {
-        Git { cwd: cwd.into(), config: Vec::new(), index: None }
+        Git { cwd: cwd.into(), config: Vec::new(), index: None, env: Vec::new() }
     }
 
     /// The same checkout staging into `index` instead of its own index file, which stays as the user left it.
@@ -301,6 +303,24 @@ impl Git {
 
     pub fn cwd(&self) -> &Path {
         &self.cwd
+    }
+
+    /// For calls nobody asked for (the background fetch): ssh and the credential manager fail instead of asking for a
+    /// passphrase, about an unknown host or for a sign-in. BatchMode only when the user has no ssh command of their own
+    /// ([`Git::own_ssh`]): `GIT_SSH_COMMAND` would replace it.
+    pub fn unattended(mut self, own_ssh: bool) -> Self {
+        self.env.extend([("SSH_ASKPASS_REQUIRE", "never"), ("GCM_INTERACTIVE", "never")]);
+        if !own_ssh {
+            self.env.push(("GIT_SSH_COMMAND", "ssh -o BatchMode=yes"));
+        }
+        self
+    }
+
+    /// The user set the ssh git runs: `GIT_SSH_COMMAND`, `GIT_SSH` or `core.sshCommand` (a second account's key).
+    pub async fn own_ssh(&self) -> bool {
+        std::env::var_os("GIT_SSH_COMMAND").is_some()
+            || std::env::var_os("GIT_SSH").is_some()
+            || self.try_run(&["config", "--get", "core.sshCommand"]).await.is_ok_and(|(ok, _, _)| ok)
     }
 
     pub fn with_identity(mut self, id: &Identity) -> Self {
@@ -344,6 +364,7 @@ impl Git {
         if let Some(index) = &self.index {
             cmd.env("GIT_INDEX_FILE", index);
         }
+        cmd.envs(self.env.iter().copied());
         cmd.kill_on_drop(true);
         cmd
     }
@@ -2221,6 +2242,18 @@ mod tests {
                 assert_eq!(real(a), real(b), "{}", dir.display());
             }
         }
+    }
+
+    #[tokio::test]
+    async fn background_calls_keep_the_users_own_ssh() {
+        let tmp = tempfile::tempdir().unwrap();
+        let git = |args: &[&str]| assert!(std::process::Command::new("git").current_dir(tmp.path()).args(args).status().unwrap().success());
+        git(&["init", "-q"]);
+        let batch = |own| Git::new(tmp.path()).unattended(own).env.iter().any(|(k, _)| *k == "GIT_SSH_COMMAND");
+        assert!(batch(false) && !batch(true), "BatchMode only replaces git's plain ssh");
+        // A second account's key, set for this repository.
+        git(&["config", "core.sshCommand", "ssh -i ~/.ssh/work"]);
+        assert!(Git::new(tmp.path()).own_ssh().await);
     }
 
     #[tokio::test]

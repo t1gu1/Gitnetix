@@ -23,6 +23,10 @@ use crate::store::Project;
 const SETTLE: Duration = Duration::from_millis(300);
 /// A checkout that keeps changing (an agent at work) re-reads its files at most this often: the old timer's rate.
 const GAP: Duration = Duration::from_millis(if cfg!(test) { 600 } else { 4000 });
+/// Windows drops a burst of events that overflows its 16 KB buffer, and notify reports nothing then. A checkout is
+/// watched whole there, so a build writing in `target/` overflows it too: every checkout is re-read this often.
+// shortcut: idle checkouts are re-read too; sweep only the ones with events since the last sweep if idle git calls matter there.
+const SWEEP: Duration = Duration::from_secs(30);
 
 /// Watching stops when this is dropped.
 pub struct Watch {
@@ -94,8 +98,7 @@ pub fn watch(projects: &[Project], events: broadcast::Sender<Event>) -> Option<W
             let _ = tx.send(Msg::Lost);
             return;
         }
-        // Reads (git opening HEAD or a ref, Gitnetix's own included) aren't changes. Windows reports a
-        // full event buffer as an `Any` on the watched folder, which counts as a change there.
+        // Reads (git opening HEAD or a ref, Gitnetix's own included) aren't changes.
         if ev.kind.is_access() {
             return;
         }
@@ -134,9 +137,10 @@ fn run(mut repos: Vec<Repo>, rx: &Receiver<Msg>, w: &Weak<Mutex<RecommendedWatch
         mark(&mut due, &last, Key::Files(r.id.clone(), None), Instant::now());
     }
     let mut next_poll = Instant::now() + GAP;
+    let mut next_sweep = Instant::now() + SWEEP;
     loop {
         let polling = repos.iter().any(|r| r.checkouts.iter().any(|c| c.polled));
-        let wake = due.values().min().copied().into_iter().chain(polling.then_some(next_poll)).min();
+        let wake = due.values().min().copied().into_iter().chain(polling.then_some(next_poll)).chain(cfg!(windows).then_some(next_sweep)).min();
         let first = match wake {
             Some(t) => rx.recv_timeout(t.saturating_duration_since(Instant::now())),
             None => rx.recv().map_err(|_| RecvTimeoutError::Disconnected),
@@ -158,6 +162,12 @@ fn run(mut repos: Vec<Repo>, rx: &Receiver<Msg>, w: &Weak<Mutex<RecommendedWatch
                 }
             }
             next_poll = now + GAP;
+        }
+        if cfg!(windows) && now >= next_sweep {
+            for r in &repos {
+                mark(&mut due, &last, Key::Files(r.id.clone(), None), now);
+            }
+            next_sweep = now + SWEEP;
         }
         let ready: Vec<Key> = due.iter().filter(|(_, t)| **t <= now).map(|(k, _)| k.clone()).collect();
         // A project refreshed whole needs no separate file refresh.
@@ -334,7 +344,7 @@ fn relist(w: &Weak<Mutex<RecommendedWatcher>>, r: &mut Repo) -> Option<Vec<Optio
     let mut w = arc.lock().unwrap_or_else(|e| e.into_inner());
     let mut old = std::mem::take(&mut r.checkouts);
     let mut added = Vec::new();
-    for (n, (path, branch)) in parse_worktrees(&out).into_iter().enumerate() {
+    for (path, branch) in parse_worktrees(&out) {
         let root = real(&path);
         if let Some(k) = old.iter().position(|c| c.root == root) {
             let mut c = old.swap_remove(k);
@@ -346,7 +356,7 @@ fn relist(w: &Weak<Mutex<RecommendedWatcher>>, r: &mut Repo) -> Option<Vec<Optio
         if !root.is_dir() {
             continue;
         }
-        let admin = (n > 0).then(|| admin_of(&root)).flatten();
+        let admin = admin_of(&root);
         let ignored = Ignored::read(&root);
         let polled = match watch_tree(&mut w, &root, &ignored, &root) {
             Ok(()) => false,
@@ -471,6 +481,7 @@ fn has_git(rel: &Path) -> bool {
 }
 
 /// A linked worktree's folder under `.git/worktrees`, from its `.git` file (`gitdir: …/worktrees/<name>`).
+/// None for the main checkout, whose `.git` is a folder.
 fn admin_of(root: &Path) -> Option<String> {
     let s = std::fs::read_to_string(root.join(".git")).ok()?;
     Some(Path::new(s.strip_prefix("gitdir:")?.trim()).file_name()?.to_str()?.to_string())
