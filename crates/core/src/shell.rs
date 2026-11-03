@@ -114,8 +114,9 @@ pub fn below_app(cmd: &mut std::process::Command) -> &mut std::process::Command 
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
-        // BELOW_NORMAL_PRIORITY_CLASS: processes the agent starts inherit it.
-        cmd.creation_flags(0x0000_4000);
+        // BELOW_NORMAL_PRIORITY_CLASS: processes the agent starts inherit it. creation_flags replaces earlier
+        // flags, so CREATE_NO_WINDOW from without_appimage is set again, or each agent opens a console window.
+        cmd.creation_flags(0x0800_0000 | 0x0000_4000);
     }
     cmd
 }

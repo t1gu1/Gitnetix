@@ -152,18 +152,40 @@ fn first_file(dirs: &[PathBuf], names: &[String]) -> Option<PathBuf> {
     names.iter().find_map(|n| dirs.iter().map(|d| d.join(n)).find(|p| p.is_file()))
 }
 
-/// The newest copy of Claude Code that Claude Desktop downloads for its Code tab (`<config dir>/Claude/claude-code/<version>/`).
-// shortcut: undocumented path, and Store (MSIX) installs keep it under %LOCALAPPDATA%\Packages instead; look there if Store users can't find it.
+/// The newest copy of Claude Code that Claude Desktop downloads for its Code tab, in a `claude-code/<version>/` folder.
+// shortcut: undocumented layout, seen in Windows Desktop 4.4212 (Store build); check a Mac install if Mac users can't find it.
 fn desktop_claude() -> Option<PathBuf> {
-    newest_version(&dirs::config_dir()?.join("Claude").join("claude-code"), if cfg!(windows) { "claude.exe" } else { "claude" })
+    let mut roots = vec![dirs::config_dir()?.join("Claude").join("claude-code")];
+    // The Store (MSIX) build keeps it in %LOCALAPPDATA%\Claude-Data\claude_<package id>\claude-code.
+    if let Some(local) = dirs::data_local_dir() {
+        roots.extend(std::fs::read_dir(local.join("Claude-Data")).into_iter().flatten().flatten().map(|e| e.path().join("claude-code")));
+    }
+    newest_version(&roots, if cfg!(windows) { "claude.exe" } else { "claude" })
 }
 
-fn newest_version(root: &Path, file: &str) -> Option<PathBuf> {
-    let version = |p: &PathBuf| -> Vec<u64> {
-        let name = p.parent().and_then(|d| d.file_name()).map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-        name.split('.').map(|n| n.parse().unwrap_or(0)).collect()
-    };
-    std::fs::read_dir(root).ok()?.flatten().map(|e| e.path().join(file)).filter(|p| p.is_file()).max_by_key(version)
+/// `file` in the highest `<root>/<version>/` folder, or a few folders below it:
+/// `<version>/<hash>/claude.exe` on Windows, `claude.app/Contents/MacOS/claude` in a Mac app bundle.
+fn newest_version(roots: &[PathBuf], file: &str) -> Option<PathBuf> {
+    let version = |e: &std::fs::DirEntry| -> Vec<u64> { e.file_name().to_string_lossy().split('.').map(|n| n.parse().unwrap_or(0)).collect() };
+    roots
+        .iter()
+        .flat_map(|r| std::fs::read_dir(r).into_iter().flatten().flatten())
+        .filter_map(|e| Some((version(&e), find_file(&e.path(), file, 4)?)))
+        .max_by(|a, b| a.0.cmp(&b.0))
+        .map(|(_, p)| p)
+}
+
+/// `name` in `dir` or up to `depth` folders below it.
+fn find_file(dir: &Path, name: &str, depth: u8) -> Option<PathBuf> {
+    let here = dir.join(name);
+    if here.is_file() {
+        return Some(here);
+    }
+    if depth == 0 {
+        return None;
+    }
+    // file_type() does not follow symlinks, so a link loop can't recurse forever.
+    std::fs::read_dir(dir).ok()?.flatten().filter(|e| e.file_type().is_ok_and(|t| t.is_dir())).find_map(|e| find_file(&e.path(), name, depth - 1))
 }
 
 /// Run a one-shot completion.
@@ -412,15 +434,21 @@ mod tests {
 
     #[test]
     fn picks_newest_desktop_copy() {
-        let root = tempfile::tempdir().unwrap();
-        for v in ["2.1.99", "2.1.260", "2.2.0-empty"] {
-            std::fs::create_dir(root.path().join(v)).unwrap();
-        }
-        for v in ["2.1.99", "2.1.260"] {
-            std::fs::write(root.path().join(v).join("claude"), "").unwrap();
-        }
-        assert_eq!(newest_version(root.path(), "claude"), Some(root.path().join("2.1.260").join("claude")));
-        assert_eq!(newest_version(&root.path().join("missing"), "claude"), None);
+        let (a, b) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let put = |p: PathBuf| {
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(&p, "").unwrap();
+            p
+        };
+        put(a.path().join("2.1.99").join("claude"));
+        std::fs::create_dir(a.path().join("2.2.0-empty")).unwrap();
+        // Windows Store Desktop: <version>/<hash>/claude.exe. Mac Desktop: claude.app/Contents/MacOS/claude.
+        let hashed = put(b.path().join("2.1.309").join("9078b9c1d466").join("claude"));
+        let roots = [a.path().to_path_buf(), b.path().to_path_buf(), a.path().join("missing")];
+        assert_eq!(newest_version(&roots, "claude"), Some(hashed));
+        let bundle = put(a.path().join("2.1.310").join("claude.app").join("Contents").join("MacOS").join("claude"));
+        assert_eq!(newest_version(&roots, "claude"), Some(bundle));
+        assert_eq!(newest_version(&roots[2..], "claude"), None);
     }
 
     #[test]

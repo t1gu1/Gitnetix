@@ -1290,12 +1290,18 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
     }
 }
 
+/// AppleScript that runs `program` in a new Terminal window. The shell gets the path quoted: Claude Desktop's copy is under "Application Support".
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn terminal_script(program: &str) -> String {
+    let sh = format!("'{}'", program.replace('\'', r"'\''"));
+    format!("tell application \"Terminal\" to do script \"{}\"\ntell application \"Terminal\" to activate", sh.replace('\\', r"\\").replace('"', "\\\""))
+}
+
 /// Open the user's terminal running `cmd` (used for CLI sign-in).
 fn open_terminal(cmd: &str) -> Result<()> {
     #[cfg(target_os = "macos")]
     {
-        let script = format!("tell application \"Terminal\" to do script \"{}\"\ntell application \"Terminal\" to activate", cmd.replace('"', "\\\""));
-        std::process::Command::new("osascript").args(["-e", &script]).spawn()?;
+        std::process::Command::new("osascript").args(["-e", &terminal_script(cmd)]).spawn()?;
         Ok(())
     }
     #[cfg(target_os = "windows")]
@@ -1321,5 +1327,14 @@ fn worktree_files(v: &Value) -> Result<Vec<String>> {
     match files.iter().find(|f| !inside(f)) {
         Some(bad) => Err(Error::Invalid(format!("“{bad}” is not a path inside the project"))),
         None => Ok(files),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn terminal_script_quotes_the_path_for_the_shell() {
+        let s = super::terminal_script("/Users/a/Library/Application Support/Claude/it's/claude");
+        assert!(s.starts_with(r#"tell application "Terminal" to do script "'/Users/a/Library/Application Support/Claude/it'\\''s/claude'""#), "{s}");
     }
 }

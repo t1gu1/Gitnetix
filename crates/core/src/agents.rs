@@ -633,7 +633,9 @@ impl AgentManager {
                     self.push(id, LogLine::new("ok", format!("✓ Finished · {turns}{cost}")));
                 } else {
                     let why = v["result"].as_str().unwrap_or("error");
-                    self.push(id, LogLine::new("err", format!("✕ {why}")));
+                    // Claude Desktop's copy of the CLI is signed in only inside Desktop, and is not on PATH to run /login by hand.
+                    let hint = if why.contains("/login") { " · Settings › AI setup › Claude › Sign in with the CLI" } else { "" };
+                    self.push(id, LogLine::new("err", format!("✕ {why}{hint}")));
                 }
                 Some(ok)
             }
@@ -817,6 +819,9 @@ mod tests {
         assert!(!saved().contains("x.rs"));
         m.handle_stream_json("a", r#"{"type":"assistant","message":{"content":[{"type":"text","text":"Done reading"}]}}"#);
         assert!(saved().contains("x.rs") && saved().contains("Done reading"));
+        m.handle_stream_json("a", r#"{"type":"result","subtype":"success","is_error":true,"result":"Not logged in · Please run /login"}"#);
+        let last = m.inner.lock().unwrap().sessions["a"].lines.last().unwrap().text.clone();
+        assert!(last.ends_with("Sign in with the CLI"), "{last}");
     }
 
     #[test]
