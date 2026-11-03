@@ -11,6 +11,8 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+## [0.17.4] - 2026-11-03
+
 ### Added
 - Watch each checkout's files and refresh on save, replacing the 4-second poll of uncommitted files. Changes to git-ignored paths do not trigger a refresh.
 
