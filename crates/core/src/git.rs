@@ -668,38 +668,62 @@ impl Git {
     /// squashed into one commit there. Compares patch ids with `git cherry`;
     /// the squash check builds a throwaway commit holding the whole branch diff.
     pub async fn is_squash_merged(&self, branch: &str, base: &str) -> Result<bool> {
-        Ok(self.squash_check(branch, base).await?.0)
+        Ok(self.squash_check(branch, base, None).await?.0)
     }
 
     /// [`Git::is_squash_merged`], with the commit the squash looked for was made on when it got that far.
-    pub async fn squash_check(&self, branch: &str, base: &str) -> Result<(bool, Option<String>)> {
-        let picked = |out: &str| !out.trim().is_empty() && out.lines().all(|l| l.starts_with('-'));
-        let cherry = self.run(&["cherry", base, branch]).await?;
-        if picked(&cherry) {
+    /// `fork`: their merge base, when the caller already knows it.
+    pub async fn squash_check(&self, branch: &str, base: &str, fork: Option<&str>) -> Result<(bool, Option<String>)> {
+        let fork = match fork {
+            Some(f) => f.to_string(),
+            None => self.run(&["merge-base", base, branch]).await?.trim().to_string(),
+        };
+        // The branch's commits (oldest first, like `git cherry`) and its squash from the fork, each marked `=`
+        // when the base has its patch: one walk of the base's patches answers both.
+        let squash = self.squash_commit(branch, &fork).await?;
+        let (mine, theirs) = (format!("{base}...{branch}"), squash.as_ref().map(|s| format!("{base}...{s}")));
+        let mut args = vec!["rev-list", "--reverse", "--cherry", mine.as_str()];
+        args.extend(theirs.as_deref());
+        let marks = self.run(&args).await?;
+        let mut own: Vec<(bool, &str)> = Vec::new();
+        let mut squashed = false;
+        for l in marks.lines() {
+            let (same, sha) = (l.starts_with('='), l.get(1..).unwrap_or_default().trim());
+            match squash.as_deref() == Some(sha) {
+                true => squashed = same,
+                false => own.push((same, sha)),
+            }
+        }
+        if !own.is_empty() && own.iter().all(|(same, _)| *same) {
             return Ok((true, None));
         }
         // Oldest commits already upstream (other work the branch pulled in) were not part of its
         // squash: squash from the last of them. Otherwise from where the branch forked.
-        let lines: Vec<&str> = cherry.lines().collect();
-        let upstream = lines.iter().take_while(|l| l.starts_with('-')).count();
-        let parent = match upstream {
-            n if n > 0 && lines[n..].iter().all(|l| l.starts_with('+')) => lines[n - 1][1..].trim().to_string(),
-            _ => self.run(&["merge-base", base, branch]).await?.trim().to_string(),
-        };
+        let upstream = own.iter().take_while(|(same, _)| *same).count();
+        if upstream > 0 && own[upstream..].iter().all(|(same, _)| !same) {
+            let parent = own[upstream - 1].1.to_string();
+            let Some(squash) = self.squash_commit(branch, &parent).await? else { return Ok((false, None)) };
+            let cherry = self.run(&["cherry", base, &squash]).await?;
+            return Ok((!cherry.trim().is_empty() && cherry.lines().all(|l| l.starts_with('-')), Some(parent)));
+        }
+        Ok(match squash {
+            Some(_) => (squashed, Some(fork)),
+            None => (false, None),
+        })
+    }
+
+    /// A throwaway commit on `parent` holding `branch`'s tree: the whole branch as one change. None when git can't make it.
+    async fn squash_commit(&self, branch: &str, parent: &str) -> Result<Option<String>> {
         let tree = format!("{branch}^{{tree}}");
         let out = self
-            .command(&["commit-tree", &tree, "-p", &parent, "-m", "squash"])
+            .command(&["commit-tree", &tree, "-p", parent, "-m", "squash"])
             .env("GIT_AUTHOR_NAME", "gitnetix")
             .env("GIT_AUTHOR_EMAIL", "gitnetix@localhost")
             .env("GIT_COMMITTER_NAME", "gitnetix")
             .env("GIT_COMMITTER_EMAIL", "gitnetix@localhost")
             .output()
             .await?;
-        if !out.status.success() {
-            return Ok((false, None));
-        }
-        let squash = String::from_utf8_lossy(&out.stdout).trim().to_string();
-        Ok((picked(&self.run(&["cherry", base, &squash]).await?), Some(parent)))
+        Ok(out.status.success().then(|| String::from_utf8_lossy(&out.stdout).trim().to_string()))
     }
 
     pub async fn create_branch(&self, name: &str, from: &str) -> Result<()> {
@@ -2057,6 +2081,46 @@ mod tests {
         assert_eq!(count_lines(&big, &mut budget), 0, "past the budget: not read");
         assert_eq!(budget, 45);
         assert_eq!(count_lines(&dir.path().join("gone"), &mut budget), 0);
+    }
+
+    #[tokio::test]
+    async fn squash_check_tells_squashed_rebased_and_open_branches() {
+        let dir = tempfile::tempdir().unwrap();
+        let run = |args: &[&str]| {
+            let out = std::process::Command::new("git").current_dir(dir.path()).args(args).output().unwrap();
+            assert!(out.status.success(), "git {args:?}");
+            String::from_utf8_lossy(&out.stdout).trim().to_string()
+        };
+        let commit = |f: &str| {
+            std::fs::write(dir.path().join(f), f).unwrap();
+            run(&["add", f]);
+            run(&["commit", "-qm", f]);
+        };
+        for args in [&["init", "-q", "-b", "main"][..], &["config", "user.email", "t@example.com"], &["config", "user.name", "T"], &["config", "commit.gpgsign", "false"]] {
+            run(args);
+        }
+        commit("base");
+        let base = run(&["rev-parse", "HEAD"]);
+        for (branch, files) in [("squashed", &["s1", "s2"][..]), ("rebased", &["r1"]), ("open", &["o1"]), ("carries", &["fix", "c1", "c2"])] {
+            run(&["switch", "-qc", branch, "main"]);
+            files.iter().for_each(|f| commit(f));
+        }
+        run(&["switch", "-q", "main"]);
+        commit("other");
+        run(&["cherry-pick", "rebased"]);
+        run(&["merge", "-q", "--squash", "squashed"]);
+        run(&["commit", "-qm", "squashed"]);
+        // The fix reached main on its own, then the rest of the branch as one squash.
+        run(&["cherry-pick", "carries~2"]);
+        run(&["merge", "-q", "--squash", "carries"]);
+        run(&["commit", "-qm", "carries"]);
+
+        let git = Git::new(dir.path());
+        assert_eq!(git.squash_check("squashed", "main", None).await.unwrap(), (true, Some(base.clone())));
+        assert_eq!(git.squash_check("squashed", "main", Some(&base)).await.unwrap(), (true, Some(base.clone())));
+        assert_eq!(git.squash_check("rebased", "main", None).await.unwrap(), (true, None));
+        assert_eq!(git.squash_check("open", "main", None).await.unwrap(), (false, Some(base.clone())));
+        assert_eq!(git.squash_check("carries", "main", None).await.unwrap(), (true, Some(run(&["rev-parse", "carries~2"]))));
     }
 
     #[test]

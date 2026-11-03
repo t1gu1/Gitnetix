@@ -1342,7 +1342,9 @@ async fn proved_landed(git: &Git, refs: &Refs, cache: &CommitCache, rev: &str, b
                 }
             }
         }
-        let Ok((squashed, from)) = git.squash_check(rev, base).await else { return false };
+        // The fork from the commit graph when it has it: one git call fewer per branch.
+        let fork = refs.merge_base(git, base, rev).await.ok();
+        let Ok((squashed, from)) = git.squash_check(rev, base, fork.as_deref()).await else { return false };
         if let Some((t, b)) = shas {
             cache.insert("squash2", t, b, squashed);
             if let (false, Some(from)) = (squashed, from) {
