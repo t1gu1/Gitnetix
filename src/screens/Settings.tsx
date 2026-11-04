@@ -386,6 +386,7 @@ export function DeviceSignIn({ method, name, site, params, onDone }: { method: "
     return (
       <div>
         <button
+          type="button"
           className="btn btn-primary"
           disabled={start.isPending}
           onClick={() =>
@@ -408,11 +409,11 @@ export function DeviceSignIn({ method, name, site, params, onDone }: { method: "
         Enter this code on {site} (copied to your clipboard), then authorize Gitnetix.{method === "github" && " For organization repos, click Grant or Request next to each organization."} Waiting…
       </span>
       <div className="row" style={{ gap: 8 }}>
-        <button className="btn mono" style={{ fontSize: 18, letterSpacing: 2 }} title="Copy code" onClick={() => copyToClipboard(code.userCode)}>
+        <button type="button" className="btn mono" style={{ fontSize: 18, letterSpacing: 2 }} title="Copy code" onClick={() => copyToClipboard(code.userCode)}>
           {code.userCode}
         </button>
-        <button className="btn" onClick={() => openExternal(code.verificationUri)}>Open {site}</button>
-        <button className="btn" onClick={() => setCode(null)}>Cancel</button>
+        <button type="button" className="btn" onClick={() => openExternal(code.verificationUri)}>Open {site}</button>
+        <button type="button" className="btn" onClick={() => setCode(null)}>Cancel</button>
       </div>
     </div>
   );

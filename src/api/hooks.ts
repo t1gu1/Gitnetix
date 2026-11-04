@@ -1,5 +1,5 @@
-import { useEffect } from "react";
-import { QueryClient, useMutation, useMutationState, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback, useEffect, useRef } from "react";
+import { QueryClient, useMutation, useMutationState, useQuery, useQueryClient, type MutateOptions } from "@tanstack/react-query";
 
 import { isLocal, rpc, subscribe } from "./transport";
 import type {
@@ -541,6 +541,8 @@ export function useAction<T = unknown, V extends Record<string, unknown> = Recor
   } = {},
 ) {
   const qc = useQueryClient();
+  // The options each run was started with, so the run after a Git login calls back the same code.
+  const started = useRef(new WeakMap<V, MutateOptions<T, Error, V>>());
   const m = useMutation<T, Error, V>({
     // Keyed by method so other screens can tell it is running (e.g. a push started from the commit box).
     mutationKey: [method],
@@ -552,8 +554,15 @@ export function useAction<T = unknown, V extends Record<string, unknown> = Recor
       const msg = typeof opts.success === "function" ? opts.success(r) : opts.success;
       if (msg) toast(msg, "ok");
     },
-    // A host asking git for a login: the user gives one, then this runs again.
-    onError: (e, vars) => opts.onError?.(e, vars) || askGitLogin(e, () => m.mutate(vars)) || toast(e.message, "error"),
+    // A host asking git for a login: the user gives one, then this runs again. Asked before the caller's own handling.
+    onError: (e, vars) => askGitLogin(e, () => mutate(vars, started.current.get(vars))) || opts.onError?.(e, vars) || toast(e.message, "error"),
   });
-  return m;
+  const mutate = useCallback(
+    (vars: V, o?: MutateOptions<T, Error, V>) => {
+      if (o) started.current.set(vars, o);
+      m.mutate(vars, o);
+    },
+    [m.mutate],
+  );
+  return { ...m, mutate };
 }

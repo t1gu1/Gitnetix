@@ -297,6 +297,15 @@ fn ssh_prefix(url: &str) -> Option<(&str, &str)> {
     (valid_host(host) && end <= url.len()).then(|| (host, &url[..end]))
 }
 
+/// The host a login for `url` is saved under: an http(s) URL's `host[:port]`, an ssh one's host (git may retry it
+/// over HTTPS).
+fn url_host(url: &str) -> Option<&str> {
+    match url.strip_prefix("https://").or_else(|| url.strip_prefix("http://")) {
+        Some(rest) => rest.split('/').next()?.rsplit('@').next().filter(|h| valid_host(h)),
+        None => ssh_prefix(url).map(|(h, _)| h),
+    }
+}
+
 /// Where the command in `args` starts, past any leading `-c key=value`.
 fn verb_at(args: &[&str]) -> usize {
     let mut i = 0;
@@ -387,6 +396,19 @@ impl Git {
         all
     }
 
+    /// Hosts a sign-in command may go to: those of the URLs in `args`, of the repository's remotes and of its
+    /// submodules, configured or listed in `.gitmodules`.
+    // shortcut: URLs as written, before the user's `url.*.insteadOf` rewrites, and no nested submodules; resolve them if a login goes missing there.
+    fn reached_hosts(&self, args: &[&str]) -> Vec<String> {
+        let mut cmd = std::process::Command::new(read_git());
+        crate::shell::without_appimage(&mut cmd);
+        let config = cmd.current_dir(&self.cwd).args(["config", "--get-regexp", r"^(remote|submodule)\..*\.(push)?url$"]).output();
+        let config = config.map(|o| String::from_utf8_lossy(&o.stdout).into_owned()).unwrap_or_default();
+        let modules = std::fs::read_to_string(self.cwd.join(".gitmodules")).unwrap_or_default();
+        let listed = config.lines().chain(modules.lines()).filter_map(|l| l.split_whitespace().last());
+        args.iter().copied().chain(listed).filter_map(url_host).map(String::from).collect()
+    }
+
     /// The same checkout staging into `index` instead of its own index file, which stays as the user left it.
     pub fn with_index(mut self, index: impl Into<PathBuf>) -> Self {
         self.index = Some(index.into());
@@ -445,9 +467,13 @@ impl Git {
         for (k, v) in &self.config {
             cmd.arg("-c").arg(format!("{k}={v}"));
         }
-        // After the user's own credential helpers, which git asks first.
+        // After the user's own credential helpers, which git asks first. Only for the hosts this call reaches: hooks
+        // and the other programs git starts inherit the environment.
         if args.get(verb_at(args)).is_some_and(|v| SIGNS_IN.contains(v)) {
-            for (conf, env) in helpers(&self.logins()) {
+            let logins = self.logins();
+            let reached = if logins.is_empty() { Vec::new() } else { self.reached_hosts(args) };
+            let logins: Vec<_> = logins.into_iter().filter(|(h, _)| reached.contains(h)).collect();
+            for (conf, env) in helpers(&logins) {
                 cmd.arg("-c").arg(conf).envs(env);
             }
         }
@@ -2429,6 +2455,22 @@ mod tests {
         assert!(!fill("other.example.com").0, "another host gets nothing");
         assert!(save_login("bad host", Login { username: "me".into(), token: "t".into() }).is_err());
         assert!(save_login("git.example.com", Login { username: "me".into(), token: "t\nhost=evil".into() }).is_err());
+    }
+
+    /// A call gets the logins of the hosts it may reach, not every saved one: hooks see git's environment.
+    #[test]
+    fn logins_go_only_to_the_hosts_a_call_reaches() {
+        let tmp = tempfile::tempdir().unwrap();
+        let sh = |a: &[&str]| assert!(std::process::Command::new("git").current_dir(tmp.path()).args(a).status().unwrap().success());
+        sh(&["init", "-q"]);
+        sh(&["remote", "add", "origin", "https://me@git.example.com:8443/o/r.git"]);
+        sh(&["remote", "add", "up", "git@ssh.example.org:o/r.git"]);
+        std::fs::write(tmp.path().join(".gitmodules"), "[submodule \"lib\"]\n\tpath = lib\n\turl = https://sub.example.net/o/lib.git\n").unwrap();
+        let git = Git::new(tmp.path());
+        assert_eq!(git.reached_hosts(&["push", "origin", "main"]), ["git.example.com:8443", "ssh.example.org", "sub.example.net"]);
+        let clone = git.reached_hosts(&["clone", "--", "https://clone.example.com/o/r", "/tmp/r"]);
+        assert_eq!(clone[0], "clone.example.com");
+        assert_eq!(url_host("C:/repo"), None, "a Windows path names no host");
     }
 
     /// An ssh remote that fails once over HTTPS too: the ssh error, which tells what to fix, is the one shown.

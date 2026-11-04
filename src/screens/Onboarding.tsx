@@ -191,18 +191,19 @@ function AgentStep(s: Steps) {
 function AiRow({ p, main, onPick, onWorks }: { p: AiCatalog["providers"][number]; main: boolean; onPick: () => void; onWorks?: () => void }) {
   const { id, name, mono, bin } = p.info;
   const inv = [["ai"], ["config"]];
-  const toCli = useAction("ai.saveProvider", { invalidate: inv });
+  const setMethod = useAction("ai.saveProvider", { invalidate: inv });
   const test = useAction<{ ms: number }>("ai.test", { invalidate: inv, success: (r) => `${name} responded in ${(r.ms / 1000).toFixed(1)} s` });
   const signIn = useAction("ai.signIn", { success: "Opened a terminal — sign in there, then press Test" });
   const found = !!p.status?.cliPath;
   const install = INSTALL[id];
-  // Agents need the CLI: a provider set up with an API key moves to it before the test.
+  // Agents need the CLI: a provider set up with an API key moves to it before the test, and back if the CLI fails.
   const check = () => {
-    const run = () => test.mutate({ id }, { onSuccess: onWorks });
-    if (p.conf?.method === "api") toCli.mutate({ id, method: "cli" }, { onSuccess: run });
+    const api = p.conf?.method === "api";
+    const run = () => test.mutate({ id }, { onSuccess: onWorks, onError: () => api && setMethod.mutate({ id, method: "api" }) });
+    if (api) setMethod.mutate({ id, method: "cli" }, { onSuccess: run });
     else run();
   };
-  const busy = test.isPending || toCli.isPending;
+  const busy = test.isPending || setMethod.isPending;
   return (
     <>
       <button className="radio-card" role="radio" aria-checked={main} disabled={!found} style={{ gridColumn: 1, alignItems: "center", minWidth: 0 }} onClick={onPick}>

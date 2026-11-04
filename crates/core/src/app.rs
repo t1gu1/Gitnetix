@@ -2248,7 +2248,7 @@ impl Gitnetix {
             return Err(Error::Invalid("Give the repository URL and the full path of the folder to clone into".into()));
         }
         // git makes the missing folders of `dest` itself; it only needs to start in one that exists.
-        Git::new(std::env::temp_dir()).run(&["clone", "--", url, &dest.to_string_lossy()]).await?;
+        self.git_at(&std::env::temp_dir()).run(&["clone", "--", url, &dest.to_string_lossy()]).await?;
         self.add_projects(vec![dest.to_string_lossy().into_owned()]).await
     }
 
@@ -4027,17 +4027,26 @@ impl Gitnetix {
                 return Err(Error::Invalid(format!("Pull request #{n} is open from or into {from}. Complete or abandon it first.")));
             }
         } else {
-            match self.github(&p.id).await {
-                Ok(gh) => {
+            // Boxed: the host lookup and listing are big futures, and every RPC future grows with them (see `Git::output`).
+            match Box::pin(self.pr_host(&p.id)).await {
+                Ok(PrHost::GitHub(gh)) => {
                     gh.rename_branch(from, to).await?;
                     // GitHub renames in the background: the tracking refs move now, the next fetch confirms.
                     git.update_ref(&format!("refs/remotes/origin/{to}"), sha).await?;
                     git.run(&["update-ref", "-d", &format!("refs/remotes/origin/{from}")]).await?;
                     return Ok(());
                 }
-                // Not a GitHub remote: plain git below.
+                // GitLab, Bitbucket, Gitea: deleting the old name would close or orphan its pull requests.
+                // shortcut: `list` holds each host's latest pull requests (60 on GitLab); query by branch if an older open one gets cut off.
+                Ok(host) => {
+                    let open = Box::pin(host.list()).await?.into_iter().find(|pr| matches!(pr.state.as_str(), "open" | "draft") && (pr.head == from || pr.base == from));
+                    if let Some(pr) = open {
+                        return Err(Error::Invalid(format!("Pull request #{} is open from or into {from}. Merge or close it first.", pr.number)));
+                    }
+                }
+                // Not a pull request host: plain git below.
                 Err(Error::Unsupported(_)) => {}
-                // A GitHub remote without sign-in: deleting the old name would close its pull requests.
+                // A known host without sign-in: deleting the old name would close its pull requests.
                 Err(e) => return Err(e),
             }
         }
