@@ -15,6 +15,10 @@ release notes and the in-app update prompt.
 - Connect GitLab, Bitbucket Cloud and Gitea under Git providers. Their pull requests, reviews, conversations, protected branches and repository lists for cloning work as with GitHub, and releases publish to GitLab and Gitea.
 - Sign in to GitLab with a code, on gitlab.com or on a self-managed server with an OAuth app registered there. Bitbucket and Gitea sign in through the browser. A personal access token or API token works on all three.
 
+### Changed
+- Agent setup replaces the AI step of the first-run setup, right after the theme, and is the only step that can't be skipped. Continue waits until a coding agent CLI (Claude Code, Codex, Antigravity, GitHub Copilot or Ollama) answers a test. Each agent has an Install button that opens its download page.
+- A profile without a tested agent opens on Agent setup at launch, even when its first-run setup is long done.
+
 ## [0.17.4] - 2026-11-03
 
 ### Added

@@ -19,7 +19,7 @@ import { useZoomKeys } from "./lib/zoom";
 import { Analytics } from "./screens/Analytics";
 import { Menu } from "./screens/Menu";
 import { NewItem } from "./screens/NewItem";
-import { Onboarding } from "./screens/Onboarding";
+import { AgentSetup, agentReady, Onboarding } from "./screens/Onboarding";
 import { Pair } from "./screens/Pair";
 import { PullRequests } from "./screens/PullRequests";
 import { ReleaseNotes } from "./screens/ReleaseNotes";
@@ -69,6 +69,10 @@ function Shell({ onUnpair }: { onUnpair: () => void }) {
   const r = nav.route;
   useAppKeys();
   const projects = useProjects().data;
+  const cfg = useConfig().data;
+  // Asked at launch and on each profile (this remounts with it), not mid-session: a Settings change can't hide the app.
+  // The first-run setup asks for the agent itself, after the theme.
+  const [setup, setSetup] = useState(() => !!cfg && !cfg.ui.onboarding && !agentReady(cfg));
   // Every project opened this session keeps its screens mounted (hidden while another is open),
   // so coming back to it finds the same page, dialog, scroll and filters.
   const open = new Set(projects?.filter((p) => !p.hidden).map((p) => p.id));
@@ -89,10 +93,16 @@ function Shell({ onUnpair }: { onUnpair: () => void }) {
       <Activity mode={pairing ? "hidden" : "visible"}>
         <div className="ag app">
           <div className="app-main">
-            {nav.projectId && isPageRoute(r) && <TopBar />}
-            {each(() => <Screen onUnpair={onUnpair} />)}
+            {setup ? (
+              <AgentSetup onDone={() => setSetup(false)} />
+            ) : (
+              <>
+                {nav.projectId && isPageRoute(r) && <TopBar />}
+                {each(() => <Screen onUnpair={onUnpair} />)}
+              </>
+            )}
           </div>
-          {nav.projectId && <MobileTabs />}
+          {!setup && nav.projectId && <MobileTabs />}
           {/* Minimized dialogs' chips stack in one corner instead of covering each other. */}
           <div className="start-chips">
             {each(() => <NewItemDialog />, nav.projectId ?? "")}

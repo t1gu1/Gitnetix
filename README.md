@@ -64,8 +64,9 @@ pnpm app:build        # bundle (.app / .dmg / .msi / .deb)
 cargo test --workspace
 ```
 
-Requirements: Rust 1.80+, Node 20+, pnpm, `git` on PATH. For AI, either a CLI
-(`claude`, `codex`, `agy`, `copilot`, `ollama`) signed in, or an API key in AI setup.
+Requirements: Rust 1.80+, Node 20+, pnpm, `git` on PATH. The app also needs an agent CLI signed in
+(`claude`, `codex`, `agy`, `copilot` or `ollama`), and Agent setup keeps asking until one answers a test.
+API keys in AI setup can run the quick AI tasks on top of it.
 Gitnetix also finds the copies that Claude Desktop, the ChatGPT and Ollama apps and `gh copilot` keep off PATH.
 
 Headless (no window), e.g. on a dev box you drive from your phone:

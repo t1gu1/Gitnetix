@@ -1,7 +1,9 @@
-import { Activity, useState, type ReactNode } from "react";
+import { Activity, useEffect, useState, type ReactNode } from "react";
 
 import { useAction, useAiCatalog, useConfig } from "../api/hooks";
-import type { AiCatalog, UserProfile } from "../api/types";
+import { openExternal } from "../api/transport";
+import type { AiCatalog, Config, ProviderConf, UserProfile } from "../api/types";
+import { Icon } from "../components/Icon";
 import { Logo } from "../components/Logo";
 import { useProfileForm, useProfiles } from "../components/Profiles";
 import { Loading } from "../components/ui";
@@ -13,10 +15,11 @@ import { DictationKeys, GitHosts, PhoneCard, ThemeChoices, TicketConnections } f
 /** How a step moves on; no `back` on the first one. `name`: the profile being set up, when not the first launch's. */
 type Steps = { back?: () => void; next: () => void; name?: string };
 
-const STEPS = [ThemeStep, ProfileStep, AiStep, GitHostStep, TicketsStep, ExtrasStep];
+const STEPS = [ThemeStep, AgentStep, ProfileStep, GitHostStep, TicketsStep, ExtrasStep];
 
 /**
- * First launch, and each fresh profile: theme, profile, AI, Git host, Jira, extras, each skippable.
+ * First launch, and each fresh profile: theme, agent, profile, Git host, tickets, extras. Only the agent
+ * can't be skipped; it also shows alone at launch while no agent has answered (App's Shell).
  * The first project is added after, on Welcome.
  */
 export function Onboarding() {
@@ -24,37 +27,46 @@ export function Onboarding() {
   // Another profile exists: the New profile dialog made this one and already asked its name and identity.
   const [added] = useState(() => list.length > 1);
   const steps = added ? STEPS.filter((s) => s !== ProfileStep) : STEPS;
+  const ready = agentReady(useConfig().data!);
   // Saved for a restart (the phone card asks for one) to come back to the same step. Read once: a config
   // refetch started by a step's own save can land after the new step was saved, with the one before.
+  // Never past the agent step without an agent, e.g. a setup left further on before that step existed.
   const [saved, save] = useStored("onboarding.step", 0);
-  const [at, go] = useState(() => Math.min(saved, steps.length - 1));
+  const [at, go] = useState(() => Math.min(saved, steps.length - 1, ready ? Infinity : steps.indexOf(AgentStep)));
   const setAt = (i: number) => {
     go(i);
     save(i);
   };
   const finish = useAction("ui.set", { invalidate: [["config"]] });
   return (
-    <main className="scroll" style={{ flex: 1, display: "flex", justifyContent: "center", padding: "56px 24px 0" }}>
-      <div className="col" style={{ width: "100%", maxWidth: 640, gap: 28 }}>
-        <div className="onboard-dots" role="img" aria-label={`Step ${at + 1} of ${steps.length}`}>
-          {steps.map((_, i) => <i key={i} data-on={i <= at || undefined} />)}
-        </div>
-        {/* Kept while hidden: Back finds a step as it was left. */}
-        {steps.map((Step, i) => (
-          <Activity key={i} mode={i === at ? "visible" : "hidden"}>
-            <Step back={i ? () => setAt(i - 1) : undefined} next={() => (i < steps.length - 1 ? setAt(i + 1) : finish.mutate({ onboarding: false }))} name={added ? active?.name : undefined} />
-          </Activity>
-        ))}
+    <Page>
+      <div className="onboard-dots" role="img" aria-label={`Step ${at + 1} of ${steps.length}`}>
+        {steps.map((_, i) => <i key={i} data-on={i <= at || undefined} />)}
       </div>
+      {/* Kept while hidden: Back finds a step as it was left. */}
+      {steps.map((Step, i) => (
+        <Activity key={i} mode={i === at ? "visible" : "hidden"}>
+          <Step back={i ? () => setAt(i - 1) : undefined} next={() => (i < steps.length - 1 ? setAt(i + 1) : finish.mutate({ onboarding: false }))} name={added ? active?.name : undefined} />
+        </Activity>
+      ))}
+    </Page>
+  );
+}
+
+function Page({ children }: { children: ReactNode }) {
+  return (
+    <main className="scroll" style={{ flex: 1, display: "flex", justifyContent: "center", padding: "56px 24px 0" }}>
+      <div className="col" style={{ width: "100%", maxWidth: 640, gap: 28 }}>{children}</div>
     </main>
   );
 }
 
-function Head({ title, children }: { title: string; children: ReactNode }) {
+function Head({ title, tag, children }: { title: string; tag?: string; children: ReactNode }) {
   return (
     <div className="welcome-hero">
       <Logo size={56} />
       <div className="col" style={{ gap: 8 }}>
+        {tag && <span className="tag accent" style={{ alignSelf: "flex-start" }}>{tag}</span>}
         <h1>{title}</h1>
         <p className="muted">{children}</p>
       </div>
@@ -113,47 +125,84 @@ function ProfileStep(s: Steps) {
   );
 }
 
-function AiStep(s: Steps) {
-  const cat = useAiCatalog().data;
-  const [picked, setPicked] = useState(false);
+/** Where each agent CLI is installed from. */
+const INSTALL: Record<string, string> = {
+  claude: "https://code.claude.com/docs/en/quickstart",
+  codex: "https://learn.chatgpt.com/docs/codex/cli",
+  gemini: "https://antigravity.google/download",
+  copilot: "https://docs.github.com/en/copilot/how-tos/copilot-cli/set-up-copilot-cli/install-copilot-cli",
+  ollama: "https://ollama.com/download",
+};
+
+/** A provider whose CLI answered a test: agents only run through a CLI. */
+const cliOk = (c?: ProviderConf | null) => !!c?.connected && c.method === "cli";
+
+/** Whether an agent CLI answered a test. Without one, the app opens on Agent setup. */
+export const agentReady = (cfg: Config) => Object.values(cfg.ai.providers).some(cliOk);
+
+/** Agent setup on its own, at launch, for a profile past its first-run setup without an agent. */
+export function AgentSetup({ onDone }: { onDone: () => void }) {
+  return (
+    <Page>
+      <AgentStep next={onDone} />
+    </Page>
+  );
+}
+
+/** The one required step: an agent CLI that answers. */
+function AgentStep(s: Steps) {
+  const ai = useAiCatalog();
+  const cat = ai.data;
+  const ready = agentReady(useConfig().data!);
   const setMain = useAction("ai.setDefault", { invalidate: [["ai"], ["config"]] });
-  // Agents run through a CLI. API keys and per-task models stay in Settings.
+  // Back from installing or signing in, in another window: the query's own refetch only follows the page's visibility.
+  useEffect(() => {
+    const check = () => void ai.refetch();
+    addEventListener("focus", check);
+    return () => removeEventListener("focus", check);
+  }, [ai.refetch]);
   const clis = cat?.providers.filter((p) => p.info.bin) ?? [];
-  const entered = picked || clis.some((p) => p.status?.status === "connected");
+  const mainOk = cliOk(cat?.providers.find((p) => p.info.id === cat.defaultProvider)?.conf);
   return (
     <>
-      <Head title="Connect your AI">
-        It writes your commits, branch names, PRs and release notes, resolves conflicts and runs agents, through the CLIs you already use. Pick the one that does it all.
+      <Head title="Agent setup" tag="The only required step">
+        Gitnetix works through an AI coding agent's CLI on this computer. It writes your commits, branch names, pull requests and release notes, fixes conflicts, and builds features in their
+        own worktrees. Connect at least one to start. Everything after this step is optional.
       </Head>
       {cat ? (
-        // One grid for all rows (card | Sign in | Test) so every card gets the same width.
-        <div role="radiogroup" aria-label="Main AI" style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto auto", alignItems: "center", rowGap: 6 }}>
-          {clis.map((p) => (
-            <AiRow
-              key={p.info.id}
-              p={p}
-              main={cat.defaultProvider === p.info.id}
-              onPick={() => {
-                setPicked(true);
-                setMain.mutate({ id: p.info.id, routeAll: true });
-              }}
-            />
-          ))}
-          <span className="hint" style={{ gridColumn: "1 / -1" }}>API keys, Mistral and a model per task: Settings › AI setup.</span>
+        // One grid for all rows (card | Sign in | Test or Install) so every card gets the same width.
+        <div role="radiogroup" aria-label="Main agent" style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto auto", alignItems: "center", rowGap: 6 }}>
+          {clis.map((p) => {
+            const main = cat.defaultProvider === p.info.id;
+            const pick = () => setMain.mutate({ id: p.info.id, routeAll: true });
+            // While the main one can't run (Claude, on a first launch without it), the first agent that answers takes its place.
+            return <AiRow key={p.info.id} p={p} main={main} onPick={pick} onWorks={main || mainOk ? undefined : pick} />;
+          })}
+          <span className="hint" style={{ gridColumn: "1 / -1" }}>Install one, sign in with it, then press Test. API keys and a model per task: Settings › AI setup.</span>
         </div>
       ) : (
         <Loading />
       )}
-      <Foot {...s} entered={entered} onNext={s.next} />
+      <Foot {...s} entered ready={ready} onNext={s.next} />
     </>
   );
 }
 
-function AiRow({ p, main, onPick }: { p: AiCatalog["providers"][number]; main: boolean; onPick: () => void }) {
+function AiRow({ p, main, onPick, onWorks }: { p: AiCatalog["providers"][number]; main: boolean; onPick: () => void; onWorks?: () => void }) {
   const { id, name, mono, bin } = p.info;
-  const test = useAction<{ ms: number }>("ai.test", { invalidate: [["ai"], ["config"]], success: (r) => `${name} responded in ${(r.ms / 1000).toFixed(1)} s` });
+  const inv = [["ai"], ["config"]];
+  const toCli = useAction("ai.saveProvider", { invalidate: inv });
+  const test = useAction<{ ms: number }>("ai.test", { invalidate: inv, success: (r) => `${name} responded in ${(r.ms / 1000).toFixed(1)} s` });
   const signIn = useAction("ai.signIn", { success: "Opened a terminal — sign in there, then press Test" });
   const found = !!p.status?.cliPath;
+  const install = INSTALL[id];
+  // Agents need the CLI: a provider set up with an API key moves to it before the test.
+  const check = () => {
+    const run = () => test.mutate({ id }, { onSuccess: onWorks });
+    if (p.conf?.method === "api") toCli.mutate({ id, method: "cli" }, { onSuccess: run });
+    else run();
+  };
+  const busy = test.isPending || toCli.isPending;
   return (
     <>
       <button className="radio-card" role="radio" aria-checked={main} disabled={!found} style={{ gridColumn: 1, alignItems: "center", minWidth: 0 }} onClick={onPick}>
@@ -161,7 +210,7 @@ function AiRow({ p, main, onPick }: { p: AiCatalog["providers"][number]; main: b
         <span className="mono-badge">{mono}</span>
         <span className="col" style={{ gap: 2, minWidth: 0 }}>
           <span style={{ fontWeight: 500 }}>{name}</span>
-          {p.status?.status === "connected" ? (
+          {cliOk(p.conf) ? (
             <span className="c-add" style={{ fontSize: 12 }}>Connected</span>
           ) : found ? (
             <span className="hint">Found on this computer</span>
@@ -174,11 +223,18 @@ function AiRow({ p, main, onPick }: { p: AiCatalog["providers"][number]; main: b
       </button>
       {/* Margins, not column-gap: an empty column must take no space. */}
       {test.isError && <button className="btn btn-md" style={{ gridColumn: 2, marginLeft: 8 }} onClick={() => signIn.mutate({ id })}>Sign in</button>}
-      {found && (
-        <button className="btn btn-md" style={{ gridColumn: 3, marginLeft: 8 }} disabled={test.isPending} onClick={() => test.mutate({ id })}>
-          {test.isPending && <span className="spinner" />}
+      {found ? (
+        <button className="btn btn-md" style={{ gridColumn: 3, marginLeft: 8 }} disabled={busy} onClick={check}>
+          {busy && <span className="spinner" />}
           Test
         </button>
+      ) : (
+        install && (
+          <button className="btn btn-md" style={{ gridColumn: 3, marginLeft: 8 }} data-tip={install} onClick={() => openExternal(install)}>
+            <Icon name="external" size={12} />
+            Install
+          </button>
+        )
       )}
     </>
   );
