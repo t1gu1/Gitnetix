@@ -12,6 +12,7 @@ use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 
 use crate::error::{Error, Result};
+use crate::events::Event;
 use crate::secrets;
 use crate::store::{AiConfig, ConnectMethod, ProviderConf, Route};
 
@@ -346,9 +347,24 @@ async fn complete_cli(r: &Resolved, prompt: &str, cwd: Option<&Path>) -> Result<
     if !out.status.success() {
         let err = String::from_utf8_lossy(&out.stderr);
         let msg = if err.trim().is_empty() { String::from_utf8_lossy(&out.stdout).to_string() } else { err.to_string() };
+        flag_signed_out(&r.provider, &msg);
         return Err(Error::Ai(format!("{bin}: {}", msg.trim())));
     }
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
+/// The CLI says its own sign-in expired or is missing: signing in again fixes it.
+/// Claude Code prints "Failed to authenticate: ..." or "Not logged in · Please run /login".
+fn signed_out(msg: &str) -> bool {
+    let m = msg.to_lowercase();
+    m.contains("failed to authenticate") || m.contains("please run /login")
+}
+
+/// Ask the UIs to offer signing in again when `msg`, an error of `provider`'s CLI, says its sign-in expired.
+pub fn flag_signed_out(provider: &str, msg: &str) {
+    if signed_out(msg) {
+        crate::log::emit(Event::AiSignedOut { provider: provider.into() });
+    }
 }
 
 /// Model calls can run for minutes.
@@ -522,5 +538,14 @@ mod tests {
         assert_eq!(r.model, "claude-haiku-5-5");
         let r = resolve(&cfg, "commit", Some("claude-opus-5-5")).unwrap();
         assert_eq!(r.model, "claude-opus-5-5");
+    }
+
+    #[test]
+    fn spots_an_expired_sign_in() {
+        assert!(signed_out("Failed to authenticate: OAuth session expired and could not be refreshed"));
+        assert!(signed_out("Not logged in · Please run /login"));
+        // A tool the agent ran that isn't signed in is not the CLI's own sign-in.
+        assert!(!signed_out("You are not logged into any GitHub hosts. Run gh auth login to authenticate."));
+        assert!(!signed_out("API Error: 529 overloaded"));
     }
 }

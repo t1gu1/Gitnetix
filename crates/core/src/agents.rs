@@ -704,9 +704,11 @@ impl AgentManager {
             });
             let err_me = me.clone();
             let err_id = sid.clone();
+            let provider = r.provider.clone();
             let err_task = tokio::spawn(async move {
                 let mut lines = BufReader::new(stderr).lines();
                 while let Ok(Some(l)) = lines.next_line().await {
+                    ai::flag_signed_out(&provider, &l);
                     if !l.trim().is_empty() {
                         err_me.push(&err_id, LogLine::new("dim", format!("  {l}")));
                     }
@@ -746,6 +748,7 @@ impl AgentManager {
     /// Returns Some(success) on the final `result` event.
     fn handle_stream_json(&self, id: &str, raw: &str) -> Option<bool> {
         let Ok(v) = serde_json::from_str::<Value>(raw) else {
+            ai::flag_signed_out("claude", raw);
             if !raw.trim().is_empty() {
                 self.push(id, LogLine::new("dim", format!("  {raw}")));
             }
@@ -815,6 +818,7 @@ impl AgentManager {
                     self.push(id, LogLine::new("ok", format!("✓ Finished · {turns}{cost}")));
                 } else {
                     let why = v["result"].as_str().unwrap_or("error");
+                    ai::flag_signed_out("claude", why);
                     // Claude Desktop's copy of the CLI is signed in only inside Desktop, and is not on PATH to run /login by hand.
                     let hint = if why.contains("/login") { " · Settings › AI setup › Claude › Sign in with the CLI" } else { "" };
                     self.push(id, LogLine::new("err", format!("✕ {why}{hint}")));

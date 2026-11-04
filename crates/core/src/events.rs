@@ -41,4 +41,6 @@ pub enum Event {
     /// The speech model's first download, for voice dictation: `done` bytes of `total`.
     #[serde(rename_all = "camelCase")]
     DictationModel { done: u64, total: u64 },
+    /// An AI CLI failed because its own sign-in expired: the UI offers to sign in again.
+    AiSignedOut { provider: String },
 }
