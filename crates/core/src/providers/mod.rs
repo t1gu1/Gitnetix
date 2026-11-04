@@ -5,8 +5,8 @@ pub mod github_auth;
 
 use serde::{Deserialize, Serialize};
 
-/// owner/repo on a git host, parsed from the `origin` remote.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+/// owner/repo on a git host, parsed from the `origin` remote. Empty for calls about the account, not a repository.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RepoRef {
     pub host: String,
     pub owner: String,

@@ -20,7 +20,7 @@ use crate::events::Event;
 use crate::git::{ticket_keys, Blobs, BranchInfo, Commit, FileChange, Git, Hunk, LinePick, PrSquash, Side, Identity, StashInfo, TagInfo, WorktreeInfo};
 use crate::project_commands::{self, Scripts};
 use crate::providers::azure::{self, MergedPr};
-use crate::providers::{azure_auth, github::GitHub, parse_remote, PrHost};
+use crate::providers::{azure_auth, github::{GitHub, UserRepo}, parse_remote, PrHost, RepoRef};
 use crate::secrets;
 use crate::store::{new_id, now, BranchMeta, Config, Connection, ConnectMethod, GitProfile, Project, Release, ReleaseKind, Route, Store, UserProfile};
 use crate::submodules::{self, FetchReport, Submodule};
@@ -2183,11 +2183,7 @@ impl Gitnetix {
     pub async fn add_projects(&self, paths: Vec<String>) -> Result<Vec<Project>> {
         let mut added = Vec::new();
         for raw in paths {
-            let expanded = if let Some(rest) = raw.strip_prefix("~/") {
-                dirs::home_dir().map(|h| h.join(rest)).unwrap_or_else(|| PathBuf::from(&raw))
-            } else {
-                PathBuf::from(&raw)
-            };
+            let expanded = expand_home(&raw);
             let top = Git::new(&expanded)
                 .toplevel()
                 .await
@@ -2214,6 +2210,18 @@ impl Gitnetix {
         self.rewatch();
         self.config_changed();
         Ok(added)
+    }
+
+    /// Clone `url` into the new folder `path` and add it as a project. The user asked for it: ssh and the
+    /// credential manager may ask for a passphrase or a sign-in, as on push.
+    pub async fn clone_project(&self, url: &str, path: &str) -> Result<Vec<Project>> {
+        let (url, dest) = (url.trim(), expand_home(path.trim()));
+        if url.is_empty() || !dest.is_absolute() {
+            return Err(Error::Invalid("Give the repository URL and the full path of the folder to clone into".into()));
+        }
+        // git makes the missing folders of `dest` itself; it only needs to start in one that exists.
+        Git::new(std::env::temp_dir()).run(&["clone", "--", url, &dest.to_string_lossy()]).await?;
+        self.add_projects(vec![dest.to_string_lossy().into_owned()]).await
     }
 
     /// Pick up existing `release/x.y.z` branches on first open.
@@ -5144,6 +5152,13 @@ impl Gitnetix {
         Ok(GitHub::new(repo, token, api))
     }
 
+    /// The linked GitHub account's repositories, to pick one to clone.
+    pub async fn github_repos(&self) -> Result<Vec<UserRepo>> {
+        let api = self.store.read(|c| c.integrations.github_api.clone()).filter(|s| !s.is_empty());
+        let token = secrets::require("github", "Connect GitHub in the menu, under Git providers")?;
+        GitHub::new(RepoRef::default(), token, api).user_repos().await
+    }
+
     /// Where the project's pull requests live: Azure DevOps for an Azure remote, GitHub otherwise.
     pub async fn pr_host(&self, project_id: &str) -> Result<PrHost> {
         let p = self.store.project(project_id)?;
@@ -5775,6 +5790,14 @@ fn top_path(p: &Project) -> PathBuf {
     PathBuf::from(&p.path)
 }
 
+/// `~` and `~/x` in a path the user typed, from the home folder.
+fn expand_home(raw: &str) -> PathBuf {
+    match (raw.strip_prefix('~'), dirs::home_dir()) {
+        (Some(rest), Some(home)) if rest.is_empty() || rest.starts_with(['/', '\\']) => home.join(rest.trim_start_matches(['/', '\\'])),
+        _ => PathBuf::from(raw),
+    }
+}
+
 /// Worktrees live next to the main checkout: `<parent>/<project>.<branch with / as ->`.
 /// The whole branch name is kept so `feat/login` and `fix/login` do not collide.
 fn worktree_path(p: &Project, branch: &str) -> PathBuf {
@@ -5883,6 +5906,15 @@ fn fix_version_release(fix_versions: &[String], releases: &[Release]) -> Option<
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn expands_the_home_folder() {
+        let home = dirs::home_dir().unwrap();
+        assert_eq!(expand_home("~"), home);
+        assert_eq!(expand_home("~/code/app"), home.join("code/app"));
+        assert_eq!(expand_home("~bob/app"), PathBuf::from("~bob/app"));
+        assert_eq!(expand_home("/srv/app"), PathBuf::from("/srv/app"));
+    }
 
     #[test]
     fn project_icon_prefers_favicon_then_app_icon_then_logo() {

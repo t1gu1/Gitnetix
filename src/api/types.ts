@@ -554,6 +554,15 @@ export interface AiCatalog {
   routing: Record<string, Route>;
 }
 
+/** A repository of the linked GitHub account, to clone. */
+export interface GitHubRepo {
+  fullName: string;
+  description?: string | null;
+  private: boolean;
+  cloneUrl: string;
+  sshUrl: string;
+}
+
 export interface PrSummary {
   number: number;
   title: string;

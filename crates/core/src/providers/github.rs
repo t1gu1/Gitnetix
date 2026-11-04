@@ -29,6 +29,19 @@ pub struct PrSummary {
     pub url: String,
 }
 
+/// A repository the signed-in user can clone, as `/user/repos` lists it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all(serialize = "camelCase"))]
+pub struct UserRepo {
+    /// owner/repo
+    pub full_name: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    pub private: bool,
+    pub clone_url: String,
+    pub ssh_url: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Check {
@@ -207,6 +220,23 @@ impl GitHub {
     pub async fn rename_branch(&self, from: &str, to: &str) -> Result<()> {
         let name: String = from.bytes().map(|b| if b.is_ascii_alphanumeric() || b"-_.~".contains(&b) { (b as char).to_string() } else { format!("%{b:02X}") }).collect();
         self.req(reqwest::Method::POST, &format!("{}/branches/{name}/rename", self.rp()), Some(json!({ "new_name": to }))).await.map(|_| ())
+    }
+
+    /// Every repository the signed-in user owns, collaborates on or reaches through an organization, last pushed
+    /// first. GitHub leaves out those of organizations that have not approved the OAuth app.
+    pub async fn user_repos(&self) -> Result<Vec<UserRepo>> {
+        let mut out = Vec::new();
+        // shortcut: stops at 1000 repositories (10 pages), page further if an account ever needs more.
+        for page in 1..=10 {
+            let v = self.get(&format!("/user/repos?per_page=100&page={page}&sort=pushed&affiliation=owner,collaborator,organization_member")).await?;
+            let batch: Vec<UserRepo> = serde_json::from_value(v)?;
+            let last = batch.len() < 100;
+            out.extend(batch);
+            if last {
+                break;
+            }
+        }
+        Ok(out)
     }
 
     pub async fn me(&self) -> Result<String> {
@@ -511,6 +541,35 @@ impl GitHub {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A fake API serving `/user/repos` pages of 100, 100 and 1 repositories.
+    #[tokio::test]
+    async fn lists_every_page_of_the_users_repos() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let api = format!("http://{}", listener.local_addr().unwrap());
+        tokio::spawn(async move {
+            loop {
+                let (mut sock, _) = listener.accept().await.unwrap();
+                let mut buf = vec![0; 4096];
+                let n = sock.read(&mut buf).await.unwrap();
+                let req = String::from_utf8_lossy(&buf[..n]).to_string();
+                let page: usize = req.split("page=").nth(2).and_then(|s| s.split('&').next()).and_then(|s| s.parse().ok()).unwrap();
+                let count = [100, 100, 1][page - 1];
+                let repos: Vec<Value> = (0..count)
+                    .map(|i| json!({ "full_name": format!("o/r{page}-{i}"), "description": null, "private": true, "clone_url": "https://x/o/r.git", "ssh_url": "git@x:o/r.git", "id": 1 }))
+                    .collect();
+                let body = Value::Array(repos).to_string();
+                let res = format!("HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len());
+                sock.write_all(res.as_bytes()).await.unwrap();
+            }
+        });
+        let gh = GitHub::new(RepoRef::default(), "t".into(), Some(api));
+        let repos = gh.user_repos().await.unwrap();
+        assert_eq!(repos.len(), 201);
+        assert_eq!(repos[200].full_name, "o/r3-0");
+        assert_eq!(serde_json::to_value(&repos[0]).unwrap()["sshUrl"], "git@x:o/r.git");
+    }
 
     #[test]
     fn explains_org_oauth_restrictions() {

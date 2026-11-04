@@ -1156,6 +1156,10 @@ body.dragging-tab * {
 .list-link:hover {
   background: var(--raised);
 }
+/* The picked row of a list to choose from (the clone dialog's repositories). */
+.list-link[aria-pressed="true"] {
+  background: var(--sel);
+}
 /* Hover fills reach the list's rounded corners without spilling past them. */
 .list:has(.list-link) {
   overflow: hidden;

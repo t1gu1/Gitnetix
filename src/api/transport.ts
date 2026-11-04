@@ -198,10 +198,10 @@ export async function localHead(path: string) {
 }
 
 /** Native folder picker on desktop; null elsewhere. */
-export async function pickFolders(): Promise<string[] | null> {
+export async function pickFolders(title = "Choose Git repositories", multiple = true): Promise<string[] | null> {
   if (!isLocal) return null;
   const { open } = await import("@tauri-apps/plugin-dialog");
-  const res = await open({ directory: true, multiple: true, title: "Choose Git repositories" });
+  const res = await open({ directory: true, multiple, title });
   if (!res) return [];
   return Array.isArray(res) ? res : [res];
 }

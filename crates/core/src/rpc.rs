@@ -33,6 +33,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("projects.recent", "Projects saved in the other profiles and not in this one, to add back", ""),
     ("projects.icon", "A saved or recent project's own icon (favicon, app or PWA icon, logo) from its tracked files: { path, data (base64) } or null", "path"),
     ("projects.add", "Add local Git repositories", "paths: string[]"),
+    ("projects.clone", "Clone a Git repository into a new folder and add it", "url, path"),
     ("projects.remove", "Remove a project from the list (files untouched)", "projectId"),
     ("projects.setHidden", "Close or reopen a project's tab (data kept)", "projectId, hidden"),
     ("projects.reorder", "Set the order of projects", "ids: string[]"),
@@ -160,6 +161,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("jira.projects", "The Jira projects a connection can see", "id"),
     ("jira.signInStart", "Start \"Sign in with Atlassian\": the URL to open in the browser", ""),
     ("jira.signInFinish", "Wait for the browser sign-in to finish; done = Jira connected", ""),
+    ("github.repos", "Repositories of the linked GitHub account, last pushed first: { fullName, description, private, cloneUrl, sshUrl }", ""),
     ("github.signInStart", "Start \"Sign in with GitHub\": a code for the user to enter at verificationUri", ""),
     ("github.signInPoll", "Check whether the user entered the code; done = token stored and GitHub connected", "deviceCode"),
     ("azure.signInStart", "Start \"Sign in with Azure DevOps\": a code for the user to enter at verificationUri", ""),
@@ -314,7 +316,7 @@ fn avatars_are_an_emoji_a_photo_or_a_gravatar_email() {
 }
 
 /// Reads polled all the time: logged only when they fail.
-const QUIET: &[&str] = &[".info", ".get", ".list", ".overview", ".files", ".diff", ".blobs", ".commits", ".catalog", ".statuses", ".versions", ".projects", ".refs", ".range", ".preview", ".clear", "analytics.day", "shell.write", "shell.resize", "shell.scripts", "ui.setView", "github.signInPoll", "azure.signInPoll"];
+const QUIET: &[&str] = &[".info", ".get", ".list", ".overview", ".files", ".diff", ".blobs", ".commits", ".catalog", ".statuses", ".versions", ".projects", ".refs", ".range", ".preview", ".clear", "analytics.day", "shell.write", "shell.resize", "shell.scripts", "ui.setView", "github.signInPoll", "azure.signInPoll", "github.repos"];
 
 /// Actions in flight.
 static BUSY: std::sync::Mutex<usize> = std::sync::Mutex::new(0);
@@ -523,6 +525,7 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
             let paths = list(&p, "paths")?;
             to(k.add_projects(paths).await?)
         }
+        "projects.clone" => to(k.clone_project(&s(&p, "url")?, &s(&p, "path")?).await?),
         "projects.remove" => {
             k.remove_project(&s(&p, "projectId")?)?;
             ok()
@@ -1190,6 +1193,7 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
             })?;
             to(json!({ "id": conf.id, "user": me["displayName"] }))
         }
+        "github.repos" => to(k.github_repos().await?),
         "github.signInStart" => to(github_auth::start().await?),
         "github.signInPoll" => match github_auth::poll(&s(&p, "deviceCode")?).await? {
             Poll::Pending => to(json!({ "status": "pending" })),

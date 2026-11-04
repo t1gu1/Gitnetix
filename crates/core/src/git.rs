@@ -2492,7 +2492,7 @@ fn changes_repo(args: &[&str]) -> bool {
     let sub = it.next().copied().unwrap_or("");
     match verb {
         "stash" | "worktree" => !matches!(sub, "list" | "show"),
-        _ => ["merge", "rebase", "cherry-pick", "revert", "commit", "push", "pull", "reset", "checkout", "switch", "update-ref", "add", "rm", "restore", "clean", "apply"].contains(&verb),
+        _ => ["clone", "merge", "rebase", "cherry-pick", "revert", "commit", "push", "pull", "reset", "checkout", "switch", "update-ref", "add", "rm", "restore", "clean", "apply"].contains(&verb),
     }
 }
 
