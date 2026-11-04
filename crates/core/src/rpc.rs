@@ -983,7 +983,9 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
         "ai.signIn" => {
             let id = s(&p, "id")?;
             let (_, path) = ai::cli_path(&id)?;
-            open_terminal(&path.to_string_lossy())?;
+            // Claude Code signs in right away with `auth login`; the other CLIs ask on their first run.
+            let login = if id == "claude" { " auth login" } else { "" };
+            open_terminal(&format!("{}{login}", path.to_string_lossy()))?;
             ok()
         }
 

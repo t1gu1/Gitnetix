@@ -115,6 +115,10 @@ export function useEngineEvents() {
           case "log":
             qc.setQueryData<LogEntry[]>(["log"], (l) => l && [...l.slice(-1999), e.entry]);
             break;
+          case "aiSignedOut":
+            // Read by SignInPrompt.
+            qc.setQueryData(["aiSignedOut"], e.provider);
+            break;
           case "configChanged":
             qc.invalidateQueries({ queryKey: ["config"] });
             qc.invalidateQueries({ queryKey: ["projects"] });

@@ -49,8 +49,13 @@ fn push(error: bool, text: String) {
         }
         log.push_back(entry.clone());
     }
+    emit(Event::Log { entry });
+}
+
+/// Send `event` to the UIs. Does nothing before `attach`.
+pub fn emit(event: Event) {
     if let Some(tx) = EVENTS.get() {
-        let _ = tx.send(Event::Log { entry });
+        let _ = tx.send(event);
     }
 }
 
