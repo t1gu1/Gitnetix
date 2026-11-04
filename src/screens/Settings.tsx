@@ -336,14 +336,17 @@ function WorktreesSection({ cfg }: { cfg: Config }) {
 
 type DeviceCode = { deviceCode: string; userCode: string; verificationUri: string; interval: number; expiresIn: number };
 
-/** "Sign in with GitHub / Azure DevOps": show a code, open the provider's page to enter it, poll until it hands over a token. */
-export function DeviceSignIn({ method, name, site, onDone }: { method: "github" | "azure"; name: string; site: string; onDone?: () => void }) {
+/** "Sign in with GitHub / Azure DevOps / GitLab": show a code, open the provider's page to enter it, poll until it hands over a token.
+ * `params`: a self-managed GitLab's server and OAuth app. */
+export function DeviceSignIn({ method, name, site, params, onDone }: { method: "github" | "azure" | "gitlab"; name: string; site: string; params?: Record<string, string>; onDone?: () => void }) {
   const qc = useQueryClient();
   const [code, setCode] = useState<DeviceCode | null>(null);
   const start = useAction<DeviceCode>(`${method}.signInStart`);
   // A ref: a new callback each render must not restart the polling.
   const done = useRef(onDone);
   done.current = onDone;
+  // A string, so a new params object on each render doesn't restart the polling.
+  const extra = JSON.stringify(params ?? {});
   useEffect(() => {
     if (!code) return;
     let interval = code.interval;
@@ -352,7 +355,7 @@ export function DeviceSignIn({ method, name, site, onDone }: { method: "github" 
     const deadline = Date.now() + code.expiresIn * 1000;
     const tick = async () => {
       try {
-        const r = await rpc<{ status: string; interval?: number; user?: string | null }>(`${method}.signInPoll`, { deviceCode: code.deviceCode });
+        const r = await rpc<{ status: string; interval?: number; user?: string | null }>(`${method}.signInPoll`, { ...JSON.parse(extra), deviceCode: code.deviceCode });
         if (stopped) return;
         if (r.status === "done") {
           setCode(null);
@@ -376,7 +379,7 @@ export function DeviceSignIn({ method, name, site, onDone }: { method: "github" 
       stopped = true;
       clearTimeout(timer);
     };
-  }, [code, qc, method, name]);
+  }, [code, qc, method, name, extra]);
 
   if (!code)
     return (
@@ -385,7 +388,7 @@ export function DeviceSignIn({ method, name, site, onDone }: { method: "github" 
           className="btn btn-primary"
           disabled={start.isPending}
           onClick={() =>
-            start.mutate({}, {
+            start.mutate(JSON.parse(extra), {
               onSuccess: (c) => {
                 setCode(c);
                 copyToClipboard(c.userCode);
@@ -423,20 +426,12 @@ function GitProviders({ cfg }: { cfg: Config }) {
       </div>
       <ul className="list">
         <GitHosts cfg={cfg} />
-        {["GitLab", "Bitbucket", "Gitea"].map((n) => (
-          <li key={n} className="list-row">
-            <span className="col grow" style={{ gap: 2 }}>
-              <span style={{ fontWeight: 500 }}>{n}</span>
-              <span className="faint" style={{ fontSize: 12 }}>Not supported yet — push, pull and local work still behave normally</span>
-            </span>
-          </li>
-        ))}
       </ul>
     </>
   );
 }
 
-/** The GitHub and Azure DevOps rows of a list: sign in with a code, or paste a token. Also in the first-run setup. */
+/** The rows of a list for each git host: sign in, or paste a token. Also in the first-run setup. */
 export function GitHosts({ cfg }: { cfg: Config }) {
   const [token, setToken] = useState("");
   const [api, setApi] = useState(cfg.integrations.githubApi ?? "");
@@ -541,12 +536,135 @@ export function GitHosts({ cfg }: { cfg: Config }) {
           </form>
         )}
       </li>
+      <HostRow kind="gitlab" cfg={cfg} />
+      <HostRow kind="bitbucket" cfg={cfg} />
+      <HostRow kind="gitea" cfg={cfg} />
     </>
   );
 }
 
-/** Browser sign-in: Atlassian redirects back to a listener the app opens on localhost. */
-function AtlassianSignIn({ onDone }: { onDone?: () => void }) {
+/** Where a Gitea server sends the browser back after sign-in; any port is allowed on 127.0.0.1. */
+const GITEA_REDIRECT = "http://127.0.0.1/callback";
+
+/** What differs between the GitLab, Bitbucket and Gitea rows. */
+const HOSTS = {
+  gitlab: {
+    name: "GitLab",
+    server: "https://gitlab.example.com",
+    token: "Personal access token with the api scope.",
+    app: "Register it on your server under Edit profile › Applications: untick Confidential, tick Device authorization grant and the api scope (any redirect URI).",
+  },
+  bitbucket: {
+    name: "Bitbucket",
+    server: "",
+    token: "API token with the read:user, read:repository, read:pullrequest and write:pullrequest scopes.",
+    app: "",
+  },
+  gitea: {
+    name: "Gitea",
+    server: "https://gitea.example.com",
+    token: "Access token with read and write on repository and read on user.",
+    app: "Register it on your server under Settings › Applications › OAuth2 applications, Confidential client unticked, with this redirect URI:",
+  },
+} as const;
+
+/** A GitLab, Bitbucket or Gitea row: sign in, or paste a token. GitLab and Gitea also on your own server, Gitea always. */
+function HostRow({ kind, cfg }: { kind: keyof typeof HOSTS; cfg: Config }) {
+  const h = cfg.integrations[kind];
+  const meta = HOSTS[kind];
+  const [open, setOpen] = useState(kind === "gitea");
+  const [server, setServer] = useState(h.url ?? "");
+  const [clientId, setClientId] = useState(h.clientId ?? "");
+  const [token, setToken] = useState("");
+  const [email, setEmail] = useState("");
+  const save = useAction("integrations.save", { invalidate: [["config"], ["prs"]], success: `${meta.name} connected` });
+  const disc = useAction("integrations.disconnect", { invalidate: [["config"], ["prs"]], success: `${meta.name} disconnected` });
+  const url = server.trim().replace(/\/+$/, "");
+  const app = clientId.trim();
+  // gitlab.com and bitbucket.org have built-in apps; a server of your own needs one registered there.
+  const own = kind !== "bitbucket" && !!url;
+  const site = url.replace(/^https?:\/\//, "");
+  return (
+    <li className="col" style={{ padding: 16, gap: 12 }}>
+      <div className="row">
+        <span className="col grow" style={{ gap: 2 }}>
+          <span style={{ fontWeight: 500 }}>{meta.name}</span>
+          <span className={h.connected ? "c-add" : "faint"} style={{ fontSize: 12 }}>
+            {h.connected ? `${h.user ? `Signed in as ${h.user}` : "Connected · token in keychain"}${h.url ? ` · ${h.url.replace(/^https?:\/\//, "")}` : ""}` : "Not connected"}
+          </span>
+        </span>
+        {h.connected && <button className="btn" onClick={() => disc.mutate({ kind })}>Disconnect</button>}
+      </div>
+      {!h.connected && kind === "gitlab" && !own && <DeviceSignIn method="gitlab" name="GitLab" site="GitLab" />}
+      {!h.connected && kind === "bitbucket" && <BrowserSignIn method="bitbucket" label="Sign in with Bitbucket" name="Bitbucket" keys={["config", "prs"]} />}
+      {!h.connected &&
+        (!open ? (
+          <div>
+            <button className="btn btn-sm" onClick={() => setOpen(true)}>{kind === "gitlab" ? "Use a self-managed GitLab or a personal access token" : "Use an API token"}</button>
+          </div>
+        ) : (
+          <div className="col" style={{ gap: 10 }}>
+            {kind !== "bitbucket" && (
+              <div className="field">
+                <label htmlFor={`${kind}-server`}>
+                  Server {kind === "gitlab" && <span className="faint" style={{ fontWeight: 400 }}>self-managed only</span>}
+                </label>
+                <input id={`${kind}-server`} className="input mono" placeholder={meta.server} value={server} onChange={(e) => setServer(e.target.value)} />
+              </div>
+            )}
+            {own && (
+              <div className="field">
+                <label htmlFor={`${kind}-app`}>OAuth application ID <span className="faint" style={{ fontWeight: 400 }}>to sign in</span></label>
+                <input id={`${kind}-app`} className="input mono" value={clientId} onChange={(e) => setClientId(e.target.value)} />
+                <span className="hint">
+                  {meta.app}
+                  {kind === "gitea" && (
+                    <>
+                      {" "}
+                      <button type="button" className="btn btn-ghost btn-sm mono" data-tip="Copy" onClick={() => copyToClipboard(GITEA_REDIRECT)}>{GITEA_REDIRECT}</button>
+                    </>
+                  )}
+                </span>
+              </div>
+            )}
+            {own && app && (kind === "gitlab" ? (
+              <DeviceSignIn method="gitlab" name="GitLab" site={site} params={{ url, clientId: app }} />
+            ) : (
+              <BrowserSignIn method="gitea" label="Sign in with Gitea" name="Gitea" keys={["config", "prs"]} params={{ url, clientId: app }} />
+            ))}
+            <form
+              className="col"
+              style={{ gap: 10 }}
+              onSubmit={(e) => {
+                e.preventDefault();
+                save.mutate({ kind, token, config: { url, email } }, { onSuccess: () => setToken("") });
+              }}
+            >
+              {kind === "bitbucket" && (
+                <div className="field">
+                  <label htmlFor="bitbucket-email">Atlassian account email</label>
+                  <input id="bitbucket-email" type="email" className="input" value={email} onChange={(e) => setEmail(e.target.value)} />
+                  <span className="hint">Leave it empty for a workspace or repository access token.</span>
+                </div>
+              )}
+              <div className="field">
+                <label htmlFor={`${kind}-token`}>{kind === "bitbucket" ? "API token" : "Personal access token"}</label>
+                <input id={`${kind}-token`} type="password" className="input mono" value={token} onChange={(e) => setToken(e.target.value)} />
+                <span className="hint">{meta.token}</span>
+              </div>
+              <div>
+                <button className="btn btn-primary" disabled={!token.trim() || (kind === "gitea" && !url) || save.isPending}>Connect</button>
+              </div>
+            </form>
+          </div>
+        ))}
+    </li>
+  );
+}
+
+/** Browser sign-in: the host (Atlassian, Bitbucket, Gitea) redirects back to a listener the app opens on this computer.
+ * `keys`: queries to refetch once signed in; `params`: a Gitea server and OAuth app. */
+function BrowserSignIn({ method, label, name, keys, params, onDone }: { method: "jira" | "bitbucket" | "gitea"; label: string; name: string; keys: string[]; params?: Record<string, string>; onDone?: () => void }) {
   const qc = useQueryClient();
   const [waiting, setWaiting] = useState(false);
   const attempt = useRef(0);
@@ -554,12 +672,12 @@ function AtlassianSignIn({ onDone }: { onDone?: () => void }) {
     const mine = ++attempt.current;
     setWaiting(true);
     try {
-      const { url } = await rpc<{ url: string }>("jira.signInStart");
+      const { url } = await rpc<{ url: string }>(`${method}.signInStart`, params);
       await openExternal(url);
-      const r = await rpc<{ user?: string | null }>("jira.signInFinish");
+      const r = await rpc<{ user?: string | null }>(`${method}.signInFinish`);
       if (mine !== attempt.current) return;
-      for (const key of ["config", "tickets", "jiraAuth"]) qc.invalidateQueries({ queryKey: [key] });
-      toast(r.user ? `Signed in to Jira as ${r.user}` : "Jira connected", "ok");
+      for (const key of keys) qc.invalidateQueries({ queryKey: [key] });
+      toast(r.user ? `Signed in to ${name} as ${r.user}` : `${name} connected`, "ok");
       onDone?.();
     } catch (e) {
       if (mine === attempt.current) toast((e as Error).message, "error");
@@ -585,7 +703,7 @@ function AtlassianSignIn({ onDone }: { onDone?: () => void }) {
     </div>
   ) : (
     <div>
-      <button type="button" className="btn btn-primary" onClick={() => signIn()}>Sign in with Atlassian</button>
+      <button type="button" className="btn btn-primary" onClick={() => signIn()}>{label}</button>
     </div>
   );
 }
@@ -702,7 +820,7 @@ function JiraConnection({ cfg, conn, onDone }: { cfg: Config; conn?: JiraConn; o
           onDone && <button type="button" className="btn" onClick={onDone}>Cancel</button>
         )}
       </div>
-      {!conn && !tokenMode && <AtlassianSignIn onDone={onDone} />}
+      {!conn && !tokenMode && <BrowserSignIn method="jira" label="Sign in with Atlassian" name="Jira" keys={["config", "tickets", "jiraAuth"]} onDone={onDone} />}
       {tokenMode && (
         <>
           {input(`jr-url-${conn?.id ?? "new"}`, "Site", f.baseUrl, (v) => setF({ ...f, baseUrl: v }), { ph: "https://yourteam.atlassian.net" })}

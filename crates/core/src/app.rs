@@ -20,7 +20,7 @@ use crate::events::Event;
 use crate::git::{ticket_keys, Blobs, BranchInfo, Commit, FileChange, Git, Hunk, LinePick, PrSquash, Side, Identity, StashInfo, TagInfo, WorktreeInfo};
 use crate::project_commands::{self, Scripts};
 use crate::providers::azure::{self, MergedPr};
-use crate::providers::{azure_auth, github::{GitHub, UserRepo}, parse_remote, PrHost, RepoRef};
+use crate::providers::{self, azure_auth, github::{GitHub, UserRepo}, parse_remote, PrHost, RepoRef};
 use crate::secrets;
 use crate::store::{new_id, now, BranchMeta, Config, Connection, ConnectMethod, GitProfile, Project, Release, ReleaseKind, Route, Store, UserProfile};
 use crate::submodules::{self, FetchReport, Submodule};
@@ -1767,7 +1767,7 @@ fn home_among(p: &Project, refs: &Refs, default: &str, name: &str, holders: &std
 /// Keychain keys a profile's settings can point to.
 fn secret_keys(c: &Config) -> Vec<String> {
     let i = &c.integrations;
-    let mut keys = vec!["github".to_string(), azure_auth::KEY.into(), tickets::jira_auth::KEY.into(), crate::git::LOGINS_KEY.into()];
+    let mut keys = vec!["github".to_string(), azure_auth::KEY.into(), tickets::jira_auth::KEY.into(), crate::git::LOGINS_KEY.into(), "gitlab".into(), "bitbucket".into(), "gitea".into()];
     keys.extend(i.jira.iter().map(Connection::secret));
     keys.extend(i.trello.iter().map(Connection::secret));
     keys.extend(i.asana.iter().map(Connection::secret));
@@ -4068,7 +4068,7 @@ impl Gitnetix {
                 let lookup = async {
                     match self.pr_host(&p.id).await? {
                         PrHost::Azure(a) => a.merged_prs(&due).await,
-                        PrHost::GitHub(_) => Ok(HashMap::new()),
+                        _ => Ok(HashMap::new()),
                     }
                 };
                 let found = tokio::time::timeout(std::time::Duration::from_secs(10), lookup).await.ok().and_then(|r| r.ok());
@@ -4103,7 +4103,7 @@ impl Gitnetix {
     }
 
     /// Branches the git host protects, looked up again after a few minutes or on `refresh`.
-    /// Empty without a connected GitHub, or when the host can't be reached.
+    /// Empty without a connected git host, or when it can't be reached.
     async fn protected_branches(&self, project_id: &str, refresh: bool) -> Vec<String> {
         if !refresh {
             if let Some((at, list)) = self.protected.lock().unwrap().get(project_id) {
@@ -4112,7 +4112,14 @@ impl Gitnetix {
                 }
             }
         }
-        let lookup = async { self.github(project_id).await?.protected_branches().await };
+        let lookup = async {
+            // Azure DevOps branch policies are not looked up: no keychain read or token refresh for them.
+            let p = self.store.project(project_id)?;
+            if self.git(&p).remote_url("origin").await?.is_some_and(|u| azure::parse_remote(&u).is_some()) {
+                return Ok(vec![]);
+            }
+            self.pr_host(project_id).await?.protected_branches().await
+        };
         let list = match tokio::time::timeout(std::time::Duration::from_secs(5), lookup).await {
             Ok(Ok(list)) => list,
             _ => Vec::new(),
@@ -5163,12 +5170,28 @@ impl Gitnetix {
         GitHub::new(RepoRef::default(), token, api).user_repos().await
     }
 
-    /// Where the project's pull requests live: Azure DevOps for an Azure remote, GitHub otherwise.
+    /// The repositories of the linked `kind` account (github, gitlab, bitbucket, gitea), to pick one to clone.
+    pub async fn host_repos(&self, kind: &str) -> Result<Vec<UserRepo>> {
+        if kind == "github" {
+            return self.github_repos().await;
+        }
+        let i = self.store.read(|c| c.integrations.clone());
+        providers::connect(kind, RepoRef::default(), &i).await?.user_repos().await
+    }
+
+    /// Where the project's pull requests live: Azure DevOps for an Azure remote, the GitLab, Bitbucket
+    /// or Gitea connection whose server origin is on, GitHub otherwise.
     pub async fn pr_host(&self, project_id: &str) -> Result<PrHost> {
         let p = self.store.project(project_id)?;
         if let Some(url) = self.git(&p).remote_url("origin").await? {
             if let Some(repo) = azure::parse_remote(&url) {
                 return Ok(PrHost::Azure(azure::Azure::new(repo, azure_auth::authorization().await?)));
+            }
+            if let Some(repo) = parse_remote(&url) {
+                let i = self.store.read(|c| c.integrations.clone());
+                if let Some(kind) = providers::host_kind(&repo, &i) {
+                    return providers::connect(kind, repo, &i).await;
+                }
             }
         }
         Ok(PrHost::GitHub(self.github(project_id).await?))

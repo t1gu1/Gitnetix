@@ -141,7 +141,7 @@ export function ReleaseNotes() {
                 disabled={!md || publish.isPending}
                 onClick={() => publish.mutate({ projectId: pid, tag: version.startsWith("v") ? version : `v${version}`, target: to, name: version, body: md })}
               >
-                Publish GitHub release
+                Publish release
               </button>
             </div>
           </div>

@@ -135,7 +135,7 @@ function ProfileCard({ cfg }: { cfg: Config }) {
   const i = cfg.integrations;
   const me = cfg.profiles[0];
   const who = [me?.name, me?.email && `<${me.email}>`].filter(Boolean).join(" ");
-  const facts = [plural(cfg.projects.length, "project"), i.githubConnected && "GitHub", i.azureConnected && "Azure DevOps", i.jira.length && "Jira", i.trello.length && "Trello", i.asana.length && "Asana"];
+  const facts = [plural(cfg.projects.length, "project"), i.githubConnected && "GitHub", i.azureConnected && "Azure DevOps", i.gitlab.connected && "GitLab", i.bitbucket.connected && "Bitbucket", i.gitea.connected && "Gitea", i.jira.length && "Jira", i.trello.length && "Trello", i.asana.length && "Asana"];
   const others = list.filter((p) => p.id !== active.id);
   return (
     <section className="menu-col menu-profile" aria-labelledby="menu-profile-name">
@@ -368,7 +368,7 @@ function AppSettings({ cfg, open, onUnpair }: { cfg?: Config; open: (id: string)
     shortcuts: changedKeys ? `${changedKeys} changed` : "Defaults",
     ai: "Providers, models and task routing",
     templates: "Prompts for commits, PRs and release notes",
-    git: i && ([i.githubConnected && "GitHub", i.azureConnected && "Azure DevOps"].filter(Boolean).join(" · ") || "Not connected"),
+    git: i && ([i.githubConnected && "GitHub", i.azureConnected && "Azure DevOps", i.gitlab.connected && "GitLab", i.bitbucket.connected && "Bitbucket", i.gitea.connected && "Gitea"].filter(Boolean).join(" · ") || "Not connected"),
     tools: i && ([i.jira.length && "Jira", i.trello.length && "Trello", i.asana.length && "Asana"].filter(Boolean).join(" · ") || "Not connected"),
     companion: !isLocal ? "Set on the computer" : s && (s.enabled ? `On · ${s.lan ? "your network" : "this computer only"}` : "Off"),
     logs: "Actions and errors, to copy and share",

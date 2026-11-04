@@ -405,6 +405,14 @@ export interface JiraConn {
   repos: string[];
 }
 
+/** A GitLab, Bitbucket or Gitea connection. `url`: its server, none = gitlab.com or bitbucket.org; `clientId`: the OAuth app it signed in with. */
+export interface HostConn {
+  url?: string | null;
+  clientId?: string | null;
+  connected: boolean;
+  user?: string | null;
+}
+
 export interface Config {
   version: number;
   projects: Project[];
@@ -420,6 +428,9 @@ export interface Config {
     githubUser?: string | null;
     azureConnected: boolean;
     azureUser?: string | null;
+    gitlab: HostConn;
+    bitbucket: HostConn;
+    gitea: HostConn;
     jira: JiraConn[];
     /** `id` "" = the connection from before there could be several; `repos`: ids of the projects whose Tickets screen shows it, empty = all. */
     trello: { id: string; apiKey: string; boardId?: string | null; repos: string[] }[];
@@ -554,7 +565,7 @@ export interface AiCatalog {
   routing: Record<string, Route>;
 }
 
-/** A repository of the linked GitHub account, to clone. */
+/** A repository of a linked GitHub, GitLab, Bitbucket or Gitea account, to clone. */
 export interface GitHubRepo {
   fullName: string;
   description?: string | null;

@@ -9,10 +9,10 @@ use serde_json::{json, Value};
 use crate::app::{Attachment, Gitnetix, MergeOptions, NewItem, NotesInclude, ViewMode};
 use crate::error::{Error, Result};
 use crate::git::{Git, LinePick};
-use crate::store::{upsert, ConnectMethod, Connection, GitProfile, JiraConf, ReleaseKind, Route, TrelloConf, AsanaConf, UserProfile, new_id};
+use crate::store::{upsert, ConnectMethod, Connection, GitProfile, HostConf, JiraConf, ReleaseKind, Route, TrelloConf, AsanaConf, UserProfile, new_id};
 use crate::templates::{self, Template};
 use crate::providers::github_auth::{self, Poll};
-use crate::providers::azure_auth;
+use crate::providers::{azure_auth, bitbucket::{self, Bitbucket}, gitea::Gitea, gitlab::{self, GitLab}, oauth, RepoRef};
 use crate::tickets::jira_auth;
 use crate::{ai, secrets};
 
@@ -143,7 +143,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("prs.review", "Submit a review", "projectId, number, vote: approve|changes|comment, body?"),
     ("prs.comment", "Comment on a PR", "projectId, number, body"),
     ("prs.editComment", "Edit the text of a comment or review summary", "projectId, commentId (node id), body"),
-    ("prs.reply", "Reply in a review thread", "projectId, number, commentId, body"),
+    ("prs.reply", "Reply in a review thread", "projectId, number, threadId, commentId, body"),
     ("prs.resolve", "Resolve or reopen a review thread", "projectId, threadId, resolved"),
     ("prs.react", "Add or remove a reaction", "projectId, subjectId, content, add"),
     ("prs.draftReply", "AI-drafted reply for a thread; with draft, that started reply polished instead (editing = id of the comment it rewrites)", "projectId, number, threadId, draft?, editing?"),
@@ -156,7 +156,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("tickets.setStatus", "Move a ticket to one of tickets.statuses", "source, conn, id, to"),
     ("jira.versions", "Versions a Jira ticket's fix version can be set to", "id (connection), key"),
     ("jira.setFixVersions", "Set a Jira ticket's fix versions to exactly these version ids; empty clears them", "id (connection), key, versions"),
-    ("integrations.save", "Connect GitHub, Azure DevOps (token = personal access token, config.org), Jira, Trello or Asana; a Jira, Trello or Asana config without id adds a connection", "kind, config?, token?"),
+    ("integrations.save", "Connect GitHub, Azure DevOps (token = personal access token, config.org), GitLab (config.url = self-managed server), Bitbucket (config.email = Atlassian account of an API token), Gitea (config.url), Jira, Trello or Asana; a GitLab, Bitbucket or Gitea token is checked with the server first; a Jira, Trello or Asana config without id adds a connection", "kind, config?, token?"),
     ("integrations.checkJira", "Sign in to a Jira connection with its saved token; the user's name, or an error", "id"),
     ("jira.projects", "The Jira projects a connection can see", "id"),
     ("jira.signInStart", "Start \"Sign in with Atlassian\": the URL to open in the browser", ""),
@@ -167,7 +167,16 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("github.signInPoll", "Check whether the user entered the code; done = token stored and GitHub connected", "deviceCode"),
     ("azure.signInStart", "Start \"Sign in with Azure DevOps\": a code for the user to enter at verificationUri", ""),
     ("azure.signInPoll", "Check whether the user entered the code; done = tokens stored and Azure DevOps connected", "deviceCode"),
-    ("integrations.disconnect", "Disconnect an integration (id = which Jira, Trello or Asana connection)", "kind, id?"),
+    ("gitlab.signInStart", "Start \"Sign in with GitLab\" on gitlab.com, or on a self-managed server (url) with the ID of an OAuth app registered there (clientId): a code for the user to enter at verificationUri", "url?, clientId?"),
+    ("gitlab.signInPoll", "Check whether the user entered the code; done = tokens stored and GitLab connected", "deviceCode, url?, clientId?"),
+    ("bitbucket.signInStart", "Start \"Sign in with Bitbucket\": the URL to open in the browser", ""),
+    ("bitbucket.signInFinish", "Wait for the browser sign-in to finish; done = Bitbucket connected", ""),
+    ("gitea.signInStart", "Start \"Sign in with Gitea\" on a server (url) with the client ID of a public OAuth app registered there (redirect URI http://127.0.0.1/callback): the URL to open in the browser", "url, clientId"),
+    ("gitea.signInFinish", "Wait for the browser sign-in to finish; done = Gitea connected", ""),
+    ("gitlab.repos", "Repositories of the linked GitLab account, like github.repos", ""),
+    ("bitbucket.repos", "Repositories of the linked Bitbucket account, like github.repos", ""),
+    ("gitea.repos", "Repositories of the linked Gitea account, like github.repos", ""),
+    ("integrations.disconnect", "Disconnect an integration (kind github, azure, gitlab, bitbucket, gitea, jira, trello, asana; id = which Jira, Trello or Asana connection)", "kind, id?"),
     ("notes.refs", "Tags and branches for a notes range", "projectId"),
     ("notes.range", "Commit, branch and ticket counts in a range", "projectId, from, to"),
     ("notes.generate", "AI release notes", "projectId, from, to, templateId?, language, include"),
@@ -175,7 +184,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("changelog.update", "AI adds what a branch changes to the Unreleased section of its CHANGELOG.md and commits it on the branch", "projectId, branch"),
     ("changelog.release", "Move the Unreleased section of an open release's CHANGELOG.md into its version and commit it on the release branch; when the version already lists entries, AI merges both (highlights first), else they are added under the matching headings", "projectId, version"),
     ("changelog.latest", "Merge the Unreleased section of a branch's CHANGELOG.md into its latest version, like changelog.release, and commit it on the branch", "projectId, branch"),
-    ("notes.publish", "Publish a GitHub release", "projectId, tag, target, name, body"),
+    ("notes.publish", "Publish a release on the project's git host (GitHub, GitLab or Gitea)", "projectId, tag, target, name, body"),
     ("analytics.get", "Activity and release stats", "projectIds (empty = all) or projectId (or \"all\"), days"),
     ("analytics.day", "Commits authored on a day, with the branch each was made on", "projectIds (empty = all) or projectId (or \"all\"), date (YYYY-MM-DD)"),
 ];
@@ -269,6 +278,35 @@ fn drop_unused_atlassian_sign_in(k: &Gitnetix) -> Result<()> {
     Ok(())
 }
 
+/// A server address as typed, without its trailing slash; None when empty.
+fn server_url(v: Option<String>) -> Result<Option<String>> {
+    let Some(u) = v.map(|u| u.trim().trim_end_matches('/').to_string()).filter(|u| !u.is_empty()) else { return Ok(None) };
+    match reqwest::Url::parse(&u) {
+        Ok(url) if matches!(url.scheme(), "https" | "http") && url.host_str().is_some() => Ok(Some(u)),
+        _ => Err(Error::Invalid(format!("{u} is not a server address, like https://git.example.com"))),
+    }
+}
+
+/// The GitLab server and OAuth app a sign-in goes to: the app given (`clientId`) on `url`, else gitlab.com and the built-in app.
+fn gitlab_app(p: &Value) -> Result<(String, String)> {
+    let base = server_url(os(p, "url"))?.unwrap_or_else(|| gitlab::CLOUD.into());
+    let given = os(p, "clientId").map(|i| i.trim().to_string()).filter(|i| !i.is_empty());
+    match given.or_else(|| (base == gitlab::CLOUD && !gitlab::CLIENT_ID.is_empty()).then(|| gitlab::CLIENT_ID.into())) {
+        Some(id) => Ok((base, id)),
+        None if base == gitlab::CLOUD => Err(Error::Unsupported("GitLab sign-in is not set up in this build; use a personal access token".into())),
+        None => Err(Error::Invalid(format!("enter the application ID of the OAuth app registered on {base}"))),
+    }
+}
+
+/// Mark a GitLab, Bitbucket or Gitea connection signed in: the account, and the server and OAuth app (None for a pasted token) its tokens belong to.
+fn host_connected(k: &Gitnetix, kind: &str, url: Option<String>, client_id: Option<String>, user: Option<String>) -> Result<()> {
+    k.store.write(|c| {
+        let h = c.integrations.host_mut(kind).ok_or_else(|| Error::Invalid(format!("unknown git provider {kind}")))?;
+        *h = HostConf { url, client_id, connected: true, user };
+        Ok(())
+    })
+}
+
 /// What a profile's avatar may be: an emoji, a photo as an image data URL (kept in profiles.json, so small), or "gravatar:" and an email.
 fn valid_avatar(a: &str) -> bool {
     if a.starts_with("data:image/") {
@@ -317,7 +355,7 @@ fn avatars_are_an_emoji_a_photo_or_a_gravatar_email() {
 }
 
 /// Reads polled all the time: logged only when they fail.
-const QUIET: &[&str] = &[".info", ".get", ".list", ".overview", ".files", ".diff", ".blobs", ".commits", ".catalog", ".statuses", ".versions", ".projects", ".refs", ".range", ".preview", ".clear", "analytics.day", "shell.write", "shell.resize", "shell.scripts", "ui.setView", "github.signInPoll", "azure.signInPoll", "github.repos"];
+const QUIET: &[&str] = &[".info", ".get", ".list", ".overview", ".files", ".diff", ".blobs", ".commits", ".catalog", ".statuses", ".versions", ".projects", ".refs", ".range", ".preview", ".clear", "analytics.day", "shell.write", "shell.resize", "shell.scripts", "ui.setView", "github.signInPoll", "azure.signInPoll", "gitlab.signInPoll", "github.repos", "gitlab.repos", "bitbucket.repos", "gitea.repos"];
 
 /// Actions in flight.
 static BUSY: std::sync::Mutex<usize> = std::sync::Mutex::new(0);
@@ -1012,7 +1050,7 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
         }
         "prs.reply" => {
             let gh = k.pr_host(&s(&p, "projectId")?).await?;
-            gh.reply(u(&p, "number")?, u(&p, "commentId")?, &s(&p, "body")?).await?;
+            gh.reply(u(&p, "number")?, &os(&p, "threadId").unwrap_or_default(), u(&p, "commentId")?, &s(&p, "body")?).await?;
             ok()
         }
         "prs.resolve" => {
@@ -1128,6 +1166,22 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
                 }
                 return to(json!({ "ok": true, "id": id }));
             }
+            if matches!(kind.as_str(), "gitlab" | "bitbucket" | "gitea") {
+                let pat = token.ok_or_else(|| Error::Invalid("missing `token`".into()))?;
+                let url = server_url(os(&cfg, "url"))?;
+                let email = os(&cfg, "email").map(|e| e.trim().to_string()).filter(|e| !e.is_empty());
+                let auth = oauth::Tokens { access_token: pat.clone(), email: email.clone(), ..Default::default() }.header();
+                // Saved once the server took it, so "Connected" means it works.
+                let user = match kind.as_str() {
+                    "gitlab" => GitLab::new(RepoRef::default(), url.as_deref().unwrap_or(gitlab::CLOUD), auth).me().await?,
+                    "bitbucket" => Bitbucket::new(RepoRef::default(), auth).me().await?,
+                    _ => Gitea::new(RepoRef::default(), url.as_deref().ok_or_else(|| Error::Invalid("missing the Gitea server".into()))?, auth).me().await?,
+                };
+                oauth::save_pat(&kind, &pat, email)?;
+                let user = Some(user).filter(|u| !u.is_empty());
+                host_connected(k, &kind, url.filter(|_| kind != "bitbucket"), None, user.clone())?;
+                return to(json!({ "ok": true, "user": user }));
+            }
             if kind == "azure" {
                 let pat = token.ok_or_else(|| Error::Invalid("missing `token`".into()))?;
                 let user = Some(azure_auth::save_pat(&pat, cfg["org"].as_str().unwrap_or("")).await?).filter(|u| !u.is_empty());
@@ -1234,6 +1288,64 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
                 to(json!({ "status": "done", "user": user }))
             }
         },
+        "gitlab.signInStart" => {
+            let (base, id) = gitlab_app(&p)?;
+            to(oauth::device_start(&format!("{base}/oauth/authorize_device"), &id, gitlab::SCOPE, "GitLab").await?)
+        }
+        "gitlab.signInPoll" => {
+            let (base, id) = gitlab_app(&p)?;
+            match oauth::device_poll(&format!("{base}/oauth/token"), &id, &s(&p, "deviceCode")?, "GitLab", "gitlab").await? {
+                Poll::Pending => to(json!({ "status": "pending" })),
+                Poll::SlowDown(interval) => to(json!({ "status": "pending", "interval": interval })),
+                Poll::Token(t) => {
+                    let user = GitLab::new(RepoRef::default(), &base, format!("Bearer {t}")).me().await.ok().filter(|u| !u.is_empty());
+                    host_connected(k, "gitlab", (base != gitlab::CLOUD).then_some(base), Some(id), user.clone())?;
+                    to(json!({ "status": "done", "user": user }))
+                }
+            }
+        }
+        "bitbucket.signInStart" => {
+            let (id, secret) = bitbucket::client()?;
+            let b = oauth::Browser {
+                site: "Bitbucket",
+                server: "https://bitbucket.org".into(),
+                key: "bitbucket",
+                authorize_url: bitbucket::AUTHORIZE_URL.into(),
+                token_url: bitbucket::TOKEN_URL.into(),
+                client_id: id.into(),
+                secret: Some(secret),
+                port: bitbucket::PORT,
+            };
+            to(json!({ "url": oauth::browser_start(b).await? }))
+        }
+        "gitea.signInStart" => {
+            let url = server_url(os(&p, "url"))?.ok_or_else(|| Error::Invalid("missing the Gitea server".into()))?;
+            let id = os(&p, "clientId").map(|i| i.trim().to_string()).filter(|i| !i.is_empty());
+            let id = id.ok_or_else(|| Error::Invalid(format!("enter the client ID of the OAuth app registered on {url}")))?;
+            let b = oauth::Browser {
+                site: "Gitea",
+                authorize_url: format!("{url}/login/oauth/authorize"),
+                token_url: format!("{url}/login/oauth/access_token"),
+                server: url,
+                key: "gitea",
+                client_id: id,
+                secret: None,
+                port: 0,
+            };
+            to(json!({ "url": oauth::browser_start(b).await? }))
+        }
+        "bitbucket.signInFinish" | "gitea.signInFinish" => {
+            let kind = if method.starts_with("gitea") { "gitea" } else { "bitbucket" };
+            let (t, b) = oauth::browser_finish(kind).await?;
+            let user = match kind {
+                "gitea" => Gitea::new(RepoRef::default(), &b.server, t.header()).me().await,
+                _ => Bitbucket::new(RepoRef::default(), t.header()).me().await,
+            };
+            let user = user.ok().filter(|u| !u.is_empty());
+            host_connected(k, kind, (kind == "gitea").then_some(b.server), Some(b.client_id), user.clone())?;
+            to(json!({ "user": user }))
+        }
+        m @ ("gitlab.repos" | "bitbucket.repos" | "gitea.repos") => to(k.host_repos(m.split('.').next().unwrap_or("")).await?),
         "integrations.disconnect" => {
             let kind = s(&p, "kind")?;
             if kind == "jira" {
@@ -1267,7 +1379,13 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
                         c.integrations.azure_connected = false;
                         c.integrations.azure_user = None;
                     }
-                    _ => {}
+                    other => {
+                        // The server and OAuth app stay, to sign in again.
+                        if let Some(h) = c.integrations.host_mut(other) {
+                            h.connected = false;
+                            h.user = None;
+                        }
+                    }
                 }
                 Ok(())
             })?;
@@ -1289,7 +1407,7 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
         "changelog.release" => to(json!({ "message": k.release_changelog(&s(&p, "projectId")?, &s(&p, "version")?).await? })),
         "changelog.latest" => to(json!({ "message": k.changelog_into_latest(&s(&p, "projectId")?, &s(&p, "branch")?).await? })),
         "notes.publish" => {
-            let gh = k.github(&s(&p, "projectId")?).await?;
+            let gh = k.pr_host(&s(&p, "projectId")?).await?;
             let url = gh.create_release(&s(&p, "tag")?, &s(&p, "target")?, &s(&p, "name")?, &s(&p, "body")?).await?;
             to(json!({ "url": url }))
         }

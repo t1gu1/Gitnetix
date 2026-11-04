@@ -194,12 +194,16 @@ export function Welcome() {
 const SHOWN_REPOS = 50;
 
 /** Clone a repository into a new folder named after it, then open it like an added one.
- * With GitHub linked, its repositories are listed to pick from. */
+ * With GitHub, GitLab, Bitbucket or Gitea linked, its repositories are listed to pick from. */
 function CloneModal({ base, onClose, onDone }: { base: string; onClose: () => void; onDone: (r: Project[]) => void }) {
   const [url, setUrl] = useState("");
   const [parent, setParent] = useState(base);
-  const linked = !!useConfig().data?.integrations.githubConnected;
-  const repos = useQuery({ queryKey: ["github", "repos"], queryFn: () => rpc<GitHubRepo[]>("github.repos"), enabled: linked, staleTime: 5 * 60_000, retry: false });
+  const i = useConfig().data?.integrations;
+  const hosts = i ? ([["github", "GitHub", i.githubConnected], ["gitlab", "GitLab", i.gitlab.connected], ["bitbucket", "Bitbucket", i.bitbucket.connected], ["gitea", "Gitea", i.gitea.connected]] as const).filter((h) => h[2]) : [];
+  const [hostPick, setHostPick] = useState<string>();
+  const host = hosts.find((h) => h[0] === hostPick) ?? hosts[0];
+  const linked = !!host;
+  const repos = useQuery({ queryKey: [host?.[0], "repos"], queryFn: () => rpc<GitHubRepo[]>(`${host![0]}.repos`), enabled: linked, staleTime: 5 * 60_000, retry: false });
   const [proto, setProto] = useStored<"https" | "ssh">("gnx.clone.protocol", "ssh", (s) => (s === "https" ? "https" : "ssh"), String);
   const [search, setSearch] = useState("");
   const [picked, setPicked] = useState<GitHubRepo | null>(null);
@@ -235,8 +239,9 @@ function CloneModal({ base, onClose, onDone }: { base: string; onClose: () => vo
       <form id="clone-form" className="col" style={{ gap: 14 }} onSubmit={(e) => { e.preventDefault(); submit(); }}>
         {linked && (
           <div className="field">
+            {hosts.length > 1 && <Seg label="Repositories from" value={host[0]} options={hosts.map(([value, label]) => ({ value, label }))} onChange={(h) => setHostPick(h)} />}
             <div className="row" style={{ justifyContent: "space-between" }}>
-              <label htmlFor="clone-search">Your GitHub repositories</label>
+              <label htmlFor="clone-search">Your {host[1]} repositories</label>
               <Seg
                 label="Clone with"
                 value={proto}

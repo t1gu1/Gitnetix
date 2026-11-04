@@ -11,6 +11,10 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+### Added
+- Connect GitLab, Bitbucket Cloud and Gitea under Git providers. Their pull requests, reviews, conversations, protected branches and repository lists for cloning work as with GitHub, and releases publish to GitLab and Gitea.
+- Sign in to GitLab with a code, on gitlab.com or on a self-managed server with an OAuth app registered there. Bitbucket and Gitea sign in through the browser. A personal access token or API token works on all three.
+
 ## [0.17.4] - 2026-11-03
 
 ### Added

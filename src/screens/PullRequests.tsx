@@ -25,9 +25,11 @@ const EMOJI: [string, string, string][] = [
   ["ROCKET", "🚀", "Rocket"],
 ];
 
+const HOSTS: Record<string, string> = { github: "GitHub", azure: "Azure DevOps", gitlab: "GitLab", bitbucket: "Bitbucket", gitea: "Gitea" };
+
 /** Name of the host the project's pull requests live on, from the cached list. */
 function useHost(pid: string) {
-  return usePrs(pid).data?.provider === "azure" ? "Azure DevOps" : "GitHub";
+  return HOSTS[usePrs(pid).data?.provider ?? ""] ?? "GitHub";
 }
 
 function stateOf(p: PrSummary, d?: PrDetail): [string, string] {
@@ -85,7 +87,7 @@ export function PullRequests({ initial }: { initial?: number }) {
 
   return (
     <>
-      <Header title="Pull requests" sub={`${ov?.project.name ?? ""}${prs.data ? ` · ${prs.data.provider === "azure" ? "Azure DevOps" : "GitHub"} ${prs.data.repo.owner}/${prs.data.repo.repo}` : ""}`} hideWide onBack={pane === "detail" ? () => setPane("list") : undefined} />
+      <Header title="Pull requests" sub={`${ov?.project.name ?? ""}${prs.data ? ` · ${HOSTS[prs.data.provider] ?? "GitHub"} ${prs.data.repo.owner}/${prs.data.repo.repo}` : ""}`} hideWide onBack={pane === "detail" ? () => setPane("list") : undefined} />
       {prs.error ? (
         <EmptyState
           icon="pr"
@@ -471,8 +473,8 @@ function Detail({ pid, number }: { pid: string; number: number }) {
 
 function ReviewForm({ pid, d, onDone }: { pid: string; d: PrDetail; onDone: () => void }) {
   const host = useHost(pid);
-  // GitHub refuses votes from a PR's author; Azure DevOps takes them.
-  const authorOnly = d.mine && host === "GitHub";
+  // GitHub and Gitea refuse votes from a PR's author; the others take them.
+  const authorOnly = d.mine && (host === "GitHub" || host === "Gitea");
   const opts: [string, string, string][] = authorOnly
     ? [["comment", "Comment", "General feedback, no explicit approval."]]
     : [
@@ -489,7 +491,7 @@ function ReviewForm({ pid, d, onDone }: { pid: string; d: PrDetail; onDone: () =
       {/* Not a .section, so the h2's browser margins and .row's 10px margin are reset here. */}
       <div className="row wrap" style={{ margin: "0 0 4px", alignItems: "baseline", rowGap: 2 }}>
         <h2 className="grow" style={{ margin: 0, fontSize: 15, fontWeight: 600 }}>Submit review</h2>
-        <span className="hint">{host === "GitHub" ? "Posted to GitHub as a review" : "Posted to Azure DevOps as your vote and a comment"}</span>
+        <span className="hint">{host === "GitHub" || host === "Gitea" ? `Posted to ${host} as a review` : `Posted to ${host} as your vote and a comment`}</span>
       </div>
       <div className="field">
         <label htmlFor="pr-review-text">Summary <span className="faint" style={{ fontWeight: 400 }}>optional</span></label>
@@ -524,8 +526,11 @@ function ReviewForm({ pid, d, onDone }: { pid: string; d: PrDetail; onDone: () =
 }
 
 function ThreadView({ pid, number, t }: { pid: string; number: number; t: PrThread }) {
-  // Azure DevOps comments only take likes.
-  const emoji = useHost(pid) === "GitHub" ? EMOJI : EMOJI.slice(0, 1);
+  const host = useHost(pid);
+  // Azure DevOps comments only take likes, Bitbucket's none.
+  const emoji = host === "Azure DevOps" ? EMOJI.slice(0, 1) : host === "Bitbucket" ? [] : EMOJI;
+  // Gitea's API can't resolve a conversation.
+  const resolvable = t.resolvable && host !== "Gitea";
   const [open, setOpen] = useState(!t.resolved);
   const [draft, setDraft] = useState("");
   const [picker, setPicker] = useState<string | null>(null);
@@ -556,7 +561,7 @@ function ThreadView({ pid, number, t }: { pid: string; number: number; t: PrThre
     const text = draft.trim();
     if (!text) return;
     const done = { onSuccess: () => setDraft("") };
-    if (t.resolvable && first?.databaseId) reply.mutate({ projectId: pid, number, commentId: first.databaseId, body: text }, done);
+    if (t.resolvable && first?.databaseId) reply.mutate({ projectId: pid, number, threadId: t.id, commentId: first.databaseId, body: text }, done);
     else comment.mutate({ projectId: pid, number, body: text }, done);
   };
   return (
@@ -635,9 +640,11 @@ function ThreadView({ pid, number, t }: { pid: string; number: number; t: PrThre
                   <span>{r.count}</span>
                 </button>
               ))}
-              <button className="reaction" aria-label="Add reaction" aria-expanded={picker === c.id} onClick={() => setPicker(picker === c.id ? null : c.id)}>
-                <Icon name="smile" size={13} stroke={1.3} />
-              </button>
+              {emoji.length > 0 && (
+                <button className="reaction" aria-label="Add reaction" aria-expanded={picker === c.id} onClick={() => setPicker(picker === c.id ? null : c.id)}>
+                  <Icon name="smile" size={13} stroke={1.3} />
+                </button>
+              )}
               {picker === c.id && (
                 <div role="group" aria-label="Pick a reaction" className="row card" style={{ gap: 2, padding: 4 }}>
                   {emoji.map(([content, e, label]) => (
@@ -665,7 +672,7 @@ function ThreadView({ pid, number, t }: { pid: string; number: number; t: PrThre
             {draft.trim() ? "Improve reply" : "Draft reply"}
           </button>
           <span className="grow" />
-          {t.resolvable && !t.resolved && (
+          {resolvable && !t.resolved && (
             <button className="btn btn-sm" onClick={() => resolve.mutate({ projectId: pid, threadId: t.id, resolved: true })}>
               <Icon name="check" size={11} />
               Resolve
@@ -674,7 +681,7 @@ function ThreadView({ pid, number, t }: { pid: string; number: number; t: PrThre
           {t.resolved && (
             <>
               <button className="btn btn-sm" onClick={() => setOpen(false)}>Hide</button>
-              <button className="btn btn-sm" onClick={() => resolve.mutate({ projectId: pid, threadId: t.id, resolved: false })}>Reopen</button>
+              {resolvable && <button className="btn btn-sm" onClick={() => resolve.mutate({ projectId: pid, threadId: t.id, resolved: false })}>Reopen</button>}
             </>
           )}
           <button className="btn btn-sm btn-primary" disabled={!draft.trim() || reply.isPending || comment.isPending} onClick={send}>Reply</button>

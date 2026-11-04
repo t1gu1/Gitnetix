@@ -201,11 +201,11 @@ function GitHostStep(s: Steps) {
   const cfg = useConfig().data!;
   return (
     <>
-      <Head title="Connect GitHub or Azure DevOps">To open pull requests, read reviews and publish releases. Tokens go to your OS keychain.</Head>
+      <Head title="Connect your Git provider">GitHub, Azure DevOps, GitLab, Bitbucket or Gitea, to open pull requests, read reviews and publish releases. Tokens go to your OS keychain.</Head>
       <ul className="list">
         <GitHosts cfg={cfg} />
       </ul>
-      <Foot {...s} entered={cfg.integrations.githubConnected || cfg.integrations.azureConnected} onNext={s.next} />
+      <Foot {...s} entered={[cfg.integrations.githubConnected, cfg.integrations.azureConnected, cfg.integrations.gitlab.connected, cfg.integrations.bitbucket.connected, cfg.integrations.gitea.connected].some(Boolean)} onNext={s.next} />
     </>
   );
 }

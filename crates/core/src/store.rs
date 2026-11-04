@@ -291,6 +291,10 @@ pub struct Integrations {
     /// Signed in with "Sign in with Azure DevOps". Tokens in keychain "azure".
     pub azure_connected: bool,
     pub azure_user: Option<String>,
+    /// Tokens in keychain "gitlab", "bitbucket" and "gitea".
+    pub gitlab: HostConf,
+    pub bitbucket: HostConf,
+    pub gitea: HostConf,
     /// One per Jira site or account. Older configs held a single object, for each tracker.
     #[serde(deserialize_with = "one_or_many")]
     pub jira: Vec<JiraConf>,
@@ -298,6 +302,30 @@ pub struct Integrations {
     pub trello: Vec<TrelloConf>,
     #[serde(deserialize_with = "one_or_many")]
     pub asana: Vec<AsanaConf>,
+}
+
+impl Integrations {
+    /// The `gitlab`, `bitbucket` or `gitea` connection.
+    pub fn host_mut(&mut self, kind: &str) -> Option<&mut HostConf> {
+        match kind {
+            "gitlab" => Some(&mut self.gitlab),
+            "bitbucket" => Some(&mut self.bitbucket),
+            "gitea" => Some(&mut self.gitea),
+            _ => None,
+        }
+    }
+}
+
+/// A GitLab, Bitbucket or Gitea connection.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default, rename_all = "camelCase")]
+pub struct HostConf {
+    /// The server, `https://gitlab.example.com`; None = gitlab.com or bitbucket.org. Gitea always has one.
+    pub url: Option<String>,
+    /// OAuth application registered on that server, to sign in there; also renews the tokens.
+    pub client_id: Option<String>,
+    pub connected: bool,
+    pub user: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

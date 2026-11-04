@@ -110,6 +110,9 @@ jobs:
           # Baked into the binary for "Sign in with Atlassian" (see tickets/jira_auth.rs).
           GITNETIX_JIRA_CLIENT_ID: ${{ secrets.GITNETIX_JIRA_CLIENT_ID }}
           GITNETIX_JIRA_CLIENT_SECRET: ${{ secrets.GITNETIX_JIRA_CLIENT_SECRET }}
+          # Baked into the binary for "Sign in with Bitbucket" (see providers/bitbucket.rs).
+          GITNETIX_BITBUCKET_CLIENT_ID: ${{ secrets.GITNETIX_BITBUCKET_CLIENT_ID }}
+          GITNETIX_BITBUCKET_CLIENT_SECRET: ${{ secrets.GITNETIX_BITBUCKET_CLIENT_SECRET }}
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           ARGS=(--bundles "${{ matrix.bundles }}" --config "{\"version\":\"${VERSION}\"}")

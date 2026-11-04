@@ -169,7 +169,7 @@ impl Azure {
 
     /// owner = org/project, so screens can show it like a GitHub repo.
     pub fn repo_ref(&self) -> RepoRef {
-        RepoRef { host: "dev.azure.com".into(), owner: format!("{}/{}", self.repo.org, self.repo.project), repo: self.repo.repo.clone() }
+        RepoRef { host: "dev.azure.com".into(), owner: format!("{}/{}", self.repo.org, self.repo.project), repo: self.repo.repo.clone(), port: None }
     }
 
     fn git_url(&self, path: &str) -> String {
