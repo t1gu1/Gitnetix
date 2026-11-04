@@ -11,6 +11,8 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+## [0.18.1] - 2026-11-04
+
 ### Added
 - Release notes have a Template base language. AI writes in each language the template asks for, so a template that asks for French and English gets both.
 - Release note prompts include the pull requests, the net changed files and the diff.
