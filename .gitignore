@@ -5,3 +5,6 @@ src-tauri/gen/schemas/
 .DS_Store
 *.log
 graphify-out/
+
+# Local OAuth app keys for dev builds (scripts/dev.mjs)
+.env.local

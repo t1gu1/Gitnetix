@@ -4,7 +4,13 @@
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, rmSync, watch } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+
+// OAuth app keys the release build gets from GitHub secrets (GITNETIX_*_CLIENT_ID/_SECRET), for local builds.
+// Read from the main checkout's .env.local, so every worktree shares one file; variables already set win.
+const common = spawnSync("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], { encoding: "utf8" }).stdout.trim();
+const localEnv = join(dirname(common || ".git"), ".env.local");
+if (existsSync(localEnv)) process.loadEnvFile(localEnv);
 
 const busy = join(tmpdir(), `gitnetix-busy-${process.pid}`);
 const env = { ...process.env, GITNETIX_BUSY_FILE: busy };
