@@ -476,8 +476,8 @@ export interface LogEntry {
 }
 
 export interface LogLine {
-  /** "files": what a turn changed, as JSON (`agents.rs` turn_files). */
-  kind: "cmd" | "ai" | "ok" | "dim" | "err" | "wait" | "run" | "files";
+  /** "files": what a turn changed, as JSON (`agents.rs` turn_files). "limit": the usage limit a run stopped at, in its CLI's words. */
+  kind: "cmd" | "ai" | "ok" | "dim" | "err" | "wait" | "run" | "files" | "limit";
   text: string;
   /** When it was logged, ms since the epoch; lines from before timestamps have none. */
   at?: number;
@@ -500,6 +500,23 @@ export interface AgentSession {
   ai?: { provider: string; model: string; effort: string } | null;
   /** Messages sent while it works, in order; they go out together when the run ends. */
   queued: string[];
+  /** The usage limit its last run stopped at: it waits (status "waiting") for the reset, or for you. */
+  limit?: AgentLimit | null;
+}
+
+/** A usage limit an agent's run stopped at (`limits.rs`). Times are ms since the epoch. */
+export interface AgentLimit {
+  /** What its CLI said, e.g. "You've hit your 5-hour limit · resets 3pm (America/Toronto)". */
+  message: string;
+  provider: string;
+  /** Out of credits or over a spend cap: adding credits lifts it before any reset. */
+  credits: boolean;
+  /** When it stopped the run. */
+  since: number;
+  /** When it resets; none when the CLI did not say. */
+  resetsAt?: number | null;
+  /** When the agent continues by itself, a minute after the reset; none: it waits for you. */
+  continueAt?: number | null;
 }
 
 /** One project in the terminal's command menu (a package.json, a Cargo.toml, a compose file…): its title and each command with the command line that runs it from the checkout root. */

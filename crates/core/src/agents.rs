@@ -16,6 +16,7 @@ use crate::ai::{self, Resolved};
 use crate::error::{Error, Result};
 use crate::events::Event;
 use crate::git::Git;
+use crate::limits::{self, Limit};
 use crate::store::{now, ConnectMethod};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -31,7 +32,7 @@ pub enum AgentStatus {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LogLine {
-    /// cmd | ai | ok | dim | err | wait | run | files
+    /// cmd | ai | ok | dim | err | wait | run | files | limit
     pub kind: String,
     pub text: String,
     /// When it was logged, in ms since the Unix epoch. Lines from before timestamps have none.
@@ -73,6 +74,24 @@ pub struct AgentSession {
     /// What its last run was asked, which Retry asks again.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_prompt: Option<String>,
+    /// The usage limit its last run stopped at: it waits, status `Waiting`, until the limit resets or you continue it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<Limit>,
+}
+
+/// The usage limit a run stopped on: what its CLI said, whether credits lift it, and when the CLI said it resets.
+struct Hit {
+    message: String,
+    credits: bool,
+    resets_at: Option<i64>,
+}
+
+/// What a session's current run said about usage limits.
+#[derive(Default)]
+struct Seen {
+    hit: Option<Hit>,
+    /// When the limit a Claude Code `rate_limit_event` refused requests at resets.
+    told: Option<i64>,
 }
 
 #[derive(Default)]
@@ -90,6 +109,8 @@ struct Inner {
     quitting: bool,
     /// Deleted here: `persist` must not keep them from the file.
     removed: HashSet<String>,
+    /// What each session's current run said about usage limits, read when it ends.
+    seen: HashMap<String, Seen>,
 }
 
 #[derive(Clone)]
@@ -110,6 +131,12 @@ const QUEUED_NOTE: &str = "(I sent this while you were still working, before you
 
 /// Closes the messages sent with Send now: the agent was cut off to read them.
 const SEND_NOW_NOTE: &str = "(I stopped you to send this. Take it into account and carry on with the task.)";
+
+/// Closes what a Claude Code run that a usage limit stopped picks its conversation back up with.
+const LIMIT_NOTE: &str = "(A usage limit stopped you before you finished. Continue the task where you left off.)";
+
+/// Closes the task asked again of another agent, which can't pick that conversation up, after a usage limit stopped it.
+const LIMIT_TASK_NOTE: &str = "(A usage limit stopped the agent working on this before it finished. Its changes so far are in the working tree: check them, then finish the task.)";
 
 /// Files a "files" line lists; it counts the rest.
 const MAX_FILES: usize = 300;
@@ -172,6 +199,20 @@ fn tool_error_line(msg: &str) -> String {
     }
 }
 
+/// What `s`, which `limit` stopped, is asked when it continues on `ai`, and the Claude Code conversation it picks up.
+/// Claude Code goes on in its conversation, after the messages queued meanwhile. Another CLI, which keeps none, is asked
+/// its last prompt again, or the task once you picked another agent, then the messages.
+fn carried<'a>(s: &'a AgentSession, ai: &Resolved, limit: &Limit) -> (String, Option<&'a str>) {
+    let resume = s.resume_id.as_deref().filter(|_| ai.provider == "claude");
+    let said = s.queued.iter().map(String::as_str);
+    let prompt: Vec<&str> = match (resume, &s.last_prompt) {
+        (Some(_), _) => said.chain([LIMIT_NOTE]).collect(),
+        (None, Some(p)) if ai.provider == limit.provider => [p.as_str()].into_iter().chain(said).collect(),
+        _ => [s.request.as_str(), LIMIT_TASK_NOTE].into_iter().chain(said).collect(),
+    };
+    (prompt.join("\n\n"), resume)
+}
+
 fn agent_label(r: &Resolved) -> Result<String> {
     Ok(format!("{} CLI · {}", ai::provider_info(&r.provider)?.name, r.label()))
 }
@@ -206,8 +247,8 @@ impl AgentManager {
             // Only Claude Code can pick its conversation back up; a paused run stays as the user left it.
             if s.status == AgentStatus::Running && s.resume_id.is_some() && s.ai.as_ref().is_some_and(|r| r.provider == "claude") {
                 interrupted.push(s.id.clone());
-            } else {
-                // No run ends to send it: it would go out after your next message instead.
+            } else if s.limit.is_none() {
+                // No run ends to send it: it would go out after your next message instead. A usage limit's continue sends it.
                 s.queued.clear();
             }
             if matches!(s.status, AgentStatus::Running | AgentStatus::Paused) {
@@ -233,13 +274,18 @@ impl AgentManager {
         }
     }
 
-    /// Resume the Claude Code runs the last quit cut off. Needs a tokio runtime.
+    /// Resume the Claude Code runs the last quit cut off, and wait again for the usage limits sessions stopped at: one
+    /// that reset meanwhile continues now. Needs a tokio runtime.
     pub fn resume_interrupted(&self) {
         let ids = std::mem::take(&mut self.inner.lock().unwrap().interrupted);
         for id in ids {
             let Some(ai) = self.get(&id).ok().and_then(|s| s.ai) else { continue };
             // A removed checkout errors before anything is logged: the session stays stopped.
             let _ = self.message(&id, "Gitnetix quit while you were working. Continue the task where you left off.", &ai);
+        }
+        let held: Vec<(String, i64)> = self.inner.lock().unwrap().sessions.values().filter_map(|s| Some((s.id.clone(), s.limit.as_ref()?.continue_at?))).collect();
+        for (id, at) in held {
+            self.arm(&id, at);
         }
     }
 
@@ -316,6 +362,10 @@ impl AgentManager {
                 if status != AgentStatus::Running && status != AgentStatus::Paused {
                     s.pid = None;
                 }
+                // Working again: the limit it waited on is behind it.
+                if status == AgentStatus::Running {
+                    s.limit = None;
+                }
             }
         }
         let _ = self.events.send(Event::AgentStatus { session_id: id.into(), status });
@@ -346,6 +396,7 @@ impl AgentManager {
             queued: Vec::new(),
             pid: None,
             last_prompt: None,
+            limit: None,
         };
         self.inner.lock().unwrap().sessions.insert(id.clone(), session.clone());
         self.spawn_or_fail(&id, &args.cwd, &args.ai, &args.prompt, None)?;
@@ -398,9 +449,19 @@ impl AgentManager {
         if !std::path::Path::new(&s.cwd).exists() {
             return Err(Error::Invalid(format!("{} no longer exists. Start a new session.", s.cwd)));
         }
-        self.push(id, LogLine::new("cmd", format!("› {text}")));
+        // Stopped at a usage limit: this continues it now, with the messages queued for its continue.
+        let held = if s.limit.is_some() { s.queued } else { Vec::new() };
+        if !held.is_empty() {
+            if let Some(x) = self.inner.lock().unwrap().sessions.get_mut(id) {
+                x.queued.clear();
+            }
+        }
+        let said: Vec<&str> = held.iter().map(String::as_str).chain([text]).collect();
+        for t in &said {
+            self.push(id, LogLine::new("cmd", format!("› {t}")));
+        }
         self.set_status(id, AgentStatus::Running);
-        self.spawn_or_fail(id, &PathBuf::from(&s.cwd), ai, text, s.resume_id.as_deref())
+        self.spawn_or_fail(id, &PathBuf::from(&s.cwd), ai, &said.join("\n\n"), s.resume_id.as_deref())
     }
 
     /// Like `spawn`, but a session that never got a process is marked failed
@@ -419,13 +480,15 @@ impl AgentManager {
     /// only shows its changes; one Send now killed sends the queue.
     fn end_run(&self, id: &str, run: u64, failed: bool, files: Option<LogLine>, r: &Resolved) {
         let _turn = self.turn.lock().unwrap();
-        let (ours, now) = {
+        let (ours, now, seen) = {
             let mut g = self.inner.lock().unwrap();
             let ours = g.kills.get(id).is_some_and(|(n, _)| *n == run);
             if ours {
                 g.kills.remove(id);
             }
-            (ours, g.send_now.remove(id))
+            // What a newer run said is that run's.
+            let seen = if ours { g.seen.remove(id) } else { None };
+            (ours, g.send_now.remove(id), seen)
         };
         let Ok(s) = self.get(id) else { return };
         if !ours && !now {
@@ -449,6 +512,9 @@ impl AgentManager {
             return self.send_queued(&s, r, SEND_NOW_NOTE);
         }
         if failed {
+            if let Some(Seen { hit: Some(hit), told }) = seen {
+                return self.hold(&s, r, hit, told);
+            }
             self.push(id, LogLine::new("err", "✕ Agent run failed"));
         }
         // Quitting, nothing new starts: the saved queue goes out after the resumed run.
@@ -460,6 +526,114 @@ impl AgentManager {
             return;
         }
         self.send_queued(&s, r, QUEUED_NOTE);
+    }
+
+    /// The run on `r` stopped at usage limit `hit`: the session waits, its queue kept, for the limit to reset (`told`, when
+    /// the CLI said it apart), then continues by itself (`arm`). With no reset ahead it waits for you. Hold `turn`.
+    fn hold(&self, s: &AgentSession, r: &Resolved, hit: Hit, told: Option<i64>) {
+        let since = chrono::Utc::now().timestamp_millis();
+        let resets_at = hit.resets_at.or(told);
+        let limit = Limit {
+            message: hit.message,
+            provider: s.ai.as_ref().unwrap_or(r).provider.clone(),
+            credits: hit.credits,
+            since,
+            resets_at,
+            // A reset already past that still refused it would only refuse it again, each minute.
+            continue_at: resets_at.filter(|t| *t > since).map(|t| t + limits::MARGIN_MS),
+        };
+        self.push(&s.id, LogLine::new("limit", limit.message.clone()));
+        let at = limit.continue_at;
+        if let Some(x) = self.inner.lock().unwrap().sessions.get_mut(&s.id) {
+            x.limit = Some(limit);
+        }
+        self.set_status(&s.id, AgentStatus::Waiting);
+        if let Some(at) = at {
+            self.arm(&s.id, at);
+        }
+    }
+
+    /// Continue `id` at `at`, a minute after its limit resets, unless that wait is over by then (continued, cancelled).
+    /// Checks every 30 s: tokio's timers stop while the computer sleeps, the wall clock does not.
+    fn arm(&self, id: &str, at: i64) {
+        // Tests end runs without a runtime: nothing to wait on.
+        let Ok(rt) = tokio::runtime::Handle::try_current() else { return };
+        let me = self.clone();
+        let id = id.to_string();
+        // Another Gitnetix on this folder (a dev build next to the installed app) waits for the same reset: seconds apart,
+        // the later one finds the session moved on in the file (`wake`).
+        let due = at + i64::from(std::process::id() % 8) * 1000;
+        rt.spawn(async move {
+            loop {
+                if me.get(&id).ok().and_then(|s| s.limit?.continue_at) != Some(at) {
+                    return;
+                }
+                let left = due - chrono::Utc::now().timestamp_millis();
+                if left <= 0 {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(left.min(30_000) as u64)).await;
+            }
+            me.wake(&id, at);
+        });
+    }
+
+    /// The limit `id` waited on reset (`at`): it continues, unless another Gitnetix on this folder saved it moving on
+    /// since (continued there, or stopped), whose copy it takes instead.
+    fn wake(&self, id: &str, at: i64) {
+        let waits = |s: &AgentSession| s.limit.as_ref().and_then(|l| l.continue_at) == Some(at);
+        let Ok(s) = self.get(id) else { return };
+        if let Some(theirs) = saved(&self.file).into_iter().find(|x| x.id == id && x.updated_at > s.updated_at && !waits(x)) {
+            let status = theirs.status;
+            self.inner.lock().unwrap().sessions.insert(id.into(), theirs);
+            let _ = self.events.send(Event::AgentStatus { session_id: id.into(), status });
+            return;
+        }
+        // A session from before routing has no AI of its own: Continue (`carry_on`) routes it.
+        let Some(r) = s.ai.clone() else { return };
+        if let Err(e) = self.carry(id, &r, Some(at)) {
+            // Still waiting: its checkout is gone. A CLI that fails to start already said so, and stopped the wait.
+            if self.get(id).is_ok_and(|s| waits(&s)) {
+                if let Some(x) = self.inner.lock().unwrap().sessions.get_mut(id) {
+                    x.limit = None;
+                }
+                self.push(id, LogLine::new("err", format!("✕ Could not continue after the usage limit: {e}")));
+                self.set_status(id, AgentStatus::Failed);
+            }
+        }
+    }
+
+    /// Continue `id` now after the usage limit its run stopped at, without waiting for the reset: credits were added, or
+    /// another agent picked. `r`: when the session has no AI set.
+    pub fn carry_on(&self, id: &str, r: &Resolved) -> Result<()> {
+        self.carry(id, r, None)
+    }
+
+    /// Continue `id` after the usage limit it stopped at; `due`: only the wait for this continue time, from its timer.
+    /// Claude Code picks its conversation back up. Another CLI is asked its last prompt again, or the task once you picked
+    /// another agent, which can't pick that conversation up. What was queued goes with it.
+    fn carry(&self, id: &str, r: &Resolved, due: Option<i64>) -> Result<()> {
+        let _turn = self.turn.lock().unwrap();
+        let s = self.get(id)?;
+        let limit = s
+            .limit
+            .clone()
+            .filter(|l| due.is_none_or(|d| l.continue_at == Some(d)))
+            .ok_or_else(|| Error::Invalid("The agent is not waiting for a usage limit.".into()))?;
+        if !Path::new(&s.cwd).exists() {
+            return Err(Error::Invalid(format!("{} no longer exists. Start a new session.", s.cwd)));
+        }
+        let ai = s.ai.clone().unwrap_or_else(|| r.clone());
+        let (prompt, resume) = carried(&s, &ai, &limit);
+        if let Some(x) = self.inner.lock().unwrap().sessions.get_mut(id) {
+            x.queued.clear();
+        }
+        self.push(id, LogLine::new("dim", "  ▶ Continuing after the usage limit"));
+        for t in &s.queued {
+            self.push(id, LogLine::new("cmd", format!("› {t}")));
+        }
+        self.set_status(id, AgentStatus::Running);
+        self.spawn_or_fail(id, Path::new(&s.cwd), &ai, &prompt, resume)
     }
 
     /// The messages queued on `s` go out together as its next run, `note` after them. Hold `turn`.
@@ -481,8 +655,9 @@ impl AgentManager {
         let _turn = self.turn.lock().unwrap();
         let (taken, status) = {
             let mut g = self.inner.lock().unwrap();
-            // No run here: another Gitnetix on this folder runs it and sends its own copy of the queue.
-            if !g.kills.contains_key(id) {
+            // No run here: another Gitnetix on this folder runs it and sends its own copy of the queue. Waiting for a
+            // usage limit to reset, nothing runs it: its continue sends the queue.
+            if !g.kills.contains_key(id) && g.sessions.get(id).is_none_or(|s| s.limit.is_none()) {
                 return Err(Error::Invalid("Another Gitnetix runs this agent: change its queue from there.".into()));
             }
             let s = g.sessions.get_mut(id).ok_or_else(|| Error::NotFound(format!("agent session {id}")))?;
@@ -537,19 +712,22 @@ impl AgentManager {
 
     pub fn stop(&self, id: &str) -> Result<()> {
         let _turn = self.turn.lock().unwrap();
-        let kill = {
+        let (kill, held) = {
             let mut g = self.inner.lock().unwrap();
-            // Dropped with the run it waited for; the UI puts it back in the prompt box.
-            if let Some(s) = g.sessions.get_mut(id) {
+            // Dropped with the run it waited for; the UI puts it back in the prompt box. Stopping one that waits for a
+            // usage limit cancels its continue.
+            let held = g.sessions.get_mut(id).and_then(|s| {
                 s.queued.clear();
-            }
+                s.limit.take()
+            });
             g.send_now.remove(id);
-            g.kills.remove(id)
+            (g.kills.remove(id), held)
         };
         if let Some((_, k)) = kill {
             let _ = k.send(());
         }
-        self.push(id, LogLine::new("dim", "  ■ Agent stopped"));
+        let said = if held.is_some_and(|l| l.continue_at.is_some()) { "  ■ Auto-continue cancelled" } else { "  ■ Agent stopped" };
+        self.push(id, LogLine::new("dim", said));
         self.set_status(id, AgentStatus::Stopped);
         Ok(())
     }
@@ -664,6 +842,7 @@ impl AgentManager {
             g.runs += 1;
             let run = g.runs;
             g.kills.insert(id.to_string(), (run, kill_tx));
+            g.seen.remove(id);
             if let Some(s) = g.sessions.get_mut(id) {
                 s.last_prompt = Some(prompt.to_string());
             }
@@ -709,6 +888,11 @@ impl AgentManager {
                 let mut lines = BufReader::new(stderr).lines();
                 while let Ok(Some(l)) = lines.next_line().await {
                     ai::flag_signed_out(&provider, &l);
+                    // Plain CLIs say a usage limit stopped them only in words, here. Claude Code says it in its stream.
+                    if let (false, Some(credits)) = (structured, limits::kind(&l)) {
+                        let hit = Hit { message: l.trim().into(), credits, resets_at: limits::resets_at(&l, chrono::Local::now()) };
+                        err_me.saw(&err_id, Some(hit), None);
+                    }
                     if !l.trim().is_empty() {
                         err_me.push(&err_id, LogLine::new("dim", format!("  {l}")));
                     }
@@ -765,6 +949,27 @@ impl AgentManager {
                 }
                 None
             }
+            Some("rate_limit_event") => {
+                let info = &v["rate_limit_info"];
+                if info["status"] == "rejected" {
+                    self.saw(id, None, limits::info_resets_at(info));
+                }
+                None
+            }
+            // The API refused the request at a usage limit: the CLI says it as a reply, then in its result. The run's end
+            // says it once (`hold`).
+            Some("assistant") if limits::refusal(&v).is_some() => {
+                let texts: Vec<&str> = v["message"]["content"].as_array().into_iter().flatten().filter_map(|b| b["text"].as_str()).collect();
+                let message = texts.join("\n").trim().to_string();
+                let credits = limits::refusal(&v) == Some(true) || limits::kind(&message) == Some(true);
+                // Its words come last: the CLI's own numbers are exact, its words round to the minute and leave the date out.
+                let told = self.inner.lock().unwrap().seen.get(id).and_then(|s| s.told);
+                let resets_at = limits::info_resets_at(&v["api_error_params"]["rate_limit_info"])
+                    .or(told)
+                    .or_else(|| limits::resets_at(&message, chrono::Local::now()));
+                self.saw(id, Some(Hit { message, credits, resets_at }), None);
+                None
+            }
             Some("assistant") => {
                 let mut replied = false;
                 for block in v["message"]["content"].as_array().into_iter().flatten() {
@@ -819,14 +1024,48 @@ impl AgentManager {
                 } else {
                     let why = v["result"].as_str().unwrap_or("error");
                     ai::flag_signed_out("claude", why);
-                    // Claude Desktop's copy of the CLI is signed in only inside Desktop, and is not on PATH to run /login by hand.
-                    let hint = if why.contains("/login") { " · Settings › AI setup › Claude › Sign in with the CLI" } else { "" };
-                    self.push(id, LogLine::new("err", format!("✕ {why}{hint}")));
+                    // A usage limit: the run's end says it, and waits for its reset.
+                    if !self.saw_end(id, why) {
+                        // Claude Desktop's copy of the CLI is signed in only inside Desktop, and is not on PATH to run /login by hand.
+                        let hint = if why.contains("/login") { " · Settings › AI setup › Claude › Sign in with the CLI" } else { "" };
+                        self.push(id, LogLine::new("err", format!("✕ {why}{hint}")));
+                    }
                 }
                 Some(ok)
             }
             _ => None,
         }
+    }
+
+    /// Note what the current run of `id` said about usage limits: `hit`, one it stopped on (the last said is the one), or
+    /// `told`, when one that refused its requests resets.
+    fn saw(&self, id: &str, hit: Option<Hit>, told: Option<i64>) {
+        let mut g = self.inner.lock().unwrap();
+        let seen = g.seen.entry(id.into()).or_default();
+        if hit.is_some() {
+            seen.hit = hit;
+        }
+        seen.told = told.or(seen.told);
+    }
+
+    /// Note the error `why` a Claude Code run ended on, when it is a usage limit or a refusal at one came before it: true
+    /// then. The refusal's words, when it had any, stay what it says: the result repeats them.
+    fn saw_end(&self, id: &str, why: &str) -> bool {
+        let mut g = self.inner.lock().unwrap();
+        let seen = g.seen.entry(id.into()).or_default();
+        let told = seen.told;
+        let at = || told.or_else(|| limits::resets_at(why, chrono::Local::now()));
+        if let Some(h) = seen.hit.as_mut() {
+            if h.message.is_empty() {
+                h.message = why.into();
+            }
+            h.resets_at = h.resets_at.or_else(at);
+        } else if let Some(credits) = limits::kind(why) {
+            seen.hit = Some(Hit { message: why.into(), credits, resets_at: at() });
+        } else {
+            return false;
+        }
+        true
     }
 }
 
@@ -861,7 +1100,7 @@ mod tests {
         let s = AgentSession {
             id: "a".into(), project_id: "p".into(), branch: "b".into(), cwd: ".".into(), worktree: false,
             status: AgentStatus::Waiting, request: "r".into(), agent_label: String::new(), lines: vec![],
-            started_at: now(), updated_at: now(), resume_id: Some("rid".into()), ai: Some(cli("claude")), queued: vec![], pid: None, last_prompt: None,
+            started_at: now(), updated_at: now(), resume_id: Some("rid".into()), ai: Some(cli("claude")), queued: vec![], pid: None, last_prompt: None, limit: None,
         };
         m.inner.lock().unwrap().sessions.insert("a".into(), s);
 
@@ -885,7 +1124,7 @@ mod tests {
         let s = |id: &str, status, rid: Option<&str>, provider| AgentSession {
             id: id.into(), project_id: "p".into(), branch: "b".into(), cwd: "/gone".into(), worktree: false,
             status, request: "r".into(), agent_label: String::new(), lines: vec![],
-            started_at: now(), updated_at: now(), resume_id: rid.map(Into::into), ai: Some(cli(provider)), queued: vec!["q".into()], pid: None, last_prompt: None,
+            started_at: now(), updated_at: now(), resume_id: rid.map(Into::into), ai: Some(cli(provider)), queued: vec!["q".into()], pid: None, last_prompt: None, limit: None,
         };
         let saved = vec![
             s("run", AgentStatus::Running, Some("rid"), "claude"),
@@ -917,7 +1156,7 @@ mod tests {
         let s = |id: &str, pid| AgentSession {
             id: id.into(), project_id: "p".into(), branch: "b".into(), cwd: cwd.clone(), worktree: false,
             status: AgentStatus::Running, request: "r".into(), agent_label: String::new(), lines: vec![],
-            started_at: now(), updated_at: now(), resume_id: Some("rid".into()), ai: Some(cli("claude")), queued: vec!["q".into()], pid: Some(pid), last_prompt: None,
+            started_at: now(), updated_at: now(), resume_id: Some("rid".into()), ai: Some(cli("claude")), queued: vec!["q".into()], pid: Some(pid), last_prompt: None, limit: None,
         };
         let saved = vec![s("live", std::process::id()), s("killed", u32::MAX)];
         std::fs::write(dir.path().join("agents.json"), serde_json::to_string(&saved).unwrap()).unwrap();
@@ -938,7 +1177,7 @@ mod tests {
         let s = AgentSession {
             id: "a".into(), project_id: "p".into(), branch: "b".into(), cwd: ".".into(), worktree: false,
             status: AgentStatus::Running, request: "r".into(), agent_label: String::new(), lines: vec![],
-            started_at: now(), updated_at: now(), resume_id: Some("rid".into()), ai: Some(r.clone()), queued: vec![], pid: None, last_prompt: None,
+            started_at: now(), updated_at: now(), resume_id: Some("rid".into()), ai: Some(r.clone()), queued: vec![], pid: None, last_prompt: None, limit: None,
         };
         m.inner.lock().unwrap().sessions.insert("a".into(), s);
         let running = || m.inner.lock().unwrap().sessions.get_mut("a").unwrap().status = AgentStatus::Running;
@@ -975,7 +1214,7 @@ mod tests {
         let s = AgentSession {
             id: "a".into(), project_id: "p".into(), branch: "b".into(), cwd: ".".into(), worktree: false,
             status: AgentStatus::Running, request: "r".into(), agent_label: String::new(), lines: vec![],
-            started_at: now(), updated_at: now(), resume_id: Some("rid".into()), ai: Some(cli("claude")), queued: vec![], pid: None, last_prompt: None,
+            started_at: now(), updated_at: now(), resume_id: Some("rid".into()), ai: Some(cli("claude")), queued: vec![], pid: None, last_prompt: None, limit: None,
         };
         // No such CLI for "q": a follow-up started by mistake fails instead of running anything.
         let q = AgentSession { id: "q".into(), ai: Some(cli("none")), queued: vec!["later".into()], ..s.clone() };
@@ -1000,7 +1239,7 @@ mod tests {
         let s = AgentSession {
             id: "a".into(), project_id: "p".into(), branch: "b".into(), cwd: ".".into(), worktree: false,
             status: AgentStatus::Running, request: "r".into(), agent_label: String::new(), lines: vec![],
-            started_at: now(), updated_at: now(), resume_id: None, ai: Some(cli("claude")), queued: vec![], pid: None, last_prompt: None,
+            started_at: now(), updated_at: now(), resume_id: None, ai: Some(cli("claude")), queued: vec![], pid: None, last_prompt: None, limit: None,
         };
         m.inner.lock().unwrap().sessions.insert("a".into(), s);
         let saved = || std::fs::read_to_string(dir.path().join("agents.json")).unwrap_or_default();
@@ -1022,7 +1261,7 @@ mod tests {
         let s = |id: &str| AgentSession {
             id: id.into(), project_id: "p".into(), branch: "b".into(), cwd: ".".into(), worktree: false,
             status: AgentStatus::Waiting, request: "r".into(), agent_label: String::new(), lines: vec![],
-            started_at: now(), updated_at: "2000-01-01T00:00:00+00:00".into(), resume_id: None, ai: None, queued: vec![], pid: None, last_prompt: None,
+            started_at: now(), updated_at: "2000-01-01T00:00:00+00:00".into(), resume_id: None, ai: None, queued: vec![], pid: None, last_prompt: None, limit: None,
         };
         std::fs::write(dir.path().join("agents.json"), serde_json::to_string(&[s("shared")]).unwrap()).unwrap();
         // The installed app and a dev build, both opened before either started a session.
@@ -1080,7 +1319,7 @@ mod tests {
         let s = AgentSession {
             id: "a".into(), project_id: "p".into(), branch: "b".into(), cwd: ".".into(), worktree: false,
             status: AgentStatus::Running, request: "r".into(), agent_label: String::new(), lines: vec![],
-            started_at: now(), updated_at: now(), resume_id: None, ai: Some(cli("claude")), queued: vec!["one".into(), "two".into()], pid: None, last_prompt: None,
+            started_at: now(), updated_at: now(), resume_id: None, ai: Some(cli("claude")), queued: vec!["one".into(), "two".into()], pid: None, last_prompt: None, limit: None,
         };
         m.inner.lock().unwrap().sessions.insert("a".into(), s);
         // Another Gitnetix runs it (no run here): its queue is that one's to change.
@@ -1100,7 +1339,7 @@ mod tests {
         let s = AgentSession {
             id: "a".into(), project_id: "p".into(), branch: "b".into(), cwd: ".".into(), worktree: false,
             status: AgentStatus::Running, request: "r".into(), agent_label: String::new(), lines: vec![],
-            started_at: now(), updated_at: now(), resume_id: None, ai: Some(cli("claude")), queued: vec!["now".into()], pid: None, last_prompt: None,
+            started_at: now(), updated_at: now(), resume_id: None, ai: Some(cli("claude")), queued: vec!["now".into()], pid: None, last_prompt: None, limit: None,
         };
         m.inner.lock().unwrap().sessions.insert("a".into(), s);
         let (kill, mut killed) = oneshot::channel();
@@ -1142,7 +1381,7 @@ mod tests {
         let s = AgentSession {
             id: "a".into(), project_id: "p".into(), branch: "b".into(), cwd: ".".into(), worktree: false,
             status: AgentStatus::Running, request: "r".into(), agent_label: String::new(), lines: vec![],
-            started_at: now(), updated_at: now(), resume_id: Some("rid".into()), ai: Some(cli("claude")), queued: vec![], pid: None, last_prompt: None,
+            started_at: now(), updated_at: now(), resume_id: Some("rid".into()), ai: Some(cli("claude")), queued: vec![], pid: None, last_prompt: None, limit: None,
         };
         m.inner.lock().unwrap().sessions.insert("a".into(), s);
         m.inner.lock().unwrap().kills.insert("a".into(), (7, oneshot::channel().0));
@@ -1162,7 +1401,7 @@ mod tests {
         let s = AgentSession {
             id: "a".into(), project_id: "p".into(), branch: "b".into(), cwd: ".".into(), worktree: false,
             status: AgentStatus::Failed, request: "r".into(), agent_label: String::new(), lines: vec![],
-            started_at: now(), updated_at: now(), resume_id: None, ai: Some(cli("none")), queued: vec![], pid: None, last_prompt: None,
+            started_at: now(), updated_at: now(), resume_id: None, ai: Some(cli("none")), queued: vec![], pid: None, last_prompt: None, limit: None,
         };
         m.inner.lock().unwrap().sessions.insert("a".into(), s);
         // A session from before saved prompts: nothing to ask again.
@@ -1187,5 +1426,142 @@ mod tests {
         assert_eq!(l.at, None);
         assert!(serde_json::to_string(&l).unwrap().ends_with(r#""text":"hi"}"#));
         assert!(LogLine::new("ai", "hi").at.is_some());
+    }
+
+    /// Session `id`, running on `r` in this checkout, asked "the task".
+    fn working(id: &str, r: &Resolved) -> AgentSession {
+        AgentSession {
+            id: id.into(), project_id: "p".into(), branch: "b".into(), cwd: ".".into(), worktree: false,
+            status: AgentStatus::Running, request: "the task".into(), agent_label: String::new(), lines: vec![],
+            started_at: now(), updated_at: now(), resume_id: None, ai: Some(r.clone()), queued: vec![], pid: None,
+            last_prompt: Some("the full task".into()), limit: None,
+        }
+    }
+
+    #[test]
+    fn a_run_stopped_at_a_usage_limit_waits_for_its_reset_with_its_queue() {
+        let dir = tempfile::tempdir().unwrap();
+        let m = AgentManager::new(broadcast::channel(64).0, dir.path());
+        // No such CLI: the continue fails to start instead of running anything.
+        let r = cli("none");
+        m.inner.lock().unwrap().sessions.insert("a".into(), AgentSession { queued: vec!["also the docs".into()], ..working("a", &r) });
+        let reset = chrono::Utc::now().timestamp() + 3 * 3600;
+        // Claude Code: told the reset, then refused, then the result.
+        m.handle_stream_json("a", &format!(r#"{{"type":"rate_limit_event","rate_limit_info":{{"status":"rejected","resetsAt":{reset},"rateLimitType":"five_hour"}}}}"#));
+        m.handle_stream_json("a", r#"{"type":"assistant","is_api_error_message":true,"error":"rate_limit","api_error":"usage_limit_reached","message":{"content":[{"type":"text","text":"You've hit your 5-hour limit · resets 3pm"}]}}"#);
+        m.handle_stream_json("a", r#"{"type":"result","subtype":"success","is_error":true,"result":"You've hit your 5-hour limit · resets 3pm"}"#);
+        // Said once, at the run's end.
+        assert!(m.get("a").unwrap().lines.is_empty());
+        ended(&m, "a", true, &r);
+        let s = m.get("a").unwrap();
+        assert_eq!(s.status, AgentStatus::Waiting);
+        let kinds: Vec<&str> = s.lines.iter().map(|l| l.kind.as_str()).collect();
+        assert_eq!(kinds, ["limit"]);
+        assert_eq!(s.lines[0].text, "You've hit your 5-hour limit · resets 3pm");
+        let l = s.limit.clone().unwrap();
+        assert_eq!((l.resets_at, l.continue_at, l.credits, l.provider.as_str()), (Some(reset * 1000), Some(reset * 1000 + limits::MARGIN_MS), false, "none"));
+        // Its queue waits for the continue, and can change meanwhile: nothing runs it.
+        assert_eq!(s.queued, ["also the docs"]);
+        m.message("a", "and the tests", &r).unwrap_err();
+        let s = m.get("a").unwrap();
+        // A message continues it at once, with what was queued: that run failed to start here.
+        let said: Vec<&str> = s.lines.iter().filter(|l| l.kind == "cmd").map(|l| l.text.as_str()).collect();
+        assert_eq!(said, ["› also the docs", "› and the tests"]);
+        assert!(s.queued.is_empty() && s.limit.is_none());
+        assert_eq!(s.status, AgentStatus::Failed);
+    }
+
+    #[test]
+    fn a_limit_without_a_reset_waits_for_you_and_stop_cancels_a_wait() {
+        let dir = tempfile::tempdir().unwrap();
+        let m = AgentManager::new(broadcast::channel(64).0, dir.path());
+        let r = cli("none");
+        m.inner.lock().unwrap().sessions.insert("a".into(), working("a", &r));
+        m.handle_stream_json("a", r#"{"type":"result","subtype":"success","is_error":true,"result":"Credit balance is too low"}"#);
+        ended(&m, "a", true, &r);
+        let l = m.get("a").unwrap().limit.unwrap();
+        assert!(l.credits && l.resets_at.is_none() && l.continue_at.is_none());
+
+        // A plain CLI says it on stderr, with a reset already past: it would only be refused again.
+        m.inner.lock().unwrap().sessions.insert("b".into(), working("b", &r));
+        let past = chrono::Utc::now().timestamp_millis() - 60_000;
+        m.saw("b", Some(Hit { message: "You've hit your usage limit.".into(), credits: false, resets_at: Some(past) }), None);
+        ended(&m, "b", true, &r);
+        assert_eq!(m.get("b").unwrap().limit.unwrap().continue_at, None);
+
+        // Stop cancels the continue, and drops the queue back to the prompt box.
+        let ahead = chrono::Utc::now().timestamp_millis() + 3_600_000;
+        m.inner.lock().unwrap().sessions.insert("c".into(), AgentSession { queued: vec!["q".into()], ..working("c", &r) });
+        m.saw("c", Some(Hit { message: "You've hit your usage limit.".into(), credits: false, resets_at: Some(ahead) }), None);
+        ended(&m, "c", true, &r);
+        m.stop("c").unwrap();
+        let s = m.get("c").unwrap();
+        assert!(s.limit.is_none() && s.queued.is_empty());
+        assert_eq!(s.status, AgentStatus::Stopped);
+        assert_eq!(s.lines.last().unwrap().text, "  ■ Auto-continue cancelled");
+
+        // Another failure is still one.
+        m.inner.lock().unwrap().sessions.insert("d".into(), working("d", &r));
+        m.handle_stream_json("d", r#"{"type":"result","subtype":"success","is_error":true,"result":"Context limit reached · /compact or /clear to continue"}"#);
+        ended(&m, "d", true, &r);
+        let s = m.get("d").unwrap();
+        assert_eq!((s.status, s.limit.is_none()), (AgentStatus::Failed, true));
+        assert_eq!(s.lines.iter().filter(|l| l.kind == "err").count(), 2);
+    }
+
+    #[test]
+    fn a_continue_picks_the_conversation_up_or_asks_again() {
+        let limit = |provider: &str| Limit { message: String::new(), provider: provider.into(), credits: false, since: 0, resets_at: None, continue_at: None };
+        let mut s = AgentSession { queued: vec!["also the docs".into()], resume_id: Some("rid".into()), ..working("a", &cli("claude")) };
+        // Claude Code goes on in its conversation.
+        let (prompt, resume) = carried(&s, &cli("claude"), &limit("claude"));
+        assert_eq!((prompt, resume), (format!("also the docs\n\n{LIMIT_NOTE}"), Some("rid")));
+        // Another CLI is asked its last prompt again.
+        s.resume_id = None;
+        assert_eq!(carried(&s, &cli("codex"), &limit("codex")).0, "the full task\n\nalso the docs");
+        // Picked after another one stopped: the task, and where that one left it.
+        assert_eq!(carried(&s, &cli("codex"), &limit("claude")).0, format!("the task\n\n{LIMIT_TASK_NOTE}\n\nalso the docs"));
+    }
+
+    #[test]
+    fn a_wait_survives_a_restart_and_another_instance_can_take_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let ahead = chrono::Utc::now().timestamp_millis() + 3_600_000;
+        let l = Limit { message: "m".into(), provider: "none".into(), credits: false, since: 0, resets_at: Some(ahead), continue_at: Some(ahead) };
+        let held = AgentSession { status: AgentStatus::Waiting, queued: vec!["q".into()], limit: Some(l), ..working("a", &cli("none")) };
+        let other = AgentSession { id: "b".into(), ..held.clone() };
+        std::fs::write(dir.path().join("agents.json"), serde_json::to_string(&[held.clone(), other]).unwrap()).unwrap();
+        let m = AgentManager::new(broadcast::channel(8).0, dir.path());
+        let s = m.get("a").unwrap();
+        assert_eq!((s.status, s.queued.len(), s.limit.is_some()), (AgentStatus::Waiting, 1, true));
+
+        // The installed app continued it first: its copy is the one to show, and nothing runs here.
+        let theirs = AgentSession { status: AgentStatus::Running, limit: None, updated_at: "9999".into(), ..held };
+        std::fs::write(dir.path().join("agents.json"), serde_json::to_string(&[theirs]).unwrap()).unwrap();
+        m.wake("a", ahead);
+        let s = m.get("a").unwrap();
+        assert_eq!((s.status, s.limit.is_none()), (AgentStatus::Running, true));
+        assert!(!s.lines.iter().any(|l| l.text.contains("Continuing")));
+
+        // The timer of another wait leaves this one alone; its own continues it, queue and all (no such CLI here: it fails to start).
+        assert!(m.carry("b", &cli("none"), Some(ahead + 1)).is_err());
+        assert!(m.get("b").unwrap().limit.is_some());
+        m.wake("b", ahead);
+        let s = m.get("b").unwrap();
+        let said: Vec<&str> = s.lines.iter().map(|l| l.text.as_str()).collect();
+        assert_eq!(said[..2], ["  ▶ Continuing after the usage limit", "› q"]);
+        assert_eq!((s.status, s.limit.is_none(), s.queued.is_empty()), (AgentStatus::Failed, true, true));
+
+        // Its checkout gone meanwhile: it says so and stops waiting, instead of counting down to nothing.
+        let gone = AgentSession { id: "c".into(), cwd: "/gone".into(), status: AgentStatus::Waiting, limit: held_limit(ahead), ..working("c", &cli("none")) };
+        m.inner.lock().unwrap().sessions.insert("c".into(), gone);
+        m.wake("c", ahead);
+        let s = m.get("c").unwrap();
+        assert_eq!((s.status, s.limit.is_none()), (AgentStatus::Failed, true));
+        assert!(s.lines.last().unwrap().text.starts_with("✕ Could not continue after the usage limit"));
+    }
+
+    fn held_limit(at: i64) -> Option<Limit> {
+        Some(Limit { message: "m".into(), provider: "none".into(), credits: false, since: 0, resets_at: Some(at), continue_at: Some(at) })
     }
 }

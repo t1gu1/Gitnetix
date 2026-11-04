@@ -27,7 +27,7 @@ import type {
   Ticket,
   WorktreeView,
 } from "./types";
-import { shownStatus } from "../lib/agentLog";
+import { limitLabel, shownStatus } from "../lib/agentLog";
 import { askGitLogin } from "../lib/gitLogin";
 import { dictationModel } from "../lib/dictation";
 import { sayIn, toast } from "../lib/toast";
@@ -76,11 +76,17 @@ export function useEngineEvents() {
               const on = prev ? ` on ${prev.branch}` : "";
               if (e.status === "failed") toast(`Agent${on} failed`, "error");
               else {
-                // Done when its merge options show, which takes the branch's fresh commits and WIP: after the invalidation above, so this joins its refetch.
-                const s = prev && { ...prev, status: e.status };
-                qc.fetchQuery({ queryKey: ["worktrees"], queryFn: () => rpc<WorktreeView[]>("worktrees.list"), staleTime: 0 })
-                  .catch(() => [] as WorktreeView[])
-                  .then((wts) => toast(`Agent${on} ${s && shownStatus(s, wts.find((w) => w.path === s.cwd)) === "done" ? "is done" : "is waiting for you"}`, "info", 8000));
+                // Done when its merge options show, which takes the branch's fresh commits and WIP; held by a usage limit when the
+                // fresh session has one. After the invalidation above, so these join its refetches.
+                Promise.all([
+                  qc.fetchQuery({ queryKey: ["agents"], queryFn: () => rpc<AgentSession[]>("agents.list"), staleTime: 0 }).catch(() => [] as AgentSession[]),
+                  qc.fetchQuery({ queryKey: ["worktrees"], queryFn: () => rpc<WorktreeView[]>("worktrees.list"), staleTime: 0 }).catch(() => [] as WorktreeView[]),
+                ]).then(([list, wts]) => {
+                  const s = list.find((x) => x.id === e.sessionId) ?? (prev && { ...prev, status: e.status });
+                  const shown = s && shownStatus(s, wts.find((w) => w.path === s.cwd));
+                  const what = shown === "done" ? "is done" : shown === "limited" && s?.limit ? `hit a usage limit · ${limitLabel(s.limit)}` : "is waiting for you";
+                  toast(`Agent${on} ${what}`, "info", 8000);
+                });
               }
             }
             break;

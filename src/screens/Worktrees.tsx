@@ -2,9 +2,9 @@ import { useEffect, useMemo, useState, type CSSProperties, type MouseEvent } fro
 
 import { useAction, useAgents, useFiles, useOverview, useProjects, useWorktrees } from "../api/hooks";
 import { rpc } from "../api/transport";
-import type { AgentSession, AgentStatus, RebaseResult, WorktreeView } from "../api/types";
+import type { AgentSession, RebaseResult, WorktreeView } from "../api/types";
 import { AgentInput, AgentLog, RequestField, uploads, type Choice, type Upload } from "../components/AgentLog";
-import { shownStatus } from "../lib/agentLog";
+import { limitLabel, shownStatus, type ShownStatus } from "../lib/agentLog";
 import { draftOf, useDraft } from "../lib/drafts";
 import { AgentPicker, MenuChoice, useAgentPick } from "../components/AgentPicker";
 import { ContextMenu, type MenuItem } from "../components/ContextMenu";
@@ -23,9 +23,11 @@ import { revealBranch } from "./BranchTree";
 import { AbortModal, ConflictModal } from "./ConflictModal";
 import { clearSession, DiscardWorktreeModal, FinishWorktreeCard, MergeModal, mergeTargets, TargetBranchModal, useFinishHandlers } from "./Workspace";
 
-const STATUS: Record<AgentStatus | "idle", [string, string]> = {
+const STATUS: Record<ShownStatus | "idle", [string, string]> = {
   running: ["Running", "c-acc"],
   waiting: ["Waiting for you", "c-add"],
+  // Its label says when it continues (`limitLabel`).
+  limited: ["Usage limit", "c-warn"],
   paused: ["Paused", "muted"],
   failed: ["Failed", "c-del"],
   done: ["Done", "c-add"],
@@ -43,13 +45,14 @@ interface Row {
   projectName: string;
   branch: string;
   path: string;
-  status: AgentStatus | "idle";
+  status: ShownStatus | "idle";
 }
 
 // Statuses left out only show under "All".
 const GROUP: Partial<Record<Row["status"], Exclude<Filter, "all">>> = {
   running: "running",
   waiting: "needs",
+  limited: "needs",
   done: "needs",
   failed: "needs",
 };
@@ -171,7 +174,8 @@ export function Worktrees({ route }: { route: { key?: string } }) {
                   )}
                 </div>
                 {g.items.map((r) => {
-                  const [label, cls] = STATUS[r.status];
+                  const [shown, cls] = STATUS[r.status];
+                  const label = r.status === "limited" && r.agent?.limit ? limitLabel(r.agent.limit) : shown;
                   const sub = !r.wt ? "Directory removed" : r.agent?.request.split("\n")[0];
                   const more = `More actions for ${r.branch}`;
                   const show = `Show ${r.branch} in the workspace`;
@@ -397,7 +401,7 @@ function Detail({ r, menu, onMenuClose }: { r: Row; menu?: { x: number; y: numbe
           <ShellPane projectId={r.projectId} path={r.wt ? r.path : undefined} />
         ) : (
           <>
-            <AgentLog lines={a?.lines ?? []} session={a?.id} provider={a ? a.ai?.provider : pick.provider} thinking={a?.status === "running" || msg.isPending || start.isPending} working={busy} queued={a?.queued} onEditQueued={(q) => setText((t) => [q, t].filter(Boolean).join("\n\n"))} canSendNow={a?.ai?.provider === "claude" && !!a.resumeId} actions={isWorktree && <FinishWorktreeCard session={session} finish={finish} />} picks={picks} onPicks={setPicks} empty={r.wt ? "No agent session on this checkout." : "Directory removed."} />
+            <AgentLog lines={a?.lines ?? []} session={a?.id} provider={a ? a.ai?.provider : pick.provider} thinking={a?.status === "running" || msg.isPending || start.isPending} working={busy} queued={a?.queued} onEditQueued={(q) => setText((t) => [q, t].filter(Boolean).join("\n\n"))} canSendNow={a?.ai?.provider === "claude" && !!a.resumeId} limit={a?.limit} onCancelLimit={a ? () => halt(a) : undefined} actions={isWorktree && <FinishWorktreeCard session={session} finish={finish} />} picks={picks} onPicks={setPicks} empty={r.wt ? "No agent session on this checkout." : "Directory removed."} />
             <AgentInput
               id="wt-ask"
               label="Message the agent"
@@ -413,7 +417,7 @@ function Detail({ r, menu, onMenuClose }: { r: Row; menu?: { x: number; y: numbe
               disabled={!a && !r.wt}
               pending={msg.isPending || start.isPending}
               picker={a?.ai ? <AgentPicker value={a.ai} onChange={(p) => configure.mutate({ id: a.id, ...p })} compact /> : !a && r.wt && <AgentPicker value={pick} onChange={setPick} compact />}
-              placeholder={busy ? "Agent is working… a message now waits for it to finish" : a ? `Message the agent on ${r.branch}…` : "Start a session: describe what the agent should do…"}
+              placeholder={busy ? "Agent is working… a message now waits for it to finish" : a?.limit ? "Stopped at a usage limit… a message continues the agent now" : a ? `Message the agent on ${r.branch}…` : "Start a session: describe what the agent should do…"}
             />
           </>
         )}

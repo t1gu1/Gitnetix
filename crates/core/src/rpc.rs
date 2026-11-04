@@ -113,6 +113,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("agents.unqueue", "Take a message waiting for the agent's run to end off its queue, when it is still `text` at `index`; returns it", "id, index, text"),
     ("agents.sendNow", "Stop the agent's run and send its queued messages now (Claude Code only: other CLIs can't resume)", "id"),
     ("agents.retry", "Run the agent's last prompt again, after its run failed", "id"),
+    ("agents.continue", "Continue an agent a usage limit stopped, now instead of when the limit resets (credits added, another agent picked); stop cancels its wait", "id"),
     ("agents.diff", "Diff of one file a turn of the agent changed, between the snapshots its log's files line names; `full` keeps the whole file", "id, from, to, path, full?"),
     ("agents.pause", "Pause an agent", "id"),
     ("agents.resume", "Resume an agent", "id"),
@@ -850,6 +851,10 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
         }
         "agents.retry" => {
             k.agent_retry(&s(&p, "id")?)?;
+            ok()
+        }
+        "agents.continue" => {
+            k.agent_continue(&s(&p, "id")?)?;
             ok()
         }
         "agents.diff" => to(k.agent_diff(&s(&p, "id")?, &s(&p, "from")?, &s(&p, "to")?, &s(&p, "path")?, b(&p, "full")).await?),

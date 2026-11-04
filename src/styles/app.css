@@ -4437,6 +4437,102 @@ button.picker-act {
   justify-content: flex-end;
   gap: 8px;
 }
+/* A usage limit holds the agent: the ring fills toward when it continues by itself. Out of credits, it waits for you, in red. */
+.ag-limit {
+  --limit: var(--warn-fg);
+  align-self: center;
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  width: min(100%, 520px);
+  margin: 6px 0;
+  padding: 14px 16px;
+  border: 1px solid color-mix(in srgb, var(--limit) 35%, var(--line));
+  border-radius: var(--r-lg);
+  background: color-mix(in srgb, var(--panel), var(--limit) 6%);
+}
+.ag-limit-out {
+  --limit: var(--del-fg);
+}
+.ag-ring {
+  position: relative;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  color: var(--limit);
+}
+/* From the top, clockwise. Stepped once a second, not eased: an endless transition would redraw the webview every frame. */
+.ag-ring > svg {
+  position: absolute;
+  inset: 0;
+  transform: rotate(-90deg);
+  fill: none;
+  stroke-width: 4;
+}
+.ag-ring-track {
+  stroke: color-mix(in srgb, var(--limit) 18%, transparent);
+}
+.ag-ring-fill {
+  stroke: var(--limit);
+  stroke-linecap: round;
+}
+.ag-ring-mid {
+  display: grid;
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg);
+}
+.ag-limit-out .ag-ring-mid {
+  color: var(--limit);
+}
+.ag-limit-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.ag-limit-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--limit);
+}
+.ag-limit-msg {
+  font-size: 12.5px;
+  color: var(--fg);
+  word-break: break-word;
+}
+.ag-limit-when {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.ag-limit-when strong {
+  font-weight: 600;
+  color: var(--fg);
+}
+.ag-limit-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+.ag-limit-actions .btn {
+  gap: 6px;
+}
+.ag-limit-hint {
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: var(--faint);
+}
+/* Where the log records it: a pill, like a finished run's. */
+.ag-limited {
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--warn-fg) 14%, transparent);
+  color: var(--warn-fg);
+}
 .term-input {
   display: flex;
   flex-direction: column;

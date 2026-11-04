@@ -873,7 +873,8 @@ function BranchMeta({
   // The state links to its row, selected, on the Worktrees & agents page: a worktree's goes by its path, an agent's elsewhere by its id.
   const row = b.worktree ?? agent?.id;
   const openRow = row ? (e: MouseEvent) => { e.stopPropagation(); nav.go({ name: "worktrees", key: row }); } : undefined;
-  const state = b.running ? "working" : b.waiting ? (agent && shownStatus(agent, b) === "done" ? "done" : "waiting") : undefined;
+  const shown = agent && shownStatus(agent, b);
+  const state = b.running ? "working" : b.waiting ? (shown === "done" ? "done" : shown === "limited" ? "limit" : "waiting") : undefined;
   return (
     <span className="branch-meta">
       {b.likelyMerged && <span className="tag" title={`A pull request carrying its ticket went into ${parent} after its last commit. Not proof: it is never cleaned up as merged.`}>likely</span>}
@@ -883,7 +884,7 @@ function BranchMeta({
       {current && <span className="c-current">checked out</span>}
       {b.worktree ? (
         // Its checkout's state: the agent's status, icon in its color, or "worktree" with no agent working or waiting there.
-        <span className={`row meta-link meta-link-icon${b.running ? " glow-working" : state ? " c-add" : ""}`} style={{ gap: 4 }} data-tip={`${b.worktree}. Click to open it in Worktrees & agents.`} onClick={openRow} onDoubleClick={(e) => e.stopPropagation()}>
+        <span className={`row meta-link meta-link-icon${b.running ? " glow-working" : state === "limit" ? " c-warn" : state ? " c-add" : ""}`} style={{ gap: 4 }} data-tip={`${b.worktree}. Click to open it in Worktrees & agents.`} onClick={openRow} onDoubleClick={(e) => e.stopPropagation()}>
           <Icon name="layers" size={11} stroke={1.4} />
           {state ? <span className={b.running ? undefined : "ai-fade"}>{state}</span> : "worktree"}
         </span>

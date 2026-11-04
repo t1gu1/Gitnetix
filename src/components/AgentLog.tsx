@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 
 import { useAction, useAgentDiff, useAgentFile, useAiCatalog, useConfig } from "../api/hooks";
 import { clipboardFiles, copyAgentFile, downloadAgentFile, isLocal, localHead, localImage, onPathDrop } from "../api/transport";
-import type { LogLine } from "../api/types";
+import type { AgentLimit, LogLine } from "../api/types";
 import { blocks, errText, folds, questions, said, stepsLabel, took, type Block, type Fold, type Opt, type Question } from "../lib/agentLog";
 import { OwnMic } from "../lib/dictation";
 import { bytes, clock, plural } from "../lib/format";
@@ -277,6 +277,91 @@ function TurnDiff({ session, b, at, onStep, onClose }: { session: string; b: Ext
   );
 }
 
+/** The time now, again every `every` ms; never again for 0. */
+function useNow(every: number) {
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    if (!every) return;
+    const t = setInterval(() => setNow(Date.now()), every);
+    return () => clearInterval(t);
+  }, [every]);
+  return now;
+}
+
+/** "2d 4h", "2h 14m", "14:05": the time left of `ms`. */
+function countdown(ms: number) {
+  const s = Math.ceil(ms / 1000);
+  if (s >= 86400) return `${Math.floor(s / 86400)}d ${Math.floor((s % 86400) / 3600)}h`;
+  if (s >= 3600) return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+/** A battery with nothing left: what an agent out of credits waits on. */
+const NoCredits = (
+  <svg width={22} height={22} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M2 5h10.5a.5.5 0 0 1 .5.5v5a.5.5 0 0 1-.5.5H2a.5.5 0 0 1-.5-.5v-5A.5.5 0 0 1 2 5zM15 7v2" />
+    <path d="M4 7.2v1.6" opacity={0.45} />
+  </svg>
+);
+
+/** A ring filled to `done` (0 to 1), `children` in its middle. */
+function Ring({ done, children }: { done: number; children: ReactNode }) {
+  const c = 2 * Math.PI * 26;
+  return (
+    <span className="ag-ring">
+      <svg viewBox="0 0 64 64" aria-hidden="true">
+        <circle className="ag-ring-track" cx={32} cy={32} r={26} />
+        {done > 0 && <circle className="ag-ring-fill" cx={32} cy={32} r={26} strokeDasharray={c} strokeDashoffset={c * (1 - Math.min(1, done))} />}
+      </svg>
+      <span className="ag-ring-mid">{children}</span>
+    </span>
+  );
+}
+
+/** The usage limit agent `session`'s last run stopped at, under its log. Waiting for a reset, its ring fills toward the
+ * time the agent continues by itself and counts down to it. Without one (out of credits) it waits for you. Continue now
+ * goes on at once: credits added, or another agent picked in the prompt box. `onCancel` stops it. */
+function LimitCard({ session, limit, onCancel }: { session: string; limit: AgentLimit; onCancel?: () => void }) {
+  const go = useAction("agents.continue", { invalidate: [["agents"], ["worktrees"]] });
+  const at = limit.continueAt ?? undefined;
+  // Counted in minutes an hour or more ahead: no need to redraw each second.
+  const now = useNow(!at ? 0 : at - Date.now() > 3_600_000 ? 30_000 : 1000);
+  const left = at ? Math.max(0, at - now) : 0;
+  const title = at ? "Usage limit reached" : limit.credits ? "Out of credits" : "Usage limit reached";
+  return (
+    <div className={at ? "ag-limit" : "ag-limit ag-limit-out"} role="group" aria-label={title}>
+      <Ring done={at ? 1 - left / Math.max(1, at - limit.since) : 0}>
+        {at ? (left ? countdown(left) : "0:00") : NoCredits}
+      </Ring>
+      <div className="ag-limit-body">
+        <span className="ag-limit-title">{title}</span>
+        <span className="ag-limit-msg">{errText(limit.message)}</span>
+        <span className="ag-limit-when">
+          {!at
+            ? limit.credits
+              ? "Add credits to your account, or pick another agent below, then continue."
+              : "Its CLI did not say when the limit resets. Continue once it has, or pick another agent below."
+            : left
+              ? <>Continues by itself at <strong>{clock(at)}</strong></>
+              : "Continuing…"}
+        </span>
+        <div className="ag-limit-actions">
+          <button type="button" className="btn btn-primary btn-sm" disabled={go.isPending} onClick={() => go.mutate({ id: session })}>
+            {go.isPending ? <span className="spinner" /> : <Icon name="play" size={12} />}
+            {at ? "Continue now" : "Continue"}
+          </button>
+          {onCancel && (
+            <button type="button" className="btn btn-sm" disabled={go.isPending} data-tip={at ? "Don't continue when the limit resets" : "Stop the agent"} onClick={onCancel}>
+              Cancel
+            </button>
+          )}
+        </div>
+        {at && <span className="ag-limit-hint">Added credits, or picked another agent below? Continue now.</span>}
+      </div>
+    </div>
+  );
+}
+
 /** Images a reply shows, as its prompt asks: the local paths of its Markdown images, `![What it shows](/path.png)`. */
 const shown = (text: string) => [...new Set([...text.matchAll(/!\[[^\]]*\]\(<?([^<>)]+?)>?\)/g)].map((m) => m[1].trim()))].filter((p) => isImage(p) && !/^\w+:\/\//.test(p));
 
@@ -287,8 +372,9 @@ const TAIL = 60;
 
 /** `actions` show under "Your turn!" when the agent did not ask a question; `picks` are its options picked for the prompt box; `session` is the agent's id, for the files you sent it; `queued` are your messages waiting for its run to end, and `onEditQueued` gets one taken off to edit.
  * `working`: its run is going (or paused), so the last turn stays unfolded. `canSendNow`: its run can be cut short for the queue (Claude Code, which resumes its task).
+ * `limit`: the usage limit its last run stopped at, shown under the log until it continues; `onCancelLimit` stops it instead.
  */
-export function AgentLog({ lines, empty, picks, onPicks, actions, thinking, working, provider, session, queued = [], onEditQueued, canSendNow }: { lines: LogLine[]; empty?: string; picks: Choice[]; onPicks: (c: Choice[]) => void; actions?: ReactNode; thinking?: boolean; working?: boolean; provider?: string; session?: string; queued?: string[]; onEditQueued?: (text: string) => void; canSendNow?: boolean }) {
+export function AgentLog({ lines, empty, picks, onPicks, actions, thinking, working, provider, session, queued = [], onEditQueued, canSendNow, limit, onCancelLimit }: { lines: LogLine[]; empty?: string; picks: Choice[]; onPicks: (c: Choice[]) => void; actions?: ReactNode; thinking?: boolean; working?: boolean; provider?: string; session?: string; queued?: string[]; onEditQueued?: (text: string) => void; canSendNow?: boolean; limit?: AgentLimit | null; onCancelLimit?: () => void }) {
   const me = useMe();
   const ref = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
@@ -318,6 +404,8 @@ export function AgentLog({ lines, empty, picks, onPicks, actions, thinking, work
     if (el.scrollHeight - el.clientHeight < 400) more();
   }, [from]); // eslint-disable-line react-hooks/exhaustive-deps
   const qs = questions(lines);
+  // A usage limit holds it: its card shows under the log.
+  const held = !!limit && !!session && !working;
   // Picks for questions no longer asked (answered, another session) leave the prompt box.
   const live = picks.filter((p) => qs[p.qi]?.text === p.q && qs[p.qi].opts.some((o) => o.n === p.n));
   useEffect(() => {
@@ -429,6 +517,9 @@ export function AgentLog({ lines, empty, picks, onPicks, actions, thinking, work
           );
         case "ok":
           return <div key={i} className="ag-note ag-ok">✓ {b.text}</div>;
+        case "limit":
+          // The latest one shows as its card while it holds the agent.
+          return held && i === list.length - 1 ? null : <div key={i} className="ag-note ag-limited">{errText(b.text)}</div>;
         default:
           return <div key={i} className="ag-note">{b.text}</div>;
       }
@@ -443,7 +534,7 @@ export function AgentLog({ lines, empty, picks, onPicks, actions, thinking, work
       } else if (i >= from) out.push(one(list[i], i, opens.has(i)));
     }
     return out;
-  }, [list, fold, from, task, opens, mark, me.name, me.email, session, canRetry]);
+  }, [list, fold, from, task, opens, mark, me.name, me.email, session, canRetry, held]);
   return (
     <div
       ref={ref}
@@ -494,6 +585,7 @@ export function AgentLog({ lines, empty, picks, onPicks, actions, thinking, work
           <span className="ag-dots" aria-hidden="true"><i /><i /><i /></span>
         </div>
       )}
+      {held && <LimitCard session={session} limit={limit} onCancel={onCancelLimit} />}
       {queued.map((t, i) => (
         <div key={i} className="ag-you ag-queued">
           <div className="ag-you-row">
@@ -503,7 +595,7 @@ export function AgentLog({ lines, empty, picks, onPicks, actions, thinking, work
             </div>
           </div>
           <div className="ag-queued-bar">
-            {i === queued.length - 1 && <span>Queued · sends when the agent finishes</span>}
+            {i === queued.length - 1 && <span>{limit ? "Queued · sends when the agent continues" : "Queued · sends when the agent finishes"}</span>}
             {session && (
               <>
                 {onEditQueued && (
@@ -514,7 +606,7 @@ export function AgentLog({ lines, empty, picks, onPicks, actions, thinking, work
                 <button type="button" className="ag-link" disabled={unqueue.isPending} onClick={() => unqueue.mutate({ id: session, index: i, text: t })}>
                   Remove
                 </button>
-                {i === queued.length - 1 && canSendNow && (
+                {i === queued.length - 1 && canSendNow && !limit && (
                   <button type="button" className="ag-link" disabled={sendNow.isPending} data-tip="Stop the agent and send this now" onClick={() => sendNow.mutate({ id: session })}>
                     Send now
                   </button>

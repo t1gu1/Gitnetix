@@ -40,7 +40,7 @@ import { Resizer, usePaneWidth } from "../components/Resizer";
 import { ShellPane, TermTabs, useTermView } from "../components/Shell";
 import { Busy, Confirm, ErrorBox, Loading, Markdown, Modal, Seg, swipeProps } from "../components/ui";
 import { ago, plural, timeLeft } from "../lib/format";
-import { shownStatus } from "../lib/agentLog";
+import { limitLabel, shownStatus } from "../lib/agentLog";
 import { startCleanup, useCleaning } from "../lib/cleanups";
 import { useDraft } from "../lib/drafts";
 import { useIdle } from "../lib/motion";
@@ -2136,7 +2136,7 @@ function Terminal({ pid, branch, cwd, worktree, open, setOpen, onCloseWorktree, 
     return (
       <button className="row term-bar" style={{ height: 37, flex: "0 0 37px", margin: 0, padding: "0 14px 3px", border: 0, borderTop: "1px solid var(--line)", background: "var(--panel)", color: "var(--muted)", textAlign: "left" }} onClick={() => setOpen(true)}>
         <Icon name="terminal" />
-        <span>{shell ? "Shell" : cur ? `Agent · ${shownStatus(cur, curBranch)}` : "Agent"}</span>
+        <span>{shell ? "Shell" : cur ? `Agent · ${cur.limit && shownStatus(cur, curBranch) === "limited" ? limitLabel(cur.limit).replace(/^./, (c) => c.toLowerCase()) : shownStatus(cur, curBranch)}` : "Agent"}</span>
         {!shell && cur?.status === "running" && <span className="pulse" />}
         <span className="grow" />
         <Icon name="chevronUp" size={13} />
@@ -2203,6 +2203,8 @@ function Terminal({ pid, branch, cwd, worktree, open, setOpen, onCloseWorktree, 
               queued={cur?.queued}
               onEditQueued={(q) => setText((t) => [q, t].filter(Boolean).join("\n\n"))}
               canSendNow={cur?.ai?.provider === "claude" && !!cur.resumeId}
+              limit={cur?.limit}
+              onCancelLimit={cur ? () => halt(cur) : undefined}
               actions={
                 cur?.worktree && <FinishWorktreeCard session={cur} finish={finish} />
               }
@@ -2233,7 +2235,7 @@ function Terminal({ pid, branch, cwd, worktree, open, setOpen, onCloseWorktree, 
               disabled={leaving}
               pending={start.isPending || message.isPending}
               picker={!cur ? <AgentPicker value={pick} onChange={setPick} compact /> : cur.ai && <AgentPicker value={cur.ai} onChange={(p) => configure.mutate({ id: cur.id, ...p })} compact />}
-              placeholder={busy ? "Agent is working… a message now waits for it to finish" : cur ? "Reply to the agent…" : "Ask the agent anything…"}
+              placeholder={busy ? "Agent is working… a message now waits for it to finish" : cur?.limit ? "Stopped at a usage limit… a message continues the agent now" : cur ? "Reply to the agent…" : "Ask the agent anything…"}
             />
           </>
         )}

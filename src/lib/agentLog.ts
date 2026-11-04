@@ -1,4 +1,4 @@
-import type { AgentSession, AgentStatus, LogLine } from "../api/types";
+import type { AgentLimit, AgentSession, AgentStatus, LogLine } from "../api/types";
 import { clock, plural } from "./format";
 
 /** A file a turn changed and its added and removed lines, null for a binary file. */
@@ -10,7 +10,7 @@ export type Block = { at?: number } & (
   | { kind: "ai"; text: string }
   | { kind: "steps"; lines: LogLine[] }
   | { kind: "files"; from: string; to: string; files: Changed[]; more: number }
-  | { kind: "note" | "ok" | "err" | "wait"; text: string }
+  | { kind: "note" | "ok" | "err" | "wait" | "limit"; text: string }
 );
 
 // "✦ " starts a reply; older logs and plain CLIs continue it line by line.
@@ -64,6 +64,9 @@ export function blocks(lines: LogLine[]): Block[] {
       case "err":
       case "wait":
         out.push({ kind: l.kind, text: l.text.replace(/^[✓✕◆] /, ""), at: l.at });
+        break;
+      case "limit":
+        out.push({ kind: "limit", text: l.text, at: l.at });
         break;
       default:
         out.push({ kind: "note", text: l.text, at: l.at });
@@ -126,9 +129,15 @@ export function questions(lines: LogLine[]): Question[] {
   return out;
 }
 
-/** A worktree run that ended with its close options showing (no question, its branch `b` known) is done, even with nothing to merge. */
-export const shownStatus = (s: AgentSession, b?: unknown): AgentStatus =>
-  s.status === "waiting" && s.worktree && !!b && !questions(s.lines).length ? "done" : s.status;
+/** What a session's status shows as: "limited" while a usage limit holds it. */
+export type ShownStatus = AgentStatus | "limited";
+
+/** A session a usage limit holds is "limited". A worktree run that ended with its close options showing (no question, its branch `b` known) is done, even with nothing to merge. */
+export const shownStatus = (s: AgentSession, b?: unknown): ShownStatus =>
+  s.status === "waiting" && s.limit ? "limited" : s.status === "waiting" && s.worktree && !!b && !questions(s.lines).length ? "done" : s.status;
+
+/** A usage limit in a few words: when the agent continues, or why it waits for you. */
+export const limitLabel = (l: AgentLimit) => (l.continueAt ? `Continues at ${clock(l.continueAt)}` : l.credits ? "Out of credits" : "Usage limit reached");
 
 // What a tool's calls did, said once for all of them. `files`: calls on the same file count once.
 const TOOLS: { names: string[]; say: (n: number) => string; files?: boolean }[] = [

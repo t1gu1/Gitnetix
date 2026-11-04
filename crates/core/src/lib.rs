@@ -11,6 +11,7 @@ pub mod dictation;
 pub mod error;
 pub mod events;
 pub mod git;
+pub mod limits;
 pub mod log;
 pub mod net;
 pub mod project_commands;

@@ -5086,6 +5086,15 @@ impl Gitnetix {
         self.agents.retry(id, &r)
     }
 
+    /// Continue agent `id` after the usage limit it stopped at, without waiting for the reset.
+    pub fn agent_continue(&self, id: &str) -> Result<()> {
+        let r = match self.agents.get(id)?.ai {
+            Some(r) => r,
+            None => self.route("agent", None)?,
+        };
+        self.agents.carry_on(id, &r)
+    }
+
     /// File `path` as a turn of agent `id` changed it: between snapshots `from` and `to` of its checkout.
     pub async fn agent_diff(&self, id: &str, from: &str, to: &str, path: &str, full: bool) -> Result<Vec<Hunk>> {
         let cwd = self.agents.get(id)?.cwd;
