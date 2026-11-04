@@ -5,14 +5,19 @@ use serde_json::{json, Value};
 
 use crate::error::{Error, Result};
 use crate::net::client as http;
-use crate::store::{AsanaConf, JiraConf, TrelloConf};
+use crate::store::{AsanaConf, Connection, JiraConf, TrelloConf};
 
 pub mod jira_auth;
+pub mod oauth;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Ticket {
+    /// Jira key, `#` and a Trello card's short link (the id in its URL), `AS-` and an Asana task gid.
     pub key: String,
+    /// The key a Trello card had before short links (`#idShort`, which repeats across boards), to move saved links from.
+    #[serde(skip)]
+    pub old_key: Option<String>,
     /// The tracker's own id, for changing it: Jira key, Trello card id, Asana task gid.
     #[serde(default)]
     pub id: String,
@@ -248,6 +253,7 @@ fn jira_ticket(conf: &JiraConf, i: &Value, my_id: &str) -> Ticket {
         id: key.clone(),
         conn: conf.id.clone(),
         key,
+        old_key: None,
         source: "jira".into(),
         title: f["summary"].as_str().unwrap_or("").into(),
         kind: f["issuetype"]["name"].as_str().unwrap_or("Task").into(),
@@ -363,70 +369,108 @@ pub async fn jira_projects(conf: &JiraConf, token: &str) -> Result<Vec<Value>> {
 
 // ---------- Trello ----------
 
+/// The token of a Trello connection, renewed first when it came from "Sign in with Trello".
+pub async fn trello_token(conf: &TrelloConf) -> Result<String> {
+    oauth::token(&oauth::TRELLO, &conf.secret(), conf.oauth).await
+}
+
+/// A Trello REST call: with the OAuth 2.0 token when signed in, else with the API key and its token.
+/// Both go in a header, not in the URL, which request errors quote.
+fn trello_req(conf: &TrelloConf, token: &str, method: reqwest::Method, path: &str) -> reqwest::RequestBuilder {
+    if conf.oauth {
+        // The host Trello's OAuth 2.0 guide calls with the bearer token.
+        http().request(method, format!("https://trello.com/1{path}")).bearer_auth(token)
+    } else {
+        let auth = format!("OAuth oauth_consumer_key=\"{}\", oauth_token=\"{token}\"", conf.api_key);
+        http().request(method, format!("https://api.trello.com/1{path}")).header(reqwest::header::AUTHORIZATION, auth)
+    }
+}
+
+/// The member's name and open boards, by name. Also how a connection checks its token.
+pub async fn trello_account(conf: &TrelloConf, token: &str) -> Result<Value> {
+    let res = trello_req(conf, token, reqwest::Method::GET, "/members/me?fields=fullName,username&boards=open&board_fields=name").send().await?;
+    if res.status() == reqwest::StatusCode::UNAUTHORIZED {
+        return Err(Error::Http(if conf.oauth {
+            "Trello session expired or was revoked. Sign in with Trello again".into()
+        } else {
+            "Trello rejected the API key and token. Check both, and that the token was made for this API key".into()
+        }));
+    }
+    let me = check(res, "Trello").await?;
+    let mut boards: Vec<Value> = me["boards"].as_array().into_iter().flatten().map(|b| json!({ "id": b["id"], "name": b["name"] })).collect();
+    boards.sort_by_key(|b| b["name"].as_str().unwrap_or("").to_lowercase());
+    Ok(json!({ "user": me["fullName"].as_str().filter(|n| !n.is_empty()).or(me["username"].as_str()), "boards": boards }))
+}
+
 pub async fn trello(conf: &TrelloConf, token: &str) -> Result<Vec<Ticket>> {
-    let auth = format!("key={}&token={}", conf.api_key, token);
-    let url = match &conf.board_id {
-        Some(b) if !b.is_empty() => format!("https://api.trello.com/1/boards/{b}/cards?list=true&checklists=all&members=true&{auth}"),
-        _ => format!("https://api.trello.com/1/members/me/cards?list=true&checklists=all&members=true&{auth}"),
-    };
-    let v = check(http().get(url).send().await?, "Trello").await?;
-    let place = match &conf.board_id {
-        Some(b) if !b.is_empty() => {
-            let board = check(http().get(format!("https://api.trello.com/1/boards/{b}?fields=name&{auth}")).send().await?, "Trello").await;
-            format!("Trello · {}", board.ok().and_then(|v| v["name"].as_str().map(String::from)).unwrap_or_else(|| b.clone()))
-        }
-        _ => "Trello · My cards".into(),
-    };
-    Ok(v.as_array()
+    let get = |path: String| trello_req(conf, token, reqwest::Method::GET, &path).send();
+    let cards = "cards?list=true&checklists=all&members=true";
+    // Each picked board's cards, or the cards assigned to the user when none is picked.
+    let mut lists = Vec::new();
+    for b in conf.boards.iter().filter(|b| !b.is_empty()) {
+        let board = check(get(format!("/boards/{b}?fields=name")).await?, "Trello").await;
+        let name = board.ok().and_then(|v| v["name"].as_str().map(String::from)).unwrap_or_else(|| b.clone());
+        lists.push((format!("/boards/{b}/{cards}"), format!("Trello · {name}")));
+    }
+    if lists.is_empty() {
+        lists.push((format!("/members/me/{cards}"), "Trello · My cards".into()));
+    }
+    let mut out = Vec::new();
+    for (path, place) in lists {
+        let v = check(get(path).await?, "Trello").await?;
+        out.extend(v.as_array().into_iter().flatten().filter(|c| c["closed"] != true).map(|c| trello_card(conf, c, &place)));
+    }
+    Ok(out)
+}
+
+/// A Trello card, as listed by `/cards` with its list, checklists and members, as a ticket of `place`.
+fn trello_card(conf: &TrelloConf, c: &Value, place: &str) -> Ticket {
+    let old_key = format!("#{}", c["idShort"].as_u64().unwrap_or(0));
+    let list = c["list"]["name"].as_str().unwrap_or("");
+    let status = status_from_name(list, "");
+    let criteria = c["checklists"]
+        .as_array()
         .into_iter()
         .flatten()
-        .filter(|c| c["closed"] != true)
-        .map(|c| {
-            let list = c["list"]["name"].as_str().unwrap_or("");
-            let status = status_from_name(list, "");
-            let criteria = c["checklists"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .flat_map(|cl| cl["checkItems"].as_array().cloned().unwrap_or_default())
-                .map(|it| Criterion { text: it["name"].as_str().unwrap_or("").into(), done: it["state"] == "complete" })
-                .collect();
-            Ticket {
-                fix_versions: Vec::new(),
-                priority: String::new(),
-                time_remaining: String::new(),
-                time_estimate: String::new(),
-                parent_key: String::new(),
-                parent_title: String::new(),
-                parent_url: String::new(),
-                key: format!("#{}", c["idShort"].as_u64().unwrap_or(0)),
-                id: c["id"].as_str().unwrap_or("").into(),
-                conn: conf.id.clone(),
-                source: "trello".into(),
-                title: c["name"].as_str().unwrap_or("").into(),
-                kind: "Card".into(),
-                status: status.into(),
-                status_label: list.into(),
-                assignee: c["members"][0]["fullName"].as_str().unwrap_or("Unassigned").into(),
-                mine: true,
-                description: c["desc"].as_str().unwrap_or("").into(),
-                doc: Value::Null,
-                criteria,
-                comments: c["badges"]["comments"].as_u64().unwrap_or(0) as u32,
-                url: c["url"].as_str().unwrap_or("").into(),
-                where_label: format!("Trello · {list}"),
-                place: place.clone(),
-            }
-        })
-        .collect())
+        .flat_map(|cl| cl["checkItems"].as_array().cloned().unwrap_or_default())
+        .map(|it| Criterion { text: it["name"].as_str().unwrap_or("").into(), done: it["state"] == "complete" })
+        .collect();
+    Ticket {
+        fix_versions: Vec::new(),
+        priority: String::new(),
+        time_remaining: String::new(),
+        time_estimate: String::new(),
+        parent_key: String::new(),
+        parent_title: String::new(),
+        parent_url: String::new(),
+        // The card number repeats on every board; the short link doesn't.
+        key: c["shortLink"].as_str().filter(|l| !l.is_empty()).map_or_else(|| old_key.clone(), |l| format!("#{l}")),
+        old_key: Some(old_key),
+        id: c["id"].as_str().unwrap_or("").into(),
+        conn: conf.id.clone(),
+        source: "trello".into(),
+        title: c["name"].as_str().unwrap_or("").into(),
+        kind: "Card".into(),
+        status: status.into(),
+        status_label: list.into(),
+        assignee: c["members"][0]["fullName"].as_str().unwrap_or("Unassigned").into(),
+        mine: true,
+        description: c["desc"].as_str().unwrap_or("").into(),
+        doc: Value::Null,
+        criteria,
+        comments: c["badges"]["comments"].as_u64().unwrap_or(0) as u32,
+        url: c["url"].as_str().unwrap_or("").into(),
+        where_label: format!("Trello · {list}"),
+        place: place.into(),
+    }
 }
 
 /// The open lists of the card's board.
 pub async fn trello_statuses(conf: &TrelloConf, token: &str, card: &str) -> Result<Vec<StatusOption>> {
-    let auth = format!("key={}&token={}", conf.api_key, token);
-    let c = check(http().get(format!("https://api.trello.com/1/cards/{card}?fields=idBoard&{auth}")).send().await?, "Trello").await?;
+    let get = |path: String| trello_req(conf, token, reqwest::Method::GET, &path).send();
+    let c = check(get(format!("/cards/{card}?fields=idBoard")).await?, "Trello").await?;
     let board = c["idBoard"].as_str().unwrap_or("");
-    let v = check(http().get(format!("https://api.trello.com/1/boards/{board}/lists?filter=open&fields=name&{auth}")).send().await?, "Trello").await?;
+    let v = check(get(format!("/boards/{board}/lists?filter=open&fields=name")).await?, "Trello").await?;
     Ok(v.as_array()
         .into_iter()
         .flatten()
@@ -438,8 +482,7 @@ pub async fn trello_statuses(conf: &TrelloConf, token: &str, card: &str) -> Resu
 }
 
 pub async fn trello_set_status(conf: &TrelloConf, token: &str, card: &str, list: &str) -> Result<()> {
-    let auth = format!("key={}&token={}", conf.api_key, token);
-    check(http().put(format!("https://api.trello.com/1/cards/{card}?idList={list}&{auth}")).send().await?, "Trello").await?;
+    check(trello_req(conf, token, reqwest::Method::PUT, &format!("/cards/{card}?idList={list}")).send().await?, "Trello").await?;
     Ok(())
 }
 
@@ -448,31 +491,73 @@ pub async fn trello_set_status(conf: &TrelloConf, token: &str, card: &str, list:
 /// The option completing an Asana task, next to its project's sections.
 const ASANA_DONE: &str = "completed";
 
-pub async fn asana(conf: &AsanaConf, token: &str) -> Result<Vec<Ticket>> {
-    let fields = "name,notes,completed,permalink_url,assignee.name,memberships.section.name,num_likes";
-    let url = match &conf.project_gid {
-        Some(p) if !p.is_empty() => format!("https://app.asana.com/api/1.0/projects/{p}/tasks?completed_since=now&opt_fields={fields}"),
-        _ => format!(
-            "https://app.asana.com/api/1.0/tasks?assignee=me&workspace={}&completed_since=now&opt_fields={fields}",
-            conf.workspace_gid
-        ),
-    };
-    let v = check(http().get(url).bearer_auth(token).send().await?, "Asana").await?;
-    let place = match &conf.project_gid {
-        Some(p) if !p.is_empty() => {
-            let project = check(http().get(format!("https://app.asana.com/api/1.0/projects/{p}?opt_fields=name")).bearer_auth(token).send().await?, "Asana").await;
-            format!("Asana · {}", project.ok().and_then(|v| v["data"]["name"].as_str().map(String::from)).unwrap_or_else(|| p.clone()))
+/// The token of an Asana connection, renewed first when it came from "Sign in with Asana".
+pub async fn asana_token(conf: &AsanaConf) -> Result<String> {
+    oauth::token(&oauth::ASANA, &conf.secret(), conf.oauth).await
+}
+
+/// The user's name and workspaces. Also how a connection checks its token.
+pub async fn asana_me(token: &str) -> Result<Value> {
+    let res = http().get("https://app.asana.com/api/1.0/users/me?opt_fields=name,workspaces.name").bearer_auth(token).send().await?;
+    if res.status() == reqwest::StatusCode::UNAUTHORIZED {
+        return Err(Error::Http("Asana rejected the token, or the session expired. Sign in with Asana again or paste a new personal access token".into()));
+    }
+    let v = check(res, "Asana").await?;
+    let workspaces: Vec<Value> = v["data"]["workspaces"].as_array().into_iter().flatten().map(|w| json!({ "id": w["gid"], "name": w["name"] })).collect();
+    Ok(json!({ "user": v["data"]["name"], "workspaces": workspaces }))
+}
+
+/// The workspace's active projects, by name, for picking one.
+pub async fn asana_projects(token: &str, workspace: &str) -> Result<Vec<Value>> {
+    let mut out = Vec::new();
+    let mut offset: Option<String> = None;
+    // shortcut: stops at 1000 projects, page further if someone's project is missing from the list.
+    while out.len() < 1000 {
+        let mut q = vec![("workspace", workspace), ("archived", "false"), ("opt_fields", "name"), ("limit", "100")];
+        q.extend(offset.as_deref().map(|o| ("offset", o)));
+        let v = check(http().get("https://app.asana.com/api/1.0/projects").query(&q).bearer_auth(token).send().await?, "Asana").await?;
+        out.extend(v["data"].as_array().into_iter().flatten().map(|p| json!({ "id": p["gid"], "name": p["name"] })));
+        offset = v["next_page"]["offset"].as_str().map(String::from);
+        if offset.is_none() {
+            break;
         }
-        _ => "Asana · My tasks".into(),
-    };
-    Ok(v["data"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .map(|t| {
+    }
+    out.sort_by_key(|p| p["name"].as_str().unwrap_or("").to_lowercase());
+    Ok(out)
+}
+
+pub async fn asana(conf: &AsanaConf, token: &str) -> Result<Vec<Ticket>> {
+    let api = "https://app.asana.com/api/1.0";
+    let fields = "name,notes,completed,permalink_url,assignee.name,memberships.section.name,num_likes";
+    // Each picked project's open tasks, or the user's own in the workspace when none is picked.
+    let mut urls = Vec::new();
+    for p in conf.projects.iter().filter(|p| !p.is_empty()) {
+        let project = check(http().get(format!("{api}/projects/{p}?opt_fields=name")).bearer_auth(token).send().await?, "Asana").await;
+        let name = project.ok().and_then(|v| v["data"]["name"].as_str().map(String::from)).unwrap_or_else(|| p.clone());
+        urls.push((format!("{api}/projects/{p}/tasks?completed_since=now&opt_fields={fields}"), format!("Asana · {name}")));
+    }
+    if urls.is_empty() {
+        urls.push((format!("{api}/tasks?assignee=me&workspace={}&completed_since=now&opt_fields={fields}", conf.workspace_gid), "Asana · My tasks".into()));
+    }
+    let mut lists = Vec::new();
+    for (url, place) in urls {
+        lists.push((check(http().get(url).bearer_auth(token).send().await?, "Asana").await?, place));
+    }
+    Ok(asana_tickets(conf, &lists))
+}
+
+/// Task lists from Asana, each with the place it was read from, as tickets. A task in several of
+/// the picked projects is listed once, under the first.
+fn asana_tickets(conf: &AsanaConf, lists: &[(Value, String)]) -> Vec<Ticket> {
+    let mut out: Vec<Ticket> = Vec::new();
+    for (v, place) in lists {
+        for t in v["data"].as_array().into_iter().flatten() {
+            if out.iter().any(|x| Some(x.id.as_str()) == t["gid"].as_str()) {
+                continue;
+            }
             let section = t["memberships"][0]["section"]["name"].as_str().unwrap_or("");
             let status = if t["completed"] == true { "done" } else { status_from_name(section, "") };
-            Ticket {
+            out.push(Ticket {
                 fix_versions: Vec::new(),
                 priority: String::new(),
                 time_remaining: String::new(),
@@ -481,8 +566,9 @@ pub async fn asana(conf: &AsanaConf, token: &str) -> Result<Vec<Ticket>> {
                 parent_title: String::new(),
                 parent_url: String::new(),
                 // Full gid: a suffix collides across tasks, and the prefix
-                // keeps it apart from Trello's `#idShort` keys.
+                // keeps it apart from Trello's `#` keys.
                 key: format!("AS-{}", t["gid"].as_str().unwrap_or("")),
+                old_key: None,
                 id: t["gid"].as_str().unwrap_or("").into(),
                 conn: conf.id.clone(),
                 source: "asana".into(),
@@ -499,9 +585,10 @@ pub async fn asana(conf: &AsanaConf, token: &str) -> Result<Vec<Ticket>> {
                 url: t["permalink_url"].as_str().unwrap_or("").into(),
                 where_label: "Asana".into(),
                 place: place.clone(),
-            }
-        })
-        .collect())
+            });
+        }
+    }
+    out
 }
 
 /// The sections of the task's first project, the one its status is read from, and completing it.
@@ -599,6 +686,39 @@ mod tests {
         assert_eq!((t.status.as_str(), t.description.as_str(), t.parent_title.as_str()), ("done", "Users sign in.", "Auth"));
         assert!(t.mine);
         assert!(!jira_ticket(&conf, &issue, "").mine);
+    }
+
+    #[test]
+    fn trello_cards_are_keyed_by_short_link() {
+        let conf = TrelloConf { id: "c1".into(), ..Default::default() };
+        let card = json!({ "id": "5f0a", "idShort": 12, "shortLink": "aB3dE9fG", "name": "Login", "list": { "name": "Doing" }, "url": "https://trello.com/c/aB3dE9fG/12-login" });
+        let t = trello_card(&conf, &card, "Trello · Web");
+        assert_eq!((t.key.as_str(), t.old_key.as_deref(), t.status.as_str(), t.place.as_str()), ("#aB3dE9fG", Some("#12"), "progress", "Trello · Web"));
+        // Without a short link, the number stays the key: nothing to move.
+        let t = trello_card(&conf, &json!({ "idShort": 3 }), "Trello · Web");
+        assert_eq!((t.key.as_str(), t.old_key.as_deref()), ("#3", Some("#3")));
+    }
+
+    #[test]
+    fn asana_task_in_two_projects_is_listed_once() {
+        let conf = AsanaConf { id: "c1".into(), ..Default::default() };
+        let web = json!({ "data": [{ "gid": "1", "name": "Login" }, { "gid": "2", "name": "Logout", "completed": true }] });
+        let mobile = json!({ "data": [{ "gid": "1", "name": "Login" }, { "gid": "3", "name": "Sign up" }] });
+        let t = asana_tickets(&conf, &[(web, "Asana · Web".into()), (mobile, "Asana · Mobile".into())]);
+        let got: Vec<_> = t.iter().map(|t| (t.key.as_str(), t.place.as_str(), t.status.as_str())).collect();
+        assert_eq!(got, [("AS-1", "Asana · Web", "todo"), ("AS-2", "Asana · Web", "done"), ("AS-3", "Asana · Mobile", "todo")]);
+    }
+
+    #[test]
+    fn trello_auth_stays_out_of_urls() {
+        let mut conf = TrelloConf { api_key: "k1".into(), ..Default::default() };
+        let r = trello_req(&conf, "t1", reqwest::Method::GET, "/members/me?fields=fullName").build().unwrap();
+        assert_eq!(r.url().as_str(), "https://api.trello.com/1/members/me?fields=fullName");
+        assert_eq!(r.headers()["authorization"], r#"OAuth oauth_consumer_key="k1", oauth_token="t1""#);
+        conf.oauth = true;
+        let r = trello_req(&conf, "t2", reqwest::Method::GET, "/members/me").build().unwrap();
+        assert_eq!(r.url().as_str(), "https://trello.com/1/members/me");
+        assert_eq!(r.headers()["authorization"], "Bearer t2");
     }
 
     #[tokio::test]

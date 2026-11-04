@@ -8,12 +8,12 @@ import { Loading } from "../components/ui";
 import { useKeys } from "../lib/keys";
 import { useNav } from "../lib/nav";
 import { useStored } from "../lib/stored";
-import { DictationKeys, GitHosts, JiraConnections, PhoneCard, ThemeChoices } from "./Settings";
+import { DictationKeys, GitHosts, PhoneCard, ThemeChoices, TicketConnections } from "./Settings";
 
 /** How a step moves on; no `back` on the first one. `name`: the profile being set up, when not the first launch's. */
 type Steps = { back?: () => void; next: () => void; name?: string };
 
-const STEPS = [ThemeStep, ProfileStep, AiStep, GitHostStep, JiraStep, ExtrasStep];
+const STEPS = [ThemeStep, ProfileStep, AiStep, GitHostStep, TicketsStep, ExtrasStep];
 
 /**
  * First launch, and each fresh profile: theme, profile, AI, Git host, Jira, extras, each skippable.
@@ -184,15 +184,16 @@ function AiRow({ p, main, onPick }: { p: AiCatalog["providers"][number]; main: b
   );
 }
 
-function JiraStep(s: Steps) {
+function TicketsStep(s: Steps) {
   const cfg = useConfig().data!;
+  const i = cfg.integrations;
   return (
     <>
-      <Head title="Connect Jira">Your tickets show in Tickets, linked to their branch and release. Trello and Asana are in Settings.</Head>
+      <Head title="Connect Jira, Trello or Asana">Your tickets show in Tickets, linked to their branch and release.</Head>
       <div className="col" style={{ gap: 12 }}>
-        <JiraConnections cfg={cfg} />
+        <TicketConnections cfg={cfg} />
       </div>
-      <Foot {...s} entered={cfg.integrations.jira.length > 0} onNext={s.next} />
+      <Foot {...s} entered={i.jira.length + i.trello.length + i.asana.length > 0} onNext={s.next} />
     </>
   );
 }

@@ -410,8 +410,13 @@ fn one_or_many<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(d: D) -> s
 #[serde(default, rename_all = "camelCase")]
 pub struct TrelloConf {
     pub id: String,
+    /// Unused when signed in with Trello.
     pub api_key: String,
-    pub board_id: Option<String>,
+    /// Boards to show the cards of; empty = the cards assigned to me. Older configs held one `boardId`.
+    #[serde(alias = "boardId", deserialize_with = "one_or_many")]
+    pub boards: Vec<String>,
+    /// Signed in with Trello (OAuth): the keychain holds its tokens, not one pasted with `api_key`.
+    pub oauth: bool,
     /// Gitnetix projects whose Tickets screen shows it; empty = all.
     pub repos: Vec<String>,
 }
@@ -421,7 +426,11 @@ pub struct TrelloConf {
 pub struct AsanaConf {
     pub id: String,
     pub workspace_gid: String,
-    pub project_gid: Option<String>,
+    /// Projects to show the tasks of; empty = the tasks assigned to me. Older configs held one `projectGid`.
+    #[serde(alias = "projectGid", deserialize_with = "one_or_many")]
+    pub projects: Vec<String>,
+    /// Signed in with Asana (OAuth): the keychain holds its tokens, not a personal access token.
+    pub oauth: bool,
     /// Gitnetix projects whose Tickets screen shows it; empty = all.
     pub repos: Vec<String>,
 }
@@ -932,6 +941,11 @@ mod tests {
         let i: super::Integrations = serde_json::from_str(r#"{"trello":{"apiKey":"k"},"asana":null}"#).unwrap();
         assert_eq!(i.trello[0].secret(), "trello");
         assert!(i.asana.is_empty());
+        // One board or project per connection, before there could be several.
+        let i: super::Integrations = serde_json::from_str(r#"{"trello":[{"boardId":"b1"},{"boardId":null},{"boards":["b2","b3"]}],"asana":[{"projectGid":"p1"}]}"#).unwrap();
+        assert_eq!(i.trello.iter().map(|t| t.boards.len()).collect::<Vec<_>>(), [1, 0, 2]);
+        assert_eq!(i.asana[0].projects, ["p1"]);
+        assert!(serde_json::to_string(&i.trello[0]).unwrap().contains(r#""boards":["b1"]"#));
         let i: super::Integrations = serde_json::from_str(r#"{"jira":{"baseUrl":"https://a.atlassian.net","email":"e"}}"#).unwrap();
         assert_eq!(i.jira.len(), 1);
         assert_eq!(i.jira[0].secret(), "jira");

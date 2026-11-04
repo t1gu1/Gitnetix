@@ -13,7 +13,7 @@ use crate::store::{upsert, ConnectMethod, Connection, GitProfile, HostConf, Jira
 use crate::templates::{self, Template};
 use crate::providers::github_auth::{self, Poll};
 use crate::providers::{azure_auth, bitbucket::{self, Bitbucket}, gitea::Gitea, gitlab::{self, GitLab}, oauth, RepoRef};
-use crate::tickets::jira_auth;
+use crate::tickets::{jira_auth, oauth as ticket_oauth};
 use crate::{ai, secrets};
 
 /// (method, description, params) — also the MCP tool list.
@@ -161,6 +161,13 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("jira.projects", "The Jira projects a connection can see", "id"),
     ("jira.signInStart", "Start \"Sign in with Atlassian\": the URL to open in the browser", ""),
     ("jira.signInFinish", "Wait for the browser sign-in to finish; done = Jira connected", ""),
+    ("integrations.checkTrello", "Sign in to a Trello connection with its saved token: the user's name and open boards, or an error", "id"),
+    ("trello.signInStart", "Start \"Sign in with Trello\": the URL to open in the browser", ""),
+    ("trello.signInFinish", "Wait for the browser sign-in to finish; done = a Trello connection added", ""),
+    ("integrations.checkAsana", "Sign in to an Asana connection with its saved token: the user's name and workspaces, or an error", "id"),
+    ("asana.projects", "The active projects of an Asana workspace, by default the connection's", "id, workspace?"),
+    ("asana.signInStart", "Start \"Sign in with Asana\": the URL to open in the browser", ""),
+    ("asana.signInFinish", "Wait for the browser sign-in to finish; done = an Asana connection added, on the account's first workspace", ""),
     ("github.repos", "Repositories of the linked GitHub account, last pushed first: { fullName, description, private, cloneUrl, sshUrl }", ""),
     ("git.saveLogin", "Save the HTTPS login git signs in to a host with (token = password or access token), in the keychain; the next fetch or push to that host uses it", "host, username, token"),
     ("github.signInStart", "Start \"Sign in with GitHub\": a code for the user to enter at verificationUri", ""),
@@ -268,6 +275,21 @@ fn to<T: serde::Serialize>(t: T) -> Result<Value> {
 fn jira_conn(k: &Gitnetix, p: &Value) -> Result<JiraConf> {
     let id = os(p, "id").unwrap_or_default();
     k.store.read(|c| c.integrations.jira.iter().find(|j| j.id == id).cloned()).ok_or_else(|| Error::NotConnected("Jira".into()))
+}
+
+fn trello_conn(k: &Gitnetix, p: &Value) -> Result<TrelloConf> {
+    let id = os(p, "id").unwrap_or_default();
+    k.store.read(|c| c.integrations.trello.iter().find(|t| t.id == id).cloned()).ok_or_else(|| Error::NotConnected("Trello".into()))
+}
+
+fn asana_conn(k: &Gitnetix, p: &Value) -> Result<AsanaConf> {
+    let id = os(p, "id").unwrap_or_default();
+    k.store.read(|c| c.integrations.asana.iter().find(|a| a.id == id).cloned()).ok_or_else(|| Error::NotConnected("Asana".into()))
+}
+
+/// The account's first workspace: tasks are listed per workspace, so a connection needs one until the user picks another.
+fn first_workspace(me: &Value) -> Result<String> {
+    me["workspaces"][0]["id"].as_str().map(String::from).ok_or_else(|| Error::Invalid("this Asana account has no workspace".into()))
 }
 
 /// The Atlassian sign-in is shared by every OAuth connection; drop it once none is left.
@@ -1144,27 +1166,38 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
                     cfg["id"] = new_id().into();
                 }
                 let id = os(&cfg, "id").unwrap_or_default();
-                let secret = if kind == "trello" {
+                // Only a browser sign-in sets this: a pasted token replaces it, else it stays as saved.
+                let signed_in = token.is_none()
+                    && k.store.read(|c| if kind == "trello" { c.integrations.trello.iter().any(|t| t.id == id && t.oauth) } else { c.integrations.asana.iter().any(|a| a.id == id && a.oauth) });
+                cfg["oauth"] = signed_in.into();
+                // Sign in before saving, so "Connected" means the tracker accepted the token.
+                let mut user = Value::Null;
+                if kind == "trello" {
                     let conf = serde_json::from_value::<TrelloConf>(cfg)?;
-                    let secret = conf.secret();
+                    if let Some(t) = &token {
+                        user = crate::tickets::trello_account(&conf, t).await?["user"].take();
+                        secrets::set(&conf.secret(), t)?;
+                    }
                     k.store.write(|c| {
                         upsert(&mut c.integrations.trello, conf.clone());
                         Ok(())
                     })?;
-                    secret
                 } else {
-                    let conf = serde_json::from_value::<AsanaConf>(cfg)?;
-                    let secret = conf.secret();
+                    let mut conf = serde_json::from_value::<AsanaConf>(cfg)?;
+                    if let Some(t) = &token {
+                        let mut me = crate::tickets::asana_me(t).await?;
+                        if conf.workspace_gid.is_empty() {
+                            conf.workspace_gid = first_workspace(&me)?;
+                        }
+                        user = me["user"].take();
+                        secrets::set(&conf.secret(), t)?;
+                    }
                     k.store.write(|c| {
                         upsert(&mut c.integrations.asana, conf.clone());
                         Ok(())
                     })?;
-                    secret
-                };
-                if let Some(t) = &token {
-                    secrets::set(&secret, t)?;
                 }
-                return to(json!({ "ok": true, "id": id }));
+                return to(json!({ "ok": true, "id": id, "user": user }));
             }
             if matches!(kind.as_str(), "gitlab" | "bitbucket" | "gitea") {
                 let pat = token.ok_or_else(|| Error::Invalid("missing `token`".into()))?;
@@ -1249,6 +1282,44 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
                 Ok(())
             })?;
             to(json!({ "id": conf.id, "user": me["displayName"] }))
+        }
+        "integrations.checkTrello" => {
+            let conf = trello_conn(k, &p)?;
+            to(crate::tickets::trello_account(&conf, &crate::tickets::trello_token(&conf).await?).await?)
+        }
+        "trello.signInStart" => to(json!({ "url": ticket_oauth::start(&ticket_oauth::TRELLO).await? })),
+        "trello.signInFinish" => {
+            let v = ticket_oauth::finish(&ticket_oauth::TRELLO).await?;
+            let conf = TrelloConf { id: new_id(), oauth: true, ..Default::default() };
+            // Checked before saving, so a sign-in Trello then refuses leaves nothing behind.
+            let me = crate::tickets::trello_account(&conf, v["access_token"].as_str().unwrap_or("")).await?;
+            ticket_oauth::save(&conf.secret(), &v, None)?;
+            k.store.write(|c| {
+                upsert(&mut c.integrations.trello, conf.clone());
+                Ok(())
+            })?;
+            to(json!({ "id": conf.id, "user": me["user"] }))
+        }
+        "integrations.checkAsana" => {
+            let conf = asana_conn(k, &p)?;
+            to(crate::tickets::asana_me(&crate::tickets::asana_token(&conf).await?).await?)
+        }
+        "asana.projects" => {
+            let conf = asana_conn(k, &p)?;
+            let workspace = os(&p, "workspace").filter(|w| !w.is_empty()).unwrap_or_else(|| conf.workspace_gid.clone());
+            to(crate::tickets::asana_projects(&crate::tickets::asana_token(&conf).await?, &workspace).await?)
+        }
+        "asana.signInStart" => to(json!({ "url": ticket_oauth::start(&ticket_oauth::ASANA).await? })),
+        "asana.signInFinish" => {
+            let v = ticket_oauth::finish(&ticket_oauth::ASANA).await?;
+            let me = crate::tickets::asana_me(v["access_token"].as_str().unwrap_or("")).await?;
+            let conf = AsanaConf { id: new_id(), workspace_gid: first_workspace(&me)?, oauth: true, ..Default::default() };
+            ticket_oauth::save(&conf.secret(), &v, None)?;
+            k.store.write(|c| {
+                upsert(&mut c.integrations.asana, conf.clone());
+                Ok(())
+            })?;
+            to(json!({ "id": conf.id, "user": me["user"] }))
         }
         "github.repos" => to(k.github_repos().await?),
         "git.saveLogin" => {

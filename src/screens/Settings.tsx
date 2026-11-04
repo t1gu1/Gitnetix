@@ -1,11 +1,12 @@
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 
 import { useAction, useConfig } from "../api/hooks";
 import { renderSVG } from "uqr";
 
 import { allowFirewall, companionInfo, isLocal, openExternal, rpc, type CompanionInfo } from "../api/transport";
 import type { Config, JiraConn } from "../api/types";
+import { MenuChoice } from "../components/AgentPicker";
 import { Icon } from "../components/Icon";
 import { useTermDefault } from "../components/Shell";
 import { Confirm, Seg } from "../components/ui";
@@ -662,9 +663,9 @@ function HostRow({ kind, cfg }: { kind: keyof typeof HOSTS; cfg: Config }) {
   );
 }
 
-/** Browser sign-in: the host (Atlassian, Bitbucket, Gitea) redirects back to a listener the app opens on this computer.
+/** Browser sign-in: the host (Atlassian, Trello, Asana, Bitbucket, Gitea) redirects back to a listener the app opens on this computer.
  * `keys`: queries to refetch once signed in; `params`: a Gitea server and OAuth app. */
-function BrowserSignIn({ method, label, name, keys, params, onDone }: { method: "jira" | "bitbucket" | "gitea"; label: string; name: string; keys: string[]; params?: Record<string, string>; onDone?: () => void }) {
+function BrowserSignIn({ method, label, name, keys, params, onDone }: { method: "jira" | "trello" | "asana" | "bitbucket" | "gitea"; label: string; name: string; keys: string[]; params?: Record<string, string>; onDone?: () => void }) {
   const qc = useQueryClient();
   const [waiting, setWaiting] = useState(false);
   const attempt = useRef(0);
@@ -804,15 +805,7 @@ function JiraConnection({ cfg, conn, onDone }: { cfg: Config; conn?: JiraConn; o
       <div className="row">
         <span className="col grow" style={{ gap: 2 }}>
           <span style={{ fontWeight: 500 }}>{conn ? `Jira Cloud · ${site}` : "New Jira connection"}</span>
-          {!conn ? (
-            <span className="faint" style={{ fontSize: 12 }}>Not connected</span>
-          ) : auth.isPending ? (
-            <span className="faint" style={{ fontSize: 12 }}>Checking…</span>
-          ) : auth.isError ? (
-            <span className="c-del" style={{ fontSize: 12 }}>Not signed in · {auth.error.message}</span>
-          ) : (
-            <span className="c-add" style={{ fontSize: 12 }}>{auth.data?.user ? `Connected as ${auth.data.user}` : "Connected"}</span>
-          )}
+          <ConnStatus auth={conn ? auth : undefined} />
         </span>
         {conn ? (
           <button type="button" className="btn" onClick={() => disc.mutate({ kind: "jira", id: conn.id })}>Disconnect</button>
@@ -863,52 +856,124 @@ function JiraConnection({ cfg, conn, onDone }: { cfg: Config; conn?: JiraConn; o
   );
 }
 
-type Field = { key: string; label: string; hint?: string; optional?: boolean };
-type Kind = { kind: "trello" | "asana"; title: string; token: string; fields: Field[]; name: (c: Record<string, unknown>) => string };
+/** A saved connection's state, from its check: the saved token may have expired or been revoked since. */
+function ConnStatus({ auth }: { auth?: UseQueryResult<{ user?: string | null }> }) {
+  const line = (cls: string, text: string) => <span className={cls} style={{ fontSize: 12 }}>{text}</span>;
+  if (!auth) return line("faint", "Not connected");
+  if (auth.isPending) return line("faint", "Checking…");
+  if (auth.isError) return line("c-del", `Not signed in · ${auth.error.message}`);
+  return line("c-add", auth.data?.user ? `Connected as ${auth.data.user}` : "Connected");
+}
+
+type Place = { id: string; name: string };
+/** A Trello or Asana connection's check: who is signed in, and the boards or workspaces to pick from. */
+type Account = { user?: string | null; boards?: Place[]; workspaces?: Place[] };
+type TrackerConn = { id: string; repos: string[]; oauth?: boolean } & Record<string, unknown>;
+type Field = { key: string; label: string; hint?: string };
+type Kind = {
+  kind: "trello" | "asana";
+  title: string;
+  /** What signing in can be replaced with. */
+  tokenName: string;
+  token: string;
+  tokenHint: string;
+  /** Asked with the token. */
+  fields: Field[];
+  /** Config keys the pickers set once the account is known, with their empty values. */
+  place: Record<string, string | string[]>;
+  name: (c: TrackerConn, a?: Account) => string;
+};
 const TRELLO: Kind = {
   kind: "trello",
   title: "Trello",
+  tokenName: "an API key and token",
   token: "Token",
-  fields: [
-    { key: "apiKey", label: "API key", hint: "trello.com/power-ups/admin › your Power-Up › API key" },
-    { key: "boardId", label: "Board id (optional)", hint: "Empty = cards assigned to you", optional: true },
-  ],
-  name: (c) => (c.boardId ? `board ${c.boardId}` : "my cards"),
+  tokenHint: "From the Token link next to the API key",
+  fields: [{ key: "apiKey", label: "API key", hint: "trello.com/power-ups/admin › your Power-Up › API key" }],
+  place: { boards: [] },
+  name: (c, a) => {
+    const ids = (c.boards as string[] | undefined) ?? [];
+    if (ids.length > 1) return `${ids.length} boards`;
+    return ids.length ? (a?.boards?.find((b) => b.id === ids[0])?.name ?? "1 board") : "My cards";
+  },
 };
 const ASANA: Kind = {
   kind: "asana",
   title: "Asana",
+  tokenName: "a personal access token",
   token: "Personal access token",
-  fields: [
-    { key: "workspaceGid", label: "Workspace gid" },
-    { key: "projectGid", label: "Project gid (optional)", hint: "Empty = tasks assigned to you", optional: true },
-  ],
-  name: (c) => (c.projectGid ? `project ${c.projectGid}` : "my tasks"),
+  tokenHint: "Create one at app.asana.com/0/my-apps",
+  fields: [],
+  place: { workspaceGid: "", projects: [] },
+  name: (c, a) => a?.workspaces?.find((w) => w.id === c.workspaceGid)?.name ?? `workspace ${c.workspaceGid}`,
 };
 
-/** One Trello or Asana connection, or the form adding a new one when `conn` is missing. */
-function TokenConnection({ cfg, k, conn, onDone }: { cfg: Config; k: Kind; conn?: { id: string; repos: string[] } & Record<string, unknown>; onDone?: () => void }) {
-  const save = useAction("integrations.save", { invalidate: [["config"], ["tickets"]], success: conn ? "Saved" : `${k.title} connected` });
+type Places = Record<string, string | string[]>;
+
+/** The Asana workspace, then which of its projects to show tasks from. */
+function AsanaPlaces({ conn, uid, workspaces, place, setPlace }: { conn: TrackerConn; uid: string; workspaces: Place[]; place: Places; setPlace: (p: Places) => void }) {
+  const ws = place.workspaceGid as string;
+  const projects = useQuery({
+    queryKey: ["asanaProjects", conn.id, ws],
+    queryFn: () => rpc<Place[]>("asana.projects", { id: conn.id, workspace: ws }),
+    staleTime: 5 * 60_000,
+  });
+  return (
+    <>
+      <div className="field">
+        <label htmlFor={`${uid}-ws`}>Workspace</label>
+        <MenuChoice id={`${uid}-ws`} className="select menu-select" label="Workspace" value={ws} options={workspaces.map((w) => ({ value: w.id, label: w.name }))} onChange={(v) => setPlace({ ...place, workspaceGid: v, projects: [] })} />
+      </div>
+      {projects.data ? (
+        <Checks
+          label="Asana projects"
+          hint="None ticked = the tasks assigned to you in this workspace."
+          options={projects.data.map((p) => ({ value: p.id, label: p.name }))}
+          value={place.projects as string[]}
+          onChange={(v) => setPlace({ ...place, projects: v })}
+        />
+      ) : projects.isError ? (
+        <span className="c-del" style={{ fontSize: 12 }}>{projects.error.message}</span>
+      ) : (
+        <span className="faint" style={{ fontSize: 12 }}>Loading Asana projects…</span>
+      )}
+    </>
+  );
+}
+
+/** One Trello or Asana connection, or the form adding a new one when `conn` is missing: signed in in the browser like Jira, or with a token. */
+function TrackerConnection({ cfg, k, conn, onDone }: { cfg: Config; k: Kind; conn?: TrackerConn; onDone?: () => void }) {
+  const save = useAction<{ user?: string | null }>("integrations.save", { invalidate: [["config"], ["tickets"], [`${k.kind}Auth`]], success: (r) => (r.user ? `Connected as ${r.user}` : "Saved") });
   const disc = useAction("integrations.disconnect", { invalidate: [["config"], ["tickets"]] });
+  const auth = useQuery({
+    queryKey: [`${k.kind}Auth`, conn?.id],
+    queryFn: () => rpc<Account>(`integrations.check${k.title}`, { id: conn!.id }),
+    enabled: !!conn,
+    retry: false,
+    staleTime: 60_000,
+  });
   const [f, setF] = useState<Record<string, string>>(() => Object.fromEntries(k.fields.map((x) => [x.key, String(conn?.[x.key] ?? "")])));
+  const [place, setPlace] = useState<Places>(() => Object.fromEntries(Object.entries(k.place).map(([key, empty]) => [key, (conn?.[key] as string | string[] | undefined) ?? empty])));
   const [token, setToken] = useState("");
   const [repos, setRepos] = useState(conn?.repos ?? []);
+  const oauth = !!conn?.oauth;
+  const [tokenMode, setTokenMode] = useState(!!conn && !oauth);
   const uid = `${k.kind}-${conn?.id ?? "new"}`;
-  const canSave = k.fields.every((x) => x.optional || f[x.key]) && (!!token || !!conn);
+  const canSave = tokenMode ? k.fields.every((x) => f[x.key]) && (!!token || (!!conn && !oauth)) : !!conn;
   return (
     <form
       className="col card"
       style={{ padding: 16, gap: 12 }}
       onSubmit={(e) => {
         e.preventDefault();
-        const config = { id: conn?.id ?? null, repos, ...Object.fromEntries(k.fields.map((x) => [x.key, f[x.key] || (x.optional ? null : "")])) };
-        save.mutate({ kind: k.kind, token, config }, { onSuccess: () => onDone?.() });
+        // No token keeps the saved one, or the sign-in.
+        save.mutate({ kind: k.kind, token: tokenMode ? token : undefined, config: { id: conn?.id ?? null, repos, ...f, ...place } }, { onSuccess: () => onDone?.() });
       }}
     >
       <div className="row">
         <span className="col grow" style={{ gap: 2 }}>
-          <span style={{ fontWeight: 500 }}>{conn ? `${k.title} · ${k.name(conn)}` : `New ${k.title} connection`}</span>
-          <span className={conn ? "c-add" : "faint"} style={{ fontSize: 12 }}>{conn ? "Connected" : "Not connected"}</span>
+          <span style={{ fontWeight: 500 }}>{conn ? `${k.title} · ${k.name(conn, auth.data)}` : `New ${k.title} connection`}</span>
+          <ConnStatus auth={conn ? auth : undefined} />
         </span>
         {conn ? (
           <button type="button" className="btn" onClick={() => disc.mutate({ kind: k.kind, id: conn.id })}>Disconnect</button>
@@ -916,16 +981,41 @@ function TokenConnection({ cfg, k, conn, onDone }: { cfg: Config; k: Kind; conn?
           onDone && <button type="button" className="btn" onClick={onDone}>Cancel</button>
         )}
       </div>
-      {k.fields.map((x, i) => (
-        <Fragment key={x.key}>
-          {input(`${uid}-${x.key}`, x.label, f[x.key], (v) => setF({ ...f, [x.key]: v }), { hint: x.hint })}
-          {i === 0 && input(`${uid}-token`, k.token, token, setToken, { type: "password", hint: conn ? "Empty = keep the saved one" : undefined })}
-        </Fragment>
-      ))}
-      <RepoChecks cfg={cfg} value={repos} onChange={setRepos} />
-      <div>
-        <button className="btn btn-primary" disabled={!canSave || save.isPending}>{conn ? "Save" : "Connect"}</button>
-      </div>
+      {!conn && !tokenMode && <BrowserSignIn method={k.kind} label={`Sign in with ${k.title}`} name={k.title} keys={["config", "tickets", `${k.kind}Auth`]} onDone={onDone} />}
+      {tokenMode && (
+        <>
+          {k.fields.map((x) => (
+            <Fragment key={x.key}>{input(`${uid}-${x.key}`, x.label, f[x.key], (v) => setF({ ...f, [x.key]: v }), { hint: x.hint })}</Fragment>
+          ))}
+          {input(`${uid}-token`, k.token, token, setToken, { type: "password", hint: conn && !oauth ? "Empty = keep the saved one" : k.tokenHint })}
+        </>
+      )}
+      {conn &&
+        auth.data &&
+        (k.kind === "trello" ? (
+          <Checks
+            label="Trello boards"
+            hint="None ticked = the cards assigned to you, on every board."
+            options={(auth.data.boards ?? []).map((b) => ({ value: b.id, label: b.name }))}
+            value={place.boards as string[]}
+            onChange={(v) => setPlace({ ...place, boards: v })}
+          />
+        ) : (
+          <AsanaPlaces conn={conn} uid={uid} workspaces={auth.data.workspaces ?? []} place={place} setPlace={setPlace} />
+        ))}
+      {(conn || tokenMode) && <RepoChecks cfg={cfg} value={repos} onChange={setRepos} />}
+      {!tokenMode && (
+        <div>
+          <button type="button" className="btn btn-sm" onClick={() => setTokenMode(true)}>
+            {oauth ? `Replace with ${k.tokenName}` : `Use ${k.tokenName} instead`}
+          </button>
+        </div>
+      )}
+      {(conn || tokenMode) && (
+        <div>
+          <button className="btn btn-primary" disabled={!canSave || save.isPending}>{conn ? "Save" : "Connect"}</button>
+        </div>
+      )}
     </form>
   );
 }
@@ -951,22 +1041,26 @@ function ConnectionList<T extends { id: string }>({ items, add, row }: { items: 
   );
 }
 
-/** The Jira connections, then the form adding one. Also a step of the first-run setup. */
-export function JiraConnections({ cfg }: { cfg: Config }) {
-  return <ConnectionList items={cfg.integrations.jira} add="Add a Jira connection" row={(c, onDone) => <JiraConnection cfg={cfg} conn={c} onDone={onDone} />} />;
+/** The Jira, Trello and Asana connections, each kind followed by the form adding one. Also a step of the first-run setup. */
+export function TicketConnections({ cfg }: { cfg: Config }) {
+  const i = cfg.integrations;
+  return (
+    <>
+      <ConnectionList items={i.jira} add="Add a Jira connection" row={(c, onDone) => <JiraConnection cfg={cfg} conn={c} onDone={onDone} />} />
+      <ConnectionList items={i.trello} add="Add a Trello connection" row={(c, onDone) => <TrackerConnection cfg={cfg} k={TRELLO} conn={c} onDone={onDone} />} />
+      <ConnectionList items={i.asana} add="Add an Asana connection" row={(c, onDone) => <TrackerConnection cfg={cfg} k={ASANA} conn={c} onDone={onDone} />} />
+    </>
+  );
 }
 
 function Integrations({ cfg }: { cfg: Config }) {
-  const i = cfg.integrations;
   return (
     <>
       <div className="col page-intro" style={{ gap: 6 }}>
         <h1>Jira, Trello, Asana</h1>
         <p className="muted" style={{ margin: 0 }}>Tickets show in Tickets, linked to their branch and release. Tokens go to your OS keychain.</p>
       </div>
-      <JiraConnections cfg={cfg} />
-      <ConnectionList items={i.trello} add="Add a Trello connection" row={(c, onDone) => <TokenConnection cfg={cfg} k={TRELLO} conn={c} onDone={onDone} />} />
-      <ConnectionList items={i.asana} add="Add an Asana connection" row={(c, onDone) => <TokenConnection cfg={cfg} k={ASANA} conn={c} onDone={onDone} />} />
+      <TicketConnections cfg={cfg} />
     </>
   );
 }

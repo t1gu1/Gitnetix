@@ -662,7 +662,7 @@ struct Scene {
 
 /// Start the part after the prefix with the ticket key and an underscore (`feat/ATL-212_login`).
 /// A key already there (`feat/atl-212-login`) is replaced rather than repeated. Characters a branch
-/// can't hold are dropped from the key, so Trello's `#12` becomes `12`.
+/// can't hold are dropped from the key, so Trello's `#aB3dE9fG` becomes `aB3dE9fG`.
 fn with_ticket(branch: &str, ticket: &str) -> String {
     let t: String = ticket.trim().replace(char::is_whitespace, "-").chars().filter(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.')).collect();
     let t = t.trim_matches(|c| matches!(c, '-' | '_' | '.'));
@@ -966,6 +966,30 @@ fn link_ticket(p: &mut Project, branch: &str, ticket: &str) {
     if let Some(r) = meta.release.clone() {
         p.ticket_releases.insert(ticket.to_string(), r);
     }
+}
+
+/// Moves the releases and branch links saved under Trello's old card keys to the keys that replaced
+/// them; `moves` holds (old key, new key) per card, in list order. Cards of different boards could
+/// share an old key: each of them stays planned and the branch stays on the first, as they showed.
+/// Whether anything moved.
+fn move_ticket_keys(p: &mut Project, moves: &[(String, String)]) -> bool {
+    let mut moved = false;
+    for (old, new) in moves {
+        if let Some(r) = p.ticket_releases.get(old).cloned() {
+            p.ticket_releases.entry(new.clone()).or_insert(r);
+            moved = true;
+        }
+    }
+    for (old, _) in moves {
+        p.ticket_releases.remove(old);
+    }
+    for m in p.branches.values_mut() {
+        if let Some((_, new)) = moves.iter().find(|(old, _)| m.ticket.as_ref() == Some(old)) {
+            m.ticket = Some(new.clone());
+            moved = true;
+        }
+    }
+    moved
 }
 
 /// A pair of commit counts per branch.
@@ -5299,17 +5323,12 @@ impl Gitnetix {
     /// `mine`: only Jira tickets assigned to the user (Trello and Asana ones are always theirs).
     /// `sprint`: only Jira tickets in an open sprint; Trello and Asana have no sprints, so none of theirs.
     pub async fn tickets(&self, project_id: &str, mine: bool, sprint: bool) -> Result<Vec<TicketView>> {
-        let p = self.store.project(project_id)?;
+        let mut p = self.store.project(project_id)?;
         let integ = self.store.read(|c| c.integrations.clone());
         // Sprint is on by default; without Jira it would hide every ticket.
         let sprint = sprint && integ.jira.iter().any(|j| crate::store::shows_in(&j.repos, project_id));
         // One source failing (missing token, keychain refusal, HTTP error)
         // must not hide tickets from the others.
-        let token = |name: String, label: &str| match secrets::get(&name) {
-            Ok(Some(tok)) => Ok(tok),
-            Ok(None) => Err(format!("{label} token missing")),
-            Err(e) => Err(format!("{label}: {e}")),
-        };
         // Each with the projects its connection shows in.
         let mut results: Vec<(&[String], std::result::Result<Vec<Ticket>, String>)> = Vec::new();
         for j in integ.jira.iter().filter(|j| crate::store::shows_in(&j.repos, project_id)) {
@@ -5319,15 +5338,15 @@ impl Gitnetix {
             }));
         }
         for t in integ.trello.iter().filter(|t| !sprint && crate::store::shows_in(&t.repos, project_id)) {
-            results.push((&t.repos, match token(t.secret(), "Trello") {
+            results.push((&t.repos, match tickets::trello_token(t).await {
                 Ok(tok) => tickets::trello(t, &tok).await.map_err(|e| e.to_string()),
-                Err(e) => Err(e),
+                Err(e) => Err(e.to_string()),
             }));
         }
         for a in integ.asana.iter().filter(|a| !sprint && crate::store::shows_in(&a.repos, project_id)) {
-            results.push((&a.repos, match token(a.secret(), "Asana") {
+            results.push((&a.repos, match tickets::asana_token(a).await {
                 Ok(tok) => tickets::asana(a, &tok).await.map_err(|e| e.to_string()),
-                Err(e) => Err(e),
+                Err(e) => Err(e.to_string()),
             }));
         }
         let mut all: Vec<(Ticket, &[String])> = Vec::new();
@@ -5341,6 +5360,15 @@ impl Gitnetix {
         if all.is_empty() && !errors.is_empty() {
             // Each message already carries its own "http error:" prefix.
             return Err(Error::Other(errors.join(" · ")));
+        }
+        // Only this project's links move: another project's old key can name a card of a connection not listed here.
+        let moves: Vec<(String, String)> = all.iter().filter_map(|(t, _)| t.old_key.clone().filter(|o| *o != t.key).map(|o| (o, t.key.clone()))).collect();
+        if move_ticket_keys(&mut p, &moves) {
+            self.store.with_project(project_id, |sp| {
+                move_ticket_keys(sp, &moves);
+                Ok(())
+            })?;
+            self.changed(project_id);
         }
         // A ticket's branch: one made for it, or one with its key in the name (feat/ATL-212_login),
         // looked for in this project first, then in the other projects its connection shows in.
@@ -5390,7 +5418,7 @@ impl Gitnetix {
     }
 
     /// Ticket `key` from the connections this project shows: Jira asked for it directly, so a done
-    /// or unassigned ticket is found too; Trello and Asana looked up in their lists.
+    /// or unassigned ticket is found too; Trello and Asana looked up in their lists, a Trello card also by its old key.
     pub async fn ticket(&self, project_id: &str, key: &str) -> Result<Option<Ticket>> {
         let integ = self.store.read(|c| c.integrations.clone());
         let on = |repos: &[String]| crate::store::shows_in(repos, project_id);
@@ -5410,16 +5438,15 @@ impl Gitnetix {
                 }
             }
         }
-        let token = |name: String| secrets::get(&name).and_then(|t| t.ok_or_else(|| Error::Other(format!("{name} token missing"))));
         let mut lists = Vec::new();
         for t in integ.trello.iter().filter(|t| on(&t.repos)) {
-            lists.push(match token(t.secret()) {
+            lists.push(match tickets::trello_token(t).await {
                 Ok(tok) => tickets::trello(t, &tok).await,
                 Err(e) => Err(e),
             });
         }
         for a in integ.asana.iter().filter(|a| on(&a.repos)) {
-            lists.push(match token(a.secret()) {
+            lists.push(match tickets::asana_token(a).await {
                 Ok(tok) => tickets::asana(a, &tok).await,
                 Err(e) => Err(e),
             });
@@ -5427,7 +5454,7 @@ impl Gitnetix {
         for l in lists {
             match l {
                 Ok(v) => {
-                    if let Some(t) = v.into_iter().find(|t| t.key.eq_ignore_ascii_case(key.trim())) {
+                    if let Some(t) = v.into_iter().find(|t| t.key.eq_ignore_ascii_case(key.trim()) || t.old_key.as_deref() == Some(key.trim())) {
                         return Ok(Some(t));
                     }
                 }
@@ -5488,7 +5515,7 @@ impl Gitnetix {
             }
             "trello" => {
                 let t = integ.trello.iter().find(|t| t.id == conn).ok_or_else(missing)?;
-                let tok = secrets::require(&t.secret(), "Trello token missing")?;
+                let tok = tickets::trello_token(t).await?;
                 match to {
                     Some(to) => tickets::trello_set_status(t, &tok, id, to).await.map(|_| vec![]),
                     None => tickets::trello_statuses(t, &tok, id).await,
@@ -5496,7 +5523,7 @@ impl Gitnetix {
             }
             "asana" => {
                 let a = integ.asana.iter().find(|a| a.id == conn).ok_or_else(missing)?;
-                let tok = secrets::require(&a.secret(), "Asana token missing")?;
+                let tok = tickets::asana_token(a).await?;
                 match to {
                     Some(to) => tickets::asana_set_status(&tok, id, to).await.map(|_| vec![]),
                     None => tickets::asana_statuses(&tok, id).await,
@@ -6003,6 +6030,23 @@ mod tests {
     }
 
     #[test]
+    fn trello_links_move_to_the_short_link_keys() {
+        let mut p = Project::default();
+        p.ticket_releases.insert("#12".into(), "1.2.0".into());
+        p.ticket_releases.insert("ATL-7".into(), "1.3.0".into());
+        p.branches.insert("feat/a".into(), BranchMeta { ticket: Some("#12".into()), ..Default::default() });
+        p.branches.insert("feat/b".into(), BranchMeta { ticket: Some("ATL-7".into()), ..Default::default() });
+        // `#12` on two boards: both stay planned, the branch stays on the first.
+        let moves = [("#12".to_string(), "#Rk3u9QaP".to_string()), ("#12".into(), "#Zz81mNbc".into()), ("#4".into(), "#Lq0dXv2e".into())];
+        assert!(move_ticket_keys(&mut p, &moves));
+        let releases: Vec<_> = p.ticket_releases.iter().map(|(k, r)| (k.as_str(), r.as_str())).collect();
+        assert_eq!(releases, [("#Rk3u9QaP", "1.2.0"), ("#Zz81mNbc", "1.2.0"), ("ATL-7", "1.3.0")]);
+        assert_eq!(p.branches["feat/a"].ticket.as_deref(), Some("#Rk3u9QaP"));
+        assert_eq!(p.branches["feat/b"].ticket.as_deref(), Some("ATL-7"));
+        assert!(!move_ticket_keys(&mut p, &moves), "nothing left to move the second time");
+    }
+
+    #[test]
     fn new_item_takes_the_agent_pick() {
         let req: NewItem = serde_json::from_value(serde_json::json!({ "from": "dev", "startAgent": true, "provider": "codex", "effort": "high" })).unwrap();
         assert_eq!(req.from.as_deref(), Some("dev"));
@@ -6288,6 +6332,7 @@ mod tests {
         assert_eq!(with_ticket("feat/login", ""), "feat/login");
         assert_eq!(with_ticket("feat/atl-212", "ATL-212"), "feat/ATL-212");
         assert_eq!(with_ticket("feat/login", "#12"), "feat/12_login");
+        assert_eq!(with_ticket("feat/login", "#aB3dE9fG"), "feat/aB3dE9fG_login");
     }
 
     #[test]

@@ -432,9 +432,9 @@ export interface Config {
     bitbucket: HostConn;
     gitea: HostConn;
     jira: JiraConn[];
-    /** `id` "" = the connection from before there could be several; `repos`: ids of the projects whose Tickets screen shows it, empty = all. */
-    trello: { id: string; apiKey: string; boardId?: string | null; repos: string[] }[];
-    asana: { id: string; workspaceGid: string; projectGid?: string | null; repos: string[] }[];
+    /** `id` "" = the connection from before there could be several; `repos`: ids of the projects whose Tickets screen shows it, empty = all; `oauth`: signed in in the browser, not with a pasted token. */
+    trello: { id: string; apiKey: string; boards: string[]; oauth?: boolean; repos: string[] }[];
+    asana: { id: string; workspaceGid: string; projects: string[]; oauth?: boolean; repos: string[] }[];
   };
   ui: {
     language: string;

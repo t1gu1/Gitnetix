@@ -107,9 +107,13 @@ jobs:
           # Signs the update bundles so installed apps accept them as updates.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # Baked into the binary for "Sign in with Atlassian" (see tickets/jira_auth.rs).
+          # Baked into the binary for "Sign in with Atlassian", Trello and Asana (see tickets/oauth.rs).
           GITNETIX_JIRA_CLIENT_ID: ${{ secrets.GITNETIX_JIRA_CLIENT_ID }}
           GITNETIX_JIRA_CLIENT_SECRET: ${{ secrets.GITNETIX_JIRA_CLIENT_SECRET }}
+          GITNETIX_TRELLO_CLIENT_ID: ${{ secrets.GITNETIX_TRELLO_CLIENT_ID }}
+          GITNETIX_TRELLO_CLIENT_SECRET: ${{ secrets.GITNETIX_TRELLO_CLIENT_SECRET }}
+          GITNETIX_ASANA_CLIENT_ID: ${{ secrets.GITNETIX_ASANA_CLIENT_ID }}
+          GITNETIX_ASANA_CLIENT_SECRET: ${{ secrets.GITNETIX_ASANA_CLIENT_SECRET }}
           # Baked into the binary for "Sign in with Bitbucket" (see providers/bitbucket.rs).
           GITNETIX_BITBUCKET_CLIENT_ID: ${{ secrets.GITNETIX_BITBUCKET_CLIENT_ID }}
           GITNETIX_BITBUCKET_CLIENT_SECRET: ${{ secrets.GITNETIX_BITBUCKET_CLIENT_SECRET }}
