@@ -5,7 +5,7 @@ import type { Template } from "../api/types";
 import { MenuChoice } from "../components/AgentPicker";
 import { Icon } from "../components/Icon";
 import { Resizer, usePaneWidth } from "../components/Resizer";
-import { Busy, Confirm, LANGS, Loading, Seg } from "../components/ui";
+import { Busy, Confirm, LANGS, Loading, RELEASE_LANGS, Seg } from "../components/ui";
 import { useNav } from "../lib/nav";
 
 /** Template list and editor panes, also shown inside the menu panel. */
@@ -177,7 +177,7 @@ export function TemplatesPanes() {
             <div className="row">
               <h2 className="grow">Preview</h2>
               {!isGlobal && (
-                <button className="btn" disabled={!nav.projectId || run.isPending || !!dirty} title={dirty ? "Save first" : undefined} onClick={() => run.mutate({ projectId: nav.projectId!, id: draft.id, language: lang }, { onSuccess: setPreview })}>
+                <button className="btn" disabled={!nav.projectId || run.isPending || !!dirty} title={dirty ? "Save first" : undefined} onClick={() => run.mutate({ projectId: nav.projectId!, id: draft.id, language: lang === "template" && draft.kind !== "release" ? "en" : lang }, { onSuccess: setPreview })}>
                   <Busy on={run.isPending}><Icon name="sparkle" size={12} className="c-acc" /></Busy>
                   {preview ? "Run again" : "Run preview"}
                 </button>
@@ -189,7 +189,7 @@ export function TemplatesPanes() {
               <>
                 <div className="row">
                   <span className="muted" id="tp-gen-lang">Generate in</span>
-                  <Seg label="Generate in" value={lang} onChange={setLang} options={LANGS} />
+                  <Seg label="Generate in" value={lang} onChange={setLang} options={draft.kind === "release" ? RELEASE_LANGS : LANGS} />
                 </div>
                 <span className="hint">
                   {preview ? <>Ran on <span className="mono">{preview.source}</span>. Nothing is committed or posted.</> : nav.projectId ? "Runs this template on real data from the open project. Nothing is committed or posted." : "Open a project to preview."}

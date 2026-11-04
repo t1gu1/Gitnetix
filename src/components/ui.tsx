@@ -331,6 +331,9 @@ export const LANGS = [
   { value: "fr", label: "Français" },
 ];
 
+/** Release notes can also follow the template: one version per language it asks for. */
+export const RELEASE_LANGS = [...LANGS, { value: "template", label: "Template base" }];
+
 const TAG_LABEL: Record<string, string> = { next: "Next", hotfix: "Hotfix", released: "Released" };
 
 export function releaseTagLabel(tag: string) {

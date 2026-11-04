@@ -199,7 +199,10 @@ pub fn render(t: &Template, vars: &BTreeMap<String, String>, language: &str) -> 
         }
     }
     out.push_str(rest);
-    if !t.body.contains("{language}") {
+    if language == TEMPLATE_LANGUAGE {
+        out.push_str("\n\n");
+        out.push_str(TEMPLATE_LANGUAGES);
+    } else if !t.body.contains("{language}") {
         out.push_str(&format!("\n\nWrite the result in {}.", language_name(language)));
     }
     out.push_str("\n\n");
@@ -212,8 +215,15 @@ pub fn rule_num(t: &Template, key: &str) -> Option<i64> {
     t.rules.iter().find(|r| r.key == key).and_then(|r| r.value.as_i64())
 }
 
+/// Language code that lets the template pick: AI writes in each language the template asks for.
+pub const TEMPLATE_LANGUAGE: &str = "template";
+
+/// Appended to prompts rendered in [`TEMPLATE_LANGUAGE`].
+pub const TEMPLATE_LANGUAGES: &str = "Write in every language these instructions ask for. When they ask for several, write the complete result once in each language, one after the other, in the order they are named. When they name none, write in English.";
+
 pub fn language_name(code: &str) -> &str {
     match code {
+        TEMPLATE_LANGUAGE => "the language or languages these instructions ask for",
         "fr" => "French",
         "en" => "English",
         "de" => "German",
@@ -546,6 +556,19 @@ mod tests {
         let mut full = Template { kind: "release".into(), body: "{from} {to} {branches} {commits} {tickets} {files} {diff}".into(), ..Default::default() };
         prepare_release(&mut full);
         assert_eq!(full.body, format!("{{from}} {{to}} {{branches}} {{commits}} {{tickets}} {{files}} {{diff}}\n\n{RELEASE_NET}"), "only the rule is added to a template with every placeholder");
+    }
+
+    #[test]
+    fn template_language_writes_every_language_the_template_asks_for() {
+        let custom = Template { kind: "release".into(), body: "Write release notes in French, then in English.".into(), ..Default::default() };
+        let out = render(&custom, &BTreeMap::new(), TEMPLATE_LANGUAGE);
+        assert!(out.contains(TEMPLATE_LANGUAGES), "{out}");
+        assert!(!out.contains("Write the result in"), "{out}");
+
+        let t = default_templates().into_iter().find(|t| t.id == "rn-customer").unwrap();
+        let out = render(&t, &BTreeMap::new(), TEMPLATE_LANGUAGE);
+        assert!(out.contains("Write the result in the language or languages these instructions ask for."), "{out}");
+        assert!(out.contains(TEMPLATE_LANGUAGES), "{out}");
     }
 
     #[test]

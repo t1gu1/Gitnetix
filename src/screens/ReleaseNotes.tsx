@@ -6,7 +6,7 @@ import { rpc } from "../api/transport";
 import { MenuChoice } from "../components/AgentPicker";
 import { Icon } from "../components/Icon";
 import { Resizer, usePaneWidth } from "../components/Resizer";
-import { Busy, EmptyState, Header, LANGS, Loading, Markdown, Seg } from "../components/ui";
+import { Busy, EmptyState, Header, Loading, Markdown, RELEASE_LANGS, Seg } from "../components/ui";
 import { useNav } from "../lib/nav";
 import { copyToClipboard } from "../lib/toast";
 
@@ -96,7 +96,7 @@ export function ReleaseNotes() {
                 options={[{ value: "", label: `Default (${templates.find((t) => t.isDefault)?.name ?? "first"})` }, ...templates.map((t) => ({ value: t.id, label: t.name }))]}
                 onChange={setTpl}
               />
-              <Seg grid label="Language" value={lang} onChange={setLang} options={LANGS} />
+              <Seg grid label="Language" value={lang} onChange={setLang} options={RELEASE_LANGS} />
             </section>
             <section className="col" style={{ gap: 4 }}>
               <h2 className="label" style={{ marginBottom: 6 }}>Include</h2>

@@ -8,7 +8,7 @@ import { Logo } from "../components/Logo";
 import { DeleteProfile, ProfileAvatar, ProfileDialog, useProfiles } from "../components/Profiles";
 import { plural } from "../lib/format";
 import { useTermDefault } from "../components/Shell";
-import { Confirm, LANGS, Seg } from "../components/ui";
+import { Confirm, LANGS, RELEASE_LANGS, Seg } from "../components/ui";
 import { DEFAULTS, SHORTCUTS, showKeys, useKeys } from "../lib/keys";
 import { animates, useAnimations } from "../lib/motion";
 import { useNav } from "../lib/nav";
@@ -236,7 +236,7 @@ function ProjectSettings({ project: p }: { project: Project }) {
         </span>
       </div>
 
-      <Group title="Generation language" hint="The language the AI writes in for this project. Spoken follows your last voice dictation. Templates stay the same.">
+      <Group title="Generation language" hint="The language the AI writes in for this project. Spoken follows your last voice dictation. Template base writes release notes in each language the template asks for. Templates stay the same.">
         {(
           [
             ["commit", "Commit summary & message"],
@@ -246,7 +246,7 @@ function ProjectSettings({ project: p }: { project: Project }) {
         ).map(([k, label]) => (
           <div key={k} className="set-row">
             <span>{label}</span>
-            <Seg label={label} value={p.genLang[k]} options={k === "release" ? LANGS : [...LANGS, { value: "spoken", label: "Spoken" }]} onChange={(v) => setLang.mutate({ projectId: p.id, [k]: v })} />
+            <Seg label={label} value={p.genLang[k]} options={k === "release" ? RELEASE_LANGS : [...LANGS, { value: "spoken", label: "Spoken" }]} onChange={(v) => setLang.mutate({ projectId: p.id, [k]: v })} />
           </div>
         ))}
       </Group>
