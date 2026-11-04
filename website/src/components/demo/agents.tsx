@@ -425,6 +425,9 @@ export function AgentLog({ s, empty, picks, onPicks, actions, error }: { s?: { k
             return <div key={i} className="ag-err">✕ {b.text}</div>;
           case 'ok':
             return <div key={i} className="ag-note ag-ok">✓ {b.text}</div>;
+          case 'files':
+            // The demo's logs have no turn snapshots to diff.
+            return null;
           default:
             return <div key={i} className="ag-note">{b.text}</div>;
         }

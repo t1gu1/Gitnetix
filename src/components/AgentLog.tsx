@@ -1,27 +1,18 @@
 import { type ClipboardEvent, type CSSProperties, type KeyboardEvent, type ReactNode, memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-import { useAgentFile, useAiCatalog, useConfig } from "../api/hooks";
+import { useAction, useAgentDiff, useAgentFile, useAiCatalog, useConfig } from "../api/hooks";
 import { clipboardFiles, copyAgentFile, downloadAgentFile, isLocal, localHead, localImage, onPathDrop } from "../api/transport";
 import type { LogLine } from "../api/types";
-import { blocks, questions, said, type Block, type Opt, type Question } from "../lib/agentLog";
+import { blocks, errText, folds, questions, said, stepsLabel, took, type Block, type Fold, type Opt, type Question } from "../lib/agentLog";
 import { OwnMic } from "../lib/dictation";
-import { bytes } from "../lib/format";
-import { toast } from "../lib/toast";
+import { bytes, clock, plural } from "../lib/format";
+import { copyToClipboard, toast } from "../lib/toast";
 import { Avatar } from "./Avatar";
+import { DiffView } from "./DiffView";
 import { Icon } from "./Icon";
 import { dataUrl, isImage } from "./ImageDiff";
 import { Markdown, Modal } from "./ui";
-
-/** "Read ×3 · Edit · Bash ×2" */
-function summary(lines: LogLine[]) {
-  const counts = new Map<string, number>();
-  for (const l of lines) {
-    const name = l.text.trim().split(/\s/)[0] || "output";
-    counts.set(name, (counts.get(name) ?? 0) + 1);
-  }
-  return [...counts].map(([n, c]) => (c > 1 ? `${n} ×${c}` : n)).join(" · ");
-}
 
 // A new line regroups the whole log: every block gets fresh arrays of the same line objects, so compare items.
 const same = (a: unknown[], b: unknown[]) => a.length === b.length && a.every((x, i) => x === b[i]);
@@ -31,7 +22,7 @@ const Steps = memo(function Steps({ lines, open }: { lines: LogLine[]; open: boo
     <details className="ag-steps" open={open}>
       <summary>
         <span className="ag-steps-n">{lines.length === 1 ? "1 step" : `${lines.length} steps`}</span>
-        <span className="ellipsis">{summary(lines)}</span>
+        <span className="ellipsis">{stepsLabel(lines)}</span>
       </summary>
       <div className="ag-steps-list">
         {lines.map((l, i) => {
@@ -126,13 +117,163 @@ const Files = memo(function Files({ files, session }: { files: string[]; session
   );
 }, (a, b) => a.session === b.session && same(a.files, b.files));
 
-/** What you sent: its text, then the files that went with it. */
-function Said({ b, session }: { b: { text: string; files: string[] }; session?: string }) {
+/** A long message of yours stops at about 11 lines, fading out, with a button for the rest. */
+function Clamp({ text }: { text: string }) {
+  const ref = useRef<HTMLSpanElement>(null);
+  const [long, setLong] = useState(false);
+  const [full, setFull] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || full) return;
+    // Measured once laid out: a log drawn in a hidden pane has no size yet.
+    const ro = new ResizeObserver(() => setLong(el.scrollHeight > el.clientHeight + 1));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [text, full]);
   return (
     <>
-      {b.text && <span>{b.text}</span>}
+      <span ref={ref} className={full ? "ag-said" : long ? "ag-said ag-clamp ag-faded" : "ag-said ag-clamp"}>{text}</span>
+      {long && (
+        <button type="button" className="ag-link ag-more" aria-expanded={full} onClick={() => setFull(!full)}>
+          {full ? "Show less" : "Show full message"}
+        </button>
+      )}
+    </>
+  );
+}
+
+/** What you sent: its text, then the files that went with it. `clamp` cuts a long text (not where it scrolls already). */
+function Said({ b, session, clamp = true }: { b: { text: string; files: string[] }; session?: string; clamp?: boolean }) {
+  return (
+    <>
+      {b.text && (clamp ? <Clamp text={b.text} /> : <span>{b.text}</span>)}
       <Files files={b.files} session={session} />
     </>
+  );
+}
+
+/** When a message came: "14:32" today, else "Nov 2, 14:32"; the full date in its tooltip. */
+function When({ at }: { at?: number }) {
+  return at ? <span className="ag-when" data-tip={new Date(at).toLocaleString()}>{clock(at)}</span> : null;
+}
+
+/** Under a message, shown on hover: when it came, and a button copying `text`. */
+function Meta({ at, text }: { at?: number; text: string }) {
+  return (
+    <div className="ag-meta">
+      <When at={at} />
+      <button type="button" className="btn btn-ghost ag-meta-copy" aria-label="Copy the message" data-tip="Copy" onClick={() => copyToClipboard(text)}>
+        <Icon name="copy" size={12} />
+      </button>
+    </div>
+  );
+}
+
+/** A finished turn's work as one row; opened, its blocks (`children`) are drawn under it. */
+function FoldRow({ f, mark, children }: { f: Fold; mark?: ReactNode; children: () => ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const what = f.ms === undefined ? (f.stopped ? "Stopped" : "Worked") : f.stopped ? `Stopped after ${took(f.ms)}` : `Worked for ${took(f.ms)}`;
+  return (
+    <>
+      <div className="ag-act">
+        {mark}
+        <button type="button" className="ag-fold" aria-expanded={open} onClick={() => setOpen(!open)}>
+          <Icon name={open ? "chevronDown" : "chevronRight"} size={12} />
+          <span>{what}</span>
+          {f.steps > 0 && <span className="faint">· {plural(f.steps, "step")}</span>}
+        </button>
+      </div>
+      {open && <div className="ag-fold-body">{children()}</div>}
+    </>
+  );
+}
+
+/** "+12 −3", in columns that line up down a list; a count of 0 leaves its column empty. */
+function Stat({ add, del }: { add: number; del: number }) {
+  return (
+    <span className="ag-stat">
+      <span className="c-add">{add > 0 && `+${add}`}</span>
+      <span className="c-del">{del > 0 && `−${del}`}</span>
+    </span>
+  );
+}
+
+// Listed until "Show all".
+const FEW_FILES = 6;
+
+/** What a turn changed: its files and their added and removed lines. A click shows a file's diff for that turn. */
+function Changes({ b, session }: { b: Extract<Block, { kind: "files" }>; session?: string }) {
+  const [all, setAll] = useState(false);
+  const [open, setOpen] = useState<number>();
+  const add = b.files.reduce((n, f) => n + (f[1] ?? 0), 0);
+  const del = b.files.reduce((n, f) => n + (f[2] ?? 0), 0);
+  return (
+    <div className="ag-changes">
+      <div className="ag-changes-head">
+        <span>{plural(b.files.length + b.more, "file")} changed</span>
+        <Stat add={add} del={del} />
+      </div>
+      {(all ? b.files : b.files.slice(0, FEW_FILES)).map(([path, a, d], i) => {
+        const cut = path.lastIndexOf("/") + 1;
+        return (
+          <button key={path} type="button" className="ag-change" disabled={!session} title={path} onClick={() => setOpen(i)}>
+            <span className="ellipsis">
+              <span className="faint">{path.slice(0, cut)}</span>
+              {path.slice(cut)}
+            </span>
+            {a === null ? <span className="faint">binary</span> : <Stat add={a} del={d ?? 0} />}
+          </button>
+        );
+      })}
+      {b.files.length > FEW_FILES && (
+        <button type="button" className="ag-link ag-changes-all" onClick={() => setAll(!all)}>
+          {all ? "Show fewer" : `Show all ${b.files.length}`}
+        </button>
+      )}
+      {all && b.more > 0 && <span className="faint ag-changes-all">{plural(b.more, "more file")} not listed</span>}
+      {open !== undefined && session && <TurnDiff session={session} b={b} at={open} onStep={setOpen} onClose={() => setOpen(undefined)} />}
+    </div>
+  );
+}
+
+/** File `at` of turn `b`'s changes, as that turn changed it. The arrows and ←/→ `onStep` through its files, round. */
+function TurnDiff({ session, b, at, onStep, onClose }: { session: string; b: Extract<Block, { kind: "files" }>; at: number; onStep: (i: number) => void; onClose: () => void }) {
+  const path = b.files[at][0];
+  const n = b.files.length;
+  const diff = useAgentDiff(session, b.from, b.to, path);
+  const [anyway, setAnyway] = useState(false);
+  const step = (d: number) => onStep((at + d + n) % n);
+  useArrows(n, step);
+  return (
+    <Modal
+      title={path}
+      sub={[n > 1 && `${at + 1} / ${n}`, "As this turn changed it"].filter(Boolean).join(" · ")}
+      width={1000}
+      onClose={onClose}
+      actions={n > 1 && (
+        <>
+          <button type="button" className="btn btn-ghost btn-icon" aria-label="Previous file" data-tip="Previous file · ←" onClick={() => step(-1)}>
+            <Icon name="chevronLeft" />
+          </button>
+          <button type="button" className="btn btn-ghost btn-icon" aria-label="Next file" data-tip="Next file · →" onClick={() => step(1)}>
+            <Icon name="chevronRight" />
+          </button>
+        </>
+      )}
+    >
+      {/* The diff fills a sized box: as tall as its rows (21px each, app.css), up to most of the screen. */}
+      <div className="diff ag-diff" style={{ height: `min(70vh, ${Math.max(120, (diff.data ?? []).reduce((n, h) => n + h.lines.length + 1, 0) * 21 + 20)}px)` }}>
+        {diff.isError ? (
+          <span className="faint">Could not load the diff: {diff.error.message}</span>
+        ) : !diff.data ? (
+          <span className="spinner" />
+        ) : diff.data.length ? (
+          <DiffView key={path} path={path} hunks={diff.data} mode="unified" anyway={anyway} onAnyway={() => setAnyway(true)} />
+        ) : (
+          <span className="faint">No text changes to show</span>
+        )}
+      </div>
+    </Modal>
   );
 }
 
@@ -144,8 +285,10 @@ const shown = (text: string) => [...new Set([...text.matchAll(/!\[[^\]]*\]\(<?([
  * heights made the log jump while scrolled up: WebKit has no scroll anchoring.) */
 const TAIL = 60;
 
-/** `actions` show under "Your turn!" when the agent did not ask a question; `picks` are its options picked for the prompt box; `session` is the agent's id, for the files you sent it; `queued` are your messages waiting for its run to end. */
-export function AgentLog({ lines, empty, picks, onPicks, actions, thinking, provider, session, queued = [] }: { lines: LogLine[]; empty?: string; picks: Choice[]; onPicks: (c: Choice[]) => void; actions?: ReactNode; thinking?: boolean; provider?: string; session?: string; queued?: string[] }) {
+/** `actions` show under "Your turn!" when the agent did not ask a question; `picks` are its options picked for the prompt box; `session` is the agent's id, for the files you sent it; `queued` are your messages waiting for its run to end, and `onEditQueued` gets one taken off to edit.
+ * `working`: its run is going (or paused), so the last turn stays unfolded. `canSendNow`: its run can be cut short for the queue (Claude Code, which resumes its task).
+ */
+export function AgentLog({ lines, empty, picks, onPicks, actions, thinking, working, provider, session, queued = [], onEditQueued, canSendNow }: { lines: LogLine[]; empty?: string; picks: Choice[]; onPicks: (c: Choice[]) => void; actions?: ReactNode; thinking?: boolean; working?: boolean; provider?: string; session?: string; queued?: string[]; onEditQueued?: (text: string) => void; canSendNow?: boolean }) {
   const me = useMe();
   const ref = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
@@ -153,6 +296,9 @@ export function AgentLog({ lines, empty, picks, onPicks, actions, thinking, prov
   // Drawn from block `from` on: a session opens on its last TAIL blocks, new ones join after them (the start stays put, so
   // nothing shifts under someone reading back) and older ones come as the log is scrolled up.
   const [tail, setTail] = useState({ session, from: Infinity });
+  // Scrolled up from the end: where the log ended then, so the way back counts what came since. Another session's log starts at its end.
+  const [away, setAway] = useState<number | null>(null);
+  if (tail.session !== session && away !== null) setAway(null);
   if (tail.session !== session || (tail.from === Infinity && list.length)) setTail({ session, from: list.length ? Math.max(0, list.length - TAIL) : Infinity });
   const from = Math.min(tail.session === session ? tail.from : Infinity, Math.max(0, list.length - TAIL));
   // Distance to the bottom kept while blocks are added above, so what is on screen stays put (WebKit has no scroll anchoring).
@@ -177,19 +323,32 @@ export function AgentLog({ lines, empty, picks, onPicks, actions, thinking, prov
   useEffect(() => {
     if (live.length !== picks.length) onPicks(live);
   });
-  // One mark per answer: on the first reply or steps after each message of yours.
+  const fold = useMemo(() => folds(list, !!working), [list, working]);
+  // One mark per answer: on the first reply, steps or folded work after each message of yours.
   const { opens, fresh } = useMemo(() => {
     const opens = new Set<number>();
     let fresh = true;
-    list.forEach((b, i) => {
+    for (let i = 0; i < list.length; i++) {
+      const b = list[i];
+      const f = fold.get(i);
       if (b.kind === "you") fresh = true;
-      else if (fresh && (b.kind === "ai" || b.kind === "steps")) {
+      else if (fresh && (f || b.kind === "ai" || b.kind === "steps")) {
         opens.add(i);
         fresh = false;
       }
-    });
+      if (f) i = f.end - 1;
+    }
     return { opens, fresh };
-  }, [list]);
+  }, [list, fold]);
+  // A failed run can go again: the backend asks its last prompt again. Once: hidden while that call is out.
+  const retry = useAction("agents.retry", { invalidate: [["agents"]] });
+  const canRetry = !!session && !working && !thinking && !retry.isPending && list.at(-1)?.kind === "err";
+  const again = useRef<() => void>(undefined);
+  again.current = () => session && retry.mutate({ id: session });
+  const unqueue = useAction<string>("agents.unqueue", { invalidate: [["agents"], ["worktrees"]] });
+  const sendNow = useAction("agents.sendNow", { invalidate: [["agents"], ["worktrees"]] });
+  // Blocks drawn since you scrolled up: a wait is drawn as "Your turn!", not as a block.
+  const news = away === null ? 0 : list.slice(away).filter((b) => b.kind !== "wait").length;
   const mark = useMemo(() => <AgentMark provider={provider} />, [provider]);
   useEffect(() => {
     const el = ref.current;
@@ -215,58 +374,85 @@ export function AgentLog({ lines, empty, picks, onPicks, actions, thinking, prov
     return () => io.disconnect();
   }, [ti, task?.text, taskOut]);
   // Redrawn only when the log grows: not on each key typed in the box below, nor on another session's output.
-  const history = useMemo(
-    () =>
-      list.map((b, i) => {
-        if (i < from) return null;
-        switch (b.kind) {
-          case "you":
-            return (
-              <div key={i} ref={b === task ? first : undefined} className="ag-you">
-                <div className="ag-you-row">
-                  <Avatar name={me.name} email={me.email} size={22} />
-                  <div className="ag-bubble">
-                    <Said b={b} session={session} />
-                  </div>
+  const history = useMemo(() => {
+    const one = (b: Block, i: number, marked: boolean): ReactNode => {
+      switch (b.kind) {
+        case "you":
+          return (
+            <div key={i} ref={b === task ? first : undefined} className="ag-you">
+              <div className="ag-you-row">
+                <Avatar name={me.name} email={me.email} size={22} />
+                <div className="ag-bubble">
+                  <Said b={b} session={session} />
                 </div>
               </div>
-            );
-          case "ai":
-            return (
-              <div key={i} className="ag-ai">
-                {opens.has(i) && mark}
-                <Markdown text={b.text} />
-                <Files files={shown(b.text)} session={session} />
-              </div>
-            );
-          case "steps":
-            // The newest steps stay open while the agent works on them.
-            return (
-              <div key={i} className="ag-act">
-                {opens.has(i) && mark}
-                <Steps lines={b.lines} open={i === list.length - 1} />
-              </div>
-            );
-          case "wait":
-            // Only the latest wait matters, drawn after the history; older ones are history.
-            return null;
-          case "err":
-            return <div key={i} className="ag-err">✕ {b.text}</div>;
-          case "ok":
-            return <div key={i} className="ag-note ag-ok">✓ {b.text}</div>;
-          default:
-            return <div key={i} className="ag-note">{b.text}</div>;
-        }
-      }),
-    [list, from, task, opens, mark, me.name, me.email, session],
-  );
+              <Meta at={b.at} text={b.text} />
+            </div>
+          );
+        case "ai":
+          return (
+            <div key={i} className="ag-ai">
+              {marked && mark}
+              <Markdown text={b.text} />
+              <Files files={shown(b.text)} session={session} />
+              <Meta at={b.at} text={b.text} />
+            </div>
+          );
+        case "steps":
+          // The newest steps stay open while the agent works on them.
+          return (
+            <div key={i} className="ag-act">
+              {marked && mark}
+              <Steps lines={b.lines} open={i === list.length - 1} />
+            </div>
+          );
+        case "files":
+          return (
+            <div key={i} className="ag-act">
+              <Changes b={b} session={session} />
+            </div>
+          );
+        case "wait":
+          // Only the latest wait matters, drawn after the history; older ones are history.
+          return null;
+        case "err":
+          return (
+            <div key={i} className="ag-err">
+              <span>✕ {errText(b.text)}</span>
+              {canRetry && i === list.length - 1 && (
+                <button type="button" className="btn btn-sm ag-retry" onClick={() => again.current?.()}>
+                  <Icon name="refresh" size={12} />
+                  Retry
+                </button>
+              )}
+            </div>
+          );
+        case "ok":
+          return <div key={i} className="ag-note ag-ok">✓ {b.text}</div>;
+        default:
+          return <div key={i} className="ag-note">{b.text}</div>;
+      }
+    };
+    const out: ReactNode[] = [];
+    for (let i = 0; i < list.length; i++) {
+      const f = fold.get(i);
+      if (f) {
+        const at = i;
+        if (f.end > from) out.push(<FoldRow key={`f${at}`} f={f} mark={opens.has(at) ? mark : undefined}>{() => list.slice(at, f.end).map((b, j) => one(b, at + j, false))}</FoldRow>);
+        i = f.end - 1;
+      } else if (i >= from) out.push(one(list[i], i, opens.has(i)));
+    }
+    return out;
+  }, [list, fold, from, task, opens, mark, me.name, me.email, session, canRetry]);
   return (
     <div
       ref={ref}
       className="term-log ag-log"
       onScroll={(e) => {
         const el = e.currentTarget;
-        stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+        const below = el.scrollHeight - el.scrollTop - el.clientHeight;
+        stick.current = below < 24;
+        setAway((a) => (below > 300 ? (a ?? list.length) : null));
         if (el.scrollTop < 400) more();
       }}
     >
@@ -281,7 +467,7 @@ export function AgentLog({ lines, empty, picks, onPicks, actions, thinking, prov
             </button>
             {peek && (
               <div className="ag-task-full">
-                <Said b={task} session={session} />
+                <Said b={task} session={session} clamp={false} />
               </div>
             )}
           </div>
@@ -316,9 +502,44 @@ export function AgentLog({ lines, empty, picks, onPicks, actions, thinking, prov
               <Said b={said(t)} session={session} />
             </div>
           </div>
-          {i === queued.length - 1 && <span className="ag-queued-hint">Queued · sends when the agent finishes</span>}
+          <div className="ag-queued-bar">
+            {i === queued.length - 1 && <span>Queued · sends when the agent finishes</span>}
+            {session && (
+              <>
+                {onEditQueued && (
+                  <button type="button" className="ag-link" disabled={unqueue.isPending} onClick={() => unqueue.mutate({ id: session, index: i, text: t }, { onSuccess: (r) => onEditQueued(r) })}>
+                    Edit
+                  </button>
+                )}
+                <button type="button" className="ag-link" disabled={unqueue.isPending} onClick={() => unqueue.mutate({ id: session, index: i, text: t })}>
+                  Remove
+                </button>
+                {i === queued.length - 1 && canSendNow && (
+                  <button type="button" className="ag-link" disabled={sendNow.isPending} data-tip="Stop the agent and send this now" onClick={() => sendNow.mutate({ id: session })}>
+                    Send now
+                  </button>
+                )}
+              </>
+            )}
+          </div>
         </div>
       ))}
+      {away !== null && (
+        <div className="ag-jump">
+          <button
+            type="button"
+            className="btn btn-sm"
+            onClick={() => {
+              const el = ref.current;
+              if (el) el.scrollTop = el.scrollHeight;
+            }}
+          >
+            <Icon name="chevronDown" size={12} />
+            {news > 0 ? `${news} new` : "Jump to the end"}
+            {queued.length > 0 && <span className="faint">· {queued.length} queued</span>}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

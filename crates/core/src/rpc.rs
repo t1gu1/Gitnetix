@@ -110,6 +110,10 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("agents.start", "Start an agent on a branch (or main checkout)", "projectId, branch?, request, ticket?, provider?, model?, effort?, files?"),
     ("agents.message", "Send a follow-up message to an agent, queued until its run ends while it works; files: [{ name, data (base64) | path }]", "id, text, files?"),
     ("agents.file", "A file sent to an agent, base64 (only from its attachments folder)", "id, path"),
+    ("agents.unqueue", "Take a message waiting for the agent's run to end off its queue, when it is still `text` at `index`; returns it", "id, index, text"),
+    ("agents.sendNow", "Stop the agent's run and send its queued messages now (Claude Code only: other CLIs can't resume)", "id"),
+    ("agents.retry", "Run the agent's last prompt again, after its run failed", "id"),
+    ("agents.diff", "Diff of one file a turn of the agent changed, between the snapshots its log's files line names; `full` keeps the whole file", "id, from, to, path, full?"),
     ("agents.pause", "Pause an agent", "id"),
     ("agents.resume", "Resume an agent", "id"),
     ("agents.stop", "Stop an agent", "id"),
@@ -839,6 +843,16 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
             ok()
         }
         "agents.file" => to(k.agent_file(&s(&p, "id")?, &s(&p, "path")?).await?),
+        "agents.unqueue" => to(k.agents.unqueue(&s(&p, "id")?, u(&p, "index")? as usize, &s(&p, "text")?)?),
+        "agents.sendNow" => {
+            k.agents.send_now(&s(&p, "id")?)?;
+            ok()
+        }
+        "agents.retry" => {
+            k.agent_retry(&s(&p, "id")?)?;
+            ok()
+        }
+        "agents.diff" => to(k.agent_diff(&s(&p, "id")?, &s(&p, "from")?, &s(&p, "to")?, &s(&p, "path")?, b(&p, "full")).await?),
         "agents.pause" => {
             k.agents.pause(&s(&p, "id")?)?;
             ok()

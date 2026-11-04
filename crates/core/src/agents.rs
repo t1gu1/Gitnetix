@@ -2,12 +2,12 @@
 //! branch or worktree. They keep running when the UI switches project.
 
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
 use tokio::sync::{broadcast, oneshot};
@@ -15,6 +15,7 @@ use tokio::sync::{broadcast, oneshot};
 use crate::ai::{self, Resolved};
 use crate::error::{Error, Result};
 use crate::events::Event;
+use crate::git::Git;
 use crate::store::{now, ConnectMethod};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -30,14 +31,17 @@ pub enum AgentStatus {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LogLine {
-    /// cmd | ai | ok | dim | err | wait | run
+    /// cmd | ai | ok | dim | err | wait | run | files
     pub kind: String,
     pub text: String,
+    /// When it was logged, in ms since the Unix epoch. Lines from before timestamps have none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub at: Option<i64>,
 }
 
 impl LogLine {
     pub fn new(kind: &str, text: impl Into<String>) -> Self {
-        LogLine { kind: kind.into(), text: text.into() }
+        LogLine { kind: kind.into(), text: text.into(), at: Some(chrono::Utc::now().timestamp_millis()) }
     }
 }
 
@@ -66,12 +70,20 @@ pub struct AgentSession {
     /// The CLI's process while it works. Saved so another Gitnetix on this folder sees the run is still going.
     #[serde(default)]
     pub pid: Option<u32>,
+    /// What its last run was asked, which Retry asks again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_prompt: Option<String>,
 }
 
 #[derive(Default)]
 struct Inner {
     sessions: HashMap<String, AgentSession>,
-    kills: HashMap<String, oneshot::Sender<()>>,
+    /// Each session's run: its number and what kills it. A run's task ends the turn only while it is still the one here.
+    kills: HashMap<String, (u64, oneshot::Sender<()>)>,
+    /// The last run's number.
+    runs: u64,
+    /// Sessions whose run Send now killed: its task sends their queue once the process is gone.
+    send_now: HashSet<String>,
     /// Claude Code runs the last quit cut off, for `resume_interrupted`.
     interrupted: Vec<String>,
     /// Set by `shutdown`: nothing is saved after it.
@@ -95,6 +107,53 @@ const MAX_LINES: usize = 2000;
 
 /// Closes the messages sent while the agent worked: it reads them only after its last reply.
 const QUEUED_NOTE: &str = "(I sent this while you were still working, before your last reply. If that reply asked me questions this does not answer, ask them again at the end of this reply, unless I told you not to ask questions.)";
+
+/// Closes the messages sent with Send now: the agent was cut off to read them.
+const SEND_NOW_NOTE: &str = "(I stopped you to send this. Take it into account and carry on with the task.)";
+
+/// Files a "files" line lists; it counts the rest.
+const MAX_FILES: usize = 300;
+
+/// The files in `cwd` as a tree in its object database, untracked ones too, staged into a copy of its index so the
+/// user's own stays as it was. None when that fails.
+// shortcut: big untracked files that aren't ignored get hashed each turn; skip them by size if a repo shows it.
+async fn snapshot(cwd: &Path) -> Option<String> {
+    let git = Git::new(cwd);
+    let index = git.git_paths(&["index"]).await.ok()?.pop()?;
+    // Outside the git dir: the watcher would refresh the UI on each write there.
+    let copy = std::env::temp_dir().join(format!("gitnetix-turn-{}.index", crate::store::new_id()));
+    // A repo where nothing was ever staged has no index: the copy starts empty.
+    let _ = tokio::fs::copy(&index, &copy).await;
+    let staged = git.with_index(&copy);
+    // An unreadable file fails the add but not the others it stages.
+    let _ = staged.run(&["add", "-A", "--ignore-errors"]).await;
+    let tree = staged.run(&["write-tree"]).await.ok();
+    let _ = tokio::fs::remove_file(&copy).await;
+    tree.map(|t| t.trim().to_string())
+}
+
+/// What changed in `cwd` since snapshot `from`, as a "files" line: `{from, to, files: [[path, added, removed]], more}`,
+/// the counts null for a binary file. None when nothing did.
+async fn turn_files(cwd: &Path, from: &str) -> Option<LogLine> {
+    let to = snapshot(cwd).await?;
+    if to == from {
+        return None;
+    }
+    let out = Git::new(cwd).run(&["diff", "--numstat", "-z", "--no-renames", from, &to]).await.ok()?;
+    let files: Vec<Value> = out
+        .split('\0')
+        .filter_map(|r| {
+            let mut f = r.splitn(3, '\t');
+            let (add, del, path) = (f.next()?, f.next()?, f.next()?);
+            Some(json!([path, add.parse::<u64>().ok(), del.parse::<u64>().ok()]))
+        })
+        .collect();
+    if files.is_empty() {
+        return None;
+    }
+    let more = files.len().saturating_sub(MAX_FILES);
+    Some(LogLine::new("files", json!({ "from": from, "to": to, "files": &files[..files.len() - more], "more": more }).to_string()))
+}
 
 /// The sessions saved in `file`; none when it is missing or unreadable.
 fn saved(file: &std::path::Path) -> Vec<AgentSession> {
@@ -286,6 +345,7 @@ impl AgentManager {
             ai: Some(args.ai.clone()),
             queued: Vec::new(),
             pid: None,
+            last_prompt: None,
         };
         self.inner.lock().unwrap().sessions.insert(id.clone(), session.clone());
         self.spawn_or_fail(&id, &args.cwd, &args.ai, &args.prompt, None)?;
@@ -354,14 +414,43 @@ impl AgentManager {
         res
     }
 
-    /// After a run (`r`): the messages sent during it go out together as the
-    /// next one and the session keeps running; without any, it waits for you.
-    fn end_run(&self, id: &str, failed: bool, r: &Resolved) {
+    /// After run `run` (on `r`): its changes (`files`) show, then the messages sent during it go out together as the
+    /// next run and the session keeps running; without any, it waits for you. A run Stop took, or a newer run replaced,
+    /// only shows its changes; one Send now killed sends the queue.
+    fn end_run(&self, id: &str, run: u64, failed: bool, files: Option<LogLine>, r: &Resolved) {
         let _turn = self.turn.lock().unwrap();
+        let (ours, now) = {
+            let mut g = self.inner.lock().unwrap();
+            let ours = g.kills.get(id).is_some_and(|(n, _)| *n == run);
+            if ours {
+                g.kills.remove(id);
+            }
+            (ours, g.send_now.remove(id))
+        };
+        let Ok(s) = self.get(id) else { return };
+        if !ours && !now {
+            // shortcut: a message sent within ms of Stop starts a run before this, which would take them for its own, so they don't show; carry `files` into that run if it bites.
+            if let Some(l) = files.filter(|_| s.status != AgentStatus::Running) {
+                self.push(id, l);
+                self.persist();
+            }
+            return;
+        }
+        if let Some(l) = files {
+            self.push(id, l);
+        }
+        if now {
+            // All taken back off the queue meanwhile (Edit, Remove): nothing to send, so it stays stopped.
+            if s.queued.is_empty() {
+                self.push(id, LogLine::new("dim", "  ■ Agent stopped"));
+                return self.set_status(id, AgentStatus::Stopped);
+            }
+            self.push(id, LogLine::new("dim", "  ■ Stopped to send your message"));
+            return self.send_queued(&s, r, SEND_NOW_NOTE);
+        }
         if failed {
             self.push(id, LogLine::new("err", "✕ Agent run failed"));
         }
-        let Ok(s) = self.get(id) else { return };
         // Quitting, nothing new starts: the saved queue goes out after the resumed run.
         if s.queued.is_empty() || self.inner.lock().unwrap().quitting {
             if !failed {
@@ -370,16 +459,80 @@ impl AgentManager {
             self.set_status(id, if failed { AgentStatus::Failed } else { AgentStatus::Waiting });
             return;
         }
-        if let Some(s) = self.inner.lock().unwrap().sessions.get_mut(id) {
+        self.send_queued(&s, r, QUEUED_NOTE);
+    }
+
+    /// The messages queued on `s` go out together as its next run, `note` after them. Hold `turn`.
+    fn send_queued(&self, s: &AgentSession, r: &Resolved, note: &str) {
+        if let Some(s) = self.inner.lock().unwrap().sessions.get_mut(&s.id) {
             s.queued.clear();
         }
         for t in &s.queued {
-            self.push(id, LogLine::new("cmd", format!("› {t}")));
+            self.push(&s.id, LogLine::new("cmd", format!("› {t}")));
         }
         // Already running: this saves the emptied queue and has the UI refetch it.
+        self.set_status(&s.id, AgentStatus::Running);
+        let prompt = format!("{}\n\n{note}", s.queued.join("\n\n"));
+        let _ = self.spawn_or_fail(&s.id, Path::new(&s.cwd), s.ai.as_ref().unwrap_or(r), &prompt, s.resume_id.as_deref());
+    }
+
+    /// Take queued message `index` off the queue before its run ends, when it is still `text`; returns it.
+    pub fn unqueue(&self, id: &str, index: usize, text: &str) -> Result<String> {
+        let _turn = self.turn.lock().unwrap();
+        let (taken, status) = {
+            let mut g = self.inner.lock().unwrap();
+            // No run here: another Gitnetix on this folder runs it and sends its own copy of the queue.
+            if !g.kills.contains_key(id) {
+                return Err(Error::Invalid("Another Gitnetix runs this agent: change its queue from there.".into()));
+            }
+            let s = g.sessions.get_mut(id).ok_or_else(|| Error::NotFound(format!("agent session {id}")))?;
+            if s.queued.get(index).map(String::as_str) != Some(text) {
+                return Err(Error::Invalid("That message went out already.".into()));
+            }
+            (s.queued.remove(index), s.status)
+        };
+        // Saves it, and has other screens (the phone) refetch the queue.
+        self.set_status(id, status);
+        Ok(taken)
+    }
+
+    /// Stop the run and send the queued messages now, instead of when it ends: its task sends them once the process is
+    /// gone and its output is in, so the next run never works beside it.
+    pub fn send_now(&self, id: &str) -> Result<()> {
+        let _turn = self.turn.lock().unwrap();
+        let s = self.get(id)?;
+        if s.queued.is_empty() {
+            return Ok(());
+        }
+        // Another CLI (or Claude before it named its session) starts over: the task would be lost.
+        if s.resume_id.is_none() || s.ai.as_ref().is_none_or(|a| a.provider != "claude") {
+            return Err(Error::Invalid("This agent can't pick its task back up: your message goes out when its run ends.".into()));
+        }
+        let mut g = self.inner.lock().unwrap();
+        // No handle: another Gitnetix on this folder runs it, and a second run would work beside that one.
+        let Some((_, kill)) = g.kills.remove(id) else {
+            return Err(Error::Invalid("Another Gitnetix runs this agent: send it from there.".into()));
+        };
+        g.send_now.insert(id.into());
+        drop(g);
+        let _ = kill.send(());
+        Ok(())
+    }
+
+    /// Ask the last run's prompt again, after it failed (`r` when the session has no AI set).
+    pub fn retry(&self, id: &str, r: &Resolved) -> Result<()> {
+        let _turn = self.turn.lock().unwrap();
+        let s = self.get(id)?;
+        if matches!(s.status, AgentStatus::Running | AgentStatus::Paused) {
+            return Err(Error::Invalid("The agent is still working.".into()));
+        }
+        let prompt = s.last_prompt.ok_or_else(|| Error::Invalid("Nothing to try again: send your message once more.".into()))?;
+        if !Path::new(&s.cwd).exists() {
+            return Err(Error::Invalid(format!("{} no longer exists. Start a new session.", s.cwd)));
+        }
+        self.push(id, LogLine::new("dim", "  ▶ Trying again"));
         self.set_status(id, AgentStatus::Running);
-        let prompt = format!("{}\n\n{QUEUED_NOTE}", s.queued.join("\n\n"));
-        let _ = self.spawn_or_fail(id, std::path::Path::new(&s.cwd), s.ai.as_ref().unwrap_or(r), &prompt, s.resume_id.as_deref());
+        self.spawn_or_fail(id, Path::new(&s.cwd), s.ai.as_ref().unwrap_or(r), &prompt, s.resume_id.as_deref())
     }
 
     pub fn stop(&self, id: &str) -> Result<()> {
@@ -390,9 +543,10 @@ impl AgentManager {
             if let Some(s) = g.sessions.get_mut(id) {
                 s.queued.clear();
             }
+            g.send_now.remove(id);
             g.kills.remove(id)
         };
-        if let Some(k) = kill {
+        if let Some((_, k)) = kill {
             let _ = k.send(());
         }
         self.push(id, LogLine::new("dim", "  ■ Agent stopped"));
@@ -505,7 +659,16 @@ impl AgentManager {
             }
         }
         let (kill_tx, mut kill_rx) = oneshot::channel::<()>();
-        self.inner.lock().unwrap().kills.insert(id.to_string(), kill_tx);
+        let run = {
+            let mut g = self.inner.lock().unwrap();
+            g.runs += 1;
+            let run = g.runs;
+            g.kills.insert(id.to_string(), (run, kill_tx));
+            if let Some(s) = g.sessions.get_mut(id) {
+                s.last_prompt = Some(prompt.to_string());
+            }
+            run
+        };
 
         let stdin = child.stdin.take();
         let stdout = child.stdout.take().expect("stdout");
@@ -514,7 +677,11 @@ impl AgentManager {
         let sid = id.to_string();
         let prompt = prompt.to_string();
         let r = r.clone();
+        let cwd = cwd.to_path_buf();
         tokio::spawn(async move {
+            // Before the prompt goes in, so the agent has changed nothing yet. The CLI is starting meanwhile (seconds for
+            // Claude Code), so this rarely delays it; one given its prompt as an argument takes that long to edit anything.
+            let base = snapshot(&cwd).await;
             if let Some(mut w) = stdin {
                 let _ = w.write_all(prompt.as_bytes()).await;
                 drop(w);
@@ -560,11 +727,17 @@ impl AgentManager {
             };
             let outcome = out_task.await.ok().flatten();
             let _ = err_task.await;
-            // Stopped by user: `stop` took the kill handle; one here now belongs to a newer run.
-            let Some(exit) = exit else { return };
-            me.inner.lock().unwrap().kills.remove(&sid);
-            let ok = exit.map(|s| s.success()).unwrap_or(false);
-            me.end_run(&sid, matches!((ok, outcome), (_, Some(false)) | (false, None)), &r);
+            // The process is gone and all it printed is in: what the turn changed, its last edits included.
+            let files = match &base {
+                Some(b) => turn_files(&cwd, b).await,
+                None => None,
+            };
+            // Killed (Stop, Send now): not a failure.
+            let failed = exit.is_some_and(|e| {
+                let ok = e.map(|s| s.success()).unwrap_or(false);
+                matches!((ok, outcome), (_, Some(false)) | (false, None))
+            });
+            me.end_run(&sid, run, failed, files, &r);
         });
         Ok(())
     }
@@ -661,6 +834,12 @@ mod tests {
         Resolved { provider: provider.into(), method: ConnectMethod::Cli, model: String::new(), effort: String::new(), base_url: None }
     }
 
+    /// Session `id`'s run ends by itself: the run here gets run number 0 (spawn counts from 1), then its task ends it.
+    fn ended(m: &AgentManager, id: &str, failed: bool, r: &Resolved) {
+        m.inner.lock().unwrap().kills.insert(id.into(), (0, oneshot::channel().0));
+        m.end_run(id, 0, failed, None, r);
+    }
+
     #[test]
     fn failed_command_shows_its_error_and_exit_code() {
         let msg = "Exit code 1\ncat: illegal option -- A\nusage: cat [-belnstuv] [file ...]";
@@ -678,7 +857,7 @@ mod tests {
         let s = AgentSession {
             id: "a".into(), project_id: "p".into(), branch: "b".into(), cwd: ".".into(), worktree: false,
             status: AgentStatus::Waiting, request: "r".into(), agent_label: String::new(), lines: vec![],
-            started_at: now(), updated_at: now(), resume_id: Some("rid".into()), ai: Some(cli("claude")), queued: vec![], pid: None,
+            started_at: now(), updated_at: now(), resume_id: Some("rid".into()), ai: Some(cli("claude")), queued: vec![], pid: None, last_prompt: None,
         };
         m.inner.lock().unwrap().sessions.insert("a".into(), s);
 
@@ -702,7 +881,7 @@ mod tests {
         let s = |id: &str, status, rid: Option<&str>, provider| AgentSession {
             id: id.into(), project_id: "p".into(), branch: "b".into(), cwd: "/gone".into(), worktree: false,
             status, request: "r".into(), agent_label: String::new(), lines: vec![],
-            started_at: now(), updated_at: now(), resume_id: rid.map(Into::into), ai: Some(cli(provider)), queued: vec!["q".into()], pid: None,
+            started_at: now(), updated_at: now(), resume_id: rid.map(Into::into), ai: Some(cli(provider)), queued: vec!["q".into()], pid: None, last_prompt: None,
         };
         let saved = vec![
             s("run", AgentStatus::Running, Some("rid"), "claude"),
@@ -734,7 +913,7 @@ mod tests {
         let s = |id: &str, pid| AgentSession {
             id: id.into(), project_id: "p".into(), branch: "b".into(), cwd: cwd.clone(), worktree: false,
             status: AgentStatus::Running, request: "r".into(), agent_label: String::new(), lines: vec![],
-            started_at: now(), updated_at: now(), resume_id: Some("rid".into()), ai: Some(cli("claude")), queued: vec!["q".into()], pid: Some(pid),
+            started_at: now(), updated_at: now(), resume_id: Some("rid".into()), ai: Some(cli("claude")), queued: vec!["q".into()], pid: Some(pid), last_prompt: None,
         };
         let saved = vec![s("live", std::process::id()), s("killed", u32::MAX)];
         std::fs::write(dir.path().join("agents.json"), serde_json::to_string(&saved).unwrap()).unwrap();
@@ -755,7 +934,7 @@ mod tests {
         let s = AgentSession {
             id: "a".into(), project_id: "p".into(), branch: "b".into(), cwd: ".".into(), worktree: false,
             status: AgentStatus::Running, request: "r".into(), agent_label: String::new(), lines: vec![],
-            started_at: now(), updated_at: now(), resume_id: Some("rid".into()), ai: Some(r.clone()), queued: vec![], pid: None,
+            started_at: now(), updated_at: now(), resume_id: Some("rid".into()), ai: Some(r.clone()), queued: vec![], pid: None, last_prompt: None,
         };
         m.inner.lock().unwrap().sessions.insert("a".into(), s);
         let running = || m.inner.lock().unwrap().sessions.get_mut("a").unwrap().status = AgentStatus::Running;
@@ -767,7 +946,7 @@ mod tests {
         assert!(s.lines.is_empty());
 
         // They go out together, without waiting for you in between.
-        m.end_run("a", false, &r);
+        ended(&m, "a", false, &r);
         let s = m.get("a").unwrap();
         assert!(s.queued.is_empty());
         let said: Vec<&str> = s.lines.iter().filter(|l| l.kind == "cmd").map(|l| l.text.as_str()).collect();
@@ -775,7 +954,7 @@ mod tests {
         assert!(!s.lines.iter().any(|l| l.kind == "wait"));
 
         running();
-        m.end_run("a", false, &r);
+        ended(&m, "a", false, &r);
         assert_eq!(m.get("a").unwrap().status, AgentStatus::Waiting);
 
         // Stopping drops what was queued.
@@ -792,7 +971,7 @@ mod tests {
         let s = AgentSession {
             id: "a".into(), project_id: "p".into(), branch: "b".into(), cwd: ".".into(), worktree: false,
             status: AgentStatus::Running, request: "r".into(), agent_label: String::new(), lines: vec![],
-            started_at: now(), updated_at: now(), resume_id: Some("rid".into()), ai: Some(cli("claude")), queued: vec![], pid: None,
+            started_at: now(), updated_at: now(), resume_id: Some("rid".into()), ai: Some(cli("claude")), queued: vec![], pid: None, last_prompt: None,
         };
         // No such CLI for "q": a follow-up started by mistake fails instead of running anything.
         let q = AgentSession { id: "q".into(), ai: Some(cli("none")), queued: vec!["later".into()], ..s.clone() };
@@ -804,7 +983,7 @@ mod tests {
         let next = AgentManager::new(broadcast::channel(8).0, dir.path());
         assert_eq!(next.inner.lock().unwrap().interrupted, vec!["a".to_string()]);
         // A killed run with messages queued starts nothing on quit; they stay for the resumed run.
-        m.end_run("q", true, &cli("none"));
+        ended(&m, "q", true, &cli("none"));
         let q = m.get("q").unwrap();
         assert_eq!(q.queued, ["later"]);
         assert!(!q.lines.iter().any(|l| l.kind == "cmd"));
@@ -817,7 +996,7 @@ mod tests {
         let s = AgentSession {
             id: "a".into(), project_id: "p".into(), branch: "b".into(), cwd: ".".into(), worktree: false,
             status: AgentStatus::Running, request: "r".into(), agent_label: String::new(), lines: vec![],
-            started_at: now(), updated_at: now(), resume_id: None, ai: Some(cli("claude")), queued: vec![], pid: None,
+            started_at: now(), updated_at: now(), resume_id: None, ai: Some(cli("claude")), queued: vec![], pid: None, last_prompt: None,
         };
         m.inner.lock().unwrap().sessions.insert("a".into(), s);
         let saved = || std::fs::read_to_string(dir.path().join("agents.json")).unwrap_or_default();
@@ -839,7 +1018,7 @@ mod tests {
         let s = |id: &str| AgentSession {
             id: id.into(), project_id: "p".into(), branch: "b".into(), cwd: ".".into(), worktree: false,
             status: AgentStatus::Waiting, request: "r".into(), agent_label: String::new(), lines: vec![],
-            started_at: now(), updated_at: "2000-01-01T00:00:00+00:00".into(), resume_id: None, ai: None, queued: vec![], pid: None,
+            started_at: now(), updated_at: "2000-01-01T00:00:00+00:00".into(), resume_id: None, ai: None, queued: vec![], pid: None, last_prompt: None,
         };
         std::fs::write(dir.path().join("agents.json"), serde_json::to_string(&[s("shared")]).unwrap()).unwrap();
         // The installed app and a dev build, both opened before either started a session.
@@ -860,5 +1039,149 @@ mod tests {
         dev.remove("gone").unwrap();
         app.persist();
         assert!(AgentManager::new(broadcast::channel(8).0, dir.path()).get("gone").is_err());
+    }
+
+    #[tokio::test]
+    async fn a_turn_lists_the_files_it_changed_and_leaves_the_index_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path();
+        let git = |args: &[&str]| assert!(std::process::Command::new("git").args(args).current_dir(repo).output().unwrap().status.success());
+        git(&["init", "-q"]);
+        std::fs::write(repo.join("a.txt"), "one\ntwo\n").unwrap();
+        std::fs::write(repo.join("keep.txt"), "same\n").unwrap();
+        git(&["add", "."]);
+        git(&["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "init"]);
+        let index = std::fs::read(repo.join(".git/index")).unwrap();
+
+        let base = snapshot(repo).await.unwrap();
+        // Nothing changed: no line.
+        assert!(turn_files(repo, &base).await.is_none());
+        std::fs::write(repo.join("a.txt"), "one\n2\nthree\n").unwrap();
+        std::fs::write(repo.join("new.txt"), "x\n").unwrap();
+        let line = turn_files(repo, &base).await.unwrap();
+        assert_eq!(line.kind, "files");
+        let v: Value = serde_json::from_str(&line.text).unwrap();
+        assert_eq!(v["files"], json!([["a.txt", 2, 1], ["new.txt", 1, 0]]));
+        assert_eq!(v["from"], base.as_str());
+        // The user's index is as it was: the new file is still untracked.
+        assert_eq!(std::fs::read(repo.join(".git/index")).unwrap(), index);
+        let diff = Git::new(repo).file_diff("a.txt", Some(&format!("{base}..{}", v["to"].as_str().unwrap())), false).await.unwrap();
+        assert_eq!(diff.len(), 1);
+    }
+
+    #[test]
+    fn a_queued_message_comes_off_only_while_still_queued() {
+        let dir = tempfile::tempdir().unwrap();
+        let m = AgentManager::new(broadcast::channel(8).0, dir.path());
+        let s = AgentSession {
+            id: "a".into(), project_id: "p".into(), branch: "b".into(), cwd: ".".into(), worktree: false,
+            status: AgentStatus::Running, request: "r".into(), agent_label: String::new(), lines: vec![],
+            started_at: now(), updated_at: now(), resume_id: None, ai: Some(cli("claude")), queued: vec!["one".into(), "two".into()], pid: None, last_prompt: None,
+        };
+        m.inner.lock().unwrap().sessions.insert("a".into(), s);
+        // Another Gitnetix runs it (no run here): its queue is that one's to change.
+        assert!(m.unqueue("a", 1, "two").is_err());
+        m.inner.lock().unwrap().kills.insert("a".into(), (1, oneshot::channel().0));
+        // The index moved (another device took "one" off): refused.
+        assert!(m.unqueue("a", 0, "two").is_err());
+        assert_eq!(m.unqueue("a", 1, "two").unwrap(), "two");
+        assert!(m.unqueue("a", 1, "two").is_err());
+        assert_eq!(m.get("a").unwrap().queued, vec!["one".to_string()]);
+    }
+
+    #[test]
+    fn send_now_hands_the_queue_to_the_run_it_stops() {
+        let dir = tempfile::tempdir().unwrap();
+        let m = AgentManager::new(broadcast::channel(64).0, dir.path());
+        let s = AgentSession {
+            id: "a".into(), project_id: "p".into(), branch: "b".into(), cwd: ".".into(), worktree: false,
+            status: AgentStatus::Running, request: "r".into(), agent_label: String::new(), lines: vec![],
+            started_at: now(), updated_at: now(), resume_id: None, ai: Some(cli("claude")), queued: vec!["now".into()], pid: None, last_prompt: None,
+        };
+        m.inner.lock().unwrap().sessions.insert("a".into(), s);
+        let (kill, mut killed) = oneshot::channel();
+        m.inner.lock().unwrap().kills.insert("a".into(), (3, kill));
+        // Claude before it named its session can't pick the task back up.
+        assert!(m.send_now("a").is_err());
+        m.inner.lock().unwrap().sessions.get_mut("a").unwrap().resume_id = Some("rid".into());
+        m.send_now("a").unwrap();
+        // Killed, but nothing sent yet: that waits for the run's task, once its process is gone.
+        assert!(killed.try_recv().is_ok());
+        assert_eq!(m.get("a").unwrap().queued, ["now"]);
+        // No such CLI from here on: the next run fails to start instead of running the real claude.
+        m.inner.lock().unwrap().sessions.get_mut("a").unwrap().ai = Some(cli("none"));
+        // A newer run's handle is not the old task's to take.
+        m.inner.lock().unwrap().kills.insert("a".into(), (4, oneshot::channel().0));
+        m.end_run("a", 3, false, Some(LogLine::new("files", "{}")), &cli("none"));
+        let s = m.get("a").unwrap();
+        assert!(m.inner.lock().unwrap().kills.get("a").is_some_and(|(n, _)| *n == 4));
+        let kinds: Vec<&str> = s.lines.iter().map(|l| l.kind.as_str()).collect();
+        // Its changes first, then the note, then your message.
+        assert_eq!(kinds[..3], ["files", "dim", "cmd"]);
+        assert!(s.queued.is_empty());
+
+        // Another CLI can't resume: Send now refuses, the queue waits for the run's end.
+        m.inner.lock().unwrap().sessions.get_mut("a").unwrap().ai = Some(cli("codex"));
+        m.inner.lock().unwrap().sessions.get_mut("a").unwrap().queued = vec!["later".into()];
+        assert!(m.send_now("a").is_err());
+        // Not our run to stop (no kill handle): Send now leaves it and its queue alone.
+        m.inner.lock().unwrap().sessions.get_mut("a").unwrap().ai = Some(cli("claude"));
+        m.inner.lock().unwrap().kills.clear();
+        assert!(m.send_now("a").is_err());
+        assert_eq!(m.get("a").unwrap().queued, ["later"]);
+    }
+
+    #[test]
+    fn a_stopped_run_shows_its_changes_and_does_not_wait_for_review() {
+        let dir = tempfile::tempdir().unwrap();
+        let m = AgentManager::new(broadcast::channel(64).0, dir.path());
+        let s = AgentSession {
+            id: "a".into(), project_id: "p".into(), branch: "b".into(), cwd: ".".into(), worktree: false,
+            status: AgentStatus::Running, request: "r".into(), agent_label: String::new(), lines: vec![],
+            started_at: now(), updated_at: now(), resume_id: Some("rid".into()), ai: Some(cli("claude")), queued: vec![], pid: None, last_prompt: None,
+        };
+        m.inner.lock().unwrap().sessions.insert("a".into(), s);
+        m.inner.lock().unwrap().kills.insert("a".into(), (7, oneshot::channel().0));
+        // Stop lands while the task still reads the last output (or takes the snapshot): Stop wins.
+        m.stop("a").unwrap();
+        m.end_run("a", 7, false, Some(LogLine::new("files", "{}")), &cli("none"));
+        let s = m.get("a").unwrap();
+        assert_eq!(s.status, AgentStatus::Stopped);
+        assert_eq!(s.lines.last().unwrap().kind, "files");
+        assert!(!s.lines.iter().any(|l| l.kind == "wait"));
+    }
+
+    #[test]
+    fn retry_asks_the_last_prompt_again() {
+        let dir = tempfile::tempdir().unwrap();
+        let m = AgentManager::new(broadcast::channel(64).0, dir.path());
+        let s = AgentSession {
+            id: "a".into(), project_id: "p".into(), branch: "b".into(), cwd: ".".into(), worktree: false,
+            status: AgentStatus::Failed, request: "r".into(), agent_label: String::new(), lines: vec![],
+            started_at: now(), updated_at: now(), resume_id: None, ai: Some(cli("none")), queued: vec![], pid: None, last_prompt: None,
+        };
+        m.inner.lock().unwrap().sessions.insert("a".into(), s);
+        // A session from before saved prompts: nothing to ask again.
+        assert!(m.retry("a", &cli("none")).is_err());
+        // Every run saves what it was asked, even one whose CLI then fails to start.
+        assert!(m.spawn_or_fail("a", Path::new("."), &cli("none"), "the full prompt", None).is_err());
+        assert_eq!(m.get("a").unwrap().last_prompt, None, "never started");
+        m.inner.lock().unwrap().sessions.get_mut("a").unwrap().last_prompt = Some("the full prompt".into());
+        // No such CLI: it fails to start, after saying it tries again.
+        assert!(m.retry("a", &cli("none")).is_err());
+        let s = m.get("a").unwrap();
+        assert!(s.lines.iter().any(|l| l.text.contains("Trying again")));
+        assert_eq!(s.status, AgentStatus::Failed);
+        // Not while it works.
+        m.inner.lock().unwrap().sessions.get_mut("a").unwrap().status = AgentStatus::Running;
+        assert!(m.retry("a", &cli("none")).is_err());
+    }
+
+    #[test]
+    fn lines_saved_before_timestamps_still_load() {
+        let l: LogLine = serde_json::from_str(r#"{"kind":"ai","text":"hi"}"#).unwrap();
+        assert_eq!(l.at, None);
+        assert!(serde_json::to_string(&l).unwrap().ends_with(r#""text":"hi"}"#));
+        assert!(LogLine::new("ai", "hi").at.is_some());
     }
 }

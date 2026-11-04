@@ -3865,6 +3865,7 @@ button.picker-act {
   color: var(--faint);
 }
 .ag-you {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -3894,15 +3895,102 @@ button.picker-act {
   white-space: pre-wrap;
   word-break: break-word;
 }
-/* Sent while the agent works: faded until its run ends and the message goes out. */
+/* Sent while the agent works: an outline until its run ends and the message goes out. */
 .ag-queued .ag-bubble {
-  opacity: 0.6;
+  border: 1px dashed color-mix(in srgb, var(--muted) 60%, transparent);
+  background: none;
+  color: var(--muted);
 }
 /* Under the bubble: past the avatar column and its gap. */
-.ag-queued-hint {
+.ag-queued-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
   margin-left: 36px;
   font-size: 11.5px;
   color: var(--faint);
+}
+/* A long message of yours, cut until "Show full message". */
+.ag-said {
+  display: block;
+}
+.ag-clamp {
+  max-height: 11rem;
+  overflow: hidden;
+}
+.ag-faded {
+  -webkit-mask-image: linear-gradient(to bottom, #000 65%, transparent);
+  mask-image: linear-gradient(to bottom, #000 65%, transparent);
+}
+.ag-more {
+  display: block;
+  margin-top: 4px;
+}
+.ag-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.ag-link:hover {
+  color: var(--fg);
+  text-decoration: underline;
+}
+.ag-link:disabled {
+  opacity: 0.5;
+  cursor: default;
+  text-decoration: none;
+}
+/* Under a message, on hover: when it came, and Copy. In the space below it, so showing it moves nothing. */
+.ag-meta {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 18px;
+  font-size: 11px;
+  color: var(--faint);
+  opacity: 0;
+  transition: opacity var(--t-fast);
+}
+.ag-you > .ag-meta {
+  left: 36px;
+}
+:is(.ag-you, .ag-ai):is(:hover, :focus-within) > .ag-meta {
+  opacity: 1;
+}
+@media (hover: none) {
+  .ag-meta {
+    opacity: 1;
+  }
+}
+.ag-meta-copy {
+  width: 22px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+}
+/* Back to the end, over the bottom of the log while it is scrolled up. No height and no gap, like the pinned task. */
+.ag-jump {
+  position: sticky;
+  bottom: 0;
+  z-index: 3;
+  display: flex;
+  justify-content: center;
+  height: 0;
+  margin-top: -14px;
+}
+.ag-jump > .btn {
+  gap: 6px;
+  border-radius: 999px;
+  background: var(--raised);
+  transform: translateY(calc(-100% - 10px));
 }
 /* The task pinned over the log once your first message scrolls away. No height and no gap, so showing it never shifts the log. */
 .ag-task {
@@ -3953,6 +4041,10 @@ button.picker-act {
 .ag-act {
   position: relative;
   margin-left: 36px;
+}
+/* Room for its hover line (.ag-meta). */
+.ag-ai {
+  margin-bottom: 4px;
 }
 /* The answer's mark sits in the gutter, level with its first line. */
 :is(.ag-ai, .ag-act) > .ag-avatar {
@@ -4011,8 +4103,10 @@ button.picker-act {
   font-size: 11.5px;
   color: var(--accent-fg);
 }
-.ag-ai .md .pre {
+.ag-ai .md .code-block {
   margin: 4px 0 8px;
+}
+.ag-ai .md .pre {
   padding: 10px 12px;
   font-size: 11.5px;
   overflow-x: auto;
@@ -4079,6 +4173,109 @@ button.picker-act {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* A finished turn's work in one row (agentLog.ts folds); opened, its blocks hang off a line in the gutter. */
+.ag-fold {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.ag-fold:hover {
+  color: var(--fg);
+}
+.ag-fold-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-left: 12px;
+  border-left: 1px solid var(--line);
+}
+.ag-fold-body > div {
+  white-space: normal;
+}
+.ag-fold-body > :is(.ag-ai, .ag-act, .ag-err) {
+  margin-left: 23px;
+}
+/* The files a turn changed. */
+.ag-changes {
+  display: flex;
+  flex-direction: column;
+  max-width: 640px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  font-size: 12px;
+  overflow: hidden;
+}
+.ag-changes-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--line);
+  color: var(--fg);
+  font-weight: 500;
+}
+.ag-changes-head > .ag-stat {
+  margin-left: auto;
+}
+.ag-change {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 3px 10px;
+  border: 0;
+  background: none;
+  color: var(--fg);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  text-align: left;
+  cursor: pointer;
+}
+.ag-change:hover:not(:disabled) {
+  background: var(--sel);
+}
+.ag-change:disabled {
+  cursor: default;
+}
+.ag-change > .ellipsis {
+  flex: 1;
+  min-width: 0;
+}
+.ag-changes-all {
+  align-self: flex-start;
+  padding: 3px 10px 6px;
+}
+/* "+12 −3" in fixed columns, so the counts line up down the list. */
+.ag-stat {
+  flex: none;
+  display: inline-grid;
+  grid-template-columns: 6ch 6ch;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  font-weight: 400;
+  text-align: right;
+}
+/* A turn's diff of one file, in its modal: scrolls inside (.diff). */
+.ag-diff {
+  flex: none;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+}
+.ag-diff > .spinner,
+.ag-diff > .faint {
+  display: block;
+  margin: 48px auto;
+  font-family: var(--sans);
+  text-align: center;
+}
 .ag-dots {
   display: flex;
   align-items: center;
@@ -4121,6 +4318,10 @@ button.picker-act {
   color: var(--add-fg);
 }
 .ag-err {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
   padding: 7px 12px;
   border-left: 3px solid var(--del-fg);
   border-radius: var(--r);
@@ -4128,6 +4329,10 @@ button.picker-act {
   color: var(--del-fg);
   font-size: 12.5px;
   word-break: break-word;
+}
+.ag-retry {
+  flex: none;
+  gap: 6px;
 }
 .ag-wait {
   display: flex;
@@ -5012,6 +5217,38 @@ button.picker-act {
   background: var(--raised);
   padding: 1px 4px;
   border-radius: var(--r-sm);
+}
+/* A Markdown code block: its language and Copy over the code. */
+.code-block {
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--panel);
+  overflow: hidden;
+}
+.md .code-block {
+  margin: 8px 0;
+}
+.code-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  height: 26px;
+  padding: 0 2px 0 10px;
+  border-bottom: 1px solid var(--line);
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+.code-copy {
+  width: 24px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+}
+.code-block > .pre {
+  border: 0;
+  border-radius: 0;
 }
 .pre {
   margin: 0;

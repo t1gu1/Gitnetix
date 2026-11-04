@@ -476,8 +476,11 @@ export interface LogEntry {
 }
 
 export interface LogLine {
-  kind: "cmd" | "ai" | "ok" | "dim" | "err" | "wait" | "run";
+  /** "files": what a turn changed, as JSON (`agents.rs` turn_files). */
+  kind: "cmd" | "ai" | "ok" | "dim" | "err" | "wait" | "run" | "files";
   text: string;
+  /** When it was logged, ms since the epoch; lines from before timestamps have none. */
+  at?: number;
 }
 
 export interface AgentSession {

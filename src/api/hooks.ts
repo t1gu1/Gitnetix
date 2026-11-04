@@ -384,6 +384,14 @@ export const useAgentFile = (id?: string, path?: string, enabled = true) =>
     staleTime: Infinity,
   });
 
+/** File `path` as a turn of agent `id` changed it: between snapshots `from` and `to` of its checkout, from a files line of its log. */
+export const useAgentDiff = (id: string, from: string, to: string, path: string) =>
+  useQuery({
+    queryKey: ["agentDiff", id, from, to, path],
+    queryFn: () => rpc<Hunk[]>("agents.diff", { id, from, to, path }),
+    staleTime: Infinity,
+  });
+
 /** Newest `limit` commits of `branch`: raising it keeps the shorter list shown while the longer one loads. */
 export const useCommits = (projectId?: string, branch?: string, limit?: number) =>
   useQuery({

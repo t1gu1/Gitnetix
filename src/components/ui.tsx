@@ -1,10 +1,12 @@
-import { type CSSProperties, Fragment, memo, type ReactNode, type RefObject, type TouchEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type CSSProperties, Fragment, memo, type ReactNode, type RefObject, type TouchEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { link } from "./Adf";
 import { Icon } from "./Icon";
 import { isPageRoute } from "./TopBar";
+import { useTokens } from "../lib/highlight";
 import { comboOf, useKeys } from "../lib/keys";
+import { copyToClipboard } from "../lib/toast";
 import { useNav } from "../lib/nav";
 
 export function Seg<T extends string>({
@@ -387,6 +389,33 @@ const item = (t: string, j: number) => {
   );
 };
 
+/** A fenced code block under its language and a copy button, in syntax colors once the worker sends them. */
+function CodeBlock({ lang, text }: { lang: string; text: string }) {
+  const hunks = useMemo(() => [{ header: "", oldStart: 1, newStart: 1, lines: text.split("\n").map((t) => ({ kind: " " as const, text: t })) }], [text]);
+  // The text the colors are for: a reply still coming keeps the colored previous version until the new colors land.
+  const shown = useTokens(`code.${lang}`, hunks);
+  const rows = shown.hunks[0].lines;
+  return (
+    <div className="code-block">
+      <div className="code-head">
+        <span className="ellipsis">{lang || "code"}</span>
+        <button type="button" className="btn btn-ghost code-copy" aria-label="Copy the code" data-tip="Copy" onClick={() => copyToClipboard(text)}>
+          <Icon name="copy" size={12} />
+        </button>
+      </div>
+      <pre className="pre">
+        {rows.map((r, j) => (
+          <Fragment key={j}>
+            {/* Not `code()`: its colour swatches would take "#1234" in a log for a colour. */}
+            {shown.tokens?.[0]?.[j]?.map(([t, cls], k) => (cls ? <span key={k} className={cls}>{t}</span> : t)) ?? r.text}
+            {j < rows.length - 1 && "\n"}
+          </Fragment>
+        ))}
+      </pre>
+    </div>
+  );
+}
+
 // Memo: an agent log redraws every reply when a line arrives; only new text is parsed again.
 export const Markdown = memo(function Markdown({ text }: { text: string }) {
   const blocks: ReactNode[] = [];
@@ -406,11 +435,12 @@ export const Markdown = memo(function Markdown({ text }: { text: string }) {
       continue;
     }
     if (l.startsWith("```")) {
+      const lang = l.slice(3).trim().split(/\s/)[0];
       const code: string[] = [];
       i++;
       while (i < lines.length && !lines[i].startsWith("```")) code.push(lines[i++]);
       i++;
-      blocks.push(<pre key={i} className="pre">{code.join("\n")}</pre>);
+      blocks.push(<CodeBlock key={i} lang={lang} text={code.join("\n")} />);
       continue;
     }
     if (/^\s*(-{3,}|\*{3,})\s*$/.test(l)) {

@@ -2199,7 +2199,10 @@ function Terminal({ pid, branch, cwd, worktree, open, setOpen, onCloseWorktree, 
               session={cur?.id}
               provider={cur ? cur.ai?.provider : pick.provider}
               thinking={cur?.status === "running" || start.isPending || message.isPending}
+              working={busy}
               queued={cur?.queued}
+              onEditQueued={(q) => setText((t) => [q, t].filter(Boolean).join("\n\n"))}
+              canSendNow={cur?.ai?.provider === "claude" && !!cur.resumeId}
               actions={
                 cur?.worktree && <FinishWorktreeCard session={cur} finish={finish} />
               }

@@ -31,7 +31,9 @@ const MAX_LINE = 2000;
 const MAX_TEXT = 1_000_000;
 
 onmessage = async ({ data: { id, path, hunks } }: MessageEvent<{ id: number; path: string; hunks: Hunk[] }>) => {
-  const lang = LanguageDescription.matchFilename(languages, path.slice(path.lastIndexOf("/") + 1));
+  const name = path.slice(path.lastIndexOf("/") + 1);
+  // A code block names its language ("rust", "typescript"), not a file: `code.rust`.
+  const lang = LanguageDescription.matchFilename(languages, name) ?? LanguageDescription.matchLanguageName(languages, name.slice(name.lastIndexOf(".") + 1), false);
   const parser = (await lang?.load().catch(() => null))?.language.parser;
   // Each side of a hunk is parsed as one text, so comments and strings spanning lines color right.
   const side = (h: Hunk, skip: string) => {

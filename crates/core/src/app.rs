@@ -5077,6 +5077,21 @@ impl Gitnetix {
         self.agents.message(id, &text, &r)
     }
 
+    /// Run agent `id`'s last prompt again, after it failed.
+    pub fn agent_retry(&self, id: &str) -> Result<()> {
+        let r = match self.agents.get(id)?.ai {
+            Some(r) => r,
+            None => self.route("agent", None)?,
+        };
+        self.agents.retry(id, &r)
+    }
+
+    /// File `path` as a turn of agent `id` changed it: between snapshots `from` and `to` of its checkout.
+    pub async fn agent_diff(&self, id: &str, from: &str, to: &str, path: &str, full: bool) -> Result<Vec<Hunk>> {
+        let cwd = self.agents.get(id)?.cwd;
+        Git::new(cwd).file_diff(path, Some(&format!("{}..{}", check_sha(from)?, check_sha(to)?)), full).await
+    }
+
     /// A file sent to agent `id`, base64, as its log lists it.
     pub async fn agent_file(&self, id: &str, path: &str) -> Result<String> {
         attachment(Path::new(&self.agents.get(id)?.cwd), path).await

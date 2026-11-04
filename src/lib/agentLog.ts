@@ -1,10 +1,17 @@
 import type { AgentSession, AgentStatus, LogLine } from "../api/types";
+import { clock, plural } from "./format";
 
-export type Block =
+/** A file a turn changed and its added and removed lines, null for a binary file. */
+export type Changed = [path: string, added: number | null, removed: number | null];
+
+/** `at`: when its first line was logged. */
+export type Block = { at?: number } & (
   | { kind: "you"; text: string; files: string[] }
   | { kind: "ai"; text: string }
   | { kind: "steps"; lines: LogLine[] }
-  | { kind: "note" | "ok" | "err" | "wait"; text: string };
+  | { kind: "files"; from: string; to: string; files: Changed[]; more: number }
+  | { kind: "note" | "ok" | "err" | "wait"; text: string }
+);
 
 // "✦ " starts a reply; older logs and plain CLIs continue it line by line.
 const REPLY = /^✦ /;
@@ -30,28 +37,36 @@ export function blocks(lines: LogLine[]): Block[] {
     switch (l.kind) {
       case "cmd": {
         // "$ claude · request" opens the session, "› text" follows up.
-        out.push({ kind: "you", ...said(l.text.replace(/^(\$ \S+ · |› )/, "")) });
+        out.push({ kind: "you", ...said(l.text.replace(/^(\$ \S+ · |› )/, "")), at: l.at });
         break;
       }
       case "ai": {
         const text = l.text.replace(/^(✦ | {2})/, "");
         if (last?.kind === "ai") last.text += (REPLY.test(l.text) ? "\n\n" : "\n") + text;
-        else out.push({ kind: "ai", text });
+        else out.push({ kind: "ai", text, at: l.at });
         break;
       }
       case "dim":
       case "run":
-        if (STATUS.test(l.text)) out.push({ kind: "note", text: l.text.trim() });
+        if (STATUS.test(l.text)) out.push({ kind: "note", text: l.text.trim(), at: l.at });
         else if (last?.kind === "steps") last.lines.push(l);
-        else out.push({ kind: "steps", lines: [l] });
+        else out.push({ kind: "steps", lines: [l], at: l.at });
+        break;
+      case "files":
+        try {
+          const f = JSON.parse(l.text) as { from: string; to: string; files: Changed[]; more?: number };
+          out.push({ kind: "files", from: f.from, to: f.to, files: f.files, more: f.more ?? 0, at: l.at });
+        } catch {
+          // Not ours to show: a line cut short.
+        }
         break;
       case "ok":
       case "err":
       case "wait":
-        out.push({ kind: l.kind, text: l.text.replace(/^[✓✕◆] /, "") });
+        out.push({ kind: l.kind, text: l.text.replace(/^[✓✕◆] /, ""), at: l.at });
         break;
       default:
-        out.push({ kind: "note", text: l.text });
+        out.push({ kind: "note", text: l.text, at: l.at });
     }
   }
   return out;
@@ -114,3 +129,88 @@ export function questions(lines: LogLine[]): Question[] {
 /** A worktree run that ended with its close options showing (no question, its branch `b` known) is done, even with nothing to merge. */
 export const shownStatus = (s: AgentSession, b?: unknown): AgentStatus =>
   s.status === "waiting" && s.worktree && !!b && !questions(s.lines).length ? "done" : s.status;
+
+// What a tool's calls did, said once for all of them. `files`: calls on the same file count once.
+const TOOLS: { names: string[]; say: (n: number) => string; files?: boolean }[] = [
+  { names: ["Read"], say: (n) => `read ${plural(n, "file")}`, files: true },
+  { names: ["Edit", "MultiEdit", "Write", "NotebookEdit"], say: (n) => `edited ${plural(n, "file")}`, files: true },
+  { names: ["Bash"], say: (n) => `ran ${plural(n, "command")}` },
+  { names: ["Grep", "Glob", "LS"], say: (n) => `searched ${times(n)}` },
+  { names: ["WebSearch"], say: (n) => `searched the web ${times(n)}` },
+  { names: ["WebFetch"], say: (n) => `fetched ${plural(n, "page")}` },
+  { names: ["Task", "Agent"], say: (n) => `started ${plural(n, "subagent")}` },
+  { names: ["TodoWrite"], say: () => "updated its to-do list" },
+];
+const times = (n: number) => (n === 1 ? "once" : n === 2 ? "twice" : `${n} times`);
+
+/** "Read 3 files, edited 2 files and ran 4 commands". Lines that are no tool the agent names (another CLI's output) are counted by their first word: "output ×3 · done". */
+export function stepsLabel(lines: LogLine[]) {
+  const seen = TOOLS.map(() => new Set<string>());
+  const others = new Map<string, number>();
+  lines.forEach((l, i) => {
+    const [name = "", ...rest] = l.text.trim().split(/\s+/);
+    const t = TOOLS.findIndex((x) => x.names.includes(name));
+    if (t >= 0) seen[t].add(TOOLS[t].files ? rest.join(" ") : String(i));
+    else others.set(name || "output", (others.get(name || "output") ?? 0) + 1);
+  });
+  const did = TOOLS.flatMap((t, i) => (seen[i].size ? [t.say(seen[i].size)] : []));
+  if (!did.length) return [...others].map(([n, c]) => (c > 1 ? `${n} ×${c}` : n)).join(" · ");
+  const rest = [...others.values()].reduce((a, b) => a + b, 0);
+  if (rest) did.push(plural(rest, "other step"));
+  const s = did.length > 1 ? `${did.slice(0, -1).join(", ")} and ${did.at(-1)}` : did[0];
+  return s[0].toUpperCase() + s.slice(1);
+}
+
+/** "45s", "2m 14s", "1h 5m". */
+export function took(ms: number) {
+  const s = Math.max(1, Math.round(ms / 1000));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return s % 60 ? `${m}m ${s % 60}s` : `${m}m`;
+  return m % 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${Math.floor(m / 60)}h`;
+}
+
+/** A finished turn's work in one row: its blocks from where it is keyed up to `end`, how long the turn took, its steps, and whether you stopped it. */
+export type Fold = { end: number; ms?: number; steps: number; stopped: boolean };
+
+/** The folds of `list`, keyed by their first block: in each turn that ended, the steps and replies before its last reply.
+ * The last turn stays open while the agent works on it (`working`). */
+export function folds(list: Block[], working: boolean): Map<number, Fold> {
+  const out = new Map<number, Fold>();
+  // The turn is the blocks from `start` up to `end`, after your message at `start - 1` (none at the top of an old log).
+  const close = (start: number, end: number) => {
+    let reply = -1;
+    let steps = -1;
+    for (let i = start; i < end; i++) {
+      if (list[i].kind === "ai") reply = i;
+      else if (list[i].kind === "steps") steps = i;
+    }
+    // The last reply stays out, and what came after it: a CLI's stderr may close the run after its answer.
+    const to = reply >= 0 ? reply : steps + 1;
+    const inner = list.slice(start, Math.max(start, to));
+    if (!inner.some((b) => b.kind === "ai" || b.kind === "steps")) return;
+    const from = list[start - 1]?.at ?? list[start].at;
+    const last = list[end - 1].at;
+    out.set(start, {
+      end: to,
+      ms: from !== undefined && last !== undefined ? last - from : undefined,
+      steps: inner.reduce((n, b) => n + (b.kind === "steps" ? b.lines.length : 0), 0),
+      stopped: list.slice(to, end).some((b) => b.kind === "note" && b.text.startsWith("■")),
+    });
+  };
+  let start = 0;
+  list.forEach((b, i) => {
+    if (b.kind !== "you") return;
+    if (i > start) close(start, i);
+    start = i + 1;
+  });
+  if (!working && start < list.length) close(start, list.length);
+  return out;
+}
+
+/** Claude's "Claude AI usage limit reached|1760000000": the time it resets at, in local time. */
+export function errText(text: string) {
+  const m = /^(.*usage limit reached)\|(\d{9,})/i.exec(text);
+  if (!m) return text;
+  return `${m[1]} · resets ${clock(Number(m[2]) * 1000)}`;
+}

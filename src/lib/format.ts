@@ -8,6 +8,13 @@ export function timeLeft(secs: number) {
   return `about ${Math.round(secs / 60)} min left`;
 }
 
+/** "14:32" today, else "Nov 2, 14:32", in the user's locale. */
+export function clock(at: number) {
+  const d = new Date(at);
+  const t = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  return d.toDateString() === new Date().toDateString() ? t : `${d.toLocaleDateString([], { month: "short", day: "numeric" })}, ${t}`;
+}
+
 /** "just now", "5m ago", "3h ago", "2d ago", then the date. */
 export function ago(iso: string) {
   const t = Date.parse(iso);
