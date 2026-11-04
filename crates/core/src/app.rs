@@ -5130,7 +5130,7 @@ impl Gitnetix {
 
     pub async fn template_preview(&self, project_id: &str, template_id: &str, language: &str) -> Result<(String, String)> {
         let p = self.store.project(project_id)?;
-        let t = self.template("", Some(template_id), Some(&p.id))?;
+        let mut t = self.template("", Some(template_id), Some(&p.id))?;
         let git = self.git(&p);
         let current = git.current_branch().await?.unwrap_or_else(|| "HEAD".into());
         let default = git.default_branch().await?;
@@ -5170,11 +5170,9 @@ impl Gitnetix {
             "release" => {
                 let from = git.tags().await?.first().map(|t| t.name.clone()).unwrap_or_else(|| default.clone());
                 source = format!("{from} → {current}");
-                let commits = git.log(&format!("{from}..{current}"), Some(200)).await.unwrap_or_default();
-                vars.insert("tickets".into(), tickets::extract_keys(&commit_lines(&commits)).join(", "));
-                vars.insert("commits".into(), commit_lines(&commits));
-                vars.insert("from".into(), from);
-                vars.insert("to".into(), current.clone());
+                let commits = git.log(&format!("{from}..{current}"), Some(NOTES_MAX_COMMITS)).await.unwrap_or_default();
+                templates::prepare_release(&mut t);
+                vars = release_vars(&git, &from, &current, &commits, true).await;
             }
             "agent" => {
                 return Ok((
@@ -5608,52 +5606,35 @@ impl Gitnetix {
     pub async fn notes_range(&self, project_id: &str, from: &str, to: &str) -> Result<serde_json::Value> {
         let p = self.store.project(project_id)?;
         let git = self.git(&p);
-        let commits = git.log(&format!("{from}..{to}"), Some(1000)).await?;
         let range = format!("{from}..{to}");
-        let merges: u32 = git
-            .run(&["rev-list", "--count", "--merges", &range])
-            .await
-            .ok()
-            .and_then(|s| s.trim().parse().ok())
-            .unwrap_or(0);
-        let text = commit_lines(&commits);
+        let commits = git.log(&range, Some(NOTES_MAX_COMMITS)).await?;
+        let merges = merge_shas(&git, &range).await;
+        let branches = commits.iter().filter(|c| merged_branch(c, merges.contains(&c.sha)).is_some()).count();
         Ok(serde_json::json!({
             "commits": commits.len(),
-            "branches": merges,
-            "tickets": tickets::extract_keys(&text).len(),
+            "branches": branches,
+            "tickets": tickets::extract_keys(&release_commit_lines(&commits)).len(),
         }))
     }
 
     pub async fn generate_notes(&self, project_id: &str, from: &str, to: &str, template_id: Option<&str>, language: &str, inc: NotesInclude) -> Result<(String, String)> {
         let p = self.store.project(project_id)?;
         let git = self.git(&p);
-        let commits = git.log(&format!("{from}..{to}"), Some(500)).await?;
+        let commits = git.log(&format!("{from}..{to}"), Some(NOTES_MAX_COMMITS)).await?;
         let kept: Vec<_> = commits
             .into_iter()
-            .filter(|c| {
-                let s = c.subject.as_str();
-                if s.starts_with("feat") {
-                    inc.feat
-                } else if s.starts_with("fix") {
-                    inc.fix
-                } else {
-                    inc.internal
-                }
+            .filter(|c| match change_kind(&c.subject) {
+                ChangeKind::Feat => inc.feat,
+                ChangeKind::Fix => inc.fix,
+                ChangeKind::Internal => inc.internal,
             })
             .collect();
         if kept.is_empty() {
             return Err(Error::Invalid("No commits in this range match the filters".into()));
         }
-        let t = self.template("release", template_id, Some(&p.id))?;
-        let text = commit_lines(&kept);
-        let mut vars = BTreeMap::new();
-        vars.insert("commits".into(), text.clone());
-        vars.insert(
-            "tickets".into(),
-            if inc.tickets { tickets::extract_keys(&text).join(", ") } else { "(do not mention ticket keys)".into() },
-        );
-        vars.insert("from".into(), from.into());
-        vars.insert("to".into(), to.into());
+        let mut t = self.template("release", template_id, Some(&p.id))?;
+        templates::prepare_release(&mut t);
+        let vars = release_vars(&git, from, to, &kept, inc.tickets).await;
         let r = self.route("release", Some(&t))?;
         let out = self.ask("release", &t, vars, language, None).await?;
         Ok((out, format!("{} · {} commits read", r.label(), kept.len())))
@@ -5966,6 +5947,162 @@ fn commit_lines(commits: &[crate::git::Commit]) -> String {
         .join("\n")
 }
 
+/// Most commits release notes read from a range.
+const NOTES_MAX_COMMITS: u32 = 1000;
+
+/// Merge commits in `range`, by full sha.
+async fn merge_shas(git: &Git, range: &str) -> std::collections::HashSet<String> {
+    git.run(&["rev-list", "--merges", range]).await.unwrap_or_default().lines().map(|l| l.trim().to_string()).filter(|l| !l.is_empty()).collect()
+}
+
+/// What release notes read about `from..to`: `commits` (git log order) with their whole messages,
+/// the PRs and branches they merge, and the net changes, as template variables.
+async fn release_vars(git: &Git, from: &str, to: &str, commits: &[Commit], tickets: bool) -> BTreeMap<String, String> {
+    let merges = merge_shas(git, &format!("{from}..{to}")).await;
+    let net = format!("{from}...{to}");
+    let numstat = git.run(&["diff", "--numstat", &net]).await.unwrap_or_default();
+    let diff = git.run(&["diff", "--no-color", "--no-ext-diff", "-p", &net, "--", ":(exclude)*.lock", ":(exclude)*-lock.json", ":(exclude)*-lock.yaml"]).await.unwrap_or_default();
+    let text = release_commit_lines(commits);
+    let branches: Vec<String> = commits.iter().rev().filter_map(|c| merged_branch(c, merges.contains(&c.sha))).collect();
+    let or_none = |s: String| if s.trim().is_empty() { "(none)".to_string() } else { s };
+    let mut vars = BTreeMap::new();
+    vars.insert("tickets".into(), if tickets { or_none(tickets::extract_keys(&text).join(", ")) } else { "(do not mention ticket keys)".into() });
+    vars.insert("commits".into(), text);
+    vars.insert("branches".into(), or_none(branches.join("\n")));
+    vars.insert("files".into(), or_none(file_lines(&numstat, 400)));
+    vars.insert("diff".into(), or_none(net_diff(&diff, 3_000, 40_000)));
+    vars.insert("from".into(), from.into());
+    vars.insert("to".into(), to.into());
+    vars
+}
+
+/// The PR or branch `c` merges, as one line: a merge commit, or a squashed PR ("Merged PR 12: …"
+/// from Azure DevOps, "Title (#12)" from GitHub). None for any other commit.
+fn merged_branch(c: &Commit, merge: bool) -> Option<String> {
+    let s = c.subject.trim();
+    let sha = &c.sha[..7.min(c.sha.len())];
+    let line = if let Some(rest) = s.strip_prefix("Merged PR ") {
+        format!("PR {rest}")
+    } else if let Some(rest) = s.strip_prefix("Merge pull request ") {
+        // "#3 from owner/branch": GitHub puts the PR title on the body's first line.
+        match c.body.lines().map(str::trim).find(|l| !l.is_empty()) {
+            Some(title) => format!("PR {rest}: {title}"),
+            None => format!("PR {rest}"),
+        }
+    } else if let Some((title, n)) = s.rsplit_once(" (#").and_then(|(t, n)| Some((t, n.strip_suffix(')')?))).filter(|(_, n)| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit())) {
+        format!("PR #{n}: {title}")
+    } else if merge {
+        s.to_string()
+    } else {
+        return None;
+    };
+    Some(format!("- {line} ({sha})"))
+}
+
+/// `commits` as git log lists them (newest first), written oldest first, each with its date and whole
+/// message. Messages are cut so the list stays near 60 KB, subjects always kept.
+fn release_commit_lines(commits: &[Commit]) -> String {
+    let per = (60_000 / commits.len().max(1)).clamp(200, 1_500);
+    let mut out = String::new();
+    for c in commits.iter().rev() {
+        let sha = &c.sha[..7.min(c.sha.len())];
+        let date = c.date.get(..10).unwrap_or(&c.date);
+        out.push_str(&format!("- {date} {sha} {}\n", c.subject.trim()));
+        let body = c.body.lines().map(str::trim_end).filter(|l| !l.trim().is_empty()).collect::<Vec<_>>().join("\n");
+        let cut = body.chars().count() > per;
+        let body: String = body.chars().take(per).collect();
+        for l in body.lines() {
+            out.push_str("  ");
+            out.push_str(l);
+            out.push('\n');
+        }
+        if cut {
+            out.push_str("  …\n");
+        }
+    }
+    out.trim_end().to_string()
+}
+
+/// `git diff --numstat` output as "+12 -3 path" lines, at most `max`.
+fn file_lines(numstat: &str, max: usize) -> String {
+    let rows: Vec<String> = numstat
+        .lines()
+        .filter_map(|l| {
+            let mut f = l.splitn(3, '\t');
+            let (add, del, path) = (f.next()?, f.next()?, f.next()?);
+            Some(if add == "-" { format!("binary {path}") } else { format!("+{add} -{del} {path}") })
+        })
+        .collect();
+    let mut out = rows.iter().take(max).cloned().collect::<Vec<_>>().join("\n");
+    if rows.len() > max {
+        out.push_str(&format!("\n… {} more files", rows.len() - max));
+    }
+    out
+}
+
+/// `diff` (`git diff -p`) with each file's part cut to `per_file` bytes, smallest parts first so the
+/// most files fit whole, until `total` bytes. The files left out are counted at the end.
+fn net_diff(diff: &str, per_file: usize, total: usize) -> String {
+    let mut parts: Vec<String> = diff
+        .split("\ndiff --git ")
+        .enumerate()
+        .filter(|(_, p)| !p.trim().is_empty())
+        .map(|(i, p)| {
+            let mut p = if i == 0 { p.to_string() } else { format!("diff --git {p}") };
+            crate::git::truncate_utf8(&mut p, per_file);
+            p.truncate(p.trim_end().len());
+            p.push('\n');
+            p
+        })
+        .collect();
+    parts.sort_by_key(String::len);
+    let mut out = String::new();
+    let mut left = 0;
+    for p in parts {
+        if out.len() + p.len() > total {
+            left += 1;
+        } else {
+            out.push_str(&p);
+        }
+    }
+    if left > 0 {
+        out.push_str(&format!("… {left} more files left out here: the file list has them all"));
+    }
+    out.trim_end().to_string()
+}
+
+#[derive(Debug, PartialEq)]
+enum ChangeKind {
+    Feat,
+    Fix,
+    Internal,
+}
+
+/// What a commit brings, for the release-notes filters, read from its type or from the branch a
+/// merged PR names: "feat: …", "Merged PR 12: feature/MNC-1-…", "Merge pull request #3 from me/fix/…".
+fn change_kind(subject: &str) -> ChangeKind {
+    let s = subject.trim();
+    let s = if let Some(rest) = s.strip_prefix("Merged PR ") {
+        rest.split_once(": ").map_or(rest, |(_, title)| title)
+    } else if let Some(rest) = s.strip_prefix("Merge pull request ") {
+        // "#3 from owner/fix/login": the branch comes after the owner.
+        rest.split_once(" from ").map_or(rest, |(_, head)| head.split_once('/').map_or(head, |(_, branch)| branch))
+    } else if let Some(rest) = s.strip_prefix("Merge branch '") {
+        rest
+    } else {
+        s
+    };
+    let s = s.to_ascii_lowercase();
+    let starts = |words: &[&str]| words.iter().any(|w| s.strip_prefix(w).is_some_and(|r| !r.starts_with(|c: char| c.is_ascii_alphanumeric())));
+    if starts(&["feat", "feature"]) {
+        ChangeKind::Feat
+    } else if starts(&["fix", "bugfix", "hotfix"]) {
+        ChangeKind::Fix
+    } else {
+        ChangeKind::Internal
+    }
+}
+
 /// Summary of a squashed branch: "squash | feat/add login" for `feat/add-login`.
 fn squash_title(branch: &str) -> String {
     format!("squash | {}", branch.replace('-', " "))
@@ -5984,6 +6121,85 @@ fn fix_version_release(fix_versions: &[String], releases: &[Release]) -> Option<
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn commit(sha: &str, date: &str, subject: &str, body: &str) -> Commit {
+        Commit {
+            sha: sha.into(),
+            author: String::new(),
+            email: String::new(),
+            date: date.into(),
+            subject: subject.into(),
+            body: body.into(),
+            tags: Vec::new(),
+            local: false,
+            origin: false,
+            unpulled: false,
+            unpushed: false,
+        }
+    }
+
+    #[test]
+    fn merged_branch_counts_merges_and_squashed_prs() {
+        let c = |subject: &str, body: &str| commit("394b339b1111", "2026-10-01T10:00:00+02:00", subject, body);
+        assert_eq!(merged_branch(&c("Merged PR 122219: fix/MNC-7393-update-title", ""), false).as_deref(), Some("- PR 122219: fix/MNC-7393-update-title (394b339)"));
+        assert_eq!(merged_branch(&c("Merged PR 7: feat/x", ""), true).as_deref(), Some("- PR 7: feat/x (394b339)"));
+        assert_eq!(merged_branch(&c("Merge pull request #3 from octo/fix/login", "\nFix the login loop\n"), true).as_deref(), Some("- PR #3 from octo/fix/login: Fix the login loop (394b339)"));
+        assert_eq!(merged_branch(&c("Add dark mode (#42)", ""), false).as_deref(), Some("- PR #42: Add dark mode (394b339)"));
+        assert_eq!(merged_branch(&c("Merge branch 'feature/search'", ""), true).as_deref(), Some("- Merge branch 'feature/search' (394b339)"));
+        assert_eq!(merged_branch(&c("feat: dark mode", ""), false), None);
+        assert_eq!(merged_branch(&c("Support (#hash) links", ""), false), None);
+    }
+
+    #[test]
+    fn release_commits_read_oldest_first_with_their_message() {
+        let newest_first = [
+            commit("bbbbbbb222", "2026-10-02T10:00:00+02:00", "revert: remove dark mode", ""),
+            commit("aaaaaaa111", "2026-10-01T10:00:00+02:00", "Merged PR 12: feat/dark-mode", "## Summary\n\nAdds a dark theme.\n"),
+        ];
+        assert_eq!(
+            release_commit_lines(&newest_first),
+            "- 2026-10-01 aaaaaaa Merged PR 12: feat/dark-mode\n  ## Summary\n  Adds a dark theme.\n- 2026-10-02 bbbbbbb revert: remove dark mode"
+        );
+        let long = [commit("ccccccc333", "2026-10-03", "feat: x", &"y".repeat(2_000))];
+        let out = release_commit_lines(&long);
+        assert!(out.ends_with(&format!("  {}\n  …", "y".repeat(1_500))), "{out}");
+    }
+
+    #[test]
+    fn net_changes_fit_their_budget() {
+        assert_eq!(file_lines("12\t3\tsrc/a.ts\n-\t-\tlogo.png\n", 400), "+12 -3 src/a.ts\nbinary logo.png");
+        assert_eq!(file_lines("1\t0\ta\n1\t0\tb\n1\t0\tc\n", 2), "+1 -0 a\n+1 -0 b\n… 1 more files");
+        let big = format!("diff --git a/big b/big\n{}\n", "+x\n".repeat(2_000));
+        let diff = format!("{big}diff --git a/small b/small\n+one\ndiff --git a/mid b/mid\n{}", "+m\n".repeat(20));
+        let out = net_diff(&diff, 3_000, 40_000);
+        assert!(out.starts_with("diff --git a/small b/small\n+one\ndiff --git a/mid b/mid\n"), "smallest first: {out}");
+        assert!(out.contains("… [diff truncated]"), "a big file is cut");
+        let tight = net_diff(&diff, 3_000, 200);
+        assert!(tight.ends_with("… 1 more files left out here: the file list has them all"), "{tight}");
+        assert_eq!(net_diff("", 3_000, 40_000), "");
+    }
+
+    #[test]
+    fn change_kind_reads_types_and_merged_branches() {
+        use ChangeKind::*;
+        for (subject, kind) in [
+            ("feat(deploy): ajoute les scripts", Feat),
+            ("fix: include missing commit", Fix),
+            ("Fix some playright screenshot test error", Fix),
+            ("Merged PR 122219: fix/MNC-7393-update-maintenance-screen-title", Fix),
+            ("Merged PR 121663: Feature/MNC 7298 ajout modale", Feat),
+            ("Merged PR 121766: feat/MNC_7387-update-node-bun-expo-minor", Feat),
+            ("Merged PR 122624: fix: Correct router.replace navigation", Fix),
+            ("Merged PR 121936: refactor: Improve custom style strategy", Internal),
+            ("Merged PR 120925: MNC-7298 APP | Ajout de modale", Internal),
+            ("Merge pull request #12 from octo/hotfix/login", Fix),
+            ("Merge branch 'feature/search' into main", Feat),
+            ("Fixture cleanup", Internal),
+            ("chore: 1.2.3", Internal),
+        ] {
+            assert_eq!(change_kind(subject), kind, "{subject}");
+        }
+    }
 
     #[test]
     fn expands_the_home_folder() {

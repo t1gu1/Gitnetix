@@ -70,7 +70,15 @@ pub fn variables(kind: &str) -> Vec<(&'static str, &'static str)> {
         "commit" => vec![("{diff}", "Staged diff"), ("{files}", "Changed file list"), ("{branch}", "Current branch"), ("{ticket}", "Linked ticket key"), ("{maxLength}", "Subject length rule")],
         "branch" => vec![("{description}", "What the user typed"), ("{type}", "feat or fix"), ("{ticket}", "Linked ticket key")],
         "pr" => vec![("{diff}", "Branch diff"), ("{commits}", "Commit list"), ("{branch}", "Head branch"), ("{base}", "Base branch"), ("{ticket}", "Linked ticket")],
-        "release" => vec![("{commits}", "Commits in range"), ("{tickets}", "Linked tickets"), ("{from}", "Start ref"), ("{to}", "End ref")],
+        "release" => vec![
+            ("{commits}", "Commits in range, oldest first, with their whole message; added at the end when left out"),
+            ("{branches}", "PRs and branches merged, squashed or not; added at the end when left out"),
+            ("{files}", "Files changed from start to end, net; added at the end when left out"),
+            ("{diff}", "Net code changes from start to end, cut to fit; added at the end when left out"),
+            ("{tickets}", "Linked tickets; added at the end when left out"),
+            ("{from}", "Start ref; added at the end when left out"),
+            ("{to}", "End ref; added at the end when left out"),
+        ],
         "changelog" => vec![("{commits}", "Commits the branch adds"), ("{unreleased}", "Current Unreleased section"), ("{released}", "Entries already moved under the release version"), ("{branch}", "Branch"), ("{base}", "Base branch")],
         "changelogMerge" => vec![("{version}", "Version the entries go into"), ("{released}", "Entries already under that version"), ("{unreleased}", "Unreleased entries to add")],
         "conflict" => vec![("{conflict}", "Conflicting file"), ("{ours}", "Our branch"), ("{theirs}", "Their branch"), ("{path}", "File path")],
@@ -125,6 +133,39 @@ pub fn apply_globals(t: &mut Template, all: &[Template], project_id: Option<&str
         .collect();
     if !skills.is_empty() {
         t.body = format!("{}\n\n---\n\n{}", skills.join("\n\n"), t.body);
+    }
+}
+
+/// What a release-notes prompt always holds, as `(var, heading)`: a template without the
+/// placeholder gets the section at the end, so AI still reads the range and what it brings.
+pub const RELEASE_DATA: &[(&str, &str)] = &[
+    ("from", "Previous release, where the range starts"),
+    ("to", "This release, where the range ends"),
+    ("branches", "PRs and branches merged from {from} to {to}, oldest first"),
+    ("commits", "Commits from {from} to {to}, oldest first, each with its date and whole message"),
+    ("tickets", "Tickets"),
+    ("files", "Files changed from {from} to {to}, net, with lines added and removed"),
+    ("diff", "Net code changes from {from} to {to}"),
+];
+
+/// Appended to every release-notes prompt, stored and custom templates included: the notes tell
+/// what ships, so a later commit wins over an earlier one.
+pub const RELEASE_NET: &str = "The notes tell what users get in {to} compared with {from}: the end result, not the history of the work.\n- The commits are listed oldest first. When two commits disagree, the later one wins.\n- A change added and then removed or reverted within the range did not happen: leave it out.\n- A feature added and then fixed or reworked within the range is one new feature, described as it ends up. Its fixes are not fixes for users.\n- The net file list is the reference: a change whose files are not in it did not ship.";
+
+/// `t` ready for release notes: the [`RELEASE_DATA`] sections it leaves out at the end, then [`RELEASE_NET`].
+pub fn prepare_release(t: &mut Template) {
+    append_missing(t, RELEASE_DATA);
+    t.body.push_str("\n\n");
+    t.body.push_str(RELEASE_NET);
+}
+
+/// Adds a "heading:\n{var}" section at the end of `t`'s body for each of `needed` it has no `{var}` for.
+pub fn append_missing(t: &mut Template, needed: &[(&str, &str)]) {
+    for (var, heading) in needed {
+        let placeholder = format!("{{{var}}}");
+        if !t.body.contains(&placeholder) {
+            t.body.push_str(&format!("\n\n{heading}:\n{placeholder}"));
+        }
     }
 }
 
@@ -472,6 +513,39 @@ mod tests {
         all.iter_mut().find(|t| t.id == "unslop").unwrap().is_default = false;
         let commit = all.iter().find(|t| t.id == "commit-conv").unwrap().body.clone();
         assert_eq!(with(&all, "commit-conv", "p1"), commit);
+    }
+
+    #[test]
+    fn release_prompt_holds_the_range_and_commits_its_template_leaves_out() {
+        let mut v = BTreeMap::new();
+        v.insert("commits".into(), "- 2026-10-01 abc1234 feat: dark mode".into());
+        v.insert("branches".into(), "- PR 12: feat/dark-mode (abc1234)".into());
+        v.insert("files".into(), "+40 -2 src/theme.ts".into());
+        v.insert("diff".into(), "diff --git a/src/theme.ts b/src/theme.ts".into());
+        v.insert("tickets".into(), "MNC-1".into());
+        v.insert("from".into(), "8.24.0".into());
+        v.insert("to".into(), "release/9.0.0".into());
+        let mut custom = Template { kind: "release".into(), body: "You write release notes from a list of Git commits.".into(), ..Default::default() };
+        prepare_release(&mut custom);
+        let out = render(&custom, &v, "fr");
+        assert!(out.starts_with("You write release notes from a list of Git commits.\n\n"), "{out}");
+        for part in [
+            "Previous release, where the range starts:\n8.24.0",
+            "This release, where the range ends:\nrelease/9.0.0",
+            "PRs and branches merged from 8.24.0 to release/9.0.0, oldest first:\n- PR 12: feat/dark-mode (abc1234)",
+            "Commits from 8.24.0 to release/9.0.0, oldest first, each with its date and whole message:\n- 2026-10-01 abc1234 feat: dark mode",
+            "Tickets:\nMNC-1",
+            "Files changed from 8.24.0 to release/9.0.0, net, with lines added and removed:\n+40 -2 src/theme.ts",
+            "Net code changes from 8.24.0 to release/9.0.0:\ndiff --git a/src/theme.ts b/src/theme.ts",
+            "The notes tell what users get in release/9.0.0 compared with 8.24.0",
+            "A change added and then removed or reverted within the range did not happen: leave it out.",
+        ] {
+            assert!(out.contains(part), "missing {part:?} in {out}");
+        }
+
+        let mut full = Template { kind: "release".into(), body: "{from} {to} {branches} {commits} {tickets} {files} {diff}".into(), ..Default::default() };
+        prepare_release(&mut full);
+        assert_eq!(full.body, format!("{{from}} {{to}} {{branches}} {{commits}} {{tickets}} {{files}} {{diff}}\n\n{RELEASE_NET}"), "only the rule is added to a template with every placeholder");
     }
 
     #[test]
