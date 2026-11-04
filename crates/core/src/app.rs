@@ -1767,7 +1767,7 @@ fn home_among(p: &Project, refs: &Refs, default: &str, name: &str, holders: &std
 /// Keychain keys a profile's settings can point to.
 fn secret_keys(c: &Config) -> Vec<String> {
     let i = &c.integrations;
-    let mut keys = vec!["github".to_string(), azure_auth::KEY.into(), tickets::jira_auth::KEY.into()];
+    let mut keys = vec!["github".to_string(), azure_auth::KEY.into(), tickets::jira_auth::KEY.into(), crate::git::LOGINS_KEY.into()];
     keys.extend(i.jira.iter().map(Connection::secret));
     keys.extend(i.trello.iter().map(Connection::secret));
     keys.extend(i.asana.iter().map(Connection::secret));
@@ -1840,7 +1840,11 @@ impl Gitnetix {
     }
 
     fn git_at(&self, cwd: &Path) -> Git {
-        let g = Git::new(cwd);
+        let mut g = Git::new(cwd);
+        // An Enterprise token must not reach github.com.
+        if self.store.read(|c| c.integrations.github_connected && c.integrations.github_api.is_none()) {
+            g = g.with_github();
+        }
         match self.identity() {
             Some(id) => g.with_identity(&id),
             None => g,

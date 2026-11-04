@@ -337,10 +337,13 @@ function WorktreesSection({ cfg }: { cfg: Config }) {
 type DeviceCode = { deviceCode: string; userCode: string; verificationUri: string; interval: number; expiresIn: number };
 
 /** "Sign in with GitHub / Azure DevOps": show a code, open the provider's page to enter it, poll until it hands over a token. */
-function DeviceSignIn({ method, name, site }: { method: "github" | "azure"; name: string; site: string }) {
+export function DeviceSignIn({ method, name, site, onDone }: { method: "github" | "azure"; name: string; site: string; onDone?: () => void }) {
   const qc = useQueryClient();
   const [code, setCode] = useState<DeviceCode | null>(null);
   const start = useAction<DeviceCode>(`${method}.signInStart`);
+  // A ref: a new callback each render must not restart the polling.
+  const done = useRef(onDone);
+  done.current = onDone;
   useEffect(() => {
     if (!code) return;
     let interval = code.interval;
@@ -356,6 +359,7 @@ function DeviceSignIn({ method, name, site }: { method: "github" | "azure"; name
           qc.invalidateQueries({ queryKey: ["config"] });
           qc.invalidateQueries({ queryKey: ["prs"] });
           toast(r.user ? `Signed in to ${name} as ${r.user}` : `${name} connected`, "ok");
+          done.current?.();
           return;
         }
         if (r.interval) interval = r.interval;

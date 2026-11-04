@@ -100,6 +100,8 @@ pub struct Git {
     index: Option<PathBuf>,
     /// Extra environment, see [`Git::unattended`].
     env: Vec<(&'static str, &'static str)>,
+    /// The app's GitHub token may sign in to github.com, see [`Git::with_github`].
+    github: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -232,6 +234,78 @@ const OP_FILES: [&str; 6] = ["rebase-merge", "rebase-apply", "MERGE_HEAD", "CHER
 /// Taken for the default branch, in this order, when origin/HEAD isn't set.
 const DEFAULT_NAMES: [&str; 4] = ["main", "master", "trunk", "develop"];
 
+/// Commands that may sign in to a host: they get the app's HTTPS logins ([`Git::logins`]).
+const SIGNS_IN: [&str; 7] = ["fetch", "pull", "push", "ls-remote", "clone", "submodule", "credential"];
+
+/// Keychain key of the HTTPS logins the user typed when git asked for one, by host.
+pub const LOGINS_KEY: &str = "git-logins";
+
+/// What git answers an HTTPS host's sign-in with: a username and a password or access token.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Login {
+    pub username: String,
+    pub token: String,
+}
+
+pub fn saved_logins() -> std::collections::BTreeMap<String, Login> {
+    crate::secrets::get(LOGINS_KEY).ok().flatten().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
+}
+
+/// Keep `login` for `host`, replacing the one it had. Checked here: the host goes into git config keys, and both
+/// values into git's credential protocol, where a line break would start another field.
+pub fn save_login(host: &str, login: Login) -> Result<()> {
+    let bad = |s: &str| s.is_empty() || s.chars().any(char::is_control);
+    if !valid_host(host) || bad(&login.username) || bad(&login.token) {
+        return Err(Error::Invalid("a host, a username and a token, each on one line".into()));
+    }
+    let mut all = saved_logins();
+    all.insert(host.into(), login);
+    crate::secrets::set(LOGINS_KEY, &serde_json::to_string(&all)?)
+}
+
+fn valid_host(h: &str) -> bool {
+    !h.is_empty() && h.chars().all(|c| c.is_ascii_alphanumeric() || ".-:".contains(c))
+}
+
+/// `-c` values and environment letting git answer each host's sign-in from `logins`. Only the environment holds
+/// the secrets: arguments show in `ps` and in the log.
+fn helpers(logins: &[(String, Login)]) -> impl Iterator<Item = (String, [(String, &str); 2])> + '_ {
+    logins.iter().enumerate().map(|(i, (host, l))| {
+        let helper = format!("!f() {{ if [ \"$1\" = get ]; then printf 'username=%s\\npassword=%s\\n' \"$GNX_GIT_USER_{i}\" \"$GNX_GIT_TOKEN_{i}\"; fi; }}; f");
+        (format!("credential.https://{host}.helper={helper}"), [(format!("GNX_GIT_USER_{i}"), l.username.as_str()), (format!("GNX_GIT_TOKEN_{i}"), l.token.as_str())])
+    })
+}
+
+/// The HTTPS host git couldn't sign in to: no credential helper knew it, or it refused what one gave.
+pub fn login_host(stderr: &str) -> Option<String> {
+    let at = ["could not read Username for '", "could not read Password for '", "Authentication failed for '"].iter().find_map(|m| stderr.find(m).map(|i| i + m.len()))?;
+    let auth = stderr[at..].strip_prefix("https://")?.split(['/', '\'']).next()?;
+    let host = auth.rsplit('@').next()?;
+    valid_host(host).then(|| host.to_string())
+}
+
+/// Host of an ssh remote URL, with the URL's start before its path: `git@host:` or `ssh://git@host[:port]/`.
+fn ssh_prefix(url: &str) -> Option<(&str, &str)> {
+    let (host, end) = if let Some(rest) = url.strip_prefix("ssh://") {
+        let auth = rest.split('/').next()?;
+        (auth.rsplit('@').next()?.split(':').next()?, "ssh://".len() + auth.len() + 1)
+    } else {
+        // The scp form. A user is required, so a Windows path (`C:/repo`) isn't taken for host `C`.
+        let (auth, _) = url.split_once(':')?;
+        (auth.split_once('@').filter(|_| !auth.contains('/'))?.1, auth.len() + 1)
+    };
+    (valid_host(host) && end <= url.len()).then(|| (host, &url[..end]))
+}
+
+/// Where the command in `args` starts, past any leading `-c key=value`.
+fn verb_at(args: &[&str]) -> usize {
+    let mut i = 0;
+    while args.get(i) == Some(&"-c") {
+        i += 2;
+    }
+    i
+}
+
 /// One `for-each-ref` line per ref with all [`RefList`] needs.
 const REF_FORMAT: &str = "--format=%(refname)%1f%(objectname)%1f%(upstream)%1f%(upstream:short)%1f%(committerdate:iso-strict)%1f%(authorname)%1f%(authoremail)%1f%(symref)%1f%(HEAD)%1f%(refname:short)%1f%(creatordate:iso-strict)%1f%(creatordate:unix)%1f%(*objectname)";
 
@@ -292,7 +366,25 @@ fn parse_refs(out: &str) -> RefList {
 
 impl Git {
     pub fn new(cwd: impl Into<PathBuf>) -> Self {
-        Git { cwd: cwd.into(), config: Vec::new(), index: None, env: Vec::new() }
+        Git { cwd: cwd.into(), config: Vec::new(), index: None, env: Vec::new(), github: false }
+    }
+
+    /// Lets git sign in to github.com with the app's GitHub token (the user connected github.com, not an Enterprise host).
+    pub fn with_github(mut self) -> Self {
+        self.github = true;
+        self
+    }
+
+    /// The HTTPS logins git may answer a host with: the saved ones, then the GitHub token for github.com. Read when a
+    /// command may sign in, not before: the keychain may ask the user to unlock it.
+    fn logins(&self) -> Vec<(String, Login)> {
+        let mut all: Vec<(String, Login)> = saved_logins().into_iter().collect();
+        if self.github && !all.iter().any(|(h, _)| h == "github.com") {
+            if let Some(token) = crate::secrets::get("github").ok().flatten().filter(|t| !t.is_empty()) {
+                all.push(("github.com".into(), Login { username: "x-access-token".into(), token }));
+            }
+        }
+        all
     }
 
     /// The same checkout staging into `index` instead of its own index file, which stays as the user left it.
@@ -305,11 +397,12 @@ impl Git {
         &self.cwd
     }
 
-    /// For calls nobody asked for (the background fetch): ssh and the credential manager fail instead of asking for a
-    /// passphrase, about an unknown host or for a sign-in. BatchMode only when the user has no ssh command of their own
-    /// ([`Git::own_ssh`]): `GIT_SSH_COMMAND` would replace it.
+    /// For calls nobody asked for (the background fetch): ssh, git and the credential manager fail instead of asking
+    /// for a passphrase, about an unknown host or for a sign-in. An empty `GIT_ASKPASS` keeps git from the desktop's
+    /// `SSH_ASKPASS` (`GIT_TERMINAL_PROMPT=0` only stops its terminal prompt). BatchMode only when the user has no ssh
+    /// command of their own ([`Git::own_ssh`]): `GIT_SSH_COMMAND` would replace it.
     pub fn unattended(mut self, own_ssh: bool) -> Self {
-        self.env.extend([("SSH_ASKPASS_REQUIRE", "never"), ("GCM_INTERACTIVE", "never")]);
+        self.env.extend([("SSH_ASKPASS_REQUIRE", "never"), ("GCM_INTERACTIVE", "never"), ("GIT_ASKPASS", "")]);
         if !own_ssh {
             self.env.push(("GIT_SSH_COMMAND", "ssh -o BatchMode=yes"));
         }
@@ -352,6 +445,12 @@ impl Git {
         for (k, v) in &self.config {
             cmd.arg("-c").arg(format!("{k}={v}"));
         }
+        // After the user's own credential helpers, which git asks first.
+        if args.get(verb_at(args)).is_some_and(|v| SIGNS_IN.contains(v)) {
+            for (conf, env) in helpers(&self.logins()) {
+                cmd.arg("-c").arg(conf).envs(env);
+            }
+        }
         cmd.args(args);
         cmd.env("GIT_TERMINAL_PROMPT", "0");
         cmd.env("LC_ALL", "C");
@@ -371,8 +470,35 @@ impl Git {
 
     /// Run git and return stdout; non-zero exit becomes `Error::Git`.
     pub async fn run(&self, args: &[&str]) -> Result<String> {
-        let out = self.command(args).output().await?;
+        let out = self.output(args).await?;
         Self::stdout_or_err(args, out)
+    }
+
+    /// Run git. A fetch, pull, push or ls-remote whose ssh failed goes again over HTTPS, for users without a working
+    /// key or behind a firewall closing ssh. That answer stands when it worked or the host asks for a sign-in (the app
+    /// can ask the user for it); else the ssh error, which says more.
+    // shortcut: every call tries ssh first (a closed port waits for ssh's timeout each time); remember the host if that bites.
+    async fn output(&self, args: &[&str]) -> std::io::Result<std::process::Output> {
+        let out = self.command(args).output().await?;
+        let i = verb_at(args);
+        let falls_back = matches!(args.get(i), Some(&("fetch" | "pull" | "push" | "ls-remote")));
+        if out.status.success() || !falls_back || !String::from_utf8_lossy(&out.stderr).contains("Could not read from remote repository") {
+            return Ok(out);
+        }
+        // The remote named in `args` (pull names none: the branch's), its URL as git rewrites it.
+        let mut get_url = vec!["ls-remote", "--get-url"];
+        get_url.extend(args[i + 1..].iter().find(|a| !a.starts_with('-')));
+        let url = self.command(&get_url).output().await?;
+        let url = String::from_utf8_lossy(&url.stdout);
+        let Some((host, prefix)) = ssh_prefix(url.trim()) else { return Ok(out) };
+        let mut https = self.clone();
+        https.config.push((format!("url.https://{host}/.insteadOf"), prefix.into()));
+        let again = https.command(args).output().await?;
+        if again.status.success() || login_host(&String::from_utf8_lossy(&again.stderr)).is_some() {
+            crate::log::info(format!("ssh to {host} failed, so git {} went over HTTPS", args[i]));
+            return Ok(again);
+        }
+        Ok(out)
     }
 
     fn stdout_or_err(args: &[&str], out: std::process::Output) -> Result<String> {
@@ -388,7 +514,7 @@ impl Git {
 
     /// Run git and return (exit success, stdout, stderr) without failing.
     pub async fn try_run(&self, args: &[&str]) -> Result<(bool, String, String)> {
-        let out = self.command(args).output().await?;
+        let out = self.output(args).await?;
         if !out.status.success() && changes_repo(args) {
             crate::log::error(format!("git {} failed: {}", args.join(" "), String::from_utf8_lossy(&out.stderr).trim()));
         }
@@ -2244,6 +2370,91 @@ mod tests {
         }
     }
 
+    #[test]
+    fn reads_the_host_a_sign_in_failed_for() {
+        let host = |e: &str| login_host(e);
+        assert_eq!(host("fatal: could not read Username for 'https://github.com': terminal prompts disabled").as_deref(), Some("github.com"));
+        assert_eq!(host("fatal: could not read Password for 'https://me@gitlab.example.com:8443': terminal prompts disabled").as_deref(), Some("gitlab.example.com:8443"));
+        assert_eq!(host("remote: Invalid username or token.\nfatal: Authentication failed for 'https://github.com/t1gu1/Gitnetix.git/'").as_deref(), Some("github.com"));
+        assert_eq!(host("fatal: Could not read from remote repository."), None);
+        assert_eq!(host("fatal: could not read Username for 'http://plain.example.com': terminal prompts disabled"), None, "no token over plain http");
+    }
+
+    #[test]
+    fn splits_ssh_remotes_into_host_and_prefix() {
+        assert_eq!(ssh_prefix("git@github.com:t1gu1/Gitnetix.git"), Some(("github.com", "git@github.com:")));
+        assert_eq!(ssh_prefix("ssh://git@gitlab.example.com:2222/team/app.git"), Some(("gitlab.example.com", "ssh://git@gitlab.example.com:2222/")));
+        assert_eq!(ssh_prefix("ssh://host.example.com/app.git"), Some(("host.example.com", "ssh://host.example.com/")));
+        for not_ssh in ["https://github.com/t1gu1/Gitnetix.git", "https://me@github.com/a.git", "C:/repos/app", "/srv/app.git", "../app", "ssh://git@host"] {
+            assert_eq!(ssh_prefix(not_ssh), None, "{not_ssh}");
+        }
+    }
+
+    #[test]
+    fn helpers_answer_only_their_host_from_the_environment() {
+        let tmp = tempfile::tempdir().unwrap();
+        let global = tmp.path().join("gitconfig");
+        std::fs::write(&global, "").unwrap();
+        let logins = [("git.example.com".to_string(), Login { username: "me".into(), token: "s3cr$t 'x' \"y\" `z`".into() })];
+        let fill = |host: &str| {
+            use std::io::Write;
+            let mut cmd = std::process::Command::new("git");
+            for (conf, env) in helpers(&logins) {
+                assert!(!conf.contains("s3cr"), "the token stays out of the arguments");
+                cmd.arg("-c").arg(conf).envs(env);
+            }
+            let mut child = cmd
+                .args(["credential", "fill"])
+                .env("GIT_CONFIG_GLOBAL", &global)
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .env("GIT_TERMINAL_PROMPT", "0")
+                .env("GIT_ASKPASS", "")
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .spawn()
+                .unwrap();
+            child.stdin.take().unwrap().write_all(format!("protocol=https\nhost={host}\n\n").as_bytes()).unwrap();
+            let out = child.wait_with_output().unwrap();
+            (out.status.success(), String::from_utf8_lossy(&out.stdout).into_owned())
+        };
+        let (ok, out) = fill("git.example.com");
+        assert!(ok && out.contains("username=me\npassword=s3cr$t 'x' \"y\" `z`\n"), "{out}");
+        assert!(!fill("other.example.com").0, "another host gets nothing");
+        assert!(save_login("bad host", Login { username: "me".into(), token: "t".into() }).is_err());
+        assert!(save_login("git.example.com", Login { username: "me".into(), token: "t\nhost=evil".into() }).is_err());
+    }
+
+    /// An ssh remote that fails once over HTTPS too: the ssh error, which tells what to fix, is the one shown.
+    #[tokio::test]
+    async fn keeps_the_ssh_error_when_https_fails_too() {
+        let tmp = tempfile::tempdir().unwrap();
+        let git = |args: &[&str]| assert!(std::process::Command::new("git").current_dir(tmp.path()).args(args).status().unwrap().success());
+        git(&["init", "-q"]);
+        git(&["remote", "add", "origin", "git@nohost.invalid:team/app.git"]);
+        let mut g = Git::new(tmp.path()).unattended(true);
+        g.env.push(("GIT_SSH_COMMAND", "false"));
+        let err = g.remote_tips().await.unwrap_err().to_string();
+        assert!(err.contains("Could not read from remote repository"), "{err}");
+    }
+
+    /// Needs github.com. `cargo test -p gitnetix-core falls_back -- --ignored`
+    #[tokio::test]
+    #[ignore = "reaches github.com"]
+    async fn falls_back_to_https_when_ssh_fails() {
+        let tmp = tempfile::tempdir().unwrap();
+        let git = |args: &[&str]| assert!(std::process::Command::new("git").current_dir(tmp.path()).args(args).status().unwrap().success());
+        git(&["init", "-q"]);
+        git(&["remote", "add", "origin", "git@github.com:t1gu1/Gitnetix.git"]);
+        let mut g = Git::new(tmp.path()).unattended(true);
+        g.env.push(("GIT_SSH_COMMAND", "false"));
+        assert!(g.remote_tips().await.unwrap().contains("refs/heads/main"));
+        // A push asks the host for a sign-in: the error names it, for the app to ask the user.
+        git(&["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "probe"]);
+        let err = g.try_run(&["push", "--dry-run", "origin", "HEAD:refs/heads/gnx-probe"]).await.unwrap().2;
+        assert_eq!(login_host(&err).as_deref(), Some("github.com"), "{err}");
+    }
+
     #[tokio::test]
     async fn background_calls_keep_the_users_own_ssh() {
         let tmp = tempfile::tempdir().unwrap();
@@ -2251,6 +2462,7 @@ mod tests {
         git(&["init", "-q"]);
         let batch = |own| Git::new(tmp.path()).unattended(own).env.iter().any(|(k, _)| *k == "GIT_SSH_COMMAND");
         assert!(batch(false) && !batch(true), "BatchMode only replaces git's plain ssh");
+        assert!(Git::new(tmp.path()).unattended(true).env.contains(&("GIT_ASKPASS", "")), "the desktop's askpass never pops up");
         // A second account's key, set for this repository.
         git(&["config", "core.sshCommand", "ssh -i ~/.ssh/work"]);
         assert!(Git::new(tmp.path()).own_ssh().await);
@@ -2479,17 +2691,9 @@ fn read_git() -> &'static Path {
 
 /// A git command that changes the repository (worth a line in the log), as opposed to a read.
 fn changes_repo(args: &[&str]) -> bool {
-    let mut it = args.iter();
-    let verb = loop {
-        match it.next() {
-            Some(&"-c") => {
-                it.next();
-            }
-            Some(a) => break *a,
-            None => return false,
-        }
-    };
-    let sub = it.next().copied().unwrap_or("");
+    let i = verb_at(args);
+    let Some(&verb) = args.get(i) else { return false };
+    let sub = args.get(i + 1).copied().unwrap_or("");
     match verb {
         "stash" | "worktree" => !matches!(sub, "list" | "show"),
         _ => ["clone", "merge", "rebase", "cherry-pick", "revert", "commit", "push", "pull", "reset", "checkout", "switch", "update-ref", "add", "rm", "restore", "clean", "apply"].contains(&verb),

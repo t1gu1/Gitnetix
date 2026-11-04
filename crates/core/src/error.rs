@@ -42,6 +42,7 @@ impl From<anyhow::Error> for Error {
 impl Error {
     pub fn code(&self) -> &'static str {
         match self {
+            Error::Git { stderr, .. } if crate::git::login_host(stderr).is_some() => "git_login",
             Error::Git { .. } => "git",
             Error::NotFound(_) => "not_found",
             Error::Invalid(_) => "invalid",
@@ -62,11 +63,18 @@ impl Error {
 pub struct ErrorBody {
     pub code: &'static str,
     pub message: String,
+    /// `git_login`: the HTTPS host git couldn't sign in to, for the app to ask the user for a login.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub host: Option<String>,
 }
 
 impl From<&Error> for ErrorBody {
     fn from(e: &Error) -> Self {
-        ErrorBody { code: e.code(), message: e.to_string() }
+        let host = match e {
+            Error::Git { stderr, .. } => crate::git::login_host(stderr),
+            _ => None,
+        };
+        ErrorBody { code: e.code(), message: e.to_string(), host }
     }
 }
 

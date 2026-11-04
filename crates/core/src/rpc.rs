@@ -162,6 +162,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("jira.signInStart", "Start \"Sign in with Atlassian\": the URL to open in the browser", ""),
     ("jira.signInFinish", "Wait for the browser sign-in to finish; done = Jira connected", ""),
     ("github.repos", "Repositories of the linked GitHub account, last pushed first: { fullName, description, private, cloneUrl, sshUrl }", ""),
+    ("git.saveLogin", "Save the HTTPS login git signs in to a host with (token = password or access token), in the keychain; the next fetch or push to that host uses it", "host, username, token"),
     ("github.signInStart", "Start \"Sign in with GitHub\": a code for the user to enter at verificationUri", ""),
     ("github.signInPoll", "Check whether the user entered the code; done = token stored and GitHub connected", "deviceCode"),
     ("azure.signInStart", "Start \"Sign in with Azure DevOps\": a code for the user to enter at verificationUri", ""),
@@ -1194,6 +1195,12 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
             to(json!({ "id": conf.id, "user": me["displayName"] }))
         }
         "github.repos" => to(k.github_repos().await?),
+        "git.saveLogin" => {
+            // Pasted tokens often carry stray whitespace.
+            let login = crate::git::Login { username: s(&p, "username")?.trim().into(), token: s(&p, "token")?.trim().into() };
+            crate::git::save_login(&s(&p, "host")?, login)?;
+            ok()
+        }
         "github.signInStart" => to(github_auth::start().await?),
         "github.signInPoll" => match github_auth::poll(&s(&p, "deviceCode")?).await? {
             Poll::Pending => to(json!({ "status": "pending" })),

@@ -7,9 +7,12 @@ import type { GitnetixEvent } from "./types";
 
 export class RpcError extends Error {
   code: string;
-  constructor(code: string, message: string) {
+  /** `git_login`: the HTTPS host git couldn't sign in to. */
+  host?: string;
+  constructor(code: string, message: string, host?: string) {
     super(message);
     this.code = code;
+    this.host = host;
   }
 }
 
@@ -91,9 +94,9 @@ export async function rpc<T = unknown>(method: string, params: Record<string, un
     try {
       return await invoke<T>("rpc", { method, params });
     } catch (e) {
-      const err = e as { code?: string; message?: string } | string;
+      const err = e as { code?: string; message?: string; host?: string } | string;
       if (typeof err === "string") throw new RpcError("other", err);
-      throw new RpcError(err.code ?? "other", err.message ?? String(e));
+      throw new RpcError(err.code ?? "other", err.message ?? String(e), err.host);
     }
   }
   if (!remote) throw new RpcError("not_paired", "Not connected to a Gitnetix desktop");
@@ -108,7 +111,7 @@ export async function rpc<T = unknown>(method: string, params: Record<string, un
     throw new RpcError("unreachable", `Cannot reach ${remote.url}`);
   }
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new RpcError(body.code ?? "http", body.message ?? `HTTP ${res.status}`);
+  if (!res.ok) throw new RpcError(body.code ?? "http", body.message ?? `HTTP ${res.status}`, body.host);
   return body as T;
 }
 

@@ -28,6 +28,7 @@ import type {
   WorktreeView,
 } from "./types";
 import { shownStatus } from "../lib/agentLog";
+import { askGitLogin } from "../lib/gitLogin";
 import { dictationModel } from "../lib/dictation";
 import { sayIn, toast } from "../lib/toast";
 
@@ -540,7 +541,7 @@ export function useAction<T = unknown, V extends Record<string, unknown> = Recor
   } = {},
 ) {
   const qc = useQueryClient();
-  return useMutation<T, Error, V>({
+  const m = useMutation<T, Error, V>({
     // Keyed by method so other screens can tell it is running (e.g. a push started from the commit box).
     mutationKey: [method],
     mutationFn: (vars) => rpc<T>(method, vars),
@@ -551,6 +552,8 @@ export function useAction<T = unknown, V extends Record<string, unknown> = Recor
       const msg = typeof opts.success === "function" ? opts.success(r) : opts.success;
       if (msg) toast(msg, "ok");
     },
-    onError: (e, vars) => opts.onError?.(e, vars) || toast(e.message, "error"),
+    // A host asking git for a login: the user gives one, then this runs again.
+    onError: (e, vars) => opts.onError?.(e, vars) || askGitLogin(e, () => m.mutate(vars)) || toast(e.message, "error"),
   });
+  return m;
 }
