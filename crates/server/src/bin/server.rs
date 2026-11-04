@@ -22,6 +22,8 @@ async fn main() -> anyhow::Result<()> {
         }
     }
     // Here, not before: with the API disabled the process exits at once and would kill the resumed agents.
+    // The login shell's PATH first, which may hold the CLI they use.
+    gitnetix_core::project_commands::login_dirs().await;
     k.agents.resume_interrupted();
     tokio::signal::ctrl_c().await?;
     k.agents.shutdown();

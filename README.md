@@ -65,7 +65,8 @@ cargo test --workspace
 ```
 
 Requirements: Rust 1.80+, Node 20+, pnpm, `git` on PATH. For AI, either a CLI
-(`claude`, `codex`, `gemini`, `copilot`, `ollama`) signed in, or an API key in AI setup.
+(`claude`, `codex`, `agy`, `copilot`, `ollama`) signed in, or an API key in AI setup.
+Gitnetix also finds the copies that Claude Desktop, the ChatGPT and Ollama apps and `gh copilot` keep off PATH.
 
 Headless (no window), e.g. on a dev box you drive from your phone:
 

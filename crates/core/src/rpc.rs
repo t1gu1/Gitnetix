@@ -812,6 +812,8 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
 
         // ---- AI setup ----
         "ai.catalog" => {
+            // CLIs found only on the login shell's PATH show as found from the first launch on.
+            crate::project_commands::login_dirs().await;
             let cfg = k.store.read(|c| c.ai.clone());
             let list: Vec<Value> = ai::catalog()
                 .into_iter()

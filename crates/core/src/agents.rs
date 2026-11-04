@@ -435,7 +435,7 @@ impl AgentManager {
     }
 
     fn spawn(&self, id: &str, cwd: &std::path::Path, r: &Resolved, prompt: &str, resume: Option<&str>) -> Result<()> {
-        let (_, path) = ai::cli_path(&r.provider)?;
+        let (bin, path) = ai::cli_path(&r.provider)?;
         let mut cmd = Command::new(path);
         crate::shell::below_app(crate::shell::without_appimage(cmd.as_std_mut()));
         cmd.current_dir(cwd);
@@ -463,6 +463,13 @@ impl AgentManager {
                     cmd.args(["-c", &format!("model_reasoning_effort={}", r.effort)]);
                 }
                 cmd.arg("-");
+            }
+            "gemini" if bin == "agy" => {
+                if !r.model.is_empty() {
+                    cmd.args(["--model", &r.model]);
+                }
+                cmd.args(["--dangerously-skip-permissions", "-p", prompt]);
+                stdin_prompt = false;
             }
             "gemini" => {
                 if !r.model.is_empty() {

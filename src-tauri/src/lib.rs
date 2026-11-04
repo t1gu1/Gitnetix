@@ -256,7 +256,11 @@ mod desktop {
             }
         });
         let resume_k = k.clone();
-        tauri::async_runtime::spawn(async move { resume_k.agents.resume_interrupted() });
+        // The login shell's PATH first, which may hold the CLI the resumed runs use.
+        tauri::async_runtime::spawn(async move {
+            gitnetix_core::project_commands::login_dirs().await;
+            resume_k.agents.resume_interrupted()
+        });
         let server_k = k.clone();
         let assets = app.asset_resolver();
         let ui: gitnetix_server::Ui = Arc::new(move |path| match assets.get(path.to_string()) {

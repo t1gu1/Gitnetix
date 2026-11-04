@@ -485,6 +485,12 @@ impl Git {
         if out.status.success() || !falls_back || !String::from_utf8_lossy(&out.stderr).contains("Could not read from remote repository") {
             return Ok(out);
         }
+        // Boxed: inline, the retry made every git call's future big enough to overflow a 2 MB stack in debug tests.
+        Box::pin(self.over_https(args, i, out)).await
+    }
+
+    /// `args` again over HTTPS after its ssh failed with `out`; `out` stands unless HTTPS worked or asks for a sign-in.
+    async fn over_https(&self, args: &[&str], i: usize, out: std::process::Output) -> std::io::Result<std::process::Output> {
         // The remote named in `args` (pull names none: the branch's), its URL as git rewrites it.
         let mut get_url = vec!["ls-remote", "--get-url"];
         get_url.extend(args[i + 1..].iter().find(|a| !a.starts_with('-')));

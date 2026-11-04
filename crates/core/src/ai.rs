@@ -58,8 +58,9 @@ pub fn catalog() -> Vec<ProviderInfo> {
             id: "codex", name: "Codex", mono: "CX", maker: "OpenAI", bin: Some("codex"),
             methods: vec!["cli", "api"], effort: true, local: false, needs_url: false, models: vec![],
         },
+        // Antigravity CLI, which replaced Gemini CLI: cli_path falls back to `gemini`.
         ProviderInfo {
-            id: "gemini", name: "Gemini", mono: "GM", maker: "Google", bin: Some("gemini"),
+            id: "gemini", name: "Gemini", mono: "GM", maker: "Google", bin: Some("agy"),
             methods: vec!["cli", "api"], effort: false, local: false, needs_url: false, models: vec![],
         },
         ProviderInfo {
@@ -130,10 +131,12 @@ pub fn resolve_route(cfg: &AiConfig, route: Route, template_model: Option<&str>)
     Ok(Resolved { provider, method: conf.method, model, effort, base_url: conf.base_url })
 }
 
-/// Look a binary up on PATH, plus the usual install dirs a GUI app's PATH
+/// Look a binary up on PATH, the login shell's PATH, plus the usual install dirs a GUI app's PATH
 /// misses on macOS.
 pub fn which(bin: &str) -> Option<PathBuf> {
     let mut dirs: Vec<PathBuf> = std::env::var_os("PATH").map(|p| std::env::split_paths(&p).collect()).unwrap_or_default();
+    // nvm, or the line Codex.app adds to ~/.zshrc: read once at startup, so empty until then.
+    dirs.extend_from_slice(crate::project_commands::login_dirs_now());
     if let Some(home) = dirs::home_dir() {
         for d in [".local/bin", ".claude/local", ".npm-global/bin", ".bun/bin", ".cargo/bin", ".volta/bin"] {
             dirs.push(home.join(d));
@@ -188,6 +191,49 @@ fn find_file(dir: &Path, name: &str, depth: u8) -> Option<PathBuf> {
     std::fs::read_dir(dir).ok()?.flatten().filter(|e| e.file_type().is_ok_and(|t| t.is_dir())).find_map(|e| find_file(&e.path(), name, depth - 1))
 }
 
+/// `bin` in a Mac app's Resources folder, where the ChatGPT (Codex until July 2026) and Ollama apps keep their CLI.
+// shortcut: paths from 2026 reports, not checked on a Mac; look inside the bundles if Mac users can't find them.
+fn mac_app(app: &str, bin: &str) -> Option<PathBuf> {
+    if !cfg!(target_os = "macos") {
+        return None;
+    }
+    let rel = format!("Applications/{app}.app/Contents/Resources/{bin}");
+    std::iter::once(PathBuf::from("/")).chain(dirs::home_dir()).map(|d| d.join(&rel)).find(|p| p.is_file())
+}
+
+/// codex.exe in the ChatGPT app from the Microsoft Store (package OpenAI.Codex, seen at 26.1029).
+/// Its folder name holds the version and a limited user can't list WindowsApps, so the folder comes from the registry.
+#[cfg(windows)]
+fn store_codex() -> Option<PathBuf> {
+    let packages = windows_registry::CURRENT_USER
+        .open(r"Software\Classes\Local Settings\Software\Microsoft\Windows\CurrentVersion\AppModel\Repository\Packages")
+        .ok()?;
+    // A local: as the tail expression, the key iterator would outlive `packages`.
+    let found = packages
+        .keys()
+        .ok()?
+        .filter(|k| k.starts_with("OpenAI.Codex_"))
+        .filter_map(|k| packages.open(&k).ok()?.get_string("PackageRootFolder").ok())
+        .map(|root| PathBuf::from(root).join(r"app\resources\codex.exe"))
+        .find(|p| p.is_file());
+    found
+}
+
+#[cfg(not(windows))]
+fn store_codex() -> Option<PathBuf> {
+    None
+}
+
+/// Where `gh copilot` downloads the Copilot CLI when `copilot` isn't on PATH: `copilot` in gh's data dir.
+fn gh_copilot() -> Option<PathBuf> {
+    let data = match std::env::var_os("XDG_DATA_HOME").filter(|v| !v.is_empty()) {
+        Some(x) => PathBuf::from(x).join("gh"),
+        None if cfg!(windows) => dirs::data_local_dir()?.join("GitHub CLI"),
+        None => dirs::home_dir()?.join(".local").join("share").join("gh"),
+    };
+    Some(data.join("copilot").join(if cfg!(windows) { "copilot.exe" } else { "copilot" })).filter(|p| p.is_file())
+}
+
 /// Run a one-shot completion.
 pub async fn complete(r: &Resolved, prompt: &str, cwd: Option<&Path>) -> Result<String> {
     let text = match r.method {
@@ -197,14 +243,25 @@ pub async fn complete(r: &Resolved, prompt: &str, cwd: Option<&Path>) -> Result<
     Ok(clean(&text))
 }
 
-/// The provider's CLI binary name and its location on PATH.
+/// The provider's CLI binary name and its location: on PATH, or the copy a desktop app or `gh copilot` keeps off it.
 pub fn cli_path(provider: &str) -> Result<(&'static str, PathBuf)> {
     let info = provider_info(provider)?;
     let bin = info.bin.ok_or_else(|| Error::Unsupported(format!("{} has no CLI", info.name)))?;
-    let path = which(bin)
-        .or_else(|| if bin == "claude" { desktop_claude() } else { None })
-        .ok_or_else(|| Error::NotConnected(format!("`{bin}` not found on your PATH")))?;
-    Ok((bin, path))
+    let found = which(bin).or_else(|| match bin {
+        "claude" => desktop_claude(),
+        "codex" => mac_app("ChatGPT", bin).or_else(|| mac_app("Codex", bin)).or_else(store_codex),
+        "ollama" => mac_app("Ollama", bin),
+        "copilot" => gh_copilot(),
+        _ => None,
+    });
+    if let Some(path) = found {
+        return Ok((bin, path));
+    }
+    // Gemini CLI stopped serving individual Google accounts on 2026-06-18; paid API keys still work with it.
+    if let Some(path) = (bin == "agy").then(|| which("gemini")).flatten() {
+        return Ok(("gemini", path));
+    }
+    Err(Error::NotConnected(format!("`{bin}` not found on your PATH")))
 }
 
 async fn complete_cli(r: &Resolved, prompt: &str, cwd: Option<&Path>) -> Result<String> {
@@ -246,6 +303,13 @@ async fn complete_cli(r: &Resolved, prompt: &str, cwd: Option<&Path>) -> Result<
             let model = if r.model.is_empty() { "llama3.2" } else { r.model.as_str() };
             cmd.args(["run", model]);
             true
+        }
+        "gemini" if bin == "agy" => {
+            if !r.model.is_empty() {
+                cmd.args(["--model", &r.model]);
+            }
+            cmd.args(["--disable-slash-commands", "-p", prompt]);
+            false
         }
         "gemini" => {
             if !r.model.is_empty() {

@@ -127,7 +127,8 @@ fn merged_branch(subject: &str) -> Option<&str> {
     Some(name.strip_prefix("origin/").unwrap_or(name))
 }
 
-/// Non-merge commits on any ref, committed since `day` (YYYY-MM-DD).
+/// Non-merge commits on any ref, committed since `day` ("YYYY-MM-DD 00:00": git reads a bare date as that day at
+/// the current time, which drops the day's start in the evening west of UTC).
 async fn log_since(git: &Git, day: &str) -> Vec<Commit> {
     let since = format!("--since={day}");
     let raw = git.run(&["log", "--all", "--no-merges", &since, "--format=%H%x1f%an%x1f%ae%x1f%aI%x1f%s%x1f%b%x1e"]).await.unwrap_or_default();
@@ -185,7 +186,7 @@ async fn branches_of(git: &Git, shas: &[&str], day: &str) -> HashMap<String, Str
 
 /// Every commit authored on `date` (UTC, as the activity chart counts them), with the branch each was made on.
 pub async fn day(repos: Vec<(String, Git)>, date: NaiveDate) -> Vec<DayCommit> {
-    let since = (date - Duration::days(1)).format("%Y-%m-%d").to_string();
+    let since = (date - Duration::days(1)).format("%Y-%m-%d 00:00").to_string();
     let mut out = Vec::new();
     for (project, git) in &repos {
         // Committed no earlier than authored, so this holds every commit authored that day.
@@ -216,7 +217,7 @@ pub async fn compute(input: Input<'_>) -> Result<Analytics> {
     let today = Utc::now().date_naive();
     let start = today - Duration::days(n - 1);
     let prev_start = start - Duration::days(n);
-    let since_day = (prev_start - Duration::days(1)).format("%Y-%m-%d").to_string();
+    let since_day = (prev_start - Duration::days(1)).format("%Y-%m-%d 00:00").to_string();
     let since = format!("--since={since_day}");
 
     let mut commits: Vec<(Commit, bool)> = Vec::new();
@@ -458,5 +459,19 @@ mod tests {
         assert_eq!(branch("feat: x"), Some("feat/x"));
         assert_eq!(branch("feat: y"), Some("feat/y"));
         assert!(got.iter().all(|c| c.project == "atlas" && c.author == "A"));
+    }
+
+    #[tokio::test]
+    async fn day_keeps_commits_from_its_first_minutes() {
+        // A bare `--since` date means that day at the current time: west of UTC in the evening, it cut the day's start.
+        let tmp = tempfile::tempdir().unwrap();
+        sh(tmp.path(), &["init", "-q", "-b", "main"]);
+        let today = Utc::now().date_naive();
+        let early = format!("{today}T00:00:01Z");
+        let mut commit = std::process::Command::new("git");
+        commit.current_dir(tmp.path()).env("GIT_AUTHOR_DATE", &early).env("GIT_COMMITTER_DATE", &early);
+        assert!(commit.args(["-c", "user.name=A", "-c", "user.email=a@x", "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", "early"]).status().unwrap().success());
+        let got = day(vec![("atlas".into(), Git::new(tmp.path()))], today).await;
+        assert!(got.iter().any(|c| c.subject == "early"), "{} commits", got.len());
     }
 }

@@ -298,13 +298,24 @@ pub fn project_commands(files: &[&str], read: impl Fn(&str) -> Option<String>, e
 /// Whether a command line's program is installed: on the PATH of the user's login shell, or one [`crate::ai::which`] knows.
 /// A path (`./gradlew`) is the checkout's own, found when its project was.
 pub async fn installed() -> impl Fn(&str) -> bool {
-    static LOGIN: OnceCell<Vec<PathBuf>> = OnceCell::const_new();
-    let dirs = LOGIN.get_or_init(login_path).await;
+    let dirs = login_dirs().await;
     move |cmd: &str| {
         let bin = cmd.split(' ').next().unwrap_or("");
         // shortcut: no PATHEXT lookup off Unix, so every command shows there; look for .exe/.cmd when Windows matters.
         cfg!(not(unix)) || bin.starts_with("./") || bin.starts_with("'./") || dirs.iter().any(|d| d.join(bin).is_file()) || crate::ai::which(bin).is_some()
     }
+}
+
+static LOGIN: OnceCell<Vec<PathBuf>> = OnceCell::const_new();
+
+/// The login shell's PATH, read once per run.
+pub async fn login_dirs() -> &'static [PathBuf] {
+    LOGIN.get_or_init(login_path).await
+}
+
+/// [`login_dirs`] once something has read it, else none: for lookups that can't wait for a shell.
+pub fn login_dirs_now() -> &'static [PathBuf] {
+    LOGIN.get().map_or(&[], Vec::as_slice)
 }
 
 /// The PATH the user's interactive login shell sets up (nvm, pyenv, Homebrew…), which a desktop app's own lacks.

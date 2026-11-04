@@ -40,5 +40,9 @@ transcribe-cpp = { version = "0.4.1", default-features = false, features = ["met
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
+# Finds the Store ChatGPT app's codex.exe (ai::store_codex). Already built for reqwest.
+[target.'cfg(windows)'.dependencies]
+windows-registry = "0.6"
+
 [dev-dependencies]
 tempfile = "3"

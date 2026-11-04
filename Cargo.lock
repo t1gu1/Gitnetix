@@ -1739,6 +1739,7 @@ dependencies = [
  "tracing",
  "transcribe-cpp",
  "uuid",
+ "windows-registry",
 ]
 
 [[package]]
