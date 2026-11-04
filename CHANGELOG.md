@@ -14,10 +14,24 @@ release notes and the in-app update prompt.
 ### Added
 - Connect GitLab, Bitbucket Cloud and Gitea under Git providers. Their pull requests, reviews, conversations, protected branches and repository lists for cloning work as with GitHub, and releases publish to GitLab and Gitea.
 - Sign in to GitLab with a code, on gitlab.com or on a self-managed server with an OAuth app registered there. Bitbucket and Gitea sign in through the browser. A personal access token or API token works on all three.
+- Clone a Git repository from the welcome screen. With GitHub linked, the dialog lists your repositories, last pushed first, and clones over HTTPS or SSH.
+- The log lists the files each turn changed, with added and removed line counts. Click a file to open its diff for that turn.
+- Messages in the log have timestamps and a copy button, long ones collapse, and finished turns fold into one row. Queued messages can be edited, removed or sent immediately, and a failed run can be retried.
+- Sign in to Trello and Asana with OAuth instead of pasting a token. Pick the boards or projects per connection.
+- When Git cannot sign in to an HTTPS host, you are asked for a username and a token. They are saved in the OS keychain per host, and the failed action runs again. For github.com, the connected GitHub token is used when no saved login exists.
+- Find provider CLIs that are not on PATH, including those installed through nvm or shell profiles. Gemini uses the Antigravity CLI (agy) and falls back to gemini.
 
 ### Changed
 - Agent setup replaces the AI step of the first-run setup, right after the theme, and is the only step that can't be skipped. Continue waits until a coding agent CLI (Claude Code, Codex, Antigravity, GitHub Copilot or Ollama) answers a test. Each agent has an Install button that opens its download page.
 - A profile without a tested agent opens on Agent setup at launch, even when its first-run setup is long done.
+- Fetch, pull, push and ls-remote retry over HTTPS when ssh fails. If HTTPS also fails, the ssh error is shown.
+- Focusing the window rechecks CLI status, so an install or sign-in in another window is picked up.
+- Trello cards are keyed by their short link, and saved links move to the new keys.
+
+### Fixed
+- Git sign-in helpers send saved logins only to the hosts a call reaches, so hooks no longer see every saved login.
+- Renaming a branch on GitLab, Bitbucket or Gitea now refuses when an open or draft pull request uses it, as GitHub renames already did.
+- Commits from the first minutes of a day are no longer dropped from the commit history.
 
 ## [0.17.4] - 2026-11-03
 
