@@ -11,6 +11,8 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-11-04
+
 ### Added
 - Analytics has a tab named after the connected ticket trackers, next to Commits. For Jira it charts the running sprint and the ones before it: burndown against the ideal line, velocity and bugs fixed, estimated hours left over on tickets not completed, and completion per person and sprint. Every chart opens as a table and exports its rows as CSV.
 - Analytics can be filtered by person. Pick one or more people to count only their commits, merges, releases and tickets. Each person's emails are grouped under one name, so commits made under a second address count too. The day view, sprint charts and weekly view follow the same pick.
