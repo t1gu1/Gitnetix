@@ -11,6 +11,16 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+### Added
+- Rebases resolve conflicts for every commit they replay, including binary files that git cannot merge line by line. A second pass settles files the first pass could not resolve.
+- Rebase progress appears in the UIs as rebase run events, and `workspace.rebaseRuns` lists the runs in flight.
+
+### Changed
+- Stopping a rebase run aborts its rebase. Branches locked by a running rebase refuse changes until it finishes.
+
+### Removed
+- The `conflictPropose` and `conflictApply` RPC methods and the `ConflictModal` screen. `RebaseRun` and `AbortModal` replace them.
+
 ## [0.19.0] - 2026-11-04
 
 ### Added
