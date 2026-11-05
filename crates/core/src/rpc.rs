@@ -60,11 +60,10 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("workspace.prepareCommitMessage", "Write ahead, staging nothing, the AI commit message that staging everything and committing would ask for; such a commit made before anything changes takes it", "projectId, branch"),
     ("workspace.commit", "Commit staged changes (all = stage everything first); empty message = AI writes it", "projectId, branch, message?, all?"),
     ("workspace.push", "Push a branch to origin; force = replace its upstream after a rebase (--force-with-lease --force-if-includes)", "projectId, branch, force?"),
-    ("workspace.rebase", "Rebase a branch onto onto (a local or origin-only branch), else onto its release; its target stays; returns conflicts, and forcePushTo when it was already pushed", "projectId, branch, onto?"),
-    ("workspace.rebaseContinue", "Continue a paused rebase", "projectId, branch"),
-    ("workspace.abort", "Abort the rebase, merge, cherry-pick or revert a branch's checkout is stopped in: back to where it was before it started", "projectId, branch"),
-    ("workspace.conflictPropose", "AI proposal for a conflicted file", "projectId, branch, path"),
-    ("workspace.conflictApply", "Write and stage a resolved file", "projectId, branch, path, content"),
+    ("workspace.rebase", "Rebase a branch onto onto (a local or origin-only branch), else onto its release; its target stays; AI resolves the conflicts of every commit on the way when the project has it on; returns conflicts left, errors (files AI could not resolve), resolved (files AI resolved), aborted, and forcePushTo when it was already pushed", "projectId, branch, onto?"),
+    ("workspace.rebaseContinue", "AI resolves a paused rebase's conflicts and carries it through every commit left (even when the project has AI resolving off); returns like workspace.rebase", "projectId, branch"),
+    ("workspace.rebaseRuns", "Rebases AI is carrying through right now: branch, onto, step of steps, subject, files being resolved, startedAt", ""),
+    ("workspace.abort", "Abort the rebase, merge, cherry-pick or revert a branch's checkout is stopped in: back to where it was before it started; a rebase AI is carrying through stops first", "projectId, branch"),
     ("releases.create", "Cut a release branch", "projectId, version, kind: next|hotfix, from?"),
     ("releases.suggestVersion", "Version for a new release: next = minor bump of the highest tag or release branch, hotfix = patch bump of the latest tag", "projectId, kind: next|hotfix"),
     ("releases.ship", "Fast-forward main to the release and tag it", "projectId, version, push?"),
@@ -715,13 +714,9 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
         "workspace.push" => to(json!({ "output": k.push(&s(&p, "projectId")?, &s(&p, "branch")?, b(&p, "force")).await? })),
         "workspace.rebase" => to(k.rebase(&s(&p, "projectId")?, &s(&p, "branch")?, os(&p, "onto").as_deref()).await?),
         "workspace.rebaseContinue" => to(k.rebase_continue(&s(&p, "projectId")?, &s(&p, "branch")?).await?),
+        "workspace.rebaseRuns" => to(k.rebase_runs()),
         "workspace.abort" => {
             k.abort_in_progress(&s(&p, "projectId")?, &s(&p, "branch")?).await?;
-            ok()
-        }
-        "workspace.conflictPropose" => to(json!({ "content": k.conflict_propose(&s(&p, "projectId")?, &s(&p, "branch")?, &s(&p, "path")?).await? })),
-        "workspace.conflictApply" => {
-            k.conflict_apply(&s(&p, "projectId")?, &s(&p, "branch")?, &s(&p, "path")?, &s(&p, "content")?).await?;
             ok()
         }
 

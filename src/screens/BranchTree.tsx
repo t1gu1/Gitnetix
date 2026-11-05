@@ -13,6 +13,7 @@ import { plural, stashCount } from "../lib/format";
 import { showKeys, useKeys } from "../lib/keys";
 import { onTick, TICK } from "../lib/motion";
 import { useNav } from "../lib/nav";
+import { lockTip, showRun, useRebasing } from "../lib/rebaseRuns";
 import { BranchSplit, type BranchActions, type BranchTarget } from "./BranchMenu";
 
 /** Branches this many commits behind the default branch count as falling behind. */
@@ -778,9 +779,12 @@ function Row({
 }) {
   const { icon, cls } = look(b, isDefault, !!shipped);
   const name = shipped ? `v${shipped}` : b.role === "release" && b.release ? `v${b.release}` : b.role === "branch" && b.kind ? b.short : b.name;
+  // Held by a rebase AI is carrying through (rebased, or the branch it goes onto): grayed out under a veil until it is done.
+  const lock = actions.locks.get(b.name);
   return (
     <div
       className="tree-row"
+      data-locked={lock ? "" : undefined}
       data-current={current || undefined}
       data-path={onPath || undefined}
       data-dim={b.merged || !b.exists || undefined}
@@ -804,6 +808,22 @@ function Row({
       <span className="tree-acts">
         <BranchSplit t={t} actions={actions} />
       </span>
+      {lock && (
+        <span
+          className="lock-veil"
+          data-tip={lockTip(lock, b.name, lock.onto === b.name ? name : lock.onto === t.base ? t.baseLabel : lock.onto)}
+          onClick={(e) => {
+            e.stopPropagation();
+            showRun(lock.projectId, lock.branch);
+          }}
+          onDoubleClick={(e) => e.stopPropagation()}
+        >
+          <span className="lock-badge">
+            <Icon name="lock" size={12} />
+            Locked
+          </span>
+        </span>
+      )}
     </div>
   );
 }
@@ -861,13 +881,29 @@ function BranchMeta({
   const grew = useGrowth(parent ? b.ahead : Date.parse(b.date) || 0, merging);
   const growCls = grew > 0 ? " meta-link-grow" : "";
   const wip = b.wip > 0 && <span className="wip-badge" title={`${plural(b.wip, "file")} with uncommitted changes`}>WIP {b.wip}</span>;
-  // Stopped in the middle of an operation: with conflicts left, else paused (e.g. all resolved, not finished yet).
-  const conflict = b.conflict ? (
+  const nav = useNav();
+  // AI carrying its rebase through; else stopped in the middle of an operation: with conflicts left, else paused (e.g. all resolved, not finished yet).
+  const run = useRebasing(nav.projectId).get(b.name);
+  const conflict = run ? (
+    // Inside the row's button, so a span: the context menu offers the same for keyboards.
+    <span
+      className="row meta-link c-acc"
+      style={{ gap: 4 }}
+      data-tip={`AI is rebasing it onto ${run.onto}${run.steps ? `, commit ${run.step} of ${run.steps}` : ""}. Click to see how far it is.`}
+      onClick={(e) => {
+        e.stopPropagation();
+        showRun(run.projectId, run.branch);
+      }}
+      onDoubleClick={(e) => e.stopPropagation()}
+    >
+      <span className="spinner" style={{ width: 9, height: 9 }} />
+      AI rebase{run.steps ? ` ${run.step}/${run.steps}` : ""}
+    </span>
+  ) : b.conflict ? (
     <span className="c-del" title={`Its ${b.inProgress ?? "operation"} stopped on conflicts`}>conflict</span>
   ) : b.inProgress ? (
     <span className="c-warn" title={`Stopped in the middle of a ${b.inProgress}: finish or abort it`}>mid-{b.inProgress}</span>
   ) : null;
-  const nav = useNav();
   // Off a worktree, the agent works in the main checkout.
   const agent = useAgents((l) => l.find((a) => (b.worktree ? a.cwd === b.worktree : a.projectId === nav.projectId && a.branch === b.name))).data;
   // The state links to its row, selected, on the Worktrees & agents page: a worktree's goes by its path, an agent's elsewhere by its id.

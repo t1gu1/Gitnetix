@@ -32,6 +32,7 @@ import type {
 import { limitLabel, shownStatus } from "../lib/agentLog";
 import { askGitLogin } from "../lib/gitLogin";
 import { dictationModel } from "../lib/dictation";
+import { heard } from "../lib/rebaseRuns";
 import { sayIn, toast } from "../lib/toast";
 
 export const queryClient = new QueryClient({
@@ -113,6 +114,9 @@ export function useEngineEvents() {
                 predicate: (q) => q.queryKey[3] === "wip" && !q.queryKey[commit] && !q.queryKey[stash],
               });
             }
+            break;
+          case "rebaseRun":
+            heard(e.run);
             break;
           case "conflictResolving": {
             const text = `Conflicts in ${e.files.join(", ")}: resolving them with AI. This can take a few minutes; Menu › Logs shows progress.`;

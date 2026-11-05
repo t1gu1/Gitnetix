@@ -22,6 +22,7 @@ import { Menu } from "./screens/Menu";
 import { NewItem } from "./screens/NewItem";
 import { AgentSetup, agentReady, Onboarding } from "./screens/Onboarding";
 import { Pair } from "./screens/Pair";
+import { RebaseRuns } from "./screens/RebaseRun";
 import { PullRequests } from "./screens/PullRequests";
 import { ReleaseNotes } from "./screens/ReleaseNotes";
 import { Submodules } from "./screens/Submodules";
@@ -108,6 +109,7 @@ function Shell({ onUnpair }: { onUnpair: () => void }) {
           <div className="start-chips">
             {each(() => <NewItemDialog />, nav.projectId ?? "")}
             <StartSession />
+            <RebaseRuns />
           </div>
           <UpdatePrompt />
           <GitLogin />

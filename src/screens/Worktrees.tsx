@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type CSSProperties, type MouseEvent } from "react";
 
-import { useAction, useAgents, useFiles, useOverview, useProjects, useWorktrees } from "../api/hooks";
+import { useAction, useAgents, useFiles, useOverview, usePendingBranches, useProjects, useWorktrees } from "../api/hooks";
 import { rpc } from "../api/transport";
 import type { AgentSession, RebaseResult, WorktreeView } from "../api/types";
 import { AgentInput, AgentLog, RequestField, uploads, type Choice, type Upload } from "../components/AgentLog";
@@ -17,10 +17,12 @@ import { agentKey, call, runTask, useHidden, wtKey } from "../lib/tasks";
 import { copyToClipboard } from "../lib/toast";
 import { KINDS, kindOfBranch, type Kind } from "../lib/kinds";
 import { useNav } from "../lib/nav";
+import { showRun, useLocks } from "../lib/rebaseRuns";
 import { useStored } from "../lib/stored";
 import { useBranchActions } from "./BranchMenu";
 import { revealBranch } from "./BranchTree";
-import { AbortModal, ConflictModal } from "./ConflictModal";
+import { AbortModal } from "./AbortModal";
+import { startRebase } from "./RebaseRun";
 import { clearSession, DiscardWorktreeModal, FinishWorktreeCard, MergeModal, mergeTargets, TargetBranchModal, useFinishHandlers } from "./Workspace";
 
 const STATUS: Record<ShownStatus | "idle", [string, string]> = {
@@ -333,15 +335,18 @@ function Detail({ r, menu, onMenuClose }: { r: Row; menu?: { x: number; y: numbe
   const push = useAction("workspace.push", { invalidate: commitInv, success: `Pushed ${r.branch}` });
   const view = ov.data?.branches.find((x) => x.name === r.branch);
   const base = view?.parent ?? "";
-  const rebase = useAction<RebaseResult>("workspace.rebase", { invalidate: [...commitInv, ["worktrees"]], success: (x) => (x.conflicts.length ? undefined : `Rebased onto ${base}`) });
-  const [resolving, setResolving] = useState(false);
+  // Rebasing: asked, or AI carrying it (or a branch onto it) through. Nothing else touches the worktree meanwhile.
+  const asked = usePendingBranches(["workspace.rebase", "workspace.rebaseContinue"], r.projectId).includes(r.branch);
+  const lock = useLocks(r.projectId).get(r.branch);
+  const rebasing = !!lock || asked;
+  const wtOps = isWorktree && !rebasing;
   const [aborting, setAborting] = useState(false);
   // Already on origin: the rewritten commits go up forced (with lease: refused if origin has commits never pulled here).
-  const afterRebase = (x: RebaseResult) => (x.conflicts.length ? setResolving(true) : x.forcePushTo && push.mutate({ projectId: r.projectId, branch: r.branch, force: true }));
+  const afterRebase = (x?: RebaseResult) => x?.forcePushTo && push.mutate({ projectId: r.projectId, branch: r.branch, force: true });
   const update = async () => {
     // Base caught up with origin first; local-only or diverged, it stays as is.
     await rpc("branches.pull", { projectId: r.projectId, branch: base }).catch(() => undefined);
-    rebase.mutate({ projectId: r.projectId, branch: r.branch }, { onSuccess: afterRebase });
+    afterRebase(await startRebase(r.projectId, r.branch));
   };
   const [pick, setPick] = useAgentPick(r.projectId);
   const [termView, setTermView] = useTermView(r.projectId, r.branch, !!a, isWorktree);
@@ -373,21 +378,22 @@ function Detail({ r, menu, onMenuClose }: { r: Row; menu?: { x: number; y: numbe
     { id: "copyName", label: "Copy workspace name", icon: "copy", run: () => copyToClipboard(r.path.split(/[\\/]/).pop() ?? r.path) },
     a && !busy && !isWorktree && { id: "clear", label: "Clear session…", icon: "close", danger: true, run: () => setClearing(true) },
     isWorktree && "sep",
-    isWorktree && { id: "continue", label: "Continue on branch", icon: "swap", run: () => finish.continue(session, true) },
-    isWorktree && view?.conflict && view.inProgress === "rebase" && { id: "conflicts", label: "Resolve conflicts…", icon: "sparkle", run: () => setResolving(true) },
-    isWorktree && view?.inProgress && { id: "abort", label: `Abort ${view.inProgress}…`, icon: "undo", danger: true, run: () => setAborting(true) },
-    isWorktree && view?.exists && r.branch !== ov.data?.defaultBranch && { id: "target", label: "Change target branch…", icon: "merged", run: () => setTargeting(true) },
+    wtOps && { id: "continue", label: "Continue on branch", icon: "swap", run: () => finish.continue(session, true) },
+    isWorktree && lock && { id: "progress", label: "Show rebase progress", icon: "sparkle", run: () => showRun(lock.projectId, lock.branch) },
+    wtOps && view?.conflict && view.inProgress === "rebase" && { id: "conflicts", label: "Resolve with AI", icon: "sparkle", run: () => void startRebase(r.projectId, r.branch, { resume: true }).then(afterRebase) },
+    wtOps && view?.inProgress && { id: "abort", label: `Abort ${view.inProgress}…`, icon: "undo", danger: true, run: () => setAborting(true) },
+    wtOps && view?.exists && r.branch !== ov.data?.defaultBranch && { id: "target", label: "Change target branch…", icon: "merged", run: () => setTargeting(true) },
     // Work branches only: shared ones (releases, dev) catch up by merging. Not under a working agent.
-    isWorktree && !view?.inProgress && view?.role === "branch" && !view.protected && !!base && {
+    wtOps && !view?.inProgress && view?.role === "branch" && !view.protected && !!base && {
       id: "rebase",
       label: <>Rebase onto <span className="mono">{base}</span></>,
       icon: "branch",
       hint: view.behind ? `${view.behind} behind` : undefined,
-      disabled: busy || rebase.isPending || push.isPending,
+      disabled: busy || rebasing || push.isPending,
       run: update,
     },
-    isWorktree && { id: "merge", label: "Merge…", icon: "merged", run: () => finish.merge(session, true) },
-    isWorktree && { id: "discard", label: "Cancel and Delete all…", icon: "trash", danger: true, run: () => setDiscarding(true) },
+    wtOps && { id: "merge", label: "Merge…", icon: "merged", run: () => finish.merge(session, true) },
+    wtOps && { id: "discard", label: "Cancel and Delete all…", icon: "trash", danger: true, run: () => setDiscarding(true) },
   ] as (MenuItem | false | undefined)[]).filter((x): x is MenuItem => !!x);
   return (
     <div className="detail-inner" style={{ flex: 1, minHeight: 0 }}>
@@ -453,7 +459,6 @@ function Detail({ r, menu, onMenuClose }: { r: Row; menu?: { x: number; y: numbe
         </Confirm>
       )}
       {finish.modal}
-      {resolving && <ConflictModal pid={r.projectId} branch={r.branch} base={base} onClose={() => setResolving(false)} onDone={afterRebase} />}
       {aborting && <AbortModal pid={r.projectId} branch={r.branch} op={view?.inProgress} base={base} onBack={() => setAborting(false)} onDone={() => setAborting(false)} />}
       {menu && <ContextMenu x={menu.x} y={menu.y} alignRight={menu.alignRight} label={`Actions for ${r.branch}`} items={items} onClose={onMenuClose} />}
     </div>

@@ -59,6 +59,8 @@ pub struct Gitnetix {
     /// What each Jira connection answered for the sprint charts, with when: picking other people counts them again
     /// without asking Jira.
     sprint_fetches: std::sync::Mutex<HashMap<String, SprintFetched>>,
+    /// Rebases AI is carrying through, by checkout.
+    runs: Runs,
 }
 
 /// [`tickets::jira_sprints`]'s answer.
@@ -452,9 +454,11 @@ impl Resolution {
 enum Fix {
     /// Its resolved text.
     Text(String),
-    /// Changed on one side, deleted on the other: the changed file stays, or goes.
+    /// The file stays (changed on one side and deleted on the other, or added on one side only), or goes.
     Keep,
     Delete,
+    /// One side's version stays whole: index stage 2 (the checkout's) or 3 (the one brought in).
+    Side(u8),
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -473,6 +477,122 @@ pub struct RebaseResult {
     pub conflicts: Vec<String>,
     /// Upstream that now needs a force push: the branch was already pushed before the rebase.
     pub force_push_to: Option<String>,
+    /// "path: why" for each file AI could not resolve, where it stopped.
+    pub errors: Vec<String>,
+    /// Files AI resolved on the way.
+    pub resolved: u32,
+    /// Stopped by an abort: the branch is back where it was.
+    pub aborted: bool,
+}
+
+/// A rebase AI carries through, as the UIs show it.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RebaseRun {
+    pub project_id: String,
+    pub branch: String,
+    pub onto: String,
+    /// The commit it is on, from 1, of the `steps` it replays; 0 when git doesn't say.
+    pub step: u32,
+    pub steps: u32,
+    /// Subject of that commit.
+    pub subject: String,
+    /// That commit's conflicted files, and how many of them AI has answered for.
+    pub files: Vec<String>,
+    pub resolved: u32,
+    /// Files AI resolved since the run started.
+    pub resolved_total: u32,
+    /// Files of this commit the first pass could not settle, AI going over them again.
+    pub second_pass: Vec<String>,
+    pub started_at: String,
+    pub state: RunState,
+    /// Why it stopped, once failed.
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum RunState {
+    Running,
+    Done,
+    Failed,
+    Aborted,
+}
+
+/// [`Gitnetix::runs`]: one AI rebase at a time per checkout.
+type Runs = Arc<std::sync::Mutex<HashMap<PathBuf, RunSlot>>>;
+
+struct RunSlot {
+    run: RebaseRun,
+    /// The UIs have heard of it: AI started resolving, or it was asked for.
+    told: bool,
+    /// Set to stop it: the AI calls in flight are dropped, then the rebase is aborted.
+    stop: tokio::sync::watch::Sender<bool>,
+    /// Turns true once it is over.
+    over: tokio::sync::watch::Receiver<bool>,
+}
+
+/// Held by the rebase it registers in [`Gitnetix::runs`]; dropping it ends the run there.
+struct RunCtl {
+    dir: PathBuf,
+    runs: Runs,
+    events: broadcast::Sender<Event>,
+    stop: tokio::sync::watch::Receiver<bool>,
+    over: tokio::sync::watch::Sender<bool>,
+    /// AI resolves even when the project has it off: the user asked for it.
+    forced: bool,
+}
+
+impl RunCtl {
+    /// Changes what the run shows, and tells the UIs.
+    fn report(&self, f: impl FnOnce(&mut RebaseRun)) {
+        let run = {
+            let mut runs = self.runs.lock().unwrap();
+            let Some(s) = runs.get_mut(&self.dir) else { return };
+            f(&mut s.run);
+            s.told = true;
+            s.run.clone()
+        };
+        let _ = self.events.send(Event::RebaseRun { run });
+    }
+
+    fn stopped(&self) -> bool {
+        *self.stop.borrow()
+    }
+
+    /// Resolves once the run is asked to stop.
+    async fn on_stop(&self) {
+        let mut stop = self.stop.clone();
+        if stop.wait_for(|s| *s).await.is_err() {
+            std::future::pending::<()>().await;
+        }
+    }
+
+    fn resolved_total(&self) -> u32 {
+        self.runs.lock().unwrap().get(&self.dir).map_or(0, |s| s.run.resolved_total)
+    }
+
+    /// Ends the run as `state`; the UIs hear of it if they heard of the run.
+    fn end(self, state: RunState, error: Option<String>) {
+        if let Some(s) = self.runs.lock().unwrap().get_mut(&self.dir) {
+            s.run.state = state;
+            s.run.error = error;
+        }
+    }
+}
+
+impl Drop for RunCtl {
+    fn drop(&mut self) {
+        let slot = self.runs.lock().unwrap().remove(&self.dir);
+        if let Some(mut s) = slot.filter(|s| s.told) {
+            if s.run.state == RunState::Running {
+                s.run.state = RunState::Failed;
+                s.run.error = Some("The rebase stopped unexpectedly.".into());
+            }
+            let _ = self.events.send(Event::RebaseRun { run: s.run });
+        }
+        self.over.send_replace(true);
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1828,7 +1948,7 @@ impl Gitnetix {
         let agents = AgentManager::new(events.clone(), dir);
         let shells = crate::shell::Shells::new(events.clone());
         crate::log::attach(events.clone());
-        let k = Arc::new(Gitnetix { store, agents, shells, events, dir: dir.to_path_buf(), dictation: Default::default(), protected: Default::default(), watcher: Default::default(), commits: CommitCache::open(dir), views: ViewCache::open(dir.join("overview-cache")), building: Default::default(), cleaning: Default::default(), shipped: Default::default(), hosted: Default::default(), auto_fetch: Default::default(), worktrees: LastCache::open(dir.join("worktrees-cache.json")), drafts: Default::default(), sprint_fetches: Default::default() });
+        let k = Arc::new(Gitnetix { store, agents, shells, events, dir: dir.to_path_buf(), dictation: Default::default(), protected: Default::default(), watcher: Default::default(), commits: CommitCache::open(dir), views: ViewCache::open(dir.join("overview-cache")), building: Default::default(), cleaning: Default::default(), shipped: Default::default(), hosted: Default::default(), auto_fetch: Default::default(), worktrees: LastCache::open(dir.join("worktrees-cache.json")), drafts: Default::default(), sprint_fetches: Default::default(), runs: Default::default() });
         k.rewatch();
         Ok(k)
     }
@@ -1901,7 +2021,35 @@ impl Gitnetix {
             .checkout_dir(p, branch)
             .await?
             .ok_or_else(|| Error::Invalid(format!("{branch} is not checked out. Switch to it or open it in a worktree first.")))?;
+        Self::refuse_mid_run(self.rebasing_in(&dir))?;
+        self.refuse_locked(&p.id, branch)?;
         Ok(self.git_at(&dir))
+    }
+
+    /// Nothing else touches a checkout while AI rebases `rebasing` there: it would break the rebase.
+    fn refuse_mid_run(rebasing: Option<String>) -> Result<()> {
+        match rebasing {
+            Some(b) => Err(Error::Invalid(format!("Rebase & conflict resolving is running: AI is rebasing {b} in that checkout. Wait for it to finish, or abort it."))),
+            None => Ok(()),
+        }
+    }
+
+    /// The rebase AI is carrying through that holds `branch` of project `project_id`: the branch it
+    /// rebases, or the one it goes onto.
+    fn run_locking(&self, project_id: &str, branch: &str) -> Option<RebaseRun> {
+        self.runs.lock().unwrap().values().map(|s| &s.run).find(|r| r.project_id == project_id && (r.branch == branch || r.onto == branch)).cloned()
+    }
+
+    /// Nothing moves a branch a rebase AI is carrying through holds: its commits, or the ones it
+    /// replays them onto, would change under it.
+    fn refuse_locked(&self, project_id: &str, branch: &str) -> Result<()> {
+        match self.run_locking(project_id, branch) {
+            Some(r) => Err(Error::Invalid(format!(
+                "Rebase & conflict resolving is running: AI is rebasing {} onto {}, and {branch} stays locked until it is done. Wait for it to finish, or abort it.",
+                r.branch, r.onto
+            ))),
+            None => Ok(()),
+        }
     }
 
     /// Branch `branch` merges into (rebases onto, diffs against); the default branch maps to itself.
@@ -2910,6 +3058,8 @@ impl Gitnetix {
             }
             return Ok(Vec::new());
         }
+        Self::refuse_mid_run(self.rebasing_in(Path::new(&p.path)))?;
+        self.refuse_locked(project_id, branch)?;
         let git = self.git(&p);
         if abort {
             if let Some(op) = git.in_progress().await? {
@@ -3190,22 +3340,88 @@ impl Gitnetix {
             }
             None => target,
         };
-        let ok = git.rebase(&git.rev_of(&base).await).await?;
-        let ok = ok || self.resolve_and_continue(&p, &git, Some("rebase"), branch, &base).await?.done;
-        self.changed(project_id);
-        Self::rebase_result(&git, branch, ok).await
+        let ctl = self.start_run(&p, &git, branch, &base, false)?;
+        let out = match git.rebase(&git.rev_of(&base).await).await {
+            Ok(true) => Ok(Resolution { done: true, left: Vec::new(), errors: Vec::new() }),
+            Ok(false) => self.resolve_and_continue(&p, &git, Some("rebase"), branch, &base, Some(&ctl)).await,
+            Err(e) => Err(e),
+        };
+        self.finish_rebase(&p, &git, branch, ctl, out).await
     }
 
+    /// AI resolves the paused rebase's conflicts and carries it on through every commit left, even when
+    /// the project has AI resolving off: asked for. With no conflicts left, it just carries on.
     pub async fn rebase_continue(&self, project_id: &str, branch: &str) -> Result<RebaseResult> {
         let p = self.store.project(project_id)?;
         let git = self.require_checkout(&p, branch).await?;
-        let ok = git.rebase_continue().await?;
-        let ok = ok || {
-            let base = self.conflict_base(&p, &git, branch).await?;
-            self.resolve_and_continue(&p, &git, Some("rebase"), branch, &base).await?.done
+        if !git.is_rebasing().await? {
+            return Err(Error::Invalid(format!("{branch} is not in the middle of a rebase")));
+        }
+        let base = self.conflict_base(&p, &git, branch).await?;
+        let ctl = self.start_run(&p, &git, branch, &base, true)?;
+        let out = self.resolve_and_continue(&p, &git, Some("rebase"), branch, &base, Some(&ctl)).await;
+        self.finish_rebase(&p, &git, branch, ctl, out).await
+    }
+
+    /// Registers the rebase of `branch` onto `onto` in `git`'s checkout; refused while another runs there.
+    fn start_run(&self, p: &Project, git: &Git, branch: &str, onto: &str, forced: bool) -> Result<RunCtl> {
+        let dir = git.cwd().to_path_buf();
+        let mut runs = self.runs.lock().unwrap();
+        if let Some(s) = runs.get(&dir) {
+            return Err(Error::Invalid(format!("AI is already rebasing {} there: wait for it to finish, or abort it.", s.run.branch)));
+        }
+        let (stop_tx, stop) = tokio::sync::watch::channel(false);
+        let (over, over_rx) = tokio::sync::watch::channel(false);
+        let run = RebaseRun {
+            project_id: p.id.clone(),
+            branch: branch.to_string(),
+            onto: onto.to_string(),
+            step: 0,
+            steps: 0,
+            subject: String::new(),
+            files: Vec::new(),
+            resolved: 0,
+            resolved_total: 0,
+            second_pass: Vec::new(),
+            started_at: now(),
+            state: RunState::Running,
+            error: None,
         };
-        self.changed(project_id);
-        Self::rebase_result(&git, branch, ok).await
+        runs.insert(dir.clone(), RunSlot { run, told: false, stop: stop_tx, over: over_rx });
+        Ok(RunCtl { dir, runs: self.runs.clone(), events: self.events.clone(), stop, over, forced })
+    }
+
+    /// The rebases AI is carrying through that the UIs have heard of.
+    pub fn rebase_runs(&self) -> Vec<RebaseRun> {
+        self.runs.lock().unwrap().values().filter(|s| s.told).map(|s| s.run.clone()).collect()
+    }
+
+    /// The branch AI is rebasing in checkout `dir`, if any.
+    fn rebasing_in(&self, dir: &Path) -> Option<String> {
+        self.runs.lock().unwrap().get(dir).map(|s| s.run.branch.clone())
+    }
+
+    /// Ends `ctl`'s run with how `out` went. Asked to stop, the rebase is aborted, unless it was already done.
+    async fn finish_rebase(&self, p: &Project, git: &Git, branch: &str, ctl: RunCtl, out: Result<Resolution>) -> Result<RebaseResult> {
+        let aborted = ctl.stopped() && git.is_rebasing().await.unwrap_or(false) && git.abort_op("rebase").await.is_ok();
+        let resolved = ctl.resolved_total();
+        let (state, error) = match &out {
+            _ if aborted => (RunState::Aborted, None),
+            Ok(r) if r.done => (RunState::Done, None),
+            Ok(r) if r.errors.is_empty() => (RunState::Failed, Some(format!("Stopped on conflicts in {}.", r.left.join(", ")))),
+            Ok(r) => (RunState::Failed, Some(r.why().trim().to_string())),
+            Err(e) => (RunState::Failed, Some(e.to_string())),
+        };
+        ctl.end(state, error);
+        self.changed(&p.id);
+        if aborted {
+            return Ok(RebaseResult { conflicts: Vec::new(), force_push_to: None, errors: Vec::new(), resolved, aborted: true });
+        }
+        let r = out?;
+        let mut result = Self::rebase_result(git, branch, r.done).await?;
+        result.errors = r.errors;
+        result.resolved = resolved;
+        Ok(result)
     }
 
     /// What a paused rebase of `branch` replays onto, as a branch: `target` when it is there, else another
@@ -3226,21 +3442,34 @@ impl Gitnetix {
     }
 
     async fn rebase_result(git: &Git, branch: &str, done: bool) -> Result<RebaseResult> {
+        let mut r = RebaseResult { conflicts: Vec::new(), force_push_to: None, errors: Vec::new(), resolved: 0, aborted: false };
         if !done {
-            return Ok(RebaseResult { conflicts: git.conflicted_files().await?, force_push_to: None });
+            r.conflicts = git.conflicted_files().await?;
+            return Ok(r);
         }
         // Its upstream no longer fits under it: the rewritten commits only go up forced.
-        let force_push_to = match git.upstream(branch).await? {
+        r.force_push_to = match git.upstream(branch).await? {
             Some(u) if git.ref_exists(&format!("refs/remotes/{u}")).await? && !git.is_ancestor(&u, branch).await? => Some(u),
             _ => None,
         };
-        Ok(RebaseResult { conflicts: Vec::new(), force_push_to })
+        Ok(r)
     }
 
     /// Abort the rebase, merge, cherry-pick or revert `branch`'s checkout is stopped in: the branch goes
-    /// back to where it was before it started, with the uncommitted changes a rebase stashed.
+    /// back to where it was before it started, with the uncommitted changes a rebase stashed. A rebase AI
+    /// is carrying through stops first; returns once it is aborted.
     pub async fn abort_in_progress(&self, project_id: &str, branch: &str) -> Result<()> {
         let p = self.store.project(project_id)?;
+        if let Some(dir) = self.checkout_dir(&p, branch).await? {
+            let over = self.runs.lock().unwrap().get(&dir).map(|s| {
+                s.stop.send_replace(true);
+                s.over.clone()
+            });
+            if let Some(mut over) = over {
+                let _ = over.wait_for(|o| *o).await;
+                return Ok(());
+            }
+        }
         let git = self.require_checkout(&p, branch).await?;
         let Some(op) = git.in_progress().await? else {
             return Err(Error::Invalid(format!("{branch} is not in the middle of a rebase, merge, cherry-pick or revert")));
@@ -3248,23 +3477,6 @@ impl Gitnetix {
         let out = git.abort_op(op).await;
         self.changed(project_id);
         out
-    }
-
-    pub async fn conflict_propose(&self, project_id: &str, branch: &str, path: &str) -> Result<String> {
-        let p = self.store.project(project_id)?;
-        let git = self.require_checkout(&p, branch).await?;
-        let base = self.conflict_base(&p, &git, branch).await?;
-        self.propose_resolution(&p, &git, path, branch, &base).await
-    }
-
-    pub async fn conflict_apply(&self, project_id: &str, branch: &str, path: &str, content: &str) -> Result<()> {
-        // Absolute or `..` paths would write outside the checkout.
-        let path = submodules::check_path(path)?;
-        let p = self.store.project(project_id)?;
-        let git = self.require_checkout(&p, branch).await?;
-        Self::write_resolution(&git, path, content).await?;
-        self.changed(project_id);
-        Ok(())
     }
 
     /// AI's take on conflicted file `path` in `git`'s checkout: the change from `ours` brought onto `theirs`.
@@ -3334,56 +3546,231 @@ impl Gitnetix {
                 .is_ok_and(|r| r.method != ConnectMethod::Cli || ai::cli_path(&r.provider).is_ok())
     }
 
-    /// AI's call on `path`, changed on one side and deleted on the other (`changed`: the index stage
-    /// holding the change, 2 for `theirs`, 3 for `ours`): keep the changed file, or delete it.
-    async fn keep_or_delete(&self, p: &Project, git: &Git, path: &str, changed: u8, ours: &str, theirs: &str) -> Result<Fix> {
+    /// The conflict template's AI asked `body` until `valid` takes an answer, `tries` in all; `{why}` in
+    /// the body asked again says why the last answer was turned down. An AI that fails to answer (a
+    /// network hiccup, a busy model) is asked again a moment later.
+    async fn ask_until<T>(&self, p: &Project, git: &Git, body: &str, vars: BTreeMap<String, String>, tries: usize, valid: impl Fn(&str) -> std::result::Result<T, String>) -> Result<T> {
+        // The template's AI and rules, asked a question its text-resolving body doesn't fit.
+        let mut t = self.template("conflict", None, Some(&p.id))?;
+        let mut why = String::new();
+        for n in 1..=tries {
+            t.body = if why.is_empty() { body.to_string() } else { format!("{body}\n\nYour last answer could not be used: {{why}}. Answer again.") };
+            let mut vars = vars.clone();
+            vars.insert("why".into(), why.clone());
+            match self.ask("conflict", &t, vars, "en", Some(git.cwd())).await {
+                Ok(answer) => match valid(&answer) {
+                    Ok(v) => return Ok(v),
+                    Err(e) => {
+                        let mut said = answer;
+                        crate::git::truncate_utf8(&mut said, 4_000);
+                        crate::log::error(format!("AI answer could not be used (try {n} of {tries}): {e}\n{said}"));
+                        why = e;
+                    }
+                },
+                Err(e) if n < tries => {
+                    crate::log::error(format!("AI did not answer (try {n} of {tries}), asking again: {e}"));
+                    tokio::time::sleep(std::time::Duration::from_secs(2 * n as u64)).await;
+                }
+                Err(e) => return Err(e),
+            }
+        }
+        Err(Error::Ai(format!("No usable answer after {}: {why}", if tries == 1 { "1 try".to_string() } else { format!("{tries} tries") })))
+    }
+
+    /// `body`, a question to settle a conflict, as the second pass asks it when `first` (why the first
+    /// pass failed) is set: told it has to come to an answer this time.
+    fn second_pass_body(body: &str, first: Option<&str>) -> (String, usize) {
+        match first {
+            Some(_) => (format!("A first try to settle {{path}} failed: {{first}}. This is the second pass: it has to end with an answer.\n\n{body}"), 3),
+            None => (body.to_string(), 1),
+        }
+    }
+
+    /// AI's call on `path`, changed on one side and deleted on the other: keep the changed file, or
+    /// delete it. `first`: the second pass, after the first answer could not be used.
+    async fn keep_or_delete(&self, p: &Project, git: &Git, path: &str, ours: &str, theirs: &str, first: Option<&str>) -> Result<Fix> {
+        // The index stage holding the change: 2 for `theirs`, 3 for `ours`.
+        let changed = git.conflict_stages(path).await?.last().copied().unwrap_or(2);
         let (changed_by, deleted_by) = if changed == 3 { (ours, theirs) } else { (theirs, ours) };
         let mut diff = git.run(&["diff", &format!(":1:{path}"), &format!(":{changed}:{path}")]).await?;
         crate::git::truncate_utf8(&mut diff, 60_000);
-        // The conflict template's AI and rules, asked a question its text-resolving body doesn't fit.
-        let mut t = self.template("conflict", None, Some(&p.id))?;
-        t.body = "{path} was changed by {changed} and deleted by {deleted}. Decide whether the file stays, with that change, or goes.\n\n- keep: the file is still needed and the change still matters\n- delete: the deletion was deliberate and the change is no longer needed, or is already made where the code moved\n\nAnswer with one word: keep or delete.\n\nThe change from {changed}:\n{diff}".into();
+        let (body, tries) = Self::second_pass_body("{path} was changed by {changed} and deleted by {deleted}. Decide whether the file stays, with that change, or goes.\n\n- keep: the file is still needed and the change still matters\n- delete: the deletion was deliberate and the change is no longer needed, or is already made where the code moved\n\nAnswer with one word: keep or delete.\n\nThe change from {changed}:\n{diff}", first);
         let mut vars = BTreeMap::new();
         vars.insert("path".into(), path.to_string());
         vars.insert("changed".into(), changed_by.to_string());
         vars.insert("deleted".into(), deleted_by.to_string());
         vars.insert("diff".into(), diff);
-        let answer = self.ask("conflict", &t, vars, "en", Some(git.cwd())).await?;
-        let fix = match answer.trim_matches(|c: char| !c.is_alphabetic()).to_lowercase().as_str() {
-            "keep" => Fix::Keep,
-            "delete" => Fix::Delete,
-            _ => return Err(Error::Ai(format!("The AI answered neither keep nor delete: {}", answer.trim()))),
+        vars.insert("first".into(), first.unwrap_or_default().to_string());
+        let fix = match self.ask_until(p, git, &body, vars, tries, |a| pick_word(a, ["keep", "delete"])).await? {
+            0 => Fix::Keep,
+            _ => Fix::Delete,
         };
         crate::log::info(format!("AI chose to {} {path}, changed by {changed_by} and deleted by {deleted_by}", if matches!(fix, Fix::Keep) { "keep" } else { "delete" }));
         Ok(fix)
     }
 
-    /// AI resolves conflicted `files` in `git`'s checkout and stages them. Returns "path: why" for
-    /// each one it could not, left as it was. A file changed on one side and deleted on the other is
-    /// kept or deleted; other conflicts with no markers to work from (binary, renamed on both sides) are left.
-    async fn resolve_files(&self, p: &Project, git: &Git, files: &[String], ours: &str, theirs: &str) -> Vec<String> {
-        let _ = self.events.send(Event::ConflictResolving { project_id: p.id.clone(), files: files.to_vec() });
+    /// AI's call on `path`, changed on both sides where git can't merge it line by line (a binary file,
+    /// a symlink, a submodule): which side's version stays whole. `first`: the second pass, after the
+    /// first answer could not be used.
+    async fn pick_side(&self, p: &Project, git: &Git, path: &str, ours: &str, theirs: &str, first: Option<&str>) -> Result<Fix> {
+        let size = |stage: u8| async move { git.run(&["cat-file", "-s", &format!(":{stage}:{path}")]).await.map_or_else(|_| "?".to_string(), |s| s.trim().to_string()) };
+        // The commit being brought in, when the operation has one (a stash pop has none).
+        let mut other = None;
+        for head in ["REBASE_HEAD", "CHERRY_PICK_HEAD", "MERGE_HEAD", "REVERT_HEAD"] {
+            if git.try_run(&["rev-parse", "--verify", "-q", head]).await?.0 {
+                other = Some(head);
+                break;
+            }
+        }
+        let log = |range: String| async move {
+            let (_, out, _) = git.try_run(&["log", "-5", "--format=- %s", &range, "--", path]).await.unwrap_or_default();
+            if out.trim().is_empty() { "(nothing known)".to_string() } else { out.trim_end().to_string() }
+        };
+        let (incoming_log, current_log) = match other {
+            Some(o) => (log(format!("HEAD..{o}")).await, log(format!("{o}..HEAD")).await),
+            None => ("(nothing known)".to_string(), "(nothing known)".to_string()),
+        };
+        let (body, tries) = Self::second_pass_body("{path} can't be merged line by line (a binary file, a symlink or a submodule) and both sides changed it: one version stays whole.\n\n- incoming: the version from {incoming} ({incoming_size} bytes), changed by:\n{incoming_log}\n- current: the version on {current} ({current_size} bytes), changed by:\n{current_log}\n\nKeep incoming when its change is the one that matters (a new or updated asset), current when the incoming change is outdated or already redone there.\n\nAnswer with one word: incoming or current.", first);
+        let mut vars = BTreeMap::new();
+        vars.insert("path".into(), path.to_string());
+        vars.insert("incoming".into(), ours.to_string());
+        vars.insert("current".into(), theirs.to_string());
+        vars.insert("incoming_size".into(), size(3).await);
+        vars.insert("current_size".into(), size(2).await);
+        vars.insert("incoming_log".into(), incoming_log);
+        vars.insert("current_log".into(), current_log);
+        vars.insert("first".into(), first.unwrap_or_default().to_string());
+        let stage = if self.ask_until(p, git, &body, vars, tries, |a| pick_word(a, ["incoming", "current"])).await? == 0 { 3 } else { 2 };
+        crate::log::info(format!("AI kept the {} version of {path} ({} onto {theirs})", if stage == 3 { "incoming" } else { "current" }, ours));
+        Ok(Fix::Side(stage))
+    }
+
+    /// AI's fix for conflicted `path`, by what the index holds of it: text with conflict markers gets
+    /// resolved; changed on one side and deleted on the other, it stays or goes; changed on both sides
+    /// with no markers to work from (binary, symlink), one side's version stays. What both sides deleted
+    /// goes, what one side added stays (the halves of a file both sides renamed).
+    async fn fix_for(&self, p: &Project, git: &Git, path: &str, ours: &str, theirs: &str) -> Result<Fix> {
+        let stages = git.conflict_stages(path).await?;
+        let marked = || std::fs::read_to_string(git.cwd().join(path)).is_ok_and(|c| c.contains("<<<<<<<"));
+        match stages.as_slice() {
+            [1] => Ok(Fix::Delete),
+            [2] | [3] => Ok(Fix::Keep),
+            [1, 2 | 3] => self.keep_or_delete(p, git, path, ours, theirs, None).await,
+            _ if marked() => self.propose_resolution(p, git, path, ours, theirs).await.map(Fix::Text),
+            [.., 2, 3] => self.pick_side(p, git, path, ours, theirs, None).await,
+            _ => Err(Error::Invalid("no conflict markers to resolve".into())),
+        }
+    }
+
+    /// The second pass on conflicted `path`, whose first answer could not be used (`first` says why): AI is
+    /// asked again until it settles it, in a form that can't fail to apply, its answers turned down told why.
+    async fn settle(&self, p: &Project, git: &Git, path: &str, ours: &str, theirs: &str, first: &str) -> Result<Fix> {
+        let stages = git.conflict_stages(path).await?;
+        let marked = || std::fs::read_to_string(git.cwd().join(path)).is_ok_and(|c| c.contains("<<<<<<<"));
+        match stages.as_slice() {
+            [1, 2 | 3] => self.keep_or_delete(p, git, path, ours, theirs, Some(first)).await,
+            _ if marked() => self.resolve_by_conflict(p, git, path, ours, theirs, first).await.map(Fix::Text),
+            [.., 2, 3] => self.pick_side(p, git, path, ours, theirs, Some(first)).await,
+            _ => self.fix_for(p, git, path, ours, theirs).await,
+        }
+    }
+
+    /// The second pass on text file `path`, whose edits could not be applied: AI answers for one conflict
+    /// at a time with the lines that take its place, which always fit there.
+    async fn resolve_by_conflict(&self, p: &Project, git: &Git, path: &str, ours: &str, theirs: &str, first: &str) -> Result<String> {
+        const AROUND: usize = 30;
+        let content = std::fs::read_to_string(git.cwd().join(path))?;
+        let lines: Vec<&str> = content.lines().collect();
+        let conflicts = conflict_regions(&lines, 0);
+        if conflicts.is_empty() {
+            return Err(Error::Invalid(format!("{path} has no conflict markers to resolve")));
+        }
+        let body = "This is the second pass on the conflicts in {path}, between {ours} and {theirs}: resolving the whole file at once failed ({first}). It goes one conflict at a time, and has to end with a resolution.\n\nIn a conflict, the lines after <<<<<<< come from {theirs} and the lines after ======= from {ours}; a ||||||| section, when there is one, holds the text both started from.\n\nThe lines before it:\n{before}\n\nConflict {n} of {count}:\n{conflict}\n\nThe lines after it:\n{after}\n\nAnswer with only the lines that take this conflict's place, from its <<<<<<< line to its >>>>>>> line: what both sides meant, with no conflict markers, code fences or explanations. When no line should stay there, answer [[NOTHING]].";
+        let mut out: Vec<String> = lines.iter().map(|l| l.to_string()).collect();
+        // From the last conflict up: each one swapped leaves the lines above it where they were.
+        for (i, &(s, e)) in conflicts.iter().enumerate().rev() {
+            let mut vars = BTreeMap::new();
+            vars.insert("path".into(), path.to_string());
+            vars.insert("ours".into(), ours.to_string());
+            vars.insert("theirs".into(), theirs.to_string());
+            vars.insert("first".into(), first.to_string());
+            vars.insert("before".into(), lines[s.saturating_sub(AROUND)..s].join("\n"));
+            vars.insert("conflict".into(), lines[s..e].join("\n"));
+            vars.insert("after".into(), lines[e..(e + AROUND).min(lines.len())].join("\n"));
+            vars.insert("n".into(), (i + 1).to_string());
+            vars.insert("count".into(), conflicts.len().to_string());
+            let new = self.ask_until(p, git, body, vars, 3, conflict_answer).await?;
+            out.splice(s..e, new);
+        }
+        crate::log::info(format!("AI resolved {path} one conflict at a time, in the second pass"));
+        // `lines()` drops the `\r`: a CRLF file keeps its line endings.
+        Ok(out.join(if content.contains("\r\n") { "\r\n" } else { "\n" }))
+    }
+
+    /// AI's fixes for conflicted `files` in `git`'s checkout, a few asked at a time. `ctl`'s run counts each answer.
+    async fn ask_fixes(&self, p: &Project, git: &Git, files: &[String], ours: &str, theirs: &str, ctl: Option<&RunCtl>) -> Vec<(String, Result<Fix>)> {
+        // A rebase run shows its own progress.
+        if ctl.is_none() {
+            let _ = self.events.send(Event::ConflictResolving { project_id: p.id.clone(), files: files.to_vec() });
+        }
         crate::log::info(format!("Will attempt to resolve conflicts with AI in {} ({ours} onto {theirs}): {}", git.cwd().display(), files.join(", ")));
-        // Asked a few at a time; written one by one, as `git add` takes the index lock.
+        let counted = |r: &Result<Fix>| {
+            if let (Some(c), Ok(_)) = (ctl, r) {
+                c.report(|run| {
+                    run.resolved += 1;
+                    run.resolved_total += 1;
+                });
+            }
+        };
         let answers: Vec<(String, Result<Fix>)> = stream::iter(files.to_vec())
             .map(|f| async move {
-                let r = match git.conflict_stages(&f).await {
-                    Ok(s) if s == [1, 2] || s == [1, 3] => self.keep_or_delete(p, git, &f, s[1], ours, theirs).await,
-                    Ok(_) if std::fs::read_to_string(git.cwd().join(&f)).is_ok_and(|c| c.contains("<<<<<<<")) => self.propose_resolution(p, git, &f, ours, theirs).await.map(Fix::Text),
-                    Ok(_) => Err(Error::Invalid("no conflict markers to resolve".into())),
-                    Err(e) => Err(e),
+                let r = self.fix_for(p, git, &f, ours, theirs).await;
+                counted(&r);
+                (f, r)
+            })
+            .buffered(3)
+            .collect()
+            .await;
+        // What the first pass could not settle gets a second one, which has to.
+        let again: Vec<String> = answers.iter().filter(|(_, r)| r.is_err()).map(|(f, _)| f.clone()).collect();
+        if again.is_empty() {
+            return answers;
+        }
+        crate::log::info(format!("Second pass with AI on {}", again.join(", ")));
+        if let Some(c) = ctl {
+            c.report(|run| run.second_pass = again.clone());
+        }
+        let answers = stream::iter(answers)
+            .map(|(f, r)| async move {
+                let r = match r {
+                    Err(e) => {
+                        let r = self.settle(p, git, &f, ours, theirs, &e.to_string()).await;
+                        counted(&r);
+                        r
+                    }
+                    done => done,
                 };
                 (f, r)
             })
             .buffered(3)
             .collect()
             .await;
+        if let Some(c) = ctl {
+            c.report(|run| run.second_pass.clear());
+        }
+        answers
+    }
+
+    /// Writes and stages each of AI's fixes, one by one as `git add` takes the index lock. Returns "path: why"
+    /// for each file it could not resolve, left as it was.
+    async fn apply_fixes(&self, p: &Project, git: &Git, answers: Vec<(String, Result<Fix>)>) -> Vec<String> {
         let mut failed = Vec::new();
         for (f, r) in answers {
             if let Err(e) = match r {
                 Ok(Fix::Text(body)) => Self::write_resolution(git, &f, &body).await,
                 Ok(Fix::Keep) => git.add(&f).await,
                 Ok(Fix::Delete) => git.run(&["rm", "-q", "--", &f]).await.map(|_| ()),
+                Ok(Fix::Side(stage)) => git.take_stage(&f, stage).await,
                 Err(e) => Err(e),
             } {
                 crate::log::error(format!("Could not resolve {f}: {e}"));
@@ -3398,17 +3785,41 @@ impl Gitnetix {
 
     /// AI resolves what `op` stopped on in `git`'s checkout, then `op` carries on, through every commit
     /// a rebase stops on, until it's done. `op` None has nothing to carry on (a stash). Stops, `op` left
-    /// in progress, when AI is off for the project or could not resolve a file.
-    async fn resolve_and_continue(&self, p: &Project, git: &Git, op: Option<&str>, ours: &str, theirs: &str) -> Result<Resolution> {
-        let on = self.resolves_conflicts(p);
+    /// in progress, when AI is off for the project, could not resolve a file, or `ctl`'s run was asked to stop.
+    async fn resolve_and_continue(&self, p: &Project, git: &Git, op: Option<&str>, ours: &str, theirs: &str, ctl: Option<&RunCtl>) -> Result<Resolution> {
+        let on = ctl.is_some_and(|c| c.forced) || self.resolves_conflicts(p);
         loop {
             let files = git.conflicted_files().await?;
-            if !on {
+            if ctl.is_some_and(RunCtl::stopped) {
                 return Ok(Resolution { done: false, left: files, errors: Vec::new() });
             }
-            let errors = self.resolve_files(p, git, &files, ours, theirs).await;
-            if !errors.is_empty() {
-                return Ok(Resolution { done: false, left: git.conflicted_files().await?, errors });
+            if !files.is_empty() {
+                if !on {
+                    return Ok(Resolution { done: false, left: files, errors: Vec::new() });
+                }
+                if let Some(c) = ctl {
+                    let step = if op == Some("rebase") { git.rebase_step().await.ok().flatten() } else { None };
+                    let subject = git.rebase_subject().await.unwrap_or_default();
+                    c.report(|run| {
+                        (run.step, run.steps) = step.unwrap_or((0, 0));
+                        run.subject = subject;
+                        run.files = files.clone();
+                        run.resolved = 0;
+                    });
+                }
+                let asking = self.ask_fixes(p, git, &files, ours, theirs, ctl);
+                // A stop drops the AI calls in flight (their processes with them); nothing is written yet.
+                let answers = match ctl {
+                    Some(c) => tokio::select! {
+                        a = asking => a,
+                        () = c.on_stop() => return Ok(Resolution { done: false, left: files, errors: Vec::new() }),
+                    },
+                    None => asking.await,
+                };
+                let errors = self.apply_fixes(p, git, answers).await;
+                if !errors.is_empty() {
+                    return Ok(Resolution { done: false, left: git.conflicted_files().await?, errors });
+                }
             }
             let done = match op {
                 Some(op) => git.continue_op(op).await?,
@@ -3423,7 +3834,7 @@ impl Gitnetix {
     /// Like [`Self::resolve_and_continue`], except `op` is aborted unless it goes through, the checkout
     /// back as it was before it; `refusal` words the error then.
     async fn resolve_or_abort(&self, p: &Project, git: &Git, op: &str, ours: &str, theirs: &str, refusal: impl FnOnce(&Resolution) -> String) -> Result<()> {
-        match self.resolve_and_continue(p, git, Some(op), ours, theirs).await {
+        match self.resolve_and_continue(p, git, Some(op), ours, theirs, None).await {
             Ok(r) if r.done => Ok(()),
             r => {
                 let _ = git.abort_op(op).await;
@@ -3503,6 +3914,7 @@ impl Gitnetix {
             .find(|r| r.version == version && r.shipped_at.is_none())
             .cloned()
             .ok_or_else(|| Error::NotFound(format!("open release v{version}")))?;
+        self.refuse_locked(project_id, &r.branch)?;
         let git = self.git(&p);
         let default = git.default_branch().await?;
         if !git.is_ancestor(&default, &r.branch).await? {
@@ -3838,6 +4250,7 @@ impl Gitnetix {
 
     /// `delete_branch` with the branch's base already known (`None`: work it out).
     async fn delete_branch_onto(&self, project_id: &str, branch: &str, base: Option<String>, force: bool, remote: bool) -> Result<()> {
+        self.refuse_locked(project_id, branch)?;
         let p = self.store.project(project_id)?;
         let git = self.git(&p);
         let default = git.default_branch().await?;
@@ -3941,6 +4354,7 @@ impl Gitnetix {
     /// branch (`release/<version>`) takes its new version along. A local branch whose origin
     /// copy was renamed by someone else follows it (`renamed_to`): it tracks the new name after.
     pub async fn rename_branch(&self, project_id: &str, branch: &str, to: &str, remote: bool) -> Result<RenameResult> {
+        self.refuse_locked(project_id, branch)?;
         let to = to.trim();
         let p = self.store.project(project_id)?;
         let git = self.git(&p);
@@ -4225,7 +4639,7 @@ impl Gitnetix {
         // Kept after AI resolves its conflicts: the stash is the only copy if AI got them wrong.
         let clean = conflicts.is_empty();
         if !clean {
-            conflicts = self.resolve_and_continue(&p, &git, None, "the stashed changes", branch).await?.left;
+            conflicts = self.resolve_and_continue(&p, &git, None, "the stashed changes", branch, None).await?.left;
         }
         let dropped = pop && clean;
         if dropped {
@@ -4310,6 +4724,7 @@ impl Gitnetix {
     /// `wip` says what to do with them: "stash" leaves them in a stash, "carry" stashes them, pulls and puts
     /// them back. Returns git's output and the files left conflicted by carrying them (the stash is kept then).
     pub async fn pull_branch(&self, project_id: &str, branch: &str, wip: Option<&str>) -> Result<(String, Vec<String>)> {
+        self.refuse_locked(project_id, branch)?;
         if wip.is_some_and(|w| !matches!(w, "stash" | "carry")) {
             return Err(Error::Invalid(format!("wip: {wip:?}")));
         }
@@ -4424,6 +4839,8 @@ impl Gitnetix {
         if into == branch {
             return Err(Error::Invalid(format!("{branch} has no other branch to merge into")));
         }
+        self.refuse_locked(project_id, branch)?;
+        self.refuse_locked(project_id, &into)?;
         // Caught up with origin first, so the merge lands on top of origin's commits and the push goes through.
         // shortcut: when `branch` was started from commits of `into` never pushed, rebasing them here duplicates them in the history.
         if git.upstream(&into).await.ok().flatten().is_some() {
@@ -4681,6 +5098,7 @@ impl Gitnetix {
     /// Bring a branch up to date with its base by merging the base into it
     /// (no history rewrite: right for shared release and dev branches).
     pub async fn sync_branch(&self, project_id: &str, branch: &str) -> Result<MergeResult> {
+        self.refuse_locked(project_id, branch)?;
         let p = self.store.project(project_id)?;
         let git = self.git(&p);
         let default = git.default_branch().await?;
@@ -6941,6 +7359,42 @@ fn resolve_answer(lines: &[&str], answer: &str) -> std::result::Result<Vec<Strin
         return Err("conflict markers are left in the file: each conflict, from <<<<<<< to >>>>>>>, goes inside the FIND of an edit".into());
     }
     Ok(out)
+}
+
+/// Which of two `words` AI's answer picks: the one it holds. Err, for AI to be told when asked again,
+/// when it holds neither or both.
+fn pick_word(answer: &str, words: [&str; 2]) -> std::result::Result<usize, String> {
+    let said = answer.to_lowercase();
+    match (said.contains(words[0]), said.contains(words[1])) {
+        (true, false) => Ok(0),
+        (false, true) => Ok(1),
+        _ => Err(format!("it should be one word, {} or {}, and was: {}", words[0], words[1], answer.trim())),
+    }
+}
+
+/// The lines AI gave to take one conflict's place: a code fence around them dropped, none for [[NOTHING]].
+/// Err, for AI to be told when asked again, when empty or still holding conflict markers.
+fn conflict_answer(answer: &str) -> std::result::Result<Vec<String>, String> {
+    let mut lines: Vec<&str> = answer.lines().collect();
+    while lines.first().is_some_and(|l| l.trim().is_empty()) {
+        lines.remove(0);
+    }
+    while lines.last().is_some_and(|l| l.trim().is_empty()) {
+        lines.pop();
+    }
+    if lines.len() >= 2 && lines[0].trim_start().starts_with("```") && lines[lines.len() - 1].trim() == "```" {
+        lines = lines[1..lines.len() - 1].to_vec();
+    }
+    match lines[..] {
+        [] => return Err("the answer is empty: answer [[NOTHING]] when no line should stay".into()),
+        [only] if only.trim() == "[[NOTHING]]" => return Ok(Vec::new()),
+        _ => {}
+    }
+    let marker = |l: &str| l.starts_with("<<<<<<<") || l.starts_with("|||||||") || l.starts_with(">>>>>>>") || l.trim_end() == "=======";
+    if lines.iter().any(|l| marker(l)) {
+        return Err("conflict markers are left in it: answer with the resolved lines only".into());
+    }
+    Ok(lines.iter().map(|l| l.to_string()).collect())
 }
 
 /// One of AI's edits to a conflicted file: lines copied from it (FIND), and the ones that take their place (REPLACE).

@@ -24,6 +24,8 @@ pub enum Event {
     /// AI starts resolving these conflicted files; it takes a while.
     #[serde(rename_all = "camelCase")]
     ConflictResolving { project_id: String, files: Vec<String> },
+    /// A rebase AI carries through moved on (a commit, a file resolved), or ended (`run.state`).
+    RebaseRun { run: crate::app::RebaseRun },
     /// A new line in the Logs page.
     Log { entry: crate::log::Entry },
     /// Output of terminal `tab` of a checkout, base64; `end` counts its bytes so far.

@@ -154,7 +154,8 @@ export function swipeProps(onSwipe: (dir: 1 | -1) => void) {
 
 /** Without `onClose` it stays up (no close button): while what it started is still running. */
 /** `actions` stand in the head, before the close button. */
-export function Modal({ title, sub, onClose, children, footer, width, actions }: { title: ReactNode; sub?: ReactNode; onClose?: () => void; children: ReactNode; footer?: ReactNode; width?: number; actions?: ReactNode }) {
+/** `minimize`: closing (Escape, a click outside, its button) only tucks it away, the work it shows going on. */
+export function Modal({ title, sub, onClose, children, footer, width, actions, minimize }: { title: ReactNode; sub?: ReactNode; onClose?: () => void; children: ReactNode; footer?: ReactNode; width?: number; actions?: ReactNode; minimize?: boolean }) {
   useEffect(() => {
     const k = (e: KeyboardEvent) => e.key === "Escape" && onClose?.();
     window.addEventListener("keydown", k);
@@ -171,8 +172,8 @@ export function Modal({ title, sub, onClose, children, footer, width, actions }:
           </div>
           {actions && <div className="modal-actions">{actions}</div>}
           {onClose && (
-            <button className="btn btn-ghost btn-icon" aria-label="Close" onClick={onClose}>
-              <Icon name="close" />
+            <button className="btn btn-ghost btn-icon" aria-label={minimize ? "Minimize" : "Close"} data-tip={minimize ? "Minimize · it carries on, back from the chip in the corner" : undefined} onClick={onClose}>
+              <Icon name={minimize ? "minus" : "close"} />
             </button>
           )}
         </div>

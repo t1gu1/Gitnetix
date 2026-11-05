@@ -664,6 +664,25 @@ impl Git {
         Ok(paths.iter().find_map(|p| std::fs::read_to_string(p).ok()).and_then(|s| s.trim().strip_prefix("refs/heads/").map(String::from)))
     }
 
+    /// Commit the paused rebase is on, from 1, and how many it replays.
+    pub async fn rebase_step(&self) -> Result<Option<(u32, u32)>> {
+        let paths = self.git_paths(&["rebase-merge/msgnum", "rebase-merge/end", "rebase-apply/next", "rebase-apply/last"]).await?;
+        let read = |i: usize| std::fs::read_to_string(&paths[i]).ok().and_then(|s| s.trim().parse::<u32>().ok());
+        Ok(read(0).zip(read(1)).or_else(|| read(2).zip(read(3))))
+    }
+
+    /// Subject of the commit the paused rebase stopped on.
+    pub async fn rebase_subject(&self) -> Result<String> {
+        let (_, out, _) = self.try_run(&["log", "-1", "--format=%s", "REBASE_HEAD"]).await?;
+        Ok(out.trim().to_string())
+    }
+
+    /// Settle conflicted `path` on one side: stage 2 (the checkout's version) or 3 (the one brought in).
+    pub async fn take_stage(&self, path: &str, stage: u8) -> Result<()> {
+        self.run(&["checkout", if stage == 2 { "--ours" } else { "--theirs" }, "--", path]).await?;
+        self.add(path).await
+    }
+
     /// Commit the paused rebase replays onto.
     pub async fn rebase_onto(&self) -> Result<Option<String>> {
         let paths = self.git_paths(&["rebase-merge/onto", "rebase-apply/onto"]).await?;

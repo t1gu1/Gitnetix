@@ -2,15 +2,17 @@ import { useState, type MouseEvent } from "react";
 
 import { droppedWorktree, patchOverview, patchWip, pushed, queryClient, settle, switchedOverview, useAction, useAgents, useAiOn, useOverview, usePendingBranches } from "../api/hooks";
 import { RpcError } from "../api/transport";
-import type { BranchView, Overview, RebaseResult, RenameResult, Stash, StashApplied } from "../api/types";
+import type { BranchView, Overview, RenameResult, Stash, StashApplied } from "../api/types";
 import { ContextMenu, type MenuItem } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
 import { plural } from "../lib/format";
 import { useNav } from "../lib/nav";
+import { showRun, useLocks, useRebasing } from "../lib/rebaseRuns";
 import { call, runTask, wtKey } from "../lib/tasks";
 import { copyToClipboard, toast } from "../lib/toast";
+import { startRebase } from "./RebaseRun";
 
-export type BranchDialog = "merge" | "delete" | "rename" | "continue" | "conflicts" | "reset" | "forcePush" | "tag" | "target" | "rebase" | "rebaseOnto" | "abortSwitch" | "abort" | "switchWip" | "pullWip";
+export type BranchDialog = "merge" | "delete" | "rename" | "continue" | "reset" | "forcePush" | "tag" | "target" | "rebase" | "rebaseOnto" | "abortSwitch" | "abort" | "switchWip" | "pullWip";
 
 export interface BranchTarget {
   view: BranchView;
@@ -41,15 +43,6 @@ export type Action = Exclude<MenuItem, "sep"> & { short?: string; /** Plain-text
 interface BranchMutation {
   mutate(vars: { projectId: string; branch: string }, opts: { onSuccess: () => void }): void;
 }
-
-/** Toast text for a finished or stopped rebase. */
-export const rebaseMessage = (r: RebaseResult) =>
-  r.conflicts.length
-    ? `Rebase stopped on ${plural(r.conflicts.length, "conflict")}`
-    // Already on origin: the rewritten commits only go up forced.
-    : r.forcePushTo
-      ? `Rebased. Force push to update ${r.forcePushTo}`
-      : "Rebased, no conflicts";
 
 /** After a target change: offer to rebase onto the new target (only checked-out work branches get rebased; a worktree's branch catches up by merging). */
 export const offersRebase = (v?: BranchView) => !!v && v.role === "branch" && v.checkedOut && !v.worktree;
@@ -88,7 +81,6 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
     },
   });
   const push = useAction<{ output: string }, { projectId: string; branch: string }>("workspace.push", { invalidate: inv, patch: (qc, v) => patchOverview(qc, pid, v.branch, pushed) });
-  const rebase = useAction<RebaseResult, { projectId: string; branch: string }>("workspace.rebase", { invalidate: inv, success: rebaseMessage });
   const sync = useAction<unknown, { projectId: string; branch: string }>("branches.sync", { invalidate: inv });
   const stash = useAction<unknown, { projectId: string; branch: string }>("branches.stash", {
     invalidate: inv,
@@ -115,13 +107,18 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
   // Worktrees whose agent is still at work: finishing them would pull the folder out from under it.
   const working = useAgents((l) => l.filter((a) => a.status === "running" || a.status === "paused").map((a) => a.cwd)).data;
 
-  const mutations = [sw, wt, pull, push, rebase, sync, stash, unstash, pr, changelog, stampChangelog, latestChangelog, follow];
-  // Started elsewhere counts too: the commit box's auto push spins the branch's Push button, and so do merges and deletes running in the background.
-  const elsewhere = usePendingBranches(["workspace.push", "workspace.switch", "worktrees.remove", "branches.merge", "branches.delete"], pid);
+  const mutations = [sw, wt, pull, push, sync, stash, unstash, pr, changelog, stampChangelog, latestChangelog, follow];
+  // Started elsewhere counts too: the commit box's auto push spins the branch's Push button, and so do merges, deletes and rebases running in the background.
+  const elsewhere = usePendingBranches(["workspace.push", "workspace.switch", "worktrees.remove", "branches.merge", "branches.delete", "workspace.rebase", "workspace.rebaseContinue"], pid);
   const busy = new Set([...mutations.flatMap((m) => (m.isPending && m.variables?.branch ? [m.variables.branch] : [])), ...elsewhere]);
+  // Branches AI is rebasing: nothing else touches them, or their checkout, until it is done. Nor the branches they go onto.
+  const rebasing = useRebasing(pid);
+  const locks = useLocks(pid);
+  const inMain = [...rebasing.keys()].find((b) => !ov?.branches.find((x) => x.name === b)?.worktree);
   const run = (m: BranchMutation, branch: string, ok: string) => m.mutate({ projectId: pid, branch }, { onSuccess: () => toast(ok, "ok") });
-  // Git refuses to switch in the middle of a rebase, merge…: ask to abort it first.
-  const switchOrAsk = (b: string, ok: string) => (ov?.inProgress ? openDialog("abortSwitch", b) : run(sw, b, ok));
+  // Git refuses to switch in the middle of a rebase, merge…: ask to abort it first. One AI is carrying through is left alone.
+  const switchOrAsk = (b: string, ok: string) =>
+    inMain ? toast(`AI is rebasing ${inMain} in this checkout: wait for it to finish, or abort it`, "error") : ov?.inProgress ? openDialog("abortSwitch", b) : run(sw, b, ok);
   const abortAndSwitch = (b: string) => sw.mutate({ projectId: pid, branch: b, abort: true }, { onSuccess: () => toast(`Aborted the ${ov?.inProgress ?? "operation"} and switched to ${b}`, "ok") });
   /** Switches with the uncommitted changes git refused to switch with: carried along, or left in a stash. */
   const switchWith = (b: string, wip: "stash" | "carry") =>
@@ -169,8 +166,8 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
     }).then((switched) => switched === false && openDialog("abortSwitch", branch));
   };
 
-  // The branch checked out here: any other branch can be the one it gets rebased onto.
-  const cur = ov?.currentBranch ?? undefined;
+  // The branch checked out here: any other branch can be the one it gets rebased onto, unless AI is rebasing it already.
+  const cur = (!inMain && ov?.currentBranch) || undefined;
   /** A release branch reads as its version. */
   const labelOf = (name: string) => {
     const x = ov?.branches.find((y) => y.name === name);
@@ -278,7 +275,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
         icon: "branch",
         hint: v.checkedOut ? (v.behind ? `${v.behind} behind` : undefined) : "check out first",
         disabled: !v.checkedOut || !t.base,
-        run: () => rebase.mutate({ projectId: pid, branch: b }),
+        run: () => void startRebase(pid, b),
       },
       rebaseActive: {
         id: "rebaseActive",
@@ -324,7 +321,25 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
         disabled: !t.base || !toMerge || agentBusy,
         run: () => openDialog("merge", b),
       },
-      conflicts: { id: "conflicts", label: "Resolve conflicts…", short: "Resolve", tip: `Resolve conflicts with ${parent}`, icon: "sparkle", run: () => openDialog("conflicts", b) },
+      conflicts: {
+        id: "conflicts",
+        label: "Resolve with AI",
+        short: "Resolve",
+        tip: `AI resolves the conflicts with ${parent} and carries the rebase through every commit`,
+        icon: "sparkle",
+        run: () => void startRebase(pid, b, { resume: true }),
+      },
+      progress: {
+        id: "progress",
+        label: "Show rebase progress",
+        short: "Progress",
+        tip: locks.get(b) && `Rebase & conflict resolving is running: AI is rebasing ${locks.get(b)?.branch}. Show how far it is`,
+        icon: "sparkle",
+        run: () => {
+          const r = locks.get(b);
+          if (r) showRun(r.projectId, r.branch);
+        },
+      },
       abort: { id: "abort", label: `Abort ${v.inProgress ?? "operation"}…`, icon: "undo", danger: true, run: () => openDialog("abort", b) },
       pr: {
         id: "pr",
@@ -407,6 +422,8 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
     const a = all(t);
     const v = t.view;
     if (!v.exists) return [a.delete];
+    // Nothing that would touch it until AI is done rebasing it, or rebasing a branch onto it; the run's window offers the abort.
+    if (locks.has(v.name)) return [a.progress, "sep", a.copy];
     const list: MenuItem[] = t.extra?.length ? [...t.extra, "sep"] : [];
     // The conflict dialog carries a rebase on; other operations are finished from the WIP files.
     if (v.conflict && v.inProgress === "rebase") list.push(a.conflicts);
@@ -470,6 +487,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
     const a = all(t);
     const v = t.view;
     if (!v.exists) return a.delete;
+    if (locks.has(v.name)) return a.progress;
     if (v.conflict && v.inProgress === "rebase") return a.conflicts;
     if (!v.local) return a.switch;
     if (v.renamedTo) return a.follow;
@@ -512,7 +530,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
 
   const menuEl = menu && <ContextMenu x={menu.x} y={menu.y} alignRight={menu.alignRight} label={`Actions for ${menu.t.view.name}`} items={items(menu.t)} onClose={() => setMenu(null)} />;
 
-  return { primary, create, openMenu, menuEl, busy, switchTo, continueOn, abortAndSwitch, switchWith, pullWith };
+  return { primary, create, openMenu, menuEl, busy, rebasing, locks, switchTo, continueOn, abortAndSwitch, switchWith, pullWith };
 }
 
 export type BranchActions = ReturnType<typeof useBranchActions>;
@@ -524,7 +542,11 @@ export type BranchActions = ReturnType<typeof useBranchActions>;
 export function BranchSplit({ t, actions }: { t: BranchTarget; actions: BranchActions }) {
   const p = actions.primary(t);
   const add = actions.create(t);
-  const busy = actions.busy.has(t.view.name);
+  // AI rebasing it: the button spins, still there to show how far it is. Rebasing a branch onto it: a lock.
+  const rebasing = actions.rebasing.has(t.view.name);
+  const held = actions.locks.has(t.view.name) && !rebasing;
+  const busy = actions.busy.has(t.view.name) && !rebasing;
+  const spin = busy || rebasing;
   const tip = p.tip ?? (typeof p.label === "string" ? p.label : undefined);
   const more = `More actions for ${t.view.name}`;
   // Commits waiting to go to origin: the Push button shakes now and then so they aren't forgotten.
@@ -533,7 +555,7 @@ export function BranchSplit({ t, actions }: { t: BranchTarget; actions: BranchAc
   return (
     <span className="acts" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
       <button className={`act act-main${p.danger ? " btn-danger" : p.warn ? " act-warn" : ""}${nudge ? " act-nudge" : ""}`} disabled={p.disabled || busy} aria-label={tip} data-tip={tip} onClick={p.run}>
-        {busy ? <span className="spinner" /> : <Icon name={p.icon ?? "check"} size={16} />}
+        {spin ? <span className="spinner" /> : <Icon name={held ? "lock" : (p.icon ?? "check")} size={16} />}
       </button>
       <span className="act-stack">
         {add && (

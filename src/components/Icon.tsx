@@ -52,6 +52,7 @@ const PATHS: Record<string, { d: string[]; fill?: boolean; circles?: [number, nu
   pause: { d: ["M5.5 3.5v9M10.5 3.5v9"] },
   play: { d: ["M5 3.5l7 4.5-7 4.5z"] },
   stop: { d: ["M4 4h8v8H4z"] },
+  lock: { d: ["M3.5 7.5h9v6h-9z", "M5.5 7.5V5.5a2.5 2.5 0 0 1 5 0v2"] },
   keyboard: { d: ["M2.5 3.5h11a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1z", "M4.5 6.5h.01M7 6.5h.01M9 6.5h.01M11.5 6.5h.01M5.5 9.5h5"] },
   mic: { d: ["M6 2.5a2 2 0 0 1 4 0v5a2 2 0 0 1-4 0z", "M3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2.5"] },
   trash: { d: ["M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.7 8.5h5.6l.7-8.5"] },

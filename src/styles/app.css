@@ -2287,6 +2287,46 @@ button.tree-twist:hover {
 .tree-row[data-dim] .tree-name {
   opacity: 0.6;
 }
+/* Held by a rebase AI is carrying through (BranchTree.tsx): grayed out under a veil that takes the clicks, a lock on
+   the right; hovering it says why, a click shows the rebase's progress. */
+.tree-row[data-locked] > .tree-btn {
+  filter: grayscale(1);
+  opacity: 0.4;
+}
+/* The lock takes the actions' place. */
+.tree-row[data-locked] > .tree-acts {
+  visibility: hidden;
+}
+.lock-veil {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 12px;
+  border-radius: var(--r);
+  background: color-mix(in srgb, var(--bg) 30%, transparent);
+  cursor: pointer;
+}
+.lock-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 600;
+  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+}
+.lock-veil:hover .lock-badge {
+  color: var(--fg);
+  border-color: color-mix(in srgb, var(--accent-fg) 55%, var(--line));
+}
 /* Shared branches read apart from work: trunks (main, dev…) orange, releases (open or shipped) purple. */
 .tree-row[data-role="trunk"] .tree-name > .mono {
   color: var(--trunk-fg);
@@ -6091,6 +6131,45 @@ body:has(> .modal-scrim) #root * {
 .start-chip {
   height: 40px;
   box-shadow: var(--shadow);
+}
+/* A rebase AI carries through (RebaseRun.tsx), minimized: how far it is, in the same corner. */
+.run-chip > .spinner {
+  color: var(--accent-fg);
+}
+.run-chip-failed {
+  border-color: color-mix(in srgb, var(--del-fg) 55%, var(--line));
+}
+.run-chip-failed > svg {
+  color: var(--del-fg);
+}
+.run-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--raised);
+  overflow: hidden;
+}
+.run-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent-fg);
+  transition: width 0.4s var(--ease);
+}
+.run-bar[data-failed] > span {
+  background: var(--del-fg);
+}
+.run-files {
+  list-style: none;
+  margin: 0;
+  padding: 8px 10px;
+  max-height: 160px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  font-size: 12px;
 }
 .toasts {
   position: fixed;

@@ -29,7 +29,7 @@ import {
   useProjects,
 } from "../api/hooks";
 import { isLocal, revealPath, rpc } from "../api/transport";
-import type { AgentSession, BranchView, Commit, FileChange, Hunk, LinePick, MergeResult, Overview, RebaseResult, ReleaseView, RenameResult, Stash } from "../api/types";
+import type { AgentSession, BranchView, Commit, FileChange, Hunk, LinePick, MergeResult, Overview, ReleaseView, RenameResult, Stash } from "../api/types";
 import { AgentInput, AgentLog, type Choice, type Upload } from "../components/AgentLog";
 import { AgentPicker, useAgentPick } from "../components/AgentPicker";
 import { DiffView, LargeDiff, type DiffMode, type Staging } from "../components/DiffView";
@@ -45,13 +45,15 @@ import { startCleanup, useCleaning } from "../lib/cleanups";
 import { useDraft } from "../lib/drafts";
 import { useIdle } from "../lib/motion";
 import { useNav } from "../lib/nav";
+import { showRun, useLocks, useRebasing } from "../lib/rebaseRuns";
 import { useStoredChoice, useStoredFlag } from "../lib/stored";
 import { agentKey, branchKey, call, runTask, useHidden, wtKey } from "../lib/tasks";
 import { copyToClipboard, toast } from "../lib/toast";
-import { offersRebase, rebaseMessage, useBranchActions, type BranchDialog, type BranchTarget } from "./BranchMenu";
+import { AbortModal } from "./AbortModal";
+import { offersRebase, useBranchActions, type BranchDialog, type BranchTarget } from "./BranchMenu";
 import { BranchTree } from "./BranchTree";
 import { CommitList, DeleteTagModal, TagModal } from "./CommitList";
-import { AbortModal, ConflictModal } from "./ConflictModal";
+import { startRebase } from "./RebaseRun";
 import { StashList } from "./StashList";
 
 type Mode = "branch" | "wip" | "project";
@@ -115,6 +117,10 @@ export function Workspace() {
     else setDialog({ kind, branch, onto });
   });
   const finish = useFinishHandlers(pid, actions.continueOn, (branch, cwd, stay, into) => setDialog({ kind: "merge", branch, cwd, stay, into }));
+  const rebasing = useRebasing(pid);
+  const locks = useLocks(pid);
+  // Asked to rebase or resolve, before AI has anything to say.
+  const startingRebase = usePendingBranches(["workspace.rebase", "workspace.rebaseContinue"], pid);
 
   const hidden = useHidden();
   // Branches a background action is deleting leave the tree at the click; they come back if it fails.
@@ -328,6 +334,11 @@ export function Workspace() {
   const op = branch ? opOf(branch) : null;
   // The main checkout's conflicts; another checkout's aren't counted.
   const opConflicts = branch === o?.currentBranch ? (o?.conflicts.length ?? 0) : 0;
+  // AI carrying the branch's rebase through: its files stay as they are until it is done.
+  const running = branch ? rebasing.get(branch) : undefined;
+  // The branch another one is being rebased onto: locked as well, so what it replays onto stays put.
+  const held = branch && !running ? locks.get(branch) : undefined;
+  const starting = !!branch && startingRebase.includes(branch);
   /** Where `b` is being replayed: the checked-out branch's paused rebase may go elsewhere than its target. */
   const rebasingOnto = (b: string) => labelOf(b === o?.currentBranch && o?.rebaseOnto ? o.rebaseOnto : baseFor(b));
 
@@ -574,25 +585,61 @@ export function Workspace() {
                 </button>
               </div>
             )}
-            {op && branch && (
+            {running && branch ? (
               <div className="col note-box" style={{ margin: "10px 12px 0" }}>
-                <span style={{ fontSize: 12, lineHeight: 1.45 }}>
-                  {op === "rebase" ? <>Rebase onto <span className="mono">{rebasingOnto(branch)}</span></> : op[0].toUpperCase() + op.slice(1)}
-                  {opConflicts ? ` stopped on ${plural(opConflicts, "conflict")}.` : view?.conflict ? " stopped on conflicts." : " is paused."}
+                <span className="row" style={{ fontSize: 12, lineHeight: 1.45, gap: 8 }}>
+                  <span className="spinner" />
+                  <span>
+                    AI is rebasing onto <span className="mono">{labelOf(running.onto)}</span>
+                    {running.steps ? `, commit ${running.step} of ${running.steps}` : ""}. Its files stay as they are until it is done.
+                  </span>
                 </span>
-                <div className="row" style={{ gap: 8 }}>
-                  {op === "rebase" && (
-                    <button className="btn btn-primary btn-sm grow" style={{ height: 30 }} onClick={() => setDialog({ kind: "conflicts", branch })}>
-                      <Icon name="sparkle" size={12} />
-                      <span>Resolve with AI</span>
-                    </button>
-                  )}
-                  <button className="btn btn-danger btn-sm" style={{ height: 30 }} data-tip={`Put ${branch} back to where it was before the ${op}`} onClick={() => setDialog({ kind: "abort", branch })}>
-                    <Icon name="undo" size={12} />
-                    <span>Abort {op}</span>
-                  </button>
-                </div>
+                <button className="btn btn-sm" style={{ height: 30 }} onClick={() => showRun(pid, branch)}>
+                  <Icon name="sparkle" size={12} />
+                  <span>Show progress</span>
+                </button>
               </div>
+            ) : held ? (
+              <div className="col note-box" style={{ margin: "10px 12px 0" }}>
+                <span className="row" style={{ fontSize: 12, lineHeight: 1.45, gap: 8 }}>
+                  <Icon name="lock" size={13} />
+                  <span>
+                    Rebase & conflict resolving is running: AI is rebasing <span className="mono">{labelOf(held.branch)}</span> onto this branch. It stays locked until it is done.
+                  </span>
+                </span>
+                <button className="btn btn-sm" style={{ height: 30 }} onClick={() => showRun(held.projectId, held.branch)}>
+                  <Icon name="sparkle" size={12} />
+                  <span>Show progress</span>
+                </button>
+              </div>
+            ) : (
+              op &&
+              branch && (
+                <div className="col note-box" style={{ margin: "10px 12px 0" }}>
+                  <span style={{ fontSize: 12, lineHeight: 1.45 }}>
+                    {op === "rebase" ? <>Rebase onto <span className="mono">{rebasingOnto(branch)}</span></> : op[0].toUpperCase() + op.slice(1)}
+                    {opConflicts ? ` stopped on ${plural(opConflicts, "conflict")}.` : view?.conflict ? " stopped on conflicts." : " is paused."}
+                  </span>
+                  <div className="row" style={{ gap: 8 }}>
+                    {op === "rebase" && (
+                      <button
+                        className="btn btn-primary btn-sm grow"
+                        style={{ height: 30 }}
+                        disabled={starting}
+                        data-tip="AI resolves every conflict and carries the rebase through every commit"
+                        onClick={() => void startRebase(pid, branch, { resume: true })}
+                      >
+                        {starting ? <span className="spinner" /> : <Icon name="sparkle" size={12} />}
+                        <span>Resolve with AI</span>
+                      </button>
+                    )}
+                    <button className="btn btn-danger btn-sm" style={{ height: 30 }} disabled={starting} data-tip={`Put ${branch} back to where it was before the ${op}`} onClick={() => setDialog({ kind: "abort", branch })}>
+                      <Icon name="undo" size={12} />
+                      <span>Abort {op}</span>
+                    </button>
+                  </div>
+                </div>
+              )
             )}
             <ul className="scroll" style={{ flex: "1 1 auto", listStyle: "none", margin: 0, padding: mode === "wip" && list.length > 0 ? "0 0 6px" : "6px 0" }}>
               {files.isLoading && <li className="empty"><span className="spinner" /></li>}
@@ -602,6 +649,7 @@ export function Workspace() {
                   pid={pid}
                   branch={branch}
                   midOp={!!o.inProgress || !!op}
+                  locked={!!running || !!held}
                   list={list}
                   current={current}
                   tree={asTree}
@@ -618,7 +666,17 @@ export function Workspace() {
                 <li className="empty engraved">{stash ? "This stash holds no files." : commit ? "This commit changes no files." : mode === "wip" ? (checkedOut ? "No uncommitted changes." : "This branch is not checked out.") : "No changes on this branch yet."}</li>
               )}
             </ul>
-            {branch && !history && <CommitBox key={branch} pid={pid} branch={branch} enabled={checkedOut} staged={stagedCount} changed={wipCount} />}
+            {branch && !history && (
+              <CommitBox
+                key={branch}
+                pid={pid}
+                branch={branch}
+                enabled={checkedOut && !running && !held}
+                locked={running ? "AI is rebasing this branch" : held ? "Locked while AI rebases a branch onto this one" : undefined}
+                staged={stagedCount}
+                changed={wipCount}
+              />
+            )}
           </section>
 
         </main>
@@ -644,7 +702,6 @@ export function Workspace() {
       )}
       {shipping && <ShipModal pid={pid} release={shipping} defaultBranch={o?.defaultBranch ?? "main"} onClose={() => setShipping(null)} />}
       {actions.menuEl}
-      {dialog?.kind === "conflicts" && <ConflictModal pid={pid} branch={dialog.branch} base={rebasingOnto(dialog.branch)} onClose={() => setDialog(null)} />}
       {dialog?.kind === "abort" && (
         <AbortModal key={dialog.branch} pid={pid} branch={dialog.branch} op={opOf(dialog.branch)} base={rebasingOnto(dialog.branch)} onBack={() => setDialog(null)} onDone={() => setDialog(null)} />
       )}
@@ -786,6 +843,7 @@ function WipList({
   pid,
   branch,
   midOp,
+  locked,
   list,
   current,
   tree,
@@ -799,6 +857,8 @@ function WipList({
   branch: string;
   /** Mid rebase or merge: staging settles conflicts, which the overview shows. */
   midOp: boolean;
+  /** AI is rebasing the branch: its files are left alone meanwhile. */
+  locked: boolean;
   list: FileChange[];
   current?: FileChange;
   tree: boolean;
@@ -813,7 +873,7 @@ function WipList({
   type Move = { projectId: string; branch: string; paths: string[] };
   const stage = useAction<unknown, Move>("workspace.stage", { invalidate: inv, patch: (qc, v) => patchWip(qc, pid, v.branch, (l) => movedWip(l, v.paths, true)) });
   const unstage = useAction<unknown, Move>("workspace.unstage", { invalidate: inv, patch: (qc, v) => patchWip(qc, pid, v.branch, (l) => movedWip(l, v.paths, false)) });
-  const busy = stage.isPending || unstage.isPending;
+  const busy = locked || stage.isPending || unstage.isPending;
   const [closed, setClosed] = useState<Record<string, boolean>>({});
   // No files = the whole side.
   const move = (staged: boolean, fs: FileChange[] = []) => {
@@ -1590,10 +1650,6 @@ function BranchPicker({ choices, labelOf, picked, onPick }: { choices: BranchVie
 
 /** Asked right after `branch` got a new target: replay it on top of that target now? */
 function RebaseOntoModal({ pid, branch, onto, onClose }: { pid: string; branch: string; onto: string; onClose: () => void }) {
-  const rebase = useAction<RebaseResult, { projectId: string; branch: string }>("workspace.rebase", {
-    invalidate: [["overview", pid], ["files", pid], ["diff", pid], ["commits", pid]],
-    success: rebaseMessage,
-  });
   return (
     <Modal
       title="Rebase onto the new target?"
@@ -1601,15 +1657,13 @@ function RebaseOntoModal({ pid, branch, onto, onClose }: { pid: string; branch: 
       onClose={onClose}
       footer={
         <>
-          <button className="btn btn-md btn-primary" autoFocus disabled={rebase.isPending} onClick={() => rebase.mutate({ projectId: pid, branch }, { onSuccess: onClose })}>
-            {rebase.isPending && <span className="spinner" />}
+          <button className="btn btn-md btn-primary" autoFocus onClick={() => { void startRebase(pid, branch); onClose(); }}>
             Rebase onto {onto}
           </button>
         </>
       }
     >
-      <p className="muted" style={{ margin: 0 }}>Replays the commits of {branch} on top of {onto}. Already pushed: it then needs a force push.</p>
-      {rebase.error && <ErrorBox error={rebase.error} />}
+      <p className="muted" style={{ margin: 0 }}>Replays the commits of {branch} on top of {onto}, AI resolving the conflicts on the way. Already pushed: it then needs a force push.</p>
     </Modal>
   );
 }
@@ -1617,10 +1671,6 @@ function RebaseOntoModal({ pid, branch, onto, onClose }: { pid: string; branch: 
 /** Replays the checked-out `branch` on top of `onto`, or of a branch picked here; its target stays. */
 function RebaseOntoBranchModal({ pid, branch, onto, branches, labelOf, onClose }: { pid: string; branch: string; onto?: string; branches: BranchView[]; labelOf: (b: string) => string; onClose: () => void }) {
   const [picked, setPicked] = useState<string | null>(onto ?? null);
-  const rebase = useAction<RebaseResult, { projectId: string; branch: string; onto: string }>("workspace.rebase", {
-    invalidate: [["overview", pid], ["files", pid], ["diff", pid], ["commits", pid]],
-    success: rebaseMessage,
-  });
   const choices = useMemo(() => branches.filter((b) => b.exists && b.name !== branch), [branches, branch]);
   const parent = branches.find((b) => b.name === branch)?.parent;
   const name = labelOf(branch);
@@ -1632,8 +1682,7 @@ function RebaseOntoBranchModal({ pid, branch, onto, branches, labelOf, onClose }
       onClose={onClose}
       footer={
         <>
-          <button className="btn btn-md btn-primary" autoFocus={!!onto} disabled={!picked || rebase.isPending} onClick={() => picked && rebase.mutate({ projectId: pid, branch, onto: picked }, { onSuccess: onClose })}>
-            {rebase.isPending && <span className="spinner" />}
+          <button className="btn btn-md btn-primary" autoFocus={!!onto} disabled={!picked} onClick={() => { if (!picked) return; void startRebase(pid, branch, { onto: picked }); onClose(); }}>
             Rebase {name} onto {to ?? "it"}
           </button>
         </>
@@ -1641,9 +1690,8 @@ function RebaseOntoBranchModal({ pid, branch, onto, branches, labelOf, onClose }
     >
       {!onto && <BranchPicker choices={choices} labelOf={labelOf} picked={picked} onPick={setPicked} />}
       <p className="muted" style={{ margin: 0 }}>
-        Replays the commits of {name} on top of {to ?? "the branch picked"}.{parent && <> {name} keeps targeting {labelOf(parent)}.</>} Already pushed: it then needs a force push.
+        Replays the commits of {name} on top of {to ?? "the branch picked"}, AI resolving the conflicts on the way.{parent && <> {name} keeps targeting {labelOf(parent)}.</>} Already pushed: it then needs a force push.
       </p>
-      {rebase.error && <ErrorBox error={rebase.error} />}
     </Modal>
   );
 }
@@ -1987,7 +2035,8 @@ function BehindCleanupModal({
 
 const MSG_OPEN_KEY = "gitnetix.commitMessageOpen";
 
-function CommitBox({ pid, branch, enabled, staged, changed }: { pid: string; branch: string; enabled: boolean; staged: number; changed: number }) {
+/** `locked`: why nothing gets committed for now (AI rebasing the branch, or a branch onto it). */
+function CommitBox({ pid, branch, enabled, locked, staged, changed }: { pid: string; branch: string; enabled: boolean; locked?: string; staged: number; changed: number }) {
   const [summary, setSummary] = useState("");
   const [body, setBody] = useState("");
   const aiOn = useAiOn("commit");
@@ -2052,7 +2101,7 @@ function CommitBox({ pid, branch, enabled, staged, changed }: { pid: string; bra
           id="ag-summary"
           className="input"
           style={{ height: 32, fontSize: 12.5, padding: "0 10px" }}
-          placeholder={!enabled ? "Check out this branch to commit" : !changed ? "No changes to commit" : "Summary — leave empty for AI"}
+          placeholder={locked ?? (!enabled ? "Check out this branch to commit" : !changed ? "No changes to commit" : "Summary — leave empty for AI")}
           aria-label="Summary"
           value={summary}
           disabled={!canType}

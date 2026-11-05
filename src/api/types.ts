@@ -251,6 +251,35 @@ export interface RebaseResult {
   conflicts: string[];
   /** Upstream that now needs a force push: the branch was already pushed before the rebase. */
   forcePushTo?: string | null;
+  /** "path: why" for each file AI could not resolve, where it stopped. */
+  errors: string[];
+  /** Files AI resolved on the way. */
+  resolved: number;
+  /** Stopped by an abort: the branch is back where it was. */
+  aborted: boolean;
+}
+
+/** A rebase AI carries through every commit of, as the engine last told. */
+export interface RebaseRun {
+  projectId: string;
+  branch: string;
+  onto: string;
+  /** The commit it is on, from 1, of the `steps` it replays; 0 when git doesn't say. */
+  step: number;
+  steps: number;
+  /** Subject of that commit. */
+  subject: string;
+  /** That commit's conflicted files, and how many of them AI has answered for. */
+  files: string[];
+  resolved: number;
+  /** Files AI resolved since it started. */
+  resolvedTotal: number;
+  /** Files of this commit the first pass could not settle, AI going over them again. */
+  secondPass: string[];
+  startedAt: string;
+  state: "running" | "done" | "failed" | "aborted";
+  /** Why it stopped, once failed. */
+  error?: string | null;
 }
 
 export interface ReleaseView {
@@ -868,6 +897,7 @@ export type GitnetixEvent =
   | { type: "configChanged" }
   | { type: "cleanupStep"; projectId: string; branch: string }
   | { type: "conflictResolving"; projectId: string; files: string[] }
+  | { type: "rebaseRun"; run: RebaseRun }
   | { type: "log"; entry: LogEntry }
   | { type: "shellData"; cwd: string; tab: number; data: string; end: number }
   | { type: "shellExit"; cwd: string; tab: number }
