@@ -197,9 +197,9 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("changelog.release", "Move the Unreleased section of an open release's CHANGELOG.md into its version and commit it on the release branch; when the version already lists entries, AI merges both (highlights first), else they are added under the matching headings", "projectId, version"),
     ("changelog.latest", "Merge the Unreleased section of a branch's CHANGELOG.md into its latest version, like changelog.release, and commit it on the branch", "projectId, branch"),
     ("notes.publish", "Publish a release on the project's git host (GitHub, GitLab or Gitea)", "projectId, tag, target, name, body"),
-    ("analytics.get", "Activity and release stats", "projectIds (empty = all) or projectId (or \"all\"), days"),
-    ("analytics.day", "Commits authored on a day, with the branch each was made on", "projectIds (empty = all) or projectId (or \"all\"), date (YYYY-MM-DD)"),
-    ("analytics.sprints", "Jira sprint stats per board: velocity, burndown, hours left over, completion per person, over the last `count` sprints (2 to 12, default 6)", "projectIds (empty = all), count?"),
+    ("analytics.get", "Activity and release stats; with emails, only those people's commits, merges and the releases holding their commits", "projectIds (empty = all) or projectId (or \"all\"), days, emails? (empty = everyone)"),
+    ("analytics.day", "Commits authored on a day, with the branch each was made on", "projectIds (empty = all) or projectId (or \"all\"), date (YYYY-MM-DD), emails? (empty = everyone)"),
+    ("analytics.sprints", "Jira sprint stats per board: velocity, burndown, hours left over, completion per person, over the last `count` sprints (2 to 12, default 6); with assignees, only their tickets. Jira's answers of the last 5 minutes are used again unless fresh", "projectIds (empty = all), count?, assignees? (empty = everyone), fresh?"),
     ("analytics.weekly", "Tickets done per week and per person over the last `weeks` weeks (4 to 52, default 12), from Jira, Trello and Asana", "projectIds (empty = all), weeks?"),
     ("analytics.ask", "AI answer to a question about the ticket charts; data = the sprints or weeks on screen as JSON text, history = earlier questions and answers", "question, data, history?: [{question, answer}]"),
 ];
@@ -227,6 +227,11 @@ fn os(v: &Value, k: &str) -> Option<String> {
 }
 
 /// `projectIds`, else the one `projectId`.
+/// The strings of array param `key`; none when it is missing.
+fn strings(v: &Value, key: &str) -> Vec<String> {
+    v.get(key).and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).map(String::from).collect()
+}
+
 fn project_ids(v: &Value) -> Vec<String> {
     match v.get("projectIds").and_then(Value::as_array) {
         Some(a) => a.iter().filter_map(Value::as_str).map(String::from).collect(),
@@ -1508,14 +1513,15 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
         }
 
         // ---- analytics ----
-        "analytics.get" => to(k.analytics(&project_ids(&p), p.get("days").and_then(Value::as_i64).unwrap_or(30)).await?),
+        "analytics.get" => to(k.analytics(&project_ids(&p), p.get("days").and_then(Value::as_i64).unwrap_or(30), &strings(&p, "emails")).await?),
         "analytics.day" => {
             let date = chrono::NaiveDate::parse_from_str(&s(&p, "date")?, "%Y-%m-%d").map_err(|_| Error::Invalid("date must be YYYY-MM-DD".into()))?;
-            to(k.analytics_day(&project_ids(&p), date).await)
+            to(k.analytics_day(&project_ids(&p), date, &strings(&p, "emails")).await)
         }
         "analytics.sprints" => {
             let count = p.get("count").and_then(Value::as_u64).unwrap_or(6).clamp(2, 12) as usize;
-            to(k.sprint_report(&project_ids(&p), count).await?)
+            let fresh = p.get("fresh").and_then(Value::as_bool).unwrap_or(false);
+            to(k.sprint_report(&project_ids(&p), count, &strings(&p, "assignees"), fresh).await?)
         }
         "analytics.ask" => {
             let history: Vec<(String, String)> = p

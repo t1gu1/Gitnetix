@@ -66,3 +66,11 @@ export const useStoredFlag = (key: string) => useStored(key, false, parseFlag, s
 
 /** A boolean that stays null until the viewer first sets it. */
 export const useStoredChoice = (key: string) => useStored<boolean | null>(key, null, parseFlag, showFlag);
+
+const parseList = (s: string) => {
+  const v: unknown = JSON.parse(s);
+  return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+};
+
+/** A list of strings kept between sessions, empty until set. */
+export const useStoredList = (key: string) => useStored<string[]>(key, [], parseList, JSON.stringify);

@@ -57,6 +57,15 @@ pub struct ReleaseStat {
     pub branches: Vec<String>,
 }
 
+/// Someone who authored commits, under every email they used.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Author {
+    pub name: String,
+    /// Lowercased and sorted: the first is the one the screen saves them by.
+    pub emails: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Analytics {
@@ -64,6 +73,8 @@ pub struct Analytics {
     pub kpis: Vec<Kpi>,
     pub days: Vec<Day>,
     pub releases: Vec<ReleaseStat>,
+    /// Everyone who committed in the range and the one before, whoever is picked: the people to pick from.
+    pub people: Vec<Author>,
 }
 
 fn parse_date(s: &str) -> Option<DateTime<Utc>> {
@@ -115,6 +126,45 @@ fn author_names(commits: &[(Commit, bool)]) -> HashMap<(String, String), String>
         out.extend(person.into_iter().map(|id| (id, label.clone())));
     }
     out
+}
+
+/// Everyone [`author_names`] found with an email, by name.
+fn people(names: &HashMap<(String, String), String>) -> Vec<Author> {
+    let mut by: BTreeMap<&str, Vec<String>> = BTreeMap::new();
+    for ((email, _), label) in names {
+        if !email.is_empty() {
+            by.entry(label).or_default().push(email.clone());
+        }
+    }
+    let mut out: Vec<Author> = by
+        .into_iter()
+        .map(|(name, mut emails)| {
+            emails.sort();
+            emails.dedup();
+            Author { name: if name.is_empty() { emails[0].clone() } else { name.to_string() }, emails }
+        })
+        .collect();
+    out.sort_by_key(|a| a.name.to_lowercase());
+    out
+}
+
+/// The emails whose commits count when `picked` are chosen (any case): those, and every other email the same people
+/// authored under in `names`. None when no one is picked: everyone counts.
+fn wanted(names: &HashMap<(String, String), String>, picked: &[String]) -> Option<HashSet<String>> {
+    if picked.is_empty() {
+        return None;
+    }
+    let mut out: HashSet<String> = picked.iter().map(|e| e.to_lowercase()).collect();
+    let labels: HashSet<&str> = names.iter().filter(|((e, _), _)| out.contains(e)).map(|(_, l)| l.as_str()).collect();
+    out.extend(names.iter().filter(|(_, l)| labels.contains(l.as_str())).map(|((e, _), _)| e.clone()));
+    // Commits without an email are no one's in particular.
+    out.remove("");
+    Some(out)
+}
+
+/// Whether a commit by `email` counts with `wanted` ([`wanted`]) chosen.
+fn counts(wanted: &Option<HashSet<String>>, email: &str) -> bool {
+    wanted.as_ref().is_none_or(|w| w.contains(&email.to_lowercase()))
 }
 
 /// Branch a merge commit took in: `Merge branch 'x' into y`, `Merge remote-tracking branch 'origin/x'`,
@@ -184,15 +234,17 @@ async fn branches_of(git: &Git, shas: &[&str], day: &str) -> HashMap<String, Str
     out
 }
 
-/// Every commit authored on `date` (UTC, as the activity chart counts them), with the branch each was made on.
-pub async fn day(repos: Vec<(String, Git)>, date: NaiveDate) -> Vec<DayCommit> {
+/// Every commit authored on `date` (UTC, as the activity chart counts them) by the people of `emails` (empty: anyone),
+/// with the branch each was made on.
+pub async fn day(repos: Vec<(String, Git)>, date: NaiveDate, emails: &[String]) -> Vec<DayCommit> {
     let since = (date - Duration::days(1)).format("%Y-%m-%d 00:00").to_string();
     let mut out = Vec::new();
     for (project, git) in &repos {
         // Committed no earlier than authored, so this holds every commit authored that day.
         let all: Vec<(Commit, bool)> = log_since(git, &since).await.into_iter().map(|c| (c, false)).collect();
         let names = author_names(&all);
-        let list: Vec<&Commit> = all.iter().map(|(c, _)| c).filter(|c| parse_date(&c.date).is_some_and(|d| d.date_naive() == date)).collect();
+        let wanted = wanted(&names, emails);
+        let list: Vec<&Commit> = all.iter().map(|(c, _)| c).filter(|c| counts(&wanted, &c.email) && parse_date(&c.date).is_some_and(|d| d.date_naive() == date)).collect();
         let shas: Vec<&str> = list.iter().map(|c| c.sha.as_str()).collect();
         let mut branches = branches_of(git, &shas, &since).await;
         out.extend(list.into_iter().map(|c| DayCommit {
@@ -210,6 +262,9 @@ pub struct Input<'a> {
     /// (project name, its repository, its AI-written commits)
     pub repos: Vec<(String, Git, &'a [String])>,
     pub range_days: i64,
+    /// Emails of the people to count (any case); empty counts everyone. Their commits and merges count, and the
+    /// releases holding one of their commits.
+    pub emails: &'a [String],
 }
 
 pub async fn compute(input: Input<'_>) -> Result<Analytics> {
@@ -225,8 +280,8 @@ pub async fn compute(input: Input<'_>) -> Result<Analytics> {
     let mut tag_dates: Vec<(String, DateTime<Utc>, usize)> = Vec::new();
     let ai_sets: Vec<HashSet<String>> = input.repos.iter().map(|(_, _, ai)| ai.iter().cloned().collect()).collect();
     let mut defaults: Vec<String> = Vec::new();
-    let mut merges_now = 0u32;
-    let mut merges_prev = 0u32;
+    // (author date, author email) of each merge.
+    let mut merges: Vec<(DateTime<Utc>, String)> = Vec::new();
 
     for (repo, (_, git, _)) in input.repos.iter().enumerate() {
         let ai = &ai_sets[repo];
@@ -238,16 +293,12 @@ pub async fn compute(input: Input<'_>) -> Result<Analytics> {
         // Merges into main and into release branches; one log walk counts each merge once.
         // Pull requests squashed in (`Merged PR 12: …`) count as merges too.
         let targets = [&since, default.as_str(), "--branches=release/*", "--remotes=origin/release/*"];
-        let mut merges = git.run(&[&["log", "--merges", "--format=%aI"][..], &targets].concat()).await.unwrap_or_default();
-        merges += &git.run(&[&["log", "--no-merges", "-E", PR_ANY_GREP, "--format=%aI"][..], &targets].concat()).await.unwrap_or_default();
-        for l in merges.lines() {
-            if let Some(d) = parse_date(l.trim()) {
-                let day = d.date_naive();
-                if day >= start {
-                    merges_now += 1;
-                } else if day >= prev_start {
-                    merges_prev += 1;
-                }
+        let mut raw = git.run(&[&["log", "--merges", "--format=%aI%x1f%ae"][..], &targets].concat()).await.unwrap_or_default();
+        raw += &git.run(&[&["log", "--no-merges", "-E", PR_ANY_GREP, "--format=%aI%x1f%ae"][..], &targets].concat()).await.unwrap_or_default();
+        for l in raw.lines() {
+            let (date, email) = l.split_once('\x1f').unwrap_or((l, ""));
+            if let Some(d) = parse_date(date.trim()) {
+                merges.push((d, email.trim().to_string()));
             }
         }
         defaults.push(default);
@@ -258,6 +309,24 @@ pub async fn compute(input: Input<'_>) -> Result<Analytics> {
         }
     }
 
+    // ---- the people picked ----
+    let names = author_names(&commits);
+    let people = people(&names);
+    let wanted = wanted(&names, input.emails);
+    commits.retain(|(c, _)| counts(&wanted, &c.email));
+    let (mut merges_now, mut merges_prev) = (0u32, 0u32);
+    for (d, email) in &merges {
+        let day = d.date_naive();
+        if !counts(&wanted, email) {
+            continue;
+        }
+        if day >= start {
+            merges_now += 1;
+        } else if day >= prev_start {
+            merges_prev += 1;
+        }
+    }
+
     // ---- daily activity ----
     let mut by_day: BTreeMap<NaiveDate, Vec<&Commit>> = BTreeMap::new();
     for (c, _) in &commits {
@@ -265,7 +334,6 @@ pub async fn compute(input: Input<'_>) -> Result<Analytics> {
             by_day.entry(d.date_naive()).or_default().push(c);
         }
     }
-    let names = author_names(&commits);
     let mut days = Vec::new();
     let mut d = start;
     while d <= today {
@@ -306,6 +374,10 @@ pub async fn compute(input: Input<'_>) -> Result<Analytics> {
             None => name.clone(),
         };
         let list = git.log(&range, Some(2000)).await.unwrap_or_default();
+        // With people picked, only the releases one of them put a commit in.
+        if wanted.is_some() && !list.iter().any(|c| counts(&wanted, &c.email)) {
+            continue;
+        }
         let titles = |kind: &str| list.iter().filter(|c| c.subject.starts_with(kind)).map(|c| c.subject.clone()).collect::<Vec<_>>();
         let (feature_titles, fix_titles) = (titles("feat"), titles("fix"));
         let mut branches: Vec<String> = Vec::new();
@@ -378,7 +450,7 @@ pub async fn compute(input: Input<'_>) -> Result<Analytics> {
     ];
 
     let releases = stats.into_iter().rev().take(8).map(|s| s.0).collect::<Vec<_>>().into_iter().rev().collect();
-    Ok(Analytics { range_days: n, kpis, days, releases })
+    Ok(Analytics { range_days: n, kpis, days, releases, people })
 }
 
 #[cfg(test)]
@@ -450,7 +522,7 @@ mod tests {
         commit("feat: y");
 
         let today = Utc::now().date_naive();
-        let got = day(vec![("atlas".into(), Git::new(dir))], today).await;
+        let got = day(vec![("atlas".into(), Git::new(dir))], today, &[]).await;
         let branch = |s: &str| got.iter().find(|c| c.subject == s).map(|c| c.branch.as_str());
         // feat/y forked after it, still made on main.
         assert_eq!(branch("main direct"), Some("main"));
@@ -459,6 +531,43 @@ mod tests {
         assert_eq!(branch("feat: x"), Some("feat/x"));
         assert_eq!(branch("feat: y"), Some("feat/y"));
         assert!(got.iter().all(|c| c.project == "atlas" && c.author == "A"));
+    }
+
+    #[tokio::test]
+    async fn picked_people_only() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        sh(dir, &["init", "-q", "-b", "main"]);
+        let by = |name: &str, email: &str, m: &str| {
+            let ok = std::process::Command::new("git").current_dir(dir).args(["-c", &format!("user.name={name}"), "-c", &format!("user.email={email}"), "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", m]).status().unwrap().success();
+            assert!(ok, "commit {m}");
+        };
+        by("Ann", "ann@x", "feat: one");
+        // Same person under a second email: picking either email picks both.
+        by("Ann", "ann@home", "feat: two");
+        sh(dir, &["tag", "v1"]);
+        by("Boss", "boss@x", "fix: try");
+        sh(dir, &["tag", "v2"]);
+        let git = || vec![("atlas".to_string(), Git::new(dir), &[][..])];
+        let total = |a: &Analytics| a.kpis.iter().find(|k| k.label == "Total commits").unwrap().value.clone();
+
+        let everyone = compute(Input { repos: git(), range_days: 7, emails: &[] }).await.unwrap();
+        assert_eq!(total(&everyone), "3");
+        assert_eq!(everyone.releases.len(), 2);
+        let names: Vec<&str> = everyone.people.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(names, ["Ann", "Boss"]);
+        assert_eq!(everyone.people[0].emails, ["ann@home", "ann@x"]);
+
+        let ann = compute(Input { repos: git(), range_days: 7, emails: &["ANN@X".to_string()] }).await.unwrap();
+        assert_eq!(total(&ann), "2");
+        assert_eq!(ann.releases.iter().map(|r| r.version.as_str()).collect::<Vec<_>>(), ["v1"]);
+        // The people to pick from stay everyone.
+        assert_eq!(ann.people.len(), 2);
+        assert!(ann.days.iter().flat_map(|d| &d.authors).all(|(n, _)| n == "Ann"));
+
+        let today = Utc::now().date_naive();
+        let got = day(vec![("atlas".into(), Git::new(dir))], today, &["boss@x".to_string()]).await;
+        assert_eq!(got.iter().map(|c| c.subject.as_str()).collect::<Vec<_>>(), ["fix: try"]);
     }
 
     #[tokio::test]
@@ -471,7 +580,7 @@ mod tests {
         let mut commit = std::process::Command::new("git");
         commit.current_dir(tmp.path()).env("GIT_AUTHOR_DATE", &early).env("GIT_COMMITTER_DATE", &early);
         assert!(commit.args(["-c", "user.name=A", "-c", "user.email=a@x", "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", "early"]).status().unwrap().success());
-        let got = day(vec![("atlas".into(), Git::new(tmp.path()))], today).await;
+        let got = day(vec![("atlas".into(), Git::new(tmp.path()))], today, &[]).await;
         assert!(got.iter().any(|c| c.subject == "early"), "{} commits", got.len());
     }
 }

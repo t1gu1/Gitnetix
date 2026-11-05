@@ -56,7 +56,18 @@ pub struct Gitnetix {
     worktrees: LastCache,
     /// Commit messages written ahead ([`Gitnetix::prepare_commit_message`]), per checkout, with the key of the prompt they answer.
     drafts: std::sync::Mutex<HashMap<PathBuf, (u64, Draft)>>,
+    /// What each Jira connection answered for the sprint charts, with when: picking other people counts them again
+    /// without asking Jira.
+    sprint_fetches: std::sync::Mutex<HashMap<String, SprintFetched>>,
 }
+
+/// [`tickets::jira_sprints`]'s answer.
+type SprintFetch = (Vec<tickets::Sprint>, Vec<tickets::SprintIssue>, HashMap<u64, String>);
+/// A [`SprintFetch`] with when it came, as an instant and as the time shown.
+type SprintFetched = (Instant, String, Arc<SprintFetch>);
+
+/// How long a Jira answer for the sprint charts is used again, as long as the screen keeps them before asking again.
+const SPRINT_TTL: std::time::Duration = std::time::Duration::from_secs(300);
 
 /// A commit message being written ahead, shared with whoever waits for it; `None` once writing it failed.
 type Draft = Arc<OnceCell<Option<String>>>;
@@ -1817,7 +1828,7 @@ impl Gitnetix {
         let agents = AgentManager::new(events.clone(), dir);
         let shells = crate::shell::Shells::new(events.clone());
         crate::log::attach(events.clone());
-        let k = Arc::new(Gitnetix { store, agents, shells, events, dir: dir.to_path_buf(), dictation: Default::default(), protected: Default::default(), watcher: Default::default(), commits: CommitCache::open(dir), views: ViewCache::open(dir.join("overview-cache")), building: Default::default(), cleaning: Default::default(), shipped: Default::default(), hosted: Default::default(), auto_fetch: Default::default(), worktrees: LastCache::open(dir.join("worktrees-cache.json")), drafts: Default::default() });
+        let k = Arc::new(Gitnetix { store, agents, shells, events, dir: dir.to_path_buf(), dictation: Default::default(), protected: Default::default(), watcher: Default::default(), commits: CommitCache::open(dir), views: ViewCache::open(dir.join("overview-cache")), building: Default::default(), cleaning: Default::default(), shipped: Default::default(), hosted: Default::default(), auto_fetch: Default::default(), worktrees: LastCache::open(dir.join("worktrees-cache.json")), drafts: Default::default(), sprint_fetches: Default::default() });
         k.rewatch();
         Ok(k)
     }
@@ -5813,37 +5824,60 @@ impl Gitnetix {
         self.store.read(|c| c.projects.iter().filter(|p| all || project_ids.contains(&p.id)).cloned().collect())
     }
 
-    /// Stats over the projects in `project_ids`; empty or `"all"` means every project.
-    pub async fn analytics(&self, project_ids: &[String], days: i64) -> Result<crate::analytics::Analytics> {
+    /// Stats over the projects in `project_ids` (empty or `"all"` means every project), counting the people of
+    /// `emails` only (empty: everyone).
+    pub async fn analytics(&self, project_ids: &[String], days: i64, emails: &[String]) -> Result<crate::analytics::Analytics> {
         let chosen = self.analytics_projects(project_ids);
         let repos = chosen.iter().map(|p| (p.name.clone(), Git::new(&p.path), p.ai_commits.as_slice())).collect();
-        crate::analytics::compute(crate::analytics::Input { repos, range_days: days }).await
+        crate::analytics::compute(crate::analytics::Input { repos, range_days: days, emails }).await
     }
 
-    /// Commits authored on `date` in the projects in `project_ids`, with the branch each was made on.
-    pub async fn analytics_day(&self, project_ids: &[String], date: chrono::NaiveDate) -> Vec<crate::analytics::DayCommit> {
+    /// Commits the people of `emails` (empty: anyone) authored on `date` in the projects in `project_ids`, with the
+    /// branch each was made on.
+    pub async fn analytics_day(&self, project_ids: &[String], date: chrono::NaiveDate, emails: &[String]) -> Vec<crate::analytics::DayCommit> {
         let repos = self.analytics_projects(project_ids).iter().map(|p| (p.name.clone(), Git::new(&p.path))).collect();
-        crate::analytics::day(repos, date).await
+        crate::analytics::day(repos, date, emails).await
     }
 
     /// Sprint stats of the Jira connections shown in the projects in `project_ids` (empty or `"all"`: every project),
-    /// over the last `count` sprints of each board. A connection failing leaves its error next to the others' boards.
-    pub async fn sprint_report(&self, project_ids: &[String], count: usize) -> Result<crate::sprints::Report> {
+    /// over the last `count` sprints of each board, counting the tickets of `assignees` only (empty: everyone's).
+    /// Jira's answers of the last [`SPRINT_TTL`] are used again unless `fresh`. A connection failing leaves its error
+    /// next to the others' boards.
+    pub async fn sprint_report(&self, project_ids: &[String], count: usize, assignees: &[String], fresh: bool) -> Result<crate::sprints::Report> {
         let chosen = self.analytics_projects(project_ids);
         let jira: Vec<crate::store::JiraConf> =
             self.store.read(|c| c.integrations.jira.iter().filter(|j| chosen.iter().any(|p| crate::store::shows_in(&j.repos, &p.id))).cloned().collect());
         let now = chrono::Utc::now();
         let mut boards = Vec::new();
         let mut errors = Vec::new();
+        let mut everyone = Vec::new();
+        // When the oldest answer used came.
+        let mut synced: Option<String> = None;
         for j in &jira {
-            let got = match tickets::jira_auth::token(j).await {
-                Ok(tok) => tickets::jira_sprints(j, &tok, count).await,
-                Err(e) => Err(e),
+            let key = format!("{}\n{}\n{}\n{count}", j.id, j.base_url, j.projects.join(","));
+            let kept = (!fresh).then(|| self.sprint_fetches.lock().unwrap().get(&key).filter(|(at, ..)| at.elapsed() < SPRINT_TTL).map(|(_, when, f)| (when.clone(), f.clone()))).flatten();
+            let got = match kept {
+                Some(k) => Ok(k),
+                None => {
+                    let got = match tickets::jira_auth::token(j).await {
+                        Ok(tok) => tickets::jira_sprints(j, &tok, count).await,
+                        Err(e) => Err(e),
+                    };
+                    got.map(|f| {
+                        let (when, f) = (crate::store::now(), Arc::new(f));
+                        self.sprint_fetches.lock().unwrap().insert(key, (Instant::now(), when.clone(), f.clone()));
+                        (when, f)
+                    })
+                }
             };
             match got {
-                Ok((sprints, issues, names)) => {
+                Ok((when, f)) => {
+                    let (sprints, issues, names) = &*f;
+                    everyone.extend(issues.iter().map(|i| i.assignee.clone()));
+                    let shown: Vec<tickets::SprintIssue> = issues.iter().filter(|i| assignees.is_empty() || assignees.contains(&i.assignee)).cloned().collect();
                     let site = j.base_url.trim_end_matches('/').trim_start_matches("https://");
-                    boards.extend(crate::sprints::boards(&j.id, site, &sprints, &issues, &names, now));
+                    boards.extend(crate::sprints::boards(&j.id, site, sprints, &shown, names, now));
+                    synced = Some(synced.map_or(when.clone(), |s| s.min(when)));
                 }
                 Err(e) => errors.push(e.to_string()),
             }
@@ -5862,7 +5896,9 @@ impl Gitnetix {
                 t.code = code.get(&t.key).cloned();
             }
         }
-        Ok(crate::sprints::report(jira.len(), boards, errors))
+        let mut r = crate::sprints::report(jira.len(), boards, errors, everyone);
+        r.synced_at = synced.unwrap_or(r.synced_at);
+        Ok(r)
     }
 
     /// Commits and branches about each of `keys` in the git history of `projects` since `since`: commits naming the

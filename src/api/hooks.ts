@@ -518,33 +518,50 @@ export const useFixVersions = (t?: Ticket) =>
     staleTime: 60_000,
   });
 
-/** Stats over `projectIds`; an empty list means every project. */
-export const useAnalytics = (projectIds: string[], days: number) =>
+/** Stats over `projectIds` (an empty list means every project), counting the people of `emails` (empty: everyone). */
+export const useAnalytics = (projectIds: string[], days: number, emails: string[]) =>
   useQuery({
-    queryKey: ["analytics", [...projectIds].sort(), days],
-    queryFn: () => rpc<Analytics>("analytics.get", { projectIds, days }),
+    queryKey: ["analytics", [...projectIds].sort(), days, [...emails].sort()],
+    queryFn: () => rpc<Analytics>("analytics.get", { projectIds, days, emails }),
+    staleTime: 60_000,
+    // Other projects, days or people keep the charts (and the people to pick from) on screen while they load.
+    placeholderData: (prev) => prev,
+  });
+
+/** Commits the people of `emails` (empty: anyone) authored on `date` over `projectIds`, with the branch each was made on. */
+export const useAnalyticsDay = (projectIds: string[], date: string, emails: string[]) =>
+  useQuery({
+    queryKey: ["analyticsDay", [...projectIds].sort(), date, [...emails].sort()],
+    queryFn: () => rpc<DayCommit[]>("analytics.day", { projectIds, date, emails }),
     staleTime: 60_000,
   });
 
-/** Commits authored on `date` over `projectIds`, with the branch each was made on. */
-export const useAnalyticsDay = (projectIds: string[], date: string) =>
-  useQuery({
-    queryKey: ["analyticsDay", [...projectIds].sort(), date],
-    queryFn: () => rpc<DayCommit[]>("analytics.day", { projectIds, date }),
-    staleTime: 60_000,
-  });
-
-/** Jira sprint stats over `projectIds` (empty = every project): the last `count` sprints of each board. */
-export const useSprints = (projectIds: string[], count: number, enabled: boolean) =>
-  useQuery({
-    queryKey: ["sprints", [...projectIds].sort(), count],
-    queryFn: () => rpc<SprintReport>("analytics.sprints", { projectIds, count }),
+/**
+ * Jira sprint stats over `projectIds` (empty = every project): the last `count` sprints of each board, counting the
+ * tickets of `assignees` (empty: everyone's). The backend reuses Jira's answers of the last 5 minutes, so picking
+ * other people is quick; `sync()` asks Jira again.
+ */
+export function useSprints(projectIds: string[], count: number, assignees: string[], enabled: boolean) {
+  const fresh = useRef(false);
+  const q = useQuery({
+    queryKey: ["sprints", [...projectIds].sort(), count, [...assignees].sort()],
+    queryFn: () => {
+      const f = fresh.current;
+      fresh.current = false;
+      return rpc<SprintReport>("analytics.sprints", { projectIds, count, assignees, fresh: f });
+    },
     enabled,
     retry: false,
     staleTime: 5 * 60_000,
-    // Other projects or another sprint count keep the charts on screen while they load.
+    // Other projects, another sprint count or other people keep the charts on screen while they load.
     placeholderData: (prev) => prev,
   });
+  const sync = () => {
+    fresh.current = true;
+    return q.refetch();
+  };
+  return [q, sync] as const;
+}
 
 /** Tickets done per week over `projectIds` (empty = every project), from every tracker they show. */
 export const useWeekly = (projectIds: string[], weeks: number, enabled: boolean) =>

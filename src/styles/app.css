@@ -2835,6 +2835,32 @@ button.tree-twist:hover {
 .ctx-del:hover:not(:disabled) {
   color: var(--del-fg);
 }
+/* "Only" at the end of a picker row: seen while the row is hovered or focused, so names keep their room. */
+.ctx-only {
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--r);
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+  opacity: 0;
+}
+.ctx-row:is(:hover, :focus-within) > .ctx-only {
+  opacity: 1;
+}
+.ctx-only:hover,
+.ctx-only:focus-visible {
+  background: var(--sel);
+  color: var(--fg);
+  outline: none;
+}
+@media (hover: none) {
+  .ctx-only {
+    opacity: 1;
+  }
+}
 .ctx-icon {
   width: 14px;
   display: inline-flex;

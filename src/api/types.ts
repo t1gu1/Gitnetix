@@ -703,6 +703,8 @@ export interface Analytics {
   kpis: { label: string; value: string; delta: string }[];
   days: { date: string; weekend: boolean; total: number; authors: [string, number][]; subjects: string[] }[];
   releases: { project: string; version: string; shipped: string; features: number; fixes: number; leadDays: number; leadHours: number; aiPct: number; featureTitles: string[]; fixTitles: string[]; branches: string[] }[];
+  /** Everyone who committed in the range and the one before, picked or not. `emails`: lowercased and sorted. */
+  people: { name: string; emails: string[] }[];
 }
 
 export interface DayCommit {
@@ -854,6 +856,8 @@ export interface SprintReport {
   /** Connections that failed while others answered. */
   errors: string[];
   syncedAt: string;
+  /** Everyone tickets are assigned to, picked or not ("Unassigned" last). */
+  assignees: string[];
 }
 
 export type GitnetixEvent =

@@ -231,6 +231,8 @@ pub struct Report {
     /// Connections that failed while others answered.
     pub errors: Vec<String>,
     pub synced_at: String,
+    /// Everyone tickets are assigned to, whoever is picked ("Unassigned" too): the people to pick from.
+    pub assignees: Vec<String>,
 }
 
 /// Whether `i`, a ticket of sprint `s`, was completed in it: done with `s` its last sprint and, when `s` is
@@ -469,8 +471,8 @@ pub fn boards(conn: &str, site: &str, sprints: &[Sprint], issues: &[SprintIssue]
         .collect()
 }
 
-/// Every connection's boards, the one running a sprint with the most tickets first.
-pub fn report(connections: usize, mut boards: Vec<Board>, errors: Vec<String>) -> Report {
+/// Every connection's boards, the one running a sprint with the most tickets first. `assignees`: everyone, picked or not.
+pub fn report(connections: usize, mut boards: Vec<Board>, errors: Vec<String>, mut assignees: Vec<String>) -> Report {
     let rank = |b: &Board| {
         let last = b.sprints.last();
         (last.is_some_and(|s| s.state == "active"), last.map_or(0, |s| s.committed.tickets as u64))
@@ -478,7 +480,9 @@ pub fn report(connections: usize, mut boards: Vec<Board>, errors: Vec<String>) -
     boards.sort_by_key(|b| std::cmp::Reverse(rank(b)));
     let any = |f: fn(&Work) -> f64| boards.iter().flat_map(|b| &b.sprints).any(|s| f(&s.committed) > 0.0);
     let (points, hours) = (any(|w| w.points), any(|w| w.hours));
-    Report { connections, boards, points, hours, errors, synced_at: crate::store::now() }
+    assignees.sort_by_key(|n| (n == "Unassigned", n.to_lowercase()));
+    assignees.dedup();
+    Report { connections, boards, points, hours, errors, synced_at: crate::store::now(), assignees }
 }
 
 /// One week of the weekly view.
@@ -751,7 +755,7 @@ mod tests {
         let closed = sprint(1, "closed", "2026-09-21T13:00:00Z", "2026-10-05T13:00:00Z", Some("2026-10-05T14:00:00Z"));
         let active = Sprint { board: 9, ..sprint(2, "active", "2026-10-05T13:00:00Z", "2026-10-16T13:00:00Z", None) };
         let issues = [issue("A", &[1], 2.0, Some("2026-09-30T10:00:00Z")), issue("B", &[2], 0.0, None)];
-        let r = report(1, boards("c", "x.atlassian.net", &[closed, active], &issues, &HashMap::from([(9, "Web".to_string())]), now), Vec::new());
+        let r = report(1, boards("c", "x.atlassian.net", &[closed, active], &issues, &HashMap::from([(9, "Web".to_string())]), now), Vec::new(), Vec::new());
         let got: Vec<(&str, &str)> = r.boards.iter().map(|b| (b.id.as_str(), b.name.as_str())).collect();
         assert_eq!(got, [("c:9", "Web"), ("c:4", "MNC Sprint")]);
         assert!(r.points && r.hours);

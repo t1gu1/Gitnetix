@@ -1,14 +1,14 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 
 import { useAnalytics, useAnalyticsDay, useConfig, useProjects } from "../api/hooks";
-import type { Analytics as A, Config, DayCommit, ProjectSummary } from "../api/types";
-import { SEARCH_ABOVE } from "../components/ContextMenu";
+import type { Analytics as A, Config, DayCommit } from "../api/types";
+import { CheckPicker, keepAbsent } from "../components/CheckPicker";
 import { Icon } from "../components/Icon";
 import { Empty, EmptyState, ErrorBox, Header, initials, Loading, Modal, Seg } from "../components/ui";
 import { downloadCsv, plural } from "../lib/format";
 import { kindOf, kindOfBranch } from "../lib/kinds";
 import { useNav } from "../lib/nav";
-import { useStored } from "../lib/stored";
+import { useStored, useStoredList } from "../lib/stored";
 import { Sprints } from "./Sprints";
 import { Weekly } from "./Weekly";
 
@@ -58,7 +58,12 @@ export function Analytics() {
   const [focus, setFocus] = useState<string | null>(null);
   // Empty means every project.
   const [ids, setIds] = useState<string[]>(nav.projectId ? [nav.projectId] : []);
-  const q = useAnalytics(ids, Number(days));
+  // Emails of the people counted; empty means everyone. Kept when they commit in none of the days shown.
+  const [who, setWho] = useStoredList("gnx.analytics.people");
+  const q = useAnalytics(ids, Number(days), who);
+  const people = q.data?.people ?? [];
+  const picked = people.filter((p) => p.emails.some((e) => who.includes(e)));
+  const by = who.length === 0 ? null : picked.length === 0 ? "the people picked" : picked.length === 1 ? picked[0].name : `${picked.length} people`;
   const multi = projects.length > 1 && ids.length !== 1;
   const trackers = trackersOf(cfg, ids.length ? ids : projects.map((p) => p.id));
   const tracker = trackers.join(" · ") || "Tickets";
@@ -74,7 +79,25 @@ export function Analytics() {
       ]}
     />
   );
-  const picker = <ProjectPicker projects={projects} value={ids} onChange={setIds} />;
+  const chosen = projects.filter((p) => ids.includes(p.id));
+  const picker = (
+    <CheckPicker
+      what="projects"
+      items={projects.map((p) => ({ id: p.id, name: p.name }))}
+      all={chosen.length === 0 || chosen.length === projects.length}
+      picked={chosen.map((p) => p.id)}
+      onChange={(v) => setIds(!v || v.length === projects.length ? [] : v)}
+    />
+  );
+  const whoPicker = (people.length > 1 || who.length > 0) && (
+    <CheckPicker
+      what="people"
+      items={people.map((p) => ({ id: p.emails[0], name: p.name, sub: p.emails.join(", "), avatar: p.emails[0] }))}
+      all={who.length === 0}
+      picked={picked.map((p) => p.emails[0])}
+      onChange={(v) => setWho(keepAbsent(who, people.flatMap((p) => p.emails), v))}
+    />
+  );
   const sub = jira && <Seg label="Tickets view" value={view} onChange={setView} options={[{ value: "sprints", label: "Sprints" }, { value: "weekly", label: "Weekly" }]} />;
   const lead = <>{views}{picker}{sub}</>;
   const openTicket = jira ? (key: string) => { setDayOpen(null); setView("sprints"); setTab("tickets"); setFocus(key); } : undefined;
@@ -103,85 +126,24 @@ export function Analytics() {
                 {views}
                 <Seg label="Time range" value={days} onChange={setDays} options={RANGES.map((d) => ({ value: d, label: `${d} days` }))} />
                 {picker}
+                {whoPicker}
                 <span className="grow" />
                 <button className="btn" disabled={!q.data} onClick={() => q.data && downloadCsv(`gitnetix-activity-${days}d.csv`, [["date", "commits"], ...q.data.days.map((d) => [d.date, d.total])])}>Export CSV</button>
               </div>
               {q.isLoading && <Loading />}
               {q.error && <ErrorBox error={q.error} />}
-              {q.data && <Body a={q.data} multi={multi} onDay={setDayOpen} />}
+              {q.data && <Body a={q.data} multi={multi} by={by} busy={q.isPlaceholderData} onDay={setDayOpen} />}
             </>
           )}
         </div>
       </main>
-      {dayOpen && <DayModal date={dayOpen} ids={ids} multi={multi} onClose={() => setDayOpen(null)} onTicket={openTicket} />}
+      {dayOpen && <DayModal date={dayOpen} ids={ids} who={who} multi={multi} onClose={() => setDayOpen(null)} onTicket={openTicket} />}
     </>
   );
 }
 
-/** Dropdown of project checkboxes; nothing checked means all projects. */
-function ProjectPicker({ projects, value, onChange }: { projects: ProjectSummary[]; value: string[]; onChange: (ids: string[]) => void }) {
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
-  const ref = useRef<HTMLDivElement>(null);
-  const q = query.trim().toLowerCase();
-  const shown = q ? projects.filter((p) => p.name.toLowerCase().includes(q)) : projects;
-  // Ids of removed projects are dropped from the label and the count.
-  const chosen = projects.filter((p) => value.includes(p.id));
-  const label = chosen.length === 0 || chosen.length === projects.length ? "All projects" : chosen.length === 1 ? chosen[0].name : `${chosen.length} projects`;
-  const toggle = (id: string) => {
-    const next = chosen.some((p) => p.id === id) ? chosen.filter((p) => p.id !== id) : [...chosen, projects.find((p) => p.id === id)!];
-    onChange(next.length === projects.length ? [] : next.map((p) => p.id));
-  };
-
-  useEffect(() => {
-    if (!open) return;
-    const down = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && setOpen(false);
-    const key = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
-    window.addEventListener("mousedown", down, true);
-    window.addEventListener("keydown", key);
-    return () => {
-      window.removeEventListener("mousedown", down, true);
-      window.removeEventListener("keydown", key);
-    };
-  }, [open]);
-
-  return (
-    <div ref={ref} style={{ position: "relative" }}>
-      <button className="select row" style={{ height: 32, gap: 8 }} aria-haspopup="true" aria-expanded={open} onClick={() => { setOpen(!open); setQuery(""); }}>
-        <span className="sr-only">Projects: </span>
-        <span className="ellipsis" style={{ maxWidth: 220 }}>{label}</span>
-        <Icon name="chevronDown" size={12} />
-      </button>
-      {open && (
-        <div className="ctx-menu" role="group" aria-label="Projects to include" style={{ position: "absolute", top: 36, left: 0, maxHeight: 360, overflowY: "auto" }}>
-          {projects.length > SEARCH_ABOVE && (
-            <div className="ctx-filter">
-              <input className="input" autoFocus aria-label="Filter projects" placeholder="Filter projects" spellCheck={false} autoComplete="off" value={query} onChange={(e) => setQuery(e.target.value)} />
-            </div>
-          )}
-          {!q && (
-            <>
-              <label className="check ctx-item">
-                <input type="checkbox" checked={chosen.length === 0 || chosen.length === projects.length} onChange={() => onChange([])} />
-                <span className="grow ellipsis">All projects</span>
-              </label>
-              <div className="ctx-sep" role="separator" />
-            </>
-          )}
-          {!shown.length && <button className="ctx-item" disabled>No match for “{query.trim()}”</button>}
-          {shown.map((p) => (
-            <label key={p.id} className="check ctx-item">
-              <input type="checkbox" checked={chosen.some((c) => c.id === p.id)} onChange={() => toggle(p.id)} />
-              <span className="grow ellipsis">{p.name}</span>
-            </label>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function Body({ a, multi, onDay }: { a: A; multi: boolean; onDay: (date: string) => void }) {
+/** `by`: who the commits shown are by, when not everyone; `busy`: other ones are on their way. */
+function Body({ a, multi, by, busy, onDay }: { a: A; multi: boolean; by: string | null; busy: boolean; onDay: (date: string) => void }) {
   const [hd, setHd] = useState(-1);
   const [hb, setHb] = useState(-1);
   const [rel, setRel] = useState<A["releases"][number] | null>(null);
@@ -196,7 +158,7 @@ function Body({ a, multi, onDay }: { a: A; multi: boolean; onDay: (date: string)
   const ticks = (m: number, unit = "") => [0, 1, 2, 3, 4].map((i) => ({ v: `${Math.round((m * i) / 4)}${unit && i === 4 ? unit : ""}`, top: 100 - i * 25 }));
 
   return (
-    <div className="col" style={{ gap: 32 }}>
+    <div className="col" style={{ gap: 32, opacity: busy ? 0.55 : 1 }}>
       <section aria-label="Key figures" className="kpis">
         {a.kpis.map((k) => (
           <div key={k.label} className="kpi">
@@ -211,7 +173,7 @@ function Body({ a, multi, onDay }: { a: A; multi: boolean; onDay: (date: string)
         <div className="row wrap" style={{ alignItems: "baseline" }}>
           <div className="col grow" style={{ gap: 2 }}>
             <h2>Activity, last {n} days</h2>
-            <span className="hint">Commits per day, everyone on the project</span>
+            <span className="hint">{by ? `Commits per day by ${by}` : "Commits per day, everyone on the project"}</span>
           </div>
           <span className="muted"><strong style={{ color: "var(--fg)" }}>{total.toLocaleString("en-US")}</strong> commits</span>
           <span className="muted"><strong style={{ color: "var(--fg)" }}>{(Math.round((total / work) * 10) / 10).toString()}</strong> per working day</span>
@@ -261,10 +223,10 @@ function Body({ a, multi, onDay }: { a: A; multi: boolean; onDay: (date: string)
       <section className="section card" style={{ padding: 20 }}>
         <div className="col" style={{ gap: 2 }}>
           <h2>Lead time per release</h2>
-          <span className="hint">Days from the first commit to the tag · last {a.releases.length} releases</span>
+          <span className="hint">Days from the first commit to the tag · last {a.releases.length} releases{by ? ` with a commit by ${by}` : ""}</span>
         </div>
         {a.releases.length === 0 ? (
-          <span className="muted">No tagged release yet.</span>
+          <span className="muted">{by ? `No recent release has a commit by ${by}.` : "No tagged release yet."}</span>
         ) : (
           <div className="chart" role="group" aria-label={`Lead time per release: ${a.releases.map((r) => `${r.version} ${lead(r.leadHours)}`).join(", ")}.`}>
             <div className="chart-y">{ticks(leadMax, " d").map((t) => <span key={t.top} style={{ top: `${t.top}%` }}>{t.v}</span>)}</div>
@@ -302,15 +264,15 @@ function Body({ a, multi, onDay }: { a: A; multi: boolean; onDay: (date: string)
 }
 
 /** Who did what on `date`: each person's commits by type, with the branch each was made on. */
-function DayModal({ date, ids, multi, onClose, onTicket }: { date: string; ids: string[]; multi: boolean; onClose: () => void; onTicket?: (key: string) => void }) {
-  const q = useAnalyticsDay(ids, date);
+function DayModal({ date, ids, who, multi, onClose, onTicket }: { date: string; ids: string[]; who: string[]; multi: boolean; onClose: () => void; onTicket?: (key: string) => void }) {
+  const q = useAnalyticsDay(ids, date, who);
   const people = new Map<string, DayCommit[]>();
   for (const c of q.data ?? []) people.set(c.author, [...(people.get(c.author) ?? []), c]);
   return (
     <Modal title={fmt(date, { weekday: "long", month: "long", day: "numeric", year: "numeric" })} sub={q.data && plural(q.data.length, "commit")} onClose={onClose} width={720}>
       {q.isLoading && <Loading />}
       {q.error && <ErrorBox error={q.error} />}
-      {q.data?.length === 0 && <Empty>No commits this day.</Empty>}
+      {q.data?.length === 0 && <Empty>{who.length ? "No commits by the people picked this day." : "No commits this day."}</Empty>}
       {[...people].sort((x, y) => y[1].length - x[1].length).map(([name, list]) => (
         <section key={name} className="col" style={{ gap: 8 }}>
           <div className="row">

@@ -6,11 +6,12 @@ import type { SprintBoard, SprintStat, SprintTicket, Stage, Work } from "../api/
 import { MenuChoice } from "../components/AgentPicker";
 import { Avatar } from "../components/Avatar";
 import { Ask, Card, type Cell, day, heat, Key, type Level, LevelChip, niceMax, path, pct, type Pt, type Qa, r1, r2, rank, slug, span, ticks, tipAt, TipRow, weekday } from "../components/Charts";
+import { AssigneePicker } from "../components/CheckPicker";
 import { Icon } from "../components/Icon";
 import { ago, Busy, Empty, EmptyState, ErrorBox, Loading, Modal, Seg } from "../components/ui";
 import { downloadCsv, plural } from "../lib/format";
 import { useNav } from "../lib/nav";
-import { useStored } from "../lib/stored";
+import { useStored, useStoredList } from "../lib/stored";
 import { toast } from "../lib/toast";
 
 type Unit = keyof Work;
@@ -104,7 +105,9 @@ export function Sprints({ ids, lead, focus, onFocused, onDay, onWeekly }: { ids:
   const [chat, setChat] = useState<Qa[]>([]);
   const [cell, setCell] = useState<{ name: string; sprint: SprintStat } | null>(null);
   const [opened, setOpened] = useState<{ key: string; sprint: number } | null>(null);
-  const q = useSprints(ids, Number(count), true);
+  // Tracker names of the people counted, shared with the weekly view; empty means everyone.
+  const [who, setWho] = useStoredList("gnx.analytics.assignees");
+  const [q, sync] = useSprints(ids, Number(count), who, true);
   const r = q.data;
   const board = r?.boards.find((b) => b.id === boardId) ?? r?.boards[0];
   const sprints = board?.sprints ?? [];
@@ -142,9 +145,10 @@ export function Sprints({ ids, lead, focus, onFocused, onDay, onWeekly }: { ids:
       )}
       <Seg label="Count work in" value={unit} onChange={setUnit} options={UNITS.filter((u) => has(u.value))} />
       <MenuChoice className="select menu-select" style={{ height: 32 }} label="Sprints shown" value={count} options={COUNTS.map((c) => ({ value: c, label: `Last ${c} sprints` }))} onChange={(v) => { setCount(v); setPick(null); }} />
+      {r && <AssigneePicker everyone={r.assignees} who={who} onChange={setWho} />}
       <span className="grow" />
       {r && (
-        <button className="btn btn-icon" aria-label="Sync now" data-tip={`Sync now · synced ${ago(r.syncedAt)}`} onClick={() => q.refetch()}>
+        <button className="btn btn-icon" aria-label="Sync now" data-tip={`Sync now · synced ${ago(r.syncedAt)}`} onClick={() => sync()}>
           <Busy on={q.isFetching}><Icon name="refresh" size={13} /></Busy>
         </button>
       )}

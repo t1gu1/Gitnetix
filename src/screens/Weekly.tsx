@@ -1,4 +1,4 @@
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useMemo, useState } from "react";
 
 import { useWeekly } from "../api/hooks";
 import { openExternal } from "../api/transport";
@@ -6,10 +6,11 @@ import type { WeeklyReport } from "../api/types";
 import { MenuChoice } from "../components/AgentPicker";
 import { Avatar } from "../components/Avatar";
 import { Ask, Card, type Cell, day, heat, Key, niceMax, type Qa, r1, r2, rank, span, ticks, tipAt, TipRow } from "../components/Charts";
+import { AssigneePicker } from "../components/CheckPicker";
 import { Icon } from "../components/Icon";
 import { ago, Busy, Empty, EmptyState, ErrorBox, Loading } from "../components/ui";
 import { downloadCsv, plural } from "../lib/format";
-import { useStored } from "../lib/stored";
+import { useStored, useStoredList } from "../lib/stored";
 
 type Week = WeeklyReport["weeks"][number];
 
@@ -22,6 +23,18 @@ function weekLabel(monday: string) {
   const end = new Date(start);
   end.setDate(end.getDate() + 6);
   return `${day(monday)} – ${end.toLocaleDateString("en-US", end.getMonth() === start.getMonth() ? { day: "numeric" } : { month: "short", day: "numeric" })}`;
+}
+
+/** `r` with only the tickets of `who`, its weeks counted again from them, as the backend counts them. */
+function ofPeople(r: WeeklyReport, who: string[]): WeeklyReport {
+  const tickets = r.tickets.filter((t) => who.includes(t.assignee));
+  const weeks = r.weeks.map((w): Week => {
+    const mine = tickets.filter((t) => t.week === w.start);
+    const people = new Map<string, number>();
+    for (const t of mine) people.set(t.assignee, (people.get(t.assignee) ?? 0) + 1);
+    return { start: w.start, done: mine.length, points: mine.reduce((a, t) => a + (t.points ?? 0), 0), people: [...people].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])) };
+  });
+  return { ...r, tickets, weeks };
 }
 
 function weekRows(r: WeeklyReport): Cell[][] {
@@ -42,8 +55,11 @@ function doneRows(r: WeeklyReport): Cell[][] {
 /** Tickets done per week and per person, from every tracker the chosen projects show tickets from. */
 export function Weekly({ ids, lead, trackers }: { ids: string[]; lead: ReactNode; trackers: string }) {
   const [weeks, setWeeks] = useStored("gnx.weekly.weeks", "12", (s) => (WEEKS.includes(s) ? s : "12"), String);
+  // Tracker names of the people counted, shared with the sprints view; empty means everyone.
+  const [who, setWho] = useStoredList("gnx.analytics.assignees");
   const q = useWeekly(ids, Number(weeks), true);
-  const r = q.data;
+  const everyone = useMemo(() => [...new Set(q.data?.tickets.map((t) => t.assignee))].sort((a, b) => Number(a === "Unassigned") - Number(b === "Unassigned") || a.localeCompare(b)), [q.data]);
+  const r = useMemo(() => (q.data && who.length ? ofPeople(q.data, who) : q.data), [q.data, who]);
   const [asking, setAsking] = useState(false);
   const [chat, setChat] = useState<Qa[]>([]);
   const [only, setOnly] = useState<{ name: string; week: string } | null>(null);
@@ -52,6 +68,7 @@ export function Weekly({ ids, lead, trackers }: { ids: string[]; lead: ReactNode
     <div className="row wrap" style={{ margin: 0, gap: 12 }}>
       {lead}
       <MenuChoice className="select menu-select" style={{ height: 32 }} label="Weeks shown" value={weeks} options={WEEKS.map((w) => ({ value: w, label: `Last ${w} weeks` }))} onChange={setWeeks} />
+      {r && <AssigneePicker everyone={everyone} who={who} onChange={setWho} />}
       <span className="grow" />
       {r && (
         <button className="btn btn-icon" aria-label="Sync now" data-tip={`Sync now · synced ${ago(r.syncedAt)}`} onClick={() => q.refetch()}>
@@ -78,8 +95,8 @@ export function Weekly({ ids, lead, trackers }: { ids: string[]; lead: ReactNode
     );
   } else if (!r.tickets.length) {
     body = (
-      <EmptyState icon="chart" title="Nothing done in these weeks">
-        No ticket was finished in {trackers} over the last {weeks} weeks.{r.errors.length ? ` Some trackers did not answer: ${r.errors.join(" · ")}` : ""}
+      <EmptyState icon="chart" title="Nothing done in these weeks" action={who.length > 0 && q.data?.tickets.length ? <button className="btn btn-md" onClick={() => setWho([])}>Show everyone</button> : undefined}>
+        No ticket was finished {who.length ? "by the people picked " : ""}in {trackers} over the last {weeks} weeks.{r.errors.length ? ` Some trackers did not answer: ${r.errors.join(" · ")}` : ""}
       </EmptyState>
     );
   } else {
