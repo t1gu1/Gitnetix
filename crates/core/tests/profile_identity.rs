@@ -96,8 +96,8 @@ async fn a_new_profile_lists_the_other_profiles_projects_to_add_back() {
 
     let fresh = call(&k, "userProfiles.save", json!({ "name": "Fresh" })).await;
     call(&k, "userProfiles.switch", json!({ "id": fresh["id"] })).await;
-    // Projects keep git's path, all `/` on Windows too.
-    let recent = |r: &Path, profile: &str| json!({ "name": r.file_name().unwrap().to_string_lossy(), "path": r.to_string_lossy().replace('\\', "/"), "profile": profile });
+    // Projects keep git's path: all `/` and the long form on Windows, where the temp dir can be an 8.3 short path.
+    let recent = |r: &Path, profile: &str| json!({ "name": r.file_name().unwrap().to_string_lossy(), "path": git(r, &["rev-parse", "--show-toplevel"]), "profile": profile });
     assert_eq!(
         call(&k, "projects.recent", json!({})).await,
         json!([recent(&a, "Work"), recent(&b, "Default")]),
