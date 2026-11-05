@@ -714,6 +714,148 @@ export interface DayCommit {
   project: string;
 }
 
+/** An amount of work, counted three ways; `hours` is the original estimate. */
+export interface Work {
+  tickets: number;
+  points: number;
+  hours: number;
+}
+
+export interface SprintTicket {
+  key: string;
+  title: string;
+  url: string;
+  kind: string;
+  bug: boolean;
+  assignee: string;
+  status: Ticket["status"];
+  statusLabel: string;
+  /** Completed in this sprint. */
+  completed: boolean;
+  /** Dropped in this sprint ("Annulé"): out of its numbers. */
+  cancelled: boolean;
+  /** Came from an earlier sprint. */
+  carried: boolean;
+  /** Not completed and went on to a later sprint. */
+  moved: boolean;
+  /** Created after the sprint started. */
+  added: boolean;
+  points: number | null;
+  estimate: number | null;
+  remaining: number | null;
+  /** Day it was completed, YYYY-MM-DD. */
+  doneAt: string | null;
+  /** First move to an in-progress, review or ready status (RFC 3339), from its Jira history. */
+  startedAt: string | null;
+  /** Hours from that start to done, when completed in this sprint; hours since it, while still open. */
+  cycleHours: number | null;
+  ageHours: number | null;
+  /** Hours in each status after the start: progress, review, ready, waiting (on hold, blocked), and todo when sent back. */
+  stages: Partial<Record<Stage, number>>;
+  /** Commits and branches about it, in every project its Jira connection shows in. */
+  code?: TicketCode;
+}
+
+/** Where a ticket's time after its start goes: its status bucket, or waiting while on hold or blocked. */
+export type Stage = Ticket["status"] | "waiting";
+
+export interface TicketCode {
+  /** Newest first. */
+  commits: { sha: string; date: string; author: string; subject: string; branch: string; project: string; projectId: string }[];
+  /** `live`: still there; false for one deleted once merged. */
+  branches: { name: string; project: string; projectId: string; live: boolean }[];
+}
+
+export interface SprintStat {
+  id: number;
+  name: string;
+  state: "active" | "closed";
+  goal: string;
+  /** YYYY-MM-DD, UTC: start, planned end and the day it closed. */
+  start: string;
+  end: string;
+  complete: string | null;
+  /** Working days in it, and those begun so far. */
+  workdays: number;
+  workdaysDone: number;
+  committed: Work;
+  /** Its velocity. */
+  completed: Work;
+  scopeStart: Work;
+  added: Work;
+  carried: Work;
+  /** Original and remaining estimate of the tickets not completed, in hours. */
+  leftEstimate: number;
+  leftRemaining: number;
+  bugs: number;
+  bugsFixed: number;
+  /** Tickets dropped in it ("Annulé"), left out of its numbers. */
+  cancelled: number;
+  noPoints: number;
+  noEstimate: number;
+  unassigned: number;
+  status: Partial<Record<Ticket["status"], number>>;
+  /** Hours from start to done that half, and 85%, of its completed tickets took at most. */
+  cycleMedian: number | null;
+  cycleP85: number | null;
+  people: { name: string; committed: Work; completed: Work; leftHours: number; bugsFixed: number }[];
+  kinds: { name: string; committed: Work; completed: Work }[];
+  /** `remaining` and `scope` at the end of each day, null on days still to come. */
+  burndown: { date: string; weekend: boolean; remaining: Work | null; scope: Work | null; ideal: Work; done: string[] }[];
+  tickets: SprintTicket[];
+}
+
+export interface SprintBoard {
+  /** `<connection id>:<board id>`. */
+  id: string;
+  name: string;
+  site: string;
+  /** Oldest first. */
+  sprints: SprintStat[];
+}
+
+/** A ticket done in the weeks the weekly view covers. */
+export interface DoneTicket {
+  key: string;
+  title: string;
+  url: string;
+  source: "jira" | "trello" | "asana";
+  place: string;
+  kind: string;
+  assignee: string;
+  /** RFC 3339. */
+  doneAt: string;
+  created: string | null;
+  points: number | null;
+  /** Monday of its week, YYYY-MM-DD. */
+  week: string;
+  /** Hours from created to done. */
+  leadHours: number | null;
+}
+
+export interface WeeklyReport {
+  sources: string[];
+  /** Oldest first; the last is this week, still running. `people`: (name, tickets done), most first. */
+  weeks: { start: string; done: number; points: number; people: [string, number][] }[];
+  /** Newest first. */
+  tickets: DoneTicket[];
+  points: boolean;
+  errors: string[];
+  syncedAt: string;
+}
+
+export interface SprintReport {
+  /** Jira connections shown in the chosen projects. */
+  connections: number;
+  boards: SprintBoard[];
+  /** Some ticket has story points; some has an estimate. */
+  points: boolean;
+  hours: boolean;
+  /** Connections that failed while others answered. */
+  errors: string[];
+  syncedAt: string;
+}
+
 export type GitnetixEvent =
   | { type: "agentLine"; sessionId: string; line: LogLine }
   | { type: "agentStatus"; sessionId: string; status: AgentStatus }

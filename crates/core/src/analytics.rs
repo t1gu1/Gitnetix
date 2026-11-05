@@ -119,7 +119,7 @@ fn author_names(commits: &[(Commit, bool)]) -> HashMap<(String, String), String>
 
 /// Branch a merge commit took in: `Merge branch 'x' into y`, `Merge remote-tracking branch 'origin/x'`,
 /// `Merge pull request #12 from owner/x`.
-fn merged_branch(subject: &str) -> Option<&str> {
+pub(crate) fn merged_branch(subject: &str) -> Option<&str> {
     let name = match subject.strip_prefix("Merge pull request #") {
         Some(rest) => rest.split_once(" from ")?.1.split_once('/')?.1.trim(),
         None => subject.strip_prefix("Merge branch '").or_else(|| subject.strip_prefix("Merge remote-tracking branch '"))?.split_once('\'')?.0,

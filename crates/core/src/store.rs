@@ -255,7 +255,7 @@ pub struct Route {
 pub struct AiConfig {
     pub default_provider: String,
     pub providers: BTreeMap<String, ProviderConf>,
-    /// Task id (commit, branch, pr, release, conflict, agent, triage, dictation) → route.
+    /// Task id (commit, branch, pr, release, conflict, agent, triage, dictation, analytics) → route.
     pub routing: BTreeMap<String, Route>,
 }
 
@@ -276,6 +276,7 @@ impl Default for AiConfig {
         routing.insert("agent".into(), r("claude-opus-5-5", "xhigh"));
         routing.insert("triage".into(), r("claude-haiku-5-5", "low"));
         routing.insert("dictation".into(), r("claude-haiku-5-5", "low"));
+        routing.insert("analytics".into(), r("claude-sonnet-5-5", "medium"));
         AiConfig { default_provider: "claude".into(), providers, routing }
     }
 }

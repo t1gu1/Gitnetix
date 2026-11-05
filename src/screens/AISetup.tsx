@@ -15,6 +15,7 @@ const TASKS: [string, string][] = [
   ["agent", "Free-form agent"],
   ["triage", "Ticket triage"],
   ["dictation", "Voice dictation"],
+  ["analytics", "Sprint questions"],
 ];
 
 const METHOD_TEXT: Record<ConnectMethod, [string, string]> = {

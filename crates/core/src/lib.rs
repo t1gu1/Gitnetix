@@ -19,6 +19,7 @@ pub mod providers;
 pub mod rpc;
 pub mod secrets;
 pub mod shell;
+pub mod sprints;
 pub mod store;
 pub mod submodules;
 pub mod templates;

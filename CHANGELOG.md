@@ -11,6 +11,16 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+### Added
+- Analytics has a tab named after the connected ticket trackers, next to Commits. For Jira it charts the running sprint and the ones before it: burndown against the ideal line, velocity and bugs fixed, estimated hours left over on tickets not completed, and completion per person and sprint. Every chart opens as a table and exports its rows as CSV.
+- The tab also shows tickets done per week and per person, for Jira, Trello and Asana.
+- Sprint tickets show how long they took from the start of work to done, from their Jira history, and where that time went, waiting or blocked time apart. Tickets open longer than 85% of the finished ones took are flagged. Cancelled tickets ("Annulé", "Won't Do") stay out of the figures.
+- Each sprint ticket lists its commits and branches in every project linked to its Jira connection, with links to the workspace and to that day on the Commits tab. Ticket keys in a day's commits open the ticket on the tickets tab.
+- Ask AI on that tab answers questions about the sprints or weeks on screen.
+
+### Changed
+- Ticket statuses named in French (« En révision », « Prêt à fusionner », « Terminé », « En cours ») land in the right columns.
+
 ## [0.18.1] - 2026-11-04
 
 ### Added

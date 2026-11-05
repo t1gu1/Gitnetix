@@ -1,5 +1,9 @@
 //! Tickets from Jira, Trello and Asana, normalised to one shape.
 
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+
+use chrono::{DateTime, Duration, SecondsFormat, Utc};
+use futures_util::future::join_all;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
@@ -103,23 +107,45 @@ fn parse(status: reqwest::StatusCode, text: &str, who: &str) -> Result<Value> {
     Ok(v)
 }
 
-/// Status from a status / column / section name. `category` is Jira's
+/// Status from a status / column / section name, in English or French. `category` is Jira's
 /// status category; boards with free-form columns pass "" and fall back to
 /// the name alone.
 fn status_from_name(name: &str, category: &str) -> &'static str {
     let n = name.to_lowercase();
-    if n.contains("review") {
+    let has = |words: &[&str]| words.iter().any(|w| n.contains(w));
+    if has(&["review", "révision", "revision", "revue", "relecture"]) {
         "review"
-    } else if n.contains("ready") || n.contains("merge") {
+    } else if has(&["ready", "merge", "prêt", "fusion"]) {
         "ready"
     } else {
         match category {
             "done" => "done",
             "indeterminate" => "progress",
-            _ if n.contains("done") => "done",
-            _ if n.contains("progress") || n.contains("doing") => "progress",
+            // "Fait" and "Terminé", never "À faire".
+            _ if has(&["done", "termin", "fait", "complét"]) => "done",
+            _ if has(&["progress", "doing", "en cours", "développ"]) => "progress",
             _ => "todo",
         }
+    }
+}
+
+/// Whether a done ticket's status or resolution says it was dropped, not done ("Annulé", "Won't Do", "Duplicate").
+fn dropped(status: &str, resolution: &str) -> bool {
+    let words = ["annul", "cancel", "abandon", "rejet", "reject", "won't", "wont", "will not", "ne sera pas", "doublon", "duplicate", "obsol"];
+    [status, resolution].iter().any(|s| {
+        let s = s.to_lowercase();
+        words.iter().any(|w| s.contains(w))
+    })
+}
+
+/// The stage a status change moves a ticket to: `status_from_name`'s, or waiting for a status that says the work is
+/// on hold ("En attente", "Bloqué", "Blocked").
+fn stage_of(name: &str, category: &str) -> &'static str {
+    let n = name.to_lowercase();
+    if category != "done" && ["attente", "waiting", "pending", "hold", "bloqu", "blocked", "pause", "suspen", "parked"].iter().any(|w| n.contains(w)) {
+        "waiting"
+    } else {
+        status_from_name(name, category)
     }
 }
 
@@ -218,22 +244,28 @@ pub async fn jira(conf: &JiraConf, token: &str, mine: bool, sprint: bool) -> Res
     }
     let me = jira_me(conf, token).await?;
     let my_id = me["accountId"].as_str().unwrap_or("").to_string();
+    let issues = jira_search(conf, token, &jql, &JIRA_FIELDS, 100, JIRA_CAP).await?;
+    Ok(issues.iter().map(|i| jira_ticket(conf, i, &my_id)).collect())
+}
+
+/// The issues `jql` finds, with `fields`, read `page` at a time (Jira may send fewer) and at most `cap` of them.
+async fn jira_search(conf: &JiraConf, token: &str, jql: &str, fields: &[&str], page: usize, cap: usize) -> Result<Vec<Value>> {
     let mut issues = Vec::new();
-    let mut page: Option<String> = None;
+    let mut next: Option<String> = None;
     loop {
-        let mut body = json!({ "jql": jql, "maxResults": 100, "fields": JIRA_FIELDS });
-        if let Some(t) = &page {
+        let mut body = json!({ "jql": jql, "maxResults": page, "fields": fields });
+        if let Some(t) = &next {
             body["nextPageToken"] = t.as_str().into();
         }
         let v = check(jira_req(conf, token, reqwest::Method::POST, "/rest/api/3/search/jql").json(&body).send().await?, "Jira").await?;
         issues.extend(v["issues"].as_array().cloned().unwrap_or_default());
-        page = v["nextPageToken"].as_str().map(String::from);
-        if page.is_none() || issues.len() >= JIRA_CAP {
+        next = v["nextPageToken"].as_str().map(String::from);
+        if next.is_none() || issues.len() >= cap {
             break;
         }
     }
-    issues.truncate(JIRA_CAP);
-    Ok(issues.iter().map(|i| jira_ticket(conf, i, &my_id)).collect())
+    issues.truncate(cap);
+    Ok(issues)
 }
 
 /// A Jira issue as returned by search or by `/issue/{key}`, as a `Ticket`.
@@ -367,6 +399,354 @@ pub async fn jira_projects(conf: &JiraConf, token: &str) -> Result<Vec<Value>> {
     }
 }
 
+// ---------- Jira sprints ----------
+
+/// A sprint, as the Sprint field of an issue holds it.
+#[derive(Debug, Clone)]
+pub struct Sprint {
+    pub id: u64,
+    pub name: String,
+    /// active | closed | future
+    pub state: String,
+    pub board: u64,
+    pub goal: String,
+    pub start: Option<DateTime<Utc>>,
+    pub end: Option<DateTime<Utc>>,
+    /// When it was closed.
+    pub complete: Option<DateTime<Utc>>,
+}
+
+/// A move of a ticket to another status, from its Jira history.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct StatusChange {
+    pub at: DateTime<Utc>,
+    /// todo | progress | review | ready | done, or waiting (on hold, blocked)
+    pub to: &'static str,
+}
+
+/// A ticket of a sprint, as sprint charts read it. Sub-tasks are left out: their estimates count in their parent's.
+#[derive(Debug, Clone, Default)]
+pub struct SprintIssue {
+    /// Jira's numeric id, which its history is asked by.
+    pub id: String,
+    pub key: String,
+    pub title: String,
+    pub url: String,
+    /// Story, Bug, Task…
+    pub kind: String,
+    pub bug: bool,
+    pub assignee: String,
+    /// todo | progress | review | ready | done
+    pub status: &'static str,
+    pub status_label: String,
+    /// In a status of Jira's done category.
+    pub done: bool,
+    /// Done by being dropped ("Annulé", resolution "Won't Do"): no work completed, the sprint's scope shrank.
+    pub cancelled: bool,
+    /// When it was resolved, else when it last moved to a done status.
+    pub done_at: Option<DateTime<Utc>>,
+    pub created: Option<DateTime<Utc>>,
+    pub points: Option<f64>,
+    /// Original and remaining estimate in hours, its sub-tasks' included.
+    pub estimate: Option<f64>,
+    pub remaining: Option<f64>,
+    /// The sprints it has been in, oldest first: the last one is where it is now, or was completed.
+    pub sprints: Vec<u64>,
+    /// Its status changes, oldest first; empty when Jira did not give its history.
+    pub history: Vec<StatusChange>,
+}
+
+/// A ticket finished in the span the weekly view covers.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DoneTicket {
+    pub key: String,
+    pub title: String,
+    pub url: String,
+    /// jira | trello | asana
+    pub source: String,
+    /// The Jira project, Trello board or Asana project it comes from.
+    pub place: String,
+    pub kind: String,
+    pub assignee: String,
+    pub done_at: DateTime<Utc>,
+    pub created: Option<DateTime<Utc>>,
+    pub points: Option<f64>,
+}
+
+/// Most issues read to find the sprints, then in them.
+const SPRINT_CAP: usize = 3000;
+
+/// The last `count` started sprints of each board holding tickets of the connection's projects, with
+/// those tickets, and the names of the boards Jira tells (the boards API is out of a "Sign in with Atlassian" token's scopes).
+pub async fn jira_sprints(conf: &JiraConf, token: &str, count: usize) -> Result<(Vec<Sprint>, Vec<SprintIssue>, HashMap<u64, String>)> {
+    let fields = check(jira_req(conf, token, reqwest::Method::GET, "/rest/api/3/field").send().await?, "Jira").await?;
+    let (sprint_field, point_fields) = sprint_fields(&fields).ok_or_else(|| Error::Invalid("This Jira site has no sprints: they come with Jira Software".into()))?;
+    // A sprint lasts four weeks at most: this reaches `count` of them back, and a little more.
+    let weeks = count as i64 * 4 + 2;
+    let since = Utc::now() - Duration::weeks(weeks);
+    // Only the Sprint field, to find the sprints: a done ticket was last updated in its sprint, so no sprint since then is missed.
+    let jql = scope_jql(&format!("(sprint in openSprints() OR sprint in closedSprints()) AND updated >= -{weeks}w ORDER BY updated DESC"), &conf.projects);
+    let mut seen: HashMap<u64, Sprint> = HashMap::new();
+    for i in jira_search(conf, token, &jql, &[sprint_field.as_str()], 1000, SPRINT_CAP).await? {
+        seen.extend(field_sprints(&i["fields"][sprint_field.as_str()]).into_iter().map(|s| (s.id, s)));
+    }
+    let sprints = pick_sprints(seen.into_values().collect(), count, since);
+    if sprints.is_empty() {
+        return Ok((sprints, Vec::new(), HashMap::new()));
+    }
+    let ids = sprints.iter().map(|s| s.id.to_string()).collect::<Vec<_>>().join(", ");
+    let mut want = vec!["summary", "status", "issuetype", "assignee", "created", "resolution", "resolutiondate", "statuscategorychangedate", "aggregatetimeoriginalestimate", "aggregatetimeestimate", sprint_field.as_str()];
+    want.extend(point_fields.iter().map(String::as_str));
+    let jql = scope_jql(&format!("sprint in ({ids}) ORDER BY key ASC"), &conf.projects);
+    let issues = jira_search(conf, token, &jql, &want, 100, SPRINT_CAP).await?;
+    let mut issues: Vec<SprintIssue> = issues.iter().filter(|i| i["fields"]["issuetype"]["subtask"] != true).map(|i| sprint_issue(conf, i, &sprint_field, &point_fields)).collect();
+    let mut history = jira_history(conf, token, &issues.iter().map(|i| i.id.clone()).collect::<Vec<_>>()).await;
+    for i in &mut issues {
+        i.history = history.remove(&i.id).unwrap_or_default();
+    }
+    let mut names = HashMap::new();
+    for b in sprints.iter().map(|s| s.board).filter(|b| *b != 0).collect::<BTreeSet<_>>() {
+        if let Ok(res) = jira_req(conf, token, reqwest::Method::GET, &format!("/rest/agile/1.0/board/{b}")).send().await {
+            if let Some(name) = check(res, "Jira").await.ok().and_then(|v| v["name"].as_str().map(String::from)) {
+                names.insert(b, name);
+            }
+        }
+    }
+    Ok((sprints, issues, names))
+}
+
+/// Ids of the Sprint field and of the story point ones, from `/field`.
+fn sprint_fields(all: &Value) -> Option<(String, Vec<String>)> {
+    let sprint = all.as_array()?.iter().find(|f| f["schema"]["custom"] == "com.pyxis.greenhopper.jira:gh-sprint")?["id"].as_str()?.to_string();
+    Some((sprint, point_fields(all)))
+}
+
+/// Ids of the story point fields ("Story Points", "Story point estimate"), from `/field`.
+fn point_fields(all: &Value) -> Vec<String> {
+    all.as_array()
+        .into_iter()
+        .flatten()
+        .filter(|f| f["schema"]["custom"] == "com.pyxis.greenhopper.jira:jsw-story-points" || (f["schema"]["type"] == "number" && f["name"].as_str().is_some_and(|n| n.to_lowercase().contains("story point"))))
+        .filter_map(|f| f["id"].as_str().map(String::from))
+        .collect()
+}
+
+/// Most issues whose history is read one by one, when Jira has no bulk history.
+const HISTORY_CAP: usize = 500;
+
+/// Status changes of the issues `ids` (Jira's numeric ids), oldest first, by id: read in bulk, else one issue at a time,
+/// a few at once. An issue Jira won't give the history of has none.
+async fn jira_history(conf: &JiraConf, token: &str, ids: &[String]) -> HashMap<String, Vec<StatusChange>> {
+    if ids.is_empty() {
+        return HashMap::new();
+    }
+    // Each status's name today and its category, by id: a history step names its status as it was then, maybe in
+    // another language ("Pending" for « En attente »), and never its category.
+    let categories: HashMap<String, (String, String)> = match jira_req(conf, token, reqwest::Method::GET, "/rest/api/3/status").send().await {
+        Ok(res) => check(res, "Jira")
+            .await
+            .ok()
+            .and_then(|v| v.as_array().cloned())
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|s| Some((s["id"].as_str()?.to_string(), (s["name"].as_str().unwrap_or("").to_string(), s["statusCategory"]["key"].as_str()?.to_string()))))
+            .collect(),
+        Err(_) => HashMap::new(),
+    };
+    if let Ok(found) = jira_bulk_history(conf, token, ids, &categories).await {
+        return found;
+    }
+    // Eight at a time. A named async fn, not a stream of closures, keeps the request's future `Send`.
+    let ids: Vec<&String> = ids.iter().take(HISTORY_CAP).collect();
+    let mut out = HashMap::new();
+    for batch in ids.chunks(8) {
+        out.extend(join_all(batch.iter().map(|id| jira_issue_history(conf, token, id, &categories))).await);
+    }
+    out
+}
+
+/// One issue's status changes, from its own changelog (its first 100 changes).
+async fn jira_issue_history(conf: &JiraConf, token: &str, id: &str, categories: &HashMap<String, (String, String)>) -> (String, Vec<StatusChange>) {
+    let v = match jira_req(conf, token, reqwest::Method::GET, &format!("/rest/api/3/issue/{id}/changelog?maxResults=100")).send().await {
+        Ok(res) => check(res, "Jira").await.ok(),
+        Err(_) => None,
+    };
+    (id.to_string(), v.map(|v| status_changes(v["values"].as_array().map_or(&[][..], Vec::as_slice), categories)).unwrap_or_default())
+}
+
+/// `jira_history` through the bulk changelog API, status changes only.
+async fn jira_bulk_history(conf: &JiraConf, token: &str, ids: &[String], categories: &HashMap<String, (String, String)>) -> Result<HashMap<String, Vec<StatusChange>>> {
+    let mut out: HashMap<String, Vec<StatusChange>> = HashMap::new();
+    for chunk in ids.chunks(1000) {
+        let mut next: Option<String> = None;
+        loop {
+            let mut body = json!({ "issueIdsOrKeys": chunk, "fieldIds": ["status"], "maxResults": 1000 });
+            if let Some(t) = &next {
+                body["nextPageToken"] = t.as_str().into();
+            }
+            let v = check(jira_req(conf, token, reqwest::Method::POST, "/rest/api/3/changelog/bulkfetch").json(&body).send().await?, "Jira").await?;
+            for log in v["issueChangeLogs"].as_array().into_iter().flatten() {
+                let id = log["issueId"].as_str().map(String::from).or_else(|| log["issueId"].as_u64().map(|n| n.to_string())).unwrap_or_default();
+                out.entry(id).or_default().extend(status_changes(log["changeHistories"].as_array().map_or(&[][..], Vec::as_slice), categories));
+            }
+            next = v["nextPageToken"].as_str().map(String::from);
+            if next.is_none() {
+                break;
+            }
+        }
+    }
+    for changes in out.values_mut() {
+        changes.sort_by_key(|c| c.at);
+    }
+    Ok(out)
+}
+
+/// The status changes among Jira `histories` (each with its `created` time and changed `items`), oldest first.
+/// `statuses`: each status's name today and category, by id.
+fn status_changes(histories: &[Value], statuses: &HashMap<String, (String, String)>) -> Vec<StatusChange> {
+    let mut out: Vec<StatusChange> = histories
+        .iter()
+        .filter_map(|h| Some((history_date(&h["created"])?, h)))
+        .flat_map(|(at, h)| {
+            h["items"].as_array().into_iter().flatten().filter(|it| it["fieldId"] == "status" || it["field"] == "status").map(move |it| {
+                let then = it["toString"].as_str().unwrap_or("");
+                let (name, category) = statuses.get(it["to"].as_str().unwrap_or("")).map_or((then, ""), |(n, c)| (if n.is_empty() { then } else { n.as_str() }, c.as_str()));
+                StatusChange { at, to: stage_of(name, category) }
+            })
+        })
+        .collect();
+    out.sort_by_key(|c| c.at);
+    out
+}
+
+/// A history's time: a date string, or milliseconds since 1970 in the bulk API (seconds in some answers).
+fn history_date(v: &Value) -> Option<DateTime<Utc>> {
+    match v.as_i64() {
+        Some(n) => DateTime::from_timestamp_millis(if n < 100_000_000_000 { n * 1000 } else { n }),
+        None => jira_date(v),
+    }
+}
+
+/// Jira's dates: `2024-01-08T14:00:00.000Z` in sprints, `2024-01-15T10:23:45.123+0000` in issue fields.
+fn jira_date(v: &Value) -> Option<DateTime<Utc>> {
+    let s = v.as_str()?;
+    DateTime::parse_from_rfc3339(s).or_else(|_| DateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S%.f%z")).ok().map(|d| d.with_timezone(&Utc))
+}
+
+/// The sprints in an issue's Sprint field.
+fn field_sprints(v: &Value) -> Vec<Sprint> {
+    v.as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|s| {
+            Some(Sprint {
+                id: s["id"].as_u64()?,
+                name: s["name"].as_str().unwrap_or("").into(),
+                state: s["state"].as_str().unwrap_or("").to_lowercase(),
+                board: s["boardId"].as_u64().unwrap_or(0),
+                goal: s["goal"].as_str().unwrap_or("").trim().into(),
+                start: jira_date(&s["startDate"]),
+                end: jira_date(&s["endDate"]),
+                complete: jira_date(&s["completeDate"]),
+            })
+        })
+        .collect()
+}
+
+/// Per board, its last `count` sprints started since `since`: active and closed ones, not those still to come.
+fn pick_sprints(mut all: Vec<Sprint>, count: usize, since: DateTime<Utc>) -> Vec<Sprint> {
+    all.retain(|s| s.state != "future" && s.start.is_some_and(|d| d >= since));
+    let mut boards: BTreeMap<u64, Vec<Sprint>> = BTreeMap::new();
+    for s in all {
+        boards.entry(s.board).or_default().push(s);
+    }
+    boards
+        .into_values()
+        .flat_map(|mut list| {
+            list.sort_by_key(|s| s.start);
+            let skip = list.len().saturating_sub(count);
+            list.into_iter().skip(skip)
+        })
+        .collect()
+}
+
+/// A Jira issue from a sprint search as a `SprintIssue`.
+fn sprint_issue(conf: &JiraConf, i: &Value, sprint_field: &str, point_fields: &[String]) -> SprintIssue {
+    let f = &i["fields"];
+    let key = i["key"].as_str().unwrap_or("").to_string();
+    let kind = f["issuetype"]["name"].as_str().unwrap_or("Task").to_string();
+    let lower = kind.to_lowercase();
+    let st = f["status"]["name"].as_str().unwrap_or("");
+    let cat = f["status"]["statusCategory"]["key"].as_str().unwrap_or("new");
+    let done = cat == "done";
+    let mut sprints = field_sprints(&f[sprint_field]);
+    // Sprints still to come have no start: they sort last.
+    sprints.sort_by_key(|s| (s.start.is_none(), s.start));
+    let hours = |field: &str| f[field].as_f64().map(|secs| secs / 3600.0);
+    SprintIssue {
+        id: i["id"].as_str().unwrap_or("").into(),
+        url: format!("{}/browse/{key}", conf.base_url.trim_end_matches('/')),
+        title: f["summary"].as_str().unwrap_or("").into(),
+        // Bug is "Bogue" on a French site.
+        bug: ["bug", "bogue", "défaut", "defect"].iter().any(|b| lower.contains(b)),
+        kind,
+        assignee: f["assignee"]["displayName"].as_str().unwrap_or("Unassigned").into(),
+        status: status_from_name(st, cat),
+        status_label: st.into(),
+        done,
+        cancelled: done && dropped(st, f["resolution"]["name"].as_str().unwrap_or("")),
+        done_at: if done { done_date(f) } else { None },
+        created: jira_date(&f["created"]),
+        points: point_fields.iter().find_map(|p| f[p.as_str()].as_f64()),
+        estimate: hours("aggregatetimeoriginalestimate"),
+        remaining: hours("aggregatetimeestimate"),
+        sprints: sprints.into_iter().map(|s| s.id).collect(),
+        history: Vec::new(),
+        key,
+    }
+}
+
+/// When a done issue got there: when it last moved into Jira's done category, else when it was resolved.
+fn done_date(fields: &Value) -> Option<DateTime<Utc>> {
+    jira_date(&fields["statuscategorychangedate"]).or_else(|| jira_date(&fields["resolutiondate"]))
+}
+
+/// Jira issues of the connection's projects moved into a done status since `since`, sub-tasks left out.
+pub async fn jira_done(conf: &JiraConf, token: &str, since: DateTime<Utc>) -> Result<Vec<DoneTicket>> {
+    let fields = check(jira_req(conf, token, reqwest::Method::GET, "/rest/api/3/field").send().await?, "Jira").await?;
+    let points = point_fields(&fields);
+    let jql = scope_jql(&format!("statusCategory = Done AND statusCategoryChangedDate >= \"{}\" ORDER BY statusCategoryChangedDate DESC", since.format("%Y-%m-%d %H:%M")), &conf.projects);
+    let mut want = vec!["summary", "status", "issuetype", "assignee", "created", "resolution", "resolutiondate", "statuscategorychangedate", "project"];
+    want.extend(points.iter().map(String::as_str));
+    let base = conf.base_url.trim_end_matches('/');
+    let issues = jira_search(conf, token, &jql, &want, 100, SPRINT_CAP).await?;
+    Ok(issues
+        .iter()
+        .filter(|i| i["fields"]["issuetype"]["subtask"] != true)
+        // Epics hold the tickets that are the work, which count on their own.
+        .filter(|i| i["fields"]["issuetype"]["hierarchyLevel"].as_i64().unwrap_or(0) < 1)
+        // Dropped tickets ("Annulé") are in the done category too, with no work done.
+        .filter(|i| !dropped(i["fields"]["status"]["name"].as_str().unwrap_or(""), i["fields"]["resolution"]["name"].as_str().unwrap_or("")))
+        .filter_map(|i| {
+            let f = &i["fields"];
+            let key = i["key"].as_str()?.to_string();
+            Some(DoneTicket {
+                url: format!("{base}/browse/{key}"),
+                title: f["summary"].as_str().unwrap_or("").into(),
+                source: "jira".into(),
+                place: format!("Jira · {}", f["project"]["name"].as_str().unwrap_or("")),
+                kind: f["issuetype"]["name"].as_str().unwrap_or("Task").into(),
+                assignee: f["assignee"]["displayName"].as_str().unwrap_or("Unassigned").into(),
+                done_at: done_date(f)?,
+                created: jira_date(&f["created"]),
+                points: points.iter().find_map(|p| f[p.as_str()].as_f64()),
+                key,
+            })
+        })
+        .collect())
+}
+
 // ---------- Trello ----------
 
 /// The token of a Trello connection, renewed first when it came from "Sign in with Trello".
@@ -484,6 +864,63 @@ pub async fn trello_statuses(conf: &TrelloConf, token: &str, card: &str) -> Resu
 pub async fn trello_set_status(conf: &TrelloConf, token: &str, card: &str, list: &str) -> Result<()> {
     check(trello_req(conf, token, reqwest::Method::PUT, &format!("/cards/{card}?idList={list}")).send().await?, "Trello").await?;
     Ok(())
+}
+
+/// Trello cards moved into a done list since `since`: on the picked boards, else the user's own moves.
+pub async fn trello_done(conf: &TrelloConf, token: &str, since: DateTime<Utc>) -> Result<Vec<DoneTicket>> {
+    let get = |path: String| trello_req(conf, token, reqwest::Method::GET, &path).send();
+    let since = since.to_rfc3339_opts(SecondsFormat::Secs, true);
+    let moves = |from: &str| format!("{from}/actions?filter=updateCard:idList&since={since}&limit=1000");
+    let boards: Vec<&String> = conf.boards.iter().filter(|b| !b.is_empty()).collect();
+    if boards.is_empty() {
+        let me = check(get("/members/me?fields=fullName".into()).await?, "Trello").await?;
+        let acts = check(get(moves("/members/me")).await?, "Trello").await?;
+        return Ok(trello_moves(&acts, &HashMap::new(), "Trello · My cards", me["fullName"].as_str()));
+    }
+    let mut out = Vec::new();
+    for b in boards {
+        let board = check(get(format!("/boards/{b}?fields=name")).await?, "Trello").await?;
+        let place = format!("Trello · {}", board["name"].as_str().unwrap_or(b));
+        let cards = check(get(format!("/boards/{b}/cards/all?fields=name,shortLink,url&members=true&member_fields=fullName")).await?, "Trello").await?;
+        let by_id: HashMap<&str, &Value> = cards.as_array().into_iter().flatten().filter_map(|c| Some((c["id"].as_str()?, c))).collect();
+        let acts = check(get(moves(&format!("/boards/{b}"))).await?, "Trello").await?;
+        out.extend(trello_moves(&acts, &by_id, &place, None));
+    }
+    Ok(out)
+}
+
+/// Each card's last move into a done list among Trello `actions`, as a done ticket of `place`. `me`: whose
+/// moves these are, the assignee when the card's members are unknown.
+fn trello_moves(actions: &Value, cards: &HashMap<&str, &Value>, place: &str, me: Option<&str>) -> Vec<DoneTicket> {
+    let mut last: HashMap<String, DoneTicket> = HashMap::new();
+    for a in actions.as_array().into_iter().flatten() {
+        let d = &a["data"];
+        let (Some(id), Some(at)) = (d["card"]["id"].as_str(), jira_date(&a["date"])) else { continue };
+        if status_from_name(d["listAfter"]["name"].as_str().unwrap_or(""), "") != "done" || last.get(id).is_some_and(|t| t.done_at >= at) {
+            continue;
+        }
+        let card = cards.get(id);
+        let field = |k: &str| d["card"][k].as_str().or_else(|| card.and_then(|c| c[k].as_str())).unwrap_or("").to_string();
+        let short = field("shortLink");
+        let member = card.and_then(|c| c["members"][0]["fullName"].as_str()).or(me);
+        last.insert(
+            id.into(),
+            DoneTicket {
+                key: format!("#{short}"),
+                title: field("name"),
+                url: card.and_then(|c| c["url"].as_str()).map_or_else(|| format!("https://trello.com/c/{short}"), String::from),
+                source: "trello".into(),
+                place: place.into(),
+                kind: "Card".into(),
+                assignee: member.unwrap_or("Unassigned").into(),
+                done_at: at,
+                // A Trello id starts with the second it was made at, in hex.
+                created: id.get(..8).and_then(|h| i64::from_str_radix(h, 16).ok()).and_then(|secs| DateTime::from_timestamp(secs, 0)),
+                points: None,
+            },
+        );
+    }
+    last.into_values().collect()
 }
 
 // ---------- Asana ----------
@@ -606,6 +1043,59 @@ pub async fn asana_statuses(token: &str, task: &str) -> Result<Vec<StatusOption>
     Ok(out)
 }
 
+/// Where to read Asana tasks from: the tasks URL, its extra query, and the place they show under.
+type TaskList = (String, Vec<(&'static str, String)>, String);
+
+/// Asana tasks completed since `since`: in the picked projects, else the user's own.
+pub async fn asana_done(conf: &AsanaConf, token: &str, since: DateTime<Utc>) -> Result<Vec<DoneTicket>> {
+    let api = "https://app.asana.com/api/1.0";
+    let since_s = since.to_rfc3339_opts(SecondsFormat::Secs, true);
+    let mut lists: Vec<TaskList> = Vec::new();
+    for p in conf.projects.iter().filter(|p| !p.is_empty()) {
+        let project = check(http().get(format!("{api}/projects/{p}?opt_fields=name")).bearer_auth(token).send().await?, "Asana").await;
+        let name = project.ok().and_then(|v| v["data"]["name"].as_str().map(String::from)).unwrap_or_else(|| p.clone());
+        lists.push((format!("{api}/projects/{p}/tasks"), Vec::new(), format!("Asana · {name}")));
+    }
+    if lists.is_empty() {
+        lists.push((format!("{api}/tasks"), vec![("assignee", "me".into()), ("workspace", conf.workspace_gid.clone())], "Asana · My tasks".into()));
+    }
+    let mut out: Vec<DoneTicket> = Vec::new();
+    for (url, extra, place) in lists {
+        let mut offset: Option<String> = None;
+        // shortcut: stops at 2000 tasks a list, page further if a busy project's weeks come out short.
+        for _ in 0..20 {
+            let mut q: Vec<(&str, String)> = vec![("completed_since", since_s.clone()), ("opt_fields", "name,completed,completed_at,created_at,permalink_url,assignee.name".into()), ("limit", "100".into())];
+            q.extend(extra.iter().cloned());
+            q.extend(offset.take().map(|o| ("offset", o)));
+            let v = check(http().get(&url).query(&q).bearer_auth(token).send().await?, "Asana").await?;
+            for t in v["data"].as_array().into_iter().flatten() {
+                let gid = t["gid"].as_str().unwrap_or("");
+                let Some(at) = jira_date(&t["completed_at"]).filter(|at| t["completed"] == true && *at >= since) else { continue };
+                if out.iter().any(|x| x.key.strip_prefix("AS-") == Some(gid)) {
+                    continue;
+                }
+                out.push(DoneTicket {
+                    key: format!("AS-{gid}"),
+                    title: t["name"].as_str().unwrap_or("").into(),
+                    url: t["permalink_url"].as_str().unwrap_or("").into(),
+                    source: "asana".into(),
+                    place: place.clone(),
+                    kind: "Task".into(),
+                    assignee: t["assignee"]["name"].as_str().unwrap_or("Unassigned").into(),
+                    done_at: at,
+                    created: jira_date(&t["created_at"]),
+                    points: None,
+                });
+            }
+            offset = v["next_page"]["offset"].as_str().map(String::from);
+            if offset.is_none() {
+                break;
+            }
+        }
+    }
+    Ok(out)
+}
+
 /// Moves the task to section `to`, reopening it, or completes it.
 pub async fn asana_set_status(token: &str, task: &str, to: &str) -> Result<()> {
     if to != ASANA_DONE {
@@ -659,6 +1149,12 @@ mod tests {
         assert_eq!(status_from_name("Code review", ""), "review");
         assert_eq!(status_from_name("Backlog", ""), "todo");
         assert_eq!(status_from_name("In Progress", "indeterminate"), "progress");
+        assert!(dropped("Annulé", "") && dropped("Done", "Won't Do") && dropped("Terminé", "Doublon") && !dropped("Complété", "Terminé"));
+        assert_eq!((stage_of("En attente", "indeterminate"), stage_of("Bloqué", ""), stage_of("En cours", "indeterminate")), ("waiting", "waiting", "progress"));
+        // French workflows.
+        for (name, cat, want) in [("En révision", "indeterminate", "review"), ("Revue de code", "", "review"), ("Prêt à fusionner", "indeterminate", "ready"), ("À fusionner", "", "ready"), ("Terminé", "", "done"), ("Fait", "", "done"), ("En cours", "", "progress"), ("En développement", "", "progress"), ("À faire", "", "todo"), ("Terminé", "done", "done")] {
+            assert_eq!(status_from_name(name, cat), want, "{name}");
+        }
     }
 
     #[test]
@@ -686,6 +1182,97 @@ mod tests {
         assert_eq!((t.status.as_str(), t.description.as_str(), t.parent_title.as_str()), ("done", "Users sign in.", "Auth"));
         assert!(t.mine);
         assert!(!jira_ticket(&conf, &issue, "").mine);
+    }
+
+    #[test]
+    fn finds_sprint_and_story_point_fields() {
+        let fields = json!([
+            { "id": "summary", "name": "Summary", "schema": { "type": "string", "system": "summary" } },
+            { "id": "customfield_10020", "name": "Sprint", "schema": { "type": "array", "custom": "com.pyxis.greenhopper.jira:gh-sprint" } },
+            { "id": "customfield_10016", "name": "Story point estimate", "schema": { "type": "number", "custom": "com.pyxis.greenhopper.jira:jsw-story-points" } },
+            { "id": "customfield_10026", "name": "Story Points", "schema": { "type": "number", "custom": "com.atlassian.jira.plugin.system.customfieldtypes:float" } },
+            { "id": "customfield_10030", "name": "Story", "schema": { "type": "string" } }
+        ]);
+        assert_eq!(sprint_fields(&fields), Some(("customfield_10020".into(), vec!["customfield_10016".into(), "customfield_10026".into()])));
+        // Jira Work Management alone: no sprints.
+        assert_eq!(sprint_fields(&json!([{ "id": "summary", "schema": {} }])), None);
+    }
+
+    #[test]
+    fn sprint_issue_from_search() {
+        let conf: JiraConf = serde_json::from_value(json!({ "baseUrl": "https://x.atlassian.net/" })).unwrap();
+        let issue = json!({ "key": "MNC-7", "fields": {
+            "summary": "Fix login", "issuetype": { "name": "Bogue", "subtask": false },
+            "status": { "name": "Terminé", "statusCategory": { "key": "done" } },
+            "assignee": { "displayName": "Ana" },
+            "created": "2026-10-01T09:00:00.000-0400",
+            "resolutiondate": "2026-10-08T15:30:00.000+0000",
+            "aggregatetimeoriginalestimate": 28800, "aggregatetimeestimate": 0,
+            "customfield_10026": 3.0,
+            "customfield_10020": [
+                { "id": 12, "name": "MNC Sprint 12", "state": "active", "boardId": 4, "startDate": "2026-10-06T13:00:00.000Z", "endDate": "2026-10-20T13:00:00.000Z" },
+                { "id": 11, "name": "MNC Sprint 11", "state": "closed", "boardId": 4, "goal": " Ship it ", "startDate": "2026-09-22T13:00:00.000Z", "endDate": "2026-10-06T13:00:00.000Z", "completeDate": "2026-10-06T14:00:00.000Z" }
+            ]
+        }});
+        let t = sprint_issue(&conf, &issue, "customfield_10020", &["customfield_10016".into(), "customfield_10026".into()]);
+        assert_eq!((t.key.as_str(), t.url.as_str(), t.kind.as_str(), t.assignee.as_str()), ("MNC-7", "https://x.atlassian.net/browse/MNC-7", "Bogue", "Ana"));
+        assert!(t.bug && t.done);
+        assert_eq!((t.status, t.points, t.estimate, t.remaining), ("done", Some(3.0), Some(8.0), Some(0.0)));
+        // Oldest sprint first, whatever order Jira lists them in.
+        assert_eq!(t.sprints, [11, 12]);
+        assert_eq!(t.done_at.unwrap().to_rfc3339(), "2026-10-08T15:30:00+00:00");
+        assert_eq!(t.created.unwrap().to_rfc3339(), "2026-10-01T13:00:00+00:00");
+        let s = &field_sprints(&issue["fields"]["customfield_10020"])[1];
+        assert_eq!((s.goal.as_str(), s.state.as_str(), s.board), ("Ship it", "closed", 4));
+        assert!(s.complete.is_some());
+    }
+
+    #[test]
+    fn picks_the_last_started_sprints_of_each_board() {
+        let ago = |d: i64| Some(Utc::now() - Duration::days(d));
+        let s = |id: u64, board: u64, state: &str, start: Option<DateTime<Utc>>| Sprint { id, name: String::new(), state: state.into(), board, goal: String::new(), start, end: None, complete: None };
+        let all = vec![s(4, 1, "active", ago(4)), s(1, 1, "closed", ago(60)), s(3, 1, "closed", ago(32)), s(2, 1, "closed", ago(46)), s(5, 1, "future", None), s(6, 2, "closed", ago(10)), s(7, 2, "closed", ago(400))];
+        let ids: Vec<u64> = pick_sprints(all, 3, Utc::now() - Duration::days(100)).iter().map(|s| s.id).collect();
+        assert_eq!(ids, [2, 3, 4, 6]);
+    }
+
+    #[test]
+    fn status_history_from_both_apis() {
+        let cats = HashMap::from([("3".to_string(), ("En cours".to_string(), "indeterminate".to_string())), ("10001".to_string(), ("Terminé".to_string(), "done".to_string())), ("10200".to_string(), ("En attente".to_string(), "new".to_string()))]);
+        // Bulk changelog: times in milliseconds, newest first; the other fields' changes are skipped.
+        let bulk = json!([
+            { "created": 1_791_000_000_000_i64, "items": [{ "fieldId": "status", "to": "10001", "toString": "Terminé" }] },
+            { "created": 1_790_900_000_000_i64, "items": [{ "fieldId": "assignee", "to": "x" }, { "fieldId": "status", "to": "3", "toString": "En cours" }] }
+        ]);
+        let got = status_changes(bulk.as_array().unwrap(), &cats);
+        assert_eq!(got.iter().map(|c| c.to).collect::<Vec<_>>(), ["progress", "done"]);
+        // Named in another language back then: today's name says it waits.
+        let then = json!([{ "created": 1_791_000_000_000_i64, "items": [{ "fieldId": "status", "to": "10200", "toString": "Old name" }] }]);
+        assert_eq!(status_changes(then.as_array().unwrap(), &cats)[0].to, "waiting");
+        assert_eq!(got[0].at.timestamp_millis(), 1_790_900_000_000);
+        // One issue's changelog: dates as Jira writes them, statuses known by name only.
+        let one = json!([{ "created": "2026-10-06T09:00:00.000-0400", "items": [{ "field": "status", "to": "7", "toString": "Code Review" }] }]);
+        let got = status_changes(one.as_array().unwrap(), &HashMap::new());
+        assert_eq!((got[0].to, got[0].at.to_rfc3339().as_str()), ("review", "2026-10-06T13:00:00+00:00"));
+    }
+
+    #[test]
+    fn trello_done_is_the_last_move_into_a_done_list() {
+        // 5f0a0e80 is 2020-07-11T19:09:52Z, when the card was made.
+        let card = json!({ "id": "5f0a0e80aaaaaaaaaaaaaaaa", "shortLink": "aB3dE9fG", "url": "https://trello.com/c/aB3dE9fG/12-login", "members": [{ "fullName": "Ana" }] });
+        let cards = HashMap::from([("5f0a0e80aaaaaaaaaaaaaaaa", &card)]);
+        let acts = json!([
+            { "date": "2026-10-08T10:00:00.000Z", "data": { "card": { "id": "5f0a0e80aaaaaaaaaaaaaaaa", "name": "Login" }, "listAfter": { "name": "Done" } } },
+            { "date": "2026-10-02T10:00:00.000Z", "data": { "card": { "id": "5f0a0e80aaaaaaaaaaaaaaaa", "name": "Login" }, "listAfter": { "name": "Done" } } },
+            { "date": "2026-10-01T10:00:00.000Z", "data": { "card": { "id": "5f0a0e80aaaaaaaaaaaaaaaa", "name": "Login" }, "listAfter": { "name": "Doing" } } },
+            { "date": "2026-10-03T10:00:00.000Z", "data": { "card": { "id": "6a0000000000000000000000", "name": "Other", "shortLink": "zz" }, "listAfter": { "name": "Done" } } }
+        ]);
+        let mut got = trello_moves(&acts, &cards, "Trello · Web", Some("Me"));
+        got.sort_by(|a, b| a.key.cmp(&b.key));
+        let row: Vec<(&str, &str, &str, String)> = got.iter().map(|t| (t.key.as_str(), t.title.as_str(), t.assignee.as_str(), t.done_at.to_rfc3339())).collect();
+        assert_eq!(row, [("#aB3dE9fG", "Login", "Ana", "2026-10-08T10:00:00+00:00".to_string()), ("#zz", "Other", "Me", "2026-10-03T10:00:00+00:00".to_string())]);
+        assert_eq!(got[0].created.unwrap().to_rfc3339(), "2020-07-11T19:09:52+00:00");
+        assert_eq!(got[0].url, "https://trello.com/c/aB3dE9fG/12-login");
     }
 
     #[test]

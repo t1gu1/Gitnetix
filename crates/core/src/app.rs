@@ -5825,7 +5825,217 @@ impl Gitnetix {
         let repos = self.analytics_projects(project_ids).iter().map(|p| (p.name.clone(), Git::new(&p.path))).collect();
         crate::analytics::day(repos, date).await
     }
+
+    /// Sprint stats of the Jira connections shown in the projects in `project_ids` (empty or `"all"`: every project),
+    /// over the last `count` sprints of each board. A connection failing leaves its error next to the others' boards.
+    pub async fn sprint_report(&self, project_ids: &[String], count: usize) -> Result<crate::sprints::Report> {
+        let chosen = self.analytics_projects(project_ids);
+        let jira: Vec<crate::store::JiraConf> =
+            self.store.read(|c| c.integrations.jira.iter().filter(|j| chosen.iter().any(|p| crate::store::shows_in(&j.repos, &p.id))).cloned().collect());
+        let now = chrono::Utc::now();
+        let mut boards = Vec::new();
+        let mut errors = Vec::new();
+        for j in &jira {
+            let got = match tickets::jira_auth::token(j).await {
+                Ok(tok) => tickets::jira_sprints(j, &tok, count).await,
+                Err(e) => Err(e),
+            };
+            match got {
+                Ok((sprints, issues, names)) => {
+                    let site = j.base_url.trim_end_matches('/').trim_start_matches("https://");
+                    boards.extend(crate::sprints::boards(&j.id, site, &sprints, &issues, &names, now));
+                }
+                Err(e) => errors.push(e.to_string()),
+            }
+        }
+        if boards.is_empty() && !errors.is_empty() {
+            return Err(Error::Other(errors.join(" · ")));
+        }
+        // The code of each ticket, from a month before the first sprint shown (branches often start before their sprint),
+        // in every project the connections show in: a ticket's code can live in another repository than the one picked.
+        let first = boards.iter().flat_map(|b| &b.sprints).filter_map(|s| chrono::NaiveDate::parse_from_str(&s.start, "%Y-%m-%d").ok()).min();
+        if let Some(first) = first {
+            let keys: std::collections::HashSet<String> = boards.iter().flat_map(|b| &b.sprints).flat_map(|s| &s.tickets).map(|t| t.key.clone()).collect();
+            let linked = linked_projects(&self.store.read(|c| c.projects.clone()), &jira);
+            let code = self.ticket_code(&linked, &keys, first - chrono::Duration::days(30)).await;
+            for t in boards.iter_mut().flat_map(|b| &mut b.sprints).flat_map(|s| &mut s.tickets) {
+                t.code = code.get(&t.key).cloned();
+            }
+        }
+        Ok(crate::sprints::report(jira.len(), boards, errors))
+    }
+
+    /// Commits and branches about each of `keys` in the git history of `projects` since `since`: commits naming the
+    /// key in their message, and the commits of branches named after it or linked to it, merged and deleted ones too.
+    async fn ticket_code(&self, projects: &[Project], keys: &std::collections::HashSet<String>, since: chrono::NaiveDate) -> HashMap<String, crate::sprints::TicketCode> {
+        use crate::sprints::{TicketBranch, TicketCode, TicketCommit};
+        const FMT: &str = "--format=%H%x1f%an%x1f%aI%x1f%s%x1f%b%x1e";
+        let since = format!("--since={} 00:00", since.format("%Y-%m-%d"));
+        let mut out: HashMap<String, TicketCode> = HashMap::new();
+        let parse = |raw: &str| -> Vec<(String, String, String, String, String)> {
+            raw.split('\x1e')
+                .filter_map(|rec| {
+                    let f: Vec<&str> = rec.trim_start_matches('\n').splitn(5, '\x1f').collect();
+                    (f.len() == 5).then(|| (f[0].to_string(), f[1].to_string(), f[2].to_string(), f[3].to_string(), f[4].to_string()))
+                })
+                .collect()
+        };
+        for p in projects {
+            let git = self.git(p);
+            let default = git.default_branch().await.unwrap_or_else(|_| "main".into());
+            let origin = format!("origin/{default}");
+            let has_origin = git.run(&["rev-parse", "--verify", "--quiet", &origin]).await.is_ok_and(|o| !o.trim().is_empty());
+            // (key, what to log, branch name, still there): branches named after a key or linked to it, local and origin
+            // copies both, since either can hold commits the other lacks.
+            let mut walks: Vec<(String, Vec<String>, String, bool)> = Vec::new();
+            let mut live = std::collections::HashSet::new();
+            let refs = git.run(&["for-each-ref", "--format=%(refname:short)", "refs/heads", "refs/remotes/origin"]).await.unwrap_or_default();
+            for r in refs.lines() {
+                let name = r.strip_prefix("origin/").unwrap_or(r);
+                if name == "HEAD" || name == "origin" || name == default {
+                    continue;
+                }
+                live.insert(name.to_string());
+                let linked = p.branches.get(name).and_then(|m| m.ticket.clone());
+                for key in ticket_keys(name, true).into_iter().chain(linked).filter(|k| keys.contains(k)) {
+                    let mut range = vec![r.to_string(), format!("^{default}")];
+                    range.extend(has_origin.then(|| format!("^{origin}")));
+                    walks.push((key, range, name.to_string(), true));
+                }
+            }
+            // Merges since then: the branch each took in names its tickets, deleted since or not.
+            for l in git.run(&["log", "--all", "--merges", &since, "--format=%H%x1f%s"]).await.unwrap_or_default().lines() {
+                let Some((sha, subject)) = l.split_once('\x1f') else { continue };
+                let Some(branch) = crate::analytics::merged_branch(subject).filter(|b| !live.contains(*b)) else { continue };
+                for key in ticket_keys(branch, true).into_iter().filter(|k| keys.contains(k)) {
+                    walks.push((key, vec![format!("{sha}^1..{sha}^2")], branch.to_string(), false));
+                }
+            }
+            let commit = |sha: &str, author: &str, date: &str, subject: &str, branch: &str| TicketCommit {
+                sha: sha.chars().take(10).collect(),
+                date: date.into(),
+                author: author.into(),
+                subject: subject.into(),
+                branch: branch.into(),
+                project: p.name.clone(),
+                project_id: p.id.clone(),
+            };
+            for (key, range, name, is_live) in walks.into_iter().take(400) {
+                let args: Vec<&str> = ["log", "--no-merges", "-n", "100", FMT].into_iter().chain(range.iter().map(String::as_str)).chain(["--"]).collect();
+                let code = out.entry(key).or_default();
+                if !code.branches.iter().any(|b| b.name == name && b.project_id == p.id) {
+                    code.branches.push(TicketBranch { name: name.clone(), project: p.name.clone(), project_id: p.id.clone(), live: is_live });
+                }
+                for (sha, author, date, subject, _) in parse(&git.run(&args).await.unwrap_or_default()) {
+                    if !code.commits.iter().any(|c| sha.starts_with(&c.sha)) {
+                        code.commits.push(commit(&sha, &author, &date, &subject, &name));
+                    }
+                }
+            }
+            // Commits whose message names a key, on any branch.
+            for (sha, author, date, subject, body) in parse(&git.run(&["log", "--all", "--no-merges", &since, FMT]).await.unwrap_or_default()) {
+                for key in ticket_keys(&format!("{subject}\n{body}"), false).into_iter().filter(|k| keys.contains(k)) {
+                    let code = out.entry(key).or_default();
+                    if !code.commits.iter().any(|c| sha.starts_with(&c.sha)) {
+                        code.commits.push(commit(&sha, &author, &date, &subject, ""));
+                    }
+                }
+            }
+        }
+        for code in out.values_mut() {
+            code.commits.sort_by(|a, b| b.date.cmp(&a.date));
+            code.commits.truncate(50);
+        }
+        out
+    }
+
+    /// Tickets done per week over the last `weeks` weeks, from every tracker shown in the projects in `project_ids`
+    /// (empty or `"all"`: every project). A tracker failing leaves its error next to the others' tickets.
+    pub async fn weekly_report(&self, project_ids: &[String], weeks: usize) -> Result<crate::sprints::WeeklyReport> {
+        let chosen = self.analytics_projects(project_ids);
+        let on = |repos: &[String]| chosen.iter().any(|p| crate::store::shows_in(repos, &p.id));
+        let integ = self.store.read(|c| c.integrations.clone());
+        let now = chrono::Utc::now();
+        let since = crate::sprints::weeks_start(now, weeks);
+        let mut sources: Vec<String> = Vec::new();
+        let mut tickets = Vec::new();
+        let mut errors = Vec::new();
+        let mut keep = |source: &str, got: Result<Vec<tickets::DoneTicket>>| {
+            if !sources.iter().any(|s| s == source) {
+                sources.push(source.into());
+            }
+            match got {
+                Ok(v) => tickets.extend(v),
+                Err(e) => errors.push(e.to_string()),
+            }
+        };
+        for j in integ.jira.iter().filter(|j| on(&j.repos)) {
+            let got = match tickets::jira_auth::token(j).await {
+                Ok(tok) => tickets::jira_done(j, &tok, since).await,
+                Err(e) => Err(e),
+            };
+            keep("jira", got);
+        }
+        for t in integ.trello.iter().filter(|t| on(&t.repos)) {
+            let got = match tickets::trello_token(t).await {
+                Ok(tok) => tickets::trello_done(t, &tok, since).await,
+                Err(e) => Err(e),
+            };
+            keep("trello", got);
+        }
+        for a in integ.asana.iter().filter(|a| on(&a.repos)) {
+            let got = match tickets::asana_token(a).await {
+                Ok(tok) => tickets::asana_done(a, &tok, since).await,
+                Err(e) => Err(e),
+            };
+            keep("asana", got);
+        }
+        if tickets.is_empty() && !errors.is_empty() {
+            return Err(Error::Other(errors.join(" · ")));
+        }
+        Ok(crate::sprints::weekly(sources, tickets, errors, weeks, now))
+    }
+
+    /// `question` about the tickets on the analytics screen answered by AI from `data`, a board's sprints or the
+    /// weekly view as the screen has them (JSON), after the earlier questions and answers of `history`.
+    pub async fn ask_tickets(&self, question: &str, data: &str, history: &[(String, String)]) -> Result<String> {
+        let question = question.trim();
+        if question.is_empty() {
+            return Err(Error::Invalid("Type a question first".into()));
+        }
+        let r = self.route("analytics", None)?;
+        let mut data = data.to_string();
+        if data.len() > ASK_DATA_MAX {
+            let cut = (0..=ASK_DATA_MAX).rev().find(|i| data.is_char_boundary(*i)).unwrap_or(0);
+            data.truncate(cut);
+            data.push_str(" …(cut to fit)");
+        }
+        let earlier: String = history.iter().map(|(q, a)| format!("Question: {q}\nAnswer: {a}\n\n")).collect();
+        let today = chrono::Utc::now().format("%A, %B %-d, %Y");
+        let prompt = format!("{TICKET_QUESTION}\n\nToday is {today}.\n\nData:\n{data}\n\n{earlier}Question: {question}");
+        Ok(self.complete("analytics", &r, &prompt, None).await?.trim().to_string())
+    }
 }
+
+/// The projects any of `jira` shows in: where the code of its tickets is looked for.
+fn linked_projects(projects: &[Project], jira: &[crate::store::JiraConf]) -> Vec<Project> {
+    projects.iter().filter(|p| jira.iter().any(|j| crate::store::shows_in(&j.repos, &p.id))).cloned().collect()
+}
+
+/// Most bytes of sprint data sent along with a question.
+const ASK_DATA_MAX: usize = 150_000;
+
+/// How AI answers questions about the ticket charts.
+const TICKET_QUESTION: &str = "You answer questions about a software team's tickets, from the data below, as the analytics screen of their Git app shows it.
+
+How to read the data:
+- With `sprints`, it is a Jira board's last sprints, oldest first; `selected` names the one on screen. With `weeks`, it is the tickets done each week (Monday first, the last week still running) in Jira, Trello or Asana.
+- Work counts three ways: tickets, story points and estimated hours. `unit` is the one on screen: answer in it unless the question asks for another.
+- Per sprint, `committed` is the work in it and `completed` the work done in it, its velocity. `scopeStart`, `added` and `carried` are the work there from the start, created after it started, and brought over from an earlier sprint. `leftEstimate` and `leftRemaining` are the original and remaining estimates, in hours, of the tickets not completed. `bugsFixed` counts the bugs completed. `workdays` and `workdaysDone` count its working days and those begun so far. `cycleMedian` and `cycleP85` are the hours from start to done that half and 85% of its completed tickets took at most.
+- `people` splits the same per assignee and `burndown` gives the work left at the end of each day next to the ideal line. `tickets` lists each ticket with its status, `cycleHours` (start to done), `ageHours` (time since it started, still open), `stages` (hours in each status) and `code` (the commits and branches about it). Only the selected sprint and the one before it list their tickets and days.
+- In the weekly view, each ticket has its `doneAt`, its `week` and `leadHours`, the hours from created to done.
+
+Answer in the language of the question. Lead with the answer, then the figures behind it, in short Markdown: a list or a small table when it helps. Use only this data. When it cannot answer, say what is missing.";
 
 /// Branch types, by prefix, with the spellings people also use for them.
 const KINDS: &[(&str, &[&str])] = &[
@@ -6130,6 +6340,55 @@ fn fix_version_release(fix_versions: &[String], releases: &[Release]) -> Option<
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ticket_code_is_looked_for_in_every_project_jira_shows_in() {
+        let p = |id: &str| Project { id: id.into(), ..Default::default() };
+        let projects = [p("cms"), p("api"), p("web"), p("other")];
+        let jira = |repos: &[&str]| crate::store::JiraConf { repos: repos.iter().map(|r| r.to_string()).collect(), ..Default::default() };
+        let ids = |v: Vec<Project>| v.into_iter().map(|p| p.id).collect::<Vec<_>>();
+        assert_eq!(ids(linked_projects(&projects, &[jira(&["cms", "api", "web"])])), ["cms", "api", "web"]);
+        // A connection limited to no project shows in all of them.
+        assert_eq!(ids(linked_projects(&projects, &[jira(&["cms"]), jira(&[])])).len(), 4);
+        assert!(linked_projects(&projects, &[]).is_empty());
+    }
+
+    #[tokio::test]
+    async fn ticket_code_finds_branches_merges_and_mentions() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().join("atlas");
+        std::fs::create_dir(&repo).unwrap();
+        let sh = |args: &[&str]| assert!(std::process::Command::new("git").current_dir(&repo).args(["-c", "user.name=Ana", "-c", "user.email=a@x", "-c", "commit.gpgsign=false"]).args(args).status().unwrap().success(), "git {args:?}");
+        let commit = |m: &str| sh(&["commit", "-q", "--allow-empty", "-m", m]);
+        sh(&["init", "-q", "-b", "main"]);
+        commit("base");
+        sh(&["switch", "-qc", "fix/MNC-2-crash"]);
+        commit("guard empty feed");
+        sh(&["switch", "-q", "main"]);
+        sh(&["merge", "-q", "--no-ff", "fix/MNC-2-crash", "-m", "Merge branch 'fix/MNC-2-crash'"]);
+        sh(&["branch", "-qD", "fix/MNC-2-crash"]);
+        commit("MNC-3: fix the title");
+        sh(&["switch", "-qc", "feat/MNC-1_login"]);
+        commit("login form");
+        commit("login api");
+        let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+        let p = Project { id: "p1".into(), name: "atlas".into(), path: repo.to_string_lossy().into(), ..Default::default() };
+        let keys = ["MNC-1", "MNC-2", "MNC-3", "MNC-9"].map(String::from).into_iter().collect();
+        let code = k.ticket_code(&[p], &keys, chrono::Utc::now().date_naive() - chrono::Duration::days(1)).await;
+        let of = |key: &str| {
+            let c = &code[key];
+            (c.commits.iter().map(|c| (c.subject.as_str(), c.branch.as_str())).collect::<Vec<_>>(), c.branches.iter().map(|b| (b.name.as_str(), b.live)).collect::<Vec<_>>())
+        };
+        let (commits, branches) = of("MNC-1");
+        assert_eq!(commits.len(), 2);
+        assert!(commits.contains(&("login form", "feat/MNC-1_login")) && commits.contains(&("login api", "feat/MNC-1_login")));
+        assert_eq!(branches, [("feat/MNC-1_login", true)]);
+        // Deleted once merged: found through its merge.
+        assert_eq!(of("MNC-2"), (vec![("guard empty feed", "fix/MNC-2-crash")], vec![("fix/MNC-2-crash", false)]));
+        assert_eq!(of("MNC-3"), (vec![("MNC-3: fix the title", "")], vec![]));
+        assert!(!code.contains_key("MNC-9"));
+        assert_eq!(code["MNC-2"].commits[0].project_id, "p1");
+    }
 
     fn commit(sha: &str, date: &str, subject: &str, body: &str) -> Commit {
         Commit {

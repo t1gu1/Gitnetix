@@ -199,6 +199,9 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("notes.publish", "Publish a release on the project's git host (GitHub, GitLab or Gitea)", "projectId, tag, target, name, body"),
     ("analytics.get", "Activity and release stats", "projectIds (empty = all) or projectId (or \"all\"), days"),
     ("analytics.day", "Commits authored on a day, with the branch each was made on", "projectIds (empty = all) or projectId (or \"all\"), date (YYYY-MM-DD)"),
+    ("analytics.sprints", "Jira sprint stats per board: velocity, burndown, hours left over, completion per person, over the last `count` sprints (2 to 12, default 6)", "projectIds (empty = all), count?"),
+    ("analytics.weekly", "Tickets done per week and per person over the last `weeks` weeks (4 to 52, default 12), from Jira, Trello and Asana", "projectIds (empty = all), weeks?"),
+    ("analytics.ask", "AI answer to a question about the ticket charts; data = the sprints or weeks on screen as JSON text, history = earlier questions and answers", "question, data, history?: [{question, answer}]"),
 ];
 
 fn s(v: &Value, k: &str) -> Result<String> {
@@ -382,7 +385,7 @@ fn avatars_are_an_emoji_a_photo_or_a_gravatar_email() {
 }
 
 /// Reads polled all the time: logged only when they fail.
-const QUIET: &[&str] = &[".info", ".get", ".list", ".overview", ".files", ".diff", ".blobs", ".commits", ".catalog", ".statuses", ".versions", ".projects", ".refs", ".range", ".preview", ".clear", "analytics.day", "shell.write", "shell.resize", "shell.scripts", "ui.setView", "github.signInPoll", "azure.signInPoll", "gitlab.signInPoll", "github.repos", "gitlab.repos", "bitbucket.repos", "gitea.repos"];
+const QUIET: &[&str] = &[".info", ".get", ".list", ".overview", ".files", ".diff", ".blobs", ".commits", ".catalog", ".statuses", ".versions", ".projects", ".refs", ".range", ".preview", ".clear", "analytics.day", "analytics.sprints", "analytics.weekly", "shell.write", "shell.resize", "shell.scripts", "ui.setView", "github.signInPoll", "azure.signInPoll", "gitlab.signInPoll", "github.repos", "gitlab.repos", "bitbucket.repos", "gitea.repos"];
 
 /// Actions in flight.
 static BUSY: std::sync::Mutex<usize> = std::sync::Mutex::new(0);
@@ -1509,6 +1512,24 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
         "analytics.day" => {
             let date = chrono::NaiveDate::parse_from_str(&s(&p, "date")?, "%Y-%m-%d").map_err(|_| Error::Invalid("date must be YYYY-MM-DD".into()))?;
             to(k.analytics_day(&project_ids(&p), date).await)
+        }
+        "analytics.sprints" => {
+            let count = p.get("count").and_then(Value::as_u64).unwrap_or(6).clamp(2, 12) as usize;
+            to(k.sprint_report(&project_ids(&p), count).await?)
+        }
+        "analytics.ask" => {
+            let history: Vec<(String, String)> = p
+                .get("history")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .map(|h| (h["question"].as_str().unwrap_or("").to_string(), h["answer"].as_str().unwrap_or("").to_string()))
+                .collect();
+            to(json!({ "answer": k.ask_tickets(&s(&p, "question")?, &os(&p, "data").unwrap_or_default(), &history).await? }))
+        }
+        "analytics.weekly" => {
+            let weeks = p.get("weeks").and_then(Value::as_u64).unwrap_or(12).clamp(4, 52) as usize;
+            to(k.weekly_report(&project_ids(&p), weeks).await?)
         }
 
         other => Err(Error::NotFound(format!("method {other}"))),

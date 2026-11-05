@@ -26,3 +26,16 @@ export function ago(iso: string) {
   if (s < 30 * 86400) return `${Math.floor(s / 86400)}d ago`;
   return new Date(t).toLocaleDateString();
 }
+
+/** Saves `rows` as the CSV file `name`; cells holding a comma, a quote or a line break are quoted. */
+export function downloadCsv(name: string, rows: (string | number | null | undefined)[][]) {
+  const cell = (v: string | number | null | undefined) => {
+    const s = v == null ? "" : String(v);
+    return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([rows.map((r) => r.map(cell).join(",")).join("\n")], { type: "text/csv" }));
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 60_000);
+}

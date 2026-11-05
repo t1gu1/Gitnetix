@@ -1,14 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 
-import { useAnalytics, useAnalyticsDay, useProjects } from "../api/hooks";
-import type { Analytics as A, DayCommit, ProjectSummary } from "../api/types";
+import { useAnalytics, useAnalyticsDay, useConfig, useProjects } from "../api/hooks";
+import type { Analytics as A, Config, DayCommit, ProjectSummary } from "../api/types";
 import { SEARCH_ABOVE } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
-import { Empty, ErrorBox, Header, initials, Loading, Modal, Seg } from "../components/ui";
-import { plural } from "../lib/format";
+import { Empty, EmptyState, ErrorBox, Header, initials, Loading, Modal, Seg } from "../components/ui";
+import { downloadCsv, plural } from "../lib/format";
 import { kindOf, kindOfBranch } from "../lib/kinds";
 import { useNav } from "../lib/nav";
 import { useStored } from "../lib/stored";
+import { Sprints } from "./Sprints";
+import { Weekly } from "./Weekly";
 
 const RANGES = ["7", "14", "21", "30", "90", "365"];
 
@@ -29,41 +31,89 @@ const groupOf = (subject: string) => {
   return k === "feat" || k === "fix" ? k : "other";
 };
 
+/** The trackers the chosen projects show tickets from, which name the tickets tab: Jira first, the one with sprints. */
+function trackersOf(cfg: Config | undefined, ids: string[]) {
+  const on = (repos: string[]) => repos.length === 0 || ids.some((id) => repos.includes(id));
+  const i = cfg?.integrations;
+  return [i?.jira.some((j) => on(j.repos)) && "Jira", i?.trello.some((t) => on(t.repos)) && "Trello", i?.asana.some((a) => on(a.repos)) && "Asana"].filter((x): x is string => !!x);
+}
+
+/** Words shaped like ticket keys that are not (as the backend's `extract_keys` skips them). */
+const NOT_TICKETS = ["UTF", "ISO", "SHA", "RFC", "HTTP", "TLS", "AES", "CVE", "MD", "X"];
+/** Ticket keys in a commit's subject, written in capitals there, or in the branch it was made on, in any case. */
+function keysIn(subject: string, branch: string) {
+  const found = [...(subject.match(/\b[A-Z][A-Z0-9]{1,9}-\d+\b/g) ?? []), ...(branch.toUpperCase().match(/\b[A-Z][A-Z0-9]{1,9}-\d+/g) ?? [])];
+  return [...new Set(found)].filter((k) => !NOT_TICKETS.includes(k.split("-")[0]));
+}
+
 export function Analytics() {
   const nav = useNav();
   const projects = useProjects().data ?? [];
+  const cfg = useConfig().data;
   const [days, setDays] = useStored("gnx.analytics.days", "14", (s) => (RANGES.includes(s) ? s : "14"), String);
+  const [tab, setTab] = useStored<"commits" | "tickets">("gnx.analytics.tab", "commits", (s) => (s === "tickets" ? "tickets" : "commits"), String);
+  const [view, setView] = useStored<"sprints" | "weekly">("gnx.analytics.ticketView", "sprints", (s) => (s === "weekly" ? "weekly" : "sprints"), String);
+  // The commits of a day, opened from the chart or from a ticket's code; a ticket key to open on the tickets tab.
+  const [dayOpen, setDayOpen] = useState<string | null>(null);
+  const [focus, setFocus] = useState<string | null>(null);
   // Empty means every project.
   const [ids, setIds] = useState<string[]>(nav.projectId ? [nav.projectId] : []);
   const q = useAnalytics(ids, Number(days));
   const multi = projects.length > 1 && ids.length !== 1;
-
-  const exportCsv = () => {
-    if (!q.data) return;
-    const rows = [["date", "commits"], ...q.data.days.map((d) => [d.date, String(d.total)])];
-    const blob = new Blob([rows.map((r) => r.join(",")).join("\n")], { type: "text/csv" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = `gitnetix-activity-${days}d.csv`;
-    a.click();
-  };
+  const trackers = trackersOf(cfg, ids.length ? ids : projects.map((p) => p.id));
+  const tracker = trackers.join(" · ") || "Tickets";
+  const jira = trackers.includes("Jira");
+  const views = (
+    <Seg
+      label="View"
+      value={tab}
+      onChange={setTab}
+      options={[
+        { value: "commits", label: <span className="row" style={{ gap: 6, margin: 0 }}><Icon name="commit" size={12} />Commits</span> },
+        { value: "tickets", label: <span className="row" style={{ gap: 6, margin: 0 }}><Icon name="ticket" size={12} />{tracker}</span> },
+      ]}
+    />
+  );
+  const picker = <ProjectPicker projects={projects} value={ids} onChange={setIds} />;
+  const sub = jira && <Seg label="Tickets view" value={view} onChange={setView} options={[{ value: "sprints", label: "Sprints" }, { value: "weekly", label: "Weekly" }]} />;
+  const lead = <>{views}{picker}{sub}</>;
+  const openTicket = jira ? (key: string) => { setDayOpen(null); setView("sprints"); setTab("tickets"); setFocus(key); } : undefined;
 
   return (
     <>
       <Header title="Analytics & stats" hideWide />
       <main className="page">
         <div className="col" style={{ gap: 32, maxWidth: 1200, marginInline: "auto" }}>
-          <div className="row wrap" style={{ margin: 0, gap: 12 }}>
-            <Seg label="Time range" value={days} onChange={setDays} options={RANGES.map((d) => ({ value: d, label: `${d} days` }))} />
-            <ProjectPicker projects={projects} value={ids} onChange={setIds} />
-            <span className="grow" />
-            <button className="btn" disabled={!q.data} onClick={exportCsv}>Export CSV</button>
-          </div>
-          {q.isLoading && <Loading />}
-          {q.error && <ErrorBox error={q.error} />}
-          {q.data && <Body a={q.data} ids={ids} multi={multi} />}
+          {tab === "tickets" ? (
+            trackers.length === 0 ? (
+              <>
+                <div className="row wrap" style={{ margin: 0, gap: 12 }}>{lead}</div>
+                <EmptyState icon="ticket" title="No ticket tracker connected" action={<button className="btn btn-primary btn-md" onClick={() => nav.go({ name: "menu", section: "tools" })}>Connect a tracker</button>}>
+                  Connect Jira, Trello or Asana to see the tickets done each week and per person here, and with Jira the sprints: velocity, burndown, hours left over and time from start to done.
+                </EmptyState>
+              </>
+            ) : jira && view === "sprints" ? (
+              <Sprints ids={ids} lead={lead} focus={focus} onFocused={() => setFocus(null)} onDay={(d) => { setTab("commits"); setDayOpen(d); }} onWeekly={() => setView("weekly")} />
+            ) : (
+              <Weekly ids={ids} lead={lead} trackers={tracker} />
+            )
+          ) : (
+            <>
+              <div className="row wrap" style={{ margin: 0, gap: 12 }}>
+                {views}
+                <Seg label="Time range" value={days} onChange={setDays} options={RANGES.map((d) => ({ value: d, label: `${d} days` }))} />
+                {picker}
+                <span className="grow" />
+                <button className="btn" disabled={!q.data} onClick={() => q.data && downloadCsv(`gitnetix-activity-${days}d.csv`, [["date", "commits"], ...q.data.days.map((d) => [d.date, d.total])])}>Export CSV</button>
+              </div>
+              {q.isLoading && <Loading />}
+              {q.error && <ErrorBox error={q.error} />}
+              {q.data && <Body a={q.data} multi={multi} onDay={setDayOpen} />}
+            </>
+          )}
         </div>
       </main>
+      {dayOpen && <DayModal date={dayOpen} ids={ids} multi={multi} onClose={() => setDayOpen(null)} onTicket={openTicket} />}
     </>
   );
 }
@@ -131,10 +181,9 @@ function ProjectPicker({ projects, value, onChange }: { projects: ProjectSummary
   );
 }
 
-function Body({ a, ids, multi }: { a: A; ids: string[]; multi: boolean }) {
+function Body({ a, multi, onDay }: { a: A; multi: boolean; onDay: (date: string) => void }) {
   const [hd, setHd] = useState(-1);
   const [hb, setHb] = useState(-1);
-  const [day, setDay] = useState<string | null>(null);
   const [rel, setRel] = useState<A["releases"][number] | null>(null);
   const n = a.days.length;
   const total = a.days.reduce((s, d) => s + d.total, 0);
@@ -172,7 +221,7 @@ function Body({ a, ids, multi }: { a: A; ids: string[]; multi: boolean }) {
           <div className="chart-plot" style={{ gap: n <= 30 ? 3 : n <= 90 ? 2 : 0 }} onMouseLeave={() => setHd(-1)}>
             {ticks(max).map((t) => <div key={t.top} className="chart-grid" style={{ top: `${t.top}%` }} />)}
             {a.days.map((d, i) => (
-              <button key={d.date} className={`chart-bar${d.weekend ? " weekend" : ""}${hd >= 0 && hd !== i ? " dim" : ""}`} aria-label={`${fmt(d.date, { weekday: "short", month: "short", day: "numeric" })}: ${plural(d.total, "commit")}`} onMouseEnter={() => setHd(i)} onClick={() => setDay(d.date)}>
+              <button key={d.date} className={`chart-bar${d.weekend ? " weekend" : ""}${hd >= 0 && hd !== i ? " dim" : ""}`} aria-label={`${fmt(d.date, { weekday: "short", month: "short", day: "numeric" })}: ${plural(d.total, "commit")}`} onMouseEnter={() => setHd(i)} onClick={() => onDay(d.date)}>
                 <span style={{ height: `${(d.total / max) * 100}%` }} />
               </button>
             ))}
@@ -247,14 +296,13 @@ function Body({ a, ids, multi }: { a: A; ids: string[]; multi: boolean }) {
           </div>
         )}
       </section>
-      {day && <DayModal date={day} ids={ids} multi={multi} onClose={() => setDay(null)} />}
       {rel && <ReleaseModal r={rel} multi={multi} onClose={() => setRel(null)} />}
     </div>
   );
 }
 
 /** Who did what on `date`: each person's commits by type, with the branch each was made on. */
-function DayModal({ date, ids, multi, onClose }: { date: string; ids: string[]; multi: boolean; onClose: () => void }) {
+function DayModal({ date, ids, multi, onClose, onTicket }: { date: string; ids: string[]; multi: boolean; onClose: () => void; onTicket?: (key: string) => void }) {
   const q = useAnalyticsDay(ids, date);
   const people = new Map<string, DayCommit[]>();
   for (const c of q.data ?? []) people.set(c.author, [...(people.get(c.author) ?? []), c]);
@@ -278,6 +326,9 @@ function DayModal({ date, ids, multi, onClose }: { date: string; ids: string[]; 
                 {of.map((c) => (
                   <div key={`${c.project}:${c.sha}`} className="row" style={{ gap: 8, fontSize: 12 }}>
                     <span className="mono ellipsis grow" title={c.subject}>{c.subject}</span>
+                    {onTicket && keysIn(c.subject, c.branch).map((k) => (
+                      <button key={k} className="spr-chip" data-tip={`See ${k} on the tickets tab`} onClick={() => onTicket(k)}>{k}</button>
+                    ))}
                     {multi && <span className="faint">{c.project}</span>}
                     <span className="mono faint ellipsis" style={{ maxWidth: 220 }} title={c.branch}>{c.branch || "no branch"}</span>
                   </div>

@@ -21,10 +21,12 @@ import type {
   PrDetail,
   PrSummary,
   ProjectSummary,
+  SprintReport,
   Submodule,
   Template,
   StatusOption,
   Ticket,
+  WeeklyReport,
   WorktreeView,
 } from "./types";
 import { limitLabel, shownStatus } from "../lib/agentLog";
@@ -530,6 +532,29 @@ export const useAnalyticsDay = (projectIds: string[], date: string) =>
     queryKey: ["analyticsDay", [...projectIds].sort(), date],
     queryFn: () => rpc<DayCommit[]>("analytics.day", { projectIds, date }),
     staleTime: 60_000,
+  });
+
+/** Jira sprint stats over `projectIds` (empty = every project): the last `count` sprints of each board. */
+export const useSprints = (projectIds: string[], count: number, enabled: boolean) =>
+  useQuery({
+    queryKey: ["sprints", [...projectIds].sort(), count],
+    queryFn: () => rpc<SprintReport>("analytics.sprints", { projectIds, count }),
+    enabled,
+    retry: false,
+    staleTime: 5 * 60_000,
+    // Other projects or another sprint count keep the charts on screen while they load.
+    placeholderData: (prev) => prev,
+  });
+
+/** Tickets done per week over `projectIds` (empty = every project), from every tracker they show. */
+export const useWeekly = (projectIds: string[], weeks: number, enabled: boolean) =>
+  useQuery({
+    queryKey: ["weekly", [...projectIds].sort(), weeks],
+    queryFn: () => rpc<WeeklyReport>("analytics.weekly", { projectIds, weeks }),
+    enabled,
+    retry: false,
+    staleTime: 5 * 60_000,
+    placeholderData: (prev) => prev,
   });
 
 /** Branches of a project a method (or any of several) is running on right now, wherever it was started. */

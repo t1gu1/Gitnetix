@@ -6490,6 +6490,886 @@ body:has(> .modal-scrim) #root * {
   font-variant-numeric: tabular-nums;
 }
 
+/* ---------- sprint board (analytics, Jira tab) ---------- */
+/* Series hues: the validated categorical slots 1-3, stepped for each mode. Text never wears them. */
+.spr {
+  --s1: #3987e5;
+  --s2: #d95926;
+  --s3: #199e70;
+  --s4: #c98500;
+  --s-ctx: color-mix(in srgb, var(--fg) 22%, var(--panel));
+  --s-warn: #fab219;
+  transition: opacity var(--t);
+}
+[data-theme="light"] .spr {
+  --s1: #2a78d6;
+  --s2: #eb6834;
+  --s3: #1baf7a;
+  --s4: #eda100;
+}
+/* Other projects or another sprint count: the old charts stay, faded, until the new ones come. */
+.spr[data-busy] {
+  opacity: 0.55;
+}
+.spr-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.spr-grid2 {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr);
+  gap: 16px;
+}
+.spr-grid-even {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+@media (max-width: 1000px) {
+  .spr-grid2,
+  .spr-grid-even {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 640px) {
+  .spr-meters,
+  .spr-facts.three {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.spr-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+  padding: 20px;
+}
+.spr-card-head {
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+}
+.spr-label {
+  font-size: 12px;
+}
+.spr-hero {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--s1) 7%, var(--panel)), var(--panel) 55%);
+}
+.page h2.spr-title {
+  font-size: 18px;
+  letter-spacing: -0.01em;
+}
+.spr-goal {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+}
+.spr-level {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border: 1px solid;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.spr-level {
+  color: var(--muted);
+  border-color: var(--line);
+}
+.spr-level.good {
+  color: var(--add-fg);
+  border-color: color-mix(in srgb, var(--add-fg) 40%, transparent);
+  background: var(--add-bg);
+}
+.spr-level.warn {
+  color: var(--warn-fg);
+  border-color: color-mix(in srgb, var(--warn-fg) 40%, transparent);
+  background: color-mix(in srgb, var(--warn-fg) 12%, transparent);
+}
+.spr-level.bad {
+  color: var(--del-fg);
+  border-color: color-mix(in srgb, var(--del-fg) 40%, transparent);
+  background: var(--del-bg);
+}
+.spr-meters {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 28px;
+}
+.spr-meter {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+}
+.spr-track {
+  display: block;
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+}
+.spr-track > span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  transition: width var(--t-slow) var(--ease);
+}
+.spr-track.time {
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+}
+.spr-track.time > span {
+  background: color-mix(in srgb, var(--fg) 40%, var(--panel));
+}
+.spr-track.work {
+  background: color-mix(in srgb, var(--s1) 20%, transparent);
+}
+.spr-track.work > span {
+  background: var(--s1);
+}
+.spr-say {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.spr-kpis {
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+}
+.spr-kpis .kpi .v {
+  font-size: 22px;
+  white-space: nowrap;
+}
+/* Values and short figures never break across lines; long titles give way instead. */
+.chart-tip strong,
+.spr-left-row .mono,
+.spr-left-row > svg,
+.spr-left-row .spr-keylink,
+.spr-tickets .tag,
+.spr-tickets td.num {
+  flex: none;
+  white-space: nowrap;
+}
+.spr-delta {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+}
+.spr-spark {
+  flex: none;
+}
+.spr-spark polyline {
+  fill: none;
+  stroke: var(--s-ctx);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+}
+.spr-spark circle {
+  fill: var(--s1);
+  stroke: var(--panel);
+  stroke-width: 2;
+}
+.spr-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.spr-key-l {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+/* Legend and tooltip keys mirror the marks: strokes for lines, blocks for bars and areas. */
+.spr-key {
+  display: inline-block;
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+.spr-key.line,
+.spr-key.ideal,
+.spr-key.forecast,
+.spr-key.scope,
+.spr-key.avg {
+  width: 16px;
+  height: 0;
+  border-radius: 0;
+  border-top: 2px solid var(--s1);
+}
+.spr-key.ideal {
+  border-top: 2px dashed var(--muted);
+}
+.spr-key.forecast {
+  border-top-style: dotted;
+}
+.spr-key.scope {
+  border-top: 1px solid var(--faint);
+}
+.spr-key.avg {
+  border-top: 2px dashed color-mix(in srgb, var(--fg) 60%, transparent);
+}
+.spr-key.behind {
+  background: color-mix(in srgb, var(--s-warn) 35%, transparent);
+}
+.spr-key.ctx {
+  background: var(--s-ctx);
+}
+.spr-key.s1 {
+  background: var(--s1);
+}
+.spr-key.s2 {
+  background: var(--s2);
+}
+.spr-key.s2.soft,
+.spr-bar.s2.soft {
+  background: color-mix(in srgb, var(--s2) 45%, var(--panel));
+}
+.spr-key.s3 {
+  background: var(--s3);
+}
+.spr-key.s4 {
+  background: var(--s4);
+}
+.spr-chart {
+  margin-top: 18px;
+}
+.spr-plot {
+  border-bottom-color: color-mix(in srgb, var(--fg) 22%, transparent);
+}
+.spr-chart.tall .chart-y,
+.spr-chart.tall .chart-plot {
+  height: 270px;
+}
+.spr-grid {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-top: 1px solid var(--line);
+  pointer-events: none;
+}
+.spr-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+.spr-svg path {
+  fill: none;
+  vector-effect: non-scaling-stroke;
+}
+.spr-svg .spr-area {
+  fill: var(--s1);
+  opacity: 0.1;
+}
+.spr-svg .spr-behind {
+  fill: var(--s-warn);
+  opacity: 0.3;
+}
+.spr-svg .spr-line {
+  stroke: var(--s1);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.spr-svg .spr-ideal {
+  stroke: var(--muted);
+  stroke-width: 1.5;
+  stroke-dasharray: 5 4;
+}
+.spr-svg .spr-forecast {
+  stroke: var(--s1);
+  stroke-width: 2;
+  stroke-dasharray: 1 5;
+  stroke-linecap: round;
+}
+.spr-svg .spr-scope {
+  stroke: var(--faint);
+  stroke-width: 1;
+}
+.spr-svg .spr-weekend {
+  fill: var(--fg);
+  opacity: 0.035;
+}
+.spr-today {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-left: 1px solid color-mix(in srgb, var(--fg) 30%, transparent);
+  pointer-events: none;
+}
+.spr-today > span {
+  position: absolute;
+  top: -17px;
+  transform: translateX(-50%);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.spr-dot {
+  position: absolute;
+  z-index: 2;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--s1);
+  box-shadow: 0 0 0 2px var(--panel);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+.spr-dot.ideal {
+  background: var(--muted);
+}
+.spr-cross {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-left: 1px solid color-mix(in srgb, var(--fg) 35%, transparent);
+  pointer-events: none;
+}
+.spr-hit {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 1;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: default;
+}
+.spr-hit:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+.spr-plot .chart-tip {
+  z-index: 4;
+}
+.spr-bars {
+  gap: 10px;
+  padding: 0 4px;
+}
+.spr-slot {
+  position: relative;
+  display: flex;
+  flex: 1 1 0;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 2px;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-sm) var(--r-sm) 0 0;
+  background: none;
+  transition: background var(--t-fast);
+}
+.spr-slot:hover,
+.spr-slot.sel {
+  background: color-mix(in srgb, var(--fg) 5%, transparent);
+}
+.spr-slot.dim .spr-bar,
+.spr-mini-slot.dim .spr-bar {
+  opacity: 0.35;
+}
+.spr-bar {
+  position: relative;
+  display: block;
+  width: min(20px, 42%);
+  min-height: 1px;
+  border-radius: 4px 4px 0 0;
+  transform-origin: bottom;
+  animation: bar-grow 0.5s var(--ease) both;
+  transition: opacity var(--t-fast);
+}
+.spr-bar.ctx {
+  background: var(--s-ctx);
+}
+.spr-bar.s1 {
+  background: var(--s1);
+}
+/* Still running: what is done so far, lighter until the sprint closes. */
+.spr-bar.s1.running {
+  background: color-mix(in srgb, var(--s1) 55%, var(--panel));
+}
+.spr-bar.s2 {
+  background: var(--s2);
+}
+.spr-bar.s3 {
+  background: var(--s3);
+}
+.spr-flag {
+  position: absolute;
+  bottom: calc(100% + 3px);
+  left: 50%;
+  transform: translateX(-50%);
+  color: var(--warn-fg);
+  line-height: 0;
+}
+.spr-avg {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 1;
+  border-top: 2px dashed color-mix(in srgb, var(--fg) 60%, transparent);
+  pointer-events: none;
+}
+.spr-mini-y {
+  align-self: end;
+  padding-bottom: 2px;
+  font-size: 11px;
+  color: var(--faint);
+  text-align: right;
+}
+.spr-mini {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  height: 58px;
+  margin-top: 12px;
+  padding: 0 4px;
+  border-bottom: 1px solid color-mix(in srgb, var(--fg) 22%, transparent);
+}
+.spr-mini-slot {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+  height: 100%;
+}
+.spr-mini-v {
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.spr-xl {
+  display: flex;
+  grid-column: 2;
+  gap: 10px;
+  padding: 6px 4px 0;
+}
+.spr-xl > span {
+  flex: 1 1 0;
+  overflow: hidden;
+  font-size: 11px;
+  color: var(--faint);
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.spr-xl > span.sel {
+  color: var(--fg);
+  font-weight: 600;
+}
+.spr-left-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 30px;
+  font-size: 12px;
+}
+.spr-keylink {
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--accent-fg);
+  cursor: pointer;
+}
+.spr-keylink:hover {
+  text-decoration: underline;
+}
+.spr-state {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border: 1.5px solid var(--faint);
+  border-radius: 50%;
+}
+.spr-state.done {
+  border-color: var(--add-fg);
+  background: var(--add-bg);
+  color: var(--add-fg);
+}
+.spr-heat-wrap {
+  overflow-x: auto;
+}
+.spr-heat {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 2px;
+  font-size: 12px;
+}
+.spr-heat th {
+  padding: 4px 6px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--faint);
+  text-align: center;
+  white-space: nowrap;
+}
+.spr-heat thead th.sel {
+  color: var(--fg);
+  font-weight: 600;
+}
+.spr-heat tbody th {
+  max-width: 220px;
+  padding-right: 14px;
+  font-size: 12px;
+  color: var(--fg);
+  text-align: left;
+}
+.spr-heat td {
+  min-width: 58px;
+  padding: 0;
+}
+.spr-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  width: 100%;
+  height: 34px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--r-sm);
+  font-variant-numeric: tabular-nums;
+  transition: box-shadow var(--t-fast);
+}
+.spr-cell small {
+  font-size: 11px;
+  opacity: 0.75;
+}
+.spr-cell:hover,
+.spr-cell:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--fg);
+  outline: none;
+}
+.spr-none {
+  color: var(--faint);
+  text-align: center;
+}
+.spr-heat .spr-total {
+  padding: 0 8px 0 12px;
+  white-space: nowrap;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.spr-scale {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+}
+.spr-ramp {
+  width: 140px;
+  height: 8px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--s1) 10%, var(--panel)), var(--s1));
+}
+.chart-tip.spr-float {
+  position: fixed;
+  z-index: 60;
+}
+.spr-seg {
+  display: flex;
+  gap: 2px;
+  height: 28px;
+}
+.spr-seg > span {
+  display: flex;
+  align-items: center;
+  min-width: 4px;
+  padding: 0 8px;
+  overflow: hidden;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.spr-hbar {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+}
+.spr-hbar-bar {
+  display: flex;
+  gap: 2px;
+  height: 10px;
+}
+.spr-hbar-bar > span {
+  min-width: 2px;
+}
+.spr-hbar-bar > .done {
+  background: var(--s1);
+}
+.spr-hbar-bar > .rest {
+  background: var(--s-ctx);
+}
+.spr-hbar-bar > :last-child {
+  border-radius: 0 4px 4px 0;
+}
+.spr-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 16px;
+  margin: 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.spr-facts.three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.spr-facts > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.spr-facts dt {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--faint);
+}
+.spr-facts dd {
+  margin: 0;
+  font-weight: 600;
+}
+.spr-table-wrap {
+  margin: 0 -20px -20px;
+  overflow-x: auto;
+}
+.spr-table-wrap .table th:first-child,
+.spr-table-wrap .table td:first-child {
+  padding-left: 20px;
+}
+.spr-tickets td {
+  padding: 8px 12px;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+.spr-tickets td:nth-child(2) {
+  max-width: 340px;
+  white-space: normal;
+}
+.spr-tickets tr:last-child td {
+  border-bottom: 0;
+}
+.spr-qa {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.spr-q {
+  align-self: flex-end;
+  max-width: 80%;
+  padding: 8px 12px;
+  border-radius: 12px 12px 4px 12px;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  white-space: pre-wrap;
+}
+.spr-a {
+  padding: 2px 2px 8px;
+  line-height: 1.55;
+}
+.btn.spr-suggest {
+  height: auto;
+  min-height: 28px;
+  padding: 5px 10px;
+  white-space: normal;
+  text-align: left;
+}
+.spr-bar.wide {
+  width: min(24px, 60%);
+}
+.spr-key.dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+.spr-key.q50,
+.spr-key.q85 {
+  width: 16px;
+  height: 0;
+  border-radius: 0;
+  border-top: 2px solid color-mix(in srgb, var(--fg) 55%, transparent);
+}
+.spr-key.q85 {
+  border-top-style: dashed;
+}
+.spr-quant {
+  font-size: 12px;
+  white-space: nowrap;
+}
+.spr-quant strong {
+  color: var(--fg);
+}
+.spr-flow {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: 24px;
+}
+@media (max-width: 1000px) {
+  .spr-flow {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.spr-flow-side {
+  gap: 8px;
+  min-width: 0;
+  padding-left: 20px;
+  border-left: 1px solid var(--line);
+}
+.spr-band {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-left: 1px solid var(--line);
+  pointer-events: none;
+}
+.spr-quantile {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 1;
+  border-top: 2px solid color-mix(in srgb, var(--fg) 45%, transparent);
+  pointer-events: none;
+}
+.spr-quantile.q85 {
+  border-top-style: dashed;
+}
+/* A ticket's dot: 9px, ringed in the surface so crossings stay readable, with a 24px hit area around it. */
+.spr-pt {
+  position: absolute;
+  z-index: 2;
+  width: 9px;
+  height: 9px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--s-ctx);
+  box-shadow: 0 0 0 2px var(--panel);
+  transform: translate(-50%, -50%);
+  transition: transform var(--t-fast) var(--ease);
+}
+.spr-pt::before {
+  content: "";
+  position: absolute;
+  inset: -8px;
+  border-radius: 50%;
+}
+.spr-pt.sel {
+  z-index: 3;
+  background: var(--s1);
+}
+/* Slower than the axis reaches: on its top line, hollow. */
+.spr-pt.over {
+  background: var(--panel);
+  box-shadow: inset 0 0 0 2px var(--s-ctx), 0 0 0 2px var(--panel);
+}
+.spr-pt.sel.over {
+  box-shadow: inset 0 0 0 2px var(--s1), 0 0 0 2px var(--panel);
+}
+.spr-key.dot.hollow {
+  background: none;
+  box-shadow: inset 0 0 0 2px var(--s-ctx);
+}
+.spr-pt.on,
+.spr-pt:focus-visible {
+  z-index: 4;
+  outline: none;
+  transform: translate(-50%, -50%) scale(1.5);
+}
+.spr-pt-tip {
+  z-index: 5;
+  width: 260px;
+}
+.chart-x span.sel {
+  color: var(--fg);
+  font-weight: 600;
+}
+.spr-code {
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.spr-code:hover {
+  color: var(--fg);
+  text-decoration: underline;
+}
+.spr-chip {
+  flex: none;
+  padding: 1px 6px;
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--accent-fg);
+  cursor: pointer;
+}
+.spr-chip:hover {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.spr-heat.weeks td {
+  min-width: 34px;
+}
+.spr-heat.weeks .spr-cell {
+  height: 30px;
+  padding: 0;
+}
+.spr-cell.on {
+  box-shadow: inset 0 0 0 2px var(--fg);
+}
+.spr-none-cell {
+  display: block;
+  width: 4px;
+  height: 4px;
+  margin: 0 auto;
+  border-radius: 50%;
+  background: var(--line);
+}
+@media (prefers-reduced-motion: reduce) {
+  .spr-bar,
+  .spr-track > span {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+:root[data-anim-off~="lists"] .spr-bar {
+  animation: none !important;
+}
+
 /* ---------- mobile / narrow ---------- */
 .mobile-tabs {
   display: none;
