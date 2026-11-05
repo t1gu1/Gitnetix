@@ -11,6 +11,8 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+## [0.19.1] - 2026-11-05
+
 ### Added
 - Rebases resolve conflicts for every commit they replay, including binary files that git cannot merge line by line. A second pass settles files the first pass could not resolve.
 - Rebase progress appears in the UIs as rebase run events, and `workspace.rebaseRuns` lists the runs in flight.
