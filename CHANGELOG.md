@@ -11,9 +11,15 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+### Added
+- Analytics has a new Tickets tab with Sprints and Weekly views.
+- Analytics commits can be filtered by person.
+- Commit rows in Analytics show ticket keys, and clicking a key opens the ticket.
+
 ### Fixed
 - Ask AI on the Analytics tickets tab no longer breaks the page in recent Chrome and other Chromium-based views.
 - Chart headers on the Analytics tickets tab wrap on screens under 640 px wide, so the title and its hint keep the card's width.
+- The social card now appears in Discord after it changes, because its image URL includes a content hash.
 
 ## [0.19.2] - 2026-11-06
 
