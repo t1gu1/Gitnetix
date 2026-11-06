@@ -11,6 +11,8 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+## [0.19.2] - 2026-11-06
+
 ### Added
 - GitHub issues are now a ticket source. Tickets include the open issues of a project's origin repository, using the GitHub account from Git providers.
 - Each issue takes its status from its column on a project board, or from open and closed when it is on no board. Labels show as labels, and the milestone shows as the release hint.
