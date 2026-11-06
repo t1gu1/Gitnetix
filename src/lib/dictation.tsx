@@ -289,7 +289,9 @@ function attach(field: Field, b: HTMLElement) {
     // Only on a change: touch screens re-place their mics when the page changes.
     if (field.style.getPropertyValue("--mic-w") !== w) field.style.setProperty("--mic-w", w);
     const r = field.getBoundingClientRect();
-    let [lo, hi] = [-Infinity, Infinity];
+    // The part of the page on screen: a phone's keyboard covers its bottom without resizing it, so the mic stays above the keyboard.
+    const v = visualViewport;
+    let [lo, hi] = v ? [v.offsetTop, v.offsetTop + v.height] : [-Infinity, Infinity];
     for (const c of clips) {
       const top = c.getBoundingClientRect().top + c.clientTop;
       lo = Math.max(lo, top);
@@ -347,8 +349,9 @@ function BoxMics({ phase }: { phase: Phase }) {
       for (const [f, b, { place }] of placed) {
         place();
         // Only where the box is what's seen there: not under a dialog or menu, nor in a hidden screen or scrolled out of view.
+        // The box being typed in keeps its mic: with the keyboard up, phone browsers may hit-test nothing there.
         const r = b.getBoundingClientRect();
-        const seen = f.getClientRects().length > 0 && document.elementsFromPoint(r.x + r.width / 2, r.y + r.height / 2).find((el) => !el.closest(".field-mic")) === f;
+        const seen = f.getClientRects().length > 0 && (f === document.activeElement || document.elementsFromPoint(r.x + r.width / 2, r.y + r.height / 2).find((el) => !el.closest(".field-mic")) === f);
         b.style.visibility = seen ? "" : "hidden";
       }
       if (performance.now() < until) raf = requestAnimationFrame(frame);
@@ -362,11 +365,14 @@ function BoxMics({ phase }: { phase: Phase }) {
     mo.observe(document.body, { childList: true, subtree: true, attributes: true });
     const events = ["pointerdown", "scroll", "resize", "transitionrun", "transitionend", "animationstart", "animationend"];
     for (const e of events) window.addEventListener(e, wake, { capture: true, passive: true });
+    // The keyboard opening or closing moves only the visual viewport, whose events don't reach window.
+    for (const e of ["resize", "scroll"]) visualViewport?.addEventListener(e, wake, { passive: true });
     wake();
     return () => {
       cancelAnimationFrame(raf);
       mo.disconnect();
       for (const e of events) window.removeEventListener(e, wake, { capture: true });
+      for (const e of ["resize", "scroll"]) visualViewport?.removeEventListener(e, wake);
       for (const [, , { detach }] of placed) detach();
     };
   }, [fields]);
