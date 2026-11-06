@@ -11,6 +11,19 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+### Added
+- GitHub issues are now a ticket source. Tickets include the open issues of a project's origin repository, using the GitHub account from Git providers.
+- Each issue takes its status from its column on a project board, or from open and closed when it is on no board. Labels show as labels, and the milestone shows as the release hint.
+- You can find an issue by its number, such as #128. A branch named after an issue, such as 128-crash or fix/128-crash, links to that issue.
+- Changing a ticket's status moves the card on its board, or closes or reopens the issue.
+- The weekly report adds a breakdown by label.
+
+### Changed
+- The weekly report counts issues closed as completed and skips those closed as not planned or duplicate.
+
+### Fixed
+- Field mics stay visible above the mobile keyboard in dictation.
+
 ## [0.19.1] - 2026-11-05
 
 ### Added
