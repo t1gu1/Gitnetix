@@ -9,6 +9,7 @@ import '../styles/site.css';
 import Header, { type Page } from '../components/Header';
 import Footer from '../components/Footer';
 import { u } from '../lib/changelog';
+import { ogImage } from '../lib/og';
 import { DEFAULT_THEME, resolveTheme, THEMES } from '../../../src/lib/themes';
 import { logoSvg } from '../../../src/lib/logo';
 // The hero headline's weight: preloaded so the largest text paints in its own font, not a fallback.
@@ -23,7 +24,7 @@ interface Props {
 }
 const { title, description, page, type = 'website', jsonLd = [] } = Astro.props;
 const canonical = new URL(Astro.url.pathname, Astro.site).href;
-const og = new URL(u('og.png'), Astro.site).href;
+const og = ogImage(Astro.site);
 ---
 <!doctype html>
 <html lang="en">

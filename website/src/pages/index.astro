@@ -5,6 +5,7 @@ import HeroDemo from '../components/HeroDemo';
 import Base from '../layouts/Base.astro';
 import faq from '../data/faq.json';
 import { REPO, releases, latestRelease, u } from '../lib/changelog';
+import { ogImage } from '../lib/og';
 
 const latest = await latestRelease();
 const first = releases[releases.length - 1];
@@ -39,7 +40,7 @@ const jsonLd = [
     downloadUrl: new URL(u('download/'), Astro.site).href,
     releaseNotes: new URL(u('releases/'), Astro.site).href,
     image: new URL(u('icon-192.png'), Astro.site).href,
-    screenshot: new URL(u('og.png'), Astro.site).href,
+    screenshot: ogImage(Astro.site),
     offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
     author: { '@type': 'Person', name: 'Guillaume Huard Hughes', url: 'https://adevjourney.wtf/en/' },
     sameAs: [REPO],

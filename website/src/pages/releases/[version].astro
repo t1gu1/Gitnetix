@@ -2,6 +2,7 @@
 import ReleasePage from '../../components/ReleasePage';
 import Base from '../../layouts/Base.astro';
 import { releases, longDate, summary, u, type Release } from '../../lib/changelog';
+import { ogImage } from '../../lib/og';
 
 export const getStaticPaths = () =>
   releases.map((r, i) => ({ params: { version: r.version }, props: { r, i } }));
@@ -26,7 +27,7 @@ const jsonLd = [
     description,
     datePublished: r.date,
     url,
-    image: new URL(u('og.png'), Astro.site).href,
+    image: ogImage(Astro.site),
     author: { '@type': 'Person', name: 'Guillaume Huard Hughes', url: 'https://adevjourney.wtf/en/' },
   },
 ];
