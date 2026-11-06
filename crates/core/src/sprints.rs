@@ -511,7 +511,7 @@ pub struct DoneRow {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WeeklyReport {
-    /// Trackers shown in the chosen projects: jira, trello, asana.
+    /// Trackers shown in the chosen projects: jira, trello, asana, github.
     pub sources: Vec<String>,
     /// Oldest first; the last is this week, still running.
     pub weeks: Vec<WeekStat>,
@@ -715,6 +715,7 @@ mod tests {
             source: source.into(),
             place: String::new(),
             kind: "Task".into(),
+            labels: Vec::new(),
             assignee: who.into(),
             done_at: at(at_),
             created: Some(at(at_) - Duration::hours(48)),

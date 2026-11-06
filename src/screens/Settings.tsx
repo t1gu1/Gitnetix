@@ -1059,7 +1059,7 @@ function Integrations({ cfg }: { cfg: Config }) {
     <>
       <div className="col page-intro" style={{ gap: 6 }}>
         <h1>Jira, Trello, Asana</h1>
-        <p className="muted" style={{ margin: 0 }}>Tickets show in Tickets, linked to their branch and release. Tokens go to your OS keychain.</p>
+        <p className="muted" style={{ margin: 0 }}>Tickets show in Tickets, linked to their branch and release. Tokens go to your OS keychain. GitHub issues need no connection here: a project whose origin is on GitHub shows its issues, with their project board column and labels, through the GitHub account under Git providers.</p>
       </div>
       <TicketConnections cfg={cfg} />
     </>

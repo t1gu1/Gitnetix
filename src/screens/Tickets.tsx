@@ -22,7 +22,7 @@ const STATUS: Record<Ticket["status"], [string, string]> = {
   ready: ["Ready to merge", "c-add"],
   done: ["Done", "c-add"],
 };
-const SRC = { jira: "Jira", trello: "Trello", asana: "Asana" };
+const SRC = { jira: "Jira", trello: "Trello", asana: "Asana", github: "GitHub" };
 const ADD = "\0add";
 
 export function Tickets({ initial }: { initial?: string }) {
@@ -73,7 +73,7 @@ export function Tickets({ initial }: { initial?: string }) {
           title="No ticket tracker connected"
           action={<button className="btn btn-primary btn-md" onClick={() => nav.go({ name: "menu", section: "tools" })}>Connect a tracker</button>}
         >
-          Connect Jira, Trello or Asana to see tickets here, plan them into releases and start a branch from one.
+          Connect Jira, Trello or Asana, or sign in to GitHub under Git providers for the issues of a GitHub repository, to see tickets here, plan them into releases and start a branch from one.
         </EmptyState>
       </>
     );
@@ -127,7 +127,7 @@ export function Tickets({ initial }: { initial?: string }) {
                   <span>Assigned to me</span>
                 </label>
                 {q.data?.sources.includes("jira") && (
-                  <label className="check" style={{ minHeight: 28 }} data-tip="Jira tickets in an open sprint; hides Trello and Asana">
+                  <label className="check" style={{ minHeight: 28 }} data-tip="Jira tickets in an open sprint; hides the other trackers">
                     <input type="checkbox" checked={sprint} onChange={() => setSprint(!sprint)} />
                     <span>Active sprint</span>
                   </label>
@@ -245,6 +245,7 @@ function TicketDetail({
           <span>{t.kind}</span>
           <span className="faint">·</span>
           <span>{t.whereLabel}</span>
+          {t.labels?.map((l) => <span key={l} className="tag tk-label">{l}</span>)}
           <span className="grow" />
           {t.url && (
             <button className="btn btn-sm" onClick={() => openExternal(t.url)}>

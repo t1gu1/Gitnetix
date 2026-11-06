@@ -12,8 +12,8 @@ const CLIENT_ID: &str = "Ov23liwKERI7iyaZzzMf";
 
 /// PRs, reviews, checks, contents and releases on public and private repos;
 /// read:org for team names in a PR's review requests; workflow to merge PRs
-/// that change `.github/workflows`.
-const SCOPE: &str = "repo read:org workflow";
+/// that change `.github/workflows`; project to read and move an issue's card on a project board.
+const SCOPE: &str = "repo read:org workflow project";
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]

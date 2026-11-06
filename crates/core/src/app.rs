@@ -5780,8 +5780,9 @@ impl Gitnetix {
 
     // ---------- tickets ----------
 
-    /// `mine`: only Jira tickets assigned to the user (Trello and Asana ones are always theirs).
-    /// `sprint`: only Jira tickets in an open sprint; Trello and Asana have no sprints, so none of theirs.
+    /// `mine`: only Jira and GitHub tickets assigned to the user (Trello and Asana ones are always theirs).
+    /// `sprint`: only Jira tickets in an open sprint; the others have no sprints, so none of theirs.
+    /// GitHub issues come from the project's own origin repository, with the GitHub account of Git providers.
     pub async fn tickets(&self, project_id: &str, mine: bool, sprint: bool) -> Result<Vec<TicketView>> {
         let mut p = self.store.project(project_id)?;
         let integ = self.store.read(|c| c.integrations.clone());
@@ -5791,6 +5792,12 @@ impl Gitnetix {
         // must not hide tickets from the others.
         // Each with the projects its connection shows in.
         let mut results: Vec<(&[String], std::result::Result<Vec<Ticket>, String>)> = Vec::new();
+        let here = [project_id.to_string()];
+        if !sprint {
+            if let Ok(gh) = self.github(project_id).await {
+                results.push((&here[..], tickets::github(&gh, mine).await.map_err(|e| e.to_string())));
+            }
+        }
         for j in integ.jira.iter().filter(|j| crate::store::shows_in(&j.repos, project_id)) {
             results.push((&j.repos, match tickets::jira_auth::token(j).await {
                 Ok(tok) => tickets::jira(j, &tok, mine, sprint).await.map_err(|e| e.to_string()),
@@ -5830,12 +5837,23 @@ impl Gitnetix {
             })?;
             self.changed(project_id);
         }
-        // A ticket's branch: one made for it, or one with its key in the name (feat/ATL-212_login),
+        // A ticket's branch: one made for it, or one with its key in the name (feat/ATL-212_login, fix/128-crash for GitHub's #128),
         // looked for in this project first, then in the other projects its connection shows in.
         let others = self.store.read(|c| c.projects.clone()).into_iter().filter(|q| q.id != p.id && all.iter().any(|(_, repos)| crate::store::shows_in(repos, &q.id)));
         let mut scan = Vec::new();
         for q in std::iter::once(p.clone()).chain(others) {
-            let local: Vec<(String, Vec<String>)> = self.git(&q).branches().await.unwrap_or_default().into_iter().map(|b| (ticket_keys(&b.name, true), b.name)).map(|(keys, name)| (name, keys)).collect();
+            let local: Vec<(String, Vec<String>)> = self
+                .git(&q)
+                .branches()
+                .await
+                .unwrap_or_default()
+                .into_iter()
+                .map(|b| {
+                    let mut keys = ticket_keys(&b.name, true);
+                    keys.extend(tickets::issue_key(&b.name));
+                    (b.name, keys)
+                })
+                .collect();
             scan.push((q, local));
         }
         let find = |q: &Project, local: &[(String, Vec<String>)], key: &str| {
@@ -5877,12 +5895,21 @@ impl Gitnetix {
         Ok(views)
     }
 
-    /// Ticket `key` from the connections this project shows: Jira asked for it directly, so a done
+    /// Ticket `key` from the connections this project shows: Jira and GitHub asked for it directly, so a done
     /// or unassigned ticket is found too; Trello and Asana looked up in their lists, a Trello card also by its old key.
     pub async fn ticket(&self, project_id: &str, key: &str) -> Result<Option<Ticket>> {
         let integ = self.store.read(|c| c.integrations.clone());
         let on = |repos: &[String]| crate::store::shows_in(repos, project_id);
         let mut err = None;
+        if let Some(n) = key.trim().strip_prefix('#').and_then(|n| n.parse::<u64>().ok()) {
+            if let Ok(gh) = self.github(project_id).await {
+                match gh.issue(n).await {
+                    Ok(Some(i)) => return Ok(Some(tickets::github_ticket(&i, &tickets::github_repo(&gh), ""))),
+                    Ok(None) => {}
+                    Err(e) => err = Some(e),
+                }
+            }
+        }
         if let Some(jira_key) = ticket_keys(key, true).into_iter().find(|k| k.eq_ignore_ascii_case(key.trim())) {
             let prefix = jira_key.split('-').next().unwrap_or("");
             // A connection scoped to other Jira projects cannot have it.
@@ -5932,7 +5959,9 @@ impl Gitnetix {
         let p = self.store.project(project_id)?;
         let made_for = p.branches.get(branch).and_then(|m| m.ticket.clone()).filter(|t| !t.is_empty());
         let mut keys: Vec<String> = Vec::new();
-        for k in made_for.into_iter().chain(ticket_keys(branch, true)) {
+        // Only with GitHub: `#128` would else match the Trello card numbered 128 before short links.
+        let issue = if self.github(project_id).await.is_ok() { tickets::issue_key(branch) } else { None };
+        for k in made_for.into_iter().chain(ticket_keys(branch, true)).chain(issue) {
             if !keys.iter().any(|seen| seen.eq_ignore_ascii_case(&k)) {
                 keys.push(k);
             }
@@ -5987,6 +6016,17 @@ impl Gitnetix {
                 match to {
                     Some(to) => tickets::asana_set_status(&tok, id, to).await.map(|_| vec![]),
                     None => tickets::asana_statuses(&tok, id).await,
+                }
+            }
+            "github" => {
+                let (owner, repo) = tickets::github_conn(conn).ok_or_else(|| Error::Invalid(format!("“{conn}” is not a GitHub repository")))?;
+                let number: u64 = id.parse().map_err(|_| Error::Invalid(format!("“{id}” is not a GitHub issue number")))?;
+                let api = integ.github_api.clone().filter(|s| !s.is_empty());
+                let token = secrets::require("github", "Connect GitHub in the menu, under Git providers")?;
+                let gh = GitHub::new(RepoRef { owner: owner.into(), repo: repo.into(), ..Default::default() }, token, api);
+                match to {
+                    Some(to) => tickets::github_set_status(&gh, number, to).await.map(|_| vec![]),
+                    None => tickets::github_statuses(&gh, number).await,
                 }
             }
             other => Err(Error::Invalid(format!("unknown tracker {other}"))),
@@ -6404,7 +6444,7 @@ impl Gitnetix {
     }
 
     /// Tickets done per week over the last `weeks` weeks, from every tracker shown in the projects in `project_ids`
-    /// (empty or `"all"`: every project). A tracker failing leaves its error next to the others' tickets.
+    /// (empty or `"all"`: every project) and the GitHub issues of their repositories. A tracker failing leaves its error next to the others' tickets.
     pub async fn weekly_report(&self, project_ids: &[String], weeks: usize) -> Result<crate::sprints::WeeklyReport> {
         let chosen = self.analytics_projects(project_ids);
         let on = |repos: &[String]| chosen.iter().any(|p| crate::store::shows_in(repos, &p.id));
@@ -6443,6 +6483,14 @@ impl Gitnetix {
                 Err(e) => Err(e),
             };
             keep("asana", got);
+        }
+        // Each GitHub repository once, however many of the chosen projects clone it.
+        let mut repos = std::collections::HashSet::new();
+        for p in &chosen {
+            let Ok(gh) = self.github(&p.id).await else { continue };
+            if repos.insert(tickets::github_repo(&gh)) {
+                keep("github", tickets::github_done(&gh, since).await);
+            }
         }
         if tickets.is_empty() && !errors.is_empty() {
             return Err(Error::Other(errors.join(" · ")));

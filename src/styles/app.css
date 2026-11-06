@@ -7239,6 +7239,29 @@ body:has(> .modal-scrim) #root * {
 .spr-hbar-bar > :last-child {
   border-radius: 0 4px 4px 0;
 }
+/* A label row of the weekly view: picking it lists its tickets. */
+.spr-hbar-btn {
+  width: 100%;
+  padding: 3px 6px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.spr-hbar-btn:hover,
+.spr-hbar-btn[aria-pressed="true"] {
+  background: var(--raised);
+}
+/* Labels keep their own case, unlike the other tags. */
+.tag.tk-label {
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 500;
+}
 .spr-facts {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

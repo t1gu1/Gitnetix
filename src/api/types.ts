@@ -676,11 +676,11 @@ export interface PrDetail extends PrSummary {
 
 export interface Ticket {
   key: string;
-  /** The tracker's own id: Jira key, Trello card id, Asana task gid. */
+  /** The tracker's own id: Jira key, Trello card id, Asana task gid, GitHub issue number. */
   id: string;
-  /** Id of the connection it comes from. */
+  /** Id of the connection it comes from; `owner/repo` for a GitHub issue. */
   conn: string;
-  source: "jira" | "trello" | "asana";
+  source: "jira" | "trello" | "asana" | "github";
   title: string;
   kind: string;
   status: "todo" | "progress" | "review" | "ready" | "done";
@@ -694,9 +694,11 @@ export interface Ticket {
   comments: number;
   url: string;
   whereLabel: string;
-  /** The Jira project, Trello board or Asana project it comes from. */
+  /** The Jira project, Trello board, Asana project or GitHub repository it comes from. */
   place: string;
-  /** Jira fix versions ("Versions corrigées"), as named there. */
+  /** Jira and GitHub labels. */
+  labels?: string[];
+  /** Jira fix versions ("Versions corrigées"), as named there, or the GitHub milestone. */
   fixVersions?: string[];
   /** Jira priority name. */
   priority?: string;
@@ -713,7 +715,7 @@ export interface Ticket {
   branchProject?: string | null;
 }
 
-/** A status a ticket can move to: a Jira transition, Trello list or Asana section. */
+/** A status a ticket can move to: a Jira transition, Trello list, Asana section, GitHub project board column, or closing or reopening a GitHub issue. */
 export interface StatusOption {
   id: string;
   name: string;
@@ -850,9 +852,11 @@ export interface DoneTicket {
   key: string;
   title: string;
   url: string;
-  source: "jira" | "trello" | "asana";
+  source: "jira" | "trello" | "asana" | "github";
   place: string;
   kind: string;
+  /** Jira and GitHub labels. */
+  labels?: string[];
   assignee: string;
   /** RFC 3339. */
   doneAt: string;

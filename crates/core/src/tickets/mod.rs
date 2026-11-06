@@ -1,4 +1,4 @@
-//! Tickets from Jira, Trello and Asana, normalised to one shape.
+//! Tickets from Jira, Trello, Asana and GitHub Issues, normalised to one shape.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
@@ -9,6 +9,7 @@ use serde_json::{json, Value};
 
 use crate::error::{Error, Result};
 use crate::net::client as http;
+use crate::providers::github::GitHub;
 use crate::store::{AsanaConf, Connection, JiraConf, TrelloConf};
 
 pub mod jira_auth;
@@ -17,18 +18,18 @@ pub mod oauth;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Ticket {
-    /// Jira key, `#` and a Trello card's short link (the id in its URL), `AS-` and an Asana task gid.
+    /// Jira key, `#` and a Trello card's short link (the id in its URL), `AS-` and an Asana task gid, `#` and a GitHub issue number.
     pub key: String,
     /// The key a Trello card had before short links (`#idShort`, which repeats across boards), to move saved links from.
     #[serde(skip)]
     pub old_key: Option<String>,
-    /// The tracker's own id, for changing it: Jira key, Trello card id, Asana task gid.
+    /// The tracker's own id, for changing it: Jira key, Trello card id, Asana task gid, GitHub issue number.
     #[serde(default)]
     pub id: String,
-    /// Id of the connection it comes from.
+    /// Id of the connection it comes from; `owner/repo` for a GitHub issue.
     #[serde(default)]
     pub conn: String,
-    /// jira | trello | asana
+    /// jira | trello | asana | github
     pub source: String,
     pub title: String,
     /// Story, Bug, Task, Card…
@@ -46,9 +47,12 @@ pub struct Ticket {
     pub comments: u32,
     pub url: String,
     pub where_label: String,
-    /// The Jira project, Trello board or Asana project it comes from, for switching between them.
+    /// The Jira project, Trello board, Asana project or GitHub repository it comes from, for switching between them.
     pub place: String,
-    /// Jira fix versions, as named there ("2.4.0", "v2.4.0"), to guess the release from.
+    /// Jira and GitHub labels.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub labels: Vec<String>,
+    /// Jira fix versions, as named there ("2.4.0", "v2.4.0"), or the GitHub milestone, to guess the release from.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub fix_versions: Vec<String>,
     /// Jira priority name ("High").
@@ -224,7 +228,7 @@ const JIRA_CAP: usize = 1000;
 
 /// `mine` adds `assignee = currentUser()`, so the cap can't hide the user's own tickets;
 /// `sprint` keeps only tickets in an open sprint.
-const JIRA_FIELDS: [&str; 11] = ["summary", "status", "issuetype", "assignee", "description", "comment", "project", "fixVersions", "priority", "timetracking", "parent"];
+const JIRA_FIELDS: [&str; 12] = ["summary", "status", "issuetype", "assignee", "description", "comment", "project", "fixVersions", "priority", "timetracking", "parent", "labels"];
 
 pub async fn jira(conf: &JiraConf, token: &str, mine: bool, sprint: bool) -> Result<Vec<Ticket>> {
     // The whole sprint, done tickets included, not just the user's part of it: "Assigned to me" narrows that down.
@@ -298,6 +302,7 @@ fn jira_ticket(conf: &JiraConf, i: &Value, my_id: &str) -> Ticket {
         criteria,
         comments: f["comment"]["total"].as_u64().unwrap_or(0) as u32,
         fix_versions: f["fixVersions"].as_array().into_iter().flatten().filter_map(|v| v["name"].as_str().map(String::from)).collect(),
+        labels: jira_labels(f),
         priority: f["priority"]["name"].as_str().unwrap_or("").into(),
         time_remaining: f["timetracking"]["remainingEstimate"].as_str().unwrap_or("").into(),
         time_estimate: f["timetracking"]["originalEstimate"].as_str().unwrap_or("").into(),
@@ -305,6 +310,10 @@ fn jira_ticket(conf: &JiraConf, i: &Value, my_id: &str) -> Ticket {
         parent_title: f["parent"]["fields"]["summary"].as_str().unwrap_or("").into(),
         parent_url: f["parent"]["key"].as_str().map(|k| format!("{base}/browse/{k}")).unwrap_or_default(),
     }
+}
+
+fn jira_labels(fields: &Value) -> Vec<String> {
+    fields["labels"].as_array().into_iter().flatten().filter_map(|l| l.as_str().map(String::from)).collect()
 }
 
 /// One Jira ticket by key, whatever its status or assignee. `mine` is left false: it would cost a `myself` call.
@@ -463,11 +472,14 @@ pub struct DoneTicket {
     pub key: String,
     pub title: String,
     pub url: String,
-    /// jira | trello | asana
+    /// jira | trello | asana | github
     pub source: String,
-    /// The Jira project, Trello board or Asana project it comes from.
+    /// The Jira project, Trello board, Asana project or GitHub repository it comes from.
     pub place: String,
     pub kind: String,
+    /// Jira and GitHub labels.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub labels: Vec<String>,
     pub assignee: String,
     pub done_at: DateTime<Utc>,
     pub created: Option<DateTime<Utc>>,
@@ -717,7 +729,7 @@ pub async fn jira_done(conf: &JiraConf, token: &str, since: DateTime<Utc>) -> Re
     let fields = check(jira_req(conf, token, reqwest::Method::GET, "/rest/api/3/field").send().await?, "Jira").await?;
     let points = point_fields(&fields);
     let jql = scope_jql(&format!("statusCategory = Done AND statusCategoryChangedDate >= \"{}\" ORDER BY statusCategoryChangedDate DESC", since.format("%Y-%m-%d %H:%M")), &conf.projects);
-    let mut want = vec!["summary", "status", "issuetype", "assignee", "created", "resolution", "resolutiondate", "statuscategorychangedate", "project"];
+    let mut want = vec!["summary", "status", "issuetype", "assignee", "created", "resolution", "resolutiondate", "statuscategorychangedate", "project", "labels"];
     want.extend(points.iter().map(String::as_str));
     let base = conf.base_url.trim_end_matches('/');
     let issues = jira_search(conf, token, &jql, &want, 100, SPRINT_CAP).await?;
@@ -737,6 +749,7 @@ pub async fn jira_done(conf: &JiraConf, token: &str, since: DateTime<Utc>) -> Re
                 source: "jira".into(),
                 place: format!("Jira · {}", f["project"]["name"].as_str().unwrap_or("")),
                 kind: f["issuetype"]["name"].as_str().unwrap_or("Task").into(),
+                labels: jira_labels(f),
                 assignee: f["assignee"]["displayName"].as_str().unwrap_or("Unassigned").into(),
                 done_at: done_date(f)?,
                 created: jira_date(&f["created"]),
@@ -817,6 +830,7 @@ fn trello_card(conf: &TrelloConf, c: &Value, place: &str) -> Ticket {
         .collect();
     Ticket {
         fix_versions: Vec::new(),
+        labels: Vec::new(),
         priority: String::new(),
         time_remaining: String::new(),
         time_estimate: String::new(),
@@ -912,6 +926,7 @@ fn trello_moves(actions: &Value, cards: &HashMap<&str, &Value>, place: &str, me:
                 source: "trello".into(),
                 place: place.into(),
                 kind: "Card".into(),
+                labels: Vec::new(),
                 assignee: member.unwrap_or("Unassigned").into(),
                 done_at: at,
                 // A Trello id starts with the second it was made at, in hex.
@@ -996,6 +1011,7 @@ fn asana_tickets(conf: &AsanaConf, lists: &[(Value, String)]) -> Vec<Ticket> {
             let status = if t["completed"] == true { "done" } else { status_from_name(section, "") };
             out.push(Ticket {
                 fix_versions: Vec::new(),
+                labels: Vec::new(),
                 priority: String::new(),
                 time_remaining: String::new(),
                 time_estimate: String::new(),
@@ -1081,6 +1097,7 @@ pub async fn asana_done(conf: &AsanaConf, token: &str, since: DateTime<Utc>) -> 
                     source: "asana".into(),
                     place: place.clone(),
                     kind: "Task".into(),
+                    labels: Vec::new(),
                     assignee: t["assignee"]["name"].as_str().unwrap_or("Unassigned").into(),
                     done_at: at,
                     created: jira_date(&t["created_at"]),
@@ -1103,6 +1120,173 @@ pub async fn asana_set_status(token: &str, task: &str, to: &str) -> Result<()> {
     }
     check(http().put(format!("https://app.asana.com/api/1.0/tasks/{task}")).bearer_auth(token).json(&json!({ "data": { "completed": to == ASANA_DONE } })).send().await?, "Asana").await?;
     Ok(())
+}
+
+// ---------- GitHub Issues ----------
+
+/// Most open issues listed per repository, last updated first.
+const GITHUB_CAP: usize = 500;
+
+/// `owner/repo`: a GitHub ticket's connection.
+pub fn github_repo(gh: &GitHub) -> String {
+    format!("{}/{}", gh.repo.owner, gh.repo.repo)
+}
+
+/// Owner and name of a GitHub ticket's connection (`owner/repo`), which comes from the UI: None unless both are plain
+/// names, since `..` would climb out of /repos/ in the API URL.
+pub fn github_conn(conn: &str) -> Option<(&str, &str)> {
+    let ok = |s: &str| !matches!(s, "" | "." | "..") && s.chars().all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c));
+    conn.split_once('/').filter(|(o, r)| ok(o) && ok(r))
+}
+
+/// The repository's open issues, only those assigned to the user with `mine`.
+pub async fn github(gh: &GitHub, mine: bool) -> Result<Vec<Ticket>> {
+    let me = gh.me().await?;
+    let mut filter = json!({ "states": ["OPEN"] });
+    if mine {
+        filter["assignee"] = me.as_str().into();
+    }
+    let repo = github_repo(gh);
+    Ok(gh.issues(filter, GITHUB_CAP).await?.iter().map(|i| github_ticket(i, &repo, &me)).collect())
+}
+
+fn github_labels(issue: &Value) -> Vec<String> {
+    issue["labels"]["nodes"].as_array().into_iter().flatten().filter_map(|l| l["name"].as_str().map(String::from)).collect()
+}
+
+/// The issue's type when the repository uses them, else Bug or Feature by its labels, else Issue.
+fn github_kind(issue: &Value, labels: &[String]) -> String {
+    if let Some(t) = issue["issueType"]["name"].as_str().filter(|t| !t.is_empty()) {
+        return t.into();
+    }
+    let has = |words: &[&str]| labels.iter().any(|l| words.iter().any(|w| l.to_lowercase().contains(w)));
+    if has(&["bug", "bogue", "defect", "regression"]) {
+        "Bug".into()
+    } else if has(&["enhancement", "feat", "amélior", "fonctionnalit"]) {
+        "Feature".into()
+    } else {
+        "Issue".into()
+    }
+}
+
+fn github_assignee(issue: &Value) -> String {
+    let a = &issue["assignees"]["nodes"][0];
+    a["name"].as_str().filter(|n| !n.is_empty()).or(a["login"].as_str()).unwrap_or("Unassigned").into()
+}
+
+/// A GitHub issue, as [`GitHub::issues`] reads them, as a ticket of `repo` (`owner/repo`). Its status is its column on
+/// a project board, else open or closed.
+pub fn github_ticket(i: &Value, repo: &str, me: &str) -> Ticket {
+    let number = i["number"].as_u64().unwrap_or(0);
+    let labels = github_labels(i);
+    let open = i["state"] != "CLOSED";
+    let card = i["projectItems"]["nodes"].as_array().into_iter().flatten().find(|c| c["fieldValueByName"]["name"].is_string());
+    let column = card.and_then(|c| c["fieldValueByName"]["name"].as_str());
+    let (status, label) = match (open, column) {
+        (false, _) => ("done", column.unwrap_or("Closed")),
+        (true, Some(c)) => (status_from_name(c, ""), c),
+        (true, None) => ("todo", "Open"),
+    };
+    Ticket {
+        key: format!("#{number}"),
+        old_key: None,
+        id: number.to_string(),
+        conn: repo.into(),
+        source: "github".into(),
+        title: i["title"].as_str().unwrap_or("").into(),
+        kind: github_kind(i, &labels),
+        status: status.into(),
+        status_label: label.into(),
+        assignee: github_assignee(i),
+        mine: !me.is_empty() && i["assignees"]["nodes"].as_array().into_iter().flatten().any(|a| a["login"].as_str() == Some(me)),
+        description: i["body"].as_str().unwrap_or("").into(),
+        doc: Value::Null,
+        criteria: Vec::new(),
+        comments: i["comments"]["totalCount"].as_u64().unwrap_or(0) as u32,
+        url: i["url"].as_str().unwrap_or("").into(),
+        where_label: match card {
+            Some(c) => format!("GitHub · {}", c["project"]["title"].as_str().unwrap_or(repo)),
+            None => format!("GitHub · {repo}"),
+        },
+        place: format!("GitHub · {repo}"),
+        labels,
+        fix_versions: i["milestone"]["title"].as_str().map(String::from).into_iter().collect(),
+        priority: String::new(),
+        time_remaining: String::new(),
+        time_estimate: String::new(),
+        parent_key: String::new(),
+        parent_title: String::new(),
+        parent_url: String::new(),
+    }
+}
+
+/// The repository's issues closed as completed since `since`; those closed as not planned or duplicate did no work.
+pub async fn github_done(gh: &GitHub, since: DateTime<Utc>) -> Result<Vec<DoneTicket>> {
+    // `since` is when an issue was last updated, which closing it does.
+    let filter = json!({ "states": ["CLOSED"], "since": since.to_rfc3339_opts(SecondsFormat::Secs, true) });
+    let repo = github_repo(gh);
+    Ok(gh.issues(filter, SPRINT_CAP).await?.iter().filter_map(|i| github_done_ticket(i, &repo, since)).collect())
+}
+
+fn github_done_ticket(i: &Value, repo: &str, since: DateTime<Utc>) -> Option<DoneTicket> {
+    let done_at = jira_date(&i["closedAt"]).filter(|at| *at >= since)?;
+    if matches!(i["stateReason"].as_str(), Some("NOT_PLANNED" | "DUPLICATE")) {
+        return None;
+    }
+    let labels = github_labels(i);
+    Some(DoneTicket {
+        key: format!("#{}", i["number"].as_u64()?),
+        title: i["title"].as_str().unwrap_or("").into(),
+        url: i["url"].as_str().unwrap_or("").into(),
+        source: "github".into(),
+        place: format!("GitHub · {repo}"),
+        kind: github_kind(i, &labels),
+        labels,
+        assignee: github_assignee(i),
+        done_at,
+        created: jira_date(&i["createdAt"]),
+        points: None,
+    })
+}
+
+/// The GitHub issue a branch is named after: `128-crash` (GitHub's "Create a branch"), `fix/128-crash`, or
+/// `feat/128_crash` (a branch started from issue #128 here) → `#128`.
+pub fn issue_key(branch: &str) -> Option<String> {
+    let last = branch.rsplit('/').next()?;
+    let digits = last.bytes().take_while(u8::is_ascii_digit).count();
+    (digits > 0 && matches!(last.as_bytes().get(digits), Some(b'-' | b'_'))).then(|| format!("#{}", &last[..digits]))
+}
+
+/// Where GitHub issue `number` can go: the columns of the project boards it is on, and closed or open again.
+pub async fn github_statuses(gh: &GitHub, number: u64) -> Result<Vec<StatusOption>> {
+    let (open, cards) = gh.issue_cards(number).await?;
+    let many = cards.len() > 1;
+    let mut out: Vec<StatusOption> = Vec::new();
+    for c in &cards {
+        let p = &c["project"];
+        for o in p["field"]["options"].as_array().into_iter().flatten() {
+            let name = o["name"].as_str().unwrap_or("");
+            let ids = [&p["id"], &c["id"], &p["field"]["id"], &o["id"]].map(|v| v.as_str().unwrap_or(""));
+            out.push(StatusOption {
+                id: ids.join("|"),
+                name: if many { format!("{} · {name}", p["title"].as_str().unwrap_or("")) } else { name.into() },
+                status: status_from_name(name, ""),
+            });
+        }
+    }
+    out.push(if open { StatusOption { id: "close".into(), name: "Closed".into(), status: "done" } } else { StatusOption { id: "reopen".into(), name: "Open".into(), status: "todo" } });
+    Ok(out)
+}
+
+/// Moves GitHub issue `number` to `to`, one of [`github_statuses`].
+pub async fn github_set_status(gh: &GitHub, number: u64, to: &str) -> Result<()> {
+    if to == "close" || to == "reopen" {
+        return gh.set_issue_open(number, to == "reopen").await;
+    }
+    match to.split('|').collect::<Vec<_>>()[..] {
+        [project, item, field, option] => gh.set_card_field(project, item, field, option).await,
+        _ => Err(Error::Invalid(format!("unknown GitHub status {to}"))),
+    }
 }
 
 /// Ticket keys mentioned in text ("ATL-212", "Refs ATL-212").
@@ -1312,6 +1496,53 @@ mod tests {
     async fn jira_issue_refuses_odd_keys() {
         let conf: JiraConf = serde_json::from_value(json!({ "baseUrl": "https://x.atlassian.net", "email": "a@b.c" })).unwrap();
         assert!(matches!(jira_issue(&conf, "t", "ATL-1/../../x").await, Err(Error::Invalid(_))));
+    }
+
+    #[test]
+    fn github_issue_as_ticket() {
+        let issue = json!({
+            "number": 42, "title": "Crash on save", "body": "Steps…", "url": "https://github.com/o/r/issues/42", "state": "OPEN",
+            "assignees": { "nodes": [{ "login": "ana", "name": "" }] },
+            "labels": { "nodes": [{ "name": "type: bug" }, { "name": "ui" }] },
+            "comments": { "totalCount": 3 }, "milestone": { "title": "v2.4.0" },
+            "projectItems": { "nodes": [{ "project": { "title": "Roadmap" }, "fieldValueByName": null }, { "project": { "title": "Sprint board" }, "fieldValueByName": { "name": "In review" } }] }
+        });
+        let t = github_ticket(&issue, "o/r", "ana");
+        assert_eq!((t.key.as_str(), t.id.as_str(), t.conn.as_str(), t.source.as_str()), ("#42", "42", "o/r", "github"));
+        assert_eq!((t.status.as_str(), t.status_label.as_str(), t.where_label.as_str(), t.place.as_str()), ("review", "In review", "GitHub · Sprint board", "GitHub · o/r"));
+        assert_eq!((t.kind.as_str(), t.assignee.as_str(), t.comments), ("Bug", "ana", 3));
+        assert_eq!((t.labels, t.fix_versions), (vec!["type: bug".to_string(), "ui".into()], vec!["v2.4.0".to_string()]));
+        assert!(t.mine && !github_ticket(&issue, "o/r", "bob").mine);
+        // Without a board: open or closed; the issue type wins over labels.
+        let plain = json!({ "number": 7, "state": "OPEN", "issueType": { "name": "Task" }, "labels": { "nodes": [{ "name": "enhancement" }] } });
+        let t = github_ticket(&plain, "o/r", "");
+        assert_eq!((t.status.as_str(), t.status_label.as_str(), t.kind.as_str(), t.assignee.as_str()), ("todo", "Open", "Task", "Unassigned"));
+        assert_eq!(github_kind(&json!({}), &["Enhancement".into()]), "Feature");
+    }
+
+    #[test]
+    fn github_conn_takes_plain_names_only() {
+        assert_eq!(github_conn("acme/.github"), Some(("acme", ".github")));
+        for bad in ["../x", "acme/..", "acme", "acme/r/x", "acme/r?x", "/r", "acme/"] {
+            assert_eq!(github_conn(bad), None, "{bad}");
+        }
+    }
+
+    #[test]
+    fn branches_named_after_github_issues() {
+        let got: Vec<_> = ["128-checkout-crash", "fix/128-gift-card", "feat/128_gift-card", "release/0.19.1", "feat/2fa-login", "main", "fix/128"].iter().map(|b| issue_key(b)).collect();
+        assert_eq!(got, [Some("#128".to_string()), Some("#128".into()), Some("#128".into()), None, None, None, None]);
+    }
+
+    #[test]
+    fn github_done_skips_dropped_and_old_issues() {
+        let since = DateTime::parse_from_rfc3339("2026-10-01T00:00:00Z").unwrap().with_timezone(&Utc);
+        let issue = |closed: &str, reason: &str| json!({ "number": 9, "title": "Login", "url": "u", "state": "CLOSED", "stateReason": reason, "createdAt": "2026-09-30T10:00:00Z", "closedAt": closed, "labels": { "nodes": [{ "name": "bug" }] }, "assignees": { "nodes": [{ "login": "ana", "name": "Ana B" }] } });
+        let t = github_done_ticket(&issue("2026-10-02T10:00:00Z", "COMPLETED"), "o/r", since).unwrap();
+        assert_eq!((t.key.as_str(), t.kind.as_str(), t.assignee.as_str(), t.place.as_str()), ("#9", "Bug", "Ana B", "GitHub · o/r"));
+        assert_eq!(t.labels, ["bug"]);
+        assert!(github_done_ticket(&issue("2026-10-02T10:00:00Z", "NOT_PLANNED"), "o/r", since).is_none());
+        assert!(github_done_ticket(&issue("2026-09-30T12:00:00Z", "COMPLETED"), "o/r", since).is_none());
     }
 
     #[test]

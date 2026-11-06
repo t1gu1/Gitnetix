@@ -152,11 +152,11 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("prs.react", "Add or remove a reaction", "projectId, subjectId, content, add"),
     ("prs.draftReply", "AI-drafted reply for a thread; with draft, that started reply polished instead (editing = id of the comment it rewrites)", "projectId, number, threadId, draft?, editing?"),
     ("prs.draftReview", "AI-drafted review summary", "projectId, number"),
-    ("tickets.list", "Tickets from Jira, Trello, Asana with their release; mine = only the user's Jira tickets, sprint = only Jira tickets in an open sprint", "projectId, mine?, sprint?"),
+    ("tickets.list", "Tickets from Jira, Trello, Asana and the GitHub issues of the project's repository, with their release; mine = only the user's Jira and GitHub tickets, sprint = only Jira tickets in an open sprint", "projectId, mine?, sprint?"),
     ("tickets.get", "One ticket with its full description, by key or by the branch linked to it; null when none", "projectId, key? | branch?"),
     ("tickets.setRelease", "Plan a ticket into a release", "projectId, key, release"),
     ("tickets.triage", "AI suggestions for unplanned tickets", "projectId"),
-    ("tickets.statuses", "Statuses a ticket can move to (Jira transitions, Trello lists, Asana sections)", "source, conn, id"),
+    ("tickets.statuses", "Statuses a ticket can move to (Jira transitions, Trello lists, Asana sections, GitHub project board columns and closed/open)", "source, conn, id"),
     ("tickets.setStatus", "Move a ticket to one of tickets.statuses", "source, conn, id, to"),
     ("jira.versions", "Versions a Jira ticket's fix version can be set to", "id (connection), key"),
     ("jira.setFixVersions", "Set a Jira ticket's fix versions to exactly these version ids; empty clears them", "id (connection), key, versions"),
@@ -1122,7 +1122,7 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
             let integ = k.store.read(|c| c.integrations.clone());
             let pid = s(&p, "projectId")?;
             let on = |repos: &Vec<String>| crate::store::shows_in(repos, &pid);
-            let sources: Vec<&str> = [
+            let mut sources: Vec<&str> = [
                 ("jira", integ.jira.iter().any(|j| on(&j.repos))),
                 ("trello", integ.trello.iter().any(|t| on(&t.repos))),
                 ("asana", integ.asana.iter().any(|a| on(&a.repos))),
@@ -1131,6 +1131,10 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
                 .filter(|(_, on)| *on)
                 .map(|(n, _)| n)
                 .collect();
+            // The issues of a GitHub origin, with the account of Git providers.
+            if k.github(&pid).await.is_ok() {
+                sources.push("github");
+            }
             if sources.is_empty() {
                 return to(json!({ "sources": [], "tickets": [] }));
             }

@@ -35,7 +35,8 @@ const groupOf = (subject: string) => {
 function trackersOf(cfg: Config | undefined, ids: string[]) {
   const on = (repos: string[]) => repos.length === 0 || ids.some((id) => repos.includes(id));
   const i = cfg?.integrations;
-  return [i?.jira.some((j) => on(j.repos)) && "Jira", i?.trello.some((t) => on(t.repos)) && "Trello", i?.asana.some((a) => on(a.repos)) && "Asana"].filter((x): x is string => !!x);
+  // shortcut: GitHub as soon as it is signed in, whether the chosen projects are on GitHub or not; ask the backend if it misleads.
+  return [i?.jira.some((j) => on(j.repos)) && "Jira", i?.trello.some((t) => on(t.repos)) && "Trello", i?.asana.some((a) => on(a.repos)) && "Asana", i?.githubConnected && "GitHub"].filter((x): x is string => !!x);
 }
 
 /** Words shaped like ticket keys that are not (as the backend's `extract_keys` skips them). */
@@ -112,7 +113,7 @@ export function Analytics() {
               <>
                 <div className="row wrap" style={{ margin: 0, gap: 12 }}>{lead}</div>
                 <EmptyState icon="ticket" title="No ticket tracker connected" action={<button className="btn btn-primary btn-md" onClick={() => nav.go({ name: "menu", section: "tools" })}>Connect a tracker</button>}>
-                  Connect Jira, Trello or Asana to see the tickets done each week and per person here, and with Jira the sprints: velocity, burndown, hours left over and time from start to done.
+                  Connect Jira, Trello or Asana, or sign in to GitHub for the issues of GitHub repositories, to see the tickets done each week, per person and per label here, and with Jira the sprints: velocity, burndown, hours left over and time from start to done.
                 </EmptyState>
               </>
             ) : jira && view === "sprints" ? (

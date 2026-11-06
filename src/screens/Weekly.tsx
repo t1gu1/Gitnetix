@@ -15,7 +15,10 @@ import { useStored, useStoredList } from "../lib/stored";
 type Week = WeeklyReport["weeks"][number];
 
 const WEEKS = ["8", "12", "26"];
-const SUGGESTIONS = ["Is the team finishing more or less than before?", "Who finished the most, and who the least?", "Which weeks were slow?", "How long do tickets take from created to done?", "Write a short summary for the team."];
+const SUGGESTIONS = ["Is the team finishing more or less than before?", "Who finished the most, and who the least?", "Which weeks were slow?", "How long do tickets take from created to done?", "Which labels come up most, and are bugs going up?", "Write a short summary for the team."];
+
+/** A bug by its type: "Bug", "Bogue", or a GitHub issue labelled as one. */
+const isBug = (t: { kind: string }) => /bug|bogue|défaut|defect/i.test(t.kind);
 
 /** "Nov 2 – 8", or "Oct 26 – Nov 1" across two months, for the week starting `monday`. */
 function weekLabel(monday: string) {
@@ -47,8 +50,8 @@ function personRows(r: WeeklyReport): Cell[][] {
 
 function doneRows(r: WeeklyReport): Cell[][] {
   return [
-    ["Key", "Title", "Tracker", "Where", "Type", "Assignee", "Done", "Week (Monday)", "Created", "Created to done (h)", "Points", "URL"],
-    ...r.tickets.map((t): Cell[] => [t.key, t.title, t.source, t.place, t.kind, t.assignee, t.doneAt, t.week, t.created, t.leadHours == null ? null : r2(t.leadHours), t.points, t.url]),
+    ["Key", "Title", "Tracker", "Where", "Type", "Labels", "Assignee", "Done", "Week (Monday)", "Created", "Created to done (h)", "Points", "URL"],
+    ...r.tickets.map((t): Cell[] => [t.key, t.title, t.source, t.place, t.kind, (t.labels ?? []).join("; "), t.assignee, t.doneAt, t.week, t.created, t.leadHours == null ? null : r2(t.leadHours), t.points, t.url]),
   ];
 }
 
@@ -63,6 +66,7 @@ export function Weekly({ ids, lead, trackers }: { ids: string[]; lead: ReactNode
   const [asking, setAsking] = useState(false);
   const [chat, setChat] = useState<Qa[]>([]);
   const [only, setOnly] = useState<{ name: string; week: string } | null>(null);
+  const [label, setLabel] = useState<string | null>(null);
 
   const controls = (
     <div className="row wrap" style={{ margin: 0, gap: 12 }}>
@@ -106,7 +110,8 @@ export function Weekly({ ids, lead, trackers }: { ids: string[]; lead: ReactNode
         <Figures r={r} />
         <PerWeek r={r} />
         <PerPerson r={r} only={only} onPick={setOnly} />
-        <DoneList r={r} only={only} onClear={() => setOnly(null)} />
+        <ByLabel r={r} label={label} onPick={(l) => setLabel(l === label ? null : l)} />
+        <DoneList r={r} only={only} label={label} onClear={() => { setOnly(null); setLabel(null); }} />
         {asking && (
           <Ask
             title="Ask about these weeks"
@@ -147,6 +152,7 @@ function Figures({ r }: { r: WeeklyReport }) {
   const leads = r.tickets.flatMap((t) => (t.leadHours != null ? [t.leadHours] : [])).sort((a, b) => a - b);
   const lead = rank(leads, 0.5);
   const people = totals(r);
+  const bugs = r.tickets.filter(isBug).length;
   const tiles: { label: string; value: string; sub: string; tone?: boolean }[] = [
     { label: "Done this week", value: String(cur.done), sub: prev ? `${prev.done} last week` : "First week shown" },
     { label: "Weekly average", value: String(r1(avg)), sub: `Over ${plural(full.length, "full week")}` },
@@ -154,6 +160,7 @@ function Figures({ r }: { r: WeeklyReport }) {
     { label: "Created to done", value: lead == null ? "–" : span(lead), sub: "Half the tickets took less" },
     { label: "People", value: String(people.length), sub: people[0] ? `${people[0][0]} finished the most` : "" },
     ...(r.points ? [{ label: "Points done", value: String(r1(w.reduce((a, x) => a + x.points, 0))), sub: "In the weeks shown" }] : []),
+    ...(bugs ? [{ label: "Bugs fixed", value: String(bugs), sub: `${Math.round((bugs / r.tickets.length) * 100)}% of the tickets done` }] : []),
   ];
   return (
     <section aria-label="Key figures" className="kpis spr-kpis">
@@ -278,18 +285,51 @@ function PerPerson({ r, only, onPick }: { r: WeeklyReport; only: { name: string;
   );
 }
 
-/** The tickets done, newest first; one person's week when a cell is picked. */
-function DoneList({ r, only, onClear }: { r: WeeklyReport; only: { name: string; week: string } | null; onClear: () => void }) {
-  const list = r.tickets.filter((t) => !only || (t.assignee === only.name && t.week === only.week));
+/** Tickets done per Jira or GitHub label, most first. Picking one lists its tickets below. */
+function ByLabel({ r, label, onPick }: { r: WeeklyReport; label: string | null; onPick: (l: string) => void }) {
+  const m = new Map<string, number>();
+  for (const t of r.tickets) for (const l of t.labels ?? []) m.set(l, (m.get(l) ?? 0) + 1);
+  if (!m.size) return null;
+  const all = [...m].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  const top = all.slice(0, 12);
+  const none = r.tickets.filter((t) => !t.labels?.length).length;
+  return (
+    <Card
+      title="Done by label"
+      hint={`Pick a label to list its tickets.${none ? ` ${plural(none, "ticket")} without a label.` : ""}`}
+      rows={[["Label", "Tickets done"], ...all.map(([l, c]): Cell[] => [l, c])]}
+      file="gitnetix-done-by-label.csv"
+    >
+      <div className="col" style={{ gap: 4 }}>
+        {top.map(([l, c]) => (
+          <button key={l} className="spr-hbar spr-hbar-btn" aria-pressed={label === l} data-tip={`${l}: ${plural(c, "ticket")} · ${Math.round((c / r.tickets.length) * 100)}% of the tickets done`} onClick={() => onPick(l)}>
+            <span className="ellipsis">{l}</span>
+            <span className="spr-hbar-bar" style={{ width: `${Math.max(2, (c / top[0][1]) * 100)}%` }}>
+              <span className="done" style={{ flexGrow: 1 }} />
+            </span>
+            <span className="mono faint">{c}</span>
+          </button>
+        ))}
+        {all.length > top.length && <span className="faint" style={{ fontSize: 12 }}>The CSV holds all {all.length} labels.</span>}
+      </div>
+    </Card>
+  );
+}
+
+/** The tickets done, newest first; one person's week when a cell is picked, one label's when a label is. */
+function DoneList({ r, only, label, onClear }: { r: WeeklyReport; only: { name: string; week: string } | null; label: string | null; onClear: () => void }) {
+  const list = r.tickets.filter((t) => (!only || (t.assignee === only.name && t.week === only.week)) && (!label || t.labels?.includes(label)));
   const multi = new Set(r.tickets.map((t) => t.place)).size > 1;
+  const labels = r.tickets.some((t) => t.labels?.length);
+  const picked = [only && `${only.name}, week of ${weekLabel(only.week)}`, label && `Label “${label}”`].filter(Boolean).join(" · ");
   return (
     <Card
       title="Tickets done"
-      hint={only ? `${only.name}, week of ${weekLabel(only.week)}` : `${plural(r.tickets.length, "ticket")} in the weeks shown`}
+      hint={picked || `${plural(r.tickets.length, "ticket")} in the weeks shown`}
       rows={doneRows(r)}
       file="gitnetix-tickets-done.csv"
       table={false}
-      right={only && <button className="btn btn-sm" onClick={onClear}><Icon name="close" size={11} />Everyone</button>}
+      right={picked && <button className="btn btn-sm" onClick={onClear}><Icon name="close" size={11} />All tickets</button>}
     >
       {list.length === 0 ? (
         <Empty>Nothing here.</Empty>
@@ -301,6 +341,7 @@ function DoneList({ r, only, onClear }: { r: WeeklyReport; only: { name: string;
                 <th>Key</th>
                 <th>Title</th>
                 {multi && <th>Where</th>}
+                {labels && <th>Labels</th>}
                 <th>Assignee</th>
                 <th>Done</th>
                 <th className="num" data-tip="From when it was created to when it was done">Created to done</th>
@@ -312,6 +353,14 @@ function DoneList({ r, only, onClear }: { r: WeeklyReport; only: { name: string;
                   <td><button className="spr-keylink" onClick={() => openExternal(t.url)} data-tip="Open it">{t.key}</button></td>
                   <td><span className="ellipsis" title={t.title}>{t.title}</span></td>
                   {multi && <td className="muted">{t.place}</td>}
+                  {labels && (
+                    <td>
+                      <span className="row" style={{ gap: 4, margin: 0, flexWrap: "nowrap" }}>
+                        {(t.labels ?? []).slice(0, 3).map((l) => <span key={l} className="tag tk-label">{l}</span>)}
+                        {(t.labels?.length ?? 0) > 3 && <span className="faint">+{t.labels!.length - 3}</span>}
+                      </span>
+                    </td>
+                  )}
                   <td>
                     <span className="row" style={{ gap: 6, margin: 0 }}>
                       <Avatar name={t.assignee} size={18} />

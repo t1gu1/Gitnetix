@@ -125,6 +125,11 @@ pub const EMOJI: &[(&str, &str)] = &[
 /// Fields of a comment, a review or a review thread's comment.
 const COMMENT: &str = "id databaseId author{login} body createdAt viewerCanUpdate reactionGroups{content viewerHasReacted reactors{totalCount}}";
 
+/// Fields of an issue as tickets read them. `projectItems` needs the project scope, `issueType` a recent GitHub.
+const ISSUE: &str = "number title body url state stateReason createdAt closedAt author{login} assignees(first:5){nodes{login name}} labels(first:20){nodes{name}} comments{totalCount} milestone{title} issueType{name} projectItems(first:5){nodes{project{title} fieldValueByName(name:\"Status\"){... on ProjectV2ItemFieldSingleSelectValue{name}}}}";
+/// [`ISSUE`] without what an older token or server can't read.
+const ISSUE_LEAN: &str = "number title body url state stateReason createdAt closedAt author{login} assignees(first:5){nodes{login name}} labels(first:20){nodes{name}} comments{totalCount} milestone{title}";
+
 fn emoji(content: &str) -> String {
     EMOJI.iter().find(|(c, _)| *c == content).map(|(_, e)| e.to_string()).unwrap_or_else(|| content.into())
 }
@@ -132,6 +137,9 @@ fn emoji(content: &str) -> String {
 /// GitHub's error message, or what to do when an organization has not approved
 /// the Gitnetix OAuth app (GitHub names the organization between backticks).
 fn explain(msg: &str) -> String {
+    if msg.contains("not been granted the required scopes") {
+        return "GitHub needs a permission Gitnetix did not ask for when you signed in. Sign in to GitHub again under Git providers.".into();
+    }
     if !msg.contains("OAuth App access restrictions") {
         return msg.into();
     }
@@ -192,13 +200,19 @@ impl GitHub {
 
     /// Nodes of a paginated connection found at `path` in the query's data,
     /// following `$after` until the last page.
-    async fn all_pages(&self, query: &str, mut vars: Value, path: &[&str]) -> Result<Vec<Value>> {
+    async fn all_pages(&self, query: &str, vars: Value, path: &[&str]) -> Result<Vec<Value>> {
+        self.pages(query, vars, path, usize::MAX).await
+    }
+
+    /// `all_pages`, stopping once it has `cap` nodes.
+    async fn pages(&self, query: &str, mut vars: Value, path: &[&str], cap: usize) -> Result<Vec<Value>> {
         let mut out = Vec::new();
         loop {
             let d = self.gql(query, vars.clone()).await?;
             let conn = path.iter().fold(&d, |v, k| &v[*k]);
             out.extend(conn["nodes"].as_array().into_iter().flatten().cloned());
-            if conn["pageInfo"]["hasNextPage"] != true {
+            if conn["pageInfo"]["hasNextPage"] != true || out.len() >= cap {
+                out.truncate(cap);
                 return Ok(out);
             }
             vars["after"] = conn["pageInfo"]["endCursor"].clone();
@@ -207,6 +221,62 @@ impl GitHub {
 
     fn rp(&self) -> String {
         format!("/repos/{}/{}", self.repo.owner, self.repo.repo)
+    }
+
+    /// The repository's issues, last updated first, at most `cap`: `filter` is GitHub's `IssueFilters` (states, since,
+    /// assignee…). With their project board's Status and their issue type, else without them: the token can't read
+    /// projects (signed in before Gitnetix asked for that) or the server has no issue types.
+    pub async fn issues(&self, filter: Value, cap: usize) -> Result<Vec<Value>> {
+        let q = |fields: &str| {
+            format!("query($o:String!,$r:String!,$f:IssueFilters,$after:String){{repository(owner:$o,name:$r){{issues(first:50,after:$after,filterBy:$f,orderBy:{{field:UPDATED_AT,direction:DESC}}){{nodes{{{fields}}} pageInfo{{hasNextPage endCursor}}}}}}}}")
+        };
+        let vars = json!({ "o": self.repo.owner, "r": self.repo.repo, "f": filter });
+        match self.pages(&q(ISSUE), vars.clone(), &["repository", "issues"], cap).await {
+            Err(_) => self.pages(&q(ISSUE_LEAN), vars, &["repository", "issues"], cap).await,
+            got => got,
+        }
+    }
+
+    /// Issue `number`, as [`Self::issues`] reads them; None when the repository has no such issue (a pull request's number).
+    pub async fn issue(&self, number: u64) -> Result<Option<Value>> {
+        let q = |fields: &str| format!("query($o:String!,$r:String!,$n:Int!){{repository(owner:$o,name:$r){{issue(number:$n){{{fields}}}}}}}");
+        let vars = json!({ "o": self.repo.owner, "r": self.repo.repo, "n": number });
+        let got = match self.gql(&q(ISSUE), vars.clone()).await {
+            Err(_) => self.gql(&q(ISSUE_LEAN), vars).await,
+            got => got,
+        };
+        match got {
+            Ok(d) => Ok(Some(d["repository"]["issue"].clone()).filter(|i| !i.is_null())),
+            Err(e) if e.to_string().contains("Could not resolve") => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Whether issue `number` is open, and the cards it has on project boards with a Status field: each card's id,
+    /// its project's id and title, the field's id and its options (id, name). No cards when the token can't read projects.
+    pub async fn issue_cards(&self, number: u64) -> Result<(bool, Vec<Value>)> {
+        let cards = "projectItems(first:5){nodes{id project{id title field(name:\"Status\"){... on ProjectV2SingleSelectField{id options{id name}}}}}}";
+        let q = |more: &str| format!("query($o:String!,$r:String!,$n:Int!){{repository(owner:$o,name:$r){{issue(number:$n){{state {more}}}}}}}");
+        let vars = json!({ "o": self.repo.owner, "r": self.repo.repo, "n": number });
+        let d = match self.gql(&q(cards), vars.clone()).await {
+            Err(_) => self.gql(&q(""), vars).await?,
+            Ok(d) => d,
+        };
+        let i = &d["repository"]["issue"];
+        let cards = i["projectItems"]["nodes"].as_array().into_iter().flatten().filter(|c| c["project"]["field"]["id"].is_string()).cloned().collect();
+        Ok((i["state"] == "OPEN", cards))
+    }
+
+    /// Closes issue `number` as completed, or reopens it.
+    pub async fn set_issue_open(&self, number: u64, open: bool) -> Result<()> {
+        let body = if open { json!({ "state": "open" }) } else { json!({ "state": "closed", "state_reason": "completed" }) };
+        self.req(reqwest::Method::PATCH, &format!("{}/issues/{number}", self.rp()), Some(body)).await.map(|_| ())
+    }
+
+    /// Moves card `item` of `project` to `option` of its single-select `field` (a board column).
+    pub async fn set_card_field(&self, project: &str, item: &str, field: &str, option: &str) -> Result<()> {
+        let m = "mutation($p:ID!,$i:ID!,$f:ID!,$o:String!){updateProjectV2ItemFieldValue(input:{projectId:$p,itemId:$i,fieldId:$f,value:{singleSelectOptionId:$o}}){projectV2Item{id}}}";
+        self.gql(m, json!({ "p": project, "i": item, "f": field, "o": option })).await.map(|_| ())
     }
 
     /// Branches protected by branch protection rules or rulesets (the first 100).
@@ -569,6 +639,47 @@ mod tests {
         assert_eq!(repos.len(), 201);
         assert_eq!(repos[200].full_name, "o/r3-0");
         assert_eq!(serde_json::to_value(&repos[0]).unwrap()["sshUrl"], "git@x:o/r.git");
+    }
+
+    /// A fake GraphQL API refusing project fields (a token from before the project scope) and serving issues 50 a page.
+    #[tokio::test]
+    async fn issues_go_without_project_boards_when_the_token_cant_read_them() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let api = format!("http://{}", listener.local_addr().unwrap());
+        tokio::spawn(async move {
+            loop {
+                let (mut sock, _) = listener.accept().await.unwrap();
+                let mut req = Vec::new();
+                let mut buf = vec![0; 8192];
+                // Headers and body can come in separate reads.
+                let body = loop {
+                    let n = sock.read(&mut buf).await.unwrap();
+                    req.extend_from_slice(&buf[..n]);
+                    let text = String::from_utf8_lossy(&req).to_string();
+                    let Some((head, body)) = text.split_once("\r\n\r\n") else { continue };
+                    let len: usize = head.lines().find_map(|l| l.to_lowercase().strip_prefix("content-length:").map(|v| v.trim().parse().unwrap())).unwrap_or(0);
+                    if n == 0 || body.len() >= len {
+                        break body.to_string();
+                    }
+                };
+                let q: Value = serde_json::from_str(&body).unwrap();
+                let out = if q["query"].as_str().unwrap().contains("projectItems") {
+                    json!({ "errors": [{ "type": "INSUFFICIENT_SCOPES", "message": "Your token has not been granted the required scopes to execute this query." }] })
+                } else {
+                    let page = if q["variables"]["after"].is_null() { 0 } else { 1 };
+                    let nodes: Vec<Value> = (0..50).map(|i| json!({ "number": page * 50 + i, "state": "OPEN" })).collect();
+                    json!({ "data": { "repository": { "issues": { "nodes": nodes, "pageInfo": { "hasNextPage": true, "endCursor": "c" } } } } })
+                };
+                let body = out.to_string();
+                let res = format!("HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len());
+                sock.write_all(res.as_bytes()).await.unwrap();
+            }
+        });
+        let gh = GitHub::new(RepoRef { owner: "o".into(), repo: "r".into(), ..Default::default() }, "t".into(), Some(api));
+        let got = gh.issues(json!({ "states": ["OPEN"] }), 60).await.unwrap();
+        assert_eq!((got.len(), got[59]["number"].as_u64()), (60, Some(59)));
+        assert!(explain("Your token has not been granted the required scopes to execute this query.").contains("Sign in to GitHub again"));
     }
 
     #[test]
