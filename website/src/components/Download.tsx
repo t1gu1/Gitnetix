@@ -95,7 +95,7 @@ export default function Download({ latest, notes }: Props) {
     <ul style={{ margin: '0', paddingLeft: '20px', color: 'var(--muted)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
     <li><code>git</code> installed and on your PATH. Gitnetix drives the real git CLI.</li>
     <li>For AI: a signed-in CLI (<code>claude</code>, <code>codex</code>, <code>gemini</code>, <code>copilot</code>, <code>ollama</code>) or an API key.</li>
-    <li>For pull requests: a GitHub or Azure DevOps sign-in. No token to create.</li>
+    <li>For pull requests: a GitHub, GitLab, Bitbucket, Gitea or Azure DevOps sign-in. No token to create.</li>
     </ul>
     </div>
     <div>

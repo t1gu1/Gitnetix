@@ -176,7 +176,7 @@ export function PageHead({ title, sub, onBack }: { title: string; sub?: ReactNod
 }
 
 /** Over the demo window rather than the whole page. */
-export function Modal({ title, sub, onClose, children, footer, width }: { title: ReactNode; sub?: ReactNode; onClose: () => void; children: ReactNode; footer?: ReactNode; width?: number }) {
+export function Modal({ title, sub, onClose, children, footer, actions, width }: { title: ReactNode; sub?: ReactNode; onClose: () => void; children: ReactNode; footer?: ReactNode; actions?: ReactNode; width?: number }) {
   useEffect(() => {
     const k = (e: globalThis.KeyboardEvent) => e.key === 'Escape' && onClose();
     addEventListener('keydown', k);
@@ -190,7 +190,10 @@ export function Modal({ title, sub, onClose, children, footer, width }: { title:
             <h1>{title}</h1>
             {sub && <span className="muted" style={{ fontSize: 12 }}>{sub}</span>}
           </div>
-          <button className="btn btn-ghost btn-icon" aria-label="Close" onClick={onClose}><Icon name="close" /></button>
+          <span className="row" style={{ gap: 8, margin: '0 0 0 auto' }}>
+            {actions}
+            <button className="btn btn-ghost btn-icon" aria-label="Close" onClick={onClose}><Icon name="close" /></button>
+          </span>
         </div>
         <div className="modal-body">{children}</div>
         {footer && <div className="modal-foot">{footer}</div>}
@@ -333,4 +336,70 @@ export function Markdown({ text }: { text: string }) {
     }
   }
   return <div className="md">{blocks}</div>;
+}
+
+/** Saved picks after `next` (null: everyone): the ones checked now, and the saved ones not in `present`, as in src/components/CheckPicker.tsx. */
+export const keepAbsent = (saved: string[], present: string[], next: string[] | null) => (next ? [...saved.filter((s) => !present.includes(s)), ...next] : []);
+
+/** src/components/CheckPicker.tsx: checkboxes over `items` (`what`: their plural), every one checked while `all`, "Only" to keep one. */
+export function CheckPicker({ what, items, all, picked, onChange }: { what: string; items: { id: string; name: string; sub?: string; avatar?: boolean }[]; all: boolean; picked: string[]; onChange: (ids: string[] | null) => void }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const on = (id: string) => all || picked.includes(id);
+  const checked = items.filter((it) => on(it.id));
+  const label = all ? `All ${what}` : checked.length === 1 ? checked[0].name : `${checked.length} ${what}`;
+  const toggle = (id: string) => {
+    const next = on(id) ? checked.filter((it) => it.id !== id).map((it) => it.id) : [...checked.map((it) => it.id), id];
+    if (next.length) onChange(next);
+  };
+  useEffect(() => {
+    if (!open) return;
+    const down = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && setOpen(false);
+    const key = (e: globalThis.KeyboardEvent) => e.key === 'Escape' && setOpen(false);
+    addEventListener('mousedown', down, true);
+    addEventListener('keydown', key);
+    return () => {
+      removeEventListener('mousedown', down, true);
+      removeEventListener('keydown', key);
+    };
+  }, [open]);
+  const What = what[0].toUpperCase() + what.slice(1);
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button className="select row" style={{ height: 32, gap: 8 }} aria-haspopup="true" aria-expanded={open} onClick={() => setOpen(!open)}>
+        <span className="sr-only">{What}: </span>
+        <span className="ellipsis" style={{ maxWidth: 220 }}>{label}</span>
+        <Icon name="chevronDown" size={12} />
+      </button>
+      {open && (
+        <div className="ctx-menu" role="group" aria-label={`${What} to include`} style={{ position: 'absolute', top: 36, left: 0, minWidth: 240, maxHeight: 360, overflowY: 'auto' }}>
+          <label className="check ctx-item">
+            <input type="checkbox" checked={all} onChange={() => onChange(null)} />
+            <span className="grow ellipsis">All {what}</span>
+          </label>
+          <div className="ctx-sep" role="separator" />
+          {items.map((it) => (
+            <div key={it.id} className="ctx-row">
+              <label className="check ctx-item">
+                {/* The last one checked stays: picking no one shows nothing. */}
+                <input type="checkbox" checked={on(it.id)} disabled={on(it.id) && checked.length === 1} onChange={() => toggle(it.id)} />
+                {it.avatar && <Avatar name={it.name} size={20} />}
+                <span className="col grow" style={{ minWidth: 0, gap: 0, lineHeight: 1.25, padding: it.sub ? '4px 0' : undefined }}>
+                  <span className="ellipsis">{it.name}</span>
+                  {it.sub && <span className="faint ellipsis" style={{ fontSize: 11 }}>{it.sub}</span>}
+                </span>
+              </label>
+              {items.length > 1 && <button className="ctx-only" aria-label={`Only ${it.name}`} onClick={() => onChange([it.id])}>Only</button>}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** The tracker people to count (`who`, empty: everyone) among `everyone`, as AssigneePicker does. */
+export function AssigneePicker({ everyone, who, onChange }: { everyone: string[]; who: string[]; onChange: (who: string[]) => void }) {
+  if (everyone.length < 2 && who.length === 0) return null;
+  return <CheckPicker what="people" items={everyone.map((n) => ({ id: n, name: n, avatar: true }))} all={who.length === 0} picked={who.filter((n) => everyone.includes(n))} onChange={(v) => onChange(keepAbsent(who, everyone, v))} />;
 }

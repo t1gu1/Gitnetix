@@ -55,17 +55,17 @@ const GROUPS: { title: string; rows: [string, Cell, Cell, Cell, Cell][] }[] = [
       ['Worktrees', y(), y(), y(), n()],
       ['Stage single lines or hunks', n('Whole files only'), y(), y(), y()],
       ['Interactive rebase', n('Rebase onto the parent only'), y(), y(), y()],
-      ['Merge conflict editor', p('AI proposal you review, no 3-way editor'), y('Built-in merge tool'), y('Built-in resolver'), p('Mine, theirs, or an external tool')],
+      ['Merge conflict editor', p('AI resolves them during the rebase. No 3-way editor needed.'), y('Built-in merge tool'), y('Built-in resolver'), p('Mine, theirs, or an external tool')],
       ['Blame and file history', n(), y(), y(), y()],
       ['Git LFS', n('No UI for it'), y(), y(), y()],
-      ['Clone from the app', n('Open a local folder'), y(), y(), y()],
+      ['Clone from the app', y('From the welcome screen, over HTTPS or SSH'), y(), y(), y()],
     ],
   },
   {
     title: 'Team tools',
     rows: [
-      ['Pull requests in the app', y('GitHub and Azure DevOps. GitLab and Bitbucket not yet.'), y('GitHub, GitLab, Bitbucket, Azure DevOps (some on higher plans)'), n(), n()],
-      ['Tickets', y('Jira, Trello, Asana'), y('Jira, Trello'), p('Issue links in commits'), p('Issue links in commits')],
+      ['Pull requests in the app', y('GitHub, GitLab, Bitbucket Cloud, Gitea and Azure DevOps'), y('GitHub, GitLab, Bitbucket, Azure DevOps (some on higher plans)'), n(), n()],
+      ['Tickets', y('Jira, Trello, Asana, GitHub issues'), y('Jira, Trello'), p('Issue links in commits'), p('Issue links in commits')],
     ],
   },
 ];
@@ -100,7 +100,6 @@ export default function Compare() {
   const others = [
     ['You stage single lines or hunks, or reorder commits with interactive rebase.', 'Fork, GitKraken, Sourcetree'],
     ['You need blame, file history or Git LFS inside the app.', 'Fork, GitKraken, Sourcetree'],
-    ['Your pull requests live on GitLab or Bitbucket.', 'GitKraken'],
     ['You think best with the full commit graph in front of you.', 'Any of the three'],
     [`You want a tool with years behind it. Gitnetix shipped its first release on ${longDate(first.date)}.`, 'Any of the three'],
     ['You still work in Mercurial.', 'Sourcetree'],

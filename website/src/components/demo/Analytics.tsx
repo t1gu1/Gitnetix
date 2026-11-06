@@ -1,8 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { Icon } from '../../../../src/components/Icon';
 import { plural } from '../../../../src/lib/format';
 import { kindOf, kindOfBranch } from '../../../../src/lib/kinds';
-import { Empty, Modal, Seg } from './ui';
+import { trackersOf } from './sprintData';
+import { Sprints } from './Sprints';
+import { CheckPicker, Empty, Modal, Seg } from './ui';
+import { Weekly } from './Weekly';
 
 /** src/screens/Analytics.tsx over made-up activity: the same numbers for the same day, so the charts hold still between visits. */
 
@@ -10,13 +13,18 @@ const RANGES = ['7', '14', '21', '30', '90', '365'] as const;
 type Range = (typeof RANGES)[number];
 const PROJECTS = ['acme-web', 'acme-api', 'design-system'];
 const TEAM: Record<string, string[]> = { 'acme-web': ['Grace Hopper', 'Ana Moreau', 'Jules Laurent', 'Riya Kapoor'], 'acme-api': ['Tom Becker', 'Ana Moreau', 'Mei Lin'], 'design-system': ['Mei Lin', 'Riya Kapoor'] };
+/** Each person's commit emails, grouped under one name as the person filter shows them. */
+const EMAILS: Record<string, string[]> = {
+  'Grace Hopper': ['grace@acme.dev', 'grace.hopper@gmail.com'], 'Ana Moreau': ['ana@acme.dev'], 'Jules Laurent': ['jules@acme.dev', 'jules@laurent.fr'],
+  'Riya Kapoor': ['riya@acme.dev'], 'Tom Becker': ['tom@acme.dev'], 'Mei Lin': ['mei@acme.dev'],
+};
 /** Commits on a busy weekday. */
 const PACE: Record<string, number> = { 'acme-web': 9, 'acme-api': 6, 'design-system': 3 };
 /** [subject, branch it was made on] */
 const WORK: Record<string, [string, string][]> = {
   'acme-web': [
-    ['feat(tree): pulse along the branch path', 'feat/branch-tree'], ['fix(fetch): prune branches deleted on origin', 'fix/stale-remote'], ['feat(agents): stream steps as they run', 'feat/agent-pane'],
-    ['refactor(tree): measure rows once', 'feat/branch-tree'], ['fix(commit): keep the draft per branch', 'fix/commit-draft'], ['docs(changelog): add 0.6.0 changes', 'release/0.6.0'],
+    ['feat(tree): pulse along the branch path (WEB-212)', 'feat/branch-tree'], ['fix(fetch): prune branches deleted on origin (WEB-218)', 'fix/stale-remote'], ['feat(agents): stream steps as they run (WEB-221)', 'feat/agent-pane'],
+    ['refactor(tree): measure rows once (WEB-212)', 'feat/branch-tree'], ['fix(commit): keep the draft per branch (WEB-227)', 'fix/commit-draft'], ['docs(changelog): add 0.6.0 changes', 'release/0.6.0'],
     ['test(tree): keyboard navigation', 'feat/tree-keys'], ['style(diff): theme tokens for added lines', 'feat/diff-tokens'],
     ['feat(tree): Home and End keys', 'feat/tree-keys'], ['fix(tree): long names push the row actions out', 'fix/long-names'], ['perf(tree): skip unchanged branch views', 'release/0.6.0'],
     ['feat(tickets): suggest a release when triaging', 'feat/triage'], ['fix(agents): keep the scroll at the newest step', 'feat/agent-pane'], ['chore(deps): bump vite', 'main'],
@@ -56,8 +64,9 @@ const daysAgo = (n: number) => {
 };
 const weekend = (date: string) => [0, 6].includes(new Date(`${date}T12:00:00`).getDay());
 type DayCommit = { project: string; author: string; subject: string; branch: string };
-function commitsOn(date: string, projects: string[]): DayCommit[] {
-  return projects.flatMap((p) => {
+/** The commits of `date` in `projects`, by `who` only when someone is picked. */
+function commitsOn(date: string, projects: string[], who: string[] = []): DayCommit[] {
+  const all = projects.flatMap((p) => {
     const r = rng(`${p}:${date}`);
     const n = weekend(date) ? Math.round(r() * PACE[p] * 0.3) : Math.round(PACE[p] * (0.4 + r()));
     // A different piece of work for each commit of the day, while they last.
@@ -68,9 +77,10 @@ function commitsOn(date: string, projects: string[]): DayCommit[] {
       return { project: p, author: TEAM[p][Math.floor(r() * r() * TEAM[p].length)], subject, branch };
     });
   });
+  return who.length ? all.filter((c) => who.includes(c.author)) : all;
 }
-function day(date: string, projects: string[]) {
-  const list = commitsOn(date, projects);
+function day(date: string, projects: string[], who: string[]) {
+  const list = commitsOn(date, projects, who);
   const authors = new Map<string, number>();
   for (const c of list) authors.set(c.author, (authors.get(c.author) ?? 0) + 1);
   return { date, weekend: weekend(date), total: list.length, authors: [...authors].sort((a, b) => b[1] - a[1]), subjects: list.slice(0, 3).map((c) => c.subject) };
@@ -82,9 +92,9 @@ const median = (xs: number[]) => {
   return Math.round(s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2);
 };
 /** What src-tauri's analytics.rs computes, over the made-up history. */
-function analytics(projects: string[], n: number) {
-  const days = Array.from({ length: n }, (_, i) => day(daysAgo(n - 1 - i), projects));
-  const prev = Array.from({ length: n }, (_, i) => commitsOn(daysAgo(2 * n - 1 - i), projects).length).reduce((a, b) => a + b, 0);
+function analytics(projects: string[], n: number, who: string[]) {
+  const days = Array.from({ length: n }, (_, i) => day(daysAgo(n - 1 - i), projects, who));
+  const prev = Array.from({ length: n }, (_, i) => commitsOn(daysAgo(2 * n - 1 - i), projects, who).length).reduce((a, b) => a + b, 0);
   const total = days.reduce((s, d) => s + d.total, 0);
   const mine = RELEASES.filter((r) => projects.includes(r.project));
   const now = mine.filter((r) => r.ago < n);
@@ -113,6 +123,8 @@ const lead = (h: number) => {
 const fmt = (date: string, opts: Intl.DateTimeFormatOptions) => new Date(`${date}T12:00:00`).toLocaleDateString('en-US', opts);
 const initials = (name: string) => name.split(' ').map((w) => w[0]).join('').slice(0, 2).toUpperCase();
 const GROUPS = [['feat', 'Features'], ['fix', 'Fixes'], ['other', 'Other']] as const;
+/** Ticket keys in a commit's subject, or in the branch it was made on, as keysIn in src/screens/Analytics.tsx finds them. */
+const keysIn = (subject: string, branch: string) => [...new Set([...(subject.match(/\b[A-Z][A-Z0-9]{1,9}-\d+\b/g) ?? []), ...(branch.toUpperCase().match(/\b[A-Z][A-Z0-9]{1,9}-\d+/g) ?? [])])];
 /** `feat(ui): x` → feat; titles without a feat or fix prefix are other. */
 const groupOf = (subject: string) => {
   const k = kindOf(/^(\w+)[(!:]/.exec(subject)?.[1] ?? '');
@@ -121,10 +133,24 @@ const groupOf = (subject: string) => {
 
 export default function Analytics() {
   const [days, setDays] = useState<Range>('14');
+  const [tab, setTab] = useState<'commits' | 'tickets'>('commits');
+  const [view, setView] = useState<'sprints' | 'weekly'>('sprints');
+  // The commits of a day, opened from the chart or from a ticket's code; a ticket key to open on the tickets tab.
+  const [dayOpen, setDayOpen] = useState<string | null>(null);
+  const [focus, setFocus] = useState<string | null>(null);
   // Empty means every project.
   const [ids, setIds] = useState<string[]>(['acme-web']);
-  const a = analytics(ids.length ? ids : PROJECTS, Number(days));
+  // Names of the people counted; empty means everyone.
+  const [who, setWho] = useState<string[]>([]);
+  const chosen = ids.length ? ids : PROJECTS;
+  const people = [...new Set(chosen.flatMap((p) => TEAM[p]))].sort();
+  const picked = people.filter((p) => who.includes(p));
+  const by = who.length === 0 ? null : picked.length === 0 ? 'the people picked' : picked.length === 1 ? picked[0] : `${picked.length} people`;
+  const a = analytics(chosen, Number(days), who);
   const multi = ids.length !== 1;
+  const trackers = trackersOf(chosen);
+  const tracker = trackers.join(' · ');
+  const jira = trackers.includes('Jira');
   const exportCsv = () => {
     const rows = [['date', 'commits'], ...a.days.map((d) => [d.date, String(d.total)])];
     const link = document.createElement('a');
@@ -132,72 +158,56 @@ export default function Analytics() {
     link.download = `gitnetix-activity-${days}d.csv`;
     link.click();
   };
+  const views = (
+    <Seg
+      label="View"
+      value={tab}
+      onChange={setTab}
+      options={[
+        ['commits', <span className="row" style={{ gap: 6, margin: 0 }}><Icon name="commit" size={12} />Commits</span>],
+        ['tickets', <span className="row" style={{ gap: 6, margin: 0 }}><Icon name="ticket" size={12} />{tracker}</span>],
+      ]}
+    />
+  );
+  const picker = <CheckPicker what="projects" items={PROJECTS.map((p) => ({ id: p, name: p }))} all={ids.length === 0} picked={ids} onChange={(v) => setIds(!v || v.length === PROJECTS.length ? [] : v)} />;
+  // Picks stay when the projects change, so they count again once their people are back.
+  const whoPicker = <CheckPicker what="people" items={people.map((p) => ({ id: p, name: p, sub: EMAILS[p].join(', '), avatar: true }))} all={who.length === 0} picked={picked} onChange={(v) => setWho(v ? [...who.filter((p) => !people.includes(p)), ...v] : [])} />;
+  const sub = jira && <Seg label="Tickets view" value={view} onChange={setView} options={[['sprints', 'Sprints'], ['weekly', 'Weekly']]} />;
+  const lead = <>{views}{picker}{sub}</>;
+  const openTicket = jira ? (key: string) => { setDayOpen(null); setView('sprints'); setTab('tickets'); setFocus(key); } : undefined;
 
   return (
     <main className="page">
       <div className="col" style={{ gap: 32, maxWidth: 1200, marginInline: 'auto' }}>
-        <div className="row wrap" style={{ margin: 0, gap: 12 }}>
-          <Seg label="Time range" value={days} onChange={setDays} options={RANGES.map((d) => [d, `${d} days`])} />
-          <ProjectPicker value={ids} onChange={setIds} />
-          <span className="grow" />
-          <button className="btn" onClick={exportCsv}>Export CSV</button>
-        </div>
-        <Body a={a} ids={ids.length ? ids : PROJECTS} multi={multi} />
+        {tab === 'tickets' ? (
+          jira && view === 'sprints' ? (
+            <Sprints lead={lead} focus={focus} onFocused={() => setFocus(null)} onDay={(d) => { setTab('commits'); setDayOpen(d); }} onWeekly={() => setView('weekly')} />
+          ) : (
+            <Weekly ids={chosen} lead={lead} trackers={tracker} />
+          )
+        ) : (
+          <>
+            <div className="row wrap" style={{ margin: 0, gap: 12 }}>
+              {views}
+              <Seg label="Time range" value={days} onChange={setDays} options={RANGES.map((d) => [d, `${d} days`])} />
+              {picker}
+              {people.length > 1 && whoPicker}
+              <span className="grow" />
+              <button className="btn" onClick={exportCsv}>Export CSV</button>
+            </div>
+            <Body a={a} by={by} multi={multi} onDay={setDayOpen} />
+          </>
+        )}
       </div>
+      {dayOpen && <DayModal date={dayOpen} ids={chosen} who={who} multi={multi} onClose={() => setDayOpen(null)} onTicket={openTicket} />}
     </main>
   );
 }
 
-/** Dropdown of project checkboxes; nothing checked means all projects. */
-function ProjectPicker({ value, onChange }: { value: string[]; onChange: (ids: string[]) => void }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  const label = value.length === 0 || value.length === PROJECTS.length ? 'All projects' : value.length === 1 ? value[0] : `${value.length} projects`;
-  const toggle = (id: string) => {
-    const next = value.includes(id) ? value.filter((p) => p !== id) : [...value, id];
-    onChange(next.length === PROJECTS.length ? [] : next);
-  };
-  useEffect(() => {
-    if (!open) return;
-    const down = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && setOpen(false);
-    const key = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
-    addEventListener('mousedown', down, true);
-    addEventListener('keydown', key);
-    return () => {
-      removeEventListener('mousedown', down, true);
-      removeEventListener('keydown', key);
-    };
-  }, [open]);
-  return (
-    <div ref={ref} style={{ position: 'relative' }}>
-      <button className="select row" style={{ height: 32, gap: 8 }} aria-haspopup="true" aria-expanded={open} onClick={() => setOpen(!open)}>
-        <span className="sr-only">Projects: </span>
-        <span className="ellipsis" style={{ maxWidth: 220 }}>{label}</span>
-        <Icon name="chevronDown" size={12} />
-      </button>
-      {open && (
-        <div className="ctx-menu" role="group" aria-label="Projects to include" style={{ position: 'absolute', top: 36, left: 0, maxHeight: 360, overflowY: 'auto' }}>
-          <label className="check ctx-item">
-            <input type="checkbox" checked={value.length === 0} onChange={() => onChange([])} />
-            <span className="grow ellipsis">All projects</span>
-          </label>
-          <div className="ctx-sep" role="separator" />
-          {PROJECTS.map((p) => (
-            <label key={p} className="check ctx-item">
-              <input type="checkbox" checked={value.includes(p)} onChange={() => toggle(p)} />
-              <span className="grow ellipsis">{p}</span>
-            </label>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function Body({ a, ids, multi }: { a: A; ids: string[]; multi: boolean }) {
+/** `by`: who the commits shown are by, when not everyone. */
+function Body({ a, by, multi, onDay }: { a: A; by: string | null; multi: boolean; onDay: (date: string) => void }) {
   const [hd, setHd] = useState(-1);
   const [hb, setHb] = useState(-1);
-  const [open, setOpen] = useState<string | null>(null);
   const [rel, setRel] = useState<A['releases'][number] | null>(null);
   const n = a.days.length;
   const total = a.days.reduce((s, d) => s + d.total, 0);
@@ -226,7 +236,7 @@ function Body({ a, ids, multi }: { a: A; ids: string[]; multi: boolean }) {
         <div className="row wrap" style={{ alignItems: 'baseline' }}>
           <div className="col grow" style={{ gap: 2 }}>
             <h2>Activity, last {n} days</h2>
-            <span className="hint">Commits per day, everyone on the project</span>
+            <span className="hint">{by ? `Commits per day by ${by}` : 'Commits per day, everyone on the project'}</span>
           </div>
           <span className="muted"><strong style={{ color: 'var(--fg)' }}>{total.toLocaleString('en-US')}</strong> commits</span>
           <span className="muted"><strong style={{ color: 'var(--fg)' }}>{(Math.round((total / work) * 10) / 10).toString()}</strong> per working day</span>
@@ -236,7 +246,7 @@ function Body({ a, ids, multi }: { a: A; ids: string[]; multi: boolean }) {
           <div className="chart-plot" style={{ gap: n <= 30 ? 3 : n <= 90 ? 2 : 0 }} onMouseLeave={() => setHd(-1)}>
             {ticks(max).map((t) => <div key={t.top} className="chart-grid" style={{ top: `${t.top}%` }} />)}
             {a.days.map((d, i) => (
-              <button key={d.date} className={`chart-bar${d.weekend ? ' weekend' : ''}${hd >= 0 && hd !== i ? ' dim' : ''}`} aria-label={`${fmt(d.date, { weekday: 'short', month: 'short', day: 'numeric' })}: ${plural(d.total, 'commit')}`} onMouseEnter={() => setHd(i)} onFocus={() => setHd(i)} onClick={() => setOpen(d.date)}>
+              <button key={d.date} className={`chart-bar${d.weekend ? ' weekend' : ''}${hd >= 0 && hd !== i ? ' dim' : ''}`} aria-label={`${fmt(d.date, { weekday: 'short', month: 'short', day: 'numeric' })}: ${plural(d.total, 'commit')}`} onMouseEnter={() => setHd(i)} onFocus={() => setHd(i)} onClick={() => onDay(d.date)}>
                 <span style={{ height: `${(d.total / max) * 100}%` }} />
               </button>
             ))}
@@ -306,20 +316,19 @@ function Body({ a, ids, multi }: { a: A; ids: string[]; multi: boolean }) {
           </div>
         </div>
       </section>
-      {open && <DayModal date={open} ids={ids} multi={multi} onClose={() => setOpen(null)} />}
       {rel && <ReleaseModal r={rel} multi={multi} onClose={() => setRel(null)} />}
     </div>
   );
 }
 
 /** Who did what on `date`: each person's commits by type, with the branch each was made on. */
-function DayModal({ date, ids, multi, onClose }: { date: string; ids: string[]; multi: boolean; onClose: () => void }) {
-  const list = commitsOn(date, ids);
+function DayModal({ date, ids, who, multi, onClose, onTicket }: { date: string; ids: string[]; who: string[]; multi: boolean; onClose: () => void; onTicket?: (key: string) => void }) {
+  const list = commitsOn(date, ids, who);
   const people = new Map<string, DayCommit[]>();
   for (const c of list) people.set(c.author, [...(people.get(c.author) ?? []), c]);
   return (
     <Modal title={fmt(date, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })} sub={plural(list.length, 'commit')} onClose={onClose} width={720}>
-      {list.length === 0 && <Empty>No commits this day.</Empty>}
+      {list.length === 0 && <Empty>{who.length ? 'No commits by the people picked this day.' : 'No commits this day.'}</Empty>}
       {[...people].sort((x, y) => y[1].length - x[1].length).map(([name, of]) => (
         <section key={name} className="col" style={{ gap: 8 }}>
           <div className="row">
@@ -335,6 +344,9 @@ function DayModal({ date, ids, multi, onClose }: { date: string; ids: string[]; 
                 {mine.map((c, i) => (
                   <div key={i} className="row" style={{ gap: 8, fontSize: 12 }}>
                     <span className="mono ellipsis grow" title={c.subject}>{c.subject}</span>
+                    {onTicket && keysIn(c.subject, c.branch).map((k) => (
+                      <button key={k} className="spr-chip" title={`See ${k} on the tickets tab`} onClick={() => onTicket(k)}>{k}</button>
+                    ))}
                     {multi && <span className="faint">{c.project}</span>}
                     <span className="mono faint ellipsis" style={{ maxWidth: 220 }} title={c.branch}>{c.branch}</span>
                   </div>

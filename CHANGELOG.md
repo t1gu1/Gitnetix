@@ -11,6 +11,10 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+### Fixed
+- Ask AI on the Analytics tickets tab no longer breaks the page in recent Chrome and other Chromium-based views.
+- Chart headers on the Analytics tickets tab wrap on screens under 640 px wide, so the title and its hint keep the card's width.
+
 ## [0.19.2] - 2026-11-06
 
 ### Added

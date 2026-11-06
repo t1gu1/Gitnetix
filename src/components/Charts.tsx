@@ -130,7 +130,10 @@ export function Ask({ title, sub, intro, suggestions, data, chat, setChat, onClo
   const [asked, setAsked] = useState("");
   const ask = useAction<{ answer: string }, { question: string; data: string; history: Qa[] }>("analytics.ask");
   const end = useRef<HTMLDivElement>(null);
-  useEffect(() => end.current?.scrollIntoView({ block: "end", behavior: "smooth" }), [chat.length, ask.isPending]);
+  // In braces: Chromium's scrollIntoView returns a promise, which React would call as the effect's clean-up and crash.
+  useEffect(() => {
+    end.current?.scrollIntoView({ block: "end", behavior: "smooth" });
+  }, [chat.length, ask.isPending]);
   const send = (question: string) => {
     const q = question.trim();
     if (!q || ask.isPending) return;

@@ -6657,6 +6657,15 @@ body:has(> .modal-scrim) #root * {
   gap: 8px;
   margin: 0;
 }
+/* A narrow card: the title and its hint take the whole row, the status chip and the buttons go under them. */
+@media (max-width: 640px) {
+  .spr-card-head {
+    flex-wrap: wrap;
+  }
+  .spr-card-head > .grow {
+    flex: 1 1 100%;
+  }
+}
 .spr-label {
   font-size: 12px;
 }
