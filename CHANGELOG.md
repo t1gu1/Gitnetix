@@ -11,6 +11,8 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+## [0.19.3] - 2026-11-06
+
 ### Added
 - Analytics has a new Tickets tab with Sprints and Weekly views.
 - Analytics commits can be filtered by person.
