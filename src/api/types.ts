@@ -908,4 +908,5 @@ export type GitnetixEvent =
   | { type: "dictationModel"; done: number; total: number }
   | { type: "overviewProgress"; projectId: string; done: number; total: number }
   | { type: "filesProgress"; projectId: string; done: number; total: number }
-  | { type: "aiSignedOut"; provider: string };
+  | { type: "aiSignedOut"; provider: string }
+  | { type: "githubSignedOut" };

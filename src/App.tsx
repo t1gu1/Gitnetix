@@ -6,7 +6,7 @@ import { ContextMenu, type MenuItem } from "./components/ContextMenu";
 import { GitLogin } from "./components/GitLogin";
 import { Icon } from "./components/Icon";
 import { ProfileSplash } from "./components/Profiles";
-import { SignInPrompt } from "./components/SignInPrompt";
+import { GitHubSignInPrompt, SignInPrompt } from "./components/SignInPrompt";
 import { TooltipLayer } from "./components/Tooltip";
 import { isPageRoute, TopBar } from "./components/TopBar";
 import { UpdatePrompt } from "./components/UpdatePrompt";
@@ -114,6 +114,7 @@ function Shell({ onUnpair }: { onUnpair: () => void }) {
           <UpdatePrompt />
           <GitLogin />
           <SignInPrompt />
+          <GitHubSignInPrompt />
           <ProfileSplash />
           <Toasts />
           <Dictation />

@@ -159,30 +159,16 @@ mod imp {
 
         pub(super) fn set(&'static self, key: &str, value: &str) -> Result<()> {
             self.read_all()?;
-            let before = self.tokens(|a| a.insert(key.into(), Masked::new(value)));
-            self.save().inspect_err(|_| self.restore(key, before))
+            self.save(key, Some(value))
         }
 
         pub(super) fn delete(&'static self, key: &str) -> Result<()> {
             self.read_all()?;
-            if let Some(before) = self.tokens(|a| a.remove(key)) {
-                self.save().inspect_err(|_| self.restore(key, Some(before)))?;
-            }
+            self.save(key, None)?;
             // Its item from before, if never moved in: it would come back on the next read.
             self.keychain.delete(key)?;
             self.kept.lock().unwrap().no_old.insert(key.into());
             Ok(())
-        }
-
-        fn tokens<T>(&self, f: impl FnOnce(&mut HashMap<String, Masked>) -> T) -> T {
-            f(self.kept.lock().unwrap().all.as_mut().expect("tokens read"))
-        }
-
-        fn restore(&self, key: &str, before: Option<Masked>) {
-            self.tokens(|a| match before {
-                Some(v) => a.insert(key.into(), v),
-                None => a.remove(key),
-            });
         }
 
         /// Read the item holding every token, once per run.
@@ -195,22 +181,8 @@ mod imp {
                 if self.kept.lock().unwrap().all.is_some() {
                     return Ok(());
                 }
-                let all = match self.keychain.read(ALL)? {
-                    Some(json) => {
-                        let plain: Result<HashMap<String, String>> = serde_json::from_str(&json).map_err(|e| Error::Other(format!("keychain: unreadable tokens: {e}")));
-                        wipe(json);
-                        plain?
-                            .into_iter()
-                            .map(|(k, v)| {
-                                let m = Masked::new(&v);
-                                wipe(v);
-                                (k, m)
-                            })
-                            .collect()
-                    }
-                    None => HashMap::new(),
-                };
-                self.kept.lock().unwrap().all = Some(all);
+                let plain = self.read_plain()?;
+                self.keep(plain);
                 Ok(())
             })
         }
@@ -221,21 +193,56 @@ mod imp {
                 self.kept.lock().unwrap().no_old.insert(key.into());
                 return Ok(None);
             };
-            self.tokens(|a| a.insert(key.into(), Masked::new(&v)));
-            self.save()?;
+            self.save(key, Some(&v))?;
             // Left behind, it is only read again once the token is deleted, which deletes it too.
             let _ = self.keychain.delete(key);
             Ok(Some(v))
         }
 
-        fn save(&self) -> Result<()> {
-            let _one = self.writing.lock().unwrap();
-            let plain: BTreeMap<String, String> = self.tokens(|a| a.iter().map(|(k, v)| (k.clone(), v.open())).collect());
-            let json = serde_json::to_string(&plain)?;
-            plain.into_values().for_each(wipe);
-            let saved = self.keychain.write(ALL, &json);
+        /// The tokens the item holds now, in plain text: wipe them after use.
+        fn read_plain(&self) -> Result<BTreeMap<String, String>> {
+            let Some(json) = self.keychain.read(ALL)? else { return Ok(BTreeMap::new()) };
+            let plain = serde_json::from_str(&json).map_err(|e| Error::Other(format!("keychain: unreadable tokens: {e}")));
             wipe(json);
-            saved
+            plain
+        }
+
+        /// Keep `plain` masked for the run, in place of what was kept.
+        fn keep(&self, plain: BTreeMap<String, String>) {
+            let all = plain
+                .into_iter()
+                .map(|(k, v)| {
+                    let m = Masked::new(&v);
+                    wipe(v);
+                    (k, m)
+                })
+                .collect();
+            self.kept.lock().unwrap().all = Some(all);
+        }
+
+        /// Save `key`'s token (None deletes it) into the item as it is now, not as this run first read it: another
+        /// copy of the app (an installed one next to a dev build) may have saved since, and an old token it replaced
+        /// must not come back. What the other copy saved is kept for this run too.
+        fn save(&self, key: &str, value: Option<&str>) -> Result<()> {
+            let _one = self.writing.lock().unwrap();
+            let mut plain = self.read_plain()?;
+            let before = match value {
+                Some(v) => plain.insert(key.into(), v.into()),
+                None => plain.remove(key),
+            };
+            let changed = before.as_deref() != value;
+            before.into_iter().for_each(wipe);
+            if changed {
+                let json = serde_json::to_string(&plain)?;
+                let saved = self.keychain.write(ALL, &json);
+                wipe(json);
+                if let Err(e) = saved {
+                    plain.into_values().for_each(wipe);
+                    return Err(e);
+                }
+            }
+            self.keep(plain);
+            Ok(())
         }
 
         /// Runs `job` on `item` off the caller's thread, one at a time per item: the system can ask the user
@@ -350,6 +357,22 @@ mod imp {
             v.delete("github").unwrap();
             assert_eq!(v.get("github").unwrap(), None);
             assert_eq!(run(kc).get("github").unwrap(), None, "the old item doesn't come back");
+        }
+
+        #[test]
+        fn a_save_keeps_what_another_copy_saved_since() {
+            let kc = fake(&[(ALL, r#"{"github":"old","jira.a":"j"}"#)], Duration::ZERO);
+            let (installed, dev) = (run(kc), run(kc));
+            assert_eq!(installed.get("github").unwrap().as_deref(), Some("old"));
+            dev.set("github", "new").unwrap();
+            dev.delete("jira.a").unwrap();
+            installed.set("ai.claude", "sk").unwrap();
+            assert_eq!(installed.get("github").unwrap().as_deref(), Some("new"), "its save picked up the new sign-in");
+
+            let next = run(kc);
+            assert_eq!(next.get("github").unwrap().as_deref(), Some("new"), "the old token doesn't come back");
+            assert_eq!(next.get("ai.claude").unwrap().as_deref(), Some("sk"));
+            assert_eq!(next.get("jira.a").unwrap(), None, "nor a deleted one");
         }
 
         #[test]

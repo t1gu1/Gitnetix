@@ -131,6 +131,10 @@ export function useEngineEvents() {
             // Read by SignInPrompt.
             qc.setQueryData(["aiSignedOut"], e.provider);
             break;
+          case "githubSignedOut":
+            // Read by GitHubSignInPrompt. Each failed refresh sends it again: false (put off) stays false for the run.
+            qc.setQueryData<boolean | null>(["githubSignedOut"], (v) => v !== false);
+            break;
           case "configChanged":
             qc.invalidateQueries({ queryKey: ["config"] });
             qc.invalidateQueries({ queryKey: ["projects"] });

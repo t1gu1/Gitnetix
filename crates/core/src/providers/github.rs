@@ -137,6 +137,9 @@ fn emoji(content: &str) -> String {
 /// GitHub's error message, or what to do when an organization has not approved
 /// the Gitnetix OAuth app (GitHub names the organization between backticks).
 fn explain(msg: &str) -> String {
+    if msg == "Bad credentials" {
+        return "GitHub no longer accepts the saved sign-in. Sign in to GitHub again under Git providers.".into();
+    }
     if msg.contains("not been granted the required scopes") {
         return "GitHub needs a permission Gitnetix did not ask for when you signed in. Sign in to GitHub again under Git providers.".into();
     }
@@ -178,6 +181,10 @@ impl GitHub {
         let text = res.text().await?;
         let v: Value = if text.is_empty() { Value::Null } else { serde_json::from_str(&text).unwrap_or(Value::String(text)) };
         if !status.is_success() {
+            // GitHub's OAuth tokens never expire: a 401 means GitHub revoked the sign-in, so the UIs offer a new one.
+            if status == reqwest::StatusCode::UNAUTHORIZED && self.api == "https://api.github.com" {
+                crate::log::emit(crate::events::Event::GithubSignedOut);
+            }
             let msg = v["message"].as_str().map(String::from).unwrap_or_else(|| v.to_string());
             return Err(Error::Http(format!("GitHub {status}: {}", explain(&msg))));
         }
@@ -688,5 +695,6 @@ mod tests {
         assert_eq!(explain(gh), "The acme organization has not approved Gitnetix yet. In Git providers, use Organization access to grant or request it.");
         assert!(explain("the organization has enabled OAuth App access restrictions").starts_with("This organization "));
         assert_eq!(explain("Not Found"), "Not Found");
+        assert!(explain("Bad credentials").contains("Sign in to GitHub again"));
     }
 }
