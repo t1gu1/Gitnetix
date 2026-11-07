@@ -11,6 +11,8 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+## [0.19.5] - 2026-11-07
+
 ### Added
 - Agents start on a new branch when the main branch is reserved.
 - A prompt asks you to sign in to GitHub again when GitHub revokes the token.
