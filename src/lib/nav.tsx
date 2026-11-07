@@ -135,7 +135,10 @@ export function NavProvider({ children, initialProject, initialTheme }: { childr
       setProjectId(id);
       // Back on the project's page, as it was left.
       showWorktrees(false);
-      if (!viewsRef.current[id ?? NONE]) update((v) => v, id ?? NONE);
+      const left = viewsRef.current[id ?? NONE];
+      if (!left) update((v) => v, id ?? NONE);
+      // Left on the import page ("+" in the tab bar) for another project: reopen the page "+" was pressed on, not the import page.
+      else if (id && left.route.name === "home") update((v) => ({ ...v, route: v.returnTo ?? { name: "workspace" }, returnTo: null }), id);
       if (id) rpc("ui.set", { lastProject: id }).catch(() => {});
     },
     [update, showWorktrees],
