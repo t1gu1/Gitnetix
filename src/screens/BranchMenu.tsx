@@ -180,8 +180,6 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
     const parent = t.baseLabel;
     const originOnly = v.remote && !v.local;
     const diverged = isDiverged(v);
-    // Publishing the branch checked out here hands the checkout back to its parent ("" base: the default branch).
-    const home = !v.upstream && v.checkedOut && !v.worktree ? t.base || ov?.defaultBranch : undefined;
     // A worktree's branch merges as its session ends: uncommitted changes count (committed or discarded first), then the worktree goes.
     const agentBusy = !!v.worktree && !!working?.includes(v.worktree);
     const toMerge = v.ahead || (v.worktree ? v.wip : 0);
@@ -226,10 +224,10 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
         id: "push",
         label: v.upstream ? "Push" : "Publish to origin",
         short: v.upstream ? `Push ${v.upstreamAhead || ""}`.trim() : "Publish",
-        tip: !v.upstream ? `Publish ${b} to origin${home ? `, then switch to ${home}` : ""}` : v.upstreamAhead ? `Push ${plural(v.upstreamAhead, "commit")} to ${v.upstream}` : `Push to ${v.upstream}`,
+        tip: !v.upstream ? `Publish ${b} to origin` : v.upstreamAhead ? `Push ${plural(v.upstreamAhead, "commit")} to ${v.upstream}` : `Push to ${v.upstream}`,
         icon: "push",
         hint: v.upstreamAhead ? `↑${v.upstreamAhead}` : undefined,
-        run: () => (home ? push.mutate({ projectId: pid, branch: b }, { onSuccess: () => run(sw, home, `Published ${b}, switched to ${home}`) }) : run(push, b, `Pushed ${b}`)),
+        run: () => run(push, b, v.upstream ? `Pushed ${b}` : `Published ${b}`),
       },
       forcePush: {
         id: "forcePush",
