@@ -23,7 +23,7 @@ import { useBranchActions } from "./BranchMenu";
 import { revealBranch } from "./BranchTree";
 import { AbortModal } from "./AbortModal";
 import { startRebase } from "./RebaseRun";
-import { clearSession, DiscardWorktreeModal, FinishWorktreeCard, MergeModal, mergeTargets, TargetBranchModal, useFinishHandlers } from "./Workspace";
+import { clearSession, DiscardWorktreeModal, FinishWorktreeCard, MergeModal, mergeTargets, TargetBranchModal, useFinishHandlers, useReservedStart } from "./Workspace";
 
 const STATUS: Record<ShownStatus | "idle", [string, string]> = {
   running: ["Running", "c-acc"],
@@ -311,6 +311,7 @@ function Detail({ r, menu, onMenuClose }: { r: Row; menu?: { x: number; y: numbe
   const msg = useAction("agents.message", { invalidate: inv });
   const configure = useAction("agents.configure", { invalidate: inv });
   const start = useAction("agents.start", { invalidate: inv });
+  const reserved = useReservedStart(r.projectId);
   const { text, setText, files, setFiles } = useDraft(`${r.projectId}:${r.branch}`);
   const [picks, setPicks] = useState<Choice[]>([]);
   const actions = useBranchActions(r.projectId, () => {});
@@ -363,6 +364,7 @@ function Detail({ r, menu, onMenuClose }: { r: Row; menu?: { x: number; y: numbe
       },
     };
     if (a) msg.mutate({ id: a.id, text: t, files: up }, done);
+    else if (reserved.is(r.wt?.branch ?? undefined)) reserved.offer({ request: t, files: up, pick, done: done.onSuccess });
     else start.mutate({ projectId: r.projectId, branch: r.wt?.branch ?? undefined, request: t, files: up, ...pick }, done);
   };
   const commitPush = () => commit.mutate({ projectId: r.projectId, branch: r.branch, message: "", all: !staged }, { onSuccess: () => push.mutate({ projectId: r.projectId, branch: r.branch }) });
@@ -407,7 +409,7 @@ function Detail({ r, menu, onMenuClose }: { r: Row; menu?: { x: number; y: numbe
           <ShellPane projectId={r.projectId} path={r.wt ? r.path : undefined} />
         ) : (
           <>
-            <AgentLog lines={a?.lines ?? []} session={a?.id} provider={a ? a.ai?.provider : pick.provider} thinking={a?.status === "running" || msg.isPending || start.isPending} working={busy} queued={a?.queued} onEditQueued={(q) => setText((t) => [q, t].filter(Boolean).join("\n\n"))} canSendNow={a?.ai?.provider === "claude" && !!a.resumeId} limit={a?.limit} onCancelLimit={a ? () => halt(a) : undefined} actions={isWorktree && <FinishWorktreeCard session={session} finish={finish} />} picks={picks} onPicks={setPicks} empty={r.wt ? "No agent session on this checkout." : "Directory removed."} />
+            <AgentLog lines={a?.lines ?? []} session={a?.id} provider={a ? a.ai?.provider : pick.provider} thinking={a?.status === "running" || msg.isPending || start.isPending || reserved.pending} working={busy} queued={a?.queued} onEditQueued={(q) => setText((t) => [q, t].filter(Boolean).join("\n\n"))} canSendNow={a?.ai?.provider === "claude" && !!a.resumeId} limit={a?.limit} onCancelLimit={a ? () => halt(a) : undefined} actions={isWorktree && <FinishWorktreeCard session={session} finish={finish} />} picks={picks} onPicks={setPicks} empty={r.wt ? "No agent session on this checkout." : "Directory removed."} />
             <AgentInput
               id="wt-ask"
               label="Message the agent"
@@ -421,7 +423,7 @@ function Detail({ r, menu, onMenuClose }: { r: Row; menu?: { x: number; y: numbe
               onStop={busy && a ? () => halt(a) : undefined}
               log={a?.lines}
               disabled={!a && !r.wt}
-              pending={msg.isPending || start.isPending}
+              pending={msg.isPending || start.isPending || reserved.pending}
               picker={a?.ai ? <AgentPicker value={a.ai} onChange={(p) => configure.mutate({ id: a.id, ...p })} compact /> : !a && r.wt && <AgentPicker value={pick} onChange={setPick} compact />}
               placeholder={busy ? "Agent is working… a message now waits for it to finish" : a?.limit ? "Stopped at a usage limit… a message continues the agent now" : a ? `Message the agent on ${r.branch}…` : "Start a session: describe what the agent should do…"}
             />
@@ -459,6 +461,7 @@ function Detail({ r, menu, onMenuClose }: { r: Row; menu?: { x: number; y: numbe
         </Confirm>
       )}
       {finish.modal}
+      {reserved.modal}
       {aborting && <AbortModal pid={r.projectId} branch={r.branch} op={view?.inProgress} base={base} onBack={() => setAborting(false)} onDone={() => setAborting(false)} />}
       {menu && <ContextMenu x={menu.x} y={menu.y} alignRight={menu.alignRight} label={`Actions for ${r.branch}`} items={items} onClose={onMenuClose} />}
     </div>

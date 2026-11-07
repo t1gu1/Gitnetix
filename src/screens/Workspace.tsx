@@ -31,7 +31,7 @@ import {
 import { isLocal, revealPath, rpc } from "../api/transport";
 import type { AgentSession, BranchView, Commit, FileChange, Hunk, LinePick, MergeResult, Overview, ReleaseView, RenameResult, Stash } from "../api/types";
 import { AgentInput, AgentLog, type Choice, type Upload } from "../components/AgentLog";
-import { AgentPicker, useAgentPick } from "../components/AgentPicker";
+import { AgentPicker, useAgentPick, type AgentPick } from "../components/AgentPicker";
 import { DiffView, LargeDiff, type DiffMode, type Staging } from "../components/DiffView";
 import { IMAGE_MODES, ImageDiff, comparable, isImage, useImageMode, type ImageMode } from "../components/ImageDiff";
 import { ContextMenu, type MenuItem } from "../components/ContextMenu";
@@ -51,7 +51,7 @@ import { agentKey, branchKey, call, runTask, useHidden, wtKey } from "../lib/tas
 import { copyToClipboard, toast } from "../lib/toast";
 import { AbortModal } from "./AbortModal";
 import { offersRebase, useBranchActions, type BranchDialog, type BranchTarget } from "./BranchMenu";
-import { BranchTree } from "./BranchTree";
+import { BranchTree, revealBranch } from "./BranchTree";
 import { CommitList, DeleteTagModal, TagModal } from "./CommitList";
 import { startRebase } from "./RebaseRun";
 import { StashList } from "./StashList";
@@ -2171,6 +2171,8 @@ function Terminal({ pid, branch, cwd, worktree, open, setOpen, onCloseWorktree, 
   const [pick, setPick] = useAgentPick(pid);
   // Starting on a branch makes its worktree and may move the main checkout off it.
   const start = useAction<{ id: string }>("agents.start", { invalidate: [["agents"], ["worktrees"], ["overview", pid]] });
+  const reserved = useReservedStart(pid);
+  const nav = useNav();
   const message = useAction("agents.message", { invalidate: [["agents"]] });
   const configure = useAction("agents.configure", { invalidate: [["agents"]] });
   const stop = useAction("agents.stop", { invalidate: [["agents"]] });
@@ -2205,6 +2207,8 @@ function Terminal({ pid, branch, cwd, worktree, open, setOpen, onCloseWorktree, 
       },
     };
     if (cur) message.mutate({ id: cur.id, text: t, files: up }, done);
+    // The panel follows the agent to its new branch.
+    else if (reserved.is(branch)) reserved.offer({ request: t, files: up, pick, done: (b) => (done.onSuccess(), revealBranch(pid, b), nav.selectBranch(b)) });
     else start.mutate({ projectId: pid, branch, request: t, files: up, ...pick }, done);
   };
   return (
@@ -2247,7 +2251,7 @@ function Terminal({ pid, branch, cwd, worktree, open, setOpen, onCloseWorktree, 
               lines={cur?.lines ?? []}
               session={cur?.id}
               provider={cur ? cur.ai?.provider : pick.provider}
-              thinking={cur?.status === "running" || start.isPending || message.isPending}
+              thinking={cur?.status === "running" || start.isPending || reserved.pending || message.isPending}
               working={busy}
               queued={cur?.queued}
               onEditQueued={(q) => setText((t) => [q, t].filter(Boolean).join("\n\n"))}
@@ -2264,7 +2268,9 @@ function Terminal({ pid, branch, cwd, worktree, open, setOpen, onCloseWorktree, 
                   ? undefined
                   : leaving
                     ? "Deleting this worktree…"
-                    : branch
+                    : reserved.is(branch)
+                      ? `${branch} is reserved: describe the work below and the agent starts on a new branch off it, in its own worktree.`
+                      : branch
                       ? `Start an agent on ${branch}: it gets its own worktree, so it keeps working while you switch branches.`
                       : "Start an agent on the main checkout: describe what it should do below."
               }
@@ -2282,7 +2288,7 @@ function Terminal({ pid, branch, cwd, worktree, open, setOpen, onCloseWorktree, 
               onStop={busy && cur ? () => halt(cur) : undefined}
               log={cur?.lines}
               disabled={leaving}
-              pending={start.isPending || message.isPending}
+              pending={start.isPending || reserved.pending || message.isPending}
               picker={!cur ? <AgentPicker value={pick} onChange={setPick} compact /> : cur.ai && <AgentPicker value={cur.ai} onChange={(p) => configure.mutate({ id: cur.id, ...p })} compact />}
               placeholder={busy ? "Agent is working… a message now waits for it to finish" : cur?.limit ? "Stopped at a usage limit… a message continues the agent now" : cur ? "Reply to the agent…" : "Ask the agent anything…"}
             />
@@ -2303,6 +2309,7 @@ function Terminal({ pid, branch, cwd, worktree, open, setOpen, onCloseWorktree, 
           The agent stops if it is working, and its conversation is deleted.
         </Confirm>
       )}
+      {reserved.modal}
     </>
   );
 }
@@ -2319,6 +2326,47 @@ export function clearSession(a: AgentSession) {
     },
     done: () => `Cleared the session on ${a.branch}`,
   });
+}
+
+/** The default branch takes no agent (the backend refuses it): `offer` asks instead to start the agent on a new branch off it, in its own worktree.
+ * `done` gets the new branch once the agent runs there. `modal` is that question: render it. */
+export function useReservedStart(pid: string) {
+  const main = useOverview(pid).data?.defaultBranch;
+  const create = useAction<{ branch: string }>("items.create", { invalidate: [["agents"], ["worktrees"], ["overview", pid]], success: (r) => `Agent started on ${r.branch}` });
+  const [ask, setAsk] = useState<{ request: string; files: Upload[]; pick: AgentPick; done: (branch: string) => void } | null>(null);
+  const close = () => setAsk(null);
+  // Empty name: the backend names the branch from the request, so a request is needed.
+  const ready = !!ask?.request.trim();
+  const go = () => {
+    if (!ask || !ready) return;
+    close();
+    create.mutate({ projectId: pid, from: main, description: ask.request, where: "worktree", startAgent: true, files: ask.files, ...ask.pick }, { onSuccess: (r) => ask.done(r.branch) });
+  };
+  return {
+    is: (branch?: string) => !!branch && branch === main,
+    offer: setAsk,
+    pending: create.isPending,
+    modal: ask && main && (
+      <Modal
+        title={`${main} is reserved`}
+        onClose={close}
+        footer={
+          <>
+            <button className="btn btn-md" onClick={close}>Back</button>
+            <button className="btn btn-primary btn-md" autoFocus disabled={!ready} onClick={go}>
+              <Icon name="branch" size={12} />
+              Create branch and start
+            </button>
+          </>
+        }
+      >
+        <p style={{ margin: 0, lineHeight: 1.55 }}>
+          Agents don't work on <strong className="c-acc">{main}</strong>. Everything is ready to start this one on a new branch off <strong className="c-acc">{main}</strong>, in its own worktree. The branch is named from your request.
+        </p>
+        {!ready && <p className="hint c-del">Type a request first: the new branch is named from it.</p>}
+      </Modal>
+    ),
+  };
 }
 
 /** The worktree a session runs in; a worktree without an agent closes the same way. */
