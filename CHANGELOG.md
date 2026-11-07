@@ -11,6 +11,8 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+## [0.19.4] - 2026-11-07
+
 ### Fixed
 - Switching to another project from the import page ("+" in the tab bar) now reopens the page "+" was pressed on, falling back to the workspace route, instead of the import page.
 
