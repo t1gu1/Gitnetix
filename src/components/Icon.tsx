@@ -74,7 +74,8 @@ export function Icon({ name, size = 14, stroke = 1.5, className, label }: { name
       viewBox="0 0 16 16"
       fill={p.fill ? "currentColor" : "none"}
       stroke={p.fill ? "none" : "currentColor"}
-      strokeWidth={stroke}
+      // A style, not the attribute: WebKitGTK page zoom scales the stroke-width attribute twice (bold blobs at 190%).
+      style={{ strokeWidth: stroke }}
       strokeLinecap="round"
       strokeLinejoin="round"
       className={className}

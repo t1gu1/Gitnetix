@@ -59,7 +59,7 @@ function AgentMark({ provider }: { provider?: string }) {
   const id = provider ?? c?.routing.agent?.provider ?? c?.defaultProvider;
   const mark =
     id === "claude" ? (
-      <svg width={17} height={17} viewBox="0 0 16 16" stroke="#d97757" strokeWidth={1.7} strokeLinecap="round"><path d={RAYS} /></svg>
+      <svg width={17} height={17} viewBox="0 0 16 16" stroke="#d97757" style={{ strokeWidth: 1.7 }} strokeLinecap="round"><path d={RAYS} /></svg>
     ) : id === "gemini" ? (
       <svg width={17} height={17} viewBox="0 0 16 16" fill="#4796e3"><path d="M8 1c0 3.9 3.1 7 7 7-3.9 0-7 3.1-7 7 0-3.9-3.1-7-7-7 3.9 0 7-3.1 7-7z" /></svg>
     ) : (
@@ -298,7 +298,7 @@ function countdown(ms: number) {
 
 /** A battery with nothing left: what an agent out of credits waits on. */
 const NoCredits = (
-  <svg width={22} height={22} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+  <svg width={22} height={22} viewBox="0 0 16 16" fill="none" stroke="currentColor" style={{ strokeWidth: 1.4 }} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <path d="M2 5h10.5a.5.5 0 0 1 .5.5v5a.5.5 0 0 1-.5.5H2a.5.5 0 0 1-.5-.5v-5A.5.5 0 0 1 2 5zM15 7v2" />
     <path d="M4 7.2v1.6" opacity={0.45} />
   </svg>
