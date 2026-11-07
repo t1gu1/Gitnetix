@@ -11,6 +11,15 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+### Added
+- Agents start on a new branch when the main branch is reserved.
+- A prompt asks you to sign in to GitHub again when GitHub revokes the token.
+
+### Fixed
+- Publishing the checked-out branch no longer switches back to the parent branch.
+- Icon stroke width displays correctly under WebKitGTK zoom.
+- The secrets store no longer restores an old token that another copy of the app replaced.
+
 ## [0.19.4] - 2026-11-07
 
 ### Fixed
