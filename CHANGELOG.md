@@ -11,6 +11,8 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+## [0.19.6] - 2026-11-08
+
 ### Added
 
 - Ask once for consent before the first launch.
