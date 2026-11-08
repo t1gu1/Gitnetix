@@ -4756,6 +4756,99 @@ button.picker-act {
 .ag-files:first-child {
   margin-top: 0;
 }
+/* An audio file shared or sent: play button, then its name, time and wave. */
+.ag-audio {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: min(420px, 100%);
+  padding: 8px 12px 8px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--panel);
+  font-family: var(--sans);
+  font-size: 12px;
+}
+.ag-audio-play {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--on-accent);
+  cursor: pointer;
+}
+.ag-audio-play:disabled {
+  background: var(--raised);
+  color: var(--muted);
+  cursor: default;
+}
+.ag-audio-play:focus-visible,
+.ag-audio-wave:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 2px;
+}
+.ag-audio-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+.ag-audio-head {
+  display: flex;
+  gap: 8px;
+  color: var(--fg);
+}
+.ag-audio-head > .ellipsis {
+  flex: 1;
+}
+.ag-audio-time {
+  flex: none;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.ag-audio-wave {
+  position: relative;
+  display: block;
+  height: 32px;
+  color: var(--faint);
+  cursor: pointer;
+  /* A sideways drag seeks; an up or down one still scrolls the log on a phone. */
+  touch-action: pan-y;
+  --p: 0;
+}
+.ag-audio-wave svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  fill: currentColor;
+}
+.ag-audio-played {
+  position: absolute;
+  inset: 0;
+  color: var(--accent);
+  clip-path: inset(0 calc((1 - var(--p)) * 100%) 0 0);
+}
+.ag-audio-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(var(--p) * 100%);
+  width: 2px;
+  margin-left: -1px;
+  border-radius: 1px;
+  background: var(--fg);
+  opacity: 0.7;
+  pointer-events: none;
+}
 /* A sent image previews on hover or focus. */
 .ag-file[tabindex]:focus-visible {
   outline: 1px solid var(--accent);

@@ -5417,10 +5417,10 @@ impl Gitnetix {
         let (ticket, notes) = self.agent_ticket(project_id, &branch, cwd).await;
         // Last, so nothing in the ticket is taken for a placeholder.
         prompt = insert_ticket(&prompt, &ticket);
-        // Where the agent saves the images it shows: the log previews them from there only.
+        // Where the agent saves the images and audio it shows: the log reads them from there only.
         let shots = attach_root(cwd).await?.join("shared");
         std::fs::create_dir_all(&shots)?;
-        prompt = format!("{prompt}\n\n{}\n\n{}\n\n{}", templates::CHOICE_FORMAT, templates::share_images(&shots.to_string_lossy()), templates::NO_AI_CREDIT);
+        prompt = format!("{prompt}\n\n{}\n\n{}\n\n{}", templates::CHOICE_FORMAT, templates::share_media(&shots.to_string_lossy()), templates::NO_AI_CREDIT);
         self.agents.start(StartArgs {
             project_id: project_id.into(),
             branch,

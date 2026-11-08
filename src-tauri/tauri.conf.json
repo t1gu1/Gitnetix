@@ -21,7 +21,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; img-src 'self' data: blob: asset: https:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost http://*:* https://*:*"
+      "csp": "default-src 'self'; img-src 'self' data: blob: asset: https:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost http://*:* https://*:*; media-src 'self' blob:"
     }
   },
   "bundle": {
@@ -39,6 +39,11 @@
     "createUpdaterArtifacts": true,
     "windows": {
       "bundleVCRuntime": true
+    },
+    "linux": {
+      "appimage": {
+        "bundleMediaFramework": true
+      }
     },
     "macOS": {
       "signingIdentity": "-",

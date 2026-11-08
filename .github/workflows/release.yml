@@ -75,7 +75,23 @@ jobs:
             cmake \
             libclang-dev \
             patchelf \
-            file
+            file \
+            gstreamer1.0-plugins-base \
+            gstreamer1.0-plugins-good \
+            gstreamer1.0-plugins-bad
+
+      # bundleMediaFramework (tauri.conf.json) copies every plugin in GSTREAMER_PLUGINS_DIR into the AppImage: only the
+      # ones WebKitGTK needs to play and decode WAV, MP3, OGG, Opus, FLAC and M4A, not the hundred the packages above install.
+      - name: Pick the GStreamer plugins the AppImage bundles
+        if: matrix.name == 'linux'
+        run: |
+          dir="$RUNNER_TEMP/gst-plugins"
+          mkdir -p "$dir"
+          for p in coreelements playback typefindfunctions app gio audioconvert audioresample volume autodetect pulseaudio \
+            interleave wavparse audioparsers id3demux mpg123 ogg vorbis opus flac isomp4 faad; do
+            cp "/usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgst$p.so" "$dir/"
+          done
+          echo "GSTREAMER_PLUGINS_DIR=$dir" >> "$GITHUB_ENV"
 
       - uses: pnpm/action-setup@v6
         with:

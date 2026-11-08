@@ -8,6 +8,7 @@ import { blocks, errText, folds, questions, said, stepsLabel, took, type Block, 
 import { OwnMic } from "../lib/dictation";
 import { bytes, clock, plural } from "../lib/format";
 import { copyToClipboard, toast } from "../lib/toast";
+import { AudioPlayer, isAudio } from "./AudioPlayer";
 import { Avatar } from "./Avatar";
 import { DiffView } from "./DiffView";
 import { Icon } from "./Icon";
@@ -104,14 +105,14 @@ function Choices({ qs, picks, onPicks }: { qs: Question[]; picks: Choice[]; onPi
   );
 }
 
-/** Files in the log, one chip each; images preview from agent `session`, and open full size in a gallery of this group's images. */
+/** Files in the log, one chip each; images preview from agent `session`, and open full size in a gallery of this group's images. Audio files play in a player instead. */
 const Files = memo(function Files({ files, session }: { files: string[]; session?: string }) {
   const [open, setOpen] = useState<number>();
   const shots = files.filter(isImage);
   return files.length > 0 && (
     <span className="ag-files">
       {/* A key on the chip still focused behind the gallery must not jump it back. */}
-      {files.map((f) => <FileChip key={f} file={f} session={session} onOpen={() => setOpen((o) => o ?? shots.indexOf(f))} />)}
+      {files.map((f) => (session && isAudio(f) ? <AudioPlayer key={f} session={session} path={f} /> : <FileChip key={f} file={f} session={session} onOpen={() => setOpen((o) => o ?? shots.indexOf(f))} />))}
       {open !== undefined && session && <Gallery session={session} paths={shots} at={open} onClose={() => setOpen(undefined)} />}
     </span>
   );
@@ -362,8 +363,8 @@ function LimitCard({ session, limit, onCancel }: { session: string; limit: Agent
   );
 }
 
-/** Images a reply shows, as its prompt asks: the local paths of its Markdown images, `![What it shows](/path.png)`. */
-const shown = (text: string) => [...new Set([...text.matchAll(/!\[[^\]]*\]\(<?([^<>)]+?)>?\)/g)].map((m) => m[1].trim()))].filter((p) => isImage(p) && !/^\w+:\/\//.test(p));
+/** Images and audio a reply shows, as its prompt asks: the local paths of its Markdown images, `![What it shows](/path.png)`. */
+const shown = (text: string) => [...new Set([...text.matchAll(/!\[[^\]]*\]\(<?([^<>)]+?)>?\)/g)].map((m) => m[1].trim()))].filter((p) => (isImage(p) || isAudio(p)) && !/^\w+:\/\//.test(p));
 
 /** Blocks a log draws when opened, and adds each time it is scrolled near its top: drawn whole, a 600-line log froze WebKitGTK
  * ~100 ms on each switch to it, ~40 ms this way. (content-visibility on the blocks gained ~10% more there, but their guessed
