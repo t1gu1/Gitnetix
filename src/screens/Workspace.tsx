@@ -18,6 +18,7 @@ import {
   useAgents,
   useAiOn,
   useAutoFetch,
+  useBlame,
   useBlobs,
   useDiff,
   useFiles,
@@ -29,7 +30,7 @@ import {
   useProjects,
 } from "../api/hooks";
 import { isLocal, revealPath, rpc } from "../api/transport";
-import type { AgentSession, BranchView, Commit, FileChange, Hunk, LinePick, MergeResult, Overview, ReleaseView, RenameResult, Stash } from "../api/types";
+import type { AgentSession, BranchView, Commit, FileChange, FileCommit, Hunk, LinePick, MergeResult, Overview, ReleaseView, RenameResult, Stash } from "../api/types";
 import { AgentInput, AgentLog, type Choice, type Upload } from "../components/AgentLog";
 import { AgentPicker, useAgentPick, type AgentPick } from "../components/AgentPicker";
 import { DiffView, LargeDiff, type DiffMode, type Staging } from "../components/DiffView";
@@ -53,6 +54,7 @@ import { AbortModal } from "./AbortModal";
 import { offersRebase, useBranchActions, type BranchDialog, type BranchTarget } from "./BranchMenu";
 import { BranchTree, revealBranch } from "./BranchTree";
 import { CommitList, DeleteTagModal, TagModal } from "./CommitList";
+import { FileHistory } from "./FileHistory";
 import { startRebase } from "./RebaseRun";
 import { StashList } from "./StashList";
 
@@ -105,6 +107,11 @@ export function Workspace() {
   // Stash list in place of the tree: one branch's ("" = every stash), and the stash picked there.
   const [stashesOf, setStashesOf] = useState<string | null>(null);
   const [stash, setStash] = useState<Stash | undefined>();
+  // One file's history in place of the file list (its path), the commit picked there, and one to pick once listed (a blame label's).
+  const [fileLog, setFileLog] = useState<string | null>(null);
+  const [logPick, setLogPick] = useState<FileCommit | undefined>();
+  const [logWant, setLogWant] = useState<string>();
+  const [blame, setBlame] = useState(false);
   // Left pane (branches, or the diff over them) as a percent of the workspace: two thirds by default.
   const leftW = usePaneWidth("gnx.pane.left", 67, 20, 80);
   const [asTree, setAsTree] = useStoredFlag("gnx.files.tree");
@@ -208,6 +215,17 @@ export function Workspace() {
     setHistory(null);
     setCommit(undefined);
   };
+  /** `want`: the commit to pick in it once listed. */
+  const openFileLog = (path: string, want?: string) => {
+    if (path !== fileLog) setLogPick(undefined);
+    setFileLog(path);
+    setLogWant(want);
+  };
+  const closeFileLog = () => {
+    setFileLog(null);
+    setLogPick(undefined);
+    setLogWant(undefined);
+  };
   const view: BranchView | undefined = branch ? byName.get(branch) : undefined;
   const dialogView = dialog && (byName.get(dialog.branch) ?? synthetic(dialog.branch, dialog.branch === o?.currentBranch));
   const base = branch ? baseFor(branch) : "";
@@ -223,26 +241,46 @@ export function Workspace() {
   const list = files.data ?? [];
   const fileCount = new Set(list.map((f) => f.path)).size;
   const current = list.find((f) => fileKey(f) === file);
+  // The diff shows the commit picked in a file's history, else the file picked in the list.
+  const logged = fileLog !== null ? logPick : undefined;
+  const shown: FileChange | undefined = logged ? { path: logged.path, status: logged.status, additions: logged.additions, deletions: logged.deletions } : current;
+  const shownCommit = logged ? logged.sha : commit?.sha;
+  const shownStash = logged ? undefined : stash?.sha;
   // Project view lists untouched files too: those show as the plain file, no diff.
-  const unchanged = mode === "project" && !commit && !stash && current?.status === " ";
-  const markdown = /\.(md|markdown|mdx)$/i.test(current?.path ?? "");
+  const unchanged = mode === "project" && !shownCommit && !shownStash && shown?.status === " ";
+  const markdown = /\.(md|markdown|mdx)$/i.test(shown?.path ?? "");
   // The file whose large diff the user asked to see anyway. One with a huge known line count isn't even fetched before that.
   const [anyway, setAnyway] = useState<string>();
-  const forced = !!current && anyway === fileKey(current);
-  const changedLines = current ? current.additions + current.deletions : 0;
+  const forced = !!shown && anyway === fileKey(shown);
+  const changedLines = shown ? shown.additions + shown.deletions : 0;
   const huge = !forced && changedLines > HUGE_DIFF;
-  const showAnyway = () => current && setAnyway(fileKey(current));
-  const diff = useDiff(pid, branch, mode, unchanged || huge ? undefined : current?.path, current?.staged, commit?.sha, stash?.sha, diffMode === "full");
-  const svg = /\.svg$/i.test(current?.path ?? "");
+  const showAnyway = () => shown && setAnyway(fileKey(shown));
+  const diff = useDiff(pid, branch, mode, unchanged || huge ? undefined : shown?.path, shown?.staged, shownCommit, shownStash, diffMode === "full", logged?.from);
+  const svg = /\.svg$/i.test(shown?.path ?? "");
   // An SVG is text too: its Code view drops the image preview and shows it like any other file.
-  const image = isImage(current?.path) && !(svg && svgCode);
-  const blobs = useBlobs(pid, branch, mode, current?.path, current?.staged, commit?.sha, stash?.sha, image || unchanged || markdown);
+  const image = isImage(shown?.path) && !(svg && svgCode);
+  const blobs = useBlobs(pid, branch, mode, shown?.path, shown?.staged, shownCommit, shownStash, image || unchanged || markdown);
   const text = useMemo(() => !image && decodeText(blobs.data?.new ?? blobs.data?.old), [blobs.data, image]);
   // Memoized: a new array would re-render every row and re-measure the heatmap.
   const raw = useMemo<Hunk[] | undefined>(
     () => (unchanged && typeof text === "string" ? [{ header: "", oldStart: 1, newStart: 1, lines: text.replace(/\n$/, "").split("\n").map((t) => ({ kind: " ", text: t })) }] : undefined),
     [unchanged, text],
   );
+  // No textual diff: binary, unless a rename that changed nothing else.
+  const binary = unchanged ? text === null : diff.data?.length === 0 && shown?.status !== "R";
+  // Blame needs text the file still has: not a stash, a deletion, an image or a binary file.
+  const canBlame = !!shown && !image && !shownStash && shown.status !== "D" && !binary;
+  const showBlame = blame && canBlame;
+  const blamed = useBlame(pid, branch, mode, shown?.path, shownCommit, showBlame);
+  const blameHunks = useMemo<Hunk[] | undefined>(
+    () => blamed.data && [{ header: "", oldStart: 1, newStart: 1, lines: blamed.data.lines.map((t) => ({ kind: " ", text: t })) }],
+    [blamed.data],
+  );
+  // A blame label opens its commit in the file's history, as a diff.
+  const blameOpen = (sha: string) => {
+    setBlame(false);
+    openFileLog(fileLog ?? shown?.path ?? "", sha);
+  };
   const showPreview = markdown && preview && typeof text === "string";
   // A WIP file's diff stages or unstages some of its lines. Like whole files, that moves no ref (see WipList).
   type LineMove = { projectId: string; branch: string; path: string; lines: LinePick[] };
@@ -255,12 +293,12 @@ export function Workspace() {
     success: "Changes discarded",
   });
   const staging: Staging | undefined =
-    mode === "wip" && !commit && !stash && branch && checkedOut && current?.staged !== undefined && current.status !== "C"
+    mode === "wip" && !commit && !stash && branch && checkedOut && shown?.staged !== undefined && shown.status !== "C"
       ? {
-          staged: current.staged,
+          staged: shown.staged,
           busy: stageLines.isPending || unstageLines.isPending || discardLines.isPending,
-          apply: (lines) => (current.staged ? unstageLines : stageLines).mutateAsync({ projectId: pid, branch, path: current.path, lines }),
-          discard: current.staged ? undefined : (lines) => discardLines.mutateAsync({ projectId: pid, branch, path: current.path, lines }),
+          apply: (lines) => (shown.staged ? unstageLines : stageLines).mutateAsync({ projectId: pid, branch, path: shown.path, lines }),
+          discard: shown.staged ? undefined : (lines) => discardLines.mutateAsync({ projectId: pid, branch, path: shown.path, lines }),
         }
       : undefined;
   const [discarding, setDiscarding] = useState<{ staged: boolean; paths: string[] } | null>(null);
@@ -274,7 +312,21 @@ export function Workspace() {
   const junk = useMemo(() => (mode === "wip" && !commit && !stash && checkedOut ? junkFolder(list) : undefined), [mode, commit, stash, checkedOut, list]);
   const fileMenu = (t: FileTarget): MenuItem[] => {
     const notOut = checkedOut ? undefined : "check out first";
+    const open = () => setFile(fileKey(t.files[0]));
     return [
+      ...(t.dir
+        ? []
+        : ([
+            { id: "history", label: "File history", icon: "history", run: () => { open(); openFileLog(t.path, commit?.sha); } },
+            {
+              id: "blame",
+              label: "Blame",
+              icon: "user",
+              disabled: !!stash || isImage(t.path) || t.files.every((f) => f.status === "D"),
+              run: () => { open(); setBlame(true); setPane("diff"); },
+            },
+            "sep",
+          ] satisfies MenuItem[])),
       { id: "copy", label: "Copy path", icon: "copy", run: () => copyToClipboard(t.path) },
       ...(isLocal
         ? [{
@@ -297,28 +349,33 @@ export function Workspace() {
     ];
   };
 
-  useEffect(() => setFile(undefined), [branch, mode, commit, stash]);
+  useEffect(() => {
+    setFile(undefined);
+    closeFileLog();
+  }, [branch, mode, commit, stash]);
   // A WIP file whose last lines on its side were staged (or unstaged) lives on the other side now: follow it there.
   useEffect(() => {
     if (current || !file || mode !== "wip") return;
     const moved = list.find((f) => f.staged !== undefined && fileKey({ ...f, staged: !f.staged }) === file);
     if (moved) setFile(fileKey(moved));
   }, [current, file, mode, list]);
-  // Escape closes the diff, unless it is closing something else (or letting go of selected lines) or typing; captured so
-  // the commit or stash list under it stays open.
-  const fileOpen = !!current;
+  // Escape closes the file's history, else the diff, unless it is closing something else (or letting go of selected lines)
+  // or typing; captured so the commit or stash list under it stays open.
+  const fileOpen = !!shown;
+  const logOpen = fileLog !== null;
   useEffect(() => {
     if (!fileOpen) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape" || (e.target as HTMLElement).closest("input, textarea")) return;
       if (document.querySelector("[role=dialog], [role=menu], .diff-picks, .diff-find")) return;
       e.stopImmediatePropagation();
+      if (logOpen) return closeFileLog();
       setFile(undefined);
       setPane("files");
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [fileOpen]);
+  }, [fileOpen, logOpen]);
   // Picking another branch (e.g. from a ticket) leaves its commit or stash list.
   useEffect(() => {
     if (history && branch !== history) closeHistory();
@@ -355,7 +412,7 @@ export function Workspace() {
         <main
           className="ws"
           style={{ "--branches-w": `${leftW.width}%` } as CSSProperties}
-          data-file-open={current ? true : undefined}
+          data-file-open={shown ? true : undefined}
           data-slide={slide.dir}
           {...swipeProps((dir) => {
             // Past the first pane, a commit or stash list steps back to the branches, like its back button.
@@ -427,10 +484,12 @@ export function Workspace() {
 
             <section aria-label="Diff" className="ws-diff" data-pane data-active={pane === "diff"}>
               <div className="pane-head" style={{ background: "var(--panel)" }}>
-                <span className="mono ellipsis" style={{ fontSize: 12.5 }}>{current?.path ?? "No file selected"}</span>
-                <span className="row mono" style={{ fontSize: 11.5, gap: 6 }}>
-                  {current?.additions ? <span className="c-add">+{current.additions}</span> : null}
-                  {current?.deletions ? <span className="c-del">−{current.deletions}</span> : null}
+                <span className="mono ellipsis" style={{ fontSize: 12.5 }}>{shown?.path ?? "No file selected"}</span>
+                {logged && <span className="mono faint hide-narrow" style={{ fontSize: 11.5 }} data-tip={`As of ${logged.subject}`}>{logged.sha.slice(0, 7)}</span>}
+                {/* The file list or history beside it has them too: on a phone the path needs the room. */}
+                <span className="row mono hide-narrow" style={{ fontSize: 11.5, gap: 6 }}>
+                  {shown?.additions ? <span className="c-add">+{shown.additions}</span> : null}
+                  {shown?.deletions ? <span className="c-del">−{shown.deletions}</span> : null}
                 </span>
                 <span className="grow" />
                 {image ? (
@@ -446,13 +505,14 @@ export function Workspace() {
                     />
                   )
                 ) : (
-                  (!unchanged || markdown || svg) && (
-                    <Seg<DiffMode | "raw" | "preview" | "image">
-                      value={markdown && preview ? "preview" : unchanged ? "raw" : diffMode}
+                  (!unchanged || markdown || svg || canBlame) && (
+                    <Seg<DiffMode | "raw" | "preview" | "image" | "blame">
+                      value={showBlame ? "blame" : markdown && preview ? "preview" : unchanged ? "raw" : diffMode}
                       onChange={(v) => {
+                        setBlame(v === "blame");
                         setPreview(v === "preview");
                         if (v === "image") setSvgCode(false);
-                        else if (v !== "preview" && v !== "raw") setDiffMode(v);
+                        else if (v !== "preview" && v !== "raw" && v !== "blame") setDiffMode(v);
                       }}
                       label="Diff mode"
                       options={[
@@ -461,36 +521,76 @@ export function Workspace() {
                           : [{ value: "split" as const, label: "Split" }, { value: "unified" as const, label: "Unified" }, { value: "full" as const, label: "Full" }]),
                         ...(markdown ? [{ value: "preview" as const, label: "Preview" }] : []),
                         ...(svg ? [{ value: "image" as const, label: "Image" }] : []),
+                        ...(canBlame ? [{ value: "blame" as const, label: "Blame" }] : []),
                       ]}
                     />
                   )
                 )}
-                {current && (
-                  <button className="btn btn-sm btn-icon pane-back pane-close" aria-label="Close file" data-tip="Back to branches" onClick={() => { setFile(undefined); setPane("files"); }}>
+                {shown && branch && (
+                  <button
+                    className="btn btn-sm"
+                    aria-label="File history"
+                    aria-pressed={logOpen}
+                    data-tip={logOpen ? "Back to the file's changes (Esc)" : "Commits that changed this file"}
+                    onClick={() => {
+                      if (logOpen) return closeFileLog();
+                      // From a commit of the branch's list: that commit, picked in the file's history.
+                      openFileLog(shown.path, commit?.sha);
+                      setPane("files");
+                    }}
+                  >
+                    <Icon name="history" size={12} />
+                    <span className="hide-narrow">History</span>
+                  </button>
+                )}
+                {shown && (
+                  <button className="btn btn-sm btn-icon pane-back pane-close" aria-label="Close file" data-tip="Back to branches" onClick={() => { closeFileLog(); setFile(undefined); setPane("files"); }}>
                     <Icon name="close" size={13} />
                   </button>
                 )}
               </div>
               <div className="diff">
-                {(diff.isLoading || (unchanged && blobs.isLoading)) && current && <Loading />}
-                {diff.error && <div style={{ padding: 16 }}><ErrorBox error={diff.error} /></div>}
-                {image && current && blobs.data && <ImageDiff path={current.path} blobs={blobs.data} mode={imageMode} />}
-                {blobs.error && (image || unchanged) && <div style={{ padding: 16 }}><ErrorBox error={blobs.error} /></div>}
-                {showPreview ? (
-                  <article style={{ maxWidth: 760, margin: "0 auto", padding: "24px 24px 48px", fontFamily: "var(--sans)", fontSize: 14, lineHeight: 1.6 }}>
-                    <Markdown text={text} />
-                  </article>
+                {showBlame && shown ? (
+                  <>
+                    {blamed.isLoading && <Loading />}
+                    {blamed.error && <div style={{ padding: 16 }}><ErrorBox error={blamed.error} /></div>}
+                    {blamed.data && blameHunks && (blamed.data.lines.length > 0 ? (
+                      <DiffView path={shown.path} hunks={blameHunks} mode="full" blame={{ blame: blamed.data, onPick: blameOpen }} anyway={forced} onAnyway={showAnyway} />
+                    ) : (
+                      <div className="empty" style={{ fontFamily: "var(--sans)" }}>Empty file.</div>
+                    ))}
+                  </>
                 ) : (
                   <>
-                    {huge && !image && <LargeDiff lines={changedLines} onShow={showAnyway} />}
-                    {raw && current && <DiffView path={current.path} hunks={raw} mode="full" anyway={forced} onAnyway={showAnyway} />}
-                    {!image && current && diff.data && diff.data.length > 0 && <DiffView path={current.path} hunks={diff.data} mode={diffMode} staging={staging} anyway={forced} onAnyway={showAnyway} />}
+                    {(diff.isLoading || (unchanged && blobs.isLoading)) && shown && <Loading />}
+                    {diff.error && <div style={{ padding: 16 }}><ErrorBox error={diff.error} /></div>}
+                    {image && shown && blobs.data && <ImageDiff path={shown.path} blobs={blobs.data} mode={imageMode} />}
+                    {blobs.error && (image || unchanged) && <div style={{ padding: 16 }}><ErrorBox error={blobs.error} /></div>}
+                    {showPreview ? (
+                      <article style={{ maxWidth: 760, margin: "0 auto", padding: "24px 24px 48px", fontFamily: "var(--sans)", fontSize: 14, lineHeight: 1.6 }}>
+                        <Markdown text={text} />
+                      </article>
+                    ) : (
+                      <>
+                        {huge && !image && <LargeDiff lines={changedLines} onShow={showAnyway} />}
+                        {raw && shown && <DiffView path={shown.path} hunks={raw} mode="full" anyway={forced} onAnyway={showAnyway} />}
+                        {!image && shown && diff.data && diff.data.length > 0 && <DiffView path={shown.path} hunks={diff.data} mode={diffMode} staging={staging} anyway={forced} onAnyway={showAnyway} />}
+                      </>
+                    )}
+                    {(!shown || (diff.data && diff.data.length === 0 && !image) || (unchanged && !image && blobs.data && text === null)) && (
+                      <div className={list.length === 0 ? "empty engraved" : "empty"} style={{ fontFamily: "var(--sans)" }}>
+                        {list.length === 0
+                          ? "Nothing to show — working tree is clean."
+                          : !shown
+                            ? "No file selected."
+                            : unchanged
+                              ? "Binary file."
+                              : logged?.from
+                                ? `Renamed from ${logged.from}, no other changes.`
+                                : "No textual changes in this file."}
+                      </div>
+                    )}
                   </>
-                )}
-                {(!current || (diff.data && diff.data.length === 0 && !image) || (unchanged && !image && blobs.data && text === null)) && (
-                  <div className={list.length === 0 ? "empty engraved" : "empty"} style={{ fontFamily: "var(--sans)" }}>
-                    {list.length === 0 ? "Nothing to show — working tree is clean." : !current ? "No file selected." : unchanged ? "Binary file." : "No textual changes in this file."}
-                  </div>
                 )}
               </div>
             </section>
@@ -506,7 +606,25 @@ export function Workspace() {
             />
           </div>
           <Resizer pane={leftW} label="Resize panels" percent />
-          <section aria-label="Changed files" className="ws-files" data-pane data-active={pane === "files"}>
+          {fileLog !== null && branch && (
+            <section aria-label={`History of ${fileLog}`} className="ws-files" data-pane data-active={pane === "files"}>
+              <FileHistory
+                key={fileLog}
+                pid={pid}
+                branch={branch}
+                path={fileLog}
+                selected={logPick?.sha}
+                want={logWant}
+                onPick={(c, auto) => {
+                  setLogPick(c);
+                  setLogWant(undefined);
+                  if (!auto) setPane("diff");
+                }}
+                onBack={closeFileLog}
+              />
+            </section>
+          )}
+          <section aria-label="Changed files" className="ws-files" hidden={fileLog !== null && !!branch} data-pane data-active={pane === "files"}>
             <div className="col" style={{ gap: 10, padding: "12px 14px", borderBottom: "1px solid var(--line)" }}>
               <div className="row" style={{ alignItems: "center", minWidth: 0, margin: 0 }}>
                 <span className="mono ellipsis" style={{ fontSize: 13, fontWeight: 500 }}>{branch ?? "No branch"}</span>
@@ -691,7 +809,7 @@ export function Workspace() {
           onChange={setPane}
           options={[
             { value: "releases", label: "Branches" },
-            { value: "files", label: `Files${fileCount ? ` ${fileCount}` : ""}` },
+            { value: "files", label: logOpen ? "History" : `Files${fileCount ? ` ${fileCount}` : ""}` },
             { value: "diff", label: "Diff & agent" },
           ]}
         />

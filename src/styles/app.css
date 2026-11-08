@@ -1611,9 +1611,13 @@ html.scanning body {
     padding-left: 16px;
   }
 }
-/* Commit and stash list back button: a full-height square flush with the pane's left edge (head is 44px less its 1px border). */
-.ws-releases > .pane-head:has(.pane-back) {
+/* Commit, stash and file history back button: a full-height square flush with the pane's left edge (head is 44px less its 1px border). */
+:is(.ws-releases, .ws-files) > .pane-head:has(.pane-back) {
   padding-left: 0;
+}
+/* The file list stays mounted under a file's history, so closing the history finds it as it was. */
+.ws-files[hidden] {
+  display: none;
 }
 .pane-head .pane-back {
   width: 43px;
@@ -1629,6 +1633,12 @@ html.scanning body {
 /* The diff's close file button: the same square, mirrored onto the right edge. */
 .ws-diff > .pane-head:has(.pane-close) {
   padding-right: 0;
+}
+/* History open: its button stays lit. */
+.ws-diff > .pane-head .btn[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--sel);
+  color: var(--fg);
 }
 .pane-head .pane-close {
   border-right: 0;
@@ -3291,6 +3301,86 @@ button.tree-twist:hover {
 .diff-row.marker .tx {
   color: var(--accent-fg);
   font-weight: 500;
+}
+/* Blame: the file's lines in runs from one commit, its label in a column beside them. */
+.diff-b {
+  display: flex;
+  flex-direction: column;
+  padding: 8px 0;
+}
+.blame-run {
+  position: relative;
+  display: grid;
+  grid-template-columns: 250px minmax(0, 1fr);
+  border-top: 1px solid var(--line);
+}
+.diff-b > .diff-chunk:first-child > .blame-run:first-child {
+  border-top: 0;
+}
+/* Age stripe down the whole run: the newest commit full gold, the oldest faint. */
+.blame-run::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: var(--warn-fg);
+  opacity: calc(0.15 + var(--heat, 1) * 0.85);
+  pointer-events: none;
+}
+.blame-run:hover {
+  background: color-mix(in srgb, var(--fg) 3%, transparent);
+}
+/* Sticks to the top of its run while the run scrolls by. */
+.blame-who {
+  position: sticky;
+  top: 0;
+  align-self: start;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  height: 21px;
+  overflow: hidden;
+  padding: 0 10px 0 12px;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: 11.5px/21px var(--sans);
+  text-align: left;
+  -webkit-user-select: none;
+  user-select: none;
+}
+button.blame-who {
+  cursor: pointer;
+}
+button.blame-who:hover,
+button.blame-who:focus-visible {
+  color: var(--fg);
+}
+.blame-who.wip {
+  color: var(--warn-fg);
+  font-weight: 500;
+}
+.blame-msg {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.blame-ago {
+  flex: 0 0 auto;
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+.blame-lines {
+  min-width: 0;
+}
+.diff-b .diff-row {
+  grid-template-columns: 52px minmax(0, 1fr);
+}
+.diff-b .diff-row .tx {
+  padding-left: 12px;
 }
 .swatch {
   display: inline-block;
@@ -7735,6 +7825,26 @@ body:has(> .modal-scrim) #root * {
   .diff-row,
   .diff-half {
     grid-template-columns: calc(var(--ln, 4) * 1ch + 5px) 12px minmax(0, 1fr);
+  }
+  /* Blame: one number per line, and labels down to the author and age. */
+  .diff-b .diff-row {
+    grid-template-columns: calc(var(--ln, 4) * 1ch + 5px) minmax(0, 1fr);
+  }
+  .diff-b .diff-row > .ln:first-child {
+    display: block;
+  }
+  .blame-run {
+    grid-template-columns: 86px minmax(0, 1fr);
+  }
+  .blame-who {
+    gap: 5px;
+    padding: 0 4px 0 7px;
+    font-size: 10.5px;
+    line-height: 18px;
+    height: 18px;
+  }
+  .blame-msg {
+    display: none;
   }
   .diff-row .ln,
   .diff-half .ln {

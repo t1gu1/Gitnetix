@@ -213,6 +213,26 @@ export interface Commit {
   unpushed?: boolean;
 }
 
+/** Who last changed each line of a file. */
+export interface Blame {
+  lines: string[];
+  /** Runs of lines last changed in one commit, in file order: its SHA and how many lines. */
+  runs: [sha: string, lines: number][];
+  /** Those commits. The all-zero SHA is uncommitted work. */
+  commits: Commit[];
+}
+
+/** A commit in one file's history. */
+export interface FileCommit extends Commit {
+  /** The file's path in that commit: older commits may know it by another name. */
+  path: string;
+  /** Its path before, when this commit renamed it. */
+  from?: string;
+  status: FileStatus;
+  additions: number;
+  deletions: number;
+}
+
 export interface CleanupResult {
   deleted: string[];
   skipped: { branch: string; reason: string }[];

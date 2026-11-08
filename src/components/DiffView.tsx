@@ -1,9 +1,10 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type CSSProperties, type MouseEvent, type PointerEvent, type ReactElement, type ReactNode, type RefObject } from "react";
 
-import type { Hunk, LinePick } from "../api/types";
-import { plural } from "../lib/format";
+import type { Blame, Hunk, LinePick } from "../api/types";
+import { ago, plural } from "../lib/format";
 import { code, useTokens } from "../lib/highlight";
 import type { Token, Tokens } from "../lib/highlight.worker";
+import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
 import { ErrorBox, FindBar, Modal, useFindKey } from "./ui";
 
@@ -36,8 +37,14 @@ export function LargeDiff({ lines, onShow }: { lines: number; onShow: () => void
   );
 }
 
+/** A file's blame drawn over its lines (`hunks` = one hunk of them all); picking a commit's label calls `onPick`. */
+export interface Blamed {
+  blame: Blame;
+  onPick: (sha: string) => void;
+}
+
 /** `anyway` draws it whatever its size; until then a large diff shows `LargeDiff`, whose button calls `onAnyway`. */
-export function DiffView({ path, hunks, mode, staging, anyway, onAnyway }: { path: string; hunks: Hunk[]; mode: DiffMode; staging?: Staging; anyway: boolean; onAnyway: () => void }) {
+export function DiffView({ path, hunks, mode, staging, blame, anyway, onAnyway }: { path: string; hunks: Hunk[]; mode: DiffMode; staging?: Staging; blame?: Blamed; anyway: boolean; onAnyway: () => void }) {
   const size = useMemo(() => {
     let lines = 0;
     let chars = 0;
@@ -48,10 +55,10 @@ export function DiffView({ path, hunks, mode, staging, anyway, onAnyway }: { pat
     return { lines, chars };
   }, [hunks]);
   if (!anyway && (size.lines > LARGE_LINES || size.chars > LARGE_CHARS)) return <LargeDiff lines={size.lines} onShow={onAnyway} />;
-  return <Diff path={path} hunks={hunks} mode={mode} staging={staging} />;
+  return <Diff path={path} hunks={hunks} mode={mode} staging={staging} blame={blame} />;
 }
 
-function Diff({ path, hunks, mode, staging }: { path: string; hunks: Hunk[]; mode: DiffMode; staging?: Staging }) {
+function Diff({ path, hunks, mode, staging, blame }: { path: string; hunks: Hunk[]; mode: DiffMode; staging?: Staging; blame?: Blamed }) {
   const shown = useTokens(path, hunks);
   const picking = usePicking(path, shown.hunks, staging);
   const scroller = useRef<HTMLDivElement>(null);
@@ -59,7 +66,9 @@ function Diff({ path, hunks, mode, staging }: { path: string; hunks: Hunk[]; mod
   return (
     <>
       <Heatmapped scroller={scroller} hunks={shown.hunks} split={mode === "split"}>
-        {mode === "split" ? (
+        {blame ? (
+          <BlameRuns hunks={shown.hunks} tokens={shown.tokens} blamed={blame} />
+        ) : mode === "split" ? (
           <Split hunks={shown.hunks} tokens={shown.tokens} picking={picking} />
         ) : (
           <Unified hunks={shown.hunks} tokens={shown.tokens} headers={mode === "unified"} picking={picking} />
@@ -411,15 +420,66 @@ function lnWidth(hunks: Hunk[]): CSSProperties {
 
 const CHUNK = 200;
 
-/** Rows in blocks the browser skips laying out while off screen, so big files open fast. */
-function chunked(rows: ReactElement[]) {
+/** Rows in blocks of about CHUNK lines (`lines` = how many row `i` holds) the browser skips laying out while off screen, so big files open fast. */
+function chunked(rows: ReactElement[], lines: (i: number) => number = () => 1) {
   const out: ReactElement[] = [];
-  for (let i = 0; i < rows.length; i += CHUNK) {
-    const part = rows.slice(i, i + CHUNK);
+  for (let i = 0, start = 0, n = 0; i < rows.length; i++) {
+    n += lines(i);
+    if (n < CHUNK && i < rows.length - 1) continue;
     // Rows are 21px (the .diff line-height) until wrapped; `auto` keeps the real size once seen.
-    out.push(<div key={i} className="diff-chunk" style={{ containIntrinsicBlockSize: `auto ${part.length * 21}px` }}>{part}</div>);
+    out.push(<div key={start} className="diff-chunk" style={{ containIntrinsicBlockSize: `auto ${n * 21}px` }}>{rows.slice(start, i + 1)}</div>);
+    start = i + 1;
+    n = 0;
   }
   return out;
+}
+
+const UNCOMMITTED = /^0+$/;
+
+/** The file's lines in runs from one commit each, the commit's label beside each run: it sticks to the run's top while the run
+ * scrolls by, and its stripe is warmer the newer the commit. */
+function BlameRuns({ hunks, tokens, blamed: { blame, onPick } }: { hunks: Hunk[]; tokens: Tokens | undefined; blamed: Blamed }) {
+  const byId = useMemo(() => new Map(blame.commits.map((c) => [c.sha, c])), [blame]);
+  // By rank among the file's commits, so one very old commit doesn't wash out all the others.
+  const heat = useMemo(() => {
+    const dated = blame.commits.filter((c) => !UNCOMMITTED.test(c.sha)).sort((a, b) => Date.parse(a.date) - Date.parse(b.date));
+    return new Map(dated.map((c, i) => [c.sha, dated.length > 1 ? i / (dated.length - 1) : 1]));
+  }, [blame]);
+  const lines = hunks[0]?.lines ?? [];
+  const runs: ReactElement[] = [];
+  let at = 0;
+  blame.runs.forEach(([sha, n], ri) => {
+    const c = byId.get(sha);
+    const rows: ReactElement[] = [];
+    for (let i = at; i < Math.min(at + n, lines.length); i++) {
+      rows.push(
+        <div key={i} className="diff-row">
+          <span className="ln">{i + 1}</span>
+          <span className="tx">{code(lines[i].text, tokens?.[0][i])}</span>
+        </div>,
+      );
+    }
+    at += n;
+    runs.push(
+      <div key={ri} className="blame-run" style={{ "--heat": heat.get(sha) ?? 1 } as CSSProperties}>
+        {UNCOMMITTED.test(sha) || !c ? (
+          <span className="blame-who wip">Uncommitted</span>
+        ) : (
+          <button
+            className="blame-who"
+            data-tip={`${c.subject}\n${c.author} · ${sha.slice(0, 7)} · ${new Date(c.date).toLocaleString()}\nShow in file history`}
+            onClick={() => onPick(sha)}
+          >
+            <Avatar name={c.author} email={c.email} size={14} />
+            <span className="blame-msg">{c.subject}</span>
+            <span className="blame-ago">{ago(c.date)}</span>
+          </button>
+        )}
+        <div className="blame-lines">{rows}</div>
+      </div>,
+    );
+  });
+  return <div className="diff-b" style={lnWidth(hunks)}>{chunked(runs, (i) => blame.runs[i][1])}</div>;
 }
 
 interface Half {

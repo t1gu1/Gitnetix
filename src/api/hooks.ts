@@ -6,6 +6,7 @@ import type {
   AgentSession,
   AiCatalog,
   Analytics,
+  Blame,
   Blobs,
   BranchView,
   Commit,
@@ -15,6 +16,7 @@ import type {
   LogEntry,
   Config,
   FileChange,
+  FileCommit,
   Hunk,
   MergePrefs,
   Overview,
@@ -100,15 +102,17 @@ export function useEngineEvents() {
             qc.invalidateQueries({ queryKey: ["diff", e.projectId] });
             qc.invalidateQueries({ queryKey: ["blobs", e.projectId] });
             qc.invalidateQueries({ queryKey: ["commits", e.projectId] });
+            qc.invalidateQueries({ queryKey: ["blame", e.projectId] });
+            qc.invalidateQueries({ queryKey: ["fileHistory", e.projectId] });
             qc.invalidateQueries({ queryKey: ["worktrees"] });
             qc.invalidateQueries({ queryKey: ["projects"] });
             qc.invalidateQueries({ queryKey: ["submodules", e.projectId] });
             break;
           case "filesChanged":
             // A save moves no branch: only the uncommitted files, their diffs and previews, of that checkout when known.
-            // Keys are [kind, project, branch, mode, …]: commit and stash sit at 4 and 5 in "files", at 6 and 7 in "diff" and "blobs".
-            for (const kind of ["files", "diff", "blobs"]) {
-              const [commit, stash] = kind === "files" ? [4, 5] : [6, 7];
+            // Keys are [kind, project, branch, mode, …]: commit and stash sit at 4 and 5 in "files", at 6 and 7 in "diff" and "blobs";
+            // "blame" has its commit at 5 and no stash.
+            for (const [kind, commit, stash] of [["files", 4, 5], ["diff", 6, 7], ["blobs", 6, 7], ["blame", 5, 5]] as const) {
               qc.invalidateQueries({
                 queryKey: e.branch ? [kind, e.projectId, e.branch, "wip"] : [kind, e.projectId],
                 predicate: (q) => q.queryKey[3] === "wip" && !q.queryKey[commit] && !q.queryKey[stash],
@@ -373,14 +377,14 @@ function syncWipCount(pid: string, branch: string, list: FileChange[]) {
   if (v?.checkedOut && v.wip !== n) patchOverview(queryClient, pid, branch, (b) => ({ ...b, wip: n }));
 }
 
-/** `full` keeps the whole file as context. */
-export const useDiff = (projectId?: string, branch?: string, mode = "branch", path?: string, staged?: boolean, commit?: string, stash?: string, full = false) =>
+/** `full` keeps the whole file as context; `from` is the file's old path when `commit` renamed it. */
+export const useDiff = (projectId?: string, branch?: string, mode = "branch", path?: string, staged?: boolean, commit?: string, stash?: string, full = false, from?: string) =>
   useQuery({
-    queryKey: ["diff", projectId, branch, mode, path, staged, commit, stash, full],
+    queryKey: ["diff", projectId, branch, mode, path, staged, commit, stash, full, from],
     queryFn: () =>
       stash
         ? rpc<Hunk[]>("stashes.diff", { projectId, sha: stash, path, full })
-        : rpc<Hunk[]>("workspace.diff", { projectId, branch, mode, path, staged, commit, full }),
+        : rpc<Hunk[]>("workspace.diff", { projectId, branch, mode, path, staged, commit, full, from }),
     enabled: !!projectId && (!!branch || !!stash) && !!path,
   });
 
@@ -393,6 +397,23 @@ export const useBlobs = (projectId?: string, branch?: string, mode = "branch", p
         ? rpc<Blobs>("stashes.blobs", { projectId, sha: stash, path })
         : rpc<Blobs>("workspace.blobs", { projectId, branch, mode, path, staged, commit }),
     enabled: enabled && !!projectId && (!!branch || !!stash) && !!path,
+  });
+
+/** Who last changed each line of `path`: as of `commit`, else in the branch's checkout (wip and project modes), else at its tip. */
+export const useBlame = (projectId?: string, branch?: string, mode = "branch", path?: string, commit?: string, enabled = true) =>
+  useQuery({
+    queryKey: ["blame", projectId, branch, mode, path, commit],
+    queryFn: () => rpc<Blame>("workspace.blame", { projectId, branch, mode, path, commit }),
+    enabled: enabled && !!projectId && !!branch && !!path,
+  });
+
+/** Newest `limit` commits of `branch` that changed `path`: raising it keeps the shorter list shown while the longer one loads. */
+export const useFileHistory = (projectId?: string, branch?: string, path?: string, limit?: number) =>
+  useQuery({
+    queryKey: ["fileHistory", projectId, branch, path, limit],
+    queryFn: () => rpc<FileCommit[]>("workspace.fileHistory", { projectId, branch, path, limit }),
+    enabled: !!projectId && !!branch && !!path,
+    placeholderData: (prev, prevQuery) => (prevQuery?.queryKey[2] === branch && prevQuery?.queryKey[3] === path ? prev : undefined),
   });
 
 /** A file sent to agent `id`, base64 (image previews in its log); saved once, it never changes. */

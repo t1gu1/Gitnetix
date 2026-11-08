@@ -17,7 +17,7 @@ use crate::cache::{key_of, CommitCache, LastCache, ViewCache};
 use crate::dictation::Audio;
 use crate::error::{Error, Result};
 use crate::events::Event;
-use crate::git::{ticket_keys, Blobs, BranchInfo, Commit, FileChange, Git, Hunk, LinePick, PrSquash, Side, Identity, StashInfo, TagInfo, WorktreeInfo};
+use crate::git::{ticket_keys, Blame, Blobs, BranchInfo, Commit, FileChange, FileCommit, Git, Hunk, LinePick, PrSquash, Side, Identity, StashInfo, TagInfo, WorktreeInfo};
 use crate::project_commands::{self, Scripts};
 use crate::providers::azure::{self, MergedPr};
 use crate::providers::{self, azure_auth, github::{GitHub, UserRepo}, parse_remote, PrHost, RepoRef};
@@ -3001,9 +3001,37 @@ impl Gitnetix {
         git.range_changes(&git.commit_range(check_sha(sha)?).await?).await
     }
 
-    pub async fn commit_diff(&self, project_id: &str, sha: &str, path: &str, full: bool) -> Result<Vec<Hunk>> {
+    /// `from`: the file's path before, when this commit renamed it.
+    pub async fn commit_diff(&self, project_id: &str, sha: &str, path: &str, full: bool, from: Option<&str>) -> Result<Vec<Hunk>> {
         let git = self.git(&self.store.project(project_id)?);
-        git.file_diff(path, Some(&git.commit_range(check_sha(sha)?).await?), full).await
+        let range = git.commit_range(check_sha(sha)?).await?;
+        match from {
+            Some(old) => git.rename_diff(old, path, &range, full).await,
+            None => git.file_diff(path, Some(&range), full).await,
+        }
+    }
+
+    /// Who last changed each line of `path`: as of commit `sha` when given, else in the branch's checkout
+    /// (uncommitted lines too) for the wip and project views, else at its tip.
+    pub async fn blame(&self, project_id: &str, branch: &str, mode: ViewMode, path: &str, sha: Option<&str>) -> Result<Blame> {
+        let p = self.store.project(project_id)?;
+        let git = self.git(&p);
+        if let Some(sha) = sha {
+            return git.blame(Some(check_sha(sha)?), path).await;
+        }
+        if mode != ViewMode::Branch {
+            if let Some(dir) = self.checkout_dir(&p, branch).await? {
+                return Git::new(dir).blame(None, path).await;
+            }
+        }
+        git.blame(Some(&check_rev(git.rev_of(branch).await)?), path).await
+    }
+
+    /// Commits of `branch` that changed `path`, newest first, following its renames. `limit` (200 when not
+    /// given) is raised to reach older ones.
+    pub async fn file_history(&self, project_id: &str, branch: &str, path: &str, limit: Option<u32>) -> Result<Vec<FileCommit>> {
+        let git = self.git(&self.store.project(project_id)?);
+        git.file_log(&check_rev(git.rev_of(branch).await)?, path, limit.unwrap_or(200)).await
     }
 
     /// Revert one commit of `branch` with a new commit on it.
@@ -6655,6 +6683,11 @@ fn check_sha(sha: &str) -> Result<&str> {
     } else {
         Err(Error::Invalid(format!("not a commit id: {sha:?}")))
     }
+}
+
+/// A branch from the UI goes to `git log` or `git blame` as a revision, so it must not read as an option.
+fn check_rev(rev: String) -> Result<String> {
+    if rev.starts_with('-') { Err(Error::Invalid(format!("not a branch: {rev:?}"))) } else { Ok(rev) }
 }
 
 fn commit_lines(commits: &[crate::git::Commit]) -> String {

@@ -29,6 +29,7 @@ const PATHS: Record<string, { d: string[]; fill?: boolean; circles?: [number, nu
   folder: { d: ["M2 4.5A1 1 0 0 1 3 3.5h3l1.4 1.5H13a1 1 0 0 1 1 1V12a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1z"] },
   sparkle: { d: ["M8 1l1.7 4.6L14.5 7.3 9.7 9 8 13.6 6.3 9 1.5 7.3l4.8-1.7z"], fill: true },
   refresh: { d: ["M13 8a5 5 0 1 1-1.5-3.5M13 2.5v3h-3"] },
+  history: { d: ["M2 8a6 6 0 1 0 6-6 6.5 6.5 0 0 0-4.5 1.83L2 5.33", "M2 2v3.33h3.33", "M8 4.67V8l2.67 1.33"] },
   swap: { d: ["M3 5.5h10M10.5 3L13 5.5 10.5 8M13 10.5H3M5.5 8L3 10.5 5.5 13"] },
   copy: { d: ["M5.5 5.5h7v8h-7z", "M3.5 10.5v-8h7"] },
   edit: { d: ["M11 2.5l2.5 2.5L6 12.5H3.5V10z"] },

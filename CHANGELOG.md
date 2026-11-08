@@ -11,6 +11,11 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+### Added
+
+- Blame a file from its diff: each run of lines shows the commit that last changed it, with its author and age. Click a run's label to open that commit in the file's history.
+- Show a file's history: the commits of the branch that changed it, renames included. Pick one to see what it changed in the file, or blame the file as of that commit.
+
 ## [0.19.6] - 2026-11-08
 
 ### Added

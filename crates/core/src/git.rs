@@ -174,7 +174,7 @@ pub struct TagInfo {
     pub sha: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Commit {
     pub sha: String,
     pub author: String,
@@ -197,6 +197,32 @@ pub struct Commit {
     /// On the local branch but on no origin branch: a hard reset past it loses it.
     #[serde(default)]
     pub unpushed: bool,
+}
+
+/// Who last changed each line of a file (`git blame`).
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct Blame {
+    pub lines: Vec<String>,
+    /// Runs of lines last changed in one commit, in file order: its SHA and how many lines.
+    pub runs: Vec<(String, u32)>,
+    /// Those commits. The all-zero SHA is uncommitted work.
+    pub commits: Vec<Commit>,
+}
+
+/// A commit that changed one file, in that file's history.
+#[derive(Debug, Clone, Serialize)]
+pub struct FileCommit {
+    #[serde(flatten)]
+    pub commit: Commit,
+    /// The file's path in that commit: older commits may know it by another name.
+    pub path: String,
+    /// Its path before, when this commit renamed it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub from: Option<String>,
+    /// A added, M modified, D deleted, R renamed.
+    pub status: char,
+    pub additions: u32,
+    pub deletions: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1304,6 +1330,11 @@ impl Git {
         Ok(parse_unified(&out))
     }
 
+    /// Diff of a file `range` renamed from `from`: with both names git pairs them and shows only what changed.
+    pub async fn rename_diff(&self, from: &str, path: &str, range: &str, full: bool) -> Result<Vec<Hunk>> {
+        Ok(parse_unified(&self.run(&["diff", context_flag(full), "-M", range, "--", from, path]).await?))
+    }
+
     /// Diff of one side of a file's uncommitted work.
     pub async fn file_diff_side(&self, path: &str, staged: bool, full: bool) -> Result<Vec<Hunk>> {
         let ctx = context_flag(full);
@@ -1928,22 +1959,59 @@ impl Git {
             .filter_map(|rec| {
                 let rec = rec.trim_start_matches('\n');
                 let f: Vec<&str> = rec.splitn(7, '\x1f').collect();
-                (f.len() == 7).then(|| Commit {
-                    sha: f[0].into(),
-                    author: f[1].into(),
-                    email: f[2].into(),
-                    date: f[3].into(),
-                    subject: f[5].into(),
-                    body: f[6].trim().into(),
-                    tags: f[4].split(", ").filter_map(|d| d.strip_prefix("tag: ")).map(Into::into).collect(),
-                    local: false,
-                    origin: false,
-                    unpulled: false,
-                    unpushed: false,
-                })
+                (f.len() == 7).then(|| commit_of(&f))
             })
             .collect())
     }
+
+    /// Commits reachable from `rev` that changed `path`, newest first, following its renames.
+    pub async fn file_log(&self, rev: &str, path: &str, limit: u32) -> Result<Vec<FileCommit>> {
+        let n = format!("-n{limit}");
+        let format = "--format=%x1e%H%x1f%an%x1f%ae%x1f%aI%x1f%D%x1f%s%x1f%b%x1f";
+        Ok(parse_file_log(&self.run(&["log", "--follow", "--decorate-refs=refs/tags/", format, "--raw", "--numstat", "-z", &n, rev, "--", path]).await?))
+    }
+
+    /// Who last changed each line of `path` at `rev`; None = the file in this checkout, uncommitted lines too.
+    pub async fn blame(&self, rev: Option<&str>, path: &str) -> Result<Blame> {
+        let mut args = vec!["blame", "--porcelain"];
+        args.extend(rev);
+        args.extend(["--", path]);
+        match self.run(&args).await {
+            Ok(out) => Ok(parse_blame(&out)),
+            // git refuses a file HEAD doesn't have yet (untracked, or only staged): all of it is uncommitted.
+            Err(e) => match rev {
+                None if !self.try_run(&["cat-file", "-e", &format!("HEAD:{path}")]).await?.0 => match self.blob(Side::Worktree, path).await? {
+                    Some(bytes) => Ok(uncommitted_blame(&String::from_utf8_lossy(&bytes))),
+                    None => Err(e),
+                },
+                _ => Err(e),
+            },
+        }
+    }
+}
+
+/// One `log_revs` record's fields: SHA, author, email, date, tag decorations, subject, body.
+fn commit_of(f: &[&str]) -> Commit {
+    Commit {
+        sha: f[0].into(),
+        author: f[1].into(),
+        email: f[2].into(),
+        date: f[3].into(),
+        subject: f[5].into(),
+        body: f[6].trim().into(),
+        tags: f[4].split(", ").filter_map(|d| d.strip_prefix("tag: ")).map(Into::into).collect(),
+        ..Commit::default()
+    }
+}
+
+/// SHA git blame gives lines that are not committed yet.
+const UNCOMMITTED: &str = "0000000000000000000000000000000000000000";
+
+/// Blame of a file git has no history of: every line uncommitted.
+fn uncommitted_blame(text: &str) -> Blame {
+    let lines: Vec<String> = text.lines().map(String::from).collect();
+    let runs = if lines.is_empty() { vec![] } else { vec![(UNCOMMITTED.to_string(), lines.len() as u32)] };
+    Blame { lines, runs, commits: vec![Commit { sha: UNCOMMITTED.into(), author: "Not Committed Yet".into(), ..Commit::default() }] }
 }
 
 // ---------- parsers (pure, unit-tested) ----------
@@ -2077,6 +2145,66 @@ pub fn parse_numstat_z(s: &str) -> HashMap<String, (u32, u32)> {
         map.insert(path, (a, d));
     }
     map
+}
+
+/// `git blame --porcelain`: a "<sha> <old line> <new line> [<count>]" header before each line, the commit's
+/// "key value" lines the first time it comes, then the line itself after a tab.
+pub fn parse_blame(s: &str) -> Blame {
+    let mut b = Blame::default();
+    let mut at: HashMap<String, usize> = HashMap::new();
+    let mut sha = String::new();
+    for line in s.lines() {
+        if let Some(text) = line.strip_prefix('\t') {
+            b.lines.push(text.to_string());
+            match b.runs.last_mut() {
+                Some((s, n)) if *s == sha => *n += 1,
+                _ => b.runs.push((sha.clone(), 1)),
+            }
+            continue;
+        }
+        let (key, value) = line.split_once(' ').unwrap_or((line, ""));
+        if (40..=64).contains(&key.len()) && key.bytes().all(|c| c.is_ascii_hexdigit()) {
+            sha = key.to_string();
+            at.entry(sha.clone()).or_insert_with(|| {
+                b.commits.push(Commit { sha: sha.clone(), ..Commit::default() });
+                b.commits.len() - 1
+            });
+            continue;
+        }
+        let Some(c) = at.get(&sha).map(|&i| &mut b.commits[i]) else { continue };
+        match key {
+            "author" => c.author = value.into(),
+            "author-mail" => c.email = value.trim_start_matches('<').trim_end_matches('>').into(),
+            "author-time" => c.date = value.parse().ok().and_then(|t| chrono::DateTime::from_timestamp(t, 0)).map(|d| d.to_rfc3339()).unwrap_or_default(),
+            "summary" => c.subject = value.into(),
+            _ => {}
+        }
+    }
+    b
+}
+
+/// `git log --raw --numstat -z` of one file, formatted as [`Git::file_log`] asks: each record is the commit's
+/// fields, then a NUL, a newline, the raw line ending in the status, the path (old and new for a rename), and
+/// "<added>\t<deleted>\t<path>" (a rename: "<added>\t<deleted>\t", old, new).
+pub fn parse_file_log(s: &str) -> Vec<FileCommit> {
+    s.split('\x1e')
+        .filter_map(|rec| {
+            let f: Vec<&str> = rec.splitn(8, '\x1f').collect();
+            let mut parts = f.get(7)?.trim_start_matches(['\0', '\n']).split('\0');
+            let status = parts.next()?.rsplit(' ').next()?.chars().next()?;
+            let first = parts.next()?.to_string();
+            let (from, path) = if matches!(status, 'R' | 'C') { (Some(first), parts.next()?.to_string()) } else { (None, first) };
+            let nums: Vec<&str> = parts.next().unwrap_or_default().splitn(3, '\t').collect();
+            // Binary files count "-".
+            let count = |i: usize| nums.get(i).and_then(|n| n.parse().ok()).unwrap_or(0);
+            let status = match status {
+                'A' | 'C' => 'A',
+                'D' | 'R' => status,
+                _ => 'M',
+            };
+            Some(FileCommit { commit: commit_of(&f), path, from, status, additions: count(0), deletions: count(1) })
+        })
+        .collect()
 }
 
 /// Context flag for a file diff: enough lines to cover any file, or git's default
@@ -2330,6 +2458,40 @@ pub fn truncate_utf8(s: &mut String, max: usize) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn blame_porcelain_reads_lines_runs_and_commits() {
+        let (a, z) = ("a".repeat(40), UNCOMMITTED.to_string());
+        let out = format!(
+            "{a} 1 1 2\nauthor Ann\nauthor-mail <ann@x.io>\nauthor-time 1700000000\nauthor-tz +0000\nsummary first\nfilename f.txt\n\tone\n{a} 2 2\n\ttwo\n\
+             {z} 3 3 1\nauthor Not Committed Yet\nauthor-mail <not.committed.yet>\nauthor-time 1700000100\nsummary Version of f.txt from f.txt\nprevious {a} f.txt\nfilename f.txt\n\t\tindented\n\
+             {a} 3 4 1\n\tfour\n"
+        );
+        let b = parse_blame(&out);
+        assert_eq!(b.lines, ["one", "two", "\tindented", "four"]);
+        assert_eq!(b.runs, [(a.clone(), 2), (z.clone(), 1), (a.clone(), 1)]);
+        assert_eq!(b.commits.len(), 2, "each commit once");
+        let c = &b.commits[0];
+        assert_eq!((c.author.as_str(), c.email.as_str(), c.subject.as_str(), c.date.as_str()), ("Ann", "ann@x.io", "first", "2023-11-14T22:13:20+00:00"));
+        assert_eq!(uncommitted_blame("x\ny\n").runs, [(z, 2)]);
+    }
+
+    #[test]
+    fn file_log_reads_status_paths_and_counts() {
+        let rec = |sha: &str, stat: &str| format!("\x1e{sha}\x1fAnn\x1fann@x.io\x1f2026-11-08T10:00:00-05:00\x1ftag: v1\x1fsubject {sha}\x1fbody\n\x1f\x00\n{stat}");
+        let out = [
+            rec("c3", ":100644 100644 aaa bbb M\x00b.txt\x003\t1\tb.txt\x00"),
+            rec("c2", ":100644 100644 aaa aaa R100\x00a.txt\x00b.txt\x000\t0\t\x00a.txt\x00b.txt\x00"),
+            rec("c1", ":000000 100644 000 aaa A\x00a.txt\x00-\t-\ta.txt\x00"),
+            // A merge shows no diff: left out.
+            rec("c0", ""),
+        ]
+        .concat();
+        let log = parse_file_log(&out);
+        let got: Vec<_> = log.iter().map(|c| (c.commit.sha.as_str(), c.path.as_str(), c.from.as_deref(), c.status, c.additions, c.deletions)).collect();
+        assert_eq!(got, [("c3", "b.txt", None, 'M', 3, 1), ("c2", "b.txt", Some("a.txt"), 'R', 0, 0), ("c1", "a.txt", None, 'A', 0, 0)]);
+        assert_eq!((log[0].commit.subject.as_str(), log[0].commit.body.as_str(), log[0].commit.tags.as_slice()), ("subject c3", "body", ["v1".to_string()].as_slice()));
+    }
 
     #[test]
     fn ref_names_starting_with_a_dash_are_dropped() {

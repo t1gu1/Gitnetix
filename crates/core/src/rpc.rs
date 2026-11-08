@@ -41,9 +41,11 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("projects.setPrefs", "Remembered merge, commit and dialog options for a project", "projectId, merge?: {squash?, squashMessage?: branch|ai, rebase?, deleteBranch?, push?, resolveConflicts?}, commit?: {autoPush?}, dialogs?: {finish?: continue|merge, finishSwitch?, newWorktree?, newAgent?, shipPush?, shipChangelog?, deleteOrigin?, cleanupOrigin?}, worktreeFiles?: string[] (paths copied from the main checkout into new worktrees)"),
     ("workspace.overview", "Releases, their branches and repo state; `quick` skips history checks when nothing is cached", "projectId, quick?"),
     ("workspace.files", "Changed files of a branch, or of one commit when `commit` is given", "projectId, branch, mode: branch|wip|project, commit?"),
-    ("workspace.diff", "Diff of one file; in wip mode `staged` picks the side; `commit` diffs that commit; `full` keeps the whole file", "projectId, branch, mode, path, staged?, commit?, full?"),
+    ("workspace.diff", "Diff of one file; in wip mode `staged` picks the side; `commit` diffs that commit (`from` = the file's old path when that commit renamed it); `full` keeps the whole file", "projectId, branch, mode, path, staged?, commit?, from?, full?"),
     ("workspace.blobs", "Old and new contents of one file, base64 (image previews); same picking as workspace.diff", "projectId, branch, mode, path, staged?, commit?"),
     ("workspace.commits", "Commits a branch has that its base does not (a trunk: recent history), newest first; `limit` (default 200 for a trunk, 500 for a branch) is raised to reach older ones", "projectId, branch, limit?"),
+    ("workspace.blame", "Who last changed each line of one file: lines, runs [sha, line count] in file order, and their commits (the all-zero sha is uncommitted work); as of `commit` when given, else the branch's checkout in wip and project modes, else its tip", "projectId, branch, mode, path, commit?"),
+    ("workspace.fileHistory", "Commits of a branch that changed one file, newest first, following renames: each with the file's path there, from (its old path, on a rename), status and line counts; `limit` (default 200) is raised to reach older ones", "projectId, branch, path, limit?"),
     ("commits.revert", "Revert a commit with a new commit on its branch", "projectId, branch, sha"),
     ("commits.cherryPick", "Copy a commit onto a checked-out branch", "projectId, onto, sha"),
     ("commits.reset", "Reset a checked-out branch to a commit", "projectId, branch, sha, mode: soft|mixed|hard"),
@@ -663,7 +665,7 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
             None => to(k.files(&s(&p, "projectId")?, &s(&p, "branch")?, mode(&p)?).await?),
         },
         "workspace.diff" => match os(&p, "commit") {
-            Some(sha) => to(k.commit_diff(&s(&p, "projectId")?, &sha, &s(&p, "path")?, b(&p, "full")).await?),
+            Some(sha) => to(k.commit_diff(&s(&p, "projectId")?, &sha, &s(&p, "path")?, b(&p, "full"), os(&p, "from").as_deref()).await?),
             None => to(k.diff(&s(&p, "projectId")?, &s(&p, "branch")?, mode(&p)?, &s(&p, "path")?, p.get("staged").and_then(Value::as_bool), b(&p, "full")).await?),
         },
         "workspace.blobs" => match os(&p, "commit") {
@@ -671,6 +673,8 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
             None => to(k.blobs(&s(&p, "projectId")?, &s(&p, "branch")?, mode(&p)?, &s(&p, "path")?, p.get("staged").and_then(Value::as_bool)).await?),
         },
         "workspace.commits" => to(k.commits(&s(&p, "projectId")?, &s(&p, "branch")?, p.get("limit").and_then(Value::as_u64).and_then(|n| u32::try_from(n).ok())).await?),
+        "workspace.blame" => to(k.blame(&s(&p, "projectId")?, &s(&p, "branch")?, mode(&p)?, &s(&p, "path")?, os(&p, "commit").as_deref()).await?),
+        "workspace.fileHistory" => to(k.file_history(&s(&p, "projectId")?, &s(&p, "branch")?, &s(&p, "path")?, p.get("limit").and_then(Value::as_u64).and_then(|n| u32::try_from(n).ok())).await?),
         "commits.revert" => to(json!({ "sha": k.revert_commit(&s(&p, "projectId")?, &s(&p, "branch")?, &s(&p, "sha")?).await? })),
         "commits.cherryPick" => to(json!({ "sha": k.cherry_pick(&s(&p, "projectId")?, &s(&p, "onto")?, &s(&p, "sha")?).await? })),
         "commits.reset" => {
