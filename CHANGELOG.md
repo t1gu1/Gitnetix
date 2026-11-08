@@ -11,6 +11,10 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+### Changed
+
+- Update the website compare table claims and its check date.
+
 ## [0.20.0] - 2026-11-08
 
 ### Added (App)
