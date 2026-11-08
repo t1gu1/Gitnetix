@@ -229,15 +229,31 @@ mod desktop {
 
     /// Dev builds load the UI from Vite and embed nothing, so serve the `pnpm build` output instead.
     fn dev_asset(path: &str) -> Option<(Vec<u8>, String)> {
-        if !cfg!(debug_assertions) || path.contains("..") {
+        if !cfg!(debug_assertions) {
             return None;
         }
         let dist = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../dist");
-        let file = dist.join(path.trim_start_matches('/'));
+        let file = dist.join(in_dist(path)?);
         let file = if file.is_file() { file } else { dist.join("index.html") };
         let bytes = std::fs::read(&file).ok()?;
         let mime = tauri::utils::mime_type::MimeType::parse(&bytes, &file.to_string_lossy());
         Some((bytes, mime))
+    }
+
+    /// A URL path as a path under `dist`; none with `..`, a root or a drive letter (`C:`), which `join` would let out of it.
+    fn in_dist(path: &str) -> Option<&std::path::Path> {
+        let rel = std::path::Path::new(path.trim_start_matches('/'));
+        rel.components().all(|c| matches!(c, std::path::Component::Normal(_))).then_some(rel)
+    }
+
+    #[test]
+    fn dev_assets_stay_in_dist() {
+        assert!(in_dist("/").is_some());
+        assert!(in_dist("/assets/index.js").is_some());
+        assert!(in_dist("/../config.json").is_none());
+        assert!(in_dist("/assets/../../config.json").is_none());
+        #[cfg(windows)]
+        assert!(in_dist("/C:/Users/me/config.json").is_none());
     }
 
     pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {

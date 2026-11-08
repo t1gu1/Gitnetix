@@ -7,11 +7,8 @@ use std::collections::BTreeMap;
 use std::sync::Mutex;
 use std::time::Duration;
 
-use base64::Engine;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sha2::{Digest, Sha256};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::task::{AbortHandle, JoinHandle};
 
@@ -148,7 +145,7 @@ pub async fn start(p: &'static Provider) -> Result<String> {
     let listener = listener.ok_or_else(|| Error::Other(format!("port {PORT} is in use; close the app using it and try again")))?;
     let state = crate::store::new_id();
     let verifier = format!("{}{}", uuid::Uuid::new_v4().simple(), uuid::Uuid::new_v4().simple());
-    let challenge = pkce_challenge(&verifier);
+    let challenge = crate::providers::oauth::pkce_challenge(&verifier);
     let mut params = vec![("client_id", id), ("redirect_uri", REDIRECT), ("state", state.as_str()), ("response_type", "code")];
     params.extend(p.params);
     if p.pkce {
@@ -156,7 +153,7 @@ pub async fn start(p: &'static Provider) -> Result<String> {
     }
     let url = reqwest::Url::parse_with_params(p.authorize, &params).map_err(|e| Error::Other(e.to_string()))?;
     let task = tokio::spawn(async move {
-        let code = tokio::time::timeout(Duration::from_secs(300), wait_for_code(p, listener, &state))
+        let code = tokio::time::timeout(Duration::from_secs(300), crate::providers::oauth::wait_for_code(listener, &state, p.site))
             .await
             .map_err(|_| Error::Invalid("sign-in timed out — start again".into()))??;
         let mut body = BTreeMap::from([("grant_type", "authorization_code".to_string()), ("code", code), ("redirect_uri", REDIRECT.into())]);
@@ -179,55 +176,6 @@ pub async fn finish(p: &Provider) -> Result<Value> {
         .and_then(|(_, _, t)| t.take())
         .ok_or_else(|| Error::Invalid(format!("no {} sign-in in progress", p.site)))?;
     task.await.map_err(|_| Error::Invalid("sign-in was cancelled".into()))?
-}
-
-async fn wait_for_code(p: &Provider, listener: TcpListener, state: &str) -> Result<String> {
-    loop {
-        let (mut sock, _) = listener.accept().await?;
-        let mut buf = vec![0u8; 8192];
-        let n = sock.read(&mut buf).await.unwrap_or(0);
-        let req = String::from_utf8_lossy(&buf[..n]);
-        let line = req.lines().next().unwrap_or("");
-        let res = callback_code(line, state, p.site);
-        let (status, body) = match &res {
-            Ok(Some(_)) => ("200 OK", format!("Signed in to {}. You can close this tab and go back to Gitnetix.", p.name)),
-            Ok(None) => ("404 Not Found", "Not found".into()),
-            Err(_) => ("400 Bad Request", "Sign-in failed. Go back to Gitnetix and try again.".into()),
-        };
-        let page = format!("<!doctype html><meta charset=utf-8><title>Gitnetix</title><p style=\"font:16px system-ui;margin:3em\">{body}</p>");
-        let _ = sock
-            .write_all(format!("HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{page}", page.len()).as_bytes())
-            .await;
-        // Browsers also ask for /favicon.ico; keep waiting for the real redirect.
-        if let Some(code) = res? {
-            return Ok(code);
-        }
-    }
-}
-
-/// The `code` from a "GET /callback?…" request line; None for any other path.
-fn callback_code(request_line: &str, state: &str, site: &str) -> Result<Option<String>> {
-    let path = request_line.split_whitespace().nth(1).unwrap_or("");
-    let url = reqwest::Url::parse(&format!("http://localhost{path}")).map_err(|_| Error::Invalid("bad redirect".into()))?;
-    if url.path() != "/callback" {
-        return Ok(None);
-    }
-    let get = |k: &str| url.query_pairs().find(|(n, _)| n == k).map(|(_, v)| v.into_owned());
-    if let Some(e) = get("error") {
-        return Err(Error::Invalid(match e.as_str() {
-            "access_denied" => format!("sign-in was cancelled on {site}"),
-            _ => format!("{site} sign-in: {}", get("error_description").unwrap_or(e)),
-        }));
-    }
-    if get("state").as_deref() != Some(state) {
-        return Err(Error::Invalid("sign-in answer did not match; start again".into()));
-    }
-    get("code").map(Some).ok_or_else(|| Error::Invalid(format!("{site} sent no code")))
-}
-
-/// RFC 7636 S256: the verifier's SHA-256, base64url without padding.
-fn pkce_challenge(verifier: &str) -> String {
-    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()))
 }
 
 /// Store a token response under keychain `key`; a refresh token not sent again stays `prev`.
@@ -260,25 +208,5 @@ pub async fn token(p: &Provider, key: &str, signed_in: bool) -> Result<String> {
         access_token(p, key).await
     } else {
         secrets::require(key, &format!("{} token", p.name))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn reads_callback() {
-        assert_eq!(callback_code("GET /callback?code=abc%2B1&state=s1 HTTP/1.1", "s1", "Asana").unwrap(), Some("abc+1".into()));
-        assert_eq!(callback_code("GET /favicon.ico HTTP/1.1", "s1", "Asana").unwrap(), None);
-        assert!(callback_code("GET /callback?code=abc&state=other HTTP/1.1", "s1", "Asana").is_err());
-        let denied = callback_code("GET /callback?error=access_denied&state=s1 HTTP/1.1", "s1", "Trello").unwrap_err();
-        assert!(denied.to_string().contains("cancelled on Trello"));
-    }
-
-    #[test]
-    fn pkce_matches_rfc_7636() {
-        // RFC 7636, appendix B.
-        assert_eq!(pkce_challenge("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"), "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM");
     }
 }

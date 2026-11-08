@@ -3,6 +3,7 @@
 //  - remote: the mobile app or a plain browser talking to a desktop's
 //    companion API over HTTP + Server-Sent Events.
 
+import { agentConsent } from "../lib/agentConsent";
 import type { GitnetixEvent } from "./types";
 
 export class RpcError extends Error {
@@ -89,6 +90,10 @@ export async function testRemote(url: string, token: string): Promise<Remote> {
 }
 
 export async function rpc<T = unknown>(method: string, params: Record<string, unknown> = {}): Promise<T> {
+  // Agents run with their CLI's approvals off: the first start waits for the user's yes, asked once.
+  if ((method === "agents.start" || (method === "items.create" && params.startAgent === true)) && !(await agentConsent())) {
+    throw new RpcError("cancelled", "Agent not started");
+  }
   if (isLocal) {
     const { invoke } = await import("@tauri-apps/api/core");
     try {
@@ -228,7 +233,8 @@ export async function openExternal(url: string) {
   if (isLocal) {
     const { invoke } = await import("@tauri-apps/api/core");
     await invoke("open_url", { url });
-  } else {
+  } else if (/^https?:\/\//i.test(url)) {
+    // The desktop's open_url rule: links from hosts and trackers never reach the phone as other schemes.
     window.open(reachable(url), "_blank", "noopener");
   }
 }

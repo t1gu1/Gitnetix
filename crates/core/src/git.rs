@@ -342,6 +342,13 @@ impl RefList {
     }
 }
 
+/// Whether a ref name read from git can go back to it as an argument. Git's own commands never create a name
+/// starting with `-` (`git branch` refuses it), so only a crafted remote can: dropped, no later command
+/// (a log, a range, a push) reads it as an option. `origin/-x` counts too: the app strips `origin/` in places.
+fn plain_ref(name: &str) -> bool {
+    !name.strip_prefix("origin/").unwrap_or(name).starts_with('-')
+}
+
 fn parse_refs(out: &str) -> RefList {
     let mut r = RefList::default();
     let mut tags = Vec::new();
@@ -349,6 +356,10 @@ fn parse_refs(out: &str) -> RefList {
         let f: Vec<&str> = l.split('\x1f').collect();
         let [refname, sha, upstream, upstream_short, date, author, email, symref, head, short, created, created_unix, peeled] = f[..] else { continue };
         r.fingerprint.push_str(&format!("{refname} {sha} {upstream}\n"));
+        let name = ["refs/heads/", "refs/remotes/origin/", "refs/tags/"].iter().find_map(|p| refname.strip_prefix(p)).unwrap_or(refname);
+        if !plain_ref(name) {
+            continue;
+        }
         let info = |name: &str, upstream: Option<String>| BranchInfo { name: name.into(), sha: sha.into(), upstream, date: date.into(), author: author.into(), email: email.trim_matches(['<', '>']).into() };
         if let Some(name) = refname.strip_prefix("refs/heads/") {
             if head == "*" {
@@ -357,7 +368,7 @@ fn parse_refs(out: &str) -> RefList {
             r.branches.push(info(name, (!upstream_short.is_empty()).then(|| upstream_short.to_string())));
         } else if let Some(name) = refname.strip_prefix("refs/remotes/origin/") {
             if name == "HEAD" {
-                r.origin_head = symref.strip_prefix("refs/remotes/origin/").map(String::from);
+                r.origin_head = symref.strip_prefix("refs/remotes/origin/").filter(|n| plain_ref(n)).map(String::from);
             } else if symref.is_empty() {
                 r.remote_branches.push(info(name, None));
             }
@@ -566,7 +577,7 @@ impl Git {
 
     pub async fn current_branch(&self) -> Result<Option<String>> {
         let (ok, out, _) = self.try_run(&["symbolic-ref", "--short", "-q", "HEAD"]).await?;
-        Ok(if ok { Some(out.trim().to_string()) } else { None })
+        Ok(if ok { Some(out.trim().to_string()).filter(|b| plain_ref(b)) } else { None })
     }
 
     pub async fn ref_exists(&self, r: &str) -> Result<bool> {
@@ -600,7 +611,7 @@ impl Git {
             .try_run(&["symbolic-ref", "--short", "-q", "refs/remotes/origin/HEAD"])
             .await?;
         if ok {
-            if let Some(name) = out.trim().strip_prefix("origin/") {
+            if let Some(name) = out.trim().strip_prefix("origin/").filter(|n| plain_ref(n)) {
                 return Ok(name.to_string());
             }
         }
@@ -695,7 +706,7 @@ impl Git {
         Ok(out
             .lines()
             .filter_map(|l| l.strip_prefix("refs/heads/").or_else(|| l.strip_prefix("refs/remotes/origin/")))
-            .filter(|n| *n != "HEAD")
+            .filter(|n| *n != "HEAD" && plain_ref(n))
             .map(String::from)
             .collect())
     }
@@ -754,7 +765,7 @@ impl Git {
     pub async fn branches_containing(&self, sha: &str) -> Result<Vec<String>> {
         let contains = format!("--contains={sha}");
         let out = self.run(&["for-each-ref", &contains, "--format=%(refname:lstrip=2)", "refs/heads", "refs/remotes/origin"]).await?;
-        Ok(out.lines().map(str::to_string).collect())
+        Ok(out.lines().filter(|n| plain_ref(n)).map(str::to_string).collect())
     }
 
     /// Whether `base` holds a pull request of branch `name` (tip `rev`) squashed in after its last commit.
@@ -829,7 +840,7 @@ impl Git {
     /// Configured upstream of `branch` (`origin/x`), if any.
     pub async fn upstream(&self, branch: &str) -> Result<Option<String>> {
         let (ok, out, _) = self.try_run(&["rev-parse", "--abbrev-ref", &format!("{branch}@{{upstream}}")]).await?;
-        Ok(ok.then(|| out.trim().to_string()).filter(|u| !u.is_empty()))
+        Ok(ok.then(|| out.trim().to_string()).filter(|u| !u.is_empty() && plain_ref(u)))
     }
 
     /// `sha` was the tip of local `branch` at some point (its reflog): the
@@ -1061,7 +1072,7 @@ impl Git {
                 }
             } else if let Some(b) = line.strip_prefix("branch ") {
                 if let Some(w) = cur.as_mut() {
-                    w.branch = Some(b.trim_start_matches("refs/heads/").into());
+                    w.branch = Some(b.trim_start_matches("refs/heads/").to_string()).filter(|b| plain_ref(b));
                 }
             }
         }
@@ -1071,7 +1082,7 @@ impl Git {
         // Rebasing detaches HEAD: the checkout still belongs to the branch being rebased.
         // A folder deleted outside git (still listed, prunable) is skipped.
         for w in list.iter_mut().filter(|w| w.branch.is_none() && Path::new(&w.path).exists()) {
-            w.branch = Git::new(&w.path).rebasing_branch().await.ok().flatten();
+            w.branch = Git::new(&w.path).rebasing_branch().await.ok().flatten().filter(|b| plain_ref(b));
         }
         Ok(list)
     }
@@ -2319,6 +2330,18 @@ pub fn truncate_utf8(s: &mut String, max: usize) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ref_names_starting_with_a_dash_are_dropped() {
+        let line = |refname: &str, short: &str| [refname, "abc", "", "", "2026-11-07", "T", "<t@t>", "", "", short, "2026-11-07", "1", ""].join("\x1f");
+        let out = [("refs/heads/main", "main"), ("refs/heads/-x", "-x"), ("refs/heads/feat/-ok", "feat/-ok"), ("refs/remotes/origin/-y", "origin/-y"), ("refs/tags/-v1", "-v1"), ("refs/tags/v1", "v1")]
+            .map(|(r, s)| line(r, s))
+            .join("\n");
+        let r = parse_refs(&out);
+        assert_eq!(r.branches.iter().map(|b| b.name.as_str()).collect::<Vec<_>>(), ["main", "feat/-ok"]);
+        assert!(r.remote_branches.is_empty());
+        assert_eq!(r.tags.iter().map(|t| t.name.as_str()).collect::<Vec<_>>(), ["v1"]);
+    }
 
     #[test]
     fn counts_untracked_lines_within_budget() {

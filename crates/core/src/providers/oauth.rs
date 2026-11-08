@@ -246,7 +246,7 @@ pub async fn browser_finish(key: &str) -> Result<(Tokens, Browser)> {
 }
 
 /// RFC 7636 S256: base64url of the verifier's SHA-256, without padding.
-fn pkce_challenge(verifier: &str) -> String {
+pub(crate) fn pkce_challenge(verifier: &str) -> String {
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()))
 }
 
@@ -295,14 +295,15 @@ fn callback_code(request_line: &str, state: &str, site: &str) -> Result<Option<S
         return Ok(None);
     }
     let get = |k: &str| url.query_pairs().find(|(n, _)| n == k).map(|(_, v)| v.into_owned());
+    // Any web page can call localhost: only the answer carrying this sign-in's state may end it, even with an error.
+    if get("state").as_deref() != Some(state) {
+        return Ok(None);
+    }
     if let Some(e) = get("error") {
         return Err(Error::Invalid(match e.as_str() {
             "access_denied" => format!("sign-in was cancelled on {site}"),
             _ => format!("{site} sign-in: {}", get("error_description").unwrap_or(e)),
         }));
-    }
-    if get("state").as_deref() != Some(state) {
-        return Err(Error::Invalid("sign-in answer did not match; start again".into()));
     }
     get("code").map(Some).ok_or_else(|| Error::Invalid(format!("{site} sent no code")))
 }
@@ -316,7 +317,9 @@ mod tests {
     fn reads_callback() {
         assert_eq!(callback_code("GET /callback?code=abc%2B1&state=s1 HTTP/1.1", "s1", "Gitea").unwrap(), Some("abc+1".into()));
         assert_eq!(callback_code("GET /favicon.ico HTTP/1.1", "s1", "Gitea").unwrap(), None);
-        assert!(callback_code("GET /callback?code=abc&state=other HTTP/1.1", "s1", "Gitea").is_err());
+        // A request without this sign-in's state comes from some other page: ignored, the sign-in keeps waiting.
+        assert_eq!(callback_code("GET /callback?code=abc&state=other HTTP/1.1", "s1", "Gitea").unwrap(), None);
+        assert_eq!(callback_code("GET /callback?error=access_denied HTTP/1.1", "s1", "Gitea").unwrap(), None);
         let e = callback_code("GET /callback?error=access_denied&state=s1 HTTP/1.1", "s1", "Bitbucket").unwrap_err();
         assert!(e.to_string().contains("cancelled on Bitbucket"));
     }

@@ -35,7 +35,14 @@ pub fn error(text: impl Into<String>) {
     push(true, text.into());
 }
 
+/// `text` with the `user:password@` of any URL hidden: clone and remote URLs can carry a token, and logs get shared.
+fn redact(text: &str) -> String {
+    static CREDENTIALS: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| regex::Regex::new(r"([A-Za-z][A-Za-z0-9+.-]*://)[^/\s@]+@").unwrap());
+    CREDENTIALS.replace_all(text, "${1}***@").into_owned()
+}
+
 fn push(error: bool, text: String) {
+    let text = redact(&text);
     if error {
         tracing::warn!("{text}");
     } else {
@@ -65,4 +72,11 @@ pub fn all() -> Vec<Entry> {
 
 pub fn clear() {
     LOG.lock().unwrap_or_else(|e| e.into_inner()).clear();
+}
+
+#[test]
+fn urls_lose_their_credentials() {
+    assert_eq!(redact("git clone -- https://oauth2:glpat-x1@gitlab.com/g/r.git dest"), "git clone -- https://***@gitlab.com/g/r.git dest");
+    assert_eq!(redact("https://github.com/a/b@v1 and ssh://git@host/r"), "https://github.com/a/b@v1 and ssh://***@host/r");
+    assert_eq!(redact("Done projects.clone in 3ms"), "Done projects.clone in 3ms");
 }

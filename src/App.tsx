@@ -3,6 +3,7 @@ import { Activity, type ReactNode, useRef, useState } from "react";
 import { useConfig, useEngineEvents, useProjects } from "./api/hooks";
 import { currentRemote, isLocal } from "./api/transport";
 import { ContextMenu, type MenuItem } from "./components/ContextMenu";
+import { AgentConsent } from "./components/AgentConsent";
 import { GitLogin } from "./components/GitLogin";
 import { Icon } from "./components/Icon";
 import { ProfileSplash } from "./components/Profiles";
@@ -113,6 +114,7 @@ function Shell({ onUnpair }: { onUnpair: () => void }) {
           </div>
           <UpdatePrompt />
           <GitLogin />
+          <AgentConsent />
           <SignInPrompt />
           <GitHubSignInPrompt />
           <ProfileSplash />

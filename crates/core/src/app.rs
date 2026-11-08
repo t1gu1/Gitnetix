@@ -3942,6 +3942,16 @@ impl Gitnetix {
         }
         self.stamp_release_changelog(&p, &git, &r.branch, version, &format!("docs(changelog): release v{version}")).await?;
         let sha = git.rev_parse(&r.branch).await?;
+        let tag = format!("v{version}");
+        git.tag(&tag, &sha, &format!("Release {tag}")).await?;
+        // Origin before this repo: when the push is refused, main and the tag stay as they were here, so the release
+        // stays open and Ship can run again (a local tag alone would mark it shipped).
+        if push {
+            if let Err(e) = git.push_atomic(&[&format!("{sha}:refs/heads/{default}"), &format!("refs/tags/{tag}")]).await {
+                let _ = git.delete_tag(&tag).await;
+                return Err(e);
+            }
+        }
         match default_dir {
             Some(dir) => Git::new(&dir).merge_ff_only(&r.branch).await?,
             None => {
@@ -3951,11 +3961,6 @@ impl Gitnetix {
                     Git::new(&dir).switch(&default).await?;
                 }
             }
-        }
-        let tag = format!("v{version}");
-        git.tag(&tag, &sha, &format!("Release {tag}")).await?;
-        if push {
-            git.push_atomic(&[&default, &format!("refs/tags/{tag}")]).await?;
         }
         self.store.with_project(project_id, |p| {
             if let Some(x) = p.releases.iter_mut().find(|x| x.version == version && x.shipped_at.is_none()) {

@@ -30,7 +30,8 @@ export function ago(iso: string) {
 /** Saves `rows` as the CSV file `name`; cells holding a comma, a quote or a line break are quoted. */
 export function downloadCsv(name: string, rows: (string | number | null | undefined)[][]) {
   const cell = (v: string | number | null | undefined) => {
-    const s = v == null ? "" : String(v);
+    // Spreadsheets run text starting with = + - @ as a formula: a ticket title from a tracker must stay text.
+    const s = v == null ? "" : typeof v === "string" && /^[=+\-@\t\r]/.test(v) ? `'${v}` : String(v);
     return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
   const a = document.createElement("a");

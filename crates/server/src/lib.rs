@@ -15,7 +15,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use axum::extract::{DefaultBodyLimit, Query, State};
+use axum::extract::{DefaultBodyLimit, FromRequest, Query, Request, State};
 use axum::http::{header, HeaderMap, StatusCode, Uri};
 use axum::response::sse::{Event as SseEvent, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
@@ -23,7 +23,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use futures_util::Stream;
 use gitnetix_core::{rpc, store::write_private, store::ServerConfig, ErrorBody, Gitnetix};
-use hyper_util::rt::{TokioExecutor, TokioIo};
+use hyper_util::rt::{TokioExecutor, TokioIo, TokioTimer};
 use hyper_util::server::conn::auto::Builder;
 use hyper_util::service::TowerToHyperService;
 use serde::Deserialize;
@@ -72,10 +72,15 @@ fn unauthorized() -> Response {
     (StatusCode::UNAUTHORIZED, Json(json!({ "code": "unauthorized", "message": "Missing or wrong pairing token" }))).into_response()
 }
 
-async fn rpc_handler(State(s): State<AppState>, headers: HeaderMap, Json(req): Json<RpcReq>) -> Response {
-    if !token_ok(&s.k, bearer(&headers)) {
+async fn rpc_handler(State(s): State<AppState>, req: Request) -> Response {
+    // The token before the body: an unpaired caller (any website, via 127.0.0.1) must not get 48 MB read and parsed.
+    if !token_ok(&s.k, bearer(req.headers())) {
         return unauthorized();
     }
+    let req = match Json::<RpcReq>::from_request(req, &s).await {
+        Ok(Json(req)) => req,
+        Err(e) => return e.into_response(),
+    };
     match rpc::call(&s.k, &req.method, req.params).await {
         Ok(v) => Json(v).into_response(),
         Err(e) => (StatusCode::BAD_REQUEST, Json(ErrorBody::from(&e))).into_response(),
@@ -197,16 +202,21 @@ pub async fn spawn(k: Arc<Gitnetix>, ui: Option<Ui>) -> anyhow::Result<Option<So
             let (app, tls) = (app.clone(), tls.clone());
             // Each connection on its own task, so a slow handshake holds up no one else.
             tokio::spawn(async move {
-                let http = Builder::new(TokioExecutor::new());
+                // A peer that stalls (silent socket, half a handshake, half the headers) must not hold a connection
+                // forever: enough of them and the app runs out of file descriptors.
+                const STALL: Duration = Duration::from_secs(10);
+                let mut http = Builder::new(TokioExecutor::new());
+                http.http1().timer(TokioTimer::new()).header_read_timeout(STALL);
                 let svc = TowerToHyperService::new(app);
                 // A TLS handshake opens with byte 0x16; anything else is plain HTTP.
                 let mut first = [0u8];
-                let tls_hello = tcp.peek(&mut first).await.is_ok_and(|n| n == 1 && first[0] == 0x16);
+                let Ok(peeked) = tokio::time::timeout(STALL, tcp.peek(&mut first)).await else { return };
+                let tls_hello = peeked.is_ok_and(|n| n == 1 && first[0] == 0x16);
                 // Dropped connections and refused handshakes are routine: nothing to report.
                 let _ = match (tls_hello, tls) {
-                    (true, Some(tls)) => match tls.accept(tcp).await {
-                        Ok(s) => http.serve_connection_with_upgrades(TokioIo::new(s), svc).await,
-                        Err(_) => return,
+                    (true, Some(tls)) => match tokio::time::timeout(STALL, tls.accept(tcp)).await {
+                        Ok(Ok(s)) => http.serve_connection_with_upgrades(TokioIo::new(s), svc).await,
+                        _ => return,
                     },
                     (true, None) => return,
                     (false, _) => http.serve_connection_with_upgrades(TokioIo::new(tcp), svc).await,
@@ -248,6 +258,8 @@ mod tests {
         let code = |r: reqwest::Result<reqwest::Response>| r.unwrap().status().as_u16();
 
         assert_eq!(code(rpc(None).await), 401);
+        // The token comes before the body: one that isn't even JSON gets 401, not the parser's 415.
+        assert_eq!(code(http.post(format!("http://{addr}/rpc")).body("not json").send().await), 401);
         assert_eq!(code(rpc(Some(&"0".repeat(token.len()))).await), 401);
         assert_eq!(code(rpc(Some(&token[..token.len() - 1])).await), 401);
         assert_eq!(code(rpc(Some(&token)).await), 200);

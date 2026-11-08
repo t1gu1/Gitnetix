@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use chrono::{DateTime, Duration, NaiveDate, Utc};
+use chrono::{DateTime, Duration, Local, NaiveDate};
 use serde::Serialize;
 
 use crate::error::Result;
@@ -77,8 +77,8 @@ pub struct Analytics {
     pub people: Vec<Author>,
 }
 
-fn parse_date(s: &str) -> Option<DateTime<Utc>> {
-    DateTime::parse_from_rfc3339(s).ok().map(|d| d.with_timezone(&Utc))
+fn parse_date(s: &str) -> Option<DateTime<Local>> {
+    DateTime::parse_from_rfc3339(s).ok().map(|d| d.with_timezone(&Local))
 }
 
 fn median(mut v: Vec<i64>) -> Option<i64> {
@@ -234,7 +234,7 @@ async fn branches_of(git: &Git, shas: &[&str], day: &str) -> HashMap<String, Str
     out
 }
 
-/// Every commit authored on `date` (UTC, as the activity chart counts them) by the people of `emails` (empty: anyone),
+/// Every commit authored on `date` (a local day, as the activity chart counts them) by the people of `emails` (empty: anyone),
 /// with the branch each was made on.
 pub async fn day(repos: Vec<(String, Git)>, date: NaiveDate, emails: &[String]) -> Vec<DayCommit> {
     let since = (date - Duration::days(1)).format("%Y-%m-%d 00:00").to_string();
@@ -269,7 +269,7 @@ pub struct Input<'a> {
 
 pub async fn compute(input: Input<'_>) -> Result<Analytics> {
     let n = input.range_days.max(7);
-    let today = Utc::now().date_naive();
+    let today = Local::now().date_naive();
     let start = today - Duration::days(n - 1);
     let prev_start = start - Duration::days(n);
     let since_day = (prev_start - Duration::days(1)).format("%Y-%m-%d 00:00").to_string();
@@ -277,11 +277,11 @@ pub async fn compute(input: Input<'_>) -> Result<Analytics> {
 
     let mut commits: Vec<(Commit, bool)> = Vec::new();
     // (tag, date, index into `input.repos` / `ai_sets`)
-    let mut tag_dates: Vec<(String, DateTime<Utc>, usize)> = Vec::new();
+    let mut tag_dates: Vec<(String, DateTime<Local>, usize)> = Vec::new();
     let ai_sets: Vec<HashSet<String>> = input.repos.iter().map(|(_, _, ai)| ai.iter().cloned().collect()).collect();
     let mut defaults: Vec<String> = Vec::new();
     // (author date, author email) of each merge.
-    let mut merges: Vec<(DateTime<Utc>, String)> = Vec::new();
+    let mut merges: Vec<(DateTime<Local>, String)> = Vec::new();
 
     for (repo, (_, git, _)) in input.repos.iter().enumerate() {
         let ai = &ai_sets[repo];
@@ -361,7 +361,7 @@ pub async fn compute(input: Input<'_>) -> Result<Analytics> {
     // Only tags in the two compared periods and the last 8 shown are used.
     let keep_from = tag_dates.len().saturating_sub(8);
     let mut prev_tag: HashMap<usize, &str> = HashMap::new();
-    let mut stats: Vec<(ReleaseStat, DateTime<Utc>)> = Vec::new();
+    let mut stats: Vec<(ReleaseStat, DateTime<Local>)> = Vec::new();
     for (i, (name, date, repo)) in tag_dates.iter().enumerate() {
         let prev = prev_tag.insert(*repo, name);
         if i < keep_from && date.date_naive() < prev_start {
@@ -407,12 +407,12 @@ pub async fn compute(input: Input<'_>) -> Result<Analytics> {
         ));
     }
 
-    let in_range = |d: &DateTime<Utc>, from: NaiveDate, to: NaiveDate| {
+    let in_range = |d: &DateTime<Local>, from: NaiveDate, to: NaiveDate| {
         let x = d.date_naive();
         x >= from && x <= to
     };
-    let shipped_now: Vec<&(ReleaseStat, DateTime<Utc>)> = stats.iter().filter(|s| in_range(&s.1, start, today)).collect();
-    let shipped_prev: Vec<&(ReleaseStat, DateTime<Utc>)> =
+    let shipped_now: Vec<&(ReleaseStat, DateTime<Local>)> = stats.iter().filter(|s| in_range(&s.1, start, today)).collect();
+    let shipped_prev: Vec<&(ReleaseStat, DateTime<Local>)> =
         stats.iter().filter(|s| in_range(&s.1, prev_start, start - Duration::days(1))).collect();
     let lead_now = median(shipped_now.iter().map(|s| s.0.lead_days).collect());
     let lead_prev = median(shipped_prev.iter().map(|s| s.0.lead_days).collect());
@@ -521,7 +521,7 @@ mod tests {
         sh(dir, &["switch", "-qc", "feat/y"]);
         commit("feat: y");
 
-        let today = Utc::now().date_naive();
+        let today = Local::now().date_naive();
         let got = day(vec![("atlas".into(), Git::new(dir))], today, &[]).await;
         let branch = |s: &str| got.iter().find(|c| c.subject == s).map(|c| c.branch.as_str());
         // feat/y forked after it, still made on main.
@@ -565,7 +565,7 @@ mod tests {
         assert_eq!(ann.people.len(), 2);
         assert!(ann.days.iter().flat_map(|d| &d.authors).all(|(n, _)| n == "Ann"));
 
-        let today = Utc::now().date_naive();
+        let today = Local::now().date_naive();
         let got = day(vec![("atlas".into(), Git::new(dir))], today, &["boss@x".to_string()]).await;
         assert_eq!(got.iter().map(|c| c.subject.as_str()).collect::<Vec<_>>(), ["fix: try"]);
     }
@@ -575,8 +575,9 @@ mod tests {
         // A bare `--since` date means that day at the current time: west of UTC in the evening, it cut the day's start.
         let tmp = tempfile::tempdir().unwrap();
         sh(tmp.path(), &["init", "-q", "-b", "main"]);
-        let today = Utc::now().date_naive();
-        let early = format!("{today}T00:00:01Z");
+        let today = Local::now().date_naive();
+        // No offset: git reads it as local time, one second into the local day.
+        let early = format!("{today} 00:00:01");
         let mut commit = std::process::Command::new("git");
         commit.current_dir(tmp.path()).env("GIT_AUTHOR_DATE", &early).env("GIT_COMMITTER_DATE", &early);
         assert!(commit.args(["-c", "user.name=A", "-c", "user.email=a@x", "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", "early"]).status().unwrap().success());

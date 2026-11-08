@@ -3,7 +3,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use chrono::{DateTime, Datelike, Duration, NaiveDate, Utc};
+use chrono::{DateTime, Datelike, Duration, Local, NaiveDate, TimeZone, Utc};
 use serde::Serialize;
 
 use crate::tickets::{DoneTicket, Sprint, SprintIssue};
@@ -251,22 +251,27 @@ fn workday(d: NaiveDate) -> bool {
     d.weekday().number_from_monday() <= 5
 }
 
+/// The day `t` falls on in this computer's time zone: the user's "today", and the dates the rest of the app shows.
+fn local_day(t: DateTime<Utc>) -> NaiveDate {
+    t.with_timezone(&Local).date_naive()
+}
+
 fn day(d: NaiveDate) -> String {
     d.format("%Y-%m-%d").to_string()
 }
 
-/// Stats of sprint `s` from its tickets, as of `now`. Days are UTC ones, as on the commit charts. A ticket dropped
+/// Stats of sprint `s` from its tickets, as of `now`. Days are local ones, as on the commit charts. A ticket dropped
 /// in it ("Annulé") is scope taken out the day it was dropped: in no figure, though still listed.
 fn sprint_stat(s: &Sprint, every: &[&SprintIssue], now: DateTime<Utc>) -> SprintStat {
     let dropped_here = |i: &SprintIssue| i.cancelled && i.sprints.last() == Some(&s.id);
     let list: Vec<&SprintIssue> = every.iter().copied().filter(|i| !dropped_here(i)).collect();
     let gone: Vec<&SprintIssue> = every.iter().copied().filter(|i| dropped_here(i)).collect();
-    let today = now.date_naive();
-    let start = s.start.map_or(today, |d| d.date_naive());
-    let planned = s.end.map_or(start, |d| d.date_naive());
+    let today = local_day(now);
+    let start = s.start.map_or(today, local_day);
+    let planned = s.end.map_or(start, local_day);
     // A closed sprint ends the day it closed; an open one past its end is still running.
     let last = match (s.state.as_str(), s.complete) {
-        ("closed", Some(c)) => c.date_naive(),
+        ("closed", Some(c)) => local_day(c),
         ("closed", None) => planned,
         _ => planned.max(today),
     }
@@ -279,9 +284,9 @@ fn sprint_stat(s: &Sprint, every: &[&SprintIssue], now: DateTime<Utc>) -> Sprint
 
     let completed: Vec<bool> = list.iter().map(|i| completed_in(i, s)).collect();
     // Created after the start. A ticket added once the sprint ran but created before leaves no trace without its history.
-    let added = |i: &SprintIssue| i.created.is_some_and(|c| c.date_naive() > start);
+    let added = |i: &SprintIssue| i.created.is_some_and(|c| local_day(c) > start);
     // The day it counts as done, inside the sprint.
-    let done_day = |i: &SprintIssue| i.done_at.map_or(last, |t| t.date_naive()).clamp(start, last);
+    let done_day = |i: &SprintIssue| i.done_at.map_or(last, local_day).clamp(start, last);
 
     let mut st = SprintStat {
         id: s.id,
@@ -290,7 +295,7 @@ fn sprint_stat(s: &Sprint, every: &[&SprintIssue], now: DateTime<Utc>) -> Sprint
         goal: s.goal.clone(),
         start: day(start),
         end: day(planned),
-        complete: s.complete.filter(|_| s.state == "closed").map(|c| day(c.date_naive())),
+        complete: s.complete.filter(|_| s.state == "closed").map(|c| day(local_day(c))),
         workdays,
         workdays_done,
         committed: Work::default(),
@@ -365,7 +370,7 @@ fn sprint_stat(s: &Sprint, every: &[&SprintIssue], now: DateTime<Utc>) -> Sprint
             let scope: Work = list
                 .iter()
                 .chain(gone.iter().filter(|i| done_day(i) > d))
-                .filter(|i| !added(i) || i.created.is_some_and(|c| c.date_naive() <= d))
+                .filter(|i| !added(i) || i.created.is_some_and(|c| local_day(c) <= d))
                 .map(|i| Work::of(i))
                 .sum();
             let gone: Work = list.iter().zip(&completed).filter(|(i, done)| **done && done_day(i) <= d).map(|(i, _)| Work::of(i)).sum();
@@ -406,7 +411,7 @@ fn sprint_stat(s: &Sprint, every: &[&SprintIssue], now: DateTime<Utc>) -> Sprint
             points: i.points,
             estimate: i.estimate,
             remaining: i.remaining,
-            done_at: i.done_at.filter(|_| done).map(|t| day(t.date_naive())),
+            done_at: i.done_at.filter(|_| done).map(|t| day(local_day(t))),
             started_at: f.start.map(|t| t.to_rfc3339()),
             cycle_hours: f.cycle.filter(|_| done),
             age_hours: f.age.filter(|_| !i.done),
@@ -529,17 +534,19 @@ fn monday(d: NaiveDate) -> NaiveDate {
 
 /// Monday 00:00 UTC of the first of the last `weeks` weeks, this one included.
 pub fn weeks_start(now: DateTime<Utc>, weeks: usize) -> DateTime<Utc> {
-    let first = monday(now.date_naive()) - Duration::weeks(weeks.max(1) as i64 - 1);
-    first.and_hms_opt(0, 0, 0).expect("midnight").and_utc()
+    let first = monday(local_day(now)) - Duration::weeks(weeks.max(1) as i64 - 1);
+    let midnight = first.and_hms_opt(0, 0, 0).expect("midnight");
+    // Local midnight; where a clock change skips it, the UTC one.
+    Local.from_local_datetime(&midnight).earliest().map_or(midnight.and_utc(), |t| t.with_timezone(&Utc))
 }
 
 /// The weekly view of `tickets` (one per tracker and key) over the last `weeks` weeks as of `now`.
 pub fn weekly(sources: Vec<String>, tickets: Vec<DoneTicket>, errors: Vec<String>, weeks: usize, now: DateTime<Utc>) -> WeeklyReport {
-    let first = weeks_start(now, weeks).date_naive();
+    let first = local_day(weeks_start(now, weeks));
     let mut rows: Vec<DoneRow> = Vec::new();
     for t in tickets {
-        let d = t.done_at.date_naive();
-        if d < first || d > now.date_naive() || rows.iter().any(|r| r.ticket.source == t.source && r.ticket.key == t.key) {
+        let d = local_day(t.done_at);
+        if d < first || d > local_day(now) || rows.iter().any(|r| r.ticket.source == t.source && r.ticket.key == t.key) {
             continue;
         }
         rows.push(DoneRow { week: day(monday(d)), lead_hours: t.created.filter(|c| *c <= t.done_at).map(|c| hours(t.done_at - c)), ticket: t });
@@ -586,8 +593,10 @@ fn board_name(sprints: &[&Sprint], id: u64) -> String {
 mod tests {
     use super::*;
 
+    /// `s`'s clock time read in this computer's time zone, as the days the code counts are local: the tests pass anywhere.
     fn at(s: &str) -> DateTime<Utc> {
-        DateTime::parse_from_rfc3339(s).unwrap().with_timezone(&Utc)
+        let wall = DateTime::parse_from_rfc3339(s).unwrap().naive_utc();
+        Local.from_local_datetime(&wall).earliest().unwrap().with_timezone(&Utc)
     }
 
     fn sprint(id: u64, state: &str, start: &str, end: &str, complete: Option<&str>) -> Sprint {
@@ -723,7 +732,7 @@ mod tests {
         };
         // Wednesday Nov 4: three weeks back from this one start Monday Oct 19.
         let now = at("2026-11-04T18:00:00Z");
-        assert_eq!(weeks_start(now, 3).to_rfc3339(), "2026-10-19T00:00:00+00:00");
+        assert_eq!(weeks_start(now, 3).with_timezone(&Local).naive_local(), NaiveDate::from_ymd_opt(2026, 10, 19).unwrap().and_hms_opt(0, 0, 0).unwrap());
         let list = vec![
             done("A-1", "jira", "Ana", "2026-10-20T10:00:00Z"),
             done("A-2", "jira", "Bo", "2026-10-28T10:00:00Z"),

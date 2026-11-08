@@ -1902,3 +1902,58 @@ async fn branch_merged_by_another_instance_leaves_this_one() {
     let names: Vec<&str> = o["branches"].as_array().unwrap().iter().map(|b| b["name"].as_str().unwrap()).collect();
     assert!(!names.contains(&"feat/x"), "{names:?}");
 }
+
+#[tokio::test]
+async fn refused_ship_push_leaves_the_release_open() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("refused");
+    init_repo(&repo);
+    let origin = tmp.path().join("origin.git");
+    sh(tmp.path(), &["init", "-q", "--bare", "-b", "main", origin.to_str().unwrap()]);
+    sh(&repo, &["remote", "add", "origin", origin.to_str().unwrap()]);
+    sh(&repo, &["push", "-q", "-u", "origin", "main"]);
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let pid = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await[0]["id"].as_str().unwrap().to_string();
+    call(&k, "releases.create", json!({ "projectId": pid, "version": "0.0.1", "kind": "next" })).await;
+    sh(&repo, &["switch", "-q", "release/0.0.1"]);
+    commit_file(&repo, "one.txt", "1\n");
+    sh(&repo, &["switch", "-q", "main"]);
+    let main_before = rev(&repo, "main");
+
+    // Origin refuses every push, like a protected branch or a failing hook.
+    let hook = origin.join("hooks/pre-receive");
+    std::fs::write(&hook, "#!/bin/sh\nexit 1\n").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    assert!(rpc::call(&k, "releases.ship", json!({ "projectId": pid, "version": "0.0.1", "push": true })).await.is_err());
+    assert_eq!(rev(&repo, "main"), main_before, "main stays where it was");
+    assert_eq!(rev(&repo, "v0.0.1"), "", "no local tag left to mark it shipped");
+    let ov = call(&k, "workspace.overview", json!({ "projectId": pid })).await;
+    assert!(ov["releases"].as_array().unwrap().iter().any(|r| r["version"] == "0.0.1" && r["open"] == true), "{}", ov["releases"]);
+}
+
+#[tokio::test]
+async fn a_saved_token_never_follows_a_new_server() {
+    let tmp = tempfile::tempdir().unwrap();
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let save = |p: Value| rpc::call(&k, "integrations.save", p);
+
+    // GitHub: a new API base with the token field left empty is refused while a token is saved.
+    save(json!({ "kind": "github", "token": "gh-cloud" })).await.unwrap();
+    let err = save(json!({ "kind": "github", "config": { "apiBase": "https://ghe.example.com/api/v3" } })).await.unwrap_err().to_string();
+    assert!(err.contains("Paste a token"), "{err}");
+    save(json!({ "kind": "github", "config": {} })).await.unwrap();
+    save(json!({ "kind": "github", "config": { "apiBase": "https://ghe.example.com/api/v3" }, "token": "gh-ent" })).await.unwrap();
+
+    // AI endpoints: same rule for the base URL.
+    let ai = |p: Value| rpc::call(&k, "ai.saveProvider", p);
+    ai(json!({ "id": "other", "method": "api", "apiKey": "key-a", "baseUrl": "https://a.example.com/v1" })).await.unwrap();
+    let err = ai(json!({ "id": "other", "baseUrl": "https://b.example.com/v1" })).await.unwrap_err().to_string();
+    assert!(err.contains("Paste the API key"), "{err}");
+    ai(json!({ "id": "other", "baseUrl": "https://a.example.com/v1", "model": "m" })).await.unwrap();
+    ai(json!({ "id": "other", "baseUrl": "https://b.example.com/v1", "apiKey": "key-b" })).await.unwrap();
+}

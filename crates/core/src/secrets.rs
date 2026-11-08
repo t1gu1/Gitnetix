@@ -58,6 +58,71 @@ mod imp {
         }
     }
 
+    /// An item longer than `max` UTF-16 units, kept as `item`, `item.1`, `item.2`…: Windows refuses a credential over
+    /// 2,560 bytes (1,280 units), and every token of every profile shares one item.
+    // shortcut: parts are written one after the other, so a crash mid-save can mix old and new parts; fine until someone loses a sign-in to it.
+    #[cfg(any(windows, test))]
+    struct Chunked<K>(K, usize);
+
+    #[cfg(any(windows, test))]
+    impl<K: Keychain> Chunked<K> {
+        fn part(item: &str, i: usize) -> String {
+            if i == 0 { item.into() } else { format!("{item}.{i}") }
+        }
+
+        /// Delete part `from` and every part after it.
+        fn delete_from(&self, item: &str, from: usize) -> Result<()> {
+            for i in from.. {
+                let name = Self::part(item, i);
+                if self.0.read(&name)?.is_none() {
+                    return Ok(());
+                }
+                self.0.delete(&name)?;
+            }
+            Ok(())
+        }
+    }
+
+    #[cfg(any(windows, test))]
+    impl<K: Keychain> Keychain for Chunked<K> {
+        fn read(&self, item: &str) -> Result<Option<String>> {
+            let Some(mut value) = self.0.read(item)? else { return Ok(None) };
+            for i in 1.. {
+                match self.0.read(&Self::part(item, i))? {
+                    Some(more) => value.push_str(&more),
+                    None => break,
+                }
+            }
+            Ok(Some(value))
+        }
+
+        fn write(&self, item: &str, value: &str) -> Result<()> {
+            // Cut between characters, counting UTF-16 units as Windows does.
+            let (mut parts, mut start, mut units) = (Vec::new(), 0, 0);
+            for (i, c) in value.char_indices() {
+                if units + c.len_utf16() > self.1 {
+                    parts.push(&value[start..i]);
+                    (start, units) = (i, 0);
+                }
+                units += c.len_utf16();
+            }
+            parts.push(&value[start..]);
+            for (i, p) in parts.iter().enumerate() {
+                self.0.write(&Self::part(item, i), p)?;
+            }
+            self.delete_from(item, parts.len())
+        }
+
+        fn delete(&self, item: &str) -> Result<()> {
+            self.delete_from(item, 0)
+        }
+    }
+
+    #[cfg(windows)]
+    static OS: Chunked<Os> = Chunked(Os, 1200);
+    #[cfg(not(windows))]
+    static OS: Os = Os;
+
     /// Random key made at launch, for masking the tokens kept for the run.
     static RUN_KEY: LazyLock<[u8; 32]> = LazyLock::new(|| {
         let mut k = [0; 32];
@@ -123,7 +188,7 @@ mod imp {
         wait: Duration,
     }
 
-    static VAULT: LazyLock<Vault> = LazyLock::new(|| Vault::new(&Os, WAIT));
+    static VAULT: LazyLock<Vault> = LazyLock::new(|| Vault::new(&OS, WAIT));
 
     pub fn get(key: &str) -> Result<Option<String>> {
         VAULT.get(key)
@@ -309,6 +374,25 @@ mod imp {
 
         fn reads(f: &Fake) -> usize {
             std::mem::take(&mut *f.reads.lock().unwrap()).len()
+        }
+
+        #[test]
+        fn long_values_span_several_items() {
+            let kc = Chunked(Fake::default(), 4);
+            let has = |k: &str| kc.0.items.lock().unwrap().contains_key(k);
+            kc.write(ALL, "abcdefghij").unwrap();
+            assert!(has("all-tokens.2") && !has("all-tokens.3"));
+            assert_eq!(kc.read(ALL).unwrap().as_deref(), Some("abcdefghij"));
+            // A shorter value drops the parts it no longer needs.
+            kc.write(ALL, "abcde").unwrap();
+            assert!(has("all-tokens.1") && !has("all-tokens.2"));
+            assert_eq!(kc.read(ALL).unwrap().as_deref(), Some("abcde"));
+            // Counted in UTF-16 units, as Windows counts them, and never cut inside a character.
+            kc.write(ALL, "a😀bc😀").unwrap();
+            assert_eq!(kc.read(ALL).unwrap().as_deref(), Some("a😀bc😀"));
+            kc.delete(ALL).unwrap();
+            assert!(kc.0.items.lock().unwrap().is_empty());
+            assert_eq!(kc.read(ALL).unwrap(), None);
         }
 
         #[test]

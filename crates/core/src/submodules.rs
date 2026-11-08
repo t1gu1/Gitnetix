@@ -384,6 +384,14 @@ pub async fn set(git: &Git, path: &str, url: Option<&str>, branch: Option<&str>)
 /// The removal is staged, ready to commit.
 pub async fn remove(git: &Git, s: &Submodule) -> Result<()> {
     let (name, path) = (s.name.as_str(), s.path.as_str());
+    // Its clone under `.git/modules` goes too, and with it any commit that exists nowhere else.
+    let dir = git.cwd().join(path);
+    if dir.join(".git").exists() {
+        let (_, unpushed, _) = Git::new(&dir).try_run(&["rev-list", "-n1", "HEAD", "--branches", "--not", "--remotes"]).await?;
+        if !unpushed.trim().is_empty() {
+            return Err(Error::Invalid(format!("{path} has commits that are not pushed. Push them first.")));
+        }
+    }
     // Fails on a submodule that was never initialized: nothing to deinit then.
     let _ = git.try_run(&["submodule", "deinit", "-f", "--", path]).await?;
     // Only in `.gitmodules`: no pointer to remove, and its folder (if any) is not ours to delete.

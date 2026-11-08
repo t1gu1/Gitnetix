@@ -114,6 +114,15 @@ async fn submodule_manager() {
     assert_eq!(s["state"], "clean");
     assert!(clone.join("ui-kit/kit.txt").exists());
 
+    // A commit only in the submodule's clone would go with `.git/modules`: refused until it is pushed or dropped.
+    let id = ["-c", "user.name=Test", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false"];
+    std::fs::write(app.join("ui-kit/kit.txt"), "local\n").unwrap();
+    sh(&app.join("ui-kit"), &[&id[..], &["commit", "-qam", "local"]].concat());
+    let err = rpc::call(&k, "submodules.remove", json!({ "projectId": pid, "path": "ui-kit" })).await.unwrap_err().to_string();
+    assert!(err.contains("not pushed"), "{err}");
+    assert!(app.join(".git/modules/ui-kit").exists());
+    sh(&app.join("ui-kit"), &["reset", "-q", "--hard", "origin/main"]);
+
     // Removal leaves nothing behind but a staged change.
     call(&k, "submodules.remove", json!({ "projectId": pid, "path": "ui-kit" })).await;
     assert_eq!(call(&k, "submodules.list", json!({ "projectId": pid })).await, json!([]));

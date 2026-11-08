@@ -447,7 +447,8 @@ pub async fn call(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
         crate::log::info(format!("Will attempt to {method} {}", scrub(&p, "")));
     }
     let start = std::time::Instant::now();
-    let out = dispatch(k, method, p).await;
+    // Boxed: `dispatch`'s future is over 1 MiB in debug builds, and inline it overflows the 2 MiB test/worker stacks.
+    let out = Box::pin(dispatch(k, method, p)).await;
     let ms = start.elapsed().as_millis();
     match &out {
         Ok(_) if !quiet => crate::log::info(format!("Done {method} in {ms}ms")),
@@ -909,8 +910,16 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
         "ai.saveProvider" => {
             let id = s(&p, "id")?;
             let info = ai::provider_info(&id)?;
-            if let Some(key) = os(&p, "apiKey").filter(|k| !k.is_empty()) {
-                secrets::set(&secrets::ai_key(&id), &key)?;
+            let key = os(&p, "apiKey").filter(|k| !k.is_empty());
+            if let (None, Some(url)) = (&key, os(&p, "baseUrl")) {
+                // A saved key belongs to the server it was saved for: a new base URL needs its own.
+                let saved = k.store.read(|c| c.ai.providers.get(&id).and_then(|c| c.base_url.clone()));
+                if saved.filter(|u| !u.is_empty()) != Some(url).filter(|u| !u.is_empty()) && secrets::get(&secrets::ai_key(&id))?.is_some() {
+                    return Err(Error::Invalid("Paste the API key for this base URL: the saved one is for the previous server.".into()));
+                }
+            }
+            if let Some(key) = &key {
+                secrets::set(&secrets::ai_key(&id), key)?;
             }
             k.store.write(|c| {
                 let conf = c.ai.providers.entry(id.clone()).or_default();
@@ -1172,6 +1181,13 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
                 if cfg.get("id").is_none_or(Value::is_null) {
                     conf.id = new_id();
                 }
+                // A saved API token belongs to the site it was saved for: a new site needs its own.
+                if token.is_none() && conf.cloud_id.is_none() {
+                    let saved = k.store.read(|c| c.integrations.jira.iter().find(|j| j.id == conf.id).map(|j| j.base_url.clone()));
+                    if saved.is_some_and(|b| b != conf.base_url) {
+                        return Err(Error::Invalid("Paste the API token for this site: the saved one is for the previous site.".into()));
+                    }
+                }
                 // Sign in before saving, so "Connected" means Jira accepted the token.
                 let tok = match &token {
                     Some(t) => t.clone(),
@@ -1252,6 +1268,13 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
                     Ok(())
                 })?;
                 return to(json!({ "ok": true, "user": user }));
+            }
+            if kind == "github" && token.is_none() {
+                // The saved token belongs to the server it was saved for: a new API base needs its own.
+                let api = os(&cfg, "apiBase").filter(|s| !s.is_empty());
+                if api != k.store.read(|c| c.integrations.github_api.clone()) && secrets::get("github")?.is_some() {
+                    return Err(Error::Invalid("Paste a token for this server: the saved one is for the previous server.".into()));
+                }
             }
             if let Some(t) = &token {
                 secrets::set(&kind, t)?;
