@@ -4796,7 +4796,8 @@ button.picker-act {
   position: relative;
   text-align: center;
 }
-.ag-shot > img {
+.ag-shot > img,
+.ag-shot-open > img {
   display: block;
   margin: 0 auto;
   max-width: 100%;
@@ -4827,8 +4828,44 @@ button.picker-act {
 .ag-shot:has(.ag-shot-nav) > .ag-peek-text {
   padding-inline: 48px;
 }
+/* The gallery's image, a button opening it full screen. */
+.ag-shot-open {
+  display: block;
+  margin: 0 auto;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: none;
+  cursor: zoom-in;
+}
+/* The gallery's image over the whole screen, to zoom into: the page neither scrolls nor zooms under a pinch there. */
+.ag-zoom {
+  position: fixed;
+  inset: 0;
+  /* Over the mics of the boxes under it (61). */
+  z-index: 62;
+  background: rgb(0 0 0 / 0.94);
+  animation: fade-in var(--t) var(--ease);
+}
+.ag-zoom-stage {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.ag-zoom-stage img {
+  display: block;
+  max-width: 100vw;
+  max-height: 100vh;
+  max-height: 100dvh;
+}
 /* Step through the message's images, over its edges. */
-.ag-shot-nav {
+.ag-shot-nav,
+.ag-zoom-close {
   position: absolute;
   top: 50%;
   display: grid;
@@ -4847,8 +4884,18 @@ button.picker-act {
   transition: opacity var(--t-fast) var(--ease);
 }
 .ag-shot-nav:hover,
-.ag-shot-nav:focus-visible {
+.ag-shot-nav:focus-visible,
+.ag-zoom-close:hover,
+.ag-zoom-close:focus-visible {
   opacity: 1;
+}
+/* Clear of a phone's notch and rounded corners. */
+.ag-zoom-close {
+  top: calc(env(safe-area-inset-top) + 12px);
+  right: calc(env(safe-area-inset-right) + 12px);
+  width: 40px;
+  height: 40px;
+  transform: none;
 }
 .ag-shot-prev {
   left: 8px;
@@ -8032,6 +8079,7 @@ body:has(> .modal-scrim) #root * {
   .kpi,
   .modal,
   .modal-scrim,
+  .ag-zoom,
   .ctx-menu,
   .ctx-item,
   .toast {
@@ -8056,7 +8104,7 @@ body:has(> .modal-scrim) #root * {
 :root[data-anim-off~="lists"] :is(.tree-kids, .file-row, .commit-row, .stash-row, .item-btn, .ag-log > *, .chart-bar > span, .kpi) {
   animation: none !important;
 }
-:root[data-anim-off~="dialogs"] :is(.modal, .modal-scrim, .ctx-menu, .ctx-item, .toast, .dictation) {
+:root[data-anim-off~="dialogs"] :is(.modal, .modal-scrim, .ag-zoom, .ctx-menu, .ctx-item, .toast, .dictation) {
   animation: none !important;
 }
 :root[data-anim-off~="wave"] .dictation-mic::after,
