@@ -11,6 +11,28 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+### Added
+
+- Ask once for consent before the first launch.
+
+### Changed
+
+- Accept an OAuth callback only when it carries the state of this sign-in.
+- Refuse a saved API token or key when the server or site changes.
+- Refuse to remove a submodule with unpushed commits.
+- Push before moving main and creating the tag, so a refused push leaves the release open.
+- Redact user and password from logged URLs.
+- Time out stalled connections.
+- Check the token before reading the RPC body.
+- Serve dev assets only from dist.
+- Bump rustls-webpki, webpki-root-certs and webpki-roots.
+
+### Fixed
+
+- Split keychain values longer than the Windows limit across several items.
+- Count days in local time instead of UTC.
+- Drop ref names that start with a dash so no git command reads them as options.
+
 ## [0.19.5] - 2026-11-07
 
 ### Added
