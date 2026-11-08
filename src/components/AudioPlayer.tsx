@@ -195,8 +195,9 @@ export function AudioPlayer({ session, path }: { session: string; path: string }
         <audio
           ref={audio}
           src={url}
-          // The bytes are in memory already; "metadata" left Chromium stuck at it after a seek, playing nothing.
-          preload="auto"
+          // Loaded only on the first play: the AppImage's GStreamer 1.20 on PipeWire holds that play back for as long as the
+          // file sat loaded before it. The wave gives the length meanwhile. ("metadata" left Chromium stuck after a seek.)
+          preload="none"
           onLoadedMetadata={(e) => setMeta(Number.isFinite(e.currentTarget.duration) ? e.currentTarget.duration : 0)}
           onTimeUpdate={(e) => {
             if (drag.current) return;

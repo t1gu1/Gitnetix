@@ -68,6 +68,8 @@ pub fn appimage_env() -> Option<Vec<(&'static str, Option<std::ffi::OsString>)>>
     let appdir = std::env::var_os("APPDIR").filter(|_| std::env::var_os("APPIMAGE").is_some())?;
     let mut env: Vec<_> = [
         "APPDIR", "APPIMAGE", "ARGV0", "OWD", "LD_LIBRARY_PATH", "GTK_DATA_PREFIX", "GTK_THEME", "GSETTINGS_SCHEMA_DIR", "GI_TYPELIB_PATH", "GIO_MODULE_DIR", "GTK_EXE_PREFIX", "GTK_PATH", "GTK_IM_MODULE_FILE", "GDK_PIXBUF_MODULE_FILE", "PYTHONHOME", "PYTHONPATH", "PERLLIB", "QT_PLUGIN_PATH", "GST_PLUGIN_SYSTEM_PATH", "GST_PLUGIN_SYSTEM_PATH_1_0",
+        // Set by the bundled GStreamer's hook: the host's GStreamer would load the AppImage's old scanner and plugins.
+        "GST_PLUGIN_PATH_1_0", "GST_PLUGIN_SCANNER_1_0", "GST_PTP_HELPER_1_0", "GST_REGISTRY_REUSE_PLUGIN_SCANNER",
     ]
     .into_iter()
     .map(|k| (k, None))
