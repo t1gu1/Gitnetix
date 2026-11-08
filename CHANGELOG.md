@@ -11,6 +11,8 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-11-08
+
 ### Added
 
 - Blame a file from its diff: each run of lines shows the commit that last changed it, with its author and age. Click a run's label to open that commit in the file's history.
