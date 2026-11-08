@@ -1,7 +1,7 @@
 import { REPO, longDate, releases, u } from '../lib/changelog';
 
 /** The day every claim below was checked against the vendors' own sites. Re-check before changing it. */
-export const CHECKED = '2026-10-25';
+export const CHECKED = '2026-11-08';
 
 const APPS = ['Gitnetix', 'GitKraken', 'Fork', 'Sourcetree'];
 
@@ -19,7 +19,7 @@ const GROUPS: { title: string; rows: [string, Cell, Cell, Cell, Cell][] }[] = [
     rows: [
       ['Price', t('Free'), t('Free for local and public repos. Private repos need a paid plan.'), t('$59.99 once. Free to evaluate.'), t('Free')],
       ['macOS, Windows, Linux', y('All three'), y('All three'), p('macOS and Windows'), p('macOS and Windows')],
-      ['Use it without an account', y(), p('Sign-in asked at setup (GitKraken account)'), y(), p('Sign-in asked at setup (Atlassian account)')],
+      ['Use it without an account', y(), p('Sign-in asked at setup (GitKraken account)'), y(), p('Windows asks for a Bitbucket sign-in at setup. Optional on Mac.')],
       ['Manage it from your phone', y('Any browser, paired by QR code'), n(), n(), n()],
     ],
   },
@@ -40,11 +40,11 @@ const GROUPS: { title: string; rows: [string, Cell, Cell, Cell, Cell][] }[] = [
   {
     title: 'AI and agents',
     rows: [
-      ['AI commit messages', y(), y('Paid plans'), y('Through Claude or Cursor'), n()],
-      ['AI conflict resolution', y('Proposed per file during a rebase'), y('Paid plans'), n(), n()],
+      ['AI commit messages', y(), y('Paid plans'), y('Claude Code, Codex or Cursor. Windows: Claude Code only.'), n()],
+      ['AI conflict resolution', y('Proposed per file during a rebase'), y('Paid plans, in preview'), n(), n()],
       ['AI pull request descriptions', y(), y('Paid plans'), n(), n()],
       ['Coding agents on branches', y('Built-in agent chat per branch, in its own worktree'), y('Agent Sessions run your CLI agent in a worktree'), p('Worktrees, no agent runner'), n()],
-      ['AI provider', t('Your signed-in CLI or API key: Claude Code, Codex, Gemini, Copilot, Ollama'), t('GitKraken AI credits in paid plans, or your own key'), t('Your Claude or Cursor CLI'), t('No AI features')],
+      ['AI provider', t('Your signed-in CLI or API key: Claude Code, Codex, Gemini, Copilot, Ollama'), t('GitKraken AI credits in paid plans, or your own key'), t('Your Claude Code, Codex or Cursor CLI. Windows: Claude Code only.'), t('No AI features')],
       ['Other agents can drive it (MCP)', y('Every action is a tool'), y('GitKraken MCP server'), n(), n()],
     ],
   },
@@ -53,10 +53,10 @@ const GROUPS: { title: string; rows: [string, Cell, Cell, Cell, Cell][] }[] = [
     rows: [
       ['Stash, cherry-pick, tags, submodules', y(), y(), y(), y()],
       ['Worktrees', y(), y(), y(), n()],
-      ['Stage single lines or hunks', n('Whole files only'), y(), y(), y()],
+      ['Stage single lines or hunks', y('Select lines in the diff, or take a whole hunk'), y(), y(), y()],
       ['Interactive rebase', n('Rebase onto the parent only'), y(), y(), y()],
-      ['Merge conflict editor', p('AI resolves them during the rebase. No 3-way editor needed.'), y('Built-in merge tool'), y('Built-in resolver'), p('Mine, theirs, or an external tool')],
-      ['Blame and file history', n(), y(), y(), y()],
+      ['Merge conflict editor', p('AI resolves them during the rebase. No 3-way editor needed.'), y('Built-in merge tool. Editing the result needs a paid plan.'), y('Built-in resolver'), p('Mine, theirs, or an external tool')],
+      ['Blame and file history', y('Blame from the diff. History follows renames.'), y(), y(), y()],
       ['Git LFS', n('No UI for it'), y(), y(), y()],
       ['Clone from the app', y('From the welcome screen, over HTTPS or SSH'), y(), y(), y()],
     ],
@@ -64,8 +64,9 @@ const GROUPS: { title: string; rows: [string, Cell, Cell, Cell, Cell][] }[] = [
   {
     title: 'Team tools',
     rows: [
-      ['Pull requests in the app', y('GitHub, GitLab, Bitbucket Cloud, Gitea and Azure DevOps'), y('GitHub, GitLab, Bitbucket, Azure DevOps (some on higher plans)'), n(), n()],
-      ['Tickets', y('Jira, Trello, Asana, GitHub issues'), y('Jira, Trello'), p('Issue links in commits'), p('Issue links in commits')],
+      ['Pull requests in the app', y('GitHub, GitLab, Bitbucket Cloud, Gitea and Azure DevOps'), y('GitHub, GitLab, Bitbucket, Azure DevOps (some on higher plans)'), n("Opens the host's page in the browser"), n("Opens the host's page in the browser")],
+      ['Tickets', y('Jira, Trello, Asana, GitHub issues'), y('Jira, Trello, GitHub issues, GitLab issues'), p('Issue links in commits'), p('Issue links in commits')],
+      ['Sprint and team analytics', y('Commits by person, Jira sprint burndown and velocity, tickets done per week'), p('Insights on gitkraken.dev: DORA metrics, PR cycle time. Paid add-on.'), p('Repo stats: commits per author, weekday and hour'), n()],
     ],
   },
 ];
@@ -98,8 +99,8 @@ const h2 = { margin: '0', fontSize: 'clamp(30px, 4vw, 44px)', lineHeight: '1.08'
 export default function Compare() {
   const first = releases[releases.length - 1];
   const others = [
-    ['You stage single lines or hunks, or reorder commits with interactive rebase.', 'Fork, GitKraken, Sourcetree'],
-    ['You need blame, file history or Git LFS inside the app.', 'Fork, GitKraken, Sourcetree'],
+    ['You reorder, squash or reword commits with interactive rebase.', 'Fork, GitKraken, Sourcetree'],
+    ['You need Git LFS inside the app.', 'Fork, GitKraken, Sourcetree'],
     ['You think best with the full commit graph in front of you.', 'Any of the three'],
     [`You want a tool with years behind it. Gitnetix shipped its first release on ${longDate(first.date)}.`, 'Any of the three'],
     ['You still work in Mercurial.', 'Sourcetree'],
