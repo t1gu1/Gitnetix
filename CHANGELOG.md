@@ -11,6 +11,8 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+## [0.20.2] - 2026-11-08
+
 ### Fixed
 - Playback no longer stalls in the AppImage on systems with PipeWire, because the AppImage now clears the host GStreamer variables that made it use the bundled plugin scanner and plugins
 - The audio player loads a file on first play instead of before playback starts
