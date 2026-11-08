@@ -1,10 +1,22 @@
 name: CI
 
+# Website-only changes hold no app code to test: website.yml builds those. Keep this list in step
+# with the app-free paths in release.yml.
 on:
   push:
     branches-ignore:
       - main
+    paths-ignore:
+      - "website/**"
+      - "website_idea/**"
+      - ".github/workflows/website.yml"
+      - "*.md"
   pull_request:
+    paths-ignore:
+      - "website/**"
+      - "website_idea/**"
+      - ".github/workflows/website.yml"
+      - "*.md"
 
 concurrency:
   group: ci-${{ github.ref }}

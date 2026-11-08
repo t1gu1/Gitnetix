@@ -1638,7 +1638,7 @@ impl Git {
         Self::stdout_or_err(args, child.wait_with_output().await?).map(|_| ())
     }
 
-    async fn run_stdin(&self, args: &[&str], input: impl AsRef<[u8]>) -> Result<String> {
+    pub(crate) async fn run_stdin(&self, args: &[&str], input: impl AsRef<[u8]>) -> Result<String> {
         use std::process::Stdio;
         use tokio::io::AsyncWriteExt;
         let mut child = self.command(args).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;

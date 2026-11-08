@@ -4,6 +4,11 @@ name: Website
 # so the site picks up the new CHANGELOG.md section and download links on every release.
 on:
   workflow_call:
+    inputs:
+      released:
+        description: The tag being built was published as a release, so the download links point at it.
+        type: boolean
+        default: true
   workflow_dispatch:
   push:
     branches:
@@ -65,6 +70,7 @@ jobs:
         env:
           # Reads the latest release tag without hitting the anonymous API rate limit.
           GITHUB_TOKEN: ${{ github.token }}
+          RELEASED: ${{ inputs.released }}
         run: pnpm build
 
       - uses: actions/configure-pages@v6

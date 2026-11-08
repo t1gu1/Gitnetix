@@ -19,6 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       on-main: ${{ steps.check.outputs.on-main }}
+      app: ${{ steps.app.outputs.changed }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -33,9 +34,25 @@ jobs:
             echo "on-main=false" >> "$GITHUB_OUTPUT"
           fi
 
+      # A tag that changes only app-free paths since the latest published release ships no new app: skip the
+      # builds and the release, the website job still deploys. Same paths as the paths-ignore list in ci.yml.
+      - id: app
+        if: steps.check.outputs.on-main == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          last=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName -q .tagName 2>/dev/null || true)
+          if [ -n "$last" ] && git rev-parse -q --verify "refs/tags/$last" >/dev/null \
+            && ! git diff --name-only "$last" "$GITHUB_SHA" | grep -qvE '^(website/|website_idea/|\.github/workflows/website\.yml$|[^/]+\.md$)'; then
+            echo "::notice::Only the website changed since ${last}, skipping the app build."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
   build:
     needs: check-main
-    if: needs.check-main.outputs.on-main == 'true'
+    if: needs.check-main.outputs.on-main == 'true' && needs.check-main.outputs.app == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -246,11 +263,15 @@ jobs:
           cat latest.json
           gh release upload "$TAG" latest.json --clobber --repo "$GITHUB_REPOSITORY"
 
-  # Rebuild the website with this release's changelog and download links.
+  # Rebuild the website with this release's changelog and download links. A website-only tag skips
+  # publish but still deploys, its download links staying on the latest published release.
   website:
-    needs: publish
+    needs: [check-main, publish]
+    if: ${{ !cancelled() && needs.check-main.outputs.on-main == 'true' && (needs.publish.result == 'success' || needs.check-main.outputs.app == 'false') }}
     permissions:
       contents: read
       pages: write
       id-token: write
     uses: ./.github/workflows/website.yml
+    with:
+      released: ${{ needs.publish.result == 'success' }}

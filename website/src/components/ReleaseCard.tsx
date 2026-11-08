@@ -6,11 +6,16 @@ const COLORS: Record<string, string> = {
 
 type Props = { r: Release; latest: boolean; heading: 'h1' | 'h2' };
 
+/** A section's kind: "Added (App)" is an Added section of the App project. */
+const kind = (label: string) => label.split(' (')[0];
+
 /** One release: story, highlights and the full changelog section. */
 export default function ReleaseCard({ r, latest, heading: H }: Props) {
   const big = r.story && r.highlights.length > 0;
   const id = slug(r.version);
   const page = u(`releases/${r.version}/`);
+  const counts = new Map<string, number>();
+  for (const s of r.sections) counts.set(kind(s.label), (counts.get(kind(s.label)) ?? 0) + s.items.length);
   return (
     <article aria-labelledby={`${id}-h`} style={{ minWidth: 0, background: 'var(--panel)', border: `1px solid ${latest ? 'color-mix(in srgb,var(--accent) 45%,transparent)' : 'var(--line)'}`, borderRadius: '16px', padding: 'clamp(20px, 3vw, 32px)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
       <H id={`${id}-h`} style={{ margin: 0, fontSize: H === 'h1' ? 'clamp(32px, 4.4vw, 52px)' : big ? 'clamp(26px, 3vw, 36px)' : '22px', lineHeight: 1.15, letterSpacing: '-0.02em', textWrap: 'balance' }}>
@@ -27,17 +32,17 @@ export default function ReleaseCard({ r, latest, heading: H }: Props) {
       <div style={{ borderTop: '1px solid var(--line)', paddingTop: '4px' }}>
         <p style={{ margin: 0, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '4px 16px', padding: '12px 0', fontSize: '15px', color: 'var(--muted)' }}>
           <span style={{ color: 'var(--fg)', fontWeight: 500 }}>{r.count === 1 ? '1 change' : `All ${r.count} changes`}</span>
-          {r.sections.map((s) => (
-            <span key={s.label} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-              <span aria-hidden="true" style={{ width: '7px', height: '7px', borderRadius: '50%', background: COLORS[s.label] ?? 'var(--muted)' }}></span>
-              {s.items.length} {s.label.toLowerCase()}
+          {[...counts].map(([k, n]) => (
+            <span key={k} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+              <span aria-hidden="true" style={{ width: '7px', height: '7px', borderRadius: '50%', background: COLORS[k] ?? 'var(--muted)' }}></span>
+              {n} {k.toLowerCase()}
             </span>
           ))}
         </p>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', padding: '8px 0 6px' }}>
           {r.sections.map((s) => (
             <section key={s.label} style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              <h3 style={{ margin: 0, fontSize: '12px', letterSpacing: '.14em', fontWeight: 600, textTransform: 'uppercase', color: COLORS[s.label] ?? 'var(--muted)' }}>{s.label}</h3>
+              <h3 style={{ margin: 0, fontSize: '12px', letterSpacing: '.14em', fontWeight: 600, textTransform: 'uppercase', color: COLORS[kind(s.label)] ?? 'var(--muted)' }}>{s.label}</h3>
               <ul style={{ margin: 0, padding: 0, columns: '320px 2', columnGap: '40px', fontSize: '15px', color: 'var(--muted)' }}>
                 {s.items.map((it, i) => <li key={i} style={{ marginLeft: '18px', paddingBottom: '6px', breakInside: 'avoid' }} dangerouslySetInnerHTML={{ __html: inline(it) }} />)}
               </ul>

@@ -13,7 +13,7 @@ release notes and the in-app update prompt.
 
 ## [0.20.0] - 2026-11-08
 
-### Added
+### Added (App)
 
 - Blame a file from its diff: each run of lines shows the commit that last changed it, with its author and age. Click a run's label to open that commit in the file's history.
 - Show a file's history: the commits of the branch that changed it, renames included. Pick one to see what it changed in the file, or blame the file as of that commit.
@@ -22,11 +22,11 @@ release notes and the in-app update prompt.
 
 ## [0.19.6] - 2026-11-08
 
-### Added
+### Added (App)
 
 - Ask once for consent before the first launch.
 
-### Changed
+### Changed (App)
 
 - Accept an OAuth callback only when it carries the state of this sign-in.
 - Refuse a saved API token or key when the server or site changes.
@@ -38,7 +38,7 @@ release notes and the in-app update prompt.
 - Serve dev assets only from dist.
 - Bump rustls-webpki, webpki-root-certs and webpki-roots.
 
-### Fixed
+### Fixed (App)
 
 - Split keychain values longer than the Windows limit across several items.
 - Count days in local time instead of UTC.
@@ -46,62 +46,64 @@ release notes and the in-app update prompt.
 
 ## [0.19.5] - 2026-11-07
 
-### Added
+### Added (App)
 - Agents start on a new branch when the main branch is reserved.
 - A prompt asks you to sign in to GitHub again when GitHub revokes the token.
 
-### Fixed
+### Fixed (App)
 - Publishing the checked-out branch no longer switches back to the parent branch.
 - Icon stroke width displays correctly under WebKitGTK zoom.
 - The secrets store no longer restores an old token that another copy of the app replaced.
 
 ## [0.19.4] - 2026-11-07
 
-### Fixed
+### Fixed (App)
 - Switching to another project from the import page ("+" in the tab bar) now reopens the page "+" was pressed on, falling back to the workspace route, instead of the import page.
 
 ## [0.19.3] - 2026-11-06
 
-### Added
+### Added (App)
 - Analytics has a new Tickets tab with Sprints and Weekly views.
 - Analytics commits can be filtered by person.
 - Commit rows in Analytics show ticket keys, and clicking a key opens the ticket.
 
-### Fixed
+### Fixed (App)
 - Ask AI on the Analytics tickets tab no longer breaks the page in recent Chrome and other Chromium-based views.
 - Chart headers on the Analytics tickets tab wrap on screens under 640 px wide, so the title and its hint keep the card's width.
+
+### Fixed (Website)
 - The social card now appears in Discord after it changes, because its image URL includes a content hash.
 
 ## [0.19.2] - 2026-11-06
 
-### Added
+### Added (App)
 - GitHub issues are now a ticket source. Tickets include the open issues of a project's origin repository, using the GitHub account from Git providers.
 - Each issue takes its status from its column on a project board, or from open and closed when it is on no board. Labels show as labels, and the milestone shows as the release hint.
 - You can find an issue by its number, such as #128. A branch named after an issue, such as 128-crash or fix/128-crash, links to that issue.
 - Changing a ticket's status moves the card on its board, or closes or reopens the issue.
 - The weekly report adds a breakdown by label.
 
-### Changed
+### Changed (App)
 - The weekly report counts issues closed as completed and skips those closed as not planned or duplicate.
 
-### Fixed
+### Fixed (App)
 - Field mics stay visible above the mobile keyboard in dictation.
 
 ## [0.19.1] - 2026-11-05
 
-### Added
+### Added (App)
 - Rebases resolve conflicts for every commit they replay, including binary files that git cannot merge line by line. A second pass settles files the first pass could not resolve.
 - Rebase progress appears in the UIs as rebase run events, and `workspace.rebaseRuns` lists the runs in flight.
 
-### Changed
+### Changed (App)
 - Stopping a rebase run aborts its rebase. Branches locked by a running rebase refuse changes until it finishes.
 
-### Removed
+### Removed (App)
 - The `conflictPropose` and `conflictApply` RPC methods and the `ConflictModal` screen. `RebaseRun` and `AbortModal` replace them.
 
 ## [0.19.0] - 2026-11-04
 
-### Added
+### Added (App)
 - Analytics has a tab named after the connected ticket trackers, next to Commits. For Jira it charts the running sprint and the ones before it: burndown against the ideal line, velocity and bugs fixed, estimated hours left over on tickets not completed, and completion per person and sprint. Every chart opens as a table and exports its rows as CSV.
 - Analytics can be filtered by person. Pick one or more people to count only their commits, merges, releases and tickets. Each person's emails are grouped under one name, so commits made under a second address count too. The day view, sprint charts and weekly view follow the same pick.
 - When a coding CLI stops at a usage limit, the session waits until the limit resets, then continues with its queued messages. Stop cancels the wait, and Continue runs it now.
@@ -110,18 +112,18 @@ release notes and the in-app update prompt.
 - Each sprint ticket lists its commits and branches in every project linked to its Jira connection, with links to the workspace and to that day on the Commits tab. Ticket keys in a day's commits open the ticket on the tickets tab.
 - Ask AI on that tab answers questions about the sprints or weeks on screen.
 
-### Changed
+### Changed (App)
 - Ticket statuses named in French (« En révision », « Prêt à fusionner », « Terminé », « En cours ») land in the right columns.
 
 ## [0.18.1] - 2026-11-04
 
-### Added
+### Added (App)
 - Release notes have a Template base language. AI writes in each language the template asks for, so a template that asks for French and English gets both.
 - Release note prompts include the pull requests, the net changed files and the diff.
 
 ## [0.18.0] - 2026-11-03
 
-### Added
+### Added (App)
 - Connect GitLab, Bitbucket Cloud and Gitea under Git providers. Their pull requests, reviews, conversations, protected branches and repository lists for cloning work as with GitHub, and releases publish to GitLab and Gitea.
 - Sign in to GitLab with a code, on gitlab.com or on a self-managed server with an OAuth app registered there. Bitbucket and Gitea sign in through the browser. A personal access token or API token works on all three.
 - Clone a Git repository from the welcome screen. With GitHub linked, the dialog lists your repositories, last pushed first, and clones over HTTPS or SSH.
@@ -131,30 +133,30 @@ release notes and the in-app update prompt.
 - When Git cannot sign in to an HTTPS host, you are asked for a username and a token. They are saved in the OS keychain per host, and the failed action runs again. For github.com, the connected GitHub token is used when no saved login exists.
 - Find provider CLIs that are not on PATH, including those installed through nvm or shell profiles. Gemini uses the Antigravity CLI (agy) and falls back to gemini.
 
-### Changed
+### Changed (App)
 - Agent setup replaces the AI step of the first-run setup, right after the theme, and is the only step that can't be skipped. Continue waits until a coding agent CLI (Claude Code, Codex, Antigravity, GitHub Copilot or Ollama) answers a test. Each agent has an Install button that opens its download page.
 - A profile without a tested agent opens on Agent setup at launch, even when its first-run setup is long done.
 - Fetch, pull, push and ls-remote retry over HTTPS when ssh fails. If HTTPS also fails, the ssh error is shown.
 - Focusing the window rechecks CLI status, so an install or sign-in in another window is picked up.
 - Trello cards are keyed by their short link, and saved links move to the new keys.
 
-### Fixed
+### Fixed (App)
 - Git sign-in helpers send saved logins only to the hosts a call reaches, so hooks no longer see every saved login.
 - Renaming a branch on GitLab, Bitbucket or Gitea now refuses when an open or draft pull request uses it, as GitHub renames already did.
 - Commits from the first minutes of a day are no longer dropped from the commit history.
 
 ## [0.17.4] - 2026-11-03
 
-### Added
+### Added (App)
 - Watch each checkout's files and refresh on save, replacing the 4-second poll of uncommitted files. Changes to git-ignored paths do not trigger a refresh.
 
-### Changed
+### Changed (App)
 - Fetch origin only when its branch or tag tips moved. The app checks with `ls-remote` every 5 seconds while the window is visible, retries failed checks once a minute, and no longer fetches every five minutes.
 - Ask origin at most every 4 seconds per project, however many windows are open. A check that starts while another runs waits for it.
 - Read all refs in one git call, since each git process costs about 40 ms on Windows.
 - Read-only git calls set `GIT_OPTIONAL_LOCKS=0` so they do not rewrite the index.
 
-### Fixed
+### Fixed (App)
 - Discard stash-apply conflicts back to HEAD.
 - Find the desktop app's CLI in Store (MSIX) and Mac installs, including the nested `<version>/<hash>/` and `.app` bundle layouts.
 - Quote the program path in the macOS Terminal sign-in script, so paths with spaces work.
@@ -165,17 +167,17 @@ release notes and the in-app update prompt.
 
 ## [0.17.3] - 2026-11-02
 
-### Added
+### Added (App)
 - GitHub sign-in now explains organization OAuth restrictions and links to the page where you can grant organization access.
 - New profiles prefill the Git name and email from your git config.
 
-### Changed
+### Changed (App)
 - Dialogs open faster. Modal windows no longer draw a blurred shadow, and animations pause while a dialog is open.
 - Text fields show a static focus ring instead of an animated glow, which uses less CPU.
 - Squash merges are detected with one `rev-list` call, so branch views load faster.
 - AI commit, branch, PR and release messages start faster because they no longer open a full Claude Code session in the repository.
 
-### Fixed
+### Fixed (App)
 - The app stays responsive while agents build or test in their worktrees. Agents and every command they start now run below the app's CPU priority, so a build on every core no longer slows the app's own drawing about 4 times.
 - On Windows, the app no longer fails to open with "MSVCP140.dll is missing" on PCs without the Visual C++ Redistributable. The installer now puts the Visual C++ runtime files next to Gitnetix.exe.
 - On Windows, the app finds the Claude CLI, including Desktop installs.
@@ -183,120 +185,118 @@ release notes and the in-app update prompt.
 
 ## [0.17.2] - 2026-11-02
 
-### Added
+### Added (App)
 - A branch stopped in the middle of a rebase, merge, cherry-pick or revert can be aborted from the banner above its files, its "⋯" menu, or its worktree's menu in Worktrees & agents. After a confirmation, the branch goes back to where it was before the operation started.
 - Global skills, a new list at the top of Templates: each one that is on goes in front of every other template (commits, branch names, PRs and review replies, release notes, changelogs, agents), conflict resolution and voice dictation aside. The shipped Unslop skill is on by default and keeps the writing free of the words and patterns that give machine-written text away. Each global skill has its own on/off switch and can apply to all projects or one.
 - Clicking a draft attachment opens a preview before sending: images at full size, text up to the first MiB, or a "No preview" notice. Arrow keys and buttons step through the drafts, and Remove drops the file shown.
 - The branch list marks a stopped merge, cherry-pick or revert too: "conflict" while conflicts are left, else "mid-merge", "mid-rebase"…
 
-### Changed
+### Changed (App)
 - An agent's questions show as its chat bubbles under "Your turn!", one bubble per question with its title and answer buttons, and the agent's mark beside them. Question titles are bigger and in the accent color, and show for a single question too.
 - One question can take several answers: picking an option no longer drops the other one picked for that question.
 - New worktrees get `graphify-out/`, `.claude/settings.local.json`, `.env`, `.env.local`, `.env.example` and `.env.example.local` copied from the main checkout by default, in new and existing profiles. Remove any of them in Settings > Worktrees and it stays removed.
 - A failed tool call in an agent's chat shows its exit code next to the error.
 - The agent template suggests sharing an example image.
 
-### Fixed
+### Fixed (App)
 - Copying from selected diff rows copies only the code, without line numbers or markers.
 
 ## [0.17.1] - 2026-11-02
 
-### Added
+### Added (App)
 - Welcome screen shows each project's own icon (favicon, app icon, PWA icon or logo) instead of initials when one exists.
 - Projects saved in other profiles are offered on a new profile's empty project list, and under "From your other profiles" once it has projects, so they can be added back in one click.
 - Fresh profiles open on the setup, which skips the profile step and names the profile in its heading.
 
-### Changed
+### Changed (App)
 - Endless animations now run on one shared 12 fps tick, so typing no longer lags on fast screens.
 - The Gravatar setting for commit authors now lives in the profile dialog, so each profile keeps its own choice.
 - The remove X on the Welcome screen fills its slot and turns red on hover.
 - AI provider cards in the setup have equal width.
 - A copied profile keeps its source's settings and skips the setup, even if the source was mid-setup.
 
-### Fixed
+### Fixed (App)
 - The default profile avatar body is now drawn as a closed shape.
 
-### Removed
+### Removed (App)
 - The Avatars settings page and its menu row.
 
 ## [0.17.0] - 2026-11-01
 
-### Added
+### Added (App)
 - Settings > Shortcuts page lists every keyboard shortcut and lets you edit each one. Changes save per computer, and a shortcut stays empty until you change it.
 
 ## [0.16.0] - 2026-11-01
 
-### Added
+### Added (App)
 - First-run setup for new profiles: theme, profile, AI CLI, Git host, Jira, then commit identity, dictation shortcut and phone pairing. Each step can be skipped and resumes where you left off after a restart.
 
-### Changed
+### Changed (App)
 - A profile now has one Git identity that applies to every project, replacing per-project Git profiles. Leave it empty to keep the Git default.
 
 ## [0.15.0] - 2026-11-01
 
-### Added
+### Added (App)
 - User profiles: each keeps its own projects, connections, tokens, AI setup and settings, with a name, emoji, photo or Gravatar avatar and a color
 - Ctrl+F (Cmd+F) find in the diff view and the branch tree, marking every match and stepping with the arrows
 - Merge worktree branches that have uncommitted changes
 - Copy listed ignored files into new worktrees, from a global list plus a per-project list set in the menu
 - Running agents show in the top bar with a glow and a count in the tooltip
 
-### Changed
+### Changed (App)
 - Settings, AI setup and templates open inside the menu panel instead of separate screens, and the menu now includes project settings
 - Author filter moved into the branch tree header, with a search button beside it
 - The terminal find bar uses the shared find bar
 
 ## [0.14.1] - 2026-10-31
 
-### Fixed
+### Fixed (App)
 - Typing in text boxes no longer lags, "What should the agent do?" most: the focus ring's glow moves 12 times a second instead of repainting the box and its text on every frame.
 - The web app's home-screen icon is back. Since the companion moved to HTTPS, the phone could not fetch the icon past the self-signed certificate, so the icon now comes inside the page.
 
 ## [0.14.0] - 2026-10-31
 
-### Added
+### Added (App)
 - Worktrees & agents opens as its own tab: a square button beside the menu, with its own view slot in the nav. Opening it no longer disturbs the open project's page, dialogs or scroll.
 - Running agent rows in worktrees glow on the dot and status label.
 - The branch tree's worktree link glows while an agent works.
 - Worktree rows are boxed and groups show a count badge.
 - Input, select and textarea focus rings glow with a slow ring-flow animation, with a reduced-motion guard and a per-animation off switch.
 
-### Changed
+### Changed (App)
 - Commit messages are written ahead when a worktree session ends, so a commit made afterwards takes the message at once.
 - Selected tree rows get an accent-tinted border.
 - Hovered tree rows are tinted with the accent color instead of the warning color.
 - Half-screen media queries now depend on pointer type.
 - Branch base label in worktree rows is offset.
 
-### Fixed
+### Fixed (App)
 - Big untracked files no longer stall the workspace: line counts use an 8 MiB budget per listing.
 - Row margin is reset in the non-compact agent picker.
 
 ## [0.13.2] - 2026-10-30
 
-### Added
+### Added (App)
 - A Shipped cleanup button deletes shipped release branches locally and on origin, keeping their tags. Only the branches filed under them are rebuilt.
 - On narrow screens, a left-to-right swipe in Pull requests, Submodules, Tickets and Worktrees steps back from the detail pane to the list.
 - On touch screens, every text box in view shows a dictation mic. A tap explains why dictation is unavailable.
 
-### Changed
+### Changed (App)
 - A branch's worktree tag shows its agent's status (working, waiting or done) in place of "worktree", with the icon in the status color. A worktree with no agent working or waiting still reads "worktree".
 - In the agent message box, the microphone button shows at all times, not only while typing, at the far right. The attach button moved next to it, at its size: left of it on one line, above it from two lines. The text keeps the full width on the left, and no longer rewraps when the box gets focus.
 - A branch's worktree details fit on one row, and the kind chip moved.
 
-### Fixed
+### Fixed (App)
 - A dev build no longer overwrites the installed app's config. Config saved by another instance on the same folder is picked up.
 - The dictation mic button stays below the top corner of the text field.
 
-Skipped: I didn't check the diff of the worktree row change, so that line is based on the commit title alone. I also assumed the Shipped cleanup commit (982f130) belongs to this release.
-
 ## [0.13.1] - 2026-10-30
 
-### Added
+### Added (App)
 - The new branch dialog can be minimized to a chip in the corner of the window.
 - Terminal menu rows have a close icon.
 
-### Changed
+### Changed (App)
 - Dictation now runs on the Parakeet Ultra model, which detects the language itself, so the per-language models and vocabulary setup are gone.
 - Endless animations (activity pulses, branch shine and path, WIP badge, push nudge, spinners) pause after 30 seconds without mouse, wheel or keyboard input, or while the window is hidden, and pick up again at the next input. Dictation keeps moving.
 - On Linux, WebKitGTK's DMA-BUF renderer is no longer turned off. If Gitnetix closes at start with "Error 71 (Protocol error) dispatching to Wayland display" (seen with some NVIDIA drivers), start it with `WEBKIT_DISABLE_DMABUF_RENDERER=1`.
@@ -305,7 +305,7 @@ Skipped: I didn't check the diff of the worktree row change, so that line is bas
 - The microphone button in text fields is a small square, and its shortcut moved to the tooltip.
 - Narrow diffs size their line-number columns from the highest line number.
 
-### Fixed
+### Fixed (App)
 - Typing in the agent message box stays fast with long agent logs and long messages: a key no longer redraws the whole log.
 - An agent's new output redraws only its own log, not the other agents' logs, the branch tree and the top bar.
 - Words after a hyphen in an agent's question are no longer taken as pick words.
@@ -315,22 +315,22 @@ Skipped: I didn't check the diff of the worktree row change, so that line is bas
 
 ## [0.13.0] - 2026-10-29
 
-### Added
+### Added (App)
 - A branch's commit list loads older commits as you scroll near its end, back to the first commit; a filtered list loads them with a "Load older commits" button.
 - Several terminals per checkout: the button beside the Shell tab lists them, opens a new one and closes the one shown.
 - Agent prompt drafts and the new session dialog are kept across page changes and restarts, and the dialog can be minimized to a chip.
 - On desktop, pasting images and files from the clipboard into the agent message box works, with a preview of local image paths.
 
-### Changed
+### Changed (App)
 - The app and website start on the tokyo-night-storm theme until you pick one, in both light and dark computer modes; "system" no longer follows the computer's color scheme.
 - Branch tree polish: icons sit level with branch names, every row keeps one height, the filter, group labels and branch names share one column, row actions have larger icons, and the stash count in the Branches header matches Fetch and Release.
 - The new branch dialog remembers your worktree and agent choices per project for the next new branch.
 - Author avatars fade into a soft glow tinted with the author's color.
 
-### Removed
+### Removed (App)
 - The commit graph preview beside the branch tree, with its action previews.
 
-### Fixed
+### Fixed (App)
 - Agent sessions saved by another instance on the same folder are merged instead of being lost.
 - The context menu stays open while logs and terminals scroll.
 - Keyboard focus on a branch row rings the whole row, and the ring is no longer cut off on its action buttons.
@@ -338,74 +338,72 @@ Skipped: I didn't check the diff of the worktree row change, so that line is bas
 
 ## [0.12.0] - 2026-10-28
 
-### Added
+### Added (App)
 - Commit graph preview beside the branch tree: it shows the selected branches down to where they meet, with local and origin tips, tags and HEAD.
 - Previewed and hovered rows are peeked in the graph.
 - Chat images open in a gallery that steps through the message's images with arrows and ←/→. On desktop, Copy puts the file on the clipboard and Download saves a copy to Downloads.
 
-### Changed
+### Changed (App)
 - Tokyo Night is the default theme, in the app and on the website: Storm when the computer is in dark mode, Day in light mode. Installs left on System switch to it. Gitnetix Dark and Light are still in the theme list, and the light / dark toggle on a theme without the other mode now goes to Tokyo Night.
 - The logo is drawn in the theme's colors, in the app, in the website's header and footer, and in its favicon. The app icon, the home-screen icons and the website's fallback icons use the new logo in Tokyo Night Storm.
 - The worktree start modal preselects the checked-out branch.
 
-### Fixed
+### Fixed (App)
 - The merge action on pull requests shows at once, and the list refetches after an Azure merge completes.
 - The graph no longer drifts when zoomed in WebKit, and the branch list keeps a minimum width.
 
 ## [0.11.2] - 2026-10-28
 
-### Added
+### Added (App)
 - Pulling a branch when uncommitted changes are in the way now asks what to do with them: keep them on top of the pulled branch, or stash them and pull a clean branch. Before, the pull failed with git's error.
 - The reset dialog now lists unpushed local commits that a hard reset would lose.
 - Worktree rows have an eye button that opens the branch in the workspace.
 - State badges in the branch tree (AI working, worktree, waiting, done) now open the matching row in Worktrees & agents.
 - The pull request list has a search box and a sync button.
 
-### Changed
+### Changed (App)
 - Desktop zoom defaults to 1.5.
 
-### Fixed
+### Fixed (App)
 - Staging, unstaging and discarding tens of thousands of files no longer hits the OS argument limit and runs faster.
 - Resetting forward onto origin's unpulled commits now works.
 - Pulling a branch with uncommitted changes no longer fails when git's `pull.rebase` setting is on and the changes don't touch the files the pull brings in.
 
 ## [0.11.1] - 2026-10-28
 
-### Added
+### Added (App)
 - Switching branch when uncommitted changes are in the way now asks what to do with them: bring them along to the other branch, or stash them and switch to a clean branch. Before, the switch failed with git's error.
 - Worktrees have a Change target branch action.
 - The worktrees list can be filtered by project.
 - Long context menus and pickers (merge, fix version, branch, author filter) have a search field to narrow the choices.
 
-### Changed
+### Changed (App)
 - Merging, deleting a branch or a worktree, continuing on a branch and clearing a session close their dialog at once and run in the background. What they remove leaves the lists right away, and comes back if the action fails.
 - A toast with a spinner shows a background action until it is done, then how it went. A failure stays on screen until clicked.
 
-### Fixed
+### Fixed (App)
 - AI conflict resolution now sees the whole file instead of a few lines around each conflict, so a resolution can rename or import things outside the markers. Edits that don't apply are retried, resolutions that leave conflict markers behind are rejected, and CRLF line endings are kept.
 - Gitnetix no longer stalls on huge diffs or on a project with an unignored `node_modules` full of untracked files.
 - Settings › Companion & MCP no longer shows a pairing QR code phones can't reach. Until Gitnetix restarts after the companion settings change, it says so and offers a Restart button.
 
 ## [0.11.0] - 2026-10-27
 
-### Added
+### Added (App)
 - Stage or unstage part of a file from its WIP diff: select lines in the line numbers (pointing at a changed line shows its checkbox; click, drag or shift-click), or take a whole hunk from its header. A file can then be both staged and unstaged.
 - Discard selected unstaged lines or a whole unstaged hunk from the diff, after a confirmation.
 - Rebase a branch onto any other branch from the branch menu with "Rebase onto…". The branch's target stays as it was.
 
-### Changed
+### Changed (App)
 - The Worktrees screen shows the last known list while the fresh one loads.
 
-### Fixed
+### Fixed (App)
 - A merge, rebase merge or pull that went through no longer shows an error when its temporary checkout can't be deleted. The leftover folder is noted in Menu › Logs instead.
 - Text boxes no longer show a horizontal scrollbar on wrapped text.
 - The dictation mic button now sits at the edge of its box and fits short boxes.
 
-Skipped: nothing checked beyond commit messages. Dictation and textarea entries come from commit subjects only.
-
 ## [0.10.0] - 2026-10-27
 
-### Added
+### Added (App)
 - Voice dictation in any text box with a shortcut (or the mic on phones), transcribed locally with Whisper and a downloaded-once model checked against its SHA-256.
 - Dictation splits speech by language, transcribes each stretch in its own language, and saves the main one as the spoken language. A new "Spoken" generation language option follows it.
 - Dictation uses voice activity detection, the project's names, branch and changed files as vocabulary, and an optional rewrite into clear text. The rewrite can be turned off in settings.
@@ -421,7 +419,7 @@ Skipped: nothing checked beyond commit messages. Dictation and textarea entries 
 - `a11y` branch kind (alias `accessibility`).
 - Ctrl/Cmd +, - and 0 shortcuts to zoom the desktop app.
 
-### Changed
+### Changed (App)
 - Branch views refresh faster and show their progress, reusing saved views for branches that did not move.
 - Destructive actions ask for confirmation before running.
 - Dictation runs on the Metal GPU on Apple Silicon.
@@ -439,24 +437,24 @@ Skipped: nothing checked beyond commit messages. Dictation and textarea entries 
 - Submodules "Update all" button sits at the bottom of the submodule list, like "New agent session".
 - Submodules top bar fits on one row: the filter with small fetch and add buttons, all hidden until a submodule exists.
 
-### Fixed
+### Fixed (App)
 - SVG diffs stay sharp.
 - Closing the selected worktree returns to the worktree list.
 - Close options show for worktree runs with nothing to merge.
 - Agent input no longer overlaps on mobile in hidden panes.
 - Terminal input no longer shows a horizontal scrollbar.
 
-### Removed
+### Removed (App)
 - Cancel, Close, Later and Not now buttons from modal footers.
 
 ## [0.9.3] - 2026-10-26
 
-### Added
+### Added (App)
 - Open the pairing QR scanner from the More menu on mobile.
 
 ## [0.9.2] - 2026-10-26
 
-### Added
+### Added (App)
 - Message an agent while it works: your messages wait in a queue and go out together when its run ends. If it had asked you questions, it asks them again after answering, unless you told it not to ask questions. Stopping the agent puts the queued messages back in the prompt box.
 - Scan QR code button on the pairing screen on iOS and Android: it opens the camera and pairs with the desktop from the scanned link.
 - Pair from a photo of the QR code when the camera is unavailable.
@@ -464,28 +462,28 @@ Skipped: nothing checked beyond commit messages. Dictation and textarea entries 
 - Settings › Terminal sets the tab a branch's terminal opens on until one is picked there: Agent (the default) or Shell. Branches with an agent session open on Agent.
 - Attach files and pick the agent in the new item modal.
 
-### Fixed
+### Fixed (App)
 - The Agent or Shell tab picked in a terminal is remembered per branch instead of for every branch and worktree. Worktrees open on Agent every time you come back to them.
 - Localhost links open on the desktop host when you use the app remotely.
 
 ## [0.9.1] - 2026-10-26
 
-### Added
+### Added (App)
 - Ship dialog can update and date the changelog as the release ships, when AI is on for releases and the project has a `CHANGELOG.md`. A Settings toggle controls the default.
 - Pulling a diverged branch now offers to rebase or merge.
 - Delete tag action in the commit menu.
 - Images sent to an agent, and images it shows, preview on hover or focus in the agent log.
 - Click a sent image to open it full size.
 
-### Changed
+### Changed (App)
 - Main tabs in the top bar are reordered.
 
-### Fixed
+### Fixed (App)
 - Shipping a release is refused only when uncommitted changes touch release files.
 
 ## [0.9.0] - 2026-10-26
 
-### Added
+### Added (App)
 - Project commands menu in the terminal for Cargo, Go, Make, just, Docker, Compose, Gradle, Maven, .NET, CMake, Python, Ruby, Godot, LÖVE, Odin and shell scripts, plus package.json scripts. Commands whose program is not installed are hidden.
 - Rebase a worktree onto its base and resolve conflicts from the worktree actions.
 - Rename branches and open releases, locally and on origin when asked.
@@ -502,14 +500,16 @@ Skipped: nothing checked beyond commit messages. Dictation and textarea entries 
 - Analytics: click a day bar to see its commits by person and type, and a release bar to see its features, fixes and merged branches.
 - Pairing QR code in the settings menu panel.
 - Appearance settings open from the theme row in the menu.
+
+### Added (Website)
 - Theme picker on the website header and home page.
 
-### Changed
+### Changed (App)
 - Worktree detail layout is wider, up to 1400px.
 - Page header is hidden on wide layouts in tickets, pull requests and other tabbed pages; the back button shows only on narrow layouts.
 - The dev app restarts on Rust changes only when idle.
 
-### Fixed
+### Fixed (App)
 - Terminal always shows at least one command section, and the folded pill is tidier.
 - Opening a worktree focuses the agent tab.
 - Rename is refused mid-rebase, and a failed CHANGELOG.md commit after a rename is reported instead of failing the rename.
@@ -523,28 +523,28 @@ Skipped: nothing checked beyond commit messages. Dictation and textarea entries 
 
 ## [0.8.0] - 2026-10-25
 
-### Added
+### Added (App)
 - Selectable color themes beyond light and dark, with an Appearance pane in Settings showing swatches.
 - Commit or discard uncommitted work before continuing on a branch.
 - Attach files to a new agent session by button, paste or drop.
 - New worktrees clone their submodules at the branch's pinned commits.
 
-### Changed
+### Changed (App)
 - The header toggle switches to the same theme's other mode when one exists, and the menu theme picker lists every theme.
 - Removing a worktree is refused when a submodule holds commits that are not on any remote, unless forced.
 - Codex and Copilot now receive the picked model and reasoning effort, and Gemini receives the model.
 
-### Fixed
+### Fixed (App)
 - Lettered question lists in agent replies are detected as answer groups when any list in the reply is a question.
 
 ## [0.7.1] - 2026-10-25
 
-### Changed
+### Changed (Website)
 - Website now served from the gitnetix.app custom domain.
 
 ## [0.7.0] - 2026-10-25
 
-### Added
+### Added (App)
 - Files and images can be attached to agent messages and new agent starts, up to 25 MB each.
 - Mobile: a More menu in the tab bar opens the pages that do not fit as tabs.
 - Agent sessions take an optional ticket, linked to the branch before the agent starts.
@@ -552,9 +552,11 @@ Skipped: nothing checked beyond commit messages. Dictation and textarea entries 
 - Settings › Animations has three more switches: Page fade, List entrances and Dialog pop.
 - Notifications can be clicked away, and show a check or a cross on success and errors.
 - Each project stores defaults for the finish, new branch, new agent, ship, delete origin and cleanup origin dialogs.
+
+### Added (Website)
 - The website has a Compare page with Gitnetix, GitKraken, Fork and Sourcetree side by side.
 
-### Changed
+### Changed (App)
 - A refreshed look across the app: softer corners, layered shadows on menus and dialogs, an accent halo on focused fields, thin scrollbars, and buttons that ease into their hover and give a little when pressed.
 - Smoother motion: pages fade up when opened and the page tabs' underline slides to the open page; dialogs, context menus, notifications and the agent panel animate in; new branches, files, commits and agent replies fade in as they appear; analytics bars grow from the axis.
 - Panes with nothing selected yet (pull request, ticket, worktree, submodule, release notes) show an icon, a title and what to do next.
@@ -564,18 +566,20 @@ Skipped: nothing checked beyond commit messages. Dictation and textarea entries 
 - Disconnect from this desktop is a quieter red text button instead of a solid one.
 - The branch tree filter is a full-width bar with an author segment.
 - Pull request load errors show the empty-state view.
-- The website's release page lists each release's changes inline and has a "See all release notes" link.
 - The worktrees list is grouped by project, with a new-session button on each header and status and base branch shown under each branch name.
 - Planning a branch into a release also plans its ticket into that release.
 - Suggestions picked in the agent prompt box queue there instead of sending on their own.
 - The agent question Send button sits below all questions.
 - Task routing pickers wrap below their label when the pane is narrow.
-- The website's home page comparison shows the app's branch pane.
 - The default finish action in the finish dialog is now merge, not continue.
 - The terminal's open bar highlights on hover toward the collapse button.
+
+### Changed (Website)
+- The website's release page lists each release's changes inline and has a "See all release notes" link.
+- The website's home page comparison shows the app's branch pane.
 - Release version chips on the website use the accent color.
 
-### Fixed
+### Fixed (App)
 - The worktree list no longer says "None currently running" for a project that simply has no worktree yet.
 - A double line no longer shows under the page tabs.
 - Branch path dots stay lined up across elbows in the branch tree.
@@ -586,26 +590,26 @@ Skipped: nothing checked beyond commit messages. Dictation and textarea entries 
 
 ## [0.6.2] - 2026-10-24
 
-### Fixed
+### Fixed (App)
 - A release is now forgotten once its branch is gone everywhere, so it no longer lingers in the app.
 
 ## [0.6.1] - 2026-10-23
 
-### Added
+### Added (App)
 - Azure: PR checks now show a "waiting" status for policies not yet running, and the PR screen shows "Checks waiting".
 
-### Changed
+### Changed (App)
 - Azure: only build policies with a current pipeline run count as running; other unmet policies report as waiting.
 - Azure: PR statuses come from the latest iteration, as on Azure's PR page, and the newest status per name wins.
 - Azure: pending code coverage statuses are hidden, since the pipeline's own policy carries the result.
 - The PR screen blocks merge while any check is waiting, as it does for running checks.
 
-### Fixed
+### Fixed (App)
 - Azure: the merge strategy policy no longer appears in PR checks.
 
 ## [0.6.0] - 2026-10-23
 
-### Added
+### Added (App)
 - Agents started on a branch linked to a Jira, Trello or Asana ticket get the ticket's title, description and acceptance criteria in their first prompt, with a copy in the checkout's git dir to read again later. Agent templates can place it with `{ticket}`.
 - Replies with several questions show as one group of buttons per question, lettered when the reply letters them, with a single Send.
 - Merge, rebase, cherry-pick, revert and stash apply now resolve conflicts automatically and carry on. If a file cannot be resolved, the operation is aborted, the checkout is left unchanged, and the error gives the reason. Turn it off in the Menu.
@@ -613,7 +617,6 @@ Skipped: nothing checked beyond commit messages. Dictation and textarea entries 
 - `tickets.get` API method (and `tickets_get` MCP tool): one ticket with its full description, by key or by branch.
 - Switching branch while the main checkout is stopped mid-rebase, merge, cherry-pick or revert asks to abort that operation first. `workspace.switch` accepts `abort` to do it before the checkout.
 - Merging a branch with uncommitted changes asks for confirmation first.
-- The website install script falls back to a user-level install when permission is denied.
 - Offer grouped answer buttons for agent questions, one group per question with a single Send
 - Resolve merge, rebase, cherry-pick, revert and stash conflicts automatically and carry on, with a Menu toggle to turn it off
 - Add an in-app Logs page under Menu to view, copy and clear recent operations and errors
@@ -621,49 +624,54 @@ Skipped: nothing checked beyond commit messages. Dictation and textarea entries 
 - Add `tickets.get` RPC method and `tickets_get` MCP tool to fetch one ticket by key or branch
 - Ask before merging a branch with uncommitted changes
 - Offer to abort a stuck rebase, merge, cherry-pick or revert before switching branch
+
+### Added (Website)
+- The website install script falls back to a user-level install when permission is denied.
 - Add user-level install fallback on the website when permission is denied
 
-### Changed
+### Changed (App)
 - Commits are refused while staged changes still contain conflict markers, and the affected files are listed.
 - Conflict resolution sends only the conflicted excerpts instead of the whole file, so big files resolve faster.
-- Mirror the app workspace layout in the website hero demo
 - Send only the conflicted excerpt to AI conflict resolution so big files resolve faster
 - Roll the branch back to its old tip when a squash merge fails
 
-### Fixed
+### Changed (Website)
+- Mirror the app workspace layout in the website hero demo
+
+### Fixed (App)
 - Squash rolls the branch back to its old tip when the merge that follows fails.
 - Block commits that still contain conflict markers and list the affected files
 - Preserve CRLF line endings and keep the stash after AI conflict resolution
 
 ## [0.5.2] - 2026-10-23
 
-### Added
+### Added (Website)
 - Interactive hero demo on the website: pick branches, open file diffs, send prompts and commit in a playable copy of the Workspace screen
 - Animated path to the checked-out branch in the website hero demo
 
 ## [0.5.1] - 2026-10-23
 
-### Added
-- Website: dedicated remote section with the phone mockup.
-- Website: worktree mockup now mirrors the agent pane.
+### Added (Website)
+- Dedicated remote section with the phone mockup.
+- Worktree mockup now mirrors the agent pane.
 
-### Changed
+### Changed (App)
 - Author is credited as Guillaume Huard Hughes, linking to the A Dev Journey home page, in the README and website footers.
 - README intro rewritten, with a new tagline and a link to the project website.
 
-### Fixed
-- Website: comparison panel now uses border-box sizing.
-- Website: spine gradient fades in from the top edge.
-- Website: CI builds now show the release tag as the latest version.
+### Fixed (Website)
+- Comparison panel now uses border-box sizing.
+- Spine gradient fades in from the top edge.
+- CI builds now show the release tag as the latest version.
 
 ## [0.5.0] - 2026-10-23
 
-### Added
+### Added (Website)
 - Website built with Astro, deployed to GitHub Pages, with one release notes page per version.
 
 ## [0.4.0] - 2026-10-22
 
-### Added
+### Added (App)
 - Pull request list, detail, create, edit, merge, close, review, comment, reply, resolve and react now work on Azure DevOps, with a personal access token as an alternative to Entra sign-in.
 - Each checkout gets a shell terminal beside the agent, with an Agent/Shell tab switch on the workspace and worktree screens.
 - Origin is fetched and pruned when a project opens and every five minutes, so branches deleted on PR merge disappear without a manual refresh.
@@ -681,17 +689,17 @@ Skipped: nothing checked beyond commit messages. Dictation and textarea entries 
 - The worktrees screen has a narrow layout, and the window can be made narrower.
 - Publishing a branch now returns checkout to its parent branch.
 
-### Changed
+### Changed (App)
 - Workspace diffs open in the left pane above the terminal, and the branches pane is a resizable panel.
 - Danger buttons are now solid red.
 - Deleting a worktree branch asks for confirmation first, and merging one also removes its worktree.
 - Pull request and tag actions are hidden for worktree branches.
 
-### Removed
+### Removed (App)
 - Removed the hide-branches toggle from the workspace; the branches pane is always shown.
 - Removed status counts from worktrees and moved the session button down.
 
-### Fixed
+### Fixed (App)
 - Commits can run per branch across worktrees.
 - Deleting a remote branch that origin already dropped no longer fails with "stale info".
 - The terminal session label now sits after the agent picker.
@@ -706,7 +714,7 @@ Skipped: nothing checked beyond commit messages. Dictation and textarea entries 
 
 ## [0.3.0] - 2026-10-21
 
-### Added
+### Added (App)
 - Pick the provider, model and effort for each agent session. Agents on a branch always run in that branch's own worktree.
 - Search the commit list, with matches highlighted in branch names and commit text.
 - Show the contents of unchanged files in the project view.
@@ -720,7 +728,7 @@ Skipped: nothing checked beyond commit messages. Dictation and textarea entries 
 - Show progress while cleaning up branches.
 - Add motion preferences in Settings.
 
-### Changed
+### Changed (App)
 - Large diffs scroll faster because off-screen rows are skipped.
 - The branch commit list always has a commit selected.
 - Tune the tree row tints and the commit list separator.
@@ -728,39 +736,37 @@ Skipped: nothing checked beyond commit messages. Dictation and textarea entries 
 - Removing a worktree stops its agent.
 - Tweak the top bar borders and tab padding, and center the changed files header row.
 
-### Fixed
+### Fixed (App)
 - Branches named like a tag are listed and resolved as branches, so cleanup no longer fails or hits the wrong ref.
 - Closing branch history restores the file view.
 - Removing a worktree whose folder was already deleted by hand no longer fails.
 
-Skipped: the TODO, graphify and avatar-placement refactor commits. I did not check the code. The commit messages were partly mismatched (e7647dd, 14d89a0), so some entries may be off.
-
 ## [0.2.0] - 2026-10-20
 
-### Added
+### Added (App)
 - Right-click a changed file or folder in the workspace to copy its path, open it in the file explorer (desktop only), or add it to .gitignore.
 - Stage and unstage actions on folder rows and in the staged/unstaged lists.
 - Folder rows in the file list now show +/- totals.
 - After changing a branch target, the workspace offers to rebase.
 
-### Changed
+### Changed (App)
 - The branch commit list in the workspace always has a commit selected.
 
 ## [0.1.3] - 2026-10-19
 
-### Changed
+### Changed (App)
 - Image diff comparison mode switch moved into the diff header, with the "Before"/"After" meta on the left of the swipe, onion and difference controls
 
-### Fixed
+### Fixed (App)
 - Release branches that exist only on origin are now imported
 
 ## [0.1.2] - 2026-10-19
 
-### Added
+### Added (App)
 - App version now shows in the menu header.
 - Analytics can now be filtered by project; no selection means all projects.
 
-### Changed
+### Changed (App)
 - Switching projects now returns you to where you left each one: same page, open dialogs and menu, selected branch, and that project's analytics.
 - Path dots on branches the path only passes through are now dimmed.
 - Dimmed path runs now fade in and out at their ends.
@@ -769,7 +775,7 @@ Skipped: the TODO, graphify and avatar-placement refactor commits. I did not che
 - Analytics now show lead time in hours.
 - Analytics now show total commits in place of the AI-share KPI.
 
-### Fixed
+### Fixed (App)
 - Branch path line now runs past the sibling branches above it.
 - Path line now runs through the Shipped separator.
 - Path pulse now stays in sync on WebKit.
@@ -780,7 +786,7 @@ Skipped: the TODO, graphify and avatar-placement refactor commits. I did not che
 
 ## [0.1.1] - 2026-10-19
 
-### Added
+### Added (App)
 - "Move unreleased changelog into x.y.z" release branch action: renames the `Unreleased` section of `CHANGELOG.md` to the release's version, dated today, and commits it on the branch before shipping.
 - Release branches can change the branch they were cut from. Trunks can take a parent, and work branches can target any existing branch.
 - Branches falling behind are grouped under their parent branch.
@@ -790,7 +796,7 @@ Skipped: the TODO, graphify and avatar-placement refactor commits. I did not che
 - The commit link animates when new commits land.
 - An empty state is shown when no pull request provider is connected.
 
-### Changed
+### Changed (App)
 - Branch views are cached per project, and a quick overview shows first when nothing is cached, so reopening a project is faster.
 - The terminal panel is hidden by default.
 - Open releases are sorted newest version first.
@@ -799,7 +805,7 @@ Skipped: the TODO, graphify and avatar-placement refactor commits. I did not che
 - Section Clean up buttons are now a brush icon in line with the group row.
 - Branch tree rows sit on a raised background, and Shipped has a thin separator above it.
 
-### Fixed
+### Fixed (App)
 - Branches squashed by pull requests are now detected, including squashes not titled with the branch name.
 - Squashed branches are placed under the release that shipped them.
 - Releases shipped by a later patch of their line are marked as shipped.
@@ -808,7 +814,7 @@ Skipped: the TODO, graphify and avatar-placement refactor commits. I did not che
 
 ## [0.1.0] - 2026-10-19
 
-### Added
+### Added (App)
 - Sign in with GitHub through the OAuth device flow in Settings › Git providers, no token to create; personal access tokens still work.
 - Sign in with Azure DevOps from Settings › Git providers using a Microsoft device code. The token is renewed automatically before it expires.
 - "Update changelog" branch action: AI adds the branch's changes to the `Unreleased` section of `CHANGELOG.md` and commits it on the branch, falling back to the latest tag when the branch has no diff. Shown when the project has a changelog and AI is set up.
@@ -828,7 +834,7 @@ Skipped: the TODO, graphify and avatar-placement refactor commits. I did not che
 - Local-only and origin-only branches get labels in the branch tree.
 - 7, 14 and 21 day ranges in analytics, and a richer release tooltip.
 
-### Changed
+### Changed (App)
 - Review summaries show as threads labeled Approved, Requested changes or Reviewed, with the text reviewers submit with their vote. Every review thread, comment, review and review request now loads, not just the first 60.
 - Branch cleanups run in the background and stay visible in the tree when you change screen or project. Branches are deleted four at a time.
 - Branch tree opens only the sections on the checked-out path. Row actions are now icon-only and fill the row height.
@@ -836,7 +842,7 @@ Skipped: the TODO, graphify and avatar-placement refactor commits. I did not che
 - The PR list pane has a fixed width.
 - Analytics remembers the selected time range and defaults to 14 days.
 
-### Fixed
+### Fixed (App)
 - Branches merged on origin are detected even when the local base branch lags behind.
 - Tab and segment labels no longer widen and shift nearby controls when they turn bold.
 - "New PR from …" stays busy while the PR is being created, even after leaving the page and coming back.
@@ -844,33 +850,33 @@ Skipped: the TODO, graphify and avatar-placement refactor commits. I did not che
 
 ## [0.0.6] - 2026-10-18
 
-### Added
+### Added (App)
 - Tags shown on commits, and commit history for the trunk.
 - Linux AppImage published on version tags.
 
 ## [0.0.5] - 2026-10-18
 
-### Added
+### Added (App)
 - Checkout, branch-from and delete actions for tags.
 
 ## [0.0.4] - 2026-10-18
 
-### Added
+### Added (App)
 - Tag branch action, with push to origin.
 
-### Fixed
+### Fixed (App)
 - Squashed branches are deleted last, locally and on origin.
 
 ## [0.0.3] - 2026-10-18
 
-### Added
+### Added (App)
 - Next release version suggested from changes, with branch names generated from it.
 - Force push for rebased branches, and retagging of shipped releases.
 - Gitnetix logo and app icons.
 
 ## [0.0.2] - 2026-10-18
 
-### Added
+### Added (App)
 - Branch tree view with parent tracking, shipped work placed under its release.
 - Branch commit list with per-commit diffs, plus revert, cherry-pick and reset.
 - Merge into any local branch, with merge options; branch reset; git file watcher.
@@ -880,7 +886,7 @@ Skipped: the TODO, graphify and avatar-placement refactor commits. I did not che
 
 ## [0.0.1] - 2026-10-17
 
-### Added
+### Added (App)
 - First release: projects, releases, feature/fix branches, worktrees, ship + tag.
 - WIP view with staging, unstaging, discard and collapsible file sections.
 - Branch merge and delete, branch type picker with prefix handling.

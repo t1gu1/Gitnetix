@@ -917,7 +917,8 @@ fn stamp_changelog(text: &str, version: &str, date: &str) -> Option<String> {
 /// shortcut: blank lines inside a section are dropped, fine for one-line bullets; keep them if entries grow paragraphs.
 fn merge_sections(into: &[&str], from: &[&str]) -> Vec<String> {
     const ORDER: &[&str] = &["added", "changed", "deprecated", "removed", "fixed", "security"];
-    let rank = |h: &Option<String>| h.as_ref().map_or(0, |h| 1 + ORDER.iter().position(|k| h[3..].trim().eq_ignore_ascii_case(k)).unwrap_or(ORDER.len()));
+    // "### Added (App)" ranks as Added: a project in parentheses splits a kind, not a new kind.
+    let rank = |h: &Option<String>| h.as_ref().map_or(0, |h| 1 + ORDER.iter().position(|k| h[3..].trim().split(" (").next().unwrap_or_default().eq_ignore_ascii_case(k)).unwrap_or(ORDER.len()));
     let groups = |lines: &[&str]| {
         let mut out: Vec<(Option<String>, Vec<String>)> = Vec::new();
         for l in lines.iter().map(|l| l.trim_end()).filter(|l| !l.trim().is_empty()) {
@@ -993,6 +994,20 @@ fn latest_changelog_version(text: &str) -> Option<String> {
         .map(|(v, _)| v.trim())
         .find(|v| !v.eq_ignore_ascii_case("unreleased"))
         .map(String::from)
+}
+
+/// An AI answer for a changelog section with only its headings, entries, their indented lines and single
+/// blank lines: notes around them ("Skipped: …", code fences) never reach CHANGELOG.md.
+fn section_lines(answer: &str) -> String {
+    let mut out: Vec<&str> = Vec::new();
+    for l in answer.lines().map(str::trim_end) {
+        let after_text = out.last().is_some_and(|p| !p.is_empty());
+        let keep = l.starts_with('#') || l.starts_with("- ") || l.starts_with("* ") || (after_text && (l.is_empty() || l.starts_with([' ', '\t'])));
+        if keep {
+            out.push(l);
+        }
+    }
+    out.join("\n").trim().to_string()
 }
 
 /// The body of the `## [name]` section, `name` matched ignoring case ("" when there is none).
@@ -4057,15 +4072,18 @@ impl Gitnetix {
     /// `released` and `unreleased` entries merged by AI into one body for `version`'s section.
     /// None without AI, when it fails, or when the answer is not a section body.
     async fn merge_changelog_ai(&self, p: &Project, version: &str, released: &str, unreleased: &str) -> Option<String> {
-        let t = self.template("changelogMerge", None, Some(&p.id)).ok()?;
+        let mut t = self.template("changelogMerge", None, Some(&p.id)).ok()?;
+        if [released, unreleased].iter().any(|s| s.lines().any(|l| l.starts_with("### ") && l.trim_end().ends_with(')'))) {
+            t.body.push_str("\n\nThe headings name a project in parentheses, like \"### Added (App)\". Keep them: combine entries only under headings of the same project, and keep each project's headings apart, in the order the existing headings follow.");
+        }
         let mut vars = BTreeMap::new();
         vars.insert("version".into(), version.into());
         vars.insert("released".into(), released.into());
         vars.insert("unreleased".into(), unreleased.into());
         let out = self.ask("release", &t, vars, &p.gen_lang.release, None).await.ok()?;
-        let out = out.trim();
+        let out = section_lines(&out);
         // Some models repeat the heading they were told to leave out.
-        let body = if out.starts_with("## [") { out.split_once('\n').map_or("", |(_, b)| b).trim() } else { out };
+        let body = if out.starts_with("## [") { out.split_once('\n').map_or("", |(_, b)| b).trim() } else { &out };
         if body.is_empty() || body.lines().any(|l| l.trim_start().starts_with("## ")) {
             crate::log::error(format!("AI changelog merge for {version} was not a section body; merged without AI"));
             return None;
@@ -5642,8 +5660,10 @@ impl Gitnetix {
                 let from = git.tags().await?.first().map(|t| t.name.clone()).unwrap_or_else(|| default.clone());
                 source = format!("{from} → {current}");
                 let commits = git.log(&format!("{from}..{current}"), Some(NOTES_MAX_COMMITS)).await.unwrap_or_default();
+                let (note, projects) = commit_projects(&git, &commits, &current).await;
                 templates::prepare_release(&mut t);
-                vars = release_vars(&git, &from, &current, &commits, true).await;
+                t.body.push_str(&note);
+                vars = release_vars(&git, &from, &current, &commits, true, &projects).await;
             }
             "agent" => {
                 return Ok((
@@ -6124,7 +6144,7 @@ impl Gitnetix {
         Ok(serde_json::json!({
             "commits": commits.len(),
             "branches": branches,
-            "tickets": tickets::extract_keys(&release_commit_lines(&commits)).len(),
+            "tickets": tickets::extract_keys(&release_commit_lines(&commits, &HashMap::new())).len(),
         }))
     }
 
@@ -6145,7 +6165,9 @@ impl Gitnetix {
         }
         let mut t = self.template("release", template_id, Some(&p.id))?;
         templates::prepare_release(&mut t);
-        let vars = release_vars(&git, from, to, &kept, inc.tickets).await;
+        let (note, projects) = commit_projects(&git, &kept, to).await;
+        t.body.push_str(&note);
+        let vars = release_vars(&git, from, to, &kept, inc.tickets, &projects).await;
         let r = self.route("release", Some(&t))?;
         let out = self.ask("release", &t, vars, language, None).await?;
         Ok((out, format!("{} · {} commits read", r.label(), kept.len())))
@@ -6191,7 +6213,14 @@ impl Gitnetix {
         if commits.is_empty() {
             return Err(Error::Invalid(format!("{branch} has no commits since {base}")));
         }
-        let t = self.template("changelog", None, Some(&p.id))?;
+        let mut t = self.template("changelog", None, Some(&p.id))?;
+        let (note, projects) = commit_projects(&git, &commits, &rev).await;
+        t.body.push_str(&note);
+        for c in &mut commits {
+            if let Some(touched) = projects.get(&c.sha) {
+                c.subject = format!("{} [{touched}]", c.subject);
+            }
+        }
         let current = section_body(&text, "unreleased");
         // A release branch whose Unreleased entries were already moved under its version.
         let released = branch.strip_prefix("release/").map(|v| section_body(&text, v)).unwrap_or_default();
@@ -6202,8 +6231,12 @@ impl Gitnetix {
         vars.insert("branch".into(), branch.into());
         vars.insert("base".into(), base);
         let out = self.ask("release", &t, vars, &p.gen_lang.release, None).await?;
+        let out = section_lines(&out);
         // Some models repeat the heading they were told to leave out.
-        let body = out.trim().strip_prefix("## [Unreleased]").unwrap_or(out.trim()).trim().to_string();
+        let body = out.strip_prefix("## [Unreleased]").unwrap_or(&out).trim().to_string();
+        if body.is_empty() && !current.is_empty() {
+            return Err(Error::Ai("AI answered without changelog entries. The Unreleased section was left as it was.".into()));
+        }
         if body == current {
             return Ok("Changelog already lists these changes".into());
         }
@@ -6706,6 +6739,86 @@ fn commit_lines(commits: &[crate::git::Commit]) -> String {
         .join("\n")
 }
 
+/// Files that make the folder holding them a project of its own.
+const MANIFESTS: &[&str] = &["package.json", "Cargo.toml", "go.mod", "pyproject.toml", "composer.json", "pom.xml", "build.gradle", "build.gradle.kts", "Gemfile", "pubspec.yaml", "mix.exs", "Package.swift"];
+
+/// The folders of a tree's `files` that hold a project ("" = the root), deepest first. Members of
+/// the root's Cargo workspace (`cargo` = its Cargo.toml) build as one with the root, so they belong to it.
+fn project_dirs(files: &[&str], cargo: Option<&str>) -> Vec<String> {
+    let members = cargo.map(cargo_members).unwrap_or_default();
+    let member = |d: &str| members.iter().any(|m| m == d || m.strip_suffix("/*").is_some_and(|parent| d.rsplit_once('/').is_some_and(|(p, _)| p == parent)));
+    let mut dirs: Vec<String> = files
+        .iter()
+        .map(|f| f.rsplit_once('/').unwrap_or(("", f)))
+        .filter(|(dir, name)| MANIFESTS.contains(name) && !dir.split('/').any(|s| s == "node_modules" || s == "vendor") && !member(dir))
+        .map(|(dir, _)| dir.to_string())
+        .collect();
+    dirs.sort();
+    dirs.dedup();
+    dirs.sort_by_key(|d| std::cmp::Reverse(d.len()));
+    dirs
+}
+
+/// The `members` paths of a Cargo.toml's `[workspace]` table, as written ("crates/*" included).
+// shortcut: reads the usual `members = [...]` line, not every TOML form; use a TOML parser if a repo needs more.
+fn cargo_members(toml: &str) -> Vec<String> {
+    let Some((_, table)) = toml.split_once("[workspace]") else { return Vec::new() };
+    let table = table.split("\n[").next().unwrap_or_default();
+    let Some(i) = table.find("\nmembers") else { return Vec::new() };
+    let list = &table[i..];
+    let list = &list[..list.find(']').unwrap_or(list.len())];
+    list.split('"').skip(1).step_by(2).map(|m| m.trim_end_matches('/').to_string()).collect()
+}
+
+/// The project of `dirs` (deepest first, see `project_dirs`) that holds `path`.
+fn project_of<'a>(path: &str, dirs: &'a [String]) -> Option<&'a str> {
+    dirs.iter().find(|d| d.is_empty() || path.strip_prefix(d.as_str()).is_some_and(|rest| rest.starts_with('/'))).map(String::as_str)
+}
+
+/// The name a project folder goes by in a changelog heading: "App" for the root, else its last folder, capitalized ("Website").
+// shortcut: folders with the same last name (apps/web, packages/web) share a name; use the whole path if a repo needs both.
+fn project_name(dir: &str) -> String {
+    let mut c = dir.rsplit('/').next().unwrap_or(dir).chars();
+    match c.next() {
+        Some(first) => first.to_uppercase().chain(c).collect(),
+        None => "App".into(),
+    }
+}
+
+/// When `rev`'s tree holds several projects (see `project_dirs`): the instruction a changelog or release-notes
+/// prompt ends with, and the projects each of `commits` touches by sha ("App, Website"). Empty for a single project.
+async fn commit_projects(git: &Git, commits: &[Commit], rev: &str) -> (String, HashMap<String, String>) {
+    let files = git.run(&["-c", "core.quotePath=false", "ls-tree", "-r", "--name-only", rev]).await.unwrap_or_default();
+    let cargo = git.show_file(rev, "Cargo.toml").await.ok().flatten();
+    let dirs = project_dirs(&files.lines().collect::<Vec<_>>(), cargo.as_deref());
+    if dirs.len() < 2 || commits.is_empty() {
+        return Default::default();
+    }
+    // App first, then the others by name: the order their headings follow.
+    let mut all: Vec<String> = dirs.iter().map(|d| project_name(d)).collect();
+    all.sort_by_key(|n| (n != "App", n.clone()));
+    // On stdin: a thousand shas as arguments would pass Windows' command line limit.
+    let shas: String = commits.iter().map(|c| format!("{}\n", c.sha)).collect();
+    let log = git.run_stdin(&["-c", "core.quotePath=false", "log", "--no-walk=unsorted", "--stdin", "--format=%x1e%H", "--name-only"], shas).await.unwrap_or_default();
+    let mut touched = HashMap::new();
+    for rec in log.split('\x1e') {
+        let mut lines = rec.lines().filter(|l| !l.is_empty());
+        let Some(sha) = lines.next() else { continue };
+        let hit: Vec<String> = lines.filter_map(|f| project_of(f, &dirs)).map(project_name).collect();
+        let names: Vec<&str> = all.iter().filter(|n| hit.contains(n)).map(String::as_str).collect();
+        if !names.is_empty() {
+            touched.insert(sha.to_string(), names.join(", "));
+        }
+    }
+    let note = format!(
+        "\n\nThis repository holds several projects, in this order: {}. Each commit ends with the projects it touches, in brackets. Split each group of changes by project: repeat the group's heading for each project with changes, with the project's name in parentheses after it, like \"### Added ({})\" then \"### Added ({})\". Follow the order of the projects and skip empty headings. An entry that changes several projects goes under the one listed first. Do not start entries with a project name.",
+        all.join(", "),
+        all[0],
+        all[1]
+    );
+    (note, touched)
+}
+
 /// Most commits release notes read from a range.
 const NOTES_MAX_COMMITS: u32 = 1000;
 
@@ -6716,12 +6829,13 @@ async fn merge_shas(git: &Git, range: &str) -> std::collections::HashSet<String>
 
 /// What release notes read about `from..to`: `commits` (git log order) with their whole messages,
 /// the PRs and branches they merge, and the net changes, as template variables.
-async fn release_vars(git: &Git, from: &str, to: &str, commits: &[Commit], tickets: bool) -> BTreeMap<String, String> {
+/// `projects`: sha → the projects the commit touches (see `commit_projects`).
+async fn release_vars(git: &Git, from: &str, to: &str, commits: &[Commit], tickets: bool, projects: &HashMap<String, String>) -> BTreeMap<String, String> {
     let merges = merge_shas(git, &format!("{from}..{to}")).await;
     let net = format!("{from}...{to}");
     let numstat = git.run(&["diff", "--numstat", &net]).await.unwrap_or_default();
     let diff = git.run(&["diff", "--no-color", "--no-ext-diff", "-p", &net, "--", ":(exclude)*.lock", ":(exclude)*-lock.json", ":(exclude)*-lock.yaml"]).await.unwrap_or_default();
-    let text = release_commit_lines(commits);
+    let text = release_commit_lines(commits, projects);
     let branches: Vec<String> = commits.iter().rev().filter_map(|c| merged_branch(c, merges.contains(&c.sha))).collect();
     let or_none = |s: String| if s.trim().is_empty() { "(none)".to_string() } else { s };
     let mut vars = BTreeMap::new();
@@ -6760,13 +6874,14 @@ fn merged_branch(c: &Commit, merge: bool) -> Option<String> {
 
 /// `commits` as git log lists them (newest first), written oldest first, each with its date and whole
 /// message. Messages are cut so the list stays near 60 KB, subjects always kept.
-fn release_commit_lines(commits: &[Commit]) -> String {
+fn release_commit_lines(commits: &[Commit], projects: &HashMap<String, String>) -> String {
     let per = (60_000 / commits.len().max(1)).clamp(200, 1_500);
     let mut out = String::new();
     for c in commits.iter().rev() {
         let sha = &c.sha[..7.min(c.sha.len())];
         let date = c.date.get(..10).unwrap_or(&c.date);
-        out.push_str(&format!("- {date} {sha} {}\n", c.subject.trim()));
+        let touched = projects.get(&c.sha).map(|p| format!(" [{p}]")).unwrap_or_default();
+        out.push_str(&format!("- {date} {sha} {}{touched}\n", c.subject.trim()));
         let body = c.body.lines().map(str::trim_end).filter(|l| !l.trim().is_empty()).collect::<Vec<_>>().join("\n");
         let cut = body.chars().count() > per;
         let body: String = body.chars().take(per).collect();
@@ -6965,12 +7080,69 @@ mod tests {
             commit("aaaaaaa111", "2026-10-01T10:00:00+02:00", "Merged PR 12: feat/dark-mode", "## Summary\n\nAdds a dark theme.\n"),
         ];
         assert_eq!(
-            release_commit_lines(&newest_first),
+            release_commit_lines(&newest_first, &HashMap::new()),
             "- 2026-10-01 aaaaaaa Merged PR 12: feat/dark-mode\n  ## Summary\n  Adds a dark theme.\n- 2026-10-02 bbbbbbb revert: remove dark mode"
         );
         let long = [commit("ccccccc333", "2026-10-03", "feat: x", &"y".repeat(2_000))];
-        let out = release_commit_lines(&long);
+        let out = release_commit_lines(&long, &HashMap::new());
         assert!(out.ends_with(&format!("  {}\n  …", "y".repeat(1_500))), "{out}");
+    }
+
+    #[test]
+    fn projects_are_folders_with_a_manifest_outside_the_root_cargo_workspace() {
+        // Gitnetix: a Cargo workspace app at the root, the website on its own.
+        let cargo = "[workspace]\nresolver = \"2\"\nmembers = [\"crates/core\", \"crates/server\", \"src-tauri\"]\n\n[workspace.package]\nversion = \"0.1.0\"\n";
+        let files = ["Cargo.toml", "package.json", "crates/core/Cargo.toml", "crates/server/Cargo.toml", "src-tauri/Cargo.toml", "src/App.tsx", "website/package.json", "website/src/index.astro"];
+        let dirs = project_dirs(&files, Some(cargo));
+        assert_eq!(dirs, ["website", ""]);
+        assert_eq!(project_of("website/src/index.astro", &dirs), Some("website"));
+        assert_eq!(project_of("crates/core/src/app.rs", &dirs), Some(""));
+        assert_eq!(project_of("websites/x", &dirs), Some(""), "a folder name prefix is not the folder");
+        // A JS monorepo: each workspace package counts, nested ones too; vendored code does not.
+        let files = ["package.json", "apps/web/package.json", "apps/web/node_modules/x/package.json", "packages/ui/package.json", "packages/ui/icons/package.json", "vendor/lib/go.mod"];
+        let dirs = project_dirs(&files, None);
+        assert_eq!(dirs, ["packages/ui/icons", "packages/ui", "apps/web", ""]);
+        assert_eq!(project_of("packages/ui/icons/a.svg", &dirs), Some("packages/ui/icons"));
+        assert_eq!(project_of("README.md", &["api".to_string()]), None, "no root project");
+        // A glob member, and a workspace with no app of its own at the root.
+        assert_eq!(project_dirs(&["Cargo.toml", "crates/a/Cargo.toml", "crates/b/Cargo.toml", "tools/x/Cargo.toml"], Some("[workspace]\nmembers = [\n  \"crates/*\", # all crates\n]\n[workspace.dependencies]\nserde = \"1\"\n")), ["tools/x", ""]);
+        assert!(cargo_members("[package]\nname = \"x\"\n").is_empty());
+        assert_eq!([project_name(""), project_name("website"), project_name("packages/ui")], ["App", "Website", "Ui"]);
+    }
+
+    #[tokio::test]
+    async fn commits_name_the_projects_they_touch() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path();
+        let sh = |args: &[&str]| assert!(std::process::Command::new("git").current_dir(repo).args(["-c", "user.name=Ana", "-c", "user.email=a@x", "-c", "commit.gpgsign=false"]).args(args).status().unwrap().success(), "git {args:?}");
+        let write = |path: &str| {
+            std::fs::create_dir_all(repo.join(path).parent().unwrap()).unwrap();
+            std::fs::write(repo.join(path), path).unwrap();
+        };
+        sh(&["init", "-q", "-b", "main"]);
+        write("package.json");
+        write("website/package.json");
+        sh(&["add", "."]);
+        sh(&["commit", "-qm", "init"]);
+        write("website/index.html");
+        sh(&["add", "."]);
+        sh(&["commit", "-qm", "feat: new home page"]);
+        write("src/app.ts");
+        write("website/app.ts");
+        sh(&["add", "."]);
+        sh(&["commit", "-qm", "feat: both"]);
+        let git = Git::new(repo);
+        let commits = git.log("main~2..main", None).await.unwrap();
+        let (note, projects) = commit_projects(&git, &commits, "main").await;
+        assert!(note.contains("in this order: App, Website.") && note.contains("\"### Added (App)\" then \"### Added (Website)\""), "{note}");
+        let of = |subject: &str| projects[&commits.iter().find(|c| c.subject == subject).unwrap().sha].clone();
+        assert_eq!(of("feat: new home page"), "Website");
+        assert_eq!(of("feat: both"), "App, Website");
+        // A single project adds nothing.
+        std::fs::remove_dir_all(repo.join("website")).unwrap();
+        sh(&["add", "-A"]);
+        sh(&["commit", "-qm", "chore: drop the website"]);
+        assert_eq!(commit_projects(&git, &commits, "main").await, Default::default());
     }
 
     #[test]
@@ -7305,6 +7477,14 @@ mod tests {
     }
 
     #[test]
+    fn changelog_answers_keep_only_headings_and_entries() {
+        let answer = "Here is the section:\n```markdown\n### Added (App)\n\n- Blame a file.\n  Click a label to open its commit.\n- File history.\n\n\n### Fixed (Website)\n* Hero glow.\n```\n\nSkipped: I did not check the diff.\n";
+        assert_eq!(section_lines(answer), "### Added (App)\n\n- Blame a file.\n  Click a label to open its commit.\n- File history.\n\n### Fixed (Website)\n* Hero glow.");
+        assert_eq!(section_lines("## [Unreleased]\n- Stash.\r\n"), "## [Unreleased]\n- Stash.");
+        assert_eq!(section_lines("Nothing new to add."), "");
+    }
+
+    #[test]
     fn changelog_stamp() {
         let text = "# Changelog\n\n## [Unreleased]\n\n### Added\n- Stash.\n\n## [0.0.6] - 2026-10-18\n\n- Tags.\n";
         assert_eq!(
@@ -7316,6 +7496,12 @@ mod tests {
         assert_eq!(
             stamp_changelog(late, "0.0.7", "2026-10-22").as_deref(),
             Some("## [Unreleased]\n\n## [0.0.7] - 2026-10-19\n\n- Misc.\n\n### Added\n- Stash.\n- Azure.\n\n### Removed\n- Old.\n\n### Fixed\n- Crash.\n\n## [0.0.6]\n- Tags.\n")
+        );
+        // A project in parentheses splits a kind: its headings stay apart and in kind order.
+        let projects = "## [Unreleased]\n\n### Added (Website)\n- Hero.\n\n### Added (App)\n- Azure.\n\n## [0.0.7] - 2026-10-19\n\n### Added (App)\n- Stash.\n\n### Fixed (App)\n- Crash.\n\n## [0.0.6]\n- Tags.\n";
+        assert_eq!(
+            stamp_changelog(projects, "0.0.7", "2026-10-22").as_deref(),
+            Some("## [Unreleased]\n\n## [0.0.7] - 2026-10-19\n\n### Added (App)\n- Stash.\n- Azure.\n\n### Added (Website)\n- Hero.\n\n### Fixed (App)\n- Crash.\n\n## [0.0.6]\n- Tags.\n")
         );
         // Nothing unreleased, or no Unreleased section at all.
         assert_eq!(stamp_changelog("## [Unreleased]\n\n## [0.0.6]\n- Tags.\n", "0.0.7", "2026-10-19"), None);
