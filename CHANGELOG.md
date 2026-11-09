@@ -11,6 +11,8 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+(empty)
+
 ## [0.20.2] - 2026-11-08
 
 ### Fixed
