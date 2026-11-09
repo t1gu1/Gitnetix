@@ -11,6 +11,8 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+## [0.20.5] - 2026-11-09
+
 ### Added (App)
 
 - A branch's commit list ends with the commit where the branch left its base, in a separate "Branched from" section with its own reset actions. A reset there moves the branch back to the fork point and drops all of its commits, and the reset dialog says so. The unpushed check skips that commit, because a reset there loses nothing.
