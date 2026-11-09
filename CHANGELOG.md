@@ -11,10 +11,15 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+### Added (App)
+
+- A branch's commit list ends with the commit where the branch left its base, in a separate "Branched from" section with its own reset actions. A reset there moves the branch back to the fork point and drops all of its commits, and the reset dialog says so. The unpushed check skips that commit, because a reset there loses nothing.
+
 ### Fixed (App)
 
 - GitHub Copilot, Codex and Gemini pick their model from a menu instead of a text field, in the agent picker, AI setup and task routing. Each lists the models your account can use, read from its CLI: Copilot's, `codex app-server`, and `agy models` for Gemini. The effort menu shows only the levels the chosen model takes, such as `none` for GPT-5.6 on Copilot, `ultra` for GPT-6 Sol on Codex, or low to high for Gemini 3.8 Flash, and hides for a model without effort, such as Claude Haiku 4.5. Picking a model that lacks the current effort resets it to the model's default, and the CLI never gets an effort its model rejects.
 - Gemini through Antigravity runs at the effort you pick: Gemini 3.8 Flash's High, Medium and Low variants are one model with an effort menu, passed to `agy --effort`.
+- The avatar emoji on the profile button stays centered on hover. The hover state shows only the ring, because scaling the avatar to a fractional size pushed the emoji off center in WebKit.
 
 ## [0.20.4] - 2026-11-09
 
