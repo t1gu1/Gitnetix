@@ -570,6 +570,49 @@ async fn commits_limit_reaches_older_history() {
 }
 
 #[tokio::test]
+async fn branch_commits_end_where_it_left_its_base() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("fork");
+    init_repo(&repo);
+    commit_file(&repo, "m.txt", "m\n");
+    let fork = rev(&repo, "main");
+    sh(&repo, &["switch", "-q", "-c", "feat/f"]);
+    commit_file(&repo, "f1.txt", "f\n");
+    commit_file(&repo, "f2.txt", "f\n");
+    // main moves on after the branch left it: the reset point stays where the branch left.
+    sh(&repo, &["switch", "-q", "main"]);
+    commit_file(&repo, "n.txt", "n\n");
+    sh(&repo, &["switch", "-q", "-c", "feat/empty"]);
+    sh(&repo, &["switch", "-q", "feat/f"]);
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let added = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await;
+    let pid = added[0]["id"].as_str().unwrap().to_string();
+    let bases = |v: &Value| -> Vec<String> { v.as_array().unwrap().iter().filter(|c| c["base"] == true).map(|c| c["sha"].as_str().unwrap().to_string()).collect() };
+
+    // Listed last, below the branch's own commits.
+    let feat = call(&k, "workspace.commits", json!({ "projectId": pid, "branch": "feat/f" })).await;
+    let list = feat.as_array().unwrap();
+    assert_eq!(list.len(), 3);
+    assert_eq!(bases(&feat), [fork.clone()]);
+    assert_eq!(list[2]["sha"], fork.as_str());
+
+    // Not while older commits are still to load, not for a trunk, not for a branch with no commits of its own.
+    let first = call(&k, "workspace.commits", json!({ "projectId": pid, "branch": "feat/f", "limit": 2 })).await;
+    assert!(bases(&first).is_empty());
+    let main = call(&k, "workspace.commits", json!({ "projectId": pid, "branch": "main" })).await;
+    assert!(bases(&main).is_empty());
+    let empty = call(&k, "workspace.commits", json!({ "projectId": pid, "branch": "feat/empty" })).await;
+    assert!(bases(&empty).is_empty());
+
+    // A soft reset there takes the branch back to it, all its changes staged.
+    call(&k, "commits.reset", json!({ "projectId": pid, "branch": "feat/f", "sha": fork, "mode": "soft" })).await;
+    assert_eq!(rev(&repo, "HEAD"), fork);
+    assert!(repo.join("f2.txt").exists());
+    let after = call(&k, "workspace.commits", json!({ "projectId": pid, "branch": "feat/f" })).await;
+    assert!(bases(&after).is_empty(), "nothing left to reset past");
+}
+
+#[tokio::test]
 async fn release_branch_created_after_add_is_picked_up() {
     let tmp = tempfile::tempdir().unwrap();
     let repo = tmp.path().join("late");
@@ -962,7 +1005,7 @@ async fn commit_actions() {
     let a = rev(&repo, "HEAD~1");
 
     let commits = call(&k, "workspace.commits", json!({ "projectId": pid, "branch": "feat/a" })).await;
-    let subjects: Vec<&str> = commits.as_array().unwrap().iter().map(|c| c["subject"].as_str().unwrap()).collect();
+    let subjects: Vec<&str> = commits.as_array().unwrap().iter().filter(|c| c["base"] != true).map(|c| c["subject"].as_str().unwrap()).collect();
     assert_eq!(subjects, ["edit b.txt", "edit a.txt"]);
 
     // Per-commit files, including the root commit (no parent).

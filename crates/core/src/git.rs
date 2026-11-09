@@ -197,6 +197,10 @@ pub struct Commit {
     /// On the local branch but on no origin branch: a hard reset past it loses it.
     #[serde(default)]
     pub unpushed: bool,
+    /// Where the branch left its base, listed last below the branch's own commits: a reset there drops them all
+    /// (set for one branch's commit list only).
+    #[serde(default)]
+    pub base: bool,
 }
 
 /// Who last changed each line of a file (`git blame`).

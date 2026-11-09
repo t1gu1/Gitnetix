@@ -8027,6 +8027,68 @@ body:has(> .modal-scrim) #root * {
   font-size: 11px;
   color: var(--faint);
 }
+/* Below a branch's commits, where it left its base: a labelled hairline, then the base's commit in a dashed box
+   (not one of the branch's), with the reset that drops them all. */
+.fork-point {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 12px 6px 4px;
+}
+.fork-sep {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--faint);
+  white-space: nowrap;
+}
+.fork-sep .mono {
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--muted);
+}
+.fork-sep::before,
+.fork-sep::after {
+  content: "";
+  flex: 1 1 auto;
+  height: 1px;
+  background: var(--line);
+}
+.fork-row {
+  border: 1px dashed var(--line);
+  border-radius: var(--r);
+}
+.fork-row:hover {
+  background: var(--raised);
+}
+.fork-row:has(> .commit-row[aria-pressed="true"]) {
+  background: var(--sel);
+}
+.fork-row > .commit-row {
+  margin: 0;
+  padding-bottom: 6px;
+  background: transparent;
+  animation: none;
+}
+.fork-row .commit-subject {
+  color: var(--muted);
+}
+.fork-acts {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  padding: 0 10px 8px;
+}
+.fork-acts .hint {
+  font-size: 11px;
+  color: var(--faint);
+}
 .commit-head {
   display: flex;
   align-items: flex-start;

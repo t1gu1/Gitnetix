@@ -211,6 +211,8 @@ export interface Commit {
   unpulled?: boolean;
   /** On the local branch, on no origin branch: a hard reset past it loses it. */
   unpushed?: boolean;
+  /** Where the branch left its base, listed last below its own commits: a reset there drops them all (a branch's commit list only). */
+  base?: boolean;
 }
 
 /** Who last changed each line of a file. */

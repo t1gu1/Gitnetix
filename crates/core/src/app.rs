@@ -2987,11 +2987,22 @@ impl Gitnetix {
             revs.push(git.rev_of(branch).await);
         }
         let trunk = base == branch;
-        if !trunk {
-            revs.push(format!("^{}", git.rev_of(&base).await));
+        let base_rev = if trunk { None } else { Some(git.rev_of(&base).await) };
+        if let Some(b) = &base_rev {
+            revs.push(format!("^{b}"));
         }
         let limit = limit.unwrap_or(if trunk { 200 } else { 500 });
         let mut list = git.log_revs(&revs.iter().map(String::as_str).collect::<Vec<_>>(), Some(limit)).await?;
+        // The whole list loaded: below it, where the local branch left its base, to reset back past all its commits.
+        // None when the local branch has no commits of its own (it would reset to where it is).
+        if let (Some(b), Some(l), true) = (&base_rev, &local, list.len() < limit as usize) {
+            if let Some(fork) = git.merge_base(l, b).await.ok().filter(|f| f != l) {
+                if let Some(mut c) = git.log_revs(&[&fork], Some(1)).await?.pop() {
+                    c.base = true;
+                    list.push(c);
+                }
+            }
+        }
         let unpulled = match (&local, &origin) {
             (Some(l), Some(o)) if l != o => git.rev_list(&format!("{l}..{o}")).await.unwrap_or_default().into_iter().collect(),
             _ => std::collections::HashSet::new(),
@@ -3005,7 +3016,8 @@ impl Gitnetix {
             c.local = local.as_deref() == Some(c.sha.as_str());
             c.origin = origin.as_deref() == Some(c.sha.as_str());
             c.unpulled = unpulled.contains(&c.sha);
-            c.unpushed = unpushed.contains(&c.sha);
+            // Still on the base after a reset there: nothing lost.
+            c.unpushed = !c.base && unpushed.contains(&c.sha);
         }
         Ok(list)
     }
@@ -7089,6 +7101,7 @@ mod tests {
             origin: false,
             unpulled: false,
             unpushed: false,
+            base: false,
         }
     }
 

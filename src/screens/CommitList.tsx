@@ -50,7 +50,12 @@ export function CommitList({
 }) {
   const [limit, setLimit] = useState(PAGE);
   const commits = useCommits(pid, branch, limit);
-  const list = commits.data ?? [];
+  // The branch's own commits, and below them where it left its base (once all are loaded; never for a trunk).
+  const { list, fork } = useMemo(() => {
+    const all = commits.data ?? [];
+    const last = all.at(-1);
+    return last?.base ? { list: all.slice(0, -1), fork: base ? last : undefined } : { list: all, fork: undefined };
+  }, [commits.data, base]);
   // Fewer than asked for: the list reached the first commit (or the base).
   const more = !commits.isPlaceholderData && list.length >= limit;
   // Commits of the local branch; origin's unpulled ones are listed too: they can't be reverted, only hard reset to.
@@ -100,8 +105,16 @@ export function CommitList({
     // leave the commits it brings back as reversed changes: only a hard reset goes there.
     const needLocal = c.unpulled ? "pull first" : needCheckout;
     const onto = !current ? "nothing checked out" : current === branch ? "already on it" : undefined;
+    const resets: MenuItem[] = [
+      { id: "soft", label: "Reset here · soft", icon: "back", hint: needLocal ?? "keep staged", disabled: !!needLocal, run: () => setReset({ c, mode: "soft" }) },
+      { id: "mixed", label: "Reset here · mixed", icon: "back", hint: needLocal ?? "keep unstaged", disabled: !!needLocal, run: () => setReset({ c, mode: "mixed" }) },
+      { id: "hard", label: "Reset here · hard", icon: "trash", hint: needCheckout ?? "discard", danger: true, disabled: !!needCheckout, run: () => setReset({ c, mode: "hard" }) },
+    ];
+    const copy: MenuItem = { id: "copy", label: "Copy SHA", icon: "edit", hint: short, run: () => copyToClipboard(c.sha) };
+    // The base's commit: only there to reset back past the whole branch.
+    if (c.base) return [copy, "sep", ...resets];
     return [
-      { id: "copy", label: "Copy SHA", icon: "edit", hint: short, run: () => copyToClipboard(c.sha) },
+      copy,
       "sep",
       { id: "revert", label: "Revert commit", icon: "undo", hint: needLocal, disabled: !!needLocal, run: () => revert.mutate({ projectId: pid, branch, sha: c.sha }) },
       {
@@ -113,9 +126,7 @@ export function CommitList({
         run: () => pick.mutate({ projectId: pid, onto: current, sha: c.sha }),
       },
       "sep",
-      { id: "soft", label: "Reset here · soft", icon: "back", hint: needLocal ?? "keep staged", disabled: !!needLocal, run: () => setReset({ c, mode: "soft" }) },
-      { id: "mixed", label: "Reset here · mixed", icon: "back", hint: needLocal ?? "keep unstaged", disabled: !!needLocal, run: () => setReset({ c, mode: "mixed" }) },
-      { id: "hard", label: "Reset here · hard", icon: "trash", hint: needCheckout ?? "discard", danger: true, disabled: !!needCheckout, run: () => setReset({ c, mode: "hard" }) },
+      ...resets,
       "sep",
       { id: "tag", label: "Create tag…", icon: "tag", run: () => setTagging(c) },
       ...c.tags.map((t): MenuItem => ({ id: `deleteTag:${t}`, label: <>Delete tag <span className="mono">{t}</span>…</>, icon: "trash", danger: true, run: () => setDeletingTag(t) })),
@@ -124,8 +135,10 @@ export function CommitList({
 
   // A commit is always picked: the newest one on opening, or when the picked one leaves the list (reset, revert).
   useEffect(() => {
-    if (list[0] && !list.some((c) => c.sha === selected)) onPick(list[0], true);
-  }, [list, selected, onPick]);
+    if (list[0] && fork?.sha !== selected && !list.some((c) => c.sha === selected)) onPick(list[0], true);
+  }, [list, fork, selected, onPick]);
+  // Commits of the local branch a reset to `c` takes off it: those above it, or all of them at the base.
+  const above = (c: Commit) => (c.base ? local.length : local.findIndex((l) => l.sha === c.sha));
 
   // Escape goes back to the branches, unless it is closing something else or typing.
   useEffect(() => {
@@ -181,6 +194,48 @@ export function CommitList({
             </span>
           </button>
         ))}
+        {fork && !filtered && (
+          <div className="fork-point">
+            <div className="fork-sep">
+              <Icon name="branch" size={11} stroke={1.6} />
+              Branched from <span className="mono">{base}</span>
+            </div>
+            <div className="fork-row">
+              <button className="commit-row" aria-pressed={fork.sha === selected} onClick={() => onPick(fork)} onContextMenu={(e) => openMenu(fork, e)}>
+                {(fork.tags.length > 0 || fork.origin) && (
+                  <span className="commit-tags">
+                    {fork.tags.map((t) => (
+                      <span key={t} className="commit-tag mono" title={`Tag ${t}`}>
+                        <Icon name="tag" size={10} stroke={1.6} />
+                        {t}
+                      </span>
+                    ))}
+                    {fork.origin && <span className="tag accent" title={`${branch} is here on origin`}>origin</span>}
+                  </span>
+                )}
+                <span className="commit-subject">{fork.subject}</span>
+                <span className="commit-meta">
+                  <Avatar name={fork.author} email={fork.email} size={14} />
+                  <span className="ellipsis">{fork.author}</span>
+                  <span className="mono">{fork.sha.slice(0, 7)}</span>
+                  <span title={new Date(fork.date).toLocaleString()} style={{ whiteSpace: "nowrap" }}>{ago(fork.date)}</span>
+                </span>
+              </button>
+              <div className="fork-acts">
+                <button
+                  className="btn btn-sm"
+                  disabled={!checkedOut}
+                  data-tip={checkedOut ? `Reset ${branch} to where it left ${base}: soft, mixed or hard` : "Check out the branch first"}
+                  onClick={() => setReset({ c: fork, mode: "mixed" })}
+                >
+                  <Icon name="undo" size={12} />
+                  Reset here…
+                </button>
+                <span className="hint">{local.length === 1 ? "Its commit leaves the branch" : `All ${local.length} commits leave the branch`}</span>
+              </div>
+            </div>
+          </div>
+        )}
         {list.length > 0 && shown.length === 0 && <Empty>{q ? <>No commit matches “{query}”{mine.length > 0 && " by them"}.</> : "No commit by them."}</Empty>}
         {commits.data && list.length === 0 && <Empty>{base ? <>No commits that <span className="mono">{base}</span> doesn't have.</> : "No commits yet."}</Empty>}
         {commits.isPlaceholderData && <Loading />}
@@ -196,10 +251,11 @@ export function CommitList({
           pid={pid}
           branch={branch}
           commit={reset.c}
-          dropped={local.findIndex((c) => c.sha === reset.c.sha)}
+          fork={reset.c.base ? base : undefined}
+          dropped={above(reset.c)}
           restored={reset.c.unpulled ? unpulled.length - unpulled.findIndex((c) => c.sha === reset.c.sha) : 0}
           // Going forward onto origin drops every unpushed commit; going back, the ones above the target.
-          lost={(reset.c.unpulled ? local : local.slice(0, local.findIndex((c) => c.sha === reset.c.sha))).filter((c) => c.unpushed)}
+          lost={(reset.c.unpulled ? local : local.slice(0, above(reset.c))).filter((c) => c.unpushed)}
           mode={reset.mode}
           upstream={upstream}
           onMode={(mode) => setReset({ ...reset, mode })}
@@ -230,6 +286,7 @@ function ResetModal({
   pid,
   branch,
   commit,
+  fork,
   dropped,
   restored,
   lost,
@@ -242,6 +299,8 @@ function ResetModal({
   pid: string;
   branch: string;
   commit: Commit;
+  /** The base branch, when `commit` is where the branch left it: the reset drops all the branch's commits. */
+  fork?: string;
   /** Newer commits that leave the branch on a reset back. */
   dropped: number;
   /** Origin's commits a reset forward brings onto the branch (0: a reset back). */
@@ -296,10 +355,17 @@ function ResetModal({
         </p>
       ) : (
         <>
-          <p style={{ margin: 0, lineHeight: 1.55 }}>
-            Moves <span className="mono">{branch}</span> back to this commit.{" "}
-            {dropped > 0 ? <>The {plural(dropped, "newer commit")} leave the branch.</> : "No commits leave the branch."} If they were pushed, the next push must be forced.
-          </p>
+          {fork ? (
+            <p style={{ margin: 0, lineHeight: 1.55 }}>
+              Moves <span className="mono">{branch}</span> back to where it left <span className="mono">{fork}</span>.{" "}
+              {dropped === 1 ? "Its commit leaves" : <>All {dropped} of its commits leave</>} the branch. If they were pushed, the next push must be forced.
+            </p>
+          ) : (
+            <p style={{ margin: 0, lineHeight: 1.55 }}>
+              Moves <span className="mono">{branch}</span> back to this commit.{" "}
+              {dropped > 0 ? <>The {plural(dropped, "newer commit")} leave the branch.</> : "No commits leave the branch."} If they were pushed, the next push must be forced.
+            </p>
+          )}
           <div role="radiogroup" aria-label="Reset mode" className="col" style={{ gap: 6 }}>
             {RESET_MODES.map((m) => (
               <button key={m.mode} className="radio-card" role="radio" aria-checked={mode === m.mode} onClick={() => onMode(m.mode)}>
