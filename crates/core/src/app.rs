@@ -3026,20 +3026,48 @@ impl Gitnetix {
         }
     }
 
-    /// Who last changed each line of `path`: as of commit `sha` when given, else in the branch's checkout
-    /// (uncommitted lines too) for the wip and project views, else at its tip.
-    pub async fn blame(&self, project_id: &str, branch: &str, mode: ViewMode, path: &str, sha: Option<&str>) -> Result<Blame> {
+    /// Who last changed each line of `path` on the new side of the file's diff, or its old side with `old` (for removed
+    /// lines), the sides picked like `blobs`: commit `sha` against its parent when given, else the checkout's uncommitted
+    /// work in the wip and project views (one side of it with `staged`), else the branch against its base.
+    pub async fn blame(&self, project_id: &str, branch: &str, mode: ViewMode, path: &str, sha: Option<&str>, staged: Option<bool>, old: bool) -> Result<Blame> {
         let p = self.store.project(project_id)?;
         let git = self.git(&p);
         if let Some(sha) = sha {
-            return git.blame(Some(check_sha(sha)?), path).await;
+            let sha = check_sha(sha)?;
+            let parent = format!("{sha}^");
+            return match old {
+                false => git.blame(Side::Rev(sha), path).await,
+                true if git.ref_exists(&parent).await? => git.blame(Side::Rev(&parent), path).await,
+                // A root commit: no old side.
+                true => Ok(Blame::default()),
+            };
         }
         if mode != ViewMode::Branch {
             if let Some(dir) = self.checkout_dir(&p, branch).await? {
-                return Git::new(dir).blame(None, path).await;
+                let co = Git::new(dir);
+                let sides = match staged.filter(|_| mode == ViewMode::Wip) {
+                    Some(true) => Some((Side::Rev("HEAD"), Side::Index)),
+                    Some(false) => Some((Side::Index, Side::Worktree)),
+                    None if mode == ViewMode::Wip || co.is_dirty(path).await? => Some((Side::Rev("HEAD"), Side::Worktree)),
+                    None => None,
+                };
+                if let Some((before, after)) = sides {
+                    return co.blame(if old { before } else { after }, path).await;
+                }
+            } else if mode == ViewMode::Wip {
+                return Ok(Blame::default());
             }
         }
-        git.blame(Some(&check_rev(git.rev_of(branch).await)?), path).await
+        let rev = check_rev(git.rev_of(branch).await)?;
+        if old {
+            let default = git.default_branch().await?;
+            let base = self.base_of(&p, branch, &default).await;
+            if base != branch {
+                let base_rev = check_rev(git.rev_of(&base).await)?;
+                return git.blame(Side::Rev(&git.merge_base(&base_rev, &rev).await?), path).await;
+            }
+        }
+        git.blame(Side::Rev(&rev), path).await
     }
 
     /// Commits of `branch` that changed `path`, newest first, following its renames. `limit` (200 when not

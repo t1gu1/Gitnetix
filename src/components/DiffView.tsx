@@ -37,9 +37,11 @@ export function LargeDiff({ lines, onShow }: { lines: number; onShow: () => void
   );
 }
 
-/** A file's blame drawn over its lines (`hunks` = one hunk of them all); picking a commit's label calls `onPick`. */
+/** Who last changed each line of the diff's new side, and of its old side (for removed lines); clicking a line's author
+ * calls `onPick` with its commit. */
 export interface Blamed {
-  blame: Blame;
+  blame?: Blame;
+  old?: Blame;
   onPick: (sha: string) => void;
 }
 
@@ -66,13 +68,12 @@ function Diff({ path, hunks, mode, staging, blame }: { path: string; hunks: Hunk
   return (
     <>
       <Heatmapped scroller={scroller} hunks={shown.hunks} split={mode === "split"}>
-        {blame ? (
-          <BlameRuns hunks={shown.hunks} tokens={shown.tokens} blamed={blame} />
-        ) : mode === "split" ? (
+        {mode === "split" ? (
           <Split hunks={shown.hunks} tokens={shown.tokens} picking={picking} />
         ) : (
           <Unified hunks={shown.hunks} tokens={shown.tokens} headers={mode === "unified"} picking={picking} />
         )}
+        {blame && <BlameMarks scroller={scroller} blamed={blame} drawn={[shown.hunks, mode]} />}
       </Heatmapped>
       {picking && picking.picked.size > 0 && <PickBar picking={picking} />}
       {picking?.discarding && <DiscardLines path={path} picking={picking} />}
@@ -420,11 +421,11 @@ function lnWidth(hunks: Hunk[]): CSSProperties {
 
 const CHUNK = 200;
 
-/** Rows in blocks of about CHUNK lines (`lines` = how many row `i` holds) the browser skips laying out while off screen, so big files open fast. */
-function chunked(rows: ReactElement[], lines: (i: number) => number = () => 1) {
+/** Rows in blocks of about CHUNK lines the browser skips laying out while off screen, so big files open fast. */
+function chunked(rows: ReactElement[]) {
   const out: ReactElement[] = [];
   for (let i = 0, start = 0, n = 0; i < rows.length; i++) {
-    n += lines(i);
+    n++;
     if (n < CHUNK && i < rows.length - 1) continue;
     // Rows are 21px (the .diff line-height) until wrapped; `auto` keeps the real size once seen.
     out.push(<div key={start} className="diff-chunk" style={{ containIntrinsicBlockSize: `auto ${n * 21}px` }}>{rows.slice(start, i + 1)}</div>);
@@ -435,51 +436,134 @@ function chunked(rows: ReactElement[], lines: (i: number) => number = () => 1) {
 }
 
 const UNCOMMITTED = /^0+$/;
+/** A line of code: a unified row, or one half of a split row. */
+const LINE = ".diff-row:not(.hunk), .diff-half:not(.hunk)";
+/** shortcut: selecting more runs than this marks only the first ones; draw only the visible ones if whole-file selections need them all. */
+const MAX_MARKS = 300;
 
-/** The file's lines in runs from one commit each, the commit's label beside each run: it sticks to the run's top while the run
- * scrolls by, and its stripe is warmer the newer the commit. */
-function BlameRuns({ hunks, tokens, blamed: { blame, onPick } }: { hunks: Hunk[]; tokens: Tokens | undefined; blamed: Blamed }) {
-  const byId = useMemo(() => new Map(blame.commits.map((c) => [c.sha, c])), [blame]);
-  // By rank among the file's commits, so one very old commit doesn't wash out all the others.
-  const heat = useMemo(() => {
-    const dated = blame.commits.filter((c) => !UNCOMMITTED.test(c.sha)).sort((a, b) => Date.parse(a.date) - Date.parse(b.date));
-    return new Map(dated.map((c, i) => [c.sha, dated.length > 1 ? i / (dated.length - 1) : 1]));
-  }, [blame]);
-  const lines = hunks[0]?.lines ?? [];
-  const runs: ReactElement[] = [];
-  let at = 0;
-  blame.runs.forEach(([sha, n], ri) => {
-    const c = byId.get(sha);
-    const rows: ReactElement[] = [];
-    for (let i = at; i < Math.min(at + n, lines.length); i++) {
-      rows.push(
-        <div key={i} className="diff-row">
-          <span className="ln">{i + 1}</span>
-          <span className="tx">{code(lines[i].text, tokens?.[0][i])}</span>
-        </div>,
-      );
-    }
-    at += n;
-    runs.push(
-      <div key={ri} className="blame-run" style={{ "--heat": heat.get(sha) ?? 1 } as CSSProperties}>
-        {UNCOMMITTED.test(sha) || !c ? (
-          <span className="blame-who wip">Uncommitted</span>
-        ) : (
+/** The number a line's author goes over: its new one, or its old one on a removed line (blamed in the old version). In a
+ * split row the left half's number counts only for a removed line; the right half's stands for the others. */
+function blameCell(el: Element): { cell: HTMLElement; old: boolean } | undefined {
+  const num = (half: Element | undefined, sel: string) => {
+    const c = half?.querySelector<HTMLElement>(sel);
+    return c?.textContent ? c : undefined;
+  };
+  if (el.classList.contains("diff-row")) {
+    const n = num(el, ":scope > .ln + .ln");
+    const o = num(el, ":scope > .ln");
+    return n ? { cell: n, old: false } : o && { cell: o, old: true };
+  }
+  const [left, right] = el.parentElement!.children;
+  const del = left.classList.contains("del") ? num(left, ":scope > .ln") : undefined;
+  const n = num(right, ":scope > .ln");
+  return del && (el === left || !n) ? { cell: del, old: true } : n && { cell: n, old: false };
+}
+
+interface BlameMark {
+  sha: string;
+  top: number;
+  left: number;
+  width: number;
+}
+
+/** The author of the line under the pointer, and of the selected lines (once per run of lines from one commit), drawn over
+ * the line's number (beside it on a line that can be staged). Clicking one opens its commit. Lines not committed yet get none. */
+function BlameMarks({ scroller, blamed: { blame, old, onPick }, drawn }: { scroller: RefObject<HTMLDivElement | null>; blamed: Blamed; drawn: unknown[] }) {
+  const byId = useMemo(() => new Map([...(blame?.commits ?? []), ...(old?.commits ?? [])].map((c) => [c.sha, c])), [blame, old]);
+  // Each line's run in its side's blame, by its number - 1.
+  const runOf = useMemo(() => {
+    const of = (b?: Blame) => b?.runs.flatMap(([, n], i) => Array<number>(n).fill(i)) ?? [];
+    return { new: of(blame), old: of(old) };
+  }, [blame, old]);
+  const [marks, setMarks] = useState<BlameMark[]>([]);
+  useEffect(() => {
+    const sc = scroller.current;
+    if (!sc) return;
+    // The pointer may already rest on a line: the blame loads after it got there, and redrawn lines keep it.
+    let hovered = sc.querySelector(".diff-row:not(.hunk):hover, .diff-half:not(.hunk):hover");
+    // What was drawn last: a caret moving in a text box elsewhere fires selectionchange too.
+    let drawnKey = "";
+    const draw = () => {
+      for (const el of sc.querySelectorAll("[data-blamed]")) el.removeAttribute("data-blamed");
+      const box = sc.getBoundingClientRect();
+      const out: BlameMark[] = [];
+      let lastRun = "";
+      const mark = (line: Element, once: boolean) => {
+        const spot = blameCell(line);
+        if (!spot) return;
+        const { cell } = spot;
+        const side = spot.old ? old : blame;
+        const run = runOf[spot.old ? "old" : "new"][Number(cell.textContent) - 1];
+        const sha = side && run !== undefined ? side.runs[run][0] : "";
+        const key = `${spot.old}:${run}`;
+        if (!sha || UNCOMMITTED.test(sha) || !byId.has(sha) || (once && key === lastRun) || cell.dataset.blamed !== undefined) return;
+        lastRun = key;
+        // A line that can be staged keeps its number clickable (clicking and dragging there picks lines): the author goes
+        // left of it, clear of a picked line's bar.
+        const beside = cell.parentElement!.classList.contains("pick");
+        cell.dataset.blamed = beside ? "beside" : "";
+        const r = cell.getBoundingClientRect();
+        out.push({ sha, top: r.top - box.top + sc.scrollTop, left: r.left - box.left + (beside ? 4 : 0), width: beside ? 20 : r.width });
+      };
+      const sel = getSelection();
+      const range = sel && !sel.isCollapsed && sel.rangeCount ? sel.getRangeAt(0) : null;
+      if (range?.intersectsNode(sc))
+        for (const line of sc.querySelectorAll(LINE)) {
+          if (out.length >= MAX_MARKS) break;
+          if (range.intersectsNode(line)) mark(line, true);
+        }
+      if (hovered?.isConnected) mark(hovered, false);
+      const key = JSON.stringify(out);
+      if (key !== drawnKey) setMarks(out);
+      drawnKey = key;
+    };
+    const over = (e: Event) => {
+      const t = e.target as Element;
+      if (t.closest(".blame-ic")) return;
+      const line = t.closest(LINE);
+      if (line === hovered) return;
+      hovered = line;
+      draw();
+    };
+    const leave = () => {
+      hovered = null;
+      draw();
+    };
+    draw();
+    sc.addEventListener("pointerover", over);
+    sc.addEventListener("pointerleave", leave);
+    document.addEventListener("selectionchange", draw);
+    const ro = new ResizeObserver(draw);
+    ro.observe(sc);
+    return () => {
+      sc.removeEventListener("pointerover", over);
+      sc.removeEventListener("pointerleave", leave);
+      document.removeEventListener("selectionchange", draw);
+      ro.disconnect();
+      for (const el of sc.querySelectorAll("[data-blamed]")) el.removeAttribute("data-blamed");
+    };
+  }, [scroller, blame, old, byId, runOf, ...drawn]); // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <div className="blame-marks">
+      {marks.map((m) => {
+        const c = byId.get(m.sha)!;
+        return (
           <button
-            className="blame-who"
-            data-tip={`${c.subject}\n${c.author} · ${sha.slice(0, 7)} · ${new Date(c.date).toLocaleString()}\nShow in file history`}
-            onClick={() => onPick(sha)}
+            key={m.top}
+            className="blame-ic"
+            style={{ top: m.top, left: m.left, width: m.width }}
+            aria-label={`${c.subject}, by ${c.author}: show in file history`}
+            data-tip={`${c.subject}\n${c.author} · ${m.sha.slice(0, 7)} · ${ago(c.date)}\nShow in file history`}
+            // Keeps the text selection, whose marks would go with it before the click.
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => onPick(m.sha)}
           >
-            <Avatar name={c.author} email={c.email} size={14} />
-            <span className="blame-msg">{c.subject}</span>
-            <span className="blame-ago">{ago(c.date)}</span>
+            <Avatar name={c.author} email={c.email} size={16} />
           </button>
-        )}
-        <div className="blame-lines">{rows}</div>
-      </div>,
-    );
-  });
-  return <div className="diff-b" style={lnWidth(hunks)}>{chunked(runs, (i) => blame.runs[i][1])}</div>;
+        );
+      })}
+    </div>
+  );
 }
 
 interface Half {

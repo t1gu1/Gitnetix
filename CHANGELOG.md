@@ -11,6 +11,14 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+### Changed
+
+- Blame moves into the diff: hover a line, or select some, and the author of the commit that last changed it shows over its line number in Split, Unified and Full. A removed line shows who wrote it in the old version. In a diff you stage from, the avatar sits beside the line number, which still picks lines. Click the avatar to open that commit in the file's history. The separate Blame view and its menu item are gone.
+
+### Fixed
+
+- Blame of a file's staged changes follows the staged version, not the working copy.
+
 ## [0.20.3] - 2026-11-09
 
 (empty)

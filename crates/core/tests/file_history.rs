@@ -91,7 +91,26 @@ async fn history_follows_renames_and_blame_names_each_line() {
     let branch = call(&k, "workspace.blame", json!({ "projectId": pid, "branch": "main", "mode": "branch", "path": "b.txt" })).await;
     assert_eq!(branch["lines"].as_array().unwrap().len(), 5);
     let fresh = call(&k, "workspace.blame", json!({ "projectId": pid, "branch": "main", "mode": "project", "path": "new.txt" })).await;
-    assert_eq!((fresh["lines"].clone(), line_shas(&fresh)), (json!(["fresh", "file"]), vec![zero.clone(), zero]), "untracked: all uncommitted");
+    assert_eq!((fresh["lines"].clone(), line_shas(&fresh)), (json!(["fresh", "file"]), vec![zero.clone(), zero.clone()]), "untracked: all uncommitted");
+
+    // Old sides, for removed lines: the commit's parent (none for a root commit), the branch's merge base with its base,
+    // HEAD for the staged side, the index for the unstaged one.
+    let blame = |p: Value| call(&k, "workspace.blame", p);
+    let parent = blame(json!({ "projectId": pid, "branch": "main", "mode": "branch", "path": "a.txt", "commit": c2, "old": true })).await;
+    assert_eq!((parent["lines"].clone(), line_shas(&parent)), (json!(["one", "two", "three"]), vec![c1.clone(); 3]));
+    let root = blame(json!({ "projectId": pid, "branch": "main", "mode": "branch", "path": "a.txt", "commit": c1, "old": true })).await;
+    assert_eq!(root["lines"], json!([]));
+    sh(&app, &["branch", "behind", &c3]);
+    let base = blame(json!({ "projectId": pid, "branch": "behind", "mode": "branch", "path": "b.txt", "old": true })).await;
+    assert_eq!(base["lines"], json!(["one", "TWO", "three", "four"]), "merge base with main: c3");
+    sh(&app, &["add", "b.txt"]);
+    std::fs::write(app.join("b.txt"), "one\nTWO\nthree\nfour\nfive\nsix\nseven\n").unwrap();
+    let side = |staged: bool, old: bool| json!({ "projectId": pid, "branch": "main", "mode": "wip", "path": "b.txt", "staged": staged, "old": old });
+    let index = blame(side(true, false)).await;
+    assert_eq!(index["lines"].as_array().unwrap().len(), 6, "the staged side's new lines are the index's");
+    assert_eq!(line_shas(&index).last(), Some(&zero), "staged, not committed");
+    assert_eq!(line_shas(&blame(side(true, true)).await), [&*c1, &*c2, &*c1, &*c2, &*c4], "HEAD");
+    assert_eq!(blame(side(false, true)).await, index, "the unstaged side's old lines are the index's");
 
     for (m, p, err) in [
         ("workspace.blame", json!({ "projectId": pid, "branch": "--output=x", "mode": "branch", "path": "b.txt" }), "not a branch"),

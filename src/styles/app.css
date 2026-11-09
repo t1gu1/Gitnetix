@@ -3302,85 +3302,35 @@ button.tree-twist:hover {
   color: var(--accent-fg);
   font-weight: 500;
 }
-/* Blame: the file's lines in runs from one commit, its label in a column beside them. */
-.diff-b {
-  display: flex;
-  flex-direction: column;
-  padding: 8px 0;
-}
-.blame-run {
-  position: relative;
-  display: grid;
-  grid-template-columns: 250px minmax(0, 1fr);
-  border-top: 1px solid var(--line);
-}
-.diff-b > .diff-chunk:first-child > .blame-run:first-child {
-  border-top: 0;
-}
-/* Age stripe down the whole run: the newest commit full gold, the oldest faint. */
-.blame-run::before {
-  content: "";
+/* Blame: the author of the line under the pointer (and of selected lines) over its line number, which it hides, or beside a
+   number that picks lines for staging. */
+.blame-marks {
   position: absolute;
-  inset: 0 auto 0 0;
-  width: 3px;
-  background: var(--warn-fg);
-  opacity: calc(0.15 + var(--heat, 1) * 0.85);
-  pointer-events: none;
-}
-.blame-run:hover {
-  background: color-mix(in srgb, var(--fg) 3%, transparent);
-}
-/* Sticks to the top of its run while the run scrolls by. */
-.blame-who {
-  position: sticky;
   top: 0;
-  align-self: start;
+  left: 0;
+}
+.blame-ic {
+  position: absolute;
   display: flex;
   align-items: center;
-  gap: 7px;
-  min-width: 0;
+  justify-content: center;
   height: 21px;
-  overflow: hidden;
-  padding: 0 10px 0 12px;
+  padding: 0;
   border: 0;
   background: none;
-  color: var(--muted);
-  font: 11.5px/21px var(--sans);
-  text-align: left;
-  -webkit-user-select: none;
-  user-select: none;
-}
-button.blame-who {
   cursor: pointer;
 }
-button.blame-who:hover,
-button.blame-who:focus-visible {
-  color: var(--fg);
+/* The button's tooltip (commit, author, age) wins over the avatar's name. */
+.blame-ic > .user-avatar {
+  pointer-events: none;
 }
-.blame-who.wip {
-  color: var(--warn-fg);
-  font-weight: 500;
+.blame-ic:hover > .user-avatar,
+.blame-ic:focus-visible > .user-avatar {
+  outline: 1px solid var(--accent-fg);
+  outline-offset: 1px;
 }
-.blame-msg {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.blame-ago {
-  flex: 0 0 auto;
-  color: var(--faint);
-  font-variant-numeric: tabular-nums;
-}
-.blame-lines {
-  min-width: 0;
-}
-.diff-b .diff-row {
-  grid-template-columns: 52px minmax(0, 1fr);
-}
-.diff-b .diff-row .tx {
-  padding-left: 12px;
+:is(.diff-row, .diff-half) > .ln[data-blamed=""] {
+  color: transparent;
 }
 .swatch {
   display: inline-block;
@@ -7825,26 +7775,6 @@ body:has(> .modal-scrim) #root * {
   .diff-row,
   .diff-half {
     grid-template-columns: calc(var(--ln, 4) * 1ch + 5px) 12px minmax(0, 1fr);
-  }
-  /* Blame: one number per line, and labels down to the author and age. */
-  .diff-b .diff-row {
-    grid-template-columns: calc(var(--ln, 4) * 1ch + 5px) minmax(0, 1fr);
-  }
-  .diff-b .diff-row > .ln:first-child {
-    display: block;
-  }
-  .blame-run {
-    grid-template-columns: 86px minmax(0, 1fr);
-  }
-  .blame-who {
-    gap: 5px;
-    padding: 0 4px 0 7px;
-    font-size: 10.5px;
-    line-height: 18px;
-    height: 18px;
-  }
-  .blame-msg {
-    display: none;
   }
   .diff-row .ln,
   .diff-half .ln {

@@ -107,11 +107,12 @@ export function Workspace() {
   // Stash list in place of the tree: one branch's ("" = every stash), and the stash picked there.
   const [stashesOf, setStashesOf] = useState<string | null>(null);
   const [stash, setStash] = useState<Stash | undefined>();
-  // One file's history in place of the file list (its path), the commit picked there, and one to pick once listed (a blame label's).
+  // One file's history in place of the file list (its path), the commit picked there, and one to pick once listed (a blamed line's).
   const [fileLog, setFileLog] = useState<string | null>(null);
   const [logPick, setLogPick] = useState<FileCommit | undefined>();
   const [logWant, setLogWant] = useState<string>();
-  const [blame, setBlame] = useState(false);
+  // The file the pointer reached the diff of: its blame loads then, not for every file clicked through.
+  const [blameFor, setBlameFor] = useState<string>();
   // Left pane (branches, or the diff over them) as a percent of the workspace: two thirds by default.
   const leftW = usePaneWidth("gnx.pane.left", 67, 20, 80);
   const [asTree, setAsTree] = useStoredFlag("gnx.files.tree");
@@ -268,19 +269,17 @@ export function Workspace() {
   );
   // No textual diff: binary, unless a rename that changed nothing else.
   const binary = unchanged ? text === null : diff.data?.length === 0 && shown?.status !== "R";
-  // Blame needs text the file still has: not a stash, a deletion, an image or a binary file.
-  const canBlame = !!shown && !image && !shownStash && shown.status !== "D" && !binary;
-  const showBlame = blame && canBlame;
-  const blamed = useBlame(pid, branch, mode, shown?.path, shownCommit, showBlame);
-  const blameHunks = useMemo<Hunk[] | undefined>(
-    () => blamed.data && [{ header: "", oldStart: 1, newStart: 1, lines: blamed.data.lines.map((t) => ({ kind: " ", text: t })) }],
-    [blamed.data],
-  );
-  // A blame label opens its commit in the file's history, as a diff.
-  const blameOpen = (sha: string) => {
-    setBlame(false);
-    openFileLog(fileLog ?? shown?.path ?? "", sha);
-  };
+  // Blame needs a text diff of a file outside a stash. The new side needs the file still there; the old side, removed lines.
+  const canBlame = !!shown && !image && !shownStash && !binary && blameFor === fileKey(shown);
+  const removed = useMemo(() => !!diff.data?.some((h) => h.lines.some((l) => l.kind === "-")), [diff.data]);
+  const newOk = canBlame && shown.status !== "D";
+  const oldOk = canBlame && removed;
+  const blamedNew = useBlame(pid, branch, mode, shown?.path, shownCommit, shown?.staged, false, newOk);
+  const blamedOld = useBlame(pid, branch, mode, logged?.from ?? shown?.path, shownCommit, shown?.staged, true, oldOk);
+  // Gated again: a disabled query still hands back what it cached. A blamed line's author opens its commit in the file's history.
+  const newBlame = newOk ? blamedNew.data : undefined;
+  const oldBlame = oldOk ? blamedOld.data : undefined;
+  const blame = newBlame || oldBlame ? { blame: newBlame, old: oldBlame, onPick: (sha: string) => openFileLog(fileLog ?? shown?.path ?? "", sha) } : undefined;
   const showPreview = markdown && preview && typeof text === "string";
   // A WIP file's diff stages or unstages some of its lines. Like whole files, that moves no ref (see WipList).
   type LineMove = { projectId: string; branch: string; path: string; lines: LinePick[] };
@@ -318,13 +317,6 @@ export function Workspace() {
         ? []
         : ([
             { id: "history", label: "File history", icon: "history", run: () => { open(); openFileLog(t.path, commit?.sha); } },
-            {
-              id: "blame",
-              label: "Blame",
-              icon: "user",
-              disabled: !!stash || isImage(t.path) || t.files.every((f) => f.status === "D"),
-              run: () => { open(); setBlame(true); setPane("diff"); },
-            },
             "sep",
           ] satisfies MenuItem[])),
       { id: "copy", label: "Copy path", icon: "copy", run: () => copyToClipboard(t.path) },
@@ -505,14 +497,13 @@ export function Workspace() {
                     />
                   )
                 ) : (
-                  (!unchanged || markdown || svg || canBlame) && (
-                    <Seg<DiffMode | "raw" | "preview" | "image" | "blame">
-                      value={showBlame ? "blame" : markdown && preview ? "preview" : unchanged ? "raw" : diffMode}
+                  (!unchanged || markdown || svg) && (
+                    <Seg<DiffMode | "raw" | "preview" | "image">
+                      value={markdown && preview ? "preview" : unchanged ? "raw" : diffMode}
                       onChange={(v) => {
-                        setBlame(v === "blame");
                         setPreview(v === "preview");
                         if (v === "image") setSvgCode(false);
-                        else if (v !== "preview" && v !== "raw" && v !== "blame") setDiffMode(v);
+                        else if (v !== "preview" && v !== "raw") setDiffMode(v);
                       }}
                       label="Diff mode"
                       options={[
@@ -521,7 +512,6 @@ export function Workspace() {
                           : [{ value: "split" as const, label: "Split" }, { value: "unified" as const, label: "Unified" }, { value: "full" as const, label: "Full" }]),
                         ...(markdown ? [{ value: "preview" as const, label: "Preview" }] : []),
                         ...(svg ? [{ value: "image" as const, label: "Image" }] : []),
-                        ...(canBlame ? [{ value: "blame" as const, label: "Blame" }] : []),
                       ]}
                     />
                   )
@@ -549,48 +539,35 @@ export function Workspace() {
                   </button>
                 )}
               </div>
-              <div className="diff">
-                {showBlame && shown ? (
-                  <>
-                    {blamed.isLoading && <Loading />}
-                    {blamed.error && <div style={{ padding: 16 }}><ErrorBox error={blamed.error} /></div>}
-                    {blamed.data && blameHunks && (blamed.data.lines.length > 0 ? (
-                      <DiffView path={shown.path} hunks={blameHunks} mode="full" blame={{ blame: blamed.data, onPick: blameOpen }} anyway={forced} onAnyway={showAnyway} />
-                    ) : (
-                      <div className="empty" style={{ fontFamily: "var(--sans)" }}>Empty file.</div>
-                    ))}
-                  </>
+              {/* Blame loads once the pointer is over the file's lines. */}
+              <div className="diff" onPointerOver={() => shown && blameFor !== fileKey(shown) && setBlameFor(fileKey(shown))}>
+                {(diff.isLoading || (unchanged && blobs.isLoading)) && shown && <Loading />}
+                {diff.error && <div style={{ padding: 16 }}><ErrorBox error={diff.error} /></div>}
+                {image && shown && blobs.data && <ImageDiff path={shown.path} blobs={blobs.data} mode={imageMode} />}
+                {blobs.error && (image || unchanged) && <div style={{ padding: 16 }}><ErrorBox error={blobs.error} /></div>}
+                {showPreview ? (
+                  <article style={{ maxWidth: 760, margin: "0 auto", padding: "24px 24px 48px", fontFamily: "var(--sans)", fontSize: 14, lineHeight: 1.6 }}>
+                    <Markdown text={text} />
+                  </article>
                 ) : (
                   <>
-                    {(diff.isLoading || (unchanged && blobs.isLoading)) && shown && <Loading />}
-                    {diff.error && <div style={{ padding: 16 }}><ErrorBox error={diff.error} /></div>}
-                    {image && shown && blobs.data && <ImageDiff path={shown.path} blobs={blobs.data} mode={imageMode} />}
-                    {blobs.error && (image || unchanged) && <div style={{ padding: 16 }}><ErrorBox error={blobs.error} /></div>}
-                    {showPreview ? (
-                      <article style={{ maxWidth: 760, margin: "0 auto", padding: "24px 24px 48px", fontFamily: "var(--sans)", fontSize: 14, lineHeight: 1.6 }}>
-                        <Markdown text={text} />
-                      </article>
-                    ) : (
-                      <>
-                        {huge && !image && <LargeDiff lines={changedLines} onShow={showAnyway} />}
-                        {raw && shown && <DiffView path={shown.path} hunks={raw} mode="full" anyway={forced} onAnyway={showAnyway} />}
-                        {!image && shown && diff.data && diff.data.length > 0 && <DiffView path={shown.path} hunks={diff.data} mode={diffMode} staging={staging} anyway={forced} onAnyway={showAnyway} />}
-                      </>
-                    )}
-                    {(!shown || (diff.data && diff.data.length === 0 && !image) || (unchanged && !image && blobs.data && text === null)) && (
-                      <div className={list.length === 0 ? "empty engraved" : "empty"} style={{ fontFamily: "var(--sans)" }}>
-                        {list.length === 0
-                          ? "Nothing to show — working tree is clean."
-                          : !shown
-                            ? "No file selected."
-                            : unchanged
-                              ? "Binary file."
-                              : logged?.from
-                                ? `Renamed from ${logged.from}, no other changes.`
-                                : "No textual changes in this file."}
-                      </div>
-                    )}
+                    {huge && !image && <LargeDiff lines={changedLines} onShow={showAnyway} />}
+                    {raw && shown && <DiffView path={shown.path} hunks={raw} mode="full" blame={blame} anyway={forced} onAnyway={showAnyway} />}
+                    {!image && shown && diff.data && diff.data.length > 0 && <DiffView path={shown.path} hunks={diff.data} mode={diffMode} staging={staging} blame={blame} anyway={forced} onAnyway={showAnyway} />}
                   </>
+                )}
+                {(!shown || (diff.data && diff.data.length === 0 && !image) || (unchanged && !image && blobs.data && text === null)) && (
+                  <div className={list.length === 0 ? "empty engraved" : "empty"} style={{ fontFamily: "var(--sans)" }}>
+                    {list.length === 0
+                      ? "Nothing to show — working tree is clean."
+                      : !shown
+                        ? "No file selected."
+                        : unchanged
+                          ? "Binary file."
+                          : logged?.from
+                            ? `Renamed from ${logged.from}, no other changes.`
+                            : "No textual changes in this file."}
+                  </div>
                 )}
               </div>
             </section>

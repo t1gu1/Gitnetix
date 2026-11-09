@@ -1971,21 +1971,25 @@ impl Git {
         Ok(parse_file_log(&self.run(&["log", "--follow", "--decorate-refs=refs/tags/", format, "--raw", "--numstat", "-z", &n, rev, "--", path]).await?))
     }
 
-    /// Who last changed each line of `path` at `rev`; None = the file in this checkout, uncommitted lines too.
-    pub async fn blame(&self, rev: Option<&str>, path: &str) -> Result<Blame> {
-        let mut args = vec!["blame", "--porcelain"];
-        args.extend(rev);
-        args.extend(["--", path]);
-        match self.run(&args).await {
+    /// Who last changed each line of `path` on one side: at a revision, or in this checkout's index or working tree
+    /// (uncommitted lines too, against HEAD).
+    pub async fn blame(&self, side: Side<'_>, path: &str) -> Result<Blame> {
+        let out = match side {
+            Side::Rev(rev) => self.run(&["blame", "--porcelain", rev, "--", path]).await,
+            Side::Worktree => self.run(&["blame", "--porcelain", "--", path]).await,
+            Side::Index => match self.blob(Side::Index, path).await? {
+                Some(bytes) => self.run_stdin(&["blame", "--porcelain", "--contents", "-", "--", path], bytes).await,
+                None => return Err(Error::Invalid(format!("{path} is not in the index"))),
+            },
+        };
+        match out {
             Ok(out) => Ok(parse_blame(&out)),
             // git refuses a file HEAD doesn't have yet (untracked, or only staged): all of it is uncommitted.
-            Err(e) => match rev {
-                None if !self.try_run(&["cat-file", "-e", &format!("HEAD:{path}")]).await?.0 => match self.blob(Side::Worktree, path).await? {
-                    Some(bytes) => Ok(uncommitted_blame(&String::from_utf8_lossy(&bytes))),
-                    None => Err(e),
-                },
-                _ => Err(e),
+            Err(e) if !matches!(side, Side::Rev(_)) && !self.try_run(&["cat-file", "-e", &format!("HEAD:{path}")]).await?.0 => match self.blob(side, path).await? {
+                Some(bytes) => Ok(uncommitted_blame(&String::from_utf8_lossy(&bytes))),
+                None => Err(e),
             },
+            Err(e) => Err(e),
         }
     }
 }

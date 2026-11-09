@@ -399,11 +399,12 @@ export const useBlobs = (projectId?: string, branch?: string, mode = "branch", p
     enabled: enabled && !!projectId && (!!branch || !!stash) && !!path,
   });
 
-/** Who last changed each line of `path`: as of `commit`, else in the branch's checkout (wip and project modes), else at its tip. */
-export const useBlame = (projectId?: string, branch?: string, mode = "branch", path?: string, commit?: string, enabled = true) =>
+/** Who last changed each line of `path` on the new side of the diff `useDiff` shows with the same arguments, or its old side with
+ * `old` (for removed lines; `path` is then the old name of a renamed file). */
+export const useBlame = (projectId?: string, branch?: string, mode = "branch", path?: string, commit?: string, staged?: boolean, old = false, enabled = true) =>
   useQuery({
-    queryKey: ["blame", projectId, branch, mode, path, commit],
-    queryFn: () => rpc<Blame>("workspace.blame", { projectId, branch, mode, path, commit }),
+    queryKey: ["blame", projectId, branch, mode, path, commit, staged, old],
+    queryFn: () => rpc<Blame>("workspace.blame", { projectId, branch, mode, path, commit, staged, old }),
     enabled: enabled && !!projectId && !!branch && !!path,
   });
 
