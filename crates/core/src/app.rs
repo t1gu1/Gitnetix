@@ -5475,6 +5475,8 @@ impl Gitnetix {
         let p = self.store.project(project_id)?;
         let t = self.template("agent", None, Some(&p.id))?;
         let r = self.agent_ai(&t, pick)?;
+        // Its model list, so the CLI gets only an effort the model takes.
+        ai::warm(&r.provider).await;
         let branch = match branch {
             Some(b) => b.to_string(),
             None => Git::new(cwd).current_branch().await?.unwrap_or_else(|| "HEAD".into()),
@@ -5581,6 +5583,7 @@ impl Gitnetix {
             Some(r) => r,
             None => self.route("agent", None)?,
         };
+        ai::warm(&r.provider).await;
         let text = attach(Path::new(&s.cwd), text, files).await?;
         self.agents.message(id, &text, &r)
     }

@@ -11,6 +11,11 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+### Fixed (App)
+
+- GitHub Copilot, Codex and Gemini pick their model from a menu instead of a text field, in the agent picker, AI setup and task routing. Each lists the models your account can use, read from its CLI: Copilot's, `codex app-server`, and `agy models` for Gemini. The effort menu shows only the levels the chosen model takes, such as `none` for GPT-5.6 on Copilot, `ultra` for GPT-6 Sol on Codex, or low to high for Gemini 3.8 Flash, and hides for a model without effort, such as Claude Haiku 4.5. Picking a model that lacks the current effort resets it to the model's default, and the CLI never gets an effort its model rejects.
+- Gemini through Antigravity runs at the effort you pick: Gemini 3.8 Flash's High, Medium and Low variants are one model with an effort menu, passed to `agy --effort`.
+
 ## [0.20.4] - 2026-11-09
 
 ### Changed (App)

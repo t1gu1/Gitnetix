@@ -4,11 +4,13 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::time::Duration;
+use std::collections::BTreeMap;
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
 
 use crate::error::{Error, Result};
@@ -21,6 +23,8 @@ use crate::store::{AiConfig, ConnectMethod, ProviderConf, Route};
 pub struct ModelInfo {
     pub id: String,
     pub label: String,
+    /// Effort levels the model takes, lowest first. Empty: it takes none.
+    pub efforts: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -32,15 +36,20 @@ pub struct ProviderInfo {
     pub maker: &'static str,
     pub bin: Option<&'static str>,
     pub methods: Vec<&'static str>,
+    /// Takes an effort level for any model. Without it, only models listed with levels take one (Gemini through agy).
     pub effort: bool,
     pub local: bool,
     pub needs_url: bool,
-    /// Suggested models; providers without a fixed list take a free model id.
+    /// Suggested models; providers without a fixed list take a free model id. Copilot's, Codex's and Antigravity's
+    /// come from their CLI: see `models`.
     pub models: Vec<ModelInfo>,
 }
 
+/// The effort levels Claude Code's and agy's `--effort` take, lowest first.
+const LEVELS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
+
 fn m(id: &str, label: &str) -> ModelInfo {
-    ModelInfo { id: id.into(), label: label.into() }
+    ModelInfo { id: id.into(), label: label.into(), efforts: LEVELS.map(String::from).to_vec() }
 }
 
 pub fn catalog() -> Vec<ProviderInfo> {
@@ -100,9 +109,10 @@ pub struct Resolved {
 
 impl Resolved {
     pub fn label(&self) -> String {
-        let model = provider_info(&self.provider)
-            .ok()
-            .and_then(|p| p.models.into_iter().find(|m| m.id == self.model).map(|m| m.label))
+        let model = known_models(&self.provider)
+            .into_iter()
+            .find(|m| m.id == self.model)
+            .map(|m| m.label)
             .unwrap_or_else(|| if self.model.is_empty() { "default model".into() } else { self.model.clone() });
         if self.effort.is_empty() { model } else { format!("{model} · {}", self.effort) }
     }
@@ -130,6 +140,220 @@ pub fn resolve_route(cfg: &AiConfig, route: Route, template_model: Option<&str>)
         .unwrap_or(conf.model.clone());
     let effort = route.effort.filter(|s| !s.is_empty()).unwrap_or(conf.effort.clone());
     Ok(Resolved { provider, method: conf.method, model, effort, base_url: conf.base_url })
+}
+
+/// The effort to pass the CLI: one the model takes, else none, so the CLI uses the model's default.
+/// A model missing from the list keeps it, unless the provider only takes effort for listed models (Gemini).
+pub fn cli_effort(r: &Resolved) -> String {
+    let any = provider_info(&r.provider).is_ok_and(|p| p.effort);
+    fit_effort(&known_models(&r.provider), &r.model, &r.effort, any)
+}
+
+fn fit_effort(models: &[ModelInfo], model: &str, effort: &str, any: bool) -> String {
+    let takes = match models.iter().find(|m| m.id == model) {
+        Some(m) => m.efforts.iter().any(|e| e == effort),
+        None => any,
+    };
+    if takes { effort.into() } else { String::new() }
+}
+
+/// Models read from a provider's CLI this session. Only a successful read is kept: a signed-out CLI is asked again.
+static LISTED: Mutex<BTreeMap<String, Vec<ModelInfo>>> = Mutex::new(BTreeMap::new());
+/// When `warm` last asked each CLI, so a failing one is asked at most once a minute.
+static ASKED: Mutex<BTreeMap<String, Instant>> = Mutex::new(BTreeMap::new());
+
+/// The provider's models known without asking its CLI.
+fn known_models(provider: &str) -> Vec<ModelInfo> {
+    let listed = LISTED.lock().unwrap().get(provider).cloned();
+    listed.unwrap_or_else(|| provider_info(provider).map(|p| p.models).unwrap_or_default())
+}
+
+/// The models the provider offers. Copilot's, Codex's and Antigravity's depend on the account, so their CLI lists them.
+pub async fn models(provider: &str) -> Result<Vec<ModelInfo>> {
+    let info = provider_info(provider)?;
+    if let Some(list) = LISTED.lock().unwrap().get(provider).cloned() {
+        return Ok(list);
+    }
+    let list = match provider {
+        "copilot" => copilot_models().await?,
+        "codex" => codex_models().await?,
+        // Gemini CLI, the fallback, has no list.
+        "gemini" if cli_path(provider)?.0 == "agy" => agy_models().await?,
+        _ => return Ok(info.models),
+    };
+    LISTED.lock().unwrap().insert(provider.into(), list.clone());
+    Ok(list)
+}
+
+/// Read the provider's models before a run, so `cli_effort` knows them. Skipped for a minute after a failed read.
+pub async fn warm(provider: &str) {
+    {
+        let mut asked = ASKED.lock().unwrap();
+        if LISTED.lock().unwrap().contains_key(provider) || asked.get(provider).is_some_and(|t| t.elapsed() < Duration::from_secs(60)) {
+            return;
+        }
+        asked.insert(provider.into(), Instant::now());
+    }
+    let _ = models(provider).await;
+}
+
+/// `copilot --headless --stdio` is the JSON-RPC server Copilot's SDK talks to.
+async fn copilot_models() -> Result<Vec<ModelInfo>> {
+    let ask = json!({ "jsonrpc": "2.0", "id": 1, "method": "models.list", "params": {} });
+    parse_copilot_models(&ask_cli("copilot", &["--headless", "--no-auto-update", "--stdio"], &[ask]).await?)
+}
+
+/// `codex app-server` is the JSON-RPC server Codex's IDE extension talks to. It wants `initialize` first.
+async fn codex_models() -> Result<Vec<ModelInfo>> {
+    let msgs = [
+        json!({ "id": 0, "method": "initialize", "params": { "clientInfo": { "name": "gitnetix", "version": env!("CARGO_PKG_VERSION") } } }),
+        json!({ "method": "initialized" }),
+        json!({ "id": 1, "method": "model/list", "params": { "limit": 200 } }),
+    ];
+    parse_codex_models(&ask_cli("codex", &["app-server"], &msgs).await?)
+}
+
+/// `agy models` prints one `id<TAB>label` line per model.
+async fn agy_models() -> Result<Vec<ModelInfo>> {
+    let (_, path) = cli_path("gemini")?;
+    let mut cmd = Command::new(path);
+    crate::shell::without_appimage(cmd.as_std_mut());
+    // Outside any repository: agy opens its working dir as a workspace.
+    cmd.arg("models").current_dir(std::env::temp_dir()).stdin(Stdio::null()).kill_on_drop(true);
+    let out = tokio::time::timeout(Duration::from_secs(20), cmd.output())
+        .await
+        .map_err(|_| Error::Ai("agy took over 20 s to list its models".into()))??;
+    if !out.status.success() {
+        let err = String::from_utf8_lossy(&out.stderr);
+        flag_signed_out("gemini", &err);
+        return Err(Error::Ai(format!("agy models: {}", err.trim())));
+    }
+    Ok(parse_agy_models(&String::from_utf8_lossy(&out.stdout)))
+}
+
+/// Send `msgs` to the provider's CLI started with `args`, and return its reply to id 1.
+/// Copilot frames each message with a `Content-Length` header; Codex writes one per line.
+async fn ask_cli(provider: &str, args: &[&str], msgs: &[Value]) -> Result<Value> {
+    let (bin, path) = cli_path(provider)?;
+    let framed = provider == "copilot";
+    let mut cmd = Command::new(path);
+    crate::shell::without_appimage(cmd.as_std_mut());
+    cmd.args(args)
+        .current_dir(std::env::temp_dir())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .kill_on_drop(true);
+    let mut child = cmd.spawn()?;
+    let mut stdin = child.stdin.take().expect("piped stdin");
+    let mut out = BufReader::new(child.stdout.take().expect("piped stdout"));
+    let ask = async {
+        for m in msgs {
+            let body = m.to_string();
+            let wire = if framed { format!("Content-Length: {}\r\n\r\n{body}", body.len()) } else { format!("{body}\n") };
+            stdin.write_all(wire.as_bytes()).await?;
+        }
+        stdin.flush().await?;
+        loop {
+            let msg = read_message(&mut out, framed).await.map_err(|e| Error::Ai(format!("{bin} stopped before listing its models: {e}")))?;
+            if msg["id"] == 1 {
+                return Ok::<_, Error>(msg);
+            }
+        }
+    };
+    tokio::time::timeout(Duration::from_secs(20), ask)
+        .await
+        .map_err(|_| Error::Ai(format!("{bin} took over 20 s to list its models")))?
+}
+
+/// One JSON-RPC message: after `Content-Length` headers when `framed`, else one line.
+async fn read_message(r: &mut (impl AsyncBufRead + Unpin), framed: bool) -> Result<Value> {
+    let mut len = None;
+    loop {
+        let mut line = String::new();
+        if r.read_line(&mut line).await? == 0 {
+            return Err(Error::Ai("end of output".into()));
+        }
+        if !framed && !line.trim().is_empty() {
+            return Ok(serde_json::from_str(&line)?);
+        }
+        let line = line.trim_end().to_ascii_lowercase();
+        if let Some(n) = line.strip_prefix("content-length:") {
+            len = Some(n.trim().parse().map_err(|_| Error::Ai(format!("bad header {line}")))?);
+        } else if line.is_empty() && framed {
+            if let Some(n) = len {
+                let mut buf = vec![0; n];
+                r.read_exact(&mut buf).await?;
+                return Ok(serde_json::from_slice(&buf)?);
+            }
+        }
+    }
+}
+
+fn rpc_error(provider: &str, msg: &Value) -> Result<()> {
+    match msg["error"]["message"].as_str() {
+        Some(e) => {
+            flag_signed_out(provider, e);
+            Err(Error::Ai(format!("{provider}: {e}")))
+        }
+        None => Ok(()),
+    }
+}
+
+fn strs(v: &Value) -> Vec<String> {
+    v.as_array().into_iter().flatten().filter_map(|x| x.as_str().map(String::from)).collect()
+}
+
+/// `models.list`'s reply, without the models a policy turned off.
+fn parse_copilot_models(msg: &Value) -> Result<Vec<ModelInfo>> {
+    rpc_error("copilot", msg)?;
+    let list = msg["result"]["models"].as_array().into_iter().flatten().filter(|m| m["policy"]["state"] != "disabled");
+    Ok(list
+        .filter_map(|m| {
+            let id = m["id"].as_str()?;
+            Some(ModelInfo { id: id.into(), label: m["name"].as_str().unwrap_or(id).into(), efforts: strs(&m["supportedReasoningEfforts"]) })
+        })
+        .collect())
+}
+
+/// `model/list`'s reply, without the models Codex hides from its own picker.
+fn parse_codex_models(msg: &Value) -> Result<Vec<ModelInfo>> {
+    rpc_error("codex", msg)?;
+    let list = msg["result"]["data"].as_array().into_iter().flatten().filter(|m| m["hidden"] != true);
+    Ok(list
+        .filter_map(|m| {
+            let id = m["model"].as_str().or(m["id"].as_str())?;
+            let efforts = m["supportedReasoningEfforts"].as_array().into_iter().flatten().filter_map(|e| e["reasoningEffort"].as_str().map(String::from)).collect();
+            Some(ModelInfo { id: id.into(), label: m["displayName"].as_str().unwrap_or(id).into(), efforts })
+        })
+        .collect())
+}
+
+/// agy lists a model once per effort level, as `<base>-<level>` labelled `<name> (<Level>)`. Two or more of those
+/// become one model, `<base>`, that agy runs at a level with `--effort`. A line without a tab is a label, which
+/// `--model` takes too.
+fn parse_agy_models(out: &str) -> Vec<ModelInfo> {
+    let rows: Vec<(&str, &str)> = out.lines().map(str::trim).filter(|l| !l.is_empty()).map(|l| l.split_once('\t').unwrap_or((l, l))).collect();
+    fn level(id: &str) -> Option<(&str, &str)> {
+        id.rsplit_once('-').filter(|(_, lv)| LEVELS.contains(lv))
+    }
+    let mut list: Vec<ModelInfo> = Vec::new();
+    for (id, label) in &rows {
+        let Some((base, lv)) = level(id).filter(|(base, _)| rows.iter().filter(|(i, _)| level(i).is_some_and(|(b, _)| b == *base)).count() > 1) else {
+            list.push(ModelInfo { id: id.to_string(), label: label.to_string(), efforts: vec![] });
+            continue;
+        };
+        if let Some(m) = list.iter_mut().find(|m| m.id == base) {
+            m.efforts.push(lv.into());
+        } else {
+            let name = label.rsplit_once(" (").map_or(*label, |(n, _)| n);
+            list.push(ModelInfo { id: base.into(), label: name.into(), efforts: vec![lv.into()] });
+        }
+    }
+    for m in &mut list {
+        m.efforts.sort_by_key(|e| LEVELS.iter().position(|l| l == e));
+    }
+    list
 }
 
 /// Look a binary up on PATH, the login shell's PATH, plus the usual install dirs a GUI app's PATH
@@ -238,7 +462,10 @@ fn gh_copilot() -> Option<PathBuf> {
 /// Run a one-shot completion.
 pub async fn complete(r: &Resolved, prompt: &str, cwd: Option<&Path>) -> Result<String> {
     let text = match r.method {
-        ConnectMethod::Cli => complete_cli(r, prompt, cwd).await?,
+        ConnectMethod::Cli => {
+            warm(&r.provider).await;
+            complete_cli(r, prompt, cwd).await?
+        }
         ConnectMethod::Api => complete_api(r, prompt).await?,
     };
     Ok(clean(&text))
@@ -267,6 +494,7 @@ pub fn cli_path(provider: &str) -> Result<(&'static str, PathBuf)> {
 
 async fn complete_cli(r: &Resolved, prompt: &str, cwd: Option<&Path>) -> Result<String> {
     let (bin, path) = cli_path(&r.provider)?;
+    let effort = cli_effort(r);
     let mut cmd = Command::new(path);
     crate::shell::without_appimage(cmd.as_std_mut());
     if let Some(d) = cwd {
@@ -279,8 +507,8 @@ async fn complete_cli(r: &Resolved, prompt: &str, cwd: Option<&Path>) -> Result<
             if !r.model.is_empty() {
                 cmd.args(["--model", &r.model]);
             }
-            if !r.effort.is_empty() {
-                cmd.args(["--effort", &r.effort]);
+            if !effort.is_empty() {
+                cmd.args(["--effort", &effort]);
             }
             // No working dir = text in, text out: without tools, MCP, skills, hooks and Claude Code's own prompt, each call starts ~0.9 s sooner and sends ~30k fewer tokens.
             if cwd.is_none() {
@@ -294,8 +522,8 @@ async fn complete_cli(r: &Resolved, prompt: &str, cwd: Option<&Path>) -> Result<
             if !r.model.is_empty() {
                 cmd.args(["-m", &r.model]);
             }
-            if !r.effort.is_empty() {
-                cmd.args(["-c", &format!("model_reasoning_effort={}", r.effort)]);
+            if !effort.is_empty() {
+                cmd.args(["-c", &format!("model_reasoning_effort={effort}")]);
             }
             cmd.arg("-");
             true
@@ -308,6 +536,9 @@ async fn complete_cli(r: &Resolved, prompt: &str, cwd: Option<&Path>) -> Result<
         "gemini" if bin == "agy" => {
             if !r.model.is_empty() {
                 cmd.args(["--model", &r.model]);
+            }
+            if !effort.is_empty() {
+                cmd.args(["--effort", &effort]);
             }
             cmd.args(["--disable-slash-commands", "-p", prompt]);
             false
@@ -323,8 +554,8 @@ async fn complete_cli(r: &Resolved, prompt: &str, cwd: Option<&Path>) -> Result<
             if !r.model.is_empty() {
                 cmd.args(["--model", &r.model]);
             }
-            if !r.effort.is_empty() {
-                cmd.args(["--reasoning-effort", &r.effort]);
+            if !effort.is_empty() {
+                cmd.args(["--reasoning-effort", &effort]);
             }
             cmd.args(["-p", prompt]);
             false
@@ -538,6 +769,70 @@ mod tests {
         assert_eq!(r.model, "claude-haiku-5-5");
         let r = resolve(&cfg, "commit", Some("claude-opus-5-5")).unwrap();
         assert_eq!(r.model, "claude-opus-5-5");
+    }
+
+    #[test]
+    fn reads_copilot_models() {
+        // Trimmed from Copilot CLI 1.0.101's `models.list`.
+        let msg = json!({ "jsonrpc": "2.0", "id": 1, "result": { "models": [
+            { "id": "auto", "name": "Auto", "capabilities": {} },
+            { "id": "gpt-5.6-sol", "name": "GPT-5.6 Sol", "policy": { "state": "enabled" }, "supportedReasoningEfforts": ["none", "low", "medium", "high", "xhigh", "max"] },
+            { "id": "claude-haiku-4.5", "name": "Claude Haiku 4.5", "policy": { "state": "enabled" } },
+            { "id": "grok-4.7", "name": "Grok 4.7", "supportedReasoningEfforts": ["low", "medium", "high", "xhigh"] },
+            { "id": "gpt-old", "name": "GPT Old", "policy": { "state": "disabled" } },
+        ] } });
+        let list = parse_copilot_models(&msg).unwrap();
+        let ids: Vec<_> = list.iter().map(|m| m.id.as_str()).collect();
+        assert_eq!(ids, ["auto", "gpt-5.6-sol", "claude-haiku-4.5", "grok-4.7"]);
+        assert_eq!(list[1].label, "GPT-5.6 Sol");
+        assert_eq!(list[1].efforts[0], "none");
+        assert!(list[2].efforts.is_empty());
+        assert!(parse_copilot_models(&json!({ "id": 1, "error": { "code": -32603, "message": "Not authenticated" } })).is_err());
+
+        assert_eq!(fit_effort(&list, "grok-4.7", "max", true), "");
+        assert_eq!(fit_effort(&list, "grok-4.7", "xhigh", true), "xhigh");
+        assert_eq!(fit_effort(&list, "claude-haiku-4.5", "medium", true), "");
+        // A model it doesn't know keeps the effort asked, unless the provider only takes effort for listed models.
+        assert_eq!(fit_effort(&list, "gpt-9", "max", true), "max");
+        assert_eq!(fit_effort(&list, "gpt-9", "max", false), "");
+    }
+
+    #[test]
+    fn reads_codex_models() {
+        // Trimmed from Codex CLI 0.167's `model/list`.
+        let msg = json!({ "id": 1, "result": { "nextCursor": null, "data": [
+            { "id": "gpt-6.1-sol", "model": "gpt-6.1-sol", "displayName": "GPT-6.1-Sol", "hidden": false, "isDefault": true, "defaultReasoningEffort": "low",
+              "supportedReasoningEfforts": [{ "reasoningEffort": "low", "description": "" }, { "reasoningEffort": "ultra", "description": "" }] },
+            { "id": "gpt-5.5", "model": "gpt-5.5", "displayName": "GPT-5.5", "hidden": false, "isDefault": false, "defaultReasoningEffort": "medium", "supportedReasoningEfforts": [] },
+            { "id": "internal", "model": "internal", "displayName": "Internal", "hidden": true, "isDefault": false, "defaultReasoningEffort": "medium", "supportedReasoningEfforts": [] },
+        ] } });
+        let list = parse_codex_models(&msg).unwrap();
+        assert_eq!(list.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), ["gpt-6.1-sol", "gpt-5.5"]);
+        assert_eq!(list[0].label, "GPT-6.1-Sol");
+        assert_eq!(list[0].efforts, ["low", "ultra"]);
+        assert!(parse_codex_models(&json!({ "id": 1, "error": { "code": -32600, "message": "Not initialized" } })).is_err());
+    }
+
+    #[test]
+    fn groups_agy_effort_variants() {
+        // `agy models` from Antigravity CLI 1.5.
+        let out = "gemini-3.8-flash-high\tGemini 3.8 Flash (High)\ngemini-3.8-flash-medium\tGemini 3.8 Flash (Medium)\n\
+                   gemini-3.8-flash-low\tGemini 3.8 Flash (Low)\nclaude-opus-4-6-thinking\tClaude Opus 4.6 (Thinking)\n\
+                   gpt-oss-120b-medium\tGPT-OSS 120B (Medium)\n";
+        let list = parse_agy_models(out);
+        let rows: Vec<_> = list.iter().map(|m| (m.id.as_str(), m.label.as_str(), m.efforts.join(","))).collect();
+        assert_eq!(rows, [
+            ("gemini-3.8-flash", "Gemini 3.8 Flash", "low,medium,high".to_string()),
+            ("claude-opus-4-6-thinking", "Claude Opus 4.6 (Thinking)", String::new()),
+            // One level alone stays the model it names.
+            ("gpt-oss-120b-medium", "GPT-OSS 120B (Medium)", String::new()),
+        ]);
+        // Signed out, agy prints labels only, which `--model` also takes.
+        assert_eq!(parse_agy_models("Claude Sonnet 4.6 (Thinking)\n")[0].id, "Claude Sonnet 4.6 (Thinking)");
+        // Gemini takes effort only for a model listed with it.
+        assert_eq!(fit_effort(&list, "gemini-3.8-flash", "high", false), "high");
+        assert_eq!(fit_effort(&list, "gemini-3.8-flash", "max", false), "");
+        assert_eq!(fit_effort(&list, "claude-opus-4-6-thinking", "medium", false), "");
     }
 
     #[test]

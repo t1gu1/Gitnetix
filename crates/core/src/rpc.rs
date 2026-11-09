@@ -126,6 +126,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("shell.close", "End a checkout's terminal and forget its output", "path, tab"),
     ("shell.scripts", "Commands of every project tool in a checkout of the project (package.json scripts, Cargo, Docker Compose, Make, LÖVE…) whose program is installed, each with the command line that runs it from the checkout root", "projectId, path"),
     ("ai.catalog", "AI providers, their status and settings", ""),
+    ("ai.models", "Models an AI provider offers, each with the effort levels it takes (Copilot's, Codex's and Antigravity's are read from their CLI for the signed-in account)", "id"),
     ("ai.saveProvider", "Configure an AI provider", "id, method?, model?, effort?, baseUrl?, apiKey?"),
     ("ai.setDefault", "Default AI provider; `routeAll` hands it every task too (Claude keeps its per-task models)", "id, routeAll?"),
     ("ai.test", "Test an AI provider", "id"),
@@ -911,6 +912,7 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
                 .collect();
             to(json!({ "providers": list, "defaultProvider": cfg.default_provider, "routing": cfg.routing }))
         }
+        "ai.models" => to(ai::models(&s(&p, "id")?).await?),
         "ai.saveProvider" => {
             let id = s(&p, "id")?;
             let info = ai::provider_info(&id)?;

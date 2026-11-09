@@ -19,6 +19,7 @@ import type {
   FileCommit,
   Hunk,
   MergePrefs,
+  ModelInfo,
   Overview,
   PrDetail,
   PrSummary,
@@ -486,6 +487,10 @@ export const useSubmodules = (projectId?: string) =>
   });
 
 export const useAiCatalog = () => useQuery({ queryKey: ["ai"], queryFn: () => rpc<AiCatalog>("ai.catalog") });
+
+/** The provider's models with the efforts each takes. Copilot's come from its CLI, for the signed-in account. */
+export const useAiModels = (id?: string) =>
+  useQuery({ queryKey: ["ai", "models", id], queryFn: () => rpc<ModelInfo[]>("ai.models", { id }), enabled: !!id, retry: false });
 
 /** Whether AI can run `task`: same lookup the backend does, its route's provider else the default. True while loading. */
 export function useAiOn(task: string): boolean {

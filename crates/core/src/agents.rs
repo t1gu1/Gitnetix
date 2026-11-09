@@ -768,6 +768,7 @@ impl AgentManager {
 
     fn spawn(&self, id: &str, cwd: &std::path::Path, r: &Resolved, prompt: &str, resume: Option<&str>) -> Result<()> {
         let (bin, path) = ai::cli_path(&r.provider)?;
+        let effort = ai::cli_effort(r);
         let mut cmd = Command::new(path);
         crate::shell::below_app(crate::shell::without_appimage(cmd.as_std_mut()));
         cmd.current_dir(cwd);
@@ -779,8 +780,8 @@ impl AgentManager {
                 if !r.model.is_empty() {
                     cmd.args(["--model", &r.model]);
                 }
-                if !r.effort.is_empty() {
-                    cmd.args(["--effort", &r.effort]);
+                if !effort.is_empty() {
+                    cmd.args(["--effort", &effort]);
                 }
                 if let Some(rid) = resume {
                     cmd.args(["--resume", rid]);
@@ -791,14 +792,17 @@ impl AgentManager {
                 if !r.model.is_empty() {
                     cmd.args(["-m", &r.model]);
                 }
-                if !r.effort.is_empty() {
-                    cmd.args(["-c", &format!("model_reasoning_effort={}", r.effort)]);
+                if !effort.is_empty() {
+                    cmd.args(["-c", &format!("model_reasoning_effort={effort}")]);
                 }
                 cmd.arg("-");
             }
             "gemini" if bin == "agy" => {
                 if !r.model.is_empty() {
                     cmd.args(["--model", &r.model]);
+                }
+                if !effort.is_empty() {
+                    cmd.args(["--effort", &effort]);
                 }
                 cmd.args(["--dangerously-skip-permissions", "-p", prompt]);
                 stdin_prompt = false;
@@ -814,8 +818,8 @@ impl AgentManager {
                 if !r.model.is_empty() {
                     cmd.args(["--model", &r.model]);
                 }
-                if !r.effort.is_empty() {
-                    cmd.args(["--reasoning-effort", &r.effort]);
+                if !effort.is_empty() {
+                    cmd.args(["--reasoning-effort", &effort]);
                 }
                 cmd.args(["--allow-all-tools", "-p", prompt]);
                 stdin_prompt = false;

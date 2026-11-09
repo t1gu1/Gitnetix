@@ -1,11 +1,25 @@
 import { useState, type CSSProperties } from "react";
 
-import { useAiCatalog } from "../api/hooks";
+import { useAiCatalog, useAiModels } from "../api/hooks";
+import type { ModelInfo, ProviderInfo } from "../api/types";
 import { useStored } from "../lib/stored";
 import { ContextMenu, SEARCH_ABOVE } from "./ContextMenu";
 import { Icon } from "./Icon";
 
 export const EFFORTS = ["low", "medium", "high", "xhigh", "max"];
+
+/** "xhigh" reads "XHigh", the others capitalized. */
+export const effortLabel = (e: string) => (e === "xhigh" ? "XHigh" : e[0].toUpperCase() + e.slice(1));
+
+/**
+ * The efforts `model` takes: its own when the provider lists it, else every level, or none for a provider that takes
+ * effort only for listed models (Gemini).
+ */
+export const effortsFor = (info: ProviderInfo | undefined, models: ModelInfo[], model: string) =>
+  models.find((m) => m.id === model)?.efforts ?? (info?.effort ? EFFORTS : []);
+
+/** The effort to keep after picking another model: the same if that model takes it, else its default (""). */
+export const fitEffort = (efforts: string[], effort: string) => (efforts.includes(effort) ? effort : "");
 
 /** Provider, model and effort for a new agent session. Empty = the "Free-form agent" routing. */
 export type AgentPick = { provider?: string; model?: string; effort?: string };
@@ -15,10 +29,11 @@ export const useAgentPick = (projectId: string) => useStored<AgentPick>(`gnx.age
 
 export function AgentPicker({ value, onChange, compact }: { value: AgentPick; onChange: (p: AgentPick) => void; compact?: boolean }) {
   const cat = useAiCatalog();
-  if (!cat.data) return null;
   const c = cat.data;
-  const route = value.provider ? {} : c.routing.agent ?? {};
-  const provider = value.provider ?? route.provider ?? c.defaultProvider;
+  const route = value.provider ? {} : c?.routing.agent ?? {};
+  const provider = value.provider ?? route.provider ?? c?.defaultProvider;
+  const listed = useAiModels(provider);
+  if (!c || !provider) return null;
   const model = value.model ?? route.model ?? "";
   const effort = value.effort ?? route.effort ?? "";
   // Agents only run through a local CLI: one set up that way, or one found on this computer.
@@ -26,18 +41,21 @@ export function AgentPicker({ value, onChange, compact }: { value: AgentPick; on
   const prov = c.providers.find((p) => p.info.id === provider);
   const set = (patch: AgentPick) => onChange({ provider, model, effort, ...patch });
   const provs = clis.map((p) => ({ value: p.info.id, label: p.info.name }));
-  const models = [{ value: "", label: "Default model" }, ...(prov?.info.models ?? []).map((m) => ({ value: m.id, label: m.label }))];
-  const efforts = [{ value: "", label: "Default effort" }, ...EFFORTS.map((x) => ({ value: x, label: x }))];
+  const list = listed.data ?? prov?.info.models ?? [];
+  // "Default model" runs the provider's own: its efforts are that model's.
+  const fits = (m: string) => effortsFor(prov?.info, list, m || prov?.conf?.model || "");
+  const models = [{ value: "", label: "Default model" }, ...list.map((m) => ({ value: m.id, label: m.label }))];
+  const efforts = [{ value: "", label: "Default effort" }, ...fits(model).map((x) => ({ value: x, label: x }))];
   const cls = compact ? "picker-act" : "select menu-select";
   return (
     <div className={compact ? "picker-acts" : "row"} style={compact ? undefined : { gap: 6, margin: 0 }}>
       <MenuChoice className={cls} label="Agent provider" value={provider} options={provs} onChange={(v) => set({ provider: v, model: "" })} />
-      {prov?.info.models.length ? (
-        <MenuChoice className={cls} label="Agent model" value={model} options={models} onChange={(v) => set({ model: v })} />
+      {list.length || listed.isLoading ? (
+        <MenuChoice className={cls} label="Agent model" value={model} options={models} onChange={(v) => set({ model: v, effort: fitEffort(fits(v), effort) })} />
       ) : (
         <input aria-label="Agent model" className={compact ? "picker-act mono" : "input mono"} style={{ width: 120 }} placeholder="model id" value={model} onChange={(e) => set({ model: e.target.value })} />
       )}
-      {prov?.info.effort && <MenuChoice className={cls} label="Agent effort" value={effort} options={efforts} onChange={(v) => set({ effort: v })} />}
+      {efforts.length > 1 && <MenuChoice className={cls} label="Agent effort" value={effort} options={efforts} onChange={(v) => set({ effort: v })} />}
     </div>
   );
 }

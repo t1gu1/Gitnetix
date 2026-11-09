@@ -606,6 +606,8 @@ export interface WorktreeView {
 export interface ModelInfo {
   id: string;
   label: string;
+  /** Effort levels the model takes, lowest first. Empty: it takes none. */
+  efforts: string[];
 }
 
 export interface ProviderInfo {

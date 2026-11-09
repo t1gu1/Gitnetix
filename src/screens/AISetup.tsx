@@ -1,8 +1,8 @@
 import { type CSSProperties, type ReactNode, useEffect, useState } from "react";
 
-import { useAction, useAiCatalog } from "../api/hooks";
+import { useAction, useAiCatalog, useAiModels } from "../api/hooks";
 import type { AiCatalog, ConnectMethod } from "../api/types";
-import { EFFORTS, MenuChoice } from "../components/AgentPicker";
+import { effortLabel, effortsFor, fitEffort, MenuChoice } from "../components/AgentPicker";
 import { Resizer, usePaneWidth } from "../components/Resizer";
 import { Loading, Seg } from "../components/ui";
 
@@ -83,7 +83,17 @@ function ProviderDetail({ cat, id }: { cat: AiCatalog; id: string }) {
   const [model, setModel] = useState(conf?.model ?? info.models[0]?.id ?? "");
   const [url, setUrl] = useState(conf?.baseUrl ?? "");
   useEffect(() => setModel(conf?.model ?? info.models[0]?.id ?? ""), [conf?.model, info.models]);
+  const listed = useAiModels(id);
+  const models = listed.data ?? info.models;
+  const efforts = effortsFor(info, models, model);
+  const effort = conf?.effort ?? "medium";
   const save = (patch: Record<string, unknown>) => saveP.mutate({ id, ...patch });
+  // A provider always keeps an effort: a model without the saved one moves to medium, else its lowest.
+  const pickModel = (v: string) => {
+    setModel(v);
+    const fit = effortsFor(info, models, v);
+    save(!fit.length || fit.includes(effort) ? { model: v } : { model: v, effort: fit.includes("medium") ? "medium" : fit[0] });
+  };
   const connected = status?.status === "connected";
   return (
     <>
@@ -172,21 +182,29 @@ function ProviderDetail({ cat, id }: { cat: AiCatalog; id: string }) {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 16 }}>
           <div className="field">
             <label htmlFor="ai-model">Default model</label>
-            {info.models.length > 0 ? (
-              <MenuChoice id="ai-model" className="select menu-select" label="Default model" value={model} options={info.models.map((m) => ({ value: m.id, label: m.label }))} onChange={(v) => { setModel(v); save({ model: v }); }} />
+            {models.length > 0 || listed.isLoading ? (
+              <MenuChoice
+                id="ai-model"
+                className="select menu-select"
+                label="Default model"
+                value={model}
+                // A list read from the CLI may not hold the model it runs by default: keep that choice.
+                options={[...(info.models.length ? [] : [{ value: "", label: `${info.name}'s default` }]), ...models.map((m) => ({ value: m.id, label: m.label }))]}
+                onChange={pickModel}
+              />
             ) : (
               <input id="ai-model" className="input mono" placeholder={info.local ? "llama3.2" : "model id"} value={model} onChange={(e) => setModel(e.target.value)} onBlur={() => save({ model })} />
             )}
           </div>
           <div className="field">
             <span className="flabel" id="ai-effort">Effort</span>
-            {info.effort ? (
+            {efforts.length ? (
               <>
-                <Seg grid label="Effort" value={conf?.effort ?? "medium"} onChange={(v) => save({ effort: v })} options={EFFORTS.map((e) => ({ value: e, label: e === "xhigh" ? "XHigh" : e[0].toUpperCase() + e.slice(1) }))} />
+                <Seg grid label="Effort" value={effort} onChange={(v) => save({ effort: v })} options={efforts.map((e) => ({ value: e, label: effortLabel(e) }))} />
                 <span className="hint">Higher effort thinks longer: better for conflicts and agent work, slower for commit messages.</span>
               </>
             ) : (
-              <div className="note-box faint">Not available for this provider</div>
+              <div className="note-box faint">Not available for this {info.effort || models.some((m) => m.efforts.length) ? "model" : "provider"}</div>
             )}
           </div>
         </div>
@@ -205,48 +223,59 @@ function Routing({ cat }: { cat: AiCatalog }) {
         <span className="hint">Which AI handles each job. Lighter models for quick jobs, stronger ones where it matters. Agents need a CLI provider.</span>
       </div>
       <ul className="list route-list">
-        {TASKS.map(([task, label]) => {
-          const r = cat.routing[task] ?? {};
-          const prov = cat.providers.find((p) => p.info.id === (r.provider ?? cat.defaultProvider));
-          const models = prov?.info.models ?? [];
-          return (
-            <li key={task} className="list-row wrap" style={{ gap: "8px 12px", paddingBlock: 10 }}>
-              <label htmlFor={`rt-${task}`} className="grow route-label" style={{ minWidth: 160 }}>{label}</label>
-              <MenuChoice
-                id={`rt-${task}`}
-                className="select menu-select"
-                style={{ height: 32, width: 140 }}
-                label={label}
-                value={r.provider ?? ""}
-                options={[{ value: "", label: "Default AI" }, ...usable.map((p) => ({ value: p.info.id, label: p.info.name }))]}
-                onChange={(v) => set.mutate({ task, provider: v || null, model: null, effort: r.effort ?? null })}
-              />
-              {models.length > 0 ? (
-                <MenuChoice
-                  className="select menu-select"
-                  style={{ height: 32, width: 160 }}
-                  label={`${label} model`}
-                  value={r.model ?? ""}
-                  options={[{ value: "", label: "Provider default" }, ...models.map((m) => ({ value: m.id, label: m.label }))]}
-                  onChange={(v) => set.mutate({ task, provider: r.provider ?? null, model: v || null, effort: r.effort ?? null })}
-                />
-              ) : (
-                <input aria-label={`${label} model`} className="input mono" style={{ height: 32, width: 160 }} placeholder="model id" defaultValue={r.model ?? ""} onBlur={(e) => set.mutate({ task, provider: r.provider ?? null, model: e.target.value || null, effort: r.effort ?? null })} />
-              )}
-              {prov?.info.effort && (
-                <MenuChoice
-                  className="select menu-select"
-                  style={{ height: 32, width: 130 }}
-                  label={`${label} effort`}
-                  value={r.effort ?? ""}
-                  options={[{ value: "", label: "Default effort" }, ...EFFORTS.map((e) => ({ value: e, label: e }))]}
-                  onChange={(v) => set.mutate({ task, provider: r.provider ?? null, model: r.model ?? null, effort: v || null })}
-                />
-              )}
-            </li>
-          );
-        })}
+        {TASKS.map(([task, label]) => (
+          <RouteRow key={task} cat={cat} task={task} label={label} usable={usable} set={(r) => set.mutate({ task, ...r })} />
+        ))}
       </ul>
     </section>
+  );
+}
+
+type RouteSet = { provider: string | null; model: string | null; effort: string | null };
+
+/** One task's provider, model and effort. The effort menu lists what the model takes. */
+function RouteRow({ cat, task, label, usable, set }: { cat: AiCatalog; task: string; label: string; usable: AiCatalog["providers"]; set: (r: RouteSet) => void }) {
+  const r = cat.routing[task] ?? {};
+  const prov = cat.providers.find((p) => p.info.id === (r.provider ?? cat.defaultProvider));
+  const listed = useAiModels(prov?.info.id);
+  const models = listed.data ?? prov?.info.models ?? [];
+  // No model of its own: the provider's default model runs, with its efforts.
+  const fits = (m: string) => effortsFor(prov?.info, models, m || prov?.conf?.model || "");
+  const efforts = fits(r.model ?? "");
+  return (
+    <li className="list-row wrap" style={{ gap: "8px 12px", paddingBlock: 10 }}>
+      <label htmlFor={`rt-${task}`} className="grow route-label" style={{ minWidth: 160 }}>{label}</label>
+      <MenuChoice
+        id={`rt-${task}`}
+        className="select menu-select"
+        style={{ height: 32, width: 140 }}
+        label={label}
+        value={r.provider ?? ""}
+        options={[{ value: "", label: "Default AI" }, ...usable.map((p) => ({ value: p.info.id, label: p.info.name }))]}
+        onChange={(v) => set({ provider: v || null, model: null, effort: r.effort ?? null })}
+      />
+      {models.length > 0 || listed.isLoading ? (
+        <MenuChoice
+          className="select menu-select"
+          style={{ height: 32, width: 160 }}
+          label={`${label} model`}
+          value={r.model ?? ""}
+          options={[{ value: "", label: "Provider default" }, ...models.map((m) => ({ value: m.id, label: m.label }))]}
+          onChange={(v) => set({ provider: r.provider ?? null, model: v || null, effort: fitEffort(fits(v), r.effort ?? "") || null })}
+        />
+      ) : (
+        <input aria-label={`${label} model`} className="input mono" style={{ height: 32, width: 160 }} placeholder="model id" defaultValue={r.model ?? ""} onBlur={(e) => set({ provider: r.provider ?? null, model: e.target.value || null, effort: r.effort ?? null })} />
+      )}
+      {efforts.length > 0 && (
+        <MenuChoice
+          className="select menu-select"
+          style={{ height: 32, width: 130 }}
+          label={`${label} effort`}
+          value={r.effort ?? ""}
+          options={[{ value: "", label: "Default effort" }, ...efforts.map((e) => ({ value: e, label: e }))]}
+          onChange={(v) => set({ provider: r.provider ?? null, model: r.model ?? null, effort: v || null })}
+        />
+      )}
+    </li>
   );
 }
