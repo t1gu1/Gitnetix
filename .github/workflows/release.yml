@@ -135,6 +135,53 @@ jobs:
         if: matrix.name == 'linux'
         run: cargo test --workspace
 
+      # The bundler downloads its tools through github.com/<repo>/releases/download links, without retrying, and in
+      # November 2026 those links timed out (504) on most tries while the API served the same files: v0.20.1 and v0.20.2
+      # never published. It uses the tools already in its cache instead, so fetch them through the API first. Names and
+      # hashes follow @tauri-apps/cli 2.12.3; after a CLI update a stale one only means the bundler downloads that tool again.
+      - name: Fetch the AppImage tools
+        if: matrix.name == 'linux'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd "$RUNNER_TEMP"
+          for i in 1 2 3 4 5; do
+            gh release download apprun-old --repo tauri-apps/binary-releases -p AppRun-x86_64 --clobber &&
+              gh release download linuxdeploy-07333c6 --repo tauri-apps/binary-releases -p linuxdeploy-x86_64.AppImage --clobber && break
+            [ "$i" = 5 ] && exit 1
+            sleep 10
+          done
+          # The bundler checks no hash for these, and both end up inside the AppImage.
+          printf '%s\n' "f30140a43a0a59e46db21bdefdf749b9e9f2c6946e92afabbacf98b8ae73fb4f  AppRun-x86_64" \
+            "36a2d7e274d12e1050d0e9ecfe11d339ed54720b2bec464c286d53f8b07f5c62  linuxdeploy-x86_64.AppImage" | sha256sum -c
+          tools="${XDG_CACHE_HOME:-$HOME/.cache}/tauri"
+          mkdir -p "$tools"
+          install -m 755 AppRun-x86_64 "$tools/AppRun-x86_64"
+          install -m 755 linuxdeploy-x86_64.AppImage "$tools/linuxdeploy-07333c6-x86_64.AppImage"
+
+      # Same for NSIS. The bundler checks NSIS.exe and the plugin by hash, and downloads them again if either is off.
+      - name: Fetch the NSIS tools
+        if: matrix.name == 'windows'
+        continue-on-error: true
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          Set-Location $env:RUNNER_TEMP
+          foreach ($i in 1..5) {
+            gh release download nsis-3.13 --repo tauri-apps/binary-releases -p nsis-3.13.zip --clobber
+            if ($?) { gh release download nsis_tauri_utils-v0.5.3 --repo tauri-apps/nsis-tauri-utils -p nsis_tauri_utils.dll --clobber }
+            if ($?) { break }
+            if ($i -eq 5) { exit 1 }
+            Start-Sleep 10
+          }
+          $tools = Join-Path $env:LOCALAPPDATA tauri
+          Expand-Archive nsis-3.13.zip $tools -Force
+          Rename-Item (Join-Path $tools nsis-3.13) NSIS
+          $plugins = New-Item -ItemType Directory -Force (Join-Path $tools NSIS/Plugins/x86-unicode/additional)
+          Move-Item nsis_tauri_utils.dll $plugins
+
       - name: Build bundles
         env:
           # Signs the update bundles so installed apps accept them as updates.
