@@ -330,13 +330,11 @@ a:hover {
 .profile-btn[aria-expanded="true"] {
   background: var(--raised);
 }
+/* Hover shows a ring only: scaling the avatar to a fractional size knocks its emoji off center in WebKit. */
 .profile-btn > .profile-avatar {
-  transition:
-    transform var(--t-fast) var(--ease),
-    box-shadow var(--t-fast) var(--ease);
+  transition: box-shadow var(--t-fast) var(--ease);
 }
 .profile-btn:is(:hover, [aria-expanded="true"]) > .profile-avatar {
-  transform: scale(1.08);
   box-shadow:
     inset 0 0 0 1px color-mix(in srgb, var(--p-color) 55%, transparent),
     0 0 0 3px color-mix(in srgb, var(--p-color) 24%, transparent);
