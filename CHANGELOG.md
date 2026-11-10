@@ -11,6 +11,12 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+### Added (App)
+- Disabled context menu items take a `why` string that shows as a tooltip on hover. The worktree detail menu sets it when a worktree is busy, rebasing, or pushing.
+
+### Fixed (App)
+- The tooltip layer now hides only when a scroll moves its anchor, so a streaming log scrolling beside the anchor no longer dismisses the tooltip.
+
 ## [0.20.7] - 2026-11-09
 
 ### Fixed (Website)
