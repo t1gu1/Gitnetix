@@ -45,6 +45,6 @@ pub enum Event {
     DictationModel { done: u64, total: u64 },
     /// An AI CLI failed because its own sign-in expired: the UI offers to sign in again.
     AiSignedOut { provider: String },
-    /// api.github.com turned down the saved token (revoked): the UI offers to sign in to GitHub again.
+    /// api.github.com turned down the saved token, renewed or not: the UI offers to sign in to GitHub again.
     GithubSignedOut,
 }

@@ -67,7 +67,7 @@ pub async fn connect(kind: &str, repo: RepoRef, i: &Integrations) -> Result<PrHo
         "gitlab" => {
             let base = i.gitlab.url.clone().unwrap_or_else(|| gitlab::CLOUD.into());
             let refresh = || Ok(oauth::Refresh { url: format!("{base}/oauth/token"), client_id: i.gitlab.client_id.clone().unwrap_or_else(|| gitlab::CLIENT_ID.into()), secret: None });
-            let auth = oauth::access("gitlab", "GitLab", refresh).await?.header();
+            let auth = oauth::access("gitlab", "GitLab", None, refresh).await?.header();
             Ok(PrHost::GitLab(gitlab::GitLab::new(repo, &base, auth)))
         }
         "bitbucket" => {
@@ -75,7 +75,7 @@ pub async fn connect(kind: &str, repo: RepoRef, i: &Integrations) -> Result<PrHo
                 let (id, secret) = bitbucket::client()?;
                 Ok(oauth::Refresh { url: bitbucket::TOKEN_URL.into(), client_id: id.into(), secret: Some(secret) })
             };
-            Ok(PrHost::Bitbucket(bitbucket::Bitbucket::new(repo, oauth::access("bitbucket", "Bitbucket", refresh).await?.header())))
+            Ok(PrHost::Bitbucket(bitbucket::Bitbucket::new(repo, oauth::access("bitbucket", "Bitbucket", None, refresh).await?.header())))
         }
         "gitea" => {
             let base = i.gitea.url.clone().ok_or_else(|| Error::NotConnected("Connect Gitea in the menu, under Git providers".into()))?;
@@ -83,7 +83,7 @@ pub async fn connect(kind: &str, repo: RepoRef, i: &Integrations) -> Result<PrHo
                 let id = i.gitea.client_id.clone().ok_or_else(|| Error::NotConnected("Gitea (sign in again: session expired)".into()))?;
                 Ok(oauth::Refresh { url: format!("{base}/login/oauth/access_token"), client_id: id, secret: None })
             };
-            let auth = oauth::access("gitea", "Gitea", refresh).await?.header();
+            let auth = oauth::access("gitea", "Gitea", None, refresh).await?.header();
             Ok(PrHost::Gitea(gitea::Gitea::new(repo, &base, auth)))
         }
         other => Err(Error::Invalid(format!("unknown git provider {other}"))),

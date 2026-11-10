@@ -64,7 +64,7 @@ export function SignInPrompt() {
   );
 }
 
-/** api.github.com turned down the saved token. GitHub's OAuth tokens never expire, so GitHub revoked it: offers a new sign-in from here. */
+/** api.github.com turned down the saved token and renewing it did not help: offers a new sign-in from here. */
 export function GitHubSignInPrompt() {
   const qc = useQueryClient();
   // Set by the engine's githubSignedOut event (see useEngineEvents), false once put off.
@@ -86,7 +86,7 @@ export function GitHubSignInPrompt() {
     >
       <div className="col" style={{ gap: 12 }}>
         <span>
-          GitHub revoked it, for example when it was removed in your GitHub settings or after more than 10 newer sign-ins to Gitnetix. Pull requests, checks and issues come back once you sign in again.
+          It was removed in your GitHub settings, went unused for 6 months, or was saved by an older Gitnetix, which let it run out after 8 hours. Pull requests, checks and issues come back once you sign in again.
         </span>
         <DeviceSignIn method="github" name="GitHub" site="GitHub" onDone={() => qc.setQueryData(["githubSignedOut"], null)} />
       </div>

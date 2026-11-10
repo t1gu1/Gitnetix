@@ -9,7 +9,8 @@ use crate::error::{Error, Result};
 pub struct GitHub {
     http: reqwest::Client,
     api: String,
-    token: String,
+    /// Swapped for a renewed one when GitHub turns it down.
+    token: std::sync::Mutex<String>,
     pub repo: RepoRef,
 }
 
@@ -154,7 +155,7 @@ impl GitHub {
     pub fn new(repo: RepoRef, token: String, api: Option<String>) -> Self {
         let api = api.filter(|s| !s.is_empty()).unwrap_or_else(|| "https://api.github.com".into());
         let http = crate::net::client();
-        GitHub { http, api: api.trim_end_matches('/').into(), token, repo }
+        GitHub { http, api: api.trim_end_matches('/').into(), token: std::sync::Mutex::new(token), repo }
     }
 
     fn graphql_url(&self) -> String {
@@ -167,22 +168,34 @@ impl GitHub {
 
     async fn req(&self, method: reqwest::Method, path: &str, body: Option<Value>) -> Result<Value> {
         let url = if path.starts_with("http") { path.to_string() } else { format!("{}{}", self.api, path) };
-        let mut r = self
-            .http
-            .request(method, url)
-            .bearer_auth(&self.token)
-            .header("accept", "application/vnd.github+json")
-            .header("x-github-api-version", "2022-11-28");
-        if let Some(b) = body {
-            r = r.json(&b);
+        let send = |token: &str| {
+            let mut r = self
+                .http
+                .request(method.clone(), url.as_str())
+                .bearer_auth(token)
+                .header("accept", "application/vnd.github+json")
+                .header("x-github-api-version", "2022-11-28");
+            if let Some(b) = &body {
+                r = r.json(b);
+            }
+            r.send()
+        };
+        let github_com = self.api == "https://api.github.com";
+        let token = self.token.lock().unwrap().clone();
+        let mut res = send(&token).await?;
+        // A sign-in lasts 8 hours, and a renewal, here or by another copy of the app, voids the token it replaces.
+        if res.status() == reqwest::StatusCode::UNAUTHORIZED && github_com {
+            if let Some(renewed) = super::github_auth::token(Some(&token)).await.ok().filter(|t| *t != token) {
+                res = send(&renewed).await?;
+                *self.token.lock().unwrap() = renewed;
+            }
         }
-        let res = r.send().await?;
         let status = res.status();
         let text = res.text().await?;
         let v: Value = if text.is_empty() { Value::Null } else { serde_json::from_str(&text).unwrap_or(Value::String(text)) };
         if !status.is_success() {
-            // GitHub's OAuth tokens never expire: a 401 means GitHub revoked the sign-in, so the UIs offer a new one.
-            if status == reqwest::StatusCode::UNAUTHORIZED && self.api == "https://api.github.com" {
+            // Even renewed, the sign-in is turned down (removed on GitHub, or unused for 6 months): the UIs offer a new one.
+            if status == reqwest::StatusCode::UNAUTHORIZED && github_com {
                 crate::log::emit(crate::events::Event::GithubSignedOut);
             }
             let msg = v["message"].as_str().map(String::from).unwrap_or_else(|| v.to_string());

@@ -899,6 +899,7 @@ mod tests {
     #[test]
     fn each_profile_keeps_its_own_settings_and_config_json_the_first_ones() {
         use super::{Config, Project, Store, UserProfile, FIRST_PROFILE};
+        let _turn = crate::secrets::test_turn();
         let dir = tempfile::tempdir().unwrap();
         let names = |s: &Store| s.read(|c| c.projects.iter().map(|p| p.name.clone()).collect::<Vec<_>>());
         let add = |s: &Store, name: &str| {

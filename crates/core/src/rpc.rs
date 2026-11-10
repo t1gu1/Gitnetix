@@ -1389,9 +1389,9 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
         "github.signInPoll" => match github_auth::poll(&s(&p, "deviceCode")?).await? {
             Poll::Pending => to(json!({ "status": "pending" })),
             Poll::SlowDown(interval) => to(json!({ "status": "pending", "interval": interval })),
+            // Stored by `poll`, with the refresh token that renews it.
             Poll::Token(t) => {
                 let user = github_auth::login(&t).await.ok().filter(|u| !u.is_empty());
-                secrets::set("github", &t)?;
                 k.store.write(|c| {
                     // OAuth tokens are for github.com, not an Enterprise host.
                     c.integrations.github_api = None;

@@ -202,6 +202,10 @@ mod imp {
         VAULT.delete(key)
     }
 
+    pub fn reload() -> Result<()> {
+        VAULT.reload()
+    }
+
     impl Vault {
         pub(super) fn new(keychain: &'static dyn Keychain, wait: Duration) -> Vault {
             Vault { keychain, kept: Default::default(), writing: Mutex::new(()), wait }
@@ -234,6 +238,17 @@ mod imp {
             self.keychain.delete(key)?;
             self.kept.lock().unwrap().no_old.insert(key.into());
             Ok(())
+        }
+
+        /// Read the item again, for the tokens another copy of the app saved since this run read it.
+        pub(super) fn reload(&'static self) -> Result<()> {
+            self.asked(ALL, move || {
+                // Not in the middle of a save: an older read must not replace what the save keeps.
+                let _one = self.writing.lock().unwrap();
+                let plain = self.read_plain()?;
+                self.keep(plain);
+                Ok(())
+            })
         }
 
         /// Read the item holding every token, once per run.
@@ -460,6 +475,17 @@ mod imp {
         }
 
         #[test]
+        fn a_reload_picks_up_what_another_copy_saved() {
+            let kc = fake(&[(ALL, r#"{"github":"old"}"#)], Duration::ZERO);
+            let (installed, dev) = (run(kc), run(kc));
+            assert_eq!(installed.get("github").unwrap().as_deref(), Some("old"));
+            dev.set("github", "renewed").unwrap();
+            assert_eq!(installed.get("github").unwrap().as_deref(), Some("old"), "kept for the run");
+            installed.reload().unwrap();
+            assert_eq!(installed.get("github").unwrap().as_deref(), Some("renewed"));
+        }
+
+        #[test]
         fn kept_tokens_are_masked() {
             let (a, b) = (Masked::new("ghp_secret"), Masked::new("ghp_secret"));
             assert_ne!(a.bytes, b"ghp_secret");
@@ -503,6 +529,11 @@ mod imp {
         m.remove(key);
         save(&m)
     }
+
+    /// Each read reads the file: nothing kept to refresh.
+    pub fn reload() -> Result<()> {
+        Ok(())
+    }
 }
 
 /// Off until the app opens its own folder: till then secrets stay in `RUN_ONLY`, a test's among them.
@@ -526,6 +557,11 @@ fn write(key: &str, value: &str) -> Result<()> {
     Ok(())
 }
 
+/// Read the keychain again: another copy of the app (a dev build next to the installed one) may have saved since.
+pub fn reload() -> Result<()> {
+    if SAVED.load(Ordering::Relaxed) { imp::reload() } else { Ok(()) }
+}
+
 fn erase(key: &str) -> Result<()> {
     if SAVED.load(Ordering::Relaxed) {
         return imp::delete(key);
@@ -536,6 +572,13 @@ fn erase(key: &str) -> Result<()> {
 
 /// Prefix of the keys of the profile in use: none for the first profile, whose keys predate profiles.
 static SCOPE: std::sync::RwLock<String> = std::sync::RwLock::new(String::new());
+
+/// Tests switching profiles or reading secrets back take turns: the profile in use is global.
+#[cfg(test)]
+pub(crate) fn test_turn() -> std::sync::MutexGuard<'static, ()> {
+    static TURN: Mutex<()> = Mutex::new(());
+    TURN.lock().unwrap_or_else(|e| e.into_inner())
+}
 
 fn scope_of(profile: &str) -> String {
     if profile == crate::store::FIRST_PROFILE { String::new() } else { format!("profile.{profile}.") }

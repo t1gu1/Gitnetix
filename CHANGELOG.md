@@ -11,6 +11,10 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+### Fixed (App)
+
+- Gitnetix stops asking you to sign in to GitHub again every few hours. A GitHub sign-in lasts 8 hours, and Gitnetix now renews it with the refresh token GitHub sends along, for up to 6 months without use. Copies of the app open on the same computer, such as a dev build next to the installed app, pick up each other's renewals. Sign in to GitHub once more after this update: a sign-in saved by an older version can't be renewed.
+
 ## [0.20.5] - 2026-11-09
 
 ### Added (App)

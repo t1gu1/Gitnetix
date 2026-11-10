@@ -5739,14 +5739,14 @@ impl Gitnetix {
                 repo.host
             )));
         }
-        let token = secrets::require("github", "Connect GitHub in the menu, under Git providers")?;
+        let token = providers::github_auth::token(None).await?;
         Ok(GitHub::new(repo, token, api))
     }
 
     /// The linked GitHub account's repositories, to pick one to clone.
     pub async fn github_repos(&self) -> Result<Vec<UserRepo>> {
         let api = self.store.read(|c| c.integrations.github_api.clone()).filter(|s| !s.is_empty());
-        let token = secrets::require("github", "Connect GitHub in the menu, under Git providers")?;
+        let token = providers::github_auth::token(None).await?;
         GitHub::new(RepoRef::default(), token, api).user_repos().await
     }
 
@@ -6118,7 +6118,7 @@ impl Gitnetix {
                 let (owner, repo) = tickets::github_conn(conn).ok_or_else(|| Error::Invalid(format!("“{conn}” is not a GitHub repository")))?;
                 let number: u64 = id.parse().map_err(|_| Error::Invalid(format!("“{id}” is not a GitHub issue number")))?;
                 let api = integ.github_api.clone().filter(|s| !s.is_empty());
-                let token = secrets::require("github", "Connect GitHub in the menu, under Git providers")?;
+                let token = providers::github_auth::token(None).await?;
                 let gh = GitHub::new(RepoRef { owner: owner.into(), repo: repo.into(), ..Default::default() }, token, api);
                 match to {
                     Some(to) => tickets::github_set_status(&gh, number, to).await.map(|_| vec![]),

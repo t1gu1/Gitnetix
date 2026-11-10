@@ -58,7 +58,7 @@ pub fn save_pat(key: &str, token: &str, email: Option<String>) -> Result<()> {
 }
 
 /// Store a token response; a host that does not rotate the refresh token keeps `prev`.
-fn save(key: &str, v: &Value, prev: Option<String>) -> Result<Tokens> {
+pub(super) fn save(key: &str, v: &Value, prev: Option<String>) -> Result<Tokens> {
     let t = Tokens {
         access_token: v["access_token"].as_str().unwrap_or("").into(),
         refresh_token: v["refresh_token"].as_str().map(String::from).or(prev),
@@ -72,20 +72,22 @@ fn save(key: &str, v: &Value, prev: Option<String>) -> Result<Tokens> {
 /// One refresh at a time: GitLab voids the refresh token on use, so a second one racing it would fail.
 static REFRESHING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
-/// The stored tokens under `key`, renewed first when they are about to expire.
-/// `what` names the connection in errors ("GitLab").
-pub async fn access(key: &str, what: &str, refresh: impl FnOnce() -> Result<Refresh>) -> Result<Tokens> {
+/// The stored tokens under `key`, renewed first when they are about to expire or hold `stale`, an access token the
+/// host just refused. `what` names the connection in errors ("GitLab").
+pub async fn access(key: &str, what: &str, stale: Option<&str>, refresh: impl FnOnce() -> Result<Refresh>) -> Result<Tokens> {
     let load = || -> Result<Tokens> {
         let raw = secrets::require(key, &format!("Connect {what} in the menu, under Git providers"))?;
         serde_json::from_str(&raw).map_err(|_| Error::NotConnected(what.into()))
     };
-    let fresh = |t: &Tokens| t.expires_at == 0 || t.expires_at - chrono::Utc::now().timestamp() > 120;
+    let fresh = |t: &Tokens| Some(t.access_token.as_str()) != stale && (t.expires_at == 0 || t.expires_at - chrono::Utc::now().timestamp() > 120);
     let t = load()?;
     if fresh(&t) {
         return Ok(t);
     }
     let _one = REFRESHING.lock().await;
-    // Renewed while this call waited.
+    // Renewed while this call waited, here or by another copy of the app on the same keychain: a renewal voids the
+    // tokens it replaces, so this run's must not be renewed again.
+    let _ = secrets::reload();
     let t = load()?;
     if fresh(&t) {
         return Ok(t);
@@ -99,7 +101,13 @@ pub async fn access(key: &str, what: &str, refresh: impl FnOnce() -> Result<Refr
     }
     let v = token_request(&r.url, &form, r.secret.map(|s| (r.client_id.as_str(), s)), what).await?;
     if v["access_token"].as_str().is_none() {
-        return Err(again(v["error_description"].as_str().or(v["error"].as_str()).unwrap_or("session expired")));
+        // Another copy may have spent the same refresh token a moment earlier: its renewal lands in the keychain.
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        let _ = secrets::reload();
+        return match load() {
+            Ok(t) if t.refresh_token.as_ref() != Some(&rt) && fresh(&t) => Ok(t),
+            _ => Err(again(v["error_description"].as_str().or(v["error"].as_str()).unwrap_or("session expired"))),
+        };
     }
     save(key, &v, Some(rt))
 }

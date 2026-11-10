@@ -430,7 +430,7 @@ impl Git {
     fn logins(&self) -> Vec<(String, Login)> {
         let mut all: Vec<(String, Login)> = saved_logins().into_iter().collect();
         if self.github && !all.iter().any(|(h, _)| h == "github.com") {
-            if let Some(token) = crate::secrets::get("github").ok().flatten().filter(|t| !t.is_empty()) {
+            if let Some(token) = crate::providers::github_auth::saved() {
                 all.push(("github.com".into(), Login { username: "x-access-token".into(), token }));
             }
         }
@@ -546,8 +546,12 @@ impl Git {
     /// can ask the user for it); else the ssh error, which says more.
     // shortcut: every call tries ssh first (a closed port waits for ssh's timeout each time); remember the host if that bites.
     async fn output(&self, args: &[&str]) -> std::io::Result<std::process::Output> {
-        let out = self.command(args).output().await?;
         let i = verb_at(args);
+        // A GitHub sign-in lasts 8 hours: renewed first, git hands github.com a live one. Boxed, as `over_https` below.
+        if self.github && args.get(i).is_some_and(|v| SIGNS_IN.contains(v)) {
+            let _ = Box::pin(crate::providers::github_auth::token(None)).await;
+        }
+        let out = self.command(args).output().await?;
         let falls_back = matches!(args.get(i), Some(&("fetch" | "pull" | "push" | "ls-remote")));
         if out.status.success() || !falls_back || !String::from_utf8_lossy(&out.stderr).contains("Could not read from remote repository") {
             return Ok(out);
