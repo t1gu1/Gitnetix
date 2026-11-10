@@ -11,6 +11,9 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+### Fixed (Website)
+- The website shows the latest releases, and release card text is limited to 3 lines.
+
 ## [0.20.6] - 2026-11-09
 
 ### Fixed (App)
