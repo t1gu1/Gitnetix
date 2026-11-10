@@ -11,6 +11,8 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+## [0.20.8] - 2026-11-10
+
 ### Added (App)
 - Disabled context menu items take a `why` string that shows as a tooltip on hover. The worktree detail menu sets it when a worktree is busy, rebasing, or pushing.
 
