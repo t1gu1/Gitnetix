@@ -72,7 +72,7 @@ function TreeRow({ row, role, icon, author, name, kind, tag, current, act, meta,
 export default function Home({ version, demo, agents, phone }: { version: string; demo?: ReactNode; agents?: ReactNode; phone?: ReactNode }) {
   const first = releases[releases.length - 1];
   const days = Math.round((Date.parse(releases[0].date) - Date.parse(first.date)) / 864e5) + 1;
-  const featured = releases.filter((r) => r.story).slice(0, 3);
+  const featured = releases.slice(0, 3);
   return (
     <>
     {/* HERO */}
@@ -366,7 +366,7 @@ export default function Home({ version, demo, agents, phone }: { version: string
     <li key={r.version}><a className="card-link" href={u(`releases/${r.version}/`)} style={{ display: 'flex', flexDirection: 'column', gap: '10px', height: '100%', boxSizing: 'border-box', background: 'var(--panel)', border: `1px solid ${i === 0 ? 'color-mix(in srgb,var(--accent) 40%,transparent)' : 'var(--line)'}`, borderRadius: '14px', padding: '24px' }}>
     <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '13px' }}><span className="mono" style={{ color: 'var(--accent-fg)', background: 'var(--accent-soft)', fontWeight: '600', padding: '2px 10px', borderRadius: '999px' }}>v{r.version}</span><time dateTime={r.date} style={{ color: 'var(--faint)' }}>{shortDate(r.date)}</time>{r === releases[0] && <span style={{ marginLeft: 'auto', color: 'var(--accent-fg)', fontWeight: '600' }}>Latest</span>}</div>
     <h3 style={{ margin: '0', fontSize: '21px', letterSpacing: '-0.01em' }}>{r.title}</h3>
-    <p style={{ margin: '0', fontSize: '15px', color: 'var(--muted)' }}>{r.highlights.length ? r.highlights.join(' · ') : plain(r.sections[0]?.items[0] ?? '')}</p>
+    <p style={{ margin: '0', fontSize: '15px', color: 'var(--muted)', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{r.highlights.length ? r.highlights.join(' · ') : plain(r.sections[0]?.items[0] ?? '')}</p>
     </a></li>
     ))}
     </ol>
