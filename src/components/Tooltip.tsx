@@ -117,6 +117,11 @@ export function TooltipLayer() {
     };
     const blur = (e: FocusEvent) => current.current?.el === e.target && hide();
     const key = (e: KeyboardEvent) => e.key === "Escape" && hide();
+    // Only a scroll that moves the anchor hides it: a streaming agent log scrolling beside it doesn't.
+    const scroll = (e: Event) => {
+      const el = current.current?.el;
+      if (!el || (e.target as Node).contains(el)) hide();
+    };
     const down = () => {
       muted.current = current.current?.el ?? null;
       hide();
@@ -128,7 +133,7 @@ export function TooltipLayer() {
     document.addEventListener("focusin", focus);
     document.addEventListener("focusout", blur);
     window.addEventListener("keydown", key);
-    window.addEventListener("scroll", hide, true);
+    window.addEventListener("scroll", scroll, true);
     window.addEventListener("resize", hide);
     window.addEventListener("blur", hide);
     return () => {
@@ -140,7 +145,7 @@ export function TooltipLayer() {
       document.removeEventListener("focusin", focus);
       document.removeEventListener("focusout", blur);
       window.removeEventListener("keydown", key);
-      window.removeEventListener("scroll", hide, true);
+      window.removeEventListener("scroll", scroll, true);
       window.removeEventListener("resize", hide);
       window.removeEventListener("blur", hide);
     };

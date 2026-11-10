@@ -392,6 +392,7 @@ function Detail({ r, menu, onMenuClose }: { r: Row; menu?: { x: number; y: numbe
       icon: "branch",
       hint: view.behind ? `${view.behind} behind` : undefined,
       disabled: busy || rebasing || push.isPending,
+      why: busy ? `The agent is ${a?.status}. Stop it, or wait until it shows "Waiting for you".` : rebasing ? "A rebase is already running." : "Pushing. Wait for it to finish.",
       run: update,
     },
     wtOps && { id: "merge", label: "Merge…", icon: "merged", run: () => finish.merge(session, true) },

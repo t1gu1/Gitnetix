@@ -15,6 +15,8 @@ export type MenuItem =
       /** Light red icon: not a delete, but something goes (e.g. a worktree). */
       warn?: boolean;
       disabled?: boolean;
+      /** Why it is disabled: the tooltip on hover while greyed out. */
+      why?: string;
       /** Leaves the menu open, e.g. to toggle several options in a row. */
       keep?: boolean;
       /** What the search field matches when the label isn't plain text. */
@@ -175,6 +177,7 @@ export function ContextMenu({ x, y, items, label, alignRight, columns, search, o
       // Names too long for the menu read in full on hover.
       title={search && typeof it.label === "string" ? it.label : undefined}
       disabled={it.disabled}
+      data-tip={it.disabled ? it.why : undefined}
       onClick={() => {
         if (!it.keep) closeRef.current();
         it.run();
