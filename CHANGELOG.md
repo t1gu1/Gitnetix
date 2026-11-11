@@ -11,6 +11,9 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+### Fixed (App)
+- An agent reply with a `|` table row and no `|---|` line under it no longer freezes the app. This happens when the 2000-line log cap cuts a table's header off.
+
 ## [0.20.8] - 2026-11-10
 
 ### Added (App)

@@ -485,7 +485,8 @@ export const Markdown = memo(function Markdown({ text }: { text: string }) {
       blocks.push(<ol key={i}>{items.map(item)}</ol>);
       continue;
     }
-    const para: string[] = [];
+    // The first line goes in whatever it starts: a "|" row with no "|---|" under it is no table, and would loop forever.
+    const para: string[] = [lines[i++]];
     while (i < lines.length && lines[i].trim() && !BLOCK.test(lines[i])) para.push(lines[i++]);
     blocks.push(<p key={i}>{inline(para.join(" "), "p")}</p>);
   }
