@@ -2614,6 +2614,8 @@ button.tree-twist:hover {
   font-size: 12.5px;
 }
 .tree-filter > .btn {
+  /* Full row height: .find-bar centers its items, which shrinks these to the icon. */
+  align-self: stretch;
   height: auto;
   padding: 0 14px;
   border: 0;
@@ -2621,6 +2623,10 @@ button.tree-twist:hover {
   border-radius: 0;
   background: transparent;
   color: var(--muted);
+}
+/* Cells touch, split only by their border, so no strip between them misses the click. */
+.tree-filter.find-bar {
+  gap: 0;
 }
 /* The find arrows and close: square cells as tall as the row. */
 .tree-filter > .btn-icon {
