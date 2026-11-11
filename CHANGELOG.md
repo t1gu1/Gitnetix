@@ -11,6 +11,8 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+## [0.20.9] - 2026-11-11
+
 ### Changed (App)
 - The buttons to search branches were adjusted.
 
