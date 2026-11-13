@@ -37,6 +37,8 @@ pub struct Config {
     /// Empty in files saved before it, so those get every default.
     #[serde(default)]
     pub worktree_defaults_added: Vec<String>,
+    /// Paths linked from the main checkout into each new worktree of every project, with the project's own.
+    pub worktree_links: Vec<String>,
 }
 
 impl Default for Config {
@@ -52,6 +54,7 @@ impl Default for Config {
             server: ServerConfig::default(),
             worktree_files: DEFAULT_WORKTREE_FILES.iter().map(|f| f.to_string()).collect(),
             worktree_defaults_added: DEFAULT_WORKTREE_FILES.iter().map(|f| f.to_string()).collect(),
+            worktree_links: Vec::new(),
         }
     }
 }
@@ -85,6 +88,8 @@ pub struct Project {
     pub dialogs: DialogPrefs,
     /// Paths from the checkout root (ignored files git leaves out) copied from the main checkout into each new worktree.
     pub worktree_files: Vec<String>,
+    /// Paths linked, not copied: the worktree reads and writes the main checkout's.
+    pub worktree_links: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

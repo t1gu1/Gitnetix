@@ -155,9 +155,9 @@ const MERGE_DEFAULTS: MergePrefs = { squash: false, squashMessage: "branch", reb
 const COMMIT_DEFAULTS: CommitPrefs = { autoPush: false };
 const DIALOG_DEFAULTS: DialogPrefs = { finish: "merge", finishSwitch: true, newWorktree: false, newAgent: false, shipPush: true, shipChangelog: true, deleteOrigin: false, cleanupOrigin: true };
 
-type PrefsPatch = { merge?: Partial<MergePrefs>; commit?: Partial<CommitPrefs>; dialogs?: Partial<DialogPrefs>; worktreeFiles?: string[] };
+type PrefsPatch = { merge?: Partial<MergePrefs>; commit?: Partial<CommitPrefs>; dialogs?: Partial<DialogPrefs>; worktreeFiles?: string[]; worktreeLinks?: string[] };
 
-/** A project's remembered merge, commit and dialog options and worktree files. Changes show at once, then save. */
+/** A project's remembered merge, commit and dialog options and worktree files and links. Changes show at once, then save. */
 export function useProjectPrefs(projectId?: string) {
   const qc = useQueryClient();
   const project = useConfig().data?.projects.find((p) => p.id === projectId);
@@ -169,7 +169,7 @@ export function useProjectPrefs(projectId?: string) {
           ...c,
           projects: c.projects.map((p) =>
             p.id === projectId
-              ? { ...p, merge: { ...MERGE_DEFAULTS, ...p.merge, ...patch.merge }, commit: { ...COMMIT_DEFAULTS, ...p.commit, ...patch.commit }, dialogs: { ...DIALOG_DEFAULTS, ...p.dialogs, ...patch.dialogs }, worktreeFiles: patch.worktreeFiles ?? p.worktreeFiles }
+              ? { ...p, merge: { ...MERGE_DEFAULTS, ...p.merge, ...patch.merge }, commit: { ...COMMIT_DEFAULTS, ...p.commit, ...patch.commit }, dialogs: { ...DIALOG_DEFAULTS, ...p.dialogs, ...patch.dialogs }, worktreeFiles: patch.worktreeFiles ?? p.worktreeFiles, worktreeLinks: patch.worktreeLinks ?? p.worktreeLinks }
               : p,
           ),
         },
@@ -182,10 +182,12 @@ export function useProjectPrefs(projectId?: string) {
     commit: { ...COMMIT_DEFAULTS, ...project?.commit },
     dialogs: { ...DIALOG_DEFAULTS, ...project?.dialogs },
     worktreeFiles: project?.worktreeFiles ?? [],
+    worktreeLinks: project?.worktreeLinks ?? [],
     setMerge: (merge: Partial<MergePrefs>) => save.mutate({ merge }),
     setCommit: (commit: Partial<CommitPrefs>) => save.mutate({ commit }),
     setDialogs: (dialogs: Partial<DialogPrefs>) => save.mutate({ dialogs }),
     setWorktreeFiles: (worktreeFiles: string[]) => save.mutate({ worktreeFiles }),
+    setWorktreeLinks: (worktreeLinks: string[]) => save.mutate({ worktreeLinks }),
   };
 }
 

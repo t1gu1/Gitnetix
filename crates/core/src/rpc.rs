@@ -38,7 +38,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("projects.setHidden", "Close or reopen a project's tab (data kept)", "projectId, hidden"),
     ("projects.reorder", "Set the order of projects", "ids: string[]"),
     ("projects.setGenLang", "Language AI writes in for a project", "projectId, commit?, pr?, release?"),
-    ("projects.setPrefs", "Remembered merge, commit and dialog options for a project", "projectId, merge?: {squash?, squashMessage?: branch|ai, rebase?, deleteBranch?, push?, resolveConflicts?}, commit?: {autoPush?}, dialogs?: {finish?: continue|merge, finishSwitch?, newWorktree?, newAgent?, shipPush?, shipChangelog?, deleteOrigin?, cleanupOrigin?}, worktreeFiles?: string[] (paths copied from the main checkout into new worktrees)"),
+    ("projects.setPrefs", "Remembered merge, commit and dialog options for a project", "projectId, merge?: {squash?, squashMessage?: branch|ai, rebase?, deleteBranch?, push?, resolveConflicts?}, commit?: {autoPush?}, dialogs?: {finish?: continue|merge, finishSwitch?, newWorktree?, newAgent?, shipPush?, shipChangelog?, deleteOrigin?, cleanupOrigin?}, worktreeFiles?: string[] (paths copied from the main checkout into new worktrees), worktreeLinks?: string[] (paths linked instead)"),
     ("workspace.overview", "Releases, their branches and repo state; `quick` skips history checks when nothing is cached", "projectId, quick?"),
     ("workspace.files", "Changed files of a branch, or of one commit when `commit` is given", "projectId, branch, mode: branch|wip|project, commit?"),
     ("workspace.diff", "Diff of one file; in wip mode `staged` picks the side; `commit` diffs that commit (`from` = the file's old path when that commit renamed it); `full` keeps the whole file", "projectId, branch, mode, path, staged?, commit?, from?, full?"),
@@ -104,7 +104,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("submodules.fetch", "Fetch every initialized submodule's origin", "projectId"),
     ("worktrees.list", "Every worktree across projects with its agent (log left out: agents.list has it); cached = the list last built (null before the first), at once and without agents", "cached?"),
     ("worktrees.create", "Open a branch in a new worktree", "projectId, branch"),
-    ("worktrees.setFiles", "Paths copied from the main checkout into new worktrees of every project", "files: string[]"),
+    ("worktrees.setFiles", "Paths copied (files) or linked (links) from the main checkout into new worktrees of every project", "files?: string[], links?: string[]"),
     ("worktrees.remove", "Remove a worktree", "projectId, path, force?"),
     ("agents.list", "Agent sessions", ""),
     ("agents.get", "One agent session with its log", "id"),
@@ -647,14 +647,23 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
                 if let Some(f) = p.get("worktreeFiles") {
                     pr.worktree_files = worktree_files(f)?;
                 }
+                if let Some(f) = p.get("worktreeLinks") {
+                    pr.worktree_links = worktree_files(f)?;
+                }
                 Ok(())
             })?;
             ok()
         }
         "worktrees.setFiles" => {
-            let files = worktree_files(p.get("files").unwrap_or(&Value::Null))?;
+            let files = p.get("files").map(worktree_files).transpose()?;
+            let links = p.get("links").map(worktree_files).transpose()?;
             k.store.write(|c| {
-                c.worktree_files = files;
+                if let Some(f) = files {
+                    c.worktree_files = f;
+                }
+                if let Some(l) = links {
+                    c.worktree_links = l;
+                }
                 Ok(())
             })?;
             ok()
@@ -1602,7 +1611,7 @@ fn open_terminal(cmd: &str) -> Result<()> {
     }
 }
 
-/// Paths copied into new worktrees, joined to both checkouts: `..` or an absolute path would write outside the worktree.
+/// Paths copied or linked into new worktrees, joined to both checkouts: `..` or an absolute path would write outside the worktree.
 fn worktree_files(v: &Value) -> Result<Vec<String>> {
     let files: Vec<String> = serde_json::from_value(v.clone())?;
     let inside = |f: &String| Path::new(f).components().all(|c| matches!(c, Component::Normal(_) | Component::CurDir));

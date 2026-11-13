@@ -43,8 +43,10 @@ export function SettingsSection({ id, cfg }: { id: string; cfg: Config }) {
   );
 }
 
+export const LINK_PLACEHOLDER = "node_modules\n.venv";
+
 /** Saved on blur, so a half-typed path is not copied into the next worktree. */
-export function WorktreeFiles({ files, onSave }: { files: string[]; onSave: (files: string[]) => void }) {
+export function WorktreeFiles({ files, onSave, label = "Worktree files", placeholder = "graphify-out\n.env" }: { files: string[]; onSave: (files: string[]) => void; label?: string; placeholder?: string }) {
   const [text, setText] = useState(files.join("\n"));
   const save = () => {
     const next = text.split("\n").map((l) => l.trim()).filter(Boolean);
@@ -52,10 +54,10 @@ export function WorktreeFiles({ files, onSave }: { files: string[]; onSave: (fil
   };
   return (
     <textarea
-      aria-label="Worktree files"
+      aria-label={label}
       className="textarea mono"
       rows={4}
-      placeholder={"graphify-out\n.env"}
+      placeholder={placeholder}
       value={text}
       onChange={(e) => setText(e.target.value)}
       onBlur={save}
@@ -330,6 +332,11 @@ function WorktreesSection({ cfg }: { cfg: Config }) {
         <h2>Worktree files</h2>
         <p className="hint" style={{ margin: 0 }}>Git leaves ignored files out of a new worktree. These are copied from the main checkout into it when the project has them, one path from the project root per line: a knowledge graph, .env, local settings.</p>
         <WorktreeFiles files={cfg.worktreeFiles} onSave={(files) => save.mutate({ files })} />
+      </section>
+      <section className="section">
+        <h2>Worktree links</h2>
+        <p className="hint" style={{ margin: 0 }}>Linked, not copied: the worktree reads and writes the main checkout's own, so it takes no space and changes show in both. For big folders shared by every branch. On Windows, folders need Developer Mode on.</p>
+        <WorktreeFiles files={cfg.worktreeLinks} onSave={(links) => save.mutate({ links })} label="Worktree links" placeholder={LINK_PLACEHOLDER} />
       </section>
     </>
   );

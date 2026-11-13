@@ -6710,26 +6710,79 @@ async fn init_submodules(path: &Path) {
     }
 }
 
-/// `git worktree add` leaves ignored files out too: copy the listed ones (a graph, `.env`), for every project and this one, from the main checkout.
-/// Copies, not links: tools that rewrite them in the worktree must not change the main checkout's.
+/// `git worktree add` leaves ignored files out too: link, then copy, the listed ones (a graph, `.env`), for every
+/// project and this one, from the main checkout. A path in both lists is linked (the copy finds it there).
+/// Copies by default: tools that rewrite them in the worktree must not change the main checkout's.
 async fn copy_worktree_files(store: &Store, p: &Project, path: &Path) {
-    let mut files = store.read(|c| c.worktree_files.clone());
+    let (mut files, mut links) = store.read(|c| (c.worktree_files.clone(), c.worktree_links.clone()));
     files.extend(p.worktree_files.iter().cloned());
-    let (top, path) = (top_path(p), path.to_path_buf());
-    let _ = tokio::task::spawn_blocking(move || {
-        for f in files {
-            let (from, to) = (top.join(&f), path.join(&f));
+    links.extend(p.worktree_links.iter().cloned());
+    let (top, dir) = (top_path(p), path.to_path_buf());
+    let linked = tokio::task::spawn_blocking(move || {
+        let mut linked = Vec::new();
+        for (f, is_link) in links.into_iter().map(|f| (f, true)).chain(files.into_iter().map(|f| (f, false))) {
+            // Rebuilt from components: no trailing `/` (a link can't be made at `x/`), `\` on Windows.
+            let (from, to): (PathBuf, PathBuf) = (top.join(&f).components().collect(), dir.join(&f).components().collect());
             // Tracked paths are already checked out; missing ones have nothing to copy.
             if !from.exists() || to.exists() {
                 continue;
             }
-            let res = to.parent().map_or(Ok(()), std::fs::create_dir_all).and_then(|_| copy_tree(&from, &to));
-            if let Err(e) = res {
-                crate::log::error(format!("Could not copy {f} into {}: {e}", path.display()));
+            let res = to.parent().map_or(Ok(()), std::fs::create_dir_all).and_then(|_| if is_link { link(&from, &to) } else { copy_tree(&from, &to) });
+            match res {
+                Ok(()) if is_link => linked.push(f),
+                Ok(()) => {}
+                Err(e) => crate::log::error(format!("Could not {} {f} into {}: {e}", if is_link { "link" } else { "copy" }, dir.display())),
             }
         }
+        linked
     })
-    .await;
+    .await
+    .unwrap_or_default();
+    if let Err(e) = exclude_links(path, &linked).await {
+        crate::log::error(format!("Could not hide the links of {} from git: {e}", path.display()));
+    }
+}
+
+/// A link at `to` to `target`, so the worktree reads and writes the main checkout's.
+fn link(target: &Path, to: &Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    return std::os::unix::fs::symlink(target, to);
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::{symlink_dir, symlink_file};
+        let dir = target.is_dir();
+        match if dir { symlink_dir(target, to) } else { symlink_file(target, to) } {
+            // ERROR_PRIVILEGE_NOT_HELD: symlinks need Developer Mode or admin. A hard link needs neither, and the
+            // worktree sits next to the main checkout, on its drive.
+            Err(e) if e.raw_os_error() == Some(1314) && !dir => std::fs::hard_link(target, to),
+            Err(e) if e.raw_os_error() == Some(1314) => Err(std::io::Error::other("Windows needs Developer Mode on to link folders")),
+            r => r,
+        }
+    }
+}
+
+/// Git's `dir/` patterns don't match a link, which is no folder to it: exclude the links it doesn't ignore yet,
+/// or they show as new files to commit. `info/exclude` is shared by all checkouts, where these are ignored already.
+async fn exclude_links(path: &Path, linked: &[String]) -> Result<()> {
+    if linked.is_empty() {
+        return Ok(());
+    }
+    let git = Git::new(path);
+    let names: Vec<&str> = linked.iter().map(|l| l.trim_end_matches('/')).collect();
+    let (_, ignored, _) = git.try_run(&[&["check-ignore", "-z", "--"][..], &names].concat()).await?;
+    let ignored: Vec<&str> = ignored.split('\0').collect();
+    let file = git.git_paths(&["info/exclude"]).await?.remove(0);
+    let mut text = std::fs::read_to_string(&file).unwrap_or_default();
+    for n in names.iter().filter(|n| !ignored.contains(n)) {
+        if !text.is_empty() && !text.ends_with('\n') {
+            text.push('\n');
+        }
+        text.push_str(&format!("/{n}\n"));
+    }
+    if let Some(dir) = file.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    Ok(std::fs::write(&file, text)?)
 }
 
 fn copy_tree(from: &Path, to: &Path) -> std::io::Result<()> {

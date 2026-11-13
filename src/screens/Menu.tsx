@@ -15,7 +15,7 @@ import { useNav } from "../lib/nav";
 import { THEMES } from "../lib/themes";
 import { AISetupPanes } from "./AISetup";
 import { LogsPane } from "./Logs";
-import { GROUPS, PhoneCard, SettingsSection, WorktreeFiles } from "./Settings";
+import { GROUPS, LINK_PLACEHOLDER, PhoneCard, SettingsSection, WorktreeFiles } from "./Settings";
 import { TemplatesPanes } from "./Templates";
 
 /** Titles of the pages opened in place inside the panel, by id: the GROUPS sections and the logs. */
@@ -305,6 +305,14 @@ function ProjectSettings({ project: p }: { project: Project }) {
         <WorktreeFiles key={p.id} files={prefs.worktreeFiles} onSave={prefs.setWorktreeFiles} />
       </Group>
 
+      <Group
+        title="Worktree links"
+        hint="Linked, not copied: the worktree reads and writes the main checkout's own, so it takes no space and changes show in both. For big folders shared by every branch. On Windows, folders need Developer Mode on. The ones in App › Worktrees are linked for every project too. A path in both lists is linked."
+        bare
+      >
+        <WorktreeFiles key={p.id} files={prefs.worktreeLinks} onSave={prefs.setWorktreeLinks} label="Worktree links" placeholder={LINK_PLACEHOLDER} />
+      </Group>
+
       <Group title="Releases">
         {dialogCheck("shipPush", "Push the default branch and the tag when shipping a release")}
         {dialogCheck("shipChangelog", "Let AI update the changelog before shipping a release")}
@@ -363,7 +371,7 @@ function AppSettings({ cfg, open, onUnpair }: { cfg?: Config; open: (id: string)
     appearance: THEMES.find((t) => t.id === nav.themePref)?.name ?? "System",
     animations: off.length ? `${off.length} off` : "All on",
     terminal: term === "shell" ? "Opens on Shell" : "Opens on Agent",
-    worktrees: cfg && (cfg.worktreeFiles.length ? `${count(cfg.worktreeFiles.length, "file")} copied` : "No files copied"),
+    worktrees: cfg && ([cfg.worktreeFiles.length && `${count(cfg.worktreeFiles.length, "file")} copied`, cfg.worktreeLinks.length && `${cfg.worktreeLinks.length} linked`].filter(Boolean).join(", ") || "No files copied"),
     dictation: <span className="mono">{showKeys(keys.dictation)}</span>,
     shortcuts: changedKeys ? `${changedKeys} changed` : "Defaults",
     ai: "Providers, models and task routing",

@@ -111,6 +111,8 @@ export interface Project {
   dialogs: DialogPrefs;
   /** Paths from the checkout root copied from the main checkout into each new worktree. */
   worktreeFiles: string[];
+  /** Paths linked instead: the worktree reads and writes the main checkout's. */
+  worktreeLinks: string[];
   releases: Release[];
   branches: Record<string, BranchMeta>;
   ticketReleases: Record<string, string>;
@@ -469,6 +471,8 @@ export interface Config {
   projects: Project[];
   /** Paths copied from the main checkout into new worktrees of every project, with the project's own `worktreeFiles`. */
   worktreeFiles: string[];
+  /** Paths linked from the main checkout into new worktrees of every project, with the project's own `worktreeLinks`. */
+  worktreeLinks: string[];
   /** The profile's Git identity: Gitnetix commits with it in all its projects; empty, the Git config decides. Only the first counts. */
   profiles: GitProfile[];
   ai: { defaultProvider: string; providers: Record<string, ProviderConf>; routing: Record<string, Route> };
