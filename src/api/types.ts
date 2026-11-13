@@ -74,6 +74,8 @@ export interface DialogPrefs {
   deleteOrigin: boolean;
   /** Also delete the cleaned-up behind branches on origin. */
   cleanupOrigin: boolean;
+  /** Show pictures and GitHub's HTML in pull requests, their comments and GitHub issues: pictures load from wherever they are hosted. */
+  prMedia: boolean;
 }
 
 export interface GenLangs {

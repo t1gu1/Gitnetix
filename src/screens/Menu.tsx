@@ -313,6 +313,10 @@ function ProjectSettings({ project: p }: { project: Project }) {
         <WorktreeFiles key={p.id} files={prefs.worktreeLinks} onSave={prefs.setWorktreeLinks} label="Worktree links" placeholder={LINK_PLACEHOLDER} />
       </Group>
 
+      <Group title="Pull requests & GitHub issues" hint="Pictures load from the sites that host them, which see your IP address. HTML keeps to the tags GitHub allows, with no scripts or styles.">
+        {dialogCheck("prMedia", "Show pictures and HTML in descriptions and comments")}
+      </Group>
+
       <Group title="Releases">
         {dialogCheck("shipPush", "Push the default branch and the tag when shipping a release")}
         {dialogCheck("shipChangelog", "Let AI update the changelog before shipping a release")}

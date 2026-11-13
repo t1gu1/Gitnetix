@@ -5455,10 +5455,23 @@ button.picker-act {
   color: var(--on-accent);
 }
 .comment-body {
+  word-break: break-word;
+}
+.comment-body .md {
   font-size: 13px;
   line-height: 1.55;
-  white-space: pre-wrap;
-  word-break: break-word;
+}
+.comment-body .md > :first-child { margin-top: 0; }
+.comment-body .md > :last-child { margin-bottom: 0; }
+/* Asks before a pull request's or GitHub issue's pictures load. */
+.media-ask {
+  margin: 0;
+  padding: 8px 8px 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--raised);
+  color: var(--muted);
+  font-size: 12.5px;
 }
 .reaction {
   display: inline-flex;
@@ -5483,9 +5496,29 @@ button.picker-act {
 }
 .md h1,
 .md h2,
-.md h3 {
+.md h3,
+.md h4,
+.md h5,
+.md h6 {
   font-size: 14px;
   margin: 14px 0 6px;
+}
+/* Pictures and GitHub's HTML in a pull request, once the project allows them. */
+.md img {
+  max-width: 100%;
+  height: auto;
+  vertical-align: middle;
+}
+.md details { margin: 8px 0; }
+.md summary { cursor: pointer; font-weight: 500; }
+.md kbd {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  padding: 1px 5px;
+  border: 1px solid var(--line);
+  border-bottom-width: 2px;
+  border-radius: var(--r-sm);
+  background: var(--raised);
 }
 .md ul,
 .md ol {

@@ -1,6 +1,6 @@
 import { useState, type CSSProperties } from "react";
 
-import { useAction, useFixVersions, useOverview, useProjects, useTicketStatuses, useTickets } from "../api/hooks";
+import { useAction, useFixVersions, useOverview, useProjectPrefs, useProjects, useTicketStatuses, useTickets } from "../api/hooks";
 import { openExternal } from "../api/transport";
 import type { Suggestion, Ticket } from "../api/types";
 import { MenuChoice } from "../components/AgentPicker";
@@ -9,7 +9,7 @@ import { Avatar } from "../components/Avatar";
 import { ContextMenu, SEARCH_ABOVE } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
 import { Resizer, usePaneWidth } from "../components/Resizer";
-import { ago, Busy, Empty, EmptyState, ErrorBox, Header, Loading, Markdown, releaseTagLabel, Seg, swipeProps } from "../components/ui";
+import { ago, Busy, Empty, EmptyState, ErrorBox, Header, Loading, Markdown, MEDIA, MediaAsk, releaseTagLabel, Seg, swipeProps } from "../components/ui";
 import { plural } from "../lib/format";
 import { useNav } from "../lib/nav";
 import { useStored } from "../lib/stored";
@@ -226,6 +226,10 @@ function TicketDetail({
   onDismiss: () => void;
 }) {
   const nav = useNav();
+  const prefs = useProjectPrefs(nav.projectId);
+  // GitHub issues only: the other trackers' descriptions are not GitHub Markdown.
+  const github = t.source === "github";
+  const media = github && prefs.dialogs.prMedia;
   const statuses = useTicketStatuses(t);
   const setStatus = useAction<unknown, { source: string; conn: string; id: string; to: string; name: string }>("tickets.setStatus", {
     invalidate: [["tickets", nav.projectId]],
@@ -361,7 +365,10 @@ function TicketDetail({
         {t.doc ? (
           <Adf doc={t.doc} />
         ) : t.description ? (
-          <Markdown text={t.description} />
+          <>
+            {github && !media && MEDIA.test(t.description) && <MediaAsk onShow={() => prefs.setDialogs({ prMedia: true })} />}
+            <Markdown text={t.description} html={media} breaks={github} />
+          </>
         ) : (
           <p style={{ margin: 0, lineHeight: 1.6, whiteSpace: "pre-wrap" }} className={t.description ? "" : "muted"}>{t.description || "No description."}</p>
         )}

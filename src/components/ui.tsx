@@ -1,4 +1,4 @@
-import { type CSSProperties, Fragment, memo, type ReactNode, type RefObject, type TouchEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createElement, type CSSProperties, Fragment, memo, type ReactNode, type RefObject, type TouchEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { link } from "./Adf";
@@ -359,36 +359,108 @@ export function ago(iso?: string | null) {
   return new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
 
-const INLINE = /(`[^`]+`)|\*\*(.+?)\*\*|~~(.+?)~~|!?\[([^\]]*)\]\(([^)\s]+)[^)]*\)|(https?:\/\/[^\s<>)]*[^\s<>).,;:!?])|(?<![\w*])[*_](?![\s*_])(.+?)[*_](?![\w*])/g;
+// A link's text can be a picture: [![alt](src)](href).
+const INLINE = /(`[^`]+`)|\*\*(.+?)\*\*|~~(.+?)~~|(!?)\[(!\[[^\]]*\]\([^)\s]+[^)]*\)|[^\]]*)\]\(([^)\s]+)[^)]*\)|(https?:\/\/[^\s<>)]*[^\s<>).,;:!?])|(?<![\w*])[*_](?![\s*_])(.+?)[*_](?![\w*])/g;
+const PICTURE = /^!\[([^\]]*)\]\(([^)\s]+)/;
+const TAG = /<\/?[a-z][\w-]*(?:\s[^<>]*)?\/?>/i;
+// Code spans first, so a tag inside one stays text.
+const CODE_OR_TAG = new RegExp(`(\`[^\`]+\`)|${TAG.source}`, "gi");
 
-/** Inline Markdown: `code`, **bold**, *italic*, ~~strike~~ and links. */
-export function inline(s: string, key?: string): ReactNode {
+/** Inline Markdown: `code`, **bold**, *italic*, ~~strike~~ and links. With `html`, also pictures and GitHub's inline HTML. */
+export function inline(s: string, key?: string, html = false): ReactNode {
+  if (html && TAG.test(s)) {
+    // Tags stay raw, the Markdown between them becomes parts the HTML holds.
+    const parts: Part[] = [];
+    let last = 0;
+    for (const m of s.matchAll(CODE_OR_TAG)) {
+      parts.push(inline(s.slice(last, m.index), undefined, true), m[1] ? <code>{m[1].slice(1, -1)}</code> : { raw: m[0] });
+      last = m.index + m[0].length;
+    }
+    parts.push(inline(s.slice(last), undefined, true));
+    return <span key={key}>{weave(parts, "")}</span>;
+  }
   const out: ReactNode[] = [];
   let last = 0;
   for (const m of s.matchAll(INLINE)) {
     out.push(s.slice(last, m.index));
-    const [, code, bold, strike, label, href, url, em] = m;
+    const [, code, bold, strike, bang, label, href, url, em] = m;
     const j = m.index;
     if (code) out.push(<code key={j}>{code.slice(1, -1)}</code>);
-    else if (bold) out.push(<strong key={j}>{inline(bold)}</strong>);
-    else if (strike) out.push(<s key={j}>{inline(strike)}</s>);
-    else if (href) out.push(<Fragment key={j}>{link(href, label ? inline(label) : href)}</Fragment>);
-    else if (url) out.push(<Fragment key={j}>{link(url, url)}</Fragment>);
-    else out.push(<em key={j}>{inline(em)}</em>);
+    else if (bold) out.push(<strong key={j}>{inline(bold, undefined, html)}</strong>);
+    else if (strike) out.push(<s key={j}>{inline(strike, undefined, html)}</s>);
+    else if (href && bang && html) out.push(<Fragment key={j}>{picture({ src: href, alt: label })}</Fragment>);
+    else if (href) {
+      const pic = PICTURE.exec(label);
+      // Without `html` a linked picture shows its alt text, not a second link inside the first.
+      const body = pic ? (html ? picture({ src: pic[2], alt: pic[1] }) : pic[1] || href) : label ? inline(label, undefined, html) : href;
+      out.push(<Fragment key={j}>{link(href, body)}</Fragment>);
+    } else if (url) out.push(<Fragment key={j}>{link(url, url)}</Fragment>);
+    else out.push(<em key={j}>{inline(em, undefined, html)}</em>);
     last = j + m[0].length;
   }
   out.push(s.slice(last));
   return <span key={key}>{out}</span>;
 }
 
+/** A picture from the web; only https ones, as GitHub. No referrer: the host learns nothing of the app. */
+function picture({ src, ...rest }: { src: string | null; alt?: string; [attr: string]: unknown }) {
+  return src && /^https:\/\//i.test(src) ? createElement("img", { ...rest, src, referrerPolicy: "no-referrer" }) : (rest.alt as string) || null;
+}
+
+/** Raw HTML, or a Markdown part already made into React. */
+type Part = ReactNode | { raw: string };
+const isRaw = (p: Part): p is { raw: string } => typeof p === "object" && p !== null && "raw" in p;
+
+// The tags GitHub keeps in Markdown, without its form inputs. Any other tag is left out and what it holds is still
+// read through this list, as GitHub does: an unclosed <math> must not hide the rest.
+const TAGS = new Set("a abbr b bdo blockquote br caption cite code dd del details dfn div dl dt em figcaption figure h1 h2 h3 h4 h5 h6 hr i img ins kbd li mark ol p picture pre q rp rt ruby s samp small span strong sub summary sup table tbody td tfoot th thead time tr ul var wbr".split(" "));
+// Dropped with everything in them (the tagfilter already makes most of them text).
+const DROP = new Set(["script", "style", "template"]);
+// The attributes kept, by their React name. No style, class, id or event handler.
+const ATTRS = new Map(Object.entries({ align: "align", alt: "alt", title: "title", width: "width", height: "height", colspan: "colSpan", rowspan: "rowSpan", start: "start", dir: "dir", lang: "lang" }));
+const TABLE_PARTS = new Set(["TABLE", "THEAD", "TBODY", "TFOOT", "TR"]);
+// GFM's tagfilter: these show as text, as on GitHub. Read as tags, an unclosed <style> would swallow the rest.
+const TAGFILTER = /<(?=\/?(?:title|textarea|style|xmp|iframe|noembed|noframes|script|plaintext)(?![\w-]))/gi;
+
+/** Raw HTML and Markdown parts read as one document, so a <details> opened in one part holds the next ones, then rebuilt
+ * as React from the tags and attributes GitHub allows. Never set as innerHTML. */
+function weave(parts: Part[], sep: string): ReactNode {
+  // A per-read token: a <gnx-md> written in the text itself is no placeholder.
+  const token = Math.random().toString(36).slice(2);
+  const src = parts.map((p, n) => (isRaw(p) ? p.raw.replace(TAGFILTER, "&lt;") : `<gnx-md n="${n}" t="${token}"></gnx-md>`)).join(sep);
+  // A DOMParser document is inert: no script runs and no picture loads while it is read.
+  const body = new DOMParser().parseFromString(src, "text/html").body;
+  const tree = (n: Node): ReactNode => {
+    if (n.nodeType === Node.TEXT_NODE) return TABLE_PARTS.has(n.parentNode!.nodeName) && !n.nodeValue!.trim() ? null : n.nodeValue;
+    if (n.nodeType !== Node.ELEMENT_NODE) return null;
+    const el = n as Element;
+    const tag = el.localName;
+    if (tag === "gnx-md" && el.getAttribute("t") === token) return parts[Number(el.getAttribute("n"))] as ReactNode;
+    if (DROP.has(tag)) return null;
+    const kids = Array.from(el.childNodes, tree);
+    if (!TAGS.has(tag)) return createElement(Fragment, null, ...kids);
+    if (tag === "a") return link(el.getAttribute("href"), createElement(Fragment, null, ...kids));
+    const props: Record<string, unknown> = {};
+    for (const a of Array.from(el.attributes)) if (ATTRS.has(a.name)) props[ATTRS.get(a.name)!] = a.value;
+    if (tag === "img") return picture({ ...props, src: el.getAttribute("src") });
+    if (tag === "details") props.open = el.hasAttribute("open");
+    return createElement(tag, props, ...kids);
+  };
+  return createElement(Fragment, null, ...Array.from(body.childNodes, tree));
+}
+
 const cells = (l: string) => l.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((c) => c.trim());
 const TABLE_SEP = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
 const BLOCK = /^(#{1,6}\s|```|\s*[-*]\s|\s*\d+[.)]\s|>|\s*\||\s*(-{3,}|\*{3,})\s*$)/;
-const item = (t: string, j: number) => {
+// GitHub's HTML blocks, up to the next blank line: a line opening or closing one of these tags (it also ends a
+// paragraph), or a line that is one tag alone.
+const HTML_BLOCK = /^ {0,3}<\/?(address|article|aside|blockquote|center|dd|details|div|dl|dt|figcaption|figure|footer|h[1-6]|header|hr|li|main|nav|ol|p|section|summary|table|tbody|td|tfoot|th|thead|tr|ul)(\s|\/?>|$)/i;
+const HTML_LINE = new RegExp(`^ {0,3}${TAG.source}\\s*$`, "i");
+const item = (t: string, j: number, html: boolean) => {
   const task = /^\[([ xX])\]\s+(.*)$/.exec(t);
   return (
     <li key={j}>
-      {task ? <><input type="checkbox" checked={task[1] !== " "} disabled aria-readonly /> {inline(task[2])}</> : inline(t)}
+      {task ? <><input type="checkbox" checked={task[1] !== " "} disabled aria-readonly /> {inline(task[2], undefined, html)}</> : inline(t, undefined, html)}
     </li>
   );
 };
@@ -420,9 +492,25 @@ function CodeBlock({ lang, text }: { lang: string; text: string }) {
   );
 }
 
+// A picture or HTML in Markdown, hidden until the project allows them.
+export const MEDIA = /!\[[^\]]*\]\(|<\/?[a-z][\w-]*[\s/>]/i;
+
+/** Asks before a pull request's or GitHub issue's pictures load; `onShow` remembers it for the project. */
+export function MediaAsk({ onShow }: { onShow: () => void }) {
+  return (
+    <div className="row media-ask">
+      <Icon name="image" size={14} className="faint" />
+      <span className="grow">Pictures and HTML are hidden. Pictures load from the sites that host them, which see your IP address.</span>
+      <button className="btn btn-sm" onClick={onShow}>Show for this project</button>
+    </div>
+  );
+}
+
+/** `html`: pictures and the HTML GitHub allows, which load from the web, so only where the user allowed them.
+ * `breaks`: a line break in a paragraph stays one, as in GitHub's pull requests and comments. */
 // Memo: an agent log redraws every reply when a line arrives; only new text is parsed again.
-export const Markdown = memo(function Markdown({ text }: { text: string }) {
-  const blocks: ReactNode[] = [];
+export const Markdown = memo(function Markdown({ text, html = false, breaks = false }: { text: string; html?: boolean; breaks?: boolean }) {
+  const blocks: Part[] = [];
   // PR templates leave <!-- hints --> behind.
   const lines = text.replace(/\r/g, "").replace(/<!--[\s\S]*?-->/g, "").split("\n");
   let i = 0;
@@ -432,9 +520,20 @@ export const Markdown = memo(function Markdown({ text }: { text: string }) {
       i++;
       continue;
     }
+    // A link reference, or the [//]: # (comment) trick: GitHub shows neither.
+    if (/^ {0,3}\[[^\]]+\]:\s*\S/.test(l)) {
+      i++;
+      continue;
+    }
+    if (html && (HTML_BLOCK.test(l) || HTML_LINE.test(l))) {
+      const raw: string[] = [];
+      while (i < lines.length && lines[i].trim()) raw.push(lines[i++]);
+      blocks.push({ raw: raw.join("\n") });
+      continue;
+    }
     const h = /^(#{1,6})\s+(.*)$/.exec(l);
     if (h) {
-      blocks.push(<h3 key={i}>{inline(h[2], "h")}</h3>);
+      blocks.push(<h3 key={i}>{inline(h[2], "h", html)}</h3>);
       i++;
       continue;
     }
@@ -455,7 +554,7 @@ export const Markdown = memo(function Markdown({ text }: { text: string }) {
     if (l.startsWith(">")) {
       const quote: string[] = [];
       while (i < lines.length && lines[i].startsWith(">")) quote.push(lines[i++].replace(/^>\s?/, ""));
-      blocks.push(<blockquote key={i}><Markdown text={quote.join("\n")} /></blockquote>);
+      blocks.push(<blockquote key={i}><Markdown text={quote.join("\n")} html={html} breaks={breaks} /></blockquote>);
       continue;
     }
     if (l.trim().startsWith("|") && TABLE_SEP.test(lines[i + 1] ?? "")) {
@@ -466,8 +565,8 @@ export const Markdown = memo(function Markdown({ text }: { text: string }) {
       blocks.push(
         <div key={i} className="adf-table">
           <table>
-            <thead><tr>{head.map((c, j) => <th key={j}>{inline(c)}</th>)}</tr></thead>
-            <tbody>{rows.map((r, k) => <tr key={k}>{head.map((_, j) => <td key={j}>{inline(r[j] ?? "")}</td>)}</tr>)}</tbody>
+            <thead><tr>{head.map((c, j) => <th key={j}>{inline(c, undefined, html)}</th>)}</tr></thead>
+            <tbody>{rows.map((r, k) => <tr key={k}>{head.map((_, j) => <td key={j}>{inline(r[j] ?? "", undefined, html)}</td>)}</tr>)}</tbody>
           </table>
         </div>,
       );
@@ -476,19 +575,19 @@ export const Markdown = memo(function Markdown({ text }: { text: string }) {
     if (/^\s*[-*]\s+/.test(l)) {
       const items: string[] = [];
       while (i < lines.length && /^\s*[-*]\s+/.test(lines[i])) items.push(lines[i++].replace(/^\s*[-*]\s+/, ""));
-      blocks.push(<ul key={i}>{items.map(item)}</ul>);
+      blocks.push(<ul key={i}>{items.map((t, j) => item(t, j, html))}</ul>);
       continue;
     }
     if (/^\s*\d+[.)]\s+/.test(l)) {
       const items: string[] = [];
       while (i < lines.length && /^\s*\d+[.)]\s+/.test(lines[i])) items.push(lines[i++].replace(/^\s*\d+[.)]\s+/, ""));
-      blocks.push(<ol key={i}>{items.map(item)}</ol>);
+      blocks.push(<ol key={i}>{items.map((t, j) => item(t, j, html))}</ol>);
       continue;
     }
     // The first line goes in whatever it starts: a "|" row with no "|---|" under it is no table, and would loop forever.
     const para: string[] = [lines[i++]];
-    while (i < lines.length && lines[i].trim() && !BLOCK.test(lines[i])) para.push(lines[i++]);
-    blocks.push(<p key={i}>{inline(para.join(" "), "p")}</p>);
+    while (i < lines.length && lines[i].trim() && !BLOCK.test(lines[i]) && !(html && HTML_BLOCK.test(lines[i]))) para.push(lines[i++]);
+    blocks.push(<p key={i}>{breaks ? para.map((t, k) => <Fragment key={k}>{k > 0 && <br />}{inline(t, undefined, html)}</Fragment>) : inline(para.join(" "), "p", html)}</p>);
   }
-  return <div className="md">{blocks}</div>;
+  return <div className="md">{blocks.some(isRaw) ? weave(blocks, "\n") : (blocks as ReactNode[])}</div>;
 });

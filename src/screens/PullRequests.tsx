@@ -1,13 +1,13 @@
 import { useMutationState, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState, type CSSProperties } from "react";
 
-import { useAction, useOverview, usePendingBranches, usePr, usePrs } from "../api/hooks";
+import { useAction, useOverview, usePendingBranches, usePr, useProjectPrefs, usePrs } from "../api/hooks";
 import { openExternal, RpcError } from "../api/transport";
 import type { PrDetail, PrSummary, PrThread } from "../api/types";
 import { Avatar } from "../components/Avatar";
 import { Icon } from "../components/Icon";
 import { Resizer, usePaneWidth } from "../components/Resizer";
-import { ago, Busy, Empty, EmptyState, Header, initials, Loading, Markdown, Modal, Seg, swipeProps } from "../components/ui";
+import { ago, Busy, Empty, EmptyState, Header, initials, Loading, Markdown, MEDIA, MediaAsk, Modal, Seg, swipeProps } from "../components/ui";
 import { plural } from "../lib/format";
 import { useNav } from "../lib/nav";
 import { useStored } from "../lib/stored";
@@ -181,6 +181,8 @@ function Detail({ pid, number }: { pid: string; number: number }) {
   const nav = useNav();
   const q = usePr(pid, number);
   const host = useHost(pid);
+  const prefs = useProjectPrefs(pid);
+  const media = prefs.dialogs.prMedia;
   const inv = [["pr", pid, number], ["prs", pid]];
   // The branch tree refreshes on its own: the merge fetches origin, which says the project changed.
   const merge = useAction("prs.merge", {
@@ -227,6 +229,7 @@ function Detail({ pid, number }: { pid: string; number: number }) {
   const changes = d.reviewers.filter((r) => r.vote === "changes").length;
   const votes = [approvals && plural(approvals, "approval"), changes && `${changes} changes requested`].filter(Boolean).join(" · ");
   const threads = filter === "open" ? d.threads.filter((t) => t.resolvable && !t.resolved) : d.threads;
+  const hidden = !media && (MEDIA.test(d.body) || d.threads.some((t) => t.comments.some((c) => MEDIA.test(c.body))));
   const startEdit = () => {
     setTitle(d.title);
     setBody(d.body);
@@ -434,6 +437,7 @@ function Detail({ pid, number }: { pid: string; number: number }) {
             </button>
           )}
         </div>
+        {hidden && !editing && <MediaAsk onShow={() => prefs.setDialogs({ prMedia: true })} />}
         {editing ? (
           <div className="col">
             <label htmlFor="pr-body" className="sr-only">Description</label>
@@ -448,7 +452,7 @@ function Detail({ pid, number }: { pid: string; number: number }) {
           </div>
         ) : d.body ? (
           <div className="card" style={{ padding: "6px 16px" }}>
-            <Markdown text={d.body} />
+            <Markdown text={d.body} html={media} breaks />
           </div>
         ) : (
           <span className="muted">No description.</span>
@@ -462,7 +466,7 @@ function Detail({ pid, number }: { pid: string; number: number }) {
           <span className="grow" />
           <Seg label="Show" value={filter} onChange={setFilter} options={[{ value: "all", label: "All" }, { value: "open", label: "Unresolved" }]} />
         </div>
-        {threads.map((t) => <ThreadView key={t.id} pid={pid} number={number} t={t} />)}
+        {threads.map((t) => <ThreadView key={t.id} pid={pid} number={number} t={t} media={media} />)}
         {threads.length === 0 && <span className="muted">{d.threads.length === 0 ? "No comments yet." : "Every conversation is resolved."}</span>}
         <NewComment pid={pid} number={number} />
       </section>
@@ -525,7 +529,7 @@ function ReviewForm({ pid, d, onDone }: { pid: string; d: PrDetail; onDone: () =
   );
 }
 
-function ThreadView({ pid, number, t }: { pid: string; number: number; t: PrThread }) {
+function ThreadView({ pid, number, t, media }: { pid: string; number: number; t: PrThread; media: boolean }) {
   const host = useHost(pid);
   // Azure DevOps comments only take likes, Bitbucket's none.
   const emoji = host === "Azure DevOps" ? EMOJI.slice(0, 1) : host === "Bitbucket" ? [] : EMOJI;
@@ -631,7 +635,7 @@ function ThreadView({ pid, number, t }: { pid: string; number: number; t: PrThre
                 </div>
               </div>
             ) : (
-              <div className="comment-body">{c.body}</div>
+              <div className="comment-body"><Markdown text={c.body} html={media} breaks /></div>
             )}
             <div className="row wrap" style={{ gap: 6, position: "relative" }}>
               {c.reactions.map((r) => (

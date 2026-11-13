@@ -150,11 +150,14 @@ pub struct DialogPrefs {
     pub delete_origin: bool,
     /// Also delete the cleaned-up behind branches on origin.
     pub cleanup_origin: bool,
+    /// Show pictures and GitHub's HTML in pull requests, their comments and GitHub issues: pictures load from wherever
+    /// they are hosted.
+    pub pr_media: bool,
 }
 
 impl Default for DialogPrefs {
     fn default() -> Self {
-        DialogPrefs { finish: FinishWith::Merge, finish_switch: true, new_worktree: false, new_agent: false, ship_push: true, ship_changelog: true, delete_origin: false, cleanup_origin: true }
+        DialogPrefs { finish: FinishWith::Merge, finish_switch: true, new_worktree: false, new_agent: false, ship_push: true, ship_changelog: true, delete_origin: false, cleanup_origin: true, pr_media: false }
     }
 }
 
