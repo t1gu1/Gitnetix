@@ -258,6 +258,8 @@ pub struct Route {
     pub effort: Option<String>,
     /// Agents only: how their actions get approved (`agents::claude_permission`). None = Bypass.
     pub permission: Option<String>,
+    /// Claude agents only: Claude Code's ultracode (standing workflow orchestration). None = off.
+    pub ultracode: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -277,7 +279,7 @@ impl Default for AiConfig {
             ProviderConf { method: ConnectMethod::Cli, model: "claude-sonnet-5-5".into(), effort: "medium".into(), ..Default::default() },
         );
         let mut routing = BTreeMap::new();
-        let r = |m: &str, e: &str| Route { provider: Some("claude".into()), model: Some(m.into()), effort: Some(e.into()), permission: None };
+        let r = |m: &str, e: &str| Route { provider: Some("claude".into()), model: Some(m.into()), effort: Some(e.into()), permission: None, ultracode: None };
         routing.insert("commit".into(), r("claude-haiku-5-5", "low"));
         routing.insert("branch".into(), r("claude-haiku-5-5", "low"));
         routing.insert("pr".into(), r("claude-sonnet-5-5", "medium"));

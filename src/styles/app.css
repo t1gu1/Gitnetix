@@ -1053,11 +1053,13 @@ body.dragging-tab * {
     box-shadow var(--t) var(--ease);
 }
 .check:hover input:not(:disabled, :checked),
-.ctx-item[aria-checked="false"]:hover:not(:disabled) > .ctx-box {
+.ctx-item[aria-checked="false"]:hover:not(:disabled) > .ctx-box,
+.ctx-ultra[aria-pressed="false"]:hover > .ctx-box {
   border-color: var(--muted);
 }
 .check input:checked,
-.ctx-item[aria-checked="true"] > .ctx-box {
+.ctx-item[aria-checked="true"] > .ctx-box,
+.ctx-ultra[aria-pressed="true"] > .ctx-box {
   border-color: var(--accent);
   background-color: var(--accent);
   background-image: var(--tick);
@@ -3026,6 +3028,42 @@ button.tree-twist:hover {
   color: var(--fg);
   background: var(--sel);
 }
+/* Ultracode at the right of the agent menu's Effort heading: a small toggle button, its text and checkbox. */
+.ctx-ultra {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  /* Taller than the heading's text: the margin keeps the headings of every column level. */
+  margin-block: -2px;
+  padding: 2px 5px;
+  border: 0;
+  border-radius: var(--r-sm);
+  /* Always a light fill so it reads as a button; stronger on hover. Mixed from the text color: fits light and dark themes. */
+  background: color-mix(in srgb, var(--fg) 7%, transparent);
+  color: var(--muted);
+  font-size: 9px;
+  /* Whole pixels: the 10px box lands 3px into a 16px button, not on half a pixel (blurry, off center at 1.5x). */
+  line-height: 12px;
+}
+.ctx-ultra:hover {
+  color: var(--fg);
+  background: color-mix(in srgb, var(--fg) 16%, transparent);
+}
+.ctx-ultra > .ctx-box {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  /* Too small for the tick's spring grow: it jolts. The box switches at once. */
+  transition: none;
+}
+/* Its smaller text on the heading's baseline, not a pixel lower. */
+.ctx-head-row:has(> .ctx-ultra) {
+  align-items: baseline;
+}
+.ctx-ultra[aria-pressed="true"] > .ctx-box {
+  /* The 8px inside the border, exactly: centered on whole pixels. */
+  background-size: 8px 8px;
+}
 /* A column with a .ctx-fold pill shrinks to it, and grows back on hover or focus. */
 .ctx-col:has(.ctx-fold):not(:hover, :focus-within) {
   min-width: 0;
@@ -3107,6 +3145,9 @@ button.tree-twist:hover {
   .ctx-head .act {
     width: 32px;
     height: 28px;
+  }
+  .ctx-ultra {
+    min-height: 28px;
   }
 }
 .branch-meta {
@@ -5132,13 +5173,27 @@ button.picker-act {
 .effort-bars > i.on {
   opacity: 1;
 }
+/* The model's name, with "Ultracode" in small letters above it when on. */
+.agent-name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.15;
+  text-align: left;
+}
+.agent-ultra {
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--accent-fg);
+}
 /* Narrow: the cell shrinks to its icon and bars, leaving the room to the text. */
 @media (max-width: 900px) and (pointer: coarse), (max-width: 480px) {
   /* The mic's 22px, not the 36px touch height of buttons here. */
   .term-input .term-attach {
     min-height: 0;
   }
-  .agent-chip > .ellipsis {
+  .agent-chip > .agent-name {
     display: none;
   }
 }

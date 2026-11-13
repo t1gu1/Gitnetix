@@ -29,8 +29,15 @@ export const PERMISSIONS = [
   { value: "cli", label: "Use agent permissions" },
 ];
 
-/** Provider, model, effort and permission for a new agent session. Empty = the "Free-form agent" routing. */
-export type AgentPick = { provider?: string; model?: string; effort?: string; permission?: string };
+/**
+ * Claude Code turns ultracode on, at any effort, only for the models that take xhigh effort. A model missing from the
+ * list (an older one, e.g. claude-opus-4-6) gets none; "" is the CLI's own default model.
+ */
+export const takesUltracode = (provider: string | undefined, models: ModelInfo[], model: string) =>
+  provider === "claude" && (!model || !!models.find((m) => m.id === model)?.efforts.includes("xhigh"));
+
+/** Provider, model, effort, permission and ultracode for a new agent session. Empty = the "Free-form agent" routing. */
+export type AgentPick = { provider?: string; model?: string; effort?: string; permission?: string; ultracode?: boolean };
 
 /** The last pick on a project, kept between sessions. */
 export const useAgentPick = (projectId: string) => useStored<AgentPick>(`gnx.agentPick.${projectId}`, {});
@@ -54,11 +61,12 @@ export function AgentPicker({ value: saved, onChange, compact }: { value: AgentP
   const effort = value.effort ?? route.effort ?? "";
   // The routing's even with another provider picked: it is a choice about you, not the model.
   const permission = value.permission ?? c.routing.agent?.permission ?? "";
+  const ultracode = value.ultracode ?? c.routing.agent?.ultracode ?? false;
   // Agents only run through a local CLI: one set up that way, or one found on this computer.
   const clis = c.providers.filter((p) => (p.conf ? p.conf.method === "cli" : p.status?.status === "detected") || p.info.id === provider);
   const prov = c.providers.find((p) => p.info.id === provider);
   const set = (patch: AgentPick) => {
-    const next = { provider, model, effort, permission, ...patch };
+    const next = { provider, model, effort, permission, ultracode, ...patch };
     if (menu) setPicked(next);
     onChange(next);
   };
@@ -69,23 +77,34 @@ export function AgentPicker({ value: saved, onChange, compact }: { value: AgentP
   const models = [{ value: "", label: "Default model" }, ...list.map((m) => ({ value: m.id, label: m.label }))];
   const efforts = [{ value: "", label: "Default effort" }, ...fits(model).map((x) => ({ value: x, label: effortLabel(x) }))];
   const listsModels = list.length > 0 || listed.isLoading;
+  const canUltra = takesUltracode(provider, list, model || prov?.conf?.model || "");
+  const ultraOn = canUltra && ultracode;
   const pickModel = (v: string) => set({ model: v, effort: fitEffort(fits(v), effort) });
   const modelField = <input aria-label="Agent model" className="input mono" style={{ width: 120 }} placeholder="model id" value={model} onChange={(e) => set({ model: e.target.value })} />;
   if (compact) {
     const name = (opts: Option[], v: string) => opts.find((o) => o.value === v)?.label ?? v;
-    const col = (heading: string, opts: Option[], cur: string, run: (v: string) => void): (MenuItem | { heading: ReactNode })[] => [
-      { heading },
+    const col = (heading: string, opts: Option[], cur: string, run: (v: string) => void, head?: ReactNode): (MenuItem | { heading: ReactNode })[] => [
+      { heading: head ?? heading },
       ...opts.map((o) => ({ id: `${heading}.${o.value}`, label: o.label, icon: null, hint: o.value === cur && <Icon name="check" size={13} />, keep: true, run: () => run(o.value) })),
     ];
+    const ultraHead = (
+      <span className="ctx-head-row">
+        <span className="grow ellipsis">Effort</span>
+        <button type="button" className="ctx-ultra" aria-pressed={ultracode} onClick={() => set({ ultracode: !ultracode })}>
+          Ultracode
+          <span className="ctx-box" aria-hidden />
+        </button>
+      </span>
+    );
     const items = [
       ...col("Agent", provs, provider, (v) => set({ provider: v, model: "" })),
       "sep" as const,
       ...(listsModels ? col("Model", models, model, pickModel) : [{ heading: "Model" }, { heading: modelField }]),
-      ...(efforts.length > 1 ? ["sep" as const, ...col("Effort", efforts, effort, (v) => set({ effort: v }))] : []),
+      ...(efforts.length > 1 ? ["sep" as const, ...col("Effort", efforts, effort, (v) => set({ effort: v }), canUltra ? ultraHead : undefined)] : []),
       ...(provider === "claude" ? ["sep" as const, ...col("Permissions", PERMISSIONS, permission, (v) => set({ permission: v }))] : []),
     ];
     const level = EFFORTS.indexOf(effort) + 1;
-    const summary = [name(provs, provider), model && name(models, model), effort && `${effortLabel(effort)} effort`, provider === "claude" && `${name(PERMISSIONS, permission)} permissions`].filter(Boolean).join(" · ");
+    const summary = [name(provs, provider), model && name(models, model), effort && `${effortLabel(effort)} effort`, provider === "claude" && `${name(PERMISSIONS, permission)} permissions`, ultraOn && "Ultracode"].filter(Boolean).join(" · ");
     return (
       <>
         <button
@@ -100,7 +119,10 @@ export function AgentPicker({ value: saved, onChange, compact }: { value: AgentP
           }}
         >
           <Icon name="sparkle" size={13} className="c-acc" />
-          <span className="ellipsis">{model ? name(models, model) : name(provs, provider)}</span>
+          <span className="agent-name">
+            {ultraOn && <span className="agent-ultra">Ultracode</span>}
+            <span className="ellipsis">{model ? name(models, model) : name(provs, provider)}</span>
+          </span>
           {level > 0 && (
             <span className="effort-bars" aria-hidden>
               {EFFORTS.map((x, i) => <i key={x} className={i < level ? "on" : undefined} style={{ height: `${(i + 1) * 20}%` }} />)}
@@ -119,6 +141,12 @@ export function AgentPicker({ value: saved, onChange, compact }: { value: AgentP
       {listsModels ? <MenuChoice className={cls} label="Agent model" value={model} options={models} onChange={pickModel} /> : modelField}
       {efforts.length > 1 && <MenuChoice className={cls} label="Agent effort" value={effort} options={efforts} onChange={(v) => set({ effort: v })} />}
       {provider === "claude" && <MenuChoice className={cls} label="Agent permissions" value={permission} options={PERMISSIONS} onChange={(v) => set({ permission: v })} />}
+      {canUltra && (
+        <label className="check">
+          <input type="checkbox" checked={ultracode} onChange={() => set({ ultracode: !ultracode })} />
+          <span>Ultracode</span>
+        </label>
+      )}
     </div>
   );
 }

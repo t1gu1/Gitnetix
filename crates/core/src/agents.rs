@@ -840,6 +840,8 @@ impl AgentManager {
                 if !effort.is_empty() {
                     cmd.args(["--effort", &effort]);
                 }
+                // Off too: an `ultracode` left on in the user's Claude settings would otherwise turn it on.
+                cmd.args(["--settings", if r.ultracode { r#"{"ultracode":true}"# } else { r#"{"ultracode":false}"# }]);
                 if let Some(rid) = resume {
                     cmd.args(["--resume", rid]);
                 }
@@ -1201,7 +1203,7 @@ mod tests {
     use super::*;
 
     fn cli(provider: &str) -> Resolved {
-        Resolved { provider: provider.into(), method: ConnectMethod::Cli, model: String::new(), effort: String::new(), base_url: None, permission: String::new() }
+        Resolved { provider: provider.into(), method: ConnectMethod::Cli, model: String::new(), effort: String::new(), base_url: None, permission: String::new(), ultracode: false }
     }
 
     /// Session `id`'s run ends by itself: the run here gets run number 0 (spawn counts from 1), then its task ends it.

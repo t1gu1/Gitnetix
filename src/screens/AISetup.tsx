@@ -2,7 +2,7 @@ import { type CSSProperties, type ReactNode, useEffect, useState } from "react";
 
 import { useAction, useAiCatalog, useAiModels } from "../api/hooks";
 import type { AiCatalog, ConnectMethod } from "../api/types";
-import { effortLabel, effortsFor, fitEffort, MenuChoice, PERMISSIONS } from "../components/AgentPicker";
+import { effortLabel, effortsFor, fitEffort, MenuChoice, PERMISSIONS, takesUltracode } from "../components/AgentPicker";
 import { Resizer, usePaneWidth } from "../components/Resizer";
 import { Loading, Seg } from "../components/ui";
 
@@ -231,13 +231,13 @@ function Routing({ cat }: { cat: AiCatalog }) {
   );
 }
 
-type RouteSet = { provider: string | null; model: string | null; effort: string | null; permission: string | null };
+type RouteSet = { provider: string | null; model: string | null; effort: string | null; permission: string | null; ultracode: boolean | null };
 
-/** One task's provider, model and effort, and the agent's permissions. The effort menu lists what the model takes. */
+/** One task's provider, model and effort, and the agent's permissions and ultracode. The effort menu lists what the model takes. */
 function RouteRow({ cat, task, label, usable, set }: { cat: AiCatalog; task: string; label: string; usable: AiCatalog["providers"]; set: (r: RouteSet) => void }) {
   const r = cat.routing[task] ?? {};
   // Every change sends the whole route: one left out would be cleared.
-  const put = (x: Partial<RouteSet>) => set({ provider: r.provider ?? null, model: r.model ?? null, effort: r.effort ?? null, permission: r.permission ?? null, ...x });
+  const put = (x: Partial<RouteSet>) => set({ provider: r.provider ?? null, model: r.model ?? null, effort: r.effort ?? null, permission: r.permission ?? null, ultracode: r.ultracode ?? null, ...x });
   const prov = cat.providers.find((p) => p.info.id === (r.provider ?? cat.defaultProvider));
   const listed = useAiModels(prov?.info.id);
   const models = listed.data ?? prov?.info.models ?? [];
@@ -280,6 +280,12 @@ function RouteRow({ cat, task, label, usable, set }: { cat: AiCatalog; task: str
       )}
       {task === "agent" && prov?.info.id === "claude" && (
         <MenuChoice className="select menu-select" style={{ height: 32, width: 170 }} label={`${label} permissions`} value={r.permission ?? ""} options={PERMISSIONS} onChange={(v) => put({ permission: v || null })} />
+      )}
+      {task === "agent" && takesUltracode(prov?.info.id, models, r.model || prov?.conf?.model || "") && (
+        <label className="check">
+          <input type="checkbox" aria-label={`${label} ultracode`} checked={!!r.ultracode} onChange={() => put({ ultracode: !r.ultracode || null })} />
+          <span>Ultracode</span>
+        </label>
       )}
     </li>
   );

@@ -428,6 +428,8 @@ export interface Route {
   effort?: string | null;
   /** Agents only: how their actions get approved (`PERMISSIONS`). Empty = Bypass. */
   permission?: string | null;
+  /** Claude agents only: Claude Code's ultracode. */
+  ultracode?: boolean | null;
 }
 
 export interface TemplateRule {
@@ -558,7 +560,7 @@ export interface AgentSession {
   updatedAt: string;
   resumeId?: string | null;
   /** What the session runs on; missing on sessions from before routing. */
-  ai?: { provider: string; model: string; effort: string; permission?: string } | null;
+  ai?: { provider: string; model: string; effort: string; permission?: string; ultracode?: boolean } | null;
   /** Messages sent while it works, in order; they go out together when the run ends. */
   queued: string[];
   /** The usage limit its last run stopped at: it waits (status "waiting") for the reset, or for you. */
