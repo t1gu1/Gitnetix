@@ -17,6 +17,8 @@ export type MenuItem =
       disabled?: boolean;
       /** Why it is disabled: the tooltip on hover while greyed out. */
       why?: string;
+      /** A checkbox row, ticked or not. */
+      checked?: boolean;
       /** Leaves the menu open, e.g. to toggle several options in a row. */
       keep?: boolean;
       /** What the search field matches when the label isn't plain text. */
@@ -50,7 +52,7 @@ function halves(groups: Entry[][]): Entry[][] | null {
 
 const TRIGGER = '[aria-haspopup="menu"]';
 // Buttons inside a heading (e.g. "Hide") stay out of the arrow keys and the first focus.
-const ITEM = '[role="menuitem"]:not(:disabled)';
+const ITEM = '[role^="menuitem"]:not(:disabled)';
 // WebKit doesn't focus clicked buttons, so the last pressed trigger stands in for the focused one.
 let lastDown: Element | null = null;
 window.addEventListener("mousedown", (e) => (lastDown = (e.target as Element).closest?.(TRIGGER) ?? null), true);
@@ -172,7 +174,8 @@ export function ContextMenu({ x, y, items, label, alignRight, columns, search, o
   const item = (it: Exclude<MenuItem, "sep">) => (
     <button
       key={it.id}
-      role="menuitem"
+      role={it.checked === undefined ? "menuitem" : "menuitemcheckbox"}
+      aria-checked={it.checked}
       className={`ctx-item${it.danger ? " c-del" : ""}`}
       // Names too long for the menu read in full on hover.
       title={search && typeof it.label === "string" ? it.label : undefined}
@@ -184,6 +187,7 @@ export function ContextMenu({ x, y, items, label, alignRight, columns, search, o
       }}
     >
       {it.icon !== null && <span className={`ctx-icon${it.warn ? " ctx-warn" : ""}`}>{it.icon && <Icon name={it.icon} size={13} />}</span>}
+      {it.checked !== undefined && <span className="ctx-box" aria-hidden />}
       <span className="grow ellipsis">{it.label}</span>
       {it.hint && <span className="ctx-hint">{it.hint}</span>}
     </button>

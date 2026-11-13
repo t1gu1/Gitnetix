@@ -21,21 +21,25 @@ export const keepAbsent = (saved: string[], present: string[], next: string[] | 
 
 /**
  * Dropdown of checkboxes over `items` (`what`: their plural, "projects"), every one checked while `all`. Unchecking
- * one leaves the others checked; "Only" leaves that one alone. `onChange(null)` picks all again; otherwise it gives
- * the ids now checked, never none.
+ * one leaves the others checked; "Only" leaves that one alone. Unchecking "All" clears the boxes until one is checked,
+ * the filter staying as it was. `onChange(null)` picks all again; otherwise it gives the ids now checked, never none.
  */
 export function CheckPicker({ what, items, all, picked, onChange }: { what: string; items: PickItem[]; all: boolean; picked: string[]; onChange: (ids: string[] | null) => void }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  // "All" unchecked: no box shows checked, nothing applied yet.
+  const [cleared, setCleared] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const q = query.trim().toLowerCase();
   const shown = q ? items.filter((it) => `${it.name} ${it.sub ?? ""}`.toLowerCase().includes(q)) : items;
-  const on = (id: string) => all || picked.includes(id);
+  const on = (id: string) => !cleared && (all || picked.includes(id));
   const checked = items.filter((it) => on(it.id));
   const label = all ? `All ${what}` : checked.length === 1 ? checked[0].name : `${checked.length} ${what}`;
   const toggle = (id: string) => {
     const next = on(id) ? checked.filter((it) => it.id !== id).map((it) => it.id) : [...checked.map((it) => it.id), id];
-    if (next.length) onChange(next);
+    if (!next.length) return;
+    setCleared(false);
+    onChange(next);
   };
 
   useEffect(() => {
@@ -52,7 +56,7 @@ export function CheckPicker({ what, items, all, picked, onChange }: { what: stri
 
   return (
     <div ref={ref} style={{ position: "relative" }}>
-      <button className="select row" style={{ height: 32, gap: 8 }} aria-haspopup="true" aria-expanded={open} onClick={() => { setOpen(!open); setQuery(""); }}>
+      <button className="select row" style={{ height: 32, gap: 8 }} aria-haspopup="true" aria-expanded={open} onClick={() => { setOpen(!open); setQuery(""); setCleared(false); }}>
         <span className="sr-only">{what[0].toUpperCase() + what.slice(1)}: </span>
         <span className="ellipsis" style={{ maxWidth: 220 }}>{label}</span>
         <Icon name="chevronDown" size={12} />
@@ -67,7 +71,7 @@ export function CheckPicker({ what, items, all, picked, onChange }: { what: stri
           {!q && (
             <>
               <label className="check ctx-item">
-                <input type="checkbox" checked={all} onChange={() => onChange(null)} />
+                <input type="checkbox" checked={all && !cleared} onChange={(e) => { setCleared(!e.target.checked); if (e.target.checked) onChange(null); }} />
                 <span className="grow ellipsis">All {what}</span>
               </label>
               <div className="ctx-sep" role="separator" />
@@ -85,7 +89,7 @@ export function CheckPicker({ what, items, all, picked, onChange }: { what: stri
                   {it.sub && <span className="faint ellipsis" style={{ fontSize: 11 }}>{it.sub}</span>}
                 </span>
               </label>
-              {items.length > 1 && <button className="ctx-only" aria-label={`Only ${it.name}`} onClick={() => onChange([it.id])}>Only</button>}
+              {items.length > 1 && <button className="ctx-only" aria-label={`Only ${it.name}`} onClick={() => { setCleared(false); onChange([it.id]); }}>Only</button>}
             </div>
           ))}
         </div>

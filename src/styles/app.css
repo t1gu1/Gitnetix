@@ -1032,9 +1032,11 @@ body.dragging-tab * {
   min-height: 32px;
   cursor: pointer;
 }
-/* Drawn by hand: the native check fills the whole box, edge to edge. */
-.check input {
+/* Drawn by hand: the native check fills the whole box, edge to edge. A menu's checkbox row (.ctx-box) looks the same. */
+.check input,
+.ctx-box {
   flex: 0 0 auto;
+  box-sizing: border-box;
   appearance: none;
   width: 16px;
   height: 16px;
@@ -1050,10 +1052,12 @@ body.dragging-tab * {
     border-color var(--t-fast) var(--ease),
     box-shadow var(--t) var(--ease);
 }
-.check:hover input:not(:disabled, :checked) {
+.check:hover input:not(:disabled, :checked),
+.ctx-item[aria-checked="false"]:hover:not(:disabled) > .ctx-box {
   border-color: var(--muted);
 }
-.check input:checked {
+.check input:checked,
+.ctx-item[aria-checked="true"] > .ctx-box {
   border-color: var(--accent);
   background-color: var(--accent);
   background-image: var(--tick);
@@ -1063,7 +1067,8 @@ body.dragging-tab * {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
-.check input:disabled {
+.check input:disabled,
+.ctx-item:disabled > .ctx-box {
   opacity: 0.5;
   cursor: default;
 }
@@ -2882,6 +2887,11 @@ button.tree-twist:hover {
 .ctx-item:disabled {
   color: var(--faint);
   cursor: default;
+}
+/* The last box checked can't be unchecked: its row still reads as picked, only the box dims. */
+.ctx-item[aria-checked="true"]:disabled {
+  color: var(--fg);
+  opacity: 1;
 }
 /* An item with a trash icon at its right end (e.g. a terminal). */
 .ctx-row {

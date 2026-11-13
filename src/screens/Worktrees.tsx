@@ -258,7 +258,6 @@ export function Worktrees({ route }: { route: { key?: string } }) {
 function ProjectFilter({ projects, hidden, onChange }: { projects: { id: string; name: string }[]; hidden: string[]; onChange: (hidden: string[]) => void }) {
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   if (projects.length < 2 && !hidden.length) return null;
-  const check = <Icon name="check" size={13} />;
   return (
     <>
       {/* Same label filtered or not: a wider one cuts "Needs you" short. The accent border tells it is on. */}
@@ -284,13 +283,13 @@ function ProjectFilter({ projects, hidden, onChange }: { projects: { id: string;
           label="Filter by project"
           onClose={() => setMenu(null)}
           items={[
-            { id: "all", label: "All projects", icon: null, hint: !hidden.length && check, keep: true, run: () => onChange([]) },
+            { id: "all", label: "All projects", icon: null, checked: !hidden.length, keep: true, run: () => onChange(hidden.length ? [] : projects.map((p) => p.id)) },
             "sep",
             ...projects.map((p) => ({
               id: p.id,
               label: p.name,
               icon: null,
-              hint: !hidden.includes(p.id) && check,
+              checked: !hidden.includes(p.id),
               keep: true,
               run: () => onChange(hidden.includes(p.id) ? hidden.filter((x) => x !== p.id) : [...hidden, p.id]),
             })),

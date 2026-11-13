@@ -32,11 +32,24 @@ export function authorsOf(items: { author: string; email: string }[]): Author[] 
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-/** Dropdown picking the authors to show (their emails in `who`); none picked = all. Hidden with fewer than two authors. */
+/**
+ * Dropdown of checkboxes picking the authors to show (their emails in `who`), every one checked while none is picked.
+ * Unchecking one leaves the others checked; unchecking "All" clears the boxes until one is checked, the filter staying
+ * as it was. Hidden with fewer than two authors.
+ */
 export function AuthorFilter({ authors, who, onChange, tip, className = "btn btn-sm" }: { authors: Author[]; who: string[]; onChange: (who: string[]) => void; tip: string; className?: string }) {
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  // "All" unchecked: no box shows checked, nothing applied yet.
+  const [cleared, setCleared] = useState(false);
   if (authors.length < 2) return null;
   const picked = authors.filter((a) => who.includes(a.email));
+  const all = picked.length === 0;
+  const on = (a: Author) => !cleared && (all || picked.includes(a));
+  const checked = authors.filter(on);
+  const pick = (next: Author[]) => {
+    setCleared(false);
+    onChange(next.length === authors.length ? [] : next.map((a) => a.email));
+  };
   return (
     <>
       <button
@@ -48,9 +61,10 @@ export function AuthorFilter({ authors, who, onChange, tip, className = "btn btn
         onClick={(e) => {
           const r = e.currentTarget.getBoundingClientRect();
           setMenu({ x: r.right, y: r.bottom + 2 });
+          setCleared(false);
         }}
       >
-        <span className="ellipsis">{picked.length === 0 ? "All" : picked.length === 1 ? picked[0].name : `${picked.length} authors`}</span>
+        <span className="ellipsis">{all ? "All" : picked.length === 1 ? picked[0].name : `${picked.length} authors`}</span>
         <Icon name="chevronDown" size={10} />
       </button>
       {menu && (
@@ -62,7 +76,7 @@ export function AuthorFilter({ authors, who, onChange, tip, className = "btn btn
           search={authors.length > SEARCH_ABOVE ? "Filter authors" : undefined}
           onClose={() => setMenu(null)}
           items={[
-            { id: "all", label: "All", icon: null, hint: picked.length === 0 && <Icon name="check" size={13} />, keep: true, run: () => onChange([]) },
+            { id: "all", label: "All", icon: null, checked: all && !cleared, keep: true, run: () => (all && !cleared ? setCleared(true) : pick(authors)) },
             "sep",
             ...authors.map((a) => ({
               id: a.email,
@@ -77,9 +91,12 @@ export function AuthorFilter({ authors, who, onChange, tip, className = "btn btn
               ),
               text: `${a.name} ${a.emails.join(" ")}`,
               icon: null,
-              hint: who.includes(a.email) && <Icon name="check" size={13} />,
+              checked: on(a),
+              // The last one checked stays: picking no one would show nothing.
+              disabled: on(a) && checked.length === 1,
+              why: "Check another author first",
               keep: true,
-              run: () => onChange(who.includes(a.email) ? who.filter((e) => e !== a.email) : [...who, a.email]),
+              run: () => pick(on(a) ? checked.filter((x) => x !== a) : [...checked, a]),
             })),
           ]}
         />
