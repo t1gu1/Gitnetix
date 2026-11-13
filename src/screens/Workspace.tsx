@@ -1712,12 +1712,12 @@ export function TargetBranchModal({
   );
 }
 
-/** Filterable radio list of branches: trunks first, then releases, then the rest by name. */
+/** Filterable radio list of branches, newest last commit first. */
 function BranchPicker({ choices, labelOf, picked, onPick }: { choices: BranchView[]; labelOf: (b: string) => string; picked: string | null; onPick: (b: string) => void }) {
   const [query, setQuery] = useState("");
   const sorted = useMemo(() => {
-    const rank = (b: BranchView) => (b.role === "trunk" ? 0 : b.role === "release" ? 1 : 2);
-    return [...choices].sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
+    const time = (b: BranchView) => Date.parse(b.date) || 0;
+    return [...choices].sort((a, b) => time(b) - time(a) || a.name.localeCompare(b.name));
   }, [choices]);
   const q = query.trim().toLowerCase();
   const shown = q ? sorted.filter((b) => b.name.toLowerCase().includes(q) || labelOf(b.name).toLowerCase().includes(q)) : sorted;
