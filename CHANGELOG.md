@@ -11,6 +11,26 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+### Added (App)
+- Add Linear as a ticket source next to Jira, Trello and Asana, with browser sign-in or a personal API key, optional team limits, and active cycles in the sprint filter.
+- Add permission modes for coding runs. Bypass stays the default, and in other modes the chat shows an Allow or Refuse card before each action that needs approval.
+- Show pictures and allowed HTML in pull request descriptions, comments and GitHub issues. This is off by default and turns on per project in settings.
+- Add worktree links, a list of paths that new worktrees share with the main checkout instead of copying them. Links can be set per project or for all projects.
+- Open images added or changed in a turn as a preview with a comparison mode, instead of showing "binary".
+- Group branches that share a name prefix, such as fix/a and fix/b, into folders in the branch tree.
+- Add an ultracode toggle to routing and the picker, shown only for models that take xhigh effort.
+
+### Changed (App)
+- Fold the run settings into one menu button.
+
+### Fixed (App)
+- Fix unchecking "All" in the author, project and check-picker filters so it clears every box instead of selecting none.
+- Start Windows shells in the checkout folder.
+- Scroll menus taller than the screen instead of shrinking their rows, and line up the author filter rows.
+- Sort the branch picker by most recent commit.
+- Skip find bar fields marked data-no-mic when dictating.
+- End a top bar drag when the pointer moves with no button held.
+
 ## [0.20.9] - 2026-11-11
 
 ### Changed (App)
