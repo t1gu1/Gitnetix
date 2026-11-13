@@ -1,4 +1,4 @@
-//! Tickets from Jira, Trello, Asana and GitHub Issues, normalised to one shape.
+//! Tickets from Jira, Trello, Asana, Linear and GitHub Issues, normalised to one shape.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
@@ -10,7 +10,7 @@ use serde_json::{json, Value};
 use crate::error::{Error, Result};
 use crate::net::client as http;
 use crate::providers::github::GitHub;
-use crate::store::{AsanaConf, Connection, JiraConf, TrelloConf};
+use crate::store::{AsanaConf, Connection, JiraConf, LinearConf, TrelloConf};
 
 pub mod jira_auth;
 pub mod oauth;
@@ -18,18 +18,18 @@ pub mod oauth;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Ticket {
-    /// Jira key, `#` and a Trello card's short link (the id in its URL), `AS-` and an Asana task gid, `#` and a GitHub issue number.
+    /// Jira key, `#` and a Trello card's short link (the id in its URL), `AS-` and an Asana task gid, Linear identifier (`ENG-123`), `#` and a GitHub issue number.
     pub key: String,
     /// The key a Trello card had before short links (`#idShort`, which repeats across boards), to move saved links from.
     #[serde(skip)]
     pub old_key: Option<String>,
-    /// The tracker's own id, for changing it: Jira key, Trello card id, Asana task gid, GitHub issue number.
+    /// The tracker's own id, for changing it: Jira key, Trello card id, Asana task gid, Linear issue id, GitHub issue number.
     #[serde(default)]
     pub id: String,
     /// Id of the connection it comes from; `owner/repo` for a GitHub issue.
     #[serde(default)]
     pub conn: String,
-    /// jira | trello | asana | github
+    /// jira | trello | asana | linear | github
     pub source: String,
     pub title: String,
     /// Story, Bug, Task, Card…
@@ -72,7 +72,7 @@ pub struct Ticket {
     pub parent_url: String,
 }
 
-/// A status a ticket can move to: a Jira transition, Trello list or Asana section.
+/// A status a ticket can move to: a Jira transition, Trello list, Asana section or Linear workflow state.
 #[derive(Debug, Clone, Serialize)]
 pub struct StatusOption {
     pub id: String,
@@ -472,9 +472,9 @@ pub struct DoneTicket {
     pub key: String,
     pub title: String,
     pub url: String,
-    /// jira | trello | asana | github
+    /// jira | trello | asana | linear | github
     pub source: String,
-    /// The Jira project, Trello board, Asana project or GitHub repository it comes from.
+    /// The Jira project, Trello board, Asana project, Linear team or GitHub repository it comes from.
     pub place: String,
     pub kind: String,
     /// Jira and GitHub labels.
@@ -1122,6 +1122,187 @@ pub async fn asana_set_status(token: &str, task: &str, to: &str) -> Result<()> {
     Ok(())
 }
 
+// ---------- Linear ----------
+
+/// The Authorization header of a Linear connection: `Bearer` and the token of "Sign in with Linear", renewed first,
+/// else the personal API key alone, which Linear takes without "Bearer".
+pub async fn linear_token(conf: &LinearConf) -> Result<String> {
+    let t = oauth::token(&oauth::LINEAR, &conf.secret(), conf.oauth).await?;
+    Ok(if conf.oauth { format!("Bearer {t}") } else { t })
+}
+
+/// A Linear GraphQL call's `data`, `token` being the Authorization header. Linear answers a query it refuses with 200
+/// and `errors`, so those fail too.
+async fn linear_gql(token: &str, query: &str, variables: Value) -> Result<Value> {
+    let res = http().post("https://api.linear.app/graphql").header("Authorization", token).json(&json!({ "query": query, "variables": variables })).send().await?;
+    let status = res.status();
+    let text = res.text().await.unwrap_or_default();
+    let mut v: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
+    if status == reqwest::StatusCode::UNAUTHORIZED || v["errors"][0]["extensions"]["code"] == "AUTHENTICATION_ERROR" {
+        return Err(Error::Http("Linear rejected the API key, or the session expired. Sign in with Linear again or create a new key at linear.app/settings/account/security".into()));
+    }
+    if let Some(msg) = v["errors"][0]["message"].as_str() {
+        return Err(Error::Http(format!("Linear: {msg}")));
+    }
+    parse(status, &text, "Linear")?;
+    Ok(v["data"].take())
+}
+
+/// The user's name, the workspace's and its teams. Also how a connection checks its key.
+pub async fn linear_me(token: &str) -> Result<Value> {
+    let v = linear_gql(token, "{ viewer { name } organization { name } teams(first: 250) { nodes { key name } } }", json!({})).await?;
+    let mut teams: Vec<Value> = v["teams"]["nodes"].as_array().into_iter().flatten().map(|t| json!({ "id": t["key"], "name": t["name"] })).collect();
+    teams.sort_by_key(|t| t["name"].as_str().unwrap_or("").to_lowercase());
+    Ok(json!({ "user": v["viewer"]["name"], "org": v["organization"]["name"], "teams": teams }))
+}
+
+/// What a Linear issue is read with, for a `Ticket`.
+const LINEAR_FIELDS: &str = "id identifier title description url priority priorityLabel state { name type } assignee { name isMe } team { name } labels(first: 10) { nodes { name } } parent { identifier title url }";
+
+/// The issues `filter` finds, last updated first, at most `cap` of them.
+async fn linear_issues(token: &str, fields: &str, filter: Value, cap: usize) -> Result<Vec<Value>> {
+    let query = format!("query($filter: IssueFilter, $after: String) {{ issues(filter: $filter, first: 100, after: $after, orderBy: updatedAt) {{ nodes {{ {fields} }} pageInfo {{ hasNextPage endCursor }} }} }}");
+    let mut out = Vec::new();
+    let mut after = Value::Null;
+    loop {
+        let mut v = linear_gql(token, &query, json!({ "filter": filter, "after": after })).await?;
+        out.extend(v["issues"]["nodes"].as_array_mut().map(std::mem::take).unwrap_or_default());
+        if v["issues"]["pageInfo"]["hasNextPage"] != true || out.len() >= cap {
+            break;
+        }
+        after = v["issues"]["pageInfo"]["endCursor"].take();
+    }
+    out.truncate(cap);
+    Ok(out)
+}
+
+/// `filters` together, in the connection's teams when it picked some.
+fn linear_filter(conf: &LinearConf, mut filters: Vec<Value>) -> Value {
+    if !conf.teams.is_empty() {
+        filters.push(json!({ "team": { "key": { "in": conf.teams } } }));
+    }
+    json!({ "and": filters })
+}
+
+/// Open issues assigned to or created by the user, or unassigned, like Jira's default; `mine` = only assigned to the user.
+/// `sprint`: the issues of the teams' active cycles instead, done ones included, like a Jira sprint.
+pub async fn linear(conf: &LinearConf, token: &str, mine: bool, sprint: bool) -> Result<Vec<Ticket>> {
+    let me = json!({ "assignee": { "isMe": { "eq": true } } });
+    let mut filters = vec![if sprint { json!({ "cycle": { "isActive": { "eq": true } } }) } else { json!({ "state": { "type": { "nin": ["completed", "canceled"] } } }) }];
+    if mine {
+        filters.push(me);
+    } else if !sprint {
+        filters.push(json!({ "or": [me, { "creator": { "isMe": { "eq": true } } }, { "assignee": { "null": true } }] }));
+    }
+    let filter = linear_filter(conf, filters);
+    Ok(linear_issues(token, LINEAR_FIELDS, filter, JIRA_CAP).await?.iter().map(|i| linear_ticket(conf, i)).collect())
+}
+
+/// One Linear issue by identifier (`ENG-123`), whatever its state or assignee; None when Linear has none.
+pub async fn linear_issue(conf: &LinearConf, token: &str, key: &str) -> Result<Option<Ticket>> {
+    let Some((team, number)) = key.split_once('-').and_then(|(t, n)| Some((t, n.parse::<u64>().ok()?))) else {
+        return Ok(None);
+    };
+    let filter = linear_filter(conf, vec![json!({ "team": { "key": { "eqIgnoreCase": team } } }), json!({ "number": { "eq": number } })]);
+    Ok(linear_issues(token, LINEAR_FIELDS, filter, 1).await?.first().map(|i| linear_ticket(conf, i)))
+}
+
+/// Jira's status category for a Linear workflow state type, for `status_from_name`.
+fn linear_category(state_type: &str) -> &'static str {
+    match state_type {
+        "completed" | "canceled" => "done",
+        "started" => "indeterminate",
+        _ => "new",
+    }
+}
+
+fn linear_ticket(conf: &LinearConf, i: &Value) -> Ticket {
+    let state = i["state"]["name"].as_str().unwrap_or("");
+    let team = format!("Linear · {}", i["team"]["name"].as_str().unwrap_or(""));
+    Ticket {
+        key: i["identifier"].as_str().unwrap_or("").into(),
+        old_key: None,
+        id: i["id"].as_str().unwrap_or("").into(),
+        conn: conf.id.clone(),
+        source: "linear".into(),
+        title: i["title"].as_str().unwrap_or("").into(),
+        kind: "Issue".into(),
+        status: status_from_name(state, linear_category(i["state"]["type"].as_str().unwrap_or(""))).into(),
+        status_label: state.into(),
+        assignee: i["assignee"]["name"].as_str().unwrap_or("Unassigned").into(),
+        mine: i["assignee"]["isMe"] == true,
+        description: i["description"].as_str().unwrap_or("").into(),
+        doc: Value::Null,
+        criteria: Vec::new(),
+        comments: 0,
+        url: i["url"].as_str().unwrap_or("").into(),
+        where_label: team.clone(),
+        place: team,
+        labels: linear_labels(i),
+        fix_versions: Vec::new(),
+        // 0 is "No priority".
+        priority: if i["priority"].as_f64().unwrap_or(0.0) > 0.0 { i["priorityLabel"].as_str().unwrap_or("").into() } else { String::new() },
+        time_remaining: String::new(),
+        time_estimate: String::new(),
+        parent_key: i["parent"]["identifier"].as_str().unwrap_or("").into(),
+        parent_title: i["parent"]["title"].as_str().unwrap_or("").into(),
+        parent_url: i["parent"]["url"].as_str().unwrap_or("").into(),
+    }
+}
+
+fn linear_labels(i: &Value) -> Vec<String> {
+    i["labels"]["nodes"].as_array().into_iter().flatten().filter_map(|l| l["name"].as_str().map(String::from)).collect()
+}
+
+/// The workflow states of the issue's team, in Linear's order.
+pub async fn linear_statuses(token: &str, issue: &str) -> Result<Vec<StatusOption>> {
+    let v = linear_gql(token, "query($id: String!) { issue(id: $id) { team { states { nodes { id name type position } } } } }", json!({ "id": issue })).await?;
+    let order = ["triage", "backlog", "unstarted", "started", "completed", "canceled"];
+    let rank = |s: &Value| order.iter().position(|t| s["type"] == *t).unwrap_or(order.len());
+    let mut states: Vec<&Value> = v["issue"]["team"]["states"]["nodes"].as_array().into_iter().flatten().collect();
+    states.sort_by(|a, b| rank(a).cmp(&rank(b)).then(a["position"].as_f64().unwrap_or(0.0).total_cmp(&b["position"].as_f64().unwrap_or(0.0))));
+    Ok(states
+        .into_iter()
+        .map(|s| {
+            let name = s["name"].as_str().unwrap_or("");
+            StatusOption { id: s["id"].as_str().unwrap_or("").into(), name: name.into(), status: status_from_name(name, linear_category(s["type"].as_str().unwrap_or(""))) }
+        })
+        .collect())
+}
+
+pub async fn linear_set_status(token: &str, issue: &str, state: &str) -> Result<()> {
+    let v = linear_gql(token, "mutation($id: String!, $state: String!) { issueUpdate(id: $id, input: { stateId: $state }) { success } }", json!({ "id": issue, "state": state })).await?;
+    if v["issueUpdate"]["success"] != true {
+        return Err(Error::Http("Linear did not change the status".into()));
+    }
+    Ok(())
+}
+
+/// Linear issues completed since `since`, in the picked teams, else every team. Canceled ones have no completion date.
+pub async fn linear_done(conf: &LinearConf, token: &str, since: DateTime<Utc>) -> Result<Vec<DoneTicket>> {
+    let filter = linear_filter(conf, vec![json!({ "completedAt": { "gte": since.to_rfc3339_opts(SecondsFormat::Secs, true) } })]);
+    let fields = "identifier title url completedAt createdAt estimate assignee { name } team { name } labels(first: 10) { nodes { name } }";
+    Ok(linear_issues(token, fields, filter, SPRINT_CAP)
+        .await?
+        .iter()
+        .filter_map(|i| {
+            Some(DoneTicket {
+                key: i["identifier"].as_str()?.into(),
+                title: i["title"].as_str().unwrap_or("").into(),
+                url: i["url"].as_str().unwrap_or("").into(),
+                source: "linear".into(),
+                place: format!("Linear · {}", i["team"]["name"].as_str().unwrap_or("")),
+                kind: "Issue".into(),
+                labels: linear_labels(i),
+                assignee: i["assignee"]["name"].as_str().unwrap_or("Unassigned").into(),
+                done_at: jira_date(&i["completedAt"])?,
+                created: jira_date(&i["createdAt"]),
+                points: i["estimate"].as_f64(),
+            })
+        })
+        .collect())
+}
+
 // ---------- GitHub Issues ----------
 
 /// Most open issues listed per repository, last updated first.
@@ -1478,6 +1659,23 @@ mod tests {
         let t = asana_tickets(&conf, &[(web, "Asana · Web".into()), (mobile, "Asana · Mobile".into())]);
         let got: Vec<_> = t.iter().map(|t| (t.key.as_str(), t.place.as_str(), t.status.as_str())).collect();
         assert_eq!(got, [("AS-1", "Asana · Web", "todo"), ("AS-2", "Asana · Web", "done"), ("AS-3", "Asana · Mobile", "todo")]);
+    }
+
+    #[test]
+    fn linear_issue_reads_state_type_and_priority() {
+        let conf = LinearConf { id: "c1".into(), ..Default::default() };
+        let issue = |state: &str, kind: &str, priority: u8| {
+            json!({ "identifier": "ENG-7", "state": { "name": state, "type": kind }, "priority": priority, "priorityLabel": "High", "assignee": { "name": "Ana", "isMe": true }, "team": { "name": "Web" } })
+        };
+        let got: Vec<_> = [issue("In Review", "started", 0), issue("Building", "started", 2), issue("Backlog", "backlog", 0), issue("Shipped", "completed", 0), issue("Duplicate", "canceled", 0)]
+            .iter()
+            .map(|i| linear_ticket(&conf, i))
+            .map(|t| (t.status, t.priority))
+            .collect();
+        let want = [("review", ""), ("progress", "High"), ("todo", ""), ("done", ""), ("done", "")];
+        assert_eq!(got, want.map(|(s, p)| (s.to_string(), p.to_string())));
+        let t = linear_ticket(&conf, &issue("Todo", "unstarted", 0));
+        assert_eq!((t.key.as_str(), t.place.as_str(), t.mine), ("ENG-7", "Linear · Web", true));
     }
 
     #[test]

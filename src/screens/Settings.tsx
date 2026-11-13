@@ -23,7 +23,7 @@ export const GROUPS: [string, [string, string, string][]][] = [
   ["General", [["appearance", "Appearance", "brush"], ["animations", "Animations", "play"], ["terminal", "Terminal", "terminal"], ["worktrees", "Worktrees", "layers"], ["dictation", "Voice dictation", "mic"], ["shortcuts", "Shortcuts", "keyboard"]]],
   ["AI", [["ai", "AI setup", "sparkle"], ["templates", "Templates", "edit"]]],
   ["Git", [["git", "Git providers", "pr"]]],
-  ["Integrations", [["tools", "Jira, Trello, Asana", "ticket"], ["companion", "Companion & MCP", "phone"]]],
+  ["Integrations", [["tools", "Jira, Trello, Asana, Linear", "ticket"], ["companion", "Companion & MCP", "phone"]]],
 ];
 
 /** One section of GROUPS (but AI setup and templates, framed pages of their own), opened from the menu. */
@@ -671,9 +671,9 @@ function HostRow({ kind, cfg }: { kind: keyof typeof HOSTS; cfg: Config }) {
   );
 }
 
-/** Browser sign-in: the host (Atlassian, Trello, Asana, Bitbucket, Gitea) redirects back to a listener the app opens on this computer.
+/** Browser sign-in: the host (Atlassian, Trello, Asana, Linear, Bitbucket, Gitea) redirects back to a listener the app opens on this computer.
  * `keys`: queries to refetch once signed in; `params`: a Gitea server and OAuth app. */
-function BrowserSignIn({ method, label, name, keys, params, onDone }: { method: "jira" | "trello" | "asana" | "bitbucket" | "gitea"; label: string; name: string; keys: string[]; params?: Record<string, string>; onDone?: () => void }) {
+function BrowserSignIn({ method, label, name, keys, params, onDone }: { method: "jira" | "trello" | "asana" | "linear" | "bitbucket" | "gitea"; label: string; name: string; keys: string[]; params?: Record<string, string>; onDone?: () => void }) {
   const qc = useQueryClient();
   const [waiting, setWaiting] = useState(false);
   const attempt = useRef(0);
@@ -874,13 +874,15 @@ function ConnStatus({ auth }: { auth?: UseQueryResult<{ user?: string | null }> 
 }
 
 type Place = { id: string; name: string };
-/** A Trello or Asana connection's check: who is signed in, and the boards or workspaces to pick from. */
-type Account = { user?: string | null; boards?: Place[]; workspaces?: Place[] };
+/** A Trello, Asana or Linear connection's check: who is signed in, and the boards, workspaces or teams to pick from. */
+type Account = { user?: string | null; boards?: Place[]; workspaces?: Place[]; teams?: Place[]; org?: string | null };
 type TrackerConn = { id: string; repos: string[]; oauth?: boolean } & Record<string, unknown>;
 type Field = { key: string; label: string; hint?: string };
 type Kind = {
-  kind: "trello" | "asana";
+  kind: "trello" | "asana" | "linear";
   title: string;
+  /** Its browser sign-in; none = only the token. */
+  signIn?: "trello" | "asana" | "linear";
   /** What signing in can be replaced with. */
   tokenName: string;
   token: string;
@@ -889,16 +891,20 @@ type Kind = {
   fields: Field[];
   /** Config keys the pickers set once the account is known, with their empty values. */
   place: Record<string, string | string[]>;
+  /** Places ticked among the account's (Trello boards, Linear teams); none = Asana's own pickers. */
+  pick?: { key: "boards" | "teams"; label: string; hint: string };
   name: (c: TrackerConn, a?: Account) => string;
 };
 const TRELLO: Kind = {
   kind: "trello",
   title: "Trello",
+  signIn: "trello",
   tokenName: "an API key and token",
   token: "Token",
   tokenHint: "From the Token link next to the API key",
   fields: [{ key: "apiKey", label: "API key", hint: "trello.com/power-ups/admin › your Power-Up › API key" }],
   place: { boards: [] },
+  pick: { key: "boards", label: "Trello boards", hint: "None ticked = the cards assigned to you, on every board." },
   name: (c, a) => {
     const ids = (c.boards as string[] | undefined) ?? [];
     if (ids.length > 1) return `${ids.length} boards`;
@@ -908,12 +914,25 @@ const TRELLO: Kind = {
 const ASANA: Kind = {
   kind: "asana",
   title: "Asana",
+  signIn: "asana",
   tokenName: "a personal access token",
   token: "Personal access token",
   tokenHint: "Create one at app.asana.com/0/my-apps",
   fields: [],
   place: { workspaceGid: "", projects: [] },
   name: (c, a) => a?.workspaces?.find((w) => w.id === c.workspaceGid)?.name ?? `workspace ${c.workspaceGid}`,
+};
+const LINEAR: Kind = {
+  kind: "linear",
+  title: "Linear",
+  signIn: "linear",
+  tokenName: "a personal API key",
+  token: "Personal API key",
+  tokenHint: "Create one at linear.app/settings/account/security",
+  fields: [],
+  place: { teams: [] },
+  pick: { key: "teams", label: "Linear teams", hint: "None ticked = every team." },
+  name: (_, a) => a?.org ?? "workspace",
 };
 
 type Places = Record<string, string | string[]>;
@@ -949,7 +968,7 @@ function AsanaPlaces({ conn, uid, workspaces, place, setPlace }: { conn: Tracker
   );
 }
 
-/** One Trello or Asana connection, or the form adding a new one when `conn` is missing: signed in in the browser like Jira, or with a token. */
+/** One Trello, Asana or Linear connection, or the form adding a new one when `conn` is missing: signed in in the browser like Jira, or with a token. */
 function TrackerConnection({ cfg, k, conn, onDone }: { cfg: Config; k: Kind; conn?: TrackerConn; onDone?: () => void }) {
   const save = useAction<{ user?: string | null }>("integrations.save", { invalidate: [["config"], ["tickets"], [`${k.kind}Auth`]], success: (r) => (r.user ? `Connected as ${r.user}` : "Saved") });
   const disc = useAction("integrations.disconnect", { invalidate: [["config"], ["tickets"]] });
@@ -965,7 +984,7 @@ function TrackerConnection({ cfg, k, conn, onDone }: { cfg: Config; k: Kind; con
   const [token, setToken] = useState("");
   const [repos, setRepos] = useState(conn?.repos ?? []);
   const oauth = !!conn?.oauth;
-  const [tokenMode, setTokenMode] = useState(!!conn && !oauth);
+  const [tokenMode, setTokenMode] = useState(!k.signIn || (!!conn && !oauth));
   const uid = `${k.kind}-${conn?.id ?? "new"}`;
   const canSave = tokenMode ? k.fields.every((x) => f[x.key]) && (!!token || (!!conn && !oauth)) : !!conn;
   return (
@@ -989,7 +1008,7 @@ function TrackerConnection({ cfg, k, conn, onDone }: { cfg: Config; k: Kind; con
           onDone && <button type="button" className="btn" onClick={onDone}>Cancel</button>
         )}
       </div>
-      {!conn && !tokenMode && <BrowserSignIn method={k.kind} label={`Sign in with ${k.title}`} name={k.title} keys={["config", "tickets", `${k.kind}Auth`]} onDone={onDone} />}
+      {!conn && !tokenMode && k.signIn && <BrowserSignIn method={k.signIn} label={`Sign in with ${k.title}`} name={k.title} keys={["config", "tickets", `${k.kind}Auth`]} onDone={onDone} />}
       {tokenMode && (
         <>
           {k.fields.map((x) => (
@@ -1000,13 +1019,13 @@ function TrackerConnection({ cfg, k, conn, onDone }: { cfg: Config; k: Kind; con
       )}
       {conn &&
         auth.data &&
-        (k.kind === "trello" ? (
+        (k.pick ? (
           <Checks
-            label="Trello boards"
-            hint="None ticked = the cards assigned to you, on every board."
-            options={(auth.data.boards ?? []).map((b) => ({ value: b.id, label: b.name }))}
-            value={place.boards as string[]}
-            onChange={(v) => setPlace({ ...place, boards: v })}
+            label={k.pick.label}
+            hint={k.pick.hint}
+            options={(auth.data[k.pick.key] ?? []).map((b) => ({ value: b.id, label: b.name }))}
+            value={place[k.pick.key] as string[]}
+            onChange={(v) => setPlace({ ...place, [k.pick!.key]: v })}
           />
         ) : (
           <AsanaPlaces conn={conn} uid={uid} workspaces={auth.data.workspaces ?? []} place={place} setPlace={setPlace} />
@@ -1049,7 +1068,7 @@ function ConnectionList<T extends { id: string }>({ items, add, row }: { items: 
   );
 }
 
-/** The Jira, Trello and Asana connections, each kind followed by the form adding one. Also a step of the first-run setup. */
+/** The Jira, Trello, Asana and Linear connections, each kind followed by the form adding one. Also a step of the first-run setup. */
 export function TicketConnections({ cfg }: { cfg: Config }) {
   const i = cfg.integrations;
   return (
@@ -1057,6 +1076,7 @@ export function TicketConnections({ cfg }: { cfg: Config }) {
       <ConnectionList items={i.jira} add="Add a Jira connection" row={(c, onDone) => <JiraConnection cfg={cfg} conn={c} onDone={onDone} />} />
       <ConnectionList items={i.trello} add="Add a Trello connection" row={(c, onDone) => <TrackerConnection cfg={cfg} k={TRELLO} conn={c} onDone={onDone} />} />
       <ConnectionList items={i.asana} add="Add an Asana connection" row={(c, onDone) => <TrackerConnection cfg={cfg} k={ASANA} conn={c} onDone={onDone} />} />
+      <ConnectionList items={i.linear} add="Add a Linear connection" row={(c, onDone) => <TrackerConnection cfg={cfg} k={LINEAR} conn={c} onDone={onDone} />} />
     </>
   );
 }
@@ -1065,7 +1085,7 @@ function Integrations({ cfg }: { cfg: Config }) {
   return (
     <>
       <div className="col page-intro" style={{ gap: 6 }}>
-        <h1>Jira, Trello, Asana</h1>
+        <h1>Jira, Trello, Asana, Linear</h1>
         <p className="muted" style={{ margin: 0 }}>Tickets show in Tickets, linked to their branch and release. Tokens go to your OS keychain. GitHub issues need no connection here: a project whose origin is on GitHub shows its issues, with their project board column and labels, through the GitHub account under Git providers.</p>
       </div>
       <TicketConnections cfg={cfg} />

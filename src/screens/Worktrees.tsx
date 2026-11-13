@@ -593,7 +593,7 @@ function StartModal({ onClose, onMinimize }: { onClose: () => void; onMinimize: 
             onChange={(v) => set(fresh ? { from: v } : { branch: v })}
           />
         </div>
-        {/* Linked to the branch: the agent gets the ticket's content from Jira, Trello or Asana. */}
+        {/* Linked to the branch: the agent gets the ticket's content from Jira, Trello, Asana or Linear. */}
         <div className="field" style={{ flex: "0 1 140px", minWidth: 0 }}>
           <label htmlFor="ag-ticket">Ticket <span className="faint" style={{ fontWeight: 400 }}>optional</span></label>
           <input id="ag-ticket" className="input mono" placeholder="ATL-212" value={ticket} onChange={(e) => set({ ticket: e.target.value })} />

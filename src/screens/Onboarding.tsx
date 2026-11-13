@@ -246,11 +246,11 @@ function TicketsStep(s: Steps) {
   const i = cfg.integrations;
   return (
     <>
-      <Head title="Connect Jira, Trello or Asana">Your tickets show in Tickets, linked to their branch and release.</Head>
+      <Head title="Connect Jira, Trello, Asana or Linear">Your tickets show in Tickets, linked to their branch and release.</Head>
       <div className="col" style={{ gap: 12 }}>
         <TicketConnections cfg={cfg} />
       </div>
-      <Foot {...s} entered={i.jira.length + i.trello.length + i.asana.length > 0} onNext={s.next} />
+      <Foot {...s} entered={i.jira.length + i.trello.length + i.asana.length + i.linear.length > 0} onNext={s.next} />
     </>
   );
 }

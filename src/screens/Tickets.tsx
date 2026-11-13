@@ -22,7 +22,7 @@ const STATUS: Record<Ticket["status"], [string, string]> = {
   ready: ["Ready to merge", "c-add"],
   done: ["Done", "c-add"],
 };
-const SRC = { jira: "Jira", trello: "Trello", asana: "Asana", github: "GitHub" };
+const SRC = { jira: "Jira", trello: "Trello", asana: "Asana", linear: "Linear", github: "GitHub" };
 const ADD = "\0add";
 
 export function Tickets({ initial }: { initial?: string }) {
@@ -73,7 +73,7 @@ export function Tickets({ initial }: { initial?: string }) {
           title="No ticket tracker connected"
           action={<button className="btn btn-primary btn-md" onClick={() => nav.go({ name: "menu", section: "tools" })}>Connect a tracker</button>}
         >
-          Connect Jira, Trello or Asana, or sign in to GitHub under Git providers for the issues of a GitHub repository, to see tickets here, plan them into releases and start a branch from one.
+          Connect Jira, Trello, Asana or Linear, or sign in to GitHub under Git providers for the issues of a GitHub repository, to see tickets here, plan them into releases and start a branch from one.
         </EmptyState>
       </>
     );
@@ -126,8 +126,8 @@ export function Tickets({ initial }: { initial?: string }) {
                   <input type="checkbox" checked={mine} onChange={() => setMine(!mine)} />
                   <span>Assigned to me</span>
                 </label>
-                {q.data?.sources.includes("jira") && (
-                  <label className="check" style={{ minHeight: 28 }} data-tip="Jira tickets in an open sprint; hides the other trackers">
+                {(q.data?.sources.includes("jira") || q.data?.sources.includes("linear")) && (
+                  <label className="check" style={{ minHeight: 28 }} data-tip="Jira tickets in an open sprint and Linear issues in an active cycle; hides the other trackers">
                     <input type="checkbox" checked={sprint} onChange={() => setSprint(!sprint)} />
                     <span>Active sprint</span>
                   </label>

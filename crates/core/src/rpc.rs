@@ -9,7 +9,7 @@ use serde_json::{json, Value};
 use crate::app::{Attachment, Gitnetix, MergeOptions, NewItem, NotesInclude, ViewMode};
 use crate::error::{Error, Result};
 use crate::git::{Git, LinePick};
-use crate::store::{upsert, ConnectMethod, Connection, GitProfile, HostConf, JiraConf, ReleaseKind, Route, TrelloConf, AsanaConf, UserProfile, new_id};
+use crate::store::{upsert, ConnectMethod, Connection, GitProfile, HostConf, JiraConf, ReleaseKind, Route, TrelloConf, AsanaConf, LinearConf, UserProfile, new_id};
 use crate::templates::{self, Template};
 use crate::providers::github_auth::{self, Poll};
 use crate::providers::{azure_auth, bitbucket::{self, Bitbucket}, gitea::Gitea, gitlab::{self, GitLab}, oauth, RepoRef};
@@ -156,15 +156,15 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("prs.react", "Add or remove a reaction", "projectId, subjectId, content, add"),
     ("prs.draftReply", "AI-drafted reply for a thread; with draft, that started reply polished instead (editing = id of the comment it rewrites)", "projectId, number, threadId, draft?, editing?"),
     ("prs.draftReview", "AI-drafted review summary", "projectId, number"),
-    ("tickets.list", "Tickets from Jira, Trello, Asana and the GitHub issues of the project's repository, with their release; mine = only the user's Jira and GitHub tickets, sprint = only Jira tickets in an open sprint", "projectId, mine?, sprint?"),
+    ("tickets.list", "Tickets from Jira, Trello, Asana, Linear and the GitHub issues of the project's repository, with their release; mine = only the user's Jira, Linear and GitHub tickets, sprint = only Jira tickets in an open sprint and Linear issues in an active cycle", "projectId, mine?, sprint?"),
     ("tickets.get", "One ticket with its full description, by key or by the branch linked to it; null when none", "projectId, key? | branch?"),
     ("tickets.setRelease", "Plan a ticket into a release", "projectId, key, release"),
     ("tickets.triage", "AI suggestions for unplanned tickets", "projectId"),
-    ("tickets.statuses", "Statuses a ticket can move to (Jira transitions, Trello lists, Asana sections, GitHub project board columns and closed/open)", "source, conn, id"),
+    ("tickets.statuses", "Statuses a ticket can move to (Jira transitions, Trello lists, Asana sections, Linear workflow states, GitHub project board columns and closed/open)", "source, conn, id"),
     ("tickets.setStatus", "Move a ticket to one of tickets.statuses", "source, conn, id, to"),
     ("jira.versions", "Versions a Jira ticket's fix version can be set to", "id (connection), key"),
     ("jira.setFixVersions", "Set a Jira ticket's fix versions to exactly these version ids; empty clears them", "id (connection), key, versions"),
-    ("integrations.save", "Connect GitHub, Azure DevOps (token = personal access token, config.org), GitLab (config.url = self-managed server), Bitbucket (config.email = Atlassian account of an API token), Gitea (config.url), Jira, Trello or Asana; a GitLab, Bitbucket or Gitea token is checked with the server first; a Jira, Trello or Asana config without id adds a connection", "kind, config?, token?"),
+    ("integrations.save", "Connect GitHub, Azure DevOps (token = personal access token, config.org), GitLab (config.url = self-managed server), Bitbucket (config.email = Atlassian account of an API token), Gitea (config.url), Jira, Trello, Asana or Linear (token = personal API key, config.teams = team keys); a GitLab, Bitbucket or Gitea token is checked with the server first; a Jira, Trello, Asana or Linear config without id adds a connection", "kind, config?, token?"),
     ("integrations.checkJira", "Sign in to a Jira connection with its saved token; the user's name, or an error", "id"),
     ("jira.projects", "The Jira projects a connection can see", "id"),
     ("jira.signInStart", "Start \"Sign in with Atlassian\": the URL to open in the browser", ""),
@@ -176,6 +176,9 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("asana.projects", "The active projects of an Asana workspace, by default the connection's", "id, workspace?"),
     ("asana.signInStart", "Start \"Sign in with Asana\": the URL to open in the browser", ""),
     ("asana.signInFinish", "Wait for the browser sign-in to finish; done = an Asana connection added, on the account's first workspace", ""),
+    ("integrations.checkLinear", "Sign in to a Linear connection with its saved API key or sign-in: the user's name, the workspace's (org) and its teams, or an error", "id"),
+    ("linear.signInStart", "Start \"Sign in with Linear\": the URL to open in the browser", ""),
+    ("linear.signInFinish", "Wait for the browser sign-in to finish; done = a Linear connection added, on the workspace the user picked", ""),
     ("github.repos", "Repositories of the linked GitHub account, last pushed first: { fullName, description, private, cloneUrl, sshUrl }", ""),
     ("git.saveLogin", "Save the HTTPS login git signs in to a host with (token = password or access token), in the keychain; the next fetch or push to that host uses it", "host, username, token"),
     ("github.signInStart", "Start \"Sign in with GitHub\": a code for the user to enter at verificationUri", ""),
@@ -191,7 +194,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("gitlab.repos", "Repositories of the linked GitLab account, like github.repos", ""),
     ("bitbucket.repos", "Repositories of the linked Bitbucket account, like github.repos", ""),
     ("gitea.repos", "Repositories of the linked Gitea account, like github.repos", ""),
-    ("integrations.disconnect", "Disconnect an integration (kind github, azure, gitlab, bitbucket, gitea, jira, trello, asana; id = which Jira, Trello or Asana connection)", "kind, id?"),
+    ("integrations.disconnect", "Disconnect an integration (kind github, azure, gitlab, bitbucket, gitea, jira, trello, asana, linear; id = which Jira, Trello, Asana or Linear connection)", "kind, id?"),
     ("notes.refs", "Tags and branches for a notes range", "projectId"),
     ("notes.range", "Commit, branch and ticket counts in a range", "projectId, from, to"),
     ("notes.generate", "AI release notes", "projectId, from, to, templateId?, language, include"),
@@ -203,7 +206,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("analytics.get", "Activity and release stats; with emails, only those people's commits, merges and the releases holding their commits", "projectIds (empty = all) or projectId (or \"all\"), days, emails? (empty = everyone)"),
     ("analytics.day", "Commits authored on a day, with the branch each was made on", "projectIds (empty = all) or projectId (or \"all\"), date (YYYY-MM-DD), emails? (empty = everyone)"),
     ("analytics.sprints", "Jira sprint stats per board: velocity, burndown, hours left over, completion per person, over the last `count` sprints (2 to 12, default 6); with assignees, only their tickets. Jira's answers of the last 5 minutes are used again unless fresh", "projectIds (empty = all), count?, assignees? (empty = everyone), fresh?"),
-    ("analytics.weekly", "Tickets done per week and per person over the last `weeks` weeks (4 to 52, default 12), from Jira, Trello and Asana", "projectIds (empty = all), weeks?"),
+    ("analytics.weekly", "Tickets done per week and per person over the last `weeks` weeks (4 to 52, default 12), from Jira, Trello, Asana and Linear", "projectIds (empty = all), weeks?"),
     ("analytics.ask", "AI answer to a question about the ticket charts; data = the sprints or weeks on screen as JSON text, history = earlier questions and answers", "question, data, history?: [{question, answer}]"),
 ];
 
@@ -301,6 +304,11 @@ fn trello_conn(k: &Gitnetix, p: &Value) -> Result<TrelloConf> {
 fn asana_conn(k: &Gitnetix, p: &Value) -> Result<AsanaConf> {
     let id = os(p, "id").unwrap_or_default();
     k.store.read(|c| c.integrations.asana.iter().find(|a| a.id == id).cloned()).ok_or_else(|| Error::NotConnected("Asana".into()))
+}
+
+fn linear_conn(k: &Gitnetix, p: &Value) -> Result<LinearConf> {
+    let id = os(p, "id").unwrap_or_default();
+    k.store.read(|c| c.integrations.linear.iter().find(|l| l.id == id).cloned()).ok_or_else(|| Error::NotConnected("Linear".into()))
 }
 
 /// The account's first workspace: tasks are listed per workspace, so a connection needs one until the user picks another.
@@ -1152,6 +1160,7 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
                 ("jira", integ.jira.iter().any(|j| on(&j.repos))),
                 ("trello", integ.trello.iter().any(|t| on(&t.repos))),
                 ("asana", integ.asana.iter().any(|a| on(&a.repos))),
+                ("linear", integ.linear.iter().any(|l| on(&l.repos))),
             ]
                 .into_iter()
                 .filter(|(_, on)| *on)
@@ -1220,6 +1229,25 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
                 })?;
                 drop_unused_atlassian_sign_in(k)?;
                 return to(json!({ "ok": true, "id": conf.id, "user": me["displayName"] }));
+            }
+            if kind == "linear" {
+                if cfg.get("id").is_none_or(Value::is_null) {
+                    cfg["id"] = new_id().into();
+                }
+                let mut conf = serde_json::from_value::<LinearConf>(cfg)?;
+                // Only a browser sign-in sets this: a pasted key replaces it, else it stays as saved.
+                conf.oauth = token.is_none() && k.store.read(|c| c.integrations.linear.iter().any(|l| l.id == conf.id && l.oauth));
+                // Checked before saving, so "Connected" means Linear took the key.
+                let mut user = Value::Null;
+                if let Some(t) = &token {
+                    user = crate::tickets::linear_me(t).await?["user"].take();
+                    secrets::set(&conf.secret(), t)?;
+                }
+                k.store.write(|c| {
+                    upsert(&mut c.integrations.linear, conf.clone());
+                    Ok(())
+                })?;
+                return to(json!({ "ok": true, "id": conf.id, "user": user }));
             }
             if kind == "trello" || kind == "asana" {
                 // A config without id adds a connection.
@@ -1377,6 +1405,22 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
             let workspace = os(&p, "workspace").filter(|w| !w.is_empty()).unwrap_or_else(|| conf.workspace_gid.clone());
             to(crate::tickets::asana_projects(&crate::tickets::asana_token(&conf).await?, &workspace).await?)
         }
+        "integrations.checkLinear" => {
+            let conf = linear_conn(k, &p)?;
+            to(crate::tickets::linear_me(&crate::tickets::linear_token(&conf).await?).await?)
+        }
+        "linear.signInStart" => to(json!({ "url": ticket_oauth::start(&ticket_oauth::LINEAR).await? })),
+        "linear.signInFinish" => {
+            let v = ticket_oauth::finish(&ticket_oauth::LINEAR).await?;
+            let me = crate::tickets::linear_me(&format!("Bearer {}", v["access_token"].as_str().unwrap_or(""))).await?;
+            let conf = LinearConf { id: new_id(), oauth: true, ..Default::default() };
+            ticket_oauth::save(&conf.secret(), &v, None)?;
+            k.store.write(|c| {
+                upsert(&mut c.integrations.linear, conf.clone());
+                Ok(())
+            })?;
+            to(json!({ "id": conf.id, "user": me["user"] }))
+        }
         "asana.signInStart" => to(json!({ "url": ticket_oauth::start(&ticket_oauth::ASANA).await? })),
         "asana.signInFinish" => {
             let v = ticket_oauth::finish(&ticket_oauth::ASANA).await?;
@@ -1497,12 +1541,13 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
                 drop_unused_atlassian_sign_in(k)?;
                 return ok();
             }
-            if kind == "trello" || kind == "asana" {
+            if matches!(kind.as_str(), "trello" | "asana" | "linear") {
                 let id = os(&p, "id").unwrap_or_default();
                 secrets::delete(&if id.is_empty() { kind.clone() } else { format!("{kind}.{id}") })?;
                 k.store.write(|c| {
                     c.integrations.trello.retain(|t| kind != "trello" || t.id != id);
                     c.integrations.asana.retain(|a| kind != "asana" || a.id != id);
+                    c.integrations.linear.retain(|l| kind != "linear" || l.id != id);
                     Ok(())
                 })?;
                 return ok();

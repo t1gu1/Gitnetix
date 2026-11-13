@@ -1941,6 +1941,7 @@ fn secret_keys(c: &Config) -> Vec<String> {
     keys.extend(i.jira.iter().map(Connection::secret));
     keys.extend(i.trello.iter().map(Connection::secret));
     keys.extend(i.asana.iter().map(Connection::secret));
+    keys.extend(i.linear.iter().map(Connection::secret));
     keys.extend(ai::catalog().into_iter().map(|p| secrets::ai_key(p.id)));
     keys
 }
@@ -5882,14 +5883,14 @@ impl Gitnetix {
 
     // ---------- tickets ----------
 
-    /// `mine`: only Jira and GitHub tickets assigned to the user (Trello and Asana ones are always theirs).
-    /// `sprint`: only Jira tickets in an open sprint; the others have no sprints, so none of theirs.
+    /// `mine`: only Jira, Linear and GitHub tickets assigned to the user (Trello and Asana ones are always theirs).
+    /// `sprint`: only Jira tickets in an open sprint and Linear issues in an active cycle; the others have no sprints, so none of theirs.
     /// GitHub issues come from the project's own origin repository, with the GitHub account of Git providers.
     pub async fn tickets(&self, project_id: &str, mine: bool, sprint: bool) -> Result<Vec<TicketView>> {
         let mut p = self.store.project(project_id)?;
         let integ = self.store.read(|c| c.integrations.clone());
-        // Sprint is on by default; without Jira it would hide every ticket.
-        let sprint = sprint && integ.jira.iter().any(|j| crate::store::shows_in(&j.repos, project_id));
+        // Sprint is on by default; without Jira or Linear it would hide every ticket.
+        let sprint = sprint && (integ.jira.iter().any(|j| crate::store::shows_in(&j.repos, project_id)) || integ.linear.iter().any(|l| crate::store::shows_in(&l.repos, project_id)));
         // One source failing (missing token, keychain refusal, HTTP error)
         // must not hide tickets from the others.
         // Each with the projects its connection shows in.
@@ -5915,6 +5916,12 @@ impl Gitnetix {
         for a in integ.asana.iter().filter(|a| !sprint && crate::store::shows_in(&a.repos, project_id)) {
             results.push((&a.repos, match tickets::asana_token(a).await {
                 Ok(tok) => tickets::asana(a, &tok).await.map_err(|e| e.to_string()),
+                Err(e) => Err(e.to_string()),
+            }));
+        }
+        for l in integ.linear.iter().filter(|l| crate::store::shows_in(&l.repos, project_id)) {
+            results.push((&l.repos, match tickets::linear_token(l).await {
+                Ok(tok) => tickets::linear(l, &tok, mine, sprint).await.map_err(|e| e.to_string()),
                 Err(e) => Err(e.to_string()),
             }));
         }
@@ -5997,7 +6004,7 @@ impl Gitnetix {
         Ok(views)
     }
 
-    /// Ticket `key` from the connections this project shows: Jira and GitHub asked for it directly, so a done
+    /// Ticket `key` from the connections this project shows: Jira, Linear and GitHub asked for it directly, so a done
     /// or unassigned ticket is found too; Trello and Asana looked up in their lists, a Trello card also by its old key.
     pub async fn ticket(&self, project_id: &str, key: &str) -> Result<Option<Ticket>> {
         let integ = self.store.read(|c| c.integrations.clone());
@@ -6018,6 +6025,18 @@ impl Gitnetix {
             for j in integ.jira.iter().filter(|j| on(&j.repos) && (j.projects.is_empty() || j.projects.iter().any(|p| p.eq_ignore_ascii_case(prefix)))) {
                 let got = match tickets::jira_auth::token(j).await {
                     Ok(tok) => tickets::jira_issue(j, &tok, &jira_key).await,
+                    Err(e) => Err(e),
+                };
+                match got {
+                    Ok(Some(t)) => return Ok(Some(t)),
+                    Ok(None) => {}
+                    Err(e) => err = Some(e),
+                }
+            }
+            // Linear identifiers (ENG-123) look like Jira keys; the prefix is the team's key.
+            for l in integ.linear.iter().filter(|l| on(&l.repos) && (l.teams.is_empty() || l.teams.iter().any(|t| t.eq_ignore_ascii_case(prefix)))) {
+                let got = match tickets::linear_token(l).await {
+                    Ok(tok) => tickets::linear_issue(l, &tok, &jira_key).await,
                     Err(e) => Err(e),
                 };
                 match got {
@@ -6118,6 +6137,14 @@ impl Gitnetix {
                 match to {
                     Some(to) => tickets::asana_set_status(&tok, id, to).await.map(|_| vec![]),
                     None => tickets::asana_statuses(&tok, id).await,
+                }
+            }
+            "linear" => {
+                let l = integ.linear.iter().find(|l| l.id == conn).ok_or_else(missing)?;
+                let tok = tickets::linear_token(l).await?;
+                match to {
+                    Some(to) => tickets::linear_set_status(&tok, id, to).await.map(|_| vec![]),
+                    None => tickets::linear_statuses(&tok, id).await,
                 }
             }
             "github" => {
@@ -6599,6 +6626,13 @@ impl Gitnetix {
             };
             keep("asana", got);
         }
+        for l in integ.linear.iter().filter(|l| on(&l.repos)) {
+            let got = match tickets::linear_token(l).await {
+                Ok(tok) => tickets::linear_done(l, &tok, since).await,
+                Err(e) => Err(e),
+            };
+            keep("linear", got);
+        }
         // Each GitHub repository once, however many of the chosen projects clone it.
         let mut repos = std::collections::HashSet::new();
         for p in &chosen {
@@ -6646,7 +6680,7 @@ const ASK_DATA_MAX: usize = 150_000;
 const TICKET_QUESTION: &str = "You answer questions about a software team's tickets, from the data below, as the analytics screen of their Git app shows it.
 
 How to read the data:
-- With `sprints`, it is a Jira board's last sprints, oldest first; `selected` names the one on screen. With `weeks`, it is the tickets done each week (Monday first, the last week still running) in Jira, Trello or Asana.
+- With `sprints`, it is a Jira board's last sprints, oldest first; `selected` names the one on screen. With `weeks`, it is the tickets done each week (Monday first, the last week still running) in Jira, Trello, Asana or Linear.
 - Work counts three ways: tickets, story points and estimated hours. `unit` is the one on screen: answer in it unless the question asks for another.
 - Per sprint, `committed` is the work in it and `completed` the work done in it, its velocity. `scopeStart`, `added` and `carried` are the work there from the start, created after it started, and brought over from an earlier sprint. `leftEstimate` and `leftRemaining` are the original and remaining estimates, in hours, of the tickets not completed. `bugsFixed` counts the bugs completed. `workdays` and `workdaysDone` count its working days and those begun so far. `cycleMedian` and `cycleP85` are the hours from start to done that half and 85% of its completed tickets took at most.
 - `people` splits the same per assignee and `burndown` gives the work left at the end of each day next to the ideal line. `tickets` lists each ticket with its status, `cycleHours` (start to done), `ageHours` (time since it started, still open), `stages` (hours in each status) and `code` (the commits and branches about it). Only the selected sprint and the one before it list their tickets and days.

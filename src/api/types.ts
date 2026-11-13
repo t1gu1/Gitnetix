@@ -492,6 +492,8 @@ export interface Config {
     /** `id` "" = the connection from before there could be several; `repos`: ids of the projects whose Tickets screen shows it, empty = all; `oauth`: signed in in the browser, not with a pasted token. */
     trello: { id: string; apiKey: string; boards: string[]; oauth?: boolean; repos: string[] }[];
     asana: { id: string; workspaceGid: string; projects: string[]; oauth?: boolean; repos: string[] }[];
+    /** `teams`: keys of the teams to show the issues of, empty = all. */
+    linear: { id: string; teams: string[]; oauth?: boolean; repos: string[] }[];
   };
   ui: {
     language: string;
@@ -706,11 +708,11 @@ export interface PrDetail extends PrSummary {
 
 export interface Ticket {
   key: string;
-  /** The tracker's own id: Jira key, Trello card id, Asana task gid, GitHub issue number. */
+  /** The tracker's own id: Jira key, Trello card id, Asana task gid, Linear issue id, GitHub issue number. */
   id: string;
   /** Id of the connection it comes from; `owner/repo` for a GitHub issue. */
   conn: string;
-  source: "jira" | "trello" | "asana" | "github";
+  source: "jira" | "trello" | "asana" | "linear" | "github";
   title: string;
   kind: string;
   status: "todo" | "progress" | "review" | "ready" | "done";
@@ -724,7 +726,7 @@ export interface Ticket {
   comments: number;
   url: string;
   whereLabel: string;
-  /** The Jira project, Trello board, Asana project or GitHub repository it comes from. */
+  /** The Jira project, Trello board, Asana project, Linear team or GitHub repository it comes from. */
   place: string;
   /** Jira and GitHub labels. */
   labels?: string[];
@@ -745,7 +747,7 @@ export interface Ticket {
   branchProject?: string | null;
 }
 
-/** A status a ticket can move to: a Jira transition, Trello list, Asana section, GitHub project board column, or closing or reopening a GitHub issue. */
+/** A status a ticket can move to: a Jira transition, Trello list, Asana section, Linear workflow state, GitHub project board column, or closing or reopening a GitHub issue. */
 export interface StatusOption {
   id: string;
   name: string;
@@ -882,7 +884,7 @@ export interface DoneTicket {
   key: string;
   title: string;
   url: string;
-  source: "jira" | "trello" | "asana" | "github";
+  source: "jira" | "trello" | "asana" | "linear" | "github";
   place: string;
   kind: string;
   /** Jira and GitHub labels. */

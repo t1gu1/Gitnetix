@@ -1,4 +1,4 @@
-//! Browser sign-in through OAuth 2.0 for Jira, Trello and Asana. None of them has
+//! Browser sign-in through OAuth 2.0 for Jira, Trello, Asana and Linear. None of them has
 //! a device code flow, so the browser redirects back to a one-shot listener on
 //! localhost. Access tokens last an hour; the refresh token is kept and
 //! `access_token()` renews it when needed.
@@ -74,6 +74,20 @@ pub static ASANA: Provider = Provider {
     client_id: option_env!("GITNETIX_ASANA_CLIENT_ID"),
     client_secret: option_env!("GITNETIX_ASANA_CLIENT_SECRET"),
     params: &[("scope", "tasks:read tasks:write projects:read users:read")],
+    form: true,
+    pkce: true,
+};
+
+/// The Gitnetix app at linear.app/settings/api/applications. With PKCE Linear needs no client secret, so its public
+/// client id is all there is, kept here like GitHub's. `prompt=consent` lets the user pick another workspace for each connection.
+pub static LINEAR: Provider = Provider {
+    name: "Linear",
+    site: "Linear",
+    authorize: "https://linear.app/oauth/authorize",
+    token: "https://api.linear.app/oauth/token",
+    client_id: Some("6c9ffa1a29f03abaad87975a1539333f"),
+    client_secret: None,
+    params: &[("scope", "read,write"), ("prompt", "consent")],
     form: true,
     pkce: true,
 };
@@ -202,7 +216,7 @@ pub async fn access_token(p: &Provider, key: &str) -> Result<String> {
     save(key, &v, Some(refresh))
 }
 
-/// The token of a Trello or Asana connection, kept under keychain `key`: renewed first when it came from signing in.
+/// The token of a Trello, Asana or Linear connection, kept under keychain `key`: renewed first when it came from signing in.
 pub async fn token(p: &Provider, key: &str, signed_in: bool) -> Result<String> {
     if signed_in {
         access_token(p, key).await

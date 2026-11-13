@@ -23,7 +23,7 @@ Built with a Rust engine, a React UI and a Tauri 2 shell.
 
 ```
 crates/core     engine: git CLI wrapper, release flow, AI providers, agents,
-                GitHub, Jira/Trello/Asana, analytics, templates, RPC surface
+                GitHub, Jira/Trello/Asana/Linear, analytics, templates, RPC surface
 crates/server   companion HTTP API (+ SSE events), headless server, MCP bridge
 src-tauri       Tauri shell: hosts the engine on desktop, remote-only on mobile
 src             React UI (all screens from the design canvas)
@@ -121,7 +121,7 @@ projects, releases, feature/fix branches, worktrees, file lists, diffs, blame an
 rebase with conflict resolution, branch merge and delete, ship + tag, analytics, companion API, MCP bridge.
 
 Implemented but not yet exercised against live services: AI calls (CLI and API), agent
-sessions, GitHub PRs/reviews/releases, Jira/Trello/Asana.
+sessions, GitHub PRs/reviews/releases, Jira/Trello/Asana/Linear.
 
 Not done yet: GitLab / Azure DevOps / Bitbucket / Gitea PRs, French UI strings (the AI output
 language setting works; the interface itself is English), mobile builds have not been generated.

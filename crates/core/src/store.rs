@@ -311,6 +311,7 @@ pub struct Integrations {
     pub trello: Vec<TrelloConf>,
     #[serde(deserialize_with = "one_or_many")]
     pub asana: Vec<AsanaConf>,
+    pub linear: Vec<LinearConf>,
 }
 
 impl Integrations {
@@ -389,6 +390,13 @@ impl Connection for AsanaConf {
     }
 }
 
+impl Connection for LinearConf {
+    const KIND: &'static str = "linear";
+    fn id(&self) -> &str {
+        &self.id
+    }
+}
+
 /// Replaces the connection with `item`'s id, or adds it.
 pub fn upsert<T: Connection>(list: &mut Vec<T>, item: T) {
     match list.iter_mut().find(|x| x.id() == item.id()) {
@@ -439,6 +447,19 @@ pub struct AsanaConf {
     #[serde(alias = "projectGid", deserialize_with = "one_or_many")]
     pub projects: Vec<String>,
     /// Signed in with Asana (OAuth): the keychain holds its tokens, not a personal access token.
+    pub oauth: bool,
+    /// Gitnetix projects whose Tickets screen shows it; empty = all.
+    pub repos: Vec<String>,
+}
+
+/// A Linear workspace.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default, rename_all = "camelCase")]
+pub struct LinearConf {
+    pub id: String,
+    /// Keys of the teams to show the issues of (`ENG`); empty = every team.
+    pub teams: Vec<String>,
+    /// Signed in with Linear (OAuth): the keychain holds its tokens, not a personal API key.
     pub oauth: bool,
     /// Gitnetix projects whose Tickets screen shows it; empty = all.
     pub repos: Vec<String>,
