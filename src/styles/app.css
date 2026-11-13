@@ -2470,6 +2470,12 @@ button.tree-twist:hover {
 .tree-toggle {
   color: var(--fg);
 }
+/* A branch name prefix folder: its name as git has it (`Fix` and `fix` are two folders). */
+.tree-dir {
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 12px;
+}
 /* Group labels draw their colour as a background clipped to the text, from --label-from (when it fades) to --label-fg.
    The labels of the groups holding the checked-out branch (data-active) shine like its name. */
 .child-label,

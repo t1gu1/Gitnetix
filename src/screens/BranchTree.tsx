@@ -10,6 +10,7 @@ import { ContextMenu, type MenuItem } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
 import { Empty, FindBar, releaseTagLabel, useFindKey } from "../components/ui";
 import { plural, stashCount } from "../lib/format";
+import { kindOf } from "../lib/kinds";
 import { showKeys, useKeys } from "../lib/keys";
 import { onTick, TICK } from "../lib/motion";
 import { useNav } from "../lib/nav";
@@ -98,6 +99,40 @@ function childrenOf(o: Overview) {
   tops.sort((a, b) => (a.name === o.defaultBranch ? -1 : b.name === o.defaultBranch ? 1 : order(a, b)));
   return { roots: tops, shipped, kids: (name: string) => kids.get(name) ?? [] };
 }
+
+type Folder = { dir: string; list: BranchView[] };
+
+/**
+ * `list` (all named `dir/…` when `dir` is set), in its order, with the branches sharing their next name part (`fix` of `fix/a`, `fix/b`)
+ * gathered in a folder where the first of them sits. A part only one branch has stays a plain row; trunks and releases never go in one.
+ */
+function foldersOf(list: BranchView[], dir: string): (BranchView | Folder)[] {
+  const next = (b: BranchView) => {
+    const rest = dir ? b.name.slice(dir.length + 1) : b.name;
+    const i = rest.indexOf("/");
+    return b.role === "branch" && i > 0 ? (dir ? `${dir}/` : "") + rest.slice(0, i) : null;
+  };
+  const count = new Map<string, number>();
+  for (const b of list) {
+    const d = next(b);
+    if (d) count.set(d, (count.get(d) ?? 0) + 1);
+  }
+  const folders = new Map<string, Folder>();
+  const out: (BranchView | Folder)[] = [];
+  for (const b of list) {
+    const d = next(b);
+    if (!d || count.get(d)! < 2) out.push(b);
+    else if (folders.has(d)) folders.get(d)!.list.push(b);
+    else {
+      folders.set(d, { dir: d, list: [b] });
+      out.push(folders.get(d)!);
+    }
+  }
+  return out;
+}
+
+/** Open/closed keys of the folders `name` may sit in within `section`, outermost first (`fix/ui/a` → `fix`, `fix/ui`). */
+const dirsOf = (section: string, name: string) => name.split("/").slice(0, -1).map((_, i, parts) => `dir:${section}:${parts.slice(0, i + 1).join("/")}`);
 
 function look(b: BranchView, isDefault: boolean, shipped: boolean): { icon: string; cls: string } {
   if (!b.exists) return { icon: "close", cls: "c-del" };
@@ -262,7 +297,12 @@ export function BranchTree({
   const shippedRemovable = [...shippedBranches.values()].filter((b) => b.exists && shown(b) && cleanable(b));
   // Only the groups the path runs through start open: live children or the merged ones.
   const pathSections: string[] = [];
-  for (const name of path) for (const c of kids(name)) if (path.has(c.name)) pathSections.push(sectionOf(name, c));
+  for (const name of path)
+    for (const c of kids(name))
+      if (path.has(c.name)) {
+        const s = sectionOf(name, c);
+        pathSections.push(s, ...dirsOf(s, c.name));
+      }
   const { isOpen, toggle, openAll } = useToggles(pid, () => new Set(pathSections));
   // The path moved to other groups (a pull merged the branch, a checkout, branches filed under their parents): open them too.
   const pathKey = pathSections.join("\n");
@@ -278,7 +318,8 @@ export function BranchTree({
       let hit = isHit(b);
       for (const c of kids(b.name)) {
         if (!holds(c) || !shown(c)) continue;
-        hitSections.add(sectionOf(b.name, c));
+        const s = sectionOf(b.name, c);
+        for (const k of [s, ...dirsOf(s, c.name)]) hitSections.add(k);
         hit = true;
       }
       return hit;
@@ -302,7 +343,10 @@ export function BranchTree({
     const walk = (b: BranchView): boolean =>
       kids(b.name).some((c) => {
         const hit = c.name === reveal || walk(c);
-        if (hit) sections.push(sectionOf(b.name, c));
+        if (hit) {
+          const s = sectionOf(b.name, c);
+          sections.push(s, ...dirsOf(s, c.name));
+        }
         return hit;
       });
     tops.some(walk);
@@ -312,13 +356,37 @@ export function BranchTree({
   // Uncommitted files anywhere below a branch, surfaced on its toggle while its children are hidden.
   const hiddenWip = (b: BranchView): number => kids(b.name).reduce((n, c) => n + c.wip + hiddenWip(c), 0);
 
-  // Siblings listed above the one the path runs into: the path runs down past them.
-  const pastPath = (list: BranchView[]) => {
-    const i = list.findIndex((c) => path.has(c.name));
-    return (c: BranchView) => node(c, list.indexOf(c) < i);
+  // A section's branches, with the ones sharing a name prefix in folders (`section` keys their open state). Siblings listed
+  // above the one the path runs into, folders included: the path runs down past them.
+  const listed = (list: BranchView[], section: string, draw: (b: BranchView, past: boolean, dir: string) => ReactNode, dir = ""): ReactNode[] => {
+    const items = foldersOf(list, dir);
+    // The path never runs through the section after the tree.
+    const into = section === "behind" ? -1 : items.findIndex((x) => ("dir" in x ? x.list : [x]).some((c) => path.has(c.name)));
+    return items.map((x, i) => {
+      if (!("dir" in x)) return draw(x, i < into, dir);
+      const key = `dir:${section}:${x.dir}`;
+      const open = opened(key);
+      const wip = open ? 0 : x.list.reduce((n, c) => n + c.wip + hiddenWip(c), 0);
+      return (
+        <div key={key} role="group" className="tree-node" data-path={i < into ? "past" : undefined}>
+          <button className="tree-row tree-group tree-toggle tree-dir" data-path={i === into || undefined} aria-expanded={open} aria-label={`${open ? "Hide" : "Show"} the ${x.list.length} branches under ${x.dir}/`} onClick={() => flip(key)}>
+            <span className="tree-twist"><Icon name="chevronDown" size={12} className="chev" /></span>
+            <Icon name="folder" size={14} className="faint" />
+            <span className="mono ellipsis">{x.dir.slice(dir ? dir.length + 1 : 0)}</span>
+            <span className="faint">{x.list.length}</span>
+            {wip > 0 && <span className="wip-badge" title={`${plural(wip, "file")} with uncommitted changes in hidden branches`}>(WIP {wip})</span>}
+          </button>
+          {open && (
+            <div className="tree-open">
+              <div className="tree-kids">{listed(x.list, section, draw, x.dir)}</div>
+            </div>
+          )}
+        </div>
+      );
+    });
   };
 
-  const node = (b: BranchView, past = false): ReactNode => {
+  const node = (b: BranchView, past = false, dir = ""): ReactNode => {
     if (!shown(b)) return null;
     const children = kids(b.name).filter(shown);
     const lagging = (behindOf.get(b.name) ?? []).filter(shown);
@@ -354,6 +422,7 @@ export function BranchTree({
           current={b.name === o.currentBranch}
           onPath={path.has(b.name)}
           hit={q}
+          dir={dir}
           actions={actions}
           onSelect={() => onSelect(b.name)}
         />
@@ -372,7 +441,7 @@ export function BranchTree({
                 </div>
                 {mergedOpen && (
                   <div className="tree-kids" data-path={pathMerged ? "in" : pathLive || pathBehind ? "past" : undefined} aria-busy={cleaning || undefined} inert={cleaning}>
-                    {merged.map(pastPath(merged))}
+                    {listed(merged, mergedKey, node)}
                   </div>
                 )}
               </>
@@ -391,7 +460,7 @@ export function BranchTree({
                 </div>
                 {behindOpen && (
                   <div className="tree-kids" data-path={pathBehind ? "in" : pathLive ? "past" : undefined} aria-busy={isCleaning(behindKey) || undefined} inert={isCleaning(behindKey)}>
-                    {lagging.map(pastPath(lagging))}
+                    {listed(lagging, behindKey, node)}
                   </div>
                 )}
               </>
@@ -406,7 +475,7 @@ export function BranchTree({
             )}
             {live.length > 0 && open && (
               <div className="tree-open">
-                <div className="tree-kids">{live.map(pastPath(live))}</div>
+                <div className="tree-kids">{listed(live, b.name, node)}</div>
               </div>
             )}
           </div>
@@ -603,7 +672,7 @@ export function BranchTree({
             </div>
             {opened("behind") && (
               <div className="tree-node" data-path={pastShipped ? "past" : undefined} aria-busy={isCleaning("behind") || undefined} inert={isCleaning("behind")}>
-                {behindShown.map((b) => (
+                {listed(behindShown, "behind", (b, _, dir) => (
                   <Row
                     key={`behind:${b.name}`}
                     b={b}
@@ -614,6 +683,7 @@ export function BranchTree({
                     current={b.name === o.currentBranch}
                     onPath={false}
                     hit={q}
+                    dir={dir}
                     actions={actions}
                     onSelect={() => onSelect(b.name)}
                   />
@@ -759,6 +829,7 @@ function Row({
   current,
   onPath,
   hit,
+  dir,
   actions,
   onSelect,
 }: {
@@ -774,11 +845,15 @@ function Row({
   onPath: boolean;
   /** Search being typed: the part of the name it matches is highlighted. */
   hit?: string;
+  /** Name prefix of the folder it sits in (`fix` for `fix/a`): the row shows the rest. */
+  dir?: string;
   actions: BranchActions;
   onSelect: () => void;
 }) {
   const { icon, cls } = look(b, isDefault, !!shipped);
-  const name = shipped ? `v${shipped}` : b.role === "release" && b.release ? `v${b.release}` : b.role === "branch" && b.kind ? b.short : b.name;
+  const name = shipped ? `v${shipped}` : b.role === "release" && b.release ? `v${b.release}` : dir ? b.name.slice(dir.length + 1) : b.role === "branch" && b.kind ? b.short : b.name;
+  // In a `fix` folder every row is a fix: the chip only shows a kind the folder doesn't say.
+  const chip = b.role === "branch" && !!b.kind && !(dir && kindOf(dir.split("/")[0]) === b.kind);
   // Held by a rebase AI is carrying through (rebased, or the branch it goes onto): grayed out under a veil until it is done.
   const lock = actions.locks.get(b.name);
   return (
@@ -798,7 +873,7 @@ function Row({
         </span>
         <span className="tree-main">
           <span className="tree-name">
-            {b.role === "branch" && b.kind && <span className={`kind-chip ${b.kind === "fix" ? "c-del" : "c-mod"}`}>{b.kind}</span>}
+            {chip && <span className={`kind-chip ${b.kind === "fix" ? "c-del" : "c-mod"}`}>{b.kind}</span>}
             <span className="mono ellipsis">{marked(name, b, hit)}</span>
             {shipped ? <span className="tag released">{releaseTagLabel("released")}</span> : tag}
           </span>
