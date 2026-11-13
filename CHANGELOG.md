@@ -11,6 +11,8 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-11-13
+
 ### Added (App)
 - Add Linear as a ticket source next to Jira, Trello and Asana, with browser sign-in or a personal API key, optional team limits, and active cycles in the sprint filter.
 - Add permission modes for coding runs. Bypass stays the default, and in other modes the chat shows an Allow or Refuse card before each action that needs approval.
