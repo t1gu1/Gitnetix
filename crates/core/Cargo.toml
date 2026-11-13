@@ -26,6 +26,8 @@ futures-util.workspace = true
 base64 = "0.22"
 notify = "8"
 portable-pty = "0.9"
+# Canonical paths without the `\\?\` prefix on Windows, which cmd.exe refuses as a working folder.
+dunce = "1"
 keyring = { version = "3", optional = true, features = ["apple-native", "windows-native", "sync-secret-service"] }
 # Voice dictation: speech to text on this computer, from the desktop microphone or what a browser records.
 transcribe-cpp = { version = "0.4.1", default-features = false }

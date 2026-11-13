@@ -56,9 +56,10 @@ const BACKLOG: usize = 512 * 1024;
 
 static RUNS: AtomicU64 = AtomicU64::new(0);
 
-/// The same folder reached through a symlink or a trailing slash is one terminal.
+/// The same folder reached through a symlink or a trailing slash is one terminal. Also the shell's working folder:
+/// on Windows it is `C:\…`, as cmd.exe starts in C:\Windows when given `\\?\C:\…`.
 pub fn key(path: &str) -> String {
-    std::fs::canonicalize(path).map(|p| p.to_string_lossy().to_string()).unwrap_or_else(|_| path.to_string())
+    dunce::canonicalize(path).map(|p| p.to_string_lossy().to_string()).unwrap_or_else(|_| path.to_string())
 }
 
 /// AppImage's AppRun points LD_LIBRARY_PATH, GTK and GIO at bundled libs. Programs started
@@ -244,10 +245,11 @@ impl Shells {
     }
 }
 
-#[cfg(all(test, unix))]
+#[cfg(test)]
 mod tests {
     use super::*;
 
+    #[cfg(unix)]
     #[test]
     fn below_app_lowers_the_priority_by_ten() {
         let nice = |cmd: &mut std::process::Command| -> i32 {
@@ -262,6 +264,7 @@ mod tests {
         base64::engine::general_purpose::STANDARD.decode(s).unwrap()
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn runs_a_shell_in_the_checkout_and_forgets_it_on_remove() {
         let (tx, mut rx) = broadcast::channel(1024);
@@ -301,5 +304,37 @@ mod tests {
         assert_eq!(sh.open(&path, 0, 80, 24).unwrap().end, end, "reopening keeps the output and starts a new shell");
         sh.remove(&path, None);
         assert!(sh.write(&path, 0, "x").await.is_err());
+    }
+
+    /// cmd.exe refuses a `\\?\C:\…` folder ("UNC paths are not supported") and starts in C:\Windows instead.
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn the_windows_shell_starts_in_the_checkout() {
+        let dir = std::env::temp_dir().join("gnx-shell-cwd");
+        std::fs::create_dir_all(&dir).unwrap();
+        // As `git worktree list` names a worktree: C:/Users/…
+        let path = dir.to_string_lossy().replace('\\', "/");
+        let want = std::fs::canonicalize(&dir).unwrap().to_string_lossy().trim_start_matches(r"\\?\").to_string();
+        let (tx, mut rx) = broadcast::channel(1024);
+        let sh = Shells::new(tx);
+        let first = sh.open(&path, 0, 200, 24).unwrap();
+        let mut out = String::from_utf8_lossy(&decode(&first.data)).to_string();
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
+        // cmd.exe's prompt names its folder.
+        while !out.contains(&format!("{want}>")) {
+            match tokio::time::timeout_at(deadline, rx.recv()).await {
+                Ok(Ok(Event::ShellData { data, .. })) => {
+                    let d = String::from_utf8_lossy(&decode(&data)).to_string();
+                    // ConPTY waits for the cursor position, which the UI's emulator reports.
+                    if d.contains("\x1b[6n") {
+                        sh.write(&path, 0, "\x1b[1;1R").await.unwrap();
+                    }
+                    out.push_str(&d);
+                }
+                Ok(_) => {}
+                Err(_) => panic!("no prompt in {want}: {out:?}"),
+            }
+        }
+        sh.remove(&path, None);
     }
 }
