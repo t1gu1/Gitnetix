@@ -2788,6 +2788,10 @@ button.tree-twist:hover {
   transform-origin: var(--origin, top left);
   animation: pop-in 0.16s var(--ease);
 }
+/* A menu taller than the screen scrolls instead of squeezing its rows: squeezed, a two-line row (an author) spilled over the next one, which took its clicks. */
+.ctx-menu > * {
+  flex-shrink: 0;
+}
 @keyframes pop-in {
   from {
     opacity: 0;

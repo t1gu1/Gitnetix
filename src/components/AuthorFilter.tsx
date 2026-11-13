@@ -67,7 +67,7 @@ export function AuthorFilter({ authors, who, onChange, tip, className = "btn btn
             ...authors.map((a) => ({
               id: a.email,
               label: (
-                <span className="row" style={{ gap: 8, minWidth: 0, padding: "4px 0" }}>
+                <span className="row" style={{ gap: 8, minWidth: 0, margin: 0, padding: "4px 0" }}>
                   <Avatar name={a.name} email={a.email} size={20} />
                   <span className="col" style={{ minWidth: 0, gap: 0, lineHeight: 1.25 }}>
                     <span className="ellipsis">{a.name}</span>
