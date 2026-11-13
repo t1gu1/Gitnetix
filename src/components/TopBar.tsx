@@ -119,6 +119,12 @@ export function TopBar() {
 
   const onDragMove = (e: PointerEvent) => {
     if (!drag) return;
+    // A release the page never got (focus lost, a menu or another window took the mouse) leaves the bar holding the
+    // capture while moves come with no button down: hand it back, which ends the drag, or end it if it is already gone.
+    if (!(e.buttons & 1)) {
+      const el = e.currentTarget;
+      return el.hasPointerCapture(e.pointerId) ? el.releasePointerCapture(e.pointerId) : onDragEnd();
+    }
     const x = e.clientX;
     if (!drag.active && Math.abs(x - drag.x0) < DRAG_THRESHOLD)
       return setDrag({ ...drag, x });
