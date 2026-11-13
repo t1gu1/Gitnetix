@@ -282,6 +282,7 @@ export function FindBar({
         autoFocus
         aria-label={label}
         placeholder={label}
+        data-no-mic
         value={query}
         onChange={(e) => onQuery(e.target.value)}
         onFocus={(e) => e.currentTarget.select()}

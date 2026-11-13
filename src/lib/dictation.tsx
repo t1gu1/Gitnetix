@@ -14,8 +14,8 @@ import { toast } from "./toast";
 // and AI's rewrite with the project's context takes their place when that is on.
 
 type Field = HTMLInputElement | HTMLTextAreaElement;
-// The terminal's hidden textarea is left out: what it gets goes to the shell, not into a box.
-const FIELD = "textarea:not(.xterm-helper-textarea), input:is(:not([type]), [type=text], [type=search], [type=url], [type=email])";
+// The terminal's hidden textarea is left out: what it gets goes to the shell, not into a box. So are boxes marked data-no-mic (search bars).
+const FIELD = "textarea:not(.xterm-helper-textarea), input:is(:not([type]), [type=text], [type=search], [type=url], [type=email]):not([data-no-mic])";
 const asField = (el: Element | null) => (el?.matches(FIELD) && !(el as Field).readOnly && !(el as Field).disabled ? (el as Field) : null);
 
 /** The desktop app records with its own microphone code (src-tauri/src/mic.rs): webview recorders depend on codecs each OS may lack.
