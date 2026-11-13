@@ -4389,6 +4389,11 @@ button.picker-act {
   border: 1px solid var(--line);
   border-radius: var(--r);
 }
+/* An image's preview there: the modal pads it already, and nothing sits below it. */
+.modal-body > .img-diff {
+  padding: 0;
+  border-bottom: 0;
+}
 .ag-diff > .spinner,
 .ag-diff > .faint {
   display: block;

@@ -116,6 +116,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("agents.retry", "Run the agent's last prompt again, after its run failed", "id"),
     ("agents.continue", "Continue an agent a usage limit stopped, now instead of when the limit resets (credits added, another agent picked); stop cancels its wait", "id"),
     ("agents.diff", "Diff of one file a turn of the agent changed, between the snapshots its log's files line names; `full` keeps the whole file", "id, from, to, path, full?"),
+    ("agents.blobs", "Old and new contents of one file a turn of the agent changed, base64 (image previews); same snapshots as agents.diff", "id, from, to, path"),
     ("agents.pause", "Pause an agent", "id"),
     ("agents.resume", "Resume an agent", "id"),
     ("agents.stop", "Stop an agent", "id"),
@@ -867,6 +868,7 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
             ok()
         }
         "agents.diff" => to(k.agent_diff(&s(&p, "id")?, &s(&p, "from")?, &s(&p, "to")?, &s(&p, "path")?, b(&p, "full")).await?),
+        "agents.blobs" => to(k.agent_blobs(&s(&p, "id")?, &s(&p, "from")?, &s(&p, "to")?, &s(&p, "path")?).await?),
         "agents.pause" => {
             k.agents.pause(&s(&p, "id")?)?;
             ok()

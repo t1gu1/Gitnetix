@@ -5624,6 +5624,12 @@ impl Gitnetix {
         Git::new(cwd).file_diff(path, Some(&format!("{}..{}", check_sha(from)?, check_sha(to)?)), full).await
     }
 
+    /// Both versions of `path` around a turn of agent `id`, base64 (image previews), as `agent_diff` picks them.
+    pub async fn agent_blobs(&self, id: &str, from: &str, to: &str, path: &str) -> Result<Blobs> {
+        let cwd = self.agents.get(id)?.cwd;
+        Git::new(cwd).blobs(Side::Rev(check_sha(from)?), Side::Rev(check_sha(to)?), path).await
+    }
+
     /// A file sent to agent `id`, base64, as its log lists it.
     pub async fn agent_file(&self, id: &str, path: &str) -> Result<String> {
         attachment(Path::new(&self.agents.get(id)?.cwd), path).await

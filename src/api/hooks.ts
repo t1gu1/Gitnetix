@@ -428,10 +428,20 @@ export const useAgentFile = (id?: string, path?: string, enabled = true) =>
   });
 
 /** File `path` as a turn of agent `id` changed it: between snapshots `from` and `to` of its checkout, from a files line of its log. */
-export const useAgentDiff = (id: string, from: string, to: string, path: string) =>
+export const useAgentDiff = (id: string, from: string, to: string, path: string, enabled = true) =>
   useQuery({
     queryKey: ["agentDiff", id, from, to, path],
     queryFn: () => rpc<Hunk[]>("agents.diff", { id, from, to, path }),
+    enabled,
+    staleTime: Infinity,
+  });
+
+/** Both versions of `path` around that turn, base64, for an image's preview. */
+export const useAgentBlobs = (id: string, from: string, to: string, path: string, enabled = true) =>
+  useQuery({
+    queryKey: ["agentBlobs", id, from, to, path],
+    queryFn: () => rpc<Blobs>("agents.blobs", { id, from, to, path }),
+    enabled,
     staleTime: Infinity,
   });
 

@@ -1314,6 +1314,10 @@ mod tests {
         assert_eq!(std::fs::read(repo.join(".git/index")).unwrap(), index);
         let diff = Git::new(repo).file_diff("a.txt", Some(&format!("{base}..{}", v["to"].as_str().unwrap())), false).await.unwrap();
         assert_eq!(diff.len(), 1);
+        // Image previews read both sides from the same snapshots (trees, not commits).
+        use crate::git::Side;
+        let blobs = Git::new(repo).blobs(Side::Rev(&base), Side::Rev(v["to"].as_str().unwrap()), "new.txt").await.unwrap();
+        assert_eq!((blobs.old, blobs.new.as_deref()), (None, Some("eAo=")));
     }
 
     #[test]

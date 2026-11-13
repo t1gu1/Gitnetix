@@ -1,7 +1,7 @@
 import { type ClipboardEvent, type CSSProperties, type KeyboardEvent, type ReactNode, memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-import { useAction, useAgentDiff, useAgentFile, useAiCatalog, useConfig } from "../api/hooks";
+import { useAction, useAgentBlobs, useAgentDiff, useAgentFile, useAiCatalog, useConfig } from "../api/hooks";
 import { clipboardFiles, copyAgentFile, downloadAgentFile, isLocal, localHead, localImage, onPathDrop } from "../api/transport";
 import type { AgentLimit, LogLine } from "../api/types";
 import { blocks, errText, folds, questions, said, stepsLabel, took, type Block, type Fold, type Opt, type Question } from "../lib/agentLog";
@@ -12,8 +12,8 @@ import { AudioPlayer, isAudio } from "./AudioPlayer";
 import { Avatar } from "./Avatar";
 import { DiffView } from "./DiffView";
 import { Icon } from "./Icon";
-import { dataUrl, isImage } from "./ImageDiff";
-import { Markdown, Modal } from "./ui";
+import { IMAGE_MODES, ImageDiff, comparable, dataUrl, isImage, useImageMode } from "./ImageDiff";
+import { Markdown, Modal, Seg } from "./ui";
 
 // A new line regroups the whole log: every block gets fresh arrays of the same line objects, so compare items.
 const same = (a: unknown[], b: unknown[]) => a.length === b.length && a.every((x, i) => x === b[i]);
@@ -222,7 +222,7 @@ function Changes({ b, session }: { b: Extract<Block, { kind: "files" }>; session
               <span className="faint">{path.slice(0, cut)}</span>
               {path.slice(cut)}
             </span>
-            {a === null ? <span className="faint">binary</span> : <Stat add={a} del={d ?? 0} />}
+            {a === null ? <span className="faint">{isImage(path) ? "image" : "binary"}</span> : <Stat add={a} del={d ?? 0} />}
           </button>
         );
       })}
@@ -237,32 +237,49 @@ function Changes({ b, session }: { b: Extract<Block, { kind: "files" }>; session
   );
 }
 
-/** File `at` of turn `b`'s changes, as that turn changed it. The arrows and ←/→ `onStep` through its files, round. */
+/** File `at` of turn `b`'s changes, as that turn changed it; a binary image shows as its preview. The arrows and ←/→ `onStep` through its files, round. */
 function TurnDiff({ session, b, at, onStep, onClose }: { session: string; b: Extract<Block, { kind: "files" }>; at: number; onStep: (i: number) => void; onClose: () => void }) {
-  const path = b.files[at][0];
+  const [path, added] = b.files[at];
   const n = b.files.length;
-  const diff = useAgentDiff(session, b.from, b.to, path);
+  // An SVG is text: its diff says more than its picture.
+  const image = added === null && isImage(path);
+  const diff = useAgentDiff(session, b.from, b.to, path, !image);
+  const blobs = useAgentBlobs(session, b.from, b.to, path, image);
+  const [imageMode, setImageMode] = useImageMode();
   const [anyway, setAnyway] = useState(false);
   const step = (d: number) => onStep((at + d + n) % n);
   useArrows(n, step);
+  const modes = image && comparable(blobs.data) && <Seg value={imageMode} onChange={setImageMode} label="Image comparison" options={IMAGE_MODES} />;
   return (
     <Modal
       title={path}
       sub={[n > 1 && `${at + 1} / ${n}`, "As this turn changed it"].filter(Boolean).join(" · ")}
       width={1000}
       onClose={onClose}
-      actions={n > 1 && (
+      actions={(modes || n > 1) && (
         <>
+          {modes}
+          {n > 1 && (
+            <>
           <button type="button" className="btn btn-ghost btn-icon" aria-label="Previous file" data-tip="Previous file · ←" onClick={() => step(-1)}>
             <Icon name="chevronLeft" />
           </button>
           <button type="button" className="btn btn-ghost btn-icon" aria-label="Next file" data-tip="Next file · →" onClick={() => step(1)}>
             <Icon name="chevronRight" />
           </button>
+            </>
+          )}
         </>
       )}
     >
-      {/* The diff fills a sized box: as tall as its rows (21px each, app.css), up to most of the screen. */}
+      {image ? (
+        blobs.data ? (
+          <ImageDiff key={path} path={path} blobs={blobs.data} mode={imageMode} />
+        ) : (
+          <div className="ag-diff">{blobs.isError ? <span className="faint">Could not load the image: {blobs.error.message}</span> : <span className="spinner" />}</div>
+        )
+      ) : (
+      /* The diff fills a sized box: as tall as its rows (21px each, app.css), up to most of the screen. */
       <div className="diff ag-diff" style={{ height: `min(70vh, ${Math.max(120, (diff.data ?? []).reduce((n, h) => n + h.lines.length + 1, 0) * 21 + 20)}px)` }}>
         {diff.isError ? (
           <span className="faint">Could not load the diff: {diff.error.message}</span>
@@ -274,6 +291,7 @@ function TurnDiff({ session, b, at, onStep, onClose }: { session: string; b: Ext
           <span className="faint">No text changes to show</span>
         )}
       </div>
+      )}
     </Modal>
   );
 }
@@ -684,6 +702,8 @@ function useArrows(n: number, step: (d: number) => void) {
   useEffect(() => {
     if (n < 2) return;
     const k = (e: globalThis.KeyboardEvent) => {
+      // A focused slider (an image's swipe) takes its own arrows.
+      if (e.target instanceof HTMLInputElement) return;
       if (e.key === "ArrowLeft") latest.current(-1);
       else if (e.key === "ArrowRight") latest.current(1);
     };
