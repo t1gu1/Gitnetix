@@ -31,7 +31,7 @@ export function AgentConsent() {
       }
     >
       <p style={{ margin: 0, lineHeight: 1.55 }}>
-        An agent runs its CLI with approvals turned off: it edits files and runs commands on this computer without asking first. Its request includes the linked ticket's text, written by whoever can edit that ticket.
+        By default (Bypass), an agent runs its CLI with approvals turned off: it edits files and runs commands on this computer without asking first. With Claude Code, pick another mode under Permissions to allow its actions in the chat. Its request includes the linked ticket's text, written by whoever can edit that ticket.
       </p>
       <p style={{ margin: "10px 0 0", lineHeight: 1.55 }}>Start agents on repositories and tickets you trust.</p>
     </Modal>

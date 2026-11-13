@@ -21,8 +21,16 @@ export const effortsFor = (info: ProviderInfo | undefined, models: ModelInfo[], 
 /** The effort to keep after picking another model: the same if that model takes it, else its default (""). */
 export const fitEffort = (efforts: string[], effort: string) => (efforts.includes(effort) ? effort : "");
 
-/** Provider, model and effort for a new agent session. Empty = the "Free-form agent" routing. */
-export type AgentPick = { provider?: string; model?: string; effort?: string };
+/** How an agent's actions get approved: Claude Code's permission modes, "" (Bypass) by default. Others always bypass. */
+export const PERMISSIONS = [
+  { value: "", label: "Bypass" },
+  { value: "auto", label: "Auto-approve" },
+  { value: "acceptEdits", label: "Accept edits" },
+  { value: "cli", label: "Use agent permissions" },
+];
+
+/** Provider, model, effort and permission for a new agent session. Empty = the "Free-form agent" routing. */
+export type AgentPick = { provider?: string; model?: string; effort?: string; permission?: string };
 
 /** The last pick on a project, kept between sessions. */
 export const useAgentPick = (projectId: string) => useStored<AgentPick>(`gnx.agentPick.${projectId}`, {});
@@ -36,10 +44,12 @@ export function AgentPicker({ value, onChange, compact }: { value: AgentPick; on
   if (!c || !provider) return null;
   const model = value.model ?? route.model ?? "";
   const effort = value.effort ?? route.effort ?? "";
+  // The routing's even with another provider picked: it is a choice about you, not the model.
+  const permission = value.permission ?? c.routing.agent?.permission ?? "";
   // Agents only run through a local CLI: one set up that way, or one found on this computer.
   const clis = c.providers.filter((p) => (p.conf ? p.conf.method === "cli" : p.status?.status === "detected") || p.info.id === provider);
   const prov = c.providers.find((p) => p.info.id === provider);
-  const set = (patch: AgentPick) => onChange({ provider, model, effort, ...patch });
+  const set = (patch: AgentPick) => onChange({ provider, model, effort, permission, ...patch });
   const provs = clis.map((p) => ({ value: p.info.id, label: p.info.name }));
   const list = listed.data ?? prov?.info.models ?? [];
   // "Default model" runs the provider's own: its efforts are that model's.
@@ -56,6 +66,7 @@ export function AgentPicker({ value, onChange, compact }: { value: AgentPick; on
         <input aria-label="Agent model" className={compact ? "picker-act mono" : "input mono"} style={{ width: 120 }} placeholder="model id" value={model} onChange={(e) => set({ model: e.target.value })} />
       )}
       {efforts.length > 1 && <MenuChoice className={cls} label="Agent effort" value={effort} options={efforts} onChange={(v) => set({ effort: v })} />}
+      {provider === "claude" && <MenuChoice className={cls} label="Agent permissions" value={permission} options={PERMISSIONS} onChange={(v) => set({ permission: v })} />}
     </div>
   );
 }

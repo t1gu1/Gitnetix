@@ -105,6 +105,9 @@ pub struct Resolved {
     pub model: String,
     pub effort: String,
     pub base_url: Option<String>,
+    /// Agents only: how their actions get approved (`agents::claude_permission`). Empty = Bypass.
+    #[serde(default)]
+    pub permission: String,
 }
 
 impl Resolved {
@@ -139,7 +142,7 @@ pub fn resolve_route(cfg: &AiConfig, route: Route, template_model: Option<&str>)
         .or(route.model.filter(|s| !s.is_empty()))
         .unwrap_or(conf.model.clone());
     let effort = route.effort.filter(|s| !s.is_empty()).unwrap_or(conf.effort.clone());
-    Ok(Resolved { provider, method: conf.method, model, effort, base_url: conf.base_url })
+    Ok(Resolved { provider, method: conf.method, model, effort, base_url: conf.base_url, permission: route.permission.unwrap_or_default() })
 }
 
 /// The effort to pass the CLI: one the model takes, else none, so the CLI uses the model's default.

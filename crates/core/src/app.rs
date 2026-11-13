@@ -5474,11 +5474,14 @@ impl Gitnetix {
     }
 
     /// `pick` overrides the "agent" routing when it names a provider; its empty
-    /// fields fall back to the template's model and the provider's setup.
+    /// fields fall back to the template's model and the provider's setup, its permission to the routing's.
     fn agent_ai(&self, t: &Template, pick: Route) -> Result<Resolved> {
         if pick.provider.as_deref().is_some_and(|s| !s.is_empty()) {
             let tm = if pick.model.as_deref().is_some_and(|s| !s.is_empty()) { None } else { t.model.as_deref() };
-            self.store.read(|c| ai::resolve_route(&c.ai, pick, tm))
+            self.store.read(|c| {
+                let permission = pick.permission.clone().or_else(|| c.ai.routing.get("agent").and_then(|r| r.permission.clone()));
+                ai::resolve_route(&c.ai, Route { permission, ..pick }, tm)
+            })
         } else {
             self.route("agent", Some(t))
         }
@@ -5656,7 +5659,7 @@ impl Gitnetix {
     pub async fn ai_test(&self, provider: &str) -> Result<serde_json::Value> {
         let r = self.store.read(|c| {
             let conf = c.ai.providers.get(provider).cloned().unwrap_or_default();
-            Resolved { provider: provider.into(), method: conf.method, model: conf.model, effort: conf.effort, base_url: conf.base_url }
+            Resolved { provider: provider.into(), method: conf.method, model: conf.model, effort: conf.effort, base_url: conf.base_url, permission: String::new() }
         });
         let t0 = Instant::now();
         let reply = ai::complete(&r, "Reply with the single word: ok", None).await?;
@@ -7420,11 +7423,16 @@ mod tests {
         let s = serde_json::json!([{ "id": "a", "projectId": "p", "branch": "b", "cwd": ".", "worktree": false, "status": "waiting", "request": "r", "agentLabel": "", "lines": [], "startedAt": "", "updatedAt": "", "resumeId": null, "ai": ai }]);
         std::fs::write(tmp.path().join("agents.json"), s.to_string()).unwrap();
         let k = Gitnetix::open(tmp.path()).unwrap();
-        let pick = |m: &str, e: &str| Route { provider: Some("claude".into()), model: Some(m.into()), effort: Some(e.into()) };
+        let pick = |m: &str, e: &str| Route { provider: Some("claude".into()), model: Some(m.into()), effort: Some(e.into()), permission: None };
         // "Default effort" on a running session means the provider's setup, as on a new session.
         let r = k.agent_configure("a", pick("claude-opus-5-5", "")).unwrap().ai.unwrap();
         assert_eq!((r.model.as_str(), r.effort.as_str()), ("claude-opus-5-5", "medium"));
         assert_eq!(k.agent_configure("a", pick("", "max")).unwrap().ai.unwrap().effort, "max");
+        // No permission picked: the "Free-form agent" routing's.
+        k.store.write(|c| Ok(c.ai.routing.entry("agent".into()).or_default().permission = Some("auto".into()))).unwrap();
+        assert_eq!(k.agent_configure("a", pick("", "")).unwrap().ai.unwrap().permission, "auto");
+        let edits = Route { permission: Some("acceptEdits".into()), ..pick("", "") };
+        assert_eq!(k.agent_configure("a", edits).unwrap().ai.unwrap().permission, "acceptEdits");
     }
 
     #[test]

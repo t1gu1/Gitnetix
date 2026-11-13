@@ -2,7 +2,7 @@ import { type CSSProperties, type ReactNode, useEffect, useState } from "react";
 
 import { useAction, useAiCatalog, useAiModels } from "../api/hooks";
 import type { AiCatalog, ConnectMethod } from "../api/types";
-import { effortLabel, effortsFor, fitEffort, MenuChoice } from "../components/AgentPicker";
+import { effortLabel, effortsFor, fitEffort, MenuChoice, PERMISSIONS } from "../components/AgentPicker";
 import { Resizer, usePaneWidth } from "../components/Resizer";
 import { Loading, Seg } from "../components/ui";
 
@@ -231,11 +231,13 @@ function Routing({ cat }: { cat: AiCatalog }) {
   );
 }
 
-type RouteSet = { provider: string | null; model: string | null; effort: string | null };
+type RouteSet = { provider: string | null; model: string | null; effort: string | null; permission: string | null };
 
-/** One task's provider, model and effort. The effort menu lists what the model takes. */
+/** One task's provider, model and effort, and the agent's permissions. The effort menu lists what the model takes. */
 function RouteRow({ cat, task, label, usable, set }: { cat: AiCatalog; task: string; label: string; usable: AiCatalog["providers"]; set: (r: RouteSet) => void }) {
   const r = cat.routing[task] ?? {};
+  // Every change sends the whole route: one left out would be cleared.
+  const put = (x: Partial<RouteSet>) => set({ provider: r.provider ?? null, model: r.model ?? null, effort: r.effort ?? null, permission: r.permission ?? null, ...x });
   const prov = cat.providers.find((p) => p.info.id === (r.provider ?? cat.defaultProvider));
   const listed = useAiModels(prov?.info.id);
   const models = listed.data ?? prov?.info.models ?? [];
@@ -252,7 +254,7 @@ function RouteRow({ cat, task, label, usable, set }: { cat: AiCatalog; task: str
         label={label}
         value={r.provider ?? ""}
         options={[{ value: "", label: "Default AI" }, ...usable.map((p) => ({ value: p.info.id, label: p.info.name }))]}
-        onChange={(v) => set({ provider: v || null, model: null, effort: r.effort ?? null })}
+        onChange={(v) => put({ provider: v || null, model: null })}
       />
       {models.length > 0 || listed.isLoading ? (
         <MenuChoice
@@ -261,10 +263,10 @@ function RouteRow({ cat, task, label, usable, set }: { cat: AiCatalog; task: str
           label={`${label} model`}
           value={r.model ?? ""}
           options={[{ value: "", label: "Provider default" }, ...models.map((m) => ({ value: m.id, label: m.label }))]}
-          onChange={(v) => set({ provider: r.provider ?? null, model: v || null, effort: fitEffort(fits(v), r.effort ?? "") || null })}
+          onChange={(v) => put({ model: v || null, effort: fitEffort(fits(v), r.effort ?? "") || null })}
         />
       ) : (
-        <input aria-label={`${label} model`} className="input mono" style={{ height: 32, width: 160 }} placeholder="model id" defaultValue={r.model ?? ""} onBlur={(e) => set({ provider: r.provider ?? null, model: e.target.value || null, effort: r.effort ?? null })} />
+        <input aria-label={`${label} model`} className="input mono" style={{ height: 32, width: 160 }} placeholder="model id" defaultValue={r.model ?? ""} onBlur={(e) => put({ model: e.target.value || null })} />
       )}
       {efforts.length > 0 && (
         <MenuChoice
@@ -273,8 +275,11 @@ function RouteRow({ cat, task, label, usable, set }: { cat: AiCatalog; task: str
           label={`${label} effort`}
           value={r.effort ?? ""}
           options={[{ value: "", label: "Default effort" }, ...efforts.map((e) => ({ value: e, label: e }))]}
-          onChange={(v) => set({ provider: r.provider ?? null, model: r.model ?? null, effort: v || null })}
+          onChange={(v) => put({ effort: v || null })}
         />
+      )}
+      {task === "agent" && prov?.info.id === "claude" && (
+        <MenuChoice className="select menu-select" style={{ height: 32, width: 170 }} label={`${label} permissions`} value={r.permission ?? ""} options={PERMISSIONS} onChange={(v) => put({ permission: v || null })} />
       )}
     </li>
   );

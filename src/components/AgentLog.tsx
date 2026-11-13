@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 
 import { useAction, useAgentBlobs, useAgentDiff, useAgentFile, useAiCatalog, useConfig } from "../api/hooks";
 import { clipboardFiles, copyAgentFile, downloadAgentFile, isLocal, localHead, localImage, onPathDrop } from "../api/transport";
-import type { AgentLimit, LogLine } from "../api/types";
+import type { AgentAsk, AgentLimit, LogLine } from "../api/types";
 import { blocks, errText, folds, questions, said, stepsLabel, took, type Block, type Fold, type Opt, type Question } from "../lib/agentLog";
 import { OwnMic } from "../lib/dictation";
 import { bytes, clock, plural } from "../lib/format";
@@ -381,6 +381,32 @@ function LimitCard({ session, limit, onCancel }: { session: string; limit: Agent
   );
 }
 
+/** An action agent `session`'s run waits on you for. Allow runs it; Refuse has the agent look for another way, or say what is blocked. */
+function AskCard({ session, ask }: { session: string; ask: AgentAsk }) {
+  const answer = useAction("agents.answer", { invalidate: [["agents"]] });
+  const go = (allow: boolean) => answer.mutate({ id: session, ask: ask.id, allow });
+  return (
+    <div className="ag-limit" role="group" aria-label={`Allow ${ask.tool}?`}>
+      <Icon name="lock" size={18} />
+      <div className="ag-limit-body grow">
+        <span className="ag-limit-title">Allow {ask.tool}?</span>
+        {ask.description && <span className="ag-limit-when">{ask.description}</span>}
+        {ask.detail && <code className="ag-ask-detail">{ask.detail}</code>}
+        <div className="ag-limit-actions ag-ask-actions">
+          <button type="button" className="btn btn-primary btn-sm" disabled={answer.isPending} onClick={() => go(true)}>
+            <Icon name="check" size={12} />
+            Allow
+          </button>
+          <button type="button" className="btn btn-danger btn-sm" disabled={answer.isPending} onClick={() => go(false)}>
+            <Icon name="close" size={12} />
+            Refuse
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /** Images and audio a reply shows, as its prompt asks: the local paths of its Markdown images, `![What it shows](/path.png)`. */
 const shown = (text: string) => [...new Set([...text.matchAll(/!\[[^\]]*\]\(<?([^<>)]+?)>?\)/g)].map((m) => m[1].trim()))].filter((p) => (isImage(p) || isAudio(p)) && !/^\w+:\/\//.test(p));
 
@@ -392,8 +418,9 @@ const TAIL = 60;
 /** `actions` show under "Your turn!" when the agent did not ask a question; `picks` are its options picked for the prompt box; `session` is the agent's id, for the files you sent it; `queued` are your messages waiting for its run to end, and `onEditQueued` gets one taken off to edit.
  * `working`: its run is going (or paused), so the last turn stays unfolded. `canSendNow`: its run can be cut short for the queue (Claude Code, which resumes its task).
  * `limit`: the usage limit its last run stopped at, shown under the log until it continues; `onCancelLimit` stops it instead.
+ * `asks`: actions its run waits on you to allow, each as a card at the end of the log.
  */
-export function AgentLog({ lines, empty, picks, onPicks, actions, thinking, working, provider, session, queued = [], onEditQueued, canSendNow, limit, onCancelLimit }: { lines: LogLine[]; empty?: string; picks: Choice[]; onPicks: (c: Choice[]) => void; actions?: ReactNode; thinking?: boolean; working?: boolean; provider?: string; session?: string; queued?: string[]; onEditQueued?: (text: string) => void; canSendNow?: boolean; limit?: AgentLimit | null; onCancelLimit?: () => void }) {
+export function AgentLog({ lines, empty, picks, onPicks, actions, thinking, working, provider, session, queued = [], onEditQueued, canSendNow, limit, onCancelLimit, asks = [] }: { lines: LogLine[]; empty?: string; picks: Choice[]; onPicks: (c: Choice[]) => void; actions?: ReactNode; thinking?: boolean; working?: boolean; provider?: string; session?: string; queued?: string[]; onEditQueued?: (text: string) => void; canSendNow?: boolean; limit?: AgentLimit | null; onCancelLimit?: () => void; asks?: AgentAsk[] }) {
   const me = useMe();
   const ref = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
@@ -460,7 +487,7 @@ export function AgentLog({ lines, empty, picks, onPicks, actions, thinking, work
   useEffect(() => {
     const el = ref.current;
     if (el && stick.current) el.scrollTop = el.scrollHeight;
-  }, [lines.length, thinking, queued.length]);
+  }, [lines.length, thinking, queued.length, asks.length]);
   // Your first message is the task: once it scrolls out of the log, it pins to the top; `peek` unfolds it there.
   const task = list.find((b): b is Extract<Block, { kind: "you" }> => b.kind === "you");
   const ti = task ? list.indexOf(task) : -1;
@@ -598,7 +625,8 @@ export function AgentLog({ lines, empty, picks, onPicks, actions, thinking, work
           {qs.length === 0 && actions && <div className="ag-choices">{actions}</div>}
         </div>
       )}
-      {thinking && (
+      {session && asks.map((a) => <AskCard key={a.id} session={session} ask={a} />)}
+      {thinking && !asks.length && (
         <div className="ag-act" role="status" aria-label="Agent is thinking">
           {fresh && mark}
           <span className="ag-dots" aria-hidden="true"><i /><i /><i /></span>

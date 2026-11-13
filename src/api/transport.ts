@@ -90,7 +90,7 @@ export async function testRemote(url: string, token: string): Promise<Remote> {
 }
 
 export async function rpc<T = unknown>(method: string, params: Record<string, unknown> = {}): Promise<T> {
-  // Agents run with their CLI's approvals off: the first start waits for the user's yes, asked once.
+  // Agents run with their CLI's approvals off by default (Bypass): the first start waits for the user's yes, asked once.
   if ((method === "agents.start" || (method === "items.create" && params.startAgent === true)) && !(await agentConsent())) {
     throw new RpcError("cancelled", "Agent not started");
   }

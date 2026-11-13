@@ -426,6 +426,8 @@ export interface Route {
   provider?: string | null;
   model?: string | null;
   effort?: string | null;
+  /** Agents only: how their actions get approved (`PERMISSIONS`). Empty = Bypass. */
+  permission?: string | null;
 }
 
 export interface TemplateRule {
@@ -556,11 +558,21 @@ export interface AgentSession {
   updatedAt: string;
   resumeId?: string | null;
   /** What the session runs on; missing on sessions from before routing. */
-  ai?: { provider: string; model: string; effort: string } | null;
+  ai?: { provider: string; model: string; effort: string; permission?: string } | null;
   /** Messages sent while it works, in order; they go out together when the run ends. */
   queued: string[];
   /** The usage limit its last run stopped at: it waits (status "waiting") for the reset, or for you. */
   limit?: AgentLimit | null;
+  /** Actions its run waits on you to allow or refuse (Claude Code outside Bypass), oldest first. */
+  asks?: AgentAsk[];
+}
+
+/** An action Claude Code asks to run: its tool, its command or file, and what it says it does. */
+export interface AgentAsk {
+  id: string;
+  tool: string;
+  detail: string;
+  description: string;
 }
 
 /** A usage limit an agent's run stopped at (`limits.rs`). Times are ms since the epoch. */

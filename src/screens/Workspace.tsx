@@ -2352,6 +2352,7 @@ function Terminal({ pid, branch, cwd, worktree, open, setOpen, onCloseWorktree, 
               onEditQueued={(q) => setText((t) => [q, t].filter(Boolean).join("\n\n"))}
               canSendNow={cur?.ai?.provider === "claude" && !!cur.resumeId}
               limit={cur?.limit}
+              asks={cur?.asks}
               onCancelLimit={cur ? () => halt(cur) : undefined}
               actions={
                 cur?.worktree && <FinishWorktreeCard session={cur} finish={finish} />

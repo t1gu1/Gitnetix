@@ -71,7 +71,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("releases.ship", "Fast-forward main to the release and tag it", "projectId, version, push?"),
     ("releases.delete", "Forget an open release (branch kept)", "projectId, version"),
     ("items.suggestName", "AI branch name for a feature or fix", "projectId, kind, description, ticket?"),
-    ("items.create", "New feature/fix branch in a release, or off another branch or a tag (release empty, from = branch or tag)", "projectId, release?, from?, kind, description, branchName?, ticket?, where: switch|worktree, startAgent?, provider?, model?, effort?, files?"),
+    ("items.create", "New feature/fix branch in a release, or off another branch or a tag (release empty, from = branch or tag)", "projectId, release?, from?, kind, description, branchName?, ticket?, where: switch|worktree, startAgent?, provider?, model?, effort?, permission?, files?"),
     ("items.attach", "Attach an existing branch to a release", "projectId, branch, release, kind"),
     ("items.remove", "Remove a branch from its release", "projectId, branch, deleteBranch?"),
     ("branches.stash", "Stash a checked-out branch's uncommitted changes, untracked files included", "projectId, branch"),
@@ -108,7 +108,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("worktrees.remove", "Remove a worktree", "projectId, path, force?"),
     ("agents.list", "Agent sessions", ""),
     ("agents.get", "One agent session with its log", "id"),
-    ("agents.start", "Start an agent on a branch (or main checkout)", "projectId, branch?, request, ticket?, provider?, model?, effort?, files?"),
+    ("agents.start", "Start an agent on a branch (or main checkout)", "projectId, branch?, request, ticket?, provider?, model?, effort?, permission?, files?"),
     ("agents.message", "Send a follow-up message to an agent, queued until its run ends while it works; files: [{ name, data (base64) | path }]", "id, text, files?"),
     ("agents.file", "A file sent to an agent, base64 (only from its attachments folder)", "id, path"),
     ("agents.unqueue", "Take a message waiting for the agent's run to end off its queue, when it is still `text` at `index`; returns it", "id, index, text"),
@@ -134,7 +134,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("dictation.transcribe", "Turn recorded speech into text on this computer (the first time downloads a 740 MB speech model)", "audio (base64), mime"),
     ("dictation.cancel", "Stop the transcriptions under way; they end with an error", ""),
     ("dictation.polish", "Rewrite dictated text into clear text with AI and the project's context; unchanged when turned off or no AI is set up", "text, projectId?, branch?, field?, typed?"),
-    ("ai.setRoute", "Which AI handles a task", "task, provider?, model?, effort?"),
+    ("ai.setRoute", "Which AI handles a task", "task, provider?, model?, effort?, permission?"),
     ("ai.signIn", "Open the provider CLI to sign in", "id"),
     ("templates.list", "AI templates", ""),
     ("templates.save", "Create or update a template", "template"),
@@ -859,11 +859,11 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
         "agents.list" => to(k.agents.list()),
         "agents.get" => to(k.agents.get(&s(&p, "id")?)?),
         "agents.start" => {
-            let pick = Route { provider: os(&p, "provider"), model: os(&p, "model"), effort: os(&p, "effort") };
+            let pick = Route { provider: os(&p, "provider"), model: os(&p, "model"), effort: os(&p, "effort"), permission: os(&p, "permission") };
             to(k.start_agent_on(&s(&p, "projectId")?, os(&p, "branch"), &s(&p, "request")?, os(&p, "ticket"), pick, &files(&p)?).await?)
         }
         "agents.configure" => {
-            let pick = Route { provider: os(&p, "provider"), model: os(&p, "model"), effort: os(&p, "effort") };
+            let pick = Route { provider: os(&p, "provider"), model: os(&p, "model"), effort: os(&p, "effort"), permission: os(&p, "permission") };
             to(k.agent_configure(&s(&p, "id")?, pick)?)
         }
         "agents.message" => {
@@ -896,6 +896,11 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
         }
         "agents.stop" => {
             k.agents.stop(&s(&p, "id")?)?;
+            ok()
+        }
+        // Not in METHODS: an agent must not allow its own actions through the MCP bridge.
+        "agents.answer" => {
+            k.agents.answer(&s(&p, "id")?, &s(&p, "ask")?, b(&p, "allow"))?;
             ok()
         }
         "agents.remove" => {
@@ -1011,9 +1016,9 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
         }
         "ai.setRoute" => {
             let task = s(&p, "task")?;
-            let route = Route { provider: os(&p, "provider").filter(|x| !x.is_empty()), model: os(&p, "model"), effort: os(&p, "effort") };
+            let route = Route { provider: os(&p, "provider").filter(|x| !x.is_empty()), model: os(&p, "model"), effort: os(&p, "effort"), permission: os(&p, "permission").filter(|x| !x.is_empty()) };
             k.store.write(|c| {
-                if route.provider.is_none() && route.model.is_none() && route.effort.is_none() {
+                if route.provider.is_none() && route.model.is_none() && route.effort.is_none() && route.permission.is_none() {
                     c.ai.routing.remove(&task);
                 } else {
                     c.ai.routing.insert(task, route);
