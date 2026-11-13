@@ -1,9 +1,9 @@
-import { useState, type CSSProperties } from "react";
+import { useState, type CSSProperties, type ReactNode } from "react";
 
 import { useAiCatalog, useAiModels } from "../api/hooks";
 import type { ModelInfo, ProviderInfo } from "../api/types";
 import { useStored } from "../lib/stored";
-import { ContextMenu, SEARCH_ABOVE } from "./ContextMenu";
+import { ContextMenu, SEARCH_ABOVE, type MenuItem } from "./ContextMenu";
 import { Icon } from "./Icon";
 
 export const EFFORTS = ["low", "medium", "high", "xhigh", "max"];
@@ -35,8 +35,16 @@ export type AgentPick = { provider?: string; model?: string; effort?: string; pe
 /** The last pick on a project, kept between sessions. */
 export const useAgentPick = (projectId: string) => useStored<AgentPick>(`gnx.agentPick.${projectId}`, {});
 
-export function AgentPicker({ value, onChange, compact }: { value: AgentPick; onChange: (p: AgentPick) => void; compact?: boolean }) {
+/**
+ * The agent's provider, model, effort and permissions. `compact` (a prompt bar): one button showing the model and an effort
+ * meter, opening every setting as a column of one menu; otherwise a row of fields.
+ */
+export function AgentPicker({ value: saved, onChange, compact }: { value: AgentPick; onChange: (p: AgentPick) => void; compact?: boolean }) {
   const cat = useAiCatalog();
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  // The picks made while the menu is open: the next one builds on them, not on a value still being saved.
+  const [picked, setPicked] = useState<AgentPick | null>(null);
+  const value = picked ?? saved;
   const c = cat.data;
   const route = value.provider ? {} : c?.routing.agent ?? {};
   const provider = value.provider ?? route.provider ?? c?.defaultProvider;
@@ -49,29 +57,75 @@ export function AgentPicker({ value, onChange, compact }: { value: AgentPick; on
   // Agents only run through a local CLI: one set up that way, or one found on this computer.
   const clis = c.providers.filter((p) => (p.conf ? p.conf.method === "cli" : p.status?.status === "detected") || p.info.id === provider);
   const prov = c.providers.find((p) => p.info.id === provider);
-  const set = (patch: AgentPick) => onChange({ provider, model, effort, permission, ...patch });
+  const set = (patch: AgentPick) => {
+    const next = { provider, model, effort, permission, ...patch };
+    if (menu) setPicked(next);
+    onChange(next);
+  };
   const provs = clis.map((p) => ({ value: p.info.id, label: p.info.name }));
   const list = listed.data ?? prov?.info.models ?? [];
   // "Default model" runs the provider's own: its efforts are that model's.
   const fits = (m: string) => effortsFor(prov?.info, list, m || prov?.conf?.model || "");
   const models = [{ value: "", label: "Default model" }, ...list.map((m) => ({ value: m.id, label: m.label }))];
-  const efforts = [{ value: "", label: "Default effort" }, ...fits(model).map((x) => ({ value: x, label: x }))];
-  const cls = compact ? "picker-act" : "select menu-select";
+  const efforts = [{ value: "", label: "Default effort" }, ...fits(model).map((x) => ({ value: x, label: effortLabel(x) }))];
+  const listsModels = list.length > 0 || listed.isLoading;
+  const pickModel = (v: string) => set({ model: v, effort: fitEffort(fits(v), effort) });
+  const modelField = <input aria-label="Agent model" className="input mono" style={{ width: 120 }} placeholder="model id" value={model} onChange={(e) => set({ model: e.target.value })} />;
+  if (compact) {
+    const name = (opts: Option[], v: string) => opts.find((o) => o.value === v)?.label ?? v;
+    const col = (heading: string, opts: Option[], cur: string, run: (v: string) => void): (MenuItem | { heading: ReactNode })[] => [
+      { heading },
+      ...opts.map((o) => ({ id: `${heading}.${o.value}`, label: o.label, icon: null, hint: o.value === cur && <Icon name="check" size={13} />, keep: true, run: () => run(o.value) })),
+    ];
+    const items = [
+      ...col("Agent", provs, provider, (v) => set({ provider: v, model: "" })),
+      "sep" as const,
+      ...(listsModels ? col("Model", models, model, pickModel) : [{ heading: "Model" }, { heading: modelField }]),
+      ...(efforts.length > 1 ? ["sep" as const, ...col("Effort", efforts, effort, (v) => set({ effort: v }))] : []),
+      ...(provider === "claude" ? ["sep" as const, ...col("Permissions", PERMISSIONS, permission, (v) => set({ permission: v }))] : []),
+    ];
+    const level = EFFORTS.indexOf(effort) + 1;
+    const summary = [name(provs, provider), model && name(models, model), effort && `${effortLabel(effort)} effort`, provider === "claude" && `${name(PERMISSIONS, permission)} permissions`].filter(Boolean).join(" · ");
+    return (
+      <>
+        <button
+          type="button"
+          className="picker-act agent-chip"
+          aria-haspopup="menu"
+          aria-label={`Agent settings: ${summary}`}
+          data-tip={summary}
+          onClick={(e) => {
+            const r = e.currentTarget.getBoundingClientRect();
+            setMenu({ x: r.right, y: r.bottom + 2 });
+          }}
+        >
+          <Icon name="sparkle" size={13} className="c-acc" />
+          <span className="ellipsis">{model ? name(models, model) : name(provs, provider)}</span>
+          {level > 0 && (
+            <span className="effort-bars" aria-hidden>
+              {EFFORTS.map((x, i) => <i key={x} className={i < level ? "on" : undefined} style={{ height: `${(i + 1) * 20}%` }} />)}
+            </span>
+          )}
+          <Icon name="chevronDown" size={10} />
+        </button>
+        {menu && <ContextMenu x={menu.x} y={menu.y} alignRight columns label="Agent settings" items={items} onClose={() => (setMenu(null), setPicked(null))} />}
+      </>
+    );
+  }
+  const cls = "select menu-select";
   return (
-    <div className={compact ? "picker-acts" : "row"} style={compact ? undefined : { gap: 6, margin: 0 }}>
+    <div className="row" style={{ gap: 6, margin: 0 }}>
       <MenuChoice className={cls} label="Agent provider" value={provider} options={provs} onChange={(v) => set({ provider: v, model: "" })} />
-      {list.length || listed.isLoading ? (
-        <MenuChoice className={cls} label="Agent model" value={model} options={models} onChange={(v) => set({ model: v, effort: fitEffort(fits(v), effort) })} />
-      ) : (
-        <input aria-label="Agent model" className={compact ? "picker-act mono" : "input mono"} style={{ width: 120 }} placeholder="model id" value={model} onChange={(e) => set({ model: e.target.value })} />
-      )}
+      {listsModels ? <MenuChoice className={cls} label="Agent model" value={model} options={models} onChange={pickModel} /> : modelField}
       {efforts.length > 1 && <MenuChoice className={cls} label="Agent effort" value={effort} options={efforts} onChange={(v) => set({ effort: v })} />}
       {provider === "claude" && <MenuChoice className={cls} label="Agent permissions" value={permission} options={PERMISSIONS} onChange={(v) => set({ permission: v })} />}
     </div>
   );
 }
 
-type ChoiceProps = { label: string; value: string; options: { value: string; label: string }[]; onChange: (v: string) => void; className?: string; id?: string; style?: CSSProperties; search?: string };
+type Option = { value: string; label: string };
+
+type ChoiceProps = { label: string; value: string; options: Option[]; onChange: (v: string) => void; className?: string; id?: string; style?: CSSProperties; search?: string };
 
 /**
  * A button opening the options as a menu, like a branch's right-click one; `select menu-select` styles it as a form field.

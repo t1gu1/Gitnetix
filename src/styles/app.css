@@ -3813,11 +3813,7 @@ button.term-bar:hover {
   background: var(--raised);
   color: var(--fg);
 }
-/* Compact agent picker: menu buttons fill their bar's height, split like .term-tab. */
-.picker-acts {
-  display: flex;
-  align-self: stretch;
-}
+/* Menu buttons that fill their bar's height, split like .term-tab. */
 .picker-act {
   min-width: 0;
   padding: 0 10px;
@@ -5115,41 +5111,35 @@ button.picker-act {
 .modal .ag-drop {
   background: color-mix(in srgb, var(--panel) 88%, transparent);
 }
-/* From 3 lines, provider, model and effort stack beside Send. */
-@media (min-width: 901px), (min-width: 481px) and (not (pointer: coarse)) {
-  .term-input-tall .picker-acts {
-    flex-direction: column;
-  }
-  .term-input-tall .picker-act {
-    flex: 1 1 0;
-    justify-content: space-between;
-  }
-  .term-input-tall .picker-act + .picker-act {
-    border-top: 1px solid var(--line);
-  }
+/* The agent's settings in one cell left of Send: its model, then its effort as signal bars. */
+.agent-chip {
+  align-self: stretch;
+  max-width: 200px;
 }
-/* Narrow: the picker takes its own full-width row above the text. */
+.effort-bars {
+  flex: none;
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 1.5px;
+  height: 10px;
+}
+.effort-bars > i {
+  width: 2.5px;
+  border-radius: 1px;
+  background: currentColor;
+  opacity: 0.25;
+}
+.effort-bars > i.on {
+  opacity: 1;
+}
+/* Narrow: the cell shrinks to its icon and bars, leaving the room to the text. */
 @media (max-width: 900px) and (pointer: coarse), (max-width: 480px) {
-  .term-input-row {
-    flex-wrap: wrap;
-  }
   /* The mic's 22px, not the 36px touch height of buttons here. */
   .term-input .term-attach {
     min-height: 0;
   }
-  .term-input .picker-acts {
-    order: -1;
-    flex: 0 0 calc(100% + 32px);
-    height: 34px;
-    margin: 0 -16px;
-    border-bottom: 1px solid var(--line);
-  }
-  .term-input .picker-act {
-    flex: 1 1 0;
-    justify-content: space-between;
-  }
-  .term-input .picker-act:first-child {
-    border-left: 0;
+  .agent-chip > .ellipsis {
+    display: none;
   }
 }
 

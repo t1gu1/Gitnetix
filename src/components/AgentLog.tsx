@@ -1253,7 +1253,7 @@ export function AgentInput({ id, label, value, onChange, files, onFiles, picks, 
   const input = useRef<HTMLTextAreaElement>(null);
   const chooser = useRef<HTMLInputElement>(null);
   const { over, add } = useAttach(() => form.current?.parentElement, files, onFiles, disabled);
-  // Lines of text shown: Send stays square up to 3, where the picker stacks beside it.
+  // Lines of text shown: Send stays square up to 3.
   const [lines, setLines] = useState(1);
   const sent = blocks(log).flatMap((b) => (b.kind === "you" ? [b.text] : []));
   const typed = !!value.trim() || files.length > 0 || picks.length > 0;
@@ -1271,23 +1271,18 @@ export function AgentInput({ id, label, value, onChange, files, onFiles, picks, 
     el.style.height = "auto";
     // Mounted in a hidden pane (mobile detail, inactive tab) it measures 0: keep the one-line height.
     if (!el.scrollHeight) return;
-    // Each layout widens the text: from 2 lines the attach button moves above the mic, from 3 the picker stacks beside Send.
+    // From 2 lines the attach button moves above the mic, which widens the text.
     // Count lines in the narrower layout below, or the text rewraps shorter and drops back at the next key.
-    // A layout whose own count still needs it stays: the narrower one is only longer, and recounting rewraps the whole text again.
+    // The wider layout stays while its own count still needs it: the narrower one is only longer, and recounting rewraps the whole text again.
     const row = el.parentElement!.classList;
     // The textarea's 11px padding and 18px lines (app.css).
     const count = () => Math.max(1, Math.round((el.scrollHeight - 22) / 18));
     let n = count();
-    if (!(row.contains("term-input-tall") && n >= 3)) {
-      row.remove("term-input-tall");
+    if (!(row.contains("term-input-multi") && n >= 2)) {
+      row.remove("term-input-multi");
       n = count();
-      if (!(row.contains("term-input-multi") && n >= 2)) {
-        row.remove("term-input-multi");
-        n = count();
-      }
     }
     row.toggle("term-input-multi", n >= 2);
-    row.toggle("term-input-tall", n >= 3);
     // A wider layout keeps its 2- or 3-line height even if the text now fits in fewer.
     const h = Math.min(Math.max(el.scrollHeight, n >= 3 ? 76 : n >= 2 ? 58 : 0), cap);
     el.style.height = `${h}px`;
@@ -1347,7 +1342,7 @@ export function AgentInput({ id, label, value, onChange, files, onFiles, picks, 
           <Drafts files={files} onFiles={onFiles} />
         </div>
       )}
-      <div className={`term-input-row${lines >= 2 ? " term-input-multi" : ""}${lines >= 3 ? " term-input-tall" : ""}`} style={{ "--lines": Math.min(lines, 3) } as CSSProperties}>
+      <div className={`term-input-row${lines >= 2 ? " term-input-multi" : ""}`} style={{ "--lines": Math.min(lines, 3) } as CSSProperties}>
         <input
           ref={chooser}
           type="file"
