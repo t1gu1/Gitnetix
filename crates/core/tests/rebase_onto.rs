@@ -153,3 +153,20 @@ async fn continuing_keeps_a_message_that_looks_like_a_comment() {
     let parent = String::from_utf8(Command::new("git").current_dir(&repo).args(["rev-parse", "feat/a"]).output().unwrap().stdout).unwrap();
     assert_eq!(log.trim().split('\0').collect::<Vec<_>>(), ["#42 fix login\n", "Ada <ada@example.com>", parent.trim()]);
 }
+
+#[tokio::test]
+async fn a_finished_rebase_reports_the_uncommitted_changes_it_could_not_put_back() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = repo(tmp.path());
+    sh(&repo, &["switch", "-qc", "feat/a"]);
+    commit_file(&repo, "a.txt", "a\n");
+    sh(&repo, &["switch", "-q", "main"]);
+    commit_file(&repo, "README.md", "# b\n");
+    sh(&repo, &["switch", "-q", "feat/a"]);
+    // An edit of the file main changed: `--autostash` cannot put it back, yet the rebase itself exits 0.
+    std::fs::write(repo.join("README.md"), "# mine\n").unwrap();
+    let (k, pid) = open(tmp.path(), &repo).await;
+    let r = rpc::call(&k, "workspace.rebase", json!({ "projectId": pid, "branch": "feat/a", "onto": "main" })).await.unwrap();
+    assert_eq!(r["stashConflicts"], json!(["README.md"]), "{r}");
+    assert!(r["conflicts"].as_array().unwrap().is_empty(), "{r}");
+}

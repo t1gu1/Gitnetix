@@ -372,14 +372,25 @@ impl AgentManager {
     /// resumed run can't race one still going. Nothing is saved after: the next launch still finds the runs it cut off.
     pub fn shutdown(&self) {
         self.persist();
-        let pids: Vec<String> = {
+        let pids: Vec<u32> = {
             let mut g = self.inner.lock().unwrap();
             g.quitting = true;
-            g.sessions.values().filter_map(|s| s.pid).map(|p| p.to_string()).collect()
+            g.sessions.values().filter_map(|s| s.pid).collect()
         };
-        // shortcut: Unix only; on Windows a run may outlive the app until its pipes break, use taskkill if that shows up.
-        if !pids.is_empty() && !cfg!(windows) {
-            let _ = std::process::Command::new("kill").arg("-KILL").args(&pids).status();
+        #[cfg(unix)]
+        for pid in pids {
+            signal_group(pid, libc::SIGKILL);
+        }
+        #[cfg(not(unix))]
+        if !pids.is_empty() {
+            let mut kill = std::process::Command::new("taskkill");
+            crate::shell::without_appimage(&mut kill);
+            // /T ends each CLI's children too (builds, tests, a .cmd shim's CLI).
+            kill.arg("/T").arg("/F");
+            for pid in pids {
+                kill.args(["/PID", &pid.to_string()]);
+            }
+            let _ = kill.status();
         }
     }
 
@@ -856,14 +867,14 @@ impl AgentManager {
     }
 
     pub fn pause(&self, id: &str) -> Result<()> {
-        self.signal(id, "-STOP")?;
+        self.signal(id, true)?;
         self.push(id, LogLine::new("dim", "  ⏸ Paused by you"));
         self.set_status(id, AgentStatus::Paused);
         Ok(())
     }
 
     pub fn resume(&self, id: &str) -> Result<()> {
-        self.signal(id, "-CONT")?;
+        self.signal(id, false)?;
         self.push(id, LogLine::new("dim", "  ▶ Resumed"));
         self.set_status(id, AgentStatus::Running);
         Ok(())
@@ -880,13 +891,19 @@ impl AgentManager {
         Ok(())
     }
 
-    fn signal(&self, id: &str, sig: &str) -> Result<()> {
+    /// Stops (SIGSTOP) or continues (SIGCONT) a run: the CLI and all it started.
+    fn signal(&self, id: &str, stop: bool) -> Result<()> {
         let pid = self.get(id)?.pid.ok_or_else(|| Error::Invalid("No running process".into()))?;
-        if cfg!(windows) {
-            return Err(Error::Unsupported("pause/resume on Windows".into()));
+        #[cfg(unix)]
+        {
+            signal_group(pid, if stop { libc::SIGSTOP } else { libc::SIGCONT });
+            Ok(())
         }
-        std::process::Command::new("kill").args([sig, &pid.to_string()]).status()?;
-        Ok(())
+        #[cfg(not(unix))]
+        {
+            let _ = (pid, stop);
+            Err(Error::Unsupported("pause/resume on Windows".into()))
+        }
     }
 
     fn spawn(&self, id: &str, cwd: &std::path::Path, r: &Resolved, prompt: &str, resume: Option<&str>) -> Result<()> {
@@ -894,6 +911,12 @@ impl AgentManager {
         let effort = ai::cli_effort(r);
         let mut cmd = Command::new(path);
         crate::shell::below_app(crate::shell::without_appimage(cmd.as_std_mut()));
+        // The run leads its own process group, so Stop, Pause and quit reach the builds and tests the CLI started.
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            cmd.as_std_mut().process_group(0);
+        }
         cmd.current_dir(cwd);
         let structured = r.provider == "claude";
         let mut stdin_prompt = true;
@@ -1075,6 +1098,10 @@ impl AgentManager {
                         let mut kill = Command::new("taskkill");
                         crate::shell::without_appimage(kill.as_std_mut());
                         let _ = kill.args(["/T", "/F", "/PID", &pid.to_string()]).status().await;
+                    }
+                    #[cfg(unix)]
+                    if let Some(pid) = child.id() {
+                        signal_group(pid, libc::SIGKILL);
                     }
                     let _ = child.kill().await;
                     None
@@ -1404,9 +1431,55 @@ impl AgentManager {
     }
 }
 
+/// Sends `sig` to a run's process group. The CLI runs each tool call as a child, which signalling the CLI alone
+/// leaves going. `spawn` makes every run a group leader, so `-pid` reaches the CLI and all it started, nothing else.
+#[cfg(unix)]
+fn signal_group(pid: u32, sig: i32) {
+    // Pid 0 would signal the app's own group.
+    if pid == 0 {
+        return;
+    }
+    // SAFETY: kill() is a single syscall. A run started by an older build leads no group of its own, so fall back to the CLI.
+    unsafe {
+        if libc::kill(-(pid as i32), sig) != 0 {
+            libc::kill(pid as i32, sig);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn killing_a_run_reaches_what_the_cli_started() {
+        use std::io::BufRead;
+        use std::os::unix::process::CommandExt;
+        // A shell that starts a background sleep, as the CLI starts a build: killing only the shell leaves the sleep.
+        let mut sh = std::process::Command::new("sh");
+        sh.args(["-c", "sleep 60 & echo $!; wait"]).stdout(Stdio::piped()).process_group(0);
+        let mut child = sh.spawn().unwrap();
+        let mut line = String::new();
+        std::io::BufReader::new(child.stdout.take().unwrap()).read_line(&mut line).unwrap();
+        let sleeper: u32 = line.trim().parse().unwrap();
+        signal_group(child.id(), libc::SIGKILL);
+        child.wait().unwrap();
+        // Gone, or a zombie its new parent has not reaped yet.
+        let gone = || {
+            let ps = std::process::Command::new("ps").args(["-o", "stat=", "-p", &sleeper.to_string()]).output().unwrap();
+            let stat = String::from_utf8_lossy(&ps.stdout).trim().to_string();
+            stat.is_empty() || stat.starts_with('Z')
+        };
+        for _ in 0..50 {
+            if gone() {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        unsafe { libc::kill(sleeper as i32, libc::SIGKILL) };
+        panic!("the process the shell started kept running");
+    }
 
     fn cli(provider: &str) -> Resolved {
         Resolved { provider: provider.into(), method: ConnectMethod::Cli, model: String::new(), effort: String::new(), base_url: None, permission: String::new(), ultracode: false }

@@ -547,8 +547,13 @@ impl Git {
     // shortcut: every call tries ssh first (a closed port waits for ssh's timeout each time); remember the host if that bites.
     async fn output(&self, args: &[&str]) -> std::io::Result<std::process::Output> {
         let i = verb_at(args);
-        // A GitHub sign-in lasts 8 hours: renewed first, git hands github.com a live one. Boxed, as `over_https` below.
-        if self.github && args.get(i).is_some_and(|v| SIGNS_IN.contains(v)) {
+        // A GitHub sign-in lasts 8 hours: renewed first, git hands github.com a live one. Only when this call goes to
+        // github.com, so a slow or refused renewal holds up no other host. Boxed, as `over_https` below.
+        if self.github
+            && args.get(i).is_some_and(|v| SIGNS_IN.contains(v))
+            && crate::providers::github_auth::expiring()
+            && self.reached_hosts(args).iter().any(|h| h == "github.com")
+        {
             let _ = Box::pin(crate::providers::github_auth::token(None)).await;
         }
         let out = self.command(args).output().await?;
@@ -1184,10 +1189,19 @@ impl Git {
         Ok(parse_status_z(&status).len() as u32)
     }
 
-    /// Set aside every uncommitted change, untracked files included; returns the new stash's sha.
-    pub async fn stash(&self, message: &str) -> Result<String> {
+    /// Set aside every uncommitted change, untracked files included; returns the new stash's sha, or None when git
+    /// saved nothing: it exits 0 with "No local changes to save" when only a submodule changed, which `wip_changes` lists.
+    pub async fn stash(&self, message: &str) -> Result<Option<String>> {
+        let top = self.stash_top().await?;
         self.run(&["stash", "push", "--include-untracked", "-m", message]).await?;
-        self.rev_parse("refs/stash").await
+        let now = self.stash_top().await?;
+        Ok(if now == top { None } else { now })
+    }
+
+    /// The newest stash's sha, if any.
+    async fn stash_top(&self) -> Result<Option<String>> {
+        let (ok, out, _) = self.try_run(&["rev-parse", "-q", "--verify", "refs/stash"]).await?;
+        Ok(ok.then(|| out.trim().to_string()))
     }
 
     /// Every stash of the repository (shared by all its worktrees), newest first.
@@ -1644,6 +1658,23 @@ impl Git {
         }
         drop(stdin);
         Self::stdout_or_err(args, child.wait_with_output().await?).map(|_| ())
+    }
+
+    /// The `paths` this checkout's ignore rules already cover. `check-ignore` exits 1 when none is, and 128 when it fails.
+    pub async fn ignored(&self, paths: &[&str]) -> Result<Vec<String>> {
+        use std::process::Stdio;
+        use tokio::io::AsyncWriteExt;
+        // `-z` only works with `--stdin`.
+        let args = ["check-ignore", "-z", "--stdin"];
+        let mut child = self.command(&args).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
+        let mut stdin = child.stdin.take().expect("piped stdin");
+        stdin.write_all(paths.iter().map(|p| format!("{p}\0")).collect::<String>().as_bytes()).await?;
+        drop(stdin);
+        let out = child.wait_with_output().await?;
+        if !matches!(out.status.code(), Some(0 | 1)) {
+            return Self::stdout_or_err(&args, out).map(|_| Vec::new());
+        }
+        Ok(String::from_utf8_lossy(&out.stdout).split('\0').filter(|p| !p.is_empty()).map(String::from).collect())
     }
 
     pub(crate) async fn run_stdin(&self, args: &[&str], input: impl AsRef<[u8]>) -> Result<String> {
@@ -2470,6 +2501,34 @@ pub fn truncate_utf8(s: &mut String, max: usize) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn stash_returns_none_when_git_saved_nothing() {
+        let tmp = tempfile::tempdir().unwrap();
+        let sh = |args: &[&str]| {
+            let ok = std::process::Command::new("git")
+                .current_dir(tmp.path())
+                .args(["-c", "user.name=T", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false"])
+                .args(args)
+                .status()
+                .unwrap()
+                .success();
+            assert!(ok, "git {args:?}");
+        };
+        sh(&["init", "-q", "-b", "main"]);
+        std::fs::write(tmp.path().join("a.txt"), "1\n").unwrap();
+        sh(&["add", "a.txt"]);
+        sh(&["commit", "-qm", "a"]);
+        let g = Git::new(tmp.path());
+        std::fs::write(tmp.path().join("a.txt"), "2\n").unwrap();
+        let old = g.stash("old").await.unwrap();
+        assert!(old.is_some());
+        // Nothing changed: git exits 0 and refs/stash still names the old stash, which must not come back as new.
+        assert_eq!(g.stash("new").await.unwrap(), None);
+        std::fs::write(tmp.path().join("a.txt"), "3\n").unwrap();
+        let fresh = g.stash("fresh").await.unwrap();
+        assert!(fresh.is_some() && fresh != old);
+    }
 
     #[test]
     fn blame_porcelain_reads_lines_runs_and_commits() {

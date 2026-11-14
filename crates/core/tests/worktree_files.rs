@@ -90,6 +90,14 @@ async fn new_worktrees_get_the_listed_ignored_files_only() {
         let status = Command::new("git").current_dir(wt).args(["status", "--porcelain"]).output().unwrap();
         assert_eq!(String::from_utf8_lossy(&status.stdout), "", "links are ignored");
     }
+    // Two worktrees linked the same paths: each is in the shared info/exclude once, not once per worktree.
+    let exclude = Command::new("git").current_dir(&app).args(["rev-parse", "--git-path", "info/exclude"]).output().unwrap();
+    let exclude = std::fs::read_to_string(app.join(String::from_utf8_lossy(&exclude.stdout).trim())).unwrap();
+    let mut lines: Vec<&str> = exclude.lines().filter(|l| l.starts_with('/')).collect();
+    let all = lines.len();
+    lines.sort_unstable();
+    lines.dedup();
+    assert!(all > 0 && lines.len() == all, "each link once: {exclude}");
     // Written in a worktree, seen in the main checkout.
     std::fs::write(Path::new(&opened).join("shared/new.txt"), "n").unwrap();
     assert_eq!(std::fs::read_to_string(app.join("shared/new.txt")).unwrap(), "n");

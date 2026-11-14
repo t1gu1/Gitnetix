@@ -477,6 +477,9 @@ pub struct RebaseResult {
     pub conflicts: Vec<String>,
     /// Upstream that now needs a force push: the branch was already pushed before the rebase.
     pub force_push_to: Option<String>,
+    /// The rebase finished, but the uncommitted changes it set aside conflict with it: these files hold conflict
+    /// markers, and the changes are also kept in the "autostash" stash entry.
+    pub stash_conflicts: Vec<String>,
     /// "path: why" for each file AI could not resolve, where it stopped.
     pub errors: Vec<String>,
     /// Files AI resolved on the way.
@@ -2482,8 +2485,20 @@ impl Gitnetix {
         p.id = new_id();
         let mut data = match from {
             Some(f) => {
-                let data = self.store.profile_config(f)?;
-                secrets::copy(&secret_keys(&data), f, &p.id)?;
+                let mut data = self.store.profile_config(f)?;
+                // Their refresh token works once: the profile that renews first voids the other's, so the copy signs in itself.
+                let single_use = |k: &str, v: &str| matches!(k, "github" | "gitlab" | "gitea") && serde_json::from_str::<providers::oauth::Tokens>(v).is_ok_and(|t| t.refresh_token.is_some());
+                for key in secrets::copy(&secret_keys(&data), f, &p.id, |k, v| !single_use(k, v))? {
+                    let i = &mut data.integrations;
+                    match key.as_str() {
+                        "github" => (i.github_connected, i.github_user) = (false, None),
+                        other => {
+                            if let Some(h) = i.host_mut(other) {
+                                h.connected = false;
+                            }
+                        }
+                    }
+                }
                 data
             }
             None => Config::default(),
@@ -3173,7 +3188,12 @@ impl Gitnetix {
             self.changed(project_id);
             return Ok(Vec::new());
         }
-        let sha = git.stash(&stash_message(&files)).await?;
+        let Some(sha) = git.stash(&stash_message(&files)).await? else {
+            // Only a submodule changed: git sets nothing aside, and the switch takes it along.
+            git.switch(branch).await?;
+            self.changed(project_id);
+            return Ok(Vec::new());
+        };
         let out = git.switch(branch).await;
         self.changed(project_id);
         if let Err(e) = out {
@@ -3499,7 +3519,7 @@ impl Gitnetix {
         ctl.end(state, error);
         self.changed(&p.id);
         if aborted {
-            return Ok(RebaseResult { conflicts: Vec::new(), force_push_to: None, errors: Vec::new(), resolved, aborted: true });
+            return Ok(RebaseResult { conflicts: Vec::new(), force_push_to: None, stash_conflicts: Vec::new(), errors: Vec::new(), resolved, aborted: true });
         }
         let r = out?;
         let mut result = Self::rebase_result(git, branch, r.done).await?;
@@ -3526,11 +3546,13 @@ impl Gitnetix {
     }
 
     async fn rebase_result(git: &Git, branch: &str, done: bool) -> Result<RebaseResult> {
-        let mut r = RebaseResult { conflicts: Vec::new(), force_push_to: None, errors: Vec::new(), resolved: 0, aborted: false };
+        let mut r = RebaseResult { conflicts: Vec::new(), force_push_to: None, stash_conflicts: Vec::new(), errors: Vec::new(), resolved: 0, aborted: false };
         if !done {
             r.conflicts = git.conflicted_files().await?;
             return Ok(r);
         }
+        // A finished rebase exits 0 even when `--autostash` could not put the uncommitted changes back.
+        r.stash_conflicts = git.conflicted_files().await?;
         // Its upstream no longer fits under it: the rewritten commits only go up forced.
         r.force_push_to = match git.upstream(branch).await? {
             Some(u) if git.ref_exists(&format!("refs/remotes/{u}")).await? && !git.is_ancestor(&u, branch).await? => Some(u),
@@ -4686,7 +4708,9 @@ impl Gitnetix {
         if files.is_empty() {
             return Err(Error::Invalid(format!("{branch} has no uncommitted changes to stash.")));
         }
-        git.stash(&stash_message(&files)).await?;
+        if git.stash(&stash_message(&files)).await?.is_none() {
+            return Err(Error::Invalid(format!("Nothing to stash: git does not set aside changes made inside a submodule of {branch}.")));
+        }
         self.changed(project_id);
         Ok(())
     }
@@ -4838,8 +4862,8 @@ impl Gitnetix {
                 if files.is_empty() {
                     None
                 } else {
-                    let sha = g.stash(&stash_message(&files)).await?;
-                    Some((g, sha))
+                    // None: only a submodule changed, so there is nothing to put back after the pull.
+                    g.stash(&stash_message(&files)).await?.map(|sha| (g, sha))
                 }
             }
             _ => None,
@@ -5475,6 +5499,7 @@ impl Gitnetix {
 
     /// `pick` overrides the "agent" routing when it names a provider; its empty
     /// fields fall back to the template's model and the provider's setup, its permission and ultracode to the routing's.
+    /// Its permission and ultracode count without a provider too: a request for a stricter mode must not start in Bypass.
     fn agent_ai(&self, t: &Template, pick: Route) -> Result<Resolved> {
         if pick.provider.as_deref().is_some_and(|s| !s.is_empty()) {
             let tm = if pick.model.as_deref().is_some_and(|s| !s.is_empty()) { None } else { t.model.as_deref() };
@@ -5485,7 +5510,14 @@ impl Gitnetix {
                 ai::resolve_route(&c.ai, Route { permission, ultracode, ..pick }, tm)
             })
         } else {
-            self.route("agent", Some(t))
+            let mut r = self.route("agent", Some(t))?;
+            if let Some(permission) = pick.permission {
+                r.permission = permission;
+            }
+            if let Some(ultracode) = pick.ultracode {
+                r.ultracode = ultracode;
+            }
+            Ok(r)
         }
     }
 
@@ -5895,7 +5927,21 @@ impl Gitnetix {
         let mut p = self.store.project(project_id)?;
         let integ = self.store.read(|c| c.integrations.clone());
         // Sprint is on by default; without Jira or Linear it would hide every ticket.
-        let sprint = sprint && (integ.jira.iter().any(|j| crate::store::shows_in(&j.repos, project_id)) || integ.linear.iter().any(|l| crate::store::shows_in(&l.repos, project_id)));
+        let jira_here = integ.jira.iter().any(|j| crate::store::shows_in(&j.repos, project_id));
+        let linear_here: Vec<&crate::store::LinearConf> = integ.linear.iter().filter(|l| crate::store::shows_in(&l.repos, project_id)).collect();
+        let mut sprint = sprint && (jira_here || !linear_here.is_empty());
+        // Linear teams without an active cycle have no sprint, as Trello has none: with no Jira either, it would hide every ticket.
+        if sprint && !jira_here {
+            let mut any = false;
+            for l in &linear_here {
+                // A failed check counts as one: the fetch below shows its error.
+                any |= match tickets::linear_token(l).await {
+                    Ok(tok) => tickets::linear_in_sprint(l, &tok).await.unwrap_or(true),
+                    Err(_) => true,
+                };
+            }
+            sprint = any;
+        }
         // One source failing (missing token, keychain refusal, HTTP error)
         // must not hide tickets from the others.
         // Each with the projects its connection shows in.
@@ -6808,11 +6854,10 @@ async fn exclude_links(path: &Path, linked: &[String]) -> Result<()> {
     }
     let git = Git::new(path);
     let names: Vec<&str> = linked.iter().map(|l| l.trim_end_matches('/')).collect();
-    let (_, ignored, _) = git.try_run(&[&["check-ignore", "-z", "--"][..], &names].concat()).await?;
-    let ignored: Vec<&str> = ignored.split('\0').collect();
+    let ignored = git.ignored(&names).await?;
     let file = git.git_paths(&["info/exclude"]).await?.remove(0);
     let mut text = std::fs::read_to_string(&file).unwrap_or_default();
-    for n in names.iter().filter(|n| !ignored.contains(n)) {
+    for n in names.iter().filter(|n| !ignored.iter().any(|i| i == **n)) {
         if !text.is_empty() && !text.ends_with('\n') {
             text.push('\n');
         }
@@ -7136,6 +7181,50 @@ fn fix_version_release(fix_versions: &[String], releases: &[Release]) -> Option<
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn an_agent_pick_without_a_provider_still_sets_its_permission_and_ultracode() {
+        let dir = tempfile::tempdir().unwrap();
+        let k = Gitnetix::open(dir.path()).unwrap();
+        let t = k.template("agent", None, None).unwrap();
+        let none = k.agent_ai(&t, Route::default()).unwrap();
+        assert_eq!((none.permission.as_str(), none.ultracode), ("", false), "the routing's, which has none: Bypass");
+        let asked = Route { permission: Some("acceptEdits".into()), ultracode: Some(true), ..Default::default() };
+        let r = k.agent_ai(&t, asked).unwrap();
+        assert_eq!((r.permission.as_str(), r.ultracode), ("acceptEdits", true));
+    }
+
+    #[tokio::test]
+    async fn a_copied_profile_signs_in_again_where_a_refresh_token_works_once() {
+        use crate::store::{UserProfile, FIRST_PROFILE};
+        let _turn = secrets::test_turn();
+        secrets::use_profile(FIRST_PROFILE);
+        let dir = tempfile::tempdir().unwrap();
+        let k = Gitnetix::open(dir.path()).unwrap();
+        // GitHub: a sign-in, whose refresh token one renewal voids. GitLab: a pasted token, which has none.
+        secrets::set("github", r#"{"accessToken":"a","refreshToken":"r1","expiresAt":1}"#).unwrap();
+        secrets::set("gitlab", r#"{"accessToken":"pasted"}"#).unwrap();
+        k.store
+            .write(|c| {
+                c.integrations.github_connected = true;
+                c.integrations.github_user = Some("me".into());
+                c.integrations.gitlab.connected = true;
+                Ok(())
+            })
+            .unwrap();
+        let copy = k.create_profile(UserProfile { name: "Copy".into(), ..Default::default() }, Some(FIRST_PROFILE), None).unwrap();
+        secrets::use_profile(&copy.id);
+        assert_eq!(secrets::get("github").unwrap(), None);
+        assert_eq!(secrets::get("gitlab").unwrap().as_deref(), Some(r#"{"accessToken":"pasted"}"#));
+        let i = k.store.profile_config(&copy.id).unwrap().integrations;
+        assert!(!i.github_connected && i.github_user.is_none(), "shown as signed out, not as connected without a token");
+        assert!(i.gitlab.connected);
+        // The source keeps its own.
+        secrets::use_profile(FIRST_PROFILE);
+        assert!(secrets::get("github").unwrap().is_some());
+        secrets::delete("github").unwrap();
+        secrets::delete("gitlab").unwrap();
+    }
 
     #[test]
     fn ticket_code_is_looked_for_in_every_project_jira_shows_in() {

@@ -361,7 +361,9 @@ export function ago(iso?: string | null) {
 }
 
 // A link's text can be a picture: [![alt](src)](href).
-const INLINE = /(`[^`]+`)|\*\*(.+?)\*\*|~~(.+?)~~|(!?)\[(!\[[^\]]*\]\([^)\s]+[^)]*\)|[^\]]*)\]\(([^)\s]+)[^)]*\)|(https?:\/\/[^\s<>)]*[^\s<>).,;:!?])|(?<![\w*])[*_](?![\s*_])(.+?)[*_](?![\w*])/g;
+// Every span has a length cap: a comment of nothing but `[`, `**` or backticks, never closed, makes each opener scan the
+// rest of the text, and the time grows with the square of its length (65 000 `[` took 2 s, `[a](` repeated far longer).
+const INLINE = /(`[^`]{1,2000}`)|\*\*(.{1,2000}?)\*\*|~~(.{1,2000}?)~~|(!?)\[(!\[[^\]]{0,500}\]\([^)\s]{1,2000}(?:\s[^)]{0,2000})?\)|[^\]]{0,500})\]\(([^)\s]{1,2000})(?:\s[^)]{0,2000})?\)|(https?:\/\/[^\s<>)]{0,2000}[^\s<>).,;:!?])|(?<![\w*])[*_](?![\s*_])(.{1,2000}?)[*_](?![\w*])/g;
 const PICTURE = /^!\[([^\]]*)\]\(([^)\s]+)/;
 const TAG = /<\/?[a-z][\w-]*(?:\s[^<>]*)?\/?>/i;
 // Code spans first, so a tag inside one stays text.
@@ -521,8 +523,9 @@ export const Markdown = memo(function Markdown({ text, html = false, breaks = fa
       i++;
       continue;
     }
-    // A link reference, or the [//]: # (comment) trick: GitHub shows neither.
-    if (/^ {0,3}\[[^\]]+\]:\s*\S/.test(l)) {
+    // A link reference (a destination, then maybe a quoted title), or the [//]: # (comment) trick: GitHub shows neither.
+    // "[WARN]: disk almost full" is no reference, and stays text.
+    if (/^ {0,3}\[[^\]]+\]:\s*(?:<[^>]*>|\S+)(?:\s+(?:"[^"]*"|'[^']*'|\([^)]*\)))?\s*$/.test(l)) {
       i++;
       continue;
     }

@@ -81,9 +81,13 @@ async fn rpc_handler(State(s): State<AppState>, req: Request) -> Response {
         Ok(Json(req)) => req,
         Err(e) => return e.into_response(),
     };
-    match rpc::call(&s.k, &req.method, req.params).await {
-        Ok(v) => Json(v).into_response(),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(ErrorBody::from(&e))).into_response(),
+    // Spawned: when the client leaves mid-request (a phone locks, a page reloads), hyper drops this handler, which would
+    // kill a running git write and leave index.lock behind. The call finishes on its own task.
+    let k = s.k.clone();
+    match tokio::spawn(async move { rpc::call(&k, &req.method, req.params).await }).await {
+        Ok(Ok(v)) => Json(v).into_response(),
+        Ok(Err(e)) => (StatusCode::BAD_REQUEST, Json(ErrorBody::from(&e))).into_response(),
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     }
 }
 
@@ -231,6 +235,56 @@ pub async fn spawn(k: Arc<Gitnetix>, ui: Option<Ui>) -> anyhow::Result<Option<So
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_client_that_leaves_does_not_cut_a_git_write_short() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path().join("repo");
+        std::fs::create_dir(&repo).unwrap();
+        let git = |args: &[&str]| {
+            let out = std::process::Command::new("git").current_dir(&repo).args(["-c", "user.name=T", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false"]).args(args).output().unwrap();
+            assert!(out.status.success(), "git {args:?}");
+            String::from_utf8_lossy(&out.stdout).into_owned()
+        };
+        git(&["init", "-q", "-b", "main"]);
+        std::fs::write(repo.join("a.txt"), "a\n").unwrap();
+        git(&["add", "a.txt"]);
+        git(&["commit", "-qm", "first"]);
+        // A slow hook: the commit still runs when the client has left.
+        let hook = repo.join(".git/hooks/pre-commit");
+        std::fs::write(&hook, "#!/bin/sh\nsleep 1\n").unwrap();
+        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+        std::fs::write(repo.join("b.txt"), "b\n").unwrap();
+
+        let k = Gitnetix::open(&dir.path().join("home")).unwrap();
+        let token = k
+            .store
+            .write(|c| {
+                c.server.port = 0;
+                Ok(c.server.token.clone())
+            })
+            .unwrap();
+        let added = rpc::call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await.unwrap();
+        let pid = added[0]["id"].as_str().unwrap().to_string();
+        let addr = spawn(k.clone(), None).await.unwrap().unwrap();
+        let gone = reqwest::Client::builder().timeout(std::time::Duration::from_millis(200)).build().unwrap();
+        let sent = gone
+            .post(format!("http://{addr}/rpc"))
+            .bearer_auth(&token)
+            .json(&json!({ "method": "workspace.commit", "params": { "projectId": pid, "branch": "main", "message": "second", "all": true } }))
+            .send()
+            .await;
+        assert!(sent.is_err(), "the client gave up before the commit ended");
+        for _ in 0..50 {
+            if git(&["log", "--format=%s"]).lines().count() == 2 {
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+        panic!("the commit was cut short: {}", git(&["log", "--format=%s"]));
+    }
 
     #[tokio::test]
     async fn every_route_but_health_needs_the_token() {

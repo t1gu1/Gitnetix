@@ -605,15 +605,21 @@ pub fn delete(key: &str) -> Result<()> {
     erase(&scoped(key))
 }
 
-/// Copy profile `from`'s secrets among `keys` to profile `to`. One the keychain won't give is left out.
-pub fn copy(keys: &[String], from: &str, to: &str) -> Result<()> {
+/// Copy profile `from`'s secrets among `keys` to profile `to`, except those `share(key, value)` refuses; returns the
+/// keys refused. One the keychain won't give is left out too, and not returned.
+pub fn copy(keys: &[String], from: &str, to: &str, share: impl Fn(&str, &str) -> bool) -> Result<Vec<String>> {
     let (from, to) = (scope_of(from), scope_of(to));
+    let mut refused = Vec::new();
     for k in keys {
         if let Some(v) = read(&format!("{from}{k}")).ok().flatten() {
-            write(&format!("{to}{k}"), &v)?;
+            if share(k, &v) {
+                write(&format!("{to}{k}"), &v)?;
+            } else {
+                refused.push(k.clone());
+            }
         }
     }
-    Ok(())
+    Ok(refused)
 }
 
 /// Delete profile `id`'s secrets among `keys`.

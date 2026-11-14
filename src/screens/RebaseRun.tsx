@@ -16,7 +16,9 @@ import { AbortModal } from "./AbortModal";
 export const rebaseMessage = (r: RebaseResult) =>
   r.aborted || r.errors.length
     ? undefined
-    : r.conflicts.length
+    : r.stashConflicts.length
+      ? `Rebased, but your uncommitted changes conflict in ${plural(r.stashConflicts.length, "file")}. They are also in the "autostash" stash${r.forcePushTo ? `. Force push to update ${r.forcePushTo}` : ""}`
+      : r.conflicts.length
       ? `Rebase stopped on ${plural(r.conflicts.length, "conflict")}: resolve with AI, or abort`
       : `Rebased${r.resolved ? `, AI resolved ${plural(r.resolved, "conflicted file")}` : ", no conflicts"}${
           // Already on origin: the rewritten commits only go up forced.
@@ -36,7 +38,7 @@ export async function startRebase(pid: string, branch: string, opts: { onto?: st
     // A step like a `useAction` of the method: the branch's row shows it busy.
     const r = await call<RebaseResult>(opts.resume ? "workspace.rebaseContinue" : "workspace.rebase", { projectId: pid, branch, onto: opts.onto });
     const msg = rebaseMessage(r);
-    if (msg) toast(msg, r.conflicts.length ? "info" : "ok");
+    if (msg) toast(msg, r.conflicts.length || r.stashConflicts.length ? "info" : "ok");
     return r;
   } catch (e) {
     toast(e instanceof Error ? e.message : String(e), "error");

@@ -277,6 +277,8 @@ export interface RebaseResult {
   conflicts: string[];
   /** Upstream that now needs a force push: the branch was already pushed before the rebase. */
   forcePushTo?: string | null;
+  /** The rebase finished, but the uncommitted changes it set aside conflict: these files hold conflict markers, and the changes are also in the "autostash" stash entry. */
+  stashConflicts: string[];
   /** "path: why" for each file AI could not resolve, where it stopped. */
   errors: string[];
   /** Files AI resolved on the way. */

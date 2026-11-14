@@ -108,6 +108,12 @@ async fn token_from(url: &str, stale: Option<&str>) -> Result<String> {
     t.map(|t| t.access_token)
 }
 
+/// Whether the saved sign-in is about to run out, so that [`token`] would renew it.
+pub fn expiring() -> bool {
+    let raw = secrets::get(KEY).ok().flatten().unwrap_or_default();
+    serde_json::from_str::<oauth::Tokens>(&raw).is_ok_and(|t| t.expiring())
+}
+
 /// The GitHub token as saved, for git signing in to github.com; [`token`] renews it first.
 pub fn saved() -> Option<String> {
     let raw = secrets::get(KEY).ok().flatten().filter(|t| !t.is_empty())?;
@@ -158,6 +164,55 @@ mod tests {
         assert_eq!(parse_poll(&json!({ "access_token": "gho_x", "token_type": "bearer" })).unwrap(), Poll::Token("gho_x".into()));
         assert!(parse_poll(&json!({ "error": "expired_token" })).is_err());
         assert!(parse_poll(&json!({ "error": "access_denied" })).is_err());
+    }
+
+    /// Serves one token request with `body`: a second finds nobody listening.
+    async fn one_answer(body: serde_json::Value) -> (String, tokio::task::JoinHandle<()>) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/login/oauth/access_token", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            let (mut sock, _) = listener.accept().await.unwrap();
+            let (mut req, mut buf) = (Vec::new(), [0; 4096]);
+            while !String::from_utf8_lossy(&req).contains(CLIENT_ID) {
+                let n = sock.read(&mut buf).await.unwrap();
+                assert!(n > 0, "request cut short");
+                req.extend_from_slice(&buf[..n]);
+            }
+            let body = body.to_string();
+            let res = format!("HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len());
+            sock.write_all(res.as_bytes()).await.unwrap();
+        });
+        (url, server)
+    }
+
+    /// GitHub turned the refresh token down: the next uses say so at once, instead of asking GitHub (and waiting) again.
+    #[tokio::test]
+    async fn a_refused_refresh_token_is_not_asked_about_again() {
+        let _turn = secrets::test_turn();
+        let (url, server) = one_answer(json!({ "error": "bad_refresh_token", "error_description": "The refresh token passed is incorrect or expired." })).await;
+        oauth::save(KEY, &json!({ "access_token": "old", "expires_in": -10, "refresh_token": "gone" }), None).unwrap();
+        assert!(matches!(token_from(&url, None).await, Err(Error::NotConnected(_))));
+        server.await.unwrap();
+        // The listener is gone: a request now would end in a connection error, not this one.
+        let again = token_from(&url, None).await;
+        assert!(matches!(&again, Err(Error::NotConnected(m)) if m.contains("incorrect or expired")), "{again:?}");
+        // A new sign-in brings a new refresh token, which is asked about.
+        oauth::save(KEY, &json!({ "access_token": "old2", "expires_in": -10, "refresh_token": "fresh" }), None).unwrap();
+        assert!(!matches!(token_from(&url, None).await, Err(Error::NotConnected(_))));
+        secrets::delete(KEY).unwrap();
+    }
+
+    #[test]
+    fn only_a_sign_in_about_to_run_out_is_expiring() {
+        let _turn = secrets::test_turn();
+        oauth::save(KEY, &json!({ "access_token": "a", "expires_in": 28800, "refresh_token": "r" }), None).unwrap();
+        assert!(!expiring());
+        oauth::save(KEY, &json!({ "access_token": "a", "expires_in": 60, "refresh_token": "r" }), None).unwrap();
+        assert!(expiring());
+        secrets::set(KEY, "ghp_pasted").unwrap();
+        assert!(!expiring(), "a pasted token never runs out");
+        secrets::delete(KEY).unwrap();
     }
 
     /// A sign-in past its 8 hours: the next use renews it once at the token endpoint, the uses after take the new one.

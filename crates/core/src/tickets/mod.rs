@@ -1198,6 +1198,13 @@ pub async fn linear(conf: &LinearConf, token: &str, mine: bool, sprint: bool) ->
     Ok(linear_issues(token, LINEAR_FIELDS, filter, JIRA_CAP).await?.iter().map(|i| linear_ticket(conf, i)).collect())
 }
 
+/// Whether the connection's teams have an issue in an active cycle. Teams that use no cycles have no sprint:
+/// "Active sprint" would show nothing of them.
+pub async fn linear_in_sprint(conf: &LinearConf, token: &str) -> Result<bool> {
+    let filter = linear_filter(conf, vec![json!({ "cycle": { "isActive": { "eq": true } } })]);
+    Ok(!linear_issues(token, "id", filter, 1).await?.is_empty())
+}
+
 /// One Linear issue by identifier (`ENG-123`), whatever its state or assignee; None when Linear has none.
 pub async fn linear_issue(conf: &LinearConf, token: &str, key: &str) -> Result<Option<Ticket>> {
     let Some((team, number)) = key.split_once('-').and_then(|(t, n)| Some((t, n.parse::<u64>().ok()?))) else {

@@ -4,7 +4,8 @@
 //! one-shot listener on this computer, as for Jira. Their access tokens last an hour
 //! or two: the refresh token is kept and `access()` renews them when needed.
 
-use std::sync::Mutex;
+use std::collections::HashMap;
+use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
 
 use base64::Engine as _;
@@ -35,6 +36,11 @@ pub struct Tokens {
 }
 
 impl Tokens {
+    /// About to run out: renewed on use. A pasted token never does.
+    pub fn expiring(&self) -> bool {
+        self.expires_at != 0 && self.expires_at - chrono::Utc::now().timestamp() <= 120
+    }
+
     /// `Authorization` header value.
     pub fn header(&self) -> String {
         match &self.email {
@@ -72,6 +78,10 @@ pub(super) fn save(key: &str, v: &Value, prev: Option<String>) -> Result<Tokens>
 /// One refresh at a time: GitLab voids the refresh token on use, so a second one racing it would fail.
 static REFRESHING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
+/// The refresh token each connection's host turned down for good, with its reason: asking again with it only waits on
+/// the host (and, for GitHub, holds up every git call). A new sign-in brings another token, which is asked about.
+static REFUSED: LazyLock<Mutex<HashMap<String, (String, String)>>> = LazyLock::new(Default::default);
+
 /// The stored tokens under `key`, renewed first when they are about to expire or hold `stale`, an access token the
 /// host just refused. `what` names the connection in errors ("GitLab").
 pub async fn access(key: &str, what: &str, stale: Option<&str>, refresh: impl FnOnce() -> Result<Refresh>) -> Result<Tokens> {
@@ -79,7 +89,7 @@ pub async fn access(key: &str, what: &str, stale: Option<&str>, refresh: impl Fn
         let raw = secrets::require(key, &format!("Connect {what} in the menu, under Git providers"))?;
         serde_json::from_str(&raw).map_err(|_| Error::NotConnected(what.into()))
     };
-    let fresh = |t: &Tokens| Some(t.access_token.as_str()) != stale && (t.expires_at == 0 || t.expires_at - chrono::Utc::now().timestamp() > 120);
+    let fresh = |t: &Tokens| Some(t.access_token.as_str()) != stale && !t.expiring();
     let t = load()?;
     if fresh(&t) {
         return Ok(t);
@@ -94,6 +104,10 @@ pub async fn access(key: &str, what: &str, stale: Option<&str>, refresh: impl Fn
     }
     let again = |why: &str| Error::NotConnected(format!("{what} (sign in again: {why})"));
     let rt = t.refresh_token.clone().ok_or_else(|| again("session expired"))?;
+    let refused = REFUSED.lock().unwrap().get(key).filter(|(r, _)| *r == rt).map(|(_, why)| why.clone());
+    if let Some(why) = refused {
+        return Err(again(&why));
+    }
     let r = refresh()?;
     let mut form = vec![("grant_type", "refresh_token"), ("refresh_token", rt.as_str())];
     if r.secret.is_none() {
@@ -106,7 +120,13 @@ pub async fn access(key: &str, what: &str, stale: Option<&str>, refresh: impl Fn
         let _ = secrets::reload();
         return match load() {
             Ok(t) if t.refresh_token.as_ref() != Some(&rt) && fresh(&t) => Ok(t),
-            _ => Err(again(v["error_description"].as_str().or(v["error"].as_str()).unwrap_or("session expired"))),
+            _ => {
+                let why = v["error_description"].as_str().or(v["error"].as_str()).unwrap_or("session expired");
+                if matches!(v["error"].as_str(), Some("bad_refresh_token" | "invalid_grant")) {
+                    REFUSED.lock().unwrap().insert(key.into(), (rt, why.into()));
+                }
+                Err(again(why))
+            }
         };
     }
     save(key, &v, Some(rt))
@@ -114,7 +134,8 @@ pub async fn access(key: &str, what: &str, stale: Option<&str>, refresh: impl Fn
 
 /// POST a form to a token endpoint. "Still waiting" answers (a 400 with an `error`) go back to the caller.
 async fn token_request(url: &str, form: &[(&str, &str)], basic: Option<(&str, &str)>, site: &str) -> Result<Value> {
-    let mut r = crate::net::client().post(url).header("accept", "application/json").form(form);
+    // A host that never answers must not hold up what waits on the token: git calls wait on a GitHub renewal.
+    let mut r = crate::net::client().post(url).header("accept", "application/json").form(form).timeout(Duration::from_secs(15));
     if let Some((id, secret)) = basic {
         r = r.basic_auth(id, Some(secret));
     }
