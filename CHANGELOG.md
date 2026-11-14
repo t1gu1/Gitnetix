@@ -11,6 +11,8 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+## [0.21.1] - 2026-11-14
+
 ### Added (App)
 
 - Show the tasks a run leaves running in the background in a card above the log and in the terminal bar, and log each task that ends with its result.
