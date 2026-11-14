@@ -49,13 +49,16 @@ pub struct Ticket {
     pub where_label: String,
     /// The Jira project, Trello board, Asana project or GitHub repository it comes from, for switching between them.
     pub place: String,
-    /// Jira and GitHub labels.
+    /// Jira, Linear and GitHub labels.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub labels: Vec<String>,
+    /// Linear label colors ("#eb5757"), by label name.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub label_colors: BTreeMap<String, String>,
     /// Jira fix versions, as named there ("2.4.0", "v2.4.0"), or the GitHub milestone, to guess the release from.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub fix_versions: Vec<String>,
-    /// Jira priority name ("High").
+    /// Jira or Linear priority name ("High").
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub priority: String,
     /// Jira time tracking as Jira writes it ("3h", "1d 2h"): time left and the original estimate.
@@ -70,6 +73,11 @@ pub struct Ticket {
     pub parent_title: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub parent_url: String,
+    /// Linear project name and page.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub project_name: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub project_url: String,
 }
 
 /// A status a ticket can move to: a Jira transition, Trello list, Asana section or Linear workflow state.
@@ -78,6 +86,33 @@ pub struct StatusOption {
     pub id: String,
     pub name: String,
     pub status: &'static str,
+}
+
+/// What a ticket's priority, type and labels can be set to; a list stays empty when the tracker doesn't let it change.
+#[derive(Debug, Default, Serialize)]
+pub struct FieldOptions {
+    pub priorities: Vec<FieldOption>,
+    pub types: Vec<FieldOption>,
+    pub labels: Vec<FieldOption>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct FieldOption {
+    pub id: String,
+    pub name: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub color: String,
+    /// The Linear label group it is in: one label per group.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub group: String,
+}
+
+/// A change to a ticket, by `FieldOptions` ids; None leaves that field as it is. `labels` replaces every label.
+#[derive(Debug, Default, Deserialize)]
+pub struct FieldEdit {
+    pub priority: Option<String>,
+    pub kind: Option<String>,
+    pub labels: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -309,6 +344,9 @@ fn jira_ticket(conf: &JiraConf, i: &Value, my_id: &str) -> Ticket {
         parent_key: f["parent"]["key"].as_str().unwrap_or("").into(),
         parent_title: f["parent"]["fields"]["summary"].as_str().unwrap_or("").into(),
         parent_url: f["parent"]["key"].as_str().map(|k| format!("{base}/browse/{k}")).unwrap_or_default(),
+        project_name: String::new(),
+        project_url: String::new(),
+        label_colors: BTreeMap::new(),
     }
 }
 
@@ -365,6 +403,38 @@ pub async fn jira_versions(conf: &JiraConf, token: &str, key: &str) -> Result<Ve
 pub async fn jira_set_fix_versions(conf: &JiraConf, token: &str, key: &str, versions: &[String]) -> Result<()> {
     let ids: Vec<Value> = versions.iter().map(|id| json!({ "id": id })).collect();
     jira_write(jira_req(conf, token, reqwest::Method::PUT, &format!("/rest/api/3/issue/{key}")).json(&json!({ "fields": { "fixVersions": ids } }))).await
+}
+
+/// The priorities and issue types Jira lets ticket `key` take; one missing from its edit screen stays empty.
+pub async fn jira_fields(conf: &JiraConf, token: &str, key: &str) -> Result<FieldOptions> {
+    let v = check(jira_req(conf, token, reqwest::Method::GET, &format!("/rest/api/3/issue/{key}/editmeta")).send().await?, "Jira").await?;
+    Ok(jira_fields_from(&v))
+}
+
+fn jira_fields_from(editmeta: &Value) -> FieldOptions {
+    let allowed = |field: &str| -> Vec<FieldOption> {
+        editmeta["fields"][field]["allowedValues"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|o| Some(FieldOption { id: o["id"].as_str()?.into(), name: o["name"].as_str()?.into(), color: String::new(), group: String::new() }))
+            .collect()
+    };
+    FieldOptions { priorities: allowed("priority"), types: allowed("issuetype"), labels: Vec::new() }
+}
+
+pub async fn jira_set_fields(conf: &JiraConf, token: &str, key: &str, edit: &FieldEdit) -> Result<()> {
+    let mut fields = serde_json::Map::new();
+    if let Some(id) = &edit.priority {
+        fields.insert("priority".into(), json!({ "id": id }));
+    }
+    if let Some(id) = &edit.kind {
+        fields.insert("issuetype".into(), json!({ "id": id }));
+    }
+    if fields.is_empty() {
+        return Ok(());
+    }
+    jira_write(jira_req(conf, token, reqwest::Method::PUT, &format!("/rest/api/3/issue/{key}")).json(&json!({ "fields": fields }))).await
 }
 
 async fn jira_write(req: reqwest::RequestBuilder) -> Result<()> {
@@ -837,6 +907,9 @@ fn trello_card(conf: &TrelloConf, c: &Value, place: &str) -> Ticket {
         parent_key: String::new(),
         parent_title: String::new(),
         parent_url: String::new(),
+        project_name: String::new(),
+        project_url: String::new(),
+        label_colors: BTreeMap::new(),
         // The card number repeats on every board; the short link doesn't.
         key: c["shortLink"].as_str().filter(|l| !l.is_empty()).map_or_else(|| old_key.clone(), |l| format!("#{l}")),
         old_key: Some(old_key),
@@ -1018,6 +1091,9 @@ fn asana_tickets(conf: &AsanaConf, lists: &[(Value, String)]) -> Vec<Ticket> {
                 parent_key: String::new(),
                 parent_title: String::new(),
                 parent_url: String::new(),
+                project_name: String::new(),
+                project_url: String::new(),
+                label_colors: BTreeMap::new(),
                 // Full gid: a suffix collides across tasks, and the prefix
                 // keeps it apart from Trello's `#` keys.
                 key: format!("AS-{}", t["gid"].as_str().unwrap_or("")),
@@ -1157,7 +1233,7 @@ pub async fn linear_me(token: &str) -> Result<Value> {
 }
 
 /// What a Linear issue is read with, for a `Ticket`.
-const LINEAR_FIELDS: &str = "id identifier title description url priority priorityLabel state { name type } assignee { name isMe } team { name } labels(first: 10) { nodes { name } } parent { identifier title url }";
+const LINEAR_FIELDS: &str = "id identifier title description url priority priorityLabel state { name type } assignee { name isMe } team { name } labels(first: 10) { nodes { name color } } parent { identifier title url } project { name url }";
 
 /// The issues `filter` finds, last updated first, at most `cap` of them.
 async fn linear_issues(token: &str, fields: &str, filter: Value, cap: usize) -> Result<Vec<Value>> {
@@ -1198,11 +1274,15 @@ pub async fn linear(conf: &LinearConf, token: &str, mine: bool, sprint: bool) ->
     Ok(linear_issues(token, LINEAR_FIELDS, filter, JIRA_CAP).await?.iter().map(|i| linear_ticket(conf, i)).collect())
 }
 
-/// Whether the connection's teams have an issue in an active cycle. Teams that use no cycles have no sprint:
-/// "Active sprint" would show nothing of them.
-pub async fn linear_in_sprint(conf: &LinearConf, token: &str) -> Result<bool> {
-    let filter = linear_filter(conf, vec![json!({ "cycle": { "isActive": { "eq": true } } })]);
-    Ok(!linear_issues(token, "id", filter, 1).await?.is_empty())
+/// Whether one of the connection's teams (every team when it picked none) has cycles turned on. Teams without them
+/// have no sprint: "Active cycle" would show nothing of them.
+pub async fn linear_cycles(conf: &LinearConf, token: &str) -> Result<bool> {
+    let v = linear_gql(token, "{ teams(first: 250) { nodes { key cyclesEnabled } } }", json!({})).await?;
+    Ok(linear_cycles_on(conf, &v["teams"]["nodes"]))
+}
+
+fn linear_cycles_on(conf: &LinearConf, teams: &Value) -> bool {
+    teams.as_array().into_iter().flatten().any(|t| t["cyclesEnabled"] == true && (conf.teams.is_empty() || conf.teams.iter().any(|k| t["key"] == *k)))
 }
 
 /// One Linear issue by identifier (`ENG-123`), whatever its state or assignee; None when Linear has none.
@@ -1254,6 +1334,9 @@ fn linear_ticket(conf: &LinearConf, i: &Value) -> Ticket {
         parent_key: i["parent"]["identifier"].as_str().unwrap_or("").into(),
         parent_title: i["parent"]["title"].as_str().unwrap_or("").into(),
         parent_url: i["parent"]["url"].as_str().unwrap_or("").into(),
+        project_name: i["project"]["name"].as_str().unwrap_or("").into(),
+        project_url: i["project"]["url"].as_str().unwrap_or("").into(),
+        label_colors: i["labels"]["nodes"].as_array().into_iter().flatten().filter_map(|l| Some((l["name"].as_str()?.into(), l["color"].as_str()?.into()))).collect(),
     }
 }
 
@@ -1281,6 +1364,52 @@ pub async fn linear_set_status(token: &str, issue: &str, state: &str) -> Result<
     let v = linear_gql(token, "mutation($id: String!, $state: String!) { issueUpdate(id: $id, input: { stateId: $state }) { success } }", json!({ "id": issue, "state": state })).await?;
     if v["issueUpdate"]["success"] != true {
         return Err(Error::Http("Linear did not change the status".into()));
+    }
+    Ok(())
+}
+
+/// Linear's priorities, 0 being none, and the labels of the issue's team and workspace, groups first, one label per group.
+pub async fn linear_fields(token: &str, issue: &str) -> Result<FieldOptions> {
+    const LABEL: &str = "nodes { id name color isGroup parent { name } }";
+    let query = format!("query($id: String!) {{ issue(id: $id) {{ team {{ labels(first: 250) {{ {LABEL} }} }} }} issueLabels(first: 250, filter: {{ team: {{ null: true }} }}) {{ {LABEL} }} }}");
+    let v = linear_gql(token, &query, json!({ "id": issue })).await?;
+    let priorities = ["None", "Urgent", "High", "Medium", "Low"].iter().enumerate();
+    Ok(FieldOptions {
+        priorities: priorities.map(|(i, n)| FieldOption { id: i.to_string(), name: (*n).into(), color: String::new(), group: String::new() }).collect(),
+        types: Vec::new(),
+        labels: linear_label_options(&[&v["issue"]["team"]["labels"]["nodes"], &v["issueLabels"]["nodes"]]),
+    })
+}
+
+/// Labels that can go on an issue (not the groups themselves), once each, ungrouped first, then by group and name.
+fn linear_label_options(lists: &[&Value]) -> Vec<FieldOption> {
+    let mut out: Vec<FieldOption> = Vec::new();
+    for l in lists.iter().filter_map(|l| l.as_array()).flatten().filter(|l| l["isGroup"] != true) {
+        let id = l["id"].as_str().unwrap_or("");
+        if !id.is_empty() && !out.iter().any(|o| o.id == id) {
+            let s = |v: &Value| v.as_str().unwrap_or("").to_string();
+            out.push(FieldOption { id: id.into(), name: s(&l["name"]), color: s(&l["color"]), group: s(&l["parent"]["name"]) });
+        }
+    }
+    out.sort_by_key(|o| (o.group.to_lowercase(), o.name.to_lowercase()));
+    out
+}
+
+pub async fn linear_set_fields(token: &str, issue: &str, edit: &FieldEdit) -> Result<()> {
+    let mut input = serde_json::Map::new();
+    if let Some(p) = &edit.priority {
+        let p: u8 = p.parse().map_err(|_| Error::Invalid(format!("“{p}” is not a Linear priority")))?;
+        input.insert("priority".into(), json!(p));
+    }
+    if let Some(ids) = &edit.labels {
+        input.insert("labelIds".into(), json!(ids));
+    }
+    if input.is_empty() {
+        return Ok(());
+    }
+    let v = linear_gql(token, "mutation($id: String!, $input: IssueUpdateInput!) { issueUpdate(id: $id, input: $input) { success } }", json!({ "id": issue, "input": input })).await?;
+    if v["issueUpdate"]["success"] != true {
+        return Err(Error::Http("Linear did not change the issue".into()));
     }
     Ok(())
 }
@@ -1405,6 +1534,9 @@ pub fn github_ticket(i: &Value, repo: &str, me: &str) -> Ticket {
         parent_key: String::new(),
         parent_title: String::new(),
         parent_url: String::new(),
+        project_name: String::new(),
+        project_url: String::new(),
+        label_colors: BTreeMap::new(),
     }
 }
 
@@ -1683,6 +1815,37 @@ mod tests {
         assert_eq!(got, want.map(|(s, p)| (s.to_string(), p.to_string())));
         let t = linear_ticket(&conf, &issue("Todo", "unstarted", 0));
         assert_eq!((t.key.as_str(), t.place.as_str(), t.mine), ("ENG-7", "Linear · Web", true));
+    }
+
+    #[test]
+    fn linear_cycles_count_only_the_picked_teams() {
+        let teams = json!([{ "key": "ENG", "cyclesEnabled": false }, { "key": "OPS", "cyclesEnabled": true }]);
+        let conf = |teams: &[&str]| LinearConf { teams: teams.iter().map(|t| t.to_string()).collect(), ..Default::default() };
+        assert!(linear_cycles_on(&conf(&[]), &teams), "no team picked: every team counts");
+        assert!(!linear_cycles_on(&conf(&["ENG"]), &teams));
+        assert!(linear_cycles_on(&conf(&["ENG", "OPS"]), &teams));
+        assert!(!linear_cycles_on(&conf(&[]), &json!([])));
+    }
+
+    #[test]
+    fn linear_labels_skip_groups_and_repeats() {
+        let team = json!([
+            { "id": "g", "name": "Type", "isGroup": true },
+            { "id": "b", "name": "Bug", "color": "#eb5757", "parent": { "name": "Type" } },
+            { "id": "w", "name": "web", "color": "#000" },
+        ]);
+        let workspace = json!([{ "id": "w", "name": "web", "color": "#000" }, { "id": "a", "name": "Area", "color": "#fff" }]);
+        let got: Vec<_> = linear_label_options(&[&team, &workspace]).into_iter().map(|o| (o.id, o.group)).collect();
+        assert_eq!(got, [("a".into(), String::new()), ("w".into(), String::new()), ("b".into(), "Type".into())]);
+    }
+
+    #[test]
+    fn jira_editmeta_gives_priorities_and_types() {
+        let meta = json!({ "fields": { "priority": { "allowedValues": [{ "id": "2", "name": "High" }, { "id": "3", "name": "Medium" }] }, "issuetype": { "allowedValues": [{ "id": "10001", "name": "Bug" }] } } });
+        let f = jira_fields_from(&meta);
+        assert_eq!(f.priorities.iter().map(|o| o.name.as_str()).collect::<Vec<_>>(), ["High", "Medium"]);
+        assert_eq!((f.types[0].id.as_str(), f.types[0].name.as_str()), ("10001", "Bug"));
+        assert!(jira_fields_from(&json!({ "fields": {} })).priorities.is_empty(), "no priority on the edit screen");
     }
 
     #[test]

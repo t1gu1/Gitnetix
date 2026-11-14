@@ -5922,26 +5922,11 @@ impl Gitnetix {
 
     /// `mine`: only Jira, Linear and GitHub tickets assigned to the user (Trello and Asana ones are always theirs).
     /// `sprint`: only Jira tickets in an open sprint and Linear issues in an active cycle; the others have no sprints, so none of theirs.
+    /// Callers turn it off when the project has neither Jira nor Linear cycles: it would hide every ticket.
     /// GitHub issues come from the project's own origin repository, with the GitHub account of Git providers.
     pub async fn tickets(&self, project_id: &str, mine: bool, sprint: bool) -> Result<Vec<TicketView>> {
         let mut p = self.store.project(project_id)?;
         let integ = self.store.read(|c| c.integrations.clone());
-        // Sprint is on by default; without Jira or Linear it would hide every ticket.
-        let jira_here = integ.jira.iter().any(|j| crate::store::shows_in(&j.repos, project_id));
-        let linear_here: Vec<&crate::store::LinearConf> = integ.linear.iter().filter(|l| crate::store::shows_in(&l.repos, project_id)).collect();
-        let mut sprint = sprint && (jira_here || !linear_here.is_empty());
-        // Linear teams without an active cycle have no sprint, as Trello has none: with no Jira either, it would hide every ticket.
-        if sprint && !jira_here {
-            let mut any = false;
-            for l in &linear_here {
-                // A failed check counts as one: the fetch below shows its error.
-                any |= match tickets::linear_token(l).await {
-                    Ok(tok) => tickets::linear_in_sprint(l, &tok).await.unwrap_or(true),
-                    Err(_) => true,
-                };
-            }
-            sprint = any;
-        }
         // One source failing (missing token, keychain refusal, HTTP error)
         // must not hide tickets from the others.
         // Each with the projects its connection shows in.
@@ -6211,6 +6196,49 @@ impl Gitnetix {
             }
             other => Err(Error::Invalid(format!("unknown tracker {other}"))),
         }
+    }
+
+    /// What a Jira or Linear ticket's priority, type and labels can be set to, or, with `edit`, sets them.
+    /// The other trackers have none to offer.
+    pub async fn ticket_fields(&self, source: &str, conn: &str, id: &str, edit: Option<&tickets::FieldEdit>) -> Result<tickets::FieldOptions> {
+        let integ = self.store.read(|c| c.integrations.clone());
+        let missing = || Error::NotConnected(source.into());
+        match source {
+            "jira" => {
+                let j = integ.jira.iter().find(|j| j.id == conn).ok_or_else(missing)?;
+                let tok = tickets::jira_auth::token(j).await?;
+                match edit {
+                    Some(e) => tickets::jira_set_fields(j, &tok, id, e).await.map(|_| Default::default()),
+                    None => tickets::jira_fields(j, &tok, id).await,
+                }
+            }
+            "linear" => {
+                let l = integ.linear.iter().find(|l| l.id == conn).ok_or_else(missing)?;
+                let tok = tickets::linear_token(l).await?;
+                match edit {
+                    Some(e) => tickets::linear_set_fields(&tok, id, e).await.map(|_| Default::default()),
+                    None => tickets::linear_fields(&tok, id).await,
+                }
+            }
+            _ if edit.is_none() => Ok(Default::default()),
+            other => Err(Error::Invalid(format!("{other} tickets have no priority, type or labels to set here"))),
+        }
+    }
+
+    /// Whether a Linear connection of the project has a team with cycles turned on, Linear's sprints.
+    /// A failed check counts as one: the ticket fetch shows its error.
+    pub async fn linear_cycles(&self, project_id: &str) -> bool {
+        let linear = self.store.read(|c| c.integrations.linear.clone());
+        for l in linear.iter().filter(|l| crate::store::shows_in(&l.repos, project_id)) {
+            let on = match tickets::linear_token(l).await {
+                Ok(tok) => tickets::linear_cycles(l, &tok).await.unwrap_or(true),
+                Err(_) => true,
+            };
+            if on {
+                return true;
+            }
+        }
+        false
     }
 
     pub async fn triage(&self, project_id: &str) -> Result<Vec<Suggestion>> {

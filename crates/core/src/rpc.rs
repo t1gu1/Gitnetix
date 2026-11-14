@@ -156,12 +156,14 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("prs.react", "Add or remove a reaction", "projectId, subjectId, content, add"),
     ("prs.draftReply", "AI-drafted reply for a thread; with draft, that started reply polished instead (editing = id of the comment it rewrites)", "projectId, number, threadId, draft?, editing?"),
     ("prs.draftReview", "AI-drafted review summary", "projectId, number"),
-    ("tickets.list", "Tickets from Jira, Trello, Asana, Linear and the GitHub issues of the project's repository, with their release; mine = only the user's Jira, Linear and GitHub tickets, sprint = only Jira tickets in an open sprint and Linear issues in an active cycle", "projectId, mine?, sprint?"),
+    ("tickets.list", "Tickets from Jira, Trello, Asana, Linear and the GitHub issues of the project's repository, with their release; mine = only the user's Jira, Linear and GitHub tickets, sprint = only Jira tickets in an open sprint and Linear issues in an active cycle; cycles = a Linear team has cycles turned on", "projectId, mine?, sprint?"),
     ("tickets.get", "One ticket with its full description, by key or by the branch linked to it; null when none", "projectId, key? | branch?"),
     ("tickets.setRelease", "Plan a ticket into a release", "projectId, key, release"),
     ("tickets.triage", "AI suggestions for unplanned tickets", "projectId"),
     ("tickets.statuses", "Statuses a ticket can move to (Jira transitions, Trello lists, Asana sections, Linear workflow states, GitHub project board columns and closed/open)", "source, conn, id"),
     ("tickets.setStatus", "Move a ticket to one of tickets.statuses", "source, conn, id, to"),
+    ("tickets.fields", "Priorities, issue types and labels a Jira or Linear ticket can be set to (Jira: priorities and types; Linear: priorities and labels); empty for the other trackers", "source, conn, id"),
+    ("tickets.setFields", "Set a Jira or Linear ticket's priority, type or labels to ids from tickets.fields; labels replaces every label, a missing field stays as it is", "source, conn, id, priority?, kind?, labels?"),
     ("jira.versions", "Versions a Jira ticket's fix version can be set to", "id (connection), key"),
     ("jira.setFixVersions", "Set a Jira ticket's fix versions to exactly these version ids; empty clears them", "id (connection), key, versions"),
     ("integrations.save", "Connect GitHub, Azure DevOps (token = personal access token, config.org), GitLab (config.url = self-managed server), Bitbucket (config.email = Atlassian account of an API token), Gitea (config.url), Jira, Trello, Asana or Linear (token = personal API key, config.teams = team keys); a GitLab, Bitbucket or Gitea token is checked with the server first; a Jira, Trello, Asana or Linear config without id adds a connection", "kind, config?, token?"),
@@ -1178,7 +1180,16 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
             if sources.is_empty() {
                 return to(json!({ "sources": [], "tickets": [] }));
             }
-            to(json!({ "sources": sources, "tickets": k.tickets(&pid, b(&p, "mine"), b(&p, "sprint")).await?, "syncedAt": crate::store::now() }))
+            let (mine, sprint, jira) = (b(&p, "mine"), b(&p, "sprint"), sources.contains(&"jira"));
+            // Sprint is on by default: with no Jira and no Linear cycles it would hide every ticket.
+            let (cycles, tickets) = if sprint && !jira {
+                let cycles = k.linear_cycles(&pid).await;
+                (cycles, k.tickets(&pid, mine, cycles).await?)
+            } else {
+                let (cycles, tickets) = tokio::join!(k.linear_cycles(&pid), k.tickets(&pid, mine, sprint));
+                (cycles, tickets?)
+            };
+            to(json!({ "sources": sources, "cycles": cycles, "tickets": tickets, "syncedAt": crate::store::now() }))
         }
         "tickets.get" => {
             let pid = s(&p, "projectId")?;
@@ -1193,6 +1204,12 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
         }
         "tickets.triage" => to(k.triage(&s(&p, "projectId")?).await?),
         "tickets.statuses" => to(k.ticket_status(&s(&p, "source")?, &os(&p, "conn").unwrap_or_default(), &s(&p, "id")?, None).await?),
+        "tickets.fields" => to(k.ticket_fields(&s(&p, "source")?, &os(&p, "conn").unwrap_or_default(), &s(&p, "id")?, None).await?),
+        "tickets.setFields" => {
+            let edit: crate::tickets::FieldEdit = serde_json::from_value(p.clone())?;
+            k.ticket_fields(&s(&p, "source")?, &os(&p, "conn").unwrap_or_default(), &s(&p, "id")?, Some(&edit)).await?;
+            ok()
+        }
         "tickets.setStatus" => {
             k.ticket_status(&s(&p, "source")?, &os(&p, "conn").unwrap_or_default(), &s(&p, "id")?, Some(&s(&p, "to")?)).await?;
             ok()

@@ -1,8 +1,8 @@
-import { useState, type CSSProperties } from "react";
+import { useState, type CSSProperties, type ReactNode } from "react";
 
-import { useAction, useFixVersions, useOverview, useProjectPrefs, useProjects, useTicketStatuses, useTickets } from "../api/hooks";
+import { useAction, useFixVersions, useOverview, useProjectPrefs, useProjects, useTicketFields, useTicketStatuses, useTickets } from "../api/hooks";
 import { openExternal } from "../api/transport";
-import type { Suggestion, Ticket } from "../api/types";
+import type { FieldOption, Suggestion, Ticket } from "../api/types";
 import { MenuChoice } from "../components/AgentPicker";
 import { Adf } from "../components/Adf";
 import { Avatar } from "../components/Avatar";
@@ -24,6 +24,15 @@ const STATUS: Record<Ticket["status"], [string, string]> = {
 };
 const SRC = { jira: "Jira", trello: "Trello", asana: "Asana", linear: "Linear", github: "GitHub" };
 const ADD = "\0add";
+/** Jira's colors for its usual issue types, named in English or French. */
+const TYPE_COLORS: [RegExp, string][] = [
+  [/bug|bogue|défaut/i, "#e5493a"],
+  [/epic|épopée/i, "#904ee2"],
+  [/story|récit|histoire|feature|fonctionnalité|improvement|amélioration/i, "#63ba3c"],
+  [/task|tâche/i, "#4bade8"],
+];
+const typeColor = (t: Ticket) => (t.source === "jira" ? TYPE_COLORS.find(([re]) => re.test(t.kind))?.[1] : undefined);
+const Dot = ({ color }: { color?: string }) => (color ? <span className="tk-dot" style={{ background: color }} aria-hidden="true" /> : null);
 
 export function Tickets({ initial }: { initial?: string }) {
   const nav = useNav();
@@ -62,6 +71,9 @@ export function Tickets({ initial }: { initial?: string }) {
     .filter((g) => g.items.length);
   const t = all.find((x) => x.key === sel) ?? visible[0];
   const unplanned = visible.filter((x) => !x.release && x.status !== "done").length;
+  // Linear calls its sprints cycles; a Linear team with cycles off has none, so no toggle for it.
+  const jira = q.data?.sources.includes("jira");
+  const cycles = q.data?.cycles;
 
   if (q.isLoading) return (<><Header title="Tickets" hideWide /><Loading /></>);
   if (q.data && q.data.sources.length === 0) {
@@ -126,10 +138,14 @@ export function Tickets({ initial }: { initial?: string }) {
                   <input type="checkbox" checked={mine} onChange={() => setMine(!mine)} />
                   <span>Assigned to me</span>
                 </label>
-                {(q.data?.sources.includes("jira") || q.data?.sources.includes("linear")) && (
-                  <label className="check" style={{ minHeight: 28 }} data-tip="Jira tickets in an open sprint and Linear issues in an active cycle; hides the other trackers">
+                {(jira || cycles) && (
+                  <label
+                    className="check"
+                    style={{ minHeight: 28 }}
+                    data-tip={`${jira && cycles ? "Jira tickets in an open sprint and Linear issues in the active cycle" : jira ? "Jira tickets in an open sprint" : "Linear issues in the active cycle"}; hides the other trackers`}
+                  >
                     <input type="checkbox" checked={sprint} onChange={() => setSprint(!sprint)} />
-                    <span>Active sprint</span>
+                    <span>{jira && cycles ? "Active sprint or cycle" : jira ? "Active sprint" : "Active cycle"}</span>
                   </label>
                 )}
               </div>
@@ -148,7 +164,9 @@ export function Tickets({ initial }: { initial?: string }) {
                           <Avatar name={x.assignee} />
                           <span className="mono faint">{x.key}</span>
                           <span className={STATUS[x.status][1]} style={{ fontSize: 13 }}>{x.statusLabel || STATUS[x.status][0]}</span>
-                          <span className="faint ellipsis grow">{x.kind}</span>
+                          <span className="faint ellipsis grow tk-types">
+                            {x.source === "linear" && x.labels?.length ? x.labels.map((l) => <span key={l}><Dot color={x.labelColors?.[l]} />{l}</span>) : <span><Dot color={typeColor(x)} />{x.kind}</span>}
+                          </span>
                           {suggestions[x.key] && !x.release && <Icon name="sparkle" size={11} className="c-acc" />}
                           <span className="faint">{SRC[x.source]}</span>
                         </span>
@@ -235,6 +253,32 @@ function TicketDetail({
     invalidate: [["tickets", nav.projectId]],
     success: "Status changed",
   });
+  const fields = useTicketFields(t);
+  const f = fields.data;
+  const nameOf = (list: FieldOption[] = [], id?: string) => list.find((o) => o.id === id)?.name;
+  const setFields = useAction<unknown, Edit & { source: string; conn: string; id: string }>("tickets.setFields", {
+    invalidate: [["tickets", nav.projectId]],
+    success: `Saved in ${SRC[t.source]}`,
+    // The new values show until the list comes back from the tracker.
+    patch: (qc, v) =>
+      qc.setQueriesData<{ tickets: Ticket[] }>({ queryKey: ["tickets", nav.projectId] }, (d) =>
+        d && {
+          ...d,
+          tickets: d.tickets.map((x) =>
+            x.source === v.source && x.id === v.id
+              ? {
+                  ...x,
+                  priority: v.priority ? nameOf(f?.priorities, v.priority) ?? x.priority : x.priority,
+                  kind: v.kind ? nameOf(f?.types, v.kind) ?? x.kind : x.kind,
+                  labels: v.labels ? v.labels.map((id) => nameOf(f?.labels, id) ?? id) : x.labels,
+                }
+              : x,
+          ),
+        },
+      ),
+  });
+  const edit = (e: Edit) => setFields.mutate({ source: t.source, conn: t.conn, id: t.id, ...e });
+  const busy = (k: keyof Edit) => (setFields.isPending && setFields.variables?.[k] !== undefined ? "Saving…" : undefined);
   const kind = /bug|fix/i.test(t.kind) ? "fix" : "feat";
   const rel = releases.find((r) => r.version === t.release);
   const done = t.criteria.filter((c) => c.done).length;
@@ -246,10 +290,10 @@ function TicketDetail({
           <span className="faint">·</span>
           <span className="mono">{t.key}</span>
           <span className="faint">·</span>
-          <span>{t.kind}</span>
+          <span><Dot color={typeColor(t)} />{t.kind}</span>
           <span className="faint">·</span>
           <span>{t.whereLabel}</span>
-          {t.labels?.map((l) => <span key={l} className="tag tk-label">{l}</span>)}
+          {t.labels?.map((l) => <span key={l} className="tag tk-label"><Dot color={t.labelColors?.[l]} />{l}</span>)}
           <span className="grow" />
           {t.url && (
             <button className="btn btn-sm" onClick={() => openExternal(t.url)}>
@@ -261,32 +305,80 @@ function TicketDetail({
         <h1>{t.title}</h1>
       </div>
       <div className="kv tk-kv">
-        {t.source === "jira" && (
+        {(t.source === "jira" || t.source === "linear") && (
           <>
             <div>
               <span>Parent</span>
               {t.parentKey ? (
-                <a className="ellipsis" href={t.parentUrl} title={`Open ${t.parentKey} in Jira`} onClick={(e) => { e.preventDefault(); openExternal(t.parentUrl!); }}>
+                <a className="ellipsis" href={t.parentUrl} title={`Open ${t.parentKey} in ${SRC[t.source]}`} onClick={(e) => { e.preventDefault(); openExternal(t.parentUrl!); }}>
                   <span className="mono">{t.parentKey}</span> {t.parentTitle}
                 </a>
               ) : (
                 <span className="faint">None</span>
               )}
             </div>
-            <div><span>Priority</span><span className={t.priority ? "" : "faint"}>{t.priority || "None"}</span></div>
+            {t.source === "linear" && (
+              <div>
+                <span>Project</span>
+                {t.projectName ? (
+                  <a className="ellipsis" href={t.projectUrl} title={`Open ${t.projectName} in Linear`} onClick={(e) => { e.preventDefault(); openExternal(t.projectUrl!); }}>
+                    {t.projectName}
+                  </a>
+                ) : (
+                  <span className="faint">None</span>
+                )}
+              </div>
+            )}
+            {t.source === "jira" && (
+              <div>
+                <label htmlFor="tk-type">Type</label>
+                {f?.types.length ? (
+                  <FieldMenu id="tk-type" label="Type" current={t.kind} options={f.types} busy={busy("kind")} onPick={(k) => edit({ kind: k })} />
+                ) : (
+                  <span><Dot color={typeColor(t)} />{t.kind}</span>
+                )}
+              </div>
+            )}
+            <div>
+              <label htmlFor="tk-priority">Priority</label>
+              {f?.priorities.length ? (
+                <FieldMenu id="tk-priority" label="Priority" current={t.priority || "None"} options={f.priorities} busy={busy("priority")} onPick={(priority) => edit({ priority })} />
+              ) : (
+                <span className={t.priority ? "" : "faint"}>{t.priority || "None"}</span>
+              )}
+            </div>
+            {t.source === "linear" && (
+              <div>
+                <label htmlFor="tk-labels">Labels</label>
+                <PickMany
+                  id="tk-labels"
+                  label="Labels"
+                  value={t.labels ?? []}
+                  options={(f?.labels ?? []).map((l) => ({ ...l, label: <><Dot color={l.color} />{l.name}</> }))}
+                  loading={fields.isLoading}
+                  saving={!!busy("labels")}
+                  empty="No labels in this team"
+                  search="Filter labels"
+                  missing="Couldn't find every label in Linear, nothing changed"
+                  onSave={(labels) => edit({ labels })}
+                />
+              </div>
+            )}
+          </>
+        )}
+        {t.source === "jira" && (
+          <>
             <div>
               <span>Time left</span>
               <span className={t.timeRemaining || t.timeEstimate ? "" : "faint"}>
                 {t.timeRemaining && t.timeEstimate ? `${t.timeRemaining} of ${t.timeEstimate}` : t.timeRemaining || (t.timeEstimate ? `? of ${t.timeEstimate}` : "Not estimated")}
               </span>
             </div>
+            <div>
+              <label htmlFor="tk-fix">Fix versions</label>
+              <FixVersions t={t} />
+            </div>
           </>
-        )}
-        {t.source === "jira" && (
-          <div>
-            <label htmlFor="tk-fix">Fix versions</label>
-            <FixVersions t={t} />
-          </div>
         )}
         <div>
           <label htmlFor="tk-rel">Release</label>
@@ -294,17 +386,13 @@ function TicketDetail({
         </div>
         <div>
           <label htmlFor="tk-status">Status</label>
-          <MenuChoice
+          <FieldMenu
             id="tk-status"
-            className="select menu-select"
-            style={{ height: 30, width: "100%" }}
             label="Status"
-            value=""
-            options={[
-              { value: "", label: setStatus.isPending ? `Moving to ${setStatus.variables?.name}…` : t.statusLabel || STATUS[t.status][0] },
-              ...(statuses.data ?? []).filter((o) => o.name !== t.statusLabel).map((o) => ({ value: o.id, label: o.name })),
-            ]}
-            onChange={(to) => to && setStatus.mutate({ source: t.source, conn: t.conn, id: t.id, to, name: statuses.data?.find((o) => o.id === to)?.name ?? "" })}
+            current={t.statusLabel || STATUS[t.status][0]}
+            options={statuses.data ?? []}
+            busy={setStatus.isPending ? `Moving to ${setStatus.variables?.name}…` : undefined}
+            onPick={(to) => setStatus.mutate({ source: t.source, conn: t.conn, id: t.id, to, name: statuses.data?.find((o) => o.id === to)?.name ?? "" })}
           />
         </div>
       </div>
@@ -392,6 +480,84 @@ function TicketDetail({
   );
 }
 
+type Edit = { priority?: string; kind?: string; labels?: string[] };
+
+/** A field's menu: its current value, then the others to switch to; `busy` stands in for the value while it saves. */
+function FieldMenu({ id, label, current, options, busy, onPick }: { id: string; label: string; current: string; options: { id: string; name: string }[]; busy?: string; onPick: (id: string) => void }) {
+  return (
+    <MenuChoice
+      id={id}
+      className="select menu-select"
+      style={{ height: 30, width: "100%" }}
+      label={label}
+      value=""
+      options={[{ value: "", label: busy ?? current }, ...options.filter((o) => o.name !== current).map((o) => ({ value: o.id, label: o.name }))]}
+      onChange={(v) => v && onPick(v)}
+    />
+  );
+}
+
+type Pick = { id: string; name: string; label?: ReactNode; group?: string };
+
+/**
+ * Several of `options` toggled in a menu that stays open, saved when it closes; one per `group`, as Linear label groups allow.
+ * `value`: the names the ticket lists.
+ */
+function PickMany(p: { id: string; label: string; value: string[]; options: Pick[]; loading: boolean; saving: boolean; empty: string; search: string; missing: string; onSave: (ids: string[]) => void }) {
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const [draft, setDraft] = useState<string[]>([]);
+  const groupOf = (n: string) => p.options.find((o) => o.name === n)?.group;
+
+  const close = () => {
+    setMenu(null);
+    if (draft.length === p.value.length && draft.every((n) => p.value.includes(n))) return;
+    const ids = draft.map((n) => p.options.find((o) => o.name === n)?.id);
+    // One missing from the list would be dropped from the ticket.
+    if (ids.some((id) => !id)) return toast(p.missing, "error");
+    p.onSave(ids as string[]);
+  };
+  const toggle = (o: Pick) => setDraft((d) => (d.includes(o.name) ? d.filter((n) => n !== o.name) : [...d.filter((n) => !o.group || groupOf(n) !== o.group), o.name]));
+
+  return (
+    <>
+      <button
+        id={p.id}
+        className="select menu-select"
+        style={{ height: 30, width: "100%" }}
+        aria-haspopup="menu"
+        aria-label={p.label}
+        onClick={(e) => {
+          const r = e.currentTarget.getBoundingClientRect();
+          setDraft(p.value);
+          setMenu({ x: r.left, y: r.bottom + 2 });
+        }}
+      >
+        <span className="ellipsis">{p.saving ? "Saving…" : (menu ? draft : p.value).join(", ") || "None"}</span>
+        <Icon name="chevronDown" size={10} />
+      </button>
+      {menu && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          label={p.label}
+          search={p.options.length > SEARCH_ABOVE ? p.search : undefined}
+          onClose={close}
+          items={
+            p.loading
+              ? [{ id: "loading", label: "Loading…", icon: null, disabled: true, run: () => {} }]
+              : p.options.length === 0
+                ? [{ id: "none", label: p.empty, icon: null, disabled: true, run: () => {} }]
+                : p.options.flatMap((o, i) => [
+                    ...(o.group && o.group !== p.options[i - 1]?.group ? [{ heading: o.group }] : []),
+                    { id: o.id, label: o.label ?? o.name, text: o.name, icon: null, keep: true, hint: draft.includes(o.name) && <Icon name="check" size={13} />, run: () => toggle(o) },
+                  ])
+          }
+        />
+      )}
+    </>
+  );
+}
+
 /** Jira fix versions, toggled in a menu that stays open and saved when it closes. */
 function FixVersions({ t }: { t: Ticket }) {
   const nav = useNav();
@@ -400,63 +566,21 @@ function FixVersions({ t }: { t: Ticket }) {
     invalidate: [["tickets", nav.projectId], ["overview", nav.projectId]],
     success: "Fix versions changed",
   });
-  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
-  // Names, as the ticket lists them.
-  const [draft, setDraft] = useState<string[]>([]);
   const fix = t.fixVersions ?? [];
-  const all = versions.data ?? [];
   // Archived versions only when the ticket still has them, as in Jira.
-  const offered = all.filter((v) => !v.archived || fix.includes(v.name));
-
-  const close = () => {
-    setMenu(null);
-    if (draft.length === fix.length && draft.every((n) => fix.includes(n))) return;
-    const ids = draft.map((n) => all.find((v) => v.name === n)?.id);
-    // A version missing from the list would be dropped from the ticket.
-    if (ids.some((id) => !id)) return toast("Couldn't find every fix version in the project, nothing changed", "error");
-    save.mutate({ id: t.conn, key: t.key, versions: ids as string[] });
-  };
-
+  const offered = (versions.data ?? []).filter((v) => !v.archived || fix.includes(v.name));
   return (
-    <>
-      <button
-        id="tk-fix"
-        className="select menu-select"
-        style={{ height: 30, width: "100%" }}
-        aria-haspopup="menu"
-        aria-label="Fix versions"
-        onClick={(e) => {
-          const r = e.currentTarget.getBoundingClientRect();
-          setDraft(fix);
-          setMenu({ x: r.left, y: r.bottom + 2 });
-        }}
-      >
-        <span className="ellipsis">{save.isPending ? "Saving…" : (menu ? draft : fix).join(", ") || "None"}</span>
-        <Icon name="chevronDown" size={10} />
-      </button>
-      {menu && (
-        <ContextMenu
-          x={menu.x}
-          y={menu.y}
-          label="Fix versions"
-          search={offered.length > SEARCH_ABOVE ? "Filter versions" : undefined}
-          onClose={close}
-          items={
-            versions.isLoading
-              ? [{ id: "loading", label: "Loading versions…", icon: null, disabled: true, run: () => {} }]
-              : offered.length === 0
-                ? [{ id: "none", label: "No versions in this project", icon: null, disabled: true, run: () => {} }]
-                : offered.map((v) => ({
-                    id: v.id,
-                    label: v.released ? `${v.name} (released)` : v.name,
-                    icon: null,
-                    keep: true,
-                    hint: draft.includes(v.name) && <Icon name="check" size={13} />,
-                    run: () => setDraft((d) => (d.includes(v.name) ? d.filter((n) => n !== v.name) : [...d, v.name])),
-                  }))
-          }
-        />
-      )}
-    </>
+    <PickMany
+      id="tk-fix"
+      label="Fix versions"
+      value={fix}
+      options={offered.map((v) => ({ id: v.id, name: v.name, label: v.released ? `${v.name} (released)` : v.name }))}
+      loading={versions.isLoading}
+      saving={save.isPending}
+      empty="No versions in this project"
+      search="Filter versions"
+      missing="Couldn't find every fix version in the project, nothing changed"
+      onSave={(ids) => save.mutate({ id: t.conn, key: t.key, versions: ids })}
+    />
   );
 }

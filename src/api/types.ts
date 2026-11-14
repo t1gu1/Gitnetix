@@ -759,11 +759,13 @@ export interface Ticket {
   whereLabel: string;
   /** The Jira project, Trello board, Asana project, Linear team or GitHub repository it comes from. */
   place: string;
-  /** Jira and GitHub labels. */
+  /** Jira, Linear and GitHub labels. */
   labels?: string[];
+  /** Linear label colors ("#eb5757"), by label name. */
+  labelColors?: Record<string, string>;
   /** Jira fix versions ("Versions corrigées"), as named there, or the GitHub milestone. */
   fixVersions?: string[];
-  /** Jira priority name. */
+  /** Jira or Linear priority name. */
   priority?: string;
   /** Jira time left and original estimate, as Jira writes them ("3h", "1d 2h"). */
   timeRemaining?: string;
@@ -772,6 +774,9 @@ export interface Ticket {
   parentKey?: string;
   parentTitle?: string;
   parentUrl?: string;
+  /** Linear project name and page. */
+  projectName?: string;
+  projectUrl?: string;
   release: string;
   branch?: string | null;
   /** Project holding `branch` when it is another one linked to the same tracker. */
@@ -815,6 +820,21 @@ export interface Work {
   tickets: number;
   points: number;
   hours: number;
+}
+
+/** A priority, issue type or label a ticket can be set to; `group`: the Linear label group, one label per group. */
+export interface FieldOption {
+  id: string;
+  name: string;
+  color?: string;
+  group?: string;
+}
+
+/** What a Jira or Linear ticket's priority, type and labels can be set to; an empty list can't be changed here. */
+export interface TicketFields {
+  priorities: FieldOption[];
+  types: FieldOption[];
+  labels: FieldOption[];
 }
 
 export interface SprintTicket {

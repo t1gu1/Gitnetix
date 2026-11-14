@@ -29,6 +29,7 @@ import type {
   Template,
   StatusOption,
   Ticket,
+  TicketFields,
   WeeklyReport,
   WorktreeView,
 } from "./types";
@@ -543,7 +544,7 @@ export const usePr = (projectId?: string, number?: number) =>
 export const useTickets = (projectId?: string, mine = false, sprint = false) =>
   useQuery({
     queryKey: ["tickets", projectId, mine, sprint],
-    queryFn: () => rpc<{ sources: string[]; tickets: Ticket[]; syncedAt?: string }>("tickets.list", { projectId, mine, sprint }),
+    queryFn: () => rpc<{ sources: string[]; cycles?: boolean; tickets: Ticket[]; syncedAt?: string }>("tickets.list", { projectId, mine, sprint }),
     // Toggling a filter keeps the list on screen while it refetches.
     placeholderData: (prev, prevQuery) => (prevQuery?.queryKey[1] === projectId ? prev : undefined),
     enabled: !!projectId,
@@ -556,6 +557,15 @@ export const useTicketStatuses = (t?: Ticket) =>
     queryKey: ["ticketStatuses", t?.source, t?.conn, t?.id, t?.statusLabel],
     queryFn: () => rpc<StatusOption[]>("tickets.statuses", { source: t!.source, conn: t!.conn, id: t!.id }),
     enabled: !!t?.id,
+    retry: false,
+    staleTime: 60_000,
+  });
+
+export const useTicketFields = (t?: Ticket) =>
+  useQuery({
+    queryKey: ["ticketFields", t?.source, t?.conn, t?.id],
+    queryFn: () => rpc<TicketFields>("tickets.fields", { source: t!.source, conn: t!.conn, id: t!.id }),
+    enabled: !!t?.id && (t.source === "jira" || t.source === "linear"),
     retry: false,
     staleTime: 60_000,
   });
