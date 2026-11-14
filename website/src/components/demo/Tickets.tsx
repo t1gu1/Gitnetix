@@ -350,7 +350,7 @@ function TicketDetail({ t, set, suggestion, onDismiss, onStart }: { t: Ticket; s
             </span>
             <button className="btn btn-primary" onClick={() => onStart(kind)}>
               <Icon name="plus" size={12} />
-              Start {kind === 'fix' ? 'fix' : 'feature'}
+              Start a branch
             </button>
           </div>
         )}

@@ -443,7 +443,7 @@ function TicketDetail({
             </span>
             <button className="btn btn-primary" onClick={() => nav.openNewItem({ release: rel?.version, ticket: t.key, description: t.title, kind })}>
               <Icon name="plus" size={12} />
-              Start {kind === "fix" ? "fix" : "feature"}
+              Start a branch
             </button>
           </div>
         )}
