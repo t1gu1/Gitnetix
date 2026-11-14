@@ -249,6 +249,10 @@ mod tests {
             String::from_utf8_lossy(&out.stdout).into_owned()
         };
         git(&["init", "-q", "-b", "main"]);
+        // In the repo, not only on this helper's command line: the app's own commit needs them too (CI has no global identity).
+        git(&["config", "user.name", "T"]);
+        git(&["config", "user.email", "t@example.com"]);
+        git(&["config", "commit.gpgsign", "false"]);
         std::fs::write(repo.join("a.txt"), "a\n").unwrap();
         git(&["add", "a.txt"]);
         git(&["commit", "-qm", "first"]);
