@@ -567,6 +567,21 @@ export interface AgentSession {
   limit?: AgentLimit | null;
   /** Actions its run waits on you to allow or refuse (Claude Code outside Bypass), oldest first. */
   asks?: AgentAsk[];
+  /** Work its run left going in the background (Claude Code), oldest first: the run waits for it before it ends. */
+  tasks?: AgentTask[];
+}
+
+/** A sub agent, workflow or command an agent's run started in the background. */
+export interface AgentTask {
+  id: string;
+  kind: "agent" | "workflow" | "shell" | "other";
+  description: string;
+  /** When it started, in ms since the Unix epoch. */
+  at: number;
+  /** What it does now, from its last progress. */
+  doing?: string;
+  /** A workflow's agents: [ended, started]. */
+  agents?: [number, number] | null;
 }
 
 /** An action Claude Code asks to run: its tool, its command or file, and what it says it does. */
@@ -942,6 +957,7 @@ export interface SprintReport {
 export type GitnetixEvent =
   | { type: "agentLine"; sessionId: string; line: LogLine }
   | { type: "agentStatus"; sessionId: string; status: AgentStatus }
+  | { type: "agentTasks"; sessionId: string; tasks: AgentTask[] }
   | { type: "projectChanged"; projectId: string }
   | { type: "filesChanged"; projectId: string; branch: string | null }
   | { type: "configChanged" }

@@ -4,7 +4,7 @@ import { useAction, useAgents, useFiles, useOverview, usePendingBranches, usePro
 import { rpc } from "../api/transport";
 import type { AgentSession, RebaseResult, WorktreeView } from "../api/types";
 import { AgentInput, AgentLog, RequestField, uploads, type Choice, type Upload } from "../components/AgentLog";
-import { limitLabel, shownStatus, type ShownStatus } from "../lib/agentLog";
+import { limitLabel, shownStatus, tasksLabel, type ShownStatus } from "../lib/agentLog";
 import { draftOf, useDraft } from "../lib/drafts";
 import { AgentPicker, MenuChoice, useAgentPick } from "../components/AgentPicker";
 import { ContextMenu, type MenuItem } from "../components/ContextMenu";
@@ -178,7 +178,8 @@ export function Worktrees({ route }: { route: { key?: string } }) {
                 {g.items.map((r) => {
                   const [shown, cls] = STATUS[r.status];
                   const label = r.status === "limited" && r.agent?.limit ? limitLabel(r.agent.limit) : shown;
-                  const sub = !r.wt ? "Directory removed" : r.agent?.request.split("\n")[0];
+                  const bg = r.status === "running" && r.agent?.tasks?.length ? `${tasksLabel(r.agent.tasks)} in the background` : "";
+                  const sub = !r.wt ? "Directory removed" : bg || r.agent?.request.split("\n")[0];
                   const more = `More actions for ${r.branch}`;
                   const show = `Show ${r.branch} in the workspace`;
                   return (
@@ -409,7 +410,7 @@ function Detail({ r, menu, onMenuClose }: { r: Row; menu?: { x: number; y: numbe
           <ShellPane projectId={r.projectId} path={r.wt ? r.path : undefined} />
         ) : (
           <>
-            <AgentLog lines={a?.lines ?? []} session={a?.id} provider={a ? a.ai?.provider : pick.provider} thinking={a?.status === "running" || msg.isPending || start.isPending || reserved.pending} working={busy} queued={a?.queued} onEditQueued={(q) => setText((t) => [q, t].filter(Boolean).join("\n\n"))} canSendNow={a?.ai?.provider === "claude" && !!a.resumeId} limit={a?.limit} asks={a?.asks} onCancelLimit={a ? () => halt(a) : undefined} actions={isWorktree && <FinishWorktreeCard session={session} finish={finish} />} picks={picks} onPicks={setPicks} empty={r.wt ? "No agent session on this checkout." : "Directory removed."} />
+            <AgentLog lines={a?.lines ?? []} session={a?.id} provider={a ? a.ai?.provider : pick.provider} thinking={a?.status === "running" || msg.isPending || start.isPending || reserved.pending} working={busy} queued={a?.queued} onEditQueued={(q) => setText((t) => [q, t].filter(Boolean).join("\n\n"))} canSendNow={a?.ai?.provider === "claude" && !!a.resumeId} limit={a?.limit} asks={a?.asks} tasks={a?.tasks} onCancelLimit={a ? () => halt(a) : undefined} actions={isWorktree && <FinishWorktreeCard session={session} finish={finish} />} picks={picks} onPicks={setPicks} empty={r.wt ? "No agent session on this checkout." : "Directory removed."} />
             <AgentInput
               id="wt-ask"
               label="Message the agent"

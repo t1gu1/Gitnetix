@@ -3,8 +3,8 @@ import { createPortal } from "react-dom";
 
 import { useAction, useAgentBlobs, useAgentDiff, useAgentFile, useAiCatalog, useConfig } from "../api/hooks";
 import { clipboardFiles, copyAgentFile, downloadAgentFile, isLocal, localHead, localImage, onPathDrop } from "../api/transport";
-import type { AgentAsk, AgentLimit, LogLine } from "../api/types";
-import { blocks, errText, folds, questions, said, stepsLabel, took, type Block, type Fold, type Opt, type Question } from "../lib/agentLog";
+import type { AgentAsk, AgentLimit, AgentTask, LogLine } from "../api/types";
+import { blocks, errText, folds, questions, said, stepsLabel, tasksLabel, took, type Block, type Fold, type Opt, type Question } from "../lib/agentLog";
 import { OwnMic } from "../lib/dictation";
 import { bytes, clock, plural } from "../lib/format";
 import { copyToClipboard, toast } from "../lib/toast";
@@ -407,6 +407,39 @@ function AskCard({ session, ask }: { session: string; ask: AgentAsk }) {
   );
 }
 
+const TASK_ICON: Record<AgentTask["kind"], string> = { workflow: "layers", agent: "sparkle", shell: "terminal", other: "more" };
+
+/** What an agent's run left going in the background: its turn ends, and its close options show, only once all of it ends. */
+function TasksCard({ tasks }: { tasks: AgentTask[] }) {
+  // Their running times count up.
+  const now = useNow(1000);
+  return (
+    <div className="ag-bg" role="group" aria-label="Working in the background">
+      <div className="ag-bg-head">
+        <span className="ag-bg-title">Working in the background</span>
+        <span className="faint">{tasksLabel(tasks)}</span>
+      </div>
+      <ul className="ag-bg-list">
+        {tasks.map((t) => (
+          <li key={t.id} className="ag-bg-task">
+            <Icon name={TASK_ICON[t.kind]} size={13} />
+            <span className="ag-bg-what ellipsis" title={t.description}>{t.description || "Background task"}</span>
+            <span className="ag-bg-time">{took(Math.max(0, now - t.at))}</span>
+            {t.agents && (
+              <span className="ag-bg-agents">
+                <span className="ag-bg-bar" aria-hidden="true"><i style={{ width: `${(100 * t.agents[0]) / Math.max(1, t.agents[1])}%` }} /></span>
+                {t.agents[0]} of {plural(t.agents[1], "agent")} done
+              </span>
+            )}
+            {t.doing && <span className="ag-bg-doing ellipsis" title={t.doing}>{t.doing}</span>}
+          </li>
+        ))}
+      </ul>
+      <span className="ag-bg-hint">The agent carries on with your task when this work ends.</span>
+    </div>
+  );
+}
+
 /** Images and audio a reply shows, as its prompt asks: the local paths of its Markdown images, `![What it shows](/path.png)`. */
 const shown = (text: string) => [...new Set([...text.matchAll(/!\[[^\]]*\]\(<?([^<>)]+?)>?\)/g)].map((m) => m[1].trim()))].filter((p) => (isImage(p) || isAudio(p)) && !/^\w+:\/\//.test(p));
 
@@ -418,9 +451,10 @@ const TAIL = 60;
 /** `actions` show under "Your turn!" when the agent did not ask a question; `picks` are its options picked for the prompt box; `session` is the agent's id, for the files you sent it; `queued` are your messages waiting for its run to end, and `onEditQueued` gets one taken off to edit.
  * `working`: its run is going (or paused), so the last turn stays unfolded. `canSendNow`: its run can be cut short for the queue (Claude Code, which resumes its task).
  * `limit`: the usage limit its last run stopped at, shown under the log until it continues; `onCancelLimit` stops it instead.
- * `asks`: actions its run waits on you to allow, each as a card at the end of the log.
+ * `asks`: actions its run waits on you to allow, each as a card at the end of the log. `tasks`: what its run has going in
+ * the background, shown while it works.
  */
-export function AgentLog({ lines, empty, picks, onPicks, actions, thinking, working, provider, session, queued = [], onEditQueued, canSendNow, limit, onCancelLimit, asks = [] }: { lines: LogLine[]; empty?: string; picks: Choice[]; onPicks: (c: Choice[]) => void; actions?: ReactNode; thinking?: boolean; working?: boolean; provider?: string; session?: string; queued?: string[]; onEditQueued?: (text: string) => void; canSendNow?: boolean; limit?: AgentLimit | null; onCancelLimit?: () => void; asks?: AgentAsk[] }) {
+export function AgentLog({ lines, empty, picks, onPicks, actions, thinking, working, provider, session, queued = [], onEditQueued, canSendNow, limit, onCancelLimit, asks = [], tasks = [] }: { lines: LogLine[]; empty?: string; picks: Choice[]; onPicks: (c: Choice[]) => void; actions?: ReactNode; thinking?: boolean; working?: boolean; provider?: string; session?: string; queued?: string[]; onEditQueued?: (text: string) => void; canSendNow?: boolean; limit?: AgentLimit | null; onCancelLimit?: () => void; asks?: AgentAsk[]; tasks?: AgentTask[] }) {
   const me = useMe();
   const ref = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
@@ -487,7 +521,7 @@ export function AgentLog({ lines, empty, picks, onPicks, actions, thinking, work
   useEffect(() => {
     const el = ref.current;
     if (el && stick.current) el.scrollTop = el.scrollHeight;
-  }, [lines.length, thinking, queued.length, asks.length]);
+  }, [lines.length, thinking, queued.length, asks.length, tasks.length]);
   // Your first message is the task: once it scrolls out of the log, it pins to the top; `peek` unfolds it there.
   const task = list.find((b): b is Extract<Block, { kind: "you" }> => b.kind === "you");
   const ti = task ? list.indexOf(task) : -1;
@@ -626,6 +660,7 @@ export function AgentLog({ lines, empty, picks, onPicks, actions, thinking, work
         </div>
       )}
       {session && asks.map((a) => <AskCard key={a.id} session={session} ask={a} />)}
+      {working && tasks.length > 0 && <TasksCard tasks={tasks} />}
       {thinking && !asks.length && (
         <div className="ag-act" role="status" aria-label="Agent is thinking">
           {fresh && mark}

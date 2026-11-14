@@ -41,7 +41,7 @@ import { Resizer, usePaneWidth } from "../components/Resizer";
 import { ShellPane, TermTabs, useTermView } from "../components/Shell";
 import { Busy, Confirm, ErrorBox, Loading, Markdown, Modal, Seg, swipeProps } from "../components/ui";
 import { ago, plural, timeLeft } from "../lib/format";
-import { limitLabel, shownStatus } from "../lib/agentLog";
+import { limitLabel, shownStatus, tasksLabel } from "../lib/agentLog";
 import { startCleanup, useCleaning } from "../lib/cleanups";
 import { useDraft } from "../lib/drafts";
 import { useIdle } from "../lib/motion";
@@ -2282,7 +2282,7 @@ function Terminal({ pid, branch, cwd, worktree, open, setOpen, onCloseWorktree, 
     return (
       <button className="row term-bar" style={{ height: 37, flex: "0 0 37px", margin: 0, padding: "0 14px 3px", border: 0, borderTop: "1px solid var(--line)", background: "var(--panel)", color: "var(--muted)", textAlign: "left" }} onClick={() => setOpen(true)}>
         <Icon name="terminal" />
-        <span>{shell ? "Shell" : cur ? `Agent · ${cur.limit && shownStatus(cur, curBranch) === "limited" ? limitLabel(cur.limit).replace(/^./, (c) => c.toLowerCase()) : shownStatus(cur, curBranch)}` : "Agent"}</span>
+        <span>{shell ? "Shell" : cur ? `Agent · ${cur.limit && shownStatus(cur, curBranch) === "limited" ? limitLabel(cur.limit).replace(/^./, (c) => c.toLowerCase()) : shownStatus(cur, curBranch)}${cur.status === "running" && cur.tasks?.length ? ` · ${tasksLabel(cur.tasks)} in the background` : ""}` : "Agent"}</span>
         {!shell && cur?.status === "running" && <span className="pulse" />}
         <span className="grow" />
         <Icon name="chevronUp" size={13} />
@@ -2353,6 +2353,7 @@ function Terminal({ pid, branch, cwd, worktree, open, setOpen, onCloseWorktree, 
               canSendNow={cur?.ai?.provider === "claude" && !!cur.resumeId}
               limit={cur?.limit}
               asks={cur?.asks}
+              tasks={cur?.tasks}
               onCancelLimit={cur ? () => halt(cur) : undefined}
               actions={
                 cur?.worktree && <FinishWorktreeCard session={cur} finish={finish} />

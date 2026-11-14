@@ -1,6 +1,6 @@
 use serde::Serialize;
 
-use crate::agents::{AgentStatus, LogLine};
+use crate::agents::{AgentStatus, LogLine, SubTask};
 
 /// Pushed to every UI (desktop window, mobile companion) as it happens.
 #[derive(Debug, Clone, Serialize)]
@@ -10,6 +10,9 @@ pub enum Event {
     AgentLine { session_id: String, line: LogLine },
     #[serde(rename_all = "camelCase")]
     AgentStatus { session_id: String, status: AgentStatus },
+    /// What a session's run has going in the background now (Claude Code sub agents, workflows, commands).
+    #[serde(rename_all = "camelCase")]
+    AgentTasks { session_id: String, tasks: Vec<SubTask> },
     #[serde(rename_all = "camelCase")]
     ProjectChanged { project_id: String },
     /// Files of a checkout changed (a save, a `git add`): its uncommitted files are worth re-reading.

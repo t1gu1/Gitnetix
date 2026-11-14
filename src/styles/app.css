@@ -4720,6 +4720,90 @@ button.picker-act {
   white-space: pre-wrap;
   word-break: break-all;
 }
+/* Work an agent's run left going in the background (TasksCard): the run waits for all of it. */
+.ag-bg {
+  align-self: center;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(100%, 560px);
+  margin: 6px 0;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--accent-fg) 30%, var(--line));
+  border-radius: var(--r-lg);
+  background: color-mix(in srgb, var(--panel), var(--accent-fg) 5%);
+}
+.ag-bg-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12.5px;
+}
+.ag-bg-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--fg);
+}
+.ag-bg-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ag-bg-task {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 2px 8px;
+  font-size: 12.5px;
+}
+.ag-bg-task > svg {
+  color: var(--accent-fg);
+}
+.ag-bg-what {
+  color: var(--fg);
+}
+.ag-bg-time {
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--faint);
+}
+.ag-bg-agents,
+.ag-bg-doing {
+  grid-column: 2 / -1;
+  min-width: 0;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.ag-bg-agents {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-variant-numeric: tabular-nums;
+}
+.ag-bg-doing {
+  font-family: var(--mono);
+  color: var(--faint);
+}
+.ag-bg-bar {
+  flex: 0 1 140px;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent-fg) 18%, transparent);
+}
+.ag-bg-bar > i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent-fg);
+}
+.ag-bg-hint {
+  font-size: 11.5px;
+  color: var(--faint);
+}
 /* Where the log records it: a pill, like a finished run's. */
 .ag-limited {
   padding: 2px 10px;

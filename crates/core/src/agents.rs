@@ -80,6 +80,49 @@ pub struct AgentSession {
     /// Actions its run waits on you to allow or refuse (Claude Code outside Bypass), oldest first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub asks: Vec<Ask>,
+    /// Work its run left going in the background (Claude Code), oldest first: the run waits for it before it ends.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tasks: Vec<SubTask>,
+}
+
+/// A sub agent, workflow or command a Claude Code run started in the background (`background_tasks_changed`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SubTask {
+    /// The CLI's task id.
+    pub id: String,
+    /// agent | workflow | shell | other
+    pub kind: String,
+    pub description: String,
+    /// When it started, in ms since the Unix epoch.
+    pub at: i64,
+    /// What it does now, from its last progress event.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub doing: String,
+    /// A workflow's agents: [ended, started].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agents: Option<[u32; 2]>,
+    /// A workflow's agents by index: whether each ended. Its progress events only send the rows that changed.
+    #[serde(skip)]
+    rows: HashMap<u64, bool>,
+}
+
+impl SubTask {
+    /// "workflow \"Review\"", as the resume message names it.
+    fn named(&self) -> String {
+        let what = if self.kind == "workflow" { "workflow" } else { "subagent" };
+        format!("{what} \"{}\"", self.description)
+    }
+}
+
+/// What a CLI `task_type` is: agent | workflow | shell | other.
+fn task_kind(task_type: &str) -> &'static str {
+    match task_type {
+        t if t.contains("workflow") => "workflow",
+        t if t.contains("agent") || t.contains("teammate") => "agent",
+        t if t.contains("bash") || t.contains("shell") || t.contains("monitor") => "shell",
+        _ => "other",
+    }
 }
 
 /// A tool call Claude Code asked Gitnetix to allow (`can_use_tool`).
@@ -111,6 +154,13 @@ struct Seen {
     hit: Option<Hit>,
     /// When the limit a Claude Code `rate_limit_event` refused requests at resets.
     told: Option<i64>,
+    /// The turns its successful results counted, and the cost the last one said: logged once, when the run ends. Work
+    /// left in the background brings a result for each turn it starts.
+    done: Option<(u64, Option<f64>)>,
+    /// The CLI said a task of the process before this one stopped: the empty result it sends next only reports that.
+    cut_off: bool,
+    /// Its CLI said `init`: what it reports after is this run's.
+    started: bool,
 }
 
 #[derive(Default)]
@@ -132,6 +182,8 @@ struct Inner {
     seen: HashMap<String, Seen>,
     /// The stdin of each session's run that asks before acting, by run number: answers go in there. Dropped, it closes.
     answers: HashMap<String, (u64, mpsc::UnboundedSender<String>)>,
+    /// When each session's background tasks were last sent to the UI, in ms: progress goes out at most once a second.
+    tasks_sent: HashMap<String, i64>,
 }
 
 #[derive(Clone)]
@@ -170,6 +222,19 @@ pub fn claude_permission(permission: &str) -> Result<Option<&str>> {
         m @ ("auto" | "acceptEdits") => Ok(Some(m)),
         other => Err(Error::Invalid(format!("Unknown agent permission {other}"))),
     }
+}
+
+/// What a Claude Code run that a quit cut off picks its conversation back up with. Its sub agents and workflows died with
+/// it: the CLI says so on resume, but the model may not start them again unless told to.
+fn resume_prompt(cut: &[SubTask]) -> String {
+    let named: Vec<String> = cut.iter().filter(|t| t.kind == "agent" || t.kind == "workflow").map(SubTask::named).collect();
+    if named.is_empty() {
+        return "Gitnetix quit while you were working. Continue the task where you left off.".into();
+    }
+    format!(
+        "Gitnetix quit while you were working, which stopped your background work: {}. Start it again first (a workflow resumes from its run with resumeFromRunId, so the agents that finished come back from cache), then continue the task where you left off.",
+        named.join(", ")
+    )
 }
 
 /// A tool call's command or file, as its log line and its ask show it.
@@ -285,10 +350,14 @@ impl AgentManager {
             }
             // Only Claude Code can pick its conversation back up; a paused run stays as the user left it.
             if s.status == AgentStatus::Running && s.resume_id.is_some() && s.ai.as_ref().is_some_and(|r| r.provider == "claude") {
+                // Its background tasks died with it: kept until `resume_interrupted` names them in its message.
                 interrupted.push(s.id.clone());
-            } else if s.limit.is_none() {
-                // No run ends to send it: it would go out after your next message instead. A usage limit's continue sends it.
-                s.queued.clear();
+            } else {
+                s.tasks.clear();
+                if s.limit.is_none() {
+                    // No run ends to send it: it would go out after your next message instead. A usage limit's continue sends it.
+                    s.queued.clear();
+                }
             }
             s.asks.clear();
             if matches!(s.status, AgentStatus::Running | AgentStatus::Paused) {
@@ -320,8 +389,9 @@ impl AgentManager {
         let ids = std::mem::take(&mut self.inner.lock().unwrap().interrupted);
         for id in ids {
             let Some(ai) = self.get(&id).ok().and_then(|s| s.ai) else { continue };
+            let cut = self.inner.lock().unwrap().sessions.get_mut(&id).map(|s| std::mem::take(&mut s.tasks)).unwrap_or_default();
             // A removed checkout errors before anything is logged: the session stays stopped.
-            let _ = self.message(&id, "Gitnetix quit while you were working. Continue the task where you left off.", &ai);
+            let _ = self.message(&id, &resume_prompt(&cut), &ai);
         }
         let held: Vec<(String, i64)> = self.inner.lock().unwrap().sessions.values().filter_map(|s| Some((s.id.clone(), s.limit.as_ref()?.continue_at?))).collect();
         for (id, at) in held {
@@ -401,8 +471,9 @@ impl AgentManager {
                 s.updated_at = now();
                 if status != AgentStatus::Running && status != AgentStatus::Paused {
                     s.pid = None;
-                    // Its run is over: nothing waits on these anymore.
+                    // Its run is over: nothing waits on these anymore, and its process took its background tasks with it.
                     s.asks.clear();
+                    s.tasks.clear();
                 }
                 // Working again: the limit it waited on is behind it.
                 if status == AgentStatus::Running {
@@ -443,6 +514,7 @@ impl AgentManager {
             last_prompt: None,
             limit: None,
             asks: Vec::new(),
+            tasks: Vec::new(),
         };
         self.inner.lock().unwrap().sessions.insert(id.clone(), session.clone());
         self.spawn_or_fail(&id, &args.cwd, &args.ai, &args.prompt, None)?;
@@ -545,6 +617,11 @@ impl AgentManager {
             }
             return;
         }
+        // Its results, as one line: work left in the background sends one more for each turn it brings.
+        if let (false, Some(Seen { done: Some((turns, cost)), .. })) = (failed, &seen) {
+            let cost = cost.map(|c| format!(" · ${c:.2}")).unwrap_or_default();
+            self.push(id, LogLine::new("ok", format!("✓ Finished · {turns} turns{cost}")));
+        }
         if let Some(l) = files {
             self.push(id, l);
         }
@@ -558,7 +635,7 @@ impl AgentManager {
             return self.send_queued(&s, r, SEND_NOW_NOTE);
         }
         if failed {
-            if let Some(Seen { hit: Some(hit), told }) = seen {
+            if let Some(Seen { hit: Some(hit), told, .. }) = seen {
                 return self.hold(&s, r, hit, told);
             }
             self.push(id, LogLine::new("err", "✕ Agent run failed"));
@@ -842,6 +919,9 @@ impl AgentManager {
                 }
                 // Off too: an `ultracode` left on in the user's Claude settings would otherwise turn it on.
                 cmd.args(["--settings", if r.ultracode { r#"{"ultracode":true}"# } else { r#"{"ultracode":false}"# }]);
+                // `-p` stops the sub agents, workflows and commands still going 10 min after its last turn, then exits as if
+                // done: the run would wait for your review with that work lost. 0 waits for them; Stop still ends the run.
+                cmd.env("CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS", "0");
                 if let Some(rid) = resume {
                     cmd.args(["--resume", rid]);
                 }
@@ -939,7 +1019,7 @@ impl AgentManager {
                     None => prompt,
                 };
                 let _ = w.write_all(input.as_bytes()).await;
-                // Answers go in until the run's result drops the sender (`close_input`), which closes stdin and ends the CLI.
+                // Answers go in until the run's last result drops the sender (`close_input`), which closes stdin and ends the CLI.
                 if let Some(mut rx) = answers {
                     tokio::spawn(async move {
                         while let Some(l) = rx.recv().await {
@@ -959,7 +1039,10 @@ impl AgentManager {
                     if structured {
                         if let Some(o) = out_me.handle_stream_json(&out_id, &l) {
                             outcome = Some(o);
-                            out_me.close_input(&out_id, run);
+                            // Work still going in the background runs another turn when it ends, which may ask too.
+                            if out_me.get(&out_id).is_ok_and(|s| s.tasks.is_empty()) {
+                                out_me.close_input(&out_id, run);
+                            }
                         }
                     } else if !l.trim().is_empty() {
                         out_me.push(&out_id, LogLine::new("ai", l));
@@ -1026,6 +1109,7 @@ impl AgentManager {
         };
         match v["type"].as_str() {
             Some("system") if v["subtype"] == "init" => {
+                self.inner.lock().unwrap().seen.entry(id.into()).or_default().started = true;
                 if let Some(sid) = v["session_id"].as_str() {
                     if let Some(s) = self.inner.lock().unwrap().sessions.get_mut(id) {
                         s.resume_id = Some(sid.to_string());
@@ -1033,6 +1117,18 @@ impl AgentManager {
                     // Saved now so a quit mid-run can resume it.
                     self.persist();
                 }
+                None
+            }
+            Some("system") if v["subtype"] == "background_tasks_changed" => {
+                self.tasks_listed(id, &v["tasks"]);
+                None
+            }
+            Some("system") if v["subtype"] == "task_progress" => {
+                self.task_progress(id, &v);
+                None
+            }
+            Some("system") if v["subtype"] == "task_notification" => {
+                self.task_ended(id, &v);
                 None
             }
             Some("rate_limit_event") => {
@@ -1058,8 +1154,16 @@ impl AgentManager {
             }
             Some("assistant") => {
                 let mut replied = false;
+                // A sub agent's: its words are a step of the agent's work, not a reply to you.
+                let sub = v["parent_tool_use_id"].is_string();
                 for block in v["message"]["content"].as_array().into_iter().flatten() {
                     match block["type"].as_str() {
+                        Some("text") if sub => {
+                            let text = block["text"].as_str().unwrap_or("").trim();
+                            if let Some(first) = text.lines().find(|l| !l.trim().is_empty()) {
+                                self.push(id, LogLine::new("dim", format!("  Subagent {}", first.trim().chars().take(300).collect::<String>())));
+                            }
+                        }
                         Some("text") => {
                             // One line per reply, blank lines kept, so the UI can render it as Markdown.
                             let text = block["text"].as_str().unwrap_or("").trim();
@@ -1084,13 +1188,16 @@ impl AgentManager {
                 None
             }
             Some("user") => {
+                let sub = v["parent_tool_use_id"].is_string();
                 for block in v["message"]["content"].as_array().into_iter().flatten() {
                     if block["type"] == "tool_result" && block["is_error"] == true {
                         let msg = match &block["content"] {
                             Value::String(s) => s.clone(),
                             other => other.to_string(),
                         };
-                        self.push(id, LogLine::new("err", format!("✕ {}", tool_error_line(&msg))));
+                        // A sub agent deals with its own: a step, not an error of the run.
+                        let line = if sub { LogLine::new("dim", format!("  Subagent ✕ {}", tool_error_line(&msg))) } else { LogLine::new("err", format!("✕ {}", tool_error_line(&msg))) };
+                        self.push(id, line);
                     }
                 }
                 None
@@ -1112,10 +1219,16 @@ impl AgentManager {
             }
             Some("result") => {
                 let ok = v["is_error"] != true && v["subtype"] == "success";
-                let cost = v["total_cost_usd"].as_f64().map(|c| format!(" · ${c:.2}")).unwrap_or_default();
-                let turns = v["num_turns"].as_u64().map(|n| format!("{n} turns")).unwrap_or_default();
                 if ok {
-                    self.push(id, LogLine::new("ok", format!("✓ Finished · {turns}{cost}")));
+                    let turns = v["num_turns"].as_u64().unwrap_or(0);
+                    let mut g = self.inner.lock().unwrap();
+                    let seen = g.seen.entry(id.into()).or_default();
+                    // Only reports a task the process before this one left unfinished: no turn of this run, nor its end.
+                    if turns == 0 && std::mem::take(&mut seen.cut_off) {
+                        return None;
+                    }
+                    let n = seen.done.map_or(0, |d| d.0);
+                    seen.done = Some((n + turns, v["total_cost_usd"].as_f64()));
                 } else {
                     let why = v["result"].as_str().unwrap_or("error");
                     ai::flag_signed_out("claude", why);
@@ -1155,6 +1268,99 @@ impl AgentManager {
         let mut g = self.inner.lock().unwrap();
         if g.answers.get(id).is_some_and(|(n, _)| *n == run) {
             g.answers.remove(id);
+        }
+    }
+
+    /// The CLI's list of what the run of `id` has going in the background (`background_tasks_changed`): new tasks join,
+    /// ended ones leave.
+    fn tasks_listed(&self, id: &str, list: &Value) {
+        {
+            let mut g = self.inner.lock().unwrap();
+            let Some(s) = g.sessions.get_mut(id) else { return };
+            let mut old = std::mem::take(&mut s.tasks);
+            s.tasks = list
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|t| {
+                    let tid = t["task_id"].as_str()?;
+                    Some(match old.iter().position(|o| o.id == tid) {
+                        Some(i) => old.swap_remove(i),
+                        None => SubTask {
+                            id: tid.into(),
+                            kind: task_kind(t["task_type"].as_str().unwrap_or_default()).into(),
+                            description: t["description"].as_str().unwrap_or_default().into(),
+                            at: chrono::Utc::now().timestamp_millis(),
+                            doing: String::new(),
+                            agents: None,
+                            rows: HashMap::new(),
+                        },
+                    })
+                })
+                .collect();
+        }
+        self.tasks_changed(id, true);
+    }
+
+    /// A background task of `id`'s run moved on (`task_progress`): what it does now, and a workflow's agents.
+    fn task_progress(&self, id: &str, v: &Value) {
+        {
+            let mut g = self.inner.lock().unwrap();
+            let Some(t) = g.sessions.get_mut(id).and_then(|s| s.tasks.iter_mut().find(|t| v["task_id"] == t.id.as_str())) else { return };
+            if let Some(d) = v["description"].as_str() {
+                t.doing = d.into();
+            }
+            for r in v["workflow_progress"].as_array().into_iter().flatten().filter(|r| r["type"] == "workflow_agent") {
+                if let Some(i) = r["index"].as_u64() {
+                    t.rows.insert(i, matches!(r["state"].as_str(), Some("done" | "error")));
+                }
+            }
+            if !t.rows.is_empty() {
+                t.agents = Some([t.rows.values().filter(|d| **d).count() as u32, t.rows.len() as u32]);
+            }
+        }
+        self.tasks_changed(id, false);
+    }
+
+    /// A task of `id`'s run ended (`task_notification`): a sub agent or workflow says how in the log. One the run did not
+    /// start, reported before it started, is one the process before it left unfinished (`cut_off`).
+    fn task_ended(&self, id: &str, v: &Value) {
+        let t = {
+            let mut g = self.inner.lock().unwrap();
+            let t = g.sessions.get(id).and_then(|s| s.tasks.iter().find(|t| v["task_id"] == t.id.as_str()).cloned());
+            let seen = g.seen.entry(id.into()).or_default();
+            if t.is_none() && !seen.started {
+                seen.cut_off = true;
+            }
+            t
+        };
+        let Some(t) = t.filter(|t| t.kind == "agent" || t.kind == "workflow") else { return };
+        let what = if t.kind == "workflow" { "Workflow" } else { "Subagent" };
+        let agents = t.agents.map(|[_, n]| format!(" · {n} agents")).unwrap_or_default();
+        let line = match v["status"].as_str() {
+            Some("completed") => format!("✓ {what} done · {}{agents}", t.description),
+            Some("failed") => format!("✕ {what} failed · {}", t.description),
+            _ => format!("{what} stopped · {}", t.description),
+        };
+        self.push(id, LogLine::new("task", line));
+    }
+
+    /// The UI shows the background tasks of `id` again: at once when the list changed (`listed`, saved too), else at most
+    /// once a second, since a workflow's agents report each step.
+    fn tasks_changed(&self, id: &str, listed: bool) {
+        let now = chrono::Utc::now().timestamp_millis();
+        let tasks = {
+            let mut g = self.inner.lock().unwrap();
+            if !listed && g.tasks_sent.get(id).is_some_and(|t| now - t < 1000) {
+                return;
+            }
+            g.tasks_sent.insert(id.into(), now);
+            let Some(s) = g.sessions.get(id) else { return };
+            s.tasks.clone()
+        };
+        let _ = self.events.send(Event::AgentTasks { session_id: id.into(), tasks });
+        if listed {
+            self.persist();
         }
     }
 
@@ -1229,7 +1435,7 @@ mod tests {
         let s = AgentSession {
             id: "a".into(), project_id: "p".into(), branch: "b".into(), cwd: ".".into(), worktree: false,
             status: AgentStatus::Waiting, request: "r".into(), agent_label: String::new(), lines: vec![],
-            started_at: now(), updated_at: now(), resume_id: Some("rid".into()), ai: Some(cli("claude")), queued: vec![], pid: None, last_prompt: None, limit: None, asks: vec![],
+            started_at: now(), updated_at: now(), resume_id: Some("rid".into()), ai: Some(cli("claude")), queued: vec![], pid: None, last_prompt: None, limit: None, asks: vec![], tasks: vec![],
         };
         m.inner.lock().unwrap().sessions.insert("a".into(), s);
 
@@ -1253,7 +1459,7 @@ mod tests {
         let s = |id: &str, status, rid: Option<&str>, provider| AgentSession {
             id: id.into(), project_id: "p".into(), branch: "b".into(), cwd: "/gone".into(), worktree: false,
             status, request: "r".into(), agent_label: String::new(), lines: vec![],
-            started_at: now(), updated_at: now(), resume_id: rid.map(Into::into), ai: Some(cli(provider)), queued: vec!["q".into()], pid: None, last_prompt: None, limit: None, asks: vec![],
+            started_at: now(), updated_at: now(), resume_id: rid.map(Into::into), ai: Some(cli(provider)), queued: vec!["q".into()], pid: None, last_prompt: None, limit: None, asks: vec![], tasks: vec![],
         };
         let saved = vec![
             s("run", AgentStatus::Running, Some("rid"), "claude"),
@@ -1285,7 +1491,7 @@ mod tests {
         let s = |id: &str, pid| AgentSession {
             id: id.into(), project_id: "p".into(), branch: "b".into(), cwd: cwd.clone(), worktree: false,
             status: AgentStatus::Running, request: "r".into(), agent_label: String::new(), lines: vec![],
-            started_at: now(), updated_at: now(), resume_id: Some("rid".into()), ai: Some(cli("claude")), queued: vec!["q".into()], pid: Some(pid), last_prompt: None, limit: None, asks: vec![],
+            started_at: now(), updated_at: now(), resume_id: Some("rid".into()), ai: Some(cli("claude")), queued: vec!["q".into()], pid: Some(pid), last_prompt: None, limit: None, asks: vec![], tasks: vec![],
         };
         let saved = vec![s("live", std::process::id()), s("killed", u32::MAX)];
         std::fs::write(dir.path().join("agents.json"), serde_json::to_string(&saved).unwrap()).unwrap();
@@ -1306,7 +1512,7 @@ mod tests {
         let s = AgentSession {
             id: "a".into(), project_id: "p".into(), branch: "b".into(), cwd: ".".into(), worktree: false,
             status: AgentStatus::Running, request: "r".into(), agent_label: String::new(), lines: vec![],
-            started_at: now(), updated_at: now(), resume_id: Some("rid".into()), ai: Some(r.clone()), queued: vec![], pid: None, last_prompt: None, limit: None, asks: vec![],
+            started_at: now(), updated_at: now(), resume_id: Some("rid".into()), ai: Some(r.clone()), queued: vec![], pid: None, last_prompt: None, limit: None, asks: vec![], tasks: vec![],
         };
         m.inner.lock().unwrap().sessions.insert("a".into(), s);
         let running = || m.inner.lock().unwrap().sessions.get_mut("a").unwrap().status = AgentStatus::Running;
@@ -1343,7 +1549,7 @@ mod tests {
         let s = AgentSession {
             id: "a".into(), project_id: "p".into(), branch: "b".into(), cwd: ".".into(), worktree: false,
             status: AgentStatus::Running, request: "r".into(), agent_label: String::new(), lines: vec![],
-            started_at: now(), updated_at: now(), resume_id: Some("rid".into()), ai: Some(cli("claude")), queued: vec![], pid: None, last_prompt: None, limit: None, asks: vec![],
+            started_at: now(), updated_at: now(), resume_id: Some("rid".into()), ai: Some(cli("claude")), queued: vec![], pid: None, last_prompt: None, limit: None, asks: vec![], tasks: vec![],
         };
         // No such CLI for "q": a follow-up started by mistake fails instead of running anything.
         let q = AgentSession { id: "q".into(), ai: Some(cli("none")), queued: vec!["later".into()], ..s.clone() };
@@ -1361,6 +1567,114 @@ mod tests {
         assert!(!q.lines.iter().any(|l| l.kind == "cmd"));
     }
 
+    /// A Claude Code session `id` that works now.
+    fn running(m: &AgentManager, id: &str) {
+        let s = AgentSession {
+            id: id.into(), project_id: "p".into(), branch: "b".into(), cwd: ".".into(), worktree: false,
+            status: AgentStatus::Running, request: "r".into(), agent_label: String::new(), lines: vec![],
+            started_at: now(), updated_at: now(), resume_id: Some("rid".into()), ai: Some(cli("claude")), queued: vec![], pid: None, last_prompt: None, limit: None, asks: vec![], tasks: vec![],
+        };
+        m.inner.lock().unwrap().sessions.insert(id.into(), s);
+    }
+
+    // Event shapes from Claude Code 2.1.325's stream-json (`-p --verbose`).
+    #[test]
+    fn background_work_shows_while_it_runs_and_says_how_it_ended() {
+        let dir = tempfile::tempdir().unwrap();
+        let (tx, mut rx) = broadcast::channel(64);
+        let m = AgentManager::new(tx, dir.path());
+        running(&m, "a");
+        let tasks = |m: &AgentManager| m.get("a").unwrap().tasks;
+        m.handle_stream_json("a", r#"{"type":"system","subtype":"init","session_id":"rid"}"#);
+        m.handle_stream_json("a", r#"{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"w1","task_type":"local_workflow","description":"Review"},{"task_id":"a1","task_type":"local_agent","subagent_type":"general-purpose","description":"Check docs"}]}"#);
+        let t = tasks(&m);
+        assert_eq!(t.iter().map(|t| (t.id.as_str(), t.kind.as_str())).collect::<Vec<_>>(), [("w1", "workflow"), ("a1", "agent")]);
+
+        // A workflow's progress only sends the agents that changed: its counts add them up.
+        m.handle_stream_json("a", r#"{"type":"system","subtype":"task_progress","task_id":"w1","description":"Find bugs in git.rs","workflow_progress":[{"type":"workflow_agent","index":1,"state":"start"},{"type":"workflow_agent","index":2,"state":"start"}]}"#);
+        // The UI got the list at once; progress within the same second waits.
+        let sent = |rx: &mut broadcast::Receiver<Event>| std::iter::from_fn(|| rx.try_recv().ok()).filter(|e| matches!(e, Event::AgentTasks { .. })).count();
+        assert_eq!(sent(&mut rx), 1);
+        m.inner.lock().unwrap().tasks_sent.insert("a".into(), 0);
+        m.handle_stream_json("a", r#"{"type":"system","subtype":"task_progress","task_id":"w1","description":"Find bugs in git.rs","workflow_progress":[{"type":"workflow_phase","index":1},{"type":"workflow_agent","index":1,"state":"done"}]}"#);
+        assert_eq!(sent(&mut rx), 1);
+        let w = tasks(&m).into_iter().find(|t| t.id == "w1").unwrap();
+        assert_eq!((w.agents, w.doing.as_str()), (Some([1, 2]), "Find bugs in git.rs"));
+
+        // Ended: said in the log, gone from the list. A sub agent that failed says so.
+        m.handle_stream_json("a", r#"{"type":"system","subtype":"task_notification","task_id":"w1","status":"completed","summary":"done"}"#);
+        m.handle_stream_json("a", r#"{"type":"system","subtype":"task_notification","task_id":"a1","status":"failed","summary":"x"}"#);
+        m.handle_stream_json("a", r#"{"type":"system","subtype":"background_tasks_changed","tasks":[]}"#);
+        assert!(tasks(&m).is_empty());
+        let lines: Vec<(String, String)> = m.get("a").unwrap().lines.into_iter().map(|l| (l.kind, l.text)).collect();
+        assert_eq!(lines, [("task".into(), "✓ Workflow done · Review · 2 agents".into()), ("task".into(), "✕ Subagent failed · Check docs".into())]);
+
+        // The run's end takes what is left with it.
+        m.handle_stream_json("a", r#"{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"b1","task_type":"local_bash","description":"pnpm dev"}]}"#);
+        ended(&m, "a", false, &cli("none"));
+        assert!(tasks(&m).is_empty());
+    }
+
+    #[test]
+    fn a_sub_agents_words_are_steps_not_replies() {
+        let dir = tempfile::tempdir().unwrap();
+        let m = AgentManager::new(broadcast::channel(8).0, dir.path());
+        running(&m, "a");
+        m.handle_stream_json("a", r#"{"type":"assistant","parent_tool_use_id":"toolu_1","message":{"content":[{"type":"text","text":"\nLooking at git.rs now.\nMore."},{"type":"tool_use","name":"Read","input":{"file_path":"git.rs"}}]}}"#);
+        m.handle_stream_json("a", r#"{"type":"user","parent_tool_use_id":"toolu_1","message":{"content":[{"type":"tool_result","is_error":true,"content":"File does not exist."}]}}"#);
+        m.handle_stream_json("a", r#"{"type":"assistant","parent_tool_use_id":null,"message":{"content":[{"type":"text","text":"Launched."}]}}"#);
+        let lines: Vec<(String, String)> = m.get("a").unwrap().lines.into_iter().map(|l| (l.kind, l.text)).collect();
+        assert_eq!(
+            lines,
+            [
+                ("dim".into(), "  Subagent Looking at git.rs now.".into()),
+                ("dim".into(), "  Read git.rs".into()),
+                ("dim".into(), "  Subagent ✕ File does not exist.".into()),
+                ("ai".into(), "✦ Launched.".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_run_says_it_finished_once_and_not_for_a_resume_report() {
+        let dir = tempfile::tempdir().unwrap();
+        let m = AgentManager::new(broadcast::channel(64).0, dir.path());
+        running(&m, "a");
+        // Resumed: the CLI says the workflow the last process ran is cut off, then sends an empty result for it.
+        m.handle_stream_json("a", r#"{"type":"system","subtype":"task_notification","task_id":"w0","status":"stopped","summary":"Background workflow didn't finish before the previous session ended"}"#);
+        m.handle_stream_json("a", r#"{"type":"system","subtype":"init","session_id":"rid"}"#);
+        assert_eq!(m.handle_stream_json("a", r#"{"type":"result","subtype":"success","is_error":false,"num_turns":0,"total_cost_usd":32.96}"#), None);
+        // Work left in the background: a result for the turn that started it, one for the turn its end brings.
+        assert_eq!(m.handle_stream_json("a", r#"{"type":"result","subtype":"success","is_error":false,"num_turns":2,"total_cost_usd":33.5}"#), Some(true));
+        assert_eq!(m.handle_stream_json("a", r#"{"type":"result","subtype":"success","is_error":false,"num_turns":1,"total_cost_usd":34.0}"#), Some(true));
+        assert!(m.get("a").unwrap().lines.is_empty());
+        ended(&m, "a", false, &cli("none"));
+        let ok: Vec<String> = m.get("a").unwrap().lines.into_iter().filter(|l| l.kind == "ok").map(|l| l.text).collect();
+        assert_eq!(ok, ["✓ Finished · 3 turns · $34.00"]);
+    }
+
+    #[test]
+    fn a_quit_names_the_background_work_it_cut_off_in_the_resume() {
+        let task = |id: &str, kind: &str, description: &str| SubTask { id: id.into(), kind: kind.into(), description: description.into(), at: 0, doing: String::new(), agents: None, rows: HashMap::new() };
+        assert_eq!(resume_prompt(&[]), "Gitnetix quit while you were working. Continue the task where you left off.");
+        let p = resume_prompt(&[task("w", "workflow", "Review"), task("a", "agent", "Docs"), task("b", "shell", "pnpm dev")]);
+        assert!(p.contains(r#"workflow "Review", subagent "Docs". Start it again first"#) && !p.contains("pnpm"), "{p}");
+
+        // Kept for the resume on a run it cuts off, dropped elsewhere.
+        let dir = tempfile::tempdir().unwrap();
+        let s = |id: &str, status| AgentSession {
+            id: id.into(), project_id: "p".into(), branch: "b".into(), cwd: "/gone".into(), worktree: false,
+            status, request: "r".into(), agent_label: String::new(), lines: vec![],
+            started_at: now(), updated_at: now(), resume_id: Some("rid".into()), ai: Some(cli("claude")), queued: vec![], pid: None, last_prompt: None, limit: None, asks: vec![], tasks: vec![task("w", "workflow", "Review")],
+        };
+        std::fs::write(dir.path().join("agents.json"), serde_json::to_string(&[s("run", AgentStatus::Running), s("done", AgentStatus::Waiting)]).unwrap()).unwrap();
+        let m = AgentManager::new(broadcast::channel(8).0, dir.path());
+        assert_eq!((m.get("run").unwrap().tasks.len(), m.get("done").unwrap().tasks.len()), (1, 0));
+        // Its checkout is gone, so it stays stopped: the tasks went with the try.
+        m.resume_interrupted();
+        assert!(m.get("run").unwrap().tasks.is_empty());
+    }
+
     #[test]
     fn resume_id_and_replies_are_saved_mid_run() {
         let dir = tempfile::tempdir().unwrap();
@@ -1368,7 +1682,7 @@ mod tests {
         let s = AgentSession {
             id: "a".into(), project_id: "p".into(), branch: "b".into(), cwd: ".".into(), worktree: false,
             status: AgentStatus::Running, request: "r".into(), agent_label: String::new(), lines: vec![],
-            started_at: now(), updated_at: now(), resume_id: None, ai: Some(cli("claude")), queued: vec![], pid: None, last_prompt: None, limit: None, asks: vec![],
+            started_at: now(), updated_at: now(), resume_id: None, ai: Some(cli("claude")), queued: vec![], pid: None, last_prompt: None, limit: None, asks: vec![], tasks: vec![],
         };
         m.inner.lock().unwrap().sessions.insert("a".into(), s);
         let saved = || std::fs::read_to_string(dir.path().join("agents.json")).unwrap_or_default();
@@ -1390,7 +1704,7 @@ mod tests {
         let s = |id: &str| AgentSession {
             id: id.into(), project_id: "p".into(), branch: "b".into(), cwd: ".".into(), worktree: false,
             status: AgentStatus::Waiting, request: "r".into(), agent_label: String::new(), lines: vec![],
-            started_at: now(), updated_at: "2000-01-01T00:00:00+00:00".into(), resume_id: None, ai: None, queued: vec![], pid: None, last_prompt: None, limit: None, asks: vec![],
+            started_at: now(), updated_at: "2000-01-01T00:00:00+00:00".into(), resume_id: None, ai: None, queued: vec![], pid: None, last_prompt: None, limit: None, asks: vec![], tasks: vec![],
         };
         std::fs::write(dir.path().join("agents.json"), serde_json::to_string(&[s("shared")]).unwrap()).unwrap();
         // The installed app and a dev build, both opened before either started a session.
@@ -1452,7 +1766,7 @@ mod tests {
         let s = AgentSession {
             id: "a".into(), project_id: "p".into(), branch: "b".into(), cwd: ".".into(), worktree: false,
             status: AgentStatus::Running, request: "r".into(), agent_label: String::new(), lines: vec![],
-            started_at: now(), updated_at: now(), resume_id: None, ai: Some(cli("claude")), queued: vec!["one".into(), "two".into()], pid: None, last_prompt: None, limit: None, asks: vec![],
+            started_at: now(), updated_at: now(), resume_id: None, ai: Some(cli("claude")), queued: vec!["one".into(), "two".into()], pid: None, last_prompt: None, limit: None, asks: vec![], tasks: vec![],
         };
         m.inner.lock().unwrap().sessions.insert("a".into(), s);
         // Another Gitnetix runs it (no run here): its queue is that one's to change.
@@ -1472,7 +1786,7 @@ mod tests {
         let s = AgentSession {
             id: "a".into(), project_id: "p".into(), branch: "b".into(), cwd: ".".into(), worktree: false,
             status: AgentStatus::Running, request: "r".into(), agent_label: String::new(), lines: vec![],
-            started_at: now(), updated_at: now(), resume_id: None, ai: Some(cli("claude")), queued: vec!["now".into()], pid: None, last_prompt: None, limit: None, asks: vec![],
+            started_at: now(), updated_at: now(), resume_id: None, ai: Some(cli("claude")), queued: vec!["now".into()], pid: None, last_prompt: None, limit: None, asks: vec![], tasks: vec![],
         };
         m.inner.lock().unwrap().sessions.insert("a".into(), s);
         let (kill, mut killed) = oneshot::channel();
@@ -1514,7 +1828,7 @@ mod tests {
         let s = AgentSession {
             id: "a".into(), project_id: "p".into(), branch: "b".into(), cwd: ".".into(), worktree: false,
             status: AgentStatus::Running, request: "r".into(), agent_label: String::new(), lines: vec![],
-            started_at: now(), updated_at: now(), resume_id: Some("rid".into()), ai: Some(cli("claude")), queued: vec![], pid: None, last_prompt: None, limit: None, asks: vec![],
+            started_at: now(), updated_at: now(), resume_id: Some("rid".into()), ai: Some(cli("claude")), queued: vec![], pid: None, last_prompt: None, limit: None, asks: vec![], tasks: vec![],
         };
         m.inner.lock().unwrap().sessions.insert("a".into(), s);
         m.inner.lock().unwrap().kills.insert("a".into(), (7, oneshot::channel().0));
@@ -1565,7 +1879,7 @@ mod tests {
         let s = AgentSession {
             id: "a".into(), project_id: "p".into(), branch: "b".into(), cwd: ".".into(), worktree: false,
             status: AgentStatus::Failed, request: "r".into(), agent_label: String::new(), lines: vec![],
-            started_at: now(), updated_at: now(), resume_id: None, ai: Some(cli("none")), queued: vec![], pid: None, last_prompt: None, limit: None, asks: vec![],
+            started_at: now(), updated_at: now(), resume_id: None, ai: Some(cli("none")), queued: vec![], pid: None, last_prompt: None, limit: None, asks: vec![], tasks: vec![],
         };
         m.inner.lock().unwrap().sessions.insert("a".into(), s);
         // A session from before saved prompts: nothing to ask again.
@@ -1598,7 +1912,7 @@ mod tests {
             id: id.into(), project_id: "p".into(), branch: "b".into(), cwd: ".".into(), worktree: false,
             status: AgentStatus::Running, request: "the task".into(), agent_label: String::new(), lines: vec![],
             started_at: now(), updated_at: now(), resume_id: None, ai: Some(r.clone()), queued: vec![], pid: None,
-            last_prompt: Some("the full task".into()), limit: None, asks: vec![],
+            last_prompt: Some("the full task".into()), limit: None, asks: vec![], tasks: vec![],
         }
     }
 

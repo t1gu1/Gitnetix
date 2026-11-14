@@ -1,4 +1,4 @@
-import type { AgentLimit, AgentSession, AgentStatus, LogLine } from "../api/types";
+import type { AgentLimit, AgentSession, AgentStatus, AgentTask, LogLine } from "../api/types";
 import { clock, plural } from "./format";
 
 /** A file a turn changed and its added and removed lines, null for a binary file. */
@@ -148,6 +148,9 @@ const TOOLS: { names: string[]; say: (n: number) => string; files?: boolean }[] 
   { names: ["WebSearch"], say: (n) => `searched the web ${times(n)}` },
   { names: ["WebFetch"], say: (n) => `fetched ${plural(n, "page")}` },
   { names: ["Task", "Agent"], say: (n) => `started ${plural(n, "subagent")}` },
+  { names: ["Workflow"], say: (n) => `started ${plural(n, "workflow")}` },
+  // What a subagent said as it worked (agents.rs).
+  { names: ["Subagent"], say: (n) => `got ${plural(n, "subagent update")}` },
   { names: ["TodoWrite"], say: () => "updated its to-do list" },
 ];
 const times = (n: number) => (n === 1 ? "once" : n === 2 ? "twice" : `${n} times`);
@@ -168,6 +171,16 @@ export function stepsLabel(lines: LogLine[]) {
   if (rest) did.push(plural(rest, "other step"));
   const s = did.length > 1 ? `${did.slice(0, -1).join(", ")} and ${did.at(-1)}` : did[0];
   return s[0].toUpperCase() + s.slice(1);
+}
+
+const KIND: Record<AgentTask["kind"], string> = { workflow: "workflow", agent: "subagent", shell: "command", other: "task" };
+
+/** "1 workflow and 2 subagents": what a run has going in the background. */
+export function tasksLabel(tasks: AgentTask[]) {
+  const n = new Map<string, number>();
+  for (const t of tasks) n.set(KIND[t.kind], (n.get(KIND[t.kind]) ?? 0) + 1);
+  const said = [...n].map(([k, c]) => plural(c, k));
+  return said.length > 1 ? `${said.slice(0, -1).join(", ")} and ${said.at(-1)}` : (said[0] ?? "");
 }
 
 /** "45s", "2m 14s", "1h 5m". */

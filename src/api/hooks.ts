@@ -66,6 +66,10 @@ export function useEngineEvents() {
               list?.map((s) => (s.id === e.sessionId ? { ...s, lines: [...s.lines.slice(-1999), e.line], queued: e.line.kind === "cmd" ? [] : s.queued } : s)),
             );
             break;
+          case "agentTasks":
+            // Only the panel redraws: a workflow's progress comes up to once a second.
+            qc.setQueryData<AgentSession[]>(["agents"], (list) => list?.map((s) => (s.id === e.sessionId ? { ...s, tasks: e.tasks } : s)));
+            break;
           case "agentStatus": {
             // Phone: buzz when a run needs the user. Only while the page is open; plain-HTTP LAN pages can't push notifications.
             const prev = qc.getQueryData<AgentSession[]>(["agents"])?.find((s) => s.id === e.sessionId);
