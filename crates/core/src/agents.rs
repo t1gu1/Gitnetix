@@ -291,6 +291,34 @@ fn saved(file: &std::path::Path) -> Vec<AgentSession> {
     std::fs::read_to_string(file).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
 }
 
+/// A plain CLI's stdout line as reply text, None for a blank one. Blank lines go before the next line (`blanks` counts
+/// them, None until the first text), so its paragraphs stay apart and its reply neither starts nor ends blank.
+fn plain_line(blanks: &mut Option<usize>, line: &str) -> Option<String> {
+    if line.trim().is_empty() {
+        if let Some(n) = blanks {
+            *n += 1;
+        }
+        return None;
+    }
+    let gap = "\n".repeat(blanks.replace(0).unwrap_or(0));
+    Some(format!("{gap}{line}"))
+}
+
+/// A Copilot CLI tool by Claude Code's name for it, so the UI counts its steps the same: "Read 2 files and ran 3 commands".
+fn copilot_tool(name: &str) -> &str {
+    match name {
+        "bash" | "powershell" => "Bash",
+        "view" => "Read",
+        "edit" | "apply_patch" => "Edit",
+        "create" => "Write",
+        "grep" => "Grep",
+        "glob" => "Glob",
+        "web_fetch" => "WebFetch",
+        "task" => "Task",
+        other => other,
+    }
+}
+
 /// The line shown for a failed tool call. Claude Code starts a failed command's output with
 /// "Exit code N" and puts the error under it, so that line is shown with the code after it.
 fn tool_error_line(msg: &str) -> String {
@@ -919,6 +947,7 @@ impl AgentManager {
         }
         cmd.current_dir(cwd);
         let structured = r.provider == "claude";
+        let copilot = r.provider == "copilot";
         let mut stdin_prompt = true;
         // Outside Bypass, Claude Code asks Gitnetix before what needs approval (`control_request` on stdout) and reads
         // the answer on stdin, which stays open until its result.
@@ -983,7 +1012,8 @@ impl AgentManager {
                 if !effort.is_empty() {
                     cmd.args(["--reasoning-effort", &effort]);
                 }
-                cmd.args(["--allow-all-tools", "-p", prompt]);
+                // JSONL events, so its replies keep their Markdown and its tool calls show as steps (`handle_copilot_json`).
+                cmd.args(["--allow-all-tools", "--output-format", "json", "-p", prompt]);
                 stdin_prompt = false;
             }
             "ollama" => {
@@ -1058,6 +1088,7 @@ impl AgentManager {
             let out_task = tokio::spawn(async move {
                 let mut lines = BufReader::new(stdout).lines();
                 let mut outcome = None;
+                let mut blanks = None;
                 while let Ok(Some(l)) = lines.next_line().await {
                     if structured {
                         if let Some(o) = out_me.handle_stream_json(&out_id, &l) {
@@ -1067,8 +1098,12 @@ impl AgentManager {
                                 out_me.close_input(&out_id, run);
                             }
                         }
-                    } else if !l.trim().is_empty() {
-                        out_me.push(&out_id, LogLine::new("ai", l));
+                    } else if copilot {
+                        if let Some(o) = out_me.handle_copilot_json(&out_id, &l) {
+                            outcome = Some(o);
+                        }
+                    } else if let Some(text) = plain_line(&mut blanks, &l) {
+                        out_me.push(&out_id, LogLine::new("ai", text));
                     }
                 }
                 outcome
@@ -1268,6 +1303,57 @@ impl AgentManager {
                 }
                 Some(ok)
             }
+            _ => None,
+        }
+    }
+
+    /// Turn one Copilot CLI `--output-format json` event into log lines, shown as Claude Code's are.
+    /// Returns Some(success) on the final `result` event.
+    fn handle_copilot_json(&self, id: &str, raw: &str) -> Option<bool> {
+        let Ok(v) = serde_json::from_str::<Value>(raw) else {
+            if !raw.trim().is_empty() {
+                self.push(id, LogLine::new("dim", format!("  {raw}")));
+            }
+            return None;
+        };
+        let d = &v["data"];
+        match v["type"].as_str() {
+            Some("assistant.message") => {
+                // One line per reply, blank lines kept, so the UI can render it as Markdown.
+                let text = d["content"].as_str().unwrap_or("").trim();
+                if !text.is_empty() {
+                    self.push(id, LogLine::new("ai", format!("✦ {text}")));
+                    self.persist();
+                }
+                None
+            }
+            Some("tool.execution_start") => {
+                let name = copilot_tool(d["toolName"].as_str().unwrap_or("tool"));
+                let detail = tool_detail(&d["arguments"]);
+                let kind = if name == "Bash" { "run" } else { "dim" };
+                self.push(id, LogLine::new(kind, format!("  {name} {detail}")));
+                None
+            }
+            Some("tool.execution_complete") if d["success"] == false => {
+                let msg = d["error"]["message"].as_str().or(d["result"]["content"].as_str()).unwrap_or("Tool failed");
+                self.push(id, LogLine::new("err", format!("✕ {}", tool_error_line(msg))));
+                None
+            }
+            // A failed request (sign-in, usage limit, unknown model) says it here, not on stderr.
+            Some("session.error") => {
+                let msg = d["message"].as_str().unwrap_or("error").trim();
+                ai::flag_signed_out("copilot", msg);
+                match limits::kind(msg) {
+                    // The run's end says it, and waits for its reset.
+                    Some(credits) => {
+                        let hit = Hit { message: msg.into(), credits, resets_at: limits::resets_at(msg, chrono::Local::now()) };
+                        self.saw(id, Some(hit), None);
+                    }
+                    None => self.push(id, LogLine::new("err", format!("✕ {msg}"))),
+                }
+                None
+            }
+            Some("result") => Some(v["exitCode"] == 0),
             _ => None,
         }
     }
@@ -1704,6 +1790,49 @@ mod tests {
                 ("dim".into(), "  Read git.rs".into()),
                 ("dim".into(), "  Subagent ✕ File does not exist.".into()),
                 ("ai".into(), "✦ Launched.".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_plain_clis_reply_keeps_its_blank_lines_inside_only() {
+        let out = "\n\n## Plan\n\nFirst **step**.\n\n```sh\na\n\n\nb\n```\n\n";
+        let mut blanks = None;
+        let lines: Vec<String> = out.lines().filter_map(|l| plain_line(&mut blanks, l)).collect();
+        // The UI joins a reply's lines with "\n" (agentLog.ts `blocks`).
+        assert_eq!(lines.join("\n"), out.trim());
+    }
+
+    #[test]
+    fn copilot_replies_keep_their_paragraphs_and_its_tools_are_steps() {
+        let dir = tempfile::tempdir().unwrap();
+        let m = AgentManager::new(broadcast::channel(8).0, dir.path());
+        running(&m, "a");
+        let events = [
+            r#"{"type":"session.start","data":{"sessionId":"s1"}}"#,
+            r#"{"type":"assistant.message_delta","data":{"deltaContent":"Step"}}"#,
+            r#"{"type":"assistant.message","data":{"content":"","toolRequests":[{"name":"view"}]}}"#,
+            r#"{"type":"tool.execution_start","data":{"toolName":"view","arguments":{"path":"/r/notes.txt"}}}"#,
+            r#"{"type":"tool.execution_complete","data":{"success":false,"error":{"message":"Path does not exist","code":"failure"}}}"#,
+            r#"{"type":"tool.execution_start","data":{"toolName":"bash","arguments":{"command":"wc -l notes.txt","description":"Count"}}}"#,
+            r#"{"type":"tool.execution_complete","data":{"success":true,"result":{"content":"2 notes.txt"}}}"#,
+            r###"{"type":"assistant.message","data":{"content":"## What it does\n\nFirst **paragraph**.\n\nSecond one.\n\n- a\n- b\n"}}"###,
+            r#"{"type":"session.error","data":{"errorType":"query","message":"Execution failed: Model \"x\" is not available."}}"#,
+        ];
+        for e in events {
+            assert_eq!(m.handle_copilot_json("a", e), None);
+        }
+        assert_eq!(m.handle_copilot_json("a", r#"{"type":"result","exitCode":0}"#), Some(true));
+        assert_eq!(m.handle_copilot_json("a", r#"{"type":"result","exitCode":1}"#), Some(false));
+        let lines: Vec<(String, String)> = m.get("a").unwrap().lines.into_iter().map(|l| (l.kind, l.text)).collect();
+        assert_eq!(
+            lines,
+            [
+                ("dim".into(), "  Read /r/notes.txt".into()),
+                ("err".into(), "✕ Path does not exist".into()),
+                ("run".into(), "  Bash wc -l notes.txt".into()),
+                ("ai".into(), "✦ ## What it does\n\nFirst **paragraph**.\n\nSecond one.\n\n- a\n- b".into()),
+                ("err".into(), "✕ Execution failed: Model \"x\" is not available.".into()),
             ]
         );
     }
