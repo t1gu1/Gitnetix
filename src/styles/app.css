@@ -4990,6 +4990,10 @@ button.picker-act {
 .ag-files:first-child {
   margin-top: 0;
 }
+/* A file just added in a modal scrolls in clear of the footer, by the body's bottom padding. */
+.modal-body .ag-file {
+  scroll-margin-bottom: 20px;
+}
 /* An audio file shared or sent: play button, then its name, time and wave. */
 .ag-audio {
   display: flex;

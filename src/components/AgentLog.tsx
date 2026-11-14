@@ -1229,6 +1229,16 @@ export function RequestField({ value, onChange, files, onFiles, onSubmit }: { va
   const field = useRef<HTMLDivElement>(null);
   const chooser = useRef<HTMLInputElement>(null);
   const { over, add } = useAttach(() => field.current?.closest<HTMLElement>(".modal"), files, onFiles, false);
+  // A file just pasted, dropped or picked can land below the modal's fold: its chip scrolls into view.
+  const chips = useRef<HTMLDivElement>(null);
+  const shown = useRef(files.length);
+  useEffect(() => {
+    if (files.length > shown.current) {
+      const all = chips.current?.querySelectorAll(".ag-file");
+      all?.[all.length - 1]?.scrollIntoView({ block: "nearest", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+    }
+    shown.current = files.length;
+  }, [files.length]);
   return (
     <div ref={field} className="field">
       <label htmlFor="ag-req">What should the agent do?</label>
@@ -1244,7 +1254,7 @@ export function RequestField({ value, onChange, files, onFiles, onSubmit }: { va
         autoFocus
       />
       {files.length > 0 && (
-        <div className="ag-files">
+        <div ref={chips} className="ag-files">
           <Drafts files={files} onFiles={onFiles} />
         </div>
       )}
