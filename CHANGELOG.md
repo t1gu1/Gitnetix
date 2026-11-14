@@ -11,6 +11,30 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+### Added (App)
+
+- Show the tasks a run leaves running in the background in a card above the log and in the terminal bar, and log each task that ends with its result.
+- Resume a run that quit mid-task with a message that names the workflows and tasks it cut off, so they start again first.
+- Edit priority, type and labels of Jira and Linear tickets from the ticket detail, using each tracker's own options. Linear tickets also show label colors, project and cycle state.
+- Show Copilot CLI replies and tool calls in the run log with the same layout as the other CLIs.
+- Fold bugfix/ and fix/ branches into one folder in the branch tree.
+- Highlight the active terminal tab with an accent bar.
+
+### Changed (App)
+
+- Keep a run open until its background work ends, and set the CLI's background wait ceiling to zero so the work is not stopped after ten minutes.
+- Darken the shell pane, run log and branches pane backgrounds by 7%.
+
+### Fixed (App)
+
+- Stop, pause and quit now signal the whole process group of a run, so builds and tests the CLI started end with it. On Windows, taskkill /T ends the process tree.
+- A finished rebase reports stashConflicts when the uncommitted changes it set aside conflict with the result.
+- A stash that git did not create because only a submodule changed is no longer treated as new.
+- Copying a profile skips single-use GitHub, GitLab and Gitea refresh tokens, so the copy signs in again.
+- A refused refresh token is no longer retried, and token requests time out after 15 seconds.
+- The jump button in the run log clears when the end is back in reach.
+- Newly attached files scroll into view.
+
 ## [0.21.0] - 2026-11-13
 
 ### Added (App)
