@@ -43,8 +43,8 @@ export type AgentPick = { provider?: string; model?: string; effort?: string; pe
 export const useAgentPick = (projectId: string) => useStored<AgentPick>(`gnx.agentPick.${projectId}`, {});
 
 /**
- * The agent's provider, model, effort and permissions. `compact` (a prompt bar): one button showing the model and an effort
- * meter, opening every setting as a column of one menu; otherwise a row of fields.
+ * The agent's provider, model, effort, permissions and ultracode: one button showing the model and an effort meter, opening
+ * every setting as a column of one menu. `compact` (a prompt bar) makes it a cell of the bar, else it is a form field.
  */
 export function AgentPicker({ value: saved, onChange, compact }: { value: AgentPick; onChange: (p: AgentPick) => void; compact?: boolean }) {
   const cat = useAiCatalog();
@@ -81,73 +81,56 @@ export function AgentPicker({ value: saved, onChange, compact }: { value: AgentP
   const ultraOn = canUltra && ultracode;
   const pickModel = (v: string) => set({ model: v, effort: fitEffort(fits(v), effort) });
   const modelField = <input aria-label="Agent model" className="input mono" style={{ width: 120 }} placeholder="model id" value={model} onChange={(e) => set({ model: e.target.value })} />;
-  if (compact) {
-    const name = (opts: Option[], v: string) => opts.find((o) => o.value === v)?.label ?? v;
-    const col = (heading: string, opts: Option[], cur: string, run: (v: string) => void, head?: ReactNode): (MenuItem | { heading: ReactNode })[] => [
-      { heading: head ?? heading },
-      ...opts.map((o) => ({ id: `${heading}.${o.value}`, label: o.label, icon: null, hint: o.value === cur && <Icon name="check" size={13} />, keep: true, run: () => run(o.value) })),
-    ];
-    const ultraHead = (
-      <span className="ctx-head-row">
-        <span className="grow ellipsis">Effort</span>
-        <button type="button" className="ctx-ultra" aria-pressed={ultracode} onClick={() => set({ ultracode: !ultracode })}>
-          Ultracode
-          <span className="ctx-box" aria-hidden />
-        </button>
-      </span>
-    );
-    const items = [
-      ...col("Agent", provs, provider, (v) => set({ provider: v, model: "" })),
-      "sep" as const,
-      ...(listsModels ? col("Model", models, model, pickModel) : [{ heading: "Model" }, { heading: modelField }]),
-      ...(efforts.length > 1 ? ["sep" as const, ...col("Effort", efforts, effort, (v) => set({ effort: v }), canUltra ? ultraHead : undefined)] : []),
-      ...(provider === "claude" ? ["sep" as const, ...col("Permissions", PERMISSIONS, permission, (v) => set({ permission: v }))] : []),
-    ];
-    const level = EFFORTS.indexOf(effort) + 1;
-    const summary = [name(provs, provider), model && name(models, model), effort && `${effortLabel(effort)} effort`, provider === "claude" && `${name(PERMISSIONS, permission)} permissions`, ultraOn && "Ultracode"].filter(Boolean).join(" · ");
-    return (
-      <>
-        <button
-          type="button"
-          className="picker-act agent-chip"
-          aria-haspopup="menu"
-          aria-label={`Agent settings: ${summary}`}
-          data-tip={summary}
-          onClick={(e) => {
-            const r = e.currentTarget.getBoundingClientRect();
-            setMenu({ x: r.right, y: r.bottom + 2 });
-          }}
-        >
-          <Icon name="sparkle" size={13} className="c-acc" />
-          <span className="agent-name">
-            {ultraOn && <span className="agent-ultra">Ultracode</span>}
-            <span className="ellipsis">{model ? name(models, model) : name(provs, provider)}</span>
-          </span>
-          {level > 0 && (
-            <span className="effort-bars" aria-hidden>
-              {EFFORTS.map((x, i) => <i key={x} className={i < level ? "on" : undefined} style={{ height: `${(i + 1) * 20}%` }} />)}
-            </span>
-          )}
-          <Icon name="chevronDown" size={10} />
-        </button>
-        {menu && <ContextMenu x={menu.x} y={menu.y} alignRight columns label="Agent settings" items={items} onClose={() => (setMenu(null), setPicked(null))} />}
-      </>
-    );
-  }
-  const cls = "select menu-select";
+  const name = (opts: Option[], v: string) => opts.find((o) => o.value === v)?.label ?? v;
+  const col = (heading: string, opts: Option[], cur: string, run: (v: string) => void, head?: ReactNode): (MenuItem | { heading: ReactNode })[] => [
+    { heading: head ?? heading },
+    ...opts.map((o) => ({ id: `${heading}.${o.value}`, label: o.label, icon: null, hint: o.value === cur && <Icon name="check" size={13} />, keep: true, run: () => run(o.value) })),
+  ];
+  const ultraHead = (
+    <span className="ctx-head-row">
+      <span className="grow ellipsis">Effort</span>
+      <button type="button" className="ctx-ultra" aria-pressed={ultracode} onClick={() => set({ ultracode: !ultracode })}>
+        Ultracode
+        <span className="ctx-box" aria-hidden />
+      </button>
+    </span>
+  );
+  const items = [
+    ...col("Agent", provs, provider, (v) => set({ provider: v, model: "" })),
+    "sep" as const,
+    ...(listsModels ? col("Model", models, model, pickModel) : [{ heading: "Model" }, { heading: modelField }]),
+    ...(efforts.length > 1 ? ["sep" as const, ...col("Effort", efforts, effort, (v) => set({ effort: v }), canUltra ? ultraHead : undefined)] : []),
+    ...(provider === "claude" ? ["sep" as const, ...col("Permissions", PERMISSIONS, permission, (v) => set({ permission: v }))] : []),
+  ];
+  const level = EFFORTS.indexOf(effort) + 1;
+  const summary = [name(provs, provider), model && name(models, model), effort && `${effortLabel(effort)} effort`, provider === "claude" && `${name(PERMISSIONS, permission)} permissions`, ultraOn && "Ultracode"].filter(Boolean).join(" · ");
   return (
-    <div className="row" style={{ gap: 6, margin: 0 }}>
-      <MenuChoice className={cls} label="Agent provider" value={provider} options={provs} onChange={(v) => set({ provider: v, model: "" })} />
-      {listsModels ? <MenuChoice className={cls} label="Agent model" value={model} options={models} onChange={pickModel} /> : modelField}
-      {efforts.length > 1 && <MenuChoice className={cls} label="Agent effort" value={effort} options={efforts} onChange={(v) => set({ effort: v })} />}
-      {provider === "claude" && <MenuChoice className={cls} label="Agent permissions" value={permission} options={PERMISSIONS} onChange={(v) => set({ permission: v })} />}
-      {canUltra && (
-        <label className="check">
-          <input type="checkbox" checked={ultracode} onChange={() => set({ ultracode: !ultracode })} />
-          <span>Ultracode</span>
-        </label>
-      )}
-    </div>
+    <>
+      <button
+        type="button"
+        className={compact ? "picker-act agent-chip" : "select menu-select agent-chip agent-field"}
+        aria-haspopup="menu"
+        aria-label={`Agent settings: ${summary}`}
+        data-tip={summary}
+        onClick={(e) => {
+          const r = e.currentTarget.getBoundingClientRect();
+          setMenu({ x: compact ? r.right : r.left, y: r.bottom + 2 });
+        }}
+      >
+        <Icon name="sparkle" size={13} className="c-acc" />
+        <span className="agent-name">
+          {ultraOn && <span className="agent-ultra">Ultracode</span>}
+          <span className="ellipsis">{model ? name(models, model) : name(provs, provider)}</span>
+        </span>
+        {level > 0 && (
+          <span className="effort-bars" aria-hidden>
+            {EFFORTS.map((x, i) => <i key={x} className={i < level ? "on" : undefined} style={{ height: `${(i + 1) * 20}%` }} />)}
+          </span>
+        )}
+        <Icon name="chevronDown" size={10} />
+      </button>
+      {menu && <ContextMenu x={menu.x} y={menu.y} alignRight={compact} columns label="Agent settings" items={items} onClose={() => (setMenu(null), setPicked(null))} />}
+    </>
   );
 }
 

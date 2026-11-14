@@ -5152,10 +5152,18 @@ button.picker-act {
 .modal .ag-drop {
   background: color-mix(in srgb, var(--panel) 88%, transparent);
 }
-/* The agent's settings in one cell left of Send: its model, then its effort as signal bars. */
+/* The agent's settings in one cell left of Send (or one field of a dialog): its model, then its effort as signal bars. */
 .agent-chip {
   align-self: stretch;
   max-width: 200px;
+}
+/* In a form (the new branch and agent session dialogs): a field's look, as wide as its content. */
+.agent-chip.agent-field {
+  align-self: flex-start;
+  max-width: none;
+  justify-content: flex-start;
+  gap: 8px;
+  padding: 0 12px;
 }
 .effort-bars {
   flex: none;
@@ -5193,7 +5201,7 @@ button.picker-act {
   .term-input .term-attach {
     min-height: 0;
   }
-  .agent-chip > .agent-name {
+  .picker-act.agent-chip > .agent-name {
     display: none;
   }
 }
