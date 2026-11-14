@@ -29,6 +29,9 @@ const fontsReady = () => Promise.all([document.fonts.load('12px "JetBrains Mono"
 
 const ANSI = ["black", "red", "green", "yellow", "blue", "magenta", "cyan", "white", "brightBlack", "brightRed", "brightGreen", "brightYellow", "brightBlue", "brightMagenta", "brightCyan", "brightWhite"];
 
+// The shell's background: --term, 7% darker (matches .shell-pane and the agent log). xterm takes hex only.
+const shade = (hex: string) => /^#[0-9a-f]{6}$/i.test(hex) ? "#" + (hex.slice(1).match(/../g) ?? []).map((c) => Math.round(parseInt(c, 16) * 0.93).toString(16).padStart(2, "0")).join("") : hex;
+
 function theme(): ITheme {
   const root = document.documentElement;
   const css = getComputedStyle(root);
@@ -36,7 +39,8 @@ function theme(): ITheme {
   // The Gitnetix themes set no palette: their ids are the mode.
   const t = resolveTheme(root.dataset.palette ?? root.dataset.theme ?? "", root.dataset.theme === "light" ? "light" : "dark");
   const colors = Object.fromEntries(ansi(t).map((c, i) => [ANSI[i], c]));
-  return { ...colors, background: v("--term"), foreground: v("--fg"), cursor: v("--accent"), cursorAccent: v("--term"), selectionBackground: v("--accent") + (t.light ? "66" : "44") };
+  const bg = shade(v("--term"));
+  return { ...colors, background: bg, foreground: v("--fg"), cursor: v("--accent"), cursorAccent: bg, selectionBackground: v("--accent") + (t.light ? "66" : "44") };
 }
 
 function bytes(b64: string) {

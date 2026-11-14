@@ -1557,6 +1557,10 @@ html.scanning body {
   background: var(--panel);
   position: relative;
 }
+/* Branches pane: --panel, 7% darker. */
+.ws-releases {
+  background: color-mix(in srgb, var(--panel), #000 7%);
+}
 .tree-building {
   position: absolute;
   inset: 0;
@@ -3944,7 +3948,7 @@ button.picker-act {
   flex: 1 1 auto;
   min-height: 0;
   padding: 8px 4px 4px 12px;
-  background: var(--term);
+  background: color-mix(in srgb, var(--term), #000 7%);
   position: relative;
 }
 .find-bar {
@@ -4016,6 +4020,7 @@ button.picker-act {
 /* ---------- agent chat ---------- */
 .term-log.ag-log {
   gap: 14px;
+  background: color-mix(in srgb, var(--term), #000 7%);
   padding: 16px 18px 20px;
   font-family: var(--sans);
   font-size: 13px;
