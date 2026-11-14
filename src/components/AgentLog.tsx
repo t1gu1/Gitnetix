@@ -518,10 +518,20 @@ export function AgentLog({ lines, empty, picks, onPicks, actions, thinking, work
   // Blocks drawn since you scrolled up: a wait is drawn as "Your turn!", not as a block.
   const news = away === null ? 0 : list.slice(away).filter((b) => b.kind !== "wait").length;
   const mark = useMemo(() => <AgentMark provider={provider} />, [provider]);
+  // Following the end. The log shrinking or its pane growing scrolls nothing, so no scroll event says the end is back in reach.
+  const toEnd = () => {
+    const el = ref.current;
+    if (!el) return;
+    stick.current = true;
+    setAway(null);
+    el.scrollTop = el.scrollHeight;
+  };
   useEffect(() => {
     const el = ref.current;
-    if (el && stick.current) el.scrollTop = el.scrollHeight;
-  }, [lines.length, thinking, queued.length, asks.length, tasks.length]);
+    if (!el) return;
+    if (stick.current) el.scrollTop = el.scrollHeight;
+    else if (el.scrollHeight - el.scrollTop - el.clientHeight <= 300) setAway(null);
+  }, [lines.length, thinking, working, queued.length, asks.length, tasks.length]);
   // Your first message is the task: once it scrolls out of the log, it pins to the top; `peek` unfolds it there.
   const task = list.find((b): b is Extract<Block, { kind: "you" }> => b.kind === "you");
   const ti = task ? list.indexOf(task) : -1;
@@ -700,14 +710,7 @@ export function AgentLog({ lines, empty, picks, onPicks, actions, thinking, work
       ))}
       {away !== null && (
         <div className="ag-jump">
-          <button
-            type="button"
-            className="btn btn-sm"
-            onClick={() => {
-              const el = ref.current;
-              if (el) el.scrollTop = el.scrollHeight;
-            }}
-          >
+          <button type="button" className="btn btn-sm" onClick={toEnd}>
             <Icon name="chevronDown" size={12} />
             {news > 0 ? `${news} new` : "Jump to the end"}
             {queued.length > 0 && <span className="faint">· {queued.length} queued</span>}
