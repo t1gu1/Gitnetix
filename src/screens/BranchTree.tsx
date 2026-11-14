@@ -23,8 +23,8 @@ const BEHIND_LIMIT = 25;
 const PULSE_ANIMATIONS = new Set(["path-pulse", "path-glow-fade"]);
 const SHINE_ANIMATIONS = new Set(["shine"]);
 /** The pieces of the orange path, in document order (top to bottom), and which of them are its 7px elbows. */
-const PATH_PIECES = ".tree-row[data-path], .tree-node[data-path], .tree-sep[data-path], .tree-merged + .tree-kids[data-path], .tree-toggle[data-path] + .tree-open";
-const PATH_ELBOW = '.tree-open, .tree-kids[data-path="in"]';
+const PATH_PIECES = ".tree-row[data-path], .tree-node[data-path], .tree-sep[data-path], .tree-sub[data-path], .tree-merged + .tree-kids[data-path], .tree-toggle[data-path] + .tree-open";
+const PATH_ELBOW = '.tree-sub, .tree-open, .tree-kids[data-path="in"]';
 const ELBOW_LENGTH = 7;
 /** Pieces where the path only runs past (sibling branches, groups it skips), drawn dimmer; and how far, in pixels, their run fades in and out of it. */
 const PATH_PAST = '.tree-node[data-path], .tree-row[data-path="past"], .tree-kids[data-path="past"]';
@@ -100,17 +100,29 @@ function childrenOf(o: Overview) {
   return { roots: tops, shipped, kids: (name: string) => kids.get(name) ?? [] };
 }
 
-type Folder = { dir: string; list: BranchView[] };
+/** `dir`: the folder's key (`fix`, `fix/ui`). `label`: its last part as most of its branches spell it (`bugfix` when most are `bugfix/…`). */
+type Folder = { dir: string; label: string; list: BranchView[] };
+
+/** A name's parts as folders file them: a known kind's every spelling (`bugfix`, `hotfix`, `Fix`) as that kind (`fix`), the rest as written. */
+const folderParts = (name: string) => {
+  const parts = name.split("/");
+  if (parts.length > 1) parts[0] = kindOf(parts[0]) ?? parts[0];
+  return parts;
+};
+
+/** What a row in folder `dir` shows of `name`: the parts after the folder's (`bugfix/ui/a` in `fix/ui` → `a`). */
+const inDir = (name: string, dir: string) => name.split("/").slice(dir.split("/").length).join("/");
 
 /**
- * `list` (all named `dir/…` when `dir` is set), in its order, with the branches sharing their next name part (`fix` of `fix/a`, `fix/b`)
- * gathered in a folder where the first of them sits. A part only one branch has stays a plain row; trunks and releases never go in one.
+ * `list` (all filed under `dir` when it is set) with the branches sharing their next name part (`fix` of `fix/a`, `bugfix/b`) gathered
+ * in a folder. A part only one branch has stays a plain row; trunks and releases never go in one. Trunks and releases come first,
+ * then the folders, then the plain branches, each in `list`'s order.
  */
 function foldersOf(list: BranchView[], dir: string): (BranchView | Folder)[] {
+  const depth = dir ? dir.split("/").length : 0;
   const next = (b: BranchView) => {
-    const rest = dir ? b.name.slice(dir.length + 1) : b.name;
-    const i = rest.indexOf("/");
-    return b.role === "branch" && i > 0 ? (dir ? `${dir}/` : "") + rest.slice(0, i) : null;
+    const parts = folderParts(b.name);
+    return b.role === "branch" && parts.length > depth + 1 ? parts.slice(0, depth + 1).join("/") : null;
   };
   const count = new Map<string, number>();
   for (const b of list) {
@@ -118,21 +130,29 @@ function foldersOf(list: BranchView[], dir: string): (BranchView | Folder)[] {
     if (d) count.set(d, (count.get(d) ?? 0) + 1);
   }
   const folders = new Map<string, Folder>();
-  const out: (BranchView | Folder)[] = [];
+  const spellings = new Map<string, Map<string, number>>();
+  const lead: BranchView[] = [];
+  const plain: BranchView[] = [];
   for (const b of list) {
     const d = next(b);
-    if (!d || count.get(d)! < 2) out.push(b);
-    else if (folders.has(d)) folders.get(d)!.list.push(b);
+    if (!d || count.get(d)! < 2) (b.role === "branch" ? plain : lead).push(b);
     else {
-      folders.set(d, { dir: d, list: [b] });
-      out.push(folders.get(d)!);
+      if (!folders.has(d)) folders.set(d, { dir: d, label: "", list: [] });
+      folders.get(d)!.list.push(b);
+      const seen = spellings.get(d) ?? new Map<string, number>();
+      const part = b.name.split("/")[depth];
+      seen.set(part, (seen.get(part) ?? 0) + 1);
+      spellings.set(d, seen);
     }
   }
-  return out;
+  // A tie goes to the folder's own name (`fix` for one `bugfix/` and one `fix/`).
+  const own = (f: Folder) => f.dir.split("/").pop()!;
+  for (const f of folders.values()) f.label = [...spellings.get(f.dir)!].reduce((a, b) => (b[1] > a[1] || (b[1] === a[1] && b[0] === own(f)) ? b : a))[0];
+  return [...lead, ...folders.values(), ...plain];
 }
 
-/** Open/closed keys of the folders `name` may sit in within `section`, outermost first (`fix/ui/a` → `fix`, `fix/ui`). */
-const dirsOf = (section: string, name: string) => name.split("/").slice(0, -1).map((_, i, parts) => `dir:${section}:${parts.slice(0, i + 1).join("/")}`);
+/** Open/closed keys of the folders `name` may sit in within `section`, outermost first (`bugfix/ui/a` → `fix`, `fix/ui`). */
+const dirsOf = (section: string, name: string) => folderParts(name).slice(0, -1).map((_, i, parts) => `dir:${section}:${parts.slice(0, i + 1).join("/")}`);
 
 function look(b: BranchView, isDefault: boolean, shipped: boolean): { icon: string; cls: string } {
   if (!b.exists) return { icon: "close", cls: "c-del" };
@@ -369,10 +389,10 @@ export function BranchTree({
       const wip = open ? 0 : x.list.reduce((n, c) => n + c.wip + hiddenWip(c), 0);
       return (
         <div key={key} role="group" className="tree-node" data-path={i < into ? "past" : undefined}>
-          <button className="tree-row tree-group tree-toggle tree-dir" data-path={i === into || undefined} aria-expanded={open} aria-label={`${open ? "Hide" : "Show"} the ${x.list.length} branches under ${x.dir}/`} onClick={() => flip(key)}>
+          <button className="tree-row tree-group tree-toggle tree-dir" data-path={i === into || undefined} aria-expanded={open} aria-label={`${open ? "Hide" : "Show"} the ${x.list.length} branches under ${x.label}/`} onClick={() => flip(key)}>
             <span className="tree-twist"><Icon name="chevronDown" size={12} className="chev" /></span>
             <Icon name="folder" size={14} className="faint" />
-            <span className="mono ellipsis">{x.dir.slice(dir ? dir.length + 1 : 0)}</span>
+            <span className="mono ellipsis">{x.label}</span>
             <span className="faint">{x.list.length}</span>
             {wip > 0 && <span className="wip-badge" title={`${plural(wip, "file")} with uncommitted changes in hidden branches`}>(WIP {wip})</span>}
           </button>
@@ -428,7 +448,7 @@ export function BranchTree({
         />
         {hasKids && (
           // Merged children come first, then the show/hide toggle for the live ones; the nesting line starts below it.
-          <div className="tree-sub">
+          <div className="tree-sub" data-path={pathLive || pathMerged || pathBehind || undefined}>
             {merged.length > 0 && (
               <>
                 <div className="tree-row tree-group tree-merged" data-path={pathMerged ? "in" : pathLive || pathBehind ? "past" : undefined}>
@@ -845,13 +865,13 @@ function Row({
   onPath: boolean;
   /** Search being typed: the part of the name it matches is highlighted. */
   hit?: string;
-  /** Name prefix of the folder it sits in (`fix` for `fix/a`): the row shows the rest. */
+  /** Key of the folder it sits in (`fix` for `bugfix/a`): the row shows the parts after it. */
   dir?: string;
   actions: BranchActions;
   onSelect: () => void;
 }) {
   const { icon, cls } = look(b, isDefault, !!shipped);
-  const name = shipped ? `v${shipped}` : b.role === "release" && b.release ? `v${b.release}` : dir ? b.name.slice(dir.length + 1) : b.role === "branch" && b.kind ? b.short : b.name;
+  const name = shipped ? `v${shipped}` : b.role === "release" && b.release ? `v${b.release}` : dir ? inDir(b.name, dir) : b.role === "branch" && b.kind ? b.short : b.name;
   // In a `fix` folder every row is a fix: the chip only shows a kind the folder doesn't say.
   const chip = b.role === "branch" && !!b.kind && !(dir && kindOf(dir.split("/")[0]) === b.kind);
   // Held by a rebase AI is carrying through (rebased, or the branch it goes onto): grayed out under a veil until it is done.

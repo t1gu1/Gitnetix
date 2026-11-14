@@ -1766,6 +1766,12 @@ body.resizing .term {
 .tree-kids {
   margin-left: 6px;
 }
+/* A branch's groups (merged, falling behind, its children's toggle) step in 6px too, beside a line on the branch row's left edge:
+   they read as under the branch, and their own children step in 6px more. */
+.tree-sub {
+  margin-left: 6px;
+}
+.tree-sub::before,
 .tree-open::before,
 .tree-merged + .tree-kids::before {
   content: "";
@@ -1782,6 +1788,7 @@ body.resizing .term {
   );
   pointer-events: none;
 }
+.tree-sub::before,
 .tree-merged + .tree-kids::before {
   top: 0;
   left: 0;
@@ -2023,6 +2030,7 @@ body.resizing .term {
     path-pulse var(--pulse-loop, 4s) steps(var(--pulse-steps, 48)) infinite,
     path-glow-fade var(--pulse-loop, 4s) steps(var(--pulse-fade-steps, 12)) var(--pulse-arrive, 0s) infinite;
 }
+.tree-sub[data-path]::after,
 .tree-toggle[data-path] + .tree-open::after,
 .tree-merged + .tree-kids[data-path="in"]::after {
   --pulse-x: calc(
@@ -2045,6 +2053,13 @@ body.resizing .term {
 }
 .tree-toggle[data-path] + .tree-open::after {
   left: 0;
+}
+/* Into a branch's groups: from the line beside the branch over to the one on its left edge, beside the groups. */
+.tree-sub[data-path]::after {
+  content: "";
+  position: absolute;
+  z-index: 2;
+  pointer-events: none;
 }
 /* The node starts 6px left of its row, on the line itself. */
 .tree-node[data-path]::before {
@@ -2134,6 +2149,7 @@ body.resizing .term {
   .tree-node[data-path]::before,
   .tree-sep[data-path]::before,
   .tree-row[data-path][data-current]::before,
+  .tree-sub[data-path]::after,
   .tree-toggle[data-path] + .tree-open::after,
   .tree-merged + .tree-kids[data-path]::after {
     animation: none;
@@ -2481,7 +2497,7 @@ button.tree-twist:hover {
 .tree-toggle {
   color: var(--fg);
 }
-/* A branch name prefix folder: its name as git has it (`Fix` and `fix` are two folders). */
+/* A branch name prefix folder: its name as most of its branches spell it (`bugfix/` and `fix/` share one). */
 .tree-dir {
   text-transform: none;
   letter-spacing: 0;
@@ -8533,6 +8549,7 @@ body:has(> .modal-scrim) #root * {
 :root[data-anim-off~="path"] .tree-row[data-path]::before,
 :root[data-anim-off~="path"] .tree-node[data-path]::before,
 :root[data-anim-off~="path"] .tree-sep[data-path]::before,
+:root[data-anim-off~="path"] .tree-sub[data-path]::after,
 :root[data-anim-off~="path"] .tree-toggle[data-path] + .tree-open::after,
 :root[data-anim-off~="path"] .tree-merged + .tree-kids[data-path]::after {
   animation: none !important;
@@ -8579,7 +8596,7 @@ body:has(> .modal-scrim) #root * {
     .glow-working > *
   ),
 :is(:root[data-idle], .app-main:has(> .menu-overlay) > :not(.menu-overlay), body:has(> .modal-scrim) .app-main) :is(.tree-row, .tree-node, .tree-sep)[data-path]::before,
-:is(:root[data-idle], .app-main:has(> .menu-overlay) > :not(.menu-overlay), body:has(> .modal-scrim) .app-main) :is(.tree-toggle[data-path] + .tree-open, .tree-merged + .tree-kids[data-path])::after {
+:is(:root[data-idle], .app-main:has(> .menu-overlay) > :not(.menu-overlay), body:has(> .modal-scrim) .app-main) :is(.tree-sub[data-path], .tree-toggle[data-path] + .tree-open, .tree-merged + .tree-kids[data-path])::after {
   animation-play-state: paused !important;
 }
 :root[data-anim-off~="tabs"] .tab-project {
