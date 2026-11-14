@@ -358,6 +358,8 @@ pub struct TicketView {
     pub branch: Option<String>,
     /// Project holding `branch` when it is not the one asked about.
     pub branch_project: Option<String>,
+    /// [`tickets::priority_rank`] of its priority: 0 most urgent, 5 none.
+    pub priority_rank: u8,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -6024,9 +6026,11 @@ impl Gitnetix {
                     .or_else(|| branch.as_ref().filter(|_| here).and_then(|b| p.branches.get(b)).and_then(|m| m.release.clone()))
                     .or_else(|| fix_version_release(&t.fix_versions, &p.releases))
                     .unwrap_or_default();
-                TicketView { ticket: t, release, branch, branch_project: in_project.filter(|_| !here) }
+                TicketView { priority_rank: tickets::priority_rank(&t.priority), ticket: t, release, branch, branch_project: in_project.filter(|_| !here) }
             })
             .collect::<Vec<_>>();
+        // Most urgent first; a stable sort keeps each tracker's own order within a priority.
+        views.sort_by_key(|v| v.priority_rank);
         // Still unplanned: the release its branch is a child of, or was merged into.
         // shortcut: base_of reloads refs per branch when the overview cache is stale, share one Refs if ticket lists get slow.
         let default = self.git(&p).default_branch().await.unwrap_or_else(|_| "main".into());

@@ -127,7 +127,7 @@ pub const EMOJI: &[(&str, &str)] = &[
 const COMMENT: &str = "id databaseId author{login} body createdAt viewerCanUpdate reactionGroups{content viewerHasReacted reactors{totalCount}}";
 
 /// Fields of an issue as tickets read them. `projectItems` needs the project scope, `issueType` a recent GitHub.
-const ISSUE: &str = "number title body url state stateReason createdAt closedAt author{login} assignees(first:5){nodes{login name}} labels(first:20){nodes{name}} comments{totalCount} milestone{title} issueType{name} projectItems(first:5){nodes{project{title} fieldValueByName(name:\"Status\"){... on ProjectV2ItemFieldSingleSelectValue{name}}}}";
+const ISSUE: &str = "number title body url state stateReason createdAt closedAt author{login} assignees(first:5){nodes{login name}} labels(first:20){nodes{name}} comments{totalCount} milestone{title} issueType{name} projectItems(first:5){nodes{project{title} fieldValueByName(name:\"Status\"){... on ProjectV2ItemFieldSingleSelectValue{name}} priority:fieldValueByName(name:\"Priority\"){... on ProjectV2ItemFieldSingleSelectValue{name}}}}";
 /// [`ISSUE`] without what an older token or server can't read.
 const ISSUE_LEAN: &str = "number title body url state stateReason createdAt closedAt author{login} assignees(first:5){nodes{login name}} labels(first:20){nodes{name}} comments{totalCount} milestone{title}";
 

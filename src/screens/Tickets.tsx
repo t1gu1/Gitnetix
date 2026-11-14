@@ -33,6 +33,18 @@ const TYPE_COLORS: [RegExp, string][] = [
 ];
 const typeColor = (t: Ticket) => (t.source === "jira" ? TYPE_COLORS.find(([re]) => re.test(t.kind))?.[1] : undefined);
 const Dot = ({ color }: { color?: string }) => (color ? <span className="tk-dot" style={{ background: color }} aria-hidden="true" /> : null);
+/** A ticket's priority: the alert icon when urgent, else bars filled by how urgent it is. */
+const Prio = ({ t }: { t: Ticket }) =>
+  t.priority ? (
+    <span className={`tk-prio ${["c-del", "c-warn"][t.priorityRank] ?? "faint"}`} data-tip={`Priority · ${t.priority}`}>
+      {t.priorityRank === 0 ? (
+        <Icon name="alert" size={11} />
+      ) : (
+        <span className="tk-bars" aria-hidden="true">{[1, 2, 3].map((b) => <i key={b} data-on={b <= 4 - t.priorityRank || undefined} />)}</span>
+      )}
+      {t.priority}
+    </span>
+  ) : null;
 
 export function Tickets({ initial }: { initial?: string }) {
   const nav = useNav();
@@ -164,6 +176,7 @@ export function Tickets({ initial }: { initial?: string }) {
                           <Avatar name={x.assignee} />
                           <span className="mono faint">{x.key}</span>
                           <span className={STATUS[x.status][1]} style={{ fontSize: 13 }}>{x.statusLabel || STATUS[x.status][0]}</span>
+                          <Prio t={x} />
                           <span className="faint ellipsis grow tk-types">
                             {x.source === "linear" && x.labels?.length ? x.labels.map((l) => <span key={l}><Dot color={x.labelColors?.[l]} />{l}</span>) : <span><Dot color={typeColor(x)} />{x.kind}</span>}
                           </span>

@@ -765,7 +765,7 @@ export interface Ticket {
   labelColors?: Record<string, string>;
   /** Jira fix versions ("Versions corrigées"), as named there, or the GitHub milestone. */
   fixVersions?: string[];
-  /** Jira or Linear priority name. */
+  /** Priority name: Jira's or Linear's, Asana's Priority field, a GitHub board's Priority field, or a Trello or GitHub label naming one. */
   priority?: string;
   /** Jira time left and original estimate, as Jira writes them ("3h", "1d 2h"). */
   timeRemaining?: string;
@@ -781,6 +781,8 @@ export interface Ticket {
   branch?: string | null;
   /** Project holding `branch` when it is another one linked to the same tracker. */
   branchProject?: string | null;
+  /** How urgent `priority` is: 0 most, 4 least, 5 none. The list comes sorted by it. */
+  priorityRank: number;
 }
 
 /** A status a ticket can move to: a Jira transition, Trello list, Asana section, Linear workflow state, GitHub project board column, or closing or reopening a GitHub issue. */

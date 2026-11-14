@@ -58,7 +58,7 @@ pub struct Ticket {
     /// Jira fix versions, as named there ("2.4.0", "v2.4.0"), or the GitHub milestone, to guess the release from.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub fix_versions: Vec<String>,
-    /// Jira or Linear priority name ("High").
+    /// Priority name ("High"): Jira's or Linear's, Asana's Priority field, a GitHub board's Priority field, or a Trello or GitHub label naming one.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub priority: String,
     /// Jira time tracking as Jira writes it ("3h", "1d 2h"): time left and the original estimate.
@@ -186,6 +186,40 @@ fn stage_of(name: &str, category: &str) -> &'static str {
     } else {
         status_from_name(name, category)
     }
+}
+
+/// How urgent a priority name is, 0 the most and 4 the least; 5 without one, to list those last. Reads Jira
+/// (Highest…Lowest, Blocker…Trivial), Linear (Urgent…Low), P0–P4 and French names; a name it doesn't know counts as medium.
+pub fn priority_rank(name: &str) -> u8 {
+    let n = name.trim().to_lowercase();
+    if n.is_empty() {
+        return 5;
+    }
+    if let Some(p) = n.split(|c: char| !c.is_alphanumeric()).find_map(|w| w.strip_prefix('p')?.parse::<u8>().ok()) {
+        return p.min(4);
+    }
+    let has = |words: &[&str]| words.iter().any(|w| n.contains(w));
+    if has(&["urgent", "blocker", "critical", "highest", "critique", "bloquant", "très haute", "très élevée"]) {
+        0
+    } else if has(&["lowest", "trivial", "très basse", "très faible"]) {
+        4
+    } else if has(&["high", "major", "haute", "élevée"]) {
+        1
+    } else if has(&["low", "minor", "basse", "faible", "mineur"]) {
+        3
+    } else {
+        2
+    }
+}
+
+/// The most urgent of the labels that name a priority ("P1", "priority: high", "Urgent"), for trackers without a priority field.
+fn priority_label<'a>(labels: impl IntoIterator<Item = &'a str>) -> String {
+    const NAMES: [&str; 12] = ["urgent", "critical", "blocker", "highest", "high", "medium", "normal", "low", "lowest", "haute", "moyenne", "basse"];
+    let names = |l: &str| {
+        let n = l.trim().to_lowercase();
+        n.contains("priorit") || NAMES.contains(&n.as_str()) || n.split(|c: char| !c.is_alphanumeric()).any(|w| w.len() == 2 && w.starts_with('p') && w[1..].parse::<u8>().is_ok())
+    };
+    labels.into_iter().filter(|l| names(l)).min_by_key(|l| priority_rank(l)).unwrap_or("").into()
 }
 
 // ---------- Jira ----------
@@ -901,7 +935,8 @@ fn trello_card(conf: &TrelloConf, c: &Value, place: &str) -> Ticket {
     Ticket {
         fix_versions: Vec::new(),
         labels: Vec::new(),
-        priority: String::new(),
+        // Trello has no priority field; boards name it with labels.
+        priority: priority_label(c["labels"].as_array().into_iter().flatten().filter_map(|l| l["name"].as_str())),
         time_remaining: String::new(),
         time_estimate: String::new(),
         parent_key: String::new(),
@@ -1053,7 +1088,7 @@ pub async fn asana_projects(token: &str, workspace: &str) -> Result<Vec<Value>> 
 
 pub async fn asana(conf: &AsanaConf, token: &str) -> Result<Vec<Ticket>> {
     let api = "https://app.asana.com/api/1.0";
-    let fields = "name,notes,completed,permalink_url,assignee.name,memberships.section.name,num_likes";
+    let fields = "name,notes,completed,permalink_url,assignee.name,memberships.section.name,num_likes,custom_fields.name,custom_fields.display_value";
     // Each picked project's open tasks, or the user's own in the workspace when none is picked.
     let mut urls = Vec::new();
     for p in conf.projects.iter().filter(|p| !p.is_empty()) {
@@ -1085,7 +1120,15 @@ fn asana_tickets(conf: &AsanaConf, lists: &[(Value, String)]) -> Vec<Ticket> {
             out.push(Ticket {
                 fix_versions: Vec::new(),
                 labels: Vec::new(),
-                priority: String::new(),
+                // Asana's priority is a custom field, "Priority" in its templates.
+                priority: t["custom_fields"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .find(|f| f["name"].as_str().is_some_and(|n| n.to_lowercase().contains("priorit")))
+                    .and_then(|f| f["display_value"].as_str())
+                    .unwrap_or("")
+                    .into(),
                 time_remaining: String::new(),
                 time_estimate: String::new(),
                 parent_key: String::new(),
@@ -1504,6 +1547,13 @@ pub fn github_ticket(i: &Value, repo: &str, me: &str) -> Ticket {
         (true, Some(c)) => (status_from_name(c, ""), c),
         (true, None) => ("todo", "Open"),
     };
+    // The project board's Priority field, else a label that names one.
+    let priority = i["projectItems"]["nodes"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find_map(|c| c["priority"]["name"].as_str())
+        .map_or_else(|| priority_label(labels.iter().map(String::as_str)), String::from);
     Ticket {
         key: format!("#{number}"),
         old_key: None,
@@ -1528,7 +1578,7 @@ pub fn github_ticket(i: &Value, repo: &str, me: &str) -> Ticket {
         place: format!("GitHub · {repo}"),
         labels,
         fix_versions: i["milestone"]["title"].as_str().map(String::from).into_iter().collect(),
-        priority: String::new(),
+        priority,
         time_remaining: String::new(),
         time_estimate: String::new(),
         parent_key: String::new(),
@@ -1886,6 +1936,27 @@ mod tests {
         let t = github_ticket(&plain, "o/r", "");
         assert_eq!((t.status.as_str(), t.status_label.as_str(), t.kind.as_str(), t.assignee.as_str()), ("todo", "Open", "Task", "Unassigned"));
         assert_eq!(github_kind(&json!({}), &["Enhancement".into()]), "Feature");
+    }
+
+    #[test]
+    fn priorities_rank_across_trackers() {
+        let ranks = |names: &[&str]| names.iter().map(|n| priority_rank(n)).collect::<Vec<_>>();
+        assert_eq!(ranks(&["Highest", "High", "Medium", "Low", "Lowest", ""]), [0, 1, 2, 3, 4, 5]);
+        assert_eq!(ranks(&["Urgent", "Blocker", "Critical", "Major", "Minor", "Trivial"]), [0, 0, 0, 1, 3, 4]);
+        assert_eq!(ranks(&["P0", "P1 - High", "priority/p3", "Très haute", "Basse", "Whatever"]), [0, 1, 3, 0, 3, 2]);
+        // Only labels that name a priority count, the most urgent wins.
+        assert_eq!(priority_label(["bug", "Low", "priority: high", "ui"]), "priority: high");
+        assert_eq!(priority_label(["bug", "highlight", "P2"]), "P2");
+        assert_eq!(priority_label(["bug", "frontend"]), "");
+        // Trello labels, Asana's Priority field, GitHub's board field over its labels.
+        let conf = TrelloConf::default();
+        assert_eq!(trello_card(&conf, &json!({ "labels": [{ "name": "Design" }, { "name": "Urgent" }] }), "T").priority, "Urgent");
+        let asana = AsanaConf::default();
+        let task = json!({ "data": [{ "gid": "1", "custom_fields": [{ "name": "Effort", "display_value": "S" }, { "name": "Priority", "display_value": "High" }] }] });
+        assert_eq!(asana_tickets(&asana, &[(task, "A".into())])[0].priority, "High");
+        let issue = json!({ "labels": { "nodes": [{ "name": "P3" }] }, "projectItems": { "nodes": [{ "priority": { "name": "P1" } }] } });
+        assert_eq!(github_ticket(&issue, "o/r", "").priority, "P1");
+        assert_eq!(github_ticket(&json!({ "labels": { "nodes": [{ "name": "P3" }] } }), "o/r", "").priority, "P3");
     }
 
     #[test]

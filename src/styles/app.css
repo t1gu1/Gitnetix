@@ -8661,3 +8661,32 @@ body:has(> .modal-scrim) #root * {
 .tk-types > span + span {
   margin-left: 10px;
 }
+/* A ticket's priority in the list: three bars, the filled ones say how urgent. */
+.tk-prio {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+.tk-bars {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 1.5px;
+  height: 10px;
+}
+.tk-bars i {
+  width: 2.5px;
+  height: 4px;
+  border-radius: 1px;
+  background: currentColor;
+  opacity: 0.3;
+}
+.tk-bars i:nth-child(2) {
+  height: 7px;
+}
+.tk-bars i:nth-child(3) {
+  height: 10px;
+}
+.tk-bars i[data-on] {
+  opacity: 1;
+}
