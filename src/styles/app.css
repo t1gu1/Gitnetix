@@ -3932,9 +3932,14 @@ button.picker-act {
 .term-tab-x:hover {
   color: var(--fg);
 }
+/* The active tab: lit, with an accent bar under it like the page tabs. */
 .term-tab[aria-pressed="true"] {
   background: var(--term);
   color: var(--fg);
+  box-shadow: inset 0 -2px var(--accent);
+}
+.term-tab[aria-pressed="true"] > svg {
+  color: var(--accent);
 }
 /* The terminals button closes the Shell tab: no line between them, and lit with it. */
 .term-tab-menu {
@@ -3946,6 +3951,7 @@ button.picker-act {
 .term-tab[aria-pressed="true"] + .term-tab-menu {
   background: var(--term);
   color: var(--fg);
+  box-shadow: inset 0 -2px var(--accent);
 }
 .term-tab-menu:hover > svg {
   color: var(--fg);
