@@ -49,7 +49,8 @@ interface Drag {
   active: boolean;
 }
 
-function moveTo<T extends { id: string }>(
+/** `list` with item `id` moved to `index` (counted without it). */
+export function moveTo<T extends { id: string }>(
   list: T[],
   id: string,
   index: number,

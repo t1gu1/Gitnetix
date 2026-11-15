@@ -30,7 +30,7 @@ export function Seg<T extends string>({
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const selected = options.findIndex((o) => o.value === value);
-  const thumb = useThumb(ref, selected, options.length);
+  const thumb = useThumb(ref, selected, options.length, undefined, options.map((o) => o.value).join("\n"));
   return (
     <div
       ref={ref}
@@ -64,8 +64,9 @@ export function Seg<T extends string>({
   );
 }
 
-/** Box of the `index`th button (or `sel` match) of `ref`, for a highlight that slides to it; again whenever one resizes (label change, wrap, shown after hidden). */
-export function useThumb(ref: RefObject<HTMLElement | null>, index: number, count: number, sel = ":scope > button") {
+/** Box of the `index`th button (or `sel` match) of `ref`, for a highlight that slides to it; again whenever one resizes (label change, wrap, shown after hidden).
+ * `items`: what the buttons are, for lists whose order changes at the same length (a branch type put in first). */
+export function useThumb(ref: RefObject<HTMLElement | null>, index: number, count: number, sel = ":scope > button", items = "") {
   const [thumb, setThumb] = useState<CSSProperties>();
   useLayoutEffect(() => {
     const el = ref.current!;
@@ -86,7 +87,7 @@ export function useThumb(ref: RefObject<HTMLElement | null>, index: number, coun
     ro.observe(el);
     btns.forEach((b) => ro.observe(b));
     return () => ro.disconnect();
-  }, [index, count]);
+  }, [index, count, items]);
   return thumb;
 }
 

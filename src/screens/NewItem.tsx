@@ -4,9 +4,10 @@ import { useAction, useAiOn, useOverview, useProjectPrefs, useSuggestedVersion }
 import { rpc } from "../api/transport";
 import { RequestField, uploads, type Attachment } from "../components/AgentLog";
 import { AgentPicker, MenuChoice, useAgentPick } from "../components/AgentPicker";
+import { BranchTypesEditor, firstType, TypePicker, typeOfName, withType } from "../components/BranchTypes";
 import { Icon } from "../components/Icon";
 import { Modal, releaseTagLabel, Seg } from "../components/ui";
-import { KINDS, kindNoun, kindOfBranch, withPrefix, withTicket, type Kind } from "../lib/kinds";
+import { kindNoun, withPrefix, withTicket } from "../lib/kinds";
 import { useNav, type NewItemDraft } from "../lib/nav";
 import { revealBranch } from "./BranchTree";
 
@@ -22,14 +23,16 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
     .sort((a, b) => (a.role === b.role ? 0 : a.role === "release" ? -1 : b.role === "release" ? 1 : a.role === "trunk" ? -1 : 1));
   const firstBase = () =>
     (draft.release && open.find((r) => r.version === draft.release)?.branch) || draft.tag || draft.from || open[0]?.branch || ov.data?.defaultBranch || "";
-  const [kind, setKind] = useState<Kind | "release">(draft.kind ?? "feat");
+  const { dialogs, setDialogs, branchTypes } = useProjectPrefs(pid);
+  // The type clicked (or the draft's) while listed, else the first; a prefix typed in the name wins over it.
+  const [clicked, setPicked] = useState<string | undefined>(draft.kind);
+  const picked = clicked && (clicked === "release" || branchTypes.list.some((t) => t.id === clicked)) ? clicked : firstType(branchTypes.list);
   const [relKind, setRelKind] = useState<"next" | "hotfix">("next");
   // Null until the user types their own; the suggestion shows meanwhile.
   const [typedVersion, setVersion] = useState<string | null>(null);
   const [desc, setDesc] = useState(draft.description ?? "");
   const [from, setFrom] = useState(firstBase);
   const [ticket, setTicket] = useState(draft.ticket ?? "");
-  const { dialogs, setDialogs } = useProjectPrefs(pid);
   // An agent always gets its own worktree.
   const [where, setWhere] = useState<"switch" | "worktree">(dialogs.newWorktree || dialogs.newAgent ? "worktree" : "switch");
   const [agent, setAgent] = useState(dialogs.newAgent);
@@ -38,6 +41,9 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
   const [name, setName] = useState("");
   const [named, setNamed] = useState<"ai" | "auto" | "you" | null>(null);
   const [naming, setNaming] = useState(false);
+  const kind = picked === "release" ? "release" : typeOfName(branchTypes.list, name, picked);
+  // The branch types editor, in place of the form until Done.
+  const [editing, setEditing] = useState(false);
   // Minimized to a chip, the form stays as it was; opening a new branch again brings it back.
   const [min, setMin] = useState(false);
   useEffect(() => setMin(false), [draft]);
@@ -55,13 +61,13 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
   const asked = useRef("");
   const typed = useRef(false);
   useEffect(() => {
-    const ask = JSON.stringify([about, kind, ticket, pid]);
+    const ask = JSON.stringify([about, picked, ticket, pid]);
     if (!agent || named === "you" || naming || about.length < 6 || ask === asked.current) return;
     const t = setTimeout(async () => {
       asked.current = ask;
       setNaming(true);
       try {
-        const r = await rpc<{ name: string; ai: boolean }>("items.suggestName", { projectId: pid, kind, description: desc, ticket });
+        const r = await rpc<{ name: string; ai: boolean }>("items.suggestName", { projectId: pid, kind: picked, description: desc, ticket });
         if (typed.current) return;
         setName(r.name.replace(/\s/g, "-"));
         setNamed(r.ai ? "ai" : "auto");
@@ -72,10 +78,11 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
       }
     }, 1500);
     return () => clearTimeout(t);
-  }, [agent, about, kind, ticket, pid, naming]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [agent, about, picked, ticket, pid, naming]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const create = useAction<{ branch: string; worktree?: string; agentSession?: string }>("items.create", {
-    invalidate: [["overview", pid], ["agents"], ["worktrees"]],
+    // Config: a prefix used for the first time joined the project's branch types.
+    invalidate: [["overview", pid], ["agents"], ["worktrees"], ["config"]],
     success: (r) => `Created ${r.branch}${r.worktree ? ` in ${r.worktree}` : ""}${r.agentSession ? " · agent started" : ""}`,
   });
   const v = version.replace(/^v/, "");
@@ -83,16 +90,14 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
   const base = bases.find((b) => b.name === from);
   const fromTag = !!draft.tag && from === draft.tag;
   const rel = open.find((r) => r.branch === from);
-  // Release takes Build's slot so the types stay two rows of six; a typed `build/` prefix still works.
-  const types = [...KINDS.filter((k) => k.id !== "build").map((k) => ({ value: k.id as Kind | "release", label: k.label })), { value: "release" as const, label: "Release" }];
 
   // A hook: called on every render, so above the release dialog's early return.
   const aiOn = useAiOn("branch");
 
-  // Switching type rewrites a known type prefix (feature/x → fix/x); a custom prefix is left alone.
-  const pickKind = (k: Kind | "release") => {
-    setKind(k);
-    if (k !== "release" && kindOfBranch(name)) setName(`${k}/${name.slice(name.indexOf("/") + 1)}`);
+  // Switching type rewrites the name's prefix (feature/x → fix/x).
+  const pickKind = (k: string) => {
+    setPicked(k);
+    if (k !== "release") setName(withType(name, k));
   };
 
   if (min)
@@ -102,18 +107,39 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
         {kind === "release" ? "New release" : "New branch"}
       </button>
     );
-  const minimize = (
-    <button className="btn btn-ghost btn-icon" aria-label="Minimize" data-tip="Minimize · comes back from the chip in the corner" onClick={() => setMin(true)}>
-      <Icon name="minus" />
-    </button>
+  const headerActions = (
+    <>
+      <button className="btn btn-ghost btn-icon" aria-label="Edit branch types" data-tip="Edit branch types: order, pin, add" onClick={() => setEditing(true)}>
+        <Icon name="edit" />
+      </button>
+      <button className="btn btn-ghost btn-icon" aria-label="Minimize" data-tip="Minimize · comes back from the chip in the corner" onClick={() => setMin(true)}>
+        <Icon name="minus" />
+      </button>
+    </>
   );
+
+  if (editing)
+    return (
+      <Modal
+        title="Branch types"
+        sub="What the Type buttons offer, in this order. A prefix typed in a branch name that is not listed joins them, after the pinned ones."
+        onClose={() => setEditing(false)}
+        footer={
+          <button className="btn btn-primary btn-md" onClick={() => setEditing(false)}>
+            Done
+          </button>
+        }
+      >
+        <BranchTypesEditor pid={pid} />
+      </Modal>
+    );
 
   if (kind === "release") {
     return (
       <Modal
         title="New release"
         sub={relKind === "next" ? "Branches off your default branch" : "Branches off the latest tag"}
-        actions={minimize}
+        actions={headerActions}
         onClose={onClose}
         footer={
           <>
@@ -140,7 +166,7 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
           </>
         }
       >
-        <Seg grid cols={6} size="lg" label="Type" value={kind} onChange={pickKind} options={types} />
+        <TypePicker pid={pid} size="lg" value={kind} onChange={pickKind} />
         <Seg grid size="lg" label="Release type" value={relKind} onChange={setRelKind} options={[{ value: "next", label: "Next release" }, { value: "hotfix", label: "Hotfix" }]} />
         <div className="field">
           <label htmlFor="ni-version">Version</label>
@@ -181,7 +207,7 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
         : fromTag ? <>Branches off tag <span className="mono">{draft.tag}</span> and merges into <span className="mono">{ov.data?.defaultBranch}</span></>
         : "Pick where it starts"
       }
-      actions={minimize}
+      actions={headerActions}
       onClose={onClose}
       footer={
         <>
@@ -192,7 +218,7 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
         </>
       }
     >
-      <Seg grid cols={6} size="lg" label="Type" value={kind} onChange={pickKind} options={types} />
+      <TypePicker pid={pid} size="lg" value={kind} onChange={pickKind} />
       <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 }}>
         <div className="field">
           <label htmlFor="ni-rel">Branches off</label>
@@ -240,8 +266,6 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
             setName(v);
             setNamed("you");
             typed.current = true;
-            const k = kindOfBranch(v);
-            if (k) setKind(k);
           }}
         />
       </div>

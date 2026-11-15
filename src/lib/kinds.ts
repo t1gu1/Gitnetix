@@ -16,6 +16,9 @@ export const KINDS = [
 
 export type Kind = (typeof KINDS)[number]["id"];
 
+/** A project's branch types until changed: two rows of six, Release in Build's slot, Build just past them. The backend's DEFAULT_BRANCH_TYPES: keep the two in step. */
+export const DEFAULT_TYPES = ["feat", "fix", "refactor", "perf", "style", "test", "docs", "chore", "ci", "a11y", "poc", "release", "build"];
+
 /** Maps a prefix like `feature` or `Feat` to its kind, or null when it is not a known type. */
 export function kindOf(prefix: string): Kind | null {
   const p = prefix.trim().toLowerCase();
@@ -30,7 +33,7 @@ export function kindOfBranch(name: string): Kind | null {
 }
 
 /** Keeps a prefix the user typed (`feature/x`, `wip/x`); otherwise prefixes with the chosen kind. */
-export function withPrefix(name: string, kind: Kind): string {
+export function withPrefix(name: string, kind: string): string {
   const n = name.trim();
   if (!n) return "";
   return n.includes("/") ? n : `${kind}/${n}`;
@@ -50,4 +53,4 @@ export function withTicket(branch: string, ticket: string): string {
   return `${branch.slice(0, i)}${t}_${rest}`;
 }
 
-export const kindNoun = (k: string) => KINDS.find((x) => x.id === k)?.noun ?? "item";
+export const kindNoun = (k: string) => KINDS.find((x) => x.id === k)?.noun ?? `${k} branch`;

@@ -2429,7 +2429,8 @@ export function clearSession(a: AgentSession) {
  * `done` gets the new branch once the agent runs there. `modal` is that question: render it. */
 export function useReservedStart(pid: string) {
   const main = useOverview(pid).data?.defaultBranch;
-  const create = useAction<{ branch: string }>("items.create", { invalidate: [["agents"], ["worktrees"], ["overview", pid]], success: (r) => `Agent started on ${r.branch}` });
+  // Config: a prefix the AI used for the first time joined the project's branch types.
+  const create = useAction<{ branch: string }>("items.create", { invalidate: [["agents"], ["worktrees"], ["overview", pid], ["config"]], success: (r) => `Agent started on ${r.branch}` });
   const [ask, setAsk] = useState<{ request: string; files: Upload[]; pick: AgentPick; done: (branch: string) => void } | null>(null);
   const close = () => setAsk(null);
   // Empty name: the backend names the branch from the request, so a request is needed.

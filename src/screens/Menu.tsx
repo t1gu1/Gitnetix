@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties, type Reac
 import { useAction, useConfig, useProjectPrefs } from "../api/hooks";
 import { currentRemote, isLocal, isTauri, saveRemote } from "../api/transport";
 import type { Config, DialogPrefs, Project, UserProfile } from "../api/types";
+import { BranchTypesEditor } from "../components/BranchTypes";
 import { Icon } from "../components/Icon";
 import { Logo } from "../components/Logo";
 import { DeleteProfile, ProfileAvatar, ProfileDialog, useProfiles } from "../components/Profiles";
@@ -295,6 +296,10 @@ function ProjectSettings({ project: p }: { project: Project }) {
           <Seg label="Finishing a worktree session" value={d.finish} onChange={(finish) => prefs.setDialogs({ finish })} options={[{ value: "continue", label: "Continue on branch" }, { value: "merge", label: "Merge it" }]} />
         </div>
         {dialogCheck("finishSwitch", "Switch to where the worktree's code lands once it is closed")}
+      </Group>
+
+      <Group title="Branch types" hint="What the new branch dialog's Type buttons offer, in this order. A prefix typed in a branch name that is not listed joins them when the branch is created, after the pinned ones." bare>
+        <BranchTypesEditor key={p.id} pid={p.id} />
       </Group>
 
       <Group

@@ -8,6 +8,7 @@ import type {
   Analytics,
   Blame,
   Blobs,
+  BranchTypes,
   BranchView,
   Commit,
   CommitPrefs,
@@ -36,6 +37,7 @@ import type {
 } from "./types";
 import { limitLabel, shownStatus } from "../lib/agentLog";
 import { askGitLogin } from "../lib/gitLogin";
+import { DEFAULT_TYPES } from "../lib/kinds";
 import { dictationModel } from "../lib/dictation";
 import { heard } from "../lib/rebaseRuns";
 import { sayIn, toast } from "../lib/toast";
@@ -161,27 +163,34 @@ const MERGE_DEFAULTS: MergePrefs = { squash: false, squashMessage: "branch", reb
 const COMMIT_DEFAULTS: CommitPrefs = { autoPush: false };
 const DIALOG_DEFAULTS: DialogPrefs = { finish: "merge", finishSwitch: true, newWorktree: false, newAgent: false, shipPush: true, shipChangelog: true, deleteOrigin: false, cleanupOrigin: true, prMedia: false };
 
-type PrefsPatch = { merge?: Partial<MergePrefs>; commit?: Partial<CommitPrefs>; dialogs?: Partial<DialogPrefs>; worktreeFiles?: string[]; worktreeLinks?: string[] };
+const TYPES_DEFAULTS: BranchTypes = { list: DEFAULT_TYPES.map((id) => ({ id, pinned: false })), oneRow: false };
+
+type PrefsPatch = { merge?: Partial<MergePrefs>; commit?: Partial<CommitPrefs>; dialogs?: Partial<DialogPrefs>; worktreeFiles?: string[]; worktreeLinks?: string[]; branchTypes?: Partial<BranchTypes> };
 
 /** A project's remembered merge, commit and dialog options and worktree files and links. Changes show at once, then save. */
 export function useProjectPrefs(projectId?: string) {
   const qc = useQueryClient();
   const project = useConfig().data?.projects.find((p) => p.id === projectId);
   const save = useMutation<unknown, Error, PrefsPatch>({
+    mutationKey: ["prefs", projectId],
     mutationFn: (patch) => rpc("projects.setPrefs", { projectId, ...patch }),
-    onMutate: (patch) =>
+    // A config read already on its way would land the list from before this change over it.
+    onMutate: async (patch) => {
+      await qc.cancelQueries({ queryKey: ["config"] });
       qc.setQueryData<Config>(["config"], (c) =>
         c && {
           ...c,
           projects: c.projects.map((p) =>
             p.id === projectId
-              ? { ...p, merge: { ...MERGE_DEFAULTS, ...p.merge, ...patch.merge }, commit: { ...COMMIT_DEFAULTS, ...p.commit, ...patch.commit }, dialogs: { ...DIALOG_DEFAULTS, ...p.dialogs, ...patch.dialogs }, worktreeFiles: patch.worktreeFiles ?? p.worktreeFiles, worktreeLinks: patch.worktreeLinks ?? p.worktreeLinks }
+              ? { ...p, merge: { ...MERGE_DEFAULTS, ...p.merge, ...patch.merge }, commit: { ...COMMIT_DEFAULTS, ...p.commit, ...patch.commit }, dialogs: { ...DIALOG_DEFAULTS, ...p.dialogs, ...patch.dialogs }, worktreeFiles: patch.worktreeFiles ?? p.worktreeFiles, worktreeLinks: patch.worktreeLinks ?? p.worktreeLinks, branchTypes: { ...TYPES_DEFAULTS, ...p.branchTypes, ...patch.branchTypes } }
               : p,
           ),
         },
-      ),
+      );
+    },
     onError: (e) => toast(e.message, "error"),
-    onSettled: () => qc.invalidateQueries({ queryKey: ["config"] }),
+    // Read back once the last change lands: earlier reads would undo the later changes still shown (a list moved row by row).
+    onSettled: () => qc.isMutating({ mutationKey: ["prefs", projectId] }) <= 1 && qc.invalidateQueries({ queryKey: ["config"] }),
   });
   return {
     merge: { ...MERGE_DEFAULTS, ...project?.merge },
@@ -189,11 +198,13 @@ export function useProjectPrefs(projectId?: string) {
     dialogs: { ...DIALOG_DEFAULTS, ...project?.dialogs },
     worktreeFiles: project?.worktreeFiles ?? [],
     worktreeLinks: project?.worktreeLinks ?? [],
+    branchTypes: { ...TYPES_DEFAULTS, ...project?.branchTypes },
     setMerge: (merge: Partial<MergePrefs>) => save.mutate({ merge }),
     setCommit: (commit: Partial<CommitPrefs>) => save.mutate({ commit }),
     setDialogs: (dialogs: Partial<DialogPrefs>) => save.mutate({ dialogs }),
     setWorktreeFiles: (worktreeFiles: string[]) => save.mutate({ worktreeFiles }),
     setWorktreeLinks: (worktreeLinks: string[]) => save.mutate({ worktreeLinks }),
+    setBranchTypes: (branchTypes: Partial<BranchTypes>) => save.mutate({ branchTypes }),
   };
 }
 

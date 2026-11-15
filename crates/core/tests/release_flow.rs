@@ -2000,3 +2000,57 @@ async fn a_saved_token_never_follows_a_new_server() {
     ai(json!({ "id": "other", "baseUrl": "https://a.example.com/v1", "model": "m" })).await.unwrap();
     ai(json!({ "id": "other", "baseUrl": "https://b.example.com/v1", "apiKey": "key-b" })).await.unwrap();
 }
+
+#[tokio::test]
+async fn a_new_branch_prefix_joins_the_types_after_the_pinned_ones() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("atlas-api");
+    init_repo(&repo);
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let added = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await;
+    let pid = added[0]["id"].as_str().unwrap().to_string();
+    let types = |cfg: &Value| -> Vec<String> {
+        let p = cfg["projects"].as_array().unwrap().iter().find(|p| p["id"] == pid.as_str()).unwrap();
+        p["branchTypes"]["list"].as_array().unwrap().iter().map(|t| format!("{}{}", t["id"].as_str().unwrap(), if t["pinned"] == true { "*" } else { "" })).collect()
+    };
+    let cfg = call(&k, "config.get", json!({})).await;
+    assert_eq!(types(&cfg)[..3], ["feat", "fix", "refactor"], "the defaults");
+    assert_eq!(types(&cfg)[11..], ["release", "build"], "Release in Build's slot");
+
+    // Feature, Fix and Docs pinned; aliases are saved as their type, Release comes back.
+    let list = json!([{ "id": "feat", "pinned": true }, { "id": "bugfix", "pinned": true }, { "id": "refactor" }, { "id": "Docs", "pinned": true }, { "id": "chore" }]);
+    call(&k, "projects.setPrefs", json!({ "projectId": pid, "branchTypes": { "list": list, "oneRow": true } })).await;
+    assert_eq!(types(&call(&k, "config.get", json!({})).await), ["feat*", "fix*", "refactor", "docs*", "chore", "release"]);
+    for bad in ["", "a/b", "-x", "release/x", ".hidden", "sp ace"] {
+        let err = rpc::call(&k, "projects.setPrefs", json!({ "projectId": pid, "branchTypes": { "list": [{ "id": bad }] } })).await.unwrap_err();
+        assert!(err.to_string().contains("can't start a branch name"), "{bad}: {err}");
+    }
+
+    // Typed as a feature, the name's prefix decides: in the first unpinned place, the pinned ones staying put.
+    let r = call(&k, "items.create", json!({ "projectId": pid, "kind": "feat", "description": "", "branchName": "wip/login", "where": "switch" })).await;
+    assert_eq!(r["branch"], "wip/login");
+    let cfg = call(&k, "config.get", json!({})).await;
+    assert_eq!(types(&cfg), ["feat*", "fix*", "wip", "docs*", "refactor", "chore", "release"]);
+    assert_eq!(cfg["projects"][0]["branches"]["wip/login"]["kind"], "wip");
+    assert_eq!(cfg["projects"][0]["branchTypes"]["oneRow"], true, "a list change keeps the row choice");
+
+    // Listed already (in another case, or as an alias): nothing moves. A type of its own names a branch typed without a prefix.
+    sh(&repo, &["switch", "-q", "main"]);
+    call(&k, "items.create", json!({ "projectId": pid, "kind": "WIP", "description": "", "branchName": "signup", "where": "switch" })).await;
+    sh(&repo, &["switch", "-q", "main"]);
+    call(&k, "items.create", json!({ "projectId": pid, "kind": "feat", "description": "", "branchName": "feature/x", "where": "switch" })).await;
+    assert!(rev(&repo, "refs/heads/WIP/signup").len() == 40);
+    assert_eq!(types(&call(&k, "config.get", json!({})).await), ["feat*", "fix*", "wip", "docs*", "refactor", "chore", "release"]);
+
+    // A prefix that is no type keeps the asked one; no type asked: the project's first, so a removed Feature stays removed.
+    sh(&repo, &["switch", "-q", "main"]);
+    call(&k, "items.create", json!({ "projectId": pid, "kind": "fix", "description": "", "branchName": "release/notes-tool", "where": "switch" })).await;
+    let list = json!([{ "id": "fix", "pinned": true }, { "id": "wip" }, { "id": "release", "pinned": true }]);
+    call(&k, "projects.setPrefs", json!({ "projectId": pid, "branchTypes": { "list": list } })).await;
+    sh(&repo, &["switch", "-q", "main"]);
+    let r = call(&k, "items.create", json!({ "projectId": pid, "description": "", "branchName": "nokind", "where": "switch" })).await;
+    assert_eq!(r["branch"], "fix/nokind");
+    let cfg = call(&k, "config.get", json!({})).await;
+    assert_eq!(cfg["projects"][0]["branches"]["release/notes-tool"]["kind"], "fix");
+    assert_eq!(types(&cfg), ["fix*", "wip", "release*"]);
+}

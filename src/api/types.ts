@@ -78,6 +78,19 @@ export interface DialogPrefs {
   prMedia: boolean;
 }
 
+/** The types (branch prefixes) the new branch dialogs offer: the first 12 of `list` (6 with `oneRow`), in this order. */
+export interface BranchTypes {
+  list: BranchType[];
+  oneRow: boolean;
+}
+
+export interface BranchType {
+  /** The prefix (`feat`, `wip`), or `release` for the new release dialog. */
+  id: string;
+  /** Keeps its place when a type is added. */
+  pinned: boolean;
+}
+
 export interface GenLangs {
   commit: string;
   pr: string;
@@ -115,6 +128,7 @@ export interface Project {
   worktreeFiles: string[];
   /** Paths linked instead: the worktree reads and writes the main checkout's. */
   worktreeLinks: string[];
+  branchTypes: BranchTypes;
   releases: Release[];
   branches: Record<string, BranchMeta>;
   ticketReleases: Record<string, string>;

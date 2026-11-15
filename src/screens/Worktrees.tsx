@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState, type CSSProperties, type MouseEvent } from "react";
 
-import { useAction, useAgents, useFiles, useOverview, usePendingBranches, useProjects, useWorktrees } from "../api/hooks";
+import { useAction, useAgents, useFiles, useOverview, usePendingBranches, useProjectPrefs, useProjects, useWorktrees } from "../api/hooks";
 import { rpc } from "../api/transport";
 import type { AgentSession, RebaseResult, WorktreeView } from "../api/types";
 import { AgentInput, AgentLog, RequestField, uploads, type Choice, type Upload } from "../components/AgentLog";
 import { limitLabel, shownStatus, tasksLabel, type ShownStatus } from "../lib/agentLog";
 import { draftOf, useDraft } from "../lib/drafts";
 import { AgentPicker, MenuChoice, useAgentPick } from "../components/AgentPicker";
+import { firstType, TypePicker, typeOfName, withType } from "../components/BranchTypes";
 import { ContextMenu, type MenuItem } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
 import { Resizer, usePaneWidth } from "../components/Resizer";
@@ -15,7 +16,6 @@ import { ago, Confirm, Empty, EmptyState, Header, Modal, Seg, swipeProps } from 
 import { plural } from "../lib/format";
 import { agentKey, call, runTask, useHidden, wtKey } from "../lib/tasks";
 import { copyToClipboard } from "../lib/toast";
-import { KINDS, kindOfBranch, type Kind } from "../lib/kinds";
 import { useNav } from "../lib/nav";
 import { showRun, useLocks } from "../lib/rebaseRuns";
 import { useStored } from "../lib/stored";
@@ -479,7 +479,7 @@ interface Session {
   mode?: "existing" | "new";
   from?: string;
   name?: string;
-  kind?: Kind;
+  kind?: string;
   ticket?: string;
 }
 // Kept like the prompt boxes' drafts: it outlives page changes and restarts.
@@ -515,7 +515,10 @@ function StartModal({ onClose, onMinimize }: { onClose: () => void; onMinimize: 
   const d = useDraft<Session>(START);
   const s = d.form ?? { min: false, pid: "" };
   const set = (p: Partial<Session>) => d.setForm({ ...s, ...p });
-  const { pid, branch: picked = "", mode: pickedMode, from: pickedFrom = "", name = "", kind = "feat", ticket: typedTicket } = s;
+  const { pid, branch: picked = "", mode: pickedMode, from: pickedFrom = "", name = "", ticket: typedTicket } = s;
+  const { branchTypes } = useProjectPrefs(pid);
+  // The type clicked while listed (another project may not have it), unless the name starts with one.
+  const kind = typeOfName(branchTypes.list, name, s.kind && branchTypes.list.some((t) => t.id === s.kind) ? s.kind : firstType(branchTypes.list));
   // Files for the agent, like in its prompt box: picked, pasted, or dropped anywhere on the modal.
   const { text: request, setText: setRequest, files, setFiles } = d;
   const [pick, setPick] = useAgentPick(pid);
@@ -539,12 +542,13 @@ function StartModal({ onClose, onMinimize }: { onClose: () => void; onMinimize: 
     onClose();
     const r = await runTask({
       label: "Starting agent session…",
-      invalidate: [["overview", pid], ["agents"], ["worktrees"]],
+      // Config: a prefix used for the first time joined the project's branch types.
+      invalidate: [["overview", pid], ["agents"], ["worktrees"], ["config"]],
       run: async () => {
         const up = await uploads(files);
         return fresh
           ? // Empty name: the backend names the branch from the request.
-            call<{ branch: string }>("items.create", { projectId: pid, from, kind: kindOfBranch(name) ?? kind, description: request, branchName: name.trim() || undefined, ticket: ticket.trim() || undefined, where: "worktree", startAgent: true, files: up, ...pick })
+            call<{ branch: string }>("items.create", { projectId: pid, from, kind, description: request, branchName: name.trim() || undefined, ticket: ticket.trim() || undefined, where: "worktree", startAgent: true, files: up, ...pick })
           : call<{ branch: string }>("agents.start", { projectId: pid, branch, request, ticket: ticket.trim() || undefined, files: up, ...pick });
       },
       done: (r) => `Agent started on ${r.branch}`,
@@ -599,7 +603,7 @@ function StartModal({ onClose, onMinimize }: { onClose: () => void; onMinimize: 
           <input id="ag-ticket" className="input mono" placeholder="ATL-212" value={ticket} onChange={(e) => set({ ticket: e.target.value })} />
         </div>
       </div>
-      {fresh && <Seg<Kind> grid cols={6} label="Type" value={kind} onChange={(k) => set({ kind: k })} options={KINDS.map((k) => ({ value: k.id, label: k.label }))} />}
+      {fresh && <TypePicker pid={pid} release={false} value={kind} onChange={(k) => set({ kind: k, name: withType(name, k) })} />}
       {fresh && (
         <div className="field">
           <label htmlFor="ag-name">Branch name <span className="faint" style={{ fontWeight: 400 }}>optional</span></label>

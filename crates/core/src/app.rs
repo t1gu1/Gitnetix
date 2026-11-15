@@ -4233,7 +4233,7 @@ impl Gitnetix {
                 }
             },
         };
-        let kind = normalize_kind(&req.kind).unwrap_or("feat");
+        let kind = type_of(&req.kind).unwrap_or_else(|| p.branch_types.first());
         let branch = match req.branch_name.clone().filter(|s| !s.trim().is_empty()) {
             Some(b) if b.contains('/') => b.trim().to_string(),
             Some(b) => format!("{kind}/{}", b.trim()),
@@ -4242,10 +4242,10 @@ impl Gitnetix {
                 // Only on an explicit switch: API callers that omit `where` keep the plain slug fallback.
                 let wip = if req.description.trim().is_empty() && req.r#where == "switch" { git.wip_diff(20_000).await? } else { String::new() };
                 if wip.trim().is_empty() {
-                    self.suggest_branch_name(project_id, kind, &req.description, req.ticket.as_deref()).await?.0
+                    self.suggest_branch_name(project_id, &kind, &req.description, req.ticket.as_deref()).await?.0
                 } else {
                     let wip = format!("Name it after these uncommitted changes:\n{wip}");
-                    match self.suggest_branch_name(project_id, kind, &wip, req.ticket.as_deref()).await? {
+                    match self.suggest_branch_name(project_id, &kind, &wip, req.ticket.as_deref()).await? {
                         (name, true) => name,
                         _ => return Err(Error::Invalid("AI couldn't name the branch from your changes. Type a name.".into())),
                     }
@@ -4253,6 +4253,8 @@ impl Gitnetix {
             }
         };
         let branch = with_ticket(&branch, req.ticket.as_deref().unwrap_or(""));
+        // The name's own prefix is its type: `wip/x` is a wip even when asked for as a feature.
+        let kind = branch.split_once('/').and_then(|(pre, _)| type_of(pre)).unwrap_or(kind);
         if !valid_branch_name(&branch) {
             return Err(Error::Invalid(format!("“{branch}” is not a valid branch name")));
         }
@@ -4273,7 +4275,7 @@ impl Gitnetix {
             top_path(&p)
         };
         let meta = BranchMeta {
-            kind: kind.into(),
+            kind: kind.clone(),
             release: release.as_ref().map(|r| r.version.clone()),
             parent: merge_into,
             ticket: req.ticket.clone().filter(|t| !t.is_empty()),
@@ -4283,6 +4285,8 @@ impl Gitnetix {
         };
         self.store.with_project(project_id, |p| {
             p.branches.insert(branch.clone(), meta);
+            // A prefix used for the first time joins the dialogs' types.
+            p.branch_types.add(&kind);
             if let (Some(t), Some(r)) = (req.ticket.as_ref().filter(|t| !t.is_empty()), &release) {
                 p.ticket_releases.insert(t.clone(), r.version.clone());
             }
@@ -6860,9 +6864,21 @@ const KINDS: &[(&str, &[&str])] = &[
 ];
 
 /// `feature` → `feat`, `Fix` → `fix`; None when it is not a known type.
-fn normalize_kind(kind: &str) -> Option<&'static str> {
+pub(crate) fn normalize_kind(kind: &str) -> Option<&'static str> {
     let k = kind.trim().to_ascii_lowercase();
     KINDS.iter().find(|(id, aliases)| *id == k || aliases.contains(&k.as_str())).map(|(id, _)| *id)
+}
+
+/// A branch type of the user's own (`wip`): one part of a branch name, and not `release`, which is the release dialog's.
+pub(crate) fn custom_type(s: &str) -> Option<&str> {
+    let s = s.trim();
+    let ok = !s.is_empty() && s.len() <= 40 && !s.contains('/') && !s.starts_with('.') && !s.ends_with(".lock") && !s.eq_ignore_ascii_case("release") && valid_branch_name(&format!("{s}/x"));
+    ok.then_some(s)
+}
+
+/// `feature` → feat, a type of the user's own (`wip`) as it is; None for anything else.
+fn type_of(kind: &str) -> Option<String> {
+    normalize_kind(kind).or_else(|| custom_type(kind)).map(str::to_string)
 }
 
 /// Kind implied by a branch name's prefix (`feature/x` → feat).
@@ -7599,6 +7615,27 @@ mod tests {
         assert_eq!(p.branches["feat/a"].ticket.as_deref(), Some("#Rk3u9QaP"));
         assert_eq!(p.branches["feat/b"].ticket.as_deref(), Some("ATL-7"));
         assert!(!move_ticket_keys(&mut p, &moves), "nothing left to move the second time");
+    }
+
+    #[test]
+    fn a_branch_type_goes_in_the_first_unpinned_place() {
+        use crate::store::{BranchType, BranchTypes};
+        let t = |id: &str, pinned| BranchType { id: id.into(), pinned };
+        let mut b = BranchTypes { list: vec![t("a", true), t("b", false), t("c", true), t("d", false)], one_row: false };
+        b.add("n");
+        let ids: Vec<_> = b.list.iter().map(|t| t.id.as_str()).collect();
+        assert_eq!(ids, ["a", "n", "c", "b", "d"], "the pinned a and c keep their places");
+        b.add("N");
+        assert_eq!(b.list.len(), 5, "listed already, in another case");
+        let mut all = BranchTypes { list: vec![t("a", true)], one_row: false };
+        all.add("n");
+        assert_eq!(all.list.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(), ["a", "n"], "after the last pinned one");
+        let of = |k: &str| type_of(k).unwrap_or_default();
+        assert_eq!([of("Feature"), of("wip"), of("release"), of("a b"), of(""), of("x.lock")], ["feat", "wip", "", "", "", ""]);
+        let mut gone = BranchTypes::default();
+        assert_eq!(gone.first(), "feat");
+        gone.list.retain(|t| t.id != "feat");
+        assert_eq!(gone.first(), "fix", "Feature removed: the first listed, as the dialogs start on");
     }
 
     #[test]

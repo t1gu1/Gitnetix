@@ -9,7 +9,7 @@ use serde_json::{json, Value};
 use crate::app::{Attachment, Gitnetix, MergeOptions, NewItem, NotesInclude, ViewMode};
 use crate::error::{Error, Result};
 use crate::git::{Git, LinePick};
-use crate::store::{upsert, ConnectMethod, Connection, GitProfile, HostConf, JiraConf, ReleaseKind, Route, TrelloConf, AsanaConf, LinearConf, UserProfile, new_id};
+use crate::store::{upsert, BranchType, BranchTypes, ConnectMethod, Connection, GitProfile, HostConf, JiraConf, ReleaseKind, Route, TrelloConf, AsanaConf, LinearConf, UserProfile, new_id};
 use crate::templates::{self, Template};
 use crate::providers::github_auth::{self, Poll};
 use crate::providers::{azure_auth, bitbucket::{self, Bitbucket}, gitea::Gitea, gitlab::{self, GitLab}, oauth, RepoRef};
@@ -38,7 +38,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("projects.setHidden", "Close or reopen a project's tab (data kept)", "projectId, hidden"),
     ("projects.reorder", "Set the order of projects", "ids: string[]"),
     ("projects.setGenLang", "Language AI writes in for a project", "projectId, commit?, pr?, release?"),
-    ("projects.setPrefs", "Remembered merge, commit and dialog options for a project", "projectId, merge?: {squash?, squashMessage?: branch|ai, rebase?, deleteBranch?, push?, resolveConflicts?}, commit?: {autoPush?}, dialogs?: {finish?: continue|merge, finishSwitch?, newWorktree?, newAgent?, shipPush?, shipChangelog?, deleteOrigin?, cleanupOrigin?, prMedia? (pictures and HTML in pull requests and tickets)}, worktreeFiles?: string[] (paths copied from the main checkout into new worktrees), worktreeLinks?: string[] (paths linked instead)"),
+    ("projects.setPrefs", "Remembered merge, commit and dialog options for a project", "projectId, merge?: {squash?, squashMessage?: branch|ai, rebase?, deleteBranch?, push?, resolveConflicts?}, commit?: {autoPush?}, dialogs?: {finish?: continue|merge, finishSwitch?, newWorktree?, newAgent?, shipPush?, shipChangelog?, deleteOrigin?, cleanupOrigin?, prMedia? (pictures and HTML in pull requests and tickets)}, worktreeFiles?: string[] (paths copied from the main checkout into new worktrees), worktreeLinks?: string[] (paths linked instead), branchTypes?: {list?: [{id, pinned?}] (the new branch dialogs' types in order, the first 12 shown; release = the new release dialog, always kept), oneRow? (6 shown)}"),
     ("workspace.overview", "Releases, their branches and repo state; `quick` skips history checks when nothing is cached", "projectId, quick?"),
     ("workspace.files", "Changed files of a branch, or of one commit when `commit` is given", "projectId, branch, mode: branch|wip|project, commit?"),
     ("workspace.diff", "Diff of one file; in wip mode `staged` picks the side; `commit` diffs that commit (`from` = the file's old path when that commit renamed it); `full` keeps the whole file", "projectId, branch, mode, path, staged?, commit?, from?, full?"),
@@ -71,7 +71,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("releases.ship", "Fast-forward main to the release and tag it", "projectId, version, push?"),
     ("releases.delete", "Forget an open release (branch kept)", "projectId, version"),
     ("items.suggestName", "AI branch name for a feature or fix", "projectId, kind, description, ticket?"),
-    ("items.create", "New feature/fix branch in a release, or off another branch or a tag (release empty, from = branch or tag)", "projectId, release?, from?, kind, description, branchName?, ticket?, where: switch|worktree, startAgent?, provider?, model?, effort?, permission?, ultracode?, files?"),
+    ("items.create", "New feature/fix branch in a release, or off another branch or a tag (release empty, from = branch or tag); kind may be a prefix of the user's own (wip); a prefix not in the project's branch types joins them", "projectId, release?, from?, kind, description, branchName?, ticket?, where: switch|worktree, startAgent?, provider?, model?, effort?, permission?, ultracode?, files?"),
     ("items.attach", "Attach an existing branch to a release", "projectId, branch, release, kind"),
     ("items.remove", "Remove a branch from its release", "projectId, branch, deleteBranch?"),
     ("branches.stash", "Stash a checked-out branch's uncommitted changes, untracked files included", "projectId, branch"),
@@ -663,6 +663,9 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
                 }
                 if let Some(f) = p.get("worktreeLinks") {
                     pr.worktree_links = worktree_files(f)?;
+                }
+                if let Some(t) = p.get("branchTypes") {
+                    pr.branch_types = branch_types(overlay(&pr.branch_types, t)?)?;
                 }
                 Ok(())
             })?;
@@ -1690,6 +1693,28 @@ fn open_terminal(cmd: &str) -> Result<()> {
 }
 
 /// Paths copied or linked into new worktrees, joined to both checkouts: `..` or an absolute path would write outside the worktree.
+/// Each type once (`feature` is feat), each a prefix a branch can have; Release stays, or the dialog could not open the release one.
+fn branch_types(mut t: BranchTypes) -> Result<BranchTypes> {
+    let mut list: Vec<BranchType> = Vec::new();
+    for x in t.list {
+        let id = match x.id.trim() {
+            id if id.eq_ignore_ascii_case("release") => "release",
+            id => crate::app::normalize_kind(id).or_else(|| crate::app::custom_type(id)).ok_or_else(|| Error::Invalid(format!("“{id}” can't start a branch name")))?,
+        };
+        if !list.iter().any(|y| y.id.eq_ignore_ascii_case(id)) {
+            list.push(BranchType { id: id.to_string(), pinned: x.pinned });
+        }
+    }
+    if list.len() > 100 {
+        return Err(Error::Invalid("at most 100 branch types".into()));
+    }
+    if !list.iter().any(|y| y.id == "release") {
+        list.push(BranchType { id: "release".into(), pinned: false });
+    }
+    t.list = list;
+    Ok(t)
+}
+
 fn worktree_files(v: &Value) -> Result<Vec<String>> {
     let files: Vec<String> = serde_json::from_value(v.clone())?;
     let inside = |f: &String| Path::new(f).components().all(|c| matches!(c, Component::Normal(_) | Component::CurDir));

@@ -872,8 +872,9 @@ function Row({
 }) {
   const { icon, cls } = look(b, isDefault, !!shipped);
   const name = shipped ? `v${shipped}` : b.role === "release" && b.release ? `v${b.release}` : dir ? inDir(b.name, dir) : b.role === "branch" && b.kind ? b.short : b.name;
-  // In a `fix` folder every row is a fix: the chip only shows a kind the folder doesn't say.
-  const chip = b.role === "branch" && !!b.kind && !(dir && kindOf(dir.split("/")[0]) === b.kind);
+  // In a `fix` folder every row is a fix: the chip only shows a kind the folder doesn't say (`wip` in `wip`, a type of the user's own, included).
+  const head = dir?.split("/")[0];
+  const chip = b.role === "branch" && !!b.kind && !(head && (kindOf(head) ?? head).toLowerCase() === b.kind.toLowerCase());
   // Held by a rebase AI is carrying through (rebased, or the branch it goes onto): grayed out under a veil until it is done.
   const lock = actions.locks.get(b.name);
   return (

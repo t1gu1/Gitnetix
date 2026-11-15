@@ -90,6 +90,57 @@ pub struct Project {
     pub worktree_files: Vec<String>,
     /// Paths linked, not copied: the worktree reads and writes the main checkout's.
     pub worktree_links: Vec<String>,
+    /// The types (branch prefixes) the new branch dialogs offer.
+    pub branch_types: BranchTypes,
+}
+
+/// Two rows of six, Release in Build's slot, Build just past them. The UI's DEFAULT_TYPES: keep the two in step.
+pub const DEFAULT_BRANCH_TYPES: &[&str] = &["feat", "fix", "refactor", "perf", "style", "test", "docs", "chore", "ci", "a11y", "poc", "release", "build"];
+
+/// The new branch dialogs offer the first 12 of `list` (6 with `one_row`), in this order.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct BranchTypes {
+    pub list: Vec<BranchType>,
+    pub one_row: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(default, rename_all = "camelCase")]
+pub struct BranchType {
+    /// The prefix (`feat`, `wip`), or `release` for the new release dialog.
+    pub id: String,
+    /// Keeps its place when a type is added.
+    pub pinned: bool,
+}
+
+impl Default for BranchTypes {
+    fn default() -> Self {
+        BranchTypes { list: DEFAULT_BRANCH_TYPES.iter().map(|id| BranchType { id: id.to_string(), pinned: false }).collect(), one_row: false }
+    }
+}
+
+impl BranchTypes {
+    /// The type a new branch starts on: feat, or the first listed when it was removed. The UI's `firstType`.
+    pub fn first(&self) -> String {
+        match self.list.iter().find(|t| t.id == "feat").or_else(|| self.list.iter().find(|t| t.id != "release")) {
+            Some(t) => t.id.clone(),
+            None => "feat".into(),
+        }
+    }
+
+    /// Adds `id` unless listed (in any case) in the first unpinned place: the unpinned ones from there move down one, past the
+    /// pinned ones, which keep their places. The UI's `placed`: keep the two in step.
+    pub fn add(&mut self, id: &str) {
+        if self.list.iter().any(|t| t.id.eq_ignore_ascii_case(id)) {
+            return;
+        }
+        let new = BranchType { id: id.to_string(), pinned: false };
+        let mut free: std::collections::VecDeque<_> = std::iter::once(new).chain(self.list.iter().filter(|t| !t.pinned).cloned()).collect();
+        let mut list: Vec<_> = self.list.iter().map(|t| if t.pinned { t.clone() } else { free.pop_front().unwrap() }).collect();
+        list.extend(free);
+        self.list = list;
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
