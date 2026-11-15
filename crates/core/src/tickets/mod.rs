@@ -115,6 +115,18 @@ pub struct FieldEdit {
     pub labels: Option<Vec<String>>,
 }
 
+/// A comment on a ticket and, for a thread's first comment, the replies under it, oldest first.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TicketComment {
+    pub id: String,
+    pub author: String,
+    /// Markdown.
+    pub body: String,
+    pub created_at: String,
+    pub replies: Vec<TicketComment>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Criterion {
     pub text: String,
@@ -1457,6 +1469,40 @@ pub async fn linear_set_fields(token: &str, issue: &str, edit: &FieldEdit) -> Re
     Ok(())
 }
 
+/// The issue's comment threads, oldest first: each top-level comment with its replies.
+pub async fn linear_comments(token: &str, issue: &str) -> Result<Vec<TicketComment>> {
+    const COMMENT: &str = "id body createdAt user { name } botActor { name } externalUser { name }";
+    let query = format!("query($id: String!) {{ issue(id: $id) {{ comments(first: 100, filter: {{ parent: {{ null: true }} }}) {{ nodes {{ {COMMENT} children(first: 50) {{ nodes {{ {COMMENT} }} }} }} }} }} }}");
+    let v = linear_gql(token, &query, json!({ "id": issue })).await?;
+    Ok(linear_threads(&v["issue"]["comments"]["nodes"]))
+}
+
+/// Posts `body` (Markdown) on the issue, as a reply under the thread that starts with `parent` when given.
+pub async fn linear_add_comment(token: &str, issue: &str, body: &str, parent: Option<&str>) -> Result<()> {
+    let input = json!({ "issueId": issue, "body": body, "parentId": parent });
+    let v = linear_gql(token, "mutation($input: CommentCreateInput!) { commentCreate(input: $input) { success } }", json!({ "input": input })).await?;
+    if v["commentCreate"]["success"] != true {
+        return Err(Error::Http("Linear did not post the comment".into()));
+    }
+    Ok(())
+}
+
+fn linear_threads(nodes: &Value) -> Vec<TicketComment> {
+    let mut out: Vec<TicketComment> = nodes
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|c| {
+            let s = |v: &Value| v.as_str().unwrap_or("").to_string();
+            let author = [&c["user"]["name"], &c["botActor"]["name"], &c["externalUser"]["name"]].into_iter().find_map(|n| n.as_str()).unwrap_or("Unknown");
+            TicketComment { id: s(&c["id"]), author: author.into(), body: s(&c["body"]), created_at: s(&c["createdAt"]), replies: linear_threads(&c["children"]["nodes"]) }
+        })
+        .collect();
+    // Linear's dates are all ISO 8601 in UTC, so they sort as text.
+    out.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+    out
+}
+
 /// Linear issues completed since `since`, in the picked teams, else every team. Canceled ones have no completion date.
 pub async fn linear_done(conf: &LinearConf, token: &str, since: DateTime<Utc>) -> Result<Vec<DoneTicket>> {
     let filter = linear_filter(conf, vec![json!({ "completedAt": { "gte": since.to_rfc3339_opts(SecondsFormat::Secs, true) } })]);
@@ -1875,6 +1921,22 @@ mod tests {
         assert!(!linear_cycles_on(&conf(&["ENG"]), &teams));
         assert!(linear_cycles_on(&conf(&["ENG", "OPS"]), &teams));
         assert!(!linear_cycles_on(&conf(&[]), &json!([])));
+    }
+
+    #[test]
+    fn linear_comments_keep_replies_under_their_thread_oldest_first() {
+        let nodes = json!([
+            { "id": "b", "body": "Second", "createdAt": "2026-11-14T10:00:00.000Z", "botActor": { "name": "GitHub" }, "children": { "nodes": [] } },
+            { "id": "a", "body": "First", "createdAt": "2026-11-13T10:00:00.000Z", "user": { "name": "Ana" }, "children": { "nodes": [
+                { "id": "a2", "body": "Later reply", "createdAt": "2026-11-13T12:00:00.000Z", "user": { "name": "Ana" } },
+                { "id": "a1", "body": "Reply", "createdAt": "2026-11-13T11:00:00.000Z", "user": null, "externalUser": { "name": "Bo" } },
+            ] } },
+        ]);
+        let t = linear_threads(&nodes);
+        let ids = |l: &[TicketComment]| l.iter().map(|c| c.id.clone()).collect::<Vec<_>>();
+        assert_eq!(ids(&t), ["a", "b"]);
+        assert_eq!(ids(&t[0].replies), ["a1", "a2"]);
+        assert_eq!((t[0].replies[0].author.as_str(), t[1].author.as_str()), ("Bo", "GitHub"));
     }
 
     #[test]

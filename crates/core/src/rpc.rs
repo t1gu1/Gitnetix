@@ -163,6 +163,8 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("tickets.statuses", "Statuses a ticket can move to (Jira transitions, Trello lists, Asana sections, Linear workflow states, GitHub project board columns and closed/open)", "source, conn, id"),
     ("tickets.setStatus", "Move a ticket to one of tickets.statuses", "source, conn, id, to"),
     ("tickets.fields", "Priorities, issue types and labels a Jira or Linear ticket can be set to (Jira: priorities and types; Linear: priorities and labels); empty for the other trackers", "source, conn, id"),
+    ("tickets.comments", "A Linear ticket's comment threads, oldest first, each with its replies (id, author, body as Markdown, createdAt, replies)", "source, conn, id"),
+    ("tickets.comment", "Post a comment (Markdown) on a Linear ticket; with parentId (the id of a thread's first comment from tickets.comments), a reply in that thread", "source, conn, id, body, parentId?"),
     ("tickets.setFields", "Set a Jira or Linear ticket's priority, type or labels to ids from tickets.fields; labels replaces every label, a missing field stays as it is", "source, conn, id, priority?, kind?, labels?"),
     ("jira.versions", "Versions a Jira ticket's fix version can be set to", "id (connection), key"),
     ("jira.setFixVersions", "Set a Jira ticket's fix versions to exactly these version ids; empty clears them", "id (connection), key, versions"),
@@ -1205,6 +1207,11 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
         "tickets.triage" => to(k.triage(&s(&p, "projectId")?).await?),
         "tickets.statuses" => to(k.ticket_status(&s(&p, "source")?, &os(&p, "conn").unwrap_or_default(), &s(&p, "id")?, None).await?),
         "tickets.fields" => to(k.ticket_fields(&s(&p, "source")?, &os(&p, "conn").unwrap_or_default(), &s(&p, "id")?, None).await?),
+        "tickets.comments" => to(k.ticket_comments(&s(&p, "source")?, &os(&p, "conn").unwrap_or_default(), &s(&p, "id")?).await?),
+        "tickets.comment" => {
+            k.ticket_add_comment(&s(&p, "source")?, &os(&p, "conn").unwrap_or_default(), &s(&p, "id")?, &s(&p, "body")?, os(&p, "parentId").as_deref()).await?;
+            ok()
+        }
         "tickets.setFields" => {
             let edit: crate::tickets::FieldEdit = serde_json::from_value(p.clone())?;
             k.ticket_fields(&s(&p, "source")?, &os(&p, "conn").unwrap_or_default(), &s(&p, "id")?, Some(&edit)).await?;

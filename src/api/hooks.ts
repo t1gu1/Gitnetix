@@ -29,6 +29,7 @@ import type {
   Template,
   StatusOption,
   Ticket,
+  TicketComment,
   TicketFields,
   WeeklyReport,
   WorktreeView,
@@ -566,6 +567,15 @@ export const useTicketFields = (t?: Ticket) =>
     queryKey: ["ticketFields", t?.source, t?.conn, t?.id],
     queryFn: () => rpc<TicketFields>("tickets.fields", { source: t!.source, conn: t!.conn, id: t!.id }),
     enabled: !!t?.id && (t.source === "jira" || t.source === "linear"),
+    retry: false,
+    staleTime: 60_000,
+  });
+
+export const useTicketComments = (t?: Ticket) =>
+  useQuery({
+    queryKey: ["ticketComments", t?.source, t?.conn, t?.id],
+    queryFn: () => rpc<TicketComment[]>("tickets.comments", { source: t!.source, conn: t!.conn, id: t!.id }),
+    enabled: !!t?.id && t.source === "linear",
     retry: false,
     staleTime: 60_000,
   });

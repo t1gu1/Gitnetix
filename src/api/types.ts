@@ -839,6 +839,16 @@ export interface TicketFields {
   labels: FieldOption[];
 }
 
+/** A Linear comment; a thread's first comment has its replies, oldest first. */
+export interface TicketComment {
+  id: string;
+  author: string;
+  /** Markdown. */
+  body: string;
+  createdAt: string;
+  replies: TicketComment[];
+}
+
 export interface SprintTicket {
   key: string;
   title: string;

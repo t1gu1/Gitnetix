@@ -6229,6 +6229,27 @@ impl Gitnetix {
         }
     }
 
+    /// A Linear ticket's comment threads with their replies. The other trackers only give a count, on the ticket.
+    pub async fn ticket_comments(&self, source: &str, conn: &str, id: &str) -> Result<Vec<tickets::TicketComment>> {
+        if source != "linear" {
+            return Err(Error::Invalid(format!("{source} comments don't show here, only their count")));
+        }
+        let l = self.store.read(|c| c.integrations.linear.iter().find(|l| l.id == conn).cloned()).ok_or_else(|| Error::NotConnected(source.into()))?;
+        tickets::linear_comments(&tickets::linear_token(&l).await?, id).await
+    }
+
+    /// Posts a comment on a Linear ticket, or a reply under the thread whose first comment is `parent`.
+    pub async fn ticket_add_comment(&self, source: &str, conn: &str, id: &str, body: &str, parent: Option<&str>) -> Result<()> {
+        if source != "linear" {
+            return Err(Error::Invalid(format!("Commenting on {source} tickets isn't supported here")));
+        }
+        if body.trim().is_empty() {
+            return Err(Error::Invalid("The comment is empty".into()));
+        }
+        let l = self.store.read(|c| c.integrations.linear.iter().find(|l| l.id == conn).cloned()).ok_or_else(|| Error::NotConnected(source.into()))?;
+        tickets::linear_add_comment(&tickets::linear_token(&l).await?, id, body, parent).await
+    }
+
     /// Whether a Linear connection of the project has a team with cycles turned on, Linear's sprints.
     /// A failed check counts as one: the ticket fetch shows its error.
     pub async fn linear_cycles(&self, project_id: &str) -> bool {

@@ -1,6 +1,6 @@
 import { useState, type CSSProperties, type ReactNode } from "react";
 
-import { useAction, useFixVersions, useOverview, useProjectPrefs, useProjects, useTicketFields, useTicketStatuses, useTickets } from "../api/hooks";
+import { useAction, useFixVersions, useOverview, useProjectPrefs, useProjects, useTicketComments, useTicketFields, useTicketStatuses, useTickets } from "../api/hooks";
 import { openExternal } from "../api/transport";
 import type { FieldOption, Suggestion, Ticket } from "../api/types";
 import { MenuChoice } from "../components/AgentPicker";
@@ -9,7 +9,7 @@ import { Avatar } from "../components/Avatar";
 import { ContextMenu, SEARCH_ABOVE } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
 import { Resizer, usePaneWidth } from "../components/Resizer";
-import { ago, Busy, Empty, EmptyState, ErrorBox, Header, Loading, Markdown, MEDIA, MediaAsk, releaseTagLabel, Seg, swipeProps } from "../components/ui";
+import { ago, Busy, Empty, EmptyState, ErrorBox, Header, initials, Loading, Markdown, MEDIA, MediaAsk, releaseTagLabel, Seg, swipeProps } from "../components/ui";
 import { plural } from "../lib/format";
 import { useNav } from "../lib/nav";
 import { useStored } from "../lib/stored";
@@ -488,7 +488,74 @@ function TicketDetail({
           </ul>
         </section>
       )}
-      <div className="hint">{t.comments === 0 ? `No comments in ${SRC[t.source]}.` : `${plural(t.comments, "comment")} in ${SRC[t.source]}.`}</div>
+      {t.source === "linear" ? (
+        <Comments t={t} />
+      ) : (
+        <div className="hint">{t.comments === 0 ? `No comments in ${SRC[t.source]}.` : `${plural(t.comments, "comment")} in ${SRC[t.source]}.`}</div>
+      )}
+    </div>
+  );
+}
+
+/** Linear's comment threads, each first comment with its replies under it and a box to reply, then a box for a new comment. */
+function Comments({ t }: { t: Ticket }) {
+  const q = useTicketComments(t);
+  const threads = q.data ?? [];
+  const count = threads.reduce((n, c) => n + 1 + c.replies.length, 0);
+  return (
+    <section className="section">
+      <h2>Comments {count > 0 && <span className="faint" style={{ fontWeight: 400 }}>{count}</span>}</h2>
+      {q.isLoading ? (
+        <span className="muted">Loading comments…</span>
+      ) : q.error ? (
+        <ErrorBox error={q.error} />
+      ) : threads.length === 0 ? (
+        <span className="muted">No comments in Linear.</span>
+      ) : (
+        <div className="col" style={{ gap: 10 }}>
+          {threads.map((c) => (
+            <article key={c.id} className="thread">
+              {[c, ...c.replies].map((r, i) => (
+                // Replies line up under the first comment's text, as in Linear.
+                <div key={r.id} className="comment" style={i ? { paddingLeft: 54 } : undefined}>
+                  <span className="avatar" aria-hidden="true">{initials(r.author)}</span>
+                  <div className="col grow" style={{ gap: 6, minWidth: 0 }}>
+                    <div className="row" style={{ gap: 8 }}>
+                      <span style={{ fontWeight: 500 }}>{r.author}</span>
+                      <span className="faint" style={{ fontSize: 12 }}>{ago(r.createdAt)}</span>
+                    </div>
+                    <div className="comment-body"><Markdown text={r.body} breaks /></div>
+                  </div>
+                </div>
+              ))}
+              <CommentBox t={t} parent={c.id} />
+            </article>
+          ))}
+        </div>
+      )}
+      {!q.isLoading && <CommentBox key={t.id} t={t} />}
+    </section>
+  );
+}
+
+/** Posts to the ticket in Linear: a reply in the thread that starts with `parent`, else a new comment. */
+function CommentBox({ t, parent }: { t: Ticket; parent?: string }) {
+  const [text, setText] = useState("");
+  const post = useAction<unknown, { source: string; conn: string; id: string; body: string; parentId?: string }>("tickets.comment", {
+    invalidate: [["ticketComments", t.source, t.conn, t.id]],
+  });
+  const id = parent ? `tk-reply-${parent}` : "tk-new-comment";
+  const send = () => post.mutate({ source: t.source, conn: t.conn, id: t.id, body: text, parentId: parent }, { onSuccess: () => setText("") });
+  return (
+    <div className="col" style={parent ? { padding: "10px 14px 14px", borderTop: "1px solid var(--line)" } : { marginTop: 10 }}>
+      <label htmlFor={id} className="sr-only">{parent ? "Reply" : "New comment"}</label>
+      <textarea id={id} className="textarea" rows={parent ? 2 : 3} placeholder={parent ? "Reply…" : "Leave a comment in Linear…"} value={text} onChange={(e) => setText(e.target.value)} />
+      <div className="row" style={{ justifyContent: "flex-end" }}>
+        <button className={parent ? "btn btn-sm btn-primary" : "btn btn-primary"} disabled={!text.trim() || post.isPending} onClick={send}>
+          <Busy on={post.isPending}>{null}</Busy>
+          {parent ? "Reply" : "Comment"}
+        </button>
+      </div>
     </div>
   );
 }
