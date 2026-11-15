@@ -11,6 +11,8 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+## [0.21.2] - 2026-11-15
+
 ### Added (App)
 - Ticket details list each comment with its replies for GitHub, Jira, Trello, Asana and Linear.
 - You can post a new comment or reply to a thread on Linear tickets.
