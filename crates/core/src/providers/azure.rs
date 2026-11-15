@@ -172,6 +172,16 @@ impl Azure {
         RepoRef { host: "dev.azure.com".into(), owner: format!("{}/{}", self.repo.org, self.repo.project), repo: self.repo.repo.clone(), port: None }
     }
 
+    /// A picture attached in Azure DevOps, as a data: URL: on dev.azure.com, or the organization's older visualstudio.com.
+    pub async fn picture(&self, src: &str) -> Result<String> {
+        let url = crate::net::resolve(src, "https://dev.azure.com")?;
+        let legacy = format!("{}.visualstudio.com", self.repo.org);
+        if !crate::net::same_origin(&url, "https://dev.azure.com") && !(url.scheme() == "https" && url.host_str() == Some(legacy.as_str())) {
+            return Err(Error::Invalid(format!("{src} is not on Azure DevOps")));
+        }
+        crate::net::picture(self.http.get(url).header("authorization", &self.auth)).await
+    }
+
     fn git_url(&self, path: &str) -> String {
         let sep = if path.contains('?') { '&' } else { '?' };
         format!("https://dev.azure.com/{}/{}/_apis/git/repositories/{}{path}{sep}api-version=7.1", self.repo.org, self.repo.project, self.repo.repo)

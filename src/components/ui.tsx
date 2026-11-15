@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 
 import { link } from "./Adf";
 import { Icon } from "./Icon";
+import { Picture } from "./Picture";
 import { isPageRoute } from "./TopBar";
 import { useTokens } from "../lib/highlight";
 import { comboOf, useKeys } from "../lib/keys";
@@ -370,8 +371,8 @@ const TAG = /<\/?[a-z][\w-]*(?:\s[^<>]*)?\/?>/i;
 const CODE_OR_TAG = new RegExp(`(\`[^\`]+\`)|${TAG.source}`, "gi");
 
 /** Inline Markdown: `code`, **bold**, *italic*, ~~strike~~ and links. With `html`, also pictures and GitHub's inline HTML. */
-export function inline(s: string, key?: string, html = false): ReactNode {
-  if (html && TAG.test(s)) {
+export function inline(s: string, key?: string, html: Media = false): ReactNode {
+  if (html === true && TAG.test(s)) {
     // Tags stay raw, the Markdown between them becomes parts the HTML holds.
     const parts: Part[] = [];
     let last = 0;
@@ -405,9 +406,9 @@ export function inline(s: string, key?: string, html = false): ReactNode {
   return <span key={key}>{out}</span>;
 }
 
-/** A picture from the web; only https ones, as GitHub. No referrer: the host learns nothing of the app. */
+/** A picture from the web, or one the screen's host loads with the sign-in; see `Picture`. */
 function picture({ src, ...rest }: { src: string | null; alt?: string; [attr: string]: unknown }) {
-  return src && /^https:\/\//i.test(src) ? createElement("img", { ...rest, src, referrerPolicy: "no-referrer" }) : (rest.alt as string) || null;
+  return src ? createElement(Picture, { ...rest, src }) : (rest.alt as string) || null;
 }
 
 /** Raw HTML, or a Markdown part already made into React. */
@@ -459,7 +460,7 @@ const BLOCK = /^(#{1,6}\s|```|\s*[-*]\s|\s*\d+[.)]\s|>|\s*\||\s*(-{3,}|\*{3,})\s
 // paragraph), or a line that is one tag alone.
 const HTML_BLOCK = /^ {0,3}<\/?(address|article|aside|blockquote|center|dd|details|div|dl|dt|figcaption|figure|footer|h[1-6]|header|hr|li|main|nav|ol|p|section|summary|table|tbody|td|tfoot|th|thead|tr|ul)(\s|\/?>|$)/i;
 const HTML_LINE = new RegExp(`^ {0,3}${TAG.source}\\s*$`, "i");
-const item = (t: string, j: number, html: boolean) => {
+const item = (t: string, j: number, html: Media) => {
   const task = /^\[([ xX])\]\s+(.*)$/.exec(t);
   return (
     <li key={j}>
@@ -497,22 +498,27 @@ function CodeBlock({ lang, text }: { lang: string; text: string }) {
 
 // A picture or HTML in Markdown, hidden until the project allows them.
 export const MEDIA = /!\[[^\]]*\]\(|<\/?[a-z][\w-]*[\s/>]/i;
+export const PICTURES = /!\[[^\]]*\]\(/;
 
-/** Asks before a pull request's or GitHub issue's pictures load; `onShow` remembers it for the project. */
-export function MediaAsk({ onShow }: { onShow: () => void }) {
+/** What Markdown loads: nothing, pictures only (trackers whose Markdown has no HTML), or pictures and GitHub's HTML. */
+export type Media = boolean | "pictures";
+
+/** Asks before a pull request's or ticket's pictures load; `onShow` remembers it for the project. */
+export function MediaAsk({ onShow, html = true }: { onShow: () => void; html?: boolean }) {
   return (
     <div className="row media-ask">
       <Icon name="image" size={14} className="faint" />
-      <span className="grow">Pictures and HTML are hidden. Pictures load from the sites that host them, which see your IP address.</span>
+      <span className="grow">{html ? "Pictures and HTML are hidden." : "Pictures are hidden."} Pictures load from the sites that host them, which see your IP address.</span>
       <button className="btn btn-sm" onClick={onShow}>Show for this project</button>
     </div>
   );
 }
 
-/** `html`: pictures and the HTML GitHub allows, which load from the web, so only where the user allowed them.
+/** `html`: pictures and the HTML GitHub allows, which load from the web, so only where the user allowed them;
+ * `"pictures"` keeps any HTML as text.
  * `breaks`: a line break in a paragraph stays one, as in GitHub's pull requests and comments. */
 // Memo: an agent log redraws every reply when a line arrives; only new text is parsed again.
-export const Markdown = memo(function Markdown({ text, html = false, breaks = false }: { text: string; html?: boolean; breaks?: boolean }) {
+export const Markdown = memo(function Markdown({ text, html = false, breaks = false }: { text: string; html?: Media; breaks?: boolean }) {
   const blocks: Part[] = [];
   // PR templates leave <!-- hints --> behind.
   const lines = text.replace(/\r/g, "").replace(/<!--[\s\S]*?-->/g, "").split("\n");
@@ -529,7 +535,7 @@ export const Markdown = memo(function Markdown({ text, html = false, breaks = fa
       i++;
       continue;
     }
-    if (html && (HTML_BLOCK.test(l) || HTML_LINE.test(l))) {
+    if (html === true && (HTML_BLOCK.test(l) || HTML_LINE.test(l))) {
       const raw: string[] = [];
       while (i < lines.length && lines[i].trim()) raw.push(lines[i++]);
       blocks.push({ raw: raw.join("\n") });
@@ -590,7 +596,7 @@ export const Markdown = memo(function Markdown({ text, html = false, breaks = fa
     }
     // The first line goes in whatever it starts: a "|" row with no "|---|" under it is no table, and would loop forever.
     const para: string[] = [lines[i++]];
-    while (i < lines.length && lines[i].trim() && !BLOCK.test(lines[i]) && !(html && HTML_BLOCK.test(lines[i]))) para.push(lines[i++]);
+    while (i < lines.length && lines[i].trim() && !BLOCK.test(lines[i]) && !(html === true && HTML_BLOCK.test(lines[i]))) para.push(lines[i++]);
     blocks.push(<p key={i}>{breaks ? para.map((t, k) => <Fragment key={k}>{k > 0 && <br />}{inline(t, undefined, html)}</Fragment>) : inline(para.join(" "), "p", html)}</p>);
   }
   return <div className="md">{blocks.some(isRaw) ? weave(blocks, "\n") : (blocks as ReactNode[])}</div>;

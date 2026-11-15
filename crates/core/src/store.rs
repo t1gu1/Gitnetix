@@ -150,8 +150,8 @@ pub struct DialogPrefs {
     pub delete_origin: bool,
     /// Also delete the cleaned-up behind branches on origin.
     pub cleanup_origin: bool,
-    /// Show pictures and GitHub's HTML in pull requests, their comments and GitHub issues: pictures load from wherever
-    /// they are hosted.
+    /// Show pictures and GitHub's HTML in pull requests, their comments and tickets (pictures only outside GitHub):
+    /// pictures load from wherever they are hosted.
     pub pr_media: bool,
 }
 

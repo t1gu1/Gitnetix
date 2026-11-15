@@ -239,6 +239,17 @@ impl GitHub {
         }
     }
 
+    /// A picture uploaded to this GitHub, as a data: URL: a private repository's need the sign-in.
+    pub async fn picture(&self, src: &str) -> Result<String> {
+        let web = if self.api == "https://api.github.com" { "https://github.com" } else { self.api.trim_end_matches("/api/v3") };
+        let url = crate::net::resolve(src, web)?;
+        if !crate::net::same_origin(&url, web) {
+            return Err(Error::Invalid(format!("{src} is not on {web}")));
+        }
+        let token = self.token.lock().unwrap().clone();
+        crate::net::picture(self.http.get(url).bearer_auth(token)).await
+    }
+
     fn rp(&self) -> String {
         format!("/repos/{}/{}", self.repo.owner, self.repo.repo)
     }
@@ -285,6 +296,12 @@ impl GitHub {
         let i = &d["repository"]["issue"];
         let cards = i["projectItems"]["nodes"].as_array().into_iter().flatten().filter(|c| c["project"]["field"]["id"].is_string()).cloned().collect();
         Ok((i["state"] == "OPEN", cards))
+    }
+
+    /// Issue `number`'s comments, oldest first.
+    // shortcut: the first 100 only, follow the Link header if a ticket ever has more.
+    pub async fn issue_comments(&self, number: u64) -> Result<Vec<Value>> {
+        Ok(self.get(&format!("{}/issues/{number}/comments?per_page=100", self.rp())).await?.as_array().cloned().unwrap_or_default())
     }
 
     /// Closes issue `number` as completed, or reopens it.

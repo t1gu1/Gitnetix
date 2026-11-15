@@ -139,6 +139,27 @@ impl GitLab {
     }
 
     /// owner/repo, owner holding any subgroups.
+    /// A picture uploaded to this GitLab, as a data: URL. Markdown links an upload as `/uploads/<secret>/<file>`, under
+    /// the project; GitLab's web page serves it to a browser session only, its API (17.4 and later) to the token.
+    pub async fn picture(&self, src: &str) -> Result<String> {
+        crate::net::picture(self.http.get(self.picture_url(src)?).header("authorization", &self.auth)).await
+    }
+
+    fn picture_url(&self, src: &str) -> Result<String> {
+        let page = format!("{}/{}/", self.base, self.path());
+        let url = crate::net::resolve(src.strip_prefix('/').filter(|s| s.starts_with("uploads/")).unwrap_or(src), &page)?;
+        if !crate::net::same_origin(&url, &self.base) {
+            return Err(Error::Invalid(format!("{src} is not on {}", self.base)));
+        }
+        // Newer links name the project by id: /-/project/<id>/uploads/<secret>/<file>.
+        let by_id = url.path().strip_prefix("/-/project/").and_then(|p| p.split_once("/uploads/")).filter(|(id, _)| id.bytes().all(|b| b.is_ascii_digit()));
+        Ok(match (url.as_str().strip_prefix(&format!("{page}uploads/")), by_id) {
+            (Some(rest), _) => format!("{}/api/v4{}/uploads/{rest}", self.base, self.rp()),
+            (None, Some((id, rest))) => format!("{}/api/v4/projects/{id}/uploads/{rest}", self.base),
+            (None, None) => url.to_string(),
+        })
+    }
+
     fn path(&self) -> String {
         format!("{}/{}", self.repo.owner, self.repo.repo)
     }
@@ -396,6 +417,19 @@ impl GitLab {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pictures_go_to_the_uploads_api_and_never_off_the_host() {
+        let g = GitLab::new(RepoRef { owner: "acme/web".into(), repo: "app".into(), ..Default::default() }, "https://git.acme.test/", "Bearer t".into());
+        let api = "https://git.acme.test/api/v4/projects/acme%2Fweb%2Fapp/uploads/0a1b/shot.png";
+        assert_eq!(g.picture_url("/uploads/0a1b/shot.png").unwrap(), api);
+        assert_eq!(g.picture_url("https://git.acme.test/acme/web/app/uploads/0a1b/shot.png").unwrap(), api);
+        assert_eq!(g.picture_url("/-/project/7/uploads/0a1b/shot.png").unwrap(), "https://git.acme.test/api/v4/projects/7/uploads/0a1b/shot.png");
+        assert_eq!(g.picture_url("/acme/web/app/-/raw/main/logo.png").unwrap(), "https://git.acme.test/acme/web/app/-/raw/main/logo.png");
+        for off in ["https://evil.test/uploads/x/y.png", "http://git.acme.test/uploads/x/y.png", "//evil.test/a.png", "https://git.acme.test:8443/a.png"] {
+            assert!(g.picture_url(off).is_err(), "{off}");
+        }
+    }
 
     #[test]
     fn reads_merge_request_states() {

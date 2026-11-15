@@ -1,7 +1,8 @@
-import { Fragment, type ReactNode } from "react";
+import { Fragment, type ReactNode, useContext } from "react";
 
 import { openExternal } from "../api/transport";
 import { Icon } from "./Icon";
+import { Picture, PictureSource } from "./Picture";
 
 /** A node of Atlassian Document Format, the shape of a Jira description. */
 export interface AdfNode {
@@ -100,13 +101,20 @@ function node(n: AdfNode, key: number): ReactNode {
     case "blockCard":
     case "embedCard":
       return <Fragment key={key}>{link(a.url, a.url)}</Fragment>;
-    // Attachments need the Jira session to load.
     case "media":
     case "mediaInline":
-      return <span key={key} className="faint">[Attachment, open in Jira to see it]</span>;
+      return <Media key={key} a={a} />;
     default:
       return <Fragment key={key}>{kids}</Fragment>;
   }
+}
+
+/** A picture in a Jira text, where the screen allows them: a link, or an attachment known by its name only, which the
+ * app loads with the Jira sign-in. Other files, and attachments with no name, stay a note. */
+function Media({ a }: { a: Record<string, any> }) {
+  const source = useContext(PictureSource);
+  const src = a.type === "external" ? a.url : a.alt;
+  return source && typeof src === "string" && src ? <Picture src={src} alt={a.alt ?? ""} /> : <span className="faint">[Attachment, open in Jira to see it]</span>;
 }
 
 /** A Jira description, laid out as Jira shows it. */

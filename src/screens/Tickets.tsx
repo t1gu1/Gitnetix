@@ -1,15 +1,16 @@
-import { useState, type CSSProperties, type ReactNode } from "react";
+import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
 
 import { useAction, useFixVersions, useOverview, useProjectPrefs, useProjects, useTicketComments, useTicketFields, useTicketStatuses, useTickets } from "../api/hooks";
-import { openExternal } from "../api/transport";
-import type { FieldOption, Suggestion, Ticket } from "../api/types";
+import { openExternal, rpc } from "../api/transport";
+import type { FieldOption, Suggestion, Ticket, TicketComment } from "../api/types";
 import { MenuChoice } from "../components/AgentPicker";
-import { Adf } from "../components/Adf";
+import { Adf, type AdfNode } from "../components/Adf";
 import { Avatar } from "../components/Avatar";
 import { ContextMenu, SEARCH_ABOVE } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
+import { PictureSource } from "../components/Picture";
 import { Resizer, usePaneWidth } from "../components/Resizer";
-import { ago, Busy, Empty, EmptyState, ErrorBox, Header, initials, Loading, Markdown, MEDIA, MediaAsk, releaseTagLabel, Seg, swipeProps } from "../components/ui";
+import { ago, Busy, Empty, EmptyState, ErrorBox, Header, initials, Loading, Markdown, MEDIA, MediaAsk, PICTURES, releaseTagLabel, Seg, swipeProps } from "../components/ui";
 import { plural } from "../lib/format";
 import { useNav } from "../lib/nav";
 import { useStored } from "../lib/stored";
@@ -258,9 +259,19 @@ function TicketDetail({
 }) {
   const nav = useNav();
   const prefs = useProjectPrefs(nav.projectId);
-  // GitHub issues only: the other trackers' descriptions are not GitHub Markdown.
+  // Only GitHub's Markdown holds HTML; the other trackers' show their pictures, and any tag stays text.
   const github = t.source === "github";
-  const media = github && prefs.dialogs.prMedia;
+  const media = prefs.dialogs.prMedia;
+  const comments = useTicketComments(t);
+  // Pictures behind the tracker's sign-in load through the app, once the project allows pictures.
+  const pictures = useMemo(
+    () => ({ key: `${t.source}:${t.conn}:${t.id}`, load: (url: string) => rpc<string>("tickets.picture", { source: t.source, conn: t.conn, id: t.id, url }) }),
+    [t.source, t.conn, t.id],
+  );
+  const hasPictures = (text: string, doc?: AdfNode) => (doc ? JSON.stringify(doc).includes('"type":"media') : (github ? MEDIA : PICTURES).test(text));
+  const ask = <MediaAsk html={github} onShow={() => prefs.setDialogs({ prMedia: true })} />;
+  const descHidden = !media && hasPictures(t.description, t.doc);
+  const commentsHidden = !media && !descHidden && (comments.data ?? []).some((c) => [c, ...c.replies].some((r) => hasPictures(r.body, r.doc)));
   const statuses = useTicketStatuses(t);
   const setStatus = useAction<unknown, { source: string; conn: string; id: string; to: string; name: string }>("tickets.setStatus", {
     invalidate: [["tickets", nav.projectId]],
@@ -295,6 +306,7 @@ function TicketDetail({
   const kind = /bug|fix/i.test(t.kind) ? "fix" : "feat";
   const rel = releases.find((r) => r.version === t.release);
   const done = t.criteria.filter((c) => c.done).length;
+  const source = media ? pictures : null;
   return (
     <div className="detail-inner">
       <div className="col" style={{ gap: 8 }}>
@@ -463,16 +475,16 @@ function TicketDetail({
       </section>
       <section className="section">
         <h2>Description</h2>
-        {t.doc ? (
-          <Adf doc={t.doc} />
-        ) : t.description ? (
-          <>
-            {github && !media && MEDIA.test(t.description) && <MediaAsk onShow={() => prefs.setDialogs({ prMedia: true })} />}
-            <Markdown text={t.description} html={media} breaks={github} />
-          </>
-        ) : (
-          <p style={{ margin: 0, lineHeight: 1.6, whiteSpace: "pre-wrap" }} className={t.description ? "" : "muted"}>{t.description || "No description."}</p>
-        )}
+        {descHidden && ask}
+        <PictureSource.Provider value={source}>
+          {t.doc ? (
+            <Adf doc={t.doc} />
+          ) : t.description ? (
+            <Markdown text={t.description} html={media && (github || "pictures")} breaks={github} />
+          ) : (
+            <p style={{ margin: 0, lineHeight: 1.6, whiteSpace: "pre-wrap" }} className={t.description ? "" : "muted"}>{t.description || "No description."}</p>
+          )}
+        </PictureSource.Provider>
       </section>
       {t.criteria.length > 0 && !t.doc && (
         <section className="section">
@@ -488,52 +500,46 @@ function TicketDetail({
           </ul>
         </section>
       )}
-      {t.source === "linear" ? (
-        <Comments t={t} />
-      ) : (
-        <div className="hint">{t.comments === 0 ? `No comments in ${SRC[t.source]}.` : `${plural(t.comments, "comment")} in ${SRC[t.source]}.`}</div>
-      )}
+      <PictureSource.Provider value={source}>
+        <Comments t={t} html={media && (github || "pictures")} ask={commentsHidden && ask} />
+      </PictureSource.Provider>
     </div>
   );
 }
 
-/** Linear's comment threads, each first comment with its replies under it and a box to reply, then a box for a new comment. */
-function Comments({ t }: { t: Ticket }) {
+/**
+ * The ticket's comment threads, each first comment with its replies under it.
+ * Linear's also get a box to reply in each thread, then a box for a new comment.
+ */
+function Comments({ t, html, ask }: { t: Ticket; html: boolean | "pictures"; ask?: ReactNode }) {
   const q = useTicketComments(t);
   const threads = q.data ?? [];
   const count = threads.reduce((n, c) => n + 1 + c.replies.length, 0);
+  const linear = t.source === "linear";
   return (
     <section className="section">
       <h2>Comments {count > 0 && <span className="faint" style={{ fontWeight: 400 }}>{count}</span>}</h2>
+      {ask}
       {q.isLoading ? (
         <span className="muted">Loading comments…</span>
       ) : q.error ? (
         <ErrorBox error={q.error} />
       ) : threads.length === 0 ? (
-        <span className="muted">No comments in Linear.</span>
+        <span className="muted">No comments in {SRC[t.source]}.</span>
       ) : (
         <div className="col" style={{ gap: 10 }}>
           {threads.map((c) => (
             <article key={c.id} className="thread">
               {[c, ...c.replies].map((r, i) => (
                 // Replies line up under the first comment's text, as in Linear.
-                <div key={r.id} className="comment" style={i ? { paddingLeft: 54 } : undefined}>
-                  <span className="avatar" aria-hidden="true">{initials(r.author)}</span>
-                  <div className="col grow" style={{ gap: 6, minWidth: 0 }}>
-                    <div className="row" style={{ gap: 8 }}>
-                      <span style={{ fontWeight: 500 }}>{r.author}</span>
-                      <span className="faint" style={{ fontSize: 12 }}>{ago(r.createdAt)}</span>
-                    </div>
-                    <div className="comment-body"><Markdown text={r.body} breaks /></div>
-                  </div>
-                </div>
+                <Comment key={r.id} c={r} html={html} style={i ? { paddingLeft: 54 } : undefined} />
               ))}
-              <CommentBox t={t} parent={c.id} />
+              {linear && <CommentBox t={t} parent={c.id} />}
             </article>
           ))}
         </div>
       )}
-      {!q.isLoading && <CommentBox key={t.id} t={t} />}
+      {linear && !q.isLoading && <CommentBox key={t.id} t={t} />}
     </section>
   );
 }
@@ -555,6 +561,22 @@ function CommentBox({ t, parent }: { t: Ticket; parent?: string }) {
           <Busy on={post.isPending}>{null}</Busy>
           {parent ? "Reply" : "Comment"}
         </button>
+      </div>
+    </div>
+  );
+}
+
+/** One comment: Jira's in its own format, the others' as Markdown (HTML only from GitHub). */
+function Comment({ c, html, style }: { c: TicketComment; html: boolean | "pictures"; style?: CSSProperties }) {
+  return (
+    <div className="comment" style={style}>
+      <span className="avatar" aria-hidden="true">{initials(c.author)}</span>
+      <div className="col grow" style={{ gap: 6, minWidth: 0 }}>
+        <div className="row" style={{ gap: 8 }}>
+          <span style={{ fontWeight: 500 }}>{c.author}</span>
+          <span className="faint" style={{ fontSize: 12 }}>{ago(c.createdAt)}</span>
+        </div>
+        <div className="comment-body">{c.doc ? <Adf doc={c.doc} /> : <Markdown text={c.body} html={html} breaks />}</div>
       </div>
     </div>
   );

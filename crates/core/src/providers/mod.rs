@@ -176,6 +176,12 @@ impl PrHost {
     pub async fn react(&self, subject_id: &str, content: &str, add: bool) -> Result<()> {
         each!(self, h => h.react(subject_id, content, add).await)
     }
+
+    /// A picture of this host that needs the sign-in (a private repository's, an upload), as a data: URL.
+    pub async fn picture(&self, src: &str) -> Result<String> {
+        each!(self, h => h.picture(src).await)
+    }
+
     /// Empty for Azure DevOps, whose branch policies are not looked up.
     pub async fn protected_branches(&self) -> Result<Vec<String>> {
         match self {

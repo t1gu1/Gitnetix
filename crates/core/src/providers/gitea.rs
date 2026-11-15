@@ -110,6 +110,16 @@ impl Gitea {
         Ok(out)
     }
 
+    /// A picture uploaded to this Gitea (`/attachments/<uuid>`), as a data: URL. Gitea takes the OAuth token there.
+    pub async fn picture(&self, src: &str) -> Result<String> {
+        let base = self.api.trim_end_matches("/api/v1");
+        let url = crate::net::resolve(src, base)?;
+        if !crate::net::same_origin(&url, base) {
+            return Err(Error::Invalid(format!("{src} is not on {base}")));
+        }
+        crate::net::picture(self.http.get(url).header("authorization", &self.auth)).await
+    }
+
     fn rp(&self) -> String {
         format!("/repos/{}/{}", self.repo.owner, self.repo.repo)
     }

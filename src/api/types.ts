@@ -839,12 +839,14 @@ export interface TicketFields {
   labels: FieldOption[];
 }
 
-/** A Linear comment; a thread's first comment has its replies, oldest first. */
+/** A ticket's comment; a Linear thread's first comment has its replies, oldest first. */
 export interface TicketComment {
   id: string;
   author: string;
-  /** Markdown. */
+  /** Markdown; plain text from Asana. */
   body: string;
+  /** Jira's comment as Atlassian Document Format. */
+  doc?: AdfNode;
   createdAt: string;
   replies: TicketComment[];
 }

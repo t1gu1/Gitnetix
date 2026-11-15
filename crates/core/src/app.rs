@@ -6229,13 +6229,33 @@ impl Gitnetix {
         }
     }
 
-    /// A Linear ticket's comment threads with their replies. The other trackers only give a count, on the ticket.
+    /// Ticket `id`'s comments, oldest first; Linear's threads with their replies.
     pub async fn ticket_comments(&self, source: &str, conn: &str, id: &str) -> Result<Vec<tickets::TicketComment>> {
-        if source != "linear" {
-            return Err(Error::Invalid(format!("{source} comments don't show here, only their count")));
+        let integ = self.store.read(|c| c.integrations.clone());
+        let missing = || Error::NotConnected(source.into());
+        match source {
+            "jira" => {
+                let j = integ.jira.iter().find(|j| j.id == conn).ok_or_else(missing)?;
+                tickets::jira_comments(j, &tickets::jira_auth::token(j).await?, id).await
+            }
+            "trello" => {
+                let t = integ.trello.iter().find(|t| t.id == conn).ok_or_else(missing)?;
+                tickets::trello_comments(t, &tickets::trello_token(t).await?, id).await
+            }
+            "asana" => {
+                let a = integ.asana.iter().find(|a| a.id == conn).ok_or_else(missing)?;
+                tickets::asana_comments(&tickets::asana_token(a).await?, id).await
+            }
+            "linear" => {
+                let l = integ.linear.iter().find(|l| l.id == conn).ok_or_else(missing)?;
+                tickets::linear_comments(&tickets::linear_token(l).await?, id).await
+            }
+            "github" => {
+                let (gh, number) = self.ticket_github(conn, id).await?;
+                tickets::github_comments(&gh, number).await
+            }
+            other => Err(Error::Invalid(format!("unknown tracker {other}"))),
         }
-        let l = self.store.read(|c| c.integrations.linear.iter().find(|l| l.id == conn).cloned()).ok_or_else(|| Error::NotConnected(source.into()))?;
-        tickets::linear_comments(&tickets::linear_token(&l).await?, id).await
     }
 
     /// Posts a comment on a Linear ticket, or a reply under the thread whose first comment is `parent`.
@@ -6248,6 +6268,37 @@ impl Gitnetix {
         }
         let l = self.store.read(|c| c.integrations.linear.iter().find(|l| l.id == conn).cloned()).ok_or_else(|| Error::NotConnected(source.into()))?;
         tickets::linear_add_comment(&tickets::linear_token(&l).await?, id, body, parent).await
+    }
+
+    /// A picture in ticket `id` that needs the tracker's sign-in, as a data: URL. The sign-in only goes to the tracker.
+    pub async fn ticket_picture(&self, source: &str, conn: &str, id: &str, src: &str) -> Result<String> {
+        let integ = self.store.read(|c| c.integrations.clone());
+        let missing = || Error::NotConnected(source.into());
+        match source {
+            "jira" => {
+                let j = integ.jira.iter().find(|j| j.id == conn).ok_or_else(missing)?;
+                tickets::jira_picture(j, &tickets::jira_auth::token(j).await?, id, src).await
+            }
+            "trello" => {
+                let t = integ.trello.iter().find(|t| t.id == conn).ok_or_else(missing)?;
+                tickets::trello_picture(t, &tickets::trello_token(t).await?, src).await
+            }
+            "linear" => {
+                let l = integ.linear.iter().find(|l| l.id == conn).ok_or_else(missing)?;
+                tickets::linear_picture(&tickets::linear_token(l).await?, src).await
+            }
+            "github" => self.ticket_github(conn, id).await?.0.picture(src).await,
+            other => Err(Error::Invalid(format!("{other} pictures can't load here"))),
+        }
+    }
+
+    /// The GitHub client and issue number of GitHub ticket `id` in repository `conn`.
+    async fn ticket_github(&self, conn: &str, id: &str) -> Result<(GitHub, u64)> {
+        let (owner, repo) = tickets::github_conn(conn).ok_or_else(|| Error::Invalid(format!("“{conn}” is not a GitHub repository")))?;
+        let number: u64 = id.parse().map_err(|_| Error::Invalid(format!("“{id}” is not a GitHub issue number")))?;
+        let api = self.store.read(|c| c.integrations.github_api.clone()).filter(|s| !s.is_empty());
+        let token = providers::github_auth::token(None).await?;
+        Ok((GitHub::new(RepoRef { owner: owner.into(), repo: repo.into(), ..Default::default() }, token, api), number))
     }
 
     /// Whether a Linear connection of the project has a team with cycles turned on, Linear's sprints.

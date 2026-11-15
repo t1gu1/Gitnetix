@@ -1,11 +1,12 @@
 import { useMutationState, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 
 import { useAction, useOverview, usePendingBranches, usePr, useProjectPrefs, usePrs } from "../api/hooks";
-import { openExternal, RpcError } from "../api/transport";
+import { openExternal, rpc, RpcError } from "../api/transport";
 import type { PrDetail, PrSummary, PrThread } from "../api/types";
 import { Avatar } from "../components/Avatar";
 import { Icon } from "../components/Icon";
+import { PictureSource } from "../components/Picture";
 import { Resizer, usePaneWidth } from "../components/Resizer";
 import { ago, Busy, Empty, EmptyState, Header, initials, Loading, Markdown, MEDIA, MediaAsk, Modal, Seg, swipeProps } from "../components/ui";
 import { plural } from "../lib/format";
@@ -183,6 +184,9 @@ function Detail({ pid, number }: { pid: string; number: number }) {
   const host = useHost(pid);
   const prefs = useProjectPrefs(pid);
   const media = prefs.dialogs.prMedia;
+  // Pictures behind the host's sign-in (private repository, GitLab or Gitea upload, Azure DevOps attachment) load through the app.
+  const pictures = useMemo(() => ({ key: `pr:${pid}`, load: (url: string) => rpc<string>("prs.picture", { projectId: pid, url }) }), [pid]);
+  const source = media ? pictures : null;
   const inv = [["pr", pid, number], ["prs", pid]];
   // The branch tree refreshes on its own: the merge fetches origin, which says the project changed.
   const merge = useAction("prs.merge", {
@@ -452,7 +456,9 @@ function Detail({ pid, number }: { pid: string; number: number }) {
           </div>
         ) : d.body ? (
           <div className="card" style={{ padding: "6px 16px" }}>
-            <Markdown text={d.body} html={media} breaks />
+            <PictureSource.Provider value={source}>
+              <Markdown text={d.body} html={media} breaks />
+            </PictureSource.Provider>
           </div>
         ) : (
           <span className="muted">No description.</span>
@@ -466,7 +472,9 @@ function Detail({ pid, number }: { pid: string; number: number }) {
           <span className="grow" />
           <Seg label="Show" value={filter} onChange={setFilter} options={[{ value: "all", label: "All" }, { value: "open", label: "Unresolved" }]} />
         </div>
-        {threads.map((t) => <ThreadView key={t.id} pid={pid} number={number} t={t} media={media} />)}
+        <PictureSource.Provider value={source}>
+          {threads.map((t) => <ThreadView key={t.id} pid={pid} number={number} t={t} media={media} />)}
+        </PictureSource.Provider>
         {threads.length === 0 && <span className="muted">{d.threads.length === 0 ? "No comments yet." : "Every conversation is resolved."}</span>}
         <NewComment pid={pid} number={number} />
       </section>

@@ -575,7 +575,7 @@ export const useTicketComments = (t?: Ticket) =>
   useQuery({
     queryKey: ["ticketComments", t?.source, t?.conn, t?.id],
     queryFn: () => rpc<TicketComment[]>("tickets.comments", { source: t!.source, conn: t!.conn, id: t!.id }),
-    enabled: !!t?.id && t.source === "linear",
+    enabled: !!t?.id,
     retry: false,
     staleTime: 60_000,
   });

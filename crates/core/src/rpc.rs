@@ -38,7 +38,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("projects.setHidden", "Close or reopen a project's tab (data kept)", "projectId, hidden"),
     ("projects.reorder", "Set the order of projects", "ids: string[]"),
     ("projects.setGenLang", "Language AI writes in for a project", "projectId, commit?, pr?, release?"),
-    ("projects.setPrefs", "Remembered merge, commit and dialog options for a project", "projectId, merge?: {squash?, squashMessage?: branch|ai, rebase?, deleteBranch?, push?, resolveConflicts?}, commit?: {autoPush?}, dialogs?: {finish?: continue|merge, finishSwitch?, newWorktree?, newAgent?, shipPush?, shipChangelog?, deleteOrigin?, cleanupOrigin?, prMedia? (pictures and HTML in pull requests and GitHub issues)}, worktreeFiles?: string[] (paths copied from the main checkout into new worktrees), worktreeLinks?: string[] (paths linked instead)"),
+    ("projects.setPrefs", "Remembered merge, commit and dialog options for a project", "projectId, merge?: {squash?, squashMessage?: branch|ai, rebase?, deleteBranch?, push?, resolveConflicts?}, commit?: {autoPush?}, dialogs?: {finish?: continue|merge, finishSwitch?, newWorktree?, newAgent?, shipPush?, shipChangelog?, deleteOrigin?, cleanupOrigin?, prMedia? (pictures and HTML in pull requests and tickets)}, worktreeFiles?: string[] (paths copied from the main checkout into new worktrees), worktreeLinks?: string[] (paths linked instead)"),
     ("workspace.overview", "Releases, their branches and repo state; `quick` skips history checks when nothing is cached", "projectId, quick?"),
     ("workspace.files", "Changed files of a branch, or of one commit when `commit` is given", "projectId, branch, mode: branch|wip|project, commit?"),
     ("workspace.diff", "Diff of one file; in wip mode `staged` picks the side; `commit` diffs that commit (`from` = the file's old path when that commit renamed it); `full` keeps the whole file", "projectId, branch, mode, path, staged?, commit?, from?, full?"),
@@ -143,6 +143,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("templates.preview", "Run a template on real project data", "projectId, id, language"),
     ("prs.list", "Pull requests of the project", "projectId"),
     ("prs.get", "Pull request details, checks, reviews and conversations", "projectId, number"),
+    ("prs.picture", "A picture of the project's Git host that needs the sign-in (private repository, GitLab or Gitea upload, Azure DevOps attachment), as a data: URL; relative links read from the host", "projectId, url"),
     ("prs.generate", "AI title and description for a branch", "projectId, branch"),
     ("prs.create", "Push and open a PR from a branch", "projectId, branch, draft?, title?, body?"),
     ("prs.update", "Edit PR title and description", "projectId, number, title, body"),
@@ -163,8 +164,9 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("tickets.statuses", "Statuses a ticket can move to (Jira transitions, Trello lists, Asana sections, Linear workflow states, GitHub project board columns and closed/open)", "source, conn, id"),
     ("tickets.setStatus", "Move a ticket to one of tickets.statuses", "source, conn, id, to"),
     ("tickets.fields", "Priorities, issue types and labels a Jira or Linear ticket can be set to (Jira: priorities and types; Linear: priorities and labels); empty for the other trackers", "source, conn, id"),
-    ("tickets.comments", "A Linear ticket's comment threads, oldest first, each with its replies (id, author, body as Markdown, createdAt, replies)", "source, conn, id"),
+    ("tickets.comments", "A ticket's comments, oldest first (id, author, body as Markdown, doc for Jira's ADF, createdAt, replies: a Linear thread's replies under its first comment)", "source, conn, id"),
     ("tickets.comment", "Post a comment (Markdown) on a Linear ticket; with parentId (the id of a thread's first comment from tickets.comments), a reply in that thread", "source, conn, id, body, parentId?"),
+    ("tickets.picture", "A picture in a ticket that needs the tracker's sign-in (a Jira attachment's name or link, a Trello attachment, a Linear upload, a private GitHub picture), as a data: URL", "source, conn, id, url"),
     ("tickets.setFields", "Set a Jira or Linear ticket's priority, type or labels to ids from tickets.fields; labels replaces every label, a missing field stays as it is", "source, conn, id, priority?, kind?, labels?"),
     ("jira.versions", "Versions a Jira ticket's fix version can be set to", "id (connection), key"),
     ("jira.setFixVersions", "Set a Jira ticket's fix versions to exactly these version ids; empty clears them", "id (connection), key, versions"),
@@ -1099,6 +1101,7 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
             let gh = k.pr_host(&s(&p, "projectId")?).await?;
             to(gh.detail(u(&p, "number")?).await?)
         }
+        "prs.picture" => to(k.pr_host(&s(&p, "projectId")?).await?.picture(&s(&p, "url")?).await?),
         "prs.generate" => {
             let (title, body) = k.generate_pr(&s(&p, "projectId")?, &s(&p, "branch")?).await?;
             to(json!({ "title": title, "body": body }))
@@ -1212,6 +1215,7 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
             k.ticket_add_comment(&s(&p, "source")?, &os(&p, "conn").unwrap_or_default(), &s(&p, "id")?, &s(&p, "body")?, os(&p, "parentId").as_deref()).await?;
             ok()
         }
+        "tickets.picture" => to(k.ticket_picture(&s(&p, "source")?, &os(&p, "conn").unwrap_or_default(), &s(&p, "id")?, &s(&p, "url")?).await?),
         "tickets.setFields" => {
             let edit: crate::tickets::FieldEdit = serde_json::from_value(p.clone())?;
             k.ticket_fields(&s(&p, "source")?, &os(&p, "conn").unwrap_or_default(), &s(&p, "id")?, Some(&edit)).await?;

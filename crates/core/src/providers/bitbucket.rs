@@ -171,6 +171,15 @@ impl Bitbucket {
         Ok(out)
     }
 
+    /// A picture uploaded to Bitbucket, as a data: URL.
+    pub async fn picture(&self, src: &str) -> Result<String> {
+        let url = crate::net::resolve(src, "https://bitbucket.org")?;
+        if !crate::net::same_origin(&url, "https://bitbucket.org") {
+            return Err(Error::Invalid(format!("{src} is not on Bitbucket")));
+        }
+        crate::net::picture(self.http.get(url).header("authorization", &self.auth)).await
+    }
+
     fn rp(&self) -> String {
         format!("/repositories/{}/{}", self.repo.owner, self.repo.repo)
     }

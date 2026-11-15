@@ -121,8 +121,11 @@ pub struct FieldEdit {
 pub struct TicketComment {
     pub id: String,
     pub author: String,
-    /// Markdown.
+    /// Markdown; plain text from Asana, and Jira's `doc` flattened.
     pub body: String,
+    /// Jira's comment as Atlassian Document Format.
+    #[serde(skip_serializing_if = "Value::is_null")]
+    pub doc: Value,
     pub created_at: String,
     pub replies: Vec<TicketComment>,
 }
@@ -1265,7 +1268,8 @@ pub async fn linear_token(conf: &LinearConf) -> Result<String> {
 /// A Linear GraphQL call's `data`, `token` being the Authorization header. Linear answers a query it refuses with 200
 /// and `errors`, so those fail too.
 async fn linear_gql(token: &str, query: &str, variables: Value) -> Result<Value> {
-    let res = http().post("https://api.linear.app/graphql").header("Authorization", token).json(&json!({ "query": query, "variables": variables })).send().await?;
+    // Signed upload links: a picture from uploads.linear.app loads in the app with no token for an hour.
+    let res = http().post("https://api.linear.app/graphql").header("Authorization", token).header("public-file-urls-expire-in", "3600").json(&json!({ "query": query, "variables": variables })).send().await?;
     let status = res.status();
     let text = res.text().await.unwrap_or_default();
     let mut v: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
@@ -1495,7 +1499,7 @@ fn linear_threads(nodes: &Value) -> Vec<TicketComment> {
         .map(|c| {
             let s = |v: &Value| v.as_str().unwrap_or("").to_string();
             let author = [&c["user"]["name"], &c["botActor"]["name"], &c["externalUser"]["name"]].into_iter().find_map(|n| n.as_str()).unwrap_or("Unknown");
-            TicketComment { id: s(&c["id"]), author: author.into(), body: s(&c["body"]), created_at: s(&c["createdAt"]), replies: linear_threads(&c["children"]["nodes"]) }
+            TicketComment { id: s(&c["id"]), author: author.into(), body: s(&c["body"]), doc: Value::Null, created_at: s(&c["createdAt"]), replies: linear_threads(&c["children"]["nodes"]) }
         })
         .collect();
     // Linear's dates are all ISO 8601 in UTC, so they sort as text.
@@ -1719,6 +1723,94 @@ pub fn extract_keys(text: &str) -> Vec<String> {
         }
     }
     v
+}
+
+// ---------- Comments and pictures ----------
+
+/// A comment with no replies, as GitHub, Jira, Trello and Asana have them.
+fn flat_comment(id: &Value, author: &Value, body: String, created_at: String) -> TicketComment {
+    let id = id.as_str().map(String::from).unwrap_or_else(|| id.to_string());
+    TicketComment { id, author: author.as_str().unwrap_or("Unknown").into(), body, doc: Value::Null, created_at, replies: Vec::new() }
+}
+
+/// The Jira issue's comments, oldest first, each with its ADF in `doc`.
+// shortcut: the first 100 comments only, page with startAt if a ticket ever has more.
+pub async fn jira_comments(conf: &JiraConf, token: &str, key: &str) -> Result<Vec<TicketComment>> {
+    let res = jira_req(conf, token, reqwest::Method::GET, &format!("/rest/api/3/issue/{key}/comment?orderBy=created&maxResults=100")).send().await?;
+    let v = check(res, "Jira").await?;
+    Ok(v["comments"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|c| {
+            let mut body = String::new();
+            adf_text(&c["body"], &mut body, &mut Vec::new());
+            let created = jira_date(&c["created"]).map(|d| d.to_rfc3339()).unwrap_or_default();
+            TicketComment { doc: c["body"].clone(), ..flat_comment(&c["id"], &c["author"]["displayName"], body, created) }
+        })
+        .collect())
+}
+
+/// The Trello card's comments, oldest first.
+pub async fn trello_comments(conf: &TrelloConf, token: &str, card: &str) -> Result<Vec<TicketComment>> {
+    let v = check(trello_req(conf, token, reqwest::Method::GET, &format!("/cards/{card}/actions?filter=commentCard&limit=1000")).send().await?, "Trello").await?;
+    // Trello lists the newest first.
+    let mut out: Vec<TicketComment> =
+        v.as_array().into_iter().flatten().map(|a| flat_comment(&a["id"], &a["memberCreator"]["fullName"], a["data"]["text"].as_str().unwrap_or("").into(), a["date"].as_str().unwrap_or("").into())).collect();
+    out.reverse();
+    Ok(out)
+}
+
+/// The Asana task's comments, oldest first: its stories that are comments, not changes.
+pub async fn asana_comments(token: &str, task: &str) -> Result<Vec<TicketComment>> {
+    let url = format!("https://app.asana.com/api/1.0/tasks/{task}/stories?opt_fields=resource_subtype,text,created_by.name,created_at&limit=100");
+    let v = check(http().get(url).bearer_auth(token).send().await?, "Asana").await?;
+    Ok(v["data"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|s| s["resource_subtype"] == "comment_added")
+        .map(|s| flat_comment(&s["gid"], &s["created_by"]["name"], s["text"].as_str().unwrap_or("").into(), s["created_at"].as_str().unwrap_or("").into()))
+        .collect())
+}
+
+/// The GitHub issue's comments, oldest first.
+pub async fn github_comments(gh: &GitHub, number: u64) -> Result<Vec<TicketComment>> {
+    Ok(gh.issue_comments(number).await?.iter().map(|c| flat_comment(&c["id"], &c["user"]["login"], c["body"].as_str().unwrap_or("").into(), c["created_at"].as_str().unwrap_or("").into())).collect())
+}
+
+/// A picture on the Jira site, as a data: URL: a link to the site, else the name of one of the issue's attachments, which
+/// is all a picture in a description or comment (an ADF media node) says of its file.
+// shortcut: two attachments with the same name show the first, match by media id if users hit it.
+pub async fn jira_picture(conf: &JiraConf, token: &str, key: &str, src: &str) -> Result<String> {
+    let site = conf.base_url.trim_end_matches('/');
+    let path = match reqwest::Url::parse(src) {
+        Ok(url) if crate::net::same_origin(&url, site) => url.query().map_or_else(|| url.path().to_string(), |q| format!("{}?{q}", url.path())),
+        Ok(_) => return Err(Error::Invalid(format!("{src} is not on {site}"))),
+        Err(_) => {
+            let v = check(jira_req(conf, token, reqwest::Method::GET, &format!("/rest/api/3/issue/{key}?fields=attachment")).send().await?, "Jira").await?;
+            let a = v["fields"]["attachment"].as_array().into_iter().flatten().find(|a| a["filename"] == src).ok_or_else(|| Error::Invalid(format!("{key} has no attachment {src}")))?;
+            format!("/rest/api/3/attachment/content/{}", a["id"].as_str().unwrap_or(""))
+        }
+    };
+    crate::net::picture(jira_req(conf, token, reqwest::Method::GET, &path)).await
+}
+
+/// A picture attached to a Trello card, as a data: URL: its download link needs the sign-in.
+pub async fn trello_picture(conf: &TrelloConf, token: &str, src: &str) -> Result<String> {
+    let url = reqwest::Url::parse(src).map_err(|e| Error::Invalid(format!("{src}: {e}")))?;
+    let path = url.path().strip_prefix("/1/").filter(|_| crate::net::same_origin(&url, "https://trello.com") || crate::net::same_origin(&url, "https://api.trello.com"));
+    let path = path.ok_or_else(|| Error::Invalid(format!("{src} is not a Trello attachment")))?;
+    crate::net::picture(trello_req(conf, token, reqwest::Method::GET, &format!("/{path}"))).await
+}
+
+/// A picture uploaded to Linear, as a data: URL, for a link that came without its signature.
+pub async fn linear_picture(token: &str, src: &str) -> Result<String> {
+    let url = reqwest::Url::parse(src).map_err(|e| Error::Invalid(format!("{src}: {e}")))?;
+    if !crate::net::same_origin(&url, "https://uploads.linear.app") {
+        return Err(Error::Invalid(format!("{src} is not a Linear upload")));
+    }
+    crate::net::picture(http().get(url).header("Authorization", token)).await
 }
 
 #[cfg(test)]
