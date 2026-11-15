@@ -11,6 +11,16 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+### Added (App)
+- Ticket details list each comment with its replies for GitHub, Jira, Trello, Asana and Linear.
+- You can post a new comment or reply to a thread on Linear tickets.
+- Projects keep their own list of branch types, edited in Settings and the new branch dialog. A branch name with an unlisted prefix such as `wip/` adds that prefix to the list.
+- The ticket list shows each ticket's priority and sorts by it, using each tracker's own priority field.
+- Pictures in tickets that need the tracker's or host's sign-in load through the app when the project allows pictures. Pictures from trackers other than GitHub now show too.
+
+### Changed (App)
+- The fix/feature label on the ticket start button is replaced.
+
 ## [0.21.1] - 2026-11-14
 
 ### Added (App)
