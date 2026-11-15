@@ -544,7 +544,7 @@ export const Markdown = memo(function Markdown({ text, html = false, breaks = fa
     }
     const h = /^(#{1,6})\s+(.*)$/.exec(l);
     if (h) {
-      blocks.push(<h3 key={i}>{inline(h[2], "h", html)}</h3>);
+      blocks.push(createElement(`h${h[1].length}`, { key: i }, inline(h[2], "h", html)));
       i++;
       continue;
     }

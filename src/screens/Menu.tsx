@@ -318,8 +318,11 @@ function ProjectSettings({ project: p }: { project: Project }) {
         <WorktreeFiles key={p.id} files={prefs.worktreeLinks} onSave={prefs.setWorktreeLinks} label="Worktree links" placeholder={LINK_PLACEHOLDER} />
       </Group>
 
-      <Group title="Pull requests & tickets" hint="Pictures load from the sites that host them, which see your IP address. HTML keeps to the tags GitHub allows, with no scripts or styles. Tickets from other trackers than GitHub show pictures only.">
-        {dialogCheck("prMedia", "Show pictures and HTML in descriptions and comments")}
+      <Group
+        title="Pictures & HTML"
+        hint="Pictures load from the sites that host them, which see your IP address. HTML keeps to the tags GitHub allows, with no scripts or styles. Tickets from other trackers than GitHub show pictures only. Markdown files like README.md always show their HTML; their pictures, even the ones stored in the repository, wait for this setting too."
+      >
+        {dialogCheck("prMedia", "Show pictures and HTML in pull requests, tickets and Markdown files")}
       </Group>
 
       <Group title="Releases">

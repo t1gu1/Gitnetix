@@ -30,16 +30,17 @@ import {
   useProjects,
 } from "../api/hooks";
 import { isLocal, revealPath, rpc } from "../api/transport";
-import type { AgentSession, BranchView, Commit, FileChange, FileCommit, Hunk, LinePick, MergeResult, Overview, ReleaseView, RenameResult, Stash } from "../api/types";
+import type { AgentSession, Blobs, BranchView, Commit, FileChange, FileCommit, Hunk, LinePick, MergeResult, Overview, ReleaseView, RenameResult, Stash } from "../api/types";
 import { AgentInput, AgentLog, type Choice, type Upload } from "../components/AgentLog";
 import { AgentPicker, useAgentPick, type AgentPick } from "../components/AgentPicker";
 import { DiffView, LargeDiff, type DiffMode, type Staging } from "../components/DiffView";
-import { IMAGE_MODES, ImageDiff, comparable, isImage, useImageMode, type ImageMode } from "../components/ImageDiff";
+import { IMAGE_MODES, ImageDiff, comparable, dataUrl, isImage, useImageMode, type ImageMode } from "../components/ImageDiff";
+import { PictureSource } from "../components/Picture";
 import { ContextMenu, type MenuItem } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
 import { Resizer, usePaneWidth } from "../components/Resizer";
 import { ShellPane, TermTabs, useTermView } from "../components/Shell";
-import { Busy, Confirm, ErrorBox, Loading, Markdown, Modal, Seg, swipeProps } from "../components/ui";
+import { Busy, Confirm, ErrorBox, Loading, Markdown, MediaAsk, Modal, Seg, swipeProps } from "../components/ui";
 import { ago, plural, timeLeft } from "../lib/format";
 import { limitLabel, shownStatus, tasksLabel } from "../lib/agentLog";
 import { startCleanup, useCleaning } from "../lib/cleanups";
@@ -281,6 +282,24 @@ export function Workspace() {
   const oldBlame = oldOk ? blamedOld.data : undefined;
   const blame = newBlame || oldBlame ? { blame: newBlame, old: oldBlame, onPick: (sha: string) => openFileLog(fileLog ?? shown?.path ?? "", sha) } : undefined;
   const showPreview = markdown && preview && typeof text === "string";
+  const prefs = useProjectPrefs(pid);
+  // A README's own pictures load from the repository at the same version. Like a pull request's, none show until the project allows them.
+  const pictures = useMemo(() => {
+    const at = { projectId: pid, branch, mode, staged: shown?.staged, commit: shownCommit };
+    return {
+      key: `md:${JSON.stringify([at, shownStash, shown?.path])}`,
+      hidden: !prefs.dialogs.prMedia,
+      load: async (src: string) => {
+        const path = repoPath(shown?.path ?? "", src);
+        if (!path || !isImage(path)) throw new Error("Not a picture of the repository");
+        const b = await (shownStash ? rpc<Blobs>("stashes.blobs", { projectId: pid, sha: shownStash, path }) : rpc<Blobs>("workspace.blobs", { ...at, path }));
+        const b64 = b.new ?? b.old;
+        if (!b64) throw new Error("Picture not found");
+        return dataUrl(path, b64);
+      },
+    };
+  }, [pid, branch, mode, shown?.path, shown?.staged, shownCommit, shownStash, prefs.dialogs.prMedia]);
+  const hiddenPictures = showPreview && !prefs.dialogs.prMedia && ANY_PICTURE.test(text || "");
   // A WIP file's diff stages or unstages some of its lines. Like whole files, that moves no ref (see WipList).
   type LineMove = { projectId: string; branch: string; path: string; lines: LinePick[] };
   const lineInv = [["files", pid], ["diff", pid], ["blobs", pid], ...(o?.inProgress || view?.inProgress ? [["overview", pid]] : [])];
@@ -547,7 +566,10 @@ export function Workspace() {
                 {blobs.error && (image || unchanged) && <div style={{ padding: 16 }}><ErrorBox error={blobs.error} /></div>}
                 {showPreview ? (
                   <article style={{ maxWidth: 760, margin: "0 auto", padding: "24px 24px 48px", fontFamily: "var(--sans)", fontSize: 14, lineHeight: 1.6 }}>
-                    <Markdown text={text} />
+                    {hiddenPictures && <MediaAsk html={false} onShow={() => prefs.setDialogs({ prMedia: true })} />}
+                    <PictureSource.Provider value={pictures}>
+                      <Markdown text={text} html />
+                    </PictureSource.Provider>
                   </article>
                 ) : (
                   <>
@@ -2698,6 +2720,28 @@ function ShipModal({ pid, release, defaultBranch, onClose }: { pid: string; rele
 }
 
 /** A base64 blob as UTF-8 text; null when it is binary (holds a NUL byte). */
+// A picture in Markdown or an <img>.
+const ANY_PICTURE = /!\[[^\]]*\]\(|<img\s/i;
+
+/** Where a picture link of the Markdown file at `file` points in the repository: next to the file, or from the root with
+ * a leading "/", as on GitHub. Undefined for a web link or one that climbs out of the repository. */
+export function repoPath(file: string, src: string): string | undefined {
+  if (/^[a-z][a-z\d+.-]*:|^\/\//i.test(src)) return undefined;
+  let link = src.replace(/[?#].*$/, "");
+  try {
+    link = decodeURIComponent(link);
+  } catch {
+    // A stray "%" stays as written.
+  }
+  const parts = link.startsWith("/") ? [] : file.split("/").slice(0, -1);
+  for (const p of link.split("/")) {
+    if (p === "..") {
+      if (!parts.pop()) return undefined;
+    } else if (p && p !== ".") parts.push(p);
+  }
+  return parts.join("/") || undefined;
+}
+
 function decodeText(b64: string | null | undefined): string | null | undefined {
   if (b64 == null) return b64;
   const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));

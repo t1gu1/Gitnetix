@@ -4310,7 +4310,7 @@ button.picker-act {
 .ag-ai .md p {
   margin: 0 0 8px;
 }
-.ag-ai .md h3 {
+.ag-ai .md :is(h1, h2, h3, h4, h5, h6) {
   margin: 12px 0 4px;
   font-size: 13px;
 }
@@ -5758,15 +5758,15 @@ button.picker-act {
 .adf > :first-child {
   margin-top: 0;
 }
-.adf h1 { font-size: 20px; }
-.adf h2 { font-size: 17px; }
-.adf h3 { font-size: 15px; }
+.adf h1, .md h1 { font-size: 20px; }
+.adf h2, .md h2 { font-size: 17px; }
+.adf h3, .md h3 { font-size: 15px; }
 .adf h4,
 .adf h5,
 .adf h6 { font-size: 14px; margin: 12px 0 4px; }
-.adf h1,
-.adf h2,
-.adf h3 { margin: 18px 0 6px; }
+.adf h1, .md h1,
+.adf h2, .md h2,
+.adf h3, .md h3 { margin: 18px 0 6px; }
 .adf li > p { margin: 2px 0; }
 .adf .pre { margin: 8px 0; white-space: pre-wrap; }
 .adf blockquote,
