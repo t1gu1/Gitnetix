@@ -132,6 +132,27 @@ mod desktop {
     #[tauri::command]
     pub async fn agent_file_download(app: tauri::AppHandle, engine: State<'_, Engine>, id: String, path: String) -> Result<String, String> {
         let file = engine.0.agent_file_path(&id, &path).await.map_err(|e| e.to_string())?;
+        let (dir, dest) = in_downloads(&app, &file)?;
+        std::fs::copy(&file, &dest).map_err(|e| format!("Could not save to {}: {e}", dir.display()))?;
+        Ok(dest.display().to_string())
+    }
+
+    /// Saves a file the page holds as a data: URL (a ticket's file) in the Downloads folder as `name`, numbered when
+    /// that name is taken there, and returns where.
+    #[tauri::command]
+    pub async fn download_data_url(app: tauri::AppHandle, name: String, data: String) -> Result<String, String> {
+        use base64::Engine as _;
+        let b64 = data.split_once(";base64,").ok_or("Not a data: URL")?.1;
+        let bytes = base64::engine::general_purpose::STANDARD.decode(b64).map_err(|e| e.to_string())?;
+        // Its file name only: a name from a tracker must not climb out of Downloads.
+        let name = std::path::Path::new(&name).file_name().ok_or("No file name")?;
+        let (dir, dest) = in_downloads(&app, std::path::Path::new(name))?;
+        std::fs::write(&dest, bytes).map_err(|e| format!("Could not save to {}: {e}", dir.display()))?;
+        Ok(dest.display().to_string())
+    }
+
+    /// The Downloads folder, and where a file named as `file` saves there: numbered when that name is taken.
+    fn in_downloads(app: &tauri::AppHandle, file: &std::path::Path) -> Result<(std::path::PathBuf, std::path::PathBuf), String> {
         let dir = app.path().download_dir().map_err(|e| e.to_string())?;
         let stem = file.file_stem().unwrap_or_default().to_string_lossy();
         let ext = file.extension().map(|e| format!(".{}", e.to_string_lossy())).unwrap_or_default();
@@ -141,8 +162,7 @@ mod desktop {
             i += 1;
             dest = dir.join(format!("{stem} ({i}){ext}"));
         }
-        std::fs::copy(&file, &dest).map_err(|e| format!("Could not save to {}: {e}", dir.display()))?;
-        Ok(dest.display().to_string())
+        Ok((dir, dest))
     }
 
     /// Save the agent logs' latest lines and end their runs before quitting, so a resumed run keeps them and never runs twice.
@@ -332,7 +352,7 @@ pub fn run() {
         .manage(desktop::Companion::default())
         .manage(desktop::Clip::default())
         .setup(desktop::setup)
-        .invoke_handler(tauri::generate_handler![desktop::rpc, desktop::companion, desktop::allow_firewall, desktop::open_url, desktop::dictation_start, desktop::dictation_stop, desktop::dictation_cancel, desktop::agent_file_copy, desktop::agent_file_download, desktop::clipboard_files, desktop::clipboard_image, desktop::local_image, desktop::local_head]);
+        .invoke_handler(tauri::generate_handler![desktop::rpc, desktop::companion, desktop::allow_firewall, desktop::open_url, desktop::dictation_start, desktop::dictation_stop, desktop::dictation_cancel, desktop::agent_file_copy, desktop::agent_file_download, desktop::download_data_url, desktop::clipboard_files, desktop::clipboard_image, desktop::local_image, desktop::local_head]);
 
     // The pairing screen scans the desktop's QR code with the phone camera.
     #[cfg(mobile)]

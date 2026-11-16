@@ -1798,24 +1798,170 @@ pub async fn jira_picture(conf: &JiraConf, token: &str, key: &str, src: &str) ->
 
 /// A picture attached to a Trello card, as a data: URL: its download link needs the sign-in.
 pub async fn trello_picture(conf: &TrelloConf, token: &str, src: &str) -> Result<String> {
+    crate::net::picture(trello_req(conf, token, reqwest::Method::GET, &trello_path(src)?)).await
+}
+
+/// The API path of a Trello attachment's download link (`https://trello.com/1/cards/…/download/a.png`).
+fn trello_path(src: &str) -> Result<String> {
     let url = reqwest::Url::parse(src).map_err(|e| Error::Invalid(format!("{src}: {e}")))?;
     let path = url.path().strip_prefix("/1/").filter(|_| crate::net::same_origin(&url, "https://trello.com") || crate::net::same_origin(&url, "https://api.trello.com"));
-    let path = path.ok_or_else(|| Error::Invalid(format!("{src} is not a Trello attachment")))?;
-    crate::net::picture(trello_req(conf, token, reqwest::Method::GET, &format!("/{path}"))).await
+    path.map(|p| format!("/{p}")).ok_or_else(|| Error::Invalid(format!("{src} is not a Trello attachment")))
 }
 
 /// A picture uploaded to Linear, as a data: URL, for a link that came without its signature.
 pub async fn linear_picture(token: &str, src: &str) -> Result<String> {
+    crate::net::picture(http().get(linear_upload(src)?).header("Authorization", token)).await
+}
+
+fn linear_upload(src: &str) -> Result<reqwest::Url> {
     let url = reqwest::Url::parse(src).map_err(|e| Error::Invalid(format!("{src}: {e}")))?;
     if !crate::net::same_origin(&url, "https://uploads.linear.app") {
         return Err(Error::Invalid(format!("{src} is not a Linear upload")));
     }
-    crate::net::picture(http().get(url).header("Authorization", token)).await
+    Ok(url)
+}
+
+// ---------- Files ----------
+
+/// A file attached to a ticket. `id` is what [`crate::app::Gitnetix::ticket_file`] reads it by: a Jira or Asana
+/// attachment id, else its download link.
+#[derive(Debug, Serialize, PartialEq)]
+pub struct TicketFile {
+    pub id: String,
+    pub name: String,
+    /// In bytes, when the tracker says.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub size: Option<u64>,
+}
+
+/// The issue's attachments, pictures in its description and comments included.
+pub async fn jira_files(conf: &JiraConf, token: &str, key: &str) -> Result<Vec<TicketFile>> {
+    let v = check(jira_req(conf, token, reqwest::Method::GET, &format!("/rest/api/3/issue/{key}?fields=attachment")).send().await?, "Jira").await?;
+    Ok(v["fields"]["attachment"].as_array().into_iter().flatten().map(|a| TicketFile { id: a["id"].as_str().unwrap_or("").into(), name: a["filename"].as_str().unwrap_or("").into(), size: a["size"].as_u64() }).collect())
+}
+
+/// Jira attachment `file` (its id), as a data: URL.
+pub async fn jira_file(conf: &JiraConf, token: &str, file: &str) -> Result<String> {
+    if file.is_empty() || !file.bytes().all(|b| b.is_ascii_digit()) {
+        return Err(Error::Invalid(format!("“{file}” is not a Jira attachment id")));
+    }
+    crate::net::file(jira_req(conf, token, reqwest::Method::GET, &format!("/rest/api/3/attachment/content/{file}"))).await
+}
+
+/// The files uploaded to the card; attached links are not files.
+pub async fn trello_files(conf: &TrelloConf, token: &str, card: &str) -> Result<Vec<TicketFile>> {
+    let v = check(trello_req(conf, token, reqwest::Method::GET, &format!("/cards/{card}/attachments?fields=name,bytes,isUpload,url")).send().await?, "Trello").await?;
+    Ok(v.as_array().into_iter().flatten().filter(|a| a["isUpload"] == true).map(|a| TicketFile { id: a["url"].as_str().unwrap_or("").into(), name: a["name"].as_str().unwrap_or("").into(), size: a["bytes"].as_u64() }).collect())
+}
+
+/// A file uploaded to card `card`, by its download link, as a data: URL.
+pub async fn trello_file(conf: &TrelloConf, token: &str, card: &str, src: &str) -> Result<String> {
+    let path = trello_path(src)?;
+    if !path.starts_with(&format!("/cards/{card}/attachments/")) {
+        return Err(Error::Invalid(format!("{src} is not a file of this card")));
+    }
+    crate::net::file(trello_req(conf, token, reqwest::Method::GET, &path)).await
+}
+
+/// The files uploaded to the task; Dropbox, Google Drive and other links are not.
+// shortcut: the first 100 attachments only, page with `offset` if a task ever has more.
+pub async fn asana_files(token: &str, task: &str) -> Result<Vec<TicketFile>> {
+    let url = format!("https://app.asana.com/api/1.0/attachments?parent={task}&opt_fields=name,size,host&limit=100");
+    let v = check(http().get(url).bearer_auth(token).send().await?, "Asana").await?;
+    Ok(v["data"].as_array().into_iter().flatten().filter(|a| a["host"] == "asana").map(|a| TicketFile { id: a["gid"].as_str().unwrap_or("").into(), name: a["name"].as_str().unwrap_or("").into(), size: a["size"].as_u64() }).collect())
+}
+
+/// Asana attachment `file` (its gid), as a data: URL: read from the short-lived signed link Asana gives for it.
+pub async fn asana_file(token: &str, file: &str) -> Result<String> {
+    if file.is_empty() || !file.bytes().all(|b| b.is_ascii_digit()) {
+        return Err(Error::Invalid(format!("“{file}” is not an Asana attachment id")));
+    }
+    let v = check(http().get(format!("https://app.asana.com/api/1.0/attachments/{file}?opt_fields=download_url")).bearer_auth(token).send().await?, "Asana").await?;
+    let url = v["data"]["download_url"].as_str().ok_or_else(|| Error::Invalid("Asana gives no download link for this file".into()))?;
+    crate::net::file(http().get(url)).await
+}
+
+/// The files uploaded in the issue's description and comments, and attached as uploads.
+pub async fn linear_files(token: &str, issue: &str) -> Result<Vec<TicketFile>> {
+    let q = "query($id: String!) { issue(id: $id) { description attachments(first: 100) { nodes { title url } } comments(first: 100) { nodes { body } } } }";
+    let v = linear_gql(token, q, json!({ "id": issue })).await?;
+    let i = &v["issue"];
+    let upload = |u: &reqwest::Url| crate::net::same_origin(u, "https://uploads.linear.app");
+    let mut text = i["description"].as_str().unwrap_or("").to_string();
+    for c in i["comments"]["nodes"].as_array().into_iter().flatten() {
+        text.push('\n');
+        text.push_str(c["body"].as_str().unwrap_or(""));
+    }
+    // An attachment link as Markdown, so it goes by its title.
+    for a in i["attachments"]["nodes"].as_array().into_iter().flatten() {
+        text.push_str(&format!("\n[{}]({})", a["title"].as_str().unwrap_or(""), a["url"].as_str().unwrap_or("")));
+    }
+    Ok(upload_links(&text, upload))
+}
+
+/// A file uploaded to Linear, as a data: URL.
+pub async fn linear_file(token: &str, src: &str) -> Result<String> {
+    crate::net::file(http().get(linear_upload(src)?).header("Authorization", token)).await
+}
+
+/// The files uploaded in the GitHub issue's body and comments.
+pub async fn github_files(gh: &GitHub, number: u64) -> Result<Vec<TicketFile>> {
+    let (issue, comments) = futures_util::future::try_join(gh.issue(number), gh.issue_comments(number)).await?;
+    let mut text = issue.and_then(|i| i["body"].as_str().map(String::from)).unwrap_or_default();
+    for c in &comments {
+        text.push('\n');
+        text.push_str(c["body"].as_str().unwrap_or(""));
+    }
+    Ok(upload_links(&text, |u| github_upload(u, gh.web())))
+}
+
+/// Whether `url` is a file uploaded to GitHub web host `web`: in a comment box (`/user-attachments/…`), or the older
+/// way (`/owner/repo/files/…`, `/owner/repo/assets/…`).
+pub fn github_upload(url: &reqwest::Url, web: &str) -> bool {
+    let parts: Vec<&str> = url.path().trim_start_matches('/').split('/').collect();
+    crate::net::same_origin(url, web) && (matches!(parts[..], ["user-attachments", "files" | "assets", _, ..]) || matches!(parts[..], [_, _, "files" | "assets", _, ..]))
+}
+
+/// The links in Markdown or HTML `text` that `upload` says are files, once each, in order: named by their link's
+/// text, else by their last part.
+fn upload_links(text: &str, upload: impl Fn(&reqwest::Url) -> bool) -> Vec<TicketFile> {
+    static MD: std::sync::OnceLock<(regex::Regex, regex::Regex)> = std::sync::OnceLock::new();
+    let (md, bare) = MD.get_or_init(|| (regex::Regex::new(r"\[([^\]]*)\]\(\s*<?(https://[^\s<>)]+)").expect("regex"), regex::Regex::new(r#"https://[^\s<>"'()\[\]]+"#).expect("regex")));
+    let titles: HashMap<&str, &str> = md.captures_iter(text).map(|c| (c.get(2).unwrap().as_str(), c.get(1).unwrap().as_str().trim())).collect();
+    let mut seen = BTreeSet::new();
+    let mut out = Vec::new();
+    for m in bare.find_iter(text) {
+        let link = m.as_str().trim_end_matches(['.', ',', ';', ':', '!', '?']);
+        let Ok(url) = reqwest::Url::parse(link) else { continue };
+        // The same file again, maybe with another signature.
+        if !upload(&url) || !seen.insert(format!("{}{}", url.origin().ascii_serialization(), url.path())) {
+            continue;
+        }
+        // shortcut: a last part stays percent-encoded (`a%20b.pdf`); uploads mostly come with their name as the link's text.
+        let last = url.path_segments().and_then(|mut s| s.next_back()).unwrap_or("file");
+        let name = titles.get(link).filter(|t| !t.is_empty()).unwrap_or(&last).to_string();
+        out.push(TicketFile { id: link.into(), name, size: None });
+    }
+    out
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn finds_uploaded_files_in_text() {
+        let linear = |u: &reqwest::Url| crate::net::same_origin(u, "https://uploads.linear.app");
+        let text = "See ![shot.png](https://uploads.linear.app/o/a/b?signature=1) and [report.pdf](<https://uploads.linear.app/o/c/d>).\n\
+                    Again https://uploads.linear.app/o/a/b?signature=2, not [site](https://linear.app/o/a/b) nor https://uploads.linear.app.evil.test/x";
+        let got: Vec<(String, String)> = upload_links(text, linear).into_iter().map(|f| (f.name, f.id)).collect();
+        assert_eq!(got, [("shot.png".into(), "https://uploads.linear.app/o/a/b?signature=1".into()), ("report.pdf".into(), "https://uploads.linear.app/o/c/d".into())]);
+
+        let gh = |u: &reqwest::Url| github_upload(u, "https://github.com");
+        let text = r#"<img alt="x" src="https://github.com/user-attachments/assets/123-abc" /> [log.txt](https://github.com/user-attachments/files/9/log.txt) https://github.com/o/r/files/7/old.zip https://github.com/o/r/issues/1 https://github.com/user-attachments"#;
+        let names: Vec<String> = upload_links(text, gh).into_iter().map(|f| f.name).collect();
+        assert_eq!(names, ["123-abc", "log.txt", "old.zip"]);
+    }
 
     #[test]
     fn scopes_jql_to_projects() {

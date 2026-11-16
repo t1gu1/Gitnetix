@@ -1696,6 +1696,7 @@ name = "gitnetix"
 version = "0.1.0"
 dependencies = [
  "arboard",
+ "base64 0.22.1",
  "cpal",
  "gitnetix-core",
  "gitnetix-server",

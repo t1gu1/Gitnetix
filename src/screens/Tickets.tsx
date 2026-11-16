@@ -10,6 +10,7 @@ import { ContextMenu, SEARCH_ABOVE } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
 import { PictureSource } from "../components/Picture";
 import { Resizer, usePaneWidth } from "../components/Resizer";
+import { TicketFiles } from "../components/TicketFiles";
 import { ago, Busy, Empty, EmptyState, ErrorBox, Header, initials, Loading, Markdown, MEDIA, MediaAsk, PICTURES, releaseTagLabel, Seg, swipeProps } from "../components/ui";
 import { plural } from "../lib/format";
 import { useNav } from "../lib/nav";
@@ -500,6 +501,7 @@ function TicketDetail({
           </ul>
         </section>
       )}
+      <TicketFiles key={`${t.source}:${t.id}`} t={t} pictures={media} />
       <PictureSource.Provider value={source}>
         <Comments t={t} html={media && (github || "pictures")} ask={commentsHidden && ask} />
       </PictureSource.Provider>

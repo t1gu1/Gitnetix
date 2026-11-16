@@ -6296,6 +6296,61 @@ impl Gitnetix {
         }
     }
 
+    /// The files of ticket `id`: Jira, Trello and Asana attachments, the uploads in a Linear or GitHub ticket's text.
+    pub async fn ticket_files(&self, source: &str, conn: &str, id: &str) -> Result<Vec<tickets::TicketFile>> {
+        let integ = self.store.read(|c| c.integrations.clone());
+        let missing = || Error::NotConnected(source.into());
+        match source {
+            "jira" => {
+                let j = integ.jira.iter().find(|j| j.id == conn).ok_or_else(missing)?;
+                tickets::jira_files(j, &tickets::jira_auth::token(j).await?, id).await
+            }
+            "trello" => {
+                let t = integ.trello.iter().find(|t| t.id == conn).ok_or_else(missing)?;
+                tickets::trello_files(t, &tickets::trello_token(t).await?, id).await
+            }
+            "asana" => {
+                let a = integ.asana.iter().find(|a| a.id == conn).ok_or_else(missing)?;
+                tickets::asana_files(&tickets::asana_token(a).await?, id).await
+            }
+            "linear" => {
+                let l = integ.linear.iter().find(|l| l.id == conn).ok_or_else(missing)?;
+                tickets::linear_files(&tickets::linear_token(l).await?, id).await
+            }
+            "github" => {
+                let (gh, number) = self.ticket_github(conn, id).await?;
+                tickets::github_files(&gh, number).await
+            }
+            other => Err(Error::Invalid(format!("unknown tracker {other}"))),
+        }
+    }
+
+    /// File `file` of ticket `id`, by its id from [`Self::ticket_files`], as a data: URL. The sign-in only goes to the tracker.
+    pub async fn ticket_file(&self, source: &str, conn: &str, id: &str, file: &str) -> Result<String> {
+        let integ = self.store.read(|c| c.integrations.clone());
+        let missing = || Error::NotConnected(source.into());
+        match source {
+            "jira" => {
+                let j = integ.jira.iter().find(|j| j.id == conn).ok_or_else(missing)?;
+                tickets::jira_file(j, &tickets::jira_auth::token(j).await?, file).await
+            }
+            "trello" => {
+                let t = integ.trello.iter().find(|t| t.id == conn).ok_or_else(missing)?;
+                tickets::trello_file(t, &tickets::trello_token(t).await?, id, file).await
+            }
+            "asana" => {
+                let a = integ.asana.iter().find(|a| a.id == conn).ok_or_else(missing)?;
+                tickets::asana_file(&tickets::asana_token(a).await?, file).await
+            }
+            "linear" => {
+                let l = integ.linear.iter().find(|l| l.id == conn).ok_or_else(missing)?;
+                tickets::linear_file(&tickets::linear_token(l).await?, file).await
+            }
+            "github" => self.ticket_github(conn, id).await?.0.file(file).await,
+            other => Err(Error::Invalid(format!("unknown tracker {other}"))),
+        }
+    }
+
     /// The GitHub client and issue number of GitHub ticket `id` in repository `conn`.
     async fn ticket_github(&self, conn: &str, id: &str) -> Result<(GitHub, u64)> {
         let (owner, repo) = tickets::github_conn(conn).ok_or_else(|| Error::Invalid(format!("“{conn}” is not a GitHub repository")))?;

@@ -241,13 +241,28 @@ impl GitHub {
 
     /// A picture uploaded to this GitHub, as a data: URL: a private repository's need the sign-in.
     pub async fn picture(&self, src: &str) -> Result<String> {
-        let web = if self.api == "https://api.github.com" { "https://github.com" } else { self.api.trim_end_matches("/api/v3") };
+        let web = self.web();
         let url = crate::net::resolve(src, web)?;
         if !crate::net::same_origin(&url, web) {
             return Err(Error::Invalid(format!("{src} is not on {web}")));
         }
         let token = self.token.lock().unwrap().clone();
         crate::net::picture(self.http.get(url).bearer_auth(token)).await
+    }
+
+    /// A file uploaded to this GitHub (see [`crate::tickets::github_upload`]), as a data: URL.
+    pub async fn file(&self, src: &str) -> Result<String> {
+        let url = reqwest::Url::parse(src).map_err(|e| Error::Invalid(format!("{src}: {e}")))?;
+        if !crate::tickets::github_upload(&url, self.web()) {
+            return Err(Error::Invalid(format!("{src} is not a file uploaded to {}", self.web())));
+        }
+        let token = self.token.lock().unwrap().clone();
+        crate::net::file(self.http.get(url).bearer_auth(token)).await
+    }
+
+    /// The web pages' host: github.com, or a GitHub Enterprise server's.
+    pub fn web(&self) -> &str {
+        if self.api == "https://api.github.com" { "https://github.com" } else { self.api.trim_end_matches("/api/v3") }
     }
 
     fn rp(&self) -> String {

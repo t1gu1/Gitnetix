@@ -31,6 +31,7 @@ import type {
   StatusOption,
   Ticket,
   TicketComment,
+  TicketFile,
   TicketFields,
   WeeklyReport,
   WorktreeView,
@@ -589,6 +590,24 @@ export const useTicketComments = (t?: Ticket) =>
     enabled: !!t?.id,
     retry: false,
     staleTime: 60_000,
+  });
+
+export const useTicketFiles = (t: Ticket) =>
+  useQuery({
+    queryKey: ["ticketFiles", t.source, t.conn, t.id],
+    queryFn: () => rpc<TicketFile[]>("tickets.files", { source: t.source, conn: t.conn, id: t.id }),
+    retry: false,
+    staleTime: 60_000,
+  });
+
+/** File `f` of ticket `t`, as a data: URL. */
+export const useTicketFile = (t: Ticket, f?: TicketFile, enabled = true) =>
+  useQuery({
+    queryKey: ["ticketFile", t.source, t.conn, t.id, f?.id],
+    queryFn: () => rpc<string>("tickets.file", { source: t.source, conn: t.conn, id: t.id, file: f!.id }),
+    enabled: enabled && !!f,
+    retry: false,
+    staleTime: Infinity,
   });
 
 export const useFixVersions = (t?: Ticket) =>

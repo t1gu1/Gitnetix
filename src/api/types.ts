@@ -865,6 +865,14 @@ export interface TicketComment {
   replies: TicketComment[];
 }
 
+/** A file attached to a ticket; `id` is what `tickets.file` reads it by. */
+export interface TicketFile {
+  id: string;
+  name: string;
+  /** In bytes, when the tracker says. */
+  size?: number;
+}
+
 export interface SprintTicket {
   key: string;
   title: string;

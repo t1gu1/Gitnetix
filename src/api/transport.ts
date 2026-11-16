@@ -184,6 +184,12 @@ export async function downloadAgentFile(id: string, path: string) {
   return invoke<string>("agent_file_download", { id, path });
 }
 
+/** Save a file the page holds as a data: URL in the Downloads folder as `name` (desktop only). Returns where it landed. */
+export async function downloadDataUrl(name: string, data: string) {
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<string>("download_data_url", { name, data });
+}
+
 /** What this computer's clipboard holds, for a paste that brought the page nothing (WebKitGTK passes on no images or copied files): the files' paths, else the image as a PNG (desktop only). */
 export async function clipboardFiles(): Promise<(File | string)[]> {
   const { invoke } = await import("@tauri-apps/api/core");

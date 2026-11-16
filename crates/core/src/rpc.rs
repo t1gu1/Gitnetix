@@ -167,6 +167,8 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("tickets.comments", "A ticket's comments, oldest first (id, author, body as Markdown, doc for Jira's ADF, createdAt, replies: a Linear thread's replies under its first comment)", "source, conn, id"),
     ("tickets.comment", "Post a comment (Markdown) on a Linear ticket; with parentId (the id of a thread's first comment from tickets.comments), a reply in that thread", "source, conn, id, body, parentId?"),
     ("tickets.picture", "A picture in a ticket that needs the tracker's sign-in (a Jira attachment's name or link, a Trello attachment, a Linear upload, a private GitHub picture), as a data: URL", "source, conn, id, url"),
+    ("tickets.files", "A ticket's files (id, name, size?): Jira, Trello and Asana attachments, the files uploaded in a Linear or GitHub ticket's description and comments", "source, conn, id"),
+    ("tickets.file", "A ticket's file by its id from tickets.files, as a data: URL (25 MB at most)", "source, conn, id, file"),
     ("tickets.setFields", "Set a Jira or Linear ticket's priority, type or labels to ids from tickets.fields; labels replaces every label, a missing field stays as it is", "source, conn, id, priority?, kind?, labels?"),
     ("jira.versions", "Versions a Jira ticket's fix version can be set to", "id (connection), key"),
     ("jira.setFixVersions", "Set a Jira ticket's fix versions to exactly these version ids; empty clears them", "id (connection), key, versions"),
@@ -1219,6 +1221,8 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
             ok()
         }
         "tickets.picture" => to(k.ticket_picture(&s(&p, "source")?, &os(&p, "conn").unwrap_or_default(), &s(&p, "id")?, &s(&p, "url")?).await?),
+        "tickets.files" => to(k.ticket_files(&s(&p, "source")?, &os(&p, "conn").unwrap_or_default(), &s(&p, "id")?).await?),
+        "tickets.file" => to(k.ticket_file(&s(&p, "source")?, &os(&p, "conn").unwrap_or_default(), &s(&p, "id")?, &s(&p, "file")?).await?),
         "tickets.setFields" => {
             let edit: crate::tickets::FieldEdit = serde_json::from_value(p.clone())?;
             k.ticket_fields(&s(&p, "source")?, &os(&p, "conn").unwrap_or_default(), &s(&p, "id")?, Some(&edit)).await?;

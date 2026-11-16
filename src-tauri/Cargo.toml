@@ -35,6 +35,8 @@ cpal = "0.18"
 # Also reads pasted images and copied files, which WebKitGTK never hands the page.
 arboard = { version = "3.6", default-features = false, features = ["wayland-data-control", "image-data"] }
 png = "0.18"
+# A ticket's file comes to the window as a data: URL; Download saves its bytes.
+base64 = "0.22"
 
 [target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
 tauri-plugin-barcode-scanner = "2"

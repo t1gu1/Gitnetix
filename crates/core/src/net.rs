@@ -24,23 +24,41 @@ pub fn resolve(src: &str, base: &str) -> crate::Result<reqwest::Url> {
 /// application/octet-stream (Azure DevOps attachments) gets its type from the file's first bytes. reqwest drops the
 /// sign-in on a redirect to another host (signed storage links).
 pub async fn picture(req: reqwest::RequestBuilder) -> crate::Result<String> {
+    let (header, bytes) = fetch(req.header("accept", "image/*"), "picture").await?;
+    let mime = if header.starts_with("image/") { header.as_str() } else { sniff(&bytes).ok_or_else(|| crate::Error::Invalid(format!("not a picture ({header})")))? };
+    Ok(data_url(mime, &bytes))
+}
+
+/// A file of any type as a data: URL, read with a request that carries a sign-in: only call it on a link the host
+/// gives for a file (a ticket's attachment), never on one from a description. Untyped, it says application/octet-stream.
+pub async fn file(req: reqwest::RequestBuilder) -> crate::Result<String> {
+    let (header, bytes) = fetch(req, "file").await?;
+    let mime = if header.is_empty() { sniff(&bytes).unwrap_or("application/octet-stream") } else { header.as_str() };
+    Ok(data_url(mime, &bytes))
+}
+
+fn data_url(mime: &str, bytes: &[u8]) -> String {
     use base64::Engine as _;
+    format!("data:{mime};base64,{}", base64::engine::general_purpose::STANDARD.encode(bytes))
+}
+
+/// The answer's type (no parameters) and body, refused over 25 MB: it goes to the page as a data: URL.
+async fn fetch(req: reqwest::RequestBuilder, what: &str) -> crate::Result<(String, Vec<u8>)> {
     const CAP: usize = 25 << 20;
-    let res = req.header("accept", "image/*").send().await?;
+    let res = req.send().await?;
     let status = res.status();
     if !status.is_success() {
-        return Err(crate::Error::Http(format!("the picture's host answered {status}")));
+        return Err(crate::Error::Http(format!("the {what}'s host answered {status}")));
     }
     let header = res.headers().get(reqwest::header::CONTENT_TYPE).and_then(|v| v.to_str().ok()).unwrap_or("").split(';').next().unwrap_or("").trim().to_string();
     if res.content_length().is_some_and(|n| n as usize > CAP) {
-        return Err(crate::Error::Invalid("the picture is over 25 MB".into()));
+        return Err(crate::Error::Invalid(format!("the {what} is over 25 MB")));
     }
     let bytes = res.bytes().await?;
     if bytes.len() > CAP {
-        return Err(crate::Error::Invalid("the picture is over 25 MB".into()));
+        return Err(crate::Error::Invalid(format!("the {what} is over 25 MB")));
     }
-    let mime = if header.starts_with("image/") { header.as_str() } else { sniff(&bytes).ok_or_else(|| crate::Error::Invalid(format!("not a picture ({header})")))? };
-    Ok(format!("data:{mime};base64,{}", base64::engine::general_purpose::STANDARD.encode(&bytes)))
+    Ok((header, bytes.to_vec()))
 }
 
 /// The picture type a file's first bytes say, for the formats every web view shows.

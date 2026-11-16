@@ -744,7 +744,7 @@ export const uploads = (files: Attachment[]) =>
   Promise.all(files.map(async (f): Promise<Upload> => (typeof f === "string" ? { name: nameOf(f), path: f } : { name: f.name, data: await base64(f) })));
 
 /** A sent image, large, over the chip `at` (under it in the top half); placed once, so it hides on scroll. */
-function Preview({ at, children }: { at: HTMLElement; children: ReactNode }) {
+export function Preview({ at, children }: { at: HTMLElement; children: ReactNode }) {
   const r = at.getBoundingClientRect();
   const left = Math.max(8, Math.min(r.left, window.innerWidth - 384));
   return createPortal(
@@ -762,7 +762,7 @@ function Shot({ session, path }: { session: string; path: string }) {
 }
 
 /** ←/→ `step` back and forth through `n` things shown full size, when there are several. */
-function useArrows(n: number, step: (d: number) => void) {
+export function useArrows(n: number, step: (d: number) => void) {
   const latest = useRef(step);
   latest.current = step;
   useEffect(() => {
@@ -779,7 +779,7 @@ function useArrows(n: number, step: (d: number) => void) {
 }
 
 /** The previous and next buttons over the edges of what is shown full size. */
-function Arrows({ what, step }: { what: string; step: (d: number) => void }) {
+export function Arrows({ what, step }: { what: string; step: (d: number) => void }) {
   return (
     <>
       <button type="button" className="ag-shot-nav ag-shot-prev" aria-label={`Previous ${what}`} onClick={() => step(-1)}>
@@ -977,13 +977,13 @@ function Gallery({ session, paths, at, onClose }: { session: string; paths: stri
 }
 
 // A text preview shows the first MiB: the most `local_head` (src-tauri) reads.
-const TEXT_CAP = 1 << 20;
+export const TEXT_CAP = 1 << 20;
 
 /** What a file about to be sent shows full size: the image, its text, or why it has none. */
 type Peeked = { url: string } | { text: string; cut: boolean } | { none: string };
 
 /** An image as an object URL (revoke it), else the text of a UTF-8 file, its first MiB: a NUL or invalid UTF-8 means it is not text. */
-async function peek(file: Attachment): Promise<Peeked> {
+export async function peek(file: Attachment): Promise<Peeked> {
   const path = typeof file === "string";
   if (path ? isImage(file) : file.type.startsWith("image/") || isImage(file.name)) {
     try {
