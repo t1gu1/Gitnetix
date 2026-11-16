@@ -11,6 +11,19 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+### Added (App)
+- Ticket details have a Files section for Jira, Trello, Asana, Linear and GitHub. It lists uploaded files and opens them full size. A new download command saves a data: URL to Downloads.
+- Clicking a picture in Markdown opens it full screen. The left and right arrows step through the other pictures in the same text, and a Download button saves the picture shown. Pictures inside links still open the link.
+- Markdown files such as README.md render their HTML, and their pictures load from the repository at the version being viewed, including stashes, commits and working-tree changes.
+
+### Changed (App)
+- The "Pictures & HTML" project setting replaces the pull request option and now covers Markdown files too. Until it is on, Markdown files show a prompt to enable it and pictures show their alt text.
+- Markdown headings keep their level (h1 to h6) instead of always rendering as h3.
+
+### Fixed (App)
+- WebKitGTK no longer draws overlay scrollbars above open dialogs.
+- The command line tool falls back to the system temp directory when no working directory is set, so it starts even when the app's own directory is a deleted worktree.
+
 ## [0.21.2] - 2026-11-15
 
 ### Added (App)
