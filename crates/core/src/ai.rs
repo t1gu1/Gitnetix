@@ -503,9 +503,8 @@ async fn complete_cli(r: &Resolved, prompt: &str, cwd: Option<&Path>) -> Result<
     let effort = cli_effort(r);
     let mut cmd = Command::new(path);
     crate::shell::without_appimage(cmd.as_std_mut());
-    if let Some(d) = cwd {
-        cmd.current_dir(d);
-    }
+    // No working dir: a folder that always exists. The app's own can be a worktree deleted since (Claude Code then refuses to start).
+    cmd.current_dir(cwd.map_or_else(std::env::temp_dir, Path::to_path_buf));
     // Prompt goes through stdin when the CLI supports it: diffs can be large.
     let via_stdin = match r.provider.as_str() {
         "claude" => {
