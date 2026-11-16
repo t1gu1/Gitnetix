@@ -11,6 +11,14 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+### Added (App)
+
+- Install the AppImage icon so the Wayland title bar shows it
+
+### Fixed (App)
+
+- Context menus keep their own scrollbar on WebKitGTK while other scrollers under them, including those in an open dialog, stay covered
+
 ## [0.21.3] - 2026-11-16
 
 ### Added (App)
