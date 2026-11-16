@@ -4904,6 +4904,8 @@ button.picker-act {
 /* In the row, not floating over the box like other fields' mics (src/lib/dictation.tsx). */
 .term-tools .field-mic {
   position: static;
+  /* A flex item keeps its z-index even when static: 61 would put it over modal scrims (50). */
+  z-index: auto;
 }
 /* Full-height, flush with the panel's right edge. Square while the text grows to 3 lines (40, 58, 76px), then only taller. */
 .term-send {
@@ -6522,9 +6524,9 @@ button.app-row:hover > .app-row-chev {
   background: var(--scrim);
   animation: fade-in var(--t) var(--ease);
 }
-/* WebKitGTK paints overlay scrollbars above everything, so one still fading out under the modal would show through it. */
-body:has(> .modal-scrim) #root * {
-  scrollbar-color: transparent transparent;
+/* WebKitGTK paints overlay scrollbars above everything, the modal included: the scrollers under it stop scrolling (useCoverScrollbars in ui.tsx). */
+[data-covered] {
+  overflow: hidden !important;
 }
 .modal {
   width: 560px;

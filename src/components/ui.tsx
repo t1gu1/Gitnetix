@@ -154,6 +154,24 @@ export function swipeProps(onSwipe: (dir: 1 | -1) => void) {
   };
 }
 
+// WebKitGTK (the Linux app) draws a scroller's overlay scrollbar above everything, dialogs included, and ignores scrollbar
+// style changes once it is drawn. Only a scroller that stops scrolling loses it, which costs no room with overlay scrollbars.
+const WEBKITGTK = /Linux/.test(navigator.userAgent) && /AppleWebKit/.test(navigator.userAgent) && !/Chrome|Android/.test(navigator.userAgent);
+let covering = 0;
+// shortcut: marks the scrollers there when the first dialog opens; one the page adds under it later keeps its scrollbar.
+/** While a dialog is up, the scrollers of the page under it (#root) stop scrolling (app.css), taking their scrollbars away. */
+export function useCoverScrollbars() {
+  useEffect(() => {
+    if (!WEBKITGTK) return;
+    if (!covering++)
+      for (const el of document.querySelectorAll<HTMLElement>("#root *"))
+        if ((el.scrollHeight > el.clientHeight || el.scrollWidth > el.clientWidth) && /auto|scroll/.test(getComputedStyle(el).overflow)) el.dataset.covered = "";
+    return () => {
+      if (!--covering) for (const el of document.querySelectorAll<HTMLElement>("[data-covered]")) delete el.dataset.covered;
+    };
+  }, []);
+}
+
 /** Without `onClose` it stays up (no close button): while what it started is still running. */
 /** `actions` stand in the head, before the close button. */
 /** `minimize`: closing (Escape, a click outside, its button) only tucks it away, the work it shows going on. */
@@ -163,7 +181,8 @@ export function Modal({ title, sub, onClose, children, footer, width, actions, m
     window.addEventListener("keydown", k);
     return () => window.removeEventListener("keydown", k);
   }, [onClose]);
-  // Portaled out of #root so the rule hiding scrollbars behind the modal (app.css) skips the modal's own.
+  useCoverScrollbars();
+  // Portaled out of #root so hiding the scrollbars behind the modal skips the modal's own.
   return createPortal(
     <div className="modal-scrim" onMouseDown={(e) => e.target === e.currentTarget && onClose?.()}>
       <div className="modal" role="dialog" aria-modal="true" style={width ? { width } : undefined}>

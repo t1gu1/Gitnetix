@@ -1,6 +1,7 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Icon } from "./Icon";
+import { useCoverScrollbars } from "./ui";
 
 type Pt = { x: number; y: number };
 /** Where pointers `p` are together: their middle, and how far apart the first two are (0 for one). */
@@ -70,6 +71,7 @@ export function Zoom({ name, onClose, onStep, onDownload, children }: { name: st
       el.removeEventListener("wheel", w);
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useCoverScrollbars();
   const lift = (id: number) => {
     pts.current.delete(id);
     press.current = null;
