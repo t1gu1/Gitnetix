@@ -276,6 +276,68 @@ mod desktop {
         assert!(in_dist("/C:/Users/me/config.json").is_none());
     }
 
+    /// Wayland compositors take the window icon from the installed `<app id>.desktop`, and an AppImage's own
+    /// files stay inside its mount, so the title bar shows the generic Wayland logo. Install ours like
+    /// AppImageLauncher would. Any failure (read-only home, odd distro layout) leaves things as they were.
+    #[cfg(target_os = "linux")]
+    pub fn appimage_integrate() -> Option<()> {
+        let (image, appdir) = (std::env::var("APPIMAGE").ok()?, std::path::PathBuf::from(std::env::var_os("APPDIR")?));
+        let data = std::env::var_os("XDG_DATA_HOME")
+            .filter(|d| !d.is_empty())
+            .map(std::path::PathBuf::from)
+            .or_else(|| Some(std::path::PathBuf::from(std::env::var_os("HOME")?).join(".local/share")))?;
+        let icon = data.join("icons/hicolor/128x128/apps/gitnetix.png");
+        let png = std::fs::read(appdir.join("usr/share/icons/hicolor/128x128/apps/gitnetix.png")).ok()?;
+        let entry = std::fs::read_to_string(appdir.join("usr/share/applications/Gitnetix.desktop")).ok()?;
+        let entry = desktop_entry(&entry, &image, &icon.to_string_lossy());
+        // Named after the Wayland app id (the binary name), which is how the compositor finds it.
+        let desktop = data.join("applications/gitnetix.desktop");
+        let write = |path: &std::path::Path, bytes: &[u8]| -> Option<()> {
+            if std::fs::read(path).ok().as_deref() != Some(bytes) {
+                std::fs::create_dir_all(path.parent()?).ok()?;
+                std::fs::write(path, bytes).ok()?;
+            }
+            Some(())
+        };
+        write(&icon, &png)?;
+        write(&desktop, entry.as_bytes())
+    }
+
+    /// The bundled entry with `Exec` on the AppImage and `Icon` on the installed picture.
+    #[cfg(target_os = "linux")]
+    fn desktop_entry(bundled: &str, image: &str, icon: &str) -> String {
+        // Desktop entry quoting: double quotes, ", `, $ and \ backslash-escaped, % doubled. The file's own
+        // string unescaping runs first, so each escaping backslash is written twice.
+        let mut exec = String::from("\"");
+        for c in image.chars() {
+            match c {
+                '\\' => exec.push_str(r"\\\\"),
+                '"' | '`' | '$' => exec.extend(['\\', '\\', c]),
+                '%' => exec.push_str("%%"),
+                _ => exec.push(c),
+            }
+        }
+        exec.push('"');
+        bundled
+            .lines()
+            .map(|l| match l {
+                _ if l.starts_with("Exec=") => format!("Exec={exec}"),
+                _ if l.starts_with("TryExec=") => format!("TryExec={image}"),
+                _ if l.starts_with("Icon=") => format!("Icon={icon}"),
+                _ => l.to_string(),
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+            + "\n"
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn desktop_entry_points_at_the_appimage() {
+        let e = desktop_entry("[Desktop Entry]\nExec=gitnetix\nIcon=gitnetix\nName=Gitnetix", r"/home/a b/G$1%\.AppImage", "/i.png");
+        assert_eq!(e, "[Desktop Entry]\nExec=\"/home/a b/G\\\\$1%%\\\\\\\\.AppImage\"\nIcon=/i.png\nName=Gitnetix\n");
+    }
+
     pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         let k = Gitnetix::open(&data_dir())?;
         let handle = app.handle().clone();
@@ -333,6 +395,9 @@ mod desktop {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Before the window opens: the compositor reads the desktop file when the window first shows.
+    #[cfg(target_os = "linux")]
+    desktop::appimage_integrate();
     let _ = tracing_subscriber::fmt().with_env_filter(std::env::var("RUST_LOG").unwrap_or_else(|_| "info".into())).try_init();
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
