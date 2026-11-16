@@ -2,7 +2,7 @@ import { Fragment, type ReactNode, useContext } from "react";
 
 import { openExternal } from "../api/transport";
 import { Icon } from "./Icon";
-import { Picture, PictureSource } from "./Picture";
+import { Linked, Picture, PictureSource } from "./Picture";
 
 /** A node of Atlassian Document Format, the shape of a Jira description. */
 export interface AdfNode {
@@ -16,7 +16,7 @@ export interface AdfNode {
 // Links come from whoever wrote the ticket: only open web and mail ones.
 export const link = (href: unknown, body: ReactNode) =>
   typeof href === "string" && /^(https?|mailto):/i.test(href) ? (
-    <a href={href} onClick={(e) => { e.preventDefault(); openExternal(href); }}>{body}</a>
+    <a href={href} onClick={(e) => { e.preventDefault(); openExternal(href); }}><Linked.Provider value>{body}</Linked.Provider></a>
   ) : (
     body
   );

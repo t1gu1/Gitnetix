@@ -137,14 +137,14 @@ mod desktop {
         Ok(dest.display().to_string())
     }
 
-    /// Saves a file the page holds as a data: URL (a ticket's file) in the Downloads folder as `name`, numbered when
+    /// Saves a file the page holds as a data: URL (a ticket's file, a picture shown full screen) in the Downloads folder as `name`, numbered when
     /// that name is taken there, and returns where.
     #[tauri::command]
     pub async fn download_data_url(app: tauri::AppHandle, name: String, data: String) -> Result<String, String> {
         use base64::Engine as _;
         let b64 = data.split_once(";base64,").ok_or("Not a data: URL")?.1;
         let bytes = base64::engine::general_purpose::STANDARD.decode(b64).map_err(|e| e.to_string())?;
-        // Its file name only: a name from a tracker must not climb out of Downloads.
+        // Its file name only: a name from a tracker or a web page must not climb out of Downloads.
         let name = std::path::Path::new(&name).file_name().ok_or("No file name")?;
         let (dir, dest) = in_downloads(&app, std::path::Path::new(name))?;
         std::fs::write(&dest, bytes).map_err(|e| format!("Could not save to {}: {e}", dir.display()))?;

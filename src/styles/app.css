@@ -5200,6 +5200,10 @@ button.picker-act {
   background: none;
   cursor: zoom-in;
 }
+/* A picture in a pull request, ticket, comment or README: a click opens it full screen. */
+.md img.zoomable {
+  cursor: zoom-in;
+}
 /* The gallery's image over the whole screen, to zoom into: the page neither scrolls nor zooms under a pinch there. */
 .ag-zoom {
   position: fixed;
@@ -5258,6 +5262,10 @@ button.picker-act {
   width: 40px;
   height: 40px;
   transform: none;
+}
+/* Left of the close button. */
+.ag-zoom-download {
+  right: calc(env(safe-area-inset-right) + 60px);
 }
 .ag-shot-prev {
   left: 8px;
@@ -6633,7 +6641,8 @@ body:has(> .modal-scrim) #root * {
   position: fixed;
   right: 16px;
   bottom: calc(16px + env(safe-area-inset-bottom));
-  z-index: 60;
+  /* Over a picture shown full screen (62): its Download says where it saved. */
+  z-index: 63;
   display: flex;
   flex-direction: column;
   gap: 8px;
