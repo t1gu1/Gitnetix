@@ -11,6 +11,8 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+## [0.21.4] - 2026-11-16
+
 ### Added (App)
 
 - Install the AppImage icon so the Wayland title bar shows it
