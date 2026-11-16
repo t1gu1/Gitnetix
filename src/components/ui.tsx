@@ -157,19 +157,20 @@ export function swipeProps(onSwipe: (dir: 1 | -1) => void) {
 // WebKitGTK (the Linux app) draws a scroller's overlay scrollbar above everything, dialogs included, and ignores scrollbar
 // style changes once it is drawn. Only a scroller that stops scrolling loses it, which costs no room with overlay scrollbars.
 const WEBKITGTK = /Linux/.test(navigator.userAgent) && /AppleWebKit/.test(navigator.userAgent) && !/Chrome|Android/.test(navigator.userAgent);
-let covering = 0;
-// shortcut: marks the scrollers there when the first dialog opens; one the page adds under it later keeps its scrollbar.
-/** While a dialog is up, the scrollers of the page under it (#root) stop scrolling (app.css), taking their scrollbars away. */
-export function useCoverScrollbars() {
+// shortcut: marks the scrollers there when it opens; one the page adds under it later keeps its scrollbar.
+/**
+ * While a dialog is up, the scrollers of the page under it (#root) stop scrolling (app.css), taking their scrollbars away.
+ * With `own` (a floating menu), every scroller but its own does, a dialog's under it included.
+ */
+export function useCoverScrollbars(own?: RefObject<HTMLElement | null>) {
   useEffect(() => {
     if (!WEBKITGTK) return;
-    if (!covering++)
-      for (const el of document.querySelectorAll<HTMLElement>("#root *"))
-        if ((el.scrollHeight > el.clientHeight || el.scrollWidth > el.clientWidth) && /auto|scroll/.test(getComputedStyle(el).overflow)) el.dataset.covered = "";
-    return () => {
-      if (!--covering) for (const el of document.querySelectorAll<HTMLElement>("[data-covered]")) delete el.dataset.covered;
-    };
-  }, []);
+    const mine = [...document.querySelectorAll<HTMLElement>(`${own ? "body" : "#root"} *:not([data-covered])`)].filter(
+      (el) => !own?.current?.contains(el) && (el.scrollHeight > el.clientHeight || el.scrollWidth > el.clientWidth) && /auto|scroll/.test(getComputedStyle(el).overflow),
+    );
+    for (const el of mine) el.dataset.covered = "";
+    return () => mine.forEach((el) => delete el.dataset.covered);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 }
 
 /** Without `onClose` it stays up (no close button): while what it started is still running. */
