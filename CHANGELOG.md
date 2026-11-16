@@ -11,6 +11,8 @@ release notes and the in-app update prompt.
 
 ## [Unreleased]
 
+## [0.21.3] - 2026-11-16
+
 ### Added (App)
 - Ticket details have a Files section for Jira, Trello, Asana, Linear and GitHub. It lists uploaded files and opens them full size. A new download command saves a data: URL to Downloads.
 - Clicking a picture in Markdown opens it full screen. The left and right arrows step through the other pictures in the same text, and a Download button saves the picture shown. Pictures inside links still open the link.
