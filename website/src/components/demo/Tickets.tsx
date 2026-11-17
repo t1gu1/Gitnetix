@@ -88,7 +88,7 @@ const TICKETS: Ticket[] = [
   }),
   jira({
     key: 'WEB-205', kind: 'Task', title: 'Date the changelog when a release ships', status: 'done', assignee: ME, mine: true, sprint: true, release: '0.6.0',
-    priority: 'Low', timeRemaining: '0m', timeEstimate: '3h', parentKey: 'WEB-150', parentTitle: 'One-click release', fixVersions: ['0.6.0'], comments: 1,
+    priority: 'Low', timeRemaining: '0m', timeEstimate: '3h', parentKey: 'WEB-150', parentTitle: 'Publish from any branch', fixVersions: ['0.6.0'], comments: 1,
     description: 'Shipping moves the `Unreleased` section under the new version, with the date of the day.',
     criteria: [{ text: 'Unreleased becomes [0.6.0] with the date', done: true }, { text: 'An empty Unreleased section stays', done: true }],
   }),

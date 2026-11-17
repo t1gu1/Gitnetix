@@ -1,6 +1,6 @@
 import { useState, type MouseEvent } from "react";
 
-import { droppedWorktree, patchOverview, patchWip, pushed, queryClient, settle, switchedOverview, useAction, useAgents, useAiOn, useOverview, usePendingBranches } from "../api/hooks";
+import { droppedWorktree, patchOverview, patchWip, pushed, queryClient, settle, switchedOverview, useAction, useAgents, useAiOn, useOverview, usePendingBranches, useTagV } from "../api/hooks";
 import { RpcError } from "../api/transport";
 import type { BranchView, Overview, RenameResult, Stash, StashApplied } from "../api/types";
 import { ContextMenu, type MenuItem } from "../components/ContextMenu";
@@ -10,9 +10,10 @@ import { useNav } from "../lib/nav";
 import { showRun, useLocks, useRebasing } from "../lib/rebaseRuns";
 import { call, runTask, wtKey } from "../lib/tasks";
 import { copyToClipboard, toast } from "../lib/toast";
+import { publishName } from "./Publish";
 import { startRebase } from "./RebaseRun";
 
-export type BranchDialog = "merge" | "delete" | "rename" | "continue" | "reset" | "forcePush" | "tag" | "target" | "rebase" | "rebaseOnto" | "abortSwitch" | "abort" | "switchWip" | "pullWip";
+export type BranchDialog = "merge" | "delete" | "rename" | "continue" | "reset" | "forcePush" | "publish" | "target" | "rebase" | "rebaseOnto" | "abortSwitch" | "abort" | "switchWip" | "pullWip";
 
 export interface BranchTarget {
   view: BranchView;
@@ -22,10 +23,8 @@ export interface BranchTarget {
   baseLabel: string;
   /** The default branch: can't be deleted. */
   isDefault: boolean;
-  /** Extra actions listed first in the menu (e.g. release actions). */
+  /** Extra actions listed first in the menu (e.g. a shipped release's tag). */
   extra?: MenuItem[];
-  /** Suggested once nothing is more urgent (e.g. Ship for a release). */
-  next?: Action;
   /** Other branches it could merge into instead. */
   moveTo?: { branch: string; label: string }[];
   /** Any branch can be picked as its target instead (every branch but the default one). */
@@ -99,6 +98,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
   const latestChangelog = useAction<{ message: string }, { projectId: string; branch: string }>("changelog.latest", { invalidate: inv, success: (r) => r.message });
   const ov = useOverview(pid).data;
   const hasChangelog = !!ov?.hasChangelog;
+  const { label } = useTagV(pid);
   // Changelog entries are written by the AI that writes release notes.
   const canChangelog = useAiOn("release") && hasChangelog;
   const move = useAction("branches.setParent", { invalidate: inv });
@@ -109,7 +109,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
 
   const mutations = [sw, wt, pull, push, sync, stash, unstash, pr, changelog, stampChangelog, latestChangelog, follow];
   // Started elsewhere counts too: the commit box's auto push spins the branch's Push button, and so do merges, deletes and rebases running in the background.
-  const elsewhere = usePendingBranches(["workspace.push", "workspace.switch", "worktrees.remove", "branches.merge", "branches.delete", "workspace.rebase", "workspace.rebaseContinue"], pid);
+  const elsewhere = usePendingBranches(["workspace.push", "workspace.switch", "worktrees.remove", "branches.merge", "branches.delete", "branches.publish", "workspace.rebase", "workspace.rebaseContinue"], pid);
   const busy = new Set([...mutations.flatMap((m) => (m.isPending && m.variables?.branch ? [m.variables.branch] : [])), ...elsewhere]);
   // Branches AI is rebasing: nothing else touches them, or their checkout, until it is done. Nor the branches they go onto.
   const rebasing = useRebasing(pid);
@@ -171,7 +171,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
   /** A release branch reads as its version. */
   const labelOf = (name: string) => {
     const x = ov?.branches.find((y) => y.name === name);
-    return x?.role === "release" && x.release ? `v${x.release}` : name;
+    return x?.role === "release" && x.release ? label(x.release) : name;
   };
 
   const all = (t: BranchTarget) => {
@@ -365,19 +365,34 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
       },
       stampChangelog: {
         id: "stampChangelog",
-        label: `Move unreleased changelog into ${v.release}`,
+        label: `Move unreleased changelog into ${v.release && label(v.release)}`,
         tip: `Rename the Unreleased section of CHANGELOG.md to ${v.release}, dated today, committed on ${b}. When ${v.release} already has entries, AI merges both, highlights first`,
         icon: "tag",
         run: () => v.release && stampChangelog.mutate({ projectId: pid, branch: b, version: v.release }),
       },
       latestChangelog: {
         id: "latestChangelog",
-        label: `Add unreleased changelog to v${ov?.changelogVersion}`,
+        label: `Add unreleased changelog to ${ov?.changelogVersion && label(ov.changelogVersion)}`,
         tip: `Merge the Unreleased section of CHANGELOG.md into ${ov?.changelogVersion}, committed on ${b}. AI combines it with the entries already there, highlights first`,
         icon: "tag",
         run: () => latestChangelog.mutate({ projectId: pid, branch: b }),
       },
-      tag: { id: "tag", label: "Create tag…", tip: `Tag the tip of ${b}`, icon: "tag", run: () => openDialog("tag", b) },
+      publish: {
+        id: "publish",
+        label: `${publishName(hasChangelog)}…`,
+        tip: v.inProgress
+          ? `Finish or abort the ${v.inProgress} first`
+          : busy.has(b)
+            ? `Wait for what is running on ${b} to finish`
+            : hasChangelog
+            ? `Turn the Unreleased section of CHANGELOG.md into a version dated today, tag the tip of ${b} with it, and push ${b} and the tag to origin`
+            : `Tag the tip of ${b} with a version and push ${b} and the tag to origin`,
+        icon: "ship",
+        hint: v.inProgress ? `${v.inProgress} in progress` : undefined,
+        // A publish still running on it (its dialog closed): a second one would race it.
+        disabled: !!v.inProgress || busy.has(b),
+        run: () => openDialog("publish", b),
+      },
       copy: { id: "copy", label: "Copy branch name", icon: "edit", run: () => copyToClipboard(b) },
       // `worktree` is the folder path; its last segment is the workspace name.
       copyWorkspace: { id: "copyWorkspace", label: "Copy workspace name", icon: "copy", run: () => v.worktree && copyToClipboard(v.worktree.split(/[\\/]/).pop() ?? v.worktree) },
@@ -445,7 +460,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
         // Shared branches (releases, dev) and worktrees catch up by merging; other work branches can also be rebased.
         if (v.role === "branch" && !v.worktree) list.push(a.rebase);
         list.push(a.sync);
-        if (v.role !== "release") list.push(a.merge);
+        list.push(a.merge);
       }
     }
     // Rebase the checked-out branch onto this one; on the checked-out branch itself, onto one picked.
@@ -454,9 +469,8 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
       if (v.local && !t.base) list.push("sep");
       list.push(v.name === cur ? a.rebasePick : a.rebaseActive);
     }
-    // A worktree's branch ends by merging or deleting it, not through a PR or a tag.
+    // A worktree's branch ends by merging or deleting it, not through a PR.
     if (t.base && !v.worktree) list.push(a.pr);
-    if (v.local && canChangelog) list.push(a.changelog);
     if (v.local && hasChangelog && v.role === "release" && v.release) list.push(a.stampChangelog);
     if (v.local && hasChangelog && v.name === ov?.defaultBranch && ov.changelogVersion) list.push(a.latestChangelog);
     if (t.moveTo?.length || t.pickTarget) {
@@ -470,7 +484,9 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
     if (t.showCommits) list.push({ id: "commits", label: "Show commits", icon: "commit", run: t.showCommits });
     if (v.ticket) list.push(a.ticket);
     if (t.showStashes) list.push({ id: "stashes", label: "Show stashes", icon: "stash", hint: v.stashes ? String(v.stashes) : undefined, run: t.showStashes });
-    if (!v.worktree) list.push(a.tag);
+    if (v.local && canChangelog) list.push(a.changelog);
+    // The only way to tag a branch, a worktree's too: it is tagged where it stands.
+    if (v.local) list.push(a.publish);
     list.push(a.copy);
     if (v.worktree) list.push(a.copyWorkspace);
     // Shipped releases keep their branch's name.
@@ -497,7 +513,6 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
       // Releases and trunks are shared: catch up with the base by merging, no checkout needed.
       if (v.behind > 0 && t.base) return a.sync;
       if (needsPush) return a.push;
-      if (t.next && !t.next.disabled) return t.next;
       if (v.role === "trunk" && t.base && v.ahead > 0) return a.merge;
       if (!v.checkedOut) return a.switch;
       return v.upstream ? a.pull : a.push;

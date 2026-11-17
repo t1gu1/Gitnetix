@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
-import { useAction, useAiOn, useOverview, useProjectPrefs, useSuggestedVersion } from "../api/hooks";
+import { useAction, useAiOn, useOverview, useProjectPrefs, useSuggestedVersion, useTagV } from "../api/hooks";
 import { rpc } from "../api/transport";
 import { RequestField, uploads, type Attachment } from "../components/AgentLog";
 import { AgentPicker, MenuChoice, useAgentPick } from "../components/AgentPicker";
@@ -24,6 +24,7 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
   const firstBase = () =>
     (draft.release && open.find((r) => r.version === draft.release)?.branch) || draft.tag || draft.from || open[0]?.branch || ov.data?.defaultBranch || "";
   const { dialogs, setDialogs, branchTypes } = useProjectPrefs(pid);
+  const tagV = useTagV(pid);
   // The type clicked (or the draft's) while listed, else the first; a prefix typed in the name wins over it.
   const [clicked, setPicked] = useState<string | undefined>(draft.kind);
   const picked = clicked && (clicked === "release" || branchTypes.list.some((t) => t.id === clicked)) ? clicked : firstType(branchTypes.list);
@@ -86,7 +87,7 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
     success: (r) => `Created ${r.branch}${r.worktree ? ` in ${r.worktree}` : ""}${r.agentSession ? " · agent started" : ""}`,
   });
   const v = version.replace(/^v/, "");
-  const createRelease = useAction("releases.create", { invalidate: [["overview", pid], ["projects"]], success: `Release v${v} created` });
+  const createRelease = useAction("releases.create", { invalidate: [["overview", pid], ["projects"]], success: `Release ${tagV.label(v)} created` });
   const base = bases.find((b) => b.name === from);
   const fromTag = !!draft.tag && from === draft.tag;
   const rel = open.find((r) => r.branch === from);
@@ -201,7 +202,7 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
 
   return (
     <Modal
-      title={rel ? `New in v${rel.version}` : base ? `New branch off ${base.name}` : fromTag ? `New branch off ${draft.tag}` : "New feature or fix"}
+      title={rel ? `New in ${tagV.label(rel.version)}` : base ? `New branch off ${base.name}` : fromTag ? `New branch off ${draft.tag}` : "New feature or fix"}
       sub={
         base ? <>Branches off <span className="mono">{base.name}</span> and merges back into it</>
         : fromTag ? <>Branches off tag <span className="mono">{draft.tag}</span> and merges into <span className="mono">{ov.data?.defaultBranch}</span></>
@@ -232,7 +233,7 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
               ...(draft.tag ? [{ value: draft.tag, label: `${draft.tag} (tag)` }] : []),
               ...bases.map((b) => {
                 const r = open.find((x) => x.branch === b.name);
-                return { value: b.name, label: r ? `v${r.version} — ${releaseTagLabel(r.tag)}` : b.name };
+                return { value: b.name, label: r ? `${tagV.label(r.version)} — ${releaseTagLabel(r.tag)}` : b.name };
               }),
             ]}
             onChange={setFrom}

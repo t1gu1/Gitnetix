@@ -10,7 +10,7 @@ import PullRequests from './demo/PullRequests';
 import ReleaseNotes from './demo/ReleaseNotes';
 import Submodules from './demo/Submodules';
 import Tickets from './demo/Tickets';
-import { Avatar, DemoContext, FindBar, FixedWidth, Menu, ProfileAvatar, Seg, useMenu, useThumb, type Demo } from './demo/ui';
+import { Avatar, DemoContext, FindBar, FixedWidth, Menu, ProfileAvatar, Seg, useMenu, useThumb, type Demo, type MenuItem } from './demo/ui';
 import Worktrees from './demo/Worktrees';
 
 /**
@@ -401,6 +401,8 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
   const [hitCount, setHitCount] = useState(0);
   const jump = useRef(false);
   const profile = useMenu();
+  // The branch whose "…" menu is open, and where.
+  const [rowMenu, setRowMenu] = useState<{ x: number; y: number; n: string } | null>(null);
   const [closed, setClosed] = useState<Record<string, boolean>>({});
   const [secOpen, setSecOpen] = useState({ true: true, false: true });
   // Closed on a phone, leaving the screen to the tree.
@@ -572,11 +574,27 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
     const x = bs[n];
     const parent = x.base ? labelOf(x.base) : '';
     if (x.wt) return { icon: 'swap', tip: `Continue on ${n} here and delete its worktree`, run: () => (stOf(n) === 'running' ? flash(`The agent is still working on ${n}`) : (agents.remove(keyOf('acme-web', n)), checkout(n))) };
-    if (x.role === 'release' && x.ahead) return { icon: 'ship', tip: `Fast-forward main to ${n} and tag ${labelOf(n)}`, run: () => flash(`Ship ${labelOf(n)}: fast-forward main and tag it`) };
     if (n !== head) return { icon: 'swap', tip: `Check out ${n}`, run: () => checkout(n) };
     if (x.role === 'branch' && x.behind) return { icon: 'branch', tip: `Replay ${n} on top of ${parent} (${plural(x.behind, 'commit')} behind)`, run: () => flash(`Rebased ${n} onto ${parent}`) };
     if (x.role === 'branch' && x.ahead) return { icon: 'merged', tip: `Merge ${plural(x.ahead, 'commit')} into ${parent}`, run: () => flash(`Merge ${plural(x.ahead, 'commit')} into ${parent}…`) };
     return { icon: 'refresh', tip: `Pull from origin/${n}`, run: () => flash(`${n} is up to date`) };
+  };
+  // The row's "…" menu: a few entries of the context menu in src/screens/BranchMenu.tsx.
+  const rowItems = (n: string): MenuItem[] => {
+    const x = bs[n];
+    const parent = x.base ? labelOf(x.base) : '';
+    return [
+      ...(x.base ? [{ id: 'merge', label: <>Merge into <span className="mono">{parent}</span>…</>, icon: 'merged', disabled: !x.ahead, run: () => flash(`Merge ${plural(x.ahead, 'commit')} into ${parent}…`) }] : []),
+      'sep',
+      { id: 'commits', label: 'Show commits', icon: 'commit', run: () => openHistory(n) },
+      {
+        id: 'publish',
+        label: 'Create tag & Update changelog…',
+        icon: 'ship',
+        // A release takes its version from its name; any other branch picks Major, Minor, Patch or a custom tag.
+        run: () => flash(x.role === 'release' ? `Tag ${labelOf(n)}: the changelog gets its date, then ${n} is pushed with its tag` : `Tag ${n}: pick Major, Minor or Patch, or type any tag name (Custom), then push it with its tag`),
+      },
+    ];
   };
 
   const send = (t: string) => {
@@ -718,9 +736,21 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
               <button className="act act-main" aria-label={p.tip} title={p.tip} onClick={p.run}>
                 <Icon name={p.icon} size={14} />
               </button>
-              <span className="act-stack" aria-hidden="true">
-                <span className="act"><Icon name="plus" size={12} /></span>
-                <span className="act"><Icon name="more" size={13} /></span>
+              <span className="act-stack">
+                <span className="act" aria-hidden="true"><Icon name="plus" size={12} /></span>
+                <button
+                  className="act"
+                  aria-label={`More actions for ${n}`}
+                  title={`More actions for ${n}`}
+                  aria-haspopup="menu"
+                  aria-expanded={rowMenu?.n === n}
+                  onClick={(e) => {
+                    const r = e.currentTarget.getBoundingClientRect();
+                    setRowMenu((m) => (m?.n === n ? null : { x: r.right, y: r.bottom + 2, n }));
+                  }}
+                >
+                  <Icon name="more" size={13} />
+                </button>
               </span>
             </span>
           </span>
@@ -863,6 +893,7 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
           ]}
         />
       )}
+      {rowMenu && bs[rowMenu.n] && <Menu key={rowMenu.n} x={rowMenu.x} y={rowMenu.y} alignRight label={`Actions for ${rowMenu.n}`} onClose={() => setRowMenu(null)} items={rowItems(rowMenu.n)} />}
       {/* page tabs, the accent underline sliding to the open one; the worktrees view has none */}
       <nav ref={tabsRef} aria-label="Pages" className="tabs-pages" hidden={wt}>
         {ink && <span className="tabs-ink" style={ink} aria-hidden="true" />}
@@ -935,9 +966,6 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
                     <button className="act act-main" aria-label="Fetch origin" onClick={() => flash('Fetched origin')}>
                       <Icon name="refresh" size={14} />
                     </button>
-                    <span className="act act-main act-text hide-sm" aria-hidden="true">
-                      <Icon name="plus" size={14} />Release
-                    </span>
                   </span>
                 </span>
               </div>

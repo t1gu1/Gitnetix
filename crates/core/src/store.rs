@@ -103,6 +103,8 @@ pub const DEFAULT_BRANCH_TYPES: &[&str] = &["feat", "fix", "refactor", "perf", "
 pub struct BranchTypes {
     pub list: Vec<BranchType>,
     pub one_row: bool,
+    /// Release tags start with "v" (`v2.4.0`); None follows the project's existing tags.
+    pub tag_v: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -116,7 +118,7 @@ pub struct BranchType {
 
 impl Default for BranchTypes {
     fn default() -> Self {
-        BranchTypes { list: DEFAULT_BRANCH_TYPES.iter().map(|id| BranchType { id: id.to_string(), pinned: false }).collect(), one_row: false }
+        BranchTypes { list: DEFAULT_BRANCH_TYPES.iter().map(|id| BranchType { id: id.to_string(), pinned: false }).collect(), one_row: false, tag_v: None }
     }
 }
 

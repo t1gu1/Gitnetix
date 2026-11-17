@@ -29,7 +29,7 @@ type Item = { k: Kind; en: string; fr: string; t?: string };
 /** What each step of the history changed. */
 const ITEMS: Item[][] = [
   [
-    { k: 'feat', en: 'Ship a release in one click: the changelog gets its date, `main` fast-forwards and the tag is pushed', fr: 'Livrez une version en un clic : le changelog est daté, `main` avance et le tag est poussé', t: 'WEB-150' },
+    { k: 'feat', en: 'Publish a release from any branch: the changelog gets its date and the branch is pushed with its tag', fr: "Publiez une version depuis n'importe quelle branche : le changelog est daté et la branche est poussée avec son tag", t: 'WEB-150' },
     { k: 'feat', en: 'Squash-merged pull requests land under the right release', fr: 'Les pull requests fusionnées en squash se rangent sous la bonne version', t: 'WEB-161' },
     { k: 'fix', en: "Ahead and behind counts compare with the branch's real parent", fr: 'Les compteurs en avance et en retard comparent avec le vrai parent de la branche', t: 'WEB-158' },
     { k: 'internal', en: 'Branch views are cached per project', fr: 'Les vues des branches sont mises en cache par projet' },

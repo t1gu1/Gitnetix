@@ -1878,9 +1878,10 @@ impl Git {
         Err(Error::Git { cmd: cmd.into(), stderr: err.trim().into() })
     }
 
-    /// Move the checked-out branch to `sha`; `mode` is soft, mixed or hard.
+    /// Move the checked-out branch to `sha`; `mode` is soft, mixed, hard or keep (refused when it would
+    /// overwrite an uncommitted change).
     pub async fn reset(&self, sha: &str, mode: &str) -> Result<()> {
-        if !matches!(mode, "soft" | "mixed" | "hard") {
+        if !matches!(mode, "soft" | "mixed" | "hard" | "keep") {
             return Err(Error::Invalid(format!("unknown reset mode {mode:?}")));
         }
         self.run(&["reset", &format!("--{mode}"), sha]).await.map(|_| ())

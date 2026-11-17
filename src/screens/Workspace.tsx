@@ -28,9 +28,10 @@ import {
   usePendingBranches,
   useProjectPrefs,
   useProjects,
+  useTagV,
 } from "../api/hooks";
 import { isLocal, revealPath, rpc } from "../api/transport";
-import type { AgentSession, Blobs, BranchView, Commit, FileChange, FileCommit, Hunk, LinePick, MergeResult, Overview, ReleaseView, RenameResult, Stash } from "../api/types";
+import type { AgentSession, Blobs, BranchView, Commit, FileChange, FileCommit, Hunk, LinePick, MergeResult, Overview, RenameResult, Stash } from "../api/types";
 import { AgentInput, AgentLog, type Choice, type Upload } from "../components/AgentLog";
 import { AgentPicker, useAgentPick, type AgentPick } from "../components/AgentPicker";
 import { DiffView, LargeDiff, type DiffMode, type Staging } from "../components/DiffView";
@@ -54,8 +55,9 @@ import { copyToClipboard, toast } from "../lib/toast";
 import { AbortModal } from "./AbortModal";
 import { offersRebase, useBranchActions, type BranchDialog, type BranchTarget } from "./BranchMenu";
 import { BranchTree, revealBranch } from "./BranchTree";
-import { CommitList, DeleteTagModal, TagModal } from "./CommitList";
+import { CommitList, DeleteTagModal } from "./CommitList";
 import { FileHistory } from "./FileHistory";
+import { PublishModal } from "./Publish";
 import { startRebase } from "./RebaseRun";
 import { StashList } from "./StashList";
 
@@ -87,7 +89,6 @@ export function Workspace() {
   // Which way the narrow layout slides the new pane in; none until the first switch.
   const [slide, setSlide] = useState<{ pane: Pane; dir?: "next" | "prev" }>({ pane });
   if (slide.pane !== pane) setSlide({ pane, dir: PANES.indexOf(pane) > PANES.indexOf(slide.pane) ? "next" : "prev" });
-  const [shipping, setShipping] = useState<ReleaseView | null>(null);
   // `cwd`: the worktree a merge deletes once done (closing a worktree session after merging it).
   const [dialog, setDialog] = useState<{ kind: BranchDialog; branch: string; onto?: string; cwd?: string; stay?: boolean; into?: string } | null>(null);
   const [closingSession, setClosingSession] = useState<AgentSession | null>(null);
@@ -138,6 +139,7 @@ export function Workspace() {
     return [...hidden].filter((k) => k.startsWith(prefix)).reduce((x, k) => x && deletedOverview(x, k.slice(prefix.length), true), ov.data);
   }, [ov.data, hidden, pid]);
   const byName = useMemo(() => new Map((o?.branches ?? []).map((b) => [b.name, b])), [o]);
+  const tagV = useTagV(pid);
   const branch = nav.selectedBranch ?? o?.currentBranch ?? o?.defaultBranch ?? undefined;
   const baseFor = (b: string) => byName.get(b)?.parent ?? "";
   /** Delete `branches` in the background: `section` stays locked in the tree until it is done, whatever screen or project the user is on. */
@@ -148,29 +150,21 @@ export function Workspace() {
   /** A release branch reads as its version. */
   const labelOf = (b: string) => {
     const v = byName.get(b);
-    return v?.role === "release" && v.release ? `v${v.release}` : b;
+    return v?.role === "release" && v.release ? tagV.label(v.release) : b;
   };
   const target = (b: string): BranchTarget => {
     const v = byName.get(b) ?? synthetic(b, b === o?.currentBranch);
     const base = v.parent ?? "";
-    const rel = v.role === "release" ? o?.releases.find((r) => r.open && r.branch === b) : undefined;
     const shippedRel = v.shipped ? o?.releases.find((r) => !r.open && r.version === v.shipped) : undefined;
     return {
       view: v,
       base,
       baseLabel: labelOf(base),
       isDefault: b === o?.defaultBranch,
-      extra: rel
-        ? [{ id: "ship", label: <>Ship v{rel.version}…</>, icon: "ship", hint: "fast-forward + tag", run: () => setShipping(rel) }]
-        : shippedRel?.tagName
-          ? tagItems(shippedRel.tagName, shippedRel.checkedOut)
-          : undefined,
+      extra: shippedRel?.tagName ? tagItems(shippedRel.tagName, shippedRel.checkedOut) : undefined,
       showCommits: v.exists ? () => openHistory(b) : undefined,
       showStashes: v.stashes ? () => openStashes(b) : undefined,
       latestStash: o?.stashes.find((s) => s.branch === b),
-      next: rel
-        ? { id: "ship", label: `Ship v${rel.version}…`, short: "Ship", tip: `Fast-forward ${o?.defaultBranch} to ${b} and tag v${rel.version}`, icon: "ship", disabled: !v.ahead, run: () => setShipping(rel) }
-        : undefined,
       // Work branches can be re-targeted to any release or trunk.
       moveTo:
         v.role === "branch" && v.exists && !b.startsWith("release/")
@@ -478,7 +472,6 @@ export function Workspace() {
                   nav.selectBranch(b);
                   setPane("files");
                 }}
-                onNewRelease={() => nav.openNewItem({ kind: "release" })}
                 onCleanup={(parent, label, branches) => setCleanup({ parent, label, branches })}
                 onCleanupBehind={(section, base, branches) => setCleanupBehind({ section, base, branches })}
                 onCleanupShipped={setCleanupShipped}
@@ -817,7 +810,6 @@ export function Workspace() {
       {discarding && branch && (
         <DiscardModal pid={pid} branch={branch} staged={discarding.staged} paths={discarding.paths} total={list.filter((f) => f.staged === discarding.staged).length} onClose={() => setDiscarding(null)} />
       )}
-      {shipping && <ShipModal pid={pid} release={shipping} defaultBranch={o?.defaultBranch ?? "main"} onClose={() => setShipping(null)} />}
       {actions.menuEl}
       {dialog?.kind === "abort" && (
         <AbortModal key={dialog.branch} pid={pid} branch={dialog.branch} op={opOf(dialog.branch)} base={rebasingOnto(dialog.branch)} onBack={() => setDialog(null)} onDone={() => setDialog(null)} />
@@ -873,7 +865,7 @@ export function Workspace() {
         <ResetBranchModal pid={pid} view={dialogView} onClose={() => setDialog(null)} />
       )}
       {deletingTag && <DeleteTagModal pid={pid} tag={deletingTag} onClose={() => setDeletingTag(null)} />}
-      {dialog?.kind === "tag" && <TagModal pid={pid} branch={dialog.branch} onClose={() => setDialog(null)} />}
+      {dialog?.kind === "publish" && dialogView && <PublishModal pid={pid} view={dialogView} onClose={() => setDialog(null)} />}
       {dialog?.kind === "rename" && dialogView && (
         <RenameBranchModal pid={pid} view={dialogView} onClose={() => setDialog(null)} onRenamed={(to) => dialog.branch === branch && nav.selectBranch(to)} />
       )}
@@ -2665,58 +2657,6 @@ export function FinishWorktreeCard({ session: s, finish }: { session: WtSession;
   // Not in the overview: no base to merge into.
   if (!branches.some((x) => x.name === s.branch)) return null;
   return <CloseWorktreeModal session={s} finish={finish} onClose={() => {}} inline />;
-}
-
-function ShipModal({ pid, release, defaultBranch, onClose }: { pid: string; release: ReleaseView; defaultBranch: string; onClose: () => void }) {
-  const prefs = useProjectPrefs(pid).dialogs;
-  const [push, setPush] = useState(prefs.shipPush);
-  const hasChangelog = !!useOverview(pid).data?.hasChangelog;
-  // Same gate as "Update changelog" in the branch menu.
-  const canChangelog = useAiOn("release") && hasChangelog;
-  const [updateLog, setUpdateLog] = useState(prefs.shipChangelog);
-  const changelog = useAction<{ message: string }, { projectId: string; branch: string }>("changelog.update", { invalidate: [["overview", pid], ["commits", pid]], success: (r) => r.message });
-  const ship = useAction<{ tag: string }>("releases.ship", { invalidate: [["overview", pid], ["projects"]], success: (r) => `Shipped ${r.tag}` });
-  const shipIt = () => ship.mutate({ projectId: pid, version: release.version, push }, { onSuccess: onClose });
-  const busy = changelog.isPending || ship.isPending;
-  return (
-    <Modal
-      title={`Ship v${release.version}`}
-      onClose={onClose}
-      footer={
-        <>
-          <button
-            className="btn btn-primary btn-md"
-            disabled={busy}
-            onClick={() => (canChangelog && updateLog ? changelog.mutate({ projectId: pid, branch: release.branch }, { onSuccess: shipIt }) : shipIt())}
-          >
-            {busy && <span className="spinner" />}
-            {changelog.isPending ? "Updating changelog…" : `Ship v${release.version}`}
-          </button>
-        </>
-      }
-    >
-      <p style={{ margin: 0, lineHeight: 1.55 }}>
-        Moves <span className="mono">{defaultBranch}</span> to <span className="mono">{release.branch}</span> (fast-forward only) and creates the tag <span className="mono">v{release.version}</span>.
-        It stops if {defaultBranch} has commits the release does not.
-        {hasChangelog && <> The Unreleased section of CHANGELOG.md becomes v{release.version}, dated today.</>}
-      </p>
-      {release.items.length > 0 && (
-        <div className="note-box">
-          Make sure these are merged into {release.branch}: {release.items.map((b) => b.name).join(", ")}.
-        </div>
-      )}
-      {canChangelog && (
-        <label className="check">
-          <input type="checkbox" checked={updateLog} onChange={() => setUpdateLog(!updateLog)} />
-          <span>First let AI add what {release.branch} changes to the changelog</span>
-        </label>
-      )}
-      <label className="check">
-        <input type="checkbox" checked={push} onChange={() => setPush(!push)} />
-        <span>Push {defaultBranch} and the tag to origin</span>
-      </label>
-    </Modal>
-  );
 }
 
 /** A base64 blob as UTF-8 text; null when it is binary (holds a NUL byte). */

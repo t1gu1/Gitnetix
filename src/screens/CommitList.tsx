@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
 
-import { useAction, useCommits } from "../api/hooks";
+import { useAction, useCommits, useTagV } from "../api/hooks";
 import type { Commit } from "../api/types";
 import { AuthorFilter, authorsOf } from "../components/AuthorFilter";
 import { Avatar } from "../components/Avatar";
@@ -403,17 +403,18 @@ function ResetModal({
   );
 }
 
-/** Tag a branch's tip, or one commit, and push the tag. */
-export function TagModal({ pid, branch, commit, onClose }: { pid: string; branch?: string; commit?: Commit; onClose: () => void }) {
+/** Tag one commit and push the tag. A branch tip is tagged through Create tag & Update changelog. */
+export function TagModal({ pid, commit, onClose }: { pid: string; commit: Commit; onClose: () => void }) {
   const [name, setName] = useState("");
   const [message, setMessage] = useState("");
-  const what = commit ? commit.sha.slice(0, 7) : branch;
-  const tag = useAction(commit ? "commits.tag" : "branches.tag", { invalidate: [["overview", pid], ["commits", pid]], success: `Tagged ${what} as ${name.trim()} and pushed it` });
-  const submit = () => name.trim() && tag.mutate({ projectId: pid, ...(commit ? { sha: commit.sha } : { branch }), name: name.trim(), message }, { onSuccess: onClose });
+  const { label } = useTagV(pid);
+  const what = commit.sha.slice(0, 7);
+  const tag = useAction("commits.tag", { invalidate: [["overview", pid], ["commits", pid]], success: `Tagged ${what} as ${name.trim()} and pushed it` });
+  const submit = () => name.trim() && tag.mutate({ projectId: pid, sha: commit.sha, name: name.trim(), message }, { onSuccess: onClose });
   return (
     <Modal
       title="Create tag"
-      sub={commit ? <><span className="mono">{what}</span> {commit.subject}</> : <span className="mono">{branch}</span>}
+      sub={<><span className="mono">{what}</span> {commit.subject}</>}
       onClose={onClose}
       footer={
         <>
@@ -427,7 +428,7 @@ export function TagModal({ pid, branch, commit, onClose }: { pid: string; branch
       <form className="col" style={{ gap: 14 }} onSubmit={(e) => { e.preventDefault(); submit(); }}>
         <div className="field">
           <label htmlFor="tag-name">Name</label>
-          <input id="tag-name" className="input mono" placeholder="v1.2.0" autoFocus value={name} onChange={(e) => setName(e.target.value)} />
+          <input id="tag-name" className="input mono" placeholder={label("1.2.0")} autoFocus value={name} onChange={(e) => setName(e.target.value)} />
         </div>
         <div className="field">
           <label htmlFor="tag-msg">Message</label>

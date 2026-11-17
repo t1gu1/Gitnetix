@@ -1,6 +1,6 @@
 import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
 
-import { useAction, useFixVersions, useOverview, useProjectPrefs, useProjects, useTicketComments, useTicketFields, useTicketStatuses, useTickets } from "../api/hooks";
+import { useAction, useFixVersions, useOverview, useProjectPrefs, useProjects, useTagV, useTicketComments, useTicketFields, useTicketStatuses, useTickets } from "../api/hooks";
 import { openExternal, rpc } from "../api/transport";
 import type { FieldOption, Suggestion, Ticket, TicketComment } from "../api/types";
 import { MenuChoice } from "../components/AgentPicker";
@@ -55,6 +55,7 @@ export function Tickets({ initial }: { initial?: string }) {
   const [sprint, setSprint] = useStored("gnx.tickets.sprint", true);
   const q = useTickets(pid, mine, sprint);
   const ov = useOverview(pid).data;
+  const { label } = useTagV(pid);
   const projects = useProjects().data ?? [];
   const home = (x: Ticket) => projects.find((p) => p.id === x.branchProject)?.name;
   const [place, setPlace] = useStored("gnx.tickets.place", "all");
@@ -78,7 +79,7 @@ export function Tickets({ initial }: { initial?: string }) {
   const visible = base.filter((t) => shown === "all" || t.place === shown);
   const groups =
     group === "release"
-      ? [...open.map((r) => ({ id: r.version, label: `${releaseTagLabel(r.tag)} · v${r.version}` })), { id: "", label: "Unplanned" }]
+      ? [...open.map((r) => ({ id: r.version, label: `${releaseTagLabel(r.tag)} · ${label(r.version)}` })), { id: "", label: "Unplanned" }]
       : (Object.keys(STATUS) as Ticket["status"][]).map((s) => ({ id: s, label: STATUS[s][0] }));
   const grouped = groups
     .map((g) => ({ ...g, items: visible.filter((t) => (group === "release" ? (open.some((r) => r.version === t.release) ? t.release : "") === g.id : t.status === g.id)) }))
@@ -224,7 +225,7 @@ export function Tickets({ initial }: { initial?: string }) {
               <TicketDetail
                 t={t}
                 home={home(t)}
-                releases={open.map((r) => ({ version: r.version, label: `v${r.version} · ${releaseTagLabel(r.tag)}`, branch: r.branch }))}
+                releases={open.map((r) => ({ version: r.version, label: `${label(r.version)} · ${releaseTagLabel(r.tag)}`, branch: r.branch }))}
                 suggestion={!t.release ? suggestions[t.key] : undefined}
                 onRelease={(v) => setRel.mutate({ projectId: pid, key: t.key, release: v })}
                 onDismiss={() => {
@@ -260,6 +261,7 @@ function TicketDetail({
 }) {
   const nav = useNav();
   const prefs = useProjectPrefs(nav.projectId);
+  const { label } = useTagV(nav.projectId);
   // Only GitHub's Markdown holds HTML; the other trackers' show their pictures, and any tag stays text.
   const github = t.source === "github";
   const media = prefs.dialogs.prMedia;
@@ -426,7 +428,7 @@ function TicketDetail({
         <div className="col note-box" style={{ gap: 8, borderColor: "var(--accent)" }}>
           <span className="row" style={{ gap: 6, fontWeight: 500 }}>
             <Icon name="sparkle" size={12} className="c-acc" />
-            AI suggests: {suggestion.kind === "fix" ? "a fix" : "a feature"} in v{suggestion.release}
+            AI suggests: {suggestion.kind === "fix" ? "a fix" : "a feature"} in {label(suggestion.release)}
           </span>
           <span className="muted">{suggestion.reason}</span>
           <div className="row" style={{ justifyContent: "flex-end" }}>

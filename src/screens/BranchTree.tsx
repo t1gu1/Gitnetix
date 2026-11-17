@@ -1,7 +1,7 @@
 import { useIsMutating } from "@tanstack/react-query";
 import { useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type MouseEvent, type ReactNode } from "react";
 
-import { useAction, useAgents } from "../api/hooks";
+import { useAction, useAgents, useTagV } from "../api/hooks";
 import type { BranchView, Overview, ReleaseView } from "../api/types";
 import { shownStatus } from "../lib/agentLog";
 import { AuthorFilter, authorsOf } from "../components/AuthorFilter";
@@ -170,7 +170,6 @@ export function BranchTree({
   actions,
   target,
   onSelect,
-  onNewRelease,
   onCleanup,
   onCleanupBehind,
   onCleanupShipped,
@@ -189,7 +188,6 @@ export function BranchTree({
   actions: BranchActions;
   target: (b: string) => BranchTarget;
   onSelect: (b: string) => void;
-  onNewRelease: () => void;
   /** Clean up the merged children of `parent`, shown as `label`. */
   onCleanup: (parent: string, label: string, branches: BranchView[]) => void;
   /** Clean up (delete) branches falling behind: the ones in `section`, far behind `base`. */
@@ -214,6 +212,7 @@ export function BranchTree({
   fileOpen?: boolean;
 }) {
   const pid = o.project.id;
+  const { label } = useTagV(pid);
   // The search, shown on Ctrl+F (Cmd+F): it marks the matching branches and steps through them, it hides none.
   const [finding, setFinding] = useState(false);
   const [query, setQuery] = useState("");
@@ -242,6 +241,8 @@ export function BranchTree({
   const { roots, shipped: shippedBranches, kids } = useMemo(() => childrenOf(o), [o]);
   // Shipped releases: the branch row (with what merged into it) while it is still around, else a plain entry.
   const shipped = o.releases.filter((r) => !r.open);
+  /** What a shipped release reads as: the tag it went out as, else its version the way the project's tags write it. */
+  const shippedName = (version: string) => shipped.find((r) => r.version === version)?.tagName ?? label(version);
   const tops = useMemo(() => [...roots, ...shippedBranches.values()], [roots, shippedBranches]);
 
   // Live branches that drifted far from their base, furthest behind first. A release or trunk with
@@ -345,7 +346,7 @@ export function BranchTree({
       return hit;
     };
     roots.forEach(holds);
-    if (shipped.map((r) => (shippedBranches.has(r.version) ? holds(shippedBranches.get(r.version)!) : `v${r.version}`.includes(q))).some(Boolean)) hitSections.add("shipped");
+    if (shipped.map((r) => (shippedBranches.has(r.version) ? holds(shippedBranches.get(r.version)!) : (r.tagName ?? label(r.version)).toLowerCase().includes(q))).some(Boolean)) hitSections.add("shipped");
   }
   const [shut, setShut] = useState<{ q: string; keys: Set<string> }>({ q: "", keys: new Set() });
   const opened = (key: string) => (isOpen(key) || hitSections.has(key)) !== (!!q && shut.q === q && shut.keys.has(key));
@@ -420,7 +421,7 @@ export function BranchTree({
     const mergedOpen = opened(mergedKey);
     const cleaning = isCleaning(mergedKey);
     const version = b.role === "release" ? b.release : b.shipped;
-    const mergedLabel = version ? `v${version}` : b.name;
+    const mergedLabel = version ? (b.role === "release" ? label(version) : shippedName(version)) : b.name;
     // Protected and checked-out branches stay put, and so do the ones only likely merged.
     const removable = merged.filter((c) => !c.protected && !c.checkedOut && !c.likelyMerged);
     const behindKey = `behind:${b.name}`;
@@ -437,7 +438,8 @@ export function BranchTree({
           t={target(b.name)}
           isDefault={b.name === o.defaultBranch}
           tag={releaseTag(o.releases, b)}
-          shipped={b.shipped ?? undefined}
+          shipped={b.shipped ? shippedName(b.shipped) : undefined}
+          label={label}
           selected={b.name === selected}
           current={b.name === o.currentBranch}
           onPath={path.has(b.name)}
@@ -647,10 +649,6 @@ export function BranchTree({
           <button className="act act-main" aria-label="Fetch origin" data-tip="Fetch origin" disabled={fetchOrigin.isPending || !o.remote} onClick={() => fetchOrigin.mutate({ projectId: pid })}>
             {fetchOrigin.isPending ? <span className="spinner" /> : <Icon name="refresh" size={16} />}
           </button>
-          <button className="act act-main act-text" onClick={onNewRelease}>
-            <Icon name="plus" size={14} />
-            <span>Release</span>
-          </button>
         </span>
       </div>
       {finding && (
@@ -699,6 +697,7 @@ export function BranchTree({
                     t={target(b.name)}
                     isDefault={false}
                     tag={releaseTag(o.releases, b)}
+                    label={label}
                     selected={b.name === selected}
                     current={b.name === o.currentBranch}
                     onPath={false}
@@ -746,7 +745,7 @@ export function BranchTree({
                       <span className="tree-btn">
                         <span className="tree-icon"><Icon name="tag" size={14} /></span>
                         <span className="tree-main">
-                          <span className="tree-name"><span className="mono ellipsis">{marked(`v${r.version}`, undefined, q)}</span><span className={`tag${r.tag === "released" ? " released" : ""}`}>{releaseTagLabel(r.tag)}</span></span>
+                          <span className="tree-name"><span className="mono ellipsis">{marked(r.tagName ?? label(r.version), undefined, q)}</span><span className={`tag${r.tag === "released" ? " released" : ""}`}>{releaseTagLabel(r.tag)}</span></span>
                           <span className="branch-meta">
                             <span className="mono">{r.base}</span>
                             {r.checkedOut && <span className="c-current">checked out</span>}
@@ -845,6 +844,7 @@ function Row({
   isDefault,
   tag,
   shipped,
+  label,
   selected,
   current,
   onPath,
@@ -857,8 +857,10 @@ function Row({
   t: BranchTarget;
   isDefault: boolean;
   tag: ReactNode;
-  /** Version this (shipped) release branch went out as. */
+  /** The tag this (shipped) release branch went out as. */
   shipped?: string;
+  /** A version the way the project's tags write it. */
+  label: (version: string) => string;
   selected: boolean;
   current: boolean;
   /** It is, or holds somewhere below it, the checked-out branch. */
@@ -871,7 +873,7 @@ function Row({
   onSelect: () => void;
 }) {
   const { icon, cls } = look(b, isDefault, !!shipped);
-  const name = shipped ? `v${shipped}` : b.role === "release" && b.release ? `v${b.release}` : dir ? inDir(b.name, dir) : b.role === "branch" && b.kind ? b.short : b.name;
+  const name = shipped ?? (b.role === "release" && b.release ? label(b.release) : dir ? inDir(b.name, dir) : b.role === "branch" && b.kind ? b.short : b.name);
   // In a `fix` folder every row is a fix: the chip only shows a kind the folder doesn't say (`wip` in `wip`, a type of the user's own, included).
   const head = dir?.split("/")[0];
   const chip = b.role === "branch" && !!b.kind && !(head && (kindOf(head) ?? head).toLowerCase() === b.kind.toLowerCase());

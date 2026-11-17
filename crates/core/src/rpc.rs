@@ -6,7 +6,7 @@ use std::path::{Component, Path};
 
 use serde_json::{json, Value};
 
-use crate::app::{Attachment, Gitnetix, MergeOptions, NewItem, NotesInclude, ViewMode};
+use crate::app::{Attachment, Bump, Gitnetix, MergeOptions, NewItem, NotesInclude, ViewMode};
 use crate::error::{Error, Result};
 use crate::git::{Git, LinePick};
 use crate::store::{upsert, BranchType, BranchTypes, ConnectMethod, Connection, GitProfile, HostConf, JiraConf, ReleaseKind, Route, TrelloConf, AsanaConf, LinearConf, UserProfile, new_id};
@@ -38,7 +38,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("projects.setHidden", "Close or reopen a project's tab (data kept)", "projectId, hidden"),
     ("projects.reorder", "Set the order of projects", "ids: string[]"),
     ("projects.setGenLang", "Language AI writes in for a project", "projectId, commit?, pr?, release?"),
-    ("projects.setPrefs", "Remembered merge, commit and dialog options for a project", "projectId, merge?: {squash?, squashMessage?: branch|ai, rebase?, deleteBranch?, push?, resolveConflicts?}, commit?: {autoPush?}, dialogs?: {finish?: continue|merge, finishSwitch?, newWorktree?, newAgent?, shipPush?, shipChangelog?, deleteOrigin?, cleanupOrigin?, prMedia? (pictures and HTML in pull requests and tickets)}, worktreeFiles?: string[] (paths copied from the main checkout into new worktrees), worktreeLinks?: string[] (paths linked instead), branchTypes?: {list?: [{id, pinned?}] (the new branch dialogs' types in order, the first 12 shown; release = the new release dialog, always kept), oneRow? (6 shown)}"),
+    ("projects.setPrefs", "Remembered merge, commit and dialog options for a project", "projectId, merge?: {squash?, squashMessage?: branch|ai, rebase?, deleteBranch?, push?, resolveConflicts?}, commit?: {autoPush?}, dialogs?: {finish?: continue|merge, finishSwitch?, newWorktree?, newAgent?, shipPush?, shipChangelog?, deleteOrigin?, cleanupOrigin?, prMedia? (pictures and HTML in pull requests and tickets)}, worktreeFiles?: string[] (paths copied from the main checkout into new worktrees), worktreeLinks?: string[] (paths linked instead), branchTypes?: {list?: [{id, pinned?}] (the new branch dialogs' types in order, the first 12 shown; release = the new release dialog, always kept), oneRow? (6 shown), tagV?: bool|null (release tags start with v; null follows the project's existing tags)}"),
     ("workspace.overview", "Releases, their branches and repo state; `quick` skips history checks when nothing is cached", "projectId, quick?"),
     ("workspace.files", "Changed files of a branch, or of one commit when `commit` is given", "projectId, branch, mode: branch|wip|project, commit?"),
     ("workspace.diff", "Diff of one file; in wip mode `staged` picks the side; `commit` diffs that commit (`from` = the file's old path when that commit renamed it); `full` keeps the whole file", "projectId, branch, mode, path, staged?, commit?, from?, full?"),
@@ -67,8 +67,8 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("workspace.rebaseRuns", "Rebases AI is carrying through right now: branch, onto, step of steps, subject, files being resolved, startedAt", ""),
     ("workspace.abort", "Abort the rebase, merge, cherry-pick or revert a branch's checkout is stopped in: back to where it was before it started; a rebase AI is carrying through stops first", "projectId, branch"),
     ("releases.create", "Cut a release branch", "projectId, version, kind: next|hotfix, from?"),
-    ("releases.suggestVersion", "Version for a new release: next = minor bump of the highest tag or release branch, hotfix = patch bump of the latest tag", "projectId, kind: next|hotfix"),
-    ("releases.ship", "Fast-forward main to the release and tag it", "projectId, version, push?"),
+    ("releases.suggestVersion", "Version for a new release (no leading v): major = major bump and minor (or next) = minor bump of the highest tag or release branch, patch (or hotfix) = patch bump of the latest tag", "projectId, kind: major|minor|patch|next|hotfix"),
+    ("releases.ship", "Fast-forward main to the release and tag it (v<version>, or <version> when the project's tags go without the v)", "projectId, version, push?"),
     ("releases.delete", "Forget an open release (branch kept)", "projectId, version"),
     ("items.suggestName", "AI branch name for a feature or fix", "projectId, kind, description, ticket?"),
     ("items.create", "New feature/fix branch in a release, or off another branch or a tag (release empty, from = branch or tag); kind may be a prefix of the user's own (wip); a prefix not in the project's branch types joins them", "projectId, release?, from?, kind, description, branchName?, ticket?, where: switch|worktree, startAgent?, provider?, model?, effort?, permission?, ultracode?, files?"),
@@ -83,6 +83,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("stashes.drop", "Delete a stash for good", "projectId, sha"),
     ("branches.pull", "Fast-forward a branch to its upstream (checked out or not); wip = stash|carry the uncommitted changes the pull would overwrite (refused otherwise); returns conflicts left by carrying them", "projectId, branch, wip?"),
     ("branches.tag", "Tag a branch's tip (annotated, message defaults to the name) and push it to origin", "projectId, branch, name, message?"),
+    ("branches.publish", "Publish a branch (any, a release one too) as a version: date its CHANGELOG.md entry in a commit on it, tag its tip (\"Release <tag>\") and push the branch, under its own name (which it then tracks), and the tag to origin together (pushed = false without an origin remote). Refused before anything changes when the version is not one git can tag (a digit first, then letters, digits, dots and dashes, no \"..\", not ending in \".\" or \".lock\"; a leading v is dropped), the version is tagged already (with or without v), another open release holds it, the branch's checkout is in the middle of a rebase, merge, cherry-pick or revert, or origin has commits the branch lacks. A step failing later, a refused push too, leaves the branch, its tags and its release as they were. No other branch moves; an open release of this branch and version is marked shipped. Returns tag, pushed, changelog (a commit dated the changelog entry)", "projectId, branch, version, v? (the tag starts with v; default: the project's choice), tag? (the tag's full name, taken as written instead of version and v; the changelog dates it without a v before a digit), aiChangelog? (AI first adds the branch's changes to the Unreleased section, after every check; nothing new to add is fine)"),
     ("tags.checkout", "Check out a tag's commit (detached HEAD; uncommitted work comes along)", "projectId, name"),
     ("tags.delete", "Delete a tag, locally and on origin", "projectId, name"),
     ("branches.reset", "Hard-reset a branch to its upstream, dropping local commits (and uncommitted changes when checked out)", "projectId, branch"),
@@ -261,6 +262,15 @@ fn mode(v: &Value) -> Result<ViewMode> {
 /// Release kind; anything but "hotfix" is the next release.
 fn release_kind(v: &Value) -> ReleaseKind {
     if os(v, "kind").as_deref() == Some("hotfix") { ReleaseKind::Hotfix } else { ReleaseKind::Next }
+}
+
+/// Version part `kind` bumps: major, minor (next) or patch (hotfix); anything else the minor.
+fn bump(v: &Value) -> Bump {
+    match os(v, "kind").as_deref() {
+        Some("major") => Bump::Major,
+        Some("patch" | "hotfix") => Bump::Patch,
+        _ => Bump::Minor,
+    }
 }
 
 /// String list at `k`, empty when missing.
@@ -759,7 +769,7 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
         "releases.create" => {
             to(k.create_release(&s(&p, "projectId")?, &s(&p, "version")?, release_kind(&p), os(&p, "from")).await?)
         }
-        "releases.suggestVersion" => to(json!({ "version": k.suggest_version(&s(&p, "projectId")?, release_kind(&p)).await? })),
+        "releases.suggestVersion" => to(json!({ "version": k.suggest_version(&s(&p, "projectId")?, bump(&p)).await? })),
         "releases.ship" => to(json!({ "tag": k.ship_release(&s(&p, "projectId")?, &s(&p, "version")?, b(&p, "push")).await? })),
         "releases.delete" => {
             k.delete_release(&s(&p, "projectId")?, &s(&p, "version")?)?;
@@ -803,6 +813,9 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
         "branches.tag" => {
             k.tag_branch(&s(&p, "projectId")?, &s(&p, "branch")?, &s(&p, "name")?, os(&p, "message").as_deref()).await?;
             ok()
+        }
+        "branches.publish" => {
+            to(k.publish_branch(&s(&p, "projectId")?, &s(&p, "branch")?, &s(&p, "version")?, p.get("v").and_then(Value::as_bool), os(&p, "tag").as_deref(), b(&p, "aiChangelog")).await?)
         }
         "tags.checkout" => {
             k.checkout_tag(&s(&p, "projectId")?, &s(&p, "name")?).await?;

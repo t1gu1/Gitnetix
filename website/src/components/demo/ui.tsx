@@ -214,6 +214,8 @@ export function Menu({ x, y, items, label, alignRight, up: above, onClose }: { x
   close.current = onClose;
   // The button that opened it: pressing it again closes the menu instead of reopening it.
   const [opener] = useState(() => document.activeElement?.closest('[aria-haspopup="menu"]'));
+  // Where focus goes back on close. Taken while rendering: the layout effect below has already moved it onto the first item by the time effects run.
+  const [prev] = useState(() => document.activeElement as HTMLElement | null);
   useLayoutEffect(() => {
     const el = ref.current!;
     const { width, height } = el.getBoundingClientRect();
@@ -224,7 +226,6 @@ export function Menu({ x, y, items, label, alignRight, up: above, onClose }: { x
     el.querySelector<HTMLElement>(ITEM)?.focus({ preventScroll: true });
   }, [x, y, alignRight]);
   useEffect(() => {
-    const prev = document.activeElement as HTMLElement | null;
     const away = (e: Event) => !ref.current?.contains(e.target as Node) && !opener?.contains(e.target as Node) && close.current();
     const key = (e: globalThis.KeyboardEvent) => e.key === 'Escape' && close.current();
     const resize = () => close.current();
@@ -237,7 +238,8 @@ export function Menu({ x, y, items, label, alignRight, up: above, onClose }: { x
       removeEventListener('scroll', away, true);
       removeEventListener('keydown', key);
       removeEventListener('resize', resize);
-      prev?.focus({ preventScroll: true });
+      // Unless an item already sent focus somewhere else, like a dialog's field.
+      if (!document.activeElement || document.activeElement === document.body) prev?.focus({ preventScroll: true });
     };
   }, []);
   const arrows = (e: KeyboardEvent) => {

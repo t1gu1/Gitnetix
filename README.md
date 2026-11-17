@@ -4,7 +4,7 @@
 
 <p align="center"><b>See your work, not your commits.</b></p>
 
-Gitnetix is a Git client with no commit graph. Branches as a tree. Releases as a button. An agent on every branch.
+Gitnetix is a Git client with no commit graph. Branches as a tree. Releases from any branch. An agent on every branch.
 Runs on macOS, Windows and Linux; pair your phone by QR code to manage it remotely.
 
 Built with a Rust engine, a React UI and a Tauri 2 shell.
@@ -16,7 +16,12 @@ Built with a Rust engine, a React UI and a Tauri 2 shell.
 - A **release** is a branch `release/x.y.z` cut from `main` (or from the latest tag for a hotfix).
 - **Features and fixes** branch off a release, either by switching branch or in their own **worktree**.
 - An **AI agent** (Claude Code CLI, Codex, Gemini…) can work on each branch in parallel.
-- **Ship** dates the `Unreleased` section of `CHANGELOG.md` (when there is one), fast-forwards `main` to the release branch, tags `vx.y.z`, and can push both.
+- **Create tag & Update changelog…** (just **Create tag…** without a `CHANGELOG.md`), in the context menu of every local branch (worktree branches included), dates the `Unreleased` section of `CHANGELOG.md`, tags the branch tip and pushes the branch and the tag together.
+  It is disabled while that branch has a rebase or merge in progress. The optional AI step that first adds the branch to the changelog runs after its checks, before anything is committed.
+  If origin refuses the push, the branch is left as it was: no tag, no changelog commit.
+  A release branch takes its version from its name; any other branch picks **Major**, **Minor** or **Patch**, or **Custom** for a tag name of its own (typing in the tag field switches to it).
+  Tags start with `v` or not: the choice is remembered per project, guessed from the existing tags, and also set on the Release row of **Branch types**.
+- Release branches merge into `main` like any other branch. A release tagged on its own branch keeps its tag, unless it got new commits after publishing: then the tag moves to cover them. A release merged into `main` first and tagged there keeps its tag on `main`.
 - AI writes commit messages, branch names, PR descriptions, release notes, conflict resolutions and ticket triage, driven by editable **templates** and per-task **model routing**.
 
 ## Layout
@@ -118,7 +123,7 @@ claude mcp add gitnetix -- "$(pwd)/target/release/gitnetix-mcp"
 
 Working and tested (`crates/core/tests/release_flow.rs` drives the full flow on a real repo):
 projects, releases, feature/fix branches, worktrees, file lists, diffs, blame and file history, commit/push,
-rebase with conflict resolution, branch merge and delete, ship + tag, analytics, companion API, MCP bridge.
+rebase with conflict resolution, branch merge and delete, create tag & update changelog (changelog, tag, push), analytics, companion API, MCP bridge.
 
 Implemented but not yet exercised against live services: AI calls (CLI and API), agent
 sessions, GitHub PRs/reviews/releases, Jira/Trello/Asana/Linear.

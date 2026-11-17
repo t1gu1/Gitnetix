@@ -33,7 +33,7 @@ const GROUPS: { title: string; rows: [string, Cell, Cell, Cell, Cell][] }[] = [
   {
     title: 'Shipping',
     rows: [
-      ['One-click release', y('Dates the changelog, fast-forwards main, tags, pushes'), p('Git-flow finish: merge and tag'), p('Git-flow finish: merge and tag'), p('Git-flow finish: merge and tag')],
+      ['Release from any branch', y('Dates the changelog, tags, pushes the branch and the tag together'), p('Git-flow finish: merge and tag'), p('Git-flow finish: merge and tag'), p('Git-flow finish: merge and tag')],
       ['Changelog written for you', y('AI adds each branch to Unreleased'), n(), n(), n()],
     ],
   },
@@ -107,7 +107,7 @@ export default function Compare() {
   ];
   const ours = [
     'You ship from release branches and want to see what goes out next, not a wall of commits.',
-    'You want one click to date the changelog, fast-forward main, tag and push.',
+    'You want to date the changelog, tag and push from any branch, the next version filled in for you.',
     'You run coding agents and want one per branch, each in its own worktree.',
     'You want it free on macOS, Windows and Linux, private repos included, no account.',
     'You want AI to bill only your own provider, or run free on Ollama.',

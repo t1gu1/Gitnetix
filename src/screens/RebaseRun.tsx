@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { queryClient, useOverview, useProjects } from "../api/hooks";
+import { queryClient, useOverview, useProjects, useTagV } from "../api/hooks";
 import { rpc } from "../api/transport";
 import type { RebaseResult, RebaseRun } from "../api/types";
 import { Icon } from "../components/Icon";
@@ -98,7 +98,8 @@ function Run({ id, s }: { id: string; s: ShownRun }) {
   const failed = run.state === "failed";
   const elapsed = (s.endedAt ?? now) - (Date.parse(run.startedAt) || now);
   // A release branch reads as its version.
-  const onto = ((b) => (b?.role === "release" && b.release ? `v${b.release}` : run.onto))(ov?.branches.find((b) => b.name === run.onto));
+  const { label } = useTagV(run.projectId);
+  const onto = ((b) => (b?.role === "release" && b.release ? label(b.release) : run.onto))(ov?.branches.find((b) => b.name === run.onto));
   const share = doneShare(run);
   // Rough: commits without conflicts go by in a blink, those with some take minutes.
   const left = !failed && share > 0.05 && elapsed > 20_000 ? timeLeft((elapsed / share - elapsed) / 1000) : undefined;

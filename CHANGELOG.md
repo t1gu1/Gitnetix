@@ -4,10 +4,13 @@ All notable changes to Gitnetix are listed here, newest first. The format follow
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow
 [Semantic Versioning](https://semver.org/).
 
-Add entries under `Unreleased` as you go. Shipping a release in Gitnetix renames that
-section to `## [x.y.z] - YYYY-MM-DD` and commits it before tagging. The release workflow
-copies the version's section (or `Unreleased`, for a tag pushed by hand) into the GitHub
-release notes and the in-app update prompt.
+Add entries under `Unreleased` as you go. **Create tag & Update changelog…** in Gitnetix renames that section to
+`## [x.y.z] - YYYY-MM-DD`, commits it, tags that commit and pushes the branch and the tag.
+The release workflow only builds a tag whose commit is on `main`, so for this project merge the
+release branch into `main`, then run it on `main` with the release's version. A tag created on a
+release branch is skipped until `main` contains it and the workflow is re-run. The workflow copies
+the version's section (or `Unreleased`, for a tag pushed by hand) into the GitHub release notes and
+the in-app update prompt.
 
 ## [Unreleased]
 

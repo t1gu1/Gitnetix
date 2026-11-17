@@ -479,7 +479,8 @@ export function AgentLog({ lines, empty, picks, onPicks, actions, thinking, work
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
-    if (keep.current !== null) el.scrollTop = el.scrollHeight - keep.current;
+    // Following the end, it stays at the end: opened on a short log, `keep` was taken before the log first scrolled there.
+    if (keep.current !== null) el.scrollTop = stick.current ? el.scrollHeight : el.scrollHeight - keep.current;
     keep.current = null;
     // Too short to scroll up: nothing would ask for more.
     if (el.scrollHeight - el.clientHeight < 400) more();

@@ -164,7 +164,7 @@ const MERGE_DEFAULTS: MergePrefs = { squash: false, squashMessage: "branch", reb
 const COMMIT_DEFAULTS: CommitPrefs = { autoPush: false };
 const DIALOG_DEFAULTS: DialogPrefs = { finish: "merge", finishSwitch: true, newWorktree: false, newAgent: false, shipPush: true, shipChangelog: true, deleteOrigin: false, cleanupOrigin: true, prMedia: false };
 
-const TYPES_DEFAULTS: BranchTypes = { list: DEFAULT_TYPES.map((id) => ({ id, pinned: false })), oneRow: false };
+const TYPES_DEFAULTS: BranchTypes = { list: DEFAULT_TYPES.map((id) => ({ id, pinned: false })), oneRow: false, tagV: null };
 
 type PrefsPatch = { merge?: Partial<MergePrefs>; commit?: Partial<CommitPrefs>; dialogs?: Partial<DialogPrefs>; worktreeFiles?: string[]; worktreeLinks?: string[]; branchTypes?: Partial<BranchTypes> };
 
@@ -366,8 +366,8 @@ export const useOverview = (projectId?: string) => {
   });
 };
 
-/** Version for a new release: the next one after the latest tag or release branch. */
-export const useSuggestedVersion = (projectId: string, kind: "next" | "hotfix", enabled: boolean) =>
+/** Version for a new release: the next one after the latest tag or release branch (`major`, `minor` = `next`, `patch` = `hotfix`). */
+export const useSuggestedVersion = (projectId: string, kind: "next" | "hotfix" | "major" | "minor" | "patch", enabled: boolean) =>
   useQuery({
     queryKey: ["suggestVersion", projectId, kind],
     queryFn: () => rpc<{ version: string }>("releases.suggestVersion", { projectId, kind }),
@@ -376,6 +376,24 @@ export const useSuggestedVersion = (projectId: string, kind: "next" | "hotfix", 
     staleTime: 0,
     gcTime: 0,
   });
+
+/** `version` written as a tag, with the leading "v" or without, whether or not it came with one. */
+export const withV = (v: boolean, version: string) => (v ? "v" : "") + version.replace(/^v/i, "");
+
+/**
+ * Whether the project's version tags start with "v": its saved choice, else what its tags already do.
+ * `label` shows a version that way.
+ */
+export function useTagV(projectId?: string) {
+  const prefs = useProjectPrefs(projectId);
+  const detected = useOverview(projectId).data?.tagsUseV;
+  const v = prefs.branchTypes.tagV ?? detected ?? true;
+  return {
+    v,
+    setV: (tagV: boolean) => prefs.setBranchTypes({ tagV }),
+    label: (version: string) => withV(v, version),
+  };
+}
 
 /** `commit` lists that commit's files instead of the branch's, `stash` that stash's. */
 export const useFiles = (projectId?: string, branch?: string, mode = "branch", commit?: string, stash?: string) =>

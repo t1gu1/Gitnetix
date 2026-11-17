@@ -326,8 +326,7 @@ function ProjectSettings({ project: p }: { project: Project }) {
       </Group>
 
       <Group title="Releases">
-        {dialogCheck("shipPush", "Push the default branch and the tag when shipping a release")}
-        {dialogCheck("shipChangelog", "Let AI update the changelog before shipping a release")}
+        {dialogCheck("shipChangelog", "Let AI add the branch's changes to the changelog before creating a version tag")}
       </Group>
 
       <Group title="Deleting branches">

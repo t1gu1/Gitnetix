@@ -66,9 +66,9 @@ export interface DialogPrefs {
   newWorktree: boolean;
   /** Start an AI agent on a new branch right away. */
   newAgent: boolean;
-  /** Push the default branch and the tag when shipping a release. */
+  /** Push the default branch and the tag when shipping a release (releases.ship only: Create tag & Update changelog always pushes). */
   shipPush: boolean;
-  /** Let AI update the release's CHANGELOG.md before shipping it. */
+  /** Let AI update CHANGELOG.md before Create tag & Update changelog dates it. */
   shipChangelog: boolean;
   /** Also delete a deleted branch on origin. */
   deleteOrigin: boolean;
@@ -82,6 +82,8 @@ export interface DialogPrefs {
 export interface BranchTypes {
   list: BranchType[];
   oneRow: boolean;
+  /** Version tags start with "v"; null follows what the project's tags already do. */
+  tagV?: boolean | null;
 }
 
 export interface BranchType {
@@ -144,6 +146,8 @@ export interface ProjectSummary {
   path: string;
   exists: boolean;
   nextRelease?: string | null;
+  /** Version tags start with "v": the project's saved choice, else what its tags do, else true. */
+  tagV: boolean;
   runningAgents: number;
   hidden?: boolean;
 }
@@ -286,6 +290,15 @@ export interface RenameResult {
   changelogError?: string | null;
 }
 
+export interface PublishResult {
+  /** The tag created on the branch's tip. */
+  tag: string;
+  /** The branch and the tag went to origin; false without an origin remote. */
+  pushed: boolean;
+  /** CHANGELOG.md's Unreleased section was dated and committed on the branch. */
+  changelog: boolean;
+}
+
 export interface RebaseResult {
   /** Conflicted files where the rebase stopped (empty = done). */
   conflicts: string[];
@@ -362,6 +375,8 @@ export interface Overview {
   hasChangelog: boolean;
   /** Latest version heading of that CHANGELOG.md. */
   changelogVersion?: string | null;
+  /** Most of the project's version tags start with "v" (true when it has none). */
+  tagsUseV: boolean;
 }
 
 export interface Stash {

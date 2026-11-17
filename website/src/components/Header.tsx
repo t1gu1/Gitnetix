@@ -8,7 +8,7 @@ export type Page = 'home' | 'releases' | 'download' | 'compare';
 /** [label, href, the page it marks as current] */
 const nav = [
   ['The tree', u('#tree')],
-  ['Ship', u('#ship')],
+  ['Publish', u('#ship')],
   ['Agents', u('#agents')],
   ['Releases', u('releases/'), 'releases'],
   ['Compare', u('compare/'), 'compare'],

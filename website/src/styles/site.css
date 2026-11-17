@@ -267,7 +267,7 @@ details[open] .chev{transform:rotate(45deg)}
 .hd .meta-link:hover{color:var(--fg);text-decoration-style:solid}
 .hd .meta-link-icon{text-decoration:none;border-bottom:1px dotted;line-height:1.2}.hd .meta-link-icon:hover{text-decoration:none;border-bottom-style:solid}
 .hd .tree-acts{flex:0 0 auto;display:flex;align-self:stretch;margin:-6px -6px -6px 0;opacity:0;pointer-events:none;transition:opacity .12s}
-.hd .tree-row:hover .tree-acts,.hd .tree-row:focus-within .tree-acts,.hd .tree-row:has(>.tree-btn[aria-pressed=true]) .tree-acts,.hd .tree-row[data-current] .tree-acts{opacity:1;pointer-events:auto}
+.hd .tree-row:hover .tree-acts,.hd .tree-row:focus-within .tree-acts,.hd .tree-row:has(>.tree-btn[aria-pressed=true]) .tree-acts,.hd .tree-row:has(.act[aria-expanded=true]) .tree-acts,.hd .tree-row[data-current] .tree-acts{opacity:1;pointer-events:auto}
 .hd .acts{--act-line:color-mix(in srgb,var(--fg) 3%,transparent);display:flex;align-items:stretch;border-left:1px solid var(--act-line);border-radius:0 var(--r) var(--r) 0;overflow:hidden}
 .hd .act{display:inline-flex;align-items:center;justify-content:center;width:26px;padding:0;border:0;background:transparent;color:var(--muted)}
 .hd button.act{cursor:pointer}

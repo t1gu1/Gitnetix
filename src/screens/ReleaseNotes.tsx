@@ -1,7 +1,7 @@
 import { useEffect, useState, type CSSProperties } from "react";
 import { useQuery } from "@tanstack/react-query";
 
-import { useAction, useConfig, useOverview } from "../api/hooks";
+import { useAction, useConfig, useOverview, useTagV } from "../api/hooks";
 import { rpc } from "../api/transport";
 import { MenuChoice } from "../components/AgentPicker";
 import { Icon } from "../components/Icon";
@@ -15,6 +15,7 @@ export function ReleaseNotes() {
   const pid = nav.projectId!;
   const cfg = useConfig().data;
   const ov = useOverview(pid).data;
+  const { label } = useTagV(pid);
   const project = cfg?.projects.find((p) => p.id === pid);
   const refs = useQuery({ queryKey: ["notes-refs", pid], queryFn: () => rpc<{ tags: string[]; branches: string[] }>("notes.refs", { projectId: pid }) });
   const nextRel = ov?.releases.find((r) => r.open);
@@ -50,7 +51,9 @@ export function ReleaseNotes() {
       { projectId: pid, from, to, templateId: tpl || undefined, language: lang, include: inc },
       { onSuccess: (r) => { setMd(r.markdown); setModel(r.model); } },
     );
-  const version = nextRel ? `v${nextRel.version}` : to;
+  // The hosted release's tag: the tag picked as the range's end, else the open release's version when the range ends at its
+  // branch. Never one made up from another branch or HEAD, nor an unpublished version put on another commit.
+  const tag = refs.data?.tags.includes(to) ? to : nextRel && to === nextRel.branch ? label(nextRel.version) : undefined;
 
   return (
     <>
@@ -138,8 +141,9 @@ export function ReleaseNotes() {
               <button className="btn" disabled={!md || changelog.isPending} onClick={() => changelog.mutate({ projectId: pid, markdown: md })}>Add to CHANGELOG.md</button>
               <button
                 className="btn btn-raised"
-                disabled={!md || publish.isPending}
-                onClick={() => publish.mutate({ projectId: pid, tag: version.startsWith("v") ? version : `v${version}`, target: to, name: version, body: md })}
+                disabled={!md || !tag || publish.isPending}
+                data-tip={tag ? `Publish ${tag} on the git host with these notes` : "Pick a tag as the range's end, or open a release: the hosted release needs a version tag"}
+                onClick={() => tag && publish.mutate({ projectId: pid, tag, target: to, name: tag, body: md })}
               >
                 Publish release
               </button>

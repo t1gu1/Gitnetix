@@ -85,7 +85,7 @@ export default function Home({ version, demo, agents, phone }: { version: string
     <span aria-hidden="true">→</span>
     </a>
     <h1 id="hero-h" style={{ margin: '0', fontSize: 'clamp(44px, 7.2vw, 92px)', lineHeight: '1.02', letterSpacing: '-0.035em', fontWeight: '700', textWrap: 'balance', maxWidth: '980px' }}>See your work, <span style={{ color: 'var(--accent-fg)' }}>not your commits.</span></h1>
-    <p style={{ margin: '0', fontSize: 'clamp(18px, 2vw, 22px)', color: 'var(--muted)', maxWidth: '680px', textWrap: 'pretty' }}>Gitnetix is a Git client with no commit graph. Branches as a tree. Releases as a button. An agent on every branch.</p>
+    <p style={{ margin: '0', fontSize: 'clamp(18px, 2vw, 22px)', color: 'var(--muted)', maxWidth: '680px', textWrap: 'pretty' }}>Gitnetix is a Git client with no commit graph. Branches as a tree. Releases from any branch. An agent on every branch.</p>
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', justifyContent: 'center', marginTop: '8px' }}>
     <a className="btn-p" data-dl href={u("download/")} style={{ display: 'flex', alignItems: 'center', gap: '10px', background: 'var(--accent)', color: 'var(--accent-ink)', fontWeight: '600', fontSize: '17px', padding: '15px 24px', borderRadius: '12px', boxShadow: '0 8px 30px -8px color-mix(in srgb,var(--accent) 60%,transparent)' }}>
     <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v12m0 0-5-5m5 5 5-5M4 21h16"></path></svg>
@@ -159,7 +159,7 @@ export default function Home({ version, demo, agents, phone }: { version: string
     <div className="ws-releases" style={{ display: 'flex', flexDirection: 'column', flex: '1', minHeight: '0' }}>
     <div className="pane-head">
     <span className="label">Branches</span>
-    <span className="row"><span className="acts"><span className="act act-text"><span className="ellipsis">All</span><Icon name="chevronDown" size={10} /></span><span className="act act-main"><Icon name="search" size={15} /></span><span className="act act-main"><Icon name="refresh" size={14} /></span><span className="act act-main act-text"><Icon name="plus" size={14} />Release</span></span></span>
+    <span className="row"><span className="acts"><span className="act act-text"><span className="ellipsis">All</span><Icon name="chevronDown" size={10} /></span><span className="act act-main"><Icon name="search" size={15} /></span><span className="act act-main"><Icon name="refresh" size={14} /></span></span></span>
     </div>
     <div className="tree">
     <PathLine p={TREE_PATH} />
@@ -173,7 +173,7 @@ export default function Home({ version, demo, agents, phone }: { version: string
     <div className="tree-row tree-group tree-toggle"><span className="tree-twist"><Icon name="chevronDown" size={12} className="chev" /></span><span className="child-label" data-active>Child branches</span><span className="faint">1</span></div>
     <div className="tree-open"><div className="tree-kids">
     <div className="tree-node">
-    <TreeRow row="v2.4.0" role="release" icon="tag" author="Ana Moreau" name="v2.4.0" tag="Next" act="ship" meta={<><span className="mono">release/2.4.0</span><span className="meta-link">6 commits</span></>} />
+    <TreeRow row="v2.4.0" role="release" icon="tag" author="Ana Moreau" name="v2.4.0" tag="Next" act="swap" meta={<><span className="mono">release/2.4.0</span><span className="meta-link">6 commits</span></>} />
     <div className="tree-sub">
     <div className="tree-row tree-group tree-toggle"><span className="tree-twist"><Icon name="chevronDown" size={12} className="chev" /></span><span className="child-label" data-active>Child branches</span><span className="faint">2</span></div>
     <div className="tree-open"><div className="tree-kids">
@@ -236,7 +236,7 @@ export default function Home({ version, demo, agents, phone }: { version: string
     <div style={{ position: 'relative', maxWidth: '760px' }}>
     <span className="knot" aria-hidden="true"></span>
     <p style={{ margin: '0 0 12px', fontSize: '13px', letterSpacing: '.14em', color: 'var(--accent-fg)', fontWeight: '600' }}>RELEASE-CENTRIC</p>
-    <h2 id="ship-h" style={{ margin: '0', fontSize: 'clamp(34px, 4.6vw, 56px)', lineHeight: '1.05', letterSpacing: '-0.03em' }}>Cut. Build. Ship.</h2>
+    <h2 id="ship-h" style={{ margin: '0', fontSize: 'clamp(34px, 4.6vw, 56px)', lineHeight: '1.05', letterSpacing: '-0.03em' }}>Cut. Build. Tag.</h2>
     <p style={{ margin: '18px 0 0', fontSize: '19px', color: 'var(--muted)', textWrap: 'pretty' }}>Other clients hand you raw git verbs. Gitnetix gives you the release flow your team already runs, as buttons.</p>
     </div>
     <ol style={{ listStyle: 'none', margin: '48px 0 0', padding: '0', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(240px, 100%), 1fr))', gap: '16px' }}>
@@ -257,11 +257,11 @@ export default function Home({ version, demo, agents, phone }: { version: string
     </li>
     <li style={{ background: 'linear-gradient(160deg, var(--accent-soft), var(--panel) 60%)', border: '1px solid color-mix(in srgb,var(--accent) 55%,transparent)', borderRadius: '16px', padding: '26px', display: 'flex', flexDirection: 'column', gap: '12px', boxShadow: '0 0 40px -12px color-mix(in srgb,var(--accent) 45%,transparent)' }}>
     <span aria-hidden="true" style={{ width: '38px', height: '38px', borderRadius: '50%', background: 'var(--accent)', color: 'var(--accent-ink)', display: 'grid', placeItems: 'center', fontWeight: '700' }}>4</span>
-    <h3 style={{ margin: '0', fontSize: '22px', color: 'var(--accent-fg)' }}>Ship</h3>
-    <p style={{ margin: '0', color: 'var(--muted)', fontSize: '16px' }}>Dates the changelog, fast-forwards <code>main</code>, tags <code>v2.4.0</code>, pushes. One click.</p>
+    <h3 style={{ margin: '0', fontSize: '22px', color: 'var(--accent-fg)' }}>Tag</h3>
+    <p style={{ margin: '0', color: 'var(--muted)', fontSize: '16px' }}><strong>Create tag &amp; Update changelog…</strong> on any branch dates the changelog, tags <code>v2.4.0</code> and pushes the branch with its tag. A release reads its version from its name; anywhere else, pick Major, Minor or Patch, or type any tag name.</p>
     </li>
     </ol>
-    <p className="mono" style={{ margin: '28px 0 0', fontSize: '14px', color: 'var(--faint)', overflowX: 'auto', whiteSpace: 'nowrap', paddingBottom: '4px' }}>release/2.4.0 <span style={{ color: 'var(--accent-fg)' }}>→</span> CHANGELOG [2.4.0] - 2026-10-22 <span style={{ color: 'var(--accent-fg)' }}>→</span> main <span style={{ color: 'var(--accent-fg)' }}>→</span> v2.4.0</p>
+    <p className="mono" style={{ margin: '28px 0 0', fontSize: '14px', color: 'var(--faint)', overflowX: 'auto', whiteSpace: 'nowrap', paddingBottom: '4px' }}>release/2.4.0 <span style={{ color: 'var(--accent-fg)' }}>→</span> CHANGELOG [2.4.0] - 2026-10-22 <span style={{ color: 'var(--accent-fg)' }}>→</span> v2.4.0 <span style={{ color: 'var(--accent-fg)' }}>→</span> origin</p>
     </section>
 
     {/* AGENTS */}
@@ -357,7 +357,7 @@ export default function Home({ version, demo, agents, phone }: { version: string
     <span className="knot" aria-hidden="true"></span>
     <p style={{ margin: '0 0 12px', fontSize: '13px', letterSpacing: '.14em', color: 'var(--accent-fg)', fontWeight: '600' }}>BUILT IN PUBLIC</p>
     <h2 id="bip-h" style={{ margin: '0', fontSize: 'clamp(34px, 4.6vw, 56px)', lineHeight: '1.05', letterSpacing: '-0.03em', textWrap: 'balance' }}>{releases.length} releases in {days} days.</h2>
-    <p style={{ margin: '18px 0 0', fontSize: '19px', color: 'var(--muted)', textWrap: 'pretty' }}>From the first release on {longDate(first.date)} to v{releases[0].version} on {longDate(releases[0].date)}. Every release is cut, dated and tagged the way Gitnetix ships: <code>Unreleased</code>, then one click.</p>
+    <p style={{ margin: '18px 0 0', fontSize: '19px', color: 'var(--muted)', textWrap: 'pretty' }}>From the first release on {longDate(first.date)} to v{releases[0].version} on {longDate(releases[0].date)}. Every release is cut, dated and tagged the way Gitnetix does it: <code>Unreleased</code>, then <strong>Create tag &amp; Update changelog…</strong></p>
     </div>
     <a href={u("releases/")} style={{ fontWeight: '600', color: 'var(--accent-fg)', display: 'flex', alignItems: 'center', gap: '8px', minHeight: '44px' }}>Read every release <span aria-hidden="true">→</span></a>
     </div>

@@ -1,6 +1,6 @@
 import { Fragment, useRef, useState } from "react";
 
-import { useProjectPrefs } from "../api/hooks";
+import { useProjectPrefs, useTagV } from "../api/hooks";
 import type { BranchType } from "../api/types";
 import { KINDS, kindOf } from "../lib/kinds";
 import { Icon } from "./Icon";
@@ -36,7 +36,7 @@ export const firstType = (list: BranchType[]) => (list.some((t) => t.id === "fea
 export const withType = (name: string, k: string) => (name.indexOf("/") > 0 ? `${k}/${name.slice(name.indexOf("/") + 1)}` : name);
 
 /** The project's first 12 branch types (6 on one row), and `value` in the first unpinned place when it is not among them.
- * One not saved yet, typed as a branch name's prefix, shines: creating the branch saves it. */
+ * Release always gets a place too: the last one neither picked nor pinned. One not saved yet, typed as a branch name's prefix, shines: creating the branch saves it. */
 export function TypePicker({ pid, value, onChange, release = true, size }: { pid: string; value: string; onChange: (k: string) => void; release?: boolean; size?: "lg" }) {
   const { branchTypes: t } = useProjectPrefs(pid);
   const list = release ? t.list : t.list.filter((x) => x.id !== "release");
@@ -47,6 +47,14 @@ export function TypePicker({ pid, value, onChange, release = true, size }: { pid
     // Every place pinned: it takes the last one.
     if (!shown.some((x) => x.id === value)) shown[max - 1] = { id: value, pinned: false };
   }
+  // Release opens the new release dialog: listed further down, it still shows.
+  const rel = release && list.find((x) => x.id === "release");
+  if (rel && !shown.some((x) => x.id === "release")) {
+    const last = (keep: (x: BranchType) => boolean) => shown.reduce((at, x, i) => (x.id !== value && keep(x) ? i : at), -1);
+    const at = last((x) => !x.pinned);
+    const i = at >= 0 ? at : last(() => true);
+    if (i >= 0) shown[i] = rel;
+  }
   const fresh = !list.some((x) => x.id === value);
   const options = shown.map((x) => ({
     value: x.id,
@@ -55,9 +63,10 @@ export function TypePicker({ pid, value, onChange, release = true, size }: { pid
   return <Seg grid cols={6} size={size} label="Type" value={value} onChange={onChange} options={options} />;
 }
 
-/** Order, pin, add and remove the project's branch types, and pick one row or two. Release opens the new release dialog: it moves but stays. */
+/** Order, pin, add and remove the project's branch types, and pick one row or two. Release opens the new release dialog: it moves but stays; its row also picks how version tags read. */
 export function BranchTypesEditor({ pid }: { pid: string }) {
   const { branchTypes: t, setBranchTypes } = useProjectPrefs(pid);
+  const tagV = useTagV(pid);
   const [typed, setTyped] = useState("");
   const max = t.oneRow ? 6 : 12;
   const save = (list: BranchType[]) => setBranchTypes({ list });
@@ -109,7 +118,7 @@ export function BranchTypesEditor({ pid }: { pid: string }) {
           const label = typeLabel(x.id);
           return (
             <Fragment key={x.id}>
-              {i === max && <li className="type-cut hint">Not shown · offered when a branch name starts with one</li>}
+              {i === max && <li className="type-cut hint">Not shown · offered when a branch name starts with one. Release always shows</li>}
               <li ref={(el) => void (el ? rows.current.set(x.id, el) : rows.current.delete(x.id))} className="type-row" data-hidden={i >= max || undefined} data-dragging={drag?.id === x.id || undefined}>
                 <span
                   className="type-grip faint"
@@ -126,6 +135,18 @@ export function BranchTypesEditor({ pid }: { pid: string }) {
                 <span className="grow ellipsis">
                   {label} <span className="mono faint">{x.id === "release" ? "release/x.y.z" : `${x.id}/`}</span>
                 </span>
+                {/* Out of the label, which ellipsizes: the toggle never gets cut. Its text names it for screen readers. */}
+                {x.id === "release" && (
+                  <button
+                    className="btn btn-ghost btn-sm type-tag"
+                    style={{ flexShrink: 0 }}
+                    data-tip={`Version tags read ${tagV.label("x.y.z")}: click for ${tagV.v ? "x.y.z" : "vx.y.z"}. Remembered for this project`}
+                    disabled={!!drag}
+                    onClick={() => tagV.setV(!tagV.v)}
+                  >
+                    tag <span className="mono">{tagV.label("x.y.z")}</span>
+                  </button>
+                )}
                 <button
                   className={`btn btn-ghost btn-icon btn-sm${x.pinned ? " c-acc" : ""}`}
                   aria-pressed={x.pinned}

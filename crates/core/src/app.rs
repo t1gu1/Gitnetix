@@ -59,6 +59,8 @@ pub struct Gitnetix {
     /// What each Jira connection answered for the sprint charts, with when: picking other people counts them again
     /// without asking Jira.
     sprint_fetches: std::sync::Mutex<HashMap<String, SprintFetched>>,
+    /// Projects with a publish running: a second one is refused, its rollback could undo the first.
+    publishing: std::sync::Mutex<std::collections::HashSet<String>>,
     /// Rebases AI is carrying through, by checkout.
     runs: Runs,
 }
@@ -140,6 +142,9 @@ pub struct ProjectSummary {
     pub next_release: Option<String>,
     pub running_agents: usize,
     pub hidden: bool,
+    /// Release tags start with "v": the project's choice, else what its tags do (read only for a project
+    /// with a next release, the one place it shows), else true.
+    pub tag_v: bool,
 }
 
 /// A project saved in another profile, which this one can add back.
@@ -309,6 +314,8 @@ pub struct Overview {
     pub has_changelog: bool,
     /// Latest version heading of that CHANGELOG.md (see `latest_changelog_version`).
     pub changelog_version: Option<String>,
+    /// The project's tags start with "v" (see `tags_use_v`), whatever its own choice (`branch_types.tag_v`).
+    pub tags_use_v: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -624,6 +631,17 @@ pub struct MergeResult {
     pub tag_error: Option<String>,
 }
 
+/// What [`Gitnetix::publish_branch`] did.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Published {
+    pub tag: String,
+    /// The branch and the tag reached origin (false without an origin remote).
+    pub pushed: bool,
+    /// A commit dated the CHANGELOG.md entry.
+    pub changelog: bool,
+}
+
 #[derive(Debug, Clone, Deserialize, Default)]
 #[serde(default, rename_all = "camelCase")]
 pub struct NotesInclude {
@@ -837,6 +855,61 @@ fn valid_version(v: &str) -> bool {
     !v.is_empty() && v.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-')
 }
 
+/// A version Publish can tag: a digit first, then only letters, digits, dots and dashes, without "..",
+/// nor a trailing "." or ".lock" (git refuses such tag names). The Publish dialog checks the same.
+fn publishable_version(v: &str) -> bool {
+    v.starts_with(|c: char| c.is_ascii_digit()) && valid_version(v) && !v.contains("..") && !v.ends_with('.') && !v.ends_with(".lock")
+}
+
+/// Whether `release` brought commits of its own into `into` through a merge: its tip is in `into`, off
+/// `into`'s first-parent line. A release cut from `into` with nothing on it sits on that line, so it is not
+/// merged; nor is one fast-forwarded in (Gitnetix merges with --no-ff).
+async fn release_merged_in(git: &Git, release: &str, into: &str) -> bool {
+    if !git.is_ancestor(release, into).await.unwrap_or(false) {
+        return false;
+    }
+    let (Ok(tip), Ok(line)) = (git.rev_parse(release).await, git.run(&["rev-list", "--first-parent", "--reverse", &format!("{release}..{into}")]).await) else {
+        return false;
+    };
+    // The oldest commit on the line past the release: its first parent is the release's tip when the
+    // release sits on the line, else the commit the release started from.
+    let Some(first) = line.lines().next() else { return false };
+    git.rev_parse(&format!("{first}^1")).await.is_ok_and(|parent| parent != tip)
+}
+
+/// Whether a project's release tags start with "v", read from its tag names: at least half of the
+/// ones [`parse_version`] reads do. True without any, git's most common habit.
+fn tags_use_v<'a>(names: impl IntoIterator<Item = &'a str>) -> bool {
+    let (mut with_v, mut all) = (0, 0);
+    for n in names.into_iter().filter(|n| parse_version(n).is_some()) {
+        all += 1;
+        with_v += usize::from(n.starts_with('v'));
+    }
+    with_v * 2 >= all
+}
+
+/// The tag `version` ships as: `v2.4.0`, or `2.4.0` when the project's tags go without the "v".
+fn release_tag(use_v: bool, version: &str) -> String {
+    let version = version.trim_start_matches('v');
+    if use_v { format!("v{version}") } else { version.to_string() }
+}
+
+/// Whether `p`'s release tags start with "v": its own choice, else what its tags do.
+async fn use_v(p: &Project, git: &Git) -> Result<bool> {
+    Ok(match p.branch_types.tag_v {
+        Some(v) => v,
+        None => tags_use_v(git.tags().await?.iter().map(|t| t.name.as_str())),
+    })
+}
+
+/// Which part of the version [`Gitnetix::suggest_version`] bumps.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Bump {
+    Major,
+    Minor,
+    Patch,
+}
+
 fn release_branch(version: &str) -> String {
     format!("release/{}", version.trim_start_matches('v'))
 }
@@ -848,6 +921,44 @@ const CHANGELOG: &str = "CHANGELOG.md";
 async fn clean_changelog(g: &Git, dir: &Path) -> Result<()> {
     if !g.run(&["status", "--porcelain", "--", CHANGELOG]).await?.trim().is_empty() {
         return Err(Error::Invalid(format!("{CHANGELOG} has uncommitted changes at {}", dir.display())));
+    }
+    Ok(())
+}
+
+/// Refused while `branch`'s checkout at `dir` is stopped in the middle of a rebase, merge, cherry-pick or
+/// revert: a commit made there would land in that operation instead of on the branch.
+/// A publish running in a project, until dropped (see `Gitnetix::publishing`).
+struct Publishing<'a>(&'a std::sync::Mutex<std::collections::HashSet<String>>, String);
+
+impl Drop for Publishing<'_> {
+    fn drop(&mut self) {
+        self.0.lock().unwrap().remove(&self.1);
+    }
+}
+
+/// The branch at `local` once publishing committed on it: `prev`, or one commit on top of `prev`. Anything
+/// else means someone else committed meanwhile: refused, so nothing of theirs gets tagged, pushed or rolled back.
+async fn own_commit(git: &Git, local: &str, prev: &str, branch: &str) -> Result<String> {
+    let now = git.rev_parse(local).await?;
+    if now == prev || git.rev_parse(&format!("{now}^")).await.ok().as_deref() == Some(prev) {
+        return Ok(now);
+    }
+    Err(Error::Invalid(format!("{branch} got other commits while its tag was being created, so nothing was tagged or pushed. Its changelog commit may stay on it: check {branch} before trying again.")))
+}
+
+async fn refuse_in_progress(g: &Git, dir: &Path, branch: &str) -> Result<()> {
+    match g.in_progress().await? {
+        Some(op) => Err(Error::Invalid(format!("{branch} is in the middle of a {op} at {}. Finish or abort it first.", dir.display()))),
+        None => Ok(()),
+    }
+}
+
+/// Refused when `version` is tagged already, with or without the "v": the other spelling would ship it twice.
+async fn refuse_tagged(git: &Git, version: &str) -> Result<()> {
+    for t in [release_tag(true, version), release_tag(false, version)] {
+        if git.ref_exists(&format!("refs/tags/{t}")).await? {
+            return Err(Error::Invalid(format!("{version} is already tagged as {t}.")));
+        }
     }
     Ok(())
 }
@@ -1059,14 +1170,14 @@ fn import_release_branches(p: &mut Project, branches: &[BranchInfo], remote: &[B
 fn renamed(p: &mut Project, from: &str, to: &str) -> Result<()> {
     if let Some(r) = p.releases.iter().find(|r| r.branch == from) {
         if r.shipped_at.is_some() {
-            return Err(Error::Invalid(format!("v{} shipped: its branch keeps its name", r.version)));
+            return Err(Error::Invalid(format!("Release {} shipped: its branch keeps its name", r.version)));
         }
         let Some(v) = to.strip_prefix("release/").filter(|v| valid_version(v)) else {
             return Err(Error::Invalid("A release branch is named release/<version>, like release/2.5.0".into()));
         };
         // An open release already on `to` was imported from origin's copy (renamed by someone else): this one takes its place.
         if p.releases.iter().any(|x| x.version == v && x.branch != from && (x.shipped_at.is_some() || x.branch != to)) {
-            return Err(Error::Invalid(format!("v{v} already exists")));
+            return Err(Error::Invalid(format!("Release {v} already exists")));
         }
         let old = r.version.clone();
         p.releases.retain(|x| x.branch != to || x.shipped_at.is_some());
@@ -1969,7 +2080,7 @@ impl Gitnetix {
         let agents = AgentManager::new(events.clone(), dir);
         let shells = crate::shell::Shells::new(events.clone());
         crate::log::attach(events.clone());
-        let k = Arc::new(Gitnetix { store, agents, shells, events, dir: dir.to_path_buf(), dictation: Default::default(), protected: Default::default(), watcher: Default::default(), commits: CommitCache::open(dir), views: ViewCache::open(dir.join("overview-cache")), building: Default::default(), cleaning: Default::default(), shipped: Default::default(), hosted: Default::default(), auto_fetch: Default::default(), worktrees: LastCache::open(dir.join("worktrees-cache.json")), drafts: Default::default(), sprint_fetches: Default::default(), runs: Default::default() });
+        let k = Arc::new(Gitnetix { store, agents, shells, events, dir: dir.to_path_buf(), dictation: Default::default(), protected: Default::default(), watcher: Default::default(), commits: CommitCache::open(dir), views: ViewCache::open(dir.join("overview-cache")), building: Default::default(), cleaning: Default::default(), shipped: Default::default(), hosted: Default::default(), auto_fetch: Default::default(), worktrees: LastCache::open(dir.join("worktrees-cache.json")), drafts: Default::default(), sprint_fetches: Default::default(), runs: Default::default(), publishing: Default::default() });
         k.rewatch();
         Ok(k)
     }
@@ -2328,20 +2439,33 @@ impl Gitnetix {
 
     pub async fn projects(&self) -> Vec<ProjectSummary> {
         let agents = self.agents.list();
-        self.store.read(|c| {
+        let mut list: Vec<(ProjectSummary, bool)> = self.store.read(|c| {
             c.projects
                 .iter()
-                .map(|p| ProjectSummary {
-                    id: p.id.clone(),
-                    name: p.name.clone(),
-                    path: p.path.clone(),
-                    exists: Path::new(&p.path).exists(),
-                    next_release: p.releases.iter().find(|r| r.shipped_at.is_none() && r.kind == ReleaseKind::Next).map(|r| r.version.clone()),
-                    running_agents: agents.iter().filter(|a| a.project_id == p.id && a.status == AgentStatus::Running).count(),
-                    hidden: p.hidden,
+                .map(|p| {
+                    let next_release = p.releases.iter().find(|r| r.shipped_at.is_none() && r.kind == ReleaseKind::Next).map(|r| r.version.clone());
+                    let detect = p.branch_types.tag_v.is_none() && next_release.is_some();
+                    let summary = ProjectSummary {
+                        id: p.id.clone(),
+                        name: p.name.clone(),
+                        path: p.path.clone(),
+                        exists: Path::new(&p.path).exists(),
+                        next_release,
+                        running_agents: agents.iter().filter(|a| a.project_id == p.id && a.status == AgentStatus::Running).count(),
+                        hidden: p.hidden,
+                        tag_v: p.branch_types.tag_v.unwrap_or(true),
+                    };
+                    (summary, detect)
                 })
                 .collect()
-        })
+        });
+        // Read from its tags outside the store lock: a git call per project.
+        for (s, _) in list.iter_mut().filter(|(s, detect)| *detect && s.exists) {
+            if let Ok(p) = self.store.project(&s.id) {
+                s.tag_v = use_v(&p, &self.git(&p)).await.unwrap_or(true);
+            }
+        }
+        list.into_iter().map(|(s, _)| s).collect()
     }
 
     /// Projects of the other profiles that this one lacks and are still on disk, newest added first, each path once.
@@ -2692,6 +2816,7 @@ impl Gitnetix {
         let detached = if current.is_none() { git.rev_parse("HEAD").await.ok() } else { None };
         let branch_left = |v: &str| p.releases.iter().any(|r| r.version == v && r.shipped_at.is_some() && all.iter().any(|b| b.name == r.branch && b.exists));
         let tag_list = tags.clone();
+        let tags_use_v = tags_use_v(tag_list.iter().map(|t| t.name.as_str()));
         for (i, t) in tags.into_iter().enumerate() {
             let v = t.name.trim_start_matches('v').to_string();
             if i >= 3 && !branch_left(&v) {
@@ -2699,11 +2824,14 @@ impl Gitnetix {
             }
             let shipped = p.branches.values().filter(|m| m.release.as_deref() == Some(v.as_str())).count();
             let date = t.date.get(..10).unwrap_or("").to_string();
+            let branch = p.releases.iter().find(|r| r.version == v).map(|r| r.branch.clone()).unwrap_or_default();
+            // Any branch can be published: name the default branch only when the tag is on it.
+            let on = if git.is_ancestor(&t.sha, &default).await.unwrap_or(false) { default.clone() } else { branch.clone() };
             releases.push(ReleaseView {
-                branch: p.releases.iter().find(|r| r.version == v).map(|r| r.branch.clone()).unwrap_or_default(),
+                branch,
                 version: v,
                 tag: "released".into(),
-                base: format!("{default} · tagged {date}"),
+                base: if on.is_empty() { format!("tagged {date}") } else { format!("{on} · tagged {date}") },
                 open: false,
                 items: vec![],
                 view: None,
@@ -2747,7 +2875,7 @@ impl Gitnetix {
             Some(b) => Self::rebasing_onto(&git, b, all.iter().find(|v| v.name == b).and_then(|v| v.parent.as_deref()).unwrap_or(&default)).await,
             None => None,
         };
-        Ok((Overview { project: p, current_branch: current, default_branch: default, releases, other_branches, default_view, branches: all, rebasing, rebase_onto, in_progress, conflicts, remote, stashes, has_changelog, changelog_version }, built))
+        Ok((Overview { project: p, current_branch: current, default_branch: default, releases, other_branches, default_view, branches: all, rebasing, rebase_onto, in_progress, conflicts, remote, stashes, has_changelog, changelog_version, tags_use_v }, built))
     }
 
     /// Every branch's view with counts, merge state and parent: a few git calls per branch,
@@ -3140,6 +3268,10 @@ impl Gitnetix {
 
     /// Move `branch` to one of its commits: soft keeps the changes staged, mixed unstaged, hard drops them.
     pub async fn reset_branch(&self, project_id: &str, branch: &str, sha: &str, mode: &str) -> Result<()> {
+        // Keep only serves Gitnetix's own rollbacks (see `roll_back`).
+        if !matches!(mode, "soft" | "mixed" | "hard") {
+            return Err(Error::Invalid(format!("unknown reset mode {mode:?}")));
+        }
         let p = self.store.project(project_id)?;
         self.require_checkout(&p, branch).await?.reset(check_sha(sha)?, mode).await?;
         self.changed(project_id);
@@ -3957,8 +4089,8 @@ impl Gitnetix {
     // ---------- releases ----------
 
     /// Version for a new release, from the highest one around (tags, release branches here or on origin,
-    /// releases Gitnetix knows): next bumps the minor, hotfix bumps the patch of the highest version tag.
-    pub async fn suggest_version(&self, project_id: &str, kind: ReleaseKind) -> Result<String> {
+    /// releases Gitnetix knows): major and minor bump that one, patch bumps the patch of the highest version tag.
+    pub async fn suggest_version(&self, project_id: &str, bump: Bump) -> Result<String> {
         let p = self.store.project(project_id)?;
         let git = self.git(&p);
         let (tags, local, remote) = tokio::try_join!(git.tags(), git.branches(), git.remote_branches())?;
@@ -3967,10 +4099,11 @@ impl Gitnetix {
         taken.extend(p.releases.iter().filter_map(|r| parse_version(&r.version)));
         let names = local.into_iter().chain(remote).map(|b| b.name);
         taken.extend(names.filter_map(|n| n.strip_prefix("release/").and_then(parse_version)));
-        let v = match kind {
-            ReleaseKind::Next => taken.iter().max().map(|v| [v[0], v[1] + 1, 0]).unwrap_or([0, 1, 0]),
+        let v = match bump {
+            Bump::Major => [taken.iter().map(|v| v[0]).max().unwrap_or(0) + 1, 0, 0],
+            Bump::Minor => taken.iter().max().map(|v| [v[0], v[1] + 1, 0]).unwrap_or([0, 1, 0]),
             // Hotfixes patch what shipped; skip past patches already taken by another hotfix.
-            ReleaseKind::Hotfix => {
+            Bump::Patch => {
                 let mut v = latest_tag.unwrap_or([0, 0, 0]);
                 v[2] += 1;
                 while taken.contains(&v) {
@@ -3989,7 +4122,7 @@ impl Gitnetix {
         }
         let p = self.store.project(project_id)?;
         if p.releases.iter().any(|r| r.version == version && r.shipped_at.is_none()) {
-            return Err(Error::Invalid(format!("v{version} already exists")));
+            return Err(Error::Invalid(format!("Release {version} already exists")));
         }
         let git = self.git(&p);
         let default = git.default_branch().await?;
@@ -4021,7 +4154,7 @@ impl Gitnetix {
             .iter()
             .find(|r| r.version == version && r.shipped_at.is_none())
             .cloned()
-            .ok_or_else(|| Error::NotFound(format!("open release v{version}")))?;
+            .ok_or_else(|| Error::NotFound(format!("open release {version}")))?;
         self.refuse_locked(project_id, &r.branch)?;
         let git = self.git(&p);
         let default = git.default_branch().await?;
@@ -4042,15 +4175,16 @@ impl Gitnetix {
                 )));
             }
         }
+        refuse_tagged(&git, version).await?;
+        let tag = release_tag(use_v(&p, &git).await?, version);
         let default_dir = self.checkout_dir(&p, &default).await?;
         if let Some(dir) = &default_dir {
             self.check_wip_clear(dir, &r.branch, &default).await?;
             // The stamp below changes it on the release after this check.
             clean_changelog(&self.git_at(dir), dir).await?;
         }
-        self.stamp_release_changelog(&p, &git, &r.branch, version, &format!("docs(changelog): release v{version}")).await?;
+        self.stamp_release_changelog(&p, &git, &r.branch, version, &format!("docs(changelog): release {tag}")).await?;
         let sha = git.rev_parse(&r.branch).await?;
-        let tag = format!("v{version}");
         git.tag(&tag, &sha, &format!("Release {tag}")).await?;
         // Origin before this repo: when the push is refused, main and the tag stay as they were here, so the release
         // stays open and Ship can run again (a local tag alone would mark it shipped).
@@ -4081,6 +4215,174 @@ impl Gitnetix {
         Ok(tag)
     }
 
+    /// Publish `branch` as `version`, any branch (a release one too): date its CHANGELOG.md entry in a
+    /// commit on it, tag its tip, and push the branch (to its own name on origin, which it tracks from then
+    /// on) and the tag together. No other branch moves. `v`: the tag starts with "v"; None follows the
+    /// project's choice. `ai_changelog`: AI first adds the branch's changes to the Unreleased section of its
+    /// CHANGELOG.md, once every check passed. Refused before anything changes while its checkout is in the
+    /// middle of a rebase, merge, cherry-pick or revert. A step failing later, a refused push too, puts the
+    /// branch back where it was, untagged, its release still open. `custom`: the tag's full name, taken as
+    /// written instead of `version` and `v`; the changelog then dates it without a "v" before a digit.
+    pub async fn publish_branch(&self, project_id: &str, branch: &str, version: &str, v: Option<bool>, custom: Option<&str>, ai_changelog: bool) -> Result<Published> {
+        self.refuse_locked(project_id, branch)?;
+        if !self.publishing.lock().unwrap().insert(project_id.to_string()) {
+            return Err(Error::Invalid("A tag is already being created in this project. Wait for it to finish.".into()));
+        }
+        let _publishing = Publishing(&self.publishing, project_id.to_string());
+        let custom = custom.map(str::trim).filter(|t| !t.is_empty());
+        let version = match custom {
+            // Same characters as a branch name (no leading "-", read as an option); git also refuses a leading or trailing ".".
+            Some(t) if !valid_branch_name(t) || t.starts_with('.') || t.ends_with('.') => {
+                return Err(Error::Invalid("Not a tag name git takes: letters, digits, dots, dashes, underscores or slashes, not starting with a dash or a dot.".into()));
+            }
+            Some(t) => t.strip_prefix('v').filter(|r| r.starts_with(|c: char| c.is_ascii_digit())).unwrap_or(t),
+            None => {
+                let version = version.trim();
+                let version = version.strip_prefix('v').unwrap_or(version);
+                if !publishable_version(version) {
+                    return Err(Error::Invalid("Not a version git can tag: a digit first, then letters, digits, dots or dashes, like 2.4.0.".into()));
+                }
+                version
+            }
+        };
+        let p = self.store.project(project_id)?;
+        let git = self.git(&p);
+        let local = format!("refs/heads/{branch}");
+        if !git.ref_exists(&local).await? {
+            return Err(Error::NotFound(format!("local branch {branch}")));
+        }
+        if let Some(r) = p.releases.iter().find(|r| r.version == version && r.shipped_at.is_none() && r.branch != branch) {
+            // Already merged into this branch (a release merged into main, main published): publishing here
+            // releases it, and it is marked shipped below.
+            // Imported releases may only be on origin.
+            if !release_merged_in(&git, &git.rev_of(&r.branch).await, &local).await {
+                return Err(Error::Invalid(format!("{version} is the open release of {}. Create its tag from that branch, merge it into {branch} first (a squash merge does not count), or pick another version.", r.branch)));
+            }
+        }
+        if let Some(dir) = self.checkout_dir(&p, branch).await? {
+            refuse_in_progress(&self.git_at(&dir), &dir, branch).await?;
+        }
+        // Checked before anything is committed or tagged, so a refusal leaves the branch as it was.
+        let origin = git.remote_url("origin").await?.is_some();
+        if origin {
+            // Origin's tags too: one it has already is refused below.
+            git.fetch().await?;
+            // Its own name there, whatever it tracks: a branch started from origin/main must not move main.
+            let theirs = format!("refs/remotes/origin/{branch}");
+            if git.ref_exists(&theirs).await? && !git.is_ancestor(&theirs, &local).await? {
+                return Err(Error::Invalid(format!("origin/{branch} has commits that are not in {branch}. Pull first.")));
+            }
+        }
+        refuse_tagged(&git, version).await?;
+        let tag = match (custom, v) {
+            (Some(t), _) => t.to_string(),
+            (None, Some(v)) => release_tag(v, version),
+            (None, None) => release_tag(use_v(&p, &git).await?, version),
+        };
+        let before = git.rev_parse(&local).await?;
+        // The last commit publishing made, each on the one before: where a failure takes the branch back from.
+        let mut tip = before.clone();
+        // The tag is this publish's own once created: only then does a failure delete it.
+        let mut tagged = false;
+        let done: Result<bool> = async {
+            if ai_changelog && git.show_file(branch, CHANGELOG).await?.is_some() {
+                match self.update_changelog(project_id, branch).await {
+                    // Nothing new since its base or latest tag: the entries already listed get dated.
+                    Err(Error::Invalid(m)) if m.starts_with(&format!("{branch} has no commits since ")) => {}
+                    r => {
+                        r?;
+                    }
+                }
+                tip = own_commit(&git, &local, &tip, branch).await?;
+            }
+            let changelog = self.stamp_release_changelog(&p, &git, branch, version, &format!("docs(changelog): release {tag}")).await?;
+            tip = own_commit(&git, &local, &tip, branch).await?;
+            git.tag(&tag, &tip, &format!("Release {tag}")).await?;
+            tagged = true;
+            if origin {
+                // All or nothing: a tag on origin without its changelog commit, or the reverse, never happens.
+                git.push_atomic(&[&format!("{tip}:refs/heads/{branch}"), &format!("refs/tags/{tag}")]).await?;
+            }
+            Ok(changelog)
+        }
+        .await;
+        let changelog = match done {
+            Ok(c) => c,
+            Err(e) => {
+                self.undo_publish(&p, branch, version, &tag, tagged, &before, &tip).await;
+                self.changed(project_id);
+                return Err(e);
+            }
+        };
+        if origin {
+            let own = format!("origin/{branch}");
+            if git.upstream(branch).await.ok().flatten().as_deref() != Some(own.as_str()) {
+                if let Err(e) = git.set_upstream(branch, &own).await {
+                    crate::log::error(format!("Created {tag}, but {branch} could not track {own}: {e}"));
+                }
+            }
+        }
+        // This branch's own release, or one merged into it (any other open one of this version was refused above).
+        self.store.with_project(project_id, |p| {
+            if let Some(r) = p.releases.iter_mut().find(|r| r.version == version && r.shipped_at.is_none()) {
+                r.shipped_at = Some(now());
+                r.tag = Some(tag.clone());
+            }
+            Ok(())
+        })?;
+        self.changed(project_id);
+        Ok(Published { tag, pushed: origin, changelog })
+    }
+
+    /// Take back what a failed [`Self::publish_branch`] did: its tag (any `tag` there is its own: it was
+    /// refused when tagged already), its commits (the branch goes from `tip`, the last one it made, back to
+    /// `before`) and the shipped mark an overview may have put on the branch's open release meanwhile.
+    /// What can't be undone is logged: the publish error matters more.
+    async fn undo_publish(&self, p: &Project, branch: &str, version: &str, tag: &str, tagged: bool, before: &str, tip: &str) {
+        let git = self.git(p);
+        if tagged {
+            if let Err(e) = git.delete_tag(tag).await {
+                crate::log::error(format!("Creating {tag} failed, and its tag could not be deleted: {e}"));
+            }
+        }
+        if tip != before {
+            if let Err(e) = self.roll_back(p, &git, branch, before, tip).await {
+                crate::log::error(format!("Creating {tag} failed, and {branch} could not go back to {before}: {e}"));
+            }
+        }
+        // Its own release or one merged into it; the tag tells the overview's mark from an older one.
+        if p.releases.iter().any(|r| r.version == version && r.shipped_at.is_none()) {
+            let reopened = self.store.with_project(&p.id, |p| {
+                for r in p.releases.iter_mut().filter(|r| r.version == version && r.tag.as_deref() == Some(tag)) {
+                    r.shipped_at = None;
+                    r.tag = None;
+                }
+                Ok(())
+            });
+            if let Err(e) = reopened {
+                crate::log::error(format!("Creating {tag} failed, and release {version} could not be reopened: {e}"));
+            }
+        }
+    }
+
+    /// Move `branch` from `tip` back to `before`, only while it is still on `tip`. In its checkout only
+    /// CHANGELOG.md goes back with it (the only file publishing commits), the rest of the index and the
+    /// working tree stay; refused while an operation is in progress there or CHANGELOG.md was edited since.
+    async fn roll_back(&self, p: &Project, git: &Git, branch: &str, before: &str, tip: &str) -> Result<()> {
+        match self.checkout_dir(p, branch).await? {
+            Some(dir) => {
+                let g = self.git_at(&dir);
+                // Nothing the user started there since, and CHANGELOG.md as publishing left it: publishing's
+                // commits only touch that file, so it alone goes back; the rest of the index stays as staged.
+                refuse_in_progress(&g, &dir, branch).await?;
+                clean_changelog(&g, &dir).await?;
+                git.update_ref_from(&format!("refs/heads/{branch}"), before, tip).await?;
+                g.run(&["restore", "--source", before, "--staged", "--worktree", "--", CHANGELOG]).await.map(|_| ())
+            }
+            None => git.update_ref_from(&format!("refs/heads/{branch}"), before, tip).await,
+        }
+    }
+
     /// Move the `Unreleased` entries of an open release's CHANGELOG.md into its version's
     /// section, committed on the release branch, ahead of shipping it.
     pub async fn release_changelog(&self, project_id: &str, version: &str) -> Result<String> {
@@ -4090,11 +4392,12 @@ impl Gitnetix {
             .iter()
             .find(|r| r.version == version && r.shipped_at.is_none())
             .cloned()
-            .ok_or_else(|| Error::NotFound(format!("open release v{version}")))?;
+            .ok_or_else(|| Error::NotFound(format!("open release {version}")))?;
         let git = self.git(&p);
         let text = git.show_file(&r.branch, CHANGELOG).await?.ok_or_else(|| Error::Invalid(format!("{} has no {CHANGELOG}", r.branch)))?;
         let merging = text.lines().any(|l| l.trim_start().starts_with(&format!("## [{version}]")));
-        if !self.stamp_release_changelog(&p, &git, &r.branch, version, &format!("docs(changelog): release v{version}")).await? {
+        let tag = release_tag(use_v(&p, &git).await?, version);
+        if !self.stamp_release_changelog(&p, &git, &r.branch, version, &format!("docs(changelog): release {tag}")).await? {
             return Ok(format!("Nothing under Unreleased to move into {version}"));
         }
         self.changed(project_id);
@@ -4109,7 +4412,8 @@ impl Gitnetix {
         let git = self.git(&p);
         let text = git.show_file(branch, CHANGELOG).await?.ok_or_else(|| Error::Invalid(format!("{branch} has no {CHANGELOG}")))?;
         let version = latest_changelog_version(&text).ok_or_else(|| Error::Invalid(format!("{CHANGELOG} on {branch} lists no version yet")))?;
-        if !self.stamp_release_changelog(&p, &git, branch, &version, &format!("docs(changelog): add unreleased changes to v{version}")).await? {
+        let tag = release_tag(use_v(&p, &git).await?, &version);
+        if !self.stamp_release_changelog(&p, &git, branch, &version, &format!("docs(changelog): add unreleased changes to {tag}")).await? {
             return Ok(format!("Nothing under Unreleased to add to {version}"));
         }
         self.changed(project_id);
@@ -4161,9 +4465,17 @@ impl Gitnetix {
         match self.checkout_dir(p, branch).await? {
             Some(dir) => {
                 let g = self.git_at(&dir);
+                refuse_in_progress(&g, &dir, branch).await?;
                 clean_changelog(&g, &dir).await?;
                 tokio::fs::write(dir.join(CHANGELOG), text).await?;
-                g.commit_paths(&[CHANGELOG], message).await
+                if let Err(e) = g.commit_paths(&[CHANGELOG], message).await {
+                    // Clean before the write, so HEAD's copy is the user's: a refused commit (a hook) leaves nothing half done.
+                    if let Err(r) = g.run(&["checkout", "HEAD", "--", CHANGELOG]).await {
+                        crate::log::error(format!("{CHANGELOG} could not be put back at {} after a failed commit: {r}", dir.display()));
+                    }
+                    return Err(e);
+                }
+                Ok(())
             }
             None => git.commit_root_file(branch, CHANGELOG, text, message).await.map(|_| ()),
         }
@@ -4214,7 +4526,7 @@ impl Gitnetix {
                     .iter()
                     .find(|r| r.version == v && r.shipped_at.is_none())
                     .cloned()
-                    .ok_or_else(|| Error::NotFound(format!("open release v{v}")))?,
+                    .ok_or_else(|| Error::NotFound(format!("open release {v}")))?,
             ),
         };
         // Without a release, the branch starts from (and later merges into) `from`.
@@ -4989,6 +5301,25 @@ impl Gitnetix {
             Some(_) => git.rev_parse(branch).await.ok(),
             None => None,
         };
+        // Its tag, and whether it stays: when it still tags that tip, the release went out as it is (published,
+        // not shipped through main), whatever commits a squash or rebase lands; when it tags a commit off the
+        // release's line (main published with the release merged in), moving it would drop what went out.
+        let (release_tag_name, went_out_as_is) = match shipped {
+            Some(r) => {
+                let tag = match &r.tag {
+                    Some(t) => t.clone(),
+                    // Its own tag unknown (it went out with a later patch): named like the project's, skipped when missing.
+                    None => release_tag(use_v(&p, &git).await.unwrap_or(true), &r.version),
+                };
+                let tagged = git.rev_parse(&format!("refs/tags/{tag}^{{commit}}")).await.ok();
+                let keep = match (&tagged, &release_tip) {
+                    (Some(t), Some(tip)) => t == tip || !git.is_ancestor(t, tip).await.unwrap_or(false),
+                    _ => false,
+                };
+                (Some(tag), keep)
+            }
+            None => (None, false),
+        };
         let mut squashed = None;
         if opts.squash && !git.is_ancestor(branch, &into).await.unwrap_or(false) {
             // Squashing rewrites the branch: check everything that could stop the merge first,
@@ -5043,8 +5374,7 @@ impl Gitnetix {
         // New release commits now on origin's default branch: the release tag moves to cover them.
         // Only once pushed, so the tag never differs between here and origin. Reported, never fatal.
         let (mut retagged, mut tag_error) = (None, None);
-        if let (Some(r), true, false) = (shipped, pushed, already_merged) {
-            let tag = format!("v{}", r.version);
+        if let (Some(tag), true, false, false) = (release_tag_name, pushed, already_merged, went_out_as_is) {
             // Squash and rebase land rewritten commits, not the release's own: tag what landed.
             let target = if opts.squash || opts.rebase { Some(sha.clone()) } else { release_tip };
             if let Some(target) = target {
@@ -5065,9 +5395,10 @@ impl Gitnetix {
     }
 
     /// Move release tag `tag` to `target` on origin too. A failed push puts the
-    /// old tag back, so the two never disagree. Ok(false): already there.
+    /// old tag back, so the two never disagree. Ok(false): already there, or no such tag.
     async fn move_tag(git: &Git, tag: &str, target: &str) -> Result<bool> {
-        if git.rev_parse(&format!("refs/tags/{tag}^{{commit}}")).await.ok().as_deref() == Some(target) {
+        let r = format!("refs/tags/{tag}");
+        if !git.ref_exists(&r).await? || git.rev_parse(&format!("{r}^{{commit}}")).await.ok().as_deref() == Some(target) {
             return Ok(false);
         }
         let old = git.retag(tag, target, &format!("Release {tag}")).await?;
@@ -6531,20 +6862,7 @@ impl Gitnetix {
             return Ok("Changelog already lists these changes".into());
         }
         let updated = replace_section(&text, "Unreleased", &body);
-        let message = format!("docs(changelog): add changes from {branch}");
-        match self.checkout_dir(&p, branch).await? {
-            Some(dir) => {
-                let g = self.git_at(&dir);
-                if !g.run(&["status", "--porcelain", "--", CHANGELOG]).await?.trim().is_empty() {
-                    return Err(Error::Invalid(format!("{CHANGELOG} has uncommitted changes at {}", dir.display())));
-                }
-                tokio::fs::write(dir.join(CHANGELOG), updated).await?;
-                g.commit_paths(&[CHANGELOG], &message).await?;
-            }
-            None => {
-                git.commit_root_file(branch, CHANGELOG, &updated, &message).await?;
-            }
-        }
+        self.commit_changelog(&p, &git, branch, &updated, &format!("docs(changelog): add changes from {branch}")).await?;
         self.changed(project_id);
         Ok(format!("Changelog updated on {branch}"))
     }
@@ -7676,13 +7994,13 @@ mod tests {
     fn a_branch_type_goes_in_the_first_unpinned_place() {
         use crate::store::{BranchType, BranchTypes};
         let t = |id: &str, pinned| BranchType { id: id.into(), pinned };
-        let mut b = BranchTypes { list: vec![t("a", true), t("b", false), t("c", true), t("d", false)], one_row: false };
+        let mut b = BranchTypes { list: vec![t("a", true), t("b", false), t("c", true), t("d", false)], one_row: false, tag_v: None };
         b.add("n");
         let ids: Vec<_> = b.list.iter().map(|t| t.id.as_str()).collect();
         assert_eq!(ids, ["a", "n", "c", "b", "d"], "the pinned a and c keep their places");
         b.add("N");
         assert_eq!(b.list.len(), 5, "listed already, in another case");
-        let mut all = BranchTypes { list: vec![t("a", true)], one_row: false };
+        let mut all = BranchTypes { list: vec![t("a", true)], one_row: false, tag_v: None };
         all.add("n");
         assert_eq!(all.list.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(), ["a", "n"], "after the last pinned one");
         let of = |k: &str| type_of(k).unwrap_or_default();
@@ -8027,6 +8345,30 @@ mod tests {
         assert_eq!(parse_version("2.4.0-rc1"), None);
         assert_eq!(parse_version("latest"), None);
         assert_eq!(parse_version("1.18446744073709551615"), None);
+    }
+
+    #[test]
+    fn tag_prefix_follows_the_version_tags() {
+        assert!(tags_use_v([]), "no tags yet: v");
+        assert!(tags_use_v(["deploy-prod", "latest"]), "no version tags: v");
+        assert!(!tags_use_v(["1.0.0", "1.1.0", "deploy-prod"]));
+        assert!(tags_use_v(["v1.0.0", "1.1.0"]), "a tie goes to v");
+        assert!(!tags_use_v(["v1.0.0", "1.1.0", "1.2.0", "v2.0.0-rc1"]), "pre-releases don't count");
+        assert!(tags_use_v(["v1.0.0", "v1.1.0", "1.2.0"]));
+        assert_eq!(release_tag(true, "2.4.0"), "v2.4.0");
+        assert_eq!(release_tag(true, "v2.4.0"), "v2.4.0");
+        assert_eq!(release_tag(false, "v2.4.0"), "2.4.0");
+        assert_eq!(release_tag(false, "2.4.0"), "2.4.0");
+    }
+
+    #[test]
+    fn publishable_versions_are_tag_names_git_takes() {
+        for ok in ["2.4.0", "1", "1.0.0-rc.1", "2026.11", "1.2.0-beta-2"] {
+            assert!(publishable_version(ok), "{ok}");
+        }
+        for bad in ["", "-x", "v1.0.0", "x1", "1.2.", "1..2", "1.2.lock", "1.0 beta", "1/2", "1.0~1"] {
+            assert!(!publishable_version(bad), "{bad}");
+        }
     }
 
     #[test]

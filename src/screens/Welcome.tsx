@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
-import { useAction, useConfig, useProjects } from "../api/hooks";
+import { useAction, useConfig, useProjects, withV } from "../api/hooks";
 import { isLocal, onPathDrop, pickFolders, rpc } from "../api/transport";
 import type { GitHubRepo, Project, RecentProject } from "../api/types";
 import { Icon } from "../components/Icon";
@@ -166,7 +166,7 @@ export function Welcome() {
                       {!p.exists && <span className="pill c-del">Missing</span>}
                       {p.hidden && <span className="pill faint">Closed</span>}
                       <span className="muted" style={{ fontSize: 12, whiteSpace: "nowrap" }}>
-                        {p.nextRelease ? `Next: v${p.nextRelease}` : "No open release"}
+                        {p.nextRelease ? `Next: ${withV(p.tagV, p.nextRelease)}` : "No open release"}
                       </span>
                     </button>
                     <button className="btn btn-ghost project-remove" aria-label={`Remove ${p.name} from list`} onClick={() => remove.mutate({ projectId: p.id })}>

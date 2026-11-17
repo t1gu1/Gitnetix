@@ -1218,15 +1218,21 @@ async fn suggest_version() {
     };
 
     assert_eq!(suggest("next").await, "0.1.0");
+    assert_eq!((suggest("major").await, suggest("minor").await, suggest("patch").await), ("1.0.0".into(), "0.1.0".into(), "0.0.1".into()));
     sh(&repo, &["tag", "v1.2.0"]);
     sh(&repo, &["tag", "v1.10.3"]);
     assert_eq!(suggest("next").await, "1.11.0");
     assert_eq!(suggest("hotfix").await, "1.10.4");
+    assert_eq!((suggest("major").await, suggest("minor").await, suggest("patch").await), ("2.0.0".into(), "1.11.0".into(), "1.10.4".into()));
     // A release branch past the tags wins for next; a hotfix already cut is skipped.
     sh(&repo, &["branch", "release/1.11.0"]);
     sh(&repo, &["branch", "release/1.10.4"]);
     assert_eq!(suggest("next").await, "1.12.0");
     assert_eq!(suggest("hotfix").await, "1.10.5");
+    assert_eq!((suggest("minor").await, suggest("patch").await), ("1.12.0".into(), "1.10.5".into()));
+    // Major goes past every major taken, release branches included.
+    sh(&repo, &["branch", "release/2.0.0"]);
+    assert_eq!(suggest("major").await, "3.0.0");
 }
 
 #[tokio::test]
@@ -2053,4 +2059,452 @@ async fn a_new_branch_prefix_joins_the_types_after_the_pinned_ones() {
     let cfg = call(&k, "config.get", json!({})).await;
     assert_eq!(cfg["projects"][0]["branches"]["release/notes-tool"]["kind"], "fix");
     assert_eq!(types(&cfg), ["fix*", "wip", "release*"]);
+}
+
+/// A bare origin the repo pushes `main` to.
+fn add_origin(tmp: &std::path::Path, repo: &std::path::Path) -> std::path::PathBuf {
+    let origin = tmp.join("origin.git");
+    sh(tmp, &["init", "-q", "--bare", "-b", "main", origin.to_str().unwrap()]);
+    sh(repo, &["remote", "add", "origin", origin.to_str().unwrap()]);
+    sh(repo, &["push", "-q", "-u", "origin", "main"]);
+    origin
+}
+
+#[tokio::test]
+async fn publish_dates_the_changelog_tags_and_pushes_the_branch() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("atlas-api");
+    init_repo(&repo);
+    commit_file(&repo, "CHANGELOG.md", "# Changelog\n\n## [Unreleased]\n\n- First.\n");
+    let origin = add_origin(tmp.path(), &repo);
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let pid = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await[0]["id"].as_str().unwrap().to_string();
+    assert_eq!(call(&k, "workspace.overview", json!({ "projectId": pid })).await["tagsUseV"], true, "no tags yet: v");
+    call(&k, "items.create", json!({ "projectId": pid, "from": "main", "kind": "feat", "description": "", "branchName": "feat/login", "where": "switch" })).await;
+    commit_file(&repo, "login.ts", "export const login = 1;\n");
+    let main = rev(&repo, "main");
+
+    // Checked out here: the changelog commit lands in this checkout, the tag on it, both on origin.
+    let publish = |version: &str| {
+        let (k, p) = (&k, json!({ "projectId": pid, "branch": "feat/login", "version": version }));
+        async move { rpc::call(k, "branches.publish", p).await }
+    };
+    let out = publish("v0.2.0").await.unwrap();
+    assert_eq!(out, json!({ "tag": "v0.2.0", "pushed": true, "changelog": true }));
+    let tip = rev(&repo, "feat/login");
+    assert_eq!(git_out(&repo, &["log", "-1", "--format=%s", "feat/login"]), "docs(changelog): release v0.2.0\n");
+    let dated = git_out(&repo, &["show", "feat/login:CHANGELOG.md"]);
+    assert!(dated.starts_with("# Changelog\n\n## [Unreleased]\n\n## [0.2.0] - "), "{dated}");
+    assert_eq!(std::fs::read_to_string(repo.join("CHANGELOG.md")).unwrap(), dated);
+    assert_eq!(git_out(&repo, &["cat-file", "-t", "v0.2.0"]), "tag\n", "annotated");
+    assert_eq!(rev(&repo, "v0.2.0^{commit}"), tip);
+    assert_eq!(rev(&origin, "feat/login"), tip);
+    assert_eq!(rev(&origin, "v0.2.0^{commit}"), tip);
+    assert_eq!(git_out(&repo, &["rev-parse", "--abbrev-ref", "feat/login@{upstream}"]), "origin/feat/login\n", "tracks what it pushed");
+    assert_eq!((rev(&repo, "main"), rev(&origin, "main")), (main.clone(), main.clone()), "main stays where it was");
+
+    // Refused before anything is committed or tagged: the changelog keeps its new entry.
+    let entry = dated.replacen("## [Unreleased]\n", "## [Unreleased]\n\n- Second.\n", 1);
+    commit_file(&repo, "CHANGELOG.md", &entry);
+    let tip = rev(&repo, "feat/login");
+    let err = publish("0.2.0").await.unwrap_err().to_string();
+    assert!(err.contains("already tagged as v0.2.0"), "{err}");
+    // A version another open release holds.
+    call(&k, "releases.create", json!({ "projectId": pid, "version": "0.3.0", "kind": "next" })).await;
+    let err = publish("0.3.0").await.unwrap_err().to_string();
+    assert!(err.contains("release/0.3.0"), "{err}");
+    assert!(publish("not a version").await.is_err());
+    // Origin has commits the branch lacks.
+    let other = tmp.path().join("other");
+    sh(tmp.path(), &["clone", "-q", "-b", "feat/login", "-c", "core.autocrlf=false", "-c", "core.longpaths=true", origin.to_str().unwrap(), other.to_str().unwrap()]);
+    sh(&other, &["config", "user.email", "o@example.com"]);
+    sh(&other, &["config", "user.name", "Other"]);
+    sh(&other, &["config", "commit.gpgsign", "false"]);
+    commit_file(&other, "theirs.txt", "t\n");
+    sh(&other, &["push", "-q", "origin", "feat/login"]);
+    let err = publish("0.4.0").await.unwrap_err().to_string();
+    assert!(err.contains("Pull first"), "{err}");
+    assert_eq!(rev(&repo, "v0.4.0"), "");
+    assert_eq!(rev(&repo, "feat/login"), tip);
+    assert_eq!(std::fs::read_to_string(repo.join("CHANGELOG.md")).unwrap(), entry);
+}
+
+#[tokio::test]
+async fn publish_a_release_branch_ships_it_and_leaves_main() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("atlas-api");
+    init_repo(&repo);
+    commit_file(&repo, "CHANGELOG.md", "# Changelog\n\n## [Unreleased]\n\n- First.\n");
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let pid = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await[0]["id"].as_str().unwrap().to_string();
+    call(&k, "releases.create", json!({ "projectId": pid, "version": "0.2.0", "kind": "next" })).await;
+    sh(&repo, &["switch", "-q", "release/0.2.0"]);
+    commit_file(&repo, "a.txt", "a\n");
+    sh(&repo, &["switch", "-q", "main"]);
+    let main = rev(&repo, "main");
+
+    // No origin: tagged here only. Not checked out: the changelog commit goes straight onto the branch.
+    let out = call(&k, "branches.publish", json!({ "projectId": pid, "branch": "release/0.2.0", "version": "0.2.0" })).await;
+    assert_eq!(out, json!({ "tag": "v0.2.0", "pushed": false, "changelog": true }));
+    assert_eq!(rev(&repo, "v0.2.0^{commit}"), rev(&repo, "release/0.2.0"));
+    assert!(git_out(&repo, &["show", "release/0.2.0:CHANGELOG.md"]).contains("## [0.2.0] - "));
+    assert_eq!(rev(&repo, "main"), main, "main stays where it was");
+    let cfg = call(&k, "config.get", json!({})).await;
+    let r = cfg["projects"][0]["releases"].as_array().unwrap().iter().find(|r| r["version"] == "0.2.0").unwrap().clone();
+    assert!(r["shippedAt"].is_string(), "{r}");
+    assert_eq!(r["tag"], "v0.2.0");
+    let ov = call(&k, "workspace.overview", json!({ "projectId": pid })).await;
+    assert!(ov["releases"].as_array().unwrap().iter().all(|r| r["open"] == false), "{}", ov["releases"]);
+}
+
+#[tokio::test]
+async fn publish_main_once_the_release_is_merged_into_it() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("atlas-api");
+    init_repo(&repo);
+    commit_file(&repo, "CHANGELOG.md", "# Changelog\n\n## [Unreleased]\n\n- First.\n");
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let pid = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await[0]["id"].as_str().unwrap().to_string();
+    call(&k, "releases.create", json!({ "projectId": pid, "version": "0.3.0", "kind": "next" })).await;
+    sh(&repo, &["switch", "-q", "release/0.3.0"]);
+    commit_file(&repo, "a.txt", "a\n");
+    sh(&repo, &["switch", "-q", "main"]);
+
+    // Not merged into main yet: 0.3.0 is the release branch's to publish.
+    let p = json!({ "projectId": pid, "branch": "main", "version": "0.3.0" });
+    let err = rpc::call(&k, "branches.publish", p.clone()).await.unwrap_err();
+    assert!(err.to_string().contains("open release of release/0.3.0"), "{err}");
+    assert!(git_out(&repo, &["tag", "--list"]).trim().is_empty());
+
+    // Merged (the branch kept): publishing main releases it.
+    sh(&repo, &["merge", "-q", "--no-ff", "-m", "Merge release/0.3.0", "release/0.3.0"]);
+    let out = call(&k, "branches.publish", p).await;
+    assert_eq!(out, json!({ "tag": "v0.3.0", "pushed": false, "changelog": true }));
+    assert_eq!(rev(&repo, "v0.3.0^{commit}"), rev(&repo, "main"));
+    let cfg = call(&k, "config.get", json!({})).await;
+    let r = cfg["projects"][0]["releases"].as_array().unwrap().iter().find(|r| r["version"] == "0.3.0").unwrap().clone();
+    assert!(r["shippedAt"].is_string(), "{r}");
+    assert_eq!(r["tag"], "v0.3.0");
+}
+
+#[tokio::test]
+async fn a_custom_tag_is_taken_as_written() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("atlas-api");
+    init_repo(&repo);
+    commit_file(&repo, "CHANGELOG.md", "# Changelog\n\n## [Unreleased]\n\n- First.\n");
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let pid = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await[0]["id"].as_str().unwrap().to_string();
+    let publish = |tag: &str| rpc::call(&k, "branches.publish", json!({ "projectId": pid, "branch": "main", "version": "", "tag": tag }));
+
+    // Refused before anything changes: a dash would be read as an option, git refuses the others.
+    let main = rev(&repo, "main");
+    for bad in ["-d", ".hidden", "a..b", "x.lock", "end.", "with space"] {
+        assert!(publish(bad).await.is_err(), "{bad}");
+    }
+    assert_eq!(rev(&repo, "main"), main);
+
+    // A name, not a version: the changelog dates it as written, the "v" choice does not touch it.
+    let out = rpc::call(&k, "branches.publish", json!({ "projectId": pid, "branch": "main", "version": "", "v": true, "tag": "deploy-1" })).await.unwrap();
+    assert_eq!(out["tag"], "deploy-1");
+    assert_eq!(rev(&repo, "deploy-1^{commit}"), rev(&repo, "main"));
+    assert!(std::fs::read_to_string(repo.join("CHANGELOG.md")).unwrap().contains("## [deploy-1] - "));
+
+    // A version typed with its "v": the changelog heading drops it.
+    commit_file(&repo, "CHANGELOG.md", "# Changelog\n\n## [Unreleased]\n\n- Second.\n");
+    assert_eq!(publish("v2.0.0-rc.1").await.unwrap()["tag"], "v2.0.0-rc.1");
+    assert!(std::fs::read_to_string(repo.join("CHANGELOG.md")).unwrap().contains("## [2.0.0-rc.1] - "));
+}
+
+#[tokio::test]
+async fn tag_prefix_follows_the_project() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("atlas-api");
+    init_repo(&repo);
+    sh(&repo, &["tag", "1.0.0"]);
+    sh(&repo, &["tag", "1.1.0"]);
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let pid = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await[0]["id"].as_str().unwrap().to_string();
+    let tags_use_v = || {
+        let (k, p) = (&k, json!({ "projectId": pid }));
+        async move { call(k, "workspace.overview", p).await["tagsUseV"].clone() }
+    };
+    let tag_v = || {
+        let k = &k;
+        async move { call(k, "config.get", json!({})).await["projects"][0]["branchTypes"]["tagV"].clone() }
+    };
+    // v null: left out, the project's choice.
+    let publish = |version: &str, v: Value| {
+        let (k, mut p) = (&k, json!({ "projectId": pid, "branch": "main", "version": version }));
+        if !v.is_null() {
+            p["v"] = v;
+        }
+        async move { call(k, "branches.publish", p).await["tag"].clone() }
+    };
+    assert_eq!(tags_use_v().await, false, "its tags go without the v");
+    assert!(tag_v().await.is_null(), "follows the tags until chosen");
+    assert_eq!(publish("1.2.0", Value::Null).await, "1.2.0");
+
+    // Chosen: the tags follow it, the detection stays what the tags say.
+    call(&k, "projects.setPrefs", json!({ "projectId": pid, "branchTypes": { "tagV": true } })).await;
+    assert_eq!(tag_v().await, true);
+    assert_eq!(call(&k, "config.get", json!({})).await["projects"][0]["branchTypes"]["list"][0]["id"], "feat", "the types stay");
+    assert_eq!(publish("1.3.0", Value::Null).await, "v1.3.0");
+    assert_eq!(publish("1.4.0", json!(false)).await, "1.4.0", "asked for without");
+    assert_eq!(tags_use_v().await, false);
+    call(&k, "projects.setPrefs", json!({ "projectId": pid, "branchTypes": { "tagV": false } })).await;
+    call(&k, "releases.create", json!({ "projectId": pid, "version": "2.0.0", "kind": "next" })).await;
+    assert_eq!(call(&k, "releases.ship", json!({ "projectId": pid, "version": "2.0.0" })).await["tag"], "2.0.0");
+
+    // Reset: back to what the tags say.
+    call(&k, "projects.setPrefs", json!({ "projectId": pid, "branchTypes": { "tagV": null } })).await;
+    assert!(tag_v().await.is_null());
+    assert_eq!(publish("v2.1.0", Value::Null).await, "2.1.0");
+
+    // The project list says it too, read from the tags only for a project with a next release (the one place it shows).
+    let listed = || {
+        let k = &k;
+        async move { call(k, "projects.list", json!({})).await[0]["tagV"].clone() }
+    };
+    assert_eq!(listed().await, true, "no next release: not read");
+    call(&k, "releases.create", json!({ "projectId": pid, "version": "3.0.0", "kind": "next" })).await;
+    assert_eq!(listed().await, false, "what its tags do");
+    call(&k, "projects.setPrefs", json!({ "projectId": pid, "branchTypes": { "tagV": true } })).await;
+    assert_eq!(listed().await, true, "its own choice");
+}
+
+#[tokio::test]
+async fn refused_publish_push_leaves_no_tag() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("refused");
+    init_repo(&repo);
+    let log = "# Changelog\n\n## [Unreleased]\n\n- First.\n";
+    commit_file(&repo, "CHANGELOG.md", log);
+    let origin = add_origin(tmp.path(), &repo);
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let pid = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await[0]["id"].as_str().unwrap().to_string();
+    call(&k, "releases.create", json!({ "projectId": pid, "version": "0.1.0", "kind": "next" })).await;
+    let (release, main) = (rev(&repo, "release/0.1.0"), rev(&repo, "main"));
+    // Origin refuses every push, like a protected branch or a failing hook.
+    let hook = origin.join("hooks/pre-receive");
+    std::fs::write(&hook, "#!/bin/sh\nexit 1\n").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    // Not checked out: the changelog commit made straight on the branch is taken back.
+    assert!(rpc::call(&k, "branches.publish", json!({ "projectId": pid, "branch": "release/0.1.0", "version": "0.1.0" })).await.is_err());
+    assert_eq!(rev(&repo, "v0.1.0"), "", "no local tag left to mark it shipped");
+    assert_eq!(rev(&repo, "release/0.1.0"), release, "the changelog commit is gone");
+    assert_eq!(git_out(&repo, &["show", "release/0.1.0:CHANGELOG.md"]), log);
+    let ov = call(&k, "workspace.overview", json!({ "projectId": pid })).await;
+    assert!(ov["releases"].as_array().unwrap().iter().any(|r| r["version"] == "0.1.0" && r["open"] == true), "{}", ov["releases"]);
+    let cfg = call(&k, "config.get", json!({})).await;
+    let r = cfg["projects"][0]["releases"].as_array().unwrap().iter().find(|r| r["version"] == "0.1.0").unwrap().clone();
+    assert!(r["shippedAt"].is_null() && r["tag"].is_null(), "{r}");
+
+    // Checked out: taken back in the checkout, which keeps an uncommitted change of another file, and what was staged.
+    std::fs::write(repo.join("README.md"), "# mine\n").unwrap();
+    std::fs::write(repo.join("n.txt"), "new\n").unwrap();
+    sh(&repo, &["add", "n.txt"]);
+    assert!(rpc::call(&k, "branches.publish", json!({ "projectId": pid, "branch": "main", "version": "0.0.9" })).await.is_err());
+    assert_eq!(rev(&repo, "v0.0.9"), "");
+    assert_eq!(rev(&repo, "main"), main);
+    assert_eq!(std::fs::read_to_string(repo.join("CHANGELOG.md")).unwrap(), log);
+    assert_eq!(git_out(&repo, &["status", "--porcelain"]), " M README.md\nA  n.txt\n", "only the changes it had, still staged");
+}
+
+#[tokio::test]
+async fn a_refused_changelog_commit_leaves_the_file_as_it_was() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("hooked");
+    init_repo(&repo);
+    let log = "# Changelog\n\n## [Unreleased]\n\n- First.\n";
+    commit_file(&repo, "CHANGELOG.md", log);
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let pid = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await[0]["id"].as_str().unwrap().to_string();
+    let main = rev(&repo, "main");
+    // A pre-commit hook refuses the dated changelog (a linter, say).
+    let hook = repo.join(".git/hooks/pre-commit");
+    std::fs::write(&hook, "#!/bin/sh\nexit 1\n").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    assert!(rpc::call(&k, "branches.publish", json!({ "projectId": pid, "branch": "main", "version": "1.0.0" })).await.is_err());
+    assert_eq!(rev(&repo, "v1.0.0"), "");
+    assert_eq!(rev(&repo, "main"), main);
+    assert_eq!(std::fs::read_to_string(repo.join("CHANGELOG.md")).unwrap(), log);
+    assert_eq!(git_out(&repo, &["status", "--porcelain"]), "", "nothing left half done");
+}
+
+#[tokio::test]
+async fn publish_pushes_the_branch_under_its_own_name() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("atlas-api");
+    init_repo(&repo);
+    let origin = add_origin(tmp.path(), &repo);
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let pid = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await[0]["id"].as_str().unwrap().to_string();
+    // Started from origin/main, it tracks main there: publishing it must not push onto main.
+    sh(&repo, &["switch", "-q", "-c", "feat/x", "origin/main"]);
+    assert_eq!(git_out(&repo, &["rev-parse", "--abbrev-ref", "feat/x@{upstream}"]), "origin/main\n");
+    commit_file(&repo, "x.txt", "x\n");
+    let main = rev(&origin, "main");
+
+    let out = call(&k, "branches.publish", json!({ "projectId": pid, "branch": "feat/x", "version": "1.0.0" })).await;
+    assert_eq!(out["pushed"], true, "{out}");
+    let tip = rev(&repo, "feat/x");
+    assert_eq!(rev(&origin, "main"), main, "origin's main stays where it was");
+    assert_eq!(rev(&origin, "feat/x"), tip);
+    assert_eq!(rev(&origin, "v1.0.0^{commit}"), tip);
+    assert_eq!(git_out(&repo, &["rev-parse", "--abbrev-ref", "feat/x@{upstream}"]), "origin/feat/x\n", "tracks what it pushed");
+}
+
+#[tokio::test]
+async fn publish_refuses_before_anything_changes() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("atlas-api");
+    init_repo(&repo);
+    let log = "# Changelog\n\n## [Unreleased]\n\n- Second.\n\n## [0.9.0] - 2026-01-01\n";
+    commit_file(&repo, "CHANGELOG.md", log);
+    sh(&repo, &["tag", "1.0.0"]);
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let pid = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await[0]["id"].as_str().unwrap().to_string();
+    call(&k, "projects.setPrefs", json!({ "projectId": pid, "branchTypes": { "tagV": true } })).await;
+    let publish = |branch: &str, version: &str| {
+        let (k, p) = (&k, json!({ "projectId": pid, "branch": branch, "version": version }));
+        async move { rpc::call(k, "branches.publish", p).await.unwrap_err().to_string() }
+    };
+    let main = rev(&repo, "main");
+
+    // Names git refuses as tags, or no version at all.
+    for bad in ["-x", "1.2.", "1..2", "1.2.lock", "x1", "vv1.0", "1.0 beta", ""] {
+        let err = publish("main", bad).await;
+        assert!(err.contains("Not a version git can tag"), "{bad:?}: {err}");
+    }
+    // Tagged already without the v: v1.0.0 would ship 1.0.0 a second time.
+    for version in ["1.0.0", "v1.0.0"] {
+        let err = publish("main", version).await;
+        assert!(err.contains("1.0.0 is already tagged as 1.0.0"), "{err}");
+    }
+    assert_eq!(rev(&repo, "v1.0.0"), "");
+    // Shipping checks both spellings too.
+    call(&k, "releases.create", json!({ "projectId": pid, "version": "2.0.0", "kind": "next" })).await;
+    sh(&repo, &["tag", "2.0.0", "main"]);
+    let err = rpc::call(&k, "releases.ship", json!({ "projectId": pid, "version": "2.0.0" })).await.unwrap_err().to_string();
+    assert!(err.contains("2.0.0 is already tagged as 2.0.0"), "{err}");
+    assert_eq!(rev(&repo, "v2.0.0"), "");
+    assert_eq!((rev(&repo, "main"), git_out(&repo, &["status", "--porcelain"])), (main.clone(), String::new()), "nothing committed");
+
+    // Stopped in the middle of a rebase: a commit there would land in the rebase, not on the branch.
+    sh(&repo, &["switch", "-q", "-c", "feat/r"]);
+    commit_file(&repo, "a.txt", "mine\n");
+    sh(&repo, &["switch", "-q", "main"]);
+    commit_file(&repo, "a.txt", "theirs\n");
+    sh(&repo, &["switch", "-q", "feat/r"]);
+    let tip = rev(&repo, "feat/r");
+    assert!(!Command::new("git").current_dir(&repo).args(["rebase", "main"]).output().unwrap().status.success(), "stops on the conflict");
+    let err = publish("feat/r", "3.0.0").await;
+    assert!(err.contains("feat/r is in the middle of a rebase at"), "{err}");
+    assert_eq!(rev(&repo, "v3.0.0"), "");
+    assert_eq!(rev(&repo, "feat/r"), tip);
+    // Nor does any other changelog commit go in.
+    let err = rpc::call(&k, "changelog.latest", json!({ "projectId": pid, "branch": "feat/r" })).await.unwrap_err().to_string();
+    assert!(err.contains("in the middle of a rebase"), "{err}");
+    assert_eq!(rev(&repo, "feat/r"), tip);
+    assert_eq!(std::fs::read_to_string(repo.join("CHANGELOG.md")).unwrap(), log);
+}
+
+#[tokio::test]
+async fn publish_with_the_ai_changelog_step() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("atlas-api");
+    init_repo(&repo);
+    commit_file(&repo, "CHANGELOG.md", "# Changelog\n\n## [Unreleased]\n\n- First.\n");
+    sh(&repo, &["tag", "v1.0.0"]);
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let pid = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await[0]["id"].as_str().unwrap().to_string();
+    // Changelogs go to a provider that can't answer (no API key saved, no CLI): no AI ever runs here.
+    call(&k, "ai.saveProvider", json!({ "id": "mistral", "method": "api" })).await;
+    call(&k, "ai.setRoute", json!({ "task": "release", "provider": "mistral" })).await;
+    let publish = |version: &str| {
+        let (k, p) = (&k, json!({ "projectId": pid, "branch": "main", "version": version, "aiChangelog": true }));
+        async move { rpc::call(k, "branches.publish", p).await }
+    };
+
+    // No commits since the latest tag: nothing for AI to add, the entries listed get dated.
+    let out = publish("1.1.0").await.unwrap();
+    assert_eq!(out, json!({ "tag": "v1.1.0", "pushed": false, "changelog": true }));
+    assert_eq!(git_out(&repo, &["log", "-1", "--format=%s", "main"]), "docs(changelog): release v1.1.0\n");
+
+    // New commits, and AI fails: the publish stops with its error, nothing committed or tagged.
+    let entry = std::fs::read_to_string(repo.join("CHANGELOG.md")).unwrap().replacen("## [Unreleased]\n", "## [Unreleased]\n\n- Second.\n", 1);
+    commit_file(&repo, "CHANGELOG.md", &entry);
+    let tip = rev(&repo, "main");
+    let err = publish("1.2.0").await.unwrap_err().to_string();
+    assert!(err.contains("No API key saved for mistral"), "{err}");
+    assert_eq!(rev(&repo, "v1.2.0"), "");
+    assert_eq!(rev(&repo, "main"), tip);
+    assert_eq!(std::fs::read_to_string(repo.join("CHANGELOG.md")).unwrap(), entry);
+}
+
+#[tokio::test]
+async fn merging_a_published_release_keeps_its_tag() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("atlas-api");
+    init_repo(&repo);
+    let origin = add_origin(tmp.path(), &repo);
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let pid = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await[0]["id"].as_str().unwrap().to_string();
+    call(&k, "releases.create", json!({ "projectId": pid, "version": "0.2.0", "kind": "next" })).await;
+    sh(&repo, &["switch", "-q", "release/0.2.0"]);
+    commit_file(&repo, "a.txt", "a\n");
+    sh(&repo, &["switch", "-q", "main"]);
+    call(&k, "branches.publish", json!({ "projectId": pid, "branch": "release/0.2.0", "version": "0.2.0" })).await;
+    let published = rev(&repo, "release/0.2.0");
+    assert_eq!(rev(&origin, "v0.2.0^{commit}"), published);
+    commit_file(&repo, "next.txt", "next work\n");
+    sh(&repo, &["push", "-q", "origin", "main"]);
+
+    // It went out as it is: the squash lands other commits on main, the tag stays on what was published.
+    let merged = call(&k, "branches.merge", json!({ "projectId": pid, "branch": "release/0.2.0", "into": "main", "squash": true, "push": true })).await;
+    assert_eq!(merged["pushed"], true, "{merged}");
+    assert!(merged["retagged"].is_null(), "{merged}");
+    assert!(merged["tagError"].is_null(), "{merged}");
+    assert_eq!(rev(&repo, "v0.2.0^{commit}"), published);
+    assert_eq!(rev(&origin, "v0.2.0^{commit}"), published);
+    assert_eq!(rev(&origin, "main"), rev(&repo, "main"));
+}
+
+#[tokio::test]
+async fn a_release_published_from_main_keeps_its_tag_when_merged_again() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("atlas-api");
+    init_repo(&repo);
+    commit_file(&repo, "CHANGELOG.md", "# Changelog\n\n## [Unreleased]\n\n- First.\n");
+    let origin = add_origin(tmp.path(), &repo);
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let pid = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await[0]["id"].as_str().unwrap().to_string();
+    call(&k, "releases.create", json!({ "projectId": pid, "version": "0.3.0", "kind": "next" })).await;
+    sh(&repo, &["switch", "-q", "release/0.3.0"]);
+    commit_file(&repo, "a.txt", "a\n");
+    sh(&repo, &["switch", "-q", "main"]);
+    sh(&repo, &["merge", "-q", "--no-ff", "-m", "Merge release/0.3.0", "release/0.3.0"]);
+    // Main published with the release merged in: the tag holds main's dated changelog.
+    call(&k, "branches.publish", json!({ "projectId": pid, "branch": "main", "version": "0.3.0" })).await;
+    let published = rev(&repo, "main");
+    assert_eq!(rev(&origin, "v0.3.0^{commit}"), published);
+
+    // A fix on the release merged in later: the tag stays on what went out, never moved back onto the release.
+    sh(&repo, &["switch", "-q", "release/0.3.0"]);
+    commit_file(&repo, "fix.txt", "fix\n");
+    sh(&repo, &["switch", "-q", "main"]);
+    let merged = call(&k, "branches.merge", json!({ "projectId": pid, "branch": "release/0.3.0", "into": "main", "push": true })).await;
+    assert_eq!(merged["pushed"], true, "{merged}");
+    assert!(merged["retagged"].is_null(), "{merged}");
+    assert_eq!(rev(&repo, "v0.3.0^{commit}"), published);
+    assert_eq!(rev(&origin, "v0.3.0^{commit}"), published);
 }

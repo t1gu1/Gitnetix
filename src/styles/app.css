@@ -1147,7 +1147,8 @@ body.dragging-tab * {
   min-height: 34px;
   padding: 2px 6px 2px 12px;
 }
-.type-row[data-hidden] > .grow {
+.type-row[data-hidden] > .grow,
+.type-row[data-hidden] > .type-tag {
   opacity: 0.55;
 }
 /* The grip a row is dragged by: a finger on it moves the row, not the page. */
@@ -2752,7 +2753,7 @@ button.tree-twist:hover {
     width: 52px;
   }
 }
-/* Pane head acts (Stashes, Fetch, Release): as tall as the head, flush with its right edge; icon-only ones square. */
+/* Pane head acts (Authors, Search, Stashes, Fetch): as tall as the head, flush with its right edge; icon-only ones square. */
 .pane-head .acts {
   align-self: stretch;
   margin-right: -12px;
@@ -4208,14 +4209,17 @@ button.picker-act {
   z-index: 3;
   display: flex;
   justify-content: center;
+  /* The button rises from the bottom edge. Not a transform: pressed, .btn's own transform replaced it and dropped the button from under the pointer, so the click never fired. */
+  align-items: flex-end;
   height: 0;
   margin-top: -14px;
 }
 .ag-jump > .btn {
+  flex: none;
   gap: 6px;
   border-radius: 999px;
   background: var(--raised);
-  transform: translateY(calc(-100% - 10px));
+  margin-bottom: 10px;
 }
 /* The task pinned over the log once your first message scrolls away. No height and no gap, so showing it never shifts the log. */
 .ag-task {
