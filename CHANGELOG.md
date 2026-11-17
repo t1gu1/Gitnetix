@@ -14,6 +14,8 @@ the in-app update prompt.
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-11-17
+
 ### Added (App)
 - Publish action in the branch context menu.
 
