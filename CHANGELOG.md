@@ -14,6 +14,12 @@ the in-app update prompt.
 
 ## [Unreleased]
 
+### Added (App)
+- Publish action in the branch context menu.
+
+### Fixed (App)
+- The log now stays at the end when it scrolls, and the jump button is clickable.
+
 ## [0.21.4] - 2026-11-16
 
 ### Added (App)
