@@ -572,6 +572,30 @@ export const usePr = (projectId?: string, number?: number) =>
     retry: false,
   });
 
+/** What `prs.files` and `prs.diff` need of a pull request: its branches and the commits its host diffs. */
+const prRefs = (pr: PrDetail) => ({ number: pr.number, base: pr.base, head: pr.head, baseSha: pr.baseSha, headSha: pr.headSha });
+
+/** The files pull request `pr` changes, read from the clone (which fetches its commits first when missing). Keyed by
+ * those commits, it never goes stale: a push gives the pull request a new head. */
+export const usePrFiles = (projectId?: string, pr?: PrDetail) =>
+  useQuery({
+    queryKey: ["prFiles", projectId, pr?.number, pr?.baseSha, pr?.headSha],
+    queryFn: () => rpc<FileChange[]>("prs.files", { projectId, ...prRefs(pr!) }),
+    enabled: !!projectId && !!pr?.headSha,
+    staleTime: Infinity,
+    retry: false,
+  });
+
+/** One file's diff in pull request `pr`, as its host draws it. */
+export const usePrDiff = (projectId?: string, pr?: PrDetail, file?: FileChange) =>
+  useQuery({
+    queryKey: ["prDiff", projectId, pr?.number, pr?.baseSha, pr?.headSha, file?.path, file?.from],
+    queryFn: () => rpc<Hunk[]>("prs.diff", { projectId, ...prRefs(pr!), path: file!.path, from: file!.from }),
+    enabled: !!projectId && !!pr?.headSha && !!file,
+    staleTime: Infinity,
+    retry: false,
+  });
+
 export const useTickets = (projectId?: string, mine = false, sprint = false) =>
   useQuery({
     queryKey: ["tickets", projectId, mine, sprint],

@@ -5,7 +5,7 @@
 use futures_util::{stream, StreamExt, TryStreamExt};
 use serde_json::{json, Value};
 
-use super::github::{Check, Comment, PrDetail, PrSummary, Reaction, Reviewer, Thread, UserRepo, EMOJI};
+use super::github::{Check, Comment, LineAnchor, PrDetail, PrSummary, Reaction, Reviewer, Thread, UserRepo, EMOJI};
 use super::RepoRef;
 use crate::error::{Error, Result};
 
@@ -61,6 +61,14 @@ fn reactions(list: &Value, me: &str) -> Vec<Reaction> {
         }
     }
     out
+}
+
+/// A review holding one line comment: Gitea takes a removed line by its number in the base (`old_position`), any
+/// other by its number in the head (`new_position`), the other one 0.
+fn line_review(at: &LineAnchor, body: &str) -> Value {
+    let (new, old) = if at.end.removed() { (0, at.end.old) } else { (at.end.new, 0) };
+    let c = json!({ "path": at.path, "body": body, "new_position": new, "old_position": old });
+    json!({ "event": "COMMENT", "body": "", "commit_id": at.head, "comments": [c] })
 }
 
 /// A line conversation's id: `new:old:path`, the position a reply goes to.
@@ -219,11 +227,14 @@ impl Gitea {
                 None => {
                     let hunk = c["diff_hunk"].as_str().unwrap_or("");
                     let snippet = hunk.lines().rev().take(3).collect::<Vec<_>>().into_iter().rev().map(String::from).collect();
-                    let line = c["position"].as_u64().filter(|l| *l > 0).or(c["original_position"].as_u64());
+                    let new_line = c["position"].as_u64().filter(|l| *l > 0);
                     threads.push(Thread {
                         id,
                         path: c["path"].as_str().map(String::from),
-                        line,
+                        line: new_line.or(c["original_position"].as_u64()),
+                        // `original_position` numbers a removed line, in the base.
+                        old: new_line.is_none() && c["original_position"].as_u64().is_some_and(|l| l > 0),
+                        outdated: false,
                         resolved: !c["resolver"].is_null(),
                         resolvable: true,
                         snippet,
@@ -236,7 +247,7 @@ impl Gitea {
         for t in &mut threads {
             t.comments.sort_by(|a, b| a.created_at.cmp(&b.created_at));
         }
-        let plain = |cm: Comment, review: Option<String>| Thread { id: cm.id.clone(), path: None, line: None, resolved: false, resolvable: false, snippet: vec![], comments: vec![cm], review };
+        let plain = |cm: Comment, review: Option<String>| Thread { id: cm.id.clone(), path: None, line: None, old: false, outdated: false, resolved: false, resolvable: false, snippet: vec![], comments: vec![cm], review };
         for c in &notes {
             threads.push(plain(comment(c, true), None));
         }
@@ -286,6 +297,8 @@ impl Gitea {
             reviewers,
             threads,
             summary,
+            base_sha: p["merge_base"].as_str().or(p["base"]["sha"].as_str()).unwrap_or("").into(),
+            head_sha: sha.into(),
         })
     }
 
@@ -343,6 +356,11 @@ impl Gitea {
             .map(|_| ())
     }
 
+    /// A comment on one line of the diff, as a review of its own pinned to the commit the diff was drawn at.
+    pub async fn line_comment(&self, number: u64, at: &LineAnchor, body: &str) -> Result<()> {
+        self.req(reqwest::Method::POST, &format!("{}/pulls/{number}/reviews", self.rp()), Some(line_review(at, body))).await.map(|_| ())
+    }
+
     pub async fn edit_comment(&self, id: &str, body: &str) -> Result<()> {
         self.req(reqwest::Method::PATCH, &format!("{}/issues/comments/{id}", self.rp()), Some(json!({ "body": body }))).await.map(|_| ())
     }
@@ -394,6 +412,18 @@ mod tests {
         assert_eq!((r[0].content.as_str(), r[0].emoji.as_str(), r[0].count, r[0].mine), ("THUMBS_UP", "👍", 2, true));
         assert_eq!((r[1].content.as_str(), r[1].count, r[1].mine), ("HEART", 1, false));
         assert!(reactions(&Value::Null, "me").is_empty());
+    }
+
+    #[test]
+    fn line_comments_are_reviews_on_the_drawn_commit() {
+        use super::super::github::DiffPos;
+        let mut at = LineAnchor { path: "a.go".into(), from: None, head: "abc".into(), start: None, end: DiffPos { kind: '+', old: 3, new: 4 }, end_len: 0 };
+        let r = line_review(&at, "Hm");
+        assert_eq!((&r["event"], &r["commit_id"]), (&json!("COMMENT"), &json!("abc")));
+        assert_eq!(r["comments"], json!([{ "path": "a.go", "body": "Hm", "new_position": 4, "old_position": 0 }]));
+        at.end.kind = '-';
+        assert_eq!(line_review(&at, "Hm")["comments"][0]["old_position"], 3);
+        assert_eq!(line_review(&at, "Hm")["comments"][0]["new_position"], 0);
     }
 
     #[test]

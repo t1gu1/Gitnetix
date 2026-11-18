@@ -5,7 +5,7 @@
 
 use serde_json::{json, Value};
 
-use super::github::{Check, Comment, PrDetail, PrSummary, Reaction, Reviewer, Thread, UserRepo, EMOJI};
+use super::github::{Check, Comment, DiffPos, LineAnchor, PrDetail, PrSummary, Reaction, Reviewer, Thread, UserRepo, EMOJI};
 use super::RepoRef;
 use crate::error::{Error, Result};
 
@@ -31,7 +31,7 @@ const REACTIONS: &[(&str, &str)] =
     &[("THUMBS_UP", "thumbsup"), ("THUMBS_DOWN", "thumbsdown"), ("LAUGH", "smile"), ("HOORAY", "tada"), ("CONFUSED", "confused"), ("HEART", "heart"), ("ROCKET", "rocket"), ("EYES", "eyes")];
 
 /// Discussions of a merge request with their notes, a page at a time.
-const DISCUSSIONS: &str = "query($p:ID!,$n:String!,$after:String){project(fullPath:$p){mergeRequest(iid:$n){discussions(first:100,after:$after){pageInfo{hasNextPage endCursor} nodes{id resolvable resolved notes(first:100){nodes{id body system createdAt author{username} position{newPath newLine oldLine} userPermissions{adminNote} awardEmoji{nodes{name user{username}}}}}}}}}}";
+const DISCUSSIONS: &str = "query($p:ID!,$n:String!,$after:String){project(fullPath:$p){mergeRequest(iid:$n){discussions(first:100,after:$after){pageInfo{hasNextPage endCursor} nodes{id resolvable resolved notes(first:100){nodes{id body system createdAt author{username} position{newPath newLine oldLine diffRefs{headSha}} userPermissions{adminNote} awardEmoji{nodes{name user{username}}}}}}}}}}";
 
 /// The last part of a GraphQL global id, `gid://gitlab/DiffNote/12` → `12`.
 fn gid(v: &Value) -> String {
@@ -77,6 +77,43 @@ fn reactions(awards: &Value, me: &str) -> Vec<Reaction> {
         }
     }
     out
+}
+
+/// Where a comment on the code goes in merge request version `v`: a line by its number in the base (`old_line`,
+/// unless added) and in the head (`new_line`, unless removed); a range also names its ends by line code, the SHA-1 of
+/// the file's path and both numbers as the hunk counts them.
+fn position(at: &LineAnchor, v: &Value) -> Value {
+    let numbers = |p: DiffPos, e: &mut Value| {
+        if p.kind != '+' {
+            e["old_line"] = json!(p.old);
+        }
+        if p.kind != '-' {
+            e["new_line"] = json!(p.new);
+        }
+    };
+    let mut pos = json!({
+        "position_type": "text",
+        "base_sha": v["base_commit_sha"],
+        "start_sha": v["start_commit_sha"],
+        "head_sha": v["head_commit_sha"],
+        "old_path": at.from.as_deref().unwrap_or(&at.path),
+        "new_path": at.path,
+    });
+    numbers(at.end, &mut pos);
+    if at.multi() {
+        use sha1::Digest;
+        let file: String = sha1::Sha1::digest(at.path.as_bytes()).iter().map(|b| format!("{b:02x}")).collect();
+        let end = |p: DiffPos| {
+            let mut e = json!({ "line_code": format!("{file}_{}_{}", p.old, p.new) });
+            if p.kind != ' ' {
+                e["type"] = json!(if p.removed() { "old" } else { "new" });
+            }
+            numbers(p, &mut e);
+            e
+        };
+        pos["line_range"] = json!({ "start": end(at.first()), "end": end(at.end) });
+    }
+    pos
 }
 
 /// `iid/rest` → (iid, rest).
@@ -222,7 +259,7 @@ impl GitLab {
         let me = self.me().await?;
         let m = self.get(&self.mr(number)).await?;
         let summary = Self::summary(&m, &me);
-        let sha = m["sha"].as_str().unwrap_or("");
+        let sha = m["diff_refs"]["head_sha"].as_str().or(m["sha"].as_str()).unwrap_or("");
         let (statuses, reviewers, approvals) =
             (format!("{}/repository/commits/{sha}/statuses", self.rp()), format!("{}/reviewers", self.mr(number)), format!("{}/approvals", self.mr(number)));
         let (statuses, reviewers, approvals, discussions) = futures_util::try_join!(
@@ -279,6 +316,9 @@ impl GitLab {
                     id: format!("{number}/{}", gid(&d["id"])),
                     path: pos["newPath"].as_str().map(String::from),
                     line: pos["newLine"].as_u64().or(pos["oldLine"].as_u64()),
+                    old: pos["newLine"].is_null() && pos["oldLine"].is_u64(),
+                    // GitLab carries a note to each new push while its line stays; one left on an older push is outdated.
+                    outdated: pos["diffRefs"]["headSha"].as_str().is_some_and(|h| h != sha),
                     resolved: d["resolved"] == true,
                     resolvable: d["resolvable"] == true,
                     // shortcut: GitLab's API gives no diff hunk with a note, so line threads show no code; read the file at the MR's head if missed.
@@ -296,6 +336,7 @@ impl GitLab {
 
         let checking = matches!(m["detailed_merge_status"].as_str(), Some("checking" | "unchecked" | "preparing" | "approvals_syncing"));
         let conflict = m["has_conflicts"] == true;
+        let base = m["diff_refs"]["base_sha"].as_str().or(m["diff_refs"]["start_sha"].as_str()).unwrap_or("");
         Ok(PrDetail {
             body: m["description"].as_str().unwrap_or("").into(),
             conflict,
@@ -304,6 +345,8 @@ impl GitLab {
             reviewers: people,
             threads,
             summary,
+            base_sha: base.into(),
+            head_sha: sha.into(),
         })
     }
 
@@ -351,6 +394,14 @@ impl GitLab {
 
     pub async fn comment(&self, number: u64, body: &str) -> Result<()> {
         self.send(reqwest::Method::POST, &format!("{}/notes", self.mr(number)), json!({ "body": body })).await
+    }
+
+    /// A comment on lines of the diff, in a new thread placed in the merge request's version (push) the diff was
+    /// drawn at: GitLab carries it to later pushes while its lines stay.
+    pub async fn line_comment(&self, number: u64, at: &LineAnchor, body: &str) -> Result<()> {
+        let versions = self.get(&format!("{}/versions", self.mr(number))).await?;
+        let version = versions.as_array().into_iter().flatten().find(|v| v["head_commit_sha"] == at.head.as_str()).ok_or_else(|| Error::Invalid(super::MOVED.into()))?;
+        self.send(reqwest::Method::POST, &format!("{}/discussions", self.mr(number)), json!({ "body": body, "position": position(at, version) })).await
     }
 
     /// `thread`: `iid/discussion`.
@@ -443,6 +494,27 @@ mod tests {
         assert_eq!(mr(json!({ "draft": true })).state, "draft");
         assert_eq!(mr(json!({ "state": "merged", "draft": true })).state, "merged");
         assert_eq!(mr(json!({ "state": "closed" })).state, "closed");
+    }
+
+    #[test]
+    fn diff_positions_name_both_numbers_of_an_unchanged_line() {
+        let pos = |kind, old, new| DiffPos { kind, old, new };
+        let v = json!({ "base_commit_sha": "b", "start_commit_sha": "s", "head_commit_sha": "h" });
+        let mut at = LineAnchor { path: "lib/a.rb".into(), from: Some("lib/old.rb".into()), head: "h".into(), start: None, end: pos('+', 4, 5), end_len: 0 };
+        let p = position(&at, &v);
+        assert_eq!(p, json!({ "position_type": "text", "base_sha": "b", "start_sha": "s", "head_sha": "h", "old_path": "lib/old.rb", "new_path": "lib/a.rb", "new_line": 5 }));
+        at.end = pos('-', 4, 5);
+        assert_eq!((position(&at, &v)["old_line"].as_u64(), position(&at, &v).get("new_line")), (Some(4), None));
+        at.end = pos(' ', 7, 9);
+        let p = position(&at, &v);
+        assert_eq!((p["old_line"].as_u64(), p["new_line"].as_u64()), (Some(7), Some(9)));
+        // A range: line codes from the SHA-1 of the path, `type` left out for an unchanged line.
+        at.start = Some(pos('-', 4, 5));
+        let r = &position(&at, &v)["line_range"];
+        // `printf lib/a.rb | shasum`
+        let file = "82159df5eac2037318d0e00bb37bde7aa2143832";
+        assert_eq!(r["start"], json!({ "line_code": format!("{file}_4_5"), "type": "old", "old_line": 4 }));
+        assert_eq!(r["end"], json!({ "line_code": format!("{file}_7_9"), "old_line": 7, "new_line": 9 }));
     }
 
     #[test]

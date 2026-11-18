@@ -6,7 +6,7 @@ use std::collections::HashMap;
 
 use serde_json::{json, Value};
 
-use super::github::{Check, Comment, PrDetail, PrSummary, Reaction, Reviewer, Thread};
+use super::github::{Check, Comment, LineAnchor, PrDetail, PrSummary, Reaction, Reviewer, Thread};
 use super::RepoRef;
 use crate::error::{Error, Result};
 
@@ -343,10 +343,14 @@ impl Azure {
             }
             let ctx = &t["threadContext"];
             let path = ctx["filePath"].as_str().map(|f| f.trim_start_matches('/').to_string());
-            let line = ctx["rightFileEnd"]["line"].as_u64();
+            // On the left: a removed line, numbered in the target.
+            let (line, old) = match (ctx["rightFileEnd"]["line"].as_u64(), ctx["leftFileEnd"]["line"].as_u64()) {
+                (Some(l), _) => (Some(l), false),
+                (None, l) => (l, l.is_some()),
+            };
             // Azure keeps no diff hunk with a thread: the lines it points at, read from the PR's head.
             let mut snippet = Vec::new();
-            if let (Some(path), Some(line)) = (&path, line) {
+            if let (Some(path), Some(line), false) = (&path, line, old) {
                 if !files.contains_key(path) {
                     let url = format!("/items?path={}&versionDescriptor.versionType=commit&versionDescriptor.version={sha}&includeContent=true", urlencoding(path));
                     let text = self.get(&url).await.ok().and_then(|v| v["content"].as_str().map(String::from)).unwrap_or_default();
@@ -361,6 +365,8 @@ impl Azure {
                 id: format!("{number}/{tid}"),
                 path,
                 line,
+                old,
+                outdated: false,
                 resolved: matches!(status, "fixed" | "wontFix" | "closed" | "byDesign"),
                 resolvable: status != "unknown",
                 snippet,
@@ -376,7 +382,17 @@ impl Azure {
             Some("conflicts" | "failure" | "rejectedByPolicy") => Some(false),
             _ => None,
         };
-        Ok(PrDetail { body: p["description"].as_str().unwrap_or("").into(), conflict: merge_status == Some("conflicts"), mergeable, checks, reviewers, threads, summary })
+        Ok(PrDetail {
+            body: p["description"].as_str().unwrap_or("").into(),
+            conflict: merge_status == Some("conflicts"),
+            mergeable,
+            checks,
+            reviewers,
+            threads,
+            summary,
+            base_sha: p["lastMergeTargetCommit"]["commitId"].as_str().unwrap_or("").into(),
+            head_sha: sha.into(),
+        })
     }
 
     pub async fn create(&self, head: &str, base: &str, title: &str, body: &str, draft: bool) -> Result<PrSummary> {
@@ -449,6 +465,19 @@ impl Azure {
         self.send(reqwest::Method::POST, &format!("/pullRequests/{number}/threads"), b).await.map(|_| ())
     }
 
+    /// A comment on lines of the diff, in a new thread tied to the push (iteration) the diff was drawn at, so Azure
+    /// follows the lines through later pushes.
+    pub async fn line_comment(&self, number: u64, at: &LineAnchor, body: &str) -> Result<()> {
+        let iterations = self.get(&format!("/pullRequests/{number}/iterations")).await?;
+        let pushed = iterations["value"].as_array().into_iter().flatten().filter(|i| i["sourceRefCommit"]["commitId"] == at.head.as_str());
+        let iteration = pushed.filter_map(|i| i["id"].as_u64()).max().ok_or_else(|| Error::Invalid(super::MOVED.into()))?;
+        // The file's change in that push, against the merge base (iteration 0); 2000 is the most Azure lists at once.
+        let changes = self.get(&format!("/pullRequests/{number}/iterations/{iteration}/changes?$top=2000")).await?;
+        let path = format!("/{}", at.path);
+        let tracking = changes["changeEntries"].as_array().into_iter().flatten().find(|c| c["item"]["path"] == path.as_str()).and_then(|c| c["changeTrackingId"].as_u64());
+        self.send(reqwest::Method::POST, &format!("/pullRequests/{number}/threads"), line_thread(at, body, iteration, tracking)).await.map(|_| ())
+    }
+
     /// `thread` is the thread's number, handed out as each comment's `database_id`.
     pub async fn reply(&self, number: u64, thread: u64, body: &str) -> Result<()> {
         let b = json!({ "parentCommentId": 1, "content": body, "commentType": "text" });
@@ -474,6 +503,29 @@ impl Azure {
         let method = if add { reqwest::Method::POST } else { reqwest::Method::DELETE };
         self.req(method, &self.git_url(&format!("/pullRequests/{pr}/threads/{t}/comments/{c}/likes")), None).await.map(|_| ())
     }
+}
+
+/// A new thread on lines of the diff. Its range sits on one side, the end line's: the right (the source) unless
+/// that line was removed; a start on the other side is taken at its number on this one. Equal comparing iterations
+/// mean the left side is the merge base, as in the diff.
+fn line_thread(at: &LineAnchor, body: &str, iteration: u64, tracking: Option<u64>) -> Value {
+    let left = at.end.removed();
+    let line = |p: super::github::DiffPos| if left { p.old } else { p.new };
+    let (start, end) = (json!({ "line": line(at.first()), "offset": 1 }), json!({ "line": line(at.end), "offset": at.end_len + 1 }));
+    let mut ctx = json!({ "filePath": format!("/{}", at.path) });
+    let side = if left { "left" } else { "right" };
+    ctx[format!("{side}FileStart")] = start;
+    ctx[format!("{side}FileEnd")] = end;
+    let mut pr = json!({ "iterationContext": { "firstComparingIteration": iteration, "secondComparingIteration": iteration } });
+    if let Some(id) = tracking {
+        pr["changeTrackingId"] = json!(id);
+    }
+    json!({
+        "comments": [{ "parentCommentId": 0, "content": body, "commentType": "text" }],
+        "status": "active",
+        "threadContext": ctx,
+        "pullRequestThreadContext": pr,
+    })
 }
 
 fn urlencoding(s: &str) -> String {
@@ -521,6 +573,23 @@ mod tests {
         }
         assert_eq!(parse_remote("git@github.com:acme/atlas-api.git"), None);
         assert_eq!(parse_remote("https://github.com/acme/atlas-api"), None);
+    }
+
+    #[test]
+    fn line_threads_sit_on_one_side() {
+        use super::super::github::DiffPos;
+        let pos = |kind, old, new| DiffPos { kind, old, new };
+        let mut at = LineAnchor { path: "src/app.ts".into(), from: None, head: "h".into(), start: Some(pos('-', 4, 6)), end: pos('+', 5, 8), end_len: 12 };
+        let t = line_thread(&at, "Why?", 3, Some(7));
+        assert_eq!(t["threadContext"], json!({ "filePath": "/src/app.ts", "rightFileStart": { "line": 6, "offset": 1 }, "rightFileEnd": { "line": 8, "offset": 13 } }));
+        assert_eq!(t["pullRequestThreadContext"], json!({ "changeTrackingId": 7, "iterationContext": { "firstComparingIteration": 3, "secondComparingIteration": 3 } }));
+        assert_eq!(t["comments"][0]["content"], "Why?");
+        at.start = None;
+        at.end = pos('-', 5, 8);
+        let t = line_thread(&at, "Why?", 3, None);
+        assert_eq!(t["threadContext"]["leftFileStart"], json!({ "line": 5, "offset": 1 }));
+        assert!(t["threadContext"].get("rightFileEnd").is_none());
+        assert!(t["pullRequestThreadContext"].get("changeTrackingId").is_none());
     }
 
     #[test]

@@ -4,7 +4,7 @@
 
 use serde_json::{json, Value};
 
-use super::github::{Check, Comment, PrDetail, PrSummary, Reviewer, Thread, UserRepo};
+use super::github::{Check, Comment, LineAnchor, PrDetail, PrSummary, Reviewer, Thread, UserRepo};
 use super::RepoRef;
 use crate::error::{Error, Result};
 
@@ -86,6 +86,8 @@ fn threads(number: u64, comments: &[Value], me: &str) -> Vec<Thread> {
             id: format!("{number}/{}", c["id"]),
             path: inline["path"].as_str().map(String::from),
             line: inline["to"].as_u64().or(inline["from"].as_u64()),
+            old: inline["to"].is_null() && inline["from"].is_u64(),
+            outdated: inline["outdated"] == true,
             resolved: !c["resolution"].is_null(),
             resolvable: inline.is_object(),
             snippet: vec![],
@@ -108,6 +110,12 @@ fn threads(number: u64, comments: &[Value], me: &str) -> Vec<Thread> {
         da.cmp(db)
     });
     threads
+}
+
+/// A removed line goes by its number in the destination (`from`), any other by its number in the source (`to`).
+fn line_comment_body(at: &LineAnchor, body: &str) -> Value {
+    let inline = if at.end.removed() { json!({ "path": at.path, "from": at.end.old }) } else { json!({ "path": at.path, "to": at.end.new }) };
+    json!({ "content": { "raw": body }, "inline": inline })
 }
 
 /// Votes from a pull request's participants: reviewers who have not voted wait, others count once they approve.
@@ -261,6 +269,9 @@ impl Bitbucket {
             reviewers,
             threads,
             summary,
+            // Bitbucket gives them 12 characters long.
+            base_sha: p["destination"]["commit"]["hash"].as_str().unwrap_or("").into(),
+            head_sha: p["source"]["commit"]["hash"].as_str().unwrap_or("").into(),
         })
     }
 
@@ -312,6 +323,17 @@ impl Bitbucket {
 
     pub async fn comment(&self, number: u64, body: &str) -> Result<()> {
         self.send(reqwest::Method::POST, &format!("{}/comments", self.pr(number)), json!({ "content": { "raw": body } })).await
+    }
+
+    /// A comment on one line of the diff. Bitbucket takes a line number in the pull request's current diff, and no
+    /// commit: refused once the pull request moved on from the one the diff was drawn at.
+    pub async fn line_comment(&self, number: u64, at: &LineAnchor, body: &str) -> Result<()> {
+        let p = self.get(&self.pr(number)).await?;
+        let now = p["source"]["commit"]["hash"].as_str().unwrap_or("");
+        if now.is_empty() || !(at.head.starts_with(now) || now.starts_with(&at.head)) {
+            return Err(Error::Invalid(super::MOVED.into()));
+        }
+        self.send(reqwest::Method::POST, &format!("{}/comments", self.pr(number)), line_comment_body(at, body)).await
     }
 
     /// `thread`: `pr/comment` of the conversation's first comment.
@@ -402,7 +424,17 @@ mod tests {
         assert_eq!((line.path.as_deref(), line.line, line.resolvable, line.resolved), (Some("app.rs"), Some(12), true, false));
         assert_eq!(line.comments.iter().map(|c| c.id.as_str()).collect::<Vec<_>>(), ["7/1", "7/2", "7/3"], "a reply to a reply stays in its conversation");
         assert_eq!((line.comments[1].can_edit, line.comments[0].can_edit), (true, false));
-        assert_eq!((t[2].line, t[2].resolved), (Some(3), true), "a comment on a removed line");
+        assert_eq!((t[2].line, t[2].resolved, t[2].old), (Some(3), true, true), "a comment on a removed line");
+        assert!(!line.old);
+    }
+
+    #[test]
+    fn line_comments_go_by_their_side() {
+        use super::super::github::DiffPos;
+        let mut at = LineAnchor { path: "app.rs".into(), from: None, head: "abc".into(), start: None, end: DiffPos { kind: ' ', old: 8, new: 10 }, end_len: 0 };
+        assert_eq!(line_comment_body(&at, "Hm"), json!({ "content": { "raw": "Hm" }, "inline": { "path": "app.rs", "to": 10 } }));
+        at.end.kind = '-';
+        assert_eq!(line_comment_body(&at, "Hm")["inline"], json!({ "path": "app.rs", "from": 8 }));
     }
 
     #[test]

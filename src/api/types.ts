@@ -10,6 +10,8 @@ export interface FileChange {
   deletions: number;
   /** WIP only: true = staged (in the index), false = unstaged. */
   staged?: boolean;
+  /** Renamed, in a diff of two commits (a pull request's): the path it had before. */
+  from?: string;
 }
 
 export interface DiffLine {
@@ -749,6 +751,10 @@ export interface PrThread {
   id: string;
   path?: string | null;
   line?: number | null;
+  /** `line` numbers the base, not the head: the comment is on a removed line. */
+  old?: boolean;
+  /** The code it was written on has changed since: its line no longer matches the diff. */
+  outdated?: boolean;
   resolved: boolean;
   resolvable: boolean;
   snippet: string[];
@@ -764,6 +770,9 @@ export interface PrDetail extends PrSummary {
   checks: { name: string; status: "pass" | "fail" | "run" | "wait"; url?: string | null }[];
   reviewers: { login: string; vote: "approve" | "changes" | "comment" | "pending" }[];
   threads: PrThread[];
+  /** The commits its host diffs: the base's (its branch's tip, or where the head left it) and the head's. */
+  baseSha: string;
+  headSha: string;
 }
 
 export interface Ticket {

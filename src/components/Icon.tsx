@@ -16,6 +16,8 @@ const PATHS: Record<string, { d: string[]; fill?: boolean; circles?: [number, nu
   ship: { d: ["M8 13.5V3M4 7l4-4 4 4M3 14h10"] },
   push: { d: ["M8 13V3M4 7l4-4 4 4"] },
   send: { d: ["M14 2L2 7l5 2 2 5z", "M14 2L7 9"] },
+  comment: { d: ["M2.5 3h11v8H7.5l-3 2.5V11h-2z"] },
+  suggest: { d: ["M8 2.5v6M5 5.5h6M5 12.5h6"] },
   attach: { d: ["M13 7.5l-5.3 5.3a3.4 3.4 0 0 1-4.8-4.8l5.6-5.6a2.2 2.2 0 0 1 3.1 3.1L6 11.1a1.1 1.1 0 0 1-1.6-1.6l5-5"] },
   file: { d: ["M3.5 1.5H9l3.5 3.5v9.5h-9z", "M9 1.5V5h3.5"] },
   image: { d: ["M2 3h12v10H2z", "M2 11l3.5-3.5 3 3 2-2L14 12"], circles: [[10.5, 6, 1.2]] },

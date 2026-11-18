@@ -90,6 +90,31 @@ pub async fn connect(kind: &str, repo: RepoRef, i: &Integrations) -> Result<PrHo
     }
 }
 
+/// Why a comment on the code was refused: its lines come from a head the pull request has moved past.
+pub(crate) const MOVED: &str = "the pull request got new commits since its diff loaded. Reload it and post the comment again";
+
+/// Refs of origin that hold pull request `number`'s head commit on host `kind` (see [`PrHost::provider`]), best
+/// first: the pull request's own (it outlives its branch and covers a fork's), then its branch `head`.
+pub fn head_refs(kind: &str, number: u64, head: &str) -> Vec<String> {
+    let own = match kind {
+        "github" | "gitea" => Some(format!("refs/pull/{number}/head")),
+        "gitlab" => Some(format!("refs/merge-requests/{number}/head")),
+        // The merge Azure DevOps tries out: its second parent is the head.
+        "azure" => Some(format!("refs/pull/{number}/merge")),
+        _ => None,
+    };
+    own.into_iter().chain(plain_branch(head).then(|| format!("refs/heads/{head}"))).collect()
+}
+
+/// A branch name safe in a fetch refspec: nothing git would read as an option, a destination (`a:b`), a forced
+/// update (`+a`) or a pattern. Git refuses all of these in a branch name; a host's answer is checked anyway.
+pub fn plain_branch(name: &str) -> bool {
+    !name.is_empty()
+        && !name.starts_with(['-', '+', '/'])
+        && !name.contains("..")
+        && !name.chars().any(|c| c.is_whitespace() || c.is_control() || matches!(c, ':' | '*' | '?' | '[' | '\\' | '^' | '~'))
+}
+
 /// The host a project's pull requests live on; every method goes to the same-named one of its provider.
 pub enum PrHost {
     GitHub(github::GitHub),
@@ -167,6 +192,10 @@ impl PrHost {
             PrHost::Gitea(h) => h.reply(number, thread_id, body).await,
         }
     }
+    /// A comment on lines of the diff; see [`github::LineAnchor`].
+    pub async fn line_comment(&self, number: u64, at: &github::LineAnchor, body: &str) -> Result<()> {
+        each!(self, h => h.line_comment(number, at, body).await)
+    }
     pub async fn edit_comment(&self, id: &str, body: &str) -> Result<()> {
         each!(self, h => h.edit_comment(id, body).await)
     }
@@ -234,6 +263,17 @@ mod tests {
             assert_eq!(r.owner, "acme");
             assert_eq!(r.repo, "atlas-api");
         }
+    }
+
+    #[test]
+    fn head_refs_stay_plain_refspecs() {
+        assert_eq!(head_refs("github", 7, "feat/x"), ["refs/pull/7/head", "refs/heads/feat/x"]);
+        assert_eq!(head_refs("gitlab", 7, "feat"), ["refs/merge-requests/7/head", "refs/heads/feat"]);
+        assert_eq!(head_refs("bitbucket", 7, "feat"), ["refs/heads/feat"]);
+        for bad in ["a:refs/heads/main", "+main", "-x", "a b", "a..b", "x*", ""] {
+            assert!(!plain_branch(bad), "{bad}");
+        }
+        assert_eq!(head_refs("azure", 3, "main:evil"), ["refs/pull/3/merge"]);
     }
 
     #[test]

@@ -114,6 +114,9 @@ pub struct FileChange {
     /// WIP split only: true = in the index, false = working tree only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub staged: Option<bool>,
+    /// Renamed (R) only, in a diff of two commits: the path it had before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1363,6 +1366,31 @@ impl Git {
         Ok(parse_unified(&self.run(&["diff", context_flag(full), "-M", range, "--", from, path]).await?))
     }
 
+    /// Diff of one file of a pull request across `range`, with the 3 lines of context its host draws, whatever
+    /// `diff.context` says here: a host takes comments only on the lines its diff shows. `from` is the file's old path
+    /// when the pull request renamed it.
+    pub async fn review_diff(&self, range: &str, path: &str, from: Option<&str>) -> Result<Vec<Hunk>> {
+        let mut args = vec!["diff", "-U3", "-M", range, "--"];
+        args.extend(from);
+        args.push(path);
+        Ok(parse_unified(&self.run(&args).await?))
+    }
+
+    /// The full sha of commit `sha` (full or abbreviated) when this clone has it.
+    pub async fn commit_of(&self, sha: &str) -> Result<Option<String>> {
+        if sha.len() < 7 || !sha.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Ok(None);
+        }
+        let (ok, out, _) = self.try_run(&["rev-parse", "--verify", "-q", &format!("{sha}^{{commit}}")]).await?;
+        Ok(Some(out.trim().to_string()).filter(|s| ok && !s.is_empty()))
+    }
+
+    /// Fetch one ref (or a full commit sha) from origin without updating any local one: its commits land in this
+    /// clone, named by FETCH_HEAD only. False when origin refused it (no such ref, or a sha it won't hand out).
+    pub async fn fetch_objects(&self, what: &str) -> Result<bool> {
+        Ok(self.try_run(&["fetch", "--no-tags", "origin", what]).await?.0)
+    }
+
     /// Diff of one side of a file's uncommitted work.
     pub async fn file_diff_side(&self, path: &str, staged: bool, full: bool) -> Result<Vec<Hunk>> {
         let ctx = context_flag(full);
@@ -2103,7 +2131,7 @@ pub fn parse_status_z(s: &str) -> Vec<FileChange> {
             _ if x == 'D' || y == 'D' => 'D',
             _ => 'M',
         };
-        out.push(FileChange { path, status, additions: 0, deletions: 0, staged: None });
+        out.push(FileChange { path, status, additions: 0, deletions: 0, staged: None, from: None });
     }
     out
 }
@@ -2123,7 +2151,7 @@ pub fn parse_status_split_z(s: &str) -> Vec<FileChange> {
         if x == 'R' || x == 'C' {
             parts.next();
         }
-        let entry = |status, staged| FileChange { path: path.clone(), status, additions: 0, deletions: 0, staged: Some(staged) };
+        let entry = |status, staged| FileChange { path: path.clone(), status, additions: 0, deletions: 0, staged: Some(staged), from: None };
         if matches!(xy, "DD" | "AU" | "UD" | "UA" | "DU" | "AA" | "UU") {
             out.push(entry('C', false));
             continue;
@@ -2152,12 +2180,7 @@ pub fn parse_name_status_z(s: &str) -> Vec<FileChange> {
     let mut parts = s.split('\0').filter(|p| !p.is_empty());
     while let Some(code) = parts.next() {
         let c = code.chars().next().unwrap_or('M');
-        let path = if c == 'R' || c == 'C' {
-            parts.next();
-            parts.next()
-        } else {
-            parts.next()
-        };
+        let (from, path) = if c == 'R' || c == 'C' { (parts.next(), parts.next()) } else { (None, parts.next()) };
         if let Some(p) = path {
             let status = match c {
                 'A' | 'C' => 'A',
@@ -2166,7 +2189,9 @@ pub fn parse_name_status_z(s: &str) -> Vec<FileChange> {
                 'U' => 'C',
                 _ => 'M',
             };
-            out.push(FileChange { path: p.into(), status, additions: 0, deletions: 0, staged: None });
+            // A copy shows as a new file: only a rename names the path it came from.
+            let from = from.filter(|_| c == 'R').map(String::from);
+            out.push(FileChange { path: p.into(), status, additions: 0, deletions: 0, staged: None, from });
         }
     }
     out

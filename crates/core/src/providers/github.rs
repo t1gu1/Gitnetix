@@ -90,6 +90,12 @@ pub struct Thread {
     pub id: String,
     pub path: Option<String>,
     pub line: Option<u64>,
+    /// `line` numbers the base, not the head: the comment is on a removed line.
+    #[serde(default)]
+    pub old: bool,
+    /// The code it was written on has changed since: its line no longer matches the pull request's diff.
+    #[serde(default)]
+    pub outdated: bool,
     pub resolved: bool,
     /// Review threads can be resolved; plain PR comments cannot.
     pub resolvable: bool,
@@ -110,6 +116,62 @@ pub struct PrDetail {
     pub checks: Vec<Check>,
     pub reviewers: Vec<Reviewer>,
     pub threads: Vec<Thread>,
+    /// The commits its host diffs: the base's (its branch's tip, or where the head left it) and the head's.
+    pub base_sha: String,
+    pub head_sha: String,
+}
+
+/// A line of a pull request's diff: its kind and its number in each version, counted as the hunk goes (an added
+/// line's `old` is the next base line's, a removed line's `new` the next head line's).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DiffPos {
+    /// '+' added, '-' removed, ' ' unchanged.
+    pub kind: char,
+    pub old: u64,
+    pub new: u64,
+}
+
+impl DiffPos {
+    /// A removed line is only in the base: hosts number it there, on the old (left) side.
+    pub fn removed(&self) -> bool {
+        self.kind == '-'
+    }
+
+    /// Its number in the version it is in: the base for a removed line, the head otherwise.
+    pub fn line(&self) -> u64 {
+        if self.removed() { self.old } else { self.new }
+    }
+}
+
+/// Where a comment on the code goes: lines `start..=end` of `path` in the pull request's diff from its merge base to
+/// commit `head`, in diff order.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LineAnchor {
+    pub path: String,
+    /// The file's path in the base, when the pull request renamed it.
+    #[serde(default)]
+    pub from: Option<String>,
+    /// The head commit the diff was drawn at.
+    pub head: String,
+    /// The first line of a range; none for one line.
+    #[serde(default)]
+    pub start: Option<DiffPos>,
+    pub end: DiffPos,
+    /// Length of the end line in UTF-16 units: Azure DevOps marks the lines up to its end.
+    #[serde(default)]
+    pub end_len: u64,
+}
+
+impl LineAnchor {
+    /// The range's first line: `end` for one line.
+    pub fn first(&self) -> DiffPos {
+        self.start.unwrap_or(self.end)
+    }
+
+    pub fn multi(&self) -> bool {
+        self.start.is_some_and(|s| s != self.end)
+    }
 }
 
 pub const EMOJI: &[(&str, &str)] = &[
@@ -130,6 +192,20 @@ const COMMENT: &str = "id databaseId author{login} body createdAt viewerCanUpdat
 const ISSUE: &str = "number title body url state stateReason createdAt closedAt author{login} assignees(first:5){nodes{login name}} labels(first:20){nodes{name}} comments{totalCount} milestone{title} issueType{name} projectItems(first:5){nodes{project{title} fieldValueByName(name:\"Status\"){... on ProjectV2ItemFieldSingleSelectValue{name}} priority:fieldValueByName(name:\"Priority\"){... on ProjectV2ItemFieldSingleSelectValue{name}}}}";
 /// [`ISSUE`] without what an older token or server can't read.
 const ISSUE_LEAN: &str = "number title body url state stateReason createdAt closedAt author{login} assignees(first:5){nodes{login name}} labels(first:20){nodes{name}} comments{totalCount} milestone{title}";
+
+/// GitHub's side of a diff line: LEFT for a removed one, numbered in the base; RIGHT for the others.
+fn side(p: DiffPos) -> &'static str {
+    if p.removed() { "LEFT" } else { "RIGHT" }
+}
+
+fn line_comment_body(at: &LineAnchor, body: &str) -> Value {
+    let mut b = json!({ "body": body, "commit_id": at.head, "path": at.path, "line": at.end.line(), "side": side(at.end) });
+    if at.multi() {
+        b["start_line"] = json!(at.first().line());
+        b["start_side"] = json!(side(at.first()));
+    }
+    b
+}
 
 fn emoji(content: &str) -> String {
     EMOJI.iter().find(|(c, _)| *c == content).map(|(_, e)| e.to_string()).unwrap_or_else(|| content.into())
@@ -432,7 +508,7 @@ impl GitHub {
                 "query($o:String!,$r:String!,$n:Int!,$after:String){{repository(owner:$o,name:$r){{pullRequest(number:$n){{{conn}(first:100,after:$after){{pageInfo{{hasNextPage endCursor}} nodes{{{fields}}}}}}}}}}}"
             )
         };
-        let threads_q = pr_conn("reviewThreads", &format!("id isResolved path line comments(first:100){{pageInfo{{hasNextPage endCursor}} nodes{{{COMMENT} diffHunk}}}}"));
+        let threads_q = pr_conn("reviewThreads", &format!("id isResolved isOutdated path line diffSide comments(first:100){{pageInfo{{hasNextPage endCursor}} nodes{{{COMMENT} diffHunk}}}}"));
         let comments_q = pr_conn("comments", COMMENT);
         let reviews_q = pr_conn("reviews", &format!("{COMMENT} state"));
         let requests_q = pr_conn("reviewRequests", "requestedReviewer{... on User{login} ... on Team{name}}");
@@ -488,6 +564,8 @@ impl GitHub {
                     id: t["id"].as_str().unwrap_or("").into(),
                     path: t["path"].as_str().map(String::from),
                     line: t["line"].as_u64(),
+                    old: t["diffSide"] == "LEFT",
+                    outdated: t["isOutdated"] == true,
                     resolved: t["isResolved"] == true,
                     resolvable: true,
                     snippet,
@@ -496,7 +574,7 @@ impl GitHub {
                 }
             })
             .collect();
-        let plain = |cm: Comment, review: Option<String>| Thread { id: cm.id.clone(), path: None, line: None, resolved: false, resolvable: false, snippet: vec![], comments: vec![cm], review };
+        let plain = |cm: Comment, review: Option<String>| Thread { id: cm.id.clone(), path: None, line: None, old: false, outdated: false, resolved: false, resolvable: false, snippet: vec![], comments: vec![cm], review };
         for c in &comment_nodes {
             threads.push(plain(comment(c), None));
         }
@@ -551,6 +629,8 @@ impl GitHub {
             reviewers,
             threads,
             summary,
+            base_sha: p["base"]["sha"].as_str().unwrap_or("").into(),
+            head_sha: sha,
         })
     }
 
@@ -604,6 +684,12 @@ impl GitHub {
         self.req(reqwest::Method::POST, &format!("{}/issues/{number}/comments", self.rp()), Some(json!({ "body": body })))
             .await
             .map(|_| ())
+    }
+
+    /// A comment on lines of the diff, pinned to the commit they were read at: GitHub keeps it there (outdated once
+    /// they change) when the pull request moves on.
+    pub async fn line_comment(&self, number: u64, at: &LineAnchor, body: &str) -> Result<()> {
+        self.req(reqwest::Method::POST, &format!("{}/pulls/{number}/comments", self.rp()), Some(line_comment_body(at, body))).await.map(|_| ())
     }
 
     pub async fn reply(&self, number: u64, comment_db_id: u64, body: &str) -> Result<()> {
@@ -732,6 +818,29 @@ mod tests {
         let got = gh.issues(json!({ "states": ["OPEN"] }), 60).await.unwrap();
         assert_eq!((got.len(), got[59]["number"].as_u64()), (60, Some(59)));
         assert!(explain("Your token has not been granted the required scopes to execute this query.").contains("Sign in to GitHub again"));
+    }
+
+    #[test]
+    fn line_comments_name_the_side_and_the_commit() {
+        let pos = |kind, old, new| DiffPos { kind, old, new };
+        let mut at = LineAnchor { path: "src/a.rs".into(), from: None, head: "abc123".into(), start: None, end: pos('+', 9, 12), end_len: 4 };
+        assert_eq!(line_comment_body(&at, "Nit"), json!({ "body": "Nit", "commit_id": "abc123", "path": "src/a.rs", "line": 12, "side": "RIGHT" }));
+        // From a removed line to an added one: each numbered in its own version.
+        at.start = Some(pos('-', 7, 11));
+        let b = line_comment_body(&at, "Nit");
+        assert_eq!((&b["start_line"], &b["start_side"], &b["line"], &b["side"]), (&json!(7), &json!("LEFT"), &json!(12), &json!("RIGHT")));
+        // A range of one line is one line.
+        at.start = Some(at.end);
+        assert!(line_comment_body(&at, "Nit").get("start_line").is_none());
+        at.end = pos(' ', 20, 23);
+        assert_eq!(line_comment_body(&at, "Nit")["line"], 23);
+    }
+
+    #[test]
+    fn reads_the_anchor_the_files_view_sends() {
+        let sent = json!({ "projectId": "p", "number": 42, "path": "src/a.rs", "head": "cf06", "start": { "kind": "+", "old": 113, "new": 166 }, "end": { "kind": " ", "old": 114, "new": 176 }, "endLen": 9, "body": "Hm" });
+        let at: LineAnchor = serde_json::from_value(sent).unwrap();
+        assert_eq!((at.first().line(), at.end.line(), at.end_len, at.multi(), at.from), (166, 176, 9, true, None));
     }
 
     #[test]

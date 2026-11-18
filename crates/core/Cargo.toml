@@ -33,6 +33,8 @@ keyring = { version = "3", optional = true, features = ["apple-native", "windows
 transcribe-cpp = { version = "0.4.1", default-features = false }
 symphonia = { version = "0.6", default-features = false, features = ["mkv", "ogg", "vorbis", "pcm", "isomp4", "aac"] }
 sha2 = "0.10"
+# GitLab names a diff line by the SHA-1 of its file's path, which a comment on several lines must give.
+sha1 = "0.10"
 
 # Speech to text on the GPU through Metal on Apple Silicon; Intel Macs stay on the CPU, as ggml's Metal backend targets Apple GPUs.
 [target.'cfg(all(target_os = "macos", target_arch = "aarch64"))'.dependencies]

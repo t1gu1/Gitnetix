@@ -2286,7 +2286,7 @@ button.map-behind[aria-disabled] {
 .map-name {
   flex: 1 1 auto;
   min-width: 0;
-  font-size: 12.5px;
+  font-size: 11.5px;
   font-weight: 500;
   color: var(--fg);
 }
@@ -2729,6 +2729,24 @@ button.map-chip:hover {
   line-height: 1.35;
   overflow-wrap: anywhere;
 }
+/* The name opens the branch full screen, like "Look at the code". */
+.map-card-look {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.map-card-look:disabled {
+  cursor: default;
+}
+/* Folded, the eye after the name, in the name's colour. */
+.map-card-eye {
+  margin-left: 6px;
+  vertical-align: -2px;
+}
 /* Folded: smaller text and button, to take less of the map. */
 .map-card[data-folded] {
   gap: 10px;
@@ -2793,6 +2811,7 @@ button.map-chip:hover {
 /* The suggested action with its "…" as one split button. */
 .map-card-acts {
   display: flex;
+  margin-top: 6px;
 }
 .map-card-acts > .btn-primary,
 .map-card-acts > .btn-danger {
@@ -6228,6 +6247,133 @@ button.picker-act {
   border: 1px solid var(--line);
   border-radius: var(--r);
   background: var(--panel);
+}
+.thread-file > .btn {
+  margin-block: -4px;
+}
+
+/* A pull request's files: the code fills the pane under the header (at least 420px, the pane scrolls past that), the
+   list of files beside it, or above it in a narrow pane. */
+.detail:has(> .detail-inner > .pr-files) {
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 16px;
+}
+.detail-inner:has(> .pr-files) {
+  flex: 1 0 auto;
+  max-width: none;
+  gap: 14px;
+  container-type: inline-size;
+}
+.pr-files {
+  flex: 1 1 0;
+  min-height: 420px;
+  display: grid;
+  grid-template-columns: minmax(200px, 280px) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--bg);
+  overflow: hidden;
+}
+.pr-files-list {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 6px 0;
+  border-right: 1px solid var(--line);
+}
+.pr-file-threads {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.pr-code {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.code-file.pr-code-bar {
+  padding-left: 14px;
+}
+/* Conversations of the file that no drawn line holds: outdated, or on code out of the diff's hunks. */
+.pr-elsewhere {
+  flex: none;
+  max-height: 35%;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+}
+@container (max-width: 640px) {
+  .pr-files {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  .pr-files-list {
+    max-height: 150px;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+}
+/* Conversations and the comment being written, under their line of the diff. */
+.diff-note {
+  padding: 10px 16px;
+  border-block: 1px solid var(--line);
+  background: var(--raised);
+  font-family: var(--sans);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.diff-note > .col {
+  max-width: 900px;
+}
+.note-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--panel);
+}
+/* Commenting on the code: a line's numbers start a comment there, the "+" over its sign shows it. */
+:is(.diff-u, .diff-split).reviewing :is(.diff-row, .diff-half):not(.hunk, .blank) > :is(.ln, .sg) {
+  cursor: pointer;
+}
+:is(.diff-u, .diff-split).reviewing :is(.diff-row, .diff-half):not(.hunk, .blank) > .sg {
+  position: relative;
+}
+:is(.diff-u, .diff-split).reviewing :is(.diff-row, .diff-half):not(.hunk, .blank):hover > .sg {
+  color: transparent;
+}
+/* Level with the first line of a wrapped one. */
+:is(.diff-u, .diff-split).reviewing :is(.diff-row, .diff-half):not(.hunk, .blank):hover > .sg::after {
+  content: "+";
+  position: absolute;
+  inset: 2px 1px auto;
+  height: 17px;
+  border-radius: 4px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 700;
+  line-height: 17px;
+  text-align: center;
+}
+:is(.diff-row, .diff-half).noted {
+  background-image: linear-gradient(color-mix(in srgb, var(--accent) 12%, transparent), color-mix(in srgb, var(--accent) 12%, transparent));
+}
+:is(.diff-row, .diff-half).noted > .ln {
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+  color: var(--fg);
+}
+.diff-row.noted > .ln:first-child,
+.diff-half.noted > .ln {
+  box-shadow: inset 3px 0 0 var(--accent);
 }
 .thread-file {
   display: flex;

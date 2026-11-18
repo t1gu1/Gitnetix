@@ -6,13 +6,13 @@ use std::path::{Component, Path};
 
 use serde_json::{json, Value};
 
-use crate::app::{Attachment, Bump, Gitnetix, MergeOptions, NewItem, NotesInclude, ViewMode};
+use crate::app::{Attachment, Bump, Gitnetix, MergeOptions, NewItem, NotesInclude, PrRefs, ViewMode};
 use crate::error::{Error, Result};
 use crate::git::{Git, LinePick};
 use crate::store::{upsert, BranchType, BranchTypes, ConnectMethod, Connection, GitProfile, HostConf, JiraConf, ReleaseKind, Route, TrelloConf, AsanaConf, LinearConf, UserProfile, new_id};
 use crate::templates::{self, Template};
 use crate::providers::github_auth::{self, Poll};
-use crate::providers::{azure_auth, bitbucket::{self, Bitbucket}, gitea::Gitea, gitlab::{self, GitLab}, oauth, RepoRef};
+use crate::providers::{azure_auth, bitbucket::{self, Bitbucket}, gitea::Gitea, github::LineAnchor, gitlab::{self, GitLab}, oauth, RepoRef};
 use crate::tickets::{jira_auth, oauth as ticket_oauth};
 use crate::{ai, secrets};
 
@@ -153,6 +153,9 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("prs.review", "Submit a review", "projectId, number, vote: approve|changes|comment, body?"),
     ("prs.comment", "Comment on a PR", "projectId, number, body"),
     ("prs.editComment", "Edit the text of a comment or review summary", "projectId, commentId (node id), body"),
+    ("prs.files", "Files a PR changes, from where its head left its base, read from this clone (it fetches the PR's commits from origin when missing); a renamed one has `from`, its old path", "projectId, number, base, head, baseSha, headSha (as prs.get gives them)"),
+    ("prs.diff", "Diff of one file of a PR as its host draws it (3 lines of context, from where the head left the base); `from` = its old path when renamed", "projectId, number, base, head, baseSha, headSha, path, from?"),
+    ("prs.lineComment", "Comment on lines of a PR's diff, in a new thread: `end` (and `start`, for a range: GitHub, GitLab and Azure DevOps take one) is {kind: \"+\"|\"-\"|\" \", old, new}, the line's numbers in the base and the head as its hunk counts them; `head` = the headSha the diff was drawn at; `endLen` = the end line's length", "projectId, number, path, from?, head, start?, end, endLen?, body"),
     ("prs.reply", "Reply in a review thread", "projectId, number, threadId, commentId, body"),
     ("prs.resolve", "Resolve or reopen a review thread", "projectId, threadId, resolved"),
     ("prs.react", "Add or remove a reaction", "projectId, subjectId, content, add"),
@@ -1156,6 +1159,20 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
         "prs.comment" => {
             let gh = k.pr_host(&s(&p, "projectId")?).await?;
             gh.comment(u(&p, "number")?, &s(&p, "body")?).await?;
+            ok()
+        }
+        "prs.files" => {
+            let refs: PrRefs = serde_json::from_value(p.clone())?;
+            to(k.pr_files(&s(&p, "projectId")?, u(&p, "number")?, &refs).await?)
+        }
+        "prs.diff" => {
+            let refs: PrRefs = serde_json::from_value(p.clone())?;
+            to(k.pr_diff(&s(&p, "projectId")?, u(&p, "number")?, &refs, &s(&p, "path")?, os(&p, "from").as_deref()).await?)
+        }
+        "prs.lineComment" => {
+            let at: LineAnchor = serde_json::from_value(p.clone())?;
+            let gh = k.pr_host(&s(&p, "projectId")?).await?;
+            gh.line_comment(u(&p, "number")?, &at, &s(&p, "body")?).await?;
             ok()
         }
         "prs.reply" => {

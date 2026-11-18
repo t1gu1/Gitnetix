@@ -668,6 +668,36 @@ pub fn slugify(s: &str, max_words: usize) -> String {
 
 /// The GitHub token may only reach github.com or the Enterprise API the user set: an API URL derived
 /// from origin would hand it to any host with "github" in its name.
+/// A pull request's branches and the commits its host diffs, as its details give them.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PrRefs {
+    pub base: String,
+    pub head: String,
+    pub base_sha: String,
+    pub head_sha: String,
+}
+
+/// Commit `sha` (full or abbreviated) as this clone has it, fetched from origin when missing: from each of `refs` in
+/// turn, then by itself when full, which some hosts hand out.
+async fn fetched_commit(git: &Git, sha: &str, refs: &[String]) -> Result<Option<String>> {
+    if sha.is_empty() {
+        return Ok(None);
+    }
+    if let Some(c) = git.commit_of(sha).await? {
+        return Ok(Some(c));
+    }
+    let full = sha.len() >= 40 && sha.bytes().all(|b| b.is_ascii_hexdigit());
+    for what in refs.iter().map(String::as_str).chain(full.then_some(sha)) {
+        if git.fetch_objects(what).await? {
+            if let Some(c) = git.commit_of(sha).await? {
+                return Ok(Some(c));
+            }
+        }
+    }
+    Ok(None)
+}
+
 fn github_host_ok(host: &str, api_set: bool) -> bool {
     host == "github.com" || (api_set && host.contains("github"))
 }
@@ -3032,7 +3062,7 @@ impl Gitnetix {
                 };
                 let mut all: Vec<FileChange> = listing
                     .into_iter()
-                    .map(|path| known.remove(&path).unwrap_or(FileChange { path, status: ' ', additions: 0, deletions: 0, staged: None }))
+                    .map(|path| known.remove(&path).unwrap_or(FileChange { path, status: ' ', additions: 0, deletions: 0, staged: None, from: None }))
                     .collect();
                 all.extend(known.into_values());
                 all.sort_by(|a, b| a.path.cmp(&b.path));
@@ -6187,6 +6217,45 @@ impl Gitnetix {
             }
         }
         Ok(PrHost::GitHub(self.github(project_id).await?))
+    }
+
+    /// Which host [`Self::pr_host`] connects to, read from origin without signing in: its [`PrHost::provider`].
+    async fn pr_kind(&self, p: &Project) -> Result<&'static str> {
+        let Some(url) = self.git(p).remote_url("origin").await? else { return Ok("github") };
+        if azure::parse_remote(&url).is_some() {
+            return Ok("azure");
+        }
+        let i = self.store.read(|c| c.integrations.clone());
+        Ok(parse_remote(&url).and_then(|r| providers::host_kind(&r, &i)).unwrap_or("github"))
+    }
+
+    /// The diff range of pull request `number` as its host shows it: from where its head commit left the base commit
+    /// to the head, both as the host names them. A clone without them fetches them from origin first; a base it still
+    /// lacks (its branch since rewritten) gives way to origin's copy of the base branch.
+    async fn pr_range(&self, p: &Project, number: u64, pr: &PrRefs) -> Result<String> {
+        let git = self.git(p);
+        let refs = providers::head_refs(self.pr_kind(p).await?, number, &pr.head);
+        let head = fetched_commit(&git, &pr.head_sha, &refs).await?.ok_or_else(|| Error::NotFound(format!("the commits of #{number} on origin")))?;
+        let base_refs: Vec<String> = providers::plain_branch(&pr.base).then(|| format!("refs/heads/{}", pr.base)).into_iter().collect();
+        let base = match fetched_commit(&git, &pr.base_sha, &base_refs).await? {
+            Some(b) => b,
+            None => git.branch_rev(&pr.base).await?.ok_or_else(|| Error::NotFound(format!("{} on origin", pr.base)))?,
+        };
+        Ok(format!("{base}...{head}"))
+    }
+
+    /// The files pull request `number` changes, renamed ones with their old path.
+    pub async fn pr_files(&self, project_id: &str, number: u64, pr: &PrRefs) -> Result<Vec<FileChange>> {
+        let p = self.store.project(project_id)?;
+        let range = self.pr_range(&p, number, pr).await?;
+        self.git(&p).range_changes(&range).await
+    }
+
+    /// One file's diff in pull request `number`, as its host draws it; `from` is its old path when renamed.
+    pub async fn pr_diff(&self, project_id: &str, number: u64, pr: &PrRefs, path: &str, from: Option<&str>) -> Result<Vec<Hunk>> {
+        let p = self.store.project(project_id)?;
+        let range = self.pr_range(&p, number, pr).await?;
+        self.git(&p).review_diff(&range, path, from).await
     }
 
     pub async fn generate_pr(&self, project_id: &str, branch: &str) -> Result<(String, String)> {

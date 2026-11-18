@@ -36,8 +36,8 @@ const SHIPPED_ROW = 14;
 /** Room the floating card takes on the right (its width and gap): the map scrolls out from under it. */
 const CARD_ROOM = 304;
 /** Column `d` of the map: the trunk, then each level of branches under it. */
-const colX = (d: number) => (d === 0 ? 24 : 300 + (d - 1) * 292);
-const colW = (d: number) => (d === 0 ? 216 : 240);
+const colX = (d: number) => (d === 0 ? 24 : 300 + (d - 1) * 372);
+const colW = (d: number) => (d === 0 ? 216 : 320);
 
 /** What the focus view opens on: uncommitted work, all the branch's changes, one commit, or the project's files. */
 export type FocusItem = "wip" | "all" | "project" | Commit;
@@ -1625,7 +1625,13 @@ function SelectedCard({
         </span>
         <div className="map-card-name">
           {kind && <span className={`map-kind mono ${b.kind === "fix" ? "c-del" : "c-mod"}`}>{b.kind}</span>}
-          <h3 className={`mono ${b.role === "branch" ? "" : roleCls(b)}`}>{name}</h3>
+          {/* The name opens the branch full screen too; folded, the eye says so, as the hidden "Look at the code" did. */}
+          <h3 className={`mono ${b.role === "branch" ? "" : roleCls(b)}`}>
+            <button className="map-card-look" disabled={!b.exists} data-tip="Look at the code" onClick={() => onFocus(b.name, look)}>
+              {name}
+              {folded && <Icon name="eye" size={13} className="map-card-eye" />}
+            </button>
+          </h3>
           <BranchTags o={o} b={b} />
         </div>
       </div>

@@ -1,6 +1,6 @@
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type CSSProperties, type MouseEvent, type PointerEvent, type ReactElement, type ReactNode, type RefObject } from "react";
+import { Fragment, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type CSSProperties, type MouseEvent, type PointerEvent, type ReactElement, type ReactNode, type RefObject } from "react";
 
-import type { Blame, Hunk, LinePick } from "../api/types";
+import type { Blame, DiffLine, Hunk, LinePick } from "../api/types";
 import { ago, plural } from "../lib/format";
 import { code, useTokens } from "../lib/highlight";
 import type { Token, Tokens } from "../lib/highlight.worker";
@@ -21,6 +21,28 @@ export interface Staging {
   apply: (lines: LinePick[]) => Promise<unknown>;
   /** Unstaged side only: throws the lines away from the working tree. */
   discard?: (lines: LinePick[]) => Promise<unknown>;
+}
+
+/** A line of a diff: its hunk and place in it, its kind, its number in each version as the hunk counts them (an added
+ * line's `old` is the next old line's, a removed line's `new` the next new line's) and its length. */
+export interface DiffAt {
+  hunk: number;
+  i: number;
+  kind: DiffLine["kind"];
+  old: number;
+  new: number;
+  len: number;
+}
+
+/** Comments on the diff's lines (a pull request's). Pressing a line's number picks it to comment on; with `ranges`,
+ * shift-click or a drag over the numbers takes in more lines of its hunk. */
+export interface Review {
+  ranges: boolean;
+  /** The lines picked, first and last in diff order. */
+  picked: { from: DiffAt; to: DiffAt } | null;
+  onPick: (from: DiffAt, to: DiffAt) => void;
+  /** What goes under a line: its conversations, and the comment being written when it ends the picked lines. */
+  below: (at: DiffAt) => ReactNode;
 }
 
 /** Past this many lines (or this much text) a diff waits for "Show anyway": drawing it all can freeze the app. */
@@ -46,7 +68,7 @@ export interface Blamed {
 }
 
 /** `anyway` draws it whatever its size; until then a large diff shows `LargeDiff`, whose button calls `onAnyway`. */
-export function DiffView({ path, hunks, mode, staging, blame, anyway, onAnyway }: { path: string; hunks: Hunk[]; mode: DiffMode; staging?: Staging; blame?: Blamed; anyway: boolean; onAnyway: () => void }) {
+export function DiffView({ path, hunks, mode, staging, blame, review, anyway, onAnyway }: { path: string; hunks: Hunk[]; mode: DiffMode; staging?: Staging; blame?: Blamed; review?: Review; anyway: boolean; onAnyway: () => void }) {
   const size = useMemo(() => {
     let lines = 0;
     let chars = 0;
@@ -57,21 +79,22 @@ export function DiffView({ path, hunks, mode, staging, blame, anyway, onAnyway }
     return { lines, chars };
   }, [hunks]);
   if (!anyway && (size.lines > LARGE_LINES || size.chars > LARGE_CHARS)) return <LargeDiff lines={size.lines} onShow={onAnyway} />;
-  return <Diff path={path} hunks={hunks} mode={mode} staging={staging} blame={blame} />;
+  return <Diff path={path} hunks={hunks} mode={mode} staging={staging} blame={blame} review={review} />;
 }
 
-function Diff({ path, hunks, mode, staging, blame }: { path: string; hunks: Hunk[]; mode: DiffMode; staging?: Staging; blame?: Blamed }) {
+function Diff({ path, hunks, mode, staging, blame, review }: { path: string; hunks: Hunk[]; mode: DiffMode; staging?: Staging; blame?: Blamed; review?: Review }) {
   const shown = useTokens(path, hunks);
   const picking = usePicking(path, shown.hunks, staging);
+  const reviewing = useReviewing(shown.hunks, review);
   const scroller = useRef<HTMLDivElement>(null);
   const find = useFind(scroller, [shown.hunks, shown.tokens, mode]);
   return (
     <>
       <Heatmapped scroller={scroller} hunks={shown.hunks} split={mode === "split"}>
         {mode === "split" ? (
-          <Split hunks={shown.hunks} tokens={shown.tokens} picking={picking} />
+          <Split hunks={shown.hunks} tokens={shown.tokens} picking={picking} reviewing={reviewing} />
         ) : (
-          <Unified hunks={shown.hunks} tokens={shown.tokens} headers={mode === "unified"} picking={picking} />
+          <Unified hunks={shown.hunks} tokens={shown.tokens} headers={mode === "unified"} picking={picking} reviewing={reviewing} />
         )}
         {blame && <BlameMarks scroller={scroller} blamed={blame} drawn={[shown.hunks, mode]} />}
       </Heatmapped>
@@ -295,10 +318,131 @@ function usePicking(path: string, hunks: Hunk[], staging?: Staging): Picking | u
   };
 }
 
+/** Each line's place, kind, numbers and length, by hunk. */
+function linesAt(hunks: Hunk[]): DiffAt[][] {
+  return hunks.map((h, hunk) => {
+    let old = h.oldStart;
+    let n = h.newStart;
+    return h.lines.map((l, i) => {
+      const at: DiffAt = { hunk, i, kind: l.kind, old, new: n, len: l.text.length };
+      if (l.kind !== "+") old++;
+      if (l.kind !== "-") n++;
+      return at;
+    });
+  });
+}
+
+interface Reviewing {
+  review: Review;
+  /** Each line's place and numbers, by hunk. */
+  at: DiffAt[][];
+  /** Class and mouse handlers of a line's row (a half, in split mode). */
+  row: (at: DiffAt) => { cls: string; props: { onMouseDown: (e: MouseEvent<HTMLElement>) => void; onMouseEnter: (e: MouseEvent<HTMLElement>) => void } };
+}
+
+/** Lines picked to comment on: a press on a line's numbers picks it; dragging on from there, or a shift-click after,
+ * takes in the lines up to the one reached, within the hunk (a comment spans one hunk at most). The review hears of
+ * the lines once the button is released: what it opens under them would shift the lines a drag is still crossing. */
+function useReviewing(hunks: Hunk[], review?: Review): Reviewing | undefined {
+  const at = useMemo(() => linesAt(hunks), [hunks]);
+  // The lines a drag went over so far, while the button is down; the line last pressed without shift.
+  const [dragged, setDragged] = useState<{ from: DiffAt; to: DiffAt } | null>(null);
+  const drag = useRef<{ from: DiffAt; to: DiffAt } | null>(null);
+  const anchor = useRef<DiffAt | null>(null);
+  const live = useRef(review);
+  live.current = review;
+  useEffect(() => {
+    anchor.current = null;
+  }, [hunks]);
+  useEffect(() => {
+    const end = () => {
+      const d = drag.current;
+      drag.current = null;
+      if (!d) return;
+      setDragged(null);
+      const [a, b] = d.from.i <= d.to.i ? [d.from, d.to] : [d.to, d.from];
+      live.current?.onPick(a, b);
+    };
+    window.addEventListener("mouseup", end);
+    return () => window.removeEventListener("mouseup", end);
+  }, []);
+  if (!review) return undefined;
+  const go = (from: DiffAt, to: DiffAt) => {
+    drag.current = { from, to };
+    setDragged(from.i <= to.i ? { from, to } : { from: to, to: from });
+  };
+  const p = dragged ?? review.picked;
+  return {
+    review,
+    at,
+    row: (l) => ({
+      cls: p && l.hunk === p.from.hunk && l.i >= p.from.i && l.i <= p.to.i ? " noted" : "",
+      props: {
+        onMouseDown: (e) => {
+          if (e.button !== 0 || !(e.target as HTMLElement).closest(".ln, .sg")) return;
+          e.preventDefault();
+          const extend = e.shiftKey && review.ranges && anchor.current?.hunk === l.hunk;
+          if (!extend) anchor.current = l;
+          go(extend ? anchor.current! : l, l);
+        },
+        onMouseEnter: (e) => {
+          const d = drag.current;
+          if (d && e.buttons & 1 && review.ranges && d.from.hunk === l.hunk) go(d.from, l);
+        },
+      },
+    }),
+  };
+}
+
+/** A row followed by what the review puts under its lines: a split row's two, once for an unchanged line (both halves). */
+function withNotes(row: ReactElement, key: string, reviewing: Reviewing | undefined, a?: DiffAt, b?: DiffAt) {
+  if (!reviewing) return row;
+  const notes = (b === a ? [a] : [a, b]).flatMap((l) => (l ? [reviewing.review.below(l)] : [])).filter((n) => n != null && n !== false);
+  if (!notes.length) return row;
+  return (
+    <Fragment key={key}>
+      {row}
+      {notes.map((n, i) => (
+        <div key={i} className="diff-note">{n}</div>
+      ))}
+    </Fragment>
+  );
+}
+
 /** Class and handlers of a line's row: a changed line can be picked when the diff can stage. */
 function rowPick(picking: Picking | undefined, p: LinePick | undefined) {
   if (!picking || !p) return { cls: "", props: {} };
   return { cls: picking.picked.has(keyOf(p)) ? " pick picked" : " pick", props: picking.row(p) };
+}
+
+/** Picks a whole hunk to comment on, from its header: one click (or Enter) opens the comment box under its last line. */
+function HunkComment({ reviewing, hunk }: { reviewing: Reviewing; hunk: number }) {
+  const lines = reviewing.at[hunk];
+  if (!lines?.length) return null;
+  return (
+    <button
+      className="btn btn-ghost hunk-act"
+      aria-label={`Comment on this hunk (${plural(lines.length, "line")})`}
+      data-tip="Comment on every line of this hunk. To comment on some lines, drag over the line numbers"
+      onMouseDown={(e) => e.stopPropagation()}
+      onClick={() => reviewing.review.onPick(lines[0], lines[lines.length - 1])}
+    >
+      <Icon name="comment" size={11} />
+      Comment
+    </button>
+  );
+}
+
+/** What a hunk's header offers on its right: staging buttons, or a comment on the whole hunk. */
+function hunkActs(picking: Picking | undefined, reviewing: Reviewing | undefined, hunk: number) {
+  if (picking) return <HunkAction picking={picking} hunk={hunk} />;
+  if (reviewing?.review.ranges)
+    return (
+      <span className="hunk-acts">
+        <HunkComment reviewing={reviewing} hunk={hunk} />
+      </span>
+    );
+  return null;
 }
 
 /** Stages, unstages or discards a whole hunk, from its header. */
@@ -372,7 +516,7 @@ function DiscardLines({ path, picking }: { path: string; picking: Picking }) {
   );
 }
 
-function Unified({ hunks, tokens, headers = true, picking }: { hunks: Hunk[]; tokens: Tokens | undefined; headers?: boolean; picking?: Picking }) {
+function Unified({ hunks, tokens, headers = true, picking, reviewing }: { hunks: Hunk[]; tokens: Tokens | undefined; headers?: boolean; picking?: Picking; reviewing?: Reviewing }) {
   const rows: ReactElement[] = [];
   hunks.forEach((h, hi) => {
     if (headers)
@@ -381,10 +525,10 @@ function Unified({ hunks, tokens, headers = true, picking }: { hunks: Hunk[]; to
           <span className="ln" />
           <span className="ln" />
           <span className="sg" />
-          {picking ? (
+          {picking || reviewing?.review.ranges ? (
             <span className="tx hunk-tx">
               <span>{h.header}</span>
-              <HunkAction picking={picking} hunk={hi} />
+              {hunkActs(picking, reviewing, hi)}
             </span>
           ) : (
             <span className="tx">{h.header}</span>
@@ -397,19 +541,22 @@ function Unified({ hunks, tokens, headers = true, picking }: { hunks: Hunk[]; to
       const cls = l.kind === "+" ? "add" : l.kind === "-" ? "del" : "";
       const marker = MARKER.test(l.text) ? " marker" : "";
       const pick = rowPick(picking, picking?.lines[hi][li]);
-      rows.push(
-        <div key={`${hi}-${li}`} className={`diff-row ${cls}${marker}${pick.cls}`} {...pick.props}>
+      const at = reviewing?.at[hi][li];
+      const note = at && reviewing.row(at);
+      const row = (
+        <div key={`${hi}-${li}`} className={`diff-row ${cls}${marker}${pick.cls}${note ? note.cls : ""}`} {...pick.props} {...note?.props}>
           <span className="ln">{l.kind === "+" ? "" : o}</span>
           <span className="ln">{l.kind === "-" ? "" : n}</span>
           <span className="sg">{l.kind === " " ? "" : l.kind === "-" ? "−" : "+"}</span>
           <span className="tx">{code(l.text, tokens?.[hi][li])}</span>
-        </div>,
+        </div>
       );
+      rows.push(withNotes(row, `${hi}-${li}`, reviewing, at));
       if (l.kind !== "+") o++;
       if (l.kind !== "-") n++;
     });
   });
-  return <div className={picking ? "diff-u picking" : "diff-u"} style={lnWidth(hunks)}>{chunked(rows)}</div>;
+  return <div className={`diff-u${picking ? " picking" : ""}${reviewing ? " reviewing" : ""}`} style={lnWidth(hunks)}>{chunked(rows)}</div>;
 }
 
 /** Digits of the diff's highest line number (its last hunk's end), as `--ln`: on a narrow screen the number columns fit just that. */
@@ -573,13 +720,15 @@ interface Half {
   toks?: Token[] | null;
   cls: string;
   pick?: LinePick;
+  /** The line, when the diff takes comments. */
+  at?: DiffAt;
   /** On the right of a hunk's header row: that hunk. */
   hunk?: number;
 }
 
 const empty: Half = { num: "", sign: "", text: "", cls: "blank" };
 
-function Split({ hunks, tokens, picking }: { hunks: Hunk[]; tokens: Tokens | undefined; picking?: Picking }) {
+function Split({ hunks, tokens, picking, reviewing }: { hunks: Hunk[]; tokens: Tokens | undefined; picking?: Picking; reviewing?: Reviewing }) {
   const rows: [Half, Half][] = [];
   hunks.forEach((h, hi) => {
     rows.push([{ num: "", sign: "", text: h.header, cls: "hunk" }, { num: "", sign: "", text: "", cls: "hunk", hunk: hi }]);
@@ -596,41 +745,46 @@ function Split({ hunks, tokens, picking }: { hunks: Hunk[]; tokens: Tokens | und
     h.lines.forEach((l, li) => {
       const toks = tokens?.[hi][li];
       const pick = picking?.lines[hi][li];
-      if (l.kind === "-") dels.push({ num: String(o++), sign: "−", text: l.text, toks, cls: "del", pick });
-      else if (l.kind === "+") adds.push({ num: String(n++), sign: "+", text: l.text, toks, cls: "add", pick });
+      const at = reviewing?.at[hi][li];
+      if (l.kind === "-") dels.push({ num: String(o++), sign: "−", text: l.text, toks, cls: "del", pick, at });
+      else if (l.kind === "+") adds.push({ num: String(n++), sign: "+", text: l.text, toks, cls: "add", pick, at });
       else {
         flush();
         rows.push([
-          { num: String(o++), sign: "", text: l.text, toks, cls: "" },
-          { num: String(n++), sign: "", text: l.text, toks, cls: "" },
+          { num: String(o++), sign: "", text: l.text, toks, cls: "", at },
+          { num: String(n++), sign: "", text: l.text, toks, cls: "", at },
         ]);
       }
     });
     flush();
   });
   return (
-    <div className={picking ? "diff-split picking" : "diff-split"} style={lnWidth(hunks)}>
-      {chunked(rows.map(([l, r], i) => (
-        <div key={i} className="diff-split-row">
-          {[l, r].map((x, j) => {
-            const pick = rowPick(picking, x.pick);
-            return (
-              <div key={j} className={`diff-half ${x.cls}${pick.cls}`} {...pick.props}>
-                <span className="ln">{x.num}</span>
-                <span className="sg">{x.sign}</span>
-                {picking && x.hunk !== undefined ? (
-                  <span className="tx hunk-tx">
-                    <span />
-                    <HunkAction picking={picking} hunk={x.hunk} />
-                  </span>
-                ) : (
-                  <span className="tx">{code(x.text, x.toks)}</span>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )))}
+    <div className={`diff-split${picking ? " picking" : ""}${reviewing ? " reviewing" : ""}`} style={lnWidth(hunks)}>
+      {chunked(rows.map(([l, r], i) => {
+        const row = (
+          <div key={i} className="diff-split-row">
+            {[l, r].map((x, j) => {
+              const pick = rowPick(picking, x.pick);
+              const note = x.at && reviewing?.row(x.at);
+              return (
+                <div key={j} className={`diff-half ${x.cls}${pick.cls}${note ? note.cls : ""}`} {...pick.props} {...note?.props}>
+                  <span className="ln">{x.num}</span>
+                  <span className="sg">{x.sign}</span>
+                  {(picking || reviewing?.review.ranges) && x.hunk !== undefined ? (
+                    <span className="tx hunk-tx">
+                      <span />
+                      {hunkActs(picking, reviewing, x.hunk)}
+                    </span>
+                  ) : (
+                    <span className="tx">{code(x.text, x.toks)}</span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        );
+        return withNotes(row, String(i), reviewing, l.at, r.at);
+      }))}
     </div>
   );
 }
@@ -699,6 +853,8 @@ function Heatmapped({ scroller, hunks, split, children }: { scroller: RefObject<
     measure();
     const ro = new ResizeObserver(measure);
     ro.observe(el);
+    // Conversations opening under lines make the content taller, not the view.
+    if (el.firstElementChild) ro.observe(el.firstElementChild);
     return () => ro.disconnect();
   }, [hunks, split]);
   const onScroll = () => {

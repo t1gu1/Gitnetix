@@ -1,20 +1,22 @@
 import { useMutationState, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 
-import { useAction, useOverview, usePendingBranches, usePr, useProjectPrefs, usePrs } from "../api/hooks";
+import { useAction, useOverview, usePendingBranches, usePr, usePrDiff, usePrFiles, useProjectPrefs, usePrs } from "../api/hooks";
 import { openExternal, rpc, RpcError } from "../api/transport";
-import type { PrDetail, PrSummary, PrThread } from "../api/types";
+import type { FileChange, PrDetail, PrSummary, PrThread } from "../api/types";
 import { Avatar } from "../components/Avatar";
+import { DiffView, type DiffAt, type Review } from "../components/DiffView";
 import { Icon } from "../components/Icon";
 import { PictureSource } from "../components/Picture";
 import { Resizer, usePaneWidth } from "../components/Resizer";
-import { ago, Busy, Empty, EmptyState, Header, initials, Loading, Markdown, MEDIA, MediaAsk, Modal, Seg, swipeProps } from "../components/ui";
+import { ago, Busy, Empty, EmptyState, ErrorBox, Header, initials, Loading, Markdown, MEDIA, MediaAsk, Modal, Seg, swipeProps } from "../components/ui";
 import { plural } from "../lib/format";
 import { useNav } from "../lib/nav";
 import { useStored } from "../lib/stored";
 import { toast } from "../lib/toast";
 
 type Tab = "open" | "review" | "closed";
+type View = "conversation" | "files";
 type Who = "mine" | "others" | "all";
 const GROUPS: PrSummary["state"][] = ["open", "draft", "merged", "closed"];
 const EMOJI: [string, string, string][] = [
@@ -218,6 +220,10 @@ function Detail({ pid, number }: { pid: string; number: number }) {
   const [deleteBranch, setDeleteBranch] = useState(false);
   const [filter, setFilter] = useState<"all" | "open">("all");
   const [checksOpen, setChecksOpen] = useState(false);
+  const [view, setView] = useState<View>("conversation");
+  // A conversation to see in the code: the files view opens on its file and line.
+  const [focus, setFocus] = useState<PrThread | null>(null);
+  const files = usePrFiles(pid, q.data);
 
   if (q.isLoading) return <Loading />;
   if (q.error) return <EmptyState icon="pr" title="Couldn't load pull request">{q.error.message}</EmptyState>;
@@ -238,6 +244,10 @@ function Detail({ pid, number }: { pid: string; number: number }) {
     setTitle(d.title);
     setBody(d.body);
     setEditing(true);
+  };
+  const showCode = (t: PrThread) => {
+    setFocus(t);
+    setView("files");
   };
 
   return (
@@ -329,6 +339,21 @@ function Detail({ pid, number }: { pid: string; number: number }) {
         {unresolved > 0 && open && <span className="c-acc" style={{ fontSize: 12.5 }}>{plural(unresolved, "unresolved conversation")}</span>}
       </div>
 
+      <div className="row" style={{ margin: 0 }}>
+        <Seg<View>
+          label="Show"
+          value={view}
+          onChange={(v) => {
+            setView(v);
+            setFocus(null);
+          }}
+          options={[
+            { value: "conversation", label: <>Conversation <span className="faint">{d.threads.length}</span></> },
+            { value: "files", label: <>Files changed <span className="faint">{files.data?.length ?? ""}</span></> },
+          ]}
+        />
+      </div>
+
       {confirmClose && (
         <Modal
           title={`Close #${number}?`}
@@ -369,7 +394,13 @@ function Detail({ pid, number }: { pid: string; number: number }) {
 
       {reviewOpen && <ReviewForm pid={pid} d={d} onDone={() => setReviewOpen(false)} />}
 
-      {d.checks.length > 0 && (
+      {view === "files" && (
+        <PictureSource.Provider value={source}>
+          <PrFiles key={focus?.id} pid={pid} d={d} media={media} focus={focus} />
+        </PictureSource.Provider>
+      )}
+
+      {view === "conversation" && d.checks.length > 0 && (
         <section className="section">
           <div className="row" style={{ margin: 0 }}>
             <h2>Checks</h2>
@@ -408,77 +439,354 @@ function Detail({ pid, number }: { pid: string; number: number }) {
         </section>
       )}
 
-      <section className="section">
-        <h2>
-          Reviewers
-          {votes && <span className="faint" style={{ fontSize: 13, fontWeight: 400, marginLeft: 8 }}>({votes})</span>}
-        </h2>
-        {d.reviewers.length === 0 ? (
-          <span className="muted">No reviewers yet.</span>
-        ) : (
-          <div className="row wrap" style={{ gap: 12, margin: "4px 0 0" }}>
-            {d.reviewers.map((r) => (
-              <span key={r.login} className="row" style={{ gap: 8, margin: 0 }}>
-                <span className="avatar" aria-hidden="true">{initials(r.login)}</span>
-                <span>{r.login}</span>
-                <span className={r.vote === "approve" ? "c-add" : r.vote === "changes" ? "c-acc" : "faint"} style={{ fontSize: 12 }}>
-                  {{ approve: "Approved", changes: "Changes requested", comment: "Commented", pending: "Review requested" }[r.vote]}
-                </span>
-              </span>
-            ))}
+      {view === "conversation" && (
+        <>
+          <section className="section">
+            <h2>
+              Reviewers
+              {votes && <span className="faint" style={{ fontSize: 13, fontWeight: 400, marginLeft: 8 }}>({votes})</span>}
+            </h2>
+            {d.reviewers.length === 0 ? (
+              <span className="muted">No reviewers yet.</span>
+            ) : (
+              <div className="row wrap" style={{ gap: 12, margin: "4px 0 0" }}>
+                {d.reviewers.map((r) => (
+                  <span key={r.login} className="row" style={{ gap: 8, margin: 0 }}>
+                    <span className="avatar" aria-hidden="true">{initials(r.login)}</span>
+                    <span>{r.login}</span>
+                    <span className={r.vote === "approve" ? "c-add" : r.vote === "changes" ? "c-acc" : "faint"} style={{ fontSize: 12 }}>
+                      {{ approve: "Approved", changes: "Changes requested", comment: "Commented", pending: "Review requested" }[r.vote]}
+                    </span>
+                  </span>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section className="section">
+            <div className="row">
+              <h2>Description</h2>
+              <span className="grow" />
+              {open && !editing && (
+                <button className="btn btn-sm" onClick={startEdit}>
+                  <Icon name="edit" size={12} />
+                  Edit
+                </button>
+              )}
+            </div>
+            {hidden && !editing && <MediaAsk onShow={() => prefs.setDialogs({ prMedia: true })} />}
+            {editing ? (
+              <div className="col">
+                <label htmlFor="pr-body" className="sr-only">Description</label>
+                <textarea id="pr-body" className="textarea mono" rows={14} style={{ fontSize: 12.5 }} value={body} onChange={(e) => setBody(e.target.value)} />
+                <div className="row wrap">
+                  <span className="grow" />
+                  <button className="btn" onClick={() => setEditing(false)}>Cancel</button>
+                  <button className="btn btn-primary" disabled={!title.trim() || update.isPending} onClick={() => update.mutate({ projectId: pid, number, title, body }, { onSuccess: () => setEditing(false) })}>
+                    Save to {host}
+                  </button>
+                </div>
+              </div>
+            ) : d.body ? (
+              <div className="card" style={{ padding: "6px 16px" }}>
+                <PictureSource.Provider value={source}>
+                  <Markdown text={d.body} html={media} breaks />
+                </PictureSource.Provider>
+              </div>
+            ) : (
+              <span className="muted">No description.</span>
+            )}
+          </section>
+
+          <section className="section" aria-label="Conversation" style={{ gap: 6 }}>
+            <div className="row wrap" style={{ marginBottom: 6 }}>
+              <h2>Conversation</h2>
+              <span className="faint" style={{ fontSize: 12 }}>{d.threads.length ? `${unresolved} unresolved · ${d.threads.length} total` : ""}</span>
+              <span className="grow" />
+              <Seg label="Show" value={filter} onChange={setFilter} options={[{ value: "all", label: "All" }, { value: "open", label: "Unresolved" }]} />
+            </div>
+            <PictureSource.Provider value={source}>
+              {threads.map((t) => <ThreadView key={t.id} pid={pid} number={number} t={t} media={media} onShowCode={t.path ? () => showCode(t) : undefined} />)}
+            </PictureSource.Provider>
+            {threads.length === 0 && <span className="muted">{d.threads.length === 0 ? "No comments yet." : "Every conversation is resolved."}</span>}
+            <NewComment pid={pid} number={number} />
+          </section>
+        </>
+      )}
+
+    </div>
+  );
+}
+
+/** The lines picked in the open file, first and last in diff order, and the comment being written on them. */
+interface Note {
+  path: string;
+  /** The commits the diff was drawn at, `base...head`: once the pull request moves on, the lines no longer stand. */
+  drawn: string;
+  from: DiffAt;
+  to: DiffAt;
+  text: string;
+}
+
+/** Hosts whose comments take a suggestion block, which the author applies in one click. */
+const SUGGESTS = ["GitHub", "GitLab"];
+
+/** A suggestion block holding `lines`, the current text of the lines a comment is on: the change starts as them, to
+ * edit. GitLab counts the lines it replaces up from the commented one, the last. The fence outgrows any run of
+ * backticks in the code. */
+function suggestionBlock(host: string, lines: string[]): string {
+  const ticks = Math.max(2, ...lines.flatMap((l) => (l.match(/`+/g) ?? []).map((m) => m.length)));
+  const fence = "`".repeat(ticks + 1);
+  const info = host === "GitLab" ? `suggestion:-${lines.length - 1}+0` : "suggestion";
+  return `${fence}${info}\n${lines.join("\n")}\n${fence}`;
+}
+
+const NO_THREADS: PrThread[] = [];
+
+/** A conversation's line in a file's diff, in the version it numbers: `o12` in the base, `n12` in the head. */
+const lineKey = (t: PrThread) => `${t.old ? "o" : "n"}${t.line}`;
+
+/** The pull request's changed files and the diff of one, its conversations under their lines. Pressing a line number
+ * starts a comment there; on hosts that take ranges, shift-click or a drag takes in more lines. */
+function PrFiles({ pid, d, media, focus }: { pid: string; d: PrDetail; media: boolean; focus: PrThread | null }) {
+  const host = useHost(pid);
+  // Bitbucket's and Gitea's APIs put a comment on one line only.
+  const ranges = host === "GitHub" || host === "GitLab" || host === "Azure DevOps";
+  const qc = useQueryClient();
+  const files = usePrFiles(pid, d);
+  const list = files.data ?? [];
+  const [sel, setSel] = useState(focus?.path ?? undefined);
+  const file = list.find((f) => f.path === sel) ?? list[0];
+  const diff = usePrDiff(pid, d, file);
+  const [mode, setMode] = useStored<"unified" | "split">("gnx.prs.diff", "unified", (s) => (s === "split" ? "split" : "unified"), String);
+  const [anyway, setAnyway] = useState(false);
+  const [note, setNote] = useState<Note | null>(null);
+  const post = useAction("prs.lineComment", { invalidate: [["pr", pid, d.number]], success: `Comment posted to ${host}` });
+  const byFile = useMemo(() => {
+    const m = new Map<string, PrThread[]>();
+    for (const t of d.threads) if (t.path) m.set(t.path, [...(m.get(t.path) ?? []), t]);
+    return m;
+  }, [d.threads]);
+  const here = (file && byFile.get(file.path)) || NO_THREADS;
+  const onLines = useMemo(() => {
+    const m = new Map<string, PrThread[]>();
+    for (const t of here) if (t.line != null && !t.outdated) m.set(lineKey(t), [...(m.get(lineKey(t)) ?? []), t]);
+    return m;
+  }, [here]);
+  // Lines the diff draws, so the conversations on others (outdated, or out of its hunks) show above it.
+  const drawn = useMemo(() => {
+    const keys = new Set<string>();
+    for (const h of diff.data ?? []) {
+      let [o, n] = [h.oldStart, h.newStart];
+      for (const l of h.lines) {
+        if (l.kind !== "+") keys.add(`o${o++}`);
+        if (l.kind !== "-") keys.add(`n${n++}`);
+      }
+    }
+    return keys;
+  }, [diff.data]);
+  const elsewhere = diff.data ? here.filter((t) => t.line == null || t.outdated || !drawn.has(lineKey(t))) : [];
+  // The conversation picked in the conversation list, brought into view once its file's diff is drawn.
+  const [toFocus, setToFocus] = useState(focus?.id);
+  useEffect(() => {
+    if (!toFocus || !diff.data) return;
+    const el = document.getElementById(`pr-thread-${toFocus}`);
+    if (!el) return;
+    el.scrollIntoView({ block: "center" });
+    // Again once the lines above it are laid out: off screen they only had an estimated height.
+    requestAnimationFrame(() => el.scrollIntoView({ block: "center" }));
+    setToFocus(undefined);
+  }, [toFocus, diff.data, anyway]);
+
+  const at = `${d.baseSha}...${d.headSha}`;
+  const picked = note && file && note.path === file.path && note.drawn === at ? { from: note.from, to: note.to } : null;
+  // A suggestion replaces lines of the head: both ends of the picked lines must be there (lines removed in between
+  // are left out).
+  const suggestion =
+    picked && SUGGESTS.includes(host) && picked.from.kind !== "-" && picked.to.kind !== "-"
+      ? () => {
+          const lines = diff.data?.[picked.from.hunk]?.lines.slice(picked.from.i, picked.to.i + 1).filter((l) => l.kind !== "-");
+          return lines?.length ? suggestionBlock(host, lines.map((l) => l.text)) : null;
+        }
+      : undefined;
+  // Only the comment box sends, and it shows only while the lines stand at `d`'s commits.
+  const send = () => {
+    if (!note || !file || !note.text.trim()) return;
+    const pos = (a: DiffAt) => ({ kind: a.kind, old: a.old, new: a.new });
+    const one = note.from.hunk === note.to.hunk && note.from.i === note.to.i;
+    post.mutate(
+      { projectId: pid, number: d.number, path: file.path, from: file.from, head: d.headSha, start: one ? undefined : pos(note.from), end: pos(note.to), endLen: note.to.len, body: note.text },
+      {
+        onSuccess: () => setNote(null),
+        // A push since the diff loaded: the pull request comes back with its new head, and its diff with it.
+        onError: () => void qc.invalidateQueries({ queryKey: ["pr", pid, d.number] }),
+      },
+    );
+  };
+  const review: Review = {
+    ranges,
+    picked,
+    onPick: (from, to) => file && setNote((n) => ({ path: file.path, drawn: at, from, to, text: n?.path === file.path ? n.text : "" })),
+    below: (at) => {
+      const ts = [...(at.kind !== "+" ? (onLines.get(`o${at.old}`) ?? []) : []), ...(at.kind !== "-" ? (onLines.get(`n${at.new}`) ?? []) : [])];
+      const writing = note && picked && picked.to.hunk === at.hunk && picked.to.i === at.i;
+      if (!ts.length && !writing) return null;
+      return (
+        <div className="col" style={{ gap: 8 }}>
+          {ts.map((t) => <ThreadView key={t.id} pid={pid} number={d.number} t={t} media={media} inline />)}
+          {writing && <NoteForm host={host} note={note} ranges={ranges} busy={post.isPending} suggestion={suggestion} onText={(text) => setNote({ ...note, text })} onCancel={() => setNote(null)} onSend={send} />}
+        </div>
+      );
+    },
+  };
+
+  if (!d.headSha) return <EmptyState icon="pr" title="Couldn't read the changes">{host} named no head commit for this pull request.</EmptyState>;
+  if (files.isLoading) return <Loading />;
+  if (files.error) return <EmptyState icon="pr" title="Couldn't read the changes">{files.error.message}</EmptyState>;
+  if (!file) return <EmptyState icon="pr" title="No changes">This pull request changes no files.</EmptyState>;
+  const cut = file.path.lastIndexOf("/");
+  return (
+    <section className="pr-files" aria-label="Files changed">
+      <nav className="pr-files-list" aria-label="Changed files">
+        {list.map((f) => (
+          <PrFileRow key={f.path} f={f} active={f === file} threads={byFile.get(f.path)?.length ?? 0} onPick={() => { setSel(f.path); setAnyway(false); }} />
+        ))}
+      </nav>
+      <div className="pr-code">
+        <div className="code-file pr-code-bar">
+          <span className="code-path mono ellipsis grow" data-tip={file.from ? `${file.from} → ${file.path}` : file.path} data-tip-overflow>
+            {file.from && <span className="faint">{file.from} → </span>}
+            <span className="faint">{file.path.slice(0, cut + 1)}</span>
+            <b>{file.path.slice(cut + 1)}</b>
+          </span>
+          <span className="hint hide-narrow">{ranges ? "Click or drag line numbers, or a hunk's Comment, to comment" : "Click a line number to comment"}</span>
+          <Seg<"unified" | "split"> label="Diff mode" value={mode} onChange={setMode} options={[{ value: "unified", label: "Unified" }, { value: "split", label: "Split" }]} />
+        </div>
+        {elsewhere.length > 0 && (
+          <div className="pr-elsewhere">
+            {elsewhere.map((t) => <ThreadView key={t.id} pid={pid} number={d.number} t={t} media={media} />)}
           </div>
         )}
-      </section>
-
-      <section className="section">
-        <div className="row">
-          <h2>Description</h2>
-          <span className="grow" />
-          {open && !editing && (
-            <button className="btn btn-sm" onClick={startEdit}>
-              <Icon name="edit" size={12} />
-              Edit
-            </button>
+        <div className="diff">
+          {diff.isLoading && <Loading />}
+          {diff.error && <div style={{ padding: 16 }}><ErrorBox error={diff.error} /></div>}
+          {diff.data && diff.data.length > 0 && <DiffView path={file.path} hunks={diff.data} mode={mode} review={review} anyway={anyway} onAnyway={() => setAnyway(true)} />}
+          {diff.data && diff.data.length === 0 && (
+            <div className="empty" style={{ fontFamily: "var(--sans)" }}>{file.from ? `Renamed from ${file.from}, no other changes.` : "Binary file, or no changes to its text."}</div>
           )}
         </div>
-        {hidden && !editing && <MediaAsk onShow={() => prefs.setDialogs({ prMedia: true })} />}
-        {editing ? (
-          <div className="col">
-            <label htmlFor="pr-body" className="sr-only">Description</label>
-            <textarea id="pr-body" className="textarea mono" rows={14} style={{ fontSize: 12.5 }} value={body} onChange={(e) => setBody(e.target.value)} />
-            <div className="row wrap">
-              <span className="grow" />
-              <button className="btn" onClick={() => setEditing(false)}>Cancel</button>
-              <button className="btn btn-primary" disabled={!title.trim() || update.isPending} onClick={() => update.mutate({ projectId: pid, number, title, body }, { onSuccess: () => setEditing(false) })}>
-                Save to {host}
-              </button>
-            </div>
-          </div>
-        ) : d.body ? (
-          <div className="card" style={{ padding: "6px 16px" }}>
-            <PictureSource.Provider value={source}>
-              <Markdown text={d.body} html={media} breaks />
-            </PictureSource.Provider>
-          </div>
-        ) : (
-          <span className="muted">No description.</span>
+      </div>
+    </section>
+  );
+}
+
+function PrFileRow({ f, active, threads, onPick }: { f: FileChange; active: boolean; threads: number; onPick: () => void }) {
+  const cut = f.path.lastIndexOf("/");
+  const color = ({ A: "c-add", D: "c-del", C: "c-acc", M: "c-mod", R: "c-mod" } as Record<string, string>)[f.status] ?? "faint";
+  return (
+    <button className="file-btn" aria-pressed={active} onClick={onPick}>
+      <span className={`file-st ${color}`}>{f.status}</span>
+      <span className="grow ellipsis" data-tip={f.from ? `${f.from} → ${f.path}` : f.path} data-tip-overflow>
+        <span>{f.path.slice(cut + 1)}</span> <span className="faint" style={{ fontSize: 11.5 }}>{f.path.slice(0, Math.max(cut, 0))}</span>
+      </span>
+      {threads > 0 && (
+        <span className="pr-file-threads" aria-label={plural(threads, "conversation")}>
+          <Icon name="comment" size={11} />
+          {threads}
+        </span>
+      )}
+      <span className="row mono file-nums">
+        <span className="c-add">{f.additions > 0 && `+${f.additions}`}</span>
+        <span className="c-del">{f.deletions > 0 && `−${f.deletions}`}</span>
+      </span>
+    </button>
+  );
+}
+
+/** The comment being written on the picked lines, under the last one. `suggestion` gives the block "Suggest change"
+ * puts in, when the host takes one on these lines. */
+function NoteForm({
+  host,
+  note,
+  ranges,
+  busy,
+  suggestion,
+  onText,
+  onCancel,
+  onSend,
+}: {
+  host: string;
+  note: Note;
+  ranges: boolean;
+  busy: boolean;
+  suggestion?: () => string | null;
+  onText: (text: string) => void;
+  onCancel: () => void;
+  onSend: () => void;
+}) {
+  const num = (a: DiffAt) => (a.kind === "-" ? a.old : a.new);
+  const one = note.from.hunk === note.to.hunk && note.from.i === note.to.i;
+  const what = one ? `${note.to.kind === "-" ? "removed line" : "line"} ${num(note.to)}` : `lines ${num(note.from)} to ${num(note.to)}`;
+  // Opened under lines near the bottom of the view: brought in whole, buttons too.
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    box.current?.scrollIntoView({ block: "nearest" });
+  }, []);
+  const area = useRef<HTMLTextAreaElement>(null);
+  // The block goes where the caret is (over a selection), on lines of its own; the caret then ends its code, to edit.
+  const suggest = () => {
+    const block = suggestion?.();
+    const el = area.current;
+    if (!block || !el) return;
+    const [before, after] = [note.text.slice(0, el.selectionStart), note.text.slice(el.selectionEnd)];
+    const head = before + (before && !before.endsWith("\n") ? "\n" : "");
+    onText(head + block + (after && !after.startsWith("\n") ? "\n" : "") + after);
+    const caret = head.length + block.lastIndexOf("\n");
+    requestAnimationFrame(() => {
+      el.focus();
+      el.setSelectionRange(caret, caret);
+    });
+  };
+  return (
+    <div ref={box} className="note-form">
+      <label htmlFor="pr-note" className="sr-only">Comment on {what}</label>
+      <textarea
+        ref={area}
+        id="pr-note"
+        className="textarea"
+        // Tall enough to show a suggestion's code, up to 14 lines.
+        rows={Math.min(14, Math.max(3, note.text.split("\n").length))}
+        autoFocus
+        placeholder={`Comment on ${what}…`}
+        value={note.text}
+        onChange={(e) => onText(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+            e.preventDefault();
+            onSend();
+          } else if (e.key === "Escape") {
+            e.stopPropagation();
+            onCancel();
+          }
+        }}
+      />
+      <div className="row wrap" style={{ margin: 0, gap: 6 }}>
+        {suggestion && (
+          <button className="btn btn-sm" data-tip={`Put in the picked lines as a change the author can apply on ${host}`} onClick={suggest}>
+            <Icon name="suggest" size={12} />
+            Suggest change
+          </button>
         )}
-      </section>
-
-      <section className="section" aria-label="Conversation" style={{ gap: 6 }}>
-        <div className="row wrap" style={{ marginBottom: 6 }}>
-          <h2>Conversation</h2>
-          <span className="faint" style={{ fontSize: 12 }}>{d.threads.length ? `${unresolved} unresolved · ${d.threads.length} total` : ""}</span>
-          <span className="grow" />
-          <Seg label="Show" value={filter} onChange={setFilter} options={[{ value: "all", label: "All" }, { value: "open", label: "Unresolved" }]} />
-        </div>
-        <PictureSource.Provider value={source}>
-          {threads.map((t) => <ThreadView key={t.id} pid={pid} number={number} t={t} media={media} />)}
-        </PictureSource.Provider>
-        {threads.length === 0 && <span className="muted">{d.threads.length === 0 ? "No comments yet." : "Every conversation is resolved."}</span>}
-        <NewComment pid={pid} number={number} />
-      </section>
-
+        <span className="hint grow">
+          {what[0].toUpperCase() + what.slice(1)}
+          {ranges ? " · shift-click or drag line numbers for more" : ` · ${host} comments on one line at a time`}
+        </span>
+        <button className="btn btn-sm" onClick={onCancel}>Cancel</button>
+        <button className="btn btn-sm btn-primary" disabled={!note.text.trim() || busy} onClick={onSend}>
+          <Busy on={busy}>{null}</Busy>
+          Comment
+        </button>
+      </div>
     </div>
   );
 }
@@ -537,7 +845,8 @@ function ReviewForm({ pid, d, onDone }: { pid: string; d: PrDetail; onDone: () =
   );
 }
 
-function ThreadView({ pid, number, t, media }: { pid: string; number: number; t: PrThread; media: boolean }) {
+/** `inline`: drawn in the diff under its line, so without its file and code. `onShowCode` opens it in the files view. */
+function ThreadView({ pid, number, t, media, inline, onShowCode }: { pid: string; number: number; t: PrThread; media: boolean; inline?: boolean; onShowCode?: () => void }) {
   const host = useHost(pid);
   // Azure DevOps comments only take likes, Bitbucket's none.
   const emoji = host === "Azure DevOps" ? EMOJI.slice(0, 1) : host === "Bitbucket" ? [] : EMOJI;
@@ -561,9 +870,9 @@ function ThreadView({ pid, number, t, media }: { pid: string; number: number; t:
 
   if (!open) {
     return (
-      <article className="thread row" style={{ padding: "8px 14px", gap: 10 }}>
+      <article id={`pr-thread-${t.id}`} className="thread row" style={{ padding: "8px 14px", gap: 10 }}>
         <span className="pill c-add">Resolved</span>
-        {file && <span className="mono faint" style={{ fontSize: 11.5 }}>{file}</span>}
+        {file && !inline && <span className="mono faint" style={{ fontSize: 11.5 }}>{file}</span>}
         <span className="ellipsis grow muted">{first ? `${first.author}: ${first.body}` : ""}</span>
         <button className="btn btn-sm" onClick={() => setOpen(true)}>Show</button>
       </article>
@@ -577,12 +886,19 @@ function ThreadView({ pid, number, t, media }: { pid: string; number: number; t:
     else comment.mutate({ projectId: pid, number, body: text }, done);
   };
   return (
-    <article className="thread">
-      {file && (
+    <article id={`pr-thread-${t.id}`} className="thread">
+      {file && !inline && (
         <>
           <div className="thread-file">
             <Icon name="branch" size={12} />
-            {file}
+            <span className="grow ellipsis">{file}</span>
+            {t.outdated && <span className="pill faint">Outdated</span>}
+            {onShowCode && (
+              <button className="btn btn-ghost btn-sm" onClick={onShowCode}>
+                <Icon name="file" size={11} />
+                Show in code
+              </button>
+            )}
           </div>
           {t.snippet.length > 0 && (
             <div className="snippet">
