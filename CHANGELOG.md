@@ -14,6 +14,8 @@ the in-app update prompt.
 
 ## [Unreleased]
 
+## [0.23.0] - 2026-11-18
+
 ### Added (App)
 - The branch map replaces the branch tree. It lays out branches left to right, one column per level of nesting, with filters for person, merged, falling behind, and shipped branches, plus zoom, search, and a mini overview.
 - The branch map offers a rebase for any local work branch that has nothing running, and for checked-out branches that are behind.
