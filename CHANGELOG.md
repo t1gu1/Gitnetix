@@ -14,6 +14,10 @@ the in-app update prompt.
 
 ## [Unreleased]
 
+### Added (App)
+- Review pull request diffs from the local clone. The app reads a pull request's changed files and diffs, and fetches its commits from origin when they are missing. Renamed files keep their old path, and diffs show three lines of context as hosts draw them.
+- Comment on lines of a pull request diff for GitHub, GitLab, Azure DevOps, Bitbucket and Gitea. Each comment is pinned to the commit the diff was drawn at.
+
 ## [0.23.1] - 2026-11-18
 
 ### Changed (Website)
