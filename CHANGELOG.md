@@ -14,6 +14,8 @@ the in-app update prompt.
 
 ## [Unreleased]
 
+## [0.23.1] - 2026-11-18
+
 ### Changed (Website)
 - The branch tree is now called the branch map across the site, including the nav, the Compare table, the download card and the hero demo.
 - Astro is upgraded to 7.4.7.
