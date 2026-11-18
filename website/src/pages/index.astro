@@ -10,7 +10,7 @@ import { ogImage } from '../lib/og';
 const latest = await latestRelease();
 const first = releases[releases.length - 1];
 // Kept under ~160 characters so search results show it whole.
-const description = 'Free Git client for macOS, Windows and Linux with no commit graph: branches as a tree of releases, publishing from any branch and an AI agent on every branch.';
+const description = 'Free Git client for macOS, Windows and Linux with no commit graph: your branches on a map of releases, publishing from any branch and an AI agent on every branch.';
 const site = new URL(u(), Astro.site).href;
 const jsonLd = [
   { '@context': 'https://schema.org', '@type': 'WebSite', name: 'Gitnetix', url: site },
@@ -22,9 +22,9 @@ const jsonLd = [
     url: site,
     applicationCategory: 'DeveloperApplication',
     applicationSubCategory: 'Git client',
-    keywords: 'git client, git gui, git desktop app, release branches, branch tree, worktrees, AI coding agent, Claude Code, Codex, Gemini, MCP',
+    keywords: 'git client, git gui, git desktop app, release branches, branch map, worktrees, AI coding agent, Claude Code, Codex, Gemini, MCP',
     featureList: [
-      'Branches shown as a tree of releases instead of a commit graph',
+      'Branches on a map of releases instead of a commit graph',
       'Create tag & Update changelog on any branch: dates the changelog, tags and pushes the branch with its tag',
       'An AI agent (Claude Code, Codex, Gemini, Copilot, Ollama) per branch, each in its own worktree',
       'AI commit messages, branch names, PR descriptions, release notes and conflict resolutions',

@@ -9,7 +9,7 @@ export const GET: APIRoute = () => {
     JSON.stringify({
       name: 'Gitnetix',
       short_name: 'Gitnetix',
-      description: 'A release-centric Git client: branches as a tree, releases from any branch, an agent on every branch.',
+      description: 'A release-centric Git client: your branches on a map, releases from any branch, an agent on every branch.',
       start_url: base,
       scope: base,
       display: 'browser',

@@ -26,7 +26,7 @@ const GROUPS: { title: string; rows: [string, Cell, Cell, Cell, Cell][] }[] = [
   {
     title: 'How it shows your repo',
     rows: [
-      ['Main view', t('Branch tree: main, then releases, then features and fixes'), t('Commit graph'), t('Commit graph'), t('Commit graph')],
+      ['Main view', t('Branch map: main, then releases, then features and fixes, left to right'), t('Commit graph'), t('Commit graph'), t('Commit graph')],
       ['Knows which release a branch belongs to', y('Even after a squash-merged pull request'), n(), n(), n()],
     ],
   },
@@ -72,7 +72,7 @@ const GROUPS: { title: string; rows: [string, Cell, Cell, Cell, Cell][] }[] = [
 ];
 
 const CARDS = [
-  { name: 'Gitnetix', price: 'Free', os: 'macOS · Windows · Linux', view: 'Branch tree', best: 'You ship from release branches and run coding agents on them.' },
+  { name: 'Gitnetix', price: 'Free', os: 'macOS · Windows · Linux', view: 'Branch map', best: 'You ship from release branches and run coding agents on them.' },
   { name: 'GitKraken', price: 'Free for public repos, paid for private', os: 'macOS · Windows · Linux', view: 'Commit graph', best: 'A team that wants the most complete graph client, with GitLab and Bitbucket built in.' },
   { name: 'Fork', price: '$59.99, once', os: 'macOS · Windows', view: 'Commit graph', best: 'A native app you pay for once, with strong rebase and history tools.' },
   { name: 'Sourcetree', price: 'Free', os: 'macOS · Windows', view: 'Commit graph', best: 'A free, classic client close to Bitbucket, and still the one for Mercurial.' },

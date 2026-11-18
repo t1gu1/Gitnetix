@@ -63,7 +63,7 @@ export default function Download({ latest, notes }: Props) {
     <h2 id="more-h" style={{ margin: '0 0 24px', fontSize: '32px', letterSpacing: '-0.02em' }}>Other ways to run it</h2>
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(340px, 100%), 1fr))', gap: '18px' }}>
     <article style={{ background: 'var(--panel)', border: '1px solid color-mix(in srgb,var(--accent) 45%,transparent)', borderRadius: '16px', padding: '26px', display: 'flex', gap: '20px', alignItems: 'flex-start' }}>
-    <img src={u("phone.jpg")} alt="Gitnetix branch tree in a phone browser" width="640" height="1152" loading="lazy" style={{ width: '96px', height: 'auto', borderRadius: '14px', border: '2px solid var(--rail)', flex: 'none' }} />
+    <img src={u("phone.jpg")} alt="Gitnetix branch map in a phone browser" width="640" height="1246" loading="lazy" style={{ width: '96px', height: 'auto', borderRadius: '14px', border: '2px solid var(--rail)', flex: 'none' }} />
     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
     <h3 style={{ margin: '0', fontSize: '20px' }}>On your phone</h3>
     <p style={{ margin: '0', color: 'var(--muted)', fontSize: '15px' }}>Nothing to install. Open Settings from your profile picture, top right, press <strong style={{ color: 'var(--fg)' }}>Allow devices on my network</strong>, then scan the QR code. Gitnetix opens in your phone's browser.</p>

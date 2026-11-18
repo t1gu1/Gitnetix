@@ -12,7 +12,7 @@ import type { Ai, Agents } from './agents';
 export type Demo = {
   flash: (text: string, error?: boolean) => void;
   go: (page: string) => void;
-  /** Workspace page, with this branch picked in the tree. */
+  /** Workspace page, with this branch picked on the map. */
   openBranch: (name: string) => void;
   /** Worktrees & agents with this row picked, from a branch's worktree link. */
   openWorktree: (key: string) => void;
@@ -44,7 +44,7 @@ export function useLater() {
   return (ms: number, f: () => void) => void timers.current.push(window.setTimeout(f, ms));
 }
 
-// Same as src/components/Avatar.tsx: initials on a colour picked from the name.
+// Same as src/components/Avatar.tsx: initials in a glow of a colour picked from the name.
 function hue(name: string) {
   let h = 0;
   for (const c of name) h = (h * 31 + c.charCodeAt(0)) % 360;
@@ -56,7 +56,7 @@ function initials(name: string) {
 }
 export function Avatar({ name, size = 16 }: { name: string; size?: number }) {
   return (
-    <span className="user-avatar" role="img" aria-label={name} title={name} style={{ width: size, height: size, fontSize: Math.round(size * 0.45), background: `hsl(${hue(name)} 45% 42%)` }}>
+    <span className="user-avatar" role="img" aria-label={name} title={name} style={{ width: size, height: size, fontSize: Math.round(size * 0.45), '--avatar-hue': hue(name) } as CSSProperties}>
       {initials(name)}
     </span>
   );

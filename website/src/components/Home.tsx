@@ -4,11 +4,30 @@ import { REPO, releases, shortDate, longDate, plain, u } from '../lib/changelog'
 import { Icon } from '../../../src/components/Icon';
 import { THEMES } from '../../../src/lib/themes';
 import ThemePicker from './ThemePicker';
-import { PathLine, type Path } from './HeroDemo';
-import { Avatar } from './demo/ui';
+import type { Branch, Commit, File } from './HeroDemo';
+import { MapLayer, MapLegend, PREFS, layoutMap, type Shipped } from './demo/BranchMap';
 
-/** The accent path from main to the checked-out row in the "subway map" tree, measured once off the rendered rows like HeroDemo does. */
-const TREE_PATH: Path = { d: 'M6.5 6V127H12.5V214H18.5V239.5', len: 245.5, x: 18.5, top: 214, mid: 239.5, bottom: 265 };
+/** The "Gitnetix" side of the comparison: a branch map drawn once, at build time, the way the app draws one (demo/BranchMap.tsx). */
+const work = (name: string, p: Partial<Branch>): Branch => ({ name, kind: name.slice(0, name.indexOf('/')), role: 'branch', author: 'Grace Hopper', ahead: 0, behind: 0, wip: [], files: [], ...p });
+const wip: File[] = ['Checkout.tsx', 'Summary.tsx', 'checkout.css'].map((path) => ({ path, add: 1, del: 0, s: 'M' }));
+const STORE: Record<string, Branch> = {
+  main: { name: 'main', role: 'trunk', author: 'Ana Moreau', ahead: 0, behind: 0, wip: [], files: [], kids: ['release/2.4.0', 'feat/dark-mode', 'feat/legacy-search', 'fix/login-redirect'] },
+  'release/2.4.0': { name: 'release/2.4.0', role: 'release', base: 'main', tag: 'Next', author: 'Ana Moreau', ahead: 6, behind: 0, wip: [], files: [], kids: ['feat/checkout-redesign', 'fix/cart-total', 'fix/coupon-codes'] },
+  'feat/checkout-redesign': work('feat/checkout-redesign', { base: 'release/2.4.0', ahead: 4, wip }),
+  'fix/cart-total': work('fix/cart-total', { base: 'release/2.4.0', author: 'Jules Laurent', ahead: 2, behind: 2, wt: true }),
+  'fix/coupon-codes': work('fix/coupon-codes', { base: 'release/2.4.0', merged: true }),
+  'feat/dark-mode': work('feat/dark-mode', { base: 'main', author: 'Riya Kapoor', ahead: 3, behind: 4 }),
+  'feat/legacy-search': work('feat/legacy-search', { base: 'main', author: 'Sam Ito', ahead: 5, behind: 38, idle: 52 }),
+  'fix/login-redirect': work('fix/login-redirect', { base: 'main', merged: true }),
+};
+const commit = (subject: string, when: string, author = 'Grace Hopper'): Commit => ({ sha: subject, subject, author, when, files: [] });
+const STORE_LOG: Record<string, Commit[]> = {
+  main: [commit('Release 2.3.1', '2d ago', 'Ana Moreau')],
+  'release/2.4.0': [commit('Update changelog for 2.4.0', '4h ago', 'Ana Moreau')],
+  'feat/checkout-redesign': [commit('Show the order summary beside the form', '1h ago'), commit('Check the card number as it is typed', '3h ago'), commit('Split the address form in two steps', '1d ago'), commit('Start the checkout redesign', '2d ago')],
+};
+const STORE_SHIPPED: Shipped[] = [{ tag: 'v2.3.1', date: 'Nov 10' }, { tag: 'v2.3.0', date: 'Oct 28' }, { tag: 'v2.2.0', date: 'Oct 9' }];
+const STORE_MAP = layoutMap(STORE, 'feat/checkout-redesign', PREFS, '', new Map(), STORE_SHIPPED);
 
 /** The "other Git clients" graph: one commit per row like a real log, seven lanes forking off and merging across each other. */
 const RAILS = ['#5b8def', '#e5534b', '#57ab5a', '#c69026', '#986ee2', '#39c5cf', '#e0823d'];
@@ -52,22 +71,6 @@ function HeroRails({ side }: { side: 'l' | 'r' }) {
   );
 }
 
-/** A static branch row, in HeroDemo's markup (from src/screens/BranchTree.tsx). */
-function TreeRow({ row, role, icon, author, name, kind, tag, current, act, meta, ai }: { row: string; role: string; icon: string; author: string; name: string; kind?: string; tag?: string; current?: boolean; act: string; meta: ReactNode; ai?: boolean }) {
-  return (
-    <div className="tree-row" data-row={row} data-role={role} data-current={current || undefined}>
-      <span className="tree-btn">
-        <span className="tree-lead"><span className="tree-icon"><Icon name={icon} size={13} stroke={1.5} /></span><Avatar name={author} /></span>
-        <span className="tree-main">
-          <span className="tree-name">{kind && <span className={`kind-chip ${kind === 'fix' ? 'c-del' : 'c-mod'}`}>{kind}</span>}<span className="mono ellipsis">{name}</span>{tag && <span className="tag accent">{tag}</span>}</span>
-          <span className="branch-meta">{ai && <span className="row meta-link meta-link-icon glow-working" style={{ gap: 4 }}><Icon name="layers" size={11} stroke={1.4} /><span>working</span></span>}{meta}</span>
-        </span>
-      </span>
-      <span className="tree-acts"><span className="acts"><span className="act act-main"><Icon name={act} size={14} /></span><span className="act-stack"><span className="act"><Icon name="plus" size={12} /></span><span className="act"><Icon name="more" size={13} /></span></span></span></span>
-    </div>
-  );
-}
-
 /** The landing page, ported from the "Gitnetix website" design canvas. */
 export default function Home({ version, demo, agents, phone }: { version: string; demo?: ReactNode; agents?: ReactNode; phone?: ReactNode }) {
   const first = releases[releases.length - 1];
@@ -85,7 +88,7 @@ export default function Home({ version, demo, agents, phone }: { version: string
     <span aria-hidden="true">→</span>
     </a>
     <h1 id="hero-h" style={{ margin: '0', fontSize: 'clamp(44px, 7.2vw, 92px)', lineHeight: '1.02', letterSpacing: '-0.035em', fontWeight: '700', textWrap: 'balance', maxWidth: '980px' }}>See your work, <span style={{ color: 'var(--accent-fg)' }}>not your commits.</span></h1>
-    <p style={{ margin: '0', fontSize: 'clamp(18px, 2vw, 22px)', color: 'var(--muted)', maxWidth: '680px', textWrap: 'pretty' }}>Gitnetix is a Git client with no commit graph. Branches as a tree. Releases from any branch. An agent on every branch.</p>
+    <p style={{ margin: '0', fontSize: 'clamp(18px, 2vw, 22px)', color: 'var(--muted)', maxWidth: '680px', textWrap: 'pretty' }}>Gitnetix is a Git client with no commit graph. Your branches on a map. Releases from any branch. An agent on every branch.</p>
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', justifyContent: 'center', marginTop: '8px' }}>
     <a className="btn-p" data-dl href={u("download/")} style={{ display: 'flex', alignItems: 'center', gap: '10px', background: 'var(--accent)', color: 'var(--accent-ink)', fontWeight: '600', fontSize: '17px', padding: '15px 24px', borderRadius: '12px', boxShadow: '0 8px 30px -8px color-mix(in srgb,var(--accent) 60%,transparent)' }}>
     <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v12m0 0-5-5m5 5 5-5M4 21h16"></path></svg>
@@ -110,7 +113,7 @@ export default function Home({ version, demo, agents, phone }: { version: string
     <figure style={{ maxWidth: '1120px', margin: '32px auto 0', padding: '0' }}>
     <p style={{ margin: '0 auto 16px', width: 'fit-content', maxWidth: '100%', boxSizing: 'border-box', fontSize: '13px', color: 'var(--muted)', background: 'var(--panel)', border: '1px solid var(--line)', padding: '6px 14px', borderRadius: '999px', textAlign: 'center' }}>Heads up: this web demo runs on made-up data and is a bit clunkier than the real app. Not every button works.</p>
     {demo}
-    <figcaption style={{ textAlign: 'center', fontSize: '13px', color: 'var(--faint)', marginTop: '16px' }}>Try it: pick a branch, open a file, ask the agent, commit; double-click a branch to check it out. Every tab opens too: review a pull request, triage tickets, follow the sprint in Analytics, or answer the agents in Worktrees &amp; agents, the square button at the top left. Ctrl+F finds a branch.</figcaption>
+    <figcaption style={{ textAlign: 'center', fontSize: '13px', color: 'var(--faint)', marginTop: '16px' }}>Try it: pick a branch on the map, look at its code, commit it, or open the Agent panel on the right and ask for a change. Double-click a branch to check it out, drag to move around. Every tab opens too: review a pull request, triage tickets, follow the sprint in Analytics, or answer the agents in Worktrees &amp; agents, the square button at the top left. Ctrl+F finds a branch.</figcaption>
     </figure>
     </section>
 
@@ -118,15 +121,15 @@ export default function Home({ version, demo, agents, phone }: { version: string
     <div className="spine" style={{ maxWidth: '1240px', margin: '0 auto', padding: '40px 24px 0' }}>
     <span className="dot" aria-hidden="true"></span>
 
-    {/* GRAPH VS TREE */}
-    <section id="tree" className="sec" aria-labelledby="gvt-h" style={{ paddingTop: '96px', paddingBottom: '40px', position: 'relative' }}>
+    {/* GRAPH VS MAP */}
+    <section id="map" className="sec" aria-labelledby="gvt-h" style={{ paddingTop: '96px', paddingBottom: '40px', position: 'relative' }}>
     <div style={{ position: 'relative', maxWidth: '760px' }}>
     <span className="knot" aria-hidden="true"></span>
     <p style={{ margin: '0 0 12px', fontSize: '13px', letterSpacing: '.14em', color: 'var(--accent-fg)', fontWeight: '600' }}>NO COMMIT GRAPH</p>
     <h2 id="gvt-h" style={{ margin: '0', fontSize: 'clamp(34px, 4.6vw, 56px)', lineHeight: '1.05', letterSpacing: '-0.03em', textWrap: 'balance' }}>Git without the subway map.</h2>
     <p style={{ margin: '18px 0 0', fontSize: '19px', color: 'var(--muted)', textWrap: 'pretty' }}>Every other Git client draws what git stored: colored rails, crossing merges, hundreds of dots. Gitnetix draws what you are working on.</p>
     </div>
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(440px, 100%), 1fr))', gap: '24px', marginTop: '48px' }}>
+    <div className="gvt" style={{ marginTop: '48px' }}>
     {/* before */}
     <figure style={{ margin: '0', display: 'flex', flexDirection: 'column', gap: '14px' }}>
     <div style={{ fontSize: '13px', letterSpacing: '.14em', color: 'var(--faint)' }}>OTHER GIT CLIENTS</div>
@@ -152,42 +155,17 @@ export default function Home({ version, demo, agents, phone }: { version: string
     </div>
     <figcaption style={{ fontSize: '16px', color: 'var(--muted)' }}>Which branch is mine? What ships next? What's dead?</figcaption>
     </figure>
-    {/* after: the app's branch pane, in HeroDemo's markup so its .hd rules (copies of src/styles/app.css) apply */}
+    {/* after: the app's branch map, drawn by demo/BranchMap.tsx so its .hd rules (copies of src/styles/app.css) apply */}
     <figure style={{ margin: '0', display: 'flex', flexDirection: 'column', gap: '14px' }}>
     <div style={{ fontSize: '13px', letterSpacing: '.14em', color: 'var(--accent-fg)', fontWeight: '600' }}>GITNETIX</div>
-    <div className="ap hd" role="img" aria-label="The Gitnetix branch pane: main, a Merged into main group, the next release v2.4.0 with the checked-out feat/checkout-redesign and fix/cart-total where AI is working, and a Shipped group" style={{ background: 'var(--panel)', border: '1px solid color-mix(in srgb,var(--accent) 35%,transparent)', borderRadius: '14px', height: '480px', boxSizing: 'border-box', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-    <div className="ws-releases" style={{ display: 'flex', flexDirection: 'column', flex: '1', minHeight: '0' }}>
-    <div className="pane-head">
-    <span className="label">Branches</span>
-    <span className="row"><span className="acts"><span className="act act-text"><span className="ellipsis">All</span><Icon name="chevronDown" size={10} /></span><span className="act act-main"><Icon name="search" size={15} /></span><span className="act act-main"><Icon name="refresh" size={14} /></span></span></span>
-    </div>
-    <div className="tree">
-    <PathLine p={TREE_PATH} />
-    <div className="tree-node">
-    <TreeRow row="main" role="trunk" icon="home" author="Ana Moreau" name="main" act="swap" meta={<span className="meta-link">all commits</span>} />
-    <div className="tree-sub">
-    <div className="tree-row tree-group tree-merged">
-    <span className="tree-merged-toggle"><span className="tree-twist"><Icon name="chevronDown" size={12} className="chev hd-shut" /></span><span className="group-label">Merged into main</span><span className="faint">3</span></span>
-    <span className="act act-main tree-cleanup"><Icon name="brush" size={14} /></span>
-    </div>
-    <div className="tree-row tree-group tree-toggle"><span className="tree-twist"><Icon name="chevronDown" size={12} className="chev" /></span><span className="child-label" data-active>Child branches</span><span className="faint">1</span></div>
-    <div className="tree-open"><div className="tree-kids">
-    <div className="tree-node">
-    <TreeRow row="v2.4.0" role="release" icon="tag" author="Ana Moreau" name="v2.4.0" tag="Next" act="swap" meta={<><span className="mono">release/2.4.0</span><span className="meta-link">6 commits</span></>} />
-    <div className="tree-sub">
-    <div className="tree-row tree-group tree-toggle"><span className="tree-twist"><Icon name="chevronDown" size={12} className="chev" /></span><span className="child-label" data-active>Child branches</span><span className="faint">2</span></div>
-    <div className="tree-open"><div className="tree-kids">
-    <div className="tree-node"><TreeRow row="feat" role="branch" icon="branch" author="Grace Hopper" name="checkout-redesign" kind="feat" current act="merged" meta={<><span className="c-current">checked out</span><span className="meta-link">4 commits</span></>} /></div>
-    <div className="tree-node"><TreeRow row="fix" role="branch" icon="branch" author="Jules Laurent" name="cart-total" kind="fix" act="swap" meta={<span className="meta-link">2 commits</span>} ai /></div>
-    </div></div>
+    <div className="ap hd map-static" role="img" aria-label="The Gitnetix branch map: main with its shipped releases above it, the next release v2.4.0 with the checked-out feat/checkout-redesign and fix/cart-total where Claude is working, a merged fix under each, feat/dark-mode, and feat/legacy-search falling behind on a dashed line">
+    <div className="map" inert>
+    <div className="map-size">
+    <div className="map-layer" style={{ width: STORE_MAP.W, height: STORE_MAP.H }}>
+    <MapLayer layout={STORE_MAP} head="feat/checkout-redesign" shown="fix/cart-total" commits="hidden" agentOf={(n) => (n === 'fix/cart-total' ? { label: 'Claude', state: 'working' } : undefined)} logOf={(b) => STORE_LOG[b.name] ?? []} labelOf={(n) => (n.startsWith('release/') ? `v${n.slice(8)}` : n)} />
     </div>
     </div>
-    </div></div>
-    </div>
-    </div>
-    <div className="tree-sep" />
-    <div className="tree-row tree-group"><span className="tree-twist"><Icon name="chevronDown" size={12} className="chev hd-shut" /></span><span className="shipped-label">Shipped</span><span className="faint">5</span></div>
-    </div>
+    <MapLegend hint={false} />
     </div>
     </div>
     <figcaption style={{ fontSize: '16px', color: 'var(--fg)' }}>Where you are, what ships next, what's done. At a glance.</figcaption>
@@ -195,34 +173,34 @@ export default function Home({ version, demo, agents, phone }: { version: string
     </div>
     </section>
 
-    {/* TREE EXPLAINED */}
+    {/* MAP EXPLAINED */}
     <section className="sec" aria-labelledby="exp-h" style={{ paddingTop: '96px', paddingBottom: '40px', position: 'relative' }}>
     <div style={{ position: 'relative', maxWidth: '760px' }}>
     <span className="knot" aria-hidden="true"></span>
-    <p style={{ margin: '0 0 12px', fontSize: '13px', letterSpacing: '.14em', color: 'var(--accent-fg)', fontWeight: '600' }}>A TREE OF INTENT</p>
+    <p style={{ margin: '0 0 12px', fontSize: '13px', letterSpacing: '.14em', color: 'var(--accent-fg)', fontWeight: '600' }}>A MAP OF INTENT</p>
     <h2 id="exp-h" style={{ margin: '0', fontSize: 'clamp(34px, 4.6vw, 56px)', lineHeight: '1.05', letterSpacing: '-0.03em', textWrap: 'balance' }}>It works out where every branch belongs.</h2>
     <p style={{ margin: '18px 0 0', fontSize: '19px', color: 'var(--muted)', textWrap: 'pretty' }}>Gitnetix finds each branch's real parent on its own: the base you declared, a merge commit, a pull request on GitHub or Azure DevOps, a squash that carries it, or the closest history. Even squash-merged PRs land under the right release.</p>
     </div>
     <ol style={{ listStyle: 'none', margin: '48px 0 0', padding: '0', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(300px, 100%), 1fr))', gap: '16px' }}>
     <li style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: '14px', padding: '24px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
     <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}><span aria-hidden="true" style={{ width: '30px', height: '4px', borderRadius: '2px', background: 'var(--accent)', boxShadow: 'var(--glow)' }}></span><h3 style={{ margin: '0', fontSize: '20px', letterSpacing: '-0.01em' }}>The path to your branch</h3></div>
-    <p style={{ margin: '0', color: 'var(--muted)', fontSize: '16px' }}>Where you are, and what this merges into. A soft pulse travels from <code>main</code> to your checkout.</p>
+    <p style={{ margin: '0', color: 'var(--muted)', fontSize: '16px' }}>Where you are, and what this merges into. An orange line runs from <code>main</code> to your checkout, a soft pulse along it. Pick a branch and its own line lights up in blue.</p>
     </li>
     <li style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: '14px', padding: '24px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
     <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}><span className="mono" aria-hidden="true" style={{ fontSize: '15px' }}><span style={{ color: 'var(--add)' }}>↑4</span> <span style={{ color: 'var(--warn)' }}>↓2</span></span><h3 style={{ margin: '0', fontSize: '20px', letterSpacing: '-0.01em' }}>Ahead and behind, for real</h3></div>
-    <p style={{ margin: '0', color: 'var(--muted)', fontSize: '16px' }}>Counted against the branch's real parent, not just origin. WIP, conflicts and rewritten history sit on the same row, in the same order.</p>
+    <p style={{ margin: '0', color: 'var(--muted)', fontSize: '16px' }}>Counted against the branch's real parent, not just origin. WIP, conflicts and the agent at work sit on the branch's tile, and the ↓ count on its line rebases it in one click.</p>
     </li>
     <li style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: '14px', padding: '24px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
     <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}><span aria-hidden="true" style={{ color: 'var(--add)', fontSize: '18px', fontWeight: '700' }}>✓</span><h3 style={{ margin: '0', fontSize: '20px', letterSpacing: '-0.01em' }}>Merged moves aside</h3></div>
-    <p style={{ margin: '0', color: 'var(--muted)', fontSize: '16px' }}>Done work folds into a Merged group under its parent. Branches whose ticket key shows up in a later squash get a "likely merged" tag and are never auto-deleted.</p>
+    <p style={{ margin: '0', color: 'var(--muted)', fontSize: '16px' }}>Done work shrinks to a chip under its parent, on a green line, with a Clean up button beside it. Branches whose ticket key shows up in a later squash get a "likely merged" tag and are never auto-deleted.</p>
     </li>
     <li style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: '14px', padding: '24px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
     <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}><span aria-hidden="true" style={{ width: '16px', height: '16px', borderRadius: '50%', border: '2px dashed var(--warn)', boxSizing: 'border-box' }}></span><h3 style={{ margin: '0', fontSize: '20px', letterSpacing: '-0.01em' }}>Falling behind</h3></div>
-    <p style={{ margin: '0', color: 'var(--muted)', fontSize: '16px' }}>Branches 25 or more commits behind are gathered in one place. Pick the ones to delete and clean up in one click.</p>
+    <p style={{ margin: '0', color: 'var(--muted)', fontSize: '16px' }}>Branches 25 or more commits behind hang on a dashed line and say how long they've been idle. One toggle hides them; its Clean up picks the ones to delete.</p>
     </li>
     <li style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: '14px', padding: '24px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
     <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}><span aria-hidden="true" style={{ display: 'inline-flex', color: 'var(--accent-fg)' }}><Icon name="tag" size={18} /></span><h3 style={{ margin: '0', fontSize: '20px', letterSpacing: '-0.01em' }}>Shipped, with its tag</h3></div>
-    <p style={{ margin: '0', color: 'var(--muted)', fontSize: '16px' }}>Past releases sit below a separator with their version. Delete a tag and the release reopens.</p>
+    <p style={{ margin: '0', color: 'var(--muted)', fontSize: '16px' }}>The releases shipped from <code>main</code> line up above it, newest last, with the day they shipped. Delete a tag and the release reopens.</p>
     </li>
     <li style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: '14px', padding: '24px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
     <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}><span aria-hidden="true" style={{ display: 'inline-flex', color: 'var(--accent-fg)' }}><Icon name="user" size={18} /></span><h3 style={{ margin: '0', fontSize: '20px', letterSpacing: '-0.01em' }}>Work and personal, apart</h3></div>
@@ -335,7 +313,7 @@ export default function Home({ version, demo, agents, phone }: { version: string
     <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: '14px', padding: '24px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
     <h3 style={{ margin: '0', fontSize: '13px', letterSpacing: '.14em', color: 'var(--faint)', fontWeight: '600' }}>PULL REQUESTS</h3>
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}><span style={{ padding: '8px 14px', borderRadius: '10px', background: 'var(--raised)', fontWeight: '500' }}>GitHub</span><span style={{ padding: '8px 14px', borderRadius: '10px', background: 'var(--raised)', fontWeight: '500' }}>GitLab</span><span style={{ padding: '8px 14px', borderRadius: '10px', background: 'var(--raised)', fontWeight: '500' }}>Bitbucket</span><span style={{ padding: '8px 14px', borderRadius: '10px', background: 'var(--raised)', fontWeight: '500' }}>Gitea</span><span style={{ padding: '8px 14px', borderRadius: '10px', background: 'var(--raised)', fontWeight: '500' }}>Azure DevOps</span></div>
-    <p style={{ margin: '0', fontSize: '15px', color: 'var(--muted)' }}>List, review, comment, reply, resolve, merge and close, without leaving the tree.</p>
+    <p style={{ margin: '0', fontSize: '15px', color: 'var(--muted)' }}>List, review, comment, reply, resolve, merge and close, without leaving the app.</p>
     </div>
     <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: '14px', padding: '24px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
     <h3 style={{ margin: '0', fontSize: '13px', letterSpacing: '.14em', color: 'var(--faint)', fontWeight: '600' }}>TICKETS</h3>

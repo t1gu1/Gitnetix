@@ -1,7 +1,7 @@
 [
   {
     "q": "What is Gitnetix?",
-    "a": "Gitnetix is a release-centric Git client for macOS, Windows and Linux. Instead of a commit graph, it shows your branches as a tree: <code>main</code>, then releases, then the features and fixes that belong to them. It publishes a release from any branch, changelog and tag included, and can run an AI agent on every branch."
+    "a": "Gitnetix is a release-centric Git client for macOS, Windows and Linux. Instead of a commit graph, it shows your branches on a map: <code>main</code>, then releases, then the features and fixes that belong to them, left to right. The card of the branch you pick opens its code full screen. It publishes a release from any branch, changelog and tag included, and can run an AI agent on every branch."
   },
   {
     "q": "Is Gitnetix free?",
@@ -13,7 +13,7 @@
   },
   {
     "q": "Is Gitnetix an alternative to GitKraken, Fork or Sourcetree?",
-    "a": "Yes. Like GitKraken, Fork, Sourcetree, Tower or GitHub Desktop, it is a desktop Git GUI for everyday branching, committing, merging and pull requests. The difference is the picture: those clients are built around the commit graph, while Gitnetix shows branches as a tree of releases and the work inside them, with releases published from any branch and an AI agent per branch."
+    "a": "Yes. Like GitKraken, Fork, Sourcetree, Tower or GitHub Desktop, it is a desktop Git GUI for everyday branching, committing, merging and pull requests. The difference is the picture: those clients are built around the commit graph, while Gitnetix shows branches on a map of releases and the work inside them, with releases published from any branch and an AI agent per branch."
   },
   {
     "q": "Which AI agents does it work with?",

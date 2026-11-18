@@ -12,4 +12,4 @@ pnpm dev
 - `src/data/stories.json` adds a title, story and highlights to a version. Optional: without it the
   title is the first changelog line.
 - Download links point at the latest GitHub release, with the file names `release.yml` uploads.
-- `public/og.png` is the social card: tagline, platforms and the app's branch tree, cropped from the home page demo.
+- `public/og.png` is the social card: tagline, platforms and the app's branch map, cropped from the home page demo.
