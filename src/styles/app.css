@@ -217,9 +217,18 @@ a:hover {
   animation: agpulse 1.5s steps(9) infinite;
   flex: 0 0 6px;
 }
-/* A branch's agent label ("AI working", "waiting") fades in and out with the dot. */
+/* A branch's agent label ("AI working", "waiting") fades in and out with the dot, softer than it: text stays readable. */
 .ai-fade {
-  animation: agpulse 1.5s steps(9) infinite;
+  animation: agfade 1.5s steps(9) infinite;
+}
+@keyframes agfade {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   .ai-fade {
@@ -659,6 +668,15 @@ body.dragging-tab * {
   background: var(--raised);
   color: var(--fg);
 }
+/* Secondary button tinted with the theme accent. Text stays --fg: the light theme's accent is too pale for text on white. */
+.btn-tint {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.btn-tint:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--accent) 70%, transparent);
+  background: color-mix(in srgb, var(--accent) 24%, transparent);
+}
 .btn-danger {
   color: var(--del-fg);
 }
@@ -723,11 +741,7 @@ body.dragging-tab * {
     .term-tab,
     .act,
     .reaction,
-    .tree-twist,
     .file-sec-toggle,
-    .tree-merged-toggle,
-    .tree-group,
-    .meta-link,
     .mobile-tabs button
   ) {
   transition:
@@ -811,6 +825,12 @@ body.dragging-tab * {
 /* Icon + label options reuse .row for the layout, not its block margin. */
 .seg > button .row {
   margin: 0;
+}
+/* An avatar before a label sits in the label's line, its negative margins keeping that line as tall as plain text.
+   In a flex row, the avatar (its initials, or its picture's bottom edge) set the baseline the label aligned to. */
+.seg .user-avatar {
+  vertical-align: middle;
+  margin: -8px 6px -8px 0;
 }
 .seg > button:hover:not([aria-pressed="true"]) {
   background: color-mix(in srgb, var(--sel) 40%, transparent);
@@ -953,7 +973,7 @@ body.dragging-tab * {
   cursor: pointer;
 }
 /* The new agent session's project and branch (Worktrees.tsx): names in flowing colours with a soft glow, so a session never starts on the wrong one unnoticed.
-   A branch's worktree link while its agent works (BranchTree.tsx) and a "Running" row on Worktrees & agents (Worktrees.tsx) wear the same. */
+   A branch's agent chip on the map while its agent works (BranchMap.tsx) and a "Running" row on Worktrees & agents (Worktrees.tsx) wear the same. */
 .glow-name > .ellipsis,
 .glow-working > span {
   font-weight: 600;
@@ -962,12 +982,13 @@ body.dragging-tab * {
   background-clip: text;
   -webkit-text-fill-color: transparent;
   filter: drop-shadow(0 0 5px color-mix(in srgb, var(--release-fg) 45%, transparent));
-  animation: glow-name 8s steps(96) infinite;
+  /* 48 a second, not the shared 12, so the colours flow smoothly: 4 steps per tick, so it adds no off-beat frames. */
+  animation: glow-name 8s steps(384) infinite;
 }
 /* An icon can't clip a gradient: its stroke steps through the same colours on the same clock. */
 .glow-working > svg {
   filter: drop-shadow(0 0 5px color-mix(in srgb, var(--release-fg) 45%, transparent));
-  animation: glow-stroke 8s steps(24) infinite;
+  animation: glow-stroke 8s steps(96) infinite;
 }
 /* A "Running" row's dot (Worktrees.tsx): it keeps its pulse and takes the same colours on the same clock. */
 .pulse.glow-dot {
@@ -975,7 +996,7 @@ body.dragging-tab * {
   filter: drop-shadow(0 0 4px color-mix(in srgb, var(--release-fg) 45%, transparent));
   animation:
     agpulse 1.5s steps(9) infinite,
-    glow-stroke 8s steps(24) infinite;
+    glow-stroke 8s steps(96) infinite;
 }
 /* Each glow on its own layer, blurred by the GPU: painted in place, every frame re-blurred it with all around it, once per running agent (input lag with several). */
 .glow-name > .ellipsis,
@@ -1408,7 +1429,7 @@ html.scanning body {
   color: color-mix(in srgb, var(--bg), #fff 30%);
   text-shadow: 0 1px 0 color-mix(in srgb, #000 25%, transparent);
 }
-.ws-diff .empty.engraved {
+.focus-code .empty.engraved {
   font-size: 15px;
   color: color-mix(in srgb, var(--bg), #fff 40%);
 }
@@ -1563,37 +1584,35 @@ html.scanning body {
 }
 
 /* ---------- workspace ---------- */
+/* The branch map, or one branch full screen, beside the agent terminal (above it on phones).
+   Their toolbar is a row of its own on top, so the terminal starts under it. */
 .ws {
   flex: 1 1 auto;
   display: flex;
+  flex-direction: column;
   min-height: 0;
   overflow: hidden;
 }
-/* Branches, or the diff over them, above the agent terminal. */
-.ws-left {
-  flex: 0 0 var(--branches-w, 67%);
-  width: var(--branches-w, 67%);
-  min-width: 0;
+.ws-head {
+  flex: none;
+  container: map / inline-size;
+}
+.ws-body {
+  flex: 1 1 0;
   display: flex;
   flex-direction: column;
   min-height: 0;
-  border-right: 1px solid var(--line);
 }
-.ws-releases,
-.ws-diff {
+/* Stashes, in place of the focus view's timeline (StashList.tsx). */
+.ws-releases {
   flex: 1 1 0;
   min-width: 0;
   display: flex;
   flex-direction: column;
   min-height: 0;
-  background: var(--panel);
   position: relative;
 }
-/* Branches pane: --panel, 7% darker. */
-.ws-releases {
-  background: color-mix(in srgb, var(--panel), #000 7%);
-}
-.tree-building {
+.map-building {
   position: absolute;
   inset: 0;
   z-index: 5;
@@ -1606,7 +1625,7 @@ html.scanning body {
   font-size: 12px;
 }
 /* Shows only once a refresh takes a while: quick ones would flicker. */
-.tree-updating,
+.map-updating,
 .files-busy {
   display: inline-flex;
   align-items: center;
@@ -1614,7 +1633,7 @@ html.scanning body {
   font-size: 11px;
   animation: page-in 0.2s var(--ease) 0.5s both;
 }
-.tree-updating .spinner,
+.map-updating .spinner,
 .files-busy .spinner {
   width: 10px;
   height: 10px;
@@ -1629,36 +1648,9 @@ html.scanning body {
 .modal-body .files-busy {
   padding: 12px 0 0;
 }
-.ws-files {
-  flex: 1 1 0;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  background: var(--panel);
-}
-.ws-diff {
-  background: var(--bg);
-}
-.ws-releases > .pane-head:has(.pane-toggle) {
-  padding-left: 8px;
-}
-.ws-releases > .pane-head .label {
-  font-weight: 700;
-  color: var(--fg);
-}
-@media (max-width: 900px) and (pointer: coarse), (max-width: 480px) {
-  .ws-releases > .pane-head:has(.pane-toggle) {
-    padding-left: 16px;
-  }
-}
-/* Commit, stash and file history back button: a full-height square flush with the pane's left edge (head is 44px less its 1px border). */
-:is(.ws-releases, .ws-files) > .pane-head:has(.pane-back) {
+/* Stashes and a file's history: their back button a full-height square flush with the pane's left edge (head is 44px less its 1px border). */
+:is(.ws-releases, .rail) > .pane-head:has(.pane-back) {
   padding-left: 0;
-}
-/* The file list stays mounted under a file's history, so closing the history finds it as it was. */
-.ws-files[hidden] {
-  display: none;
 }
 .pane-head .pane-back {
   width: 43px;
@@ -1670,21 +1662,6 @@ html.scanning body {
 }
 .pane-head .pane-back:active:not(:disabled) {
   transform: none;
-}
-/* The diff's close file button: the same square, mirrored onto the right edge. */
-.ws-diff > .pane-head:has(.pane-close) {
-  padding-right: 0;
-}
-/* History open: its button stays lit. */
-.ws-diff > .pane-head .btn[aria-pressed="true"] {
-  border-color: var(--accent);
-  background: var(--sel);
-  color: var(--fg);
-}
-.pane-head .pane-close {
-  border-right: 0;
-  border-left: 1px solid var(--line);
-  margin: 0 0 0 6px;
 }
 /* Drag handle over a pane's right border; the line lights up on hover and while dragging. */
 .resizer {
@@ -1711,42 +1688,13 @@ html.scanning body {
 body.resizing .resizer:active::after {
   background: var(--accent);
 }
-.resizer-top {
-  flex: 0 0 7px;
-  margin: -3px 0 -4px;
-  cursor: row-resize;
-}
-.resizer-top::after {
-  top: 2px;
-  bottom: auto;
-  left: 0;
-  right: 0;
-  width: auto;
-  height: 3px;
-}
 body.resizing {
   cursor: col-resize;
   user-select: none;
 }
-body.resizing-rows {
-  cursor: row-resize;
-}
 body.resizing iframe,
 body.resizing .term {
   pointer-events: none;
-}
-@media (min-width: 901px), (min-width: 481px) and (not (pointer: coarse)) {
-  /* Shown again (a file's diff opened or closed), each crossfades in rather than popping. */
-  .ws-releases,
-  .ws-diff {
-    animation: fade-in var(--t) var(--ease);
-  }
-  /* A picked file's diff takes the branches' and the terminal's place until closed. */
-  .ws[data-file-open] .ws-releases,
-  .ws:not([data-file-open]) .ws-diff,
-  .ws[data-file-open] .ws-left > :is(.term, .term-bar, .resizer-top) {
-    display: none;
-  }
 }
 .pane-head {
   display: flex;
@@ -1758,516 +1706,1442 @@ body.resizing .term {
   padding: 0 12px 0 16px;
   border-bottom: 1px solid var(--line);
 }
-/* Branch tree: every branch is the same row (icon, name + status line, actions),
-   nested under a left border; only the icon, tags and suggested action change with its role. */
-/* 4px extra on the left: room for the top-level orange marker, and top-level row content lands on the pane head's 16px inset. */
-.tree {
+
+/* ---------- branch map (BranchMap.tsx) ---------- */
+/* Columns of tiles on a dotted canvas: the trunk, then the releases and branches cut from it, then the ones stacked on those. */
+.map {
+  --map-line: color-mix(in srgb, var(--fg) 14%, var(--bg));
+  /* Between a tile's title and its commits. */
+  --map-sep: color-mix(in srgb, var(--fg) 28%, var(--bg));
+  --map-edge: color-mix(in srgb, var(--faint) 70%, var(--bg));
+  --map-tile: var(--raised);
+  --map-pulse: color-mix(in srgb, var(--trunk-fg), #fff 65%);
+  /* The selected branch and its line: blue, apart from the checked-out one's orange even where the accent is orange too. */
+  --map-sel: var(--mod-fg);
+  flex: 1 1 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  padding: 6px 0 6px 4px;
-}
-/* Rows set their own min-height, so as flex items they'd shrink below their content once the list scrolls. */
-.tree > * {
-  flex-shrink: 0;
-}
-/* Sets Shipped apart from the live branches: a hairline centred in the gap above it. */
-/* Its gap is part of it (the hairline drawn 3px down), so the orange path can run down through it. */
-.tree-sep {
-  height: 9px;
-  margin: 0 12px;
-  background: linear-gradient(var(--line), var(--line)) 0 3px / 100% 1px
-    no-repeat;
-}
-.tree-row {
   position: relative;
+  background: var(--bg);
+  animation: fade-in var(--t) var(--ease);
+}
+[data-theme="light"] .map {
+  --map-tile: var(--panel);
+  --map-line: color-mix(in srgb, var(--fg) 18%, var(--bg));
+  --map-sep: color-mix(in srgb, var(--fg) 32%, var(--bg));
+  --map-pulse: color-mix(in srgb, var(--trunk-fg), #000 25%);
+}
+.map-bar {
+  flex: none;
   display: flex;
-  align-items: flex-start;
-  gap: 4px;
-  min-height: 44px;
-  margin: 0 6px 2px;
-  padding: 6px;
-  border-radius: var(--r);
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  padding: 8px 12px 8px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
 }
-/* An open branch's line starts below its show/hide toggle and runs down past its children, so they read as under it.
-   Children step in 6px; the line sits on the parent row's left edge, 6px left of each child row. */
-.tree-sub,
-.tree-open,
-.tree-kids {
-  position: relative;
+.map-title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
 }
-.tree-kids {
-  margin-left: 6px;
+.map-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
-/* A branch's groups (merged, falling behind, its children's toggle) step in 6px too, beside a line on the branch row's left edge:
-   they read as under the branch, and their own children step in 6px more. */
-.tree-sub {
-  margin-left: 6px;
+.map-group-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
 }
-.tree-sub::before,
-.tree-open::before,
-.tree-merged + .tree-kids::before {
-  content: "";
-  position: absolute;
-  z-index: 1;
-  top: 4px;
-  bottom: 4px;
-  left: 6px;
-  width: 1px;
-  background: repeating-linear-gradient(
-    to bottom,
-    var(--line) 0 1px,
-    transparent 1px 3px
-  );
-  pointer-events: none;
-}
-.tree-sub::before,
-.tree-merged + .tree-kids::before {
-  top: 0;
-  left: 0;
-}
-/* Under an open show/hide toggle, an elbow steps from the line beside it (6px left of the row) over to the children's line,
-   which starts right there. Only where there is a line beside it: nested, or the orange path at the top level. */
-.tree-toggle + .tree-open::before {
-  top: 0;
-}
-.tree-kids .tree-toggle + .tree-open::after,
-.tree-toggle[data-path] + .tree-open::after {
-  content: "";
-  position: absolute;
-  z-index: 1;
-  top: 0;
-  left: 0;
-  width: 7px;
-  height: 1px;
-  background: repeating-linear-gradient(
-    to right,
-    var(--line) 0 1px,
-    transparent 1px 3px
-  );
-  pointer-events: none;
-}
-.tree-toggle[data-path] + .tree-open::after {
-  z-index: 2;
-  background: repeating-linear-gradient(
-    to right,
-    var(--path-fg) 0 1px,
-    transparent 1px 3px
-  );
-}
-/* An open merged group on the orange path: the parent's line (6px left of it) runs on past it to a live child,
-   or an elbow steps over to the merged children's line when the path goes into one of them. */
-.tree-merged + .tree-kids[data-path]::after {
-  content: "";
-  position: absolute;
-  z-index: 2;
-  top: 0;
-  bottom: 0;
-  left: -6px;
-  width: 1px;
-  background: repeating-linear-gradient(
-    to bottom,
-    var(--path-fg) 0 1px,
-    transparent 1px 3px
-  );
-  pointer-events: none;
-}
-.tree-merged + .tree-kids[data-path="in"]::after {
-  bottom: auto;
-  width: 7px;
-  height: 1px;
-  background: repeating-linear-gradient(
-    to right,
-    var(--path-fg) 0 1px,
-    transparent 1px 3px
-  );
-}
-/* Background, hover and selection: a layer under the row's content, so the nesting lines stay drawn on top.
-   Every row sits on the raised background, so it reads as a block at rest; hover and selection lift it further toward the text colour. */
-.tree-row {
-  isolation: isolate;
-}
-.tree-row::after {
-  content: "";
-  position: absolute;
-  z-index: -1;
-  inset: 0;
+.map-zoom {
+  gap: 2px;
+  padding: 2px;
   border: 1px solid var(--line);
   border-radius: var(--r);
+  background: var(--bg);
+}
+.map-zoom > span {
+  min-width: 42px;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.map-zoom > .btn {
+  height: 28px;
+}
+.map-toggles,
+.map-acts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+/* Shows or hides a part of the map: a checkbox in a chip, dashed while off. */
+.map-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px dashed var(--line);
+  border-radius: var(--r);
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+}
+.map-toggle[aria-pressed="true"] {
+  border-style: solid;
   background: var(--raised);
-  pointer-events: none;
-  transition: background-color var(--t-fast) var(--ease);
+  color: var(--fg);
 }
-.tree-row:hover::after {
-  background: color-mix(in srgb, var(--raised), var(--fg) 6%);
+.map-toggle:hover {
+  border-color: color-mix(in srgb, var(--line), var(--fg) 20%);
+  color: var(--fg);
 }
-/* The checked-out row always looks hovered, with a faint yellow tint (a bit stronger in light mode, where it washes out). */
-[data-theme="light"] .tree-row[data-current]::after {
-  background: color-mix(
-    in srgb,
-    color-mix(in srgb, var(--raised), var(--fg) 3%),
-    var(--accent) 20%
-  );
-}
-[data-theme="light"] .tree-row[data-current]:hover::after,
-[data-theme="light"]
-  .tree-row.tree-row[data-current]:has(
-    > .tree-btn[aria-pressed="true"]
-  )::after {
-  background: color-mix(
-    in srgb,
-    color-mix(in srgb, var(--raised), var(--fg) 5%),
-    var(--accent) 28%
-  );
-}
-.tree-row[data-current]::after {
-  background: color-mix(
-    in srgb,
-    color-mix(in srgb, var(--raised), var(--fg) 6%),
-    var(--accent) 6%
-  );
-}
-.tree-row[data-current]:hover::after,
-.tree-row.tree-row[data-current]:has(> .tree-btn[aria-pressed="true"])::after {
-  background: color-mix(
-    in srgb,
-    color-mix(in srgb, var(--raised), var(--fg) 5%),
-    var(--accent) 8%
-  );
-}
-/* Selected: its border takes a soft tint of the accent; the fill rules above still apply. */
-.tree-row:has(> .tree-btn[aria-pressed="true"])::after {
-  border-color: color-mix(in srgb, var(--accent) 25%, var(--line));
-  background: color-mix(in srgb, var(--sel), var(--fg) 4%);
-}
-[data-theme="light"] .tree-row:has(> .tree-btn[aria-pressed="true"])::after {
-  background: color-mix(in srgb, var(--sel), var(--fg) 4%);
-}
-/* Checked-out branch and every branch above it: their stretch of the parent's line turns orange (6px left of the row, top level included).
-   Rows isolate their layers, so these are lifted above the nesting lines for their orange to show over them. */
-.tree-row[data-path] {
-  z-index: 2;
-}
-/* A sibling listed above the next branch on the path: the line runs down past it, its children included.
-   Nested ones are blocks, not flex items: flow-root keeps their last row's 2px gap inside them, so the line doesn't skip it. */
-.tree-node {
-  display: flow-root;
-}
-.tree-node[data-path],
-.tree-sep[data-path] {
-  position: relative;
-}
-.tree-row[data-path]::before,
-.tree-node[data-path]::before,
-.tree-sep[data-path]::before {
-  content: "";
-  position: absolute;
-  z-index: 2;
-  top: 0;
-  bottom: 0;
-  left: -6px;
-  width: 1px;
-  background: repeating-linear-gradient(
-    to bottom,
-    var(--path-fg) 0 1px,
-    transparent 1px 3px
-  );
-  pointer-events: none;
-}
-/* Rows sit 2px apart: a row's stretch runs on through the gap, so the dots don't skip there. */
-.tree-row[data-path]::before {
-  bottom: -2px;
-}
-/* The checked-out row itself: a solid stretch over the dots, full in its middle 24%, fading out across the rest to 45% at the top and to nothing at the bottom; the dots under it stop at its middle,
-   and its lower half hides the parent's grey line behind it. */
-.tree-row[data-path][data-current]::before {
-  background:
-    linear-gradient(
-      to bottom,
-      color-mix(in srgb, var(--path-fg) 45%, transparent),
-      var(--path-fg) 38% 62%,
-      transparent
-    ),
-    repeating-linear-gradient(
-        to bottom,
-        var(--path-fg) 0 1px,
-        transparent 1px 3px
-      )
-      0 0 / 1px 50% no-repeat,
-    linear-gradient(var(--panel), var(--panel)) 0 100% / 1px 50% no-repeat;
-}
-/* A pulse runs down the orange path toward the checked-out branch: a short solid streak, a layer over the dots, which stay put.
-   It runs the whole path at one pace: --pulse is how far down the path it is (0 to 1 of --pulse-run each loop, --pulse-loop long: 90px/s, from the tree), and each piece draws it
-   that far below --pulse-off, where the piece starts along the path (set from the tree, elbows counting their 7px across).
-   On the checked-out row it stops in the middle, into the solid stretch.
-   A soft glow rides under the streak, 4px past the line on each side, so these pieces are 9px across with the line drawn down their middle.
-   The dots start --dot into each piece (from the tree), so they keep one 3px beat down the whole path, around its elbows too. */
-/* --pulse runs 0 to 1 and is scaled by --pulse-run here, not in the keyframes: WebKit keeps a running animation's keyframes as first resolved,
-   so a var() there would leave older pieces looping over the path's old length once a group opens or closes. */
-@property --pulse {
-  syntax: "<number>";
-  inherits: false;
-  initial-value: -1;
-}
-.tree-row[data-path]::before,
-.tree-node[data-path]::before,
-.tree-sep[data-path]::before,
-.tree-merged + .tree-kids[data-path]::after {
-  --pulse-y: calc(
-    var(--pulse) * var(--pulse-run, 600px) - 12px - var(--pulse-off, 0px)
-  );
-  left: -10px;
-  width: 9px;
-  background:
-    var(--path-pulse-v) 4px var(--pulse-y) / 1px 12px no-repeat,
-    var(--path-glow) 0 var(--pulse-y) / 9px 12px no-repeat,
-    repeating-linear-gradient(
-        to bottom,
-        var(--path-fg) 0 1px,
-        transparent 1px 3px
-      )
-      4px var(--dot, 0px) / 1px 100% no-repeat;
-  animation: path-pulse var(--pulse-loop, 4s) steps(var(--pulse-steps, 48)) infinite;
-}
-/* On the checked-out row the streak drains into the middle, and the glow riding under it hands over to a glow of its own centred there: the moving one
-   is gone the moment its centre reaches the middle (squashed instead, it would linger as a flat sliver), just as the other shows (--pulse-arrive,
-   from the tree), and that one fades out over 1s. Its 50% is a position: (height - 12px) / 2, centred. */
-.tree-row[data-path][data-current]::before {
-  --path-glow-a: 0%;
-  background:
-    var(--path-pulse-v) 4px var(--pulse-y) / 1px
-      clamp(0px, 50% - var(--pulse-y), 12px) no-repeat,
-    radial-gradient(
-        closest-side,
-        color-mix(in srgb, var(--path-fg) var(--path-glow-a), transparent),
-        transparent
-      )
-      0 50% / 9px 12px no-repeat,
-    linear-gradient(
-        to bottom,
-        color-mix(in srgb, var(--path-fg) 45%, transparent),
-        var(--path-fg) 38% 62%,
-        transparent
-      )
-      4px 0 / 1px 100% no-repeat,
-    repeating-linear-gradient(
-        to bottom,
-        var(--path-fg) 0 1px,
-        transparent 1px 3px
-      )
-      4px var(--dot, 0px) / 1px 50% no-repeat,
-    var(--path-glow) 0 var(--pulse-y) / 9px
-      clamp(0px, (50% - 6px - var(--pulse-y)) * 100, 12px) no-repeat,
-    linear-gradient(var(--panel), var(--panel)) 0 100% / 9px 50% no-repeat;
-  animation:
-    path-pulse var(--pulse-loop, 4s) steps(var(--pulse-steps, 48)) infinite,
-    path-glow-fade var(--pulse-loop, 4s) steps(var(--pulse-fade-steps, 12)) var(--pulse-arrive, 0s) infinite;
-}
-.tree-sub[data-path]::after,
-.tree-toggle[data-path] + .tree-open::after,
-.tree-merged + .tree-kids[data-path="in"]::after {
-  --pulse-x: calc(
-    var(--pulse) * var(--pulse-run, 600px) - 4px - var(--pulse-off, 0px)
-  );
-  top: -4px;
-  left: -6px;
-  width: 7px;
-  height: 9px;
-  background:
-    var(--path-pulse-h) var(--pulse-x) 4px / 4px 1px no-repeat,
-    var(--path-glow) var(--pulse-x) 0 / 4px 9px no-repeat,
-    repeating-linear-gradient(
-        to right,
-        var(--path-fg) 0 1px,
-        transparent 1px 3px
-      )
-      var(--dot, 0px) 4px / 100% 1px no-repeat;
-  animation: path-pulse var(--pulse-loop, 4s) steps(var(--pulse-steps, 48)) infinite;
-}
-.tree-toggle[data-path] + .tree-open::after {
-  left: 0;
-}
-/* Into a branch's groups: from the line beside the branch over to the one on its left edge, beside the groups. */
-.tree-sub[data-path]::after {
-  content: "";
-  position: absolute;
-  z-index: 2;
-  pointer-events: none;
-}
-/* The node starts 6px left of its row, on the line itself. */
-.tree-node[data-path]::before {
-  left: -4px;
-}
-/* The separator is inset 12px: back out to the line. */
-.tree-sep[data-path]::before {
-  left: -16px;
-}
-/* Dimmer where the path only runs past: siblings above the next branch on it, and merged or falling-behind groups it skips.
-   A run of these fades from the bright path to the dim colour over its first --dim-in and back over its last --dim-out (set from the tree).
-   The dots are a colour gradient seen through gaps of the panel colour, which also hide the parent's grey line there; the pulse keeps its colour. */
-.tree-node[data-path]::before,
-.tree-row[data-path="past"]::before,
-.tree-merged + .tree-kids[data-path="past"]::after {
-  --path-dim: color-mix(in srgb, var(--path-fg) 55%, var(--panel));
-  background:
-    var(--path-pulse-v) 4px var(--pulse-y) / 1px 12px no-repeat,
-    var(--path-glow) 0 var(--pulse-y) / 9px 12px no-repeat,
-    linear-gradient(transparent 1px, var(--panel) 0) 4px var(--dot, 0px) / 1px
-      3px repeat-y,
-    linear-gradient(
-        to bottom,
-        var(--path-fg),
-        var(--path-dim) var(--dim-in, 0px) calc(100% - var(--dim-out, 0px)),
-        var(--path-fg)
-      )
-      4px 0 / 1px 100% no-repeat;
-}
-[data-theme="light"] .tree-node[data-path]::before,
-[data-theme="light"] .tree-row[data-path="past"]::before,
-[data-theme="light"] .tree-merged + .tree-kids[data-path="past"]::after {
-  --path-dim: color-mix(in srgb, var(--accent), var(--fg) 25%);
-}
-/* The path takes the theme's accent; the pulse is a white-hot streak, tinted by it, in a soft glow of the path's colour. */
-.tree {
-  --path-fg: var(--accent);
-  --path-core: color-mix(in srgb, var(--path-fg) 15%, #fff);
-  --path-pulse-v: linear-gradient(
-    to bottom,
-    transparent,
-    var(--path-core) 25% 75%,
-    transparent
-  );
-  --path-pulse-h: linear-gradient(
-    to right,
-    transparent,
-    var(--path-core),
-    transparent
-  );
-  --path-glow: radial-gradient(
-    closest-side,
-    color-mix(in srgb, var(--path-fg) 70%, transparent),
-    transparent
-  );
-}
-/* Light mode: the path and its pulse take a lighter tint of the primary button's yellow rather than the darker trunk orange;
-   a white core would vanish on the light panel. */
-[data-theme="light"] .tree {
-  --path-fg: color-mix(in srgb, var(--accent), #fff 30%);
-  --path-core: var(--path-fg);
-}
-@keyframes path-pulse {
-  from {
-    --pulse: 0;
-  }
-  to {
-    --pulse: 1;
-  }
-}
-@property --path-glow-a {
-  syntax: "<percentage>";
-  inherits: true;
-  initial-value: 80%;
-}
-@keyframes path-glow-fade {
-  0% {
-    --path-glow-a: 80%;
-  }
-  25%,
-  100% {
-    --path-glow-a: 0%;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .tree-row[data-path]::before,
-  .tree-node[data-path]::before,
-  .tree-sep[data-path]::before,
-  .tree-row[data-path][data-current]::before,
-  .tree-sub[data-path]::after,
-  .tree-toggle[data-path] + .tree-open::after,
-  .tree-merged + .tree-kids[data-path]::after {
-    animation: none;
-  }
-}
-.tree-twist {
-  flex: 0 0 16px;
-  width: 16px;
-  height: 20px;
+.map-box {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 0;
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--faint);
+  border-radius: var(--r-sm);
+  color: var(--on-accent);
+}
+.map-box > svg {
+  opacity: 0;
+}
+.map-toggle[aria-pressed="true"] .map-box {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+.map-toggle[aria-pressed="true"] .map-box > svg {
+  opacity: 1;
+}
+/* A toggle with its section's Clean up as its right side. They share the border between them (the Clean up's, 1px over the
+   toggle's): the hovered one comes on top, so its whole border lights up. */
+.map-toggle-split {
+  display: inline-flex;
+}
+.map-toggle-split > * {
+  position: relative;
+}
+.map-toggle-split > :hover {
+  z-index: 1;
+}
+.map-toggle-split > .map-toggle {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.map-toggle-split > .map-clean {
+  height: 30px;
+  margin-left: -1px;
+  padding: 0 9px;
+  border: 1px dashed var(--line);
+  border-radius: 0 var(--r) var(--r) 0;
+  background: transparent;
+}
+.map-toggle-split > .map-toggle[aria-pressed="true"] + .map-clean {
+  border-style: solid;
+  background: var(--raised);
+}
+/* A section's Clean up: it deletes the branches the section lists, a spinner and what is left while that runs. */
+.map-clean {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  font-variant-numeric: tabular-nums;
+}
+.map-clean:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--line), var(--fg) 20%);
+  color: var(--fg);
+}
+.map-clean .spinner {
+  width: 10px;
+  height: 10px;
+}
+/* On a narrower window, the toolbar drops its title, text labels and checkboxes to stay on one row. */
+@container map (max-width: 1280px) {
+  .map-bar {
+    column-gap: 8px;
+  }
+  .map-title,
+  .map-label,
+  .map-box {
+    display: none;
+  }
+}
+.map-find {
+  flex: none;
+  padding: 6px 12px 6px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+.map-find > .input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 30px;
+}
+.map-view {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  container: map-view / size;
+}
+.map-canvas {
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  background-color: var(--bg);
+  /* Dragged around with the mouse: nothing gets selected on the way. */
+  -webkit-user-select: none;
+  user-select: none;
+  cursor: grab;
+}
+.map-canvas[data-panning],
+.map-canvas[data-panning] * {
+  cursor: grabbing;
+}
+/* The dots scroll with the map from here: a `local` background on .map-canvas left the strip under its scrollbars unpainted, black, in macOS WebKit. */
+.map-size {
+  position: relative;
+  background-image: radial-gradient(circle, color-mix(in srgb, var(--fg) 10%, transparent) 1px, transparent 1.4px);
+  background-size: 22px 22px;
+}
+.map-layer {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+}
+.map-col {
+  position: absolute;
+  top: 14px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--faint);
+}
+.map-edges,
+.map-pulse,
+.map-history {
+  position: absolute;
+  left: 0;
+  top: 0;
+  overflow: visible;
+  pointer-events: none;
+  fill: none;
+  stroke-linecap: round;
+}
+.map-edges path {
+  stroke: var(--map-edge);
+  stroke-width: 1.6;
+}
+.map-edges path[data-line="far"] {
+  stroke-dasharray: 3 5;
+}
+.map-edges path[data-line="stale"] {
+  stroke: var(--warn-fg);
+  stroke-dasharray: 5 5;
+  opacity: 0.8;
+}
+.map-edges path[data-line="desc"] {
+  stroke: var(--map-sel);
+  stroke-width: 2;
+  opacity: 0.55;
+}
+.map-edges path[data-line="lin"] {
+  stroke: var(--map-sel);
+  stroke-width: 2.5;
+}
+.map-edges path[data-line="head"] {
+  stroke: var(--trunk-fg);
+  stroke-width: 2.5;
+}
+.map-edges path.map-glow {
+  stroke: var(--trunk-fg);
+  stroke-width: 4;
+  opacity: 0.55;
+}
+.map-edges path.map-merged-line {
+  stroke: var(--add-fg);
+  stroke-linejoin: round;
+  opacity: 0.7;
+}
+/* A streak runs down the checked-out branch's line to it, 92px a second; on a layer of its own, so a step repaints only it.
+   60 steps a second, not the shared 12, so it glides: 5 steps per tick, so it adds no off-beat frames. */
+.map-pulse {
+  will-change: transform;
+}
+.map-pulse path {
+  stroke: var(--map-pulse);
+  stroke-width: 2.5;
+  /* Drawn over the tiles: a round cap would reach past the line's end onto their border. */
+  stroke-linecap: butt;
+  stroke-dasharray: 16 400;
+  animation: map-pulse 4.5s steps(270) infinite;
+}
+@keyframes map-pulse {
+  from {
+    stroke-dashoffset: 416;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .map-pulse {
+    display: none;
+  }
+}
+/* The releases shipped from the trunk, the newest last, just above it. */
+.map-history path {
+  stroke: var(--trunk-fg);
+  stroke-width: 2;
+  opacity: 0.4;
+}
+.map-history circle {
+  fill: var(--release-fg);
+  stroke: var(--bg);
+  stroke-width: 1.5;
+}
+.map-history circle[data-new] {
+  fill: var(--add-fg);
+}
+.map-history-head {
+  position: absolute;
+  left: 24px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 20px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--add-fg);
+}
+.map-history-head > span {
+  font-weight: 600;
+  letter-spacing: 0;
+  color: var(--fg);
+}
+.map-history-head > .map-clean {
+  height: 20px;
+}
+.map-ship {
+  position: absolute;
+  left: 50px;
+  height: 14px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 4px;
   border: 0;
   border-radius: var(--r-sm);
   background: transparent;
+  color: var(--fg);
+  font-size: 10.5px;
+  line-height: 14px;
+  white-space: nowrap;
+}
+.map-ship:hover {
+  background: color-mix(in srgb, var(--fg) 7%, transparent);
+}
+.map-ship.map-crow-more {
+  color: var(--muted);
+}
+.map-ship[data-new] > .mono {
+  color: var(--add-fg);
+  font-weight: 700;
+}
+.map-ship[aria-pressed="true"] {
+  box-shadow: inset 0 0 0 1px var(--map-sel);
+}
+.map-behind {
+  position: absolute;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid color-mix(in srgb, var(--warn-fg) 45%, transparent);
+  border-radius: 9px;
+  background: var(--bg);
+  color: var(--warn-fg);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+/* A work branch's: asks to rebase it onto the branch on its left. */
+button.map-behind {
+  padding: 0;
+  pointer-events: auto;
+  cursor: pointer;
+}
+button.map-behind:not([aria-disabled]):hover {
+  background: color-mix(in srgb, var(--warn-fg) 16%, var(--bg));
+}
+/* Its branch's agent is working: the rebase waits, the tooltip says why. */
+button.map-behind[aria-disabled] {
+  cursor: not-allowed;
+}
+/* Branches merged into a tile's branch, chipped under it on a green line. */
+.map-merged {
+  position: absolute;
+  max-width: 210px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px 0 8px;
+  border: 1px solid color-mix(in srgb, var(--add-fg) 45%, transparent);
+  border-radius: 12px;
+  background: var(--map-tile);
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.map-merged > svg {
+  flex: none;
+  color: var(--add-fg);
+}
+.map-merged[data-likely] {
+  border-style: dashed;
+  border-color: var(--map-line);
+}
+.map-merged[data-likely] > svg {
   color: var(--faint);
 }
-button.tree-twist {
-  cursor: pointer;
-}
-button.tree-twist:hover {
+.map-merged:hover {
   color: var(--fg);
 }
-.tree-btn {
-  flex: 1 1 auto;
-  min-width: 0;
+.map-merged[aria-pressed="true"] {
+  border: 1px solid var(--map-sel);
+  color: var(--fg);
+}
+.map-merged-foot {
+  position: absolute;
+  height: 24px;
   display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  margin: -6px 0;
-  padding: 6px 0;
+  align-items: center;
+  gap: 6px;
+}
+.map-more {
+  height: 22px;
+  padding: 0 8px;
   border: 0;
+  border-radius: 11px;
   background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+}
+.map-more:hover {
+  background: color-mix(in srgb, var(--fg) 7%, transparent);
   color: var(--fg);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
 }
-.tree-static .tree-btn {
-  cursor: default;
+/* One branch: its name, a few words on its state, its commits once unfolded. */
+.map-tile {
+  position: absolute;
+  overflow: hidden;
+  border: 1px solid var(--map-line);
+  border-radius: var(--r-lg);
+  background: var(--map-tile);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  transition:
+    border-color var(--t-fast) var(--ease),
+    box-shadow var(--t-fast) var(--ease),
+    background-color var(--t-fast) var(--ease);
 }
-/* Keyboard focus rings the whole card along its rounded edge: the row's button or group toggle only spans part of it. */
-:is(.tree-btn, .tree-merged-toggle):focus-visible {
-  outline: none;
+[data-theme="light"] :is(.map-tile, .map-out, .map-pill) {
+  box-shadow: 0 1px 2px rgba(20, 20, 30, 0.08);
 }
-.tree-row:focus-visible,
-.tree-row:has(> :is(.tree-btn, .tree-merged-toggle):focus-visible) {
+.map-tile[data-role="release"] {
+  background: color-mix(in srgb, var(--release-fg) 5%, var(--map-tile));
+}
+.map-tile[data-role="trunk"] {
+  background: color-mix(in srgb, var(--trunk-fg) 5%, var(--map-tile));
+}
+:is(.map-tile, .map-out, .map-pill)[data-far] {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--fg) 24%, var(--bg));
+}
+:is(.map-tile, .map-out, .map-pill)[data-stale] {
+  border: 1px dashed color-mix(in srgb, var(--warn-fg) 65%, transparent);
+}
+:is(.map-tile, .map-out, .map-pill)[data-gone] {
+  border: 1px dashed color-mix(in srgb, var(--del-fg) 50%, transparent);
+  opacity: 0.75;
+}
+:is(.map-tile, .map-out, .map-pill)[data-ghost] {
+  border-style: dashed;
+  opacity: 0.6;
+}
+:is(.map-tile, .map-out, .map-pill)[data-desc] {
+  border-color: color-mix(in srgb, var(--map-sel) 45%, transparent);
+}
+:is(.map-tile, .map-out, .map-pill)[data-head] {
+  border-color: color-mix(in srgb, var(--trunk-fg) 80%, transparent);
+  box-shadow: 0 0 5px color-mix(in srgb, var(--trunk-fg) 22%, transparent);
+}
+:is(.map-tile, .map-out, .map-pill)[data-lin] {
+  border-color: color-mix(in srgb, var(--map-sel) 75%, transparent);
+}
+:is(.map-tile, .map-out, .map-pill)[data-sel] {
+  border-color: var(--map-sel);
+  background: color-mix(in srgb, var(--map-sel) 9%, var(--map-tile));
+  box-shadow: inset 0 0 5px 1px color-mix(in srgb, var(--map-sel) 32%, transparent);
+}
+/* The checked-out branch keeps its orange border when selected or in the selected line. */
+:is(.map-tile, .map-out, .map-pill)[data-head]:is([data-sel], [data-lin]) {
+  border-color: color-mix(in srgb, var(--trunk-fg) 80%, transparent);
+}
+/* Selected and checked out: the selection's inner glow plus the checked-out one's outer glow. */
+:is(.map-tile, .map-out, .map-pill)[data-sel][data-head] {
+  box-shadow:
+    inset 0 0 5px 1px color-mix(in srgb, var(--map-sel) 32%, transparent),
+    0 0 5px color-mix(in srgb, var(--trunk-fg) 22%, transparent);
+}
+.map-tile[data-hit] {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.map-tile[data-locked] > .map-tile-in {
+  filter: grayscale(1);
+  opacity: 0.4;
+}
+/* The whole tile picks the branch; its own buttons (fold, WIP, agent) sit above it. */
+.map-hitbox {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+}
+.map-hitbox:hover {
+  background: color-mix(in srgb, var(--fg) 4%, transparent);
+}
+.map-hitbox:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
-.tree-lead {
-  flex: 0 0 16px;
-  align-self: stretch;
+.map-tile-in {
+  position: relative;
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
+  gap: 5px;
+  padding: 9px 12px 10px;
+  pointer-events: none;
+}
+.map-tile[data-role="trunk"] > .map-tile-in {
+  padding: 13px 12px 12px;
+}
+.map-tile-in button {
+  pointer-events: auto;
+}
+.map-row {
+  display: flex;
   align-items: center;
+  gap: 7px;
+  min-width: 0;
+  height: 20px;
 }
-/* Bottom left, level with the last status line: .tree-lead's space-between pins it there. */
-.tree-main > .branch-meta {
-  min-height: 16px;
+.map-row > svg {
+  flex: none;
 }
-/* Icon + label pieces reuse .row for the layout, not its 10px block margin. */
-.branch-meta > .row {
-  margin: 0;
+.map-kind {
+  flex: none;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
 }
-/* Part of a branch name the search matches. */
-.tree-hit {
+.map-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--fg);
+}
+.map-tile[data-head] .map-name {
+  font-weight: 700;
+}
+.map-tile:is([data-stale], [data-ghost]) .map-name {
+  font-weight: 400;
+  color: var(--muted);
+}
+.map-trunk {
+  min-width: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--trunk-fg);
+}
+.map-ver {
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--release-fg);
+}
+.tag.map-tag-trunk {
+  color: var(--trunk-fg);
+  border-color: color-mix(in srgb, var(--trunk-fg) 50%, transparent);
+}
+:is(.map-row, .map-chips, .map-card-name, .focus-crumbs) > .tag {
+  flex: none;
+  padding-block: 0;
+  line-height: 14px;
+}
+:is(.map-row, .map-chips) > .tag {
+  font-size: 9.5px;
+}
+.map-sub {
+  height: 14px;
+  line-height: 14px;
+  font-size: 11px;
+  color: var(--faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* The branch's state, a few words each: its agent, its checkout, its uncommitted work, origin. */
+.map-chips {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  height: 16px;
+  /* Room for the chip buttons' hover background, which reaches past their text. */
+  margin: 0 -6px;
+  padding: 0 6px;
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: 11px;
+}
+.map-chip {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-size: 11px;
+  line-height: 15px;
+}
+/* No weight: a chip's colour class (c-warn, c-add…) wins. */
+:where(.map-chip) {
+  color: var(--muted);
+}
+/* An agent's chip: its long label gives way, its state stays. */
+.map-chip.map-agent {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+:is(.map-chip.c-add, .map-chip.c-warn, .map-chip.c-del, .map-chip.c-current, .map-chip.c-acc, .map-chip.glow-working) {
+  font-weight: 600;
+}
+button.map-chip {
+  margin: 0 -6px;
+  padding: 0 6px;
+  border-radius: 8px;
+}
+button.map-chip:hover {
+  background: color-mix(in srgb, currentColor 14%, transparent);
+}
+.map-chip.wip-badge {
+  font-weight: 700;
+}
+.map-chip .spinner {
+  width: 9px;
+  height: 9px;
+}
+.map-chip .pulse {
+  flex: 0 0 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.map-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+/* A tile's commit count: unfolds its newest commits. Like the "+", it carries its tile's state for the same border and glow. */
+.map-pill {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 6px;
+  border: 1px solid var(--map-line);
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11px;
+  transition:
+    border-color var(--t-fast) var(--ease),
+    box-shadow var(--t-fast) var(--ease),
+    color var(--t-fast) var(--ease);
+}
+/* The ghost tile already fades the pill inside it. */
+.map-pill[data-ghost] {
+  opacity: 1;
+}
+.map-pill:hover {
+  border-color: var(--map-sel);
+  color: var(--fg);
+}
+/* A tile's "+", on its right side where its lines leave: starts a branch off it. It carries its tile's state, so the tile rules above give it the same border and glow. */
+.map-out {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--map-line);
+  border-radius: 50%;
+  background: var(--map-tile);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  color: var(--muted);
+  transition:
+    border-color var(--t-fast) var(--ease),
+    box-shadow var(--t-fast) var(--ease),
+    color var(--t-fast) var(--ease);
+}
+.map-out:hover {
+  border-color: var(--map-sel);
+  color: var(--fg);
+}
+.map-out:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.map-pill[aria-expanded="true"] {
+  border-color: var(--map-sel);
+  background: color-mix(in srgb, var(--map-sel) 16%, transparent);
+  color: var(--fg);
+}
+.map-commits {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 3px;
+  padding-top: 6px;
+  border-top: 1px solid var(--map-sep);
+}
+.map-crow {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: calc(100% + 8px);
+  height: 18px;
+  margin: 0 -4px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--fg);
+  font-size: 11.5px;
+  text-align: left;
+}
+.map-crow:disabled {
+  opacity: 0.5;
+}
+.map-crow:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--fg) 9%, transparent);
+}
+.map-crow > .ellipsis,
+.map-latest > .ellipsis {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.map-crow > .faint,
+.map-latest > .faint {
+  flex: none;
+  font-size: 11px;
+}
+/* The author's picture or initials; ringed on the commit checked out: green at the newest, yellow with newer ones to pull. */
+.map-crow-who {
+  flex: none;
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+}
+.map-crow-who[data-on="latest"] {
+  box-shadow: 0 0 0 1.5px var(--add-fg);
+}
+.map-crow-who[data-on="behind"] {
+  box-shadow: 0 0 0 1.5px var(--warn-fg);
+}
+.map-crow.map-crow-more {
+  gap: 8px;
+  padding-left: 25px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.map-crow-act {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--fg);
+  font-weight: 500;
+}
+/* Down to show more, up to fold them away (not the shared disclosure turn, which points right when shut). */
+.map-crow-more[aria-expanded="true"] .chev {
+  transform: rotate(180deg);
+}
+.map-latest {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: 21px;
+  padding: 6px 0 0;
+  border: 0;
+  border-top: 1px solid var(--map-sep);
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  text-align: left;
+}
+.map-latest:hover:not(:disabled) > .ellipsis {
+  color: var(--fg);
+}
+/* A shine sweeps left to right across the checked-out branch's name every few seconds: a soft white band over the name's colour. */
+.map-tile[data-head] :is(.map-name, .map-trunk, .map-ver) {
+  --name-fg: var(--fg);
+  background:
+    linear-gradient(100deg, transparent 40%, color-mix(in srgb, white 60%, transparent) 50%, transparent 60%) 100% 0 / 250% 100% no-repeat,
+    linear-gradient(var(--name-fg), var(--name-fg));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shine 6s steps(30) infinite;
+}
+.map-tile[data-head] .map-trunk {
+  --name-fg: var(--trunk-fg);
+}
+.map-tile[data-head] .map-ver {
+  --name-fg: var(--release-fg);
+}
+@keyframes shine {
+  0% {
+    background-position:
+      100% 0,
+      0 0;
+  }
+  41.6667%,
+  100% {
+    background-position:
+      0 0,
+      0 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .map-tile[data-head] :is(.map-name, .map-trunk, .map-ver) {
+    animation: none;
+  }
+}
+/* Part of a branch name the search matches, and the match the find bar's arrows are on. */
+.map-hit {
   border-radius: 2px;
   background: color-mix(in srgb, var(--accent) 35%, transparent);
   color: inherit;
 }
-/* The match the find bar's arrows are on. */
-.tree-hit.at {
+.map-hit.at {
   background: var(--accent);
   color: var(--on-accent);
 }
-/* A match never hides behind the ellipsis: the name wraps instead. */
-.tree-name:has(.tree-hit) {
-  height: auto;
-  min-height: 20px;
+.map-legend {
+  position: absolute;
+  left: 16px;
+  bottom: 16px;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  max-width: calc(100% - 240px);
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  font-size: 11.5px;
+  color: var(--muted);
 }
-.tree-name:has(.tree-hit) > .mono {
-  white-space: normal;
+.map-legend > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.map-legend path {
+  fill: none;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+}
+.map-legend .map-key-head {
+  stroke: var(--trunk-fg);
+}
+.map-legend .map-key-lin {
+  stroke: var(--map-sel);
+}
+.map-legend .map-key-stale {
+  stroke: var(--warn-fg);
+  stroke-width: 2;
+  stroke-dasharray: 4 4;
+}
+/* The map in small, the view's frame over it: a click goes there. */
+.map-mini {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  z-index: 5;
+  width: 176px;
+  height: 118px;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: color-mix(in srgb, var(--bg) 94%, transparent);
+}
+.map-mini-in > span {
+  position: absolute;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--faint) 70%, var(--bg));
+}
+.map-mini-in > [data-k="trunk"] {
+  background: var(--trunk-fg);
+}
+.map-mini-in > [data-k="release"] {
+  background: var(--release-fg);
+}
+.map-mini-in > [data-k="lin"] {
+  background: color-mix(in srgb, var(--map-sel) 55%, transparent);
+}
+.map-mini-in > [data-k="sel"] {
+  background: var(--map-sel);
+}
+.map-mini-frame {
+  position: absolute;
+  border: 1px solid color-mix(in srgb, var(--map-sel) 75%, transparent);
+  border-radius: 3px;
+  pointer-events: none;
+}
+/* The selected branch, floating over the map's top right. On its own layer: the pulse and the map scrolling under it never redraw its shadow. */
+.map-card {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 6;
+  width: 288px;
+  max-width: calc(100% - 32px);
+  max-height: calc(100% - 160px);
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid color-mix(in srgb, var(--fg) 13%, var(--panel));
+  border-radius: 14px;
+  background: var(--panel);
+  box-shadow: var(--shadow-pop);
+  will-change: transform;
+  animation: fade-in var(--t) var(--ease);
+}
+/* Too tall: the card scrolls, its parts keep their size. */
+.map-card > * {
+  flex-shrink: 0;
+}
+/* A short map: the card takes the full height over the overview, which goes. */
+@container map-view (max-height: 640px) {
+  .map-card {
+    max-height: calc(100% - 32px);
+  }
+  .map-mini {
+    display: none;
+  }
+}
+.map-card-sec {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.map-eyebrow {
+  margin: 0;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.map-card-fold {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  margin: -6px -8px -6px 0;
+}
+.map-card-name {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+}
+.map-card-name > h3 {
+  min-width: 0;
+  margin: 0;
+  font-size: 13.5px;
+  font-weight: 700;
+  line-height: 1.35;
   overflow-wrap: anywhere;
+}
+/* Folded: smaller text and button, to take less of the map. */
+.map-card[data-folded] {
+  gap: 10px;
+}
+.map-card[data-folded] .map-card-name > h3 {
+  font-size: 12.5px;
+}
+.map-card[data-folded] :is(.map-card-acts > .btn, .map-look) {
+  height: 30px;
+  font-size: 12px;
+}
+/* Opens the branch full screen, on what is most likely wanted: its uncommitted work, else its changes. */
+.map-look {
+  justify-content: flex-start;
+  width: 100%;
+  min-width: 0;
+  font-weight: 600;
+}
+.map-look > .faint {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-left: auto;
+  font-size: 11.5px;
+  font-weight: 400;
+}
+/* Uncommitted work: the node's orange WIP chip, on the right. */
+.map-look > .wip-badge {
+  margin-left: auto;
+}
+.btn-primary.map-look > .faint {
+  color: inherit;
+  opacity: 0.7;
+}
+.map-sentence {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--r);
+  background: var(--bg);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--muted);
+  text-wrap: pretty;
+}
+.map-status {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  gap: 6px 10px;
+  margin: 0;
+  font-size: 12px;
+}
+.map-status > div {
+  display: contents;
+}
+.map-status dt {
+  color: var(--faint);
+}
+.map-status dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+/* The suggested action with its "…" as one split button. */
+.map-card-acts {
+  display: flex;
+}
+.map-card-acts > .btn-primary,
+.map-card-acts > .btn-danger {
+  min-width: 0;
+}
+.link-btn {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent-fg);
+  font: inherit;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+.link-btn:hover {
+  color: var(--fg);
+  text-decoration-style: solid;
+}
+.c-release {
+  color: var(--release-fg);
+}
+.c-wip {
+  color: #ff7a00;
+}
+/* Light mode: the Gitnetix theme's punchier takes on the role colours inside the map's tiles, as the branch rows had. */
+[data-theme="light"]:not([data-palette]) :is(.map-tile, .map-out, .map-card, .rail) {
+  --add-fg: #1fc48c;
+  --warn-fg: #e0a01f;
+  --del-fg: #ff5a50;
+  --mod-fg: #4f86ff;
+  --trunk-fg: #f5a04a;
+  --release-fg: #a57bff;
+}
+/* A phone: the toolbar one row that scrolls sideways, the card a panel at the top that folds away with the map under it; no legend nor overview. */
+@media (max-width: 720px) {
+  .map-view {
+    display: flex;
+    flex-direction: column;
+  }
+  .map-canvas {
+    position: relative;
+    inset: auto;
+    flex: 1 1 0;
+    min-height: 0;
+  }
+  .map-bar {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding: 6px 10px;
+    scrollbar-width: none;
+  }
+  .map-bar > * {
+    flex: none;
+  }
+  .map-title,
+  .map-bar > .grow,
+  .map-legend,
+  .map-mini {
+    display: none;
+  }
+  /* Out of the map's way: above it, not over it. The card comes after the map for keyboards and screen readers. */
+  .map-card {
+    position: relative;
+    top: auto;
+    right: auto;
+    order: -1;
+    flex: none;
+    margin: 8px 8px 0;
+    width: auto;
+    max-width: none;
+    max-height: 52%;
+    gap: 12px;
+    padding: 12px 14px;
+  }
+}
+
+/* ---------- focus: one branch full screen ---------- */
+.focus {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  animation: focus-in var(--t-slow) var(--ease) both;
+}
+@keyframes focus-in {
+  from {
+    opacity: 0;
+    transform: scale(0.985);
+  }
+}
+.focus-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  min-height: 52px;
+  padding: 8px 16px 8px 10px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+.focus-back {
+  height: 34px;
+  padding: 0 8px 0 9px;
+  font-weight: 600;
+}
+:is(.focus-head, .code-foot) kbd {
+  padding: 0 5px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  line-height: 16px;
+  color: var(--fg);
+}
+.focus-crumbs {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px;
+  min-width: 0;
+  padding-left: 12px;
+  border-left: 1px solid var(--line);
+  font-size: 12.5px;
+}
+.focus-crumbs > button {
+  height: 28px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  font-size: inherit;
+}
+.focus-crumbs > button:hover:not([aria-current]) {
+  background: var(--raised);
+}
+.focus-crumbs > button[aria-current="true"] {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--fg);
+  font-weight: 700;
+  cursor: default;
+}
+.focus-crumbs > .tag {
+  margin-left: 6px;
+}
+.focus-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.focus-pills > span {
+  display: inline-flex;
+  align-items: center;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  font-size: 12px;
+  white-space: nowrap;
+  color: var(--muted);
+}
+.focus-pills > span:is(.c-warn, .c-del, .c-add, .c-mod, .c-release) {
+  font-weight: 600;
+}
+.focus-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+}
+/* The focus view's files: the branch, WIP / Branch / Project (or the commit opened from the map), the list, the commit box. */
+.rail {
+  flex: 0 0 var(--rail-w, 360px);
+  width: var(--rail-w, 360px);
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--line);
+  background: var(--panel);
+}
+.rail-head {
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+}
+.rail-files {
+  flex: 1 1 auto;
+  margin: 0;
+  padding: 6px 0;
+  list-style: none;
+}
+.rail-files[data-wip] {
+  padding: 0 0 6px;
+}
+/* The code of what the files panel has picked: what it is, the file, its diff, the keys. */
+.focus-code {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+.code-top {
+  flex: none;
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+  padding: 16px 16px 14px 24px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+.code-title {
+  flex: 1 1 320px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.code-eyebrow {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.code-title > h2 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+.code-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.code-meta > span {
+  white-space: nowrap;
+}
+.code-meta > .code-who {
+  gap: 7px;
+  margin: 0;
+  color: var(--fg);
+}
+.code-acts {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.code-files {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--bg);
+}
+.code-files > .btn {
+  width: 28px;
+  height: 26px;
+}
+.code-files > span {
+  min-width: 76px;
+  text-align: center;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+.code-banner {
+  flex: none;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  margin: 12px 16px 0 24px;
+  padding: 8px 10px 8px 12px;
+  border: 1px solid color-mix(in srgb, currentColor 45%, transparent);
+  border-radius: var(--r);
+  background: color-mix(in srgb, currentColor 8%, transparent);
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.code-banner > .grow {
+  flex: 1 1 240px;
+  color: var(--fg);
+}
+.code-banner .spinner {
+  width: 11px;
+  height: 11px;
+}
+.code-banner > .btn:not(.btn-primary) {
+  color: var(--fg);
+}
+.code-file {
+  flex: none;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  min-height: 46px;
+  padding: 6px 12px 6px 24px;
+  border-bottom: 1px solid var(--line);
+}
+.code-path {
+  min-width: 0;
+  font-size: 12.5px;
+}
+.code-path > b {
+  font-weight: 600;
+}
+.code-note {
+  min-width: 0;
+  font-size: 12px;
+}
+/* History open: its button stays lit. */
+.code-file > .btn[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--sel);
+  color: var(--fg);
+}
+.code-foot {
+  flex: none;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  padding: 7px 24px;
+  border-top: 1px solid var(--line);
+  font-size: 11.5px;
+  color: var(--faint);
+}
+.code-foot > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+@media (hover: none) {
+  .code-foot {
+    display: none;
+  }
 }
 /* Author's initial or picture, round; see Avatar.tsx.
    A glow in the author's colour, not a solid disc: it fades out before its edge, so it never crowds a card's rounded corner. */
@@ -2302,44 +3176,6 @@ button.tree-twist:hover {
   background: radial-gradient(closest-side, hsl(var(--avatar-hue) 60% 50% / 0.55) 35%, transparent);
   color: hsl(var(--avatar-hue) 60% 27%);
 }
-/* As tall as the name line, so the icon sits on its middle (a flex basis would set its height inside .tree-lead's column). */
-.tree-icon {
-  flex: none;
-  width: 16px;
-  height: 20px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--faint);
-}
-.tree-main {
-  flex: 1 1 auto;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-.tree-name {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  height: 20px;
-  font-size: 12.5px;
-}
-/* A long name ellipsizes; its tags stay whole. */
-.tree-name > :is(.tag, .kind-chip) {
-  flex: none;
-}
-/* Tags and the merged pill fit the 16px status line, so every two-line row is the same height. */
-:is(.tree-name, .branch-meta) > :is(.tag, .pill) {
-  padding-block: 0;
-  line-height: 14px;
-}
-/* The merged pill takes the tags' softer border. */
-.branch-meta > .pill {
-  border-color: color-mix(in srgb, currentColor 45%, transparent);
-}
 /* Uncommitted work on a branch: loud orange, gently pulsing so it isn't forgotten. */
 .wip-badge {
   color: #ff7a00;
@@ -2351,19 +3187,8 @@ button.tree-twist:hover {
     animation: none;
   }
 }
-.tree-row[data-dim] .tree-name {
-  opacity: 0.6;
-}
-/* Held by a rebase AI is carrying through (BranchTree.tsx): grayed out under a veil that takes the clicks, a lock on
-   the right; hovering it says why, a click shows the rebase's progress. */
-.tree-row[data-locked] > .tree-btn {
-  filter: grayscale(1);
-  opacity: 0.4;
-}
-/* The lock takes the actions' place. */
-.tree-row[data-locked] > .tree-acts {
-  visibility: hidden;
-}
+/* Held by a rebase AI is carrying through (BranchMap.tsx): a veil that takes the clicks, a lock on the right;
+   hovering it says why, a click shows the rebase's progress. */
 .lock-veil {
   position: absolute;
   inset: 0;
@@ -2394,71 +3219,7 @@ button.tree-twist:hover {
   color: var(--fg);
   border-color: color-mix(in srgb, var(--accent-fg) 55%, var(--line));
 }
-/* Shared branches read apart from work: trunks (main, dev…) orange, releases (open or shipped) purple. */
-.tree-row[data-role="trunk"] .tree-name > .mono {
-  color: var(--trunk-fg);
-  font-weight: 600;
-}
-.tree-row[data-role="release"] .tree-name > .mono {
-  color: var(--release-fg);
-}
-/* Light mode uses punchier takes on the dark theme's text colours inside a branch row (icon, name, tags, kind, status line); --fg stays dark so plain names read on white.
-   The path lines and the rest of the app stay on the light tokens. */
-[data-theme="light"]:not([data-palette]) .tree-btn {
-  --muted: #8a909a;
-  --faint: #6e747e;
-  --line: #272a30;
-  --add-fg: #1fc48c;
-  --warn-fg: #e0a01f;
-  --del-fg: #ff5a50;
-  --mod-fg: #4f86ff;
-  --trunk-fg: #f5a04a;
-  --release-fg: #a57bff;
-}
-/* A shine sweeps left to right across the checked-out branch's name every few seconds: a soft white band over the name's colour, resting off its left end between runs.
-   The colour is drawn as a background clipped to the text, so it comes from --name-fg. */
-.tree-row[data-current] .tree-name > .mono {
-  --name-fg: var(--fg);
-  background:
-    linear-gradient(
-        100deg,
-        transparent 40%,
-        color-mix(in srgb, white 60%, transparent) 50%,
-        transparent 60%
-      )
-      100% 0 / 250% 100% no-repeat,
-    linear-gradient(var(--name-fg), var(--name-fg));
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  animation: shine 6s steps(30) infinite;
-}
-.tree-row[data-current][data-role="trunk"] .tree-name > .mono {
-  --name-fg: var(--trunk-fg);
-}
-.tree-row[data-current][data-role="release"] .tree-name > .mono {
-  --name-fg: var(--release-fg);
-}
-@keyframes shine {
-  0% {
-    background-position:
-      100% 0,
-      0 0;
-  }
-  41.6667%,
-  100% {
-    background-position:
-      0 0,
-      0 0;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .tree-row[data-current] .tree-name > .mono,
-  :is(.child-label, .group-label, .shipped-label)[data-active] {
-    animation: none;
-  }
-}
-/* Row actions fill the row's height, flush with its right edge, over its own background. */
+/* Row actions (stashes, worktrees) fill the row's height, flush with its right edge; their rows show them on hover. */
 .tree-acts {
   flex: 0 0 auto;
   display: flex;
@@ -2468,239 +3229,11 @@ button.tree-twist:hover {
   pointer-events: none;
   transition: opacity 0.12s;
 }
-.tree-row:hover .tree-acts,
-.tree-row:focus-within .tree-acts,
-.tree-row:has(> .tree-btn[aria-pressed="true"]) .tree-acts,
-.tree-row[data-current] .tree-acts {
-  opacity: 1;
-  pointer-events: auto;
-}
 @media (hover: none) {
   .tree-acts {
     opacity: 1;
     pointer-events: auto;
   }
-}
-.tree-group {
-  width: calc(100% - 12px);
-  min-height: 30px;
-  align-items: center;
-  border: 0;
-  background: transparent;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-/* Taller touch targets on mobile. */
-@media (max-width: 900px) and (pointer: coarse), (max-width: 480px) {
-  .tree-row {
-    min-height: 52px;
-  }
-  .tree-group {
-    min-height: 40px;
-  }
-}
-/* Same 8px after the chevron as after a row's icon: group labels line up with branch names. */
-.tree-group {
-  gap: 8px;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--muted);
-}
-.tree-group:hover {
-  color: var(--fg);
-}
-/* Collapsible headers sit a shade darker than branch rows. */
-.tree-group::after {
-  background: color-mix(in srgb, var(--raised), #000 18%);
-}
-.tree-group:hover::after {
-  background: color-mix(in srgb, var(--raised), #000 10%);
-}
-/* Light: black mixed in reads as a grey slab on white; a whisper of shade is enough. */
-[data-theme="light"] .tree-group::after {
-  background: color-mix(in srgb, var(--raised), #000 3.5%);
-}
-[data-theme="light"] .tree-group:hover::after {
-  background: color-mix(in srgb, var(--raised), #000 6.5%);
-}
-.tree-toggle {
-  color: var(--fg);
-}
-/* A branch name prefix folder: its name as most of its branches spell it (`bugfix/` and `fix/` share one). */
-.tree-dir {
-  text-transform: none;
-  letter-spacing: 0;
-  font-size: 12px;
-}
-/* Group labels draw their colour as a background clipped to the text, from --label-from (when it fades) to --label-fg.
-   The labels of the groups holding the checked-out branch (data-active) shine like its name. */
-.child-label,
-.group-label,
-.shipped-label {
-  background: linear-gradient(
-    90deg,
-    var(--label-from, var(--label-fg)),
-    var(--label-fg)
-  );
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-}
-:is(.child-label, .group-label, .shipped-label)[data-active] {
-  background:
-    linear-gradient(
-        100deg,
-        transparent 40%,
-        color-mix(in srgb, white 60%, transparent) 50%,
-        transparent 60%
-      )
-      100% 0 / 250% 100% no-repeat,
-    linear-gradient(90deg, var(--label-from, var(--label-fg)), var(--label-fg));
-  -webkit-background-clip: text;
-  background-clip: text;
-  animation: shine 6s steps(30) infinite;
-}
-.child-label {
-  --label-from: var(--warn-fg);
-  --label-fg: var(--fg);
-}
-.tree-merged {
-  color: var(--add-fg);
-  cursor: default;
-}
-.tree-merged:hover {
-  color: var(--add-fg);
-}
-/* The merged group's toggle fills its row (the Clean up button aside), so the whole row still opens it. */
-.tree-merged-toggle {
-  flex: 1 1 auto;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  align-self: stretch;
-  margin: -6px 0;
-  padding: 6px 0;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  letter-spacing: inherit;
-  text-transform: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-.tree-merged-toggle {
-  --label-fg: var(--add-fg);
-}
-.tree-merged-toggle:hover {
-  color: color-mix(in srgb, var(--add-fg) 70%, var(--fg));
-  --label-fg: color-mix(in srgb, var(--add-fg) 70%, var(--fg));
-}
-.tree-behind,
-.tree-behind:hover {
-  color: var(--warn-fg);
-}
-.tree-behind .tree-merged-toggle {
-  --label-from: var(--warn-fg);
-  --label-fg: color-mix(in srgb, var(--warn-fg) 55%, #e07020);
-}
-.tree-behind .tree-merged-toggle:hover {
-  color: color-mix(in srgb, var(--warn-fg) 70%, var(--fg));
-  --label-from: color-mix(in srgb, var(--warn-fg) 70%, var(--fg));
-  --label-fg: color-mix(
-    in srgb,
-    color-mix(in srgb, var(--warn-fg) 55%, #e07020) 70%,
-    var(--fg)
-  );
-}
-.shipped-label {
-  --label-from: var(--release-fg);
-  --label-fg: var(--add-fg);
-}
-/* Light mode uses punchier takes on the dark theme's label gradients. */
-[data-theme="light"]:not([data-palette]) .child-label {
-  --label-from: #e0a01f;
-  --label-fg: #da659f;
-}
-[data-theme="light"]:not([data-palette]) .shipped-label {
-  --label-from: #a57bff;
-  --label-fg: #1fc48c;
-}
-/* A section being cleaned up: faded and out of reach until its branches are gone. */
-.tree [aria-busy="true"]:not(.tree-cleanup) {
-  opacity: 0.45;
-  pointer-events: none;
-  transition: opacity 0.15s;
-}
-/* Filter bar: the input fills the whole row, its icon inside; the author pick a full-height segment at the right edge.
-   Focus tints the row and draws an accent line under it. */
-.tree-filter {
-  position: relative;
-  display: flex;
-  align-items: stretch;
-  flex: 0 0 40px;
-  height: 40px;
-  border-bottom: 1px solid var(--line);
-  transition: background-color 0.15s, box-shadow 0.15s;
-}
-.tree-filter:hover {
-  background: color-mix(in srgb, var(--fg) 2%, transparent);
-}
-.tree-filter:focus-within {
-  background: color-mix(in srgb, var(--accent) 5%, transparent);
-  box-shadow: inset 0 -1px 0 var(--accent);
-}
-/* Icon and text on the tree's columns: the top-level row icons' middle (24px) and the branch names (40px). */
-.tree-filter > svg {
-  position: absolute;
-  top: 50%;
-  left: 17px;
-  translate: 0 -50%;
-  pointer-events: none;
-  transition: color 0.15s;
-}
-.tree-filter:focus-within > svg {
-  color: var(--accent);
-}
-.tree-filter .input,
-.tree-filter .input:focus {
-  flex: 1 1 auto;
-  min-width: 0;
-  height: auto;
-  padding: 0 12px 0 40px;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-  font-size: 12.5px;
-}
-.tree-filter > .btn {
-  /* Full row height: .find-bar centers its items, which shrinks these to the icon. */
-  align-self: stretch;
-  height: auto;
-  padding: 0 14px;
-  border: 0;
-  border-left: 1px solid var(--line);
-  border-radius: 0;
-  background: transparent;
-  color: var(--muted);
-}
-/* Cells touch, split only by their border, so no strip between them misses the click. */
-.tree-filter.find-bar {
-  gap: 0;
-}
-/* The find arrows and close: square cells as tall as the row. */
-.tree-filter > .btn-icon {
-  width: 40px;
-  padding: 0;
-}
-.tree-filter > .btn:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--fg) 6%, transparent);
-  color: var(--fg);
 }
 .kind-chip {
   font-family: var(--mono);
@@ -2744,15 +3277,6 @@ button.tree-twist:hover {
   width: 34px;
   color: var(--fg);
 }
-/* Square in branch rows: matches .tree-row's min-height, which the acts stretch to fill. */
-.tree-row .acts > .act-main {
-  width: 44px;
-}
-@media (max-width: 900px) and (pointer: coarse), (max-width: 480px) {
-  .tree-row .acts > .act-main {
-    width: 52px;
-  }
-}
 /* Pane head acts (Authors, Search, Stashes, Fetch): as tall as the head, flush with its right edge; icon-only ones square. */
 .pane-head .acts {
   align-self: stretch;
@@ -2778,25 +3302,6 @@ button.tree-twist:hover {
 .act.act-warn,
 .ctx-icon.ctx-warn {
   color: color-mix(in srgb, var(--del-fg) 60%, var(--muted));
-}
-/* A section's Clean up: an act filling its group row's height, flush with its right edge. */
-.act.tree-cleanup {
-  flex: 0 0 auto;
-  align-self: stretch;
-  margin: -6px -6px -6px 0;
-  border-left: 1px solid color-mix(in srgb, var(--fg) 3%, transparent);
-  border-radius: 0 var(--r) var(--r) 0;
-  color: var(--muted);
-}
-.act.tree-cleanup[aria-busy="true"] {
-  width: auto;
-  min-width: 26px;
-  padding: 0 6px;
-  gap: 5px;
-}
-.tree-cleanup-left {
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
 }
 .act-stack {
   display: flex;
@@ -2834,6 +3339,10 @@ button.tree-twist:hover {
 .btn-primary.split-more {
   margin-left: 0;
   border-left: 1px solid color-mix(in srgb, var(--accent) 80%, #000);
+}
+.btn.btn-danger.split-more {
+  margin-left: 0;
+  border-left-color: color-mix(in srgb, #d23a31 70%, #000);
 }
 .ctx-menu {
   position: fixed;
@@ -3202,14 +3711,6 @@ button.tree-twist:hover {
     min-height: 28px;
   }
 }
-.branch-meta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 11px;
-  color: var(--faint);
-  flex-wrap: wrap;
-}
 .file-btn {
   display: flex;
   align-items: center;
@@ -3318,8 +3819,7 @@ button.tree-twist:hover {
 .chev {
   transition: transform 0.15s ease;
 }
-[aria-expanded="false"] > .chev,
-[aria-expanded="false"] > .tree-twist > .chev {
+[aria-expanded="false"] > .chev {
   transform: rotate(-90deg);
 }
 @media (prefers-reduced-motion: reduce) {
@@ -3848,8 +4348,7 @@ input.img-slider {
 
 .term {
   animation: term-in 0.26s var(--ease);
-  flex: 0 0 var(--term-h, 248px);
-  max-height: calc(100% - 120px);
+  flex: 0 0 45%;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -3863,12 +4362,14 @@ input.img-slider {
     transform: translateY(14px);
   }
 }
-/* Doubled class: outranks the narrow layout's `.term` flex-basis further down. */
+/* Doubled class: outranks the wide layout's `.term` max-width below. */
 .term.term-max {
   flex: 1 1 0;
-  max-height: none;
+  max-width: none;
 }
-.ws-left:has(> .term-max) > .ws-releases {
+/* Expanded, the agent panel takes the map's or the focus view's place, and their toolbar's. */
+.ws-body:has(> .term-max) > :is(.map, .focus),
+.ws:has(> .ws-body > .term-max) > .ws-head {
   display: none;
 }
 /* Expanded, the worktree agent card fills the pane edge to edge. */
@@ -3892,6 +4393,69 @@ input.img-slider {
   background: var(--panel);
   overflow-x: auto;
   scrollbar-width: none;
+}
+/* Closed, the panel is one bar that opens it. */
+.term-closed {
+  flex: 0 0 37px;
+  margin: 0;
+  padding: 0 14px 3px;
+  border: 0;
+  border-top: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--muted);
+  text-align: left;
+}
+/* Wide screens dock the panel on the right, so the log gets the window's full height. */
+@media (min-width: 901px), (min-width: 481px) and (not (pointer: coarse)) {
+  .ws-body {
+    flex-direction: row;
+  }
+  .ws-body > :is(.map, .focus) {
+    min-width: 0;
+  }
+  .term {
+    animation-name: term-in-side;
+    flex-basis: var(--term-w, 460px);
+    /* Without it, a long unbroken log line widens the panel past its dragged width. */
+    min-width: 0;
+    max-width: calc(100% - 360px);
+    border-top: 0;
+    border-left: 1px solid var(--line);
+  }
+  /* Closed: a strip down the right edge, its label written top to bottom. */
+  .term-closed {
+    flex-direction: column;
+    padding: 12px 0;
+    border-top: 0;
+    border-left: 1px solid var(--line);
+  }
+  .term-closed > span:not(.pulse, .grow) {
+    min-height: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    /* One column: the label runs as far down the strip as it needs. */
+    white-space: nowrap;
+    writing-mode: vertical-rl;
+  }
+  /* Sideways, the terminal icon reads as a second arrow next to the chevron. */
+  .term-closed > svg:first-child {
+    display: none;
+  }
+  /* The arrow leads, above the label. */
+  .term-closed > svg:last-child {
+    order: -1;
+  }
+  /* Chevrons point the way the panel opens and closes. */
+  .term-closed > svg:last-child,
+  .term-collapse > svg {
+    transform: rotate(-90deg);
+  }
+}
+@keyframes term-in-side {
+  from {
+    opacity: 0;
+    transform: translateX(14px);
+  }
 }
 /* The whole closed bar opens the panel, so it highlights as one. */
 button.term-bar:hover {
@@ -3955,6 +4519,16 @@ button.picker-act {
   display: flex;
   align-items: stretch;
   min-width: 0;
+}
+/* A narrow panel cuts the session's branch short rather than push the buttons at the bar's end out of view. */
+.term-tabs > .term-side:last-child {
+  min-width: max-content;
+}
+.term-tabs > span.term-tab,
+.term-tabs > span.term-tab > .mono {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .term-tab-x {
   padding: 0 10px;
@@ -4759,6 +5333,14 @@ button.picker-act {
   margin-top: 2px;
   font-size: 11.5px;
   color: var(--faint);
+}
+/* Over the message box while it holds a private claude.ai artifact link. */
+.ag-artifact {
+  --limit: var(--accent-fg);
+  align-self: stretch;
+  width: auto;
+  margin: 8px 12px 0;
+  padding: 10px 8px 10px 14px;
 }
 /* Allow and Refuse: one width, so the pair reads as one choice. */
 .ag-ask-actions .btn {
@@ -7992,8 +8574,8 @@ button.app-row:hover > .app-row-chev {
   body {
     font-size: 14px;
   }
-  .ws-left,
-  .ws-files,
+  .rail,
+  .focus-code,
   .master,
   .detail,
   .sidenav,
@@ -8002,8 +8584,7 @@ button.app-row:hover > .app-row-chev {
     width: 100%;
     border-right: 0;
   }
-  .ws > [data-pane]:not([data-active="true"]),
-  .ws-left > [data-pane]:not([data-active="true"]),
+  .focus-body > [data-pane]:not([data-active="true"]),
   .split > [data-pane]:not([data-active="true"]) {
     display: none;
   }
@@ -8016,14 +8597,29 @@ button.app-row:hover > .app-row-chev {
   .pane-switch .seg {
     flex: 1 1 auto;
   }
-  /* A pane leaving display:none restarts its animation, so the one switched to slides in. Not on .ws-left itself: its panes already slide. */
-  .ws[data-slide] > .ws-files[data-active="true"],
-  .ws[data-slide] > .ws-left > [data-pane][data-active="true"] {
+  /* A pane leaving display:none restarts its animation, so the one switched to slides in. */
+  .ws[data-slide] .focus-body > [data-pane][data-active="true"] {
     animation: pane-in 0.22s ease-out;
   }
-  .ws[data-slide="prev"] > .ws-files[data-active="true"],
-  .ws[data-slide="prev"] > .ws-left > [data-pane][data-active="true"] {
+  .ws[data-slide="prev"] .focus-body > [data-pane][data-active="true"] {
     --pane-from: -24%;
+  }
+  .focus-head {
+    min-height: 0;
+    padding: 6px 10px;
+  }
+  .focus-crumbs {
+    padding-left: 0;
+    border-left: 0;
+  }
+  .code-top {
+    padding: 12px 12px 10px 14px;
+  }
+  .code-file {
+    padding-left: 14px;
+  }
+  .code-banner {
+    margin: 10px 12px 0;
   }
   .page {
     padding: 20px 16px 48px;
@@ -8042,9 +8638,6 @@ button.app-row:hover > .app-row-chev {
   }
   .menu-scrim {
     display: none;
-  }
-  .term {
-    flex-basis: 45%;
   }
   /* Smaller code, and line numbers smaller still in one column, as wide as the diff's highest one (--ln digits, set
      by DiffView). The row takes the numbers' font so the column's ch matches it; the code sets its own. */
@@ -8173,7 +8766,7 @@ button.app-row:hover > .app-row-chev {
     display: none !important;
   }
 }
-/* Commit list: replaces the branch tree; subject, description, then sha · author · when. */
+/* Commit rows (a file's history, the stashes): subject, description, then sha · author · when. */
 .commits {
   display: flex;
   flex-direction: column;
@@ -8390,15 +8983,6 @@ button.app-row:hover > .app-row-chev {
   gap: 8px;
   min-width: 0;
 }
-.meta-link {
-  cursor: pointer;
-  text-decoration: underline dotted;
-  text-underline-offset: 2px;
-}
-.meta-link:hover {
-  color: var(--fg);
-  text-decoration-style: solid;
-}
 /* Text underlines skip icons: a border runs under both. */
 /* Unpushed commits: the Push icon gives a quick wiggle every 10 seconds, then rests. Calm while hovered. */
 .act-nudge > svg {
@@ -8491,19 +9075,9 @@ button.app-row:hover > .app-row-chev {
     animation: none;
   }
 }
-.meta-link-icon {
-  text-decoration: none;
-  border-bottom: 1px dotted;
-  line-height: 1.2;
-}
-.meta-link-icon:hover {
-  text-decoration: none;
-  border-bottom-style: solid;
-}
 
 /* ---------- entrances ---------- */
-/* Rows fade in as they appear: a group opening, a file moving to Staged, a new commit, an agent's reply. */
-.tree-kids,
+/* Rows fade in as they appear: a file moving to Staged, a new commit, an agent's reply. */
 .file-row,
 .commit-row,
 .stash-row,
@@ -8554,10 +9128,10 @@ button.app-row:hover > .app-row-chev {
 }
 @media (prefers-reduced-motion: reduce) {
   .app-main > *,
-  .ws-releases,
-  .ws-diff,
+  .map,
+  .focus,
+  .map-card,
   .term,
-  .tree-kids,
   .file-row,
   .commit-row,
   .stash-row,
@@ -8583,13 +9157,13 @@ button.app-row:hover > .app-row-chev {
 }
 
 /* Animations turned off in the menu's Animations page, one by one (ids from src/lib/motion.ts). */
-:root[data-anim-off~="pages"] :is(.app-main > *, .ws-releases, .ws-diff, .term) {
+:root[data-anim-off~="pages"] :is(.app-main > *, .map, .focus, .map-card, .term) {
   animation: none !important;
 }
 :root[data-anim-off~="pages"] .profile-splash {
   display: none;
 }
-:root[data-anim-off~="lists"] :is(.tree-kids, .file-row, .commit-row, .stash-row, .item-btn, .ag-log > *, .chart-bar > span, .kpi) {
+:root[data-anim-off~="lists"] :is(.file-row, .commit-row, .stash-row, .item-btn, .ag-log > *, .chart-bar > span, .kpi) {
   animation: none !important;
 }
 :root[data-anim-off~="dialogs"] :is(.modal, .modal-scrim, .ag-zoom, .ctx-menu, .ctx-item, .toast, .dictation) {
@@ -8602,21 +9176,15 @@ button.app-row:hover > .app-row-chev {
 :root[data-anim-off~="dialogs"] .ctx-col {
   transition: none !important;
 }
-:root[data-anim-off~="path"] .tree-row[data-path]::before,
-:root[data-anim-off~="path"] .tree-node[data-path]::before,
-:root[data-anim-off~="path"] .tree-sep[data-path]::before,
-:root[data-anim-off~="path"] .tree-sub[data-path]::after,
-:root[data-anim-off~="path"] .tree-toggle[data-path] + .tree-open::after,
-:root[data-anim-off~="path"] .tree-merged + .tree-kids[data-path]::after {
-  animation: none !important;
+:root[data-anim-off~="path"] .map-pulse {
+  display: none;
 }
 :root[data-anim-off~="shine"]
   :is(
-    .tree-row[data-current] .tree-name > .mono,
-    :is(.child-label, .group-label, .shipped-label)[data-active],
     .wt-group-head > [data-glint],
     .glow-name > .ellipsis,
-    .glow-working > *
+    .glow-working > *,
+    .map-tile[data-head] :is(.map-name, .map-trunk, .map-ver)
   ) {
   animation: none !important;
 }
@@ -8645,14 +9213,12 @@ button.app-row:hover > .app-row-chev {
     .spinner,
     .wip-badge,
     .act-nudge > svg,
-    .tree-row[data-current] .tree-name > .mono,
-    :is(.child-label, .group-label, .shipped-label)[data-active],
     .wt-group-head > [data-glint],
     .glow-name > .ellipsis,
-    .glow-working > *
+    .glow-working > *,
+    .map-tile[data-head] :is(.map-name, .map-trunk, .map-ver)
   ),
-:is(:root[data-idle], .app-main:has(> .menu-overlay) > :not(.menu-overlay), body:has(> .modal-scrim) .app-main) :is(.tree-row, .tree-node, .tree-sep)[data-path]::before,
-:is(:root[data-idle], .app-main:has(> .menu-overlay) > :not(.menu-overlay), body:has(> .modal-scrim) .app-main) :is(.tree-sub[data-path], .tree-toggle[data-path] + .tree-open, .tree-merged + .tree-kids[data-path])::after {
+:is(:root[data-idle], .app-main:has(> .menu-overlay) > :not(.menu-overlay), body:has(> .modal-scrim) .app-main) .map-pulse path {
   animation-play-state: paused !important;
 }
 :root[data-anim-off~="tabs"] .tab-project {

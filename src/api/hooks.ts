@@ -712,7 +712,7 @@ export function useAction<T = unknown, V extends Record<string, unknown> = Recor
   method: string,
   opts: {
     invalidate?: unknown[][];
-    success?: string | ((r: T) => string | undefined);
+    success?: string | ((r: T, vars: V) => string | undefined);
     /** Updates the cache with what is already known, so it shows before the invalidated queries come back. */
     patch?: (qc: QueryClient, vars: V, r: T) => void;
     /** Handles an error itself (returns true): no toast then. */
@@ -730,7 +730,7 @@ export function useAction<T = unknown, V extends Record<string, unknown> = Recor
       const { patch } = opts;
       if (patch) await settle(qc, opts.invalidate ?? [], () => patch(qc, vars, r));
       for (const k of opts.invalidate ?? []) qc.invalidateQueries({ queryKey: k });
-      const msg = typeof opts.success === "function" ? opts.success(r) : opts.success;
+      const msg = typeof opts.success === "function" ? opts.success(r, vars) : opts.success;
       if (msg) toast(msg, "ok");
     },
     // A host asking git for a login: the user gives one, then this runs again. Asked before the caller's own handling.

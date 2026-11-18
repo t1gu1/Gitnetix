@@ -70,7 +70,7 @@ export function FileHistory({
     <>
       <div className="pane-head">
         <span className="row" style={{ gap: 6, minWidth: 0 }}>
-          <button className="btn btn-sm btn-icon pane-back" aria-label="Back to files" data-tip="Back to files (Esc)" onClick={onBack}>
+          <button className="btn btn-sm btn-icon pane-back" aria-label="Back to the timeline" data-tip="Back to the timeline (Esc)" onClick={onBack}>
             <Icon name="back" size={13} />
           </button>
           <Icon name="history" size={13} className="faint" />

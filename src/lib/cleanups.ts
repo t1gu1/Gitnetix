@@ -65,7 +65,7 @@ export function startCleanup({ projectId, projectName, section, branches, force,
     });
 }
 
-/** How many branches a cleanup running on a section of `projectId`'s branch tree has left; undefined when none runs. */
+/** How many branches a cleanup running on a section of `projectId`'s branch map has left; undefined when none runs. */
 export function useCleaning(projectId: string): (section: string) => number | undefined {
   const now = useSyncExternalStore(
     (l) => {

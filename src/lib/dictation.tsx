@@ -417,6 +417,8 @@ function FieldMic({ phase, keys }: { phase: Phase; keys: string }) {
     const { place, detach } = attach(field, mic.current!);
     let raf = 0;
     const frame = () => {
+      // A box removed while focused (a dialog closed by a click outside it) sends no focusout in WebKit.
+      if (!field.isConnected) return setField(null);
       place();
       raf = requestAnimationFrame(frame);
     };

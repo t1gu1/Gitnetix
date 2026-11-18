@@ -170,3 +170,49 @@ async fn a_finished_rebase_reports_the_uncommitted_changes_it_could_not_put_back
     assert_eq!(r["stashConflicts"], json!(["README.md"]), "{r}");
     assert!(r["conflicts"].as_array().unwrap().is_empty(), "{r}");
 }
+
+fn rev(repo: &Path, r: &str) -> String {
+    let out = Command::new("git").current_dir(repo).args(["rev-parse", r]).output().unwrap().stdout;
+    String::from_utf8(out).unwrap().trim().to_string()
+}
+
+fn worktrees(repo: &Path) -> usize {
+    let out = Command::new("git").current_dir(repo).args(["worktree", "list", "--porcelain"]).output().unwrap().stdout;
+    String::from_utf8(out).unwrap().lines().filter(|l| l.starts_with("worktree ")).count()
+}
+
+#[tokio::test]
+async fn rebases_a_branch_checked_out_nowhere_in_a_throwaway_worktree() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = repo(tmp.path());
+    sh(&repo, &["switch", "-qc", "feat/b"]);
+    commit_file(&repo, "b.txt", "b\n");
+    sh(&repo, &["switch", "-q", "main"]);
+    commit_file(&repo, "main.txt", "main\n");
+    let (k, pid) = open(tmp.path(), &repo).await;
+
+    let r = rpc::call(&k, "workspace.rebase", json!({ "projectId": pid, "branch": "feat/b" })).await.unwrap();
+    assert_eq!(r["conflicts"], json!([]), "{r:#}");
+    assert!(is_ancestor(&repo, "main", "feat/b"));
+    assert_eq!(head(&repo), "main");
+    assert_eq!(worktrees(&repo), 1, "the throwaway worktree is gone");
+}
+
+#[tokio::test]
+async fn a_branch_checked_out_nowhere_goes_back_when_conflicts_are_left() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = repo(tmp.path());
+    sh(&repo, &["switch", "-qc", "feat/b"]);
+    commit_file(&repo, "README.md", "# from b\n");
+    sh(&repo, &["switch", "-q", "main"]);
+    commit_file(&repo, "README.md", "# from main\n");
+    let (k, pid) = open(tmp.path(), &repo).await;
+    rpc::call(&k, "projects.setPrefs", json!({ "projectId": pid, "merge": { "resolveConflicts": false } })).await.unwrap();
+    let before = rev(&repo, "feat/b");
+
+    let e = rpc::call(&k, "workspace.rebase", json!({ "projectId": pid, "branch": "feat/b" })).await.unwrap_err();
+    assert!(e.to_string().contains("README.md"), "{e}");
+    assert_eq!(rev(&repo, "feat/b"), before, "back as it was");
+    assert_eq!(head(&repo), "main");
+    assert_eq!(worktrees(&repo), 1, "the throwaway worktree is gone");
+}

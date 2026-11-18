@@ -4,7 +4,7 @@ import { useAction, useAgents, useFiles, useOverview, usePendingBranches, usePro
 import { rpc } from "../api/transport";
 import type { AgentSession, RebaseResult, WorktreeView } from "../api/types";
 import { AgentInput, AgentLog, RequestField, uploads, type Choice, type Upload } from "../components/AgentLog";
-import { limitLabel, shownStatus, tasksLabel, type ShownStatus } from "../lib/agentLog";
+import { limitLabel, shownStatus, STATUS_SHOWN, tasksLabel, type ShownStatus } from "../lib/agentLog";
 import { draftOf, useDraft } from "../lib/drafts";
 import { AgentPicker, MenuChoice, useAgentPick } from "../components/AgentPicker";
 import { firstType, TypePicker, typeOfName, withType } from "../components/BranchTypes";
@@ -20,22 +20,10 @@ import { useNav } from "../lib/nav";
 import { showRun, useLocks } from "../lib/rebaseRuns";
 import { useStored } from "../lib/stored";
 import { useBranchActions } from "./BranchMenu";
-import { revealBranch } from "./BranchTree";
+import { revealBranch } from "./BranchMap";
 import { AbortModal } from "./AbortModal";
 import { startRebase } from "./RebaseRun";
 import { clearSession, DiscardWorktreeModal, FinishWorktreeCard, MergeModal, mergeTargets, TargetBranchModal, useFinishHandlers, useReservedStart } from "./Workspace";
-
-const STATUS: Record<ShownStatus | "idle", [string, string]> = {
-  running: ["Running", "c-acc"],
-  waiting: ["Waiting for you", "c-add"],
-  // Its label says when it continues (`limitLabel`).
-  limited: ["Usage limit", "c-warn"],
-  paused: ["Paused", "muted"],
-  failed: ["Failed", "c-del"],
-  done: ["Done", "c-add"],
-  stopped: ["Stopped", "faint"],
-  idle: ["No agent", "faint"],
-};
 
 type Filter = "all" | "running" | "needs";
 
@@ -61,7 +49,7 @@ const GROUP: Partial<Record<Row["status"], Exclude<Filter, "all">>> = {
 
 const match = (s: Row["status"], f: Filter) => f === "all" || GROUP[s] === f;
 
-/** Show `r`'s branch selected in its project's workspace, the tree's sections opened down to it. */
+/** Show `r`'s branch selected in its project's workspace, scrolled into view on the map. */
 function openInWorkspace(nav: ReturnType<typeof useNav>, r: Row) {
   revealBranch(r.projectId, r.branch);
   nav.setProject(r.projectId);
@@ -176,7 +164,7 @@ export function Worktrees({ route }: { route: { key?: string } }) {
                   )}
                 </div>
                 {g.items.map((r) => {
-                  const [shown, cls] = STATUS[r.status];
+                  const [shown, cls] = STATUS_SHOWN[r.status];
                   const label = r.status === "limited" && r.agent?.limit ? limitLabel(r.agent.limit) : shown;
                   const bg = r.status === "running" && r.agent?.tasks?.length ? `${tasksLabel(r.agent.tasks)} in the background` : "";
                   const sub = !r.wt ? "Directory removed" : bg || r.agent?.request.split("\n")[0];

@@ -1697,9 +1697,14 @@ version = "0.1.0"
 dependencies = [
  "arboard",
  "base64 0.22.1",
+ "block2",
+ "cairo-rs",
  "cpal",
  "gitnetix-core",
  "gitnetix-server",
+ "objc2-app-kit",
+ "objc2-foundation",
+ "objc2-web-kit",
  "png 0.18.1",
  "serde",
  "serde_json",
@@ -1713,6 +1718,9 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "webkit2gtk",
+ "webview2-com",
+ "windows",
 ]
 
 [[package]]

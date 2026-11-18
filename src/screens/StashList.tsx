@@ -10,7 +10,7 @@ import { ago, plural, stashCount } from "../lib/format";
 import { copyToClipboard, toast } from "../lib/toast";
 
 /**
- * Stashes, in place of the branch tree: one branch's, or every one. Picking a
+ * Stashes, in place of the focus view's timeline: one branch's, or every one. Picking a
  * stash shows its files; it can then be popped, applied or dropped. Every stash's
  * list can be cleaned up: drop the picked ones at once.
  */
@@ -108,7 +108,7 @@ export function StashList({
     <section aria-label={branch ? `Stashes of ${branch}` : "Stashes"} className="ws-releases" data-pane data-active={active}>
       <div className="pane-head">
         <span className="row" style={{ gap: 6, minWidth: 0 }}>
-          <button className="btn btn-sm btn-icon pane-toggle pane-back" aria-label="Back to branches" data-tip="Back to branches (Esc)" onClick={onBack}>
+          <button className="btn btn-sm btn-icon pane-back" aria-label="Back to the timeline" data-tip="Back to the timeline (Esc)" onClick={onBack}>
             <Icon name="back" size={13} />
           </button>
           {branch ? <span className="mono ellipsis" style={{ fontSize: 12.5 }}>{branch}</span> : <span className="label">Stashes</span>}

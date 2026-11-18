@@ -819,6 +819,12 @@ impl Git {
         Ok(self.list_refs(&["refs/tags"]).await?.tags)
     }
 
+    /// Names of the tags `rev` holds, spelled as [`Git::tags`] gives them: one call instead of an ancestry check per tag.
+    pub async fn tags_merged(&self, rev: &str) -> Result<HashSet<String>> {
+        let merged = format!("--merged={rev}");
+        Ok(self.run(&["for-each-ref", &merged, "--format=%(refname:short)", "refs/tags"]).await?.lines().map(Into::into).collect())
+    }
+
     /// Commit SHAs in `range`, newest first.
     pub async fn rev_list(&self, range: &str) -> Result<Vec<String>> {
         Ok(self.run(&["rev-list", range]).await?.lines().map(Into::into).collect())
@@ -2529,6 +2535,31 @@ mod tests {
         std::fs::write(tmp.path().join("a.txt"), "3\n").unwrap();
         let fresh = g.stash("fresh").await.unwrap();
         assert!(fresh.is_some() && fresh != old);
+    }
+
+    #[tokio::test]
+    async fn tags_merged_names_the_tags_a_branch_holds() {
+        let tmp = tempfile::tempdir().unwrap();
+        let sh = |args: &[&str]| {
+            let ok = std::process::Command::new("git")
+                .current_dir(tmp.path())
+                .args(["-c", "user.name=T", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false"])
+                .args(args)
+                .status()
+                .unwrap()
+                .success();
+            assert!(ok, "git {args:?}");
+        };
+        sh(&["init", "-q", "-b", "main"]);
+        sh(&["commit", "-q", "--allow-empty", "-m", "a"]);
+        sh(&["tag", "v1.0.0"]);
+        sh(&["tag", "-a", "v1.1.0", "-m", "annotated"]);
+        sh(&["checkout", "-q", "-b", "side"]);
+        sh(&["commit", "-q", "--allow-empty", "-m", "b"]);
+        sh(&["tag", "v2.0.0"]);
+        let g = Git::new(tmp.path());
+        assert_eq!(g.tags_merged("main").await.unwrap(), HashSet::from(["v1.0.0".to_string(), "v1.1.0".to_string()]));
+        assert_eq!(g.tags_merged("side").await.unwrap().len(), 3);
     }
 
     #[test]

@@ -5,6 +5,8 @@
 use tauri::webview::{PermissionKind, PermissionResponse};
 
 #[cfg(desktop)]
+mod artifact;
+#[cfg(desktop)]
 mod mic;
 
 #[cfg(desktop)]
@@ -403,9 +405,9 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         // The mobile app's voice dictation records in the page, and webviews refuse the microphone unless the app allows it.
-        // Safe to allow outright: the window only ever shows Gitnetix's own UI, links open in the browser.
-        .on_permission_request(|_, kind| match kind {
-            PermissionKind::Microphone => PermissionResponse::Allow,
+        // Allowed for the main window only: it shows Gitnetix's own UI, links open in the browser. The claude.ai artifact window shows a web page.
+        .on_permission_request(|w, kind| match kind {
+            PermissionKind::Microphone if w.label() == "main" => PermissionResponse::Allow,
             _ => PermissionResponse::Default,
         });
 
@@ -417,7 +419,7 @@ pub fn run() {
         .manage(desktop::Companion::default())
         .manage(desktop::Clip::default())
         .setup(desktop::setup)
-        .invoke_handler(tauri::generate_handler![desktop::rpc, desktop::companion, desktop::allow_firewall, desktop::open_url, desktop::dictation_start, desktop::dictation_stop, desktop::dictation_cancel, desktop::agent_file_copy, desktop::agent_file_download, desktop::download_data_url, desktop::clipboard_files, desktop::clipboard_image, desktop::local_image, desktop::local_head]);
+        .invoke_handler(tauri::generate_handler![desktop::rpc, desktop::companion, desktop::allow_firewall, desktop::open_url, desktop::dictation_start, desktop::dictation_stop, desktop::dictation_cancel, desktop::agent_file_copy, desktop::agent_file_download, desktop::download_data_url, desktop::clipboard_files, desktop::clipboard_image, desktop::local_image, desktop::local_head, artifact::artifact_open, artifact::artifact_capture]);
 
     // The pairing screen scans the desktop's QR code with the phone camera.
     #[cfg(mobile)]

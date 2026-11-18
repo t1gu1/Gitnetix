@@ -1,7 +1,6 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent, type ReactNode } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent, type ReactNode } from "react";
 
 import {
-  committed,
   deletedOverview,
   discardedWip,
   droppedBranch,
@@ -34,6 +33,7 @@ import { isLocal, revealPath, rpc } from "../api/transport";
 import type { AgentSession, Blobs, BranchView, Commit, FileChange, FileCommit, Hunk, LinePick, MergeResult, Overview, RenameResult, Stash } from "../api/types";
 import { AgentInput, AgentLog, type Choice, type Upload } from "../components/AgentLog";
 import { AgentPicker, useAgentPick, type AgentPick } from "../components/AgentPicker";
+import { Avatar } from "../components/Avatar";
 import { DiffView, LargeDiff, type DiffMode, type Staging } from "../components/DiffView";
 import { IMAGE_MODES, ImageDiff, comparable, dataUrl, isImage, useImageMode, type ImageMode } from "../components/ImageDiff";
 import { PictureSource } from "../components/Picture";
@@ -43,7 +43,7 @@ import { Resizer, usePaneWidth } from "../components/Resizer";
 import { ShellPane, TermTabs, useTermView } from "../components/Shell";
 import { Busy, Confirm, ErrorBox, Loading, Markdown, MediaAsk, Modal, Seg, swipeProps } from "../components/ui";
 import { ago, plural, timeLeft } from "../lib/format";
-import { limitLabel, shownStatus, tasksLabel } from "../lib/agentLog";
+import { limitLabel, shownStatus, STATUS_SHOWN, tasksLabel } from "../lib/agentLog";
 import { startCleanup, useCleaning } from "../lib/cleanups";
 import { useDraft } from "../lib/drafts";
 import { useIdle } from "../lib/motion";
@@ -53,17 +53,18 @@ import { useStoredChoice, useStoredFlag } from "../lib/stored";
 import { agentKey, branchKey, call, runTask, useHidden, wtKey } from "../lib/tasks";
 import { copyToClipboard, toast } from "../lib/toast";
 import { AbortModal } from "./AbortModal";
-import { offersRebase, useBranchActions, type BranchDialog, type BranchTarget } from "./BranchMenu";
-import { BranchTree, revealBranch } from "./BranchTree";
-import { CommitList, DeleteTagModal } from "./CommitList";
+import { agentWords, BranchMap, BranchTags, lineageOf, lookItem, originOf, revealBranch, roleCls, useAgentOf, useMapLayout, type FocusItem } from "./BranchMap";
+import { offersRebase, useBranchActions, useCommit, type BranchDialog, type BranchTarget } from "./BranchMenu";
+import { DeleteTagModal } from "./CommitMenu";
 import { FileHistory } from "./FileHistory";
 import { PublishModal } from "./Publish";
 import { startRebase } from "./RebaseRun";
 import { StashList } from "./StashList";
 
 type Mode = "branch" | "wip" | "project";
-type Pane = "releases" | "files" | "diff";
-const PANES: Pane[] = ["releases", "files", "diff"];
+/** On a phone, the focus view shows one at a time: the branch's timeline, or the code with the agent. */
+type Pane = "rail" | "code";
+const PANES: Pane[] = ["rail", "code"];
 /** A file with more changed lines than this waits for "Show anyway" before its diff is even fetched. */
 const HUGE_DIFF = 20_000;
 /** A tree folder holding more files than this starts closed, and so do the folders inside it. */
@@ -85,7 +86,11 @@ export function Workspace() {
   const [svgCode, setSvgCode] = useState(false);
   const [imageMode, setImageMode] = useImageMode();
   const [termOpen, setTermOpen] = useStoredFlag("gnx.pane.termOpen");
-  const [pane, setPane] = useState<Pane>("releases");
+  // The branch map's toolbar renders here, above both the map and the agent panel.
+  const [mapBar, setMapBar] = useState<HTMLDivElement | null>(null);
+  // The branch map, or the selected branch full screen: its timeline beside its code.
+  const [focused, setFocused] = useState(false);
+  const [pane, setPane] = useState<Pane>("rail");
   // Which way the narrow layout slides the new pane in; none until the first switch.
   const [slide, setSlide] = useState<{ pane: Pane; dir?: "next" | "prev" }>({ pane });
   if (slide.pane !== pane) setSlide({ pane, dir: PANES.indexOf(pane) > PANES.indexOf(slide.pane) ? "next" : "prev" });
@@ -101,12 +106,9 @@ export function Workspace() {
   const [cleanupBehind, setCleanupBehind] = useState<{ section: string; base: string; branches: BranchView[] } | null>(null);
   const [cleanupShipped, setCleanupShipped] = useState<BranchView[] | null>(null);
   const cleanupLeft = useCleaning(pid);
-  // Branch whose commits replace the tree, and the commit picked there (none = all changes).
-  const [history, setHistory] = useState<string | null>(null);
+  // The commit picked in the timeline (none = all the branch's changes).
   const [commit, setCommit] = useState<Commit | undefined>();
-  // File view picked before the commit list took over, put back when it closes.
-  const modeBeforeHistory = useRef<Mode>(mode);
-  // Stash list in place of the tree: one branch's ("" = every stash), and the stash picked there.
+  // Stash list in place of the timeline: one branch's ("" = every stash), and the stash picked there.
   const [stashesOf, setStashesOf] = useState<string | null>(null);
   const [stash, setStash] = useState<Stash | undefined>();
   // One file's history in place of the file list (its path), the commit picked there, and one to pick once listed (a blamed line's).
@@ -115,12 +117,14 @@ export function Workspace() {
   const [logWant, setLogWant] = useState<string>();
   // The file the pointer reached the diff of: its blame loads then, not for every file clicked through.
   const [blameFor, setBlameFor] = useState<string>();
-  // Left pane (branches, or the diff over them) as a percent of the workspace: two thirds by default.
-  const leftW = usePaneWidth("gnx.pane.left", 67, 20, 80);
+  // The focus view's timeline, beside the code.
+  const railW = usePaneWidth("gnx.pane.rail", 360, 260, 720);
   const [asTree, setAsTree] = useStoredFlag("gnx.files.tree");
   // Collapse/expand all: a new `n` remounts the file lists, dropping per-folder toggles.
   const [fold, setFold] = useState({ closed: false, n: 0 });
   const actions = useBranchActions(pid, (kind, branch, onto) => {
+    // Committing everything with no AI to write the message: the branch's uncommitted work, its message box open.
+    if (kind === "commit") return openFocus(branch, "wip");
     // A worktree's branch ends the way its worktree session does: delete is "Cancel and Delete all", merge drops the worktree once merged.
     const wt = byName.get(branch)?.worktree;
     if (wt && kind === "merge") finish.merge({ projectId: pid, branch, cwd: wt }, true);
@@ -133,16 +137,19 @@ export function Workspace() {
   const startingRebase = usePendingBranches(["workspace.rebase", "workspace.rebaseContinue"], pid);
 
   const hidden = useHidden();
-  // Branches a background action is deleting leave the tree at the click; they come back if it fails.
+  // Branches a background action is deleting leave the map at the click; they come back if it fails.
   const o = useMemo(() => {
     const prefix = branchKey(pid, "");
     return [...hidden].filter((k) => k.startsWith(prefix)).reduce((x, k) => x && deletedOverview(x, k.slice(prefix.length), true), ov.data);
   }, [ov.data, hidden, pid]);
   const byName = useMemo(() => new Map((o?.branches ?? []).map((b) => [b.name, b])), [o]);
   const tagV = useTagV(pid);
+  // The map as the focus view's way back draws it, and where the branch sits in it.
+  const layout = useMapLayout(focused ? o : undefined);
+  const agentOf = useAgentOf(pid);
   const branch = nav.selectedBranch ?? o?.currentBranch ?? o?.defaultBranch ?? undefined;
   const baseFor = (b: string) => byName.get(b)?.parent ?? "";
-  /** Delete `branches` in the background: `section` stays locked in the tree until it is done, whatever screen or project the user is on. */
+  /** Delete `branches` in the background: `section` stays locked on the map until it is done, whatever screen or project the user is on. */
   const cleanUp = (section: string, branches: string[], opts: { force?: boolean; remote: boolean }, what: string) =>
     startCleanup({ projectId: pid, projectName: o?.project.name ?? "", section, branches, ...opts, what, onDeleted: (gone) => nav.forgetBranches(pid, gone) });
   // Releases and trunks a work branch can be re-targeted to.
@@ -162,7 +169,6 @@ export function Workspace() {
       baseLabel: labelOf(base),
       isDefault: b === o?.defaultBranch,
       extra: shippedRel?.tagName ? tagItems(shippedRel.tagName, shippedRel.checkedOut) : undefined,
-      showCommits: v.exists ? () => openHistory(b) : undefined,
       showStashes: v.stashes ? () => openStashes(b) : undefined,
       latestStash: o?.stashes.find((s) => s.branch === b),
       // Work branches can be re-targeted to any release or trunk.
@@ -187,29 +193,33 @@ export function Workspace() {
     "sep",
     { id: "deleteTag", label: <>Delete tag <span className="mono">{tag}</span>…</>, icon: "trash", danger: true, run: () => setDeletingTag(tag) },
   ];
-  const openHistory = (b: string) => {
+  /** Branch `b` full screen, on `item`. */
+  const openFocus = (b: string, item: FocusItem) => {
     closeStashes();
+    closeFileLog();
     nav.selectBranch(b);
-    if (!history) modeBeforeHistory.current = mode;
-    setHistory(b);
-    setCommit(undefined);
-    setMode("branch");
+    setCommit(typeof item === "object" ? item : undefined);
+    setMode(item === "wip" ? "wip" : item === "project" ? "project" : "branch");
+    setFocused(true);
+    setPane("rail");
+  };
+  const closeFocus = () => {
+    closeFileLog();
+    closeStashes();
+    setFocused(false);
   };
   /** `b` = the stashes made on that branch, none = every stash. */
   const openStashes = (b?: string) => {
-    closeHistory();
+    closeFileLog();
     if (b) nav.selectBranch(b);
     setStashesOf(b ?? "");
     setStash(undefined);
+    setFocused(true);
+    setPane("rail");
   };
   const closeStashes = () => {
     setStashesOf(null);
     setStash(undefined);
-  };
-  const closeHistory = () => {
-    if (history) setMode(modeBeforeHistory.current);
-    setHistory(null);
-    setCommit(undefined);
   };
   /** `want`: the commit to pick in it once listed. */
   const openFileLog = (path: string, want?: string) => {
@@ -227,16 +237,28 @@ export function Workspace() {
   const base = branch ? baseFor(branch) : "";
   const checkedOut = view?.checkedOut ?? branch === o?.currentBranch;
 
-  const files = useFiles(pid, branch, mode, commit?.sha, stash?.sha);
+  // The map needs no file lists: only the focus view loads them.
+  const files = useFiles(pid, focused ? branch : undefined, mode, commit?.sha, stash?.sha);
   const wipList = useFiles(pid, branch, "wip").data ?? [];
   // Loaded even while another branch is shown: each refetch keeps the current branch's "WIP n" right (syncWipCount).
   useFiles(pid, o?.currentBranch ?? undefined, "wip");
   const wipCount = new Set(wipList.map((f) => f.path)).size;
   const stagedCount = wipList.filter((f) => f.staged).length;
-  const branchCount = useFiles(pid, branch, "branch").data?.length ?? 0;
+  const branchFiles = useFiles(pid, focused ? branch : undefined, "branch").data ?? [];
   const list = files.data ?? [];
-  const fileCount = new Set(list.map((f) => f.path)).size;
-  const current = list.find((f) => fileKey(f) === file);
+  const isWip = mode === "wip" && !commit && !stash;
+  // The files in the order the list shows them, for [ and ].
+  const listed = useMemo(() => fileOrder(list, asTree), [list, asTree]);
+  const picked = list.find((f) => fileKey(f) === file);
+  // Until a file is picked, the focus view shows the first one: in the project's files, a changed one, else the README.
+  const current =
+    picked ??
+    (focused && !file
+      ? mode === "project" && !stash
+        ? (listed.find((f) => f.status !== " ") ?? listed.find((f) => /^readme\.md$/i.test(f.path)) ?? listed[0])
+        : listed[0]
+      : undefined);
+  const fileAt = current ? listed.indexOf(current) : -1;
   // The diff shows the commit picked in a file's history, else the file picked in the list.
   const logged = fileLog !== null ? logPick : undefined;
   const shown: FileChange | undefined = logged ? { path: logged.path, status: logged.status, additions: logged.additions, deletions: logged.deletions } : current;
@@ -360,32 +382,45 @@ export function Workspace() {
   }, [branch, mode, commit, stash]);
   // A WIP file whose last lines on its side were staged (or unstaged) lives on the other side now: follow it there.
   useEffect(() => {
-    if (current || !file || mode !== "wip") return;
+    if (picked || !file || mode !== "wip") return;
     const moved = list.find((f) => f.staged !== undefined && fileKey({ ...f, staged: !f.staged }) === file);
     if (moved) setFile(fileKey(moved));
-  }, [current, file, mode, list]);
-  // Escape closes the file's history, else the diff, unless it is closing something else (or letting go of selected lines)
-  // or typing; captured so the commit or stash list under it stays open.
-  const fileOpen = !!shown;
+  }, [picked, file, mode, list]);
   const logOpen = fileLog !== null;
+  // The focus view's keys, outside a field, the terminal, a dialog or a menu: [ and ] move through the files, S switches split and unified. Escape closes the file's history or the stashes, else goes back to the map (unless it is letting go of
+  // selected lines or closing a find); captured, so the lists' own Escape doesn't run too.
+  const keys = useRef({ file: (_: 1 | -1) => {}, split: () => {}, back: () => {} });
+  keys.current = {
+    file: (d) => {
+      const f = listed[fileAt + d];
+      if (f) setFile(fileKey(f));
+    },
+    split: () => setDiffMode(diffMode === "split" ? "unified" : "split"),
+    back: () => (logOpen ? closeFileLog() : stashesOf !== null ? closeStashes() : closeFocus()),
+  };
   useEffect(() => {
-    if (!fileOpen) return;
+    if (!focused) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape" || (e.target as HTMLElement).closest("input, textarea")) return;
-      if (document.querySelector("[role=dialog], [role=menu], .diff-picks, .diff-find")) return;
-      e.stopImmediatePropagation();
-      if (logOpen) return closeFileLog();
-      setFile(undefined);
-      setPane("files");
+      if (e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented) return;
+      if ((e.target as HTMLElement).closest("input, textarea, select, [contenteditable], .xterm")) return;
+      if (document.querySelector("[role=dialog], [role=menu]")) return;
+      const k = e.key.toLowerCase();
+      if (k === "escape") {
+        if (document.querySelector(".diff-picks, .diff-find")) return;
+        e.stopImmediatePropagation();
+        keys.current.back();
+      } else if (k === "[" || k === "]") keys.current.file(k === "]" ? 1 : -1);
+      else if (k === "s") keys.current.split();
+      else return;
+      e.preventDefault();
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [fileOpen, logOpen]);
-  // Picking another branch (e.g. from a ticket) leaves its commit or stash list.
+  }, [focused]);
+  // Picking another branch (e.g. from a ticket) leaves its stash list.
   useEffect(() => {
-    if (history && branch !== history) closeHistory();
     if (stashesOf && branch !== stashesOf) closeStashes();
-  }, [branch, history, stashesOf]);
+  }, [branch, stashesOf]);
   // A stash popped or dropped elsewhere is gone: stop showing it.
   useEffect(() => {
     if (stash && o && !o.stashes.some((s) => s.sha === stash.sha)) setStash(undefined);
@@ -405,6 +440,135 @@ export function Workspace() {
   const rebasingOnto = (b: string) => labelOf(b === o?.currentBranch && o?.rebaseOnto ? o.rebaseOnto : baseFor(b));
 
   if (ov.isLoading) return <Loading />;
+  const t = branch ? target(branch) : undefined;
+  const agent = view ? agentOf(view) : undefined;
+  const chain = layout && branch ? lineageOf(layout, branch).flatMap((n) => byName.get(n) ?? []) : [];
+  const hasBase = !!base && base !== branch;
+  const sum = (l: FileChange[], k: "additions" | "deletions") => l.reduce((n, f) => n + f[k], 0);
+  const nums = (l: FileChange[]) => [
+    <span key="add" className="mono c-add">+{sum(l, "additions")}</span>,
+    <span key="del" className="mono c-del">−{sum(l, "deletions")}</span>,
+  ];
+  const where = view?.worktree ? "in its own worktree" : checkedOut ? "checked out here" : "not checked out";
+  const pickFile = (f: FileChange) => {
+    setFile(fileKey(f));
+    setPane("code");
+  };
+  const [originText, originCls] = view ? originOf(view, !!o?.remote) : ["", ""];
+
+  const filesEl = (
+    <ul className="scroll rail-files" data-wip={(isWip && list.length > 0) || undefined}>
+      {files.isLoading && <li className="empty"><span className="spinner" /></li>}
+      {files.error && <li style={{ padding: 12 }}><ErrorBox error={files.error} /></li>}
+      {isWip && branch && list.length > 0 ? (
+        <WipList
+          pid={pid}
+          branch={branch}
+          midOp={!!o?.inProgress || !!op}
+          locked={!!running || !!held}
+          list={list}
+          current={current}
+          tree={asTree}
+          fold={fold}
+          menu={fileMenu}
+          onPick={pickFile}
+          onMoved={(f) => current && fileKey(current) === fileKey(f) && setFile(fileKey({ ...f, staged: !f.staged }))}
+          onDiscard={(staged, paths) => setDiscarding({ staged, paths })}
+        />
+      ) : (
+        <FileList key={fold.n} allClosed={fold.closed} list={list} current={current} tree={asTree} menu={fileMenu} onPick={pickFile} />
+      )}
+      {!files.isLoading && list.length === 0 && (
+        <li className="empty engraved">
+          {stash
+            ? "This stash holds no files."
+            : commit
+              ? "This commit changes no files."
+              : mode === "wip"
+                ? checkedOut
+                  ? "No uncommitted changes."
+                  : "This branch is not checked out."
+                : "No changes on this branch yet."}
+        </li>
+      )}
+    </ul>
+  );
+
+  // What the code shows, above it: the item picked, and what can be done with it.
+  const stashAct = t && actions.action(t, "stash");
+  const prAct = t && hasBase && !view?.worktree && o?.remote ? actions.action(t, "pr") : undefined;
+  let eyebrow = "";
+  let eyeCls = "faint";
+  let title: ReactNode = "";
+  let meta: ReactNode[] = [];
+  let acts: ReactNode = null;
+  if (logged) {
+    eyebrow = "File history";
+    title = logged.subject;
+    meta = [<span key="who" className="row code-who"><Avatar name={logged.author} email={logged.email} size={18} />{logged.author}</span>, <span key="when">{ago(logged.date)}</span>, <span key="sha" className="mono">{logged.sha.slice(0, 7)}</span>];
+  } else if (stash) {
+    eyebrow = "Stash";
+    title = stash.message;
+    meta = [<span key="sha" className="mono">{stash.sha.slice(0, 7)}</span>, stash.branch ? <span key="on" className="mono">on {stash.branch}</span> : null, <span key="when">{ago(stash.date)}</span>];
+  } else if (commit) {
+    // No header (eyebrow stays empty): the files panel already shows the commit.
+  } else if (mode === "wip") {
+    eyebrow = "Not committed";
+    eyeCls = "c-wip";
+    title = agent?.state === "working" ? `${agent.label} is still changing these files` : agent?.state ? `${agent.label} changed these files` : "Your changes since the last commit";
+    meta = [<span key="n">{plural(wipCount, "file")}</span>, ...nums(wipList), <span key="where">{where}</span>];
+    acts = stashAct && (
+      <button className="btn btn-sm" disabled={stashAct.disabled} data-tip={stashAct.tip} onClick={stashAct.run}>
+        <Icon name="stash" size={12} />
+        Stash
+      </button>
+    );
+  } else if (mode === "branch") {
+    eyebrow = hasBase ? "All changes on this branch" : "History";
+    eyeCls = "c-mod";
+    title = branch ? labelOf(branch) : "";
+    meta = [
+      <span key="c">{plural(view?.ahead ?? 0, "commit")}</span>,
+      <span key="f">{plural(list.length, "file")}</span>,
+      ...nums(list),
+      hasBase ? <span key="m">what merging into <span className="mono">{labelOf(base)}</span> brings</span> : null,
+    ];
+    acts = prAct && (
+      <button className="btn btn-sm" disabled={prAct.disabled} data-tip={`Open a pull request into ${labelOf(base)}`} onClick={prAct.run}>
+        <Icon name="pr" size={12} />
+        Open PR
+      </button>
+    );
+  } else {
+    eyebrow = "Project · files at this branch";
+    title = shown?.path ?? "Files";
+    meta = [<span key="as">as it is on <span className="mono">{branch}</span>{checkedOut ? ", with your changes" : ""}</span>];
+    acts = shown && (
+      <button className="btn btn-sm" onClick={() => copyToClipboard(shown.path)}>
+        <Icon name="copy" size={12} />
+        Copy path
+      </button>
+    );
+  }
+  const cut = shown ? shown.path.lastIndexOf("/") : -1;
+  const note = !shown
+    ? ""
+    : logged
+      ? `as of ${logged.sha.slice(0, 7)}`
+      : stash
+        ? `in the stash`
+        : commit
+          ? `in ${commit.sha.slice(0, 7)}`
+          : mode === "wip"
+            ? shown.staged
+              ? "staged"
+              : "not staged"
+            : mode === "branch"
+              ? `all ${plural(view?.ahead ?? 0, "commit")}${hasBase ? ` vs ${labelOf(base)}` : ""}`
+              : unchanged
+                ? "unchanged on this branch"
+                : "changed on this branch";
+
   return (
     <>
       {ov.error && (
@@ -416,176 +580,390 @@ export function Workspace() {
       {o && (
         <main
           className="ws"
-          style={{ "--branches-w": `${leftW.width}%` } as CSSProperties}
-          data-file-open={shown ? true : undefined}
-          data-slide={slide.dir}
-          {...swipeProps((dir) => {
-            // Past the first pane, a commit or stash list steps back to the branches, like its back button.
-            if (dir < 0 && pane === PANES[0] && history) return closeHistory();
-            if (dir < 0 && pane === PANES[0] && stashesOf !== null) return closeStashes();
-            const next = PANES[PANES.indexOf(pane) + dir];
-            if (next) setPane(next);
-          })}
+          data-slide={focused ? slide.dir : undefined}
+          {...(focused
+            ? swipeProps((dir) => {
+                // Back from the timeline: out of a file's history or the stashes, else back to the map.
+                if (dir < 0 && pane === PANES[0]) return logOpen ? closeFileLog() : stashesOf !== null ? closeStashes() : closeFocus();
+                const next = PANES[PANES.indexOf(pane) + dir];
+                if (next) setPane(next);
+              })
+            : {})}
         >
-          <div className="ws-left" data-pane data-active={pane !== "files"}>
-            {stashesOf !== null ? (
-              <StashList
-                active={pane === "releases"}
-                pid={pid}
-                stashes={stashesOf ? o.stashes.filter((s) => s.branch === stashesOf) : o.stashes}
-                branch={stashesOf || undefined}
-                total={o.stashes.length}
-                selected={stash?.sha}
-                // Back onto its own branch when that is checked out, else onto the main checkout's.
-                targetOf={(s) => (s.branch && byName.get(s.branch)?.checkedOut ? s.branch : o.currentBranch ?? undefined)}
-                onPick={(s) => {
-                  setStash(s);
-                  if (s) setPane("files");
-                }}
-                onShowAll={() => openStashes()}
-                onBack={closeStashes}
-              />
-            ) : history ? (
-              <CommitList
-                active={pane === "releases"}
-                pid={pid}
-                branch={history}
-                base={baseFor(history) === history ? "" : labelOf(baseFor(history))}
-                selected={commit?.sha}
-                checkedOut={byName.get(history)?.checkedOut ?? history === o.currentBranch}
-                upstream={!!byName.get(history)?.upstream}                current={o.currentBranch ?? undefined}
-                onPick={(c, auto) => {
-                  setCommit(c);
-                  setMode("branch");
-                  if (!auto) setPane("files");
-                }}
-                onBack={closeHistory}
-              />
+          <div className="ws-head">
+            {focused ? (
+              <div className="focus-head">
+                <button className="btn focus-back" data-tip="Back to the branch map (Esc)" onClick={closeFocus}>
+                  <Icon name="back" size={13} />
+                  <span className="hide-narrow">Branch map</span>
+                  <kbd className="hide-narrow">Esc</kbd>
+                </button>
+                <nav className="focus-crumbs" aria-label="Where it comes from">
+                  {chain.map((c, i) => (
+                    <Fragment key={c.name}>
+                      {i > 0 && <span className="faint" aria-hidden>›</span>}
+                      <button
+                        className={`mono${c.name === branch ? "" : ` ${roleCls(c)}`}`}
+                        aria-current={c.name === branch || undefined}
+                        onClick={() => c.name !== branch && openFocus(c.name, lookItem(c))}
+                      >
+                        {labelOf(c.name)}
+                      </button>
+                    </Fragment>
+                  ))}
+                  {view && <BranchTags o={o} b={view} />}
+                </nav>
+                <span className="grow" />
+                {view && (
+                  <span className="focus-pills hide-narrow">
+                    {view.role === "branch" && hasBase && !view.merged && view.exists && (
+                      <span className={view.behind ? "c-warn" : undefined}>
+                        ↑{view.ahead}
+                        {view.behind ? ` ↓${view.behind}` : ""} vs {labelOf(base)}
+                      </span>
+                    )}
+                    {view.conflict && <span className="c-del">{op ?? "operation"} stopped on a conflict</span>}
+                    {agent && (
+                      <span className={agent.state === "working" ? "c-release" : agent.state === "done" ? "c-add" : agent.state ? "c-warn" : undefined}>
+                        {agent.label} {agentWords(agent)}
+                      </span>
+                    )}
+                    {view.merged && <span className="c-add">merged into {labelOf(base)}</span>}
+                    {view.exists && !view.merged && <span className={originCls}>{originText}</span>}
+                  </span>
+                )}
+              </div>
             ) : (
-              <BranchTree
-                active={pane === "releases"}
+              <div ref={setMapBar} />
+            )}
+          </div>
+          <div className="ws-body">
+            {!focused ? (
+              <BranchMap
                 o={o}
                 selected={branch}
                 actions={actions}
                 target={target}
-                onSelect={(b) => {
-                  nav.selectBranch(b);
-                  setPane("files");
-                }}
+                onSelect={(b) => nav.selectBranch(b)}
+                onFocus={openFocus}
                 onCleanup={(parent, label, branches) => setCleanup({ parent, label, branches })}
                 onCleanupBehind={(section, base, branches) => setCleanupBehind({ section, base, branches })}
                 onCleanupShipped={setCleanupShipped}
-                isCleaning={(s) => cleanupLeft(s) !== undefined}
                 cleanupLeft={cleanupLeft}
                 tagItems={tagItems}
-                onStashes={() => openStashes()}
+                onStashes={openStashes}
                 building={ov.isPlaceholderData}
                 updating={ov.isFetching && !ov.isPlaceholderData}
                 progress={progress}
-                fileOpen={fileOpen}
+                bar={mapBar}
               />
+            ) : (
+              <section className="focus" aria-label={`${branch} full screen`}>
+                <div className="focus-body">
+                  <aside className="rail" aria-label="Changed files" style={{ "--rail-w": `${railW.width}px` } as CSSProperties} data-pane data-active={pane === "rail"}>
+                    {fileLog !== null && branch ? (
+                      <FileHistory
+                        key={fileLog}
+                        pid={pid}
+                        branch={branch}
+                        path={fileLog}
+                        selected={logPick?.sha}
+                        want={logWant}
+                        onPick={(c, auto) => {
+                          setLogPick(c);
+                          setLogWant(undefined);
+                          if (!auto) setPane("code");
+                        }}
+                        onBack={closeFileLog}
+                      />
+                    ) : stashesOf !== null ? (
+                      <>
+                        <StashList
+                          active
+                          pid={pid}
+                          stashes={stashesOf ? o.stashes.filter((s) => s.branch === stashesOf) : o.stashes}
+                          branch={stashesOf || undefined}
+                          total={o.stashes.length}
+                          selected={stash?.sha}
+                          // Back onto its own branch when that is checked out, else onto the main checkout's.
+                          targetOf={(s) => (s.branch && byName.get(s.branch)?.checkedOut ? s.branch : (o.currentBranch ?? undefined))}
+                          onPick={setStash}
+                          onShowAll={() => openStashes()}
+                          onBack={closeStashes}
+                        />
+                        {stash && filesEl}
+                      </>
+                    ) : (
+                      <>
+                        <div className="col rail-head">
+                          <div className="row" style={{ alignItems: "center", minWidth: 0, margin: 0 }}>
+                            <span className="mono ellipsis" style={{ fontSize: 13, fontWeight: 500 }}>{branch ?? "No branch"}</span>
+                            {hasBase && <span className="faint" style={{ fontSize: 11.5, whiteSpace: "nowrap" }}>{view?.likelyMerged ? "likely merged into" : view?.merged ? "merged into" : "from"} {labelOf(base)}</span>}
+                            {view?.merged && <span className="c-add row" style={{ marginLeft: 6, flex: "0 0 auto" }} title={view.likelyMerged ? `A pull request carrying its ticket went into ${base} after its last commit` : `All commits are in ${base}`}><Icon name="merged" size={12} stroke={1.6} label="merged" /></span>}
+                            {asTree && (
+                              <button
+                                className="btn btn-sm btn-icon"
+                                style={{ marginLeft: "auto", flex: "0 0 auto", alignSelf: "center" }}
+                                aria-label={fold.closed ? "Expand all folders" : "Collapse all folders"}
+                                data-tip={fold.closed ? "Expand all" : "Collapse all"}
+                                aria-expanded={!fold.closed}
+                                onClick={() => setFold((f) => ({ closed: !f.closed, n: f.n + 1 }))}
+                              >
+                                <Icon name="chevronDown" size={12} className="chev" />
+                              </button>
+                            )}
+                            <button
+                              className="btn btn-sm btn-icon"
+                              style={{ marginLeft: asTree ? 0 : "auto", flex: "0 0 auto", alignSelf: "center" }}
+                              aria-label={asTree ? "Show files as a list" : "Show files as a tree"}
+                              data-tip={asTree ? "List view" : "Tree view"}
+                              onClick={() => setAsTree(!asTree)}
+                            >
+                              <Icon name={asTree ? "menu" : "folder"} size={12} />
+                            </button>
+                          </div>
+                          {commit ? (
+                            // Opened from a commit on the map: its files, until closed back to the branch's.
+                            <div className="commit-head">
+                              <div className="col" style={{ gap: 3, minWidth: 0, flex: "1 1 auto" }}>
+                                <span className="commit-subject">{commit.subject}</span>
+                                <span className="commit-meta">
+                                  <button className="link-btn mono" data-tip="Copy SHA" onClick={() => copyToClipboard(commit.sha)}>
+                                    {commit.sha.slice(0, 7)}
+                                  </button>
+                                  <span className="ellipsis">{commit.author}</span>
+                                  <span style={{ whiteSpace: "nowrap" }}>{ago(commit.date)}</span>
+                                  <span style={{ whiteSpace: "nowrap" }}>{plural(new Set(list.map((f) => f.path)).size, "file")}</span>
+                                  {nums(list)}
+                                </span>
+                              </div>
+                            </div>
+                          ) : (
+                            <Seg<Mode>
+                              label="File view"
+                              grid
+                              value={mode}
+                              onChange={setMode}
+                              options={[
+                                { value: "wip", label: wipCount > 0 ? <span className="wip-badge">WIP {wipCount}</span> : <>WIP <span className="faint">{wipCount}</span></> },
+                                { value: "branch", label: <>Branch <span className="faint">{branchFiles.length}</span></> },
+                                { value: "project", label: "Project" },
+                              ]}
+                            />
+                          )}
+                          {branch && view?.worktree && <span className="hint mono ellipsis" title={view.worktree}>{view.worktree}</span>}
+                        </div>
+                        {isWip && junk && (
+                          <div className="col note-box" style={{ margin: "10px 12px 0" }}>
+                            <span style={{ fontSize: 12, lineHeight: 1.45 }}>
+                              <span className="mono">{junk}/</span> isn't ignored: its files fill the list and slow the app down.
+                            </span>
+                            <button className="btn btn-sm" style={{ height: 30 }} disabled={ignore.isPending} onClick={() => branch && ignore.mutate({ projectId: pid, branch, path: junk, dir: true })}>
+                              {ignore.isPending ? <span className="spinner" /> : <Icon name="edit" size={12} />}
+                              <span>Add to .gitignore</span>
+                            </button>
+                          </div>
+                        )}
+                        {filesEl}
+                        {branch && !commit && (
+                          <CommitBox
+                            key={branch}
+                            pid={pid}
+                            branch={branch}
+                            enabled={checkedOut && !running && !held}
+                            locked={running ? "AI is rebasing this branch" : held ? "Locked while AI rebases a branch onto this one" : undefined}
+                            staged={stagedCount}
+                            changed={wipCount}
+                          />
+                        )}
+                      </>
+                    )}
+                  </aside>
+                  <Resizer pane={railW} label="Resize the files panel" />
+                  <section aria-label="Code" className="focus-code" data-pane data-active={pane === "code"}>
+                    {eyebrow && (
+                      <div className="code-top">
+                        <div className="code-title">
+                          <span className={`code-eyebrow ${eyeCls}`}>{eyebrow}</span>
+                          <h2>{title}</h2>
+                          <div className="code-meta">{meta}</div>
+                        </div>
+                        <div className="code-acts">
+                          {acts}
+                        </div>
+                      </div>
+                    )}
+                    {running && branch ? (
+                      <div className="code-banner c-acc">
+                        <span className="spinner" />
+                        <span className="grow">
+                          AI is rebasing onto <span className="mono">{labelOf(running.onto)}</span>
+                          {running.steps ? `, commit ${running.step} of ${running.steps}` : ""}. Its files stay as they are until it is done.
+                        </span>
+                        <button className="btn btn-sm" onClick={() => showRun(pid, branch)}>
+                          <Icon name="sparkle" size={12} />
+                          Show progress
+                        </button>
+                      </div>
+                    ) : held ? (
+                      <div className="code-banner">
+                        <Icon name="lock" size={13} />
+                        <span className="grow">
+                          AI is rebasing <span className="mono">{labelOf(held.branch)}</span> onto this branch: it stays locked until that is done.
+                        </span>
+                        <button className="btn btn-sm" onClick={() => showRun(held.projectId, held.branch)}>
+                          <Icon name="sparkle" size={12} />
+                          Show progress
+                        </button>
+                      </div>
+                    ) : (
+                      op &&
+                      branch && (
+                        <div className={`code-banner ${opConflicts || view?.conflict ? "c-del" : "c-warn"}`}>
+                          <Icon name="alert" size={13} />
+                          <span className="grow">
+                            {op === "rebase" ? <>The rebase onto <span className="mono">{rebasingOnto(branch)}</span></> : `The ${op}`}
+                            {opConflicts ? ` stopped on ${plural(opConflicts, "conflict")}.` : view?.conflict ? " stopped on conflicts." : " is paused."}
+                          </span>
+                          <button className="btn btn-sm" disabled={starting} data-tip={`Put ${branch} back to where it was before the ${op}`} onClick={() => setDialog({ kind: "abort", branch })}>
+                            <Icon name="undo" size={12} />
+                            Abort {op}
+                          </button>
+                          {op === "rebase" && (
+                            <button className="btn btn-primary btn-sm" disabled={starting} data-tip="AI resolves every conflict and carries the rebase through every commit" onClick={() => void startRebase(pid, branch, { resume: true })}>
+                              {starting ? <span className="spinner" /> : <Icon name="sparkle" size={12} />}
+                              Resolve with AI
+                            </button>
+                          )}
+                        </div>
+                      )
+                    )}
+                    <div className="code-file">
+                      {shown ? (
+                        <>
+                          <span className={`file-st ${{ A: "c-add", D: "c-del", C: "c-acc", M: "c-mod", R: "c-mod", " ": "faint" }[shown.status] ?? "faint"}`}>{shown.status === " " ? "·" : shown.status}</span>
+                          <span className="code-path mono ellipsis" data-tip={shown.path} data-tip-overflow>
+                            {cut >= 0 && <span className="faint">{shown.path.slice(0, cut + 1)}</span>}
+                            <b>{shown.path.slice(cut + 1)}</b>
+                          </span>
+                          <span className="row mono hide-narrow" style={{ gap: 6, margin: 0 }}>
+                            {shown.additions ? <span className="c-add">+{shown.additions}</span> : null}
+                            {shown.deletions ? <span className="c-del">−{shown.deletions}</span> : null}
+                          </span>
+                          <span className="faint ellipsis hide-narrow code-note">{note}</span>
+                        </>
+                      ) : (
+                        <span className="faint">No file selected</span>
+                      )}
+                      <span className="grow" />
+                      {!logged && listed.length > 1 && (
+                        <span className="code-files" role="group" aria-label="Files">
+                          <button className="btn btn-ghost btn-sm btn-icon" aria-label="Previous file ([)" data-tip="Previous file ([)" disabled={fileAt <= 0} onClick={() => keys.current.file(-1)}>
+                            <Icon name="chevronLeft" size={12} />
+                          </button>
+                          <span className="hide-narrow">{fileAt >= 0 ? `File ${fileAt + 1} of ${listed.length}` : `${listed.length} files`}</span>
+                          <button className="btn btn-ghost btn-sm btn-icon" aria-label="Next file (])" data-tip="Next file (])" disabled={fileAt >= listed.length - 1} onClick={() => keys.current.file(1)}>
+                            <Icon name="chevronRight" size={12} />
+                          </button>
+                        </span>
+                      )}
+                      {image ? (
+                        (comparable(blobs.data) || svg) && (
+                          <Seg<ImageMode | "code">
+                            value={imageMode}
+                            onChange={(v) => (v === "code" ? setSvgCode(true) : setImageMode(v))}
+                            label="Image comparison"
+                            options={[...(comparable(blobs.data) ? IMAGE_MODES : [{ value: imageMode, label: "Image" }]), ...(svg ? [{ value: "code" as const, label: "Code" }] : [])]}
+                          />
+                        )
+                      ) : (
+                        (!unchanged || markdown || svg) &&
+                        shown && (
+                          <Seg<DiffMode | "raw" | "preview" | "image">
+                            value={markdown && preview ? "preview" : unchanged ? "raw" : diffMode}
+                            onChange={(v) => {
+                              setPreview(v === "preview");
+                              if (v === "image") setSvgCode(false);
+                              else if (v !== "preview" && v !== "raw") setDiffMode(v);
+                            }}
+                            label="Diff mode"
+                            options={[
+                              ...(unchanged
+                                ? [{ value: "raw" as const, label: "Raw" }]
+                                : [
+                                    { value: "split" as const, label: "Split" },
+                                    { value: "unified" as const, label: "Unified" },
+                                    { value: "full" as const, label: "Full" },
+                                  ]),
+                              ...(markdown ? [{ value: "preview" as const, label: "Preview" }] : []),
+                              ...(svg ? [{ value: "image" as const, label: "Image" }] : []),
+                            ]}
+                          />
+                        )
+                      )}
+                      {shown && branch && (
+                        <button
+                          className="btn btn-sm"
+                          aria-label="File history"
+                          aria-pressed={logOpen}
+                          data-tip={logOpen ? "Back to the timeline (Esc)" : "Commits that changed this file"}
+                          onClick={() => {
+                            if (logOpen) return closeFileLog();
+                            // From a commit: that commit, picked in the file's history.
+                            openFileLog(shown.path, commit?.sha);
+                            setPane("rail");
+                          }}
+                        >
+                          <Icon name="history" size={12} />
+                          <span className="hide-narrow">History</span>
+                        </button>
+                      )}
+                    </div>
+                    {/* Blame loads once the pointer is over the file's lines. */}
+                    <div className="diff" onPointerOver={() => shown && blameFor !== fileKey(shown) && setBlameFor(fileKey(shown))}>
+                      {(diff.isLoading || (unchanged && blobs.isLoading)) && shown && <Loading />}
+                      {diff.error && <div style={{ padding: 16 }}><ErrorBox error={diff.error} /></div>}
+                      {image && shown && blobs.data && <ImageDiff path={shown.path} blobs={blobs.data} mode={imageMode} />}
+                      {blobs.error && (image || unchanged) && <div style={{ padding: 16 }}><ErrorBox error={blobs.error} /></div>}
+                      {showPreview ? (
+                        <article style={{ maxWidth: 760, margin: "0 auto", padding: "24px 24px 48px", fontFamily: "var(--sans)", fontSize: 14, lineHeight: 1.6 }}>
+                          {hiddenPictures && <MediaAsk html={false} onShow={() => prefs.setDialogs({ prMedia: true })} />}
+                          <PictureSource.Provider value={pictures}>
+                            <Markdown text={text} html />
+                          </PictureSource.Provider>
+                        </article>
+                      ) : (
+                        <>
+                          {huge && !image && <LargeDiff lines={changedLines} onShow={showAnyway} />}
+                          {raw && shown && <DiffView path={shown.path} hunks={raw} mode="full" blame={blame} anyway={forced} onAnyway={showAnyway} />}
+                          {!image && shown && diff.data && diff.data.length > 0 && <DiffView path={shown.path} hunks={diff.data} mode={diffMode} staging={staging} blame={blame} anyway={forced} onAnyway={showAnyway} />}
+                        </>
+                      )}
+                      {(!shown || (diff.data && diff.data.length === 0 && !image) || (unchanged && !image && blobs.data && text === null)) && (
+                        <div className={list.length === 0 ? "empty engraved" : "empty"} style={{ fontFamily: "var(--sans)" }}>
+                          {list.length === 0
+                            ? isWip
+                              ? "Nothing to show — working tree is clean."
+                              : "Nothing to show for this."
+                            : !shown
+                              ? "No file selected."
+                              : unchanged
+                                ? "Binary file."
+                                : logged?.from
+                                  ? `Renamed from ${logged.from}, no other changes.`
+                                  : "No textual changes in this file."}
+                        </div>
+                      )}
+                    </div>
+                    <div className="code-foot">
+                      <span><kbd>[</kbd><kbd>]</kbd>previous and next file</span>
+                      <span><kbd>S</kbd>split or unified</span>
+                      <span><kbd>Esc</kbd>back to the map</span>
+                    </div>
+                  </section>
+                </div>
+              </section>
             )}
-
-            <section aria-label="Diff" className="ws-diff" data-pane data-active={pane === "diff"}>
-              <div className="pane-head" style={{ background: "var(--panel)" }}>
-                <span className="mono ellipsis" style={{ fontSize: 12.5 }}>{shown?.path ?? "No file selected"}</span>
-                {logged && <span className="mono faint hide-narrow" style={{ fontSize: 11.5 }} data-tip={`As of ${logged.subject}`}>{logged.sha.slice(0, 7)}</span>}
-                {/* The file list or history beside it has them too: on a phone the path needs the room. */}
-                <span className="row mono hide-narrow" style={{ fontSize: 11.5, gap: 6 }}>
-                  {shown?.additions ? <span className="c-add">+{shown.additions}</span> : null}
-                  {shown?.deletions ? <span className="c-del">−{shown.deletions}</span> : null}
-                </span>
-                <span className="grow" />
-                {image ? (
-                  (comparable(blobs.data) || svg) && (
-                    <Seg<ImageMode | "code">
-                      value={imageMode}
-                      onChange={(v) => (v === "code" ? setSvgCode(true) : setImageMode(v))}
-                      label="Image comparison"
-                      options={[
-                        ...(comparable(blobs.data) ? IMAGE_MODES : [{ value: imageMode, label: "Image" }]),
-                        ...(svg ? [{ value: "code" as const, label: "Code" }] : []),
-                      ]}
-                    />
-                  )
-                ) : (
-                  (!unchanged || markdown || svg) && (
-                    <Seg<DiffMode | "raw" | "preview" | "image">
-                      value={markdown && preview ? "preview" : unchanged ? "raw" : diffMode}
-                      onChange={(v) => {
-                        setPreview(v === "preview");
-                        if (v === "image") setSvgCode(false);
-                        else if (v !== "preview" && v !== "raw") setDiffMode(v);
-                      }}
-                      label="Diff mode"
-                      options={[
-                        ...(unchanged
-                          ? [{ value: "raw" as const, label: "Raw" }]
-                          : [{ value: "split" as const, label: "Split" }, { value: "unified" as const, label: "Unified" }, { value: "full" as const, label: "Full" }]),
-                        ...(markdown ? [{ value: "preview" as const, label: "Preview" }] : []),
-                        ...(svg ? [{ value: "image" as const, label: "Image" }] : []),
-                      ]}
-                    />
-                  )
-                )}
-                {shown && branch && (
-                  <button
-                    className="btn btn-sm"
-                    aria-label="File history"
-                    aria-pressed={logOpen}
-                    data-tip={logOpen ? "Back to the file's changes (Esc)" : "Commits that changed this file"}
-                    onClick={() => {
-                      if (logOpen) return closeFileLog();
-                      // From a commit of the branch's list: that commit, picked in the file's history.
-                      openFileLog(shown.path, commit?.sha);
-                      setPane("files");
-                    }}
-                  >
-                    <Icon name="history" size={12} />
-                    <span className="hide-narrow">History</span>
-                  </button>
-                )}
-                {shown && (
-                  <button className="btn btn-sm btn-icon pane-back pane-close" aria-label="Close file" data-tip="Back to branches" onClick={() => { closeFileLog(); setFile(undefined); setPane("files"); }}>
-                    <Icon name="close" size={13} />
-                  </button>
-                )}
-              </div>
-              {/* Blame loads once the pointer is over the file's lines. */}
-              <div className="diff" onPointerOver={() => shown && blameFor !== fileKey(shown) && setBlameFor(fileKey(shown))}>
-                {(diff.isLoading || (unchanged && blobs.isLoading)) && shown && <Loading />}
-                {diff.error && <div style={{ padding: 16 }}><ErrorBox error={diff.error} /></div>}
-                {image && shown && blobs.data && <ImageDiff path={shown.path} blobs={blobs.data} mode={imageMode} />}
-                {blobs.error && (image || unchanged) && <div style={{ padding: 16 }}><ErrorBox error={blobs.error} /></div>}
-                {showPreview ? (
-                  <article style={{ maxWidth: 760, margin: "0 auto", padding: "24px 24px 48px", fontFamily: "var(--sans)", fontSize: 14, lineHeight: 1.6 }}>
-                    {hiddenPictures && <MediaAsk html={false} onShow={() => prefs.setDialogs({ prMedia: true })} />}
-                    <PictureSource.Provider value={pictures}>
-                      <Markdown text={text} html />
-                    </PictureSource.Provider>
-                  </article>
-                ) : (
-                  <>
-                    {huge && !image && <LargeDiff lines={changedLines} onShow={showAnyway} />}
-                    {raw && shown && <DiffView path={shown.path} hunks={raw} mode="full" blame={blame} anyway={forced} onAnyway={showAnyway} />}
-                    {!image && shown && diff.data && diff.data.length > 0 && <DiffView path={shown.path} hunks={diff.data} mode={diffMode} staging={staging} blame={blame} anyway={forced} onAnyway={showAnyway} />}
-                  </>
-                )}
-                {(!shown || (diff.data && diff.data.length === 0 && !image) || (unchanged && !image && blobs.data && text === null)) && (
-                  <div className={list.length === 0 ? "empty engraved" : "empty"} style={{ fontFamily: "var(--sans)" }}>
-                    {list.length === 0
-                      ? "Nothing to show — working tree is clean."
-                      : !shown
-                        ? "No file selected."
-                        : unchanged
-                          ? "Binary file."
-                          : logged?.from
-                            ? `Renamed from ${logged.from}, no other changes.`
-                            : "No textual changes in this file."}
-                  </div>
-                )}
-              </div>
-            </section>
             <Terminal
               pid={pid}
               branch={branch}
@@ -597,215 +975,24 @@ export function Workspace() {
               finish={finish}
             />
           </div>
-          <Resizer pane={leftW} label="Resize panels" percent />
-          {fileLog !== null && branch && (
-            <section aria-label={`History of ${fileLog}`} className="ws-files" data-pane data-active={pane === "files"}>
-              <FileHistory
-                key={fileLog}
-                pid={pid}
-                branch={branch}
-                path={fileLog}
-                selected={logPick?.sha}
-                want={logWant}
-                onPick={(c, auto) => {
-                  setLogPick(c);
-                  setLogWant(undefined);
-                  if (!auto) setPane("diff");
-                }}
-                onBack={closeFileLog}
-              />
-            </section>
-          )}
-          <section aria-label="Changed files" className="ws-files" hidden={fileLog !== null && !!branch} data-pane data-active={pane === "files"}>
-            <div className="col" style={{ gap: 10, padding: "12px 14px", borderBottom: "1px solid var(--line)" }}>
-              <div className="row" style={{ alignItems: "center", minWidth: 0, margin: 0 }}>
-                <span className="mono ellipsis" style={{ fontSize: 13, fontWeight: 500 }}>{branch ?? "No branch"}</span>
-                {base && branch !== base && <span className="faint" style={{ fontSize: 11.5, whiteSpace: "nowrap" }}>{view?.likelyMerged ? "likely merged into" : view?.merged ? "merged into" : "from"} {base}</span>}
-                {view?.merged && <span className="c-add row" style={{ marginLeft: 6, flex: "0 0 auto" }} title={view.likelyMerged ? `A pull request carrying its ticket went into ${base} after its last commit` : `All commits are in ${base}`}><Icon name="merged" size={12} stroke={1.6} label="merged" /></span>}
-                {asTree && (
-                  <button
-                    className="btn btn-sm btn-icon"
-                    style={{ marginLeft: "auto", flex: "0 0 auto", alignSelf: "center" }}
-                    aria-label={fold.closed ? "Expand all folders" : "Collapse all folders"}
-                    data-tip={fold.closed ? "Expand all" : "Collapse all"}
-                    aria-expanded={!fold.closed}
-                    onClick={() => setFold((f) => ({ closed: !f.closed, n: f.n + 1 }))}
-                  >
-                    <Icon name="chevronDown" size={12} className="chev" />
-                  </button>
-                )}
-                <button
-                  className="btn btn-sm btn-icon"
-                  style={{ marginLeft: asTree ? 0 : "auto", flex: "0 0 auto", alignSelf: "center" }}
-                  aria-label={asTree ? "Show files as a list" : "Show files as a tree"}
-                  data-tip={asTree ? "List view" : "Tree view"}
-                  onClick={() => setAsTree(!asTree)}
-                >
-                  <Icon name={asTree ? "menu" : "folder"} size={12} />
-                </button>
-              </div>
-              {stash ? (
-                <div className="commit-head">
-                  <div className="col" style={{ gap: 3, minWidth: 0, flex: "1 1 auto" }}>
-                    <span className="commit-subject row" style={{ gap: 6 }}><Icon name="stash" size={12} stroke={1.6} />{stash.message}</span>
-                    <span className="commit-meta">
-                      <span className="mono">{stash.sha.slice(0, 7)}</span>
-                      {stash.branch && <span className="mono ellipsis">on {stash.branch}</span>}
-                      <span style={{ whiteSpace: "nowrap" }}>{ago(stash.date)}</span>
-                    </span>
-                  </div>
-                  <button className="btn btn-sm btn-icon" aria-label="Close stash" data-tip="Back to the branch's files" onClick={() => setStash(undefined)}>
-                    <Icon name="close" size={12} />
-                  </button>
-                </div>
-              ) : commit ? (
-                <div className="commit-head">
-                  <div className="col" style={{ gap: 3, minWidth: 0, flex: "1 1 auto" }}>
-                    <span className="commit-subject">{commit.subject}</span>
-                    <span className="commit-meta">
-                      <span className="mono">{commit.sha.slice(0, 7)}</span>
-                      <span className="ellipsis">{commit.author}</span>
-                      <span style={{ whiteSpace: "nowrap" }}>{ago(commit.date)}</span>
-                    </span>
-                  </div>
-                </div>
-              ) : (
-                <Seg<Mode>
-                  label="File view"
-                  grid
-                  value={mode}
-                  onChange={setMode}
-                  options={[
-                    { value: "wip", label: wipCount > 0 ? <span className="wip-badge">WIP {wipCount}</span> : <>WIP <span className="faint">{wipCount}</span></> },
-                    { value: "branch", label: <>Branch <span className="faint">{branchCount}</span></> },
-                    { value: "project", label: "Project" },
-                  ]}
-                />
-              )}
-              {branch && view?.worktree && <span className="hint mono ellipsis" title={view.worktree}>{view.worktree}</span>}
-            </div>
-            {junk && (
-              <div className="col note-box" style={{ margin: "10px 12px 0" }}>
-                <span style={{ fontSize: 12, lineHeight: 1.45 }}>
-                  <span className="mono">{junk}/</span> isn't ignored: its files fill the list and slow the app down.
-                </span>
-                <button className="btn btn-sm" style={{ height: 30 }} disabled={ignore.isPending} onClick={() => branch && ignore.mutate({ projectId: pid, branch, path: junk, dir: true })}>
-                  {ignore.isPending ? <span className="spinner" /> : <Icon name="edit" size={12} />}
-                  <span>Add to .gitignore</span>
-                </button>
-              </div>
-            )}
-            {running && branch ? (
-              <div className="col note-box" style={{ margin: "10px 12px 0" }}>
-                <span className="row" style={{ fontSize: 12, lineHeight: 1.45, gap: 8 }}>
-                  <span className="spinner" />
-                  <span>
-                    AI is rebasing onto <span className="mono">{labelOf(running.onto)}</span>
-                    {running.steps ? `, commit ${running.step} of ${running.steps}` : ""}. Its files stay as they are until it is done.
-                  </span>
-                </span>
-                <button className="btn btn-sm" style={{ height: 30 }} onClick={() => showRun(pid, branch)}>
-                  <Icon name="sparkle" size={12} />
-                  <span>Show progress</span>
-                </button>
-              </div>
-            ) : held ? (
-              <div className="col note-box" style={{ margin: "10px 12px 0" }}>
-                <span className="row" style={{ fontSize: 12, lineHeight: 1.45, gap: 8 }}>
-                  <Icon name="lock" size={13} />
-                  <span>
-                    Rebase & conflict resolving is running: AI is rebasing <span className="mono">{labelOf(held.branch)}</span> onto this branch. It stays locked until it is done.
-                  </span>
-                </span>
-                <button className="btn btn-sm" style={{ height: 30 }} onClick={() => showRun(held.projectId, held.branch)}>
-                  <Icon name="sparkle" size={12} />
-                  <span>Show progress</span>
-                </button>
-              </div>
-            ) : (
-              op &&
-              branch && (
-                <div className="col note-box" style={{ margin: "10px 12px 0" }}>
-                  <span style={{ fontSize: 12, lineHeight: 1.45 }}>
-                    {op === "rebase" ? <>Rebase onto <span className="mono">{rebasingOnto(branch)}</span></> : op[0].toUpperCase() + op.slice(1)}
-                    {opConflicts ? ` stopped on ${plural(opConflicts, "conflict")}.` : view?.conflict ? " stopped on conflicts." : " is paused."}
-                  </span>
-                  <div className="row" style={{ gap: 8 }}>
-                    {op === "rebase" && (
-                      <button
-                        className="btn btn-primary btn-sm grow"
-                        style={{ height: 30 }}
-                        disabled={starting}
-                        data-tip="AI resolves every conflict and carries the rebase through every commit"
-                        onClick={() => void startRebase(pid, branch, { resume: true })}
-                      >
-                        {starting ? <span className="spinner" /> : <Icon name="sparkle" size={12} />}
-                        <span>Resolve with AI</span>
-                      </button>
-                    )}
-                    <button className="btn btn-danger btn-sm" style={{ height: 30 }} disabled={starting} data-tip={`Put ${branch} back to where it was before the ${op}`} onClick={() => setDialog({ kind: "abort", branch })}>
-                      <Icon name="undo" size={12} />
-                      <span>Abort {op}</span>
-                    </button>
-                  </div>
-                </div>
-              )
-            )}
-            <ul className="scroll" style={{ flex: "1 1 auto", listStyle: "none", margin: 0, padding: mode === "wip" && list.length > 0 ? "0 0 6px" : "6px 0" }}>
-              {files.isLoading && <li className="empty"><span className="spinner" /></li>}
-              {files.error && <li style={{ padding: 12 }}><ErrorBox error={files.error} /></li>}
-              {mode === "wip" && !commit && !stash && branch && list.length > 0 ? (
-                <WipList
-                  pid={pid}
-                  branch={branch}
-                  midOp={!!o.inProgress || !!op}
-                  locked={!!running || !!held}
-                  list={list}
-                  current={current}
-                  tree={asTree}
-                  fold={fold}
-                  menu={fileMenu}
-                  onPick={(f) => { setFile(fileKey(f)); setPane("diff"); }}
-                  onMoved={(f) => current && fileKey(current) === fileKey(f) && setFile(fileKey({ ...f, staged: !f.staged }))}
-                  onDiscard={(staged, paths) => setDiscarding({ staged, paths })}
-                />
-              ) : (
-                <FileList key={fold.n} allClosed={fold.closed} list={list} current={current} tree={asTree} menu={fileMenu} onPick={(f) => { setFile(fileKey(f)); setPane("diff"); }} />
-              )}
-              {!files.isLoading && list.length === 0 && (
-                <li className="empty engraved">{stash ? "This stash holds no files." : commit ? "This commit changes no files." : mode === "wip" ? (checkedOut ? "No uncommitted changes." : "This branch is not checked out.") : "No changes on this branch yet."}</li>
-              )}
-            </ul>
-            {branch && !history && (
-              <CommitBox
-                key={branch}
-                pid={pid}
-                branch={branch}
-                enabled={checkedOut && !running && !held}
-                locked={running ? "AI is rebasing this branch" : held ? "Locked while AI rebases a branch onto this one" : undefined}
-                staged={stagedCount}
-                changed={wipCount}
-              />
-            )}
-          </section>
-
         </main>
       )}
 
       {/* After main so it sits at the bottom, just above the mobile tabs. */}
-      <div className="pane-switch">
-        <Seg<Pane>
-          label="Panel"
-          grid
-          value={pane}
-          onChange={setPane}
-          options={[
-            { value: "releases", label: "Branches" },
-            { value: "files", label: logOpen ? "History" : `Files${fileCount ? ` ${fileCount}` : ""}` },
-            { value: "diff", label: "Diff & agent" },
-          ]}
-        />
-      </div>
+      {focused && (
+        <div className="pane-switch">
+          <Seg<Pane>
+            label="Panel"
+            grid
+            value={pane}
+            onChange={setPane}
+            options={[
+              { value: "rail", label: logOpen ? "History" : stashesOf !== null ? "Stashes" : "Files" },
+              { value: "code", label: listed.length ? `Code ${fileAt >= 0 ? `${fileAt + 1}/${listed.length}` : listed.length}` : "Code & agent" },
+            ]}
+          />
+        </div>
+      )}
 
       {discarding && branch && (
         <DiscardModal pid={pid} branch={branch} staged={discarding.staged} paths={discarding.paths} total={list.filter((f) => f.staged === discarding.staged).length} onClose={() => setDiscarding(null)} />
@@ -907,6 +1094,7 @@ export function Workspace() {
           local={dialogView.local}
           remote={dialogView.remote}
           worktree={dialogView.worktree ?? undefined}
+          checkedOut={dialogView.checkedOut}
           onClose={() => setDialog(null)}
         />
       )}
@@ -1157,6 +1345,15 @@ function buildTree(list: FileChange[]) {
     d.files.push(f);
   }
   return root;
+}
+
+/** The files in the order their list shows them: staged ones before unstaged, and in a tree, folders before files at each level. */
+function fileOrder(list: FileChange[], tree: boolean): FileChange[] {
+  const walk = (d: Dir): FileChange[] => [...[...d.dirs].sort(([a], [b]) => a.localeCompare(b)).flatMap(([, s]) => walk(s)), ...d.files];
+  return [true, false, undefined].flatMap((s) => {
+    const side = list.filter((f) => f.staged === s);
+    return tree ? walk(buildTree(side)) : side;
+  });
 }
 
 /** Folders of installed packages or caches, which a repository should ignore. */
@@ -1781,13 +1978,14 @@ function RebaseOntoModal({ pid, branch, onto, onClose }: { pid: string; branch: 
 function RebaseOntoBranchModal({ pid, branch, onto, branches, labelOf, onClose }: { pid: string; branch: string; onto?: string; branches: BranchView[]; labelOf: (b: string) => string; onClose: () => void }) {
   const [picked, setPicked] = useState<string | null>(onto ?? null);
   const choices = useMemo(() => branches.filter((b) => b.exists && b.name !== branch), [branches, branch]);
-  const parent = branches.find((b) => b.name === branch)?.parent;
+  const view = branches.find((b) => b.name === branch);
+  const parent = view?.parent;
   const name = labelOf(branch);
   const to = picked ? labelOf(picked) : undefined;
   return (
     <Modal
       title={onto ? `Rebase onto ${labelOf(onto)}?` : "Rebase onto a specific branch"}
-      sub={<><span className="mono">{name}</span> is checked out</>}
+      sub={view?.checkedOut ? <><span className="mono">{name}</span> is checked out</> : <><span className="mono">{name}</span> is rebased aside: your checkout stays as it is</>}
       onClose={onClose}
       footer={
         <>
@@ -1799,7 +1997,7 @@ function RebaseOntoBranchModal({ pid, branch, onto, branches, labelOf, onClose }
     >
       {!onto && <BranchPicker choices={choices} labelOf={labelOf} picked={picked} onPick={setPicked} />}
       <p className="muted" style={{ margin: 0 }}>
-        Replays the commits of {name} on top of {to ?? "the branch picked"}, AI resolving the conflicts on the way.{parent && <> {name} keeps targeting {labelOf(parent)}.</>} Already pushed: it then needs a force push.
+        Replays the commits of {name} on top of {to ?? "the branch picked"}, AI resolving the conflicts on the way.{!view?.checkedOut && " Any it can't resolve put it back as it was."}{parent && <> {name} keeps targeting {labelOf(parent)}.</>} Already pushed: it then needs a force push.
       </p>
     </Modal>
   );
@@ -1939,6 +2137,7 @@ function DeleteBranchModal({
   local,
   remote,
   worktree,
+  checkedOut,
   onClose,
 }: {
   pid: string;
@@ -1948,6 +2147,8 @@ function DeleteBranchModal({
   /** Exists on origin. */
   remote: boolean;
   worktree?: string;
+  /** Checked out in the main checkout: git refuses to delete it, so the delete switches to `base` first. */
+  checkedOut: boolean;
   onClose: () => void;
 }) {
   const [force, setForce] = useState(false);
@@ -1956,7 +2157,7 @@ function DeleteBranchModal({
   const onOrigin = remote && (!local || alsoOrigin);
   const exists = local || remote;
   const nav = useNav();
-  // In the background: the dialog closes and the row leaves the tree at once, unless origin keeps a copy (it stays, busy).
+  // In the background: the dialog closes and the tile leaves the map at once, unless origin keeps a copy (it stays, busy).
   const del = () => {
     onClose();
     nav.forgetBranches(pid, [branch]);
@@ -1964,7 +2165,15 @@ function DeleteBranchModal({
       label: `Deleting ${branch}…`,
       hide: remote && !onOrigin ? [] : [branchKey(pid, branch)],
       invalidate: [["overview", pid], ["files", pid], ["worktrees"]],
-      run: async () => {
+      run: async (say) => {
+        if (checkedOut) {
+          say(`Switching to ${base}…`);
+          await call("workspace.switch", { projectId: pid, branch: base }).catch((e: Error) => {
+            throw new Error(`Couldn't switch to ${base}, ${branch} is kept: ${e.message}`);
+          });
+          await settle(queryClient, [["overview", pid]], () => queryClient.setQueryData<Overview>(["overview", pid], (o) => o && switchedOverview(o, base)));
+          say(`Deleting ${branch}…`);
+        }
         await call("branches.delete", { projectId: pid, branch, force, remote: onOrigin });
         await droppedBranch(queryClient, pid, branch, onOrigin);
       },
@@ -1978,14 +2187,33 @@ function DeleteBranchModal({
       onClose={onClose}
       footer={
         <>
-          <button className="btn btn-md btn-danger" onClick={del}>
-            {exists ? "Delete branch" : "Forget branch"}
-          </button>
+          {checkedOut ? (
+            <button className="btn btn-lg btn-danger" onClick={del} disabled={!base}>
+              Switch to <span className="mono">{base}</span> and delete
+            </button>
+          ) : (
+            <button className="btn btn-md btn-danger" onClick={del}>
+              {exists ? "Delete branch" : "Forget branch"}
+            </button>
+          )}
         </>
       }
     >
       {exists ? (
         <>
+          {checkedOut && (
+            <p style={{ margin: 0, lineHeight: 1.55 }}>
+              <span className="mono">{branch}</span> is checked out, so git can't delete it.{" "}
+              {base ? (
+                <>
+                  Gitnetix can switch you to its parent, <span className="mono">{base}</span>, then delete it. Uncommitted changes come along unless they clash with{" "}
+                  <span className="mono">{base}</span>.
+                </>
+              ) : (
+                "It has no parent to switch to: switch to another branch first."
+              )}
+            </p>
+          )}
           <p style={{ margin: 0, lineHeight: 1.55 }}>
             {local ? (
               <>
@@ -2159,28 +2387,17 @@ function CommitBox({ pid, branch, enabled, locked, staged, changed }: { pid: str
   const orphanBody = !summary.trim() && !!body.trim();
   const message = summary.trim() ? [summary.trim(), body.trim()].filter(Boolean).join("\n\n") : "";
   const clear = () => { setSummary(""); setBody(""); };
-  const inv = [["overview", pid], ["files", pid], ["diff", pid], ["commits", pid]];
-  const commit = useAction<{ sha: string; message: string; aiWritten: boolean }, { projectId: string; branch: string; message: string; all: boolean }>("workspace.commit", {
-    invalidate: inv,
-    // The WIP list, badge and push count follow the commit at once instead of waiting for the full overview.
-    patch: (qc, v) => {
-      patchWip(qc, pid, v.branch, (l) => (v.all ? [] : l.filter((f) => !f.staged)));
-      patchOverview(qc, pid, v.branch, committed);
-    },
-    success: (r) => `${r.aiWritten ? "AI wrote: " : "Committed: "}${r.message.split("\n")[0]}`,
-  });
+  const commit = useCommit(pid);
   const draft = useAction<{ message: string }>("workspace.commitMessage");
   const nav = useNav();
   // Saved with the project, like the merge options.
   const { commit: prefs, setCommit } = useProjectPrefs(pid);
   const autoPush = prefs.autoPush;
-  const push = useAction<unknown, { projectId: string; branch: string }>("workspace.push", { invalidate: inv, patch: (qc, v) => patchOverview(qc, pid, v.branch, pushed), success: `Pushed ${branch}` });
   // Per branch, from the shared cache: a commit running on another worktree doesn't block this one.
   const busy = [...usePendingBranches("workspace.commit", pid), ...usePendingBranches("workspace.push", pid)].includes(branch);
   const [more, setMore] = useState<{ x: number; y: number } | null>(null);
   const canCommit = canType && !orphanBody && !busy;
-  // mutateAsync, not mutate callbacks: those are dropped if the user switches branch before the commit ends.
-  const doCommit = () => commit.mutateAsync({ projectId: pid, branch, message, all }).then(() => { clear(); if (autoPush) push.mutate({ projectId: pid, branch }); }, () => {});
+  const doCommit = () => commit(branch, message, all).then(clear, () => {});
   // Ctrl/⌘+Enter in the message commits, like most editors' "submit".
   const onKey = (e: ReactKeyboardEvent) => {
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && canCommit) {
@@ -2285,19 +2502,33 @@ function Terminal({ pid, branch, cwd, worktree, open, setOpen, onCloseWorktree, 
   const message = useAction("agents.message", { invalidate: [["agents"]] });
   const configure = useAction("agents.configure", { invalidate: [["agents"]] });
   const stop = useAction("agents.stop", { invalidate: [["agents"]] });
-  const height = usePaneWidth("gnx.pane.term", 248, 120, 900);
+  const width = usePaneWidth("gnx.pane.termW", 460, 320, 1400);
   const [view, setView] = useTermView(pid, branch, !!cur, worktree);
   const shell = view === "shell";
-  // Maximized, the terminal takes the branch tree's place in its column.
+  // Maximized, the terminal takes the map's or the focus view's place.
   const [max, setMax] = useState(false);
   const [clearing, setClearing] = useState<AgentSession | null>(null);
 
   if (!open) {
+    const st = cur && shownStatus(cur, curBranch);
     return (
-      <button className="row term-bar" style={{ height: 37, flex: "0 0 37px", margin: 0, padding: "0 14px 3px", border: 0, borderTop: "1px solid var(--line)", background: "var(--panel)", color: "var(--muted)", textAlign: "left" }} onClick={() => setOpen(true)}>
+      <button className="row term-bar term-closed" onClick={() => setOpen(true)}>
         <Icon name="terminal" />
-        <span>{shell ? "Shell" : cur ? `Agent · ${cur.limit && shownStatus(cur, curBranch) === "limited" ? limitLabel(cur.limit).replace(/^./, (c) => c.toLowerCase()) : shownStatus(cur, curBranch)}${cur.status === "running" && cur.tasks?.length ? ` · ${tasksLabel(cur.tasks)} in the background` : ""}` : "Agent"}</span>
-        {!shell && cur?.status === "running" && <span className="pulse" />}
+        <span>
+          {shell || !st ? (
+            shell ? "Shell" : "Agent"
+          ) : (
+            <>
+              Agent ·{" "}
+              {/* Coloured as on Worktrees & agents: the running glow, else the status colour. */}
+              <span className={st === "running" ? "glow-working" : STATUS_SHOWN[st][1]}>
+                <span>{cur.limit && st === "limited" ? limitLabel(cur.limit).replace(/^./, (c) => c.toLowerCase()) : st}</span>
+              </span>
+              {cur.status === "running" && cur.tasks?.length ? ` · ${tasksLabel(cur.tasks)} in the background` : ""}
+            </>
+          )}
+        </span>
+        {!shell && cur?.status === "running" && <span className="pulse glow-dot" />}
         <span className="grow" />
         <Icon name="chevronUp" size={13} />
       </button>
@@ -2322,8 +2553,8 @@ function Terminal({ pid, branch, cwd, worktree, open, setOpen, onCloseWorktree, 
   };
   return (
     <>
-      {!max && <Resizer pane={height} label="Resize agents panel" top />}
-      <div className={max ? "term term-max" : "term"} style={{ "--term-h": `${height.width}px` } as CSSProperties}>
+      {!max && <Resizer pane={width} label="Resize agents panel" right />}
+      <div className={max ? "term term-max" : "term"} style={{ "--term-w": `${width.width}px` } as CSSProperties}>
         {/* Empty parts of the bar collapse it, like the closed bar opens it. */}
         <div className="term-tabs term-bar" style={{ cursor: "pointer" }} onClick={(e) => !(e.target as HTMLElement).closest("button, select, input") && setOpen(false)}>
           {/* Only the right side grows, so the session label sits left, after the tabs. */}
@@ -2600,9 +2831,9 @@ function CloseWorktreeModal({ session: s, finish, onClose, inline }: { session: 
     <>
       <button type="button" className="btn btn-md btn-danger" style={{ flex: "1 1 0" }} data-tip={`Delete the worktree, its uncommitted changes and the local ${s.branch} branch`} onClick={() => setDiscarding(true)}>Cancel and Delete all</button>
       {/* Each button takes half the footer. */}
-      <span className="split-btn" style={{ display: "flex", flex: "1 1 0" }}>
-        <button type="button" className={`btn btn-md btn-primary${then === "merge" ? " split-main" : ""}`} style={{ flex: "1 1 auto" }} onClick={() => { finish[then](s, sw, into); onClose(); }}>
-          {then === "merge" && target ? `Finish and merge into ${target}…` : `Finish with the agent / worktree${then === "merge" ? "…" : ""}`}
+      <span className="split-btn" style={{ display: "flex", flex: "1 1 0", minWidth: 0 }}>
+        <button type="button" className={`btn btn-md btn-primary${then === "merge" ? " split-main" : ""}`} style={{ flex: "1 1 auto", minWidth: 0 }} onClick={() => { finish[then](s, sw, into); onClose(); }}>
+          <span className="ellipsis">{then === "merge" && target ? `Finish and merge into ${target}…` : `Finish with the agent / worktree${then === "merge" ? "…" : ""}`}</span>
         </button>
         {then === "merge" && (
           <button

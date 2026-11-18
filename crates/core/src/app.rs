@@ -2812,21 +2812,24 @@ impl Gitnetix {
             });
         }
         // Last shipped releases, from tags, plus older ones whose release branch is still around
-        // (so it files under Shipped instead of lingering in the tree).
+        // (so it files under Shipped instead of lingering in the tree). The map lists the latest few, the rest on "see all".
+        // shortcut: the newest SHIPPED_TAGS only, so a repo with thousands of tags stays light; page them if someone needs older.
+        const SHIPPED_TAGS: usize = 100;
         let detached = if current.is_none() { git.rev_parse("HEAD").await.ok() } else { None };
+        let on_default = git.tags_merged(&default).await.unwrap_or_default();
         let branch_left = |v: &str| p.releases.iter().any(|r| r.version == v && r.shipped_at.is_some() && all.iter().any(|b| b.name == r.branch && b.exists));
         let tag_list = tags.clone();
         let tags_use_v = tags_use_v(tag_list.iter().map(|t| t.name.as_str()));
         for (i, t) in tags.into_iter().enumerate() {
             let v = t.name.trim_start_matches('v').to_string();
-            if i >= 3 && !branch_left(&v) {
+            if i >= SHIPPED_TAGS && !branch_left(&v) {
                 continue;
             }
             let shipped = p.branches.values().filter(|m| m.release.as_deref() == Some(v.as_str())).count();
             let date = t.date.get(..10).unwrap_or("").to_string();
             let branch = p.releases.iter().find(|r| r.version == v).map(|r| r.branch.clone()).unwrap_or_default();
             // Any branch can be published: name the default branch only when the tag is on it.
-            let on = if git.is_ancestor(&t.sha, &default).await.unwrap_or(false) { default.clone() } else { branch.clone() };
+            let on = if on_default.contains(&t.name) { default.clone() } else { branch.clone() };
             releases.push(ReleaseView {
                 branch,
                 version: v,
@@ -3560,31 +3563,59 @@ impl Gitnetix {
         Ok(out)
     }
 
-    /// Rebase a branch onto `onto`, else onto its release. Its target stays as it was.
+    /// Rebase a branch onto `onto`, else onto its release. Its target stays as it was. Not checked out anywhere, it is
+    /// rebased in a throwaway worktree, and conflicts AI leaves there put it back as it was.
     pub async fn rebase(&self, project_id: &str, branch: &str, onto: Option<&str>) -> Result<RebaseResult> {
         let p = self.store.project(project_id)?;
-        let git = self.require_checkout(&p, branch).await?;
+        if self.checkout_dir(&p, branch).await?.is_some() {
+            let git = self.require_checkout(&p, branch).await?;
+            return self.rebase_at(&p, &git, branch, onto).await;
+        }
+        self.refuse_locked(project_id, branch)?;
+        let main = self.git(&p);
+        let tmp = std::env::temp_dir().join(format!("gitnetix-rebase-{}", new_id()));
+        main.worktree_add(&tmp, branch, None).await?;
+        let git = self.git_at(&tmp);
+        let out = self.rebase_at(&p, &git, branch, onto).await;
+        // A rebase paused there would go with the folder. The branch only moves once a rebase finishes, so it is as it was.
+        let paused = git.is_rebasing().await.unwrap_or(false);
+        if paused {
+            let _ = git.abort_op("rebase").await;
+        }
+        if let Err(e) = main.worktree_remove(&tmp, true).await {
+            crate::log::error(format!("Could not remove the temporary checkout {}: {e}", tmp.display()));
+        }
+        match out {
+            Ok(r) if paused => {
+                let why = if r.errors.is_empty() { String::new() } else { format!(" {}.", r.errors.join("; ")) };
+                Err(Error::Invalid(format!("Rebasing {branch} stopped on conflicts in {}.{why} It is back as it was: check it out to rebase it and resolve them.", r.conflicts.join(", "))))
+            }
+            out => out,
+        }
+    }
+
+    async fn rebase_at(&self, p: &Project, git: &Git, branch: &str, onto: Option<&str>) -> Result<RebaseResult> {
         let default = git.default_branch().await?;
-        let target = self.base_of(&p, branch, &default).await;
+        let target = self.base_of(p, branch, &default).await;
         let base = match onto {
             Some(o) => {
                 // A work branch's target follows its history unless given: pin it, or landing on `o` would move it there.
                 let given = p.branches.get(branch).is_some_and(|m| m.parent.is_some() || m.release.is_some());
                 let shared = branch == default || branch.starts_with("release/") || is_trunk(branch) || p.releases.iter().any(|r| r.branch == branch);
                 if o != target && !given && !shared {
-                    self.set_parent(project_id, branch, &target)?;
+                    self.set_parent(&p.id, branch, &target)?;
                 }
                 o.to_string()
             }
             None => target,
         };
-        let ctl = self.start_run(&p, &git, branch, &base, false)?;
+        let ctl = self.start_run(p, git, branch, &base, false)?;
         let out = match git.rebase(&git.rev_of(&base).await).await {
             Ok(true) => Ok(Resolution { done: true, left: Vec::new(), errors: Vec::new() }),
-            Ok(false) => self.resolve_and_continue(&p, &git, Some("rebase"), branch, &base, Some(&ctl)).await,
+            Ok(false) => self.resolve_and_continue(p, git, Some("rebase"), branch, &base, Some(&ctl)).await,
             Err(e) => Err(e),
         };
-        self.finish_rebase(&p, &git, branch, ctl, out).await
+        self.finish_rebase(p, git, branch, ctl, out).await
     }
 
     /// AI resolves the paused rebase's conflicts and carries it on through every commit left, even when

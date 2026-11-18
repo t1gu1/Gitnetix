@@ -199,6 +199,18 @@ export async function clipboardFiles(): Promise<(File | string)[]> {
   return png.byteLength ? [new File([png], "image.png", { type: "image/png" })] : [];
 }
 
+/** Opens claude.ai artifact `url` in its own window, where the user signs in to claude.ai (desktop only). */
+export async function openArtifact(url: string) {
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<void>("artifact_open", { url });
+}
+
+/** Saves a picture of what the claude.ai window shows, closes it, and returns the picture's path (desktop only). */
+export async function captureArtifact() {
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<string>("artifact_capture");
+}
+
 /** An image file on this computer, dropped or pasted on the window, for its thumbnail (desktop only). */
 export async function localImage(path: string) {
   const { invoke } = await import("@tauri-apps/api/core");

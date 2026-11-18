@@ -188,7 +188,7 @@ function Detail({ pid, number }: { pid: string; number: number }) {
   const pictures = useMemo(() => ({ key: `pr:${pid}`, load: (url: string) => rpc<string>("prs.picture", { projectId: pid, url }) }), [pid]);
   const source = media ? pictures : null;
   const inv = [["pr", pid, number], ["prs", pid]];
-  // The branch tree refreshes on its own: the merge fetches origin, which says the project changed.
+  // The branch map refreshes on its own: the merge fetches origin, which says the project changed.
   const merge = useAction("prs.merge", {
     invalidate: inv,
     // Shows it merged at once (out of the open list), while the refetches come back.

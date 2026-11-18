@@ -9,7 +9,7 @@ import { Icon } from "../components/Icon";
 import { Modal, releaseTagLabel, Seg } from "../components/ui";
 import { kindNoun, withPrefix, withTicket } from "../lib/kinds";
 import { useNav, type NewItemDraft } from "../lib/nav";
-import { revealBranch } from "./BranchTree";
+import { revealBranch } from "./BranchMap";
 
 export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () => void }) {
   const nav = useNav();

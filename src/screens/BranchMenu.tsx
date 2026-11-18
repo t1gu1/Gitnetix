@@ -1,6 +1,6 @@
 import { useState, type MouseEvent } from "react";
 
-import { droppedWorktree, patchOverview, patchWip, pushed, queryClient, settle, switchedOverview, useAction, useAgents, useAiOn, useOverview, usePendingBranches, useTagV } from "../api/hooks";
+import { committed, droppedWorktree, patchOverview, patchWip, pushed, queryClient, settle, switchedOverview, useAction, useAgents, useAiOn, useOverview, usePendingBranches, useProjectPrefs, useTagV } from "../api/hooks";
 import { RpcError } from "../api/transport";
 import type { BranchView, Overview, RenameResult, Stash, StashApplied } from "../api/types";
 import { ContextMenu, type MenuItem } from "../components/ContextMenu";
@@ -13,7 +13,7 @@ import { copyToClipboard, toast } from "../lib/toast";
 import { publishName } from "./Publish";
 import { startRebase } from "./RebaseRun";
 
-export type BranchDialog = "merge" | "delete" | "rename" | "continue" | "reset" | "forcePush" | "publish" | "target" | "rebase" | "rebaseOnto" | "abortSwitch" | "abort" | "switchWip" | "pullWip";
+export type BranchDialog = "commit" | "merge" | "delete" | "rename" | "continue" | "reset" | "forcePush" | "publish" | "target" | "rebase" | "rebaseOnto" | "abortSwitch" | "abort" | "switchWip" | "pullWip";
 
 export interface BranchTarget {
   view: BranchView;
@@ -29,8 +29,6 @@ export interface BranchTarget {
   moveTo?: { branch: string; label: string }[];
   /** Any branch can be picked as its target instead (every branch but the default one). */
   pickTarget?: boolean;
-  /** Opens the branch's commit list. */
-  showCommits?: () => void;
   /** Opens the stashes made on the branch (none: it has none). */
   showStashes?: () => void;
   /** Newest stash made on the branch. */
@@ -50,6 +48,31 @@ export const offersRebase = (v?: BranchView) => !!v && v.role === "branch" && v.
 const isDiverged = (v: BranchView) => !!v.upstream && v.upstreamAhead > 0 && v.upstreamBehind > 0;
 
 /**
+ * Commits on a branch, in whichever checkout it has: its staged files, or `all` its changes. An empty message lets AI write it.
+ * The branch is pushed after when the project auto-pushes. Rejects when the commit fails (its error is shown already).
+ */
+export function useCommit(pid: string) {
+  const inv = [["overview", pid], ["files", pid], ["diff", pid], ["commits", pid]];
+  const commit = useAction<{ sha: string; message: string; aiWritten: boolean }, { projectId: string; branch: string; message: string; all: boolean }>("workspace.commit", {
+    invalidate: inv,
+    // The WIP list, badge and push count follow the commit at once instead of waiting for the full overview.
+    patch: (qc, v) => {
+      patchWip(qc, pid, v.branch, (l) => (v.all ? [] : l.filter((f) => !f.staged)));
+      patchOverview(qc, pid, v.branch, committed);
+    },
+    success: (r) => `${r.aiWritten ? "AI wrote: " : "Committed: "}${r.message.split("\n")[0]}`,
+  });
+  const push = useAction<unknown, { projectId: string; branch: string }>("workspace.push", { invalidate: inv, patch: (qc, v) => patchOverview(qc, pid, v.branch, pushed), success: (_, v) => `Pushed ${v.branch}` });
+  // Saved with the project, like the merge options.
+  const autoPush = useProjectPrefs(pid).commit.autoPush;
+  // mutateAsync, not mutate callbacks: those are dropped if the user switches branch before the commit ends.
+  return (branch: string, message: string, all: boolean) =>
+    commit.mutateAsync({ projectId: pid, branch, message, all }).then(() => {
+      if (autoPush) push.mutate({ projectId: pid, branch });
+    });
+}
+
+/**
  * Every branch action in one place: the context menu, and the primary
  * action the split button offers for the branch's role and state.
  */
@@ -58,7 +81,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
   const inv = [["overview", pid], ["files", pid], ["diff", pid], ["commits", pid]];
   const sw = useAction<{ conflicts: string[] }, { projectId: string; branch: string; abort?: boolean; wip?: "stash" | "carry" }>("workspace.switch", {
     invalidate: inv,
-    // The tree follows the checkout at once instead of waiting for the full overview.
+    // The map follows the checkout at once instead of waiting for the full overview.
     patch: (qc, v) => qc.setQueryData<Overview>(["overview", pid], (o) => o && switchedOverview(o, v.branch)),
     // Uncommitted changes in the way: ask whether they come along or wait in a stash.
     onError: (e, v) => {
@@ -94,6 +117,9 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
   });
   const pr = useAction<{ number: number }, { projectId: string; branch: string }>("prs.create", { invalidate: [["prs", pid]], success: (r) => `Opened PR #${r.number}` });
   const changelog = useAction<{ message: string }, { projectId: string; branch: string }>("changelog.update", { invalidate: inv, success: (r) => r.message });
+  const commit = useCommit(pid);
+  // AI writes commit messages: committing everything takes one click. Else the message is written in the branch's uncommitted work.
+  const aiCommit = useAiOn("commit");
   const stampChangelog = useAction<{ message: string }, { projectId: string; branch: string; version: string }>("changelog.release", { invalidate: inv, success: (r) => r.message });
   const latestChangelog = useAction<{ message: string }, { projectId: string; branch: string }>("changelog.latest", { invalidate: inv, success: (r) => r.message });
   const ov = useOverview(pid).data;
@@ -109,7 +135,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
 
   const mutations = [sw, wt, pull, push, sync, stash, unstash, pr, changelog, stampChangelog, latestChangelog, follow];
   // Started elsewhere counts too: the commit box's auto push spins the branch's Push button, and so do merges, deletes and rebases running in the background.
-  const elsewhere = usePendingBranches(["workspace.push", "workspace.switch", "worktrees.remove", "branches.merge", "branches.delete", "branches.publish", "workspace.rebase", "workspace.rebaseContinue"], pid);
+  const elsewhere = usePendingBranches(["workspace.commit", "workspace.push", "workspace.switch", "worktrees.remove", "branches.merge", "branches.delete", "branches.publish", "workspace.rebase", "workspace.rebaseContinue"], pid);
   const busy = new Set([...mutations.flatMap((m) => (m.isPending && m.variables?.branch ? [m.variables.branch] : [])), ...elsewhere]);
   // Branches AI is rebasing: nothing else touches them, or their checkout, until it is done. Nor the branches they go onto.
   const rebasing = useRebasing(pid);
@@ -239,6 +265,21 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
         danger: true,
         run: () => openDialog("forcePush", b),
       },
+      commit: {
+        id: "commit",
+        label: "Stage & commit all",
+        tip: !v.checkedOut
+          ? `Check out ${b} to commit its changes`
+          : v.inProgress
+            ? `Finish or abort the ${v.inProgress} first`
+            : !v.wip
+              ? "No uncommitted changes"
+              : `Stage the ${plural(v.wip, "uncommitted file")} on ${b} and commit them${aiCommit ? ". AI writes the message" : ", with a message you write"}`,
+        icon: aiCommit ? "sparkle" : "commit",
+        hint: !v.checkedOut ? "check out first" : v.inProgress ? `${v.inProgress} in progress` : v.wip ? plural(v.wip, "file") : "nothing to commit",
+        disabled: !v.checkedOut || !v.wip || !!v.inProgress || locks.has(b),
+        run: () => (aiCommit ? void commit(b, "", true).catch(() => {}) : openDialog("commit", b)),
+      },
       stash: {
         id: "stash",
         label: "Stash changes",
@@ -306,7 +347,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
       merge: {
         id: "merge",
         label: <>{v.worktree ? "Finish and merge" : "Merge"} into <span className="mono">{parent}</span>…</>,
-        short: "Merge",
+        short: v.worktree ? "Finish and merge" : "Merge",
         tip: agentBusy
           ? `The agent is still working in the worktree of ${b}`
           : !toMerge
@@ -453,7 +494,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
       if (!v.rewritten || v.protected) list.push(a.push);
       // Work branches can replace origin's copy; shared ones only once rewritten here.
       if (!v.protected && v.upstream && (v.rewritten || (v.role === "branch" && v.upstreamAhead))) list.push(a.forcePush);
-      if (v.checkedOut) list.push(a.stash);
+      if (v.checkedOut) list.push(a.commit, a.stash);
       if (v.checkedOut && t.latestStash) list.push(a.unstash);
       if (t.base) {
         list.push("sep");
@@ -481,7 +522,6 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
       if (t.pickTarget) list.push({ id: "move-any", label: "Target a specific branch…", icon: "merged", run: () => openDialog("target", v.name) });
     }
     list.push("sep");
-    if (t.showCommits) list.push({ id: "commits", label: "Show commits", icon: "commit", run: t.showCommits });
     if (v.ticket) list.push(a.ticket);
     if (t.showStashes) list.push({ id: "stashes", label: "Show stashes", icon: "stash", hint: v.stashes ? String(v.stashes) : undefined, run: t.showStashes });
     if (v.local && canChangelog) list.push(a.changelog);
@@ -503,6 +543,8 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
     if (!v.exists) return a.delete;
     if (locks.has(v.name)) return a.progress;
     if (v.conflict && v.inProgress === "rebase") return a.conflicts;
+    // Uncommitted work comes first: committed before anything moves the branch. Not while an agent still works there.
+    if (v.wip > 0 && v.checkedOut && !v.inProgress && !v.running) return a.commit;
     if (!v.local) return a.switch;
     if (v.renamedTo) return a.follow;
     // A rebased work branch: pulling would bring the old commits back, so suggest replacing origin's copy.
@@ -513,7 +555,8 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
       // Releases and trunks are shared: catch up with the base by merging, no checkout needed.
       if (v.behind > 0 && t.base) return a.sync;
       if (needsPush) return a.push;
-      if (v.role === "trunk" && t.base && v.ahead > 0) return a.merge;
+      // Nothing to pull or push: like work branches, suggest merging what is ahead into the base.
+      if (t.base && v.ahead > 0) return a.merge;
       if (!v.checkedOut) return a.switch;
       return v.upstream ? a.pull : a.push;
     }
@@ -543,7 +586,13 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
 
   const menuEl = menu && <ContextMenu x={menu.x} y={menu.y} alignRight={menu.alignRight} label={`Actions for ${menu.t.view.name}`} items={items(menu.t)} onClose={() => setMenu(null)} />;
 
-  return { primary, create, openMenu, menuEl, busy, rebasing, locks, switchTo, continueOn, abortAndSwitch, switchWith, pullWith };
+  /** One action of the menu, for a button of its own. */
+  const action = (t: BranchTarget, id: "stash" | "pr" | "merge"): Action => all(t)[id];
+
+  /** Ask before replaying `b` on top of `onto`. */
+  const askRebase = (b: string, onto: string) => openDialog("rebaseOnto", b, onto);
+
+  return { primary, create, action, openMenu, menuEl, busy, rebasing, locks, switchTo, continueOn, abortAndSwitch, switchWith, pullWith, askRebase };
 }
 
 export type BranchActions = ReturnType<typeof useBranchActions>;

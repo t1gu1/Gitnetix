@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
  * One delegated tooltip for the whole app. Any element opts in by markup alone:
  *
  *   data-tip="Text"            always shows on hover / keyboard focus
+ *   data-tip-strong="Text"     bold text shown after data-tip
  *   data-tip-overflow          only shows when the element is truncated (text = data-tip or its own text)
  *   title="Text"               native titles are upgraded to this bubble
  *   aria-label on a button     shown for icon-only buttons (no visible text)
@@ -19,7 +20,7 @@ const WARM_WINDOW = 300;
 const GAP = 6;
 const EDGE = 8;
 
-type Tip = { el: HTMLElement; text: string; place: "top" | "bottom" };
+type Tip = { el: HTMLElement; text: string; strong?: string; place: "top" | "bottom" };
 
 const truncated = (el: HTMLElement) => el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1;
 
@@ -33,7 +34,7 @@ function resolve(start: Element | null): Tip | null {
       continue;
     }
     const text = el.dataset.tip || el.getAttribute("title") || el.dataset.tipTitle;
-    if (text) return { el, text, place };
+    if (text) return { el, text, strong: el.dataset.tipStrong, place };
     if (el.matches("button, [role=button], a") && el.getAttribute("aria-label") && !el.textContent?.trim()) {
       return { el, text: el.getAttribute("aria-label")!, place };
     }
@@ -186,6 +187,7 @@ export function TooltipLayer() {
       style={pos ? { left: pos.left, top: pos.top, ["--tip-arrow" as string]: `${pos.arrow}px` } : { left: 0, top: 0, visibility: "hidden" }}
     >
       {tip.text}
+      {tip.strong && <strong> {tip.strong}</strong>}
     </div>,
     document.body,
   );

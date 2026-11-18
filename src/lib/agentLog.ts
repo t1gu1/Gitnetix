@@ -132,6 +132,19 @@ export function questions(lines: LogLine[]): Question[] {
 /** What a session's status shows as: "limited" while a usage limit holds it. */
 export type ShownStatus = AgentStatus | "limited";
 
+/** Each shown status's label and colour class, as on Worktrees & agents. */
+export const STATUS_SHOWN: Record<ShownStatus | "idle", [string, string]> = {
+  running: ["Running", "c-acc"],
+  waiting: ["Waiting for you", "c-warn"],
+  // Its label says when it continues (`limitLabel`).
+  limited: ["Usage limit", "c-warn"],
+  paused: ["Paused", "muted"],
+  failed: ["Failed", "c-del"],
+  done: ["Done", "c-add"],
+  stopped: ["Stopped", "faint"],
+  idle: ["No agent", "faint"],
+};
+
 /** A session a usage limit holds is "limited". A worktree run that ended with its close options showing (no question, its branch `b` known) is done, even with nothing to merge. */
 export const shownStatus = (s: AgentSession, b?: unknown): ShownStatus =>
   s.status === "waiting" && s.limit ? "limited" : s.status === "waiting" && s.worktree && !!b && !questions(s.lines).length ? "done" : s.status;

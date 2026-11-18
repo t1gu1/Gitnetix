@@ -1,87 +1,42 @@
-import { useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
+import { useState, type MouseEvent } from "react";
 
-import { useAction, useCommits, useTagV } from "../api/hooks";
+import { useAction, useTagV } from "../api/hooks";
 import type { Commit } from "../api/types";
-import { AuthorFilter, authorsOf } from "../components/AuthorFilter";
-import { Avatar } from "../components/Avatar";
 import { ContextMenu, type MenuItem } from "../components/ContextMenu";
-import { Icon } from "../components/Icon";
-import { Empty, ErrorBox, Loading, Modal } from "../components/ui";
-import { ago, plural } from "../lib/format";
+import { ErrorBox, Modal } from "../components/ui";
+import { plural } from "../lib/format";
 import { copyToClipboard } from "../lib/toast";
 
 type ResetMode = "soft" | "mixed" | "hard";
 
-/** Commits fetched at a time: scrolling near the end of the list asks for this many more. */
-const PAGE = 200;
-
 /**
- * A branch's own commits, in place of the branch tree. One is always picked,
- * and the files show just its changes.
+ * The right-click menu of a branch's commits, and the dialogs it opens: copy, revert, cherry-pick onto the main checkout's
+ * branch, the resets, tags. `list`: the branch's commits as shown, newest first, origin's unpulled ones included; what a reset
+ * takes off the branch or brings back is counted from it. `base`: the base's name, for a reset to where the branch left it.
+ * Render `el`; `open` on a commit's contextmenu event, `reset` from a button of its own.
  */
-export function CommitList({
-  active,
+export function useCommitMenu({
   pid,
   branch,
   base,
-  selected,
   checkedOut,
   upstream,
   current,
-  onPick,
-  onBack,
+  list,
+  onReset,
 }: {
-  active: boolean;
   pid: string;
   branch: string;
-  /** Branch it is compared with ("" for a trunk: its recent history). */
   base: string;
-  /** Picked commit; undefined = all changes. */
-  selected?: string;
   /** The branch has a checkout: needed to revert or reset. */
   checkedOut: boolean;
   /** The branch tracks one on origin: a reset can be force pushed there. */
   upstream: boolean;
   /** Branch of the main checkout, where cherry-picks land. */
   current?: string;
-  /** `auto` = picked on opening, not by the user. */
-  onPick: (c?: Commit, auto?: boolean) => void;
-  onBack: () => void;
+  list: Commit[];
+  onReset?: () => void;
 }) {
-  const [limit, setLimit] = useState(PAGE);
-  const commits = useCommits(pid, branch, limit);
-  // The branch's own commits, and below them where it left its base (once all are loaded; never for a trunk).
-  const { list, fork } = useMemo(() => {
-    const all = commits.data ?? [];
-    const last = all.at(-1);
-    return last?.base ? { list: all.slice(0, -1), fork: base ? last : undefined } : { list: all, fork: undefined };
-  }, [commits.data, base]);
-  // Fewer than asked for: the list reached the first commit (or the base).
-  const more = !commits.isPlaceholderData && list.length >= limit;
-  // Commits of the local branch; origin's unpulled ones are listed too: they can't be reverted, only hard reset to.
-  const local = list.filter((c) => !c.unpulled);
-  const unpulled = list.filter((c) => c.unpulled);
-  const [query, setQuery] = useState("");
-  const q = query.trim().toLowerCase();
-  const authors = useMemo(() => authorsOf(list), [list]);
-  const [who, setWho] = useState<string[]>([]);
-  // Picked authors still listed: one gone from the list (another branch) filters nothing.
-  const mine = authors.filter((a) => who.includes(a.email)).flatMap((a) => a.emails);
-  const shown = list.filter(
-    (c) =>
-      (!q || [c.subject, c.body, c.author, c.email, ...c.tags].some((t) => t.toLowerCase().includes(q)) || c.sha.startsWith(q)) &&
-      (mine.length === 0 || mine.includes(c.email.toLowerCase())),
-  );
-  const filtered = !!q || mine.length > 0;
-  const end = useRef<HTMLButtonElement>(null);
-  // Older commits load as the end nears; a filtered list waits for a click, so a rare match doesn't pull the whole history.
-  useEffect(() => {
-    const el = end.current;
-    if (!el || filtered) return;
-    const io = new IntersectionObserver(([e]) => e.isIntersecting && setLimit((l) => l + PAGE), { root: el.parentElement, rootMargin: "400px" });
-    io.observe(el);
-    return () => io.disconnect();
-  }, [more, filtered]);
   const [menu, setMenu] = useState<{ x: number; y: number; c: Commit } | null>(null);
   const [reset, setReset] = useState<{ c: Commit; mode: ResetMode } | null>(null);
   const [deletingTag, setDeletingTag] = useState<string | null>(null);
@@ -89,8 +44,13 @@ export function CommitList({
   const inv = [["overview", pid], ["files", pid], ["diff", pid], ["commits", pid]];
   const revert = useAction<{ sha: string }>("commits.revert", { invalidate: inv, success: (r) => `Reverted · ${r.sha.slice(0, 7)}` });
   const pick = useAction<{ sha: string }>("commits.cherryPick", { invalidate: inv, success: (r) => `Cherry-picked onto ${current} · ${r.sha.slice(0, 7)}` });
+  // Commits of the local branch; origin's unpulled ones are listed too: they can't be reverted, only hard reset to.
+  const local = list.filter((c) => !c.unpulled);
+  const unpulled = list.filter((c) => c.unpulled);
+  // Commits of the local branch a reset to `c` takes off it: those above it, or all of them at the base.
+  const above = (c: Commit) => (c.base ? local.length : local.findIndex((l) => l.sha === c.sha));
 
-  const openMenu = (c: Commit, e: MouseEvent) => {
+  const open = (c: Commit, e: MouseEvent) => {
     e.preventDefault();
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
     // Keyboard-opened context menus report (0, 0): anchor to the row instead.
@@ -133,118 +93,8 @@ export function CommitList({
     ];
   };
 
-  // A commit is always picked: the newest one on opening, or when the picked one leaves the list (reset, revert).
-  useEffect(() => {
-    if (list[0] && fork?.sha !== selected && !list.some((c) => c.sha === selected)) onPick(list[0], true);
-  }, [list, fork, selected, onPick]);
-  // Commits of the local branch a reset to `c` takes off it: those above it, or all of them at the base.
-  const above = (c: Commit) => (c.base ? local.length : local.findIndex((l) => l.sha === c.sha));
-
-  // Escape goes back to the branches, unless it is closing something else or typing.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape" || (e.target as HTMLElement).closest("input, textarea")) return;
-      if (document.querySelector("[role=dialog], [role=menu]")) return;
-      onBack();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onBack]);
-
-  return (
-    <section aria-label={`Commits of ${branch}`} className="ws-releases" data-pane data-active={active}>
-      <div className="pane-head">
-        <span className="row" style={{ gap: 6, minWidth: 0 }}>
-          <button className="btn btn-sm btn-icon pane-toggle pane-back" aria-label="Back to branches" data-tip="Back to branches (Esc)" onClick={onBack}>
-            <Icon name="back" size={13} />
-          </button>
-          <span className="mono ellipsis" style={{ fontSize: 12.5 }}>{branch}</span>
-        </span>
-        {commits.data && <span className="faint" style={{ fontSize: 11.5, whiteSpace: "nowrap" }}>{plural(list.length, "commit")}</span>}
-      </div>
-      <div className="tree-filter">
-        <Icon name="search" size={14} className="faint" />
-        <input type="search" className="input" placeholder="Filter commits" aria-label="Filter commits" value={query} onChange={(e) => setQuery(e.target.value)} />
-        <AuthorFilter authors={authors} who={who} onChange={setWho} tip="Show only the commits of these authors" />
-      </div>
-      <div className="scroll commits commit-list" style={{ flex: "1 1 auto" }}>
-        {commits.isLoading && <Loading />}
-        {commits.error && <div style={{ padding: 12 }}><ErrorBox error={commits.error} /></div>}
-        {shown.map((c) => (
-          <button key={c.sha} className="commit-row" aria-pressed={c.sha === selected} onClick={() => onPick(c)} onContextMenu={(e) => openMenu(c, e)}>
-            {(c.tags.length > 0 || c.local || c.origin) && (
-              <span className="commit-tags">
-                {c.tags.map((t) => (
-                  <span key={t} className="commit-tag mono" title={`Tag ${t}`}>
-                    <Icon name="tag" size={10} stroke={1.6} />
-                    {t}
-                  </span>
-                ))}
-                {c.local && <span className="tag local" title={`${branch} is here locally`}>local</span>}
-                {c.origin && <span className="tag accent" title={`${branch} is here on origin`}>origin</span>}
-              </span>
-            )}
-            <span className="commit-subject">{marked(c.subject, q)}</span>
-            {c.body && <span className="commit-body">{marked(c.body, q)}</span>}
-            <span className="commit-meta">
-              <Avatar name={c.author} email={c.email} size={14} />
-              <span className="ellipsis">{marked(c.author, q)}</span>
-              <span className="mono">{c.sha.slice(0, 7)}</span>
-              <span title={new Date(c.date).toLocaleString()} style={{ whiteSpace: "nowrap" }}>{ago(c.date)}</span>
-            </span>
-          </button>
-        ))}
-        {fork && !filtered && (
-          <div className="fork-point">
-            <div className="fork-sep">
-              <Icon name="branch" size={11} stroke={1.6} />
-              Branched from <span className="mono">{base}</span>
-            </div>
-            <div className="fork-row">
-              <button className="commit-row" aria-pressed={fork.sha === selected} onClick={() => onPick(fork)} onContextMenu={(e) => openMenu(fork, e)}>
-                {(fork.tags.length > 0 || fork.origin) && (
-                  <span className="commit-tags">
-                    {fork.tags.map((t) => (
-                      <span key={t} className="commit-tag mono" title={`Tag ${t}`}>
-                        <Icon name="tag" size={10} stroke={1.6} />
-                        {t}
-                      </span>
-                    ))}
-                    {fork.origin && <span className="tag accent" title={`${branch} is here on origin`}>origin</span>}
-                  </span>
-                )}
-                <span className="commit-subject">{fork.subject}</span>
-                <span className="commit-meta">
-                  <Avatar name={fork.author} email={fork.email} size={14} />
-                  <span className="ellipsis">{fork.author}</span>
-                  <span className="mono">{fork.sha.slice(0, 7)}</span>
-                  <span title={new Date(fork.date).toLocaleString()} style={{ whiteSpace: "nowrap" }}>{ago(fork.date)}</span>
-                </span>
-              </button>
-              <div className="fork-acts">
-                <button
-                  className="btn btn-sm"
-                  disabled={!checkedOut}
-                  data-tip={checkedOut ? `Reset ${branch} to where it left ${base}: soft, mixed or hard` : "Check out the branch first"}
-                  onClick={() => setReset({ c: fork, mode: "mixed" })}
-                >
-                  <Icon name="undo" size={12} />
-                  Reset here…
-                </button>
-                <span className="hint">{local.length === 1 ? "Its commit leaves the branch" : `All ${local.length} commits leave the branch`}</span>
-              </div>
-            </div>
-          </div>
-        )}
-        {list.length > 0 && shown.length === 0 && <Empty>{q ? <>No commit matches “{query}”{mine.length > 0 && " by them"}.</> : "No commit by them."}</Empty>}
-        {commits.data && list.length === 0 && <Empty>{base ? <>No commits that <span className="mono">{base}</span> doesn't have.</> : "No commits yet."}</Empty>}
-        {commits.isPlaceholderData && <Loading />}
-        {more && (
-          <button ref={end} className="btn btn-ghost btn-sm" style={{ alignSelf: "center", margin: 8 }} onClick={() => setLimit((l) => l + PAGE)}>
-            Load older commits
-          </button>
-        )}
-      </div>
+  const el = (
+    <>
       {menu && <ContextMenu x={menu.x} y={menu.y} label={`Actions for ${menu.c.sha.slice(0, 7)}`} items={items(menu.c)} onClose={() => setMenu(null)} />}
       {reset && (
         <ResetModal
@@ -259,14 +109,15 @@ export function CommitList({
           mode={reset.mode}
           upstream={upstream}
           onMode={(mode) => setReset({ ...reset, mode })}
-          onDone={() => onPick(undefined)}
+          onDone={() => onReset?.()}
           onClose={() => setReset(null)}
         />
       )}
       {deletingTag && <DeleteTagModal pid={pid} tag={deletingTag} onClose={() => setDeletingTag(null)} />}
       {tagging && <TagModal pid={pid} commit={tagging} onClose={() => setTagging(null)} />}
-    </section>
+    </>
   );
+  return { open, reset: (c: Commit, mode: ResetMode) => setReset({ c, mode }), el };
 }
 
 const RESET_MODES: { mode: ResetMode; label: string; hint: string }[] = [
@@ -274,13 +125,6 @@ const RESET_MODES: { mode: ResetMode; label: string; hint: string }[] = [
   { mode: "mixed", label: "Mixed", hint: "Their changes stay in your files, unstaged" },
   { mode: "hard", label: "Hard", hint: "Their changes and any uncommitted work are thrown away" },
 ];
-
-/** `text` with the search marked in it (first match). */
-function marked(text: string, q: string): ReactNode {
-  const i = q ? text.toLowerCase().indexOf(q) : -1;
-  if (i < 0) return text;
-  return <>{text.slice(0, i)}<mark className="tree-hit">{text.slice(i, i + q.length)}</mark>{text.slice(i + q.length)}</>;
-}
 
 function ResetModal({
   pid,

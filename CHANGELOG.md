@@ -14,6 +14,54 @@ the in-app update prompt.
 
 ## [Unreleased]
 
+### Added (App)
+- The branch map replaces the branch tree. It lays out branches left to right, one column per level of nesting, with filters for person, merged, falling behind, and shipped branches, plus zoom, search, and a mini overview.
+- A claude.ai artifact link in an agent message now offers to open it with your claude.ai sign-in and attach a picture of it, or to attach an export.
+- The branch map offers a rebase for any local work branch that has nothing running, and for checked-out branches that are behind.
+- Branches checked out nowhere can be rebased in a temporary worktree that is removed afterward. If conflicts remain, the branch returns to its previous commit and the error names the conflicting files.
+- The map zooms at the pointer and pans by dragging. A two-finger trackpad scroll pans the map, while the mouse wheel and Ctrl+wheel still zoom.
+- Tiles show commit authors, and a "see all" row on the latest commit tile expands earlier commits.
+- The shipped list above the trunk shows the latest 10 releases, with a "see all" row on top that lists the earlier ones.
+- The branch menu has a "Stage & commit all" action, and right-clicking a commit on a map tile opens the commit menu.
+- Each tile has a "+" button on its right edge, where its lines leave.
+- Deleting a checked-out branch now switches to its parent first.
+
+### Added (.ds-sync)
+- Scripts convert a design system package or Storybook build into a bundle for claude.ai/design, with an IIFE build, styles, fonts, and per-component prompt docs. A `.design-sync/config.json` file holds the project ID.
+
+### Changed (App)
+- The branch timeline is replaced by a files panel. The focus view's left pane lists the branch's files with WIP, Branch, and Project views, and the "Look at the code" button opens the branch on its WIP, its changes, or the project files.
+- On wide screens the terminal panel docks on the right of the branch map, so the map and file log get the full window height. The panel width is saved between sessions.
+- Once a worktree's work is done, the card's primary button suggests merging into the parent and deleting the worktree. The merge menu item reads "Finish and merge" for worktrees.
+- The suggested action and its "..." menu form one split button, and the separate "+" create button is gone from the card.
+- Folded cards keep their actions and take less map space.
+- The rebase button stays focusable but disabled while the branch has work running, and its tooltip explains why.
+- The closed terminal bar shows the status in its colour, and the waiting status uses the warning colour.
+- On phones, the card sits above the map, and keyboard and screen reader users still reach the map first.
+- Secondary buttons on the branch map are tinted with the theme accent.
+- The commit pill follows the state of its tile, and the WIP chip sits inside the "Look at the code" button.
+- The Falling behind toggle and its Clean up button form one split control.
+- The checked-out branch streak moves at 60 steps a second instead of 12.
+
+### Fixed (App)
+- The dictation mic button is hidden when its field is removed while focused.
+- The folded state of branch cards is remembered across restarts.
+- The latest commit tile shows the author's avatar, with a green ring only when the branch is checked out and up to date.
+- Tiles near the top left of the map can now be scrolled to the middle of the view.
+- Long log lines no longer widen the terminal panel.
+- The avatar lines up with the label in the Mine filter.
+- A long label on a branch chip truncates with an ellipsis and keeps its state visible.
+- A selected checked-out tile keeps its orange outline.
+- WebKit no longer clips the corners of the checked-out tile.
+- The long "Finish and merge" label truncates with an ellipsis.
+- The terminal icon is hidden when the closed terminal is sideways, since it duplicated the chevron.
+- The map scrollbar gutter is dark instead of black.
+
+### Removed (App)
+- The "New branch" button is removed from the map toolbar.
+- The J and K shortcuts and the Browse-all-files search are removed.
+- The branch chain is removed from the selected card.
+
 ## [0.22.0] - 2026-11-17
 
 ### Added (App)

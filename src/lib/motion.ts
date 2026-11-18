@@ -7,18 +7,18 @@ import type { Config } from "../api/types";
 
 /** The app's animations that can be turned off one by one, by id. The stylesheet stops each under `:root[data-anim-off~="<id>"]`. */
 export const ANIMATIONS: { id: string; label: string; hint: string }[] = [
-  { id: "path", label: "Branch path pulse", hint: "The streak running down the accent-coloured path to the checked-out branch, and its glow on arrival" },
-  { id: "shine", label: "Current branch shine", hint: "The light sweeping over the checked-out branch's name and its group label, and over project names while the worktree list loads, and the colours flowing through the new agent session's project and branch names" },
-  { id: "commit", label: "New commit pop", hint: "The commit link popping and glowing when a branch gets a new commit" },
+  { id: "path", label: "Branch path pulse", hint: "The streak running down the checked-out branch's line on the branch map" },
+  { id: "shine", label: "Current branch shine", hint: "The light sweeping over the checked-out branch's name on the branch map, and over project names while the worktree list loads, and the colours flowing through the new agent session's project and branch names" },
+  { id: "commit", label: "New commit pop", hint: "A branch's commit count popping and glowing on the branch map when it gets a new commit" },
   { id: "nudge", label: "Push button nudge", hint: "The push button wiggling while commits wait to be pushed" },
   { id: "wip", label: "WIP badge pulse", hint: "The WIP badge fading in and out while files have uncommitted changes" },
   { id: "activity", label: "Activity pulse", hint: "The dot pulsing next to running agents, AI work and checks, and a branch's AI working and waiting labels" },
   { id: "tabs", label: "Project tab drag", hint: "The stretch, pop and spring back when reordering project tabs" },
   { id: "menu", label: "Menu slide", hint: "The menu sliding in and out" },
   { id: "pages", label: "Page fade", hint: "Pages fading up into place when opened" },
-  { id: "lists", label: "List entrances", hint: "Branches, files, commits and agent replies fading in as they appear, chart bars growing" },
+  { id: "lists", label: "List entrances", hint: "Files, commits and agent replies fading in as they appear, chart bars growing" },
   { id: "dialogs", label: "Dialog pop", hint: "Dialogs, context menus and notifications popping in" },
-  { id: "panes", label: "Panel slide", hint: "On mobile, the Branches, Files and Diff panels sliding in when switching between them" },
+  { id: "panes", label: "Panel slide", hint: "On mobile, a branch's Timeline and Code panels sliding in when switching between them" },
   { id: "seg", label: "Tab highlight slide", hint: "The highlight, the page underline and the mobile tab bubble sliding from the previous tab to the newly selected one" },
   { id: "tooltips", label: "Tooltip fade", hint: "Tooltips fading in" },
   { id: "chevrons", label: "Folding arrows", hint: "Arrows turning as groups open and close" },

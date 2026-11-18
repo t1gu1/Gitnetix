@@ -2,7 +2,7 @@ import { type ClipboardEvent, type CSSProperties, type KeyboardEvent, type React
 import { createPortal } from "react-dom";
 
 import { useAction, useAgentBlobs, useAgentDiff, useAgentFile, useAiCatalog, useConfig } from "../api/hooks";
-import { clipboardFiles, copyAgentFile, downloadAgentFile, isLocal, localHead, localImage, onPathDrop } from "../api/transport";
+import { captureArtifact, clipboardFiles, copyAgentFile, downloadAgentFile, isLocal, localHead, localImage, onPathDrop, openArtifact } from "../api/transport";
 import type { AgentAsk, AgentLimit, AgentTask, LogLine } from "../api/types";
 import { blocks, errText, folds, questions, said, stepsLabel, tasksLabel, took, type Block, type Fold, type Opt, type Question } from "../lib/agentLog";
 import { OwnMic } from "../lib/dictation";
@@ -1087,6 +1087,69 @@ export function useAttach(target: () => HTMLElement | null | undefined, files: A
   return { over, add };
 }
 
+/** The first claude.ai artifact link in `text`, with its #artboard. Those links are private to the user's claude.ai account: neither Gitnetix nor an agent can fetch them. */
+export const artifactLink = (text: string) => /https:\/\/claude\.ai\/(?:code\/)?artifact\/[\w-]+(?:#[^\s)>\]]*)?/.exec(text)?.[0];
+
+/** Over the message box while it holds a claude.ai artifact `link`: on the desktop, open it signed in to claude.ai and attach a picture of
+ * what that window shows; or attach an export of it. Any failure leaves the export as the way. */
+function ArtifactAsk({ link, onAttach, onChoose, onDismiss }: { link: string; onAttach: (path: string) => void; onChoose: () => void; onDismiss: () => void }) {
+  const [step, setStep] = useState<"ask" | "open" | "failed">(isLocal ? "ask" : "failed");
+  const [busy, setBusy] = useState(false);
+  const run = (what: string, job: () => Promise<void>) => {
+    setBusy(true);
+    job()
+      .catch((e) => {
+        toast(`${what}: ${e}`, "error");
+        setStep("failed");
+      })
+      .finally(() => setBusy(false));
+  };
+  const open = () => run("Could not open claude.ai", () => openArtifact(link).then(() => setStep("open")));
+  const capture = () => run("Could not take the picture", () => captureArtifact().then(onAttach));
+  return (
+    <div className="ag-limit ag-artifact" role="group" aria-label="Private claude.ai link">
+      <Icon name="lock" size={18} />
+      <div className="ag-limit-body grow">
+        <span className="ag-limit-title">The agent can't open this claude.ai link</span>
+        <span className="ag-limit-when">
+          {step === "ask"
+            ? "It is private to your claude.ai account. Open it with your claude.ai sign-in, and Gitnetix attaches a picture of it."
+            : step === "open"
+              ? "Sign in to claude.ai in the window that opened and show the artboard. Make the window bigger to fit it, then attach what it shows."
+              : "Export it from claude.ai as HTML or a PNG, then attach the file or drop it here."}
+        </span>
+        <div className="ag-limit-actions">
+          {/* After a failure the export leads, and the sign-in stays to try again (the window may have been closed). */}
+          {step !== "open" && isLocal && (
+            <button type="button" className={`btn btn-sm ${step === "ask" ? "btn-primary" : "btn-ghost"}`} disabled={busy} onClick={open}>
+              <Icon name="external" size={12} />
+              Open with my claude.ai sign-in
+            </button>
+          )}
+          {step === "open" && (
+            <>
+              <button type="button" className="btn btn-primary btn-sm" disabled={busy} onClick={capture}>
+                {busy ? <span className="spinner" /> : <Icon name="image" size={12} />}
+                Attach what the window shows
+              </button>
+              <button type="button" className="btn btn-ghost btn-sm" disabled={busy} onClick={open}>
+                Show the window
+              </button>
+            </>
+          )}
+          <button type="button" className={`btn btn-sm ${step === "failed" ? "btn-primary" : "btn-ghost"}`} onClick={onChoose}>
+            <Icon name="attach" size={12} />
+            Attach a file
+          </button>
+        </div>
+      </div>
+      <button type="button" className="btn btn-ghost btn-icon" aria-label="Dismiss" data-tip="Dismiss" onClick={onDismiss}>
+        <Icon name="close" size={12} />
+      </button>
+    </div>
+  );
+}
+
 /** Screenshots, copied images and copied files attach instead of pasting nothing. WebKitGTK (the desktop app on Linux) hands the page none of them: they come from the desktop's clipboard. */
 function paste(e: ClipboardEvent<HTMLTextAreaElement>, add: (f: Attachment[]) => void) {
   const pasted = [...e.clipboardData.files];
@@ -1173,6 +1236,9 @@ export function AgentInput({ id, label, value, onChange, files, onFiles, picks, 
   const input = useRef<HTMLTextAreaElement>(null);
   const chooser = useRef<HTMLInputElement>(null);
   const { over, add } = useAttach(() => form.current?.parentElement, files, onFiles, disabled);
+  // A claude.ai artifact link in the text asks for its picture or an export; done or dismissed, that link asks no more.
+  const link = artifactLink(value);
+  const [settled, setSettled] = useState<string>();
   // Lines of text shown: Send stays square up to 3.
   const [lines, setLines] = useState(1);
   const sent = blocks(log).flatMap((b) => (b.kind === "you" ? [b.text] : []));
@@ -1248,6 +1314,18 @@ export function AgentInput({ id, label, value, onChange, files, onFiles, picks, 
         onSend(await uploads(files), text);
       }}
     >
+      {link && link !== settled && !disabled && (
+        <ArtifactAsk
+          key={link}
+          link={link}
+          onAttach={(path) => {
+            add([path]);
+            setSettled(link);
+          }}
+          onChoose={() => chooser.current?.click()}
+          onDismiss={() => setSettled(link)}
+        />
+      )}
       {picks.length + files.length > 0 && (
         <div className="ag-attach">
           {picks.map((p) => (
