@@ -15,8 +15,12 @@ the in-app update prompt.
 ## [Unreleased]
 
 ### Changed (App)
+- The app has a new look. The shell, theme, components, and screens follow a new design direction.
 - The branch map no longer has the Commits filter (Hidden, Latest, List). Every branch lists its 4 newest commits, with "See all" for the rest.
 - Branch tiles no longer show a commit count bubble, and the "New commit pop" animation setting is gone with it.
+
+### Fixed (App)
+- The Default tag no longer appears next to the Checked out tag on the same branch. It shows only when the branch is not checked out.
 
 ## [0.25.0] - 2026-11-18
 
