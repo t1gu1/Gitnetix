@@ -14,6 +14,8 @@ the in-app update prompt.
 
 ## [Unreleased]
 
+## [0.26.1] - 2026-11-19
+
 ### Added (App)
 - GitHub Copilot agents take the Permissions setting, as Claude Code agents do. Bypass allows everything, and Auto-approve lets Copilot's safety judge decide. At Accept edits (file edits allowed) and Use agent permissions (Copilot's own rules), Copilot asks before anything else with an Allow / Refuse card in the chat, and Refuse has it look for another way. A level you picked for Claude Code now applies to Copilot too.
 - At Accept edits and Use agent permissions, a follow-up message to a Copilot agent continues its conversation instead of starting over.
