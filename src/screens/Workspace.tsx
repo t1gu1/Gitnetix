@@ -1134,6 +1134,7 @@ function synthetic(name: string, checkedOut: boolean): BranchView {
     upstreamAhead: 0,
     upstreamBehind: 0,
     rewritten: false,
+    upstreamRewritten: false,
     exists: true,
     merged: false,
     likelyMerged: false,
@@ -1782,8 +1783,8 @@ function ResetBranchModal({ pid, view, onClose }: { pid: string; view: BranchVie
       <p style={{ margin: 0, lineHeight: 1.55 }}>
         Moves <span className="mono">{branch}</span> to exactly where <span className="mono">{upstream}</span> is
         {view.upstreamBehind > 0 && <>, taking its {plural(view.upstreamBehind, "new commit")}</>}.
-        {view.upstreamAhead > 0 && <> The {plural(view.upstreamAhead, "local commit")} not on origin {view.upstreamAhead === 1 ? "is" : "are"} dropped.</>}
-        {view.checkedOut && <> Uncommitted changes in its checkout are lost{view.wip > 0 && <> ({plural(view.wip, "file")})</>}.</>} This cannot be undone.
+        {view.upstreamAhead > 0 && <> The {plural(view.upstreamAhead, "local commit")} not on origin {view.upstreamAhead === 1 ? "is" : "are"} dropped{view.upstreamRewritten && <>: {view.upstreamAhead === 1 ? "it was" : "they were"} on origin before someone force pushed it</>}.</>}
+        {view.checkedOut && view.wip > 0 && <> Uncommitted changes in its checkout are lost ({plural(view.wip, "file")}).</>} This cannot be undone.
       </p>
       {reset.error && <ErrorBox error={reset.error} />}
     </Modal>

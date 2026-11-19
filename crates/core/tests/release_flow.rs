@@ -466,6 +466,7 @@ async fn pull_and_tracking() {
     call(&k, "branches.fetch", json!({ "projectId": pid })).await;
     let x = feat_x(&call(&k, "workspace.overview", json!({ "projectId": pid })).await);
     assert_eq!((x["upstreamAhead"].as_u64(), x["upstreamBehind"].as_u64(), x["rewritten"].as_bool()), (Some(1), Some(1), Some(false)), "{x}");
+    assert_eq!(x["upstreamRewritten"], false, "a commit of its own: {x}");
     let theirs = rev(&origin, "feat/x");
     assert!(rpc::call(&k, "workspace.push", json!({ "projectId": pid, "branch": "feat/x", "force": true })).await.is_err());
     assert_eq!(rev(&origin, "feat/x"), theirs, "teammate's commit kept");
@@ -494,6 +495,53 @@ async fn reset_back_after_push_force_pushes() {
     assert!(rpc::call(&k, "workspace.push", json!({ "projectId": pid, "branch": "main" })).await.is_err());
     call(&k, "workspace.push", json!({ "projectId": pid, "branch": "main", "force": true })).await;
     assert_eq!(rev(&origin, "main"), rev(&repo, "main"));
+}
+
+#[tokio::test]
+async fn origin_force_pushed_over_the_branch() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("forced");
+    init_repo(&repo);
+    let origin = tmp.path().join("origin.git");
+    sh(tmp.path(), &["init", "-q", "--bare", "-b", "main", origin.to_str().unwrap()]);
+    sh(&repo, &["remote", "add", "origin", origin.to_str().unwrap()]);
+    sh(&repo, &["push", "-q", "-u", "origin", "main"]);
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let added = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await;
+    let pid = added[0]["id"].as_str().unwrap().to_string();
+    commit_file(&repo, "a.txt", "a\n");
+    call(&k, "workspace.push", json!({ "projectId": pid, "branch": "main" })).await;
+
+    // A teammate replaces the pushed commit and force pushes: the local one was on origin, so nothing here is lost by a reset.
+    let other = tmp.path().join("other");
+    sh(tmp.path(), &["clone", "-q", "-c", "core.autocrlf=false", origin.to_str().unwrap(), other.to_str().unwrap()]);
+    sh(&other, &["config", "user.email", "o@example.com"]);
+    sh(&other, &["config", "user.name", "Other"]);
+    sh(&other, &["config", "commit.gpgsign", "false"]);
+    sh(&other, &["reset", "-q", "--hard", "HEAD~1"]);
+    commit_file(&other, "b.txt", "b\n");
+    sh(&other, &["push", "-q", "--force", "origin", "main"]);
+    call(&k, "branches.fetch", json!({ "projectId": pid })).await;
+    let main = |ov: &Value| ov["branches"].as_array().unwrap().iter().find(|b| b["name"] == "main").unwrap().clone();
+    let m = main(&call(&k, "workspace.overview", json!({ "projectId": pid })).await);
+    assert_eq!((m["upstreamAhead"].as_u64(), m["upstreamBehind"].as_u64(), m["upstreamRewritten"].as_bool()), (Some(1), Some(1), Some(true)), "{m}");
+
+    // A commit made since was never on origin: it is the user's own.
+    commit_file(&repo, "c.txt", "c\n");
+    let m = main(&call(&k, "workspace.overview", json!({ "projectId": pid })).await);
+    assert_eq!(m["upstreamRewritten"], false, "{m}");
+    // The suggested reset checks again: the new commit, then uncommitted changes, make it refuse.
+    let safe = json!({ "projectId": pid, "branch": "main", "safe": true });
+    let mine = rev(&repo, "main");
+    assert!(rpc::call(&k, "branches.reset", safe.clone()).await.unwrap_err().to_string().contains("commits origin never had"));
+    assert_eq!(rev(&repo, "main"), mine, "refused: the commit stays");
+    sh(&repo, &["reset", "-q", "--hard", "HEAD~1"]);
+    std::fs::write(repo.join("a.txt"), "edited\n").unwrap();
+    assert!(rpc::call(&k, "branches.reset", safe.clone()).await.unwrap_err().to_string().contains("uncommitted changes"));
+    assert_eq!(std::fs::read_to_string(repo.join("a.txt")).unwrap(), "edited\n", "refused: the change stays");
+    sh(&repo, &["checkout", "--", "a.txt"]);
+    call(&k, "branches.reset", safe).await;
+    assert_eq!(rev(&repo, "main"), rev(&origin, "main"));
 }
 
 #[tokio::test]

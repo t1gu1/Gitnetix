@@ -89,7 +89,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("branches.publish", "Publish a branch (any, a release one too) as a version: date its CHANGELOG.md entry in a commit on it, tag its tip (\"Release <tag>\") and push the branch, under its own name (which it then tracks), and the tag to origin together (pushed = false without an origin remote). Refused before anything changes when the version is not one git can tag (a digit first, then letters, digits, dots and dashes, no \"..\", not ending in \".\" or \".lock\"; a leading v is dropped), the version is tagged already (with or without v), another open release holds it, the branch's checkout is in the middle of a rebase, merge, cherry-pick or revert, or origin has commits the branch lacks. A step failing later, a refused push too, leaves the branch, its tags and its release as they were. No other branch moves; an open release of this branch and version is marked shipped. Returns tag, pushed, changelog (a commit dated the changelog entry)", "projectId, branch, version, v? (the tag starts with v; default: the project's choice), tag? (the tag's full name, taken as written instead of version and v; the changelog dates it without a v before a digit), aiChangelog? (AI first adds the branch's changes to the Unreleased section, after every check; nothing new to add is fine)"),
     ("tags.checkout", "Check out a tag's commit (detached HEAD; uncommitted work comes along)", "projectId, name"),
     ("tags.delete", "Delete a tag, locally and on origin", "projectId, name"),
-    ("branches.reset", "Hard-reset a branch to its upstream, dropping local commits (and uncommitted changes when checked out)", "projectId, branch"),
+    ("branches.reset", "Hard-reset a branch to its upstream, dropping local commits (and uncommitted changes when checked out); safe = refused unless nothing is lost (no uncommitted changes, no commit origin never had)", "projectId, branch, safe?"),
     ("branches.merge", "Merge a branch into its release (or parent branch, or `into`): a merge commit, or rebase = rebase it onto the target and fast-forward; squash = collapse its commits first (\"squash | <branch>\", or squashAi = AI writes the message); deleteBranch = delete it last, locally and on origin; push = push the target after; stay = don't switch the main checkout to the target", "projectId, branch, into?, deleteBranch?, squash?, squashAi?, rebase?, push?, stay?"),
     ("branches.sync", "Merge a branch's base into it to bring it up to date", "projectId, branch"),
     ("branches.setParent", "Choose what a branch merges into (an open release branch attaches it to that release; a release branch changes the branch it was cut from)", "projectId, branch, parent"),
@@ -838,7 +838,7 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
             ok()
         }
         "branches.reset" => {
-            k.reset_to_upstream(&s(&p, "projectId")?, &s(&p, "branch")?).await?;
+            k.reset_to_upstream(&s(&p, "projectId")?, &s(&p, "branch")?, b(&p, "safe")).await?;
             ok()
         }
         "branches.merge" => {

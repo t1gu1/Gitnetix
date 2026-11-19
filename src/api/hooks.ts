@@ -281,7 +281,7 @@ export const pushed = (b: BranchView, force = false): BranchView => ({
   upstream: b.upstream ?? `origin/${b.name}`,
   remote: true,
   upstreamAhead: 0,
-  ...(force ? { upstreamBehind: 0, rewritten: false } : {}),
+  ...(force ? { upstreamBehind: 0, rewritten: false, upstreamRewritten: false } : {}),
 });
 
 /** The overview once branch `name` is deleted here (`remote`: from origin too). One origin keeps stays, origin-only. */

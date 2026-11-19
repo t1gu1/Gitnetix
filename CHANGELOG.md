@@ -14,6 +14,10 @@ the in-app update prompt.
 
 ## [Unreleased]
 
+### Changed (App)
+- A branch behind origin with no commits of its own suggests "Reset to origin" instead of Pull. This also covers a branch that a teammate force pushed over: its local commits were on origin before, so the reset loses nothing. Pull stays suggested while the branch has uncommitted changes, a running agent or an operation in progress. It runs in one click. The app checks the branch again first and refuses if it has gained a commit or uncommitted changes since.
+- The "Reset to origin" dialog warns about lost uncommitted changes only when the checkout has some.
+
 ## [0.26.2] - 2026-11-19
 
 ### Changed (App)

@@ -193,6 +193,8 @@ export interface BranchView {
   upstreamBehind: number;
   /** Behind or diverged from its upstream only because it was rewritten (rebased, reset): origin's tip was once on the local branch. */
   rewritten: boolean;
+  /** Diverged only because origin was force pushed after the branch's tip was on it: resetting to origin loses nothing. */
+  upstreamRewritten: boolean;
   ticket?: string | null;
   /** Exists locally or on origin (false: tracked by Gitnetix but gone). */
   exists: boolean;

@@ -104,6 +104,11 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
     },
   });
   const push = useAction<{ output: string }, { projectId: string; branch: string }>("workspace.push", { invalidate: inv, patch: (qc, v) => patchOverview(qc, pid, v.branch, pushed) });
+  // The suggested reset: no dialog, the server refuses it if the branch has gained anything of its own since.
+  const reset = useAction<unknown, { projectId: string; branch: string; safe: boolean }>("branches.reset", {
+    invalidate: inv,
+    patch: (qc, v) => patchOverview(qc, pid, v.branch, (b) => ({ ...b, upstreamAhead: 0, upstreamBehind: 0, upstreamRewritten: false })),
+  });
   const sync = useAction<MergeResult, { projectId: string; branch: string }>("branches.sync", { invalidate: inv });
   const stash = useAction<unknown, { projectId: string; branch: string }>("branches.stash", {
     invalidate: inv,
@@ -134,7 +139,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
   // Worktrees whose agent is still at work: finishing them would pull the folder out from under it.
   const working = useAgents((l) => l.filter((a) => a.status === "running" || a.status === "paused").map((a) => a.cwd)).data;
 
-  const mutations = [sw, wt, pull, push, sync, stash, unstash, pr, changelog, stampChangelog, latestChangelog, follow];
+  const mutations = [sw, wt, pull, push, reset, sync, stash, unstash, pr, changelog, stampChangelog, latestChangelog, follow];
   // Started elsewhere counts too: the commit box's auto push spins the branch's Push button, and so do merges, deletes and rebases running in the background.
   const elsewhere = usePendingBranches(["workspace.commit", "workspace.push", "workspace.switch", "worktrees.remove", "branches.merge", "branches.delete", "branches.publish", "workspace.rebase", "workspace.rebaseContinue"], pid);
   const busy = new Set([...mutations.flatMap((m) => (m.isPending && m.variables?.branch ? [m.variables.branch] : [])), ...elsewhere]);
@@ -584,6 +589,16 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
     if (v.renamedTo) return a.follow;
     // A rebased work branch: pulling would bring the old commits back, so suggest replacing origin's copy.
     if (v.role === "branch" && !v.protected && v.rewritten) return a.forcePush;
+    // Origin moved on and the branch has nothing of its own: take origin's copy as is. Not over uncommitted work.
+    if (v.upstreamBehind > 0 && (!v.upstreamAhead || v.upstreamRewritten) && !v.wip && !v.inProgress && !v.running)
+      return {
+        ...a.reset,
+        label: <>Reset to <span className="mono">{v.upstream}</span></>,
+        short: "Reset to origin",
+        tip: `Reset ${v.name} to ${v.upstream}: it has nothing of its own to lose`,
+        danger: false,
+        run: () => reset.mutate({ projectId: pid, branch: v.name, safe: true }, { onSuccess: () => toast(`Reset ${v.name} to ${v.upstream}`, "ok") }),
+      };
     if (v.upstreamBehind > 0) return a.pull;
     const needsPush = v.upstreamAhead > 0 || (!v.upstream && v.ahead > 0);
     if (v.role !== "branch") {

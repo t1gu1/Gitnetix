@@ -900,8 +900,8 @@ impl Git {
 
     /// `sha` was the tip of local `branch` at some point (its reflog): the
     /// branch has had it, so replacing it upstream loses nothing unseen.
-    pub async fn in_reflog(&self, branch: &str, sha: &str) -> Result<bool> {
-        let (ok, out, _) = self.try_run(&["reflog", "show", "--format=%H", &format!("refs/heads/{branch}")]).await?;
+    pub async fn in_reflog(&self, full_ref: &str, sha: &str) -> Result<bool> {
+        let (ok, out, _) = self.try_run(&["reflog", "show", "--format=%H", full_ref]).await?;
         Ok(ok && out.lines().any(|l| l == sha))
     }
 

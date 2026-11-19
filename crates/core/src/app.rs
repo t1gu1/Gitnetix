@@ -245,6 +245,10 @@ pub struct BranchView {
     /// Behind or diverged from its upstream only because it was rewritten (rebased, amended, reset):
     /// origin's tip was once on the local branch, so a force push loses nothing unseen.
     pub rewritten: bool,
+    /// Diverged only because origin was rewritten (force pushed) after the branch's tip was on it:
+    /// the branch holds nothing origin never had, so resetting it to origin loses nothing.
+    #[serde(default)]
+    pub upstream_rewritten: bool,
     pub ticket: Option<String>,
     /// Exists locally or on origin (false: Gitnetix still tracks it but it is gone).
     pub exists: bool,
@@ -1907,6 +1911,7 @@ fn plain_view(p: &Project, refs: &Refs, name: &str, parent: Option<String>) -> B
         upstream_ahead: 0,
         upstream_behind: 0,
         rewritten: false,
+        upstream_rewritten: false,
         likely_merged: false,
         // Branches not made from a ticket here still carry its key in their name (`feat/ATL-212_login`).
         ticket: meta.and_then(|m| m.ticket.clone()).or_else(|| ticket_keys(name, true).into_iter().next()),
@@ -1927,7 +1932,7 @@ fn plain_view(p: &Project, refs: &Refs, name: &str, parent: Option<String>) -> B
 }
 
 /// Bump when branch views are built differently, so saved ones are not reused.
-const VIEW_CACHE_VERSION: &str = "13";
+const VIEW_CACHE_VERSION: &str = "14";
 
 /// Commits counted past the start of a history with no tag behind it: the default branch's unreleased ones, a
 /// first release's.
@@ -3058,9 +3063,13 @@ impl Gitnetix {
         }
         v.rewritten = match &v.upstream {
             Some(u) if v.upstream_behind > 0 => match git.rev_parse(u).await {
-                Ok(sha) => git.in_reflog(name, &sha).await.unwrap_or(false),
+                Ok(sha) => git.in_reflog(&format!("refs/heads/{name}"), &sha).await.unwrap_or(false),
                 Err(_) => false,
             },
+            _ => false,
+        };
+        v.upstream_rewritten = match (&v.upstream, info) {
+            (Some(u), Some(i)) if v.upstream_ahead > 0 && v.upstream_behind > 0 => git.in_reflog(&format!("refs/remotes/{u}"), &i.sha).await.unwrap_or(false),
             _ => false,
         };
         // Trunks and open releases live on; only work gets merged away.
@@ -4957,7 +4966,7 @@ impl Gitnetix {
             if !force && local && on_origin {
                 let theirs = git.rev_parse(&format!("refs/remotes/origin/{branch}")).await?;
                 let seen = git.is_ancestor(&theirs, &base_rev).await?
-                    || git.in_reflog(branch, &theirs).await?
+                    || git.in_reflog(&format!("refs/heads/{branch}"), &theirs).await?
                     || git.is_squash_merged(&theirs, &base_rev).await.unwrap_or(false);
                 if !seen {
                     return Err(Error::Invalid(format!("origin/{branch} has commits that are neither in {base} nor in {branch}. Pull them first or force the delete.")));
@@ -5454,7 +5463,9 @@ impl Gitnetix {
 
     /// Move a branch to exactly where its upstream is, dropping local commits. In its
     /// checkout this is a hard reset (uncommitted changes are lost too); elsewhere the ref just moves.
-    pub async fn reset_to_upstream(&self, project_id: &str, branch: &str) -> Result<()> {
+    /// `safe`: refused unless it loses nothing, checked now rather than trusting a view that may be stale:
+    /// no uncommitted changes, and no commit origin never had.
+    pub async fn reset_to_upstream(&self, project_id: &str, branch: &str, safe: bool) -> Result<()> {
         let p = self.store.project(project_id)?;
         let git = self.git(&p);
         let upstream = git
@@ -5466,7 +5477,22 @@ impl Gitnetix {
             .upstream
             .ok_or_else(|| Error::Invalid(format!("{branch} has no upstream to reset to.")))?;
         let sha = git.rev_parse(&upstream).await?;
-        match self.checkout_dir(&p, branch).await? {
+        let dir = self.checkout_dir(&p, branch).await?;
+        if safe {
+            let local = format!("refs/heads/{branch}");
+            let wip = match &dir {
+                Some(d) => !self.git_at(d).wip_changes().await?.is_empty(),
+                None => false,
+            };
+            // Commits origin lacks are fine only when origin had them before a force push.
+            let own = git.run(&["rev-list", "--count", &format!("{upstream}..{local}")]).await?.trim() != "0"
+                && !git.in_reflog(&format!("refs/remotes/{upstream}"), &git.rev_parse(&local).await?).await?;
+            if wip || own {
+                let what = if wip { "uncommitted changes" } else { "commits origin never had" };
+                return Err(Error::Invalid(format!("{branch} now has {what}: not reset. Look at it again before resetting.")));
+            }
+        }
+        match dir {
             Some(dir) => self.git_at(&dir).reset(&sha, "hard").await?,
             None => git.update_ref(&format!("refs/heads/{branch}"), &sha).await?,
         }
