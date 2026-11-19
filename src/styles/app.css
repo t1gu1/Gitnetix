@@ -5800,6 +5800,12 @@ button.picker-act {
   background: color-mix(in srgb, var(--panel) 88%, transparent);
 }
 /* The agent's settings in one cell left of Send (or one field of a dialog): its model, then its effort as signal bars. */
+.picker-act.agent-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
 .agent-chip {
   align-self: stretch;
   max-width: 200px;
