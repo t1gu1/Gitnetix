@@ -1,10 +1,10 @@
 import { useIsMutating, useQuery } from "@tanstack/react-query";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from "react";
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
-import { useAction, useAgents, useCommits, useConfig, useTagV } from "../api/hooks";
+import { useAction, useAgents, useCommits, useConfig, useMapCommits, useReleaseCommits, useReleaseCounts, useTagV } from "../api/hooks";
 import { rpc } from "../api/transport";
-import type { BranchView, Commit, Overview, RebaseRun, ReleaseView } from "../api/types";
+import type { BranchView, Commit, MapCommits, Overview, RebaseRun, ReleaseCount, ReleaseView } from "../api/types";
 import { Avatar } from "../components/Avatar";
 import { ContextMenu, type MenuItem } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
@@ -15,6 +15,7 @@ import { showKeys, useKeys } from "../lib/keys";
 import { useNav } from "../lib/nav";
 import { lockTip, showRun, useRebasing } from "../lib/rebaseRuns";
 import { useStored, useStoredChoice } from "../lib/stored";
+import { copyToClipboard } from "../lib/toast";
 import type { BranchActions, BranchTarget } from "./BranchMenu";
 import { useCommitMenu } from "./CommitMenu";
 
@@ -22,8 +23,18 @@ import { useCommitMenu } from "./CommitMenu";
 const BEHIND_LIMIT = 25;
 /** Commits an unfolded tile lists; the rest are counted, listed once "see all" is open. */
 const COMMITS_SHOWN = 6;
+/** Commits "see all" lists at most where the count can be a whole history: the default branch with no tag, a first release. */
+const HISTORY_MAX = 200;
+/** A tile's own commits: those not in its base, or the default branch's not released yet (since its latest tag). */
+const ownCommits = (b: BranchView) => b.ahead || (b.unreleased ?? 0);
 /** A tile's commit rows: its own, and origin's not pulled yet above them. */
-const commitRows = (b: BranchView) => b.ahead + b.upstreamBehind;
+const commitRows = (b: BranchView) => ownCommits(b) + b.upstreamBehind;
+/** Commit rows an unfolded tile lists: the newest few, or all once "see all" is open. */
+const listedRows = (b: BranchView, all: boolean) => Math.min(commitRows(b), all ? (b.parent ? Infinity : HISTORY_MAX) : COMMITS_SHOWN);
+/** The default branch's list, when whole, ends on the latest tag: the release its commits came after. */
+const endsOnTag = (b: BranchView, listed: number) => !b.parent && !!b.lastTag && listed === commitRows(b);
+/** A count as a pill shows it: a whole history counted up to 1000 reads "999+". */
+const countLabel = (n: number) => (n >= 1000 ? "999+" : String(n));
 /** Merged branches listed under their base before "+N more". */
 const MERGED_SHOWN = 4;
 /** Shipped releases listed above the trunk before "+N earlier releases". */
@@ -32,7 +43,19 @@ const TOP = 48;
 const GAP = 8;
 const GROUP_GAP = 20;
 const SHIPPED_TOP = 70;
-const SHIPPED_ROW = 14;
+const SHIPPED_ROW = 16;
+/** A shipped release's commits, unfolded under its row: where the list starts below the row's middle, and the room under it. */
+const SHIPPED_LIST_TOP = 11;
+const SHIPPED_LIST_FOOT = 8;
+/** The unfolded list's box: wider than the history, out over the first column; tiles below it keep clear of it. */
+const SHIPPED_LIST_LEFT = 50;
+const SHIPPED_LIST_W = 360;
+/** One of its commits: the subject, then its date and SHA under it. */
+const SHIPPED_COMMIT_H = 32;
+/** The shipped history's right edge: the trunk tile's, clear of the lines leaving it. */
+const SHIPPED_RIGHT = 240;
+/** A shipped release's commit count, on the right of its row. */
+const SHIPPED_COUNT_W = 52;
 /** Room the floating card takes on the right (its width and gap): the map scrolls out from under it. */
 const CARD_ROOM = 304;
 /** Column `d` of the map: the trunk, then each level of branches under it. */
@@ -51,8 +74,11 @@ interface MapPrefs {
   behind: boolean;
   shipped: boolean;
   zoom: number;
+  /** What the search looks through: branch and tag names, commits. */
+  findBranches: boolean;
+  findCommits: boolean;
 }
-const PREFS: MapPrefs = { who: "all", commits: "hidden", merged: true, behind: true, shipped: true, zoom: 1 };
+const PREFS: MapPrefs = { who: "all", commits: "hidden", merged: true, behind: true, shipped: true, zoom: 1, findBranches: true, findCommits: true };
 
 /** The map's filters and zoom, kept between sessions. */
 function useMapPrefs() {
@@ -126,6 +152,8 @@ export interface Tile {
   merged: BranchView[];
   more: number;
   removable: BranchView[];
+  /** Every merged branch chipped under it once "+N more" is open: what the search looks through. */
+  mergedAll: BranchView[];
 }
 
 export interface MapLayout {
@@ -134,8 +162,11 @@ export interface MapLayout {
   W: number;
   H: number;
   depth: number;
-  /** Shipped releases above the trunk, oldest first, at their y; with their branch while it is still around. */
-  shipped: { r: ReleaseView; y: number; b?: BranchView }[];
+  /**
+   * Shipped releases above the trunk, oldest first, at their y; with their branch while it is still around, and the
+   * commits they shipped once unfolded: how many are listed, of how many, and the height they take under the row.
+   */
+  shipped: { r: ReleaseView; y: number; b?: BranchView; list?: { n: number; total: number; box: number; h: number } }[];
   shippedAll: ReleaseView[];
   /** Shipped releases past the latest few, listed only once "see all" unfolds them. */
   shippedEarlier: number;
@@ -149,12 +180,32 @@ export interface MapLayout {
   work: Map<string, { open: number; merged: number }>;
 }
 
+/** The shipped releases, newest first; how many the latest few leave out; and those listed above the trunk, oldest first. */
+function shippedRows(o: Overview, shown: boolean, toggles: ReadonlyMap<string, boolean>) {
+  const all = o.releases.filter((r) => !r.open);
+  const earlier = shown ? Math.max(0, all.length - SHIPPED_SHOWN) : 0;
+  const rows = shown ? all.slice(0, toggles.get("shipped:all") ? undefined : SHIPPED_SHOWN).reverse() : [];
+  return { all, earlier, rows };
+}
+
+/** A shipped release's commits, listed under its row: the newest few, or up to HISTORY_MAX once "see all" is open. One row while its count loads. */
+function shippedList(tag: string, toggles: ReadonlyMap<string, boolean>, counts: ReleaseCounts | undefined) {
+  const total = counts?.[tag]?.commits ?? 1;
+  const n = Math.min(total, toggles.get(`relall:${tag}`) ? HISTORY_MAX : COMMITS_SHOWN);
+  // Its box: 4px padding around the rows, and the "see all" row past the newest few.
+  const box = 8 + n * SHIPPED_COMMIT_H + (n - 1) * 2 + (total > COMMITS_SHOWN ? 20 : 0);
+  // From the row's middle, the box starts SHIPPED_LIST_TOP down; the next row's middle comes half a row past the box's foot.
+  return { n, total, box, h: SHIPPED_LIST_TOP + box + SHIPPED_LIST_FOOT - SHIPPED_ROW / 2 };
+}
+type ReleaseCounts = Record<string, ReleaseCount>;
+
 /**
  * Lays the branches out left to right, one column per level: each parent sits level with the middle of its children,
  * siblings stack 8px apart and cousins 20px. `toggles`: tiles whose commits the user folded or unfolded (by name), their
  * earlier commits listed too (`all:<name>`, `peek:<name>` when "see all" unfolded a folded tile), merged groups shown whole (`merged:<name>`), and every shipped release (`shipped:all`).
+ * A shipped release's commits unfold under its row (`rel:<tag>`), all of them with `relall:<tag>`; `counts` sizes them.
  */
-function layoutMap(o: Overview, prefs: Pick<MapPrefs, "who" | "commits" | "merged" | "behind" | "shipped">, me: string, toggles: ReadonlyMap<string, boolean>): MapLayout {
+function layoutMap(o: Overview, prefs: Pick<MapPrefs, "who" | "commits" | "merged" | "behind" | "shipped">, me: string, toggles: ReadonlyMap<string, boolean>, counts?: ReleaseCounts): MapLayout {
   const fam = familyOf(o);
   const mine = (b: BranchView) => !!me && b.email.toLowerCase() === me;
   const stale = (b: BranchView) => b.role === "branch" && b.exists && !b.merged && b.behind >= BEHIND_LIMIT;
@@ -178,13 +229,13 @@ function layoutMap(o: Overview, prefs: Pick<MapPrefs, "who" | "commits" | "merge
   };
   fam.roots.forEach(walk);
 
-  const open = (b: BranchView) => b.exists && b.ahead > 0 && (toggles.get(b.name) ?? (prefs.commits === "list" || b.name === o.currentBranch));
+  const open = (b: BranchView) => b.exists && ownCommits(b) > 0 && (toggles.get(b.name) ?? (prefs.commits === "list" || b.name === o.currentBranch));
   const tileH = (b: BranchView) => {
     const base = b.role === "trunk" ? 64 : 60;
     const total = commitRows(b);
-    const n = toggles.get(`all:${b.name}`) ? total : Math.min(total, COMMITS_SHOWN);
+    const n = listedRows(b, !!toggles.get(`all:${b.name}`));
     if (!n || !b.exists) return base;
-    if (open(b)) return base + 15 + n * 18 + (n - 1) * 2 + (total > COMMITS_SHOWN ? 18 : 0);
+    if (open(b)) return base + 15 + n * 18 + (n - 1) * 2 + (total > COMMITS_SHOWN ? 18 : 0) + (endsOnTag(b, n) ? 20 : 0);
     // Latest: the newest commit, then the "see all" row when there are others.
     return prefs.commits === "latest" ? base + 26 + (total > 1 ? 23 : 0) : base;
   };
@@ -192,12 +243,20 @@ function layoutMap(o: Overview, prefs: Pick<MapPrefs, "who" | "commits" | "merge
   const anchor = (b: BranchView) => (b.role === "trunk" ? 24 : 20);
   const mergedOf = (b: BranchView) => (prefs.merged ? fam.kids(b.name).filter((k) => chip(k) && (prefs.who === "all" || mine(k))) : []);
 
-  const shippedAll = o.releases.filter((r) => !r.open);
-  const shippedEarlier = prefs.shipped ? Math.max(0, shippedAll.length - SHIPPED_SHOWN) : 0;
-  const rows = prefs.shipped ? shippedAll.slice(0, toggles.get("shipped:all") ? undefined : SHIPPED_SHOWN).reverse() : [];
+  const { all: shippedAll, earlier: shippedEarlier, rows } = shippedRows(o, prefs.shipped, toggles);
   // The "+N earlier releases" row sits on top, above the oldest one listed.
   const rowsTop = SHIPPED_TOP + (shippedEarlier ? SHIPPED_ROW + 4 : 0);
-  const trunkFloor = rows.length ? rowsTop + rows.length * SHIPPED_ROW + 22 : TOP;
+  // Each row a step down, and an unfolded one the height of its commits more.
+  let rowY = rowsTop;
+  const shippedAt = rows.map((r) => {
+    const list = r.tagName && toggles.get(`rel:${r.tagName}`) ? shippedList(r.tagName, toggles, counts) : undefined;
+    const y = rowY;
+    rowY += SHIPPED_ROW + (list?.h ?? 0);
+    return { r, y, b: fam.shipped.get(r.version), list };
+  });
+  const trunkFloor = rows.length ? rowY + 22 : TOP;
+  // An open list reaches out over the first column: what hangs off the trunk starts below the lowest one, its lines too.
+  const listsFoot = Math.max(0, ...shippedAt.map((x) => (x.list ? x.y + SHIPPED_LIST_TOP + x.list.box + GROUP_GAP : 0)));
 
   const at = new Map<string, Tile>();
   const tiles: Tile[] = [];
@@ -213,7 +272,7 @@ function layoutMap(o: Overview, prefs: Pick<MapPrefs, "who" | "commits" | "merge
     let y = pMin;
     if (ks.length) {
       const span = ks.slice(0, -1).reduce((n, k) => n + tileH(k) + GAP, 0);
-      const kidFloor = Math.max(floor, pMin + a - (anchor(ks[0]) + span + anchor(ks[ks.length - 1])) / 2);
+      const kidFloor = Math.max(floor, b.name === o.defaultBranch ? listsFoot : 0, pMin + a - (anchor(ks[0]) + span + anchor(ks[ks.length - 1])) / 2);
       for (const k of ks) place(k, d + 1, kidFloor, b.name);
       const f = at.get(ks[0].name)!;
       const l = at.get(ks[ks.length - 1].name)!;
@@ -225,7 +284,7 @@ function layoutMap(o: Overview, prefs: Pick<MapPrefs, "who" | "commits" | "merge
     // Protected and checked-out branches stay put, and so do the ones only likely merged.
     const removable = all.filter((c) => !c.protected && !c.checkedOut && !c.likelyMerged);
     const foot = all.length > shown || removable.length > 0;
-    const t: Tile = { b, d, x: colX(d), y, w: colW(d), h, a, ghost: ghost.has(b.name), open: open(b), all: !!toggles.get(`all:${b.name}`), merged: all.slice(0, shown), more: all.length - shown, removable };
+    const t: Tile = { b, d, x: colX(d), y, w: colW(d), h, a, ghost: ghost.has(b.name), open: open(b), all: !!toggles.get(`all:${b.name}`), merged: all.slice(0, shown), more: all.length - shown, removable, mergedAll: all };
     at.set(b.name, t);
     tiles.push(t);
     bottom[d] = y + h + (all.length ? 8 + (shown + (foot ? 1 : 0)) * 30 - 6 : 0);
@@ -255,7 +314,7 @@ function layoutMap(o: Overview, prefs: Pick<MapPrefs, "who" | "commits" | "merge
     W: colX(depth) + colW(depth) + 24,
     H: Math.max(TOP, ...bottom.filter((n) => n !== undefined)) + 40,
     depth,
-    shipped: trunk ? rows.map((r, i) => ({ r, y: rowsTop + i * SHIPPED_ROW, b: fam.shipped.get(r.version) })) : [],
+    shipped: trunk ? shippedAt : [],
     shippedAll,
     shippedEarlier,
     shippedLeft: [...fam.shipped.values()].filter((b) => b.exists),
@@ -267,12 +326,81 @@ function layoutMap(o: Overview, prefs: Pick<MapPrefs, "who" | "commits" | "merge
   };
 }
 
+/** A match of the map's search, and what shows it. */
+interface Hit {
+  key: string;
+  /** A commit, not a branch or tag name. */
+  commit: boolean;
+  /** Its place on the map as the user left it, for the order: top to bottom, left to right, then within its tile or row. */
+  y: number;
+  x: number;
+  i: number;
+  /** A tile's name, a merged chip's (`chip`), or a shipped release's (`r`). */
+  b?: BranchView;
+  chip?: boolean;
+  r?: ReleaseView;
+  /** A commit at `index` in the list of tile `tile`, or of shipped tag `tag`. */
+  tile?: string;
+  tag?: string;
+  index?: number;
+  /** Toggles unfolding where it is, while the search is on it. */
+  needs: [string, boolean][];
+}
+
+/** Every shipped release listed, as "see all" lists them. */
+const ALL_SHIPPED: ReadonlyMap<string, boolean> = new Map([["shipped:all", true]]);
+
+/**
+ * What the search finds on map `m` as laid out, in reading order: branch and tag names matching `qb`, commits matching `qc`
+ * (read in `found`). Only what the filters show: tiles, merged chips, and shipped releases when `shipped`; a faded tile, there
+ * for what is under it, by its name alone. Commits are found folded away too: `needs` unfolds them while the search is there.
+ */
+function findHits(m: MapLayout, qb: string, qc: string, found: MapCommits | undefined, shipped: boolean, label: (v: string) => string): Hit[] {
+  if (!qb && !qc) return [];
+  const out: Hit[] = [];
+  const named = (...names: string[]) => !!qb && names.some((n) => n.toLowerCase().includes(qb));
+  if (shipped) {
+    const rowY = new Map(m.shipped.map((x) => [x.r, x.y]));
+    // Oldest first, as listed; the earlier ones "see all" hides sit above the rest.
+    [...m.shippedAll].reverse().forEach((r, j) => {
+      const y = rowY.get(r);
+      const hidden: [string, boolean][] = y === undefined ? [["shipped:all", true]] : [];
+      const tag = r.tagName;
+      if (named(tag ?? "", label(r.version))) out.push({ key: `r:${r.version}:${tag ?? ""}`, commit: false, y: y ?? 0, x: 0, i: j * 1000, r, needs: hidden });
+      if (!tag) return;
+      (found?.tags[tag] ?? []).forEach((c, k) => {
+        if (!commitMatches(c, qc, tag)) return;
+        const needs: [string, boolean][] = [...hidden, [`rel:${tag}`, true]];
+        if (k >= COMMITS_SHOWN) needs.push([`relall:${tag}`, true]);
+        out.push({ key: `rc:${tag}:${c.sha}`, commit: true, y: y ?? 0, x: 0, i: j * 1000 + 1 + k, tag, index: k, needs });
+      });
+    });
+  }
+  for (const t of m.tiles) {
+    const b = t.b;
+    if (named(b.name, b.release ? label(b.release) : "")) out.push({ key: `b:${b.name}`, commit: false, y: t.y, x: t.x, i: 0, b, needs: [] });
+    if (!t.ghost) {
+      const max = listedRows(b, true);
+      (found?.branches[b.name] ?? []).forEach((c, k) => {
+        if (k >= max || !commitMatches(c, qc)) return;
+        const needs: [string, boolean][] = [[b.name, true]];
+        if (k >= COMMITS_SHOWN) needs.push([`all:${b.name}`, true]);
+        out.push({ key: `c:${b.name}:${c.sha}`, commit: true, y: t.y, x: t.x, i: 1 + k, tile: b.name, index: k, needs });
+      });
+    }
+    t.mergedAll.forEach((c, k) => {
+      if (named(c.name)) out.push({ key: `m:${c.name}`, commit: false, y: t.y, x: t.x, i: 10_000 + k, b: c, chip: true, needs: k < t.merged.length ? [] : [[`merged:${b.name}`, true]] });
+    });
+  }
+  return out.sort((a, b) => a.y - b.y || a.x - b.x || a.i - b.i);
+}
+
 /** The map as laid out with the saved filters, for the map and the focus view's way back to it. */
-export function useMapLayout(o: Overview | undefined, toggles: ReadonlyMap<string, boolean> = NO_TOGGLES) {
+export function useMapLayout(o: Overview | undefined, toggles: ReadonlyMap<string, boolean> = NO_TOGGLES, counts?: ReleaseCounts) {
   const [prefs] = useMapPrefs();
   const me = useMe().email;
   const { who, commits, merged, behind, shipped } = prefs;
-  return useMemo(() => o && layoutMap(o, { who, commits, merged, behind, shipped }, me, toggles), [o, who, commits, merged, behind, shipped, me, toggles]);
+  return useMemo(() => o && layoutMap(o, { who, commits, merged, behind, shipped }, me, toggles, counts), [o, who, commits, merged, behind, shipped, me, toggles, counts]);
 }
 const NO_TOGGLES = new Map<string, boolean>();
 
@@ -433,12 +561,41 @@ export function BranchMap({
 }) {
   const pid = o.project.id;
   const keys = useKeys();
-  const { label } = useTagV(pid);
+  const { label, v: tagV } = useTagV(pid);
   const [prefs, setPrefs] = useMapPrefs();
   const me = useMe();
   const zoom = prefs.zoom;
   const [toggles, setToggles] = useState<ReadonlyMap<string, boolean>>(NO_TOGGLES);
-  const layout = useMapLayout(o, toggles)!;
+
+  // The search, on Ctrl+F (Cmd+F): it marks what matches, branch and tag names, commits, and steps through them, hiding none.
+  const [finding, setFinding] = useState(false);
+  const [query, setQuery] = useState("");
+  const [hitKey, setHitKey] = useState<string>();
+  const findInput = useRef<HTMLInputElement>(null);
+  const openFind = () => {
+    setFinding(true);
+    findInput.current?.focus();
+    findInput.current?.select();
+  };
+  useFindKey(openFind);
+  const q = finding ? query.trim().toLowerCase() : "";
+  const qb = prefs.findBranches ? q : "";
+  const qc = prefs.findCommits ? q : "";
+
+  // How many commits each shipped release listed above the trunk holds: shown on its row, and the height its list unfolds to.
+  // While searching, every one: a match can open any of them.
+  const shippedTags = useMemo(() => shippedRows(o, prefs.shipped, q ? ALL_SHIPPED : toggles).rows.flatMap((r) => (r.tagName ? [r.tagName] : [])), [o, prefs.shipped, toggles, !!q]);
+  const counts = useReleaseCounts(pid, shippedTags).data;
+  // The map as the user left it: where the matches are, in their order.
+  const base = useMapLayout(o, toggles, counts)!;
+  const lists = useMemo(() => (qc ? base.tiles.filter((t) => !t.ghost && t.b.exists && ownCommits(t.b) > 0).map((t) => ({ name: t.b.name, base: t.b.parent ?? null })) : []), [!!qc, base]);
+  const listedTags = useMemo(() => (qc && prefs.shipped ? base.shippedAll.flatMap((r) => (r.tagName ? [r.tagName] : [])) : []), [!!qc, prefs.shipped, base.shippedAll]);
+  const found = useMapCommits(pid, lists, listedTags, !!qc);
+  const hits = useMemo(() => findHits(base, qb, qc, qc ? found.data : undefined, prefs.shipped, label), [base, qb, qc, found.data, prefs.shipped, tagV]);
+  const atHit = hits.find((h) => h.key === hitKey) ?? hits[0];
+  // The map as shown: unfolded where the match the search is on has to be.
+  const shownToggles = useMemo(() => (atHit?.needs.length ? new Map([...toggles, ...atHit.needs]) : toggles), [toggles, atHit?.key]);
+  const layout = useMapLayout(o, shownToggles, counts)!;
   const { tiles, at, W, H } = layout;
   const byName = useMemo(() => new Map(o.branches.map((b) => [b.name, b])), [o.branches]);
   const labelOf = (n: string) => {
@@ -462,23 +619,6 @@ export function BranchMap({
     down(shown);
   }
   const flagsOf = (t: Tile): TileFlags => ({ head: head.has(t.b.name), lin: lin.has(t.b.name), desc: desc.has(t.b.name), stale: layout.stale(t.b) });
-
-  // The search, on Ctrl+F (Cmd+F): it marks the matching branches and steps through them, hiding none.
-  const [finding, setFinding] = useState(false);
-  const [query, setQuery] = useState("");
-  const [hitAt, setHitAt] = useState(0);
-  const findInput = useRef<HTMLInputElement>(null);
-  const openFind = () => {
-    setFinding(true);
-    findInput.current?.focus();
-    findInput.current?.select();
-  };
-  useFindKey(openFind);
-  const q = finding ? query.trim().toLowerCase() : "";
-  const isHit = (b: BranchView) => !!q && (b.name.toLowerCase().includes(q) || (b.release ?? "").includes(q));
-  // Tiles and the merged chips under them, in the order they were laid out.
-  const hits = q ? tiles.flatMap((t) => [t.b, ...t.merged].filter(isHit).map((b) => ({ b, t }))) : [];
-  const atHit = hits.length ? hits[Math.min(hitAt, hits.length - 1)] : undefined;
 
   const scroller = useRef<HTMLDivElement>(null);
   const frame = useRef<HTMLSpanElement>(null);
@@ -552,6 +692,17 @@ export function BranchMap({
     if (inView) return;
     el.scrollTo({ left: left + (t.w * zoom) / 2 - (el.clientWidth - room) / 2, top: top + (t.h * zoom) / 2 - el.clientHeight / 2, behavior: smooth ? "smooth" : "auto" });
   };
+  /** Brings `el`, on the map, into view unless it is already, out from under the card; a tall one from its top. */
+  const bringIntoView = (el: Element) => {
+    const s = scroller.current;
+    if (!s) return;
+    const r = el.getBoundingClientRect();
+    const v = s.getBoundingClientRect();
+    const w = s.clientWidth - (s.clientWidth > 720 ? CARD_ROOM : 0);
+    if (r.left >= v.left && r.right <= v.left + w && r.top >= v.top && r.bottom <= v.top + s.clientHeight) return;
+    const dy = r.height > s.clientHeight - 40 ? r.top - v.top - 20 : r.top + r.height / 2 - (v.top + s.clientHeight / 2);
+    s.scrollTo({ left: s.scrollLeft + r.left + r.width / 2 - (v.left + w / 2), top: s.scrollTop + dy, behavior: "smooth" });
+  };
   // Opening: the selected branch in view. Later, one selected elsewhere (a ticket, a new branch) scrolls in too; a click here doesn't.
   const picked = useRef<string | undefined>(undefined);
   const opened = useRef(false);
@@ -571,9 +722,11 @@ export function BranchMap({
     toReveal.delete(pid);
     scrollTo(reveal, true);
   }, [reveal, at]);
-  useEffect(() => {
-    if (atHit) scrollTo(atHit.t.b.name, true);
-  }, [atHit?.b.name]);
+  // The match the search is on, brought into view once the map shows it, unfolded where it had to be.
+  useLayoutEffect(() => {
+    const el = atHit && scroller.current?.querySelector("[data-find-at]");
+    if (el) bringIntoView(el);
+  }, [atHit?.key]);
 
   // Zooming keeps the point at (sx, sy) in the view in place: the pointer's for the wheel, else the middle.
   const keep = useRef<{ x: number; y: number; sx: number; sy: number } | null>(null);
@@ -669,7 +822,8 @@ export function BranchMap({
 
   const [tagMenu, setTagMenu] = useState<{ x: number; y: number; tag: string; checkedOut: boolean } | null>(null);
   // A commit listed on a tile, right-clicked: the same menu as in the focus view's timeline, for that tile's branch.
-  const [menuOn, setMenuOn] = useState<{ b: BranchView; list: Commit[] } | null>(null);
+  // One a shipped release listed (`shipped`) is history: no resets, counted from a list it is not part of.
+  const [menuOn, setMenuOn] = useState<{ b: BranchView; list: Commit[]; shipped?: boolean } | null>(null);
   const commitMenu = useCommitMenu({
     pid,
     branch: menuOn?.b.name ?? "",
@@ -678,8 +832,10 @@ export function BranchMap({
     upstream: !!menuOn?.b.upstream,
     current: o.currentBranch ?? undefined,
     list: menuOn?.list ?? [],
+    shipped: menuOn?.shipped,
   });
   const toggle = (key: string, on: boolean) => setToggles((m) => new Map(m).set(key, on));
+  const defaultView = byName.get(o.defaultBranch);
   const select = (name: string) => {
     picked.current = name;
     onSelect(name);
@@ -716,6 +872,19 @@ export function BranchMap({
   const staleLeft = o.branches.filter((b) => layout.stale(b) && !b.protected && !b.checkedOut && !b.running && b.wip === 0);
   const sel = shown ? byName.get(shown) : undefined;
   const cols = Array.from({ length: layout.depth + 1 }, (_, d) => (d === 0 ? "Trunk" : d === 1 ? `Releases & straight to ${o.defaultBranch}` : d === 2 ? "Branches" : "Stacked"));
+  // What the search looks through, one at least: a filter beside its box, with what it found there.
+  const findKind = (key: "findBranches" | "findCommits", text: string, n: number, busy = false) => {
+    const last = prefs[key] && !prefs[key === "findBranches" ? "findCommits" : "findBranches"];
+    return (
+      <button key={key} className="map-toggle" aria-pressed={prefs[key]} data-tip={last ? "The search needs one of them at least" : undefined} onClick={() => !last && setPrefs({ [key]: !prefs[key] })}>
+        <span className="map-box" aria-hidden>
+          <Icon name="check" size={10} stroke={2.4} />
+        </span>
+        <span>{text}</span>
+        {busy ? <span className="spinner" /> : q && prefs[key] ? <span className="faint">{n}</span> : null}
+      </button>
+    );
+  };
   const toggleBtn = (key: "merged" | "behind" | "shipped", text: string, n: number) => (
     <button key={key} className="map-toggle" aria-pressed={prefs[key]} onClick={() => setPrefs({ [key]: !prefs[key] })}>
       <span className="map-box" aria-hidden><Icon name="check" size={10} stroke={2.4} /></span>
@@ -781,7 +950,7 @@ export function BranchMap({
         )}
         <span className="grow" />
         <span className="map-acts">
-          <button className="btn btn-sm btn-icon" aria-label="Search branches" data-tip={`Search branches (${showKeys(keys.find)})`} onClick={openFind}>
+          <button className="btn btn-sm btn-icon" aria-label="Search the map" data-tip={`Search branches, tags and commits (${showKeys(keys.find)})`} onClick={openFind}>
             <Icon name="search" size={14} />
           </button>
           {o.stashes.length > 0 && (
@@ -810,18 +979,32 @@ export function BranchMap({
       {finding && (
         <FindBar
           className="map-find"
-          label="Search branches"
+          label="Search branches, tags and commits"
           icon={<Icon name="search" size={14} className="faint" />}
           query={query}
           onQuery={(v) => {
             setQuery(v);
-            setHitAt(0);
+            setHitKey(undefined);
           }}
-          hits={q ? { i: Math.min(hitAt, hits.length - 1), n: hits.length } : undefined}
-          onStep={(back) => hits.length && setHitAt((i) => (Math.min(i, hits.length - 1) + (back ? -1 : 1) + hits.length) % hits.length)}
-          onClose={() => setFinding(false)}
+          hits={q ? { i: atHit ? hits.indexOf(atHit) : 0, n: hits.length } : undefined}
+          onStep={(back) => {
+            if (!hits.length) return;
+            const i = atHit ? hits.indexOf(atHit) : 0;
+            setHitKey(hits[(i + (back ? -1 : 1) + hits.length) % hits.length].key);
+          }}
+          // Closing leaves the map as the search showed it: the match it was on stays unfolded.
+          onClose={() => {
+            setToggles(shownToggles);
+            setFinding(false);
+          }}
           inputRef={findInput}
           escapeAnywhere
+          filters={
+            <span className="map-find-kinds" role="group" aria-label="Search in">
+              {findKind("findBranches", "Branches", hits.filter((h) => !h.commit).length)}
+              {findKind("findCommits", "Commits", hits.filter((h) => h.commit).length, !!qc && found.isFetching)}
+            </span>
+          }
         />
       )}
       <div ref={view} className="map-view">
@@ -908,29 +1091,71 @@ export function BranchMap({
                       </span>
                     </button>
                   )}
-                  {layout.shipped.map(({ r, y, b }, i) => {
+                  {layout.shipped.map(({ r, y, b, list }, i) => {
                     const tag = r.tagName;
                     const checkout = tag ? tagItems(tag, r.checkedOut)[0] : undefined;
+                    const count = tag ? counts?.[tag] : undefined;
+                    const name = shippedName(r);
+                    // Its commits fold and unfold from the count on its right, or from the row itself when no branch is left to select.
+                    const unfold = () => tag && toggle(`rel:${tag}`, !list);
+                    const words = count ? `the ${plural(count.commits, "commit")} ${name} shipped${count.since ? `, since ${count.since}` : ", its whole history"}` : `the commits ${name} shipped`;
                     return (
-                      <button
-                        key={`${r.version}-${r.tag}`}
-                        className="map-ship"
-                        style={{ top: y - 7 }}
-                        data-new={i === layout.shipped.length - 1 || undefined}
-                        aria-pressed={!!b && b.name === shown}
-                        data-tip={`${r.base}${r.note ? ` · ${r.note}` : ""}${r.checkedOut ? " · checked out" : ""}`}
-                        onClick={() => b && select(b.name)}
-                        onDoubleClick={() => checkout && checkout !== "sep" && !checkout.disabled && checkout.run()}
-                        onContextMenu={(e) => {
-                          e.preventDefault();
-                          if (tag) setTagMenu({ x: e.clientX, y: e.clientY, tag, checkedOut: r.checkedOut });
-                          else if (b) actions.openMenu(target(b.name), e);
-                        }}
-                      >
-                        <span className="mono">{marked(shippedName(r), q, false)}</span>
-                        <span className="faint">{shippedDate(r)}</span>
-                        {r.checkedOut && <span className="c-current">checked out</span>}
-                      </button>
+                      <Fragment key={`${r.version}-${r.tag}`}>
+                        <button
+                          className="map-ship"
+                          style={{ top: y - 7, maxWidth: SHIPPED_RIGHT - 50 - SHIPPED_COUNT_W - 4 }}
+                          data-new={i === layout.shipped.length - 1 || undefined}
+                          data-find-at={atHit?.r === r || undefined}
+                          aria-pressed={!!b && b.name === shown}
+                          data-tip={`${r.base}${r.note ? ` · ${r.note}` : ""}${r.checkedOut ? " · checked out" : ""}`}
+                          // A double-click checks the tag out: its second click leaves the list as the first one set it.
+                          onClick={(e) => e.detail < 2 && (b ? select(b.name) : unfold())}
+                          onDoubleClick={() => checkout && checkout !== "sep" && !checkout.disabled && checkout.run()}
+                          onContextMenu={(e) => {
+                            e.preventDefault();
+                            if (tag) setTagMenu({ x: e.clientX, y: e.clientY, tag, checkedOut: r.checkedOut });
+                            else if (b) actions.openMenu(target(b.name), e);
+                          }}
+                        >
+                          <span className="mono ellipsis">{marked(name, qb, atHit?.r === r)}</span>
+                          <span className="faint">{shippedDate(r)}</span>
+                          {r.checkedOut && <span className="c-current">checked out</span>}
+                        </button>
+                        {tag && (
+                          <button
+                            className="map-ship-count"
+                            style={{ top: y - 7, left: SHIPPED_RIGHT - SHIPPED_COUNT_W, width: SHIPPED_COUNT_W }}
+                            aria-expanded={!!list}
+                            aria-label={`${list ? "Hide" : "See"} the commits in ${name}`}
+                            data-tip={`${list ? "Hide" : "See"} ${words}`}
+                            onClick={unfold}
+                          >
+                            <Icon name="commit" size={10} stroke={1.6} />
+                            <span className="map-ship-n">{count ? countLabel(count.commits) : "…"}</span>
+                            <Icon name="chevronDown" size={9} stroke={2} className="chev" />
+                          </button>
+                        )}
+                        {tag && list && (
+                          <div className="map-ship-list" role="group" aria-label={`Commits in ${name}`} style={{ top: y + SHIPPED_LIST_TOP, left: SHIPPED_LIST_LEFT, width: SHIPPED_LIST_W, height: list.box }}>
+                            <ShippedCommits
+                              pid={pid}
+                              tag={tag}
+                              n={list.n}
+                              total={list.total}
+                              all={!!toggles.get(`relall:${tag}`)}
+                              onAll={(on) => toggle(`relall:${tag}`, on)}
+                              onFocus={(c) => onFocus(o.defaultBranch, c)}
+                              q={qc}
+                              at={atHit?.tag === tag ? atHit.index : undefined}
+                              onMenu={(c, shippedList, e) => {
+                                if (!defaultView) return;
+                                setMenuOn({ b: defaultView, list: shippedList, shipped: true });
+                                commitMenu.open(c, e);
+                              }}
+                            />
+                          </div>
+                        )}
+                      </Fragment>
                     );
                   })}
                 </>
@@ -972,13 +1197,14 @@ export function BranchMap({
                         className="map-merged"
                         data-likely={m.likelyMerged || undefined}
                         aria-pressed={m.name === shown}
+                        data-find-at={atHit?.b === m || undefined}
                         aria-label={`Select ${m.name}, ${m.likelyMerged ? "likely merged" : "merged"}`}
                         style={{ left: t.x + 24, top: t.y + t.h + 8 + i * 30 }}
                         onClick={() => select(m.name)}
                         onContextMenu={(e) => actions.openMenu(target(m.name), e)}
                       >
                         <Icon name={m.likelyMerged ? "merged" : "check"} size={11} stroke={1.8} />
-                        <span className="ellipsis">{marked(m.name, q, atHit?.b === m)}</span>
+                        <span className="ellipsis">{marked(m.name, qb, atHit?.b === m)}</span>
                       </button>
                     ))}
                     {(t.more > 0 || t.removable.length > 0 || cleanupLeft(`merged:${t.b.name}`) !== undefined) && (
@@ -1019,8 +1245,10 @@ export function BranchMap({
                   flags={flagsOf(t)}
                   commits={prefs.commits}
                   seen={seen.has(t.b.name)}
-                  q={q}
-                  hitAt={atHit?.b === t.b}
+                  q={qb}
+                  hitAt={atHit?.b === t.b && !atHit.chip}
+                  find={t.ghost ? "" : qc}
+                  findAt={atHit?.tile === t.b.name ? atHit.index : undefined}
                   agent={agentOf(t.b)}
                   run={rebasing.get(t.b.name)}
                   actions={actions}
@@ -1195,6 +1423,8 @@ function TileView({
   seen,
   q,
   hitAt,
+  find,
+  findAt,
   agent,
   run,
   actions,
@@ -1219,6 +1449,9 @@ function TileView({
   seen: boolean;
   q: string;
   hitAt: boolean;
+  /** What the search marks in its commits, and the one it is on. */
+  find: string;
+  findAt?: number;
   agent?: AgentInfo;
   run?: RebaseRun;
   actions: BranchActions;
@@ -1239,20 +1472,27 @@ function TileView({
   const current = b.name === o.currentBranch;
   const lock = actions.locks.get(b.name);
   const parent = b.parent ?? "";
-  const n = Math.min(b.ahead, COMMITS_SHOWN);
+  const own = ownCommits(b);
+  const n = Math.min(own, COMMITS_SHOWN);
   // A new commit landed: its count pops and glows, once a merge refreshing the map several times is over.
-  const grew = useGrowth(b.ahead, merging);
+  const grew = useGrowth(own, merging);
+  // The default branch counts what it has not released yet.
+  const pillTip = parent
+    ? `${plural(own, "commit")} not in ${labelOf(parent)}`
+    : b.lastTag
+      ? `${plural(own, "commit")} since ${b.lastTag}, not released yet`
+      : `${plural(own, "commit")}, none released yet`;
   const pill = n > 0 && b.exists && (
     <button
       className="map-pill"
       {...tileState(t, selected, current, flags)}
       aria-expanded={t.open}
       aria-label={`${t.open ? "Fold" : "Unfold"} the commits of ${b.name}`}
-      data-tip={`${plural(b.ahead, "commit")}${parent ? ` not in ${labelOf(parent)}` : ""}`}
+      data-tip={pillTip}
       onClick={() => onToggle(!t.open)}
     >
       <Icon name="commit" size={11} stroke={1.6} />
-      <span key={grew} className={grew > 0 ? "meta-link-grow" : undefined}>{b.ahead}</span>
+      <span key={grew} className={grew > 0 ? "meta-link-grow" : undefined}>{countLabel(own)}</span>
       <Icon name="chevronDown" size={9} stroke={2} className="chev" />
     </button>
   );
@@ -1323,6 +1563,7 @@ function TileView({
       {...tileState(t, selected, current, flags)}
       data-locked={lock ? "" : undefined}
       data-hit={hitAt || undefined}
+      data-find-at={hitAt || undefined}
       style={{ left: t.x, top: t.y, width: t.w, height: t.h }}
       onContextMenu={(e) => actions.openMenu(target(b.name), e)}
     >
@@ -1345,7 +1586,7 @@ function TileView({
               {pill}
             </span>
             <span className="map-sub">
-              {[shippedTip && `tip ${shippedTip}`, ago(b.date), b.name === o.defaultBranch && openReleases ? `${plural(openReleases, "release")} open` : current ? "checked out" : ""].filter(Boolean).join(" · ")}
+              {[b.lastTag ? `${own ? "since" : "at"} ${b.lastTag}` : shippedTip && `tip ${shippedTip}`, ago(b.date), b.name === o.defaultBranch && openReleases ? `${plural(openReleases, "release")} open` : current ? "checked out" : ""].filter(Boolean).join(" · ")}
             </span>
           </>
         ) : b.role === "release" ? (
@@ -1373,7 +1614,7 @@ function TileView({
           </>
         )}
         {t.open ? (
-          <TileCommits pid={pid} b={b} enabled={seen} onFocus={onFocus} onMenu={onCommitMenu} list all={t.all} onAll={onAll} current={current} />
+          <TileCommits pid={pid} b={b} enabled={seen} onFocus={onFocus} onMenu={onCommitMenu} list all={t.all} onAll={onAll} current={current} find={find} at={findAt} />
         ) : (
           commits === "latest" &&
           n > 0 &&
@@ -1385,6 +1626,7 @@ function TileView({
               onFocus={onFocus}
               onMenu={onCommitMenu}
               current={current}
+              find={find}
               onAll={() => {
                 // Unfold first: unfolding clears the peek mark that onAll then sets.
                 onToggle(true);
@@ -1420,6 +1662,8 @@ function TileCommits({
   all,
   onAll,
   current,
+  find = "",
+  at,
 }: {
   pid: string;
   b: BranchView;
@@ -1431,17 +1675,24 @@ function TileCommits({
   onAll?: (on: boolean) => void;
   /** Checked out here: the commit it's on gets a ring. */
   current?: boolean;
+  /** What the search marks in the subjects and tags; `at`: the row the search is on. */
+  find?: string;
+  at?: number;
 }) {
   const total = commitRows(b);
-  const n = all ? total : Math.min(total, COMMITS_SHOWN);
-  // The newest alone skips origin's not pulled yet, so it asks for those too.
-  const q = useCommits(pid, enabled ? b.name : undefined, list ? n : b.upstreamBehind + 1);
+  const n = listedRows(b, !!all);
+  // The default branch lists what it has not released; once whole, the tagged commit they came after closes the list.
+  const unreleased = !b.parent;
+  const tagged = !!list && endsOnTag(b, n);
+  // The newest alone skips origin's not pulled yet, so it asks for those too. The tagged commit comes as one more.
+  const q = useCommits(pid, enabled ? b.name : undefined, list ? n + (tagged ? 1 : 0) : b.upstreamBehind + 1, unreleased);
   const commits = q.data?.filter((c) => !c.base);
+  const since = tagged ? q.data?.find((c) => c.base) : undefined;
   // Unfolded, the rows past the first six; folded, every row past the newest, and "see all" unfolds the tile with them all.
   const shown = list ? COMMITS_SHOWN : 1;
   const more = total > shown && onAll && (
     <button className="map-crow map-crow-more" aria-expanded={!!all} onClick={() => onAll(!all)}>
-      <span>{`${all ? "" : "+"}${plural(total - shown, "earlier commit")}`}</span>
+      <span>{all && total > n ? `${plural(total - n, "older commit")} not listed` : `${all ? "" : "+"}${plural(total - shown, "earlier commit")}`}</span>
       <span className="map-crow-act">
         {all ? "Hide" : "See all"}
         <Icon name="chevronDown" size={10} stroke={2} className="chev" />
@@ -1453,6 +1704,8 @@ function TileCommits({
     e.stopPropagation();
     if (c && commits) onMenu(c, commits, e);
   };
+  // Found by its SHA: the row shows it, as it otherwise doesn't.
+  const sha = (c: Commit, here: boolean) => find.length >= 4 && c.sha.startsWith(find) && <span className="mono map-crow-sha">{marked(c.sha.slice(0, 7), find, here)}</span>;
   if (!list) {
     const c = commits?.find((x) => !x.unpulled);
     return (
@@ -1462,13 +1715,33 @@ function TileCommits({
           <span className="map-crow-who" data-on={current && c?.local && !b.upstreamBehind ? "latest" : undefined}>
             {c && <Avatar name={c.author} email={c.email} size={14} />}
           </span>
-          <span className="ellipsis">{c?.subject ?? "…"}</span>
+          <span className="ellipsis">{c ? marked(c.subject, find, false) : "…"}</span>
+          {c && sha(c, false)}
+          {c && <TagChips tags={c.tags} q={find} />}
           <span className="faint">{c && age(c.date)}</span>
         </button>
         {more}
       </>
     );
   }
+  // The latest release, as a milestone under the commits that came after it.
+  const tagRow = tagged && (
+    <button
+      className="map-crow map-crow-tag"
+      disabled={!since}
+      aria-label={`Look at ${b.lastTag}'s commit${since ? `, ${since.subject}` : ""}`}
+      data-tip={`${b.lastTag}, the latest release: ${since ? `"${since.subject}", ${ago(since.date)}. ` : ""}The commits above came after it.`}
+      onClick={() => since && onFocus(b.name, since)}
+      onContextMenu={menu(since)}
+    >
+      <span className="map-crow-who map-crow-mark">
+        <Icon name="tag" size={9} stroke={1.8} />
+      </span>
+      <span className="map-tagchip mono">{b.lastTag}</span>
+      <span className="map-crow-rule" />
+      <span className="faint">{since && age(since.date)}</span>
+    </button>
+  );
   return (
     <span className="map-commits">
       {Array.from({ length: n }, (_, i) => {
@@ -1482,6 +1755,7 @@ function TileCommits({
             key={c?.sha ?? i}
             className="map-crow"
             disabled={!c}
+            data-find-at={i === at || undefined}
             aria-label={c ? `Look at commit ${c.sha.slice(0, 7)}, ${c.subject}${c.unpulled ? ", not pulled yet" : ""}` : undefined}
             onClick={() => c && onFocus(b.name, c)}
             onContextMenu={menu(c)}
@@ -1489,13 +1763,110 @@ function TileCommits({
             <span className="map-crow-who" data-on={on}>
               {c && <Avatar name={c.author} email={c.email} size={14} />}
             </span>
-            <span className="ellipsis">{c?.subject ?? "…"}</span>
+            <span className="ellipsis">{c ? marked(c.subject, find, i === at) : "…"}</span>
+            {c && sha(c, i === at)}
+            {c && <TagChips tags={c.tags} q={find} />}
             <span className="faint">{c && age(c.date)}</span>
           </button>
         );
       })}
+      {tagRow}
       {more}
     </span>
+  );
+}
+
+/** A commit the search finds: by its subject, the start of its SHA (4 characters or more), or a tag (but `skip`, its list's own). */
+const commitMatches = (c: { sha: string; subject: string; tags: string[] }, q: string, skip?: string) =>
+  !!q && (c.subject.toLowerCase().includes(q) || (q.length >= 4 && c.sha.startsWith(q)) || c.tags.some((t) => t !== skip && t.toLowerCase().includes(q)));
+
+/** The tags on a commit, as chips: the first named (one the search `q` finds, if any), the others counted. `skip`: one the list already names (its release's). */
+function TagChips({ tags, skip, q = "" }: { tags: string[]; skip?: string; q?: string }) {
+  const found = (t: string) => !!q && t.toLowerCase().includes(q);
+  const shown = tags.filter((t) => t !== skip).sort((a, b) => Number(found(b)) - Number(found(a)));
+  if (!shown.length) return null;
+  return (
+    <span className="map-tags" data-tip={shown.length > 1 ? `Tags ${shown.join(", ")}` : `Tag ${shown[0]}`}>
+      <span className="map-tagchip mono">
+        <Icon name="tag" size={9} stroke={1.8} />
+        <span className="ellipsis">{marked(shown[0], q, false)}</span>
+      </span>
+      {shown.length > 1 && <span className="map-tagchip">+{shown.length - 1}</span>}
+    </span>
+  );
+}
+
+/**
+ * The commits a shipped release holds, newest first, under its row: the newest few, then "see all". `n` of `total` are
+ * listed, each on two lines: its subject, then its date and its SHA, which copies on a click. Its own tag goes unsaid
+ * on them, its row names it. `q`: what the search marks; `at`: the commit the search is on.
+ */
+function ShippedCommits({
+  pid,
+  tag,
+  n,
+  total,
+  all,
+  onAll,
+  onFocus,
+  onMenu,
+  q,
+  at,
+}: {
+  pid: string;
+  tag: string;
+  n: number;
+  total: number;
+  all: boolean;
+  onAll: (on: boolean) => void;
+  onFocus: (c: Commit) => void;
+  onMenu: (c: Commit, list: Commit[], e: MouseEvent) => void;
+  q: string;
+  at?: number;
+}) {
+  const list = useReleaseCommits(pid, tag, n);
+  const commits = list.data;
+  const menu = (c: Commit | undefined) => (e: MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (c && commits) onMenu(c, commits, e);
+  };
+  return (
+    <>
+      {Array.from({ length: n }, (_, i) => {
+        const c = commits?.[i];
+        if (commits && !list.isPlaceholderData && !c) return null;
+        const here = i === at;
+        return (
+          // The row opens the commit from a button behind it; its SHA is a button of its own on top.
+          <div key={c?.sha ?? i} className="map-relrow" data-find-at={here || undefined}>
+            <button className="map-hitbox" disabled={!c} aria-label={c ? `Look at commit ${c.sha.slice(0, 7)}, ${c.subject}` : "Loading"} onClick={() => c && onFocus(c)} onContextMenu={menu(c)} />
+            <span className="map-crow-who">{c && <Avatar name={c.author} email={c.email} size={18} />}</span>
+            <span className="map-relrow-text">
+              <span className="map-relrow-subject ellipsis">{c ? marked(c.subject, q, here) : "…"}</span>
+              {c && (
+                <span className="map-relrow-meta">
+                  <span>{ago(c.date)}</span>
+                  <button className="map-sha mono" data-tip="Copy SHA" aria-label={`Copy SHA ${c.sha.slice(0, 7)}`} onClick={() => copyToClipboard(c.sha)}>
+                    {marked(c.sha.slice(0, 7), q.length >= 4 ? q : "", here)}
+                  </button>
+                  <TagChips tags={c.tags} skip={tag} q={q} />
+                </span>
+              )}
+            </span>
+          </div>
+        );
+      })}
+      {total > COMMITS_SHOWN && (
+        <button className="map-crow map-crow-more" aria-expanded={all} onClick={() => onAll(!all)}>
+          <span>{all && total > n ? `${plural(total - n, "older commit")} not listed` : `${all ? "" : "+"}${plural(total - COMMITS_SHOWN, "earlier commit")}`}</span>
+          <span className="map-crow-act">
+            {all ? "Hide" : "See all"}
+            <Icon name="chevronDown" size={10} stroke={2} className="chev" />
+          </span>
+        </button>
+      )}
+    </>
   );
 }
 
@@ -1560,7 +1931,8 @@ function SelectedCard({
   const sentence = (() => {
     if (trunk) {
       if (b.name !== o.defaultBranch) return `Long-lived branch${parent ? ` that merges into ${t.baseLabel}` : ""}.`;
-      return `The default branch${shippedTip ? `, at ${shippedName(shippedTip)}` : ""}. Releases are cut from it; shipping one merges it back and tags the version.`;
+      const at = b.lastTag ? (b.unreleased ? `, ${plural(b.unreleased, "commit")} past ${b.lastTag}` : `, at ${b.lastTag}`) : shippedTip ? `, at ${shippedName(shippedTip)}` : "";
+      return `The default branch${at}. Releases are cut from it; shipping one merges it back and tags the version.`;
     }
     if (b.role === "release") {
       const rel = o.releases.find((r) => r.open && r.branch === b.name);
@@ -1590,6 +1962,11 @@ function SelectedCard({
   if (b.merged) rows.push([b.likelyMerged ? "Likely in" : "Merged into", t.baseLabel, "c-add"]);
   else if (b.role === "release" && b.release) rows.push(["Ships as", labelOf(b.name), "c-release"]);
   else if (trunk && b.name === o.defaultBranch && shippedTip) rows.push(["Tip", `${shippedName(shippedTip)}${shippedDate(shippedTip) ? ` · shipped ${shippedDate(shippedTip)}` : ""}`]);
+  // What the next release ships from it so far.
+  if (trunk && !b.parent && b.exists) {
+    const n = b.unreleased ?? 0;
+    rows.push(["Unreleased", b.lastTag ? (n ? `${plural(n, "commit")} since ${b.lastTag}` : `none since ${b.lastTag}`) : `${n >= 1000 ? "999+ commits" : plural(n, "commit")}, no tag yet`, n ? "c-mod" : "faint"]);
+  }
   if (b.exists) {
     rows.push(["Checkout", checkedOut && !b.worktree ? "checked out here" : b.worktree ? "open in a worktree" : "not checked out", checkedOut && !b.worktree ? "c-current" : undefined]);
     rows.push(["Origin", originText, originCls]);

@@ -613,6 +613,83 @@ async fn branch_commits_end_where_it_left_its_base() {
 }
 
 #[tokio::test]
+async fn main_lists_what_each_tag_shipped_and_what_is_unreleased() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("tagged");
+    init_repo(&repo);
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let added = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await;
+    let pid = added[0]["id"].as_str().unwrap().to_string();
+    let shas = |v: &Value| -> Vec<String> { v.as_array().unwrap().iter().map(|c| c["sha"].as_str().unwrap().to_string()).collect() };
+    let main_view = |ov: &Value| ov["branches"].as_array().unwrap().iter().find(|b| b["name"] == "main").unwrap().clone();
+
+    // No tag yet: everything on main goes out with the first release.
+    let ov = call(&k, "workspace.overview", json!({ "projectId": pid })).await;
+    assert_eq!(main_view(&ov)["unreleased"], 1);
+    assert_eq!(main_view(&ov)["lastTag"], Value::Null);
+
+    commit_file(&repo, "a.txt", "a\n");
+    sh(&repo, &["tag", "v1.0.0"]);
+    commit_file(&repo, "b.txt", "b\n");
+    commit_file(&repo, "c.txt", "c\n");
+    // Annotated, as releases are often tagged.
+    sh(&repo, &["tag", "-a", "v1.1.0", "-m", "1.1.0"]);
+    commit_file(&repo, "d.txt", "d\n");
+    commit_file(&repo, "e.txt", "e\n");
+
+    let ov = call(&k, "workspace.overview", json!({ "projectId": pid })).await;
+    let main = main_view(&ov);
+    assert_eq!(main["unreleased"], 2);
+    assert_eq!(main["lastTag"], "v1.1.0");
+    assert_eq!(main["ahead"], 0, "the default branch is ahead of nothing");
+
+    // Its unreleased commits, the tagged one below them once all are listed.
+    let list = call(&k, "workspace.commits", json!({ "projectId": pid, "branch": "main", "unreleased": true, "limit": 3 })).await;
+    assert_eq!(shas(&list), [rev(&repo, "main"), rev(&repo, "main~1"), rev(&repo, "v1.1.0^{commit}")]);
+    assert_eq!(list[2]["base"], true);
+    assert_eq!(list[2]["tags"], json!(["v1.1.0"]));
+    let first = call(&k, "workspace.commits", json!({ "projectId": pid, "branch": "main", "unreleased": true, "limit": 2 })).await;
+    assert_eq!(shas(&first), [rev(&repo, "main"), rev(&repo, "main~1")], "no base while some are left to load");
+    // Without the flag, a trunk still lists its recent history.
+    assert_eq!(call(&k, "workspace.commits", json!({ "projectId": pid, "branch": "main" })).await.as_array().unwrap().len(), 6);
+
+    // Each tag: what it holds past the tag before it, its own commit included.
+    let counts = call(&k, "releases.counts", json!({ "projectId": pid, "tags": ["v1.1.0", "v1.0.0"] })).await;
+    assert_eq!(counts["v1.1.0"], json!({ "since": "v1.0.0", "commits": 2 }));
+    assert_eq!(counts["v1.0.0"], json!({ "since": null, "commits": 2 }), "the first: its whole history");
+    let shipped = call(&k, "releases.commits", json!({ "projectId": pid, "tag": "v1.1.0" })).await;
+    assert_eq!(shas(&shipped), [rev(&repo, "v1.1.0^{commit}"), rev(&repo, "v1.1.0~1")]);
+    assert_eq!(shipped[0]["tags"], json!(["v1.1.0"]));
+    let first = call(&k, "releases.commits", json!({ "projectId": pid, "tag": "v1.0.0" })).await;
+    assert_eq!(shas(&first), [rev(&repo, "v1.0.0"), rev(&repo, "v1.0.0~1")]);
+
+    // The map's search reads every list in one call, in the order the tiles and release lists show them.
+    sh(&repo, &["switch", "-q", "-c", "feat/x"]);
+    commit_file(&repo, "x.txt", "x\n");
+    sh(&repo, &["switch", "-q", "main"]);
+    let lists = json!([{ "name": "main" }, { "name": "feat/x", "base": "main" }, { "name": "gone", "base": "main" }]);
+    let found = call(&k, "map.commits", json!({ "projectId": pid, "branches": lists, "tags": ["v1.1.0"] })).await;
+    assert_eq!(shas(&found["branches"]["main"]), [rev(&repo, "main"), rev(&repo, "main~1")], "since v1.1.0, no base row");
+    assert_eq!(shas(&found["branches"]["feat/x"]), [rev(&repo, "feat/x")]);
+    assert_eq!(found["branches"]["gone"], json!([]));
+    assert_eq!(shas(&found["tags"]["v1.1.0"]), shas(&shipped));
+    assert_eq!(found["tags"]["v1.1.0"][0]["tags"], json!(["v1.1.0"]));
+    assert_eq!(found["branches"]["feat/x"][0]["subject"], "edit x.txt");
+
+    // Tagging main's tip: nothing left to release.
+    sh(&repo, &["tag", "v1.2.0"]);
+    let ov = call(&k, "workspace.overview", json!({ "projectId": pid })).await;
+    assert_eq!(main_view(&ov)["unreleased"], 0);
+    assert_eq!(main_view(&ov)["lastTag"], "v1.2.0");
+
+    // A tag on the very first commit holds just that one, and the next tag starts after it.
+    sh(&repo, &["tag", "v0.1.0", &rev(&repo, "v1.0.0~1")]);
+    let counts = call(&k, "releases.counts", json!({ "projectId": pid, "tags": ["v0.1.0", "v1.0.0"] })).await;
+    assert_eq!(counts["v0.1.0"], json!({ "since": null, "commits": 1 }));
+    assert_eq!(counts["v1.0.0"], json!({ "since": "v0.1.0", "commits": 1 }));
+}
+
+#[tokio::test]
 async fn release_branch_created_after_add_is_picked_up() {
     let tmp = tempfile::tempdir().unwrap();
     let repo = tmp.path().join("late");

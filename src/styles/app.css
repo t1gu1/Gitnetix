@@ -2081,6 +2081,197 @@ body.resizing .term {
 .map-ship[aria-pressed="true"] {
   box-shadow: inset 0 0 0 1px var(--map-sel);
 }
+.map-ship > .mono {
+  flex: 0 1 auto;
+}
+/* A shipped release's commit count, on the right of its row: unfolds what it shipped, as a tile's pill does its commits. */
+.map-ship-count {
+  position: absolute;
+  height: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 3px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: 10px;
+  line-height: 14px;
+  white-space: nowrap;
+  transition:
+    background-color var(--t-fast) var(--ease),
+    color var(--t-fast) var(--ease);
+}
+.map-ship-count:hover {
+  background: color-mix(in srgb, var(--fg) 7%, transparent);
+  color: var(--fg);
+}
+.map-ship-count[aria-expanded="true"] {
+  background: color-mix(in srgb, var(--map-sel) 16%, transparent);
+  color: var(--fg);
+}
+/* Counts of one to three digits keep the icon and the chevron in columns. */
+.map-ship-n {
+  min-width: 3ch;
+  font-variant-numeric: tabular-nums;
+}
+/* What a shipped release holds, hung under its row: the line of releases runs on past its left edge. */
+.map-ship-list {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 6px;
+  border: 1px solid var(--map-line);
+  border-left: 2px solid color-mix(in srgb, var(--release-fg) 55%, transparent);
+  border-radius: var(--r-sm) var(--r) var(--r) var(--r-sm);
+  background: var(--map-tile);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  overflow: hidden;
+  animation: map-ship-open 0.18s var(--ease);
+}
+@keyframes map-ship-open {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .map-ship-list {
+    animation: none;
+  }
+}
+/* One of its commits, on two lines: its subject, then its date and SHA. A button behind the row opens it; the SHA, on top, copies it. */
+.map-relrow {
+  position: relative;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  margin: 0 -4px;
+  padding: 0 4px;
+  border-radius: var(--r-sm);
+  pointer-events: none;
+}
+.map-relrow > .map-hitbox {
+  pointer-events: auto;
+}
+.map-relrow > .map-crow-who {
+  width: 18px;
+  height: 18px;
+}
+.map-relrow-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.map-relrow-subject {
+  color: var(--fg);
+  font-size: 11px;
+  line-height: 14px;
+}
+.map-relrow-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--faint);
+  font-size: 10px;
+  line-height: 13px;
+  white-space: nowrap;
+}
+.map-sha {
+  position: relative;
+  padding: 0 3px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 13px;
+  cursor: copy;
+  pointer-events: auto;
+}
+.map-sha:hover {
+  background: color-mix(in srgb, var(--fg) 10%, transparent);
+  color: var(--fg);
+}
+.map-sha:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+/* The match the search is on, wherever it is: outlined as a tile is. */
+:is(.map-crow, .map-relrow, .map-ship, .map-merged)[data-find-at] {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+/* A tile row's SHA, shown when the search found the commit by it. */
+.map-crow-sha {
+  flex: none;
+  color: var(--muted);
+  font-size: 10.5px;
+}
+/* What the search looks through, beside its box. */
+.map-find-kinds {
+  display: inline-flex;
+  gap: 6px;
+  margin: 0 4px 0 6px;
+}
+.map-find-kinds .spinner {
+  width: 10px;
+  height: 10px;
+}
+/* A commit's tags, before its age: shipped green, as in a file's history. */
+.map-tags {
+  flex: 0 1 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  max-width: 120px;
+}
+.map-tagchip {
+  flex: 0 1 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  height: 14px;
+  padding: 0 4px;
+  border: 1px solid color-mix(in srgb, var(--add-fg) 45%, transparent);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--add-fg) 10%, transparent);
+  color: var(--add-fg);
+  font-size: 9.5px;
+  font-weight: 600;
+  line-height: 12px;
+  white-space: nowrap;
+}
+.map-tagchip > svg {
+  flex: none;
+}
+/* The default branch's latest release, closing the list of what came after it: a tag on a line. */
+.map-crow.map-crow-tag {
+  gap: 6px;
+  color: var(--add-fg);
+}
+.map-crow-mark {
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--add-fg) 16%, transparent);
+  color: var(--add-fg);
+}
+.map-crow-rule {
+  flex: 1 1 auto;
+  min-width: 8px;
+  border-top: 1px dashed color-mix(in srgb, var(--add-fg) 50%, transparent);
+}
 .map-behind {
   position: absolute;
   height: 18px;

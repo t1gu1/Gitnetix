@@ -731,6 +731,12 @@ export function Workspace() {
                                   <button className="link-btn mono" data-tip="Copy SHA" onClick={() => copyToClipboard(commit.sha)}>
                                     {commit.sha.slice(0, 7)}
                                   </button>
+                                  {commit.tags.map((t) => (
+                                    <span key={t} className="commit-tag mono" data-tip={`Tag ${t}`}>
+                                      <Icon name="tag" size={10} stroke={1.6} />
+                                      {t}
+                                    </span>
+                                  ))}
                                   <span className="ellipsis">{commit.author}</span>
                                   <span style={{ whiteSpace: "nowrap" }}>{ago(commit.date)}</span>
                                   <span style={{ whiteSpace: "nowrap" }}>{plural(new Set(list.map((f) => f.path)).size, "file")}</span>

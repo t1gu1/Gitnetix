@@ -184,6 +184,10 @@ export interface BranchView {
   stashes: number;
   ahead: number;
   behind: number;
+  /** The default branch, which has no base: its commits since its latest tag, what the next release ships (all of them, up to 1000, with no tag). */
+  unreleased?: number;
+  /** The default branch: the latest tag in its history, which `unreleased` counts from. */
+  lastTag?: string | null;
   upstream?: string | null;
   upstreamAhead: number;
   upstreamBehind: number;
@@ -353,6 +357,26 @@ export interface ReleaseView {
   tagName?: string | null;
   /** HEAD is detached on its tag. */
   checkedOut: boolean;
+}
+
+/** A commit as the branch map's search reads it. */
+export interface FoundCommit {
+  sha: string;
+  subject: string;
+  tags: string[];
+}
+
+/** The commits the branch map lists, by tile (branch name) and by shipped tag, newest first. */
+export interface MapCommits {
+  branches: Record<string, FoundCommit[]>;
+  tags: Record<string, FoundCommit[]>;
+}
+
+/** What a shipped tag holds: its commits past the tag before it, its own included. */
+export interface ReleaseCount {
+  /** The latest tag before it in its history; none for the first. */
+  since?: string | null;
+  commits: number;
 }
 
 export interface Overview {

@@ -232,6 +232,13 @@ pub struct BranchView {
     pub ahead: u32,
     /// Commits in the base the branch does not have.
     pub behind: u32,
+    /// The default branch, which has no base: its commits since its latest tag, what the next release ships. With no
+    /// tag, all its commits, counted up to [`UNRELEASED_MAX`].
+    #[serde(default)]
+    pub unreleased: u32,
+    /// The default branch: the latest tag in its history, which `unreleased` counts from.
+    #[serde(default)]
+    pub last_tag: Option<String>,
     pub upstream: Option<String>,
     pub upstream_ahead: u32,
     pub upstream_behind: u32,
@@ -286,6 +293,38 @@ pub struct ReleaseView {
     pub tag_name: Option<String>,
     /// HEAD is detached on its tag.
     pub checked_out: bool,
+}
+
+/// A commit as the branch map's search reads it: what it matches against.
+#[derive(Debug, Clone, Serialize)]
+pub struct FoundCommit {
+    pub sha: String,
+    pub subject: String,
+    pub tags: Vec<String>,
+}
+
+/// A tile the map's search reads the commits of: its branch, and the base they are counted from (none for the default branch).
+#[derive(Debug, Clone, Deserialize)]
+pub struct MapList {
+    pub name: String,
+    pub base: Option<String>,
+}
+
+/// The commits the branch map lists, by tile and by shipped tag: see [`Gitnetix::map_commits`].
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct MapCommits {
+    pub branches: HashMap<String, Vec<FoundCommit>>,
+    pub tags: HashMap<String, Vec<FoundCommit>>,
+}
+
+/// What a shipped tag holds: see [`Gitnetix::release_counts`].
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReleaseCount {
+    /// The latest tag before it in its history; none for the first.
+    pub since: Option<String>,
+    /// Commits past `since`, its own included (up to [`UNRELEASED_MAX`] for the first).
+    pub commits: u32,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1859,6 +1898,8 @@ fn plain_view(p: &Project, refs: &Refs, name: &str, parent: Option<String>) -> B
         stashes: 0,
         ahead: 0,
         behind: 0,
+        unreleased: 0,
+        last_tag: None,
         upstream: info.and_then(|b| b.upstream.clone()),
         upstream_ahead: 0,
         upstream_behind: 0,
@@ -1883,7 +1924,28 @@ fn plain_view(p: &Project, refs: &Refs, name: &str, parent: Option<String>) -> B
 }
 
 /// Bump when branch views are built differently, so saved ones are not reused.
-const VIEW_CACHE_VERSION: &str = "11";
+const VIEW_CACHE_VERSION: &str = "12";
+
+/// Commits counted past the start of a history with no tag behind it: the default branch's unreleased ones, a
+/// first release's.
+const UNRELEASED_MAX: u32 = 1000;
+
+/// The latest tag behind `rev` and how many commits `rev` has past it. With no tag behind it: no tag, and all
+/// the commits `rev` holds, up to [`UNRELEASED_MAX`] (0 when `rev` is missing).
+async fn since_last_tag(git: &Git, rev: &str) -> (Option<String>, u32) {
+    match git.last_tag(rev).await {
+        Ok(Some((tag, n))) => (Some(tag), n),
+        _ => {
+            let max = format!("--max-count={UNRELEASED_MAX}");
+            // Quietly: a first commit's parent is missing, and that is no error.
+            let n = match git.try_run(&["rev-list", "--count", &max, rev]).await {
+                Ok((true, out, _)) => out.trim().parse().unwrap_or(0),
+                _ => 0,
+            };
+            (None, n)
+        }
+    }
+}
 
 /// What a project's branch views are built from: its refs, its default branch,
 /// what Gitnetix knows about its releases and branches, and what the git host said.
@@ -2982,6 +3044,12 @@ impl Gitnetix {
             (Some(r), Some(b)) => refs.left_right(git, b, r).await.unwrap_or((0, 0)),
             _ => (0, 0),
         };
+        // The default branch has no base to be ahead of: what it holds past its latest release instead.
+        if v.parent.is_none() {
+            if let Some(tip) = info.or_else(|| refs.remote(name)) {
+                (v.last_tag, v.unreleased) = since_last_tag(git, &tip.sha).await;
+            }
+        }
         if v.upstream.is_some() {
             (v.upstream_ahead, v.upstream_behind) = refs.upstream_counts(git, name).await;
         }
@@ -3152,7 +3220,8 @@ impl Gitnetix {
 
     /// Commits a branch has that its base does not, newest first; a trunk lists its recent history.
     /// `limit` caps how many (200 for a trunk, 500 for a branch when not given): raised to load older ones.
-    pub async fn commits(&self, project_id: &str, branch: &str, limit: Option<u32>) -> Result<Vec<Commit>> {
+    /// `unreleased`: the default branch lists only its commits since its latest tag, the tagged one as its base.
+    pub async fn commits(&self, project_id: &str, branch: &str, limit: Option<u32>, unreleased: bool) -> Result<Vec<Commit>> {
         let p = self.store.project(project_id)?;
         let git = self.git(&p);
         let default = git.default_branch().await?;
@@ -3166,7 +3235,19 @@ impl Gitnetix {
             revs.push(git.rev_of(branch).await);
         }
         let trunk = base == branch;
-        let base_rev = if trunk { None } else { Some(git.rev_of(&base).await) };
+        // The default branch's unreleased commits: since the latest tag behind its local copy (else origin's), as its view counts them.
+        let since = match (unreleased && branch == default, local.as_ref().or(origin.as_ref())) {
+            (true, Some(tip)) => match git.last_tag(tip).await? {
+                Some((t, _)) => git.rev_parse(&format!("refs/tags/{t}^{{commit}}")).await.ok(),
+                None => None,
+            },
+            _ => None,
+        };
+        let base_rev = match since {
+            Some(s) => Some(s),
+            None if trunk => None,
+            None => Some(git.rev_of(&base).await),
+        };
         if let Some(b) = &base_rev {
             revs.push(format!("^{b}"));
         }
@@ -3199,6 +3280,75 @@ impl Gitnetix {
             c.unpushed = !c.base && unpushed.contains(&c.sha);
         }
         Ok(list)
+    }
+
+    /// Commits tag `tag` shipped, newest first: those past the latest tag before it (its whole history without one),
+    /// up to `limit` (200 when not given).
+    pub async fn release_commits(&self, project_id: &str, tag: &str, limit: Option<u32>) -> Result<Vec<Commit>> {
+        let git = self.git(&self.store.project(project_id)?);
+        let at = format!("refs/tags/{tag}");
+        let mut revs = vec![at.clone()];
+        if let Some((prev, _)) = git.last_tag(&format!("{at}^")).await? {
+            revs.push(format!("^refs/tags/{prev}"));
+        }
+        git.log_revs(&revs.iter().map(String::as_str).collect::<Vec<_>>(), Some(limit.unwrap_or(200))).await
+    }
+
+    /// How many commits each of `tags` shipped (see [`Gitnetix::release_commits`]) and the tag before it, by tag.
+    pub async fn release_counts(&self, project_id: &str, tags: &[String]) -> Result<HashMap<String, ReleaseCount>> {
+        let git = self.git(&self.store.project(project_id)?);
+        let counts: Vec<(String, ReleaseCount)> = stream::iter(tags.to_vec())
+            .map(|t| {
+                let git = &git;
+                async move {
+                    // Its own commit, and those its parent has past the tag before. A first commit has no parent: 0 past it.
+                    let (since, n) = since_last_tag(git, &format!("refs/tags/{t}^")).await;
+                    (t, ReleaseCount { since, commits: n + 1 })
+                }
+            })
+            .buffered(8)
+            .collect()
+            .await;
+        Ok(counts.into_iter().collect())
+    }
+
+    /// What the branch map lists, for its search: each tile's commits as [`Gitnetix::commits`] gives them (origin's
+    /// not pulled yet included, the base row left out), since `base`, or since its latest tag for the default branch
+    /// (`base` none); and the commits each of `tags` shipped. Newest first, up to what the map lists: 500 a branch,
+    /// 200 for the default branch and a tag. One ref listing, then one log a tile and two a tag.
+    pub async fn map_commits(&self, project_id: &str, lists: &[MapList], tags: &[String]) -> Result<MapCommits> {
+        let git = self.git(&self.store.project(project_id)?);
+        let refs = git.read_refs().await?;
+        let (git, refs) = (&git, &refs);
+        let local = |n: &str| refs.branches.iter().find(|b| b.name == n).map(|b| b.sha.clone());
+        let origin = |n: &str| refs.remote_branches.iter().find(|b| b.name == n).map(|b| b.sha.clone());
+        let found = |list: Vec<Commit>| list.into_iter().map(|c| FoundCommit { sha: c.sha, subject: c.subject, tags: c.tags }).collect::<Vec<_>>();
+        let branches: Vec<(String, Vec<FoundCommit>)> = stream::iter(lists.to_vec())
+            .map(|l| async move {
+                let mut revs: Vec<String> = [local(&l.name), origin(&l.name)].into_iter().flatten().collect();
+                revs.dedup();
+                let Some(tip) = revs.first().cloned() else { return (l.name, Vec::new()) };
+                let since = match &l.base {
+                    Some(b) => local(b).or_else(|| origin(b)),
+                    None => git.last_tag(&tip).await.ok().flatten().map(|(t, _)| format!("refs/tags/{t}")),
+                };
+                revs.extend(since.map(|s| format!("^{s}")));
+                let limit = if l.base.is_some() { 500 } else { 200 };
+                let list = git.log_revs(&revs.iter().map(String::as_str).collect::<Vec<_>>(), Some(limit)).await.unwrap_or_default();
+                (l.name, found(list))
+            })
+            .buffered(8)
+            .collect()
+            .await;
+        let tags: Vec<(String, Vec<FoundCommit>)> = stream::iter(tags.to_vec())
+            .map(|t| async move {
+                let list = self.release_commits(project_id, &t, Some(200)).await.unwrap_or_default();
+                (t, found(list))
+            })
+            .buffered(8)
+            .collect()
+            .await;
+        Ok(MapCommits { branches: branches.into_iter().collect(), tags: tags.into_iter().collect() })
     }
 
     /// Files one commit changed, against its first parent.

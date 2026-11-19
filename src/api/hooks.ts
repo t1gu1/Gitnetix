@@ -15,6 +15,7 @@ import type {
   DayCommit,
   DialogPrefs,
   LogEntry,
+  MapCommits,
   Config,
   FileChange,
   FileCommit,
@@ -25,6 +26,7 @@ import type {
   PrDetail,
   PrSummary,
   ProjectSummary,
+  ReleaseCount,
   SprintReport,
   Submodule,
   Template,
@@ -483,13 +485,45 @@ export const useAgentBlobs = (id: string, from: string, to: string, path: string
     staleTime: Infinity,
   });
 
-/** Newest `limit` commits of `branch`: raising it keeps the shorter list shown while the longer one loads. */
-export const useCommits = (projectId?: string, branch?: string, limit?: number) =>
+/**
+ * Newest `limit` commits of `branch`: raising it keeps the shorter list shown while the longer one loads.
+ * `unreleased`: the default branch's since its latest tag, the tagged commit last as `base`.
+ */
+export const useCommits = (projectId?: string, branch?: string, limit?: number, unreleased = false) =>
   useQuery({
-    queryKey: ["commits", projectId, branch, limit],
-    queryFn: () => rpc<Commit[]>("workspace.commits", { projectId, branch, limit }),
+    queryKey: ["commits", projectId, branch, limit, unreleased],
+    queryFn: () => rpc<Commit[]>("workspace.commits", { projectId, branch, limit, unreleased }),
     enabled: !!projectId && !!branch,
     placeholderData: (prev, prevQuery) => (prevQuery?.queryKey[2] === branch ? prev : undefined),
+  });
+
+/** How many commits each of `tags` shipped, and the tag before it. Under "commits": a tag moved or made in between counts again. */
+export const useReleaseCounts = (projectId: string, tags: string[]) =>
+  useQuery({
+    queryKey: ["commits", projectId, "releaseCounts", tags],
+    queryFn: () => rpc<Record<string, ReleaseCount>>("releases.counts", { projectId, tags }),
+    enabled: tags.length > 0,
+    staleTime: 5 * 60_000,
+    placeholderData: (prev) => prev,
+  });
+
+/** Every list the branch map shows, for its search: by tile, since `base` (none: the default branch, since its latest tag), and by shipped tag. */
+export const useMapCommits = (projectId: string, branches: { name: string; base: string | null }[], tags: string[], enabled: boolean) =>
+  useQuery({
+    queryKey: ["commits", projectId, "map", branches, tags],
+    queryFn: () => rpc<MapCommits>("map.commits", { projectId, branches, tags }),
+    enabled: enabled && branches.length + tags.length > 0,
+    staleTime: 60_000,
+    placeholderData: (prev) => prev,
+  });
+
+/** Newest `limit` commits tag `tag` shipped. */
+export const useReleaseCommits = (projectId: string, tag: string, limit: number) =>
+  useQuery({
+    queryKey: ["commits", projectId, `tag:${tag}`, limit],
+    queryFn: () => rpc<Commit[]>("releases.commits", { projectId, tag, limit }),
+    staleTime: 5 * 60_000,
+    placeholderData: (prev, prevQuery) => (prevQuery?.queryKey[2] === `tag:${tag}` ? prev : undefined),
   });
 
 /** Every 5 s while someone uses the window (the caller turns it off while idle; coming back asks at once), ask origin for its tips and fetch only when they moved.

@@ -271,6 +271,7 @@ export function FindBar({
   inputRef,
   icon,
   escapeAnywhere,
+  filters,
 }: {
   className: string;
   label: string;
@@ -282,6 +283,8 @@ export function FindBar({
   inputRef?: RefObject<HTMLInputElement | null>;
   icon?: ReactNode;
   escapeAnywhere?: boolean;
+  /** What the search looks through, right of the box. */
+  filters?: ReactNode;
 }) {
   const close = useRef(onClose);
   close.current = onClose;
@@ -310,6 +313,7 @@ export function FindBar({
         onFocus={(e) => e.currentTarget.select()}
         onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), onStep(e.shiftKey))}
       />
+      {filters}
       <span className="faint find-count">{query && hits ? (hits.n ? `${hits.i + 1}/${hits.n}` : "0/0") : ""}</span>
       <button type="button" className="btn btn-sm btn-icon" aria-label="Previous match" data-tip="Previous (Shift+Enter)" disabled={hits?.n === 0} onClick={() => onStep(true)}>
         <Icon name="chevronUp" size={12} />

@@ -23,6 +23,7 @@ export function useCommitMenu({
   upstream,
   current,
   list,
+  shipped,
   onReset,
 }: {
   pid: string;
@@ -35,6 +36,8 @@ export function useCommitMenu({
   /** Branch of the main checkout, where cherry-picks land. */
   current?: string;
   list: Commit[];
+  /** `list` is what a shipped release holds, not the branch's own commits: no reverts or resets, which count from the branch. */
+  shipped?: boolean;
   onReset?: () => void;
 }) {
   const [menu, setMenu] = useState<{ x: number; y: number; c: Commit } | null>(null);
@@ -73,23 +76,28 @@ export function useCommitMenu({
     const copy: MenuItem = { id: "copy", label: "Copy SHA", icon: "edit", hint: short, run: () => copyToClipboard(c.sha) };
     // The base's commit: only there to reset back past the whole branch.
     if (c.base) return [copy, "sep", ...resets];
+    const tags: MenuItem[] = [
+      { id: "tag", label: "Create tag…", icon: "tag", run: () => setTagging(c) },
+      ...c.tags.map((t): MenuItem => ({ id: `deleteTag:${t}`, label: <>Delete tag <span className="mono">{t}</span>…</>, icon: "trash", danger: true, run: () => setDeletingTag(t) })),
+    ];
+    const pickItem: MenuItem = {
+      id: "pick",
+      label: <>Cherry-pick onto <span className="mono">{current ?? "…"}</span></>,
+      icon: "commit",
+      hint: onto,
+      disabled: !!onto,
+      run: () => pick.mutate({ projectId: pid, onto: current, sha: c.sha }),
+    };
+    if (shipped) return [copy, "sep", pickItem, "sep", ...tags];
     return [
       copy,
       "sep",
       { id: "revert", label: "Revert commit", icon: "undo", hint: needLocal, disabled: !!needLocal, run: () => revert.mutate({ projectId: pid, branch, sha: c.sha }) },
-      {
-        id: "pick",
-        label: <>Cherry-pick onto <span className="mono">{current ?? "…"}</span></>,
-        icon: "commit",
-        hint: onto,
-        disabled: !!onto,
-        run: () => pick.mutate({ projectId: pid, onto: current, sha: c.sha }),
-      },
+      pickItem,
       "sep",
       ...resets,
       "sep",
-      { id: "tag", label: "Create tag…", icon: "tag", run: () => setTagging(c) },
-      ...c.tags.map((t): MenuItem => ({ id: `deleteTag:${t}`, label: <>Delete tag <span className="mono">{t}</span>…</>, icon: "trash", danger: true, run: () => setDeletingTag(t) })),
+      ...tags,
     ];
   };
 

@@ -43,7 +43,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("workspace.files", "Changed files of a branch, or of one commit when `commit` is given", "projectId, branch, mode: branch|wip|project, commit?"),
     ("workspace.diff", "Diff of one file; in wip mode `staged` picks the side; `commit` diffs that commit (`from` = the file's old path when that commit renamed it); `full` keeps the whole file", "projectId, branch, mode, path, staged?, commit?, from?, full?"),
     ("workspace.blobs", "Old and new contents of one file, base64 (image previews); same picking as workspace.diff", "projectId, branch, mode, path, staged?, commit?"),
-    ("workspace.commits", "Commits a branch has that its base does not (a trunk: recent history), newest first; once all are listed, the last one, flagged `base`, is where the branch left its base; `limit` (default 200 for a trunk, 500 for a branch) is raised to reach older ones", "projectId, branch, limit?"),
+    ("workspace.commits", "Commits a branch has that its base does not (a trunk: recent history), newest first; once all are listed, the last one, flagged `base`, is where the branch left its base; `limit` (default 200 for a trunk, 500 for a branch) is raised to reach older ones; `unreleased`: the default branch lists only its commits since its latest tag, the tagged commit as `base`", "projectId, branch, limit?, unreleased?"),
     ("workspace.blame", "Who last changed each line of one file on the new side of its diff (the old side with old: true, for removed lines), sides picked like workspace.diff: lines, runs [sha, line count] in file order, and their commits (the all-zero sha is uncommitted work)", "projectId, branch, mode, path, commit?, staged?, old?"),
     ("workspace.fileHistory", "Commits of a branch that changed one file, newest first, following renames: each with the file's path there, from (its old path, on a rename), status and line counts; `limit` (default 200) is raised to reach older ones", "projectId, branch, path, limit?"),
     ("commits.revert", "Revert a commit with a new commit on its branch", "projectId, branch, sha"),
@@ -70,6 +70,9 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("releases.suggestVersion", "Version for a new release (no leading v): major = major bump and minor (or next) = minor bump of the highest tag or release branch, patch (or hotfix) = patch bump of the latest tag", "projectId, kind: major|minor|patch|next|hotfix"),
     ("releases.ship", "Fast-forward main to the release and tag it (v<version>, or <version> when the project's tags go without the v)", "projectId, version, push?"),
     ("releases.delete", "Forget an open release (branch kept)", "projectId, version"),
+    ("releases.commits", "Commits a tag shipped, newest first: those past the latest tag before it in its history (its whole history without one); `limit` defaults to 200", "projectId, tag, limit?"),
+    ("releases.counts", "For each tag: how many commits it shipped (see releases.commits) and `since`, the tag before it", "projectId, tags: string[]"),
+    ("map.commits", "What the branch map lists, for its search: by branch, the commits its tile lists since `base` (none: the default branch, since its latest tag), and by tag the commits it shipped; sha, subject and tags", "projectId, branches: [{name, base?}], tags: string[]"),
     ("items.suggestName", "AI branch name for a feature or fix", "projectId, kind, description, ticket?"),
     ("items.create", "New feature/fix branch in a release, or off another branch or a tag (release empty, from = branch or tag); kind may be a prefix of the user's own (wip); a prefix not in the project's branch types joins them", "projectId, release?, from?, kind, description, branchName?, ticket?, where: switch|worktree, startAgent?, provider?, model?, effort?, permission?, ultracode?, files?"),
     ("items.attach", "Attach an existing branch to a release", "projectId, branch, release, kind"),
@@ -422,7 +425,7 @@ fn avatars_are_an_emoji_a_photo_or_a_gravatar_email() {
 }
 
 /// Reads polled all the time: logged only when they fail.
-const QUIET: &[&str] = &[".info", ".get", ".list", ".overview", ".files", ".diff", ".blobs", ".commits", ".catalog", ".statuses", ".versions", ".projects", ".refs", ".range", ".preview", ".clear", "analytics.day", "analytics.sprints", "analytics.weekly", "shell.write", "shell.resize", "shell.scripts", "ui.setView", "github.signInPoll", "azure.signInPoll", "gitlab.signInPoll", "github.repos", "gitlab.repos", "bitbucket.repos", "gitea.repos"];
+const QUIET: &[&str] = &[".info", ".get", ".list", ".overview", ".files", ".diff", ".blobs", ".commits", ".counts", ".catalog", ".statuses", ".versions", ".projects", ".refs", ".range", ".preview", ".clear", "analytics.day", "analytics.sprints", "analytics.weekly", "shell.write", "shell.resize", "shell.scripts", "ui.setView", "github.signInPoll", "azure.signInPoll", "gitlab.signInPoll", "github.repos", "gitlab.repos", "bitbucket.repos", "gitea.repos"];
 
 /// Actions in flight.
 static BUSY: std::sync::Mutex<usize> = std::sync::Mutex::new(0);
@@ -715,7 +718,7 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
             Some(sha) => to(k.commit_blobs(&s(&p, "projectId")?, &sha, &s(&p, "path")?).await?),
             None => to(k.blobs(&s(&p, "projectId")?, &s(&p, "branch")?, mode(&p)?, &s(&p, "path")?, p.get("staged").and_then(Value::as_bool)).await?),
         },
-        "workspace.commits" => to(k.commits(&s(&p, "projectId")?, &s(&p, "branch")?, p.get("limit").and_then(Value::as_u64).and_then(|n| u32::try_from(n).ok())).await?),
+        "workspace.commits" => to(k.commits(&s(&p, "projectId")?, &s(&p, "branch")?, p.get("limit").and_then(Value::as_u64).and_then(|n| u32::try_from(n).ok()), b(&p, "unreleased")).await?),
         "workspace.blame" => to(k.blame(&s(&p, "projectId")?, &s(&p, "branch")?, mode(&p)?, &s(&p, "path")?, os(&p, "commit").as_deref(), p.get("staged").and_then(Value::as_bool), b(&p, "old")).await?),
         "workspace.fileHistory" => to(k.file_history(&s(&p, "projectId")?, &s(&p, "branch")?, &s(&p, "path")?, p.get("limit").and_then(Value::as_u64).and_then(|n| u32::try_from(n).ok())).await?),
         "commits.revert" => to(json!({ "sha": k.revert_commit(&s(&p, "projectId")?, &s(&p, "branch")?, &s(&p, "sha")?).await? })),
@@ -777,6 +780,12 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
         "releases.delete" => {
             k.delete_release(&s(&p, "projectId")?, &s(&p, "version")?)?;
             ok()
+        }
+        "releases.commits" => to(k.release_commits(&s(&p, "projectId")?, &s(&p, "tag")?, p.get("limit").and_then(Value::as_u64).and_then(|n| u32::try_from(n).ok())).await?),
+        "releases.counts" => to(k.release_counts(&s(&p, "projectId")?, &strings(&p, "tags")).await?),
+        "map.commits" => {
+            let lists: Vec<crate::app::MapList> = serde_json::from_value(p.get("branches").cloned().unwrap_or(json!([])))?;
+            to(k.map_commits(&s(&p, "projectId")?, &lists, &strings(&p, "tags")).await?)
         }
         "items.suggestName" => {
             let (name, ai) = k

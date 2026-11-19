@@ -828,6 +828,13 @@ impl Git {
         Ok(self.run(&["for-each-ref", &merged, "--format=%(refname:short)", "refs/tags"]).await?.lines().map(Into::into).collect())
     }
 
+    /// The tag nearest `rev` in its history and how many commits `rev` has past it, as `git describe --tags` finds them.
+    /// None when no tag is behind it, or `rev` is missing.
+    pub async fn last_tag(&self, rev: &str) -> Result<Option<(String, u32)>> {
+        let (ok, out, _) = self.try_run(&["describe", "--tags", "--long", rev]).await?;
+        Ok(if ok { parse_describe(out.trim()) } else { None })
+    }
+
     /// Commit SHAs in `range`, newest first.
     pub async fn rev_list(&self, range: &str) -> Result<Vec<String>> {
         Ok(self.run(&["rev-list", range]).await?.lines().map(Into::into).collect())
@@ -2082,6 +2089,13 @@ fn commit_of(f: &[&str]) -> Commit {
     }
 }
 
+/// `git describe --tags --long` output, `<tag>-<commits past it>-g<sha>`, as (tag, commits). Read from the right: tags hold dashes too.
+fn parse_describe(s: &str) -> Option<(String, u32)> {
+    let mut it = s.rsplitn(3, '-');
+    let (sha, n, tag) = (it.next()?, it.next()?, it.next()?);
+    (sha.starts_with('g') && !tag.is_empty()).then(|| Some((tag.to_string(), n.parse().ok()?))).flatten()
+}
+
 /// SHA git blame gives lines that are not committed yet.
 const UNCOMMITTED: &str = "0000000000000000000000000000000000000000";
 
@@ -2533,6 +2547,14 @@ pub fn truncate_utf8(s: &mut String, max: usize) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn describe_output_reads_from_the_right() {
+        assert_eq!(parse_describe("v0.24.0-3-g81e2b58"), Some(("v0.24.0".into(), 3)));
+        assert_eq!(parse_describe("v1.0.0-rc-1-0-gabc1234"), Some(("v1.0.0-rc-1".into(), 0)));
+        assert_eq!(parse_describe("v1.0.0"), None);
+        assert_eq!(parse_describe("-3-gabc"), None);
+    }
 
     #[tokio::test]
     async fn stash_returns_none_when_git_saved_nothing() {
