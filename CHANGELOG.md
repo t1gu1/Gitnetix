@@ -24,6 +24,7 @@ the in-app update prompt.
 - `workspace.rebase` takes `resolve`: AI resolves the conflicts even when the project's merge option leaves them to the user.
 
 ### Changed (App)
+- "Use as default AI" in AI Setup now hands it every task (commit messages, merges, conflicts, agents…): before, tasks stayed on Claude. Agent permissions stay. Task routing shows "Use … for every task" when some tasks run on another AI.
 - The app icon follows the Black & White theme: a white faceted G on a slate tile, on the desktop, on a phone's home screen and in the Android and iOS builds.
 
 ### Changed (Website)

@@ -216,11 +216,22 @@ function ProviderDetail({ cat, id }: { cat: AiCatalog; id: string }) {
 function Routing({ cat }: { cat: AiCatalog }) {
   const set = useAction("ai.setRoute", { invalidate: [["ai"], ["config"]] });
   const usable = cat.providers.filter((p) => p.conf || p.status?.status !== "none");
+  const def = cat.defaultProvider;
+  const defName = cat.providers.find((p) => p.info.id === def)?.info.name ?? def;
+  const reset = useAction("ai.setDefault", { invalidate: [["ai"], ["config"]], success: `Every task now runs on ${defName}` });
+  const pinned = TASKS.filter(([t]) => (cat.routing[t]?.provider ?? def) !== def).length;
   return (
     <section className="section">
-      <div className="col" style={{ gap: 2 }}>
-        <h2>Task routing</h2>
-        <span className="hint">Which AI handles each job. Lighter models for quick jobs, stronger ones where it matters. Agents need a CLI provider.</span>
+      <div className="row wrap" style={{ gap: 12 }}>
+        <div className="col grow" style={{ gap: 2 }}>
+          <h2>Task routing</h2>
+          <span className="hint">Which AI handles each job. Every task follows the default AI unless picked here. Agents need a CLI provider.</span>
+        </div>
+        {pinned > 0 && (
+          <button className="btn" disabled={reset.isPending} data-tip={`${pinned} task${pinned > 1 ? "s run" : " runs"} on another AI`} onClick={() => reset.mutate({ id: def })}>
+            Use {defName} for every task
+          </button>
+        )}
       </div>
       <ul className="list route-list">
         {TASKS.map(([task, label]) => (

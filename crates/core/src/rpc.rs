@@ -133,7 +133,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("ai.catalog", "AI providers, their status and settings", ""),
     ("ai.models", "Models an AI provider offers, each with the effort levels it takes (Copilot's, Codex's and Antigravity's are read from their CLI for the signed-in account)", "id"),
     ("ai.saveProvider", "Configure an AI provider", "id, method?, model?, effort?, baseUrl?, apiKey?"),
-    ("ai.setDefault", "Default AI provider; `routeAll` hands it every task too (Claude keeps its per-task models)", "id, routeAll?"),
+    ("ai.setDefault", "Default AI provider, handed every task too (Claude keeps its per-task models; agent permissions stay)", "id"),
     ("ai.test", "Test an AI provider", "id"),
     ("dictation.transcribe", "Turn recorded speech into text on this computer (the first time downloads a 740 MB speech model)", "audio (base64), mime"),
     ("dictation.cancel", "Stop the transcriptions under way; they end with an error", ""),
@@ -1018,13 +1018,19 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
         "ai.setDefault" => {
             let id = s(&p, "id")?;
             ai::provider_info(&id)?;
-            let route_all = p.get("routeAll").and_then(Value::as_bool).unwrap_or(false);
             k.store.write(|c| {
                 c.ai.providers.entry(id.clone()).or_default();
-                // The default routes name Claude's models: another provider runs every task on its own model.
-                if route_all {
-                    c.ai.routing = if id == "claude" { crate::store::AiConfig::default().routing } else { Default::default() };
+                // Every task follows the default AI. The default routes name Claude's models: another provider runs
+                // every task on its own model. The agent's permissions and ultracode stay.
+                let mut routing = if id == "claude" { crate::store::AiConfig::default().routing } else { std::collections::BTreeMap::new() };
+                for (task, old) in &c.ai.routing {
+                    if old.permission.is_some() || old.ultracode.is_some() {
+                        let r = routing.entry(task.clone()).or_default();
+                        r.permission = old.permission.clone();
+                        r.ultracode = old.ultracode;
+                    }
                 }
+                c.ai.routing = routing;
                 c.ai.default_provider = id;
                 Ok(())
             })?;
@@ -1773,5 +1779,21 @@ mod tests {
     fn terminal_script_quotes_the_path_for_the_shell() {
         let s = super::terminal_script("/Users/a/Library/Application Support/Claude/it's/claude");
         assert!(s.starts_with(r#"tell application "Terminal" to do script "'/Users/a/Library/Application Support/Claude/it'\\''s/claude'""#), "{s}");
+    }
+
+    #[tokio::test]
+    async fn default_ai_takes_every_task() {
+        let tmp = tempfile::tempdir().unwrap();
+        let k = crate::Gitnetix::open(tmp.path()).unwrap();
+        k.store.write(|c| Ok(c.ai.routing.entry("agent".into()).or_default().permission = Some("auto".into()))).unwrap();
+        super::call(&k, "ai.setDefault", serde_json::json!({ "id": "copilot" })).await.unwrap();
+        let ai = k.store.read(|c| c.ai.clone());
+        assert_eq!(ai.default_provider, "copilot");
+        assert!(ai.routing.values().all(|r| r.provider.is_none() && r.model.is_none()), "{:?}", ai.routing);
+        assert_eq!(ai.routing["agent"].permission.as_deref(), Some("auto"));
+        // Back on Claude: its per-task models again.
+        super::call(&k, "ai.setDefault", serde_json::json!({ "id": "claude" })).await.unwrap();
+        let commit = k.store.read(|c| c.ai.routing["commit"].clone());
+        assert_eq!((commit.provider.as_deref(), commit.model.as_deref()), (Some("claude"), Some("claude-haiku-5-5")));
     }
 }

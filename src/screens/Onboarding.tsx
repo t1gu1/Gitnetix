@@ -174,7 +174,7 @@ function AgentStep(s: Steps) {
         <div role="radiogroup" aria-label="Main agent" style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto auto", alignItems: "center", rowGap: 6 }}>
           {clis.map((p) => {
             const main = cat.defaultProvider === p.info.id;
-            const pick = () => setMain.mutate({ id: p.info.id, routeAll: true });
+            const pick = () => setMain.mutate({ id: p.info.id });
             // While the main one can't run (Claude, on a first launch without it), the first agent that answers takes its place.
             return <AiRow key={p.info.id} p={p} main={main} onPick={pick} onWorks={main || mainOk ? undefined : pick} />;
           })}
