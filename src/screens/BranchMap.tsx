@@ -488,7 +488,7 @@ export function originOf(b: BranchView, remote: boolean): [string, string] {
   if (b.remote && !b.local) return ["only on origin, never fetched", ""];
   if (b.upstreamAhead && b.upstreamBehind) return [`diverged: ↑${b.upstreamAhead} ↓${b.upstreamBehind}`, "c-warn"];
   if (b.upstreamAhead) return [`↑${b.upstreamAhead} to push`, ""];
-  if (b.upstreamBehind) return [`↓${b.upstreamBehind} to pull`, ""];
+  if (b.upstreamBehind) return [`↓${b.upstreamBehind} to pull`, "c-del"];
   return [b.upstream ? "synced with origin" : "not tracking origin", b.upstream ? "" : "faint"];
 }
 
@@ -1422,7 +1422,7 @@ function TileView({
     if (b.exists && !b.ahead && !b.wip && !agent) info.push("no commits yet");
   }
   if (b.upstreamAhead > 0) info.push(`↑${b.upstreamAhead} to push`);
-  if (b.upstreamBehind > 0) info.push(`↓${b.upstreamBehind} to pull`);
+  if (b.upstreamBehind > 0) info.push(<span className="c-del">↓{b.upstreamBehind} to pull</span>);
   if (b.stashes > 0)
     info.push(
       <button key="stash" className="map-info-btn" data-tip={`${stashCount(b.stashes)} made on ${b.name}`} onClick={() => onStashes(b.name)}>

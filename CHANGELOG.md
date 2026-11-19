@@ -14,6 +14,9 @@ the in-app update prompt.
 
 ## [Unreleased]
 
+### Changed (App)
+- A branch that is behind origin shows "↓N to pull" in red on its map box, in the focus header and in the selected card's Origin row.
+
 ### Fixed (App)
 - The branch map's box no longer shows a "Checked out" tag. The tag stays on the branch's list and the map's Checked out row.
 - On a version's box, its tags sit centred on the version, as the branch name's tags do.

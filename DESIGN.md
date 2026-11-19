@@ -412,7 +412,7 @@ Restrained strategy: tinted neutrals plus one control colour that is not a hue.
 - **Ink** (`#e9eef4`), **Muted** (`#a3aebb`), **Faint** (`#808b9a`): text tiers. All pass 4.5:1 on ground and panel. Faint also draws the trunk hairline and the resting station rings.
 
 ### Status (meaning only)
-- **Add** `#5fd39a`, **Delete** `#ff7b72`, **Warn** `#e8b85a`. Diff backgrounds are the same hue at 10% (light 8 to 9%). Behind counts use Delete (the line chip's ↓, the card's Behind numeral, the code view's "vs" pill). Warn marks a branch that needs you: an agent waiting, an idle branch's alert icon.
+- **Add** `#5fd39a`, **Delete** `#ff7b72`, **Warn** `#e8b85a`. Diff backgrounds are the same hue at 10% (light 8 to 9%). Behind counts use Delete (the line chip's ↓, the card's Behind numeral, the code view's "vs" pill, and the "↓N to pull" text on a branch box, the focus head and the card's Origin row). Warn marks a branch that needs you: an agent waiting, an idle branch's alert icon.
 
 ### Code
 The Black & White pair highlights code in its two inks: keywords and types bold Ink, strings, numbers, functions, literals and properties Muted. Other themes keep their syntax hues.
@@ -502,7 +502,7 @@ The leftmost map column. A vertical 1px hairline in Faint runs the map's whole h
 ### Branch boxes
 A box holds a header row and one info row, never commits. Panel background, 1px hairline-strong border, 3px corners, padding 8px 24px 8px 18px, column layout with a 4px gap (60px tall; the next release 74px).
 - **Header row** (20px; 34px on the release box, carrying its Antonio numeral and the NEXT tag): type label (faint), name (Ref), status tags. Nothing else.
-- **Info row** (18px, Inter 12px muted): the branch's non-commit facts, one line. The agent state (blinking dot plus "Claude working"; a waiting agent's dot is Warn: "Codex waiting for you"); the WIP button ("WIP 2 · +48 −12": ink, Inter 500, a 6px dashed ink dot before it, Add/Delete counts in Mono 12px 500, underline on hover, opens the code); "N commits since vX · 1 release open" on the default branch; "release/x · from main · 3h ago" on a release; "no commits yet"; "idle 41 days · falling behind main" after a 12px Warn alert icon.
+- **Info row** (18px, Inter 12px muted): the branch's non-commit facts, one line. The agent state (blinking dot plus "Claude working"; a waiting agent's dot is Warn: "Codex waiting for you"); the WIP button ("WIP 2 · +48 −12": ink, Inter 500, a 6px dashed ink dot before it, Add/Delete counts in Mono 12px 500, underline on hover, opens the code); "N commits since vX · 1 release open" on the default branch; "release/x · from main · 3h ago" on a release; "↓N to pull" in Delete when origin has N commits the branch lacks; "no commits yet"; "idle 41 days · falling behind main" after a 12px Warn alert icon.
 - **Station and "+":** an 11px ring station sits on the left border at the header row's centre (top 18px; 25px on the release box), filled with the route colour on the route. A 20px "+" square (2px corners, panel fill, hairline-strong border, muted icon; ink on hover) straddles the right edge at the header row (top 8px; 15px on the release box): always shown where lines leave and on the checked-out box, shown on hover or focus elsewhere.
 - The checked-out box's border is ink; a falling-behind box's border is dashed.
 
