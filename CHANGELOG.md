@@ -15,10 +15,13 @@ the in-app update prompt.
 ## [Unreleased]
 
 ### Added (App)
-- On the branch map, the ↓ chip on a release or trunk line rebases it onto its parent, like a work branch's chip. Before, it did nothing.
-- A release or trunk behind its parent shows Update on its card: it opens the "Rebase onto" dialog, like its ↓ chip. "Merge … into this" stays in the menu.
+- GitHub Copilot agents take the Permissions setting, as Claude Code agents do. Bypass allows everything, and Auto-approve lets Copilot's safety judge decide. At Accept edits (file edits allowed) and Use agent permissions (Copilot's own rules), Copilot asks before anything else with an Allow / Refuse card in the chat, and Refuse has it look for another way. A level you picked for Claude Code now applies to Copilot too.
+- At Accept edits and Use agent permissions, a follow-up message to a Copilot agent continues its conversation instead of starting over.
 - The "Rebase onto" dialog (a ↓ chip, the Update button, or "Rebase onto…" in the menu) has AI resolve the conflicts and force pushes the branch after. A checkbox turns the push off. Then it offers to update the branches under it.
 - After a pull or an update brings new commits into a branch, a dialog offers to rebase the local branches under it onto their parents too, top down, releases included. A work branch under a branch being rebased gets that branch pinned as its parent first, so it stays under it on the map. AI resolves the conflicts. A branch that fails stays as it was, and so do the branches under it. The branches with an upstream are pushed after, the one that moved included, and a rebased branch already on origin is force pushed. A checkbox in the dialog turns pushing off.
+- Each minimized new branch dialog closes into its own chip, stacked bottom up in the corner. The chip shows the branch name it would create. The Minimize animation can be turned off in settings.
+- On the branch map, the ↓ chip on a release or trunk line rebases it onto its parent, like a work branch's chip. Before, it did nothing.
+- A release or trunk behind its parent shows Update on its card: it opens the "Rebase onto" dialog, like its ↓ chip. "Merge … into this" stays in the menu.
 
 ### Added (API)
 - `workspace.rebase` takes `resolve`: AI resolves the conflicts even when the project's merge option leaves them to the user.
@@ -26,13 +29,8 @@ the in-app update prompt.
 ### Changed (App)
 - "Use as default AI" in AI Setup now hands it every task (commit messages, merges, conflicts, agents…): before, tasks stayed on Claude. Agent permissions stay. Task routing shows "Use … for every task" when some tasks run on another AI.
 - The app icon follows the Black & White theme: a white faceted G on a slate tile, on the desktop, on a phone's home screen and in the Android and iOS builds.
-
-### Added (App)
-- GitHub Copilot agents take the Permissions setting, as Claude Code agents do. Bypass allows everything, and Auto-approve lets Copilot's safety judge decide. At Accept edits (file edits allowed) and Use agent permissions (Copilot's own rules), Copilot asks before anything else with an Allow / Refuse card in the chat, and Refuse has it look for another way. A level you picked for Claude Code now applies to Copilot too.
-- At Accept edits and Use agent permissions, a follow-up message to a Copilot agent continues its conversation instead of starting over.
-
-### Fixed (App)
-- A Copilot agent in a worktree could not open the files you attached, look outside its worktree or open URLs, and the chat showed "Permission denied because no interactive user response was available". Bypass now allows these, and Copilot gets your attached images with the prompt.
+- The Clean up label on the branch map is now a broom icon.
+- Third-party theme colors are tuned to meet contrast minimums.
 
 ### Changed (Website)
 - The website takes the app's new look: Black & White by default, Inter and Antonio type, hairline boxes and square corners. The other 37 themes still repaint it.
@@ -41,6 +39,8 @@ the in-app update prompt.
 - The favicon, the social card and the phone screenshot follow the new look.
 
 ### Fixed (App)
+- A Copilot agent in a worktree could not open the files you attached, look outside its worktree or open URLs, and the chat showed "Permission denied because no interactive user response was available". Bypass now allows these, and Copilot gets your attached images with the prompt.
+- The branch map's trunk line stops at the default branch block.
 - In a branch's menu, a long stash message next to "Pop latest stash" no longer covers the label and spills into the right column. It is cut short with "…" and reads in full on hover.
 
 ## [0.26.0] - 2026-11-19
