@@ -441,7 +441,7 @@ a:hover {
   user-select: none;
   align-items: center;
   gap: 8px;
-  padding: 0 4px 0 16px;
+  padding: 0 12px 0 16px;
   border: 0;
   background: transparent;
   color: inherit;
@@ -455,10 +455,10 @@ a:hover {
 .tab-project-close {
   display: flex;
   align-items: center;
-  justify-content: center;
-  width: 28px;
+  justify-content: flex-start;
+  width: 24px;
   padding: 0;
-  margin-right: 4px;
+  margin-right: 0;
   border: 0;
   background: transparent;
   color: var(--faint);
