@@ -14,6 +14,8 @@ the in-app update prompt.
 
 ## [Unreleased]
 
+## [0.26.2] - 2026-11-19
+
 ### Changed (App)
 - A branch that is behind origin shows "↓N to pull" in red on its map box, in the focus header and in the selected card's Origin row.
 
