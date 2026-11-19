@@ -14,6 +14,8 @@ the in-app update prompt.
 
 ## [Unreleased]
 
+## [0.26.0] - 2026-11-19
+
 ### Changed (App)
 - The app has a new look. The shell, theme, components, and screens follow a new design direction.
 - The branch map no longer has the Commits filter (Hidden, Latest, List). Every branch lists its 4 newest commits, with "See all" for the rest.
