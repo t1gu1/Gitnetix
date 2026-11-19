@@ -30,13 +30,14 @@ export const rebaseMessage = (r: RebaseResult) =>
  * conflicts of every commit on the way, its progress in a window that opens once it starts. Toasts how it went;
  * undefined once it failed.
  */
-export async function startRebase(pid: string, branch: string, opts: { onto?: string; resume?: boolean } = {}): Promise<RebaseResult | undefined> {
+/** `resolve`: AI resolves the conflicts even when the project leaves them to the user. */
+export async function startRebase(pid: string, branch: string, opts: { onto?: string; resume?: boolean; resolve?: boolean } = {}): Promise<RebaseResult | undefined> {
   const key = runKey(pid, branch);
   startedFromHere(key, true);
   retrying(key);
   try {
     // A step like a `useAction` of the method: the branch's row shows it busy.
-    const r = await call<RebaseResult>(opts.resume ? "workspace.rebaseContinue" : "workspace.rebase", { projectId: pid, branch, onto: opts.onto });
+    const r = await call<RebaseResult>(opts.resume ? "workspace.rebaseContinue" : "workspace.rebase", { projectId: pid, branch, onto: opts.onto, resolve: opts.resolve });
     const msg = rebaseMessage(r);
     if (msg) toast(msg, r.conflicts.length || r.stashConflicts.length ? "info" : "ok");
     return r;

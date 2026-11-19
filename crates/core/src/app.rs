@@ -3748,8 +3748,10 @@ impl Gitnetix {
 
     /// Rebase a branch onto `onto`, else onto its release. Its target stays as it was. Not checked out anywhere, it is
     /// rebased in a throwaway worktree, and conflicts AI leaves there put it back as it was.
-    pub async fn rebase(&self, project_id: &str, branch: &str, onto: Option<&str>) -> Result<RebaseResult> {
-        let p = self.store.project(project_id)?;
+    /// `resolve`: AI resolves conflicts this time even when the project's merge option leaves them to the user.
+    pub async fn rebase(&self, project_id: &str, branch: &str, onto: Option<&str>, resolve: bool) -> Result<RebaseResult> {
+        let mut p = self.store.project(project_id)?;
+        p.merge.resolve_conflicts |= resolve;
         if self.checkout_dir(&p, branch).await?.is_some() {
             let git = self.require_checkout(&p, branch).await?;
             return self.rebase_at(&p, &git, branch, onto).await;

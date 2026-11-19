@@ -1226,8 +1226,8 @@ export function BranchMap({
                 const text = <span className="c-del">↓{b.behind}</span>;
                 const words = `${b.ahead ? `${plural(b.ahead, "commit")} ahead of ${labelOf(onto)}` : ""}${b.ahead && b.behind ? ", " : ""}${b.behind ? `${b.behind} behind` : ""}`;
                 const props = { className: "map-line-chip", "data-line": cls || undefined, style: { left: x, top: y } };
-                // A local work branch behind its parent rebases from its chip (checked out or not: rebased aside then), unless its agent works.
-                if (b.behind > 0 && b.role === "branch" && b.local) {
+                // A local branch behind its parent, a release too, rebases from its chip (checked out or not: rebased aside then), unless its agent works.
+                if (b.behind > 0 && b.local) {
                   if (b.running)
                     // Still focusable so keyboard users get the reason too.
                     return (

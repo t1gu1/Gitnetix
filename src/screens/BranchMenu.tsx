@@ -2,7 +2,7 @@ import { useState, type MouseEvent } from "react";
 
 import { committed, droppedWorktree, patchOverview, patchWip, pushed, queryClient, settle, switchedOverview, useAction, useAgents, useAiOn, useOverview, usePendingBranches, useProjectPrefs, useTagV } from "../api/hooks";
 import { RpcError } from "../api/transport";
-import type { BranchView, Overview, RenameResult, Stash, StashApplied } from "../api/types";
+import type { BranchView, MergeResult, Overview, RenameResult, Stash, StashApplied } from "../api/types";
 import { ContextMenu, type MenuItem } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
 import { plural } from "../lib/format";
@@ -12,8 +12,9 @@ import { call, runTask, wtKey } from "../lib/tasks";
 import { copyToClipboard, toast } from "../lib/toast";
 import { publishName } from "./Publish";
 import { startRebase } from "./RebaseRun";
+import { childrenOf } from "./UpdateChildren";
 
-export type BranchDialog = "commit" | "merge" | "delete" | "rename" | "continue" | "reset" | "forcePush" | "publish" | "target" | "rebase" | "rebaseOnto" | "abortSwitch" | "abort" | "switchWip" | "pullWip";
+export type BranchDialog = "commit" | "merge" | "delete" | "rename" | "continue" | "reset" | "forcePush" | "publish" | "target" | "rebase" | "rebaseOnto" | "abortSwitch" | "abort" | "switchWip" | "pullWip" | "children";
 
 export interface BranchTarget {
   view: BranchView;
@@ -103,7 +104,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
     },
   });
   const push = useAction<{ output: string }, { projectId: string; branch: string }>("workspace.push", { invalidate: inv, patch: (qc, v) => patchOverview(qc, pid, v.branch, pushed) });
-  const sync = useAction<unknown, { projectId: string; branch: string }>("branches.sync", { invalidate: inv });
+  const sync = useAction<MergeResult, { projectId: string; branch: string }>("branches.sync", { invalidate: inv });
   const stash = useAction<unknown, { projectId: string; branch: string }>("branches.stash", {
     invalidate: inv,
     patch: (qc, v) => {
@@ -142,6 +143,8 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
   const locks = useLocks(pid);
   const inMain = [...rebasing.keys()].find((b) => !ov?.branches.find((x) => x.name === b)?.worktree);
   const run = (m: BranchMutation, branch: string, ok: string) => m.mutate({ projectId: pid, branch }, { onSuccess: () => toast(ok, "ok") });
+  /** `b` just took in new commits: offer to carry them down to the branches under it. */
+  const offerChildren = (b: string) => ov && childrenOf(ov.branches, b).length > 0 && openDialog("children", b);
   // Git refuses to switch in the middle of a rebase, merge…: ask to abort it first. One AI is carrying through is left alone.
   const switchOrAsk = (b: string, ok: string) =>
     inMain ? toast(`AI is rebasing ${inMain} in this checkout: wait for it to finish, or abort it`, "error") : ov?.inProgress ? openDialog("abortSwitch", b) : run(sw, b, ok);
@@ -162,10 +165,12 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
     pull.mutate(
       { projectId: pid, branch: b, wip },
       {
-        onSuccess: (r) =>
-          r.conflicts.length
-            ? toast(`Pulled ${b} with ${plural(r.conflicts.length, "conflict")}: resolve them in the WIP files. The stash is kept.`, "error")
-            : toast(wip === "carry" ? `Pulled ${b}, your changes are back on top` : `Stashed your changes, pulled ${b}`, "ok"),
+        onSuccess: (r) => {
+          if (r.conflicts.length) toast(`Pulled ${b} with ${plural(r.conflicts.length, "conflict")}: resolve them in the WIP files. The stash is kept.`, "error");
+          else toast(wip === "carry" ? `Pulled ${b}, your changes are back on top` : `Stashed your changes, pulled ${b}`, "ok");
+          // Git only stops a pull that brings commits: the branch moved.
+          offerChildren(b);
+        },
       },
     );
   /** Deletes the worktree (refused with uncommitted changes there), then checks its branch out here. In the background: its row goes at once. */
@@ -236,7 +241,16 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
         icon: "refresh",
         hint: v.upstreamBehind ? `↓${v.upstreamBehind}` : undefined,
         disabled: !v.upstream,
-        run: () => run(pull, b, `Pulled ${b}`),
+        run: () =>
+          pull.mutate(
+            { projectId: pid, branch: b },
+            {
+              onSuccess: () => {
+                toast(`Pulled ${b}`, "ok");
+                if (v.upstreamBehind) offerChildren(b);
+              },
+            },
+          ),
       },
       reset: {
         id: "reset",
@@ -334,6 +348,17 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
         disabled: !!ov?.inProgress,
         run: () => openDialog("rebaseOnto", b),
       },
+      // Releases and trunks catch up the way work branches do: rebased onto the parent, asked first, then force pushed.
+      update: {
+        id: "update",
+        label: <>Rebase onto <span className="mono">{parent}</span>…</>,
+        short: "Update",
+        tip: v.behind ? `Rebase ${b} onto the ${plural(v.behind, "new commit")} of ${parent}, AI resolving the conflicts${v.upstream ? ", then force push it" : ""}` : `${b} already has everything in ${parent}`,
+        icon: "refresh",
+        hint: v.behind ? `↓${v.behind}` : undefined,
+        disabled: !t.base || !v.behind,
+        run: () => openDialog("rebaseOnto", b, t.base),
+      },
       sync: {
         id: "sync",
         label: <>Merge <span className="mono">{parent}</span> into this</>,
@@ -342,7 +367,16 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
         icon: "refresh",
         hint: v.behind ? `↓${v.behind}` : undefined,
         disabled: !t.base || !v.behind,
-        run: () => run(sync, b, `${b} is up to date with ${parent}`),
+        run: () =>
+          sync.mutate(
+            { projectId: pid, branch: b },
+            {
+              onSuccess: (r) => {
+                toast(`${b} is up to date with ${parent}`, "ok");
+                if (!r.alreadyMerged) offerChildren(b);
+              },
+            },
+          ),
       },
       merge: {
         id: "merge",
@@ -498,8 +532,9 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
       if (v.checkedOut && t.latestStash) list.push(a.unstash);
       if (t.base) {
         list.push("sep");
-        // Shared branches (releases, dev) and worktrees catch up by merging; other work branches can also be rebased.
+        // Releases and trunks rebase through the dialog (Update) or merge; work branches rebase in their checkout; worktrees merge.
         if (v.role === "branch" && !v.worktree) list.push(a.rebase);
+        if (v.role !== "branch") list.push(a.update);
         list.push(a.sync);
         list.push(a.merge);
       }
@@ -552,8 +587,8 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
     if (v.upstreamBehind > 0) return a.pull;
     const needsPush = v.upstreamAhead > 0 || (!v.upstream && v.ahead > 0);
     if (v.role !== "branch") {
-      // Releases and trunks are shared: catch up with the base by merging, no checkout needed.
-      if (v.behind > 0 && t.base) return a.sync;
+      // Releases and trunks catch up with the base by a rebase, no checkout needed.
+      if (v.behind > 0 && t.base) return a.update;
       if (needsPush) return a.push;
       // Nothing to pull or push: like work branches, suggest merging what is ahead into the base.
       if (t.base && v.ahead > 0) return a.merge;

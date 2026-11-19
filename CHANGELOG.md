@@ -14,6 +14,15 @@ the in-app update prompt.
 
 ## [Unreleased]
 
+### Added (App)
+- On the branch map, the ↓ chip on a release or trunk line rebases it onto its parent, like a work branch's chip. Before, it did nothing.
+- A release or trunk behind its parent shows Update on its card: it opens the "Rebase onto" dialog, like its ↓ chip. "Merge … into this" stays in the menu.
+- The "Rebase onto" dialog (a ↓ chip, the Update button, or "Rebase onto…" in the menu) has AI resolve the conflicts and force pushes the branch after. A checkbox turns the push off. Then it offers to update the branches under it.
+- After a pull or an update brings new commits into a branch, a dialog offers to rebase the local branches under it onto their parents too, top down, releases included. A work branch under a branch being rebased gets that branch pinned as its parent first, so it stays under it on the map. AI resolves the conflicts. A branch that fails stays as it was, and so do the branches under it. The branches with an upstream are pushed after, the one that moved included, and a rebased branch already on origin is force pushed. A checkbox in the dialog turns pushing off.
+
+### Added (API)
+- `workspace.rebase` takes `resolve`: AI resolves the conflicts even when the project's merge option leaves them to the user.
+
 ### Changed (App)
 - The app icon follows the Black & White theme: a white faceted G on a slate tile, on the desktop, on a phone's home screen and in the Android and iOS builds.
 

@@ -60,6 +60,7 @@ import { FileHistory } from "./FileHistory";
 import { PublishModal } from "./Publish";
 import { startRebase } from "./RebaseRun";
 import { StashList } from "./StashList";
+import { childrenOf, UpdateChildrenModal } from "./UpdateChildren";
 
 type Mode = "branch" | "wip" | "project";
 /** On a phone, the focus view shows one at a time: the branch's timeline, or the code with the agent. */
@@ -1082,7 +1083,7 @@ export function Workspace() {
       )}
       {dialog?.kind === "rebase" && dialog.onto && <RebaseOntoModal pid={pid} branch={dialog.branch} onto={labelOf(dialog.onto)} onClose={() => setDialog(null)} />}
       {dialog?.kind === "rebaseOnto" && o && (
-        <RebaseOntoBranchModal pid={pid} branch={dialog.branch} onto={dialog.onto} branches={o.branches} labelOf={labelOf} onClose={() => setDialog(null)} />
+        <RebaseOntoBranchModal pid={pid} branch={dialog.branch} onto={dialog.onto} branches={o.branches} labelOf={labelOf} onClose={() => setDialog(null)} onChildren={(b) => setDialog({ kind: "children", branch: b })} />
       )}
       {dialog?.kind === "delete" && dialogView?.worktree && (
         <DiscardWorktreeModal branch={dialog.branch} path={dialogView.worktree} onClose={() => setDialog(null)} onConfirm={() => finish.discard({ projectId: pid, branch: dialog.branch, cwd: dialogView.worktree! })} />
@@ -1093,6 +1094,7 @@ export function Workspace() {
       {dialog?.kind === "switchWip" && o && (
         <SwitchWipModal from={o.currentBranch} branch={dialog.branch} onClose={() => setDialog(null)} onConfirm={(wip) => actions.switchWith(dialog.branch, wip)} />
       )}
+      {dialog?.kind === "children" && o && <UpdateChildrenModal pid={pid} branch={dialog.branch} branches={o.branches} labelOf={labelOf} onClose={() => setDialog(null)} />}
       {dialog?.kind === "pullWip" && (
         <PullWipModal branch={dialog.branch} upstream={dialogView?.upstream} onClose={() => setDialog(null)} onConfirm={(wip) => actions.pullWith(dialog.branch, wip)} />
       )}
@@ -1989,13 +1991,32 @@ function RebaseOntoModal({ pid, branch, onto, onClose }: { pid: string; branch: 
 }
 
 /** Replays the checked-out `branch` on top of `onto`, or of a branch picked here; its target stays. */
-function RebaseOntoBranchModal({ pid, branch, onto, branches, labelOf, onClose }: { pid: string; branch: string; onto?: string; branches: BranchView[]; labelOf: (b: string) => string; onClose: () => void }) {
+/** Once it went through: pushed when asked to, then `onChildren` asks about the branches under it. */
+function RebaseOntoBranchModal({ pid, branch, onto, branches, labelOf, onClose, onChildren }: { pid: string; branch: string; onto?: string; branches: BranchView[]; labelOf: (b: string) => string; onClose: () => void; onChildren: (b: string) => void }) {
   const [picked, setPicked] = useState<string | null>(onto ?? null);
+  const [push, setPush] = useState(true);
   const choices = useMemo(() => branches.filter((b) => b.exists && b.name !== branch), [branches, branch]);
   const view = branches.find((b) => b.name === branch);
   const parent = view?.parent;
   const name = labelOf(branch);
   const to = picked ? labelOf(picked) : undefined;
+  const upstream = view?.upstream;
+  const go = async (target: string) => {
+    onClose();
+    const r = await startRebase(pid, branch, { onto: target, resolve: true });
+    // Stopped on conflicts, or aborted: nothing moved for good yet.
+    if (!r || r.aborted || r.conflicts.length) return;
+    if (push && upstream) {
+      const force = !!r.forcePushTo;
+      const ok = await call("workspace.push", { projectId: pid, branch, force }).then(
+        () => (toast(`${force ? "Force pushed" : "Pushed"} ${name} to ${upstream}`, "ok"), true),
+        (e: Error) => (toast(`Rebased ${name}, but pushing it failed: ${e.message}`, "error"), false),
+      );
+      queryClient.invalidateQueries({ queryKey: ["overview", pid] });
+      if (!ok) return;
+    }
+    if (childrenOf(branches, branch).length) onChildren(branch);
+  };
   return (
     <Modal
       title={onto ? `Rebase onto ${labelOf(onto)}?` : "Rebase onto a specific branch"}
@@ -2003,7 +2024,7 @@ function RebaseOntoBranchModal({ pid, branch, onto, branches, labelOf, onClose }
       onClose={onClose}
       footer={
         <>
-          <button className="btn btn-md btn-primary" autoFocus={!!onto} disabled={!picked} onClick={() => { if (!picked) return; void startRebase(pid, branch, { onto: picked }); onClose(); }}>
+          <button className="btn btn-md btn-primary" autoFocus={!!onto} disabled={!picked} onClick={() => picked && void go(picked)}>
             Rebase {name} onto {to ?? "it"}
           </button>
         </>
@@ -2011,8 +2032,15 @@ function RebaseOntoBranchModal({ pid, branch, onto, branches, labelOf, onClose }
     >
       {!onto && <BranchPicker choices={choices} labelOf={labelOf} picked={picked} onPick={setPicked} />}
       <p className="muted" style={{ margin: 0 }}>
-        Replays the commits of {name} on top of {to ?? "the branch picked"}, AI resolving the conflicts on the way.{!view?.checkedOut && " Any it can't resolve put it back as it was."}{parent && <> {name} keeps targeting {labelOf(parent)}.</>} Already pushed: it then needs a force push.
+        Replays the commits of {name} on top of {to ?? "the branch picked"}, AI resolving the conflicts on the way.{!view?.checkedOut && " Any it can't resolve put it back as it was."}{parent && <> {name} keeps targeting {labelOf(parent)}.</>}
+        {upstream && push ? <> Then it is force pushed: anyone with work on it rebases it too. Origin refuses it if it has commits {name} never had.</> : " Already pushed: it then needs a force push."}
       </p>
+      {upstream && (
+        <label className="check">
+          <input type="checkbox" checked={push} onChange={() => setPush(!push)} />
+          <span>Force push to <span className="mono">{upstream}</span> after</span>
+        </label>
+      )}
     </Modal>
   );
 }
