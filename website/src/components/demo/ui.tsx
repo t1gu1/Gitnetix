@@ -162,7 +162,7 @@ export function EmptyState({ icon, title, children, action }: { icon: string; ti
 /** Header in src/components/ui.tsx with hideWide: only on the phone, the back arrow taking a detail back to its list. */
 export function PageHead({ title, sub, onBack }: { title: string; sub?: ReactNode; onBack?: () => void }) {
   return (
-    <header className="hdr pg-head">
+    <header className="hdr pg-head show-narrow">
       {onBack && (
         <button type="button" className="hdr-icon" aria-label="Back" onClick={onBack}>
           <Icon name="back" size={16} />
