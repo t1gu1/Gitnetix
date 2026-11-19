@@ -191,7 +191,7 @@ export function ContextMenu({ x, y, items, label, alignRight, columns, search, o
       {it.icon !== null && <span className={`ctx-icon${it.warn ? " ctx-warn" : ""}`}>{it.icon && <Icon name={it.icon} size={13} />}</span>}
       {it.checked !== undefined && <span className="ctx-box" aria-hidden />}
       <span className="grow ellipsis">{it.label}</span>
-      {it.hint && <span className="ctx-hint">{it.hint}</span>}
+      {it.hint && <span className="ctx-hint" title={typeof it.hint === "string" ? it.hint : undefined}>{it.hint}</span>}
     </button>
   );
   const row = (it: Entry, i: number) =>

@@ -3401,8 +3401,13 @@ button.map-line-chip[aria-disabled] {
   display: inline-flex;
   color: var(--muted);
 }
+/* A long hint (e.g. a stash message) clips at half the row: the label keeps its room and the row stays in its column. */
 .ctx-hint {
+  min-width: 0;
+  max-width: 50%;
   margin-left: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
   color: var(--faint);
   font-family: var(--mono);
   font-size: 11px;

@@ -40,6 +40,9 @@ the in-app update prompt.
 - "Git without the subway map" is now "Branch first. Commits second.", with a map of open branches and the latest commits under each one.
 - The favicon, the social card and the phone screenshot follow the new look.
 
+### Fixed (App)
+- In a branch's menu, a long stash message next to "Pop latest stash" no longer covers the label and spills into the right column. It is cut short with "…" and reads in full on hover.
+
 ## [0.26.0] - 2026-11-19
 
 ### Changed (App)
