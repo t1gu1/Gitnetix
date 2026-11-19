@@ -87,7 +87,8 @@ details summary:hover h3{color:var(--muted)}
 .hero{background:linear-gradient(180deg,var(--ground),var(--bg) 70%)}
 /* The home page is a trunk: one hairline down its left, each section a station on it, the closing call the large one (main). */
 .spine{position:relative}
-.spine::before{content:'';position:absolute;left:29px;top:0;bottom:0;width:1px;background:var(--line2)}
+.spine::before,.tl::before{content:'';position:absolute;top:0;bottom:0;width:21px;background:linear-gradient(var(--line2),var(--line2)) 50% 10px/1px calc(100% - 20px) no-repeat,linear-gradient(45deg,transparent calc(50% - .5px),var(--line2) 0 calc(50% + .5px),transparent 0) 50% 0/21px 21px no-repeat,linear-gradient(45deg,transparent calc(50% - .5px),var(--line2) 0 calc(50% + .5px),transparent 0) 50% 100%/21px 21px no-repeat}
+.spine::before{left:19px}
 .sec{position:relative;padding:96px 0 40px 72px}
 .stn{position:absolute;left:-72px;top:2px;width:11px;height:11px;box-sizing:border-box;border:1.5px solid var(--faint);border-radius:50%;background:var(--bg)}
 .stn-main{display:block;width:17px;height:17px;box-sizing:border-box;border:1.5px solid var(--fg);border-radius:50%;background:radial-gradient(circle,var(--fg) 0 3.5px,var(--bg) 4px)}
@@ -127,7 +128,7 @@ details summary:hover h3{color:var(--muted)}
 /* Releases timeline: version | trunk | card. The versions sit on a hairline as stations, the latest one lit. */
 .tl{position:relative;list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:28px}
 .tl>li{display:grid;grid-template-columns:128px minmax(0,1fr);column-gap:56px;align-items:baseline}
-.tl::before{content:'';position:absolute;left:155px;top:0;bottom:0;width:1px;background:var(--line2)}
+.tl::before{left:145px}
 .tl .meta{position:relative;display:flex;flex-direction:column;align-items:flex-end;gap:6px;text-align:right}
 .tl .ver{font:600 18px/28px var(--mono)}
 .node{position:absolute;right:-33px;top:9px;width:11px;height:11px;box-sizing:border-box;border:1.5px solid var(--faint);border-radius:50%;background:var(--bg);transition:background-color .12s var(--ease)}
