@@ -43,6 +43,13 @@ export interface NewItemDraft {
   kind?: Kind | "release";
 }
 
+/** A new branch dialog, open or minimized to its chip in the corner. Several can wait there at once; one at most is open. */
+export interface NewItemEntry {
+  id: number;
+  draft: NewItemDraft;
+  min: boolean;
+}
+
 interface Nav {
   route: Route;
   /** `{ name: "menu" }` opens the menu over the current screen; any other route closes it. */
@@ -60,9 +67,13 @@ interface Nav {
   theme: "dark" | "light";
   themePref: string;
   setThemePref: (t: string) => void;
-  newItem: NewItemDraft | null;
+  /** The new branch dialogs, oldest first. */
+  newItems: NewItemEntry[];
+  /** Opens one more; the open one, if any, minimizes. */
   openNewItem: (d?: NewItemDraft) => void;
-  closeNewItem: () => void;
+  /** Minimizes dialog `id`, or (`min` false) brings it back open, minimizing the open one. */
+  minimizeNewItem: (id: number, min: boolean) => void;
+  closeNewItem: (id: number) => void;
   selectedBranch?: string;
   selectBranch: (b: string | undefined) => void;
   /** Drop `projectId`'s selection if it is one of these branches (deleted, merged away), for `to` if given. Reads the selection as it is now: safe from work that ends after the user moved on. */
@@ -74,7 +85,7 @@ interface View {
   route: Route;
   menuOpen: boolean;
   menuSection?: string;
-  newItem: NewItemDraft | null;
+  newItems: NewItemEntry[];
   selectedBranch?: string;
   /** Page a detour screen goes back to. */
   returnTo: Route | null;
@@ -84,7 +95,8 @@ interface View {
 const NONE = "";
 /** Key of the worktrees & agents view: a tab of its own beside the projects, so opening it leaves their pages as they were. */
 export const WORKTREES = "\0worktrees";
-const freshView = (key: string): View => ({ route: key === WORKTREES ? { name: "worktrees" } : key ? { name: "workspace" } : { name: "home" }, menuOpen: false, newItem: null, returnTo: null });
+const freshView = (key: string): View => ({ route: key === WORKTREES ? { name: "worktrees" } : key ? { name: "workspace" } : { name: "home" }, menuOpen: false, newItems: [], returnTo: null });
+let lastNewItem = 0;
 
 const Ctx = createContext<Nav | null>(null);
 const ViewsCtx = createContext<{ views: Record<string, View>; base: Nav } | null>(null);
@@ -162,8 +174,21 @@ export function NavProvider({ children, initialProject, initialTheme }: { childr
     go(v?.returnTo ?? (projectRef.current ? { name: "workspace" } : { name: "home" }));
   }, [go, shownKey]);
   const closeMenu = useCallback(() => update((v) => ({ ...v, menuOpen: false }), shownKey()), [update, shownKey]);
-  const openNewItem = useCallback((d?: NewItemDraft) => update((v) => ({ ...v, newItem: d ?? {} })), [update]);
-  const closeNewItem = useCallback(() => update((v) => ({ ...v, newItem: null })), [update]);
+  const openNewItem = useCallback(
+    (d?: NewItemDraft) => update((v) => ({ ...v, newItems: [...v.newItems.map((e) => ({ ...e, min: true })), { id: ++lastNewItem, draft: d ?? {}, min: false }] })),
+    [update],
+  );
+  // Last in the list either way: minimized, its chip lands on top of the others, which stay where they are.
+  const minimizeNewItem = useCallback(
+    (id: number, min: boolean) =>
+      update((v) => {
+        const e = v.newItems.find((x) => x.id === id);
+        const rest = v.newItems.filter((x) => x.id !== id).map((x) => (min ? x : { ...x, min: true }));
+        return e ? { ...v, newItems: [...rest, { ...e, min }] } : v;
+      }),
+    [update],
+  );
+  const closeNewItem = useCallback((id: number) => update((v) => ({ ...v, newItems: v.newItems.filter((e) => e.id !== id) })), [update]);
   const selectBranch = useCallback((b: string | undefined) => update((v) => ({ ...v, selectedBranch: b })), [update]);
   const forgetBranches = useCallback(
     (id: string, branches: string[], to?: string) => update((v) => (v.selectedBranch && branches.includes(v.selectedBranch) ? { ...v, selectedBranch: to } : v), id),
@@ -191,14 +216,15 @@ export function NavProvider({ children, initialProject, initialTheme }: { childr
       theme,
       themePref,
       setThemePref,
-      newItem: v.newItem,
+      newItems: v.newItems,
       openNewItem,
+      minimizeNewItem,
       closeNewItem,
       selectedBranch: v.selectedBranch,
       selectBranch,
       forgetBranches,
     };
-  }, [views, projectId, worktrees, go, back, closeMenu, setProject, theme, themePref, setThemePref, openNewItem, closeNewItem, selectBranch, forgetBranches]);
+  }, [views, projectId, worktrees, go, back, closeMenu, setProject, theme, themePref, setThemePref, openNewItem, minimizeNewItem, closeNewItem, selectBranch, forgetBranches]);
   const all = useMemo(() => ({ views, base }), [views, base]);
   return (
     <ViewsCtx.Provider value={all}>
@@ -226,7 +252,7 @@ export function ProjectView({ projectKey, children }: { projectKey: string; chil
   const v = views[projectKey] ?? freshView(projectKey);
   const value = useMemo<Nav>(
     // The worktrees view works on the open project (its new session's default, its links).
-    () => ({ ...base, projectId: projectKey === WORKTREES ? base.projectId : projectKey || undefined, route: v.route, menuOpen: v.menuOpen, menuSection: v.menuSection, newItem: v.newItem, selectedBranch: v.selectedBranch }),
+    () => ({ ...base, projectId: projectKey === WORKTREES ? base.projectId : projectKey || undefined, route: v.route, menuOpen: v.menuOpen, menuSection: v.menuSection, newItems: v.newItems, selectedBranch: v.selectedBranch }),
     [base, projectKey, v],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

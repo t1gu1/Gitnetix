@@ -7158,20 +7158,81 @@ button.app-row:hover > .app-row-chev {
 .modal-foot > .split-btn > .split-main {
   flex: 1 1 auto;
 }
-/* Minimized new agent session (Worktrees.tsx) and new branch (NewItem.tsx): bottom left, clear of the toasts; under any modal. */
+/* Minimized new agent session (Worktrees.tsx) and new branch (NewItem.tsx): bottom left, clear of the toasts; over the page, under any modal.
+   Stacked bottom up: the last one minimized lands on top. */
 .start-chips {
   position: fixed;
   left: 16px;
   bottom: calc(16px + env(safe-area-inset-bottom));
   z-index: 45;
   display: flex;
-  flex-direction: column;
+  flex-direction: column-reverse;
   align-items: flex-start;
   gap: 8px;
 }
+/* Solid: the page under it (the branch map's legend) doesn't show through. */
 .start-chip {
   height: 40px;
+  max-width: min(340px, calc(100vw - 32px));
+  background: var(--panel);
   box-shadow: var(--shadow);
+}
+/* What it is in small, the branch it makes in front. */
+.start-chip-text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+}
+.start-chip-text > small {
+  font-size: 9px;
+  line-height: 11px;
+  color: var(--muted);
+}
+.start-chip-text > .mono {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 16px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+/* A dialog closing into its chip, which then slides to the corner (flyIntoChip in motion.ts). */
+.fly-ghost {
+  position: fixed;
+  z-index: 55;
+  overflow: hidden;
+  pointer-events: none;
+  background: var(--panel);
+  border: 1px solid var(--line2);
+  border-radius: var(--r);
+  box-shadow: var(--shadow);
+}
+.fly-ghost > .fly-dialog {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  max-width: none;
+  max-height: none;
+  transform: translate(-50%, -50%);
+  animation: none;
+}
+.fly-ghost > .fly-face {
+  position: absolute;
+  inset: -1px;
+  width: auto;
+  height: auto;
+  max-width: none;
+  border-color: transparent;
+  background: none;
+  box-shadow: none;
+  visibility: visible;
+}
+.fly-scrim {
+  pointer-events: none;
+  animation: none;
 }
 /* A rebase AI carries through (RebaseRun.tsx), minimized: how far it is, in the same corner. */
 .run-chip > .spinner {

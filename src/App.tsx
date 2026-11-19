@@ -108,9 +108,10 @@ function Shell({ onUnpair }: { onUnpair: () => void }) {
           {!setup && nav.projectId && <MobileTabs />}
           {/* Minimized dialogs' chips stack in one corner instead of covering each other. */}
           <div className="start-chips">
-            {each(() => <NewItemDialog />, nav.projectId ?? "")}
+            {/* Bottom up, so a new branch dialog minimized last lands on top without moving the chips already there. */}
             <StartSession />
             <RebaseRuns />
+            {each(() => <NewItemDialogs />, nav.projectId ?? "")}
           </div>
           <UpdatePrompt />
           <GitLogin />
@@ -191,9 +192,11 @@ function MobileTabs() {
   );
 }
 
-function NewItemDialog() {
+function NewItemDialogs() {
   const nav = useNav();
-  return nav.newItem && <NewItem draft={nav.newItem} onClose={nav.closeNewItem} />;
+  return nav.newItems.map((e) => (
+    <NewItem key={e.id} draft={e.draft} min={e.min} onMinimize={(min) => nav.minimizeNewItem(e.id, min)} onClose={() => nav.closeNewItem(e.id)} />
+  ));
 }
 
 /** The page of the project this sits under, with its menu when open. */

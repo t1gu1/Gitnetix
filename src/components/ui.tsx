@@ -1,4 +1,4 @@
-import { createElement, type CSSProperties, Fragment, memo, type ReactNode, type RefObject, type TouchEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createElement, type CSSProperties, Fragment, memo, type ReactNode, type Ref, type RefObject, type TouchEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { link } from "./Adf";
@@ -189,17 +189,18 @@ export function useCoverScrollbars(own?: RefObject<HTMLElement | null>) {
 /** Without `onClose` it stays up (no close button): while what it started is still running. */
 /** `actions` stand in the head, before the close button. */
 /** `minimize`: closing (Escape, a click outside, its button) only tucks it away, the work it shows going on. */
-export function Modal({ title, sub, onClose, children, footer, width, actions, minimize }: { title: ReactNode; sub?: ReactNode; onClose?: () => void; children: ReactNode; footer?: ReactNode; width?: number; actions?: ReactNode; minimize?: boolean }) {
+/** `onDismiss`: what Escape and a click outside do instead of `onClose`. `ref`: the dialog's box. */
+export function Modal({ title, sub, onClose, onDismiss, children, footer, width, actions, minimize, ref }: { title: ReactNode; sub?: ReactNode; onClose?: () => void; onDismiss?: () => void; children: ReactNode; footer?: ReactNode; width?: number; actions?: ReactNode; minimize?: boolean; ref?: Ref<HTMLDivElement> }) {
   useEffect(() => {
-    const k = (e: KeyboardEvent) => e.key === "Escape" && onClose?.();
+    const k = (e: KeyboardEvent) => e.key === "Escape" && (onDismiss ?? onClose)?.();
     window.addEventListener("keydown", k);
     return () => window.removeEventListener("keydown", k);
-  }, [onClose]);
+  }, [onClose, onDismiss]);
   useCoverScrollbars();
   // Portaled out of #root so hiding the scrollbars behind the modal skips the modal's own.
   return createPortal(
-    <div className="modal-scrim" onMouseDown={(e) => e.target === e.currentTarget && onClose?.()}>
-      <div className="modal" role="dialog" aria-modal="true" style={width ? { width } : undefined}>
+    <div className="modal-scrim" onMouseDown={(e) => e.target === e.currentTarget && (onDismiss ?? onClose)?.()}>
+      <div ref={ref} className="modal" role="dialog" aria-modal="true" style={width ? { width } : undefined}>
         <div className="modal-head">
           <div className="col" style={{ gap: 3 }}>
             <h1>{title}</h1>

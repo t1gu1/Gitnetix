@@ -17,6 +17,7 @@ export const ANIMATIONS: { id: string; label: string; hint: string }[] = [
   { id: "pages", label: "Page fade", hint: "Pages fading up into place when opened" },
   { id: "lists", label: "List entrances", hint: "Files, commits and agent replies fading in as they appear, chart bars growing" },
   { id: "dialogs", label: "Dialog pop", hint: "Dialogs, context menus and notifications popping in" },
+  { id: "minimize", label: "Minimize to the corner", hint: "A minimized new branch dialog closing into its chip, which then slides to the bottom left corner" },
   { id: "panes", label: "Panel slide", hint: "On mobile, a branch's Timeline and Code panels sliding in when switching between them" },
   { id: "seg", label: "Tab highlight slide", hint: "The highlight, the page underline and the mobile tab bubble sliding from the previous tab to the newly selected one" },
   { id: "tooltips", label: "Tooltip fade", hint: "Tooltips fading in" },
@@ -28,6 +29,52 @@ export const ANIMATIONS: { id: string; label: string; hint: string }[] = [
 export function animates(id: string) {
   if (matchMedia("(prefers-reduced-motion: reduce)").matches) return false;
   return !(document.documentElement.dataset.animOff ?? "").split(" ").includes(id);
+}
+
+/** A dialog as it stood just before it closed: where, and a copy of its box. */
+export interface DialogShot {
+  rect: DOMRect;
+  copy: HTMLElement;
+}
+
+/** The dialog `shot` closing into `chip`, which it was minimized to: it shrinks to the chip's size where it stood, then the chip slides to its place
+ *  in the corner. The chip stays hidden until it lands. Call it once the chip is laid out, before paint (a layout effect). */
+export function flyIntoChip(shot: DialogShot, chip: HTMLElement) {
+  if (!animates("minimize")) return;
+  const { rect: from, copy } = shot;
+  const to = chip.getBoundingClientRect();
+  // The chip first shows on the dialog's middle.
+  const mid = { left: from.left + (from.width - to.width) / 2, top: from.top + (from.height - to.height) / 2, width: to.width, height: to.height };
+  const at = (r: { left: number; top: number; width: number; height: number }) => ({ left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
+  const ease = getComputedStyle(document.documentElement).getPropertyValue("--ease").trim() || "ease-out";
+  const scrim = document.createElement("div");
+  scrim.className = "modal-scrim fly-scrim";
+  const ghost = document.createElement("div");
+  ghost.className = "fly-ghost";
+  copy.classList.add("fly-dialog");
+  Object.assign(copy.style, { width: `${from.width}px`, height: `${from.height}px` });
+  const face = chip.cloneNode(true) as HTMLElement;
+  face.classList.add("fly-face");
+  ghost.append(copy, face);
+  for (const el of [scrim, ghost]) {
+    el.inert = true;
+    el.setAttribute("aria-hidden", "true");
+  }
+  document.body.append(scrim, ghost);
+  chip.style.visibility = "hidden";
+  const shrink = 180;
+  const slide = 300;
+  scrim.animate([{ opacity: 1 }, { opacity: 0 }], { duration: shrink, easing: ease, fill: "forwards" });
+  copy.animate([{ opacity: 1, transform: "translate(-50%, -50%)" }, { opacity: 0, transform: "translate(-50%, -50%) scale(0.92)" }], { duration: shrink, easing: ease, fill: "forwards" });
+  face.animate([{ opacity: 0 }, { opacity: 0, offset: 0.4 }, { opacity: 1 }], { duration: shrink, fill: "backwards" });
+  ghost
+    .animate([{ ...at(from), easing: ease }, { ...at(mid), offset: shrink / (shrink + slide), easing: ease }, at(to)], { duration: shrink + slide, fill: "both" })
+    .finished.catch(() => undefined)
+    .then(() => {
+      scrim.remove();
+      ghost.remove();
+      chip.style.visibility = "";
+    });
 }
 
 /** Puts the turned-off animations on the root element, where the stylesheet looks for them. */

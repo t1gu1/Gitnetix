@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { useAction, useAiOn, useOverview, useProjectPrefs, useSuggestedVersion, useTagV } from "../api/hooks";
 import { rpc } from "../api/transport";
@@ -8,10 +8,13 @@ import { BranchTypesEditor, firstType, TypePicker, typeOfName, withType } from "
 import { Icon } from "../components/Icon";
 import { Modal, releaseTagLabel, Seg } from "../components/ui";
 import { kindNoun, withPrefix, withTicket } from "../lib/kinds";
+import { flyIntoChip, type DialogShot } from "../lib/motion";
 import { useNav, type NewItemDraft } from "../lib/nav";
 import { revealBranch } from "./BranchMap";
 
-export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () => void }) {
+/** `min`: minimized to its chip in the corner, the form kept as it was; the chip brings it back. Escape or a click outside minimizes it once
+ *  something is typed, and closes it while nothing is. */
+export function NewItem({ draft, min, onMinimize, onClose }: { draft: NewItemDraft; min: boolean; onMinimize: (min: boolean) => void; onClose: () => void }) {
   const nav = useNav();
   const pid = nav.projectId!;
   const ov = useOverview(pid);
@@ -45,9 +48,22 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
   const kind = picked === "release" ? "release" : typeOfName(branchTypes.list, name, picked);
   // The branch types editor, in place of the form until Done.
   const [editing, setEditing] = useState(false);
-  // Minimized to a chip, the form stays as it was; opening a new branch again brings it back.
-  const [min, setMin] = useState(false);
-  useEffect(() => setMin(false), [draft]);
+  // Minimizing closes the dialog into its chip, which then slides to the corner.
+  const box = useRef<HTMLDivElement>(null);
+  const chip = useRef<HTMLButtonElement>(null);
+  const shot = useRef<DialogShot | null>(null);
+  const minimize = () => {
+    if (box.current) shot.current = { rect: box.current.getBoundingClientRect(), copy: box.current.cloneNode(true) as HTMLElement };
+    onMinimize(true);
+  };
+  // Filled: a field differs from what the dialog opened with (a ticket's key and title, say), or files are attached.
+  const filled =
+    !!name.trim() || ticket.trim() !== (draft.ticket ?? "").trim() || desc.trim() !== (draft.description ?? "").trim() || !!typedVersion?.trim() || files.length > 0;
+  const dismiss = () => (filled ? minimize() : onClose());
+  useLayoutEffect(() => {
+    if (min && shot.current && chip.current) flyIntoChip(shot.current, chip.current);
+    shot.current = null;
+  }, [min]);
 
   useEffect(() => {
     if (!from && ov.data) setFrom(firstBase());
@@ -101,19 +117,32 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
     if (k !== "release") setName(withType(name, k));
   };
 
-  if (min)
+  const label = kindNoun(kind);
+  const branch = withTicket(withPrefix(name, kind), ticket);
+  if (min) {
+    const what = kind === "release" ? "New release" : "New branch";
+    // The name it will create, once there is one: what tells the chips apart.
+    const named = kind === "release" ? v && `release/${v}` : branch;
     return (
-      <button className="btn start-chip" onClick={() => setMin(false)}>
+      <button ref={chip} className="btn start-chip" data-tip={named ? `${what} ${named}` : undefined} onClick={() => onMinimize(false)}>
         <Icon name="branch" size={13} />
-        {kind === "release" ? "New release" : "New branch"}
+        {named ? (
+          <span className="start-chip-text">
+            <small>{what}</small>
+            <span className="mono">{named}</span>
+          </span>
+        ) : (
+          what
+        )}
       </button>
     );
+  }
   const headerActions = (
     <>
       <button className="btn btn-ghost btn-icon" aria-label="Edit branch types" data-tip="Edit branch types: order, pin, add" onClick={() => setEditing(true)}>
         <Icon name="edit" />
       </button>
-      <button className="btn btn-ghost btn-icon" aria-label="Minimize" data-tip="Minimize · comes back from the chip in the corner" onClick={() => setMin(true)}>
+      <button className="btn btn-ghost btn-icon" aria-label="Minimize" data-tip="Minimize · comes back from the chip in the corner" onClick={minimize}>
         <Icon name="minus" />
       </button>
     </>
@@ -138,10 +167,12 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
   if (kind === "release") {
     return (
       <Modal
+        ref={box}
         title="New release"
         sub={relKind === "next" ? "Branches off your default branch" : "Branches off the latest tag"}
         actions={headerActions}
         onClose={onClose}
+        onDismiss={dismiss}
         footer={
           <>
             <button
@@ -177,8 +208,6 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
     );
   }
 
-  const label = kindNoun(kind);
-  const branch = withTicket(withPrefix(name, kind), ticket);
   // Switching brings the uncommitted changes along: with no name, AI names the branch after them.
   const wip = ov.data?.branches.find((b) => b.name === ov.data?.currentBranch)?.wip ?? 0;
   const nameFromWip = aiOn && !agent && where === "switch" && wip > 0;
@@ -208,8 +237,10 @@ export function NewItem({ draft, onClose }: { draft: NewItemDraft; onClose: () =
         : fromTag ? <>Branches off tag <span className="mono">{draft.tag}</span> and merges into <span className="mono">{ov.data?.defaultBranch}</span></>
         : "Pick where it starts"
       }
+      ref={box}
       actions={headerActions}
       onClose={onClose}
+      onDismiss={dismiss}
       footer={
         <>
           <button className="btn btn-primary btn-md" disabled={!ready} onClick={submit}>
