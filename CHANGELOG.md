@@ -14,6 +14,15 @@ the in-app update prompt.
 
 ## [Unreleased]
 
+### Changed (App)
+- The app icon follows the Black & White theme: a white faceted G on a slate tile, on the desktop, on a phone's home screen and in the Android and iOS builds.
+
+### Changed (Website)
+- The website takes the app's new look: Black & White by default, Inter and Antonio type, hairline boxes and square corners. The other 37 themes still repaint it.
+- The playable demo draws with the app's own styles and its new branch map: shipped releases as stations on the trunk, two-row branch boxes, commits under each branch, and behind counts on the lines.
+- "Git without the subway map" is now "Branch first. Commits second.", with a map of open branches and the latest commits under each one.
+- The favicon, the social card and the phone screenshot follow the new look.
+
 ## [0.26.0] - 2026-11-19
 
 ### Changed (App)

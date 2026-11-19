@@ -5,7 +5,7 @@ import type { Ai, Agents } from './agents';
 
 /**
  * The demo's copies of src/components/ui.tsx, Avatar.tsx, ProfileAvatar in Profiles.tsx, ContextMenu.tsx and MenuChoice in AgentPicker.tsx:
- * the app's own pull in its server API. Same markup and class names, so site.css can keep copying app.css.
+ * the app's own pull in its server API. Same markup and class names, so the app's own rules (demo.css) draw them.
  */
 
 /** What every demo page can reach: the toast, the other pages, the workspace's branches and the agents. */
@@ -110,11 +110,15 @@ export function FixedWidth({ children }: { children: ReactNode }) {
 export function useThumb(ref: RefObject<HTMLElement | null>, index: number, count: number, sel = ':scope > button') {
   const [thumb, setThumb] = useState<{ width: number; height: number; transform: string }>();
   useLayoutEffect(() => {
-    const btns = ref.current!.querySelectorAll<HTMLElement>(sel);
+    const el = ref.current!;
+    const btns = el.querySelectorAll<HTMLElement>(sel);
     // Hidden (no box): no highlight, so it appears in place rather than sliding in when shown.
+    // Fractional, against `el`'s padding box: offset* round to whole px, which at page zoom spilled it past the next option's divider.
     const place = () => {
-      const b = btns[index];
-      setThumb(b?.offsetWidth ? { width: b.offsetWidth, height: b.offsetHeight, transform: `translate(${b.offsetLeft}px, ${b.offsetTop}px)` } : undefined);
+      const r = btns[index]?.offsetWidth ? btns[index].getBoundingClientRect() : undefined;
+      const o = el.getBoundingClientRect();
+      const cs = getComputedStyle(el);
+      setThumb(r ? { width: r.width, height: r.height, transform: `translate(${r.left - o.left - parseFloat(cs.borderLeftWidth) + el.scrollLeft}px, ${r.top - o.top - parseFloat(cs.borderTopWidth) + el.scrollTop}px)` } : undefined);
     };
     place();
     const ro = new ResizeObserver(place);
@@ -129,10 +133,12 @@ export function Seg<T extends string>({ label, value, options, onChange, grid, c
   const ref = useRef<HTMLDivElement>(null);
   const thumb = useThumb(ref, options.findIndex(([v]) => v === value), options.length);
   return (
-    <div ref={ref} role="group" aria-label={label} className={`hd-seg${grid ? ' grid' : ''}`} style={grid && cols ? { gridAutoFlow: 'row', gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` } : undefined}>
+    <div ref={ref} role="group" aria-label={label} className={`seg${grid ? ' grid' : ''}`} style={grid && cols ? { gridAutoFlow: 'row', gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` } : undefined}>
       {thumb && <span className="seg-thumb" style={thumb} aria-hidden="true" />}
-      {options.map(([v, l]) => (
-        <button key={v} type="button" aria-pressed={v === value} onClick={() => onChange(v)}>{grid ? l : <FixedWidth>{l}</FixedWidth>}</button>
+      {options.map(([v, l], i) => (
+        <button key={v} type="button" aria-pressed={v === value} onClick={() => onChange(v)} data-top={grid && cols && i >= cols ? '' : undefined} data-row-start={grid && cols && i % cols === 0 ? '' : undefined}>
+          {grid ? l : <FixedWidth>{l}</FixedWidth>}
+        </button>
       ))}
     </div>
   );

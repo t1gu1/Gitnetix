@@ -4,7 +4,7 @@ import type { LogLine } from '../../../../src/api/types';
 // The app's own reading of an agent's log: chat blocks, and the options it waits on you to pick.
 import { blocks, questions, type Question } from '../../../../src/lib/agentLog';
 import type { File } from '../HeroDemo';
-import { Avatar, Choice, Markdown, Modal, Seg, useDemo } from './ui';
+import { Avatar, Choice, Markdown, Menu, Modal, Seg, useDemo, useMenu, type MenuItem } from './ui';
 
 /**
  * Scripted agent sessions, one per worktree, shared by the workspace's agent pane and the Worktrees & agents page.
@@ -279,21 +279,60 @@ function AgentMark({ provider }: { provider: string }) {
   );
 }
 
-/** Provider, model and effort, like AgentPicker in src/components/AgentPicker.tsx; `field` is the modal's form-field look. */
+/**
+ * Provider, model and effort, like AgentPicker in src/components/AgentPicker.tsx: under the prompt, its compact chip (the
+ * model and its effort) opening one menu for all three; `field`, the modal's form fields.
+ */
 export function AgentPicker({ value, onChange, field }: { value: Ai; onChange: (a: Ai) => void; field?: boolean }) {
+  const m = useMenu();
   const p = PROVIDERS.find((x) => x.id === value.provider) ?? PROVIDERS[0];
   const set = (patch: Partial<Ai>) => onChange({ ...value, ...patch });
-  const cls = field ? 'select menu-select' : 'picker-act';
+  if (field)
+    return (
+      <div className="row" style={{ gap: 6, margin: 0 }}>
+        <Choice className="select menu-select" label="Agent provider" value={p.id} options={PROVIDERS.map((x) => ({ value: x.id, label: x.name }))} onChange={(v) => set({ provider: v, model: v === 'claude' ? 'claude-opus-5-5' : '', effort: '' })} />
+        {p.models ? (
+          <Choice className="select menu-select" label="Agent model" value={value.model} options={[{ value: '', label: 'Default model' }, ...p.models.map(([v, l]) => ({ value: v, label: l }))]} onChange={(v) => set({ model: v })} />
+        ) : (
+          <input aria-label="Agent model" className="input mono" style={{ width: 120 }} placeholder="model id" value={value.model} onChange={(e) => set({ model: e.target.value })} />
+        )}
+        {p.effort && <Choice className="select menu-select" label="Agent effort" value={value.effort} options={[{ value: '', label: 'Default effort' }, ...EFFORTS.map((x) => ({ value: x, label: x }))]} onChange={(v) => set({ effort: v })} />}
+      </div>
+    );
+  const model = p.models?.find(([v]) => v === value.model)?.[1] ?? value.model;
+  const level = EFFORTS.indexOf(value.effort) + 1;
+  const summary = [p.name, model, value.effort && `${value.effort} effort`].filter(Boolean).join(' · ');
+  const one = (id: string, label: string, on: boolean, run: () => void): MenuItem => ({ id, label, icon: null, hint: on && <Icon name="check" size={13} />, keep: true, run });
   return (
-    <div className={field ? 'row' : 'picker-acts'} style={field ? { gap: 6, margin: 0 } : undefined}>
-      <Choice className={field ? cls : `${cls} hd-opt`} label="Agent provider" value={p.id} options={PROVIDERS.map((x) => ({ value: x.id, label: x.name }))} onChange={(v) => set({ provider: v, model: v === 'claude' ? 'claude-opus-5-5' : '', effort: '' })} />
-      {p.models ? (
-        <Choice className={cls} label="Agent model" value={value.model} options={[{ value: '', label: 'Default model' }, ...p.models.map(([v, l]) => ({ value: v, label: l }))]} onChange={(v) => set({ model: v })} />
-      ) : (
-        <input aria-label="Agent model" className={field ? 'input mono' : 'picker-act mono'} style={{ width: 120 }} placeholder="model id" value={value.model} onChange={(e) => set({ model: e.target.value })} />
+    <>
+      <button type="button" className="picker-act agent-chip" aria-haspopup="menu" aria-expanded={!!m.at} aria-label={`Agent settings: ${summary}`} title={summary} onClick={(e) => m.toggle(e, true)}>
+        <Icon name="sparkle" size={13} className="c-acc" />
+        <span className="agent-name">
+          <span className="ellipsis">{model || p.name}</span>
+        </span>
+        {level > 0 && (
+          <span className="effort-bars" aria-hidden="true">
+            {EFFORTS.map((x, i) => <i key={x} className={i < level ? 'on' : undefined} style={{ height: `${(i + 1) * 20}%` }} />)}
+          </span>
+        )}
+        <Icon name="chevronDown" size={10} />
+      </button>
+      {m.at && (
+        <Menu
+          {...m.at}
+          up
+          alignRight
+          label="Agent settings"
+          onClose={m.close}
+          items={[
+            { heading: 'Agent' },
+            ...PROVIDERS.map((x) => one(`p:${x.id}`, x.name, x.id === p.id, () => set({ provider: x.id, model: x.id === 'claude' ? 'claude-opus-5-5' : '', effort: '' }))),
+            ...(p.models ? ['sep' as const, { heading: 'Model' }, ...p.models.map(([v, l]) => one(`m:${v}`, l, v === value.model, () => set({ model: v })))] : []),
+            ...(p.effort ? ['sep' as const, { heading: 'Effort' }, ...EFFORTS.map((x) => one(`e:${x}`, x, x === value.effort, () => set({ effort: x })))] : []),
+          ]}
+        />
       )}
-      {p.effort && <Choice className={cls} label="Agent effort" value={value.effort} options={[{ value: '', label: 'Default effort' }, ...EFFORTS.map((x) => ({ value: x, label: x }))]} onChange={(v) => set({ effort: v })} />}
-    </div>
+    </>
   );
 }
 
@@ -444,10 +483,22 @@ export function AgentLog({ s, empty, picks, onPicks, actions, error }: { s?: { k
 }
 
 /** The prompt box: picked options ride above it and go first in the message; `onStop` swaps Send for Stop while the agent works. */
+/** The prompt box, like AgentInput in src/components/AgentLog.tsx: the text on top, then the model and the action. Enter sends, Shift+Enter breaks the line. */
 export function AgentInput({ id, value, onChange, picks, onPicks, onSend, onStop, placeholder, disabled, picker }: { id: string; value: string; onChange: (v: string) => void; picks: Pick[]; onPicks: (c: Pick[]) => void; onSend: (text: string) => void; onStop?: () => void; placeholder: string; disabled?: boolean; picker?: ReactNode }) {
   const ready = !disabled && !onStop && (!!value.trim() || picks.length > 0);
+  const send = () => {
+    if (!ready) return;
+    onSend([picks.map(pickText).join('\n'), value.trim()].filter(Boolean).join('\n\n'));
+    onPicks([]);
+  };
   return (
-    <>
+    <form
+      className="term-input"
+      onSubmit={(e) => {
+        e.preventDefault();
+        send();
+      }}
+    >
       {picks.length > 0 && (
         <div className="ag-attach">
           {picks.map((p) => (
@@ -461,30 +512,38 @@ export function AgentInput({ id, value, onChange, picks, onPicks, onSend, onStop
           ))}
         </div>
       )}
-      <form
-        className="term-input"
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (!ready) return;
-          onSend([picks.map(pickText).join('\n'), value.trim()].filter(Boolean).join('\n\n'));
-          onPicks([]);
-        }}
-      >
-        <span className="mono c-acc" aria-hidden="true">›</span>
+      <div className="term-input-row">
         <label htmlFor={id} className="sr-only">Ask the agent</label>
-        <input id={id} value={value} disabled={disabled} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} />
-        {picker}
-        {onStop ? (
-          <button type="button" className="btn btn-sm btn-danger btn-icon" aria-label="Stop the agent" title="Stop" onClick={onStop}>
-            <Icon name="stop" size={16} />
-          </button>
-        ) : (
-          <button type="submit" className="btn btn-sm btn-primary btn-icon" aria-label="Send" title="Send" disabled={!ready}>
-            <Icon name="send" size={20} />
-          </button>
-        )}
-      </form>
-    </>
+        <textarea
+          id={id}
+          rows={1}
+          value={value}
+          disabled={disabled}
+          onChange={(e) => onChange(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key !== 'Enter' || e.shiftKey) return;
+            e.preventDefault();
+            send();
+          }}
+          placeholder={placeholder}
+        />
+        <div className="term-tools">
+          {picker}
+          <span className="grow" />
+          {onStop ? (
+            <button type="button" className="btn btn-danger term-send" aria-label="Stop the agent" title="Stop" onClick={onStop}>
+              <Icon name="stop" size={14} />
+              Stop
+            </button>
+          ) : (
+            <button type="submit" className="btn btn-primary term-send" aria-label="Send" title="Send · Shift+Enter for a new line" disabled={!ready}>
+              <Icon name="send" size={14} />
+              Send
+            </button>
+          )}
+        </div>
+      </div>
+    </form>
   );
 }
 

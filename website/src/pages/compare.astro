@@ -8,15 +8,14 @@ import Base from '../layouts/Base.astro';
 
 <style is:global>
 /* Wide table: scrolls sideways on phones with the feature column pinned. */
-.cmp-scroll{overflow-x:auto;background:var(--panel);border:1px solid var(--line);border-radius:16px}
+.cmp-scroll{overflow-x:auto;background:var(--panel);border:1px solid var(--line);border-radius:3px}
 /* Fixed layout: the four apps get equal columns, sized from the header row. */
 .cmp{width:100%;min-width:900px;table-layout:fixed;border-collapse:collapse;font-size:15px;line-height:1.45}
 .cmp :is(th,td){padding:14px 18px;text-align:left;vertical-align:top;border-top:1px solid var(--line)}
-.cmp thead :is(th,td){border-top:0;padding:21px 18px 19px;vertical-align:middle;font-size:18px;font-weight:600;letter-spacing:-.01em}
+.cmp thead :is(th,td){border-top:0;padding:21px 18px 19px;vertical-align:middle;font:600 22px/1 var(--display);letter-spacing:.02em;text-transform:uppercase}
 .cmp thead td{width:22%}
 .cmp tbody th[scope=row]{font-weight:500}
-.cmp :is(thead th,td):nth-child(2){background:color-mix(in srgb,var(--accent) 6%,transparent)}
-.cmp thead th:nth-child(2){color:var(--accent-fg)}
+.cmp :is(thead th,td):nth-child(2){background:color-mix(in srgb,var(--fg) 4%,transparent)}
 .cmp .grp th{padding:30px 18px 10px;font-size:12px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--faint)}
 .cmp tbody tr:not(.grp){transition:background-color .15s var(--ease)}
 .cmp tbody tr:not(.grp):hover{background:var(--raised)}

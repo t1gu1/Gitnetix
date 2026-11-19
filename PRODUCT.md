@@ -51,7 +51,7 @@ A Git client with no commit graph. It shows work as branches, releases and agent
 
 ## Evidence on Hand
 
-- Marketing screenshots: `website/public/og.png` (desktop branch map) and `website/public/phone.jpg` (mobile layout), both refreshed 2026-11-18.
+- Marketing screenshots: `website/public/og.png` (desktop branch map) and `website/public/phone.jpg` (mobile layout), both refreshed 2026-11-19 in the Black & White look.
 - Product writing: `CHANGELOG.md` (most current), `README.md`, `website_idea/why-gitnetix.md`, `website_idea/design-brief.md`. README and `website_idea/` still describe a branch tree; the map replaced it in 0.23.0, so prefer the CHANGELOG where they disagree.
 - No testimonials, user counts or benchmarks exist; do not invent them.
 

@@ -56,6 +56,11 @@ const jsonLd = [
 <Home version={latest.version}><HeroDemo slot="demo" client:visible /><AgentCards slot="agents" client:visible /><HeroDemo slot="phone" phone client:visible /></Home>
 </Base>
 
+<script is:inline>
+  // The Branch first map (Home.tsx) at the size its frame fits: its layout's width is fixed, the frame's is not.
+  document.querySelectorAll('.map-static').forEach((f) => new ResizeObserver(() => f.style.setProperty('--fit', String(Math.min(1, f.clientWidth / f.dataset.w)))).observe(f));
+</script>
+
 <script is:inline define:vars={{ downloads: latest.downloads, version: latest.version }}>
   // Point the download buttons at the visitor's OS; without JS they open the download page.
   const ua = navigator.userAgent.toLowerCase();

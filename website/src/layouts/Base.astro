@@ -1,10 +1,10 @@
 ---
-import '@fontsource/instrument-sans/400.css';
-import '@fontsource/instrument-sans/500.css';
-import '@fontsource/instrument-sans/600.css';
-import '@fontsource/instrument-sans/700.css';
+// The app's fonts (src/main.tsx): Inter for the text, Antonio for titles, JetBrains Mono for refs and code.
+import '@fontsource-variable/inter/index.css';
+import '@fontsource/antonio/600.css';
 import '@fontsource/jetbrains-mono/400.css';
 import '@fontsource/jetbrains-mono/500.css';
+import '@fontsource/jetbrains-mono/600.css';
 import '../styles/site.css';
 import Header, { type Page } from '../components/Header';
 import Footer from '../components/Footer';
@@ -12,8 +12,9 @@ import { u } from '../lib/changelog';
 import { ogImage } from '../lib/og';
 import { DEFAULT_THEME, resolveTheme, THEMES } from '../../../src/lib/themes';
 import { logoSvg } from '../../../src/lib/logo';
-// The hero headline's weight: preloaded so the largest text paints in its own font, not a fallback.
-import heading from '@fontsource/instrument-sans/files/instrument-sans-latin-700-normal.woff2?url';
+// The titles' face and the text's: preloaded so the largest text paints in its own font, not a fallback.
+import heading from '@fontsource/antonio/files/antonio-latin-600-normal.woff2?url';
+import text from '@fontsource-variable/inter/files/inter-latin-wght-normal.woff2?url';
 
 interface Props {
   title: string;
@@ -25,9 +26,10 @@ interface Props {
 const { title, description, page, type = 'website', jsonLd = [] } = Astro.props;
 const canonical = new URL(Astro.url.pathname, Astro.site).href;
 const og = ogImage(Astro.site);
+// <html> starts in DEFAULT_THEME (dark): the first paint and visitors without JS see it; the script below shows the visitor's pick.
 ---
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark" data-palette={DEFAULT_THEME}>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -37,7 +39,9 @@ const og = ogImage(Astro.site);
 <meta name="application-name" content="Gitnetix">
 <meta name="color-scheme" content="dark light">
 <link rel="preload" href={heading} as="font" type="font/woff2" crossorigin>
+<link rel="preload" href={text} as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href={u('themes.css')}>
+<link rel="stylesheet" href={u('demo.css')}>
 <script is:inline define:vars={{ themes: THEMES.map((t) => ({ id: t.id, light: t.light, own: t.family !== 'Gitnetix', accent: t.accent, panel: t.panel })), def: DEFAULT_THEME, mark: logoSvg('{accent}', '{panel}') }}>
   // The app's resolveTheme + applyTheme, before the first paint: the saved pick, or DEFAULT_THEME in either of the computer's modes.
   // Picks come from ThemePicker.tsx's [data-pick] buttons and HeroDemo's light / dark toggle (a "themechange" event); every picker shows the one in use.

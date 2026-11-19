@@ -1,36 +1,57 @@
-import { useId, type MouseEvent, type ReactNode } from 'react';
+import { Fragment, type MouseEvent, type ReactNode } from 'react';
 import { Icon } from '../../../../src/components/Icon';
 import { plural } from '../../../../src/lib/format';
 import type { Branch, Commit } from '../HeroDemo';
 import { Avatar } from './ui';
 
 /**
- * The demo's copy of src/screens/BranchMap.tsx, drawn from the demo's branches: the same layout, markup and class names,
- * so site.css can keep copying app.css. Simpler where a web page differs: the wheel scrolls the page instead of zooming,
+ * The demo's copy of src/screens/BranchMap.tsx, drawn from the demo's branches: the same layout, markup and class names, so
+ * the app's own rules (demo.css) draw it. Simpler where a web page differs: the wheel scrolls the page instead of zooming,
  * and the map sits at the canvas's top left instead of in the middle of empty room.
  */
 
 /** Branches this many commits behind their base count as falling behind. */
 export const BEHIND_LIMIT = 25;
-/** Commits an unfolded tile lists; the rest are counted, listed once "see all" is open. */
-const COMMITS_SHOWN = 6;
+/** Commits a box lists under it; the rest are counted, listed once "see all" is open. */
+const COMMITS_SHOWN = 4;
 /** Merged branches listed under their base before "+N more". */
 const MERGED_SHOWN = 4;
+/** Shipped releases listed on the trunk before "+N earlier releases". */
+const SHIPPED_SHOWN = 10;
+/** The trunk: a hairline at TRUNK_X, shipped releases on it as stations PITCH apart (oldest on top), then the default branch. */
+const TRUNK_X = 26;
+const PITCH = 36;
 const TOP = 48;
-const GAP = 8;
-const GROUP_GAP = 20;
-const SHIPPED_TOP = 70;
-const SHIPPED_ROW = 14;
+const TRUNK_GAP = 16;
+/** Between boxes of one parent, and between the groups of different parents. */
+const GAP = 28;
+const GROUP_GAP = 40;
+/** A box: a header row and one info row; releases and trunks have a taller header, for their big name. */
+const BOX_H = 60;
+const REL_H = 74;
+/** Floating commits: this far under their box, one row each (and the "see all" row). */
+const FLOAT_TOP = 6;
+const ROW = 22;
+/** Merged branches: small stations under the commits, MERGED_ROW apart; their foot (more, clean up) after them. */
+const MERGED_TOP = 24;
+const MERGED_ROW = 26;
+const FOOT_H = 26;
+/** A shipped release's commits, unfolded under its station: two lines each. */
+const SHIPPED_LIST_TOP = 14;
+const SHIPPED_COMMIT_H = 32;
 /** Room the floating card takes on the right (its width and gap). */
 export const CARD_ROOM = 304;
-/** Column `d` of the map: the trunk, then each level of branches under it. */
-const colX = (d: number) => (d === 0 ? 24 : 300 + (d - 1) * 292);
-const colW = (d: number) => (d === 0 ? 216 : 240);
+/** Column `d` of the map: the default branch's box beside the trunk, then each level of branches under it. */
+const colX = (d: number) => (d === 0 ? TRUNK_X + 20 : 404 + (d - 1) * 392);
+const colW = (d: number) => (d === 0 ? 280 : 320);
+const big = (b: Branch) => b.role !== 'branch';
+/** Where lines meet a box: its header row's middle. */
+const anchorOf = (b: Branch) => (big(b) ? 26 : 19);
 
-export type MapPrefs = { who: 'all' | 'me'; commits: 'hidden' | 'latest' | 'list'; merged: boolean; behind: boolean; shipped: boolean };
-export const PREFS: MapPrefs = { who: 'all', commits: 'hidden', merged: true, behind: true, shipped: true };
-/** A release shipped from the trunk: its tag and the day it shipped. */
-export type Shipped = { tag: string; date: string };
+export type MapPrefs = { who: 'all' | 'me'; merged: boolean; behind: boolean; shipped: boolean };
+export const PREFS: MapPrefs = { who: 'all', merged: true, behind: true, shipped: true };
+/** A release shipped from the trunk: its tag, the day it shipped, and the commits it shipped (newest first). */
+export type Shipped = { tag: string; date: string; commits: Commit[] };
 export type AgentInfo = { label: string; state?: 'working' | 'waiting' | 'done' };
 
 export type Tile = {
@@ -39,25 +60,32 @@ export type Tile = {
   x: number;
   y: number;
   w: number;
+  /** The box's height: its header and info rows. Its commits float under it. */
   h: number;
   /** Where edges meet it, down from its top. */
   a: number;
   /** Kept, faded, only for a shown branch below it. */
   ghost: boolean;
-  /** Its newest commits listed, and the earlier ones too. */
+  /** Its newest commits float under the box, the earlier ones too when `all`. */
   open: boolean;
   all: boolean;
-  /** Merged branches chipped under it, how many more there are, and the ones a clean up may delete. */
+  /** Merged branches hung under it as small stations, how many more there are, and the ones a clean up may delete. */
   merged: Branch[];
   more: number;
   removable: Branch[];
+  /** Its first merged station's middle, and the top of the row under the last one (more, clean up). */
+  mergedY: number;
+  footY: number;
+  foot: boolean;
 };
 export type MapLayout = ReturnType<typeof layoutMap>;
 
 /**
- * Lays the branches out left to right, one column per level, like layoutMap in BranchMap.tsx: each parent sits level with
- * the middle of its children, siblings stack 8px apart and cousins 20px. `toggles`: tiles whose commits were folded or
- * unfolded (by name), listed whole (`all:<name>`), and merged groups shown whole (`merged:<name>`).
+ * Lays the map out like layoutMap in BranchMap.tsx. The trunk is a vertical line: the shipped releases on it as stations,
+ * oldest on top, then the default branch's station, its box beside it. Every other branch is a box in the column of its
+ * level, level with the middle of its children; its newest commits float under it, its merged branches hang under those.
+ * `toggles`: boxes listing all their commits (`all:<name>`), merged groups shown whole (`merged:<name>`), every shipped
+ * release (`shipped:all`), a shipped release's commits unfolded (`rel:<tag>`).
  */
 export function layoutMap(bs: Record<string, Branch>, head: string, prefs: MapPrefs, me: string, toggles: ReadonlyMap<string, boolean>, shipped: Shipped[]) {
   const kids = (n: string) => (bs[n]?.kids ?? []).flatMap((k) => bs[k] ?? []);
@@ -65,7 +93,7 @@ export function layoutMap(bs: Record<string, Branch>, head: string, prefs: MapPr
   const mine = (b: Branch) => b.author === me;
   const stale = (b: Branch) => b.role === 'branch' && !b.merged && b.behind >= BEHIND_LIMIT;
   const passes = (b: Branch) => (prefs.behind || !stale(b)) && (prefs.who === 'all' || mine(b));
-  // A merged branch with nothing live left on it is a chip under its base, not a tile.
+  // A merged branch with nothing live left on it is a station under its base, not a box.
   const chip = (b: Branch) => !!b.merged && kids(b.name).every((k) => k.merged);
   const live = (b: Branch) => kids(b.name).filter((k) => !chip(k));
   const vis = new Set<string>();
@@ -85,53 +113,75 @@ export function layoutMap(bs: Record<string, Branch>, head: string, prefs: MapPr
   const roots = Object.values(bs).filter((b) => !b.base);
   roots.forEach(walk);
 
-  const open = (b: Branch) => b.ahead > 0 && (toggles.get(b.name) ?? (prefs.commits === 'list' || b.name === head));
-  const tileH = (b: Branch) => {
-    const base = b.role === 'trunk' ? 64 : 60;
-    const n = toggles.get(`all:${b.name}`) ? b.ahead : Math.min(b.ahead, COMMITS_SHOWN);
-    if (!n) return base;
-    if (open(b)) return base + 15 + n * 18 + (n - 1) * 2 + (b.ahead > COMMITS_SHOWN ? 18 : 0);
-    // Latest: the newest commit, then the "see all" row when there are others.
-    return prefs.commits === 'latest' ? base + 26 + (b.ahead > 1 ? 23 : 0) : base;
-  };
-  // Edges meet the title row's middle.
-  const anchor = (b: Branch) => (b.role === 'trunk' ? 24 : 20);
+  const boxH = (b: Branch) => (big(b) ? REL_H : BOX_H);
+  const listed = (b: Branch) => (toggles.get(`all:${b.name}`) ? b.ahead : Math.min(b.ahead, COMMITS_SHOWN));
+  // The commits floating under the box: its rows, and "see all" past the newest few.
+  const listH = (b: Branch) => (listed(b) ? FLOAT_TOP + listed(b) * ROW + (b.ahead > COMMITS_SHOWN ? ROW : 0) : 0);
   const mergedOf = (b: Branch) => (prefs.merged ? kids(b.name).filter((k) => chip(k) && (prefs.who === 'all' || mine(k))) : []);
+  // The checked-out branch stays put.
+  const removableOf = (all: Branch[]) => all.filter((c) => c.name !== head);
+  const shownMerged = (b: Branch, all: Branch[]) => (toggles.get(`merged:${b.name}`) ? all.length : Math.min(all.length, MERGED_SHOWN));
+  // The whole block: the box, its commits, its merged stations and their foot.
+  const blockH = (b: Branch) => {
+    const all = mergedOf(b);
+    const shown = shownMerged(b, all);
+    const foot = all.length > shown || removableOf(all).length > 0;
+    const top = boxH(b) + listH(b);
+    return all.length ? top + MERGED_TOP + (shown - 1) * MERGED_ROW + 12 + (foot ? 4 + FOOT_H : 0) : top;
+  };
 
-  // shortcut: lists every shipped release, oldest on top; the app folds all but the latest 10 behind "see all".
-  const rows = prefs.shipped ? [...shipped].reverse() : [];
-  const trunkFloor = rows.length ? SHIPPED_TOP + rows.length * SHIPPED_ROW + 22 : TOP;
+  // Under the "Shipped from" label (and "+N earlier releases"), a station per release; an unfolded one pushes the next down by its list.
+  const earlier = prefs.shipped ? Math.max(0, shipped.length - SHIPPED_SHOWN) : 0;
+  const rows = prefs.shipped ? shipped.slice(0, toggles.get('shipped:all') ? undefined : SHIPPED_SHOWN).reverse() : [];
+  let cy = TOP + 40 + (earlier ? 24 : 0);
+  const shippedAt = rows.map((r) => {
+    const n = toggles.get(`rel:${r.tag}`) ? r.commits.length : 0;
+    const box = n ? n * SHIPPED_COMMIT_H + (n - 1) * 2 : 0;
+    const y = cy;
+    cy += PITCH + (n ? SHIPPED_LIST_TOP + box : 0);
+    return { r, y, list: n ? { box } : undefined };
+  });
+  // The default branch's station: a pitch and a gap after the latest shipped one, its box's header level with it.
+  const trunkY = rows.length ? cy + TRUNK_GAP - 26 : TOP;
 
   const at = new Map<string, Tile>();
   const tiles: Tile[] = [];
   const bottom: number[] = [];
   const last: (string | undefined)[] = [];
   const place = (b: Branch, d: number, floor: number, par: string) => {
-    const h = tileH(b);
-    const a = anchor(b);
+    const h = boxH(b);
+    const a = anchorOf(b);
     const gap = last[d] === undefined ? 0 : last[d] === par ? GAP : GROUP_GAP;
     let pMin = Math.max(floor, (bottom[d] ?? TOP) + gap);
-    if (b.role === 'trunk') pMin = Math.max(pMin, trunkFloor);
+    const isTrunk = b.role === 'trunk';
+    if (isTrunk) pMin = Math.max(pMin, trunkY);
     const ks = live(b).filter((k) => vis.has(k.name));
     let y = pMin;
     if (ks.length) {
-      const span = ks.slice(0, -1).reduce((n, k) => n + tileH(k) + GAP, 0);
-      const kidFloor = Math.max(floor, pMin + a - (anchor(ks[0]) + span + anchor(ks[ks.length - 1])) / 2);
+      const span = ks.slice(0, -1).reduce((n, k) => n + blockH(k) + GAP, 0);
+      const kidFloor = Math.max(TOP, floor, pMin + a - (anchorOf(ks[0]) + span + anchorOf(ks[ks.length - 1])) / 2);
       for (const k of ks) place(k, d + 1, kidFloor, b.name);
-      const f = at.get(ks[0].name)!;
-      const l = at.get(ks[ks.length - 1].name)!;
-      y = Math.max(pMin, Math.round((f.y + f.a + l.y + l.a) / 2 - a));
+      // The default branch stays on its station; any other parent sits level with the middle of its children.
+      if (!isTrunk) {
+        const f = at.get(ks[0].name)!;
+        const l = at.get(ks[ks.length - 1].name)!;
+        y = Math.max(pMin, Math.round((f.y + f.a + l.y + l.a) / 2 - a));
+      }
     }
     last[d] = par;
     const all = mergedOf(b);
-    const shown = toggles.get(`merged:${b.name}`) ? all.length : Math.min(all.length, MERGED_SHOWN);
-    // The checked-out branch stays put.
-    const removable = all.filter((c) => c.name !== head);
-    const foot = all.length > shown || removable.length > 0;
-    const t: Tile = { b, d, x: colX(d), y, w: colW(d), h, a, ghost: ghost.has(b.name), open: open(b), all: !!toggles.get(`all:${b.name}`), merged: all.slice(0, shown), more: all.length - shown, removable };
+    const shown = shownMerged(b, all);
+    const removable = removableOf(all);
+    const list = listH(b);
+    const mergedY = y + h + list + MERGED_TOP;
+    const t: Tile = {
+      b, d, x: colX(d), y, w: colW(d), h, a, ghost: ghost.has(b.name), open: list > 0, all: !!toggles.get(`all:${b.name}`),
+      merged: all.slice(0, shown), more: all.length - shown, removable,
+      mergedY, footY: mergedY + (shown - 1) * MERGED_ROW + 16, foot: all.length > shown || removable.length > 0,
+    };
     at.set(b.name, t);
     tiles.push(t);
-    bottom[d] = y + h + (all.length ? 8 + (shown + (foot ? 1 : 0)) * 30 - 6 : 0);
+    bottom[d] = y + blockH(b);
   };
   for (const r of roots) if (vis.has(r.name)) place(r, 0, TOP, '');
 
@@ -149,14 +199,20 @@ export function layoutMap(bs: Record<string, Branch>, head: string, prefs: MapPr
     work.set(r.b.name, c);
   }
   const liveWork = Object.values(bs).filter((b) => b.role === 'branch' && !b.merged);
+  const lowest = Math.max(TOP, ...bottom.filter((n) => n !== undefined));
+  const trunkAnchor = trunk ? trunk.y + trunk.a : TOP;
   return {
     tiles,
     at,
     W: colX(depth) + colW(depth) + 24,
-    H: Math.max(TOP, ...bottom.filter((n) => n !== undefined)) + 40,
+    H: lowest + 40,
     depth,
-    shipped: trunk ? rows.map((r, i) => ({ r, y: SHIPPED_TOP + i * SHIPPED_ROW })) : [],
+    shipped: trunk ? shippedAt : [],
     shippedAll: shipped,
+    shippedEarlier: earlier,
+    trunkTop: trunk && shippedAt.length ? shippedAt[0].y : trunkAnchor,
+    // The spine runs the map's whole height, past the default branch's own block.
+    trunkEnd: trunk ? Math.max(trunkAnchor + 40, trunk.y + blockH(trunk.b) + 24, lowest) : trunkAnchor,
     parent,
     kids,
     stale,
@@ -172,22 +228,22 @@ export function lineageOf(layout: Pick<MapLayout, 'parent'>, name?: string) {
   return out;
 }
 
-/** Whether the map draws `n`, as a tile or as a merged chip under one. */
+/** Whether the map draws `n`, as a box or as a merged station under one. */
 export const onMap = (layout: MapLayout, n: string) => layout.at.has(n) || layout.tiles.some((t) => t.merged.some((m) => m.name === n));
 
 /** "3 branches", "1 merged branch": plural() would add an "s". */
 export const branches = (n: number, what = 'branch') => `${n} ${what}${n === 1 ? '' : 'es'}`;
 
-/** "2h ago" as a tile lists it: "2h". */
+/** "2h ago" as a box lists it: "2h". */
 const age = (when: string) => when.replace(' ago', '').replace('just now', 'now');
 
 /** What the map's buttons do; the static copy on the home page has none. */
 export type MapHandlers = {
   select: (n: string) => void;
   checkout: (n: string) => void;
-  /** A fold: a tile's commits (its name), all of them (`all:`), or a merged group (`merged:`). */
+  /** A fold: all of a box's commits (`all:`), a merged group (`merged:`), a shipped release's commits (`rel:`), every release (`shipped:all`). */
   toggle: (key: string, on: boolean) => void;
-  /** A commit listed on a tile: look at its code. */
+  /** A commit listed under a box, or shipped with a release (on the trunk): look at its code. */
   look: (n: string, c: Commit) => void;
   menu: (n: string, e: MouseEvent) => void;
   rebase: (n: string, onto: string) => void;
@@ -203,7 +259,8 @@ type LayerProps = {
   head: string;
   /** The branch the map shows selected. */
   shown: string;
-  commits: MapPrefs['commits'];
+  /** Folds as the map shows them: the shipped releases unfolded. */
+  toggles?: ReadonlyMap<string, boolean>;
   /** The search, lowercased, and the branch its arrows are on. */
   q?: string;
   hit?: string;
@@ -220,388 +277,334 @@ function marked(name: string, q: string | undefined, at: boolean): ReactNode {
   return <>{name.slice(0, i)}<mark className={at ? 'map-hit at' : 'map-hit'}>{name.slice(i, i + q.length)}</mark>{name.slice(i + q.length)}</>;
 }
 
-type Flags = { head: boolean; lin: boolean; desc: boolean; stale: boolean };
-/** A tile's state as data attributes, on the tile, its pill and its "+", so all three draw the same border and glow. */
-const tileState = (t: Tile, selected: boolean, current: boolean, f: Flags) => ({
-  'data-sel': selected || undefined,
-  'data-head': current || undefined,
-  'data-lin': (f.lin && !selected) || undefined,
-  'data-desc': f.desc || undefined,
-  'data-ghost': t.ghost || undefined,
-  'data-stale': f.stale || undefined,
-});
+const agentWords = (a: AgentInfo) => (a.state === 'working' ? 'working' : a.state === 'waiting' ? 'waiting for you' : a.state === 'done' ? 'done, ready to review' : 'idle');
 
-/** The map itself, inside `.map-layer`: columns, shipped releases, lines, tiles and what hangs off them. */
-export function MapLayer({ layout, head, shown, commits, q, hit, agentOf, logOf, labelOf, on }: LayerProps) {
+/** The map itself, inside `.map-layer`: columns, the trunk and its stations, lines, boxes and what hangs off them. */
+export function MapLayer({ layout, head, shown, toggles, q, hit, agentOf, logOf, labelOf, on }: LayerProps) {
   const { tiles, at } = layout;
-  // Several maps on the page (hero, phone, the home page's): each needs its own glow filter.
-  const glow = `map-glow${useId().replace(/[^\w-]/g, '')}`;
-  const lin = new Set(lineageOf(layout, shown));
-  const headLine = new Set(lineageOf(layout, head));
-  const desc = new Set<string>();
-  if (layout.parent(shown)) {
-    const down = (n: string) => layout.kids(n).forEach((k) => (desc.add(k.name), down(k.name)));
-    down(shown);
-  }
-  const flagsOf = (t: Tile): Flags => ({ head: headLine.has(t.b.name), lin: lin.has(t.b.name), desc: desc.has(t.b.name), stale: layout.stale(t.b) });
-
-  // Edges run from a parent's right side to its child's left, in the colour of the line they are on.
-  const edges: { d: string; cls: string; delay: number; box: [number, number, number, number] }[] = [];
-  const behindTags: { x: number; y: number; b: Branch; onto: string }[] = [];
+  // The route: the checked-out branch's line, from the trunk's station to it.
+  const route = new Set(lineageOf(layout, head));
+  const trunk = tiles.find((t) => t.b.role === 'trunk');
+  // Edges run from a parent's right side to its child's left: hairlines, the route's a little heavier. Behind its parent, a branch's line carries a chip.
+  const edges: { d: string; cls: string }[] = [];
+  const chips: { x: number; y: number; b: Branch; onto: string; cls: string }[] = [];
   for (const t of tiles) {
     const pn = layout.parent(t.b.name);
     const p = pn ? at.get(pn) : undefined;
     if (!p || !pn) continue;
     const [x1, y1, x2, y2] = [p.x + p.w, p.y + p.a, t.x, t.y + t.a];
     const dx = (x2 - x1) / 2;
-    const n = t.b.name;
-    const cls = headLine.has(n) ? 'head' : lin.has(n) ? 'lin' : desc.has(n) ? 'desc' : layout.stale(t.b) ? 'stale' : t.ghost ? 'far' : '';
-    edges.push({ d: `M${x1} ${y1}C${x1 + dx} ${y1} ${x2 - dx} ${y2} ${x2} ${y2}`, cls, delay: lineageOf(layout, n).length - 2, box: [x1, Math.min(y1, y2), x2, Math.max(y1, y2)] });
-    if (t.b.behind > 0) behindTags.push({ x: Math.round((x1 + x2) / 2), y: Math.round((y1 + y2) / 2), b: t.b, onto: pn });
+    const cls = route.has(t.b.name) ? 'head' : layout.stale(t.b) ? 'stale' : t.ghost ? 'far' : '';
+    edges.push({ d: `M${x1} ${y1}C${x1 + dx} ${y1} ${x2 - dx} ${y2} ${x2} ${y2}`, cls });
+    if (t.b.behind > 0 && !t.b.merged) chips.push({ x: Math.round((x1 + x2) / 2), y: Math.round((y1 + y2) / 2), b: t.b, onto: pn, cls });
   }
-  // The pulse's layer spans only the checked-out branch's line.
-  const headEdges = edges.filter((e) => e.cls === 'head');
-  const pb = headEdges.length ? [Math.min(...headEdges.map((e) => e.box[0])) - 4, Math.min(...headEdges.map((e) => e.box[1])) - 4, Math.max(...headEdges.map((e) => e.box[2])) + 4, Math.max(...headEdges.map((e) => e.box[3])) + 4] : null;
-  const trunk = tiles.find((t) => t.b.role === 'trunk');
   const cols = Array.from({ length: layout.depth + 1 }, (_, d) => (d === 0 ? 'Trunk' : d === 1 ? `Releases & straight to ${trunk?.b.name ?? 'main'}` : d === 2 ? 'Branches' : 'Stacked'));
   const tip = layout.shippedAll[0]?.tag;
+  const releases = tiles.filter((x) => x.b.role === 'release').length;
 
   return (
     <>
       {cols.map((c, d) => (
-        <span key={d} className="map-col" style={{ left: colX(d) }}>{c}</span>
+        <span key={d} className="map-col" style={{ left: d === 0 ? TRUNK_X - 6 : colX(d) }}>{c}</span>
       ))}
+
+      <svg className="map-edges" width={layout.W} height={layout.H} aria-hidden="true">
+        {/* The trunk: one hairline down through the shipped releases, the default branch and its merged branches, ending on a tick. */}
+        {trunk && <path className="map-trunk-line" d={`M${TRUNK_X} ${layout.trunkTop}V${layout.trunkEnd}`} />}
+        {trunk && <path className="map-trunk-line" d={`M${TRUNK_X - 10} ${layout.trunkEnd - 10}l20 20`} />}
+        {/* The route starts at the default branch's station: across to its box. */}
+        {trunk && <path d={`M${TRUNK_X} ${trunk.y + trunk.a}H${trunk.x}`} data-line="head" />}
+        {edges.map((e, i) => <path key={i} d={e.d} data-line={e.cls || undefined} />)}
+        {/* A box's merged branches hang on a hairline dropping from its station; the default branch's sit on the trunk. */}
+        {tiles.map((t) => t.merged.length > 0 && t.b.role !== 'trunk' && <path key={`m${t.b.name}`} d={`M${t.x} ${t.y + t.a}V${t.mergedY + (t.merged.length - 1) * MERGED_ROW}`} />)}
+      </svg>
 
       {trunk && layout.shipped.length > 0 && (
         <>
-          <svg className="map-history" width={60} height={trunk.y} aria-hidden="true">
-            <path d={`M40 ${SHIPPED_TOP}V${trunk.y}`} />
-            {layout.shipped.map(({ y }, i) => (
-              <circle key={i} cx={40} cy={y} r={i === layout.shipped.length - 1 ? 4 : 3} data-new={i === layout.shipped.length - 1 || undefined} />
-            ))}
-          </svg>
-          <span className="map-history-head" style={{ top: 40 }}>
-            Shipped from {trunk.b.name}
-            <span>{layout.shippedAll.length}</span>
-          </span>
-          {layout.shipped.map(({ r, y }, i) => (
-            <button key={r.tag} className="map-ship" style={{ top: y - 7 }} data-new={i === layout.shipped.length - 1 || undefined} title={`Tagged ${r.tag} on ${trunk.b.name}. Double-click to check it out.`} onDoubleClick={() => on?.tag(r.tag)}>
-              <span className="mono">{marked(r.tag, q, false)}</span>
-              <span className="faint">{r.date}</span>
+          <span className="map-history-head" style={{ left: TRUNK_X - 6, top: TOP - 6 }}>Shipped from {trunk.b.name} · {layout.shippedAll.length}</span>
+          {layout.shippedEarlier > 0 && (
+            <button className="map-more" style={{ left: TRUNK_X - 10, top: TOP + 22 }} aria-expanded={!!toggles?.get('shipped:all')} onClick={() => on?.toggle('shipped:all', !toggles?.get('shipped:all'))}>
+              {toggles?.get('shipped:all') ? 'Show the latest' : `+${plural(layout.shippedEarlier, 'earlier release')}`}
             </button>
-          ))}
+          )}
+          {layout.shipped.map(({ r, y, list }, i) => {
+            const latest = i === layout.shipped.length - 1;
+            const words = `the ${plural(r.commits.length, 'commit')} ${r.tag} shipped`;
+            return (
+              <Fragment key={r.tag}>
+                <span className="map-stn" data-lit={latest || undefined} style={{ left: TRUNK_X, top: y }} />
+                <div className="map-ship-row" style={{ left: TRUNK_X + 14, top: y - 12 }}>
+                  <button className="map-ship" data-new={latest || undefined} title={`Tagged ${r.tag} on ${trunk.b.name}. Double-click to check it out.`} onClick={(e) => e.detail < 2 && on?.toggle(`rel:${r.tag}`, !list)} onDoubleClick={() => on?.tag(r.tag)}>
+                    <span className="mono ellipsis">{marked(r.tag, q, false)}</span>
+                    <span className="map-ship-date">{r.date}</span>
+                  </button>
+                  <button className="map-ship-count" aria-expanded={!!list} aria-label={`${list ? 'Hide' : 'See'} the commits in ${r.tag}`} title={`${list ? 'Hide' : 'See'} ${words}`} onClick={() => on?.toggle(`rel:${r.tag}`, !list)}>
+                    {plural(r.commits.length, 'commit')}
+                    <Icon name="chevronDown" size={12} className="chev" />
+                  </button>
+                </div>
+                {list && (
+                  <div className="map-ship-list" role="group" aria-label={`Commits in ${r.tag}`} style={{ top: y + SHIPPED_LIST_TOP, left: TRUNK_X + 18, width: colX(0) + colW(0) - TRUNK_X - 18, height: list.box }}>
+                    {r.commits.map((c) => (
+                      <div key={c.sha} className="map-relrow">
+                        <button className="map-hitbox" aria-label={`Look at commit ${c.sha}, ${c.subject}`} onClick={() => on?.look(trunk.b.name, c)} />
+                        <span className="map-relrow-subject ellipsis">{c.subject}</span>
+                        <span className="map-relrow-meta">
+                          <span className="map-who"><Avatar name={c.author} size={14} />{c.when}</span>
+                          <span className="map-sha mono">{c.sha}</span>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </Fragment>
+            );
+          })}
         </>
       )}
+      {/* The default branch's station: where the route starts. */}
+      {trunk && <span className="map-stn" data-main="" style={{ left: TRUNK_X, top: trunk.y + trunk.a }} />}
 
-      <svg className="map-edges" width={layout.W} height={layout.H} aria-hidden="true">
-        {pb && (
-          <filter id={glow} filterUnits="userSpaceOnUse" x={pb[0] - 20} y={pb[1] - 20} width={pb[2] - pb[0] + 40} height={pb[3] - pb[1] + 40}>
-            <feGaussianBlur stdDeviation="1.3" />
-          </filter>
-        )}
-        {edges.map((e, i) => e.cls === 'head' && <path key={`g${i}`} className="map-glow" d={e.d} filter={`url(#${glow})`} />)}
-        {edges.map((e, i) => <path key={i} d={e.d} data-line={e.cls || undefined} />)}
-        {tiles.map(
-          (t) =>
-            t.merged.length > 0 && (
-              <path
-                key={`m${t.b.name}`}
-                className="map-merged-line"
-                d={
-                  t.merged
-                    .map((_, i) => {
-                      const x0 = t.x + 10;
-                      const cy = t.y + t.h + 20 + i * 30;
-                      return `M${x0} ${cy - 8}Q${x0} ${cy} ${x0 + 8} ${cy}H${x0 + 14}`;
-                    })
-                    .join('') + `M${t.x + 10} ${t.y + t.h}V${t.y + t.h + 12 + (t.merged.length - 1) * 30}`
-                }
-              />
-            ),
-        )}
-      </svg>
-
-      {tiles.map((t) =>
-        t.merged.length || t.more || t.removable.length ? (
-          <div key={`mg${t.b.name}`} className="map-merged-group">
+      {tiles.map((t) => {
+        if (!t.merged.length && !t.foot) return null;
+        // The default branch's merged branches sit on the trunk; any other box's on the hairline under its station.
+        const sx = t.b.role === 'trunk' ? TRUNK_X : t.x;
+        return (
+          <Fragment key={`mg${t.b.name}`}>
             {t.merged.map((m, i) => (
-              <button
-                key={m.name}
-                className="map-merged"
-                aria-pressed={m.name === shown}
-                aria-label={`Select ${m.name}, merged`}
-                style={{ left: t.x + 24, top: t.y + t.h + 8 + i * 30 }}
-                onClick={() => on?.select(m.name)}
-                onContextMenu={(e) => on?.menu(m.name, e)}
-              >
-                <Icon name="check" size={11} stroke={1.8} />
-                <span className="ellipsis">{marked(m.name, q, hit === m.name)}</span>
-              </button>
+              <Fragment key={m.name}>
+                <span className="map-stn" data-small="" style={{ left: sx, top: t.mergedY + i * MERGED_ROW }} />
+                <button
+                  className="map-merged"
+                  aria-pressed={m.name === shown}
+                  aria-label={`Select ${m.name}, merged`}
+                  style={{ left: sx + 14, top: t.mergedY + i * MERGED_ROW - 12, maxWidth: t.x + t.w - sx - 14 }}
+                  onClick={() => on?.select(m.name)}
+                  onContextMenu={(e) => on?.menu(m.name, e)}
+                >
+                  <Icon name="check" size={12} />
+                  <span className="mono ellipsis">{marked(m.name, q, hit === m.name)}</span>
+                  <span className="tag">Merged</span>
+                </button>
+              </Fragment>
             ))}
-            {(t.more > 0 || t.removable.length > 0) && (
-              <span className="map-merged-foot" style={{ left: t.x + 24, top: t.y + t.h + 8 + t.merged.length * 30 }}>
+            {t.foot && (
+              <span className="map-merged-foot" style={{ left: sx + 14, top: t.footY }}>
                 {t.more > 0 && <button className="map-more" onClick={() => on?.toggle(`merged:${t.b.name}`, true)}>+{t.more} more merged</button>}
                 {t.merged.length > MERGED_SHOWN && <button className="map-more" onClick={() => on?.toggle(`merged:${t.b.name}`, false)}>Show fewer</button>}
                 {t.removable.length > 0 && (
-                  <button className="map-clean" title={`Delete the ${branches(t.removable.length, 'merged branch')} under ${labelOf(t.b.name)}, locally and on origin`} onClick={() => on?.cleanup(t.b.name, t.removable)}>
-                    <Icon name="brush" size={12} />
-                    Clean up
+                  <button className="btn map-clean-big" title={`Delete the ${branches(t.removable.length, 'merged branch')} under ${labelOf(t.b.name)}, locally and on origin`} onClick={() => on?.cleanup(t.b.name, t.removable)}>
+                    Clean up merged
                   </button>
                 )}
               </span>
             )}
-          </div>
-        ) : null,
-      )}
+          </Fragment>
+        );
+      })}
 
       {tiles.map((t) => (
-        <TileView
-          key={t.b.name}
-          t={t}
-          head={head}
-          selected={t.b.name === shown}
-          flags={flagsOf(t)}
-          commits={commits}
-          q={q}
-          hitAt={hit === t.b.name}
-          agent={agentOf?.(t.b.name)}
-          logOf={logOf}
-          labelOf={labelOf}
-          tip={t.b.role === 'trunk' ? tip : undefined}
-          openReleases={layout.tiles.filter((x) => x.b.role === 'release').length}
-          on={on}
-        />
+        <Fragment key={t.b.name}>
+          <TileView
+            t={t}
+            head={head}
+            selected={t.b.name === shown}
+            onRoute={route.has(t.b.name)}
+            stale={layout.stale(t.b)}
+            q={q}
+            hitAt={hit === t.b.name}
+            agent={agentOf?.(t.b.name)}
+            log={logOf(t.b)}
+            labelOf={labelOf}
+            tip={t.b.role === 'trunk' ? tip : undefined}
+            releases={releases}
+            quietAdd={!route.has(t.b.name) && !layout.kids(t.b.name).length}
+            on={on}
+          />
+          {t.open && (
+            <div className="map-float" style={{ left: t.x + (t.b.role === 'trunk' ? 14 : 18), top: t.y + t.h + FLOAT_TOP, width: t.w - (t.b.role === 'trunk' ? 14 : 18) }}>
+              <TileCommits b={t.b} log={logOf(t.b)} all={t.all} current={t.b.name === head} on={on} />
+            </div>
+          )}
+        </Fragment>
       ))}
-      {/* The pulse down the checked-out branch's line, on a layer of its own, after the tiles. */}
-      {pb && (
-        <svg className="map-pulse" width={pb[2] - pb[0]} height={pb[3] - pb[1]} style={{ left: pb[0], top: pb[1] }} viewBox={`${pb[0]} ${pb[1]} ${pb[2] - pb[0]} ${pb[3] - pb[1]}`} aria-hidden="true">
-          {headEdges.map((e, i) => <path key={i} d={e.d} style={{ animationDelay: `${e.delay * 10 * (1000 / 12)}ms` }} />)}
-        </svg>
-      )}
-      {behindTags.map((l) => {
-        const text = `↓${l.b.behind}`;
-        const w = Math.round(12 + text.length * 6.3);
-        const style = { left: l.x - w / 2, top: l.y - 9, width: w };
-        // A work branch rebases onto the branch on its left; shared ones catch up by merging.
-        if (l.b.role !== 'branch' || !on) return <span key={l.b.name} className="map-behind" style={style}>{text}</span>;
-        const busy = agentOf?.(l.b.name)?.state === 'working';
+      {chips.map(({ x, y, b, onto, cls }) => {
+        const text = <span className="c-del">↓{b.behind}</span>;
+        const props = { className: 'map-line-chip', 'data-line': cls || undefined, style: { left: x, top: y } };
+        const words = `${b.ahead ? `${plural(b.ahead, 'commit')} ahead of ${labelOf(onto)}, ` : ''}${b.behind} behind`;
+        // A work branch rebases onto its parent from its chip, unless its agent works; shared ones catch up by merging.
+        if (b.role !== 'branch' || !on) return <span key={b.name} {...props} title={words}>{text}</span>;
+        const busy = agentOf?.(b.name)?.state === 'working';
         return (
           <button
-            key={l.b.name}
-            className="map-behind"
-            style={style}
+            key={b.name}
+            {...props}
             aria-disabled={busy || undefined}
-            title={busy ? `Can't rebase ${labelOf(l.b.name)} onto ${labelOf(l.onto)} while its agent is working. Wait until it finishes or asks you a question.` : `Rebase ${labelOf(l.b.name)} onto ${labelOf(l.onto)}`}
-            onClick={() => !busy && on.rebase(l.b.name, l.onto)}
+            aria-label={busy ? `Can't rebase ${labelOf(b.name)} onto ${labelOf(onto)} while its agent is working` : `Rebase ${labelOf(b.name)} onto ${labelOf(onto)}`}
+            title={busy ? `${words}. Can't rebase ${labelOf(b.name)} onto ${labelOf(onto)} while its agent is working. Wait until it finishes or asks you a question.` : `${words}. Click to rebase onto ${labelOf(onto)}.`}
+            onClick={() => !busy && on.rebase(b.name, onto)}
           >
             {text}
           </button>
         );
       })}
-      {/* Outside the tiles, which clip: each "+" sits where the tile's lines leave on its right. */}
-      {tiles.map((t) => (
-        <button
-          key={`out${t.b.name}`}
-          className="map-out"
-          {...tileState(t, t.b.name === shown, t.b.name === head, flagsOf(t))}
-          aria-label={`Create a branch from ${t.b.name}`}
-          title="Create a branch from here"
-          style={{ left: t.x + t.w - 9, top: t.y + t.a - 9 }}
-          onClick={() => on?.create(t.b.name)}
-        >
-          <Icon name="plus" size={10} stroke={2.2} />
-        </button>
-      ))}
     </>
   );
 }
 
-/** One branch on the map: its name and state, its newest commits when unfolded. Like TileView in BranchMap.tsx. */
-function TileView({ t, head, selected, flags, commits, q, hitAt, agent, logOf, labelOf, tip, openReleases, on }: { t: Tile; head: string; selected: boolean; flags: Flags; commits: MapPrefs['commits']; q?: string; hitAt: boolean; agent?: AgentInfo; logOf: (b: Branch) => Commit[]; labelOf: (n: string) => string; tip?: string; openReleases: number; on?: MapHandlers }) {
+/**
+ * One branch on the map, like TileView in BranchMap.tsx: a box with a header row (its type, name and the state worth a tag)
+ * and one info row (its agent, uncommitted work and other facts, never commits). Its station sits on its left border where
+ * its line comes in, its "+" on its right where lines leave; its commits float under it, drawn apart (TileCommits).
+ */
+function TileView({ t, head, selected, onRoute, stale, q, hitAt, agent, log, labelOf, tip, releases, quietAdd, on }: { t: Tile; head: string; selected: boolean; onRoute: boolean; stale: boolean; q?: string; hitAt: boolean; agent?: AgentInfo; log: Commit[]; labelOf: (n: string) => string; tip?: string; releases: number; quietAdd: boolean; on?: MapHandlers }) {
   const { b } = t;
   const current = b.name === head;
+  const trunk = b.role === 'trunk';
   const parent = b.base ?? '';
-  const n = Math.min(b.ahead, COMMITS_SHOWN);
-  const log = logOf(b);
-  const when = log[0]?.when ?? '';
-  const pill = n > 0 && (
-    <button
-      className="map-pill"
-      {...tileState(t, selected, current, flags)}
-      aria-expanded={t.open}
-      aria-label={`${t.open ? 'Fold' : 'Unfold'} the commits of ${b.name}`}
-      title={`${plural(b.ahead, 'commit')}${parent ? ` not in ${labelOf(parent)}` : ''}`}
-      onClick={() => {
-        on?.toggle(b.name, !t.open);
-        on?.select(b.name);
-      }}
-    >
-      <Icon name="commit" size={11} stroke={1.6} />
-      <span>{b.ahead}</span>
-      <Icon name="chevronDown" size={9} stroke={2} className="chev" />
-    </button>
-  );
-  const wip = b.wip.length > 0 && (
-    <span key="wip" className="map-chip wip-badge">
-      <span className="map-dot" />
-      WIP {b.wip.length}
-    </span>
-  );
-  const chips: ReactNode[] = [];
-  if (b.role === 'branch') {
-    if (agent?.state === 'working') {
-      chips.push(
-        <span key="agent" className="map-chip map-agent glow-working">
-          <Icon name="layers" size={11} stroke={1.6} />
-          <span className="ellipsis">{agent.label}</span>
-          <span>working</span>
-        </span>,
-      );
-    } else if (agent?.state) {
-      chips.push(
-        <span key="agent" className={`map-chip map-agent ${agent.state === 'done' ? 'c-add' : 'c-warn'}`}>
-          {agent.state === 'waiting' ? <span className="pulse" /> : <Icon name="check" size={11} stroke={1.8} />}
-          <span className="ellipsis">{agent.label}</span>
-          {agent.state}
-        </span>,
-      );
-    }
-    if (current) chips.push(<span key="out" className="map-chip c-current">checked out</span>);
-    else if (b.wt && !agent)
-      chips.push(
-        <button key="out" className="map-chip" title="Its own worktree. Click to open it in Worktrees & agents." onClick={() => on?.worktree(b.name)}>
-          <Icon name="layers" size={11} stroke={1.5} />
+  // The info row: the agent, then the uncommitted work, then the rest.
+  const info: ReactNode[] = [];
+  if (agent?.state === 'working')
+    info.push(
+      <span key="agent">
+        <span className="pulse glow-dot" />
+        <span className="glow-working"><span>{agent.label} working</span></span>
+      </span>,
+    );
+  else if (agent?.state)
+    info.push(
+      <span key="agent">
+        {agent.state === 'waiting' ? <span className="pulse map-wait" /> : <Icon name="check" size={12} className="c-add" />}
+        {agent.label} {agentWords(agent)}
+      </span>,
+    );
+  if (b.wip.length)
+    info.push(
+      <span key="wip" className="map-wip">
+        <span className="map-wip-dot" />
+        WIP {b.wip.length}
+        {' · '}
+        <b className="c-add">+{b.wip.reduce((n, f) => n + f.add, 0)}</b> <b className="c-del">−{b.wip.reduce((n, f) => n + f.del, 0)}</b>
+      </span>,
+    );
+  if (trunk) {
+    if (tip) info.push(b.ahead ? `${plural(b.ahead, 'commit')} since ${tip}` : `at ${tip}`);
+    if (releases) info.push(`${plural(releases, 'release')} open`);
+  } else if (b.role === 'release') {
+    info.push(b.name);
+    if (parent) info.push(`from ${labelOf(parent)}`);
+    if (log[0]) info.push(log[0].when);
+  } else {
+    if (b.wt && !agent && !current)
+      info.push(
+        <button key="wt" className="map-info-btn" title="Its own worktree. Click to open it in Worktrees & agents." onClick={() => on?.worktree(b.name)}>
+          <Icon name="layers" size={12} />
           worktree
         </button>,
       );
-    if (wip) chips.push(wip);
-    if (flags.stale) chips.push(<span key="idle" className="map-chip c-warn" title={`${labelOf(parent)} is ${plural(b.behind, 'commit')} ahead`}><Icon name="alert" size={11} stroke={1.8} />{b.idle && b.idle > 1 ? `idle ${b.idle} days` : `↓${b.behind}`}</span>);
-    if (!b.ahead && !b.wip.length && !agent) chips.push(<span key="none" className="map-chip faint">no commits yet</span>);
+    if (stale)
+      info.push(
+        <span key="idle" title={`${labelOf(parent)} is ${plural(b.behind, 'commit')} ahead`}>
+          <Icon name="alert" size={12} className="c-warn" />
+          {b.idle && b.idle > 1 ? `idle ${b.idle} days · ` : ''}falling behind {labelOf(parent)}
+        </span>,
+      );
+    if (!b.ahead && !b.wip.length && !agent) info.push('no commits yet');
   }
-  if (b.push) chips.push(<span key="push" className="map-chip c-mod">↑{b.push} to push</span>);
-  if (b.stashes) chips.push(<button key="stash" className="map-chip" title={`${b.stashes} stashes made on ${b.name}`} onClick={() => on?.stashes(b.name)}><Icon name="stash" size={11} stroke={1.5} />{b.stashes}</button>);
+  if (b.push) info.push(`↑${b.push} to push`);
+  if (b.stashes)
+    info.push(
+      <button key="stash" className="map-info-btn" title={`${b.stashes} stashes made on ${b.name}`} onClick={() => on?.stashes(b.name)}>
+        <Icon name="stash" size={12} />
+        {b.stashes}
+      </button>,
+    );
+  // Nothing else to say: when it last moved.
+  if (!info.length && log[0]) info.push(log[0].when);
 
   const name = b.role === 'branch' && b.kind ? b.name.slice(b.kind.length + 1) : b.name;
   return (
     <div
       className="map-tile"
       data-role={b.role}
-      {...tileState(t, selected, current, flags)}
+      data-trunk={trunk || undefined}
+      data-sel={selected || undefined}
+      data-head={current || undefined}
+      data-ghost={t.ghost || undefined}
+      data-stale={stale || undefined}
       data-hit={hitAt || undefined}
       style={{ left: t.x, top: t.y, width: t.w, height: t.h }}
       onContextMenu={(e) => on?.menu(b.name, e)}
     >
       <button className="map-hitbox" aria-pressed={selected} aria-label={`Select ${b.name}${t.ghost ? ', shown for what is under it' : ''}`} onClick={() => on?.select(b.name)} onDoubleClick={() => !b.wt && on?.checkout(b.name)} />
+      {/* The default branch's station is on the trunk; every other box's on its left border, where its line comes in. */}
+      {!trunk && <span className="map-stn" data-on={onRoute ? (current ? '' : 'via') : undefined} />}
       <div className="map-tile-in">
-        {b.role === 'trunk' ? (
-          <>
-            <span className="map-row">
-              <Icon name="home" size={15} stroke={1.6} className="c-current" />
-              <span className="map-trunk mono ellipsis">{marked(b.name, q, hitAt)}</span>
-              <span className="tag map-tag-trunk">Default</span>
-              <span className="grow" />
-              {wip}
-              {pill}
-            </span>
-            <span className="map-sub">{[tip && `tip ${tip}`, when, openReleases ? `${plural(openReleases, 'release')} open` : current ? 'checked out' : ''].filter(Boolean).join(' · ')}</span>
-          </>
-        ) : b.role === 'release' ? (
-          <>
-            <span className="map-row">
-              <Icon name="tag" size={14} className="c-release" />
-              <span className="map-ver mono ellipsis">{marked(labelOf(b.name), q, hitAt)}</span>
-              {b.tag && <span className="tag accent">{b.tag}</span>}
-              <span className="grow" />
-              {wip}
-              {pill}
-            </span>
-            <span className="map-sub ellipsis">{[b.name, parent && `from ${labelOf(parent)}`, current ? 'checked out' : when].filter(Boolean).join(' · ')}</span>
-          </>
-        ) : (
-          <>
-            <span className="map-row">
-              {b.kind && <span className={`map-kind mono ${b.kind === 'fix' ? 'c-del' : 'c-mod'}`}>{b.kind}</span>}
+        <span className="map-row">
+          {big(b) ? (
+            <span className="map-ver">{marked(labelOf(b.name), q, hitAt)}</span>
+          ) : (
+            <>
+              {b.kind && <span className="map-kind">{b.kind}</span>}
               <span className="map-name mono ellipsis">{marked(name, q, hitAt)}</span>
-              {pill}
-            </span>
-            <span className="map-chips">{chips.slice(0, agent ? 2 : 3)}</span>
-          </>
-        )}
-        {t.open ? (
-          <TileCommits b={b} log={log} list all={t.all} current={current} on={on} />
-        ) : (
-          commits === 'latest' && n > 0 && <TileCommits b={b} log={log} current={current} on={on} />
-        )}
+            </>
+          )}
+          {trunk && !current && <span className="tag">Default</span>}
+          {b.tag && <span className={b.tag === 'Next' ? 'tag inv' : 'tag'}>{b.tag}</span>}
+          {current && <span className="tag inv">Checked out</span>}
+        </span>
+        <span className="map-info">
+          {info.map((x, i) => (
+            <Fragment key={i}>
+              {i > 0 && ' · '}
+              {x}
+            </Fragment>
+          ))}
+        </span>
       </div>
+      {/* Starts a branch off it, where its lines leave. */}
+      <button className="map-out" data-quiet={quietAdd || undefined} aria-label={`Create a branch from ${b.name}`} title="Create a branch from here" onClick={() => on?.create(b.name)}>
+        <Icon name="plus" size={12} />
+      </button>
     </div>
   );
 }
 
-/** A tile's newest commits: all it lists when unfolded, the newest alone otherwise, like TileCommits in BranchMap.tsx. */
-function TileCommits({ b, log, list, all, current, on }: { b: Branch; log: Commit[]; list?: boolean; all?: boolean; current: boolean; on?: MapHandlers }) {
+/** A box's newest commits, floating under it with no container, like TileCommits in BranchMap.tsx; the earlier ones once "see all" is open. */
+function TileCommits({ b, log, all, current, on }: { b: Branch; log: Commit[]; all?: boolean; current: boolean; on?: MapHandlers }) {
   const total = b.ahead;
-  const shown = list ? COMMITS_SHOWN : 1;
-  const more = total > shown && (
-    <button
-      className="map-crow map-crow-more"
-      aria-expanded={!!all}
-      onClick={() => {
-        // "See all" on a folded tile unfolds it with every commit listed.
-        if (!list) on?.toggle(b.name, true);
-        on?.toggle(`all:${b.name}`, !all);
-      }}
-    >
-      <span>{`${all ? '' : '+'}${plural(total - shown, 'earlier commit')}`}</span>
-      <span className="map-crow-act">
-        {all ? 'Hide' : 'See all'}
-        <Icon name="chevronDown" size={10} stroke={2} className="chev" />
-      </span>
-    </button>
-  );
-  // A commit's own menu, not the tile's under it.
+  // A commit's own menu, not the box's under it.
   const menu = (e: MouseEvent) => {
     e.stopPropagation();
     on?.menu(b.name, e);
   };
-  // Ringed green on the commit checked out: the newest, here.
-  const ring = (i: number) => (current && i === 0 ? 'latest' : undefined);
-  if (!list) {
-    const c = log[0];
-    return (
-      <>
-        <button className="map-latest" disabled={!c} onClick={() => c && on?.look(b.name, c)} onContextMenu={menu}>
-          <span className="map-crow-who" data-on={ring(0)}>{c && <Avatar name={c.author} size={14} />}</span>
-          <span className="ellipsis">{c?.subject ?? '…'}</span>
-          <span className="faint">{c && age(c.when)}</span>
-        </button>
-        {more}
-      </>
-    );
-  }
   return (
-    <span className="map-commits">
+    <>
       {log.slice(0, all ? total : Math.min(total, COMMITS_SHOWN)).map((c, i) => (
-        <button key={c.sha} className="map-crow" aria-label={`Look at commit ${c.sha}, ${c.subject}`} onClick={() => on?.look(b.name, c)} onContextMenu={menu}>
-          <span className="map-crow-who" data-on={ring(i)}>
-            <Avatar name={c.author} size={14} />
-          </span>
+        // The commit checked out: the newest one, here.
+        <button key={c.sha} className="map-crow" data-on={(current && i === 0) || undefined} aria-label={`Look at commit ${c.sha}, ${c.subject}`} onClick={() => on?.look(b.name, c)} onContextMenu={menu}>
+          <Avatar name={c.author} size={12} />
           <span className="ellipsis">{c.subject}</span>
-          <span className="faint">{age(c.when)}</span>
+          <i>{age(c.when)}</i>
         </button>
       ))}
-      {more}
-    </span>
+      {total > COMMITS_SHOWN && (
+        <button className="map-crow-more" aria-expanded={!!all} onClick={() => on?.toggle(`all:${b.name}`, !all)}>
+          {all ? 'Show fewer' : `See all ${total}`}
+        </button>
+      )}
+    </>
   );
 }
 
-/** What the lines' colours mean; `hint` adds what a click on the map does. */
-export function MapLegend({ hint = true }: { hint?: boolean }) {
+/** What the lines mean, in a band under the map; `behind`: the falling-behind line too, `hint`: what a click on the map does. */
+export function MapLegend({ hint = true, behind = true }: { hint?: boolean; behind?: boolean }) {
   return (
     <div className="map-legend">
       <span><svg width="20" height="8" aria-hidden="true"><path d="M2 4h16" className="map-key-head" /></svg>You are here</span>
-      <span><svg width="20" height="8" aria-hidden="true"><path d="M2 4h16" className="map-key-lin" /></svg>Selected line</span>
-      <span><svg width="20" height="8" aria-hidden="true"><path d="M2 4h16" className="map-key-stale" /></svg>Falling behind</span>
-      {hint && <span className="faint">Click a commit or a WIP count to look at its code</span>}
+      <span><svg width="20" height="8" aria-hidden="true"><path d="M2 4h16" /></svg>Other lines</span>
+      {behind && <span><svg width="20" height="8" aria-hidden="true"><path d="M2 4h16" className="map-key-stale" /></svg>Falling behind</span>}
+      {hint && <span className="faint">Click a commit to look at its code · click ↓ on a line to rebase</span>}
     </div>
   );
 }

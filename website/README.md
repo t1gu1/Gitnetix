@@ -13,3 +13,5 @@ pnpm dev
   title is the first changelog line.
 - Download links point at the latest GitHub release, with the file names `release.yml` uploads.
 - `public/og.png` is the social card: tagline, platforms and the app's branch map, cropped from the home page demo.
+- The home page demo copies the app's markup and class names; its look is the app's own stylesheet, scoped to the demo
+  at build time (`src/pages/demo.css.ts`). `site.css` only adds what the demo window needs on a web page.

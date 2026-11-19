@@ -7,7 +7,7 @@ import { kindOfBranch } from '../../../src/lib/kinds';
 import { otherMode, resolveTheme } from '../../../src/lib/themes';
 import Analytics from './demo/Analytics';
 import { AgentInput, AgentLog, AgentPicker, FinishCard, ME, TRY, keyOf, pathOf, shown, useAgents, type Ai, type Pick } from './demo/agents';
-import { BEHIND_LIMIT, CARD_ROOM, MapLayer, MapLegend, PREFS, branches, layoutMap, lineageOf, onMap, type AgentInfo, type MapHandlers, type MapPrefs, type Shipped } from './demo/BranchMap';
+import { CARD_ROOM, MapLayer, MapLegend, PREFS, branches, layoutMap, lineageOf, onMap, type AgentInfo, type MapHandlers, type MapPrefs, type Shipped } from './demo/BranchMap';
 import PullRequests from './demo/PullRequests';
 import ReleaseNotes from './demo/ReleaseNotes';
 import Submodules from './demo/Submodules';
@@ -113,8 +113,26 @@ const LOG: Record<string, Commit[]> = {
     { sha: '04ab7e1', subject: 'Start the sidebar', author: 'Riya Kapoor', when: 'Oct 6', files: [ch('src/components/Sidebar.tsx', 26, 0, 'A')] },
   ],
 };
-/** Releases shipped from main, newest first. */
-const SHIPPED: Shipped[] = [{ tag: 'v0.5.2', date: 'Nov 14' }, { tag: 'v0.5.1', date: 'Nov 4' }, { tag: 'v0.5.0', date: 'Oct 21' }, { tag: 'v0.4.0', date: 'Sep 30' }];
+/** Releases shipped from main, newest first, with the commits each shipped. */
+const SHIPPED: Shipped[] = [
+  { tag: 'v0.5.2', date: 'Nov 14', commits: LOG.main.slice(0, 4) },
+  { tag: 'v0.5.1', date: 'Nov 4', commits: LOG.main.slice(4, 6) },
+  {
+    tag: 'v0.5.0', date: 'Oct 21',
+    commits: [
+      { sha: '6b1e9f4', subject: 'Release 0.5.0', author: 'Ana Moreau', when: 'Oct 21', files: [ch('CHANGELOG.md', 31, 0), ch('package.json', 1, 1)], tags: ['v0.5.0'] },
+      { sha: 'd2c47a0', subject: 'Open a branch full screen from its card', author: ME, when: 'Oct 20', files: [ch('src/screens/Workspace.tsx', 120, 18)] },
+      { sha: '91fa3c5', subject: 'Count WIP files on the map', author: 'Riya Kapoor', when: 'Oct 18', files: [ch('src/screens/BranchTree.tsx', 22, 4)] },
+    ],
+  },
+  {
+    tag: 'v0.4.0', date: 'Sep 30',
+    commits: [
+      { sha: '3e8d0b7', subject: 'Release 0.4.0', author: 'Ana Moreau', when: 'Sep 30', files: [ch('CHANGELOG.md', 26, 0), ch('package.json', 1, 1)], tags: ['v0.4.0'] },
+      { sha: 'a7f2c19', subject: 'Close a worktree and merge it in', author: 'Jules Laurent', when: 'Sep 28', files: [ch('src/screens/Worktrees.tsx', 64, 9)] },
+    ],
+  },
+];
 /** `b`'s commits, newest first: a tracked branch lists the ones its base doesn't have, a trunk its recent history. */
 const logOf = (b: Branch) => [...(b.log ?? []), ...(LOG[b.name] ?? [])].slice(0, b.base ? b.ahead : undefined);
 const PROJECT = ['package.json', 'src/App.tsx', 'src/screens/BranchTree.tsx', 'src/screens/Workspace.tsx', 'src/styles/app.css', 'README.md'];
@@ -146,11 +164,9 @@ const DIFF: [' ' | '+' | '-', string][] = [
 const ABOVE = ["import { usePath } from '../lib/path';", "import { usePulse } from '../lib/pulse';", "import { Tree } from './Tree';", ''];
 
 const labelOf = (b: string) => (b.startsWith('release/') ? `v${b.slice(8)}` : b);
-/** The colour a branch's role reads in: trunks orange, releases purple, work in blue (fixes red), like roleCls in BranchMap.tsx. */
-const roleCls = (b: Branch) => (b.role === 'trunk' ? 'c-current' : b.role === 'release' ? 'c-release' : b.kind === 'fix' ? 'c-del' : 'c-mod');
 const agentWords = (a: AgentInfo) => (a.state === 'working' ? 'working' : a.state === 'waiting' ? 'waiting for you' : a.state === 'done' ? 'done, ready to review' : 'idle');
 /** Where the branch stands with origin, in a few words, and its colour (originOf in BranchMap.tsx). */
-const originOf = (b: Branch): [string, string] => (b.push ? [`↑${b.push} to push`, 'c-mod'] : ['synced with origin', 'c-add']);
+const originOf = (b: Branch): [string, string] => (b.push ? [`↑${b.push} to push`, ''] : ['synced with origin', '']);
 /** What "Look at the code" opens on: the uncommitted work, else the branch's own changes, else the project's files. */
 const lookItem = (b: Branch) => (b.wip.length ? 'wip' : b.ahead > 0 && b.base ? 'all' : 'project');
 /** `b` once `done` (some of its WIP) is committed: those changes join the branch's own, and wait to be pushed. */
@@ -349,13 +365,13 @@ function Diff({ mode }: { mode: 'split' | 'unified' | 'full' | 'raw' }) {
   );
 }
 
-/** Tags naming a branch's place, like BranchTags in BranchMap.tsx: the default branch, the one checked out, a release's kind. */
+/** Tags naming a branch's place, like BranchTags in BranchMap.tsx: the one checked out, the default branch (unless checked out), a release's kind. */
 function BranchTags({ b, head }: { b: Branch; head: string }) {
   return (
     <>
-      {b.role === 'trunk' && <span className="tag map-tag-trunk">Default</span>}
-      {b.name === head && <span className="tag map-tag-trunk">Head</span>}
-      {b.tag && <span className="tag accent">{b.tag}</span>}
+      {b.name === head && <span className="tag inv">Checked out</span>}
+      {b.role === 'trunk' && b.name !== head && <span className="tag">Default</span>}
+      {b.tag && <span className={b.tag === 'Next' ? 'tag inv' : 'tag'}>{b.tag}</span>}
     </>
   );
 }
@@ -390,6 +406,9 @@ function MobileTabs({ page, go }: { page: string; go: (p: string) => void }) {
   );
 }
 
+/** The agent panel bar's icon cells, as in Terminal (src/screens/Workspace.tsx). */
+const TERM_BTN: CSSProperties = { width: 34, height: 'auto', border: 0, borderLeft: '1px solid var(--line)', borderRadius: 0 };
+
 /** What a button suggests for a branch: like an Action in src/screens/BranchMenu.tsx. */
 type Act = { label: string; icon: string; tip: string; danger?: boolean; run: () => void };
 
@@ -408,7 +427,7 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
   const [diffMode, setDiffMode] = useState<'split' | 'unified' | 'full'>('unified');
   // On a phone, the focus view's pane on screen (Workspace.tsx PANES).
   const [pane, setPane] = useState<'rail' | 'code'>('rail');
-  // The map's filters and zoom (useMapPrefs), its tiles folded or unfolded by hand, and the selected card folded away.
+  // The map's filters and zoom (useMapPrefs), what was unfolded on it by hand, and the selected card folded away.
   const [prefs, setPrefs] = useState<MapPrefs>(PREFS);
   const [zoom, setZoom] = useState(phone ? 0.8 : 0.9);
   const [toggles, setToggles] = useState<ReadonlyMap<string, boolean>>(new Map());
@@ -501,7 +520,8 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
     const el = canvas.current;
     if (!el?.clientWidth) return;
     const room = cardRoom();
-    setZoom(Math.max(0.4, Math.min(1, Math.floor(Math.min((el.clientWidth - room) / layout.W, el.clientHeight / layout.H) * 10) / 10)));
+    // In 5% steps: the demo's window is narrower than the app's, and a 10% step down left the map smaller than it had to be.
+    setZoom(Math.max(0.4, Math.min(1, Math.floor(Math.min((el.clientWidth - room) / layout.W, el.clientHeight / layout.H) * 20) / 20)));
     el.scrollTo({ left: 0, top: 0 });
   };
   // Opening: the map fits the window; a phone shows the checked-out branch instead. A narrow window folds the card, as a phone does.
@@ -831,7 +851,6 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
     : mode === 'wip'
       ? {
           eyebrow: 'Not committed',
-          cls: 'c-wip',
           title: agent?.state === 'working' ? `${agent.label} is still changing these files` : agent?.state ? `${agent.label} changed these files` : 'Your changes since the last commit',
           meta: [<span key="n">{plural(wipCount, 'file')}</span>, ...nums(b.wip), <span key="where">{where}</span>],
           acts: <button className="btn btn-sm" disabled={!wipCount || !isOut} title={isOut ? `Set aside ${plural(wipCount, 'uncommitted file')} on ${b.name}` : `Check out ${b.name} to stash its changes`} onClick={() => { setWip(b.name, () => []); setBs((x) => ({ ...x, [b.name]: { ...x[b.name], stashes: (x[b.name].stashes ?? 0) + 1 } })); flash(`Stashed changes on ${b.name}`); }}><Icon name="stash" size={12} />Stash</button>,
@@ -839,14 +858,12 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
       : mode === 'branch'
         ? {
             eyebrow: b.base ? 'All changes on this branch' : 'History',
-            cls: 'c-mod',
             title: labelOf(b.name),
             meta: [<span key="c">{plural(b.ahead, 'commit')}</span>, <span key="f">{plural(list.length, 'file')}</span>, ...nums(list), b.base ? <span key="m">what merging into <span className="mono">{labelOf(b.base)}</span> brings</span> : null],
             acts: b.base && !b.wt && <button className="btn btn-sm" title={`Open a pull request into ${labelOf(b.base)}`} onClick={() => go('prs')}><Icon name="pr" size={12} />Open PR</button>,
           }
         : {
             eyebrow: 'Project · files at this branch',
-            cls: 'faint',
             title: current?.path ?? 'Files',
             meta: [<span key="as">as it is on <span className="mono">{b.name}</span>{b.name === head ? ', with your changes' : ''}</span>],
             acts: current && <button className="btn btn-sm" onClick={() => { void navigator.clipboard?.writeText(current.path); flash('Copied the path'); }}><Icon name="copy" size={12} />Copy path</button>,
@@ -863,8 +880,10 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
     const base = c.base ? labelOf(c.base) : '';
     const cchain = lineageOf(layout, c.name).map((n) => bs[n]);
     const stale = layout.stale(c);
+    const trunk = c.role === 'trunk';
+    const tip = SHIPPED[0];
     const sentence = (() => {
-      if (c.role === 'trunk') return `The default branch, at ${SHIPPED[0].tag}. Releases are cut from it; shipping one merges it back and tags the version.`;
+      if (trunk) return `The default branch, ${c.ahead ? `${plural(c.ahead, 'commit')} past ${tip.tag}` : `at ${tip.tag}`}. Releases are cut from it; shipping one merges it back and tags the version.`;
       if (c.role === 'release') {
         const w = layout.work.get(c.name) ?? { open: 0, merged: 0 };
         return `Release cut from ${base}. ${branches(w.open, 'open branch')}${w.merged ? ` and ${w.merged} merged in` : ''}. Shipping it merges it into main and tags ${labelOf(c.name)}.`;
@@ -884,56 +903,77 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
     })();
     const [ot, oc] = originOf(c);
     const rows: [string, ReactNode, string?][] = [];
-    if (c.merged) rows.push(['Merged into', base, 'c-add']);
-    else if (c.role === 'release') rows.push(['Ships as', labelOf(c.name), 'c-release']);
-    else if (c.role === 'trunk') rows.push(['Tip', `${SHIPPED[0].tag} · shipped ${SHIPPED[0].date}`]);
-    rows.push(['Checkout', c.name === head ? 'checked out here' : c.wt ? 'open in a worktree' : 'not checked out', c.name === head ? 'c-current' : undefined]);
+    if (c.base) rows.push(['Parent', base]);
+    if (c.merged) rows.push(['Merged into', base]);
+    else if (c.role === 'release') rows.push(['Ships as', labelOf(c.name)]);
+    else if (trunk) rows.push(['Tip', `${tip.tag} · shipped ${tip.date}`]);
+    // What the next release ships from it so far.
+    if (trunk) rows.push(['Unreleased', c.ahead ? `${plural(c.ahead, 'commit')} since ${tip.tag}` : `none since ${tip.tag}`, c.ahead ? undefined : 'faint']);
+    rows.push(['Checkout', c.name === head ? 'checked out here' : c.wt ? 'open in a worktree' : 'not checked out']);
     rows.push(['Origin', ot, oc]);
     if (c.role === 'branch' && !c.merged) {
-      if (c.behind) rows.push(['Behind', `${plural(c.behind, 'commit')} from ${base}`, 'c-warn']);
       const words = ca && `${ca.label} · ${agentWords(ca)}`;
       rows.push([
         'Agent',
         ca ? (
-          <button className="link-btn" style={{ color: 'inherit', textAlign: 'left' }} title="Open its session in Worktrees & agents" onClick={() => demo.openWorktree(keyOf('acme-web', c.name))}>
+          <button className="link-btn agent-link" style={{ color: 'inherit', textAlign: 'left' }} title="Open its session in Worktrees & agents" onClick={() => demo.openWorktree(keyOf('acme-web', c.name))}>
             {ca.state === 'working' ? <span className="glow-working"><span>{words}</span></span> : words}
           </button>
         ) : 'none',
-        ca?.state === 'working' ? 'c-release' : ca?.state === 'done' ? 'c-add' : ca?.state === 'waiting' ? 'c-warn ai-fade' : undefined,
+        ca?.state === 'waiting' ? 'c-warn' : undefined,
       ]);
     }
     if (c.stashes) rows.push(['Stashes', <button className="link-btn" onClick={() => handlers.stashes(c.name)}>{c.stashes} stashes</button>]);
+    // Its headline numbers, in the display face: how far it is from its base and what is uncommitted on it; for the default
+    // branch, what the next release ships and how many are open.
+    const big: [string, number, string?][] = trunk
+      ? [['Unreleased', c.ahead], ['Releases open', layout.tiles.filter((t) => t.b.role === 'release').length], ['WIP files', c.wip.length]]
+      : [['Ahead', c.ahead], ['Behind', c.behind, c.behind ? 'c-del' : undefined], ['WIP files', c.wip.length]];
     const tone = p.danger ? 'btn-danger' : 'btn-primary';
     const kind = c.role === 'branch' && c.kind;
+    const name = c.role === 'release' ? `${labelOf(c.name)} · ${c.name}` : kind ? c.name.slice(kind.length + 1) : c.name;
     return (
       <aside className="map-card" aria-label={`Selected branch ${c.name}`} data-folded={folded || undefined}>
-        <div className="map-card-sec">
-          <span className="map-eyebrow row" style={{ margin: 0 }}>
-            Selected
-            <span className="grow" />
-            <button className="btn btn-ghost btn-sm btn-icon map-card-fold" aria-expanded={!folded} aria-label={folded ? 'Show the selected branch' : 'Fold the selected branch'} onClick={() => setFolded(!folded)}>
-              <Icon name="chevronDown" size={12} className="chev" />
-            </button>
-          </span>
-          <div className="map-card-name">
-            {kind && <span className={`map-kind mono ${roleCls(c)}`}>{kind}</span>}
-            <h3 className={`mono ${c.role === 'branch' ? '' : roleCls(c)}`}>{c.role === 'release' ? `${labelOf(c.name)} · ${c.name}` : kind ? c.name.slice(kind.length + 1) : c.name}</h3>
+        <div className="map-card-head">
+          {/* Its kind and tags on one line above the name. */}
+          <div className="map-card-tags">
+            {kind && <span className="map-kind">{kind}</span>}
             <BranchTags b={c} head={head} />
           </div>
+          {/* The name opens the branch full screen too; folded, the eye says so, as the hidden "Look at the code" did. */}
+          <h3 className="mono">
+            <button className="map-card-look" title="Look at the code" onClick={() => openFocus(c.name, look)}>
+              {folded ? (
+                <>
+                  {name.slice(0, -4)}
+                  <span className="map-card-tail">
+                    {name.slice(-4)}
+                    <Icon name="eye" size={13} className="map-card-eye" />
+                  </span>
+                </>
+              ) : (
+                name
+              )}
+            </button>
+          </h3>
+          <button className="btn btn-icon map-card-fold" aria-expanded={!folded} aria-label={folded ? 'Show the selected branch' : 'Fold the selected branch'} onClick={() => setFolded(!folded)}>
+            <Icon name="chevronDown" size={14} className="chev" />
+          </button>
         </div>
         {!folded && (
           <>
-            <button className="btn btn-md btn-tint map-look" title="Opens this branch full screen. Esc brings you back here." onClick={() => openFocus(c.name, look)}>
+            <div className="map-big">
+              {big.map(([k, n, cls]) => (
+                <div key={k}>
+                  <b className={cls}>{n}</b>
+                  <span className="label">{k}</span>
+                </div>
+              ))}
+            </div>
+            <button className="btn map-look" title="Opens this branch full screen. Esc brings you back here." onClick={() => openFocus(c.name, look)}>
               <Icon name="eye" size={14} />
               <span>Look at the code</span>
-              {look === 'wip' ? (
-                <span className="map-chip wip-badge">
-                  <span className="map-dot" />
-                  WIP · {plural(c.wip.length, 'file')}
-                </span>
-              ) : (
-                <span className="faint ellipsis">{look === 'all' ? `Branch · ${plural(c.ahead, 'commit')}` : 'Project'}</span>
-              )}
+              <span className="map-look-n">{look === 'wip' ? `WIP · ${c.wip.length}` : look === 'all' ? `Branch · ${c.ahead}` : 'Project'}</span>
             </button>
             <p className="map-sentence">{sentence}</p>
             <dl className="map-status">
@@ -948,11 +988,11 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
         )}
         {/* Folded, the card still offers the suggested action. */}
         <div className="map-card-acts">
-          <button className={`btn btn-md ${tone} split-main grow`} title={p.tip} onClick={p.run}>
-            <Icon name={p.icon} size={13} />
+          <button className={`btn ${tone} split-main grow`} title={p.tip} onClick={p.run}>
+            <Icon name={p.icon} size={14} />
             <span className="ellipsis">{p.label}</span>
           </button>
-          <button className={`btn btn-md btn-icon ${tone} split-more`} aria-label={`More actions for ${c.name}`} title={`More actions for ${c.name}`} aria-haspopup="menu" aria-expanded={menu?.n === c.name && menu.right} onClick={(e) => (menu?.right ? setMenu(null) : openMenu(c.name, e, true))}>
+          <button className={`btn btn-icon ${tone} split-more`} aria-label={`More actions for ${c.name}`} title={`More actions for ${c.name}`} aria-haspopup="menu" aria-expanded={menu?.n === c.name && menu.right} onClick={(e) => (menu?.right ? setMenu(null) : openMenu(c.name, e, true))}>
             <Icon name="more" size={14} />
           </button>
         </div>
@@ -997,7 +1037,7 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
         {/* Worktrees & agents: a tab of its own, marked like the open project's; the phone has its Agents tab instead. */}
         {!phone && (
           <button type="button" className={`hdr-icon${running.length ? ' glow-working' : ''}`} aria-label="Worktrees & agents" title={running.length ? `Worktrees & agents (${running.length} running)` : 'Worktrees & agents'} aria-current={wt ? 'page' : undefined} onClick={() => go('worktrees')}>
-            <Icon name="layers" size={16} />
+            <Icon name="layers" size={18} />
           </button>
         )}
         <span className="tabs-projects">
@@ -1020,6 +1060,11 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
         </span>
         {/* The app's ProfileButton (src/components/Profiles.tsx); its Light / Dark mode is read off the page as src/components/ShellPane.tsx does, and Base.astro's script saves and shows the pick. */}
         <span className="hdr-tools">
+          {!phone && (
+            <button className="hdr-gear hide-narrow" aria-label="Settings" title="Settings" onClick={() => flash('In the app, the settings open here')}>
+              <Icon name="gear" size={16} />
+            </button>
+          )}
           <button className="profile-btn" aria-haspopup="menu" aria-expanded={!!profile.at} aria-label="Profile Work, settings" title={profile.at ? undefined : 'Work'} onClick={(e) => profile.toggle(e, true)}>
             <ProfileAvatar size={26} />
           </button>
@@ -1088,8 +1133,8 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
         <div className="ws-head">
           {focused ? (
             <div className="focus-head">
-              <button className="btn focus-back" title="Back to the branch map (Esc)" onClick={() => setFocused(false)}>
-                <Icon name="back" size={13} />
+              <button className="btn btn-sm focus-back" title="Back to the branch map (Esc)" onClick={() => setFocused(false)}>
+                <Icon name="back" size={14} />
                 <span className="hide-narrow">Branch map</span>
                 <kbd className="hide-narrow">Esc</kbd>
               </button>
@@ -1097,7 +1142,7 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
                 {chain.map((c, i) => (
                   <Fragment key={c}>
                     {i > 0 && <span className="faint" aria-hidden="true">›</span>}
-                    <button className={`mono${c === b.name ? '' : ` ${roleCls(bs[c])}`}`} aria-current={c === b.name || undefined} onClick={() => c !== b.name && openFocus(c, lookItem(bs[c]))}>
+                    <button className="mono" aria-current={c === b.name || undefined} onClick={() => c !== b.name && openFocus(c, lookItem(bs[c]))}>
                       {labelOf(c)}
                     </button>
                   </Fragment>
@@ -1106,9 +1151,25 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
               </nav>
               <span className="grow" />
               <span className="focus-pills hide-narrow">
-                {b.role === 'branch' && b.base && !b.merged && <span className={b.behind ? 'c-warn' : undefined}>↑{b.ahead}{b.behind ? ` ↓${b.behind}` : ''} vs {labelOf(b.base)}</span>}
-                {agent && <span className={agent.state === 'working' ? 'c-release' : agent.state === 'done' ? 'c-add' : agent.state ? 'c-warn' : undefined}>{agent.label} {agentWords(agent)}</span>}
-                {b.merged ? <span className="c-add">merged into {labelOf(b.base!)}</span> : <span className={originCls}>{originText}</span>}
+                {b.role === 'branch' && b.base && !b.merged && (
+                  <span>
+                    ↑{b.ahead}
+                    {b.behind > 0 && <span className="c-del"> ↓{b.behind}</span>} vs {labelOf(b.base)}
+                  </span>
+                )}
+                {agent &&
+                  (agent.state === 'working' ? (
+                    <span>
+                      <span className="pulse glow-dot" />
+                      <span className="glow-working"><span>{agent.label} working</span></span>
+                    </span>
+                  ) : (
+                    <span className={agent.state === 'waiting' ? 'c-warn' : undefined}>
+                      {agent.state === 'waiting' && <span className="pulse map-wait" />}
+                      {agent.label} {agentWords(agent)}
+                    </span>
+                  ))}
+                {b.merged ? <span>merged into {labelOf(b.base!)}</span> : <span className={originCls}>{originText}</span>}
               </span>
             </div>
           ) : (
@@ -1124,26 +1185,14 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
                   ['me', <><Avatar name={ME} size={16} />Mine <span className="faint">{layout.counts.mine}</span></>],
                 ]}
               />
-              <div className="map-group" role="group" aria-label="Commits on the map">
-                <span className="map-group-label"><Icon name="commit" size={13} /><span className="map-label">Commits</span></span>
-                <Seg
-                  label="Commits on the map"
-                  value={prefs.commits}
-                  onChange={(commits) => {
-                    setToggles(new Map());
-                    setPrefs({ ...prefs, commits });
-                  }}
-                  options={[['hidden', 'Hidden'], ['latest', 'Latest'], ['list', 'List']]}
-                />
-              </div>
               <div className="map-toggles" role="group" aria-label="Show on the map">
                 {toggleBtn('merged', 'Merged', layout.counts.merged)}
                 {staleLeft.length > 0 ? (
                   // Its Clean up as the toggle's right side: one control.
                   <span className="map-toggle-split">
                     {toggleBtn('behind', 'Falling behind', layout.counts.behind)}
-                    <button className="map-clean" aria-label={`Clean up the ${branches(staleLeft.length)} falling behind`} title={`Pick which of the ${branches(staleLeft.length)} falling behind to delete`} onClick={() => (remove(staleLeft.map((x) => x.name)), flash(`Deleted ${branches(staleLeft.length)} ${BEHIND_LIMIT}+ commits behind`))}>
-                      <Icon name="brush" size={12} />
+                    <button className="map-clean" title={`Pick which of the ${branches(staleLeft.length)} falling behind to delete`} onClick={() => (remove(staleLeft.map((x) => x.name)), flash(`Deleted ${branches(staleLeft.length)} falling behind`))}>
+                      Clean up
                     </button>
                   </span>
                 ) : (
@@ -1157,7 +1206,7 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
                   <Icon name="search" size={14} />
                 </button>
                 <button className="btn btn-sm" aria-label="Show 2 stashes" title="2 stashes set aside" onClick={() => handlers.stashes('feat/branch-tree')}>
-                  <Icon name="stash" size={13} />2
+                  <Icon name="stash" size={14} />2 stashes
                 </button>
                 <button className="btn btn-sm btn-icon" aria-label="Fetch origin" title="Fetch origin" onClick={() => flash('Fetched origin')}>
                   <Icon name="refresh" size={14} />
@@ -1237,7 +1286,7 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
                   {/* Room on the right for the card too, so a tile can be scrolled out from under it. */}
                   <div className="map-size" style={{ width: layout.W * zoom + (phone ? 0 : CARD_ROOM), height: layout.H * zoom, minWidth: '100%', minHeight: '100%' }}>
                     <div className="map-layer" style={{ width: layout.W, height: layout.H, transform: zoom === 1 ? undefined : `scale(${zoom})` }}>
-                      <MapLayer layout={layout} head={head} shown={shownSel} commits={prefs.commits} q={q} hit={hit} agentOf={agentOf} logOf={logOf} labelOf={labelOf} on={handlers} />
+                      <MapLayer layout={layout} head={head} shown={shownSel} toggles={toggles} q={q} hit={hit} agentOf={agentOf} logOf={logOf} labelOf={labelOf} on={handlers} />
                     </div>
                   </div>
                 </div>
@@ -1326,15 +1375,15 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
                   </ul>
                   {/* CommitBox in src/screens/Workspace.tsx, gone while a commit shows */}
                   {!commit && (
-                    <div className="col" style={{ padding: '6px 12px 10px', gap: 6, borderTop: '1px solid var(--line)' }}>
-                      <div className="row faint" style={{ justifyContent: 'space-between', fontSize: 11, margin: 0 }}>
-                        <button className="row hd-msg-toggle" aria-expanded={msgOpen} onClick={() => setMsgOpen(!msgOpen)}>
+                    <div className="col" style={{ padding: '10px 16px 14px', gap: 8, borderTop: '1px solid var(--line)' }}>
+                      <div className="row" style={{ justifyContent: 'space-between', minHeight: 24, margin: 0 }}>
+                        <button className="commit-sec" aria-expanded={msgOpen} onClick={() => setMsgOpen(!msgOpen)}>
                           <Icon name="chevronDown" size={12} className="chev" />
                           <span>Commit message</span>
                         </button>
                         {msgOpen && (
-                          <button className="btn btn-ghost btn-sm" style={{ height: 20 }} disabled={!canCommit} title="AI drafts a message from the changed files" onClick={() => { setSummary(aiSubject(b.wip)); setBody('Runs from the trunk to the checked-out branch and restarts on switch.'); }}>
-                            <Icon name="sparkle" size={10} />
+                          <button className="btn btn-sm" style={{ height: 24, padding: '0 8px' }} disabled={!canCommit} title="AI drafts a message from the changed files" onClick={() => { setSummary(aiSubject(b.wip)); setBody('Runs from the trunk to the checked-out branch and restarts on switch.'); }}>
+                            <Icon name="sparkle" size={12} />
                             Draft
                           </button>
                         )}
@@ -1348,7 +1397,7 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
                       <span className="split-btn" style={{ display: 'flex', width: '100%' }}>
                         <button className="btn btn-primary split-main commit-btn" style={{ flex: '1 1 auto' }} disabled={!canCommit} onClick={commitBox}>
                           <Icon name="sparkle" size={12} />
-                          <span>{all ? 'Stage all & Commit' : 'Commit'}<span style={{ fontWeight: 400, opacity: 0.75, marginLeft: 6 }}>{all ? wipCount || null : staged}</span></span>
+                          <span>{all ? 'Stage all & Commit' : 'Commit'}<span style={{ fontWeight: 400, opacity: 0.7, marginLeft: 6 }}>{all ? wipCount || null : staged}</span></span>
                         </button>
                         <span className="btn btn-primary btn-icon split-more commit-btn" aria-hidden="true">
                           <Icon name="more" size={14} />
@@ -1362,9 +1411,11 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
                   {top && (
                     <div className="code-top">
                       <div className="code-title">
-                        <span className={`code-eyebrow ${top.cls}`}>{top.eyebrow}</span>
                         <h2>{top.title}</h2>
-                        <div className="code-meta">{top.meta}</div>
+                        <div className="code-meta">
+                          <span className="faint">{top.eyebrow}</span>
+                          {top.meta}
+                        </div>
                       </div>
                       <div className="code-acts">{top.acts}</div>
                     </div>
@@ -1431,8 +1482,8 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
                 </div>
                 {term === 'agent' && agentHere && (
                   <>
-                    <span className="term-tab" style={{ fontSize: 11.5, borderLeft: 0 }}>
-                      {ses.status === 'running' && <span className="pulse" />}
+                    <span className="term-tab" style={{ borderLeft: 0 }}>
+                      {ses.status === 'running' && <span className="pulse glow-dot" />}
                       <span className="mono">{b.name}</span>
                       <span className="faint">worktree</span>
                     </span>
@@ -1442,11 +1493,11 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
                   </>
                 )}
                 <div className="term-side" style={{ justifyContent: 'flex-end' }}>
-                  <button className="btn btn-ghost hd-term-btn" aria-label={max ? 'Restore terminal size' : 'Expand terminal'} aria-pressed={max} title={max ? 'Restore' : 'Expand'} onClick={() => setMax(!max)}>
-                    <Icon name={max ? 'minimize' : 'maximize'} size={13} />
+                  <button className="btn btn-ghost btn-icon" style={TERM_BTN} aria-label={max ? 'Restore terminal size' : 'Expand terminal'} aria-pressed={max} title={max ? 'Restore' : 'Expand'} onClick={() => setMax(!max)}>
+                    <Icon name={max ? 'minimize' : 'maximize'} size={16} />
                   </button>
-                  <button className="btn btn-ghost hd-term-btn term-collapse" aria-label="Collapse agents" onClick={() => (setTerm(null), setMax(false))}>
-                    <Icon name="chevronDown" size={13} />
+                  <button className="btn btn-ghost btn-icon term-collapse" style={TERM_BTN} aria-label="Collapse agents" onClick={() => (setTerm(null), setMax(false))}>
+                    <Icon name="chevronDown" size={16} />
                   </button>
                 </div>
               </div>

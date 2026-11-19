@@ -8,10 +8,12 @@ const vars = (o: Record<string, string>) => Object.entries(o).map(([k, v]) => `-
 export const GET: APIRoute = () => {
   const css = THEMES.filter((t) => t.family !== 'Gitnetix').map((t) => {
     const a = tokens(t);
+    // The redesign's steps a theme doesn't set are mixed from its ink, as app.css does.
     const site = {
-      bg: a.bg, panel: a.panel, raised: a.raised, chip: a.sel, line: a.line, rail: `color-mix(in srgb, ${t.fg} 20%, ${t.panel})`,
+      bg: a.bg, panel: a.panel, raised: a.raised, chip: a.sel, line: a.line, line2: a.line2 ?? `color-mix(in srgb, ${t.fg} 17%, ${t.panel})`,
+      link: a.link ?? `color-mix(in srgb, ${t.fg} 22%, ${t.bg})`, ground: a.ground ?? `color-mix(in srgb, ${t.fg} 3%, ${t.bg})`,
       fg: a.fg, muted: a.muted, faint: a.faint, accent: a.accent, 'accent-ink': a['on-accent'], 'accent-fg': a['accent-fg'],
-      trunk: a['trunk-fg'], release: a['release-fg'], add: a['add-fg'], warn: a['warn-fg'], work: a['mod-fg'], del: a['del-fg'], term: a.term,
+      add: a['add-fg'], warn: a['warn-fg'], del: a['del-fg'], term: a.term,
     };
     return `html[data-palette="${t.id}"]{${vars(site)}}\nhtml[data-palette="${t.id}"] .hd{${vars(a)}}`;
   });

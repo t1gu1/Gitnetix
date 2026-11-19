@@ -91,9 +91,9 @@ function MarkIcon({ mark }: { mark: Mark }) {
   );
 }
 
-const card = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: '16px', padding: '26px', display: 'flex', flexDirection: 'column', gap: '14px' } as const;
-const eyebrow = { margin: '0 0 12px', fontSize: '13px', letterSpacing: '.14em', color: 'var(--accent-fg)', fontWeight: '600' } as const;
-const h2 = { margin: '0', fontSize: 'clamp(30px, 4vw, 44px)', lineHeight: '1.08', letterSpacing: '-0.03em', textWrap: 'balance' } as const;
+const card = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: '3px', padding: '26px', display: 'flex', flexDirection: 'column', gap: '14px' } as const;
+const eyebrow = { margin: '0 0 14px', font: '600 12px/16px var(--sans)', letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--faint)' } as const;
+const h2 = { margin: '0', font: '600 clamp(36px, 4.6vw, 56px)/1 var(--display)', letterSpacing: '.02em', textTransform: 'uppercase', textWrap: 'balance' } as const;
 
 /** The comparison page: Gitnetix next to GitKraken, Fork and Sourcetree. Table styles live in pages/compare.astro. */
 export default function Compare() {
@@ -116,20 +116,20 @@ export default function Compare() {
   return (
     <div style={{ maxWidth: '1240px', margin: '0 auto', padding: '0 24px 40px' }}>
     {/* HERO */}
-    <section aria-labelledby="cmp-h" className="hero-glow" style={{ padding: '88px 0 56px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px' }}>
+    <section aria-labelledby="cmp-h" style={{ padding: '80px 0 56px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px' }}>
     <p style={{ ...eyebrow, margin: '0' }}>COMPARE</p>
-    <h1 id="cmp-h" style={{ margin: '0', fontSize: 'clamp(40px, 6vw, 76px)', lineHeight: '1.02', letterSpacing: '-0.035em', textWrap: 'balance', maxWidth: '940px' }}>Gitnetix, GitKraken, Fork or Sourcetree?</h1>
+    <h1 id="cmp-h" className="display" style={{ fontSize: 'clamp(48px, 6.6vw, 88px)', maxWidth: '980px' }}>Gitnetix, GitKraken, Fork or Sourcetree?</h1>
     <p style={{ margin: '0', fontSize: 'clamp(18px, 2vw, 21px)', color: 'var(--muted)', maxWidth: '700px', textWrap: 'pretty' }}>Four good desktop Git clients. Three of them draw your commit graph. Gitnetix draws your releases. Here is what each one does well, and what it costs.</p>
     <p style={{ margin: '0', fontSize: '14px', color: 'var(--faint)', maxWidth: '620px' }}>Written by the Gitnetix team, so we tried hard to be fair. Checked against each vendor's site on <time dateTime={CHECKED}>{longDate(CHECKED)}</time>.</p>
     </section>
 
     {/* THE SHORT VERSION */}
     <section aria-labelledby="short-h">
-    <h2 id="short-h" style={{ margin: '0 0 20px', fontSize: '13px', letterSpacing: '.14em', color: 'var(--faint)', fontWeight: '600' }}>THE SHORT VERSION</h2>
+    <h2 id="short-h" className="eyebrow" style={{ margin: '0 0 20px' }}>The short version</h2>
     <ul style={{ listStyle: 'none', margin: '0', padding: '0', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(260px, 100%), 1fr))', gap: '16px' }}>
     {CARDS.map((c, i) => (
-    <li key={c.name} style={{ ...card, ...(i === 0 && { borderColor: 'color-mix(in srgb,var(--accent) 55%,transparent)', boxShadow: '0 0 50px -24px color-mix(in srgb,var(--accent) 60%,transparent)' }) }}>
-    <h3 style={{ margin: '0', fontSize: '24px', letterSpacing: '-0.02em', color: i === 0 ? 'var(--accent-fg)' : 'var(--fg)' }}>{c.name}</h3>
+    <li key={c.name} style={{ ...card, ...(i === 0 && { borderColor: 'var(--fg)' }) }}>
+    <h3 style={{ margin: '0', font: '600 30px/1 var(--display)', letterSpacing: '.02em', textTransform: 'uppercase' }}>{c.name}</h3>
     <dl style={{ margin: '0', display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '6px 14px', fontSize: '15px' }}>
     <dt style={{ color: 'var(--faint)' }}>Price</dt><dd style={{ margin: '0', fontWeight: '600' }}>{c.price}</dd>
     <dt style={{ color: 'var(--faint)' }}>Runs on</dt><dd style={{ margin: '0' }}>{c.os}</dd>
@@ -172,7 +172,7 @@ export default function Compare() {
     ))}
     </table>
     </div>
-    <p style={{ margin: '16px 0 0', fontSize: '14px', color: 'var(--faint)' }}>Something wrong or out of date? <a className="muted" href={`${REPO}/issues`} style={{ textDecoration: 'underline', textUnderlineOffset: '3px' }}>Open an issue</a> and we will fix it.</p>
+    <p style={{ margin: '16px 0 0', fontSize: '14px', color: 'var(--faint)' }}>Something wrong or out of date? <a className="muted u" href={`${REPO}/issues`}>Open an issue</a> and we will fix it.</p>
     </section>
 
     {/* WHICH ONE */}
@@ -183,8 +183,8 @@ export default function Compare() {
     <p style={{ margin: '18px 0 0', fontSize: '19px', color: 'var(--muted)', textWrap: 'pretty' }}>Gitnetix is not trying to be a better commit graph. If the graph is how you think, one of the others will suit you better.</p>
     </div>
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(420px, 100%), 1fr))', gap: '18px', marginTop: '40px' }}>
-    <div style={{ ...card, padding: '30px', borderColor: 'color-mix(in srgb,var(--accent) 55%,transparent)' }}>
-    <h3 style={{ margin: '0', fontSize: '22px', color: 'var(--accent-fg)' }}>Pick Gitnetix if</h3>
+    <div style={{ ...card, padding: '30px', borderColor: 'var(--fg)' }}>
+    <h3 style={{ margin: '0', fontSize: '22px' }}>Pick Gitnetix if</h3>
     <ul style={{ listStyle: 'none', margin: '0', padding: '0', display: 'flex', flexDirection: 'column', gap: '14px' }}>
     {ours.map((o) => <li key={o} style={{ display: 'flex', gap: '12px' }}><MarkIcon mark="yes" /><span>{o}</span></li>)}
     </ul>
@@ -200,11 +200,12 @@ export default function Compare() {
 
     {/* CTA */}
     <section aria-labelledby="try-h" style={{ padding: '120px 0 80px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '22px' }}>
-    <h2 id="try-h" style={{ margin: '0', fontSize: 'clamp(36px, 5.4vw, 64px)', lineHeight: '1.04', letterSpacing: '-0.035em', textWrap: 'balance' }}>Try it on your own repo.</h2>
+    <span className="stn-main" aria-hidden="true"></span>
+    <h2 id="try-h" className="display" style={{ fontSize: 'clamp(44px, 6vw, 76px)' }}>Try it on your own repo.</h2>
     <p style={{ margin: '0', fontSize: '19px', color: 'var(--muted)' }}>Free on macOS, Windows and Linux. Keep your current client next to it.</p>
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', justifyContent: 'center', marginTop: '6px' }}>
-    <a className="btn-p" href={u('download/')} style={{ background: 'var(--accent)', color: 'var(--accent-ink)', fontWeight: '600', padding: '15px 24px', borderRadius: '12px', boxShadow: '0 8px 30px -8px color-mix(in srgb,var(--accent) 60%,transparent)' }}>Download Gitnetix</a>
-    <a className="btn-s" href={u()} style={{ fontWeight: '500', padding: '15px 22px', borderRadius: '12px', border: '1px solid var(--line)', background: 'var(--panel)' }}>See how it works</a>
+    <a className="btn-p btn-xl" href={u('download/')}>Download Gitnetix</a>
+    <a className="btn-s btn-xl" href={u()}>See how it works</a>
     </div>
     </section>
     </div>

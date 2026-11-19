@@ -1,7 +1,8 @@
 import { REPO, inline, slug, u, type Release } from '../lib/changelog';
 
+/** Hue only where the kind means it: added, removed (and security), deprecated; the rest stay neutral. */
 const COLORS: Record<string, string> = {
-  Added: 'var(--add)', Changed: 'var(--work)', Removed: 'var(--del)', Fixed: 'var(--warn)', Security: 'var(--del)', Deprecated: 'var(--warn)',
+  Added: 'var(--add)', Removed: 'var(--del)', Security: 'var(--del)', Deprecated: 'var(--warn)',
 };
 
 type Props = { r: Release; latest: boolean; heading: 'h1' | 'h2' };
@@ -17,15 +18,15 @@ export default function ReleaseCard({ r, latest, heading: H }: Props) {
   const counts = new Map<string, number>();
   for (const s of r.sections) counts.set(kind(s.label), (counts.get(kind(s.label)) ?? 0) + s.items.length);
   return (
-    <article aria-labelledby={`${id}-h`} style={{ minWidth: 0, background: 'var(--panel)', border: `1px solid ${latest ? 'color-mix(in srgb,var(--accent) 45%,transparent)' : 'var(--line)'}`, borderRadius: '16px', padding: 'clamp(20px, 3vw, 32px)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-      <H id={`${id}-h`} style={{ margin: 0, fontSize: H === 'h1' ? 'clamp(32px, 4.4vw, 52px)' : big ? 'clamp(26px, 3vw, 36px)' : '22px', lineHeight: 1.15, letterSpacing: '-0.02em', textWrap: 'balance' }}>
+    <article aria-labelledby={`${id}-h`} style={{ minWidth: 0, background: 'var(--panel)', border: `1px solid ${latest ? 'var(--line2)' : 'var(--line)'}`, borderRadius: '3px', padding: 'clamp(20px, 3vw, 32px)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      <H id={`${id}-h`} className={H === 'h1' ? 'display' : undefined} style={H === 'h1' ? { fontSize: 'clamp(40px, 5vw, 64px)' } : { margin: 0, fontSize: big ? 'clamp(24px, 2.6vw, 30px)' : '21px', fontWeight: 600, lineHeight: 1.2, letterSpacing: '-0.015em', textWrap: 'balance' }}>
         {H === 'h1' ? r.title : <a href={page}>{r.title}</a>}
       </H>
       {r.story && <p style={{ margin: 0, color: 'var(--muted)', fontSize: '17px', maxWidth: '760px', textWrap: 'pretty' }}>{r.story}</p>}
       {r.highlights.length > 0 && (
         <ul aria-label="Highlights" style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
           {r.highlights.map((h) => (
-            <li key={h} style={{ fontSize: '14px', padding: '6px 12px', borderRadius: '999px', background: 'var(--raised)', border: '1px solid var(--line)' }}>{h}</li>
+            <li key={h} className="chip">{h}</li>
           ))}
         </ul>
       )}
@@ -51,7 +52,7 @@ export default function ReleaseCard({ r, latest, heading: H }: Props) {
         </div>
       </div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 20px', fontSize: '14px' }}>
-        <a href={`${REPO}/releases/tag/v${r.version}`} style={{ color: 'var(--accent-fg)', fontWeight: 600, display: 'flex', alignItems: 'center', minHeight: '32px' }}>Download v{r.version} →</a>
+        <a href={`${REPO}/releases/tag/v${r.version}`} style={{ fontWeight: 600, display: 'flex', alignItems: 'center', minHeight: '32px' }}>Download v{r.version} →</a>
         {H === 'h2' && <a className="faint" href={page} style={{ display: 'flex', alignItems: 'center', minHeight: '32px' }}>Release page</a>}
       </div>
     </article>
