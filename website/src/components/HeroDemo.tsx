@@ -1191,8 +1191,8 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
                   // Its Clean up as the toggle's right side: one control.
                   <span className="map-toggle-split">
                     {toggleBtn('behind', 'Falling behind', layout.counts.behind)}
-                    <button className="map-clean" title={`Pick which of the ${branches(staleLeft.length)} falling behind to delete`} onClick={() => (remove(staleLeft.map((x) => x.name)), flash(`Deleted ${branches(staleLeft.length)} falling behind`))}>
-                      Clean up
+                    <button className="map-clean" aria-label={`Pick which of the ${branches(staleLeft.length)} falling behind to delete`} title={`Pick which of the ${branches(staleLeft.length)} falling behind to delete`} onClick={() => (remove(staleLeft.map((x) => x.name)), flash(`Deleted ${branches(staleLeft.length)} falling behind`))}>
+                      <Icon name="brush" size={12} />
                     </button>
                   </span>
                 ) : (

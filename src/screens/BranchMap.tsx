@@ -904,7 +904,7 @@ export function BranchMap({
             // Its Clean up as the toggle's right side: one control.
             <span className="map-toggle-split">
               {toggleBtn("behind", "Falling behind", layout.counts.behind)}
-              <CleanupButton left={cleanupLeft("behind")} text="Clean up" title={`Pick which of the ${branches(staleLeft.length)} falling behind to delete`} onClick={() => onCleanupBehind("behind", "their base", staleLeft)} />
+              <CleanupButton left={cleanupLeft("behind")} title={`Pick which of the ${branches(staleLeft.length)} falling behind to delete`} onClick={() => onCleanupBehind("behind", "their base", staleLeft)} />
             </span>
           ) : (
             toggleBtn("behind", "Falling behind", layout.counts.behind)
