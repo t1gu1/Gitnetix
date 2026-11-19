@@ -465,13 +465,13 @@ export function useAgentOf(pid: string) {
   };
 }
 
-/** Tags naming a branch's place: the default branch, the one checked out, a release's kind, and where it lives. */
+/** Tags naming a branch's place: the one checked out, the default branch (unless checked out), a release's kind, and where it lives. */
 export function BranchTags({ o, b }: { o: Overview; b: BranchView }) {
   const rel = b.role === "release" ? o.releases.find((r) => r.open && r.branch === b.name) : undefined;
   return (
     <>
       {b.name === o.currentBranch && <span className="tag inv">Checked out</span>}
-      {b.name === o.defaultBranch && <span className="tag">Default</span>}
+      {b.name === o.defaultBranch && b.name !== o.currentBranch && <span className="tag">Default</span>}
       {rel && <span className={rel.tag === "next" ? "tag inv" : "tag"}>{releaseTagLabel(rel.tag)}</span>}
       {b.likelyMerged && <span className="tag" title="A pull request carrying its ticket went into its base after its last commit. Not proof: it is never cleaned up as merged.">likely merged</span>}
       {b.local && !b.remote && b.exists && o.remote && <span className="tag" title={`${b.name} doesn't exist on origin. Push it to share it.`}>local</span>}
@@ -1473,7 +1473,7 @@ function TileView({
               <span className="map-name mono ellipsis">{marked(b.role === "branch" && b.kind ? b.short : b.name, q, hitAt)}</span>
             </>
           )}
-          {trunk && <span className="tag">Default</span>}
+          {trunk && !current && <span className="tag">Default</span>}
           {rel && <span className={rel.tag === "next" ? "tag inv" : "tag"}>{releaseTagLabel(rel.tag)}</span>}
           {current && <span className="tag inv">Checked out</span>}
         </span>
