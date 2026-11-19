@@ -352,8 +352,8 @@ function layoutMap(o: Overview, prefs: Pick<MapPrefs, "who" | "merged" | "behind
     shippedEarlier,
     shippedLeft: [...fam.shipped.values()].filter((b) => b.exists),
     trunkTop: trunk && shippedAt.length ? shippedAt[0].y : trunkAnchor,
-    // The spine runs the map's whole height, past the default branch's own block.
-    trunkEnd: trunk ? Math.max(trunkAnchor + 40, trunk.y + blockH(trunk.b) + 24, Math.max(TOP, ...bottom.filter((n) => n !== undefined))) : trunkAnchor,
+    // The spine ends just under the default branch's own block (its commits, merged branches), not the map's bottom.
+    trunkEnd: trunk ? Math.max(trunkAnchor + 40, trunk.y + blockH(trunk.b) + 24) : trunkAnchor,
     parent: fam.parent,
     kids: fam.kids,
     stale,
@@ -1028,7 +1028,7 @@ export function BranchMap({
               ))}
 
               <svg className="map-edges" width={W} height={H} aria-hidden>
-                {/* The trunk: one hairline down through the shipped releases, the default branch and its merged branches. */}
+                {/* The trunk: one hairline down through the shipped releases and the default branch, ending under its commits and merged branches. */}
                 {trunk && <path className="map-trunk-line" d={`M${TRUNK_X} ${layout.trunkTop}V${layout.trunkEnd}`} />}
                 {/* Its end: a short 45° tick, top left to bottom right. */}
                 {trunk && <path className="map-trunk-line" d={`M${TRUNK_X - 10} ${layout.trunkEnd - 10}l20 20`} />}
