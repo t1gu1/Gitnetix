@@ -14,6 +14,8 @@ the in-app update prompt.
 
 ## [Unreleased]
 
+## [0.25.0] - 2026-11-18
+
 ### Added (App)
 - The branch map search matches branch names, tag names, and commit subjects. It steps through the matches and unfolds the tile or release that holds each one.
 - Each shipped release on the branch map unfolds into the commits it shipped.
