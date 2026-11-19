@@ -1475,7 +1475,6 @@ function TileView({
           )}
           {trunk && !current && <span className="tag">Default</span>}
           {rel && <span className={rel.tag === "next" ? "tag inv" : "tag"}>{releaseTagLabel(rel.tag)}</span>}
-          {current && <span className="tag inv">Checked out</span>}
         </span>
         <span className="map-info">
           {info.map((x, i) => (

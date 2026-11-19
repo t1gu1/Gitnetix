@@ -14,6 +14,10 @@ the in-app update prompt.
 
 ## [Unreleased]
 
+### Fixed (App)
+- The branch map's box no longer shows a "Checked out" tag. The tag stays on the branch's list and the map's Checked out row.
+- On a version's box, its tags sit centred on the version, as the branch name's tags do.
+
 ## [0.26.1] - 2026-11-19
 
 ### Added (App)

@@ -2251,6 +2251,11 @@ body.resizing .term {
 .map-row > .tag {
   flex: none;
 }
+/* The version's 30px Antonio sits 2px below its line box's centre: the tags move down to centre on the glyphs. */
+.map-row:has(> .map-ver) > .tag {
+  position: relative;
+  top: 2px;
+}
 .map-kind {
   flex: none;
   font-size: 11px;
