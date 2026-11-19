@@ -70,7 +70,7 @@ const PATHS: Record<string, { d: string[]; fill?: boolean; circles?: [number, nu
   minimize: { d: ["M13.5 2.5L9.5 6.5M9.5 3v3.5H13M2.5 13.5l4-4M6.5 13V9.5H3"] },
 };
 
-export function Icon({ name, size = 14, stroke = 1.5, className, label }: { name: keyof typeof PATHS | string; size?: number; stroke?: number; className?: string; label?: string }) {
+export function Icon({ name, size = 14, stroke = 1.25, className, label }: { name: keyof typeof PATHS | string; size?: number; stroke?: number; className?: string; label?: string }) {
   const p = PATHS[name] ?? PATHS.plus;
   return (
     <svg

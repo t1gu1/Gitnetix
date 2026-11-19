@@ -244,7 +244,7 @@ export function TopBar() {
           aria-current={wt ? "page" : undefined}
           onClick={() => nav.go({ name: "worktrees" })}
         >
-          <Icon name="layers" size={16} />
+          <Icon name="layers" size={18} />
         </button>
         <nav
           ref={bar}
@@ -328,6 +328,9 @@ export function TopBar() {
           </button>
         </nav>
         <div className="hdr-tools">
+          <button className="hdr-gear hide-narrow" aria-label="Settings" data-tip={`Settings (${showKeys(keys.settings)})`} onClick={() => nav.go({ name: "menu" })}>
+            <Icon name="gear" size={16} />
+          </button>
           <ProfileButton />
         </div>
       </header>

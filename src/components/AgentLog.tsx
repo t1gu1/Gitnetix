@@ -9,7 +9,7 @@ import { OwnMic } from "../lib/dictation";
 import { bytes, clock, plural } from "../lib/format";
 import { copyToClipboard, toast } from "../lib/toast";
 import { AudioPlayer, isAudio } from "./AudioPlayer";
-import { Avatar } from "./Avatar";
+import { ProfileAvatar } from "./Profiles";
 import { DiffView } from "./DiffView";
 import { Icon } from "./Icon";
 import { IMAGE_MODES, ImageDiff, comparable, dataUrl, isImage, useImageMode } from "./ImageDiff";
@@ -41,11 +41,10 @@ const Steps = memo(function Steps({ lines, open }: { lines: LogLine[]; open: boo
   );
 }, (a, b) => a.open === b.open && same(a.lines, b.lines));
 
-/** Who "you" are: the profile's Git identity. */
+/** Who "you" are: the active profile. */
 function useMe() {
   const c = useConfig().data;
-  const prof = c?.profiles[0];
-  return { name: prof?.name || c?.integrations.githubUser || "You", email: prof?.email };
+  return c?.userProfiles.find((p) => p.id === c.activeProfile);
 }
 
 // Claude's starburst: rays of alternating length around the centre.
@@ -561,7 +560,7 @@ export function AgentLog({ lines, empty, picks, onPicks, actions, thinking, work
           return (
             <div key={i} ref={b === task ? first : undefined} className="ag-you">
               <div className="ag-you-row">
-                <Avatar name={me.name} email={me.email} size={22} />
+                <ProfileAvatar profile={me} size={22} />
                 <div className="ag-bubble">
                   <Said b={b} session={session} />
                 </div>
@@ -626,7 +625,7 @@ export function AgentLog({ lines, empty, picks, onPicks, actions, thinking, work
       } else if (i >= from) out.push(one(list[i], i, opens.has(i)));
     }
     return out;
-  }, [list, fold, from, task, opens, mark, me.name, me.email, session, canRetry, held]);
+  }, [list, fold, from, task, opens, mark, me, session, canRetry, held]);
   return (
     <div
       ref={ref}
@@ -643,7 +642,7 @@ export function AgentLog({ lines, empty, picks, onPicks, actions, thinking, work
         <div className="ag-task">
           <div className="ag-task-card">
             <button type="button" className="ag-task-bar" aria-expanded={peek} data-tip={peek ? "Fold" : "Read the whole task"} onClick={() => setPeek(!peek)}>
-              <Avatar name={me.name} email={me.email} size={18} />
+              <ProfileAvatar profile={me} size={18} />
               <span className="ag-task-label">Task</span>
               <span className="ellipsis grow">{!peek && (task.text || task.files.join(", "))}</span>
               <Icon name={peek ? "chevronUp" : "chevronDown"} size={12} />
@@ -683,7 +682,7 @@ export function AgentLog({ lines, empty, picks, onPicks, actions, thinking, work
       {queued.map((t, i) => (
         <div key={i} className="ag-you ag-queued">
           <div className="ag-you-row">
-            <Avatar name={me.name} email={me.email} size={22} />
+            <ProfileAvatar profile={me} size={22} />
             <div className="ag-bubble">
               <Said b={said(t)} session={session} />
             </div>
@@ -1366,22 +1365,26 @@ export function AgentInput({ id, label, value, onChange, files, onFiles, picks, 
           }}
           placeholder={placeholder}
         />
+        {/* Under the text: attach and dictate, the model, then the action. */}
         <div className="term-tools">
-          <button type="button" className="btn btn-ghost term-attach" aria-label="Attach files" data-tip="Attach files or images" disabled={disabled} onClick={() => chooser.current?.click()}>
+          <button type="button" className="btn btn-ghost btn-icon term-attach" aria-label="Attach files" data-tip="Attach files or images" disabled={disabled} onClick={() => chooser.current?.click()}>
             <Icon name="attach" size={14} />
           </button>
           <OwnMic field={input} disabled={disabled} />
+          {picker}
+          <span className="grow" />
+          {onStop && !typed ? (
+            <button type="button" className="btn btn-danger term-send" aria-label="Stop the agent" data-tip="Stop" onClick={onStop}>
+              <Icon name="stop" size={14} />
+              Stop
+            </button>
+          ) : (
+            <button type="submit" className="btn btn-primary term-send" aria-label={onStop ? "Queue the message" : "Send"} data-tip={onStop ? "Queue · sends when the agent finishes" : "Send · Shift+Enter for a new line"} disabled={!ready}>
+              {pending ? <span className="spinner" /> : <Icon name="send" size={14} />}
+              {onStop ? "Queue" : "Send"}
+            </button>
+          )}
         </div>
-        {picker}
-        {onStop && !typed ? (
-          <button type="button" className="btn btn-danger term-send" aria-label="Stop the agent" data-tip="Stop" onClick={onStop}>
-            <Icon name="stop" size={16} />
-          </button>
-        ) : (
-          <button type="submit" className="btn btn-primary term-send" aria-label={onStop ? "Queue the message" : "Send"} data-tip={onStop ? "Queue · sends when the agent finishes" : "Send · Shift+Enter for a new line"} disabled={!ready}>
-            {pending ? <span className="spinner" /> : <Icon name="send" size={20} />}
-          </button>
-        )}
       </div>
       {over && (
         <div className="ag-drop" aria-hidden="true">

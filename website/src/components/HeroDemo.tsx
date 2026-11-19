@@ -7,7 +7,7 @@ import { kindOfBranch } from '../../../src/lib/kinds';
 import { otherMode, resolveTheme } from '../../../src/lib/themes';
 import Analytics from './demo/Analytics';
 import { AgentInput, AgentLog, AgentPicker, FinishCard, ME, TRY, keyOf, pathOf, shown, useAgents, type Ai, type Pick } from './demo/agents';
-import { BEHIND_LIMIT, CARD_ROOM, MapLayer, MapLegend, MiniMap, PREFS, branches, layoutMap, lineageOf, onMap, type AgentInfo, type MapHandlers, type MapPrefs, type Shipped } from './demo/BranchMap';
+import { BEHIND_LIMIT, CARD_ROOM, MapLayer, MapLegend, PREFS, branches, layoutMap, lineageOf, onMap, type AgentInfo, type MapHandlers, type MapPrefs, type Shipped } from './demo/BranchMap';
 import PullRequests from './demo/PullRequests';
 import ReleaseNotes from './demo/ReleaseNotes';
 import Submodules from './demo/Submodules';
@@ -1243,7 +1243,6 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
                 </div>
                 <MapLegend />
                 {card}
-                <MiniMap layout={layout} shown={shownSel} canvas={canvas} zoom={zoom} />
               </div>
             </section>
           ) : (

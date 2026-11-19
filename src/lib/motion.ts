@@ -9,7 +9,6 @@ import type { Config } from "../api/types";
 export const ANIMATIONS: { id: string; label: string; hint: string }[] = [
   { id: "path", label: "Branch path pulse", hint: "The streak running down the checked-out branch's line on the branch map" },
   { id: "shine", label: "Current branch shine", hint: "The light sweeping over the checked-out branch's name on the branch map, and over project names while the worktree list loads, and the colours flowing through the new agent session's project and branch names" },
-  { id: "commit", label: "New commit pop", hint: "A branch's commit count popping and glowing on the branch map when it gets a new commit" },
   { id: "nudge", label: "Push button nudge", hint: "The push button wiggling while commits wait to be pushed" },
   { id: "wip", label: "WIP badge pulse", hint: "The WIP badge fading in and out while files have uncommitted changes" },
   { id: "activity", label: "Activity pulse", hint: "The dot pulsing next to running agents, AI work and checks, and a branch's AI working and waiting labels" },

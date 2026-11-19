@@ -574,8 +574,8 @@ function chunked(rows: ReactElement[]) {
   for (let i = 0, start = 0, n = 0; i < rows.length; i++) {
     n++;
     if (n < CHUNK && i < rows.length - 1) continue;
-    // Rows are 21px (the .diff line-height) until wrapped; `auto` keeps the real size once seen.
-    out.push(<div key={start} className="diff-chunk" style={{ containIntrinsicBlockSize: `auto ${n * 21}px` }}>{rows.slice(start, i + 1)}</div>);
+    // Rows are 20px (the .diff line-height) until wrapped; `auto` keeps the real size once seen.
+    out.push(<div key={start} className="diff-chunk" style={{ containIntrinsicBlockSize: `auto ${n * 20}px` }}>{rows.slice(start, i + 1)}</div>);
     start = i + 1;
     n = 0;
   }

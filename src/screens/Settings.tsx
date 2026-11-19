@@ -70,7 +70,7 @@ function Appearance() {
     <>
       <div className="col page-intro" style={{ gap: 6 }}>
         <h1>Appearance</h1>
-        <p className="muted" style={{ margin: 0 }}>For every project. System follows your computer's light or dark mode, in Tokyo Night Storm or Day.</p>
+        <p className="muted" style={{ margin: 0 }}>For every project. System follows your computer's light or dark mode, in Gitnetix Black &amp; White or its light version.</p>
       </div>
       <ThemeChoices />
     </>

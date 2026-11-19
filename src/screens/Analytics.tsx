@@ -163,7 +163,7 @@ function Body({ a, multi, by, busy, onDay }: { a: A; multi: boolean; by: string 
       <section aria-label="Key figures" className="kpis">
         {a.kpis.map((k) => (
           <div key={k.label} className="kpi">
-            <span className="muted" style={{ fontSize: 12 }}>{k.label}</span>
+            <span className="label">{k.label}</span>
             <span className="v">{k.value}</span>
             <span className="faint" style={{ fontSize: 12 }}>{k.delta}</span>
           </div>

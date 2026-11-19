@@ -1,5 +1,6 @@
-/* Gitnetix — tokens and components, ported from the design canvas. */
+/* Gitnetix: tokens and components. The look is DESIGN.md's (slate, hairlines, white controls); every theme fills these tokens. */
 
+/* Gitnetix Dark's palette. Other themes replace it through src/lib/themes.ts. */
 :root,
 .ag {
   --bg: #0e0f11;
@@ -24,33 +25,41 @@
   --prop-fg: #5fd0e0;
   --hunk-bg: rgba(134, 174, 255, 0.08);
   --term: #0b0c0e;
-  --shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
-  /* Floating layers: a tight contact shadow under a wide soft one. */
-  --shadow-pop: 0 1px 2px rgba(0, 0, 0, 0.4), 0 10px 28px -6px rgba(0, 0, 0, 0.55);
-  --shadow-lg: 0 2px 6px rgba(0, 0, 0, 0.35), 0 24px 64px -12px rgba(0, 0, 0, 0.7);
-  /* Focused fields: a soft accent halo that fades out from the border, no hard band. */
-  --ring-alpha: 40%;
-  --ring: 0 0 8px color-mix(in srgb, var(--accent) var(--ring-alpha), transparent);
+  /* The redesign's steps, mixed from the palette (a theme's `own` tokens set them exactly): the strong hairline (card and
+     control borders), the map's dim links, the canvas top, the route to the checkout. */
+  --line2: color-mix(in srgb, var(--fg) 17%, var(--panel));
+  --link: color-mix(in srgb, var(--fg) 22%, var(--bg));
+  --ground: color-mix(in srgb, var(--fg) 3%, var(--bg));
+  --route: var(--fg);
+  /* Agent working: the four old role hues, kept for that one signal (DESIGN.md, the Agent Working Rule). */
+  --g1: var(--trunk-fg);
+  --g2: var(--release-fg);
+  --g3: var(--prop-fg);
+  --g4: var(--add-fg);
+  /* Floating layers only (menus, popovers, toasts): one soft shadow under a hairline. Resting surfaces have none. */
+  --shadow: 0 12px 32px -8px rgba(0, 0, 0, 0.6);
+  --shadow-pop: var(--shadow);
+  --shadow-lg: var(--shadow);
+  /* No halo around focused fields: their border turns ink. */
+  --ring: 0 0 0 0 transparent;
   --scrim: rgba(5, 6, 8, 0.55);
-  --sans: "Instrument Sans", "Helvetica Neue", system-ui, sans-serif;
+  --sans: "Inter Variable", "Inter", system-ui, sans-serif;
   --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --display: "Antonio", "Inter Variable", sans-serif;
   color-scheme: dark;
 }
 :root {
-  --r-sm: 4px;
-  --r: 6px;
-  --r-lg: 10px;
-  /* Motion: quick for hover and press, a touch longer for things that appear. */
-  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --r-sm: 2px;
+  --r: 3px;
+  --r-lg: 3px;
+  /* Motion: short and hard, ease-out, never a spring. */
+  --ease: cubic-bezier(0.2, 0, 0, 1);
   --ease-in: cubic-bezier(0.4, 0, 1, 1);
-  --ease-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
-  /* The menu drawer: fast out of the gate, long gentle landing. */
-  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
   --t-fast: 0.12s;
-  --t: 0.2s;
-  --t-slow: 0.32s;
-  /* A ticked checkbox's tick: --on-accent, the same in both themes. */
-  --tick: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M2 5.2 4.1 7.3 8 2.9' fill='none' stroke='%231b1205' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  --t: 0.16s;
+  --t-slow: 0.2s;
+  /* A ticked box's tick, on its ink fill: dark on a dark theme's light ink (light themes get a white one). */
+  --tick: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M2 5.2 4.1 7.3 8 2.9' fill='none' stroke='%230a0d12' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }
 
 /* Light rules with Gitnetix's own hues carry :not([data-palette]), so the other themes (src/lib/themes.ts) keep theirs. */
@@ -78,10 +87,8 @@
   --prop-fg: #0e7490;
   --hunk-bg: #eef2fb;
   --term: #fafaf8;
-  --shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
-  --shadow-pop: 0 1px 2px rgba(20, 20, 30, 0.08), 0 10px 28px -6px rgba(20, 20, 30, 0.18);
-  --shadow-lg: 0 2px 6px rgba(20, 20, 30, 0.08), 0 24px 64px -12px rgba(20, 20, 30, 0.28);
-  --ring-alpha: 50%;
+  --shadow: 0 12px 32px -8px rgba(15, 20, 30, 0.18);
+  --tick: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M2 5.2 4.1 7.3 8 2.9' fill='none' stroke='%23fff' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   --scrim: rgba(30, 30, 36, 0.32);
   color-scheme: light;
 }
@@ -100,6 +107,8 @@ body {
   color: var(--fg);
   font-family: var(--sans);
   font-size: 13px;
+  line-height: 18px;
+  font-variant-numeric: tabular-nums;
   -webkit-font-smoothing: antialiased;
   overflow: hidden;
   touch-action: manipulation;
@@ -125,13 +134,16 @@ a:hover {
   color: var(--fg);
 }
 :focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
+  outline: 1px solid var(--fg);
+  outline-offset: 2px;
 }
 ::selection {
-  background: color-mix(in srgb, var(--accent) 34%, transparent);
+  background: color-mix(in srgb, var(--fg) 22%, transparent);
 }
-/* Thin rounded scrollbars that sit on the surface instead of the OS's grey gutter. */
+* {
+  caret-color: var(--fg);
+}
+/* Thin scrollbars that sit on the surface instead of the OS's grey gutter. */
 * {
   scrollbar-width: thin;
   scrollbar-color: color-mix(in srgb, var(--fg) 18%, transparent) transparent;
@@ -146,7 +158,7 @@ a:hover {
 }
 ::-webkit-scrollbar-thumb {
   border: 3px solid transparent;
-  border-radius: 999px;
+  border-radius: var(--r);
   background: color-mix(in srgb, var(--fg) 16%, transparent) padding-box;
 }
 ::-webkit-scrollbar-thumb:hover {
@@ -209,12 +221,13 @@ a:hover {
 }
 /* Endless animations step on one shared tick, 12 a second: durations in whole ticks, steps() counted per keyframe segment, starts aligned by usePauseWhenIdle.
    Smooth, or each on its own beat, they kept WebKitGTK drawing every frame (144 a second on fast screens) and typing lagged. */
+/* Agent activity: a dot that blinks in two hard steps, no smooth pulse. */
 .pulse {
   width: 6px;
   height: 6px;
-  border-radius: var(--r-sm);
-  background: var(--accent);
-  animation: agpulse 1.5s steps(9) infinite;
+  border-radius: 50%;
+  background: var(--fg);
+  animation: agpulse 1.5s steps(2, jump-none) infinite;
   flex: 0 0 6px;
 }
 /* A branch's agent label ("AI working", "waiting") fades in and out with the dot, softer than it: text stays readable. */
@@ -267,8 +280,8 @@ a:hover {
 .hdr {
   display: flex;
   align-items: stretch;
-  height: 44px;
-  flex: 0 0 44px;
+  height: 40px;
+  flex: 0 0 40px;
   border-top: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
   background: var(--bg);
@@ -278,15 +291,15 @@ a:hover {
   border-top: 0;
 }
 .empty > .spinner {
-  color: var(--accent);
+  color: var(--muted);
 }
 .hdr-icon {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 48px;
-  flex: 0 0 48px;
-  color: var(--fg);
+  width: 52px;
+  flex: 0 0 52px;
+  color: var(--muted);
   border: 0;
   border-right: 1px solid var(--line);
   background: transparent;
@@ -319,6 +332,7 @@ a:hover {
 /* The profile button is a flush full-height square: drop the padding, re-space whatever precedes it. */
 .hdr-tools:has(> .profile-btn) {
   padding: 0;
+  gap: 0;
 }
 .hdr-tools:has(> .profile-btn) > :first-child:not(.profile-btn) {
   margin-left: 12px;
@@ -339,14 +353,29 @@ a:hover {
 .profile-btn[aria-expanded="true"] {
   background: var(--raised);
 }
+/* Settings, a flush full-height cell before the profile button. */
+.hdr-gear {
+  align-self: stretch;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  flex: none;
+  padding: 0;
+  border: 0;
+  border-left: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+}
+.hdr-gear:hover {
+  background: var(--raised);
+  color: var(--fg);
+}
 /* Hover shows a ring only: scaling the avatar to a fractional size knocks its emoji off center in WebKit. */
 .profile-btn > .profile-avatar {
   transition: box-shadow var(--t-fast) var(--ease);
 }
 .profile-btn:is(:hover, [aria-expanded="true"]) > .profile-avatar {
-  box-shadow:
-    inset 0 0 0 1px color-mix(in srgb, var(--p-color) 55%, transparent),
-    0 0 0 3px color-mix(in srgb, var(--p-color) 24%, transparent);
+  box-shadow: inset 0 0 0 1px var(--fg);
 }
 
 /* A profile's picture (Profiles.tsx): its emoji, or the default silhouette, on a disc of its color. */
@@ -365,14 +394,14 @@ a:hover {
   place-items: center;
   overflow: hidden;
   border-radius: 50%;
-  background: linear-gradient(160deg, color-mix(in srgb, var(--p-color) 36%, var(--raised)), color-mix(in srgb, var(--p-color) 14%, var(--raised)));
+  background: color-mix(in srgb, var(--p-color) 26%, var(--raised));
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--p-color) 50%, transparent);
   color: color-mix(in srgb, var(--p-color) 88%, #fff);
   line-height: 1;
   user-select: none;
 }
 [data-theme="light"] .profile-avatar {
-  background: linear-gradient(160deg, color-mix(in srgb, var(--p-color) 34%, var(--panel)), color-mix(in srgb, var(--p-color) 14%, var(--panel)));
+  background: color-mix(in srgb, var(--p-color) 24%, var(--panel));
   color: color-mix(in srgb, var(--p-color) 72%, #000);
 }
 .profile-avatar > svg {
@@ -392,19 +421,19 @@ a:hover {
   scrollbar-width: none;
   border-right: 1px solid var(--line);
 }
+/* Repo tabs: split by hairlines; the open one ink with a 2px ink rule under it. */
 .tab-project {
   position: relative;
   display: flex;
   align-items: stretch;
   border-right: 1px solid var(--line);
   color: var(--muted);
-  transition: transform 0.45s cubic-bezier(0.34, 1.56, 0.64, 1);
+  font-weight: 500;
+  transition: transform var(--t-slow) var(--ease);
 }
 .tab-project[data-active] {
-  background: var(--panel);
   color: var(--fg);
-  font-weight: 500;
-  box-shadow: inset 0 -2px 0 var(--accent);
+  box-shadow: inset 0 -2px 0 var(--fg);
 }
 .tab-project-open {
   display: flex;
@@ -412,13 +441,16 @@ a:hover {
   user-select: none;
   align-items: center;
   gap: 8px;
-  padding: 0 4px 1px 16px;
+  padding: 0 4px 0 16px;
   border: 0;
   background: transparent;
   color: inherit;
   font-weight: inherit;
   white-space: nowrap;
   font-size: 13px;
+}
+.tab-project-open > .pulse {
+  margin-right: 2px;
 }
 .tab-project-close {
   display: flex;
@@ -429,8 +461,7 @@ a:hover {
   margin-right: 4px;
   border: 0;
   background: transparent;
-  color: var(--muted);
-  opacity: 0.5;
+  color: var(--faint);
 }
 .tab-project:hover .tab-project-close,
 .tab-project-close:focus-visible {
@@ -447,36 +478,24 @@ a:hover {
   visibility: hidden;
 }
 .tab-project[data-landed] {
-  animation: tab-land 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+  animation: tab-land var(--t-slow) var(--ease);
 }
 .tab-project.tab-ghost {
   position: fixed;
   z-index: 1000;
   pointer-events: none;
-  border: 1px solid var(--line);
+  border: 1px solid var(--line2);
   border-radius: var(--r);
   background: var(--panel);
   color: var(--fg);
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.28);
-  animation: tab-pop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  box-shadow: var(--shadow);
 }
 .tab-ghost .tab-project-close {
   opacity: 1;
 }
-@keyframes tab-pop {
-  from {
-    transform: scale(1.18, 0.88);
-  }
-  to {
-    transform: scale(1.06) rotate(-2deg);
-  }
-}
 @keyframes tab-land {
   from {
-    transform: scale(1.06);
-  }
-  to {
-    transform: none;
+    opacity: 0.6;
   }
 }
 body.dragging-tab,
@@ -496,10 +515,10 @@ body.dragging-tab * {
   align-items: stretch;
   flex: 0 0 40px;
   height: 40px;
-  padding: 0 8px 0 0;
-  gap: 2px;
+  padding: 0 8px;
+  gap: 0;
   border-bottom: 1px solid var(--line);
-  background: var(--panel);
+  background: var(--bg);
   overflow-x: auto;
   scrollbar-width: none;
 }
@@ -507,33 +526,27 @@ body.dragging-tab * {
 .tabs-pages[hidden] {
   display: none;
 }
+/* Section tabs: words only (their icons are for the phone's tab bar), muted; the open one ink over a 2px ink rule. */
 .tab-page {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
   padding: 0 12px;
   border: 0;
   background: transparent;
   color: var(--muted);
   white-space: nowrap;
-  font-size: 12.5px;
-  box-shadow: inset 0 -2px 0 transparent;
+  font-size: 13px;
+  font-weight: 500;
+}
+.tab-page > svg {
+  display: none;
 }
 .tab-page:hover {
   color: var(--fg);
 }
 .tab-page[aria-current="page"] {
   color: var(--fg);
-  font-weight: 600;
-}
-.tab-page svg {
-  transition: color var(--t-fast) var(--ease), transform var(--t) var(--ease-spring);
-}
-.tab-page:hover:not([aria-current="page"]) svg {
-  transform: translateY(-1px);
-}
-.tab-page[aria-current="page"] svg {
-  color: var(--accent-fg);
 }
 /* Placed over the current page's tab by TopBar; draws its underline and slides with it. */
 .tabs-ink {
@@ -548,13 +561,11 @@ body.dragging-tab * {
 .tabs-ink::after {
   content: "";
   position: absolute;
-  left: 6px;
-  right: 6px;
+  left: 0;
+  right: 0;
   bottom: 0;
   height: 2px;
-  border-radius: 2px 2px 0 0;
-  background: var(--accent);
-  box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 55%, transparent);
+  background: var(--fg);
 }
 /* Stacks the label over a hidden bold copy so the bold width is always reserved. */
 .fixed-w {
@@ -580,12 +591,11 @@ body.dragging-tab * {
 }
 /* A page fades up into place when opened (and when its project's tab comes back). */
 .app-main > :not(.hdr, .tabs-pages, .menu-overlay) {
-  animation: page-in 0.3s var(--ease);
+  animation: page-in var(--t) var(--ease);
 }
 @keyframes page-in {
   from {
     opacity: 0;
-    transform: translateY(6px);
   }
 }
 .scroll {
@@ -594,69 +604,68 @@ body.dragging-tab * {
 }
 
 /* ---------- controls ---------- */
+/* Buttons speak in the Button type: small tracked capitals. Secondary is a hairline outline; primary is the one solid
+   control colour (white in the Gitnetix themes). Small ones (.btn-sm) are toolbar toggles: sentence case. */
 .btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  height: 32px;
-  padding: 0 12px;
-  border: 1px solid var(--line);
+  gap: 8px;
+  height: 30px;
+  padding: 0 14px;
+  border: 1px solid var(--line2);
   border-radius: var(--r);
-  background: var(--panel);
+  background: transparent;
   color: var(--fg);
   white-space: nowrap;
   text-decoration: none;
-  font-size: 12.5px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  line-height: 13px;
+  text-transform: uppercase;
   transition:
     background-color var(--t-fast) var(--ease),
     border-color var(--t-fast) var(--ease),
     color var(--t-fast) var(--ease),
-    box-shadow var(--t) var(--ease),
     transform var(--t-fast) var(--ease);
 }
 .btn:hover:not(:disabled) {
   background: var(--raised);
-  border-color: color-mix(in srgb, var(--line), var(--fg) 12%);
   color: var(--fg);
 }
-/* Pressed: the button gives a pixel under the finger; icon buttons squeeze a little. */
-.btn:active:not(:disabled) {
-  transform: translateY(1px);
+.btn:disabled {
+  opacity: 0.4;
 }
+/* Icons keep their size in a tight button: the label gives way, never the glyph. */
+.btn > svg {
+  flex-shrink: 0;
+}
+/* Pressed: the button gives a pixel under the finger. */
+.btn:active:not(:disabled),
 .btn-icon:active:not(:disabled),
 .act:active:not(:disabled) {
-  transform: scale(0.92);
+  transform: translateY(1px);
 }
 .btn-raised {
   background: var(--raised);
-  font-weight: 500;
 }
-/* A faint top light over the accent fill, and a soft accent glow on hover. */
 .btn-primary {
-  border: 0;
-  background-color: var(--accent);
-  background-image: linear-gradient(rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0));
+  border-color: var(--accent);
+  background: var(--accent);
   color: var(--on-accent);
-  font-weight: 600;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.22),
-    0 1px 2px rgba(0, 0, 0, 0.22);
 }
 .btn-primary:hover:not(:disabled) {
-  background-color: var(--accent-fg);
+  border-color: color-mix(in srgb, var(--accent) 92%, var(--bg));
+  background: color-mix(in srgb, var(--accent) 92%, var(--bg));
   color: var(--on-accent);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.26),
-    0 1px 2px rgba(0, 0, 0, 0.22),
-    0 6px 18px -6px color-mix(in srgb, var(--accent) 70%, transparent);
 }
+/* Not ready yet: the secondary outline with a faint label, not a washed-out fill. */
 .btn-primary:disabled {
-  box-shadow: none;
-}
-/* Light mode: --accent-fg matches the fill, so the hover deepens it a touch instead. */
-[data-theme="light"]:not([data-palette]) .btn-primary:hover:not(:disabled) {
-  background-color: #f2a940;
+  opacity: 1;
+  border-color: var(--line2);
+  background: transparent;
+  color: var(--faint);
 }
 .btn-ghost {
   border-color: transparent;
@@ -668,60 +677,50 @@ body.dragging-tab * {
   background: var(--raised);
   color: var(--fg);
 }
-/* Secondary button tinted with the theme accent. Text stays --fg: the light theme's accent is too pale for text on white. */
-.btn-tint {
-  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
-}
-.btn-tint:hover:not(:disabled) {
-  border-color: color-mix(in srgb, var(--accent) 70%, transparent);
-  background: color-mix(in srgb, var(--accent) 24%, transparent);
-}
-.btn-danger {
+/* Destructive: the secondary shape in the delete colour, never a red fill. */
+.btn-danger,
+.btn.btn-danger:hover:not(:disabled) {
   color: var(--del-fg);
 }
-/* Solid red, one shade for both themes: white text stays readable on it. Ghost icon buttons keep the red text only. */
-.btn.btn-danger:not(.btn-ghost) {
-  border-color: transparent;
-  background-color: #d23a31;
-  background-image: linear-gradient(rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0));
-  color: #fff;
-  font-weight: 600;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.16),
-    0 1px 2px rgba(0, 0, 0, 0.22);
-}
-.btn.btn-danger:not(.btn-ghost):hover:not(:disabled) {
-  border-color: transparent;
-  background-color: #b8302a;
-  color: #fff;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.16),
-    0 6px 18px -6px rgba(210, 58, 49, 0.6);
-}
 .btn-lg {
-  height: 40px;
+  height: 36px;
   padding: 0 18px;
-  font-size: 13px;
 }
 .btn-md {
-  height: 36px;
-  padding: 0 16px;
-  font-size: 13px;
+  height: 30px;
+  padding: 0 14px;
 }
 .btn-sm {
-  height: 26px;
-  padding: 0 8px;
+  height: 28px;
+  padding: 0 10px;
+  gap: 6px;
   font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
+  line-height: 18px;
+  text-transform: none;
+  color: var(--muted);
 }
-/* Square, even beside a long label in a narrow header. */
+.btn-sm:hover:not(:disabled) {
+  color: var(--fg);
+}
+/* Icon buttons: a bare 28px square, muted, lit on hover; square even beside a long label in a narrow header. */
 .btn-icon {
-  width: 32px;
+  width: 28px;
+  height: 28px;
   padding: 0;
   flex-shrink: 0;
 }
+.btn-icon:not(.btn-primary, .btn-raised) {
+  border-color: transparent;
+  color: var(--muted);
+}
+.btn-icon:not(.btn-primary, .btn-raised).btn-danger {
+  color: var(--del-fg);
+}
 .btn-icon.btn-sm {
   width: 26px;
+  height: 26px;
 }
 /* Rows, tabs and menu items ease into their hover and selection instead of snapping. */
 :is(
@@ -757,50 +756,47 @@ body.dragging-tab * {
 }
 /* The worktrees button (TopBar) while its view is open: a tab of its own, marked like the current project's. */
 .hdr-icon[aria-current="page"] {
-  background: var(--panel);
-  box-shadow: inset 0 -2px 0 var(--accent);
+  color: var(--fg);
+  box-shadow: inset 0 -2px 0 var(--fg);
 }
 
+/* Segmented filters: one hairline outline split by hairlines; the picked segment inverts (ink fill, ground text). */
 .seg {
   display: flex;
-  gap: 2px;
-  padding: 2px;
-  border: 1px solid var(--line);
+  gap: 0;
+  padding: 0;
+  border: 1px solid var(--line2);
   border-radius: var(--r);
-  background: var(--bg);
+  background: transparent;
+  overflow: hidden;
 }
-/* The selected highlight, placed and sized over the selected button by Seg, sliding between them.
+/* The selected fill, placed and sized over the selected button by Seg, sliding between them.
    Horizontal drags select options (Seg); vertical ones still scroll the page. */
 .seg {
   position: relative;
   touch-action: pan-y;
   user-select: none;
 }
+/* Inset 1px (transparent border) so its edges, antialiased where its translate falls between device pixels, stay under the picked button's own fill. */
 .seg-thumb {
   position: absolute;
   top: 0;
   left: 0;
-  border-radius: var(--r-sm);
-  background: var(--sel);
-  box-shadow:
-    0 1px 2px rgba(0, 0, 0, 0.28),
-    inset 0 0 0 1px color-mix(in srgb, var(--fg) 6%, transparent);
+  border: 1px solid transparent;
+  border-radius: 0;
+  background: var(--fg);
+  background-clip: padding-box;
   transition:
-    transform 0.26s var(--ease),
-    width 0.26s var(--ease),
-    height 0.26s var(--ease);
-}
-/* Light: a white chip lifted off the grey track, like a native segmented control. */
-[data-theme="light"] .seg-thumb {
-  background: var(--panel);
-  box-shadow:
-    0 1px 2px rgba(20, 20, 30, 0.12),
-    0 0 0 1px rgba(20, 20, 30, 0.05);
+    transform var(--t) var(--ease),
+    width var(--t) var(--ease),
+    height var(--t) var(--ease);
 }
 .seg.grid {
   display: grid;
   grid-auto-flow: column;
   grid-auto-columns: minmax(0, 1fr);
+  /* WebKitGTK shrank it in a modal's column at high zoom, clipping the second row away. */
+  flex-shrink: 0;
 }
 /* Long labels (a branch name) shrink to their half and ellipsize instead of widening it. */
 .seg.grid > button {
@@ -810,17 +806,32 @@ body.dragging-tab * {
 }
 .seg > button {
   position: relative;
-  height: 28px;
-  padding: 0 10px;
+  height: 26px;
+  padding: 0 11px;
   border: 0;
-  border-radius: var(--r-sm);
-  background: color-mix(in srgb, var(--sel) 15%, transparent);
+  border-radius: 0;
+  background: transparent;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
+  font-weight: 500;
   white-space: nowrap;
   transition:
     background-color var(--t-fast) var(--ease),
     color var(--t-fast) var(--ease);
+}
+/* Hairlines are borders, on the same device pixels as the picked fill's edges: zoomed, WebKit drew an inset shadow a pixel inside the box, the fill showing on both sides. */
+.seg > button + button {
+  border-left: 1px solid var(--line2);
+  padding-left: 10px;
+}
+/* Cells of a grid's later rows draw a top hairline too, and a row's first cell skips the left one, the outline being there (Seg marks both).
+   No cell overlaps another: zoomed, a hairline snaps thinner than the 1px overlap, and the picked fill showed past it. */
+.seg.grid > button[data-top] {
+  border-top: 1px solid var(--line2);
+}
+.seg.grid > button[data-row-start] {
+  border-left: 0;
+  padding-left: 11px;
 }
 /* Icon + label options reuse .row for the layout, not its block margin. */
 .seg > button .row {
@@ -833,17 +844,25 @@ body.dragging-tab * {
   margin: -8px 6px -8px 0;
 }
 .seg > button:hover:not([aria-pressed="true"]) {
-  background: color-mix(in srgb, var(--sel) 40%, transparent);
-}
-.seg > button[aria-pressed="true"] {
-  /* The .seg-thumb behind it shows the selection. */
-  background: transparent;
   color: var(--fg);
-  font-weight: 500;
+}
+/* Its own fill, painted on the same device pixels as its divider; it lands once the .seg-thumb sliding beneath arrives. */
+.seg > button[aria-pressed="true"] {
+  background: var(--fg);
+  color: var(--bg);
+  transition:
+    background-color 0s var(--t),
+    color var(--t-fast) var(--ease);
+}
+/* Counts after a label: Mono, faint; on the picked segment, a step toward its ground. */
+.seg > button .faint {
+  font: 500 11px var(--mono);
+}
+.seg > button[aria-pressed="true"] .faint {
+  color: color-mix(in srgb, var(--bg) 70%, var(--fg));
 }
 .seg.lg > button {
-  height: 32px;
-  font-size: 12.5px;
+  height: 30px;
 }
 
 .pill {
@@ -853,46 +872,27 @@ body.dragging-tab * {
   font-size: 11px;
   font-weight: 600;
   padding: 1px 7px;
-  border: 1px solid currentColor;
+  border: 1px solid var(--line2);
   border-radius: var(--r-sm);
   white-space: nowrap;
 }
+/* Status tags: the Label type in a hairline box. One state per screen inverts (.inv: the checked-out branch, the next release). */
 .tag {
-  font-size: 10.5px;
+  font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.12em;
+  line-height: 13px;
   text-transform: uppercase;
-  padding: 1px 6px;
-  border: 1px solid var(--line);
+  padding: 2px 7px;
+  border: 1px solid var(--line2);
   border-radius: var(--r-sm);
   color: var(--muted);
+  white-space: nowrap;
 }
-.tag.accent {
-  color: var(--accent-fg);
-  border-color: var(--accent);
-}
-/* Light mode: plain tags (origin, local, likely) and the Next tag get a deeper colour and a soft tint so they pop on white. */
-[data-theme="light"] .tag:not(.accent, .released, .c-warn, .local) {
-  color: #4b5160;
-  border-color: #4b5160;
-  background: color-mix(in srgb, #4b5160 8%, transparent);
-}
-[data-theme="light"]:not([data-palette]) .tag.accent {
-  color: #f08a00;
-  border-color: #f08a00;
-  background: color-mix(in srgb, #f08a00 12%, transparent);
-}
-.tag.released {
-  color: var(--add-fg);
-  border-color: color-mix(in srgb, var(--add-fg) 45%, transparent);
-}
-.tag.local {
-  color: var(--mod-fg);
-  border-color: color-mix(in srgb, var(--mod-fg) 45%, transparent);
-}
-.tag.c-warn {
-  color: var(--warn-fg);
-  border-color: color-mix(in srgb, var(--warn-fg) 45%, transparent);
+.tag.inv {
+  border-color: var(--fg);
+  background: var(--fg);
+  color: var(--bg);
 }
 .c-add {
   color: var(--add-fg);
@@ -900,29 +900,28 @@ body.dragging-tab * {
 .c-del {
   color: var(--del-fg);
 }
+/* Roles and kinds carry no hue: they read by label, position and type (DESIGN.md, the Meaning Rule). */
 .c-mod {
-  color: var(--mod-fg);
+  color: var(--muted);
 }
 .c-warn {
   color: var(--warn-fg);
 }
 .c-current {
-  color: var(--trunk-fg);
-}
-[data-theme="light"]:not([data-palette]) .c-current {
-  color: #f08a00;
-  font-weight: 600;
+  color: var(--fg);
 }
 .c-acc {
   color: var(--accent-fg);
 }
 
+/* The Label type: small tracked capitals for headings over lists, columns and stats. */
 .label {
   font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.14em;
+  line-height: 13px;
   text-transform: uppercase;
-  color: var(--muted);
+  color: var(--faint);
   margin: 0;
 }
 .field {
@@ -939,19 +938,20 @@ body.dragging-tab * {
   justify-content: space-between;
   gap: 8px;
 }
+/* Fields: ground fill, a strong hairline, the Field type; focused, the border turns ink. */
 .input,
 .select,
 .textarea {
-  height: 36px;
-  padding: 0 12px;
-  border: 1px solid var(--line);
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--line2);
   border-radius: var(--r);
   background: var(--bg);
   color: var(--fg);
+  font-size: 12.5px;
   min-width: 0;
   transition:
     border-color var(--t-fast) var(--ease),
-    box-shadow var(--t) var(--ease),
     background-color var(--t-fast) var(--ease);
 }
 .input::placeholder,
@@ -959,7 +959,7 @@ body.dragging-tab * {
   color: var(--faint);
 }
 :is(.input, .select, .textarea):hover:not(:disabled, :focus) {
-  border-color: color-mix(in srgb, var(--line), var(--fg) 14%);
+  border-color: color-mix(in srgb, var(--line2), var(--fg) 20%);
 }
 .select {
   padding: 0 8px;
@@ -972,37 +972,33 @@ body.dragging-tab * {
   text-align: left;
   cursor: pointer;
 }
-/* The new agent session's project and branch (Worktrees.tsx): names in flowing colours with a soft glow, so a session never starts on the wrong one unnoticed.
-   A branch's agent chip on the map while its agent works (BranchMap.tsx) and a "Running" row on Worktrees & agents (Worktrees.tsx) wear the same. */
+/* Agent working (DESIGN.md, the Agent Working Rule): what an agent works on flows with the four working hues (only icons keep a glow),
+   and nothing else may. The new agent session's project and branch (Worktrees.tsx) wear it too, so a session never starts on
+   the wrong one unnoticed. */
 .glow-name > .ellipsis,
 .glow-working > span {
   font-weight: 600;
-  background: linear-gradient(90deg, var(--trunk-fg), var(--release-fg), var(--prop-fg), var(--add-fg), var(--trunk-fg)) 0 0 / 300% 100%;
+  background: linear-gradient(90deg, var(--g1), var(--g2), var(--g3), var(--g4), var(--g1)) 0 0 / 300% 100%;
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
-  filter: drop-shadow(0 0 5px color-mix(in srgb, var(--release-fg) 45%, transparent));
   /* 48 a second, not the shared 12, so the colours flow smoothly: 4 steps per tick, so it adds no off-beat frames. */
   animation: glow-name 8s steps(384) infinite;
 }
 /* An icon can't clip a gradient: its stroke steps through the same colours on the same clock. */
 .glow-working > svg {
-  filter: drop-shadow(0 0 5px color-mix(in srgb, var(--release-fg) 45%, transparent));
+  filter: drop-shadow(0 0 5px color-mix(in srgb, var(--g2) 45%, transparent));
   animation: glow-stroke 8s steps(96) infinite;
 }
-/* A "Running" row's dot (Worktrees.tsx): it keeps its pulse and takes the same colours on the same clock. */
+/* The working dot: it keeps its blink and takes the same colours on the same clock. */
 .pulse.glow-dot {
   background: currentColor;
-  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--release-fg) 45%, transparent));
   animation:
-    agpulse 1.5s steps(9) infinite,
+    agpulse 1.5s steps(2, jump-none) infinite,
     glow-stroke 8s steps(96) infinite;
 }
 /* Each glow on its own layer, blurred by the GPU: painted in place, every frame re-blurred it with all around it, once per running agent (input lag with several). */
-.glow-name > .ellipsis,
-.glow-working > span,
-.glow-working > svg,
-.pulse.glow-dot {
+.glow-working > svg {
   will-change: filter;
 }
 @keyframes glow-name {
@@ -1013,38 +1009,43 @@ body.dragging-tab * {
 @keyframes glow-stroke {
   0%,
   100% {
-    color: var(--trunk-fg);
+    color: var(--g1);
   }
   25% {
-    color: var(--release-fg);
+    color: var(--g2);
   }
   50% {
-    color: var(--prop-fg);
+    color: var(--g3);
   }
   75% {
-    color: var(--add-fg);
+    color: var(--g4);
   }
 }
 @media (prefers-reduced-motion: reduce) {
   .glow-name > .ellipsis,
-  .glow-working > * {
+  .glow-working > *,
+  .pulse,
+  .pulse.glow-dot {
     animation: none;
+  }
+  .pulse.glow-dot {
+    color: var(--g2);
   }
 }
 /* Text wraps, so a horizontal scrollbar never has anything to scroll to. */
 .textarea {
   height: auto;
-  padding: 10px 12px;
+  padding: 8px 10px;
   resize: vertical;
-  line-height: 1.5;
+  line-height: 18px;
   overflow-x: hidden;
 }
 .input:focus,
 .select:focus,
 .textarea:focus {
-  border-color: var(--accent);
+  border-color: var(--fg);
   outline: none;
-  box-shadow: var(--ring);
+  box-shadow: none;
 }
 .check {
   display: flex;
@@ -1053,25 +1054,22 @@ body.dragging-tab * {
   min-height: 32px;
   cursor: pointer;
 }
-/* Drawn by hand: the native check fills the whole box, edge to edge. A menu's checkbox row (.ctx-box) looks the same. */
+/* Drawn by hand: a 14px square with 2px corners; ticked, filled ink with a ground-coloured tick. A menu's checkbox row (.ctx-box) looks the same. */
 .check input,
 .ctx-box {
   flex: 0 0 auto;
   box-sizing: border-box;
   appearance: none;
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   margin: 0;
   border: 1px solid var(--faint);
   border-radius: var(--r-sm);
-  /* The tick grows in from the middle when checked (no animation on first paint). */
-  background: transparent center / 0 0 no-repeat;
+  background: transparent center / 10px 10px no-repeat;
   cursor: pointer;
   transition:
-    background-size var(--t) var(--ease-spring),
     background-color var(--t-fast) var(--ease),
-    border-color var(--t-fast) var(--ease),
-    box-shadow var(--t) var(--ease);
+    border-color var(--t-fast) var(--ease);
 }
 .check:hover input:not(:disabled, :checked),
 .ctx-item[aria-checked="false"]:hover:not(:disabled) > .ctx-box,
@@ -1081,13 +1079,12 @@ body.dragging-tab * {
 .check input:checked,
 .ctx-item[aria-checked="true"] > .ctx-box,
 .ctx-ultra[aria-pressed="true"] > .ctx-box {
-  border-color: var(--accent);
-  background-color: var(--accent);
+  border-color: var(--fg);
+  background-color: var(--fg);
   background-image: var(--tick);
-  background-size: 10px 10px;
 }
 .check input:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 1px solid var(--fg);
   outline-offset: 2px;
 }
 .check input:disabled,
@@ -1100,7 +1097,7 @@ body.dragging-tab * {
   align-items: flex-start;
   gap: 12px;
   padding: 10px 12px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--line2);
   border-radius: var(--r);
   background: transparent;
   text-align: left;
@@ -1110,26 +1107,26 @@ body.dragging-tab * {
     background-color var(--t-fast) var(--ease);
 }
 .radio-card:hover:not([aria-pressed="true"], [aria-checked="true"], :disabled) {
-  border-color: color-mix(in srgb, var(--line), var(--fg) 14%);
-  background: color-mix(in srgb, var(--raised) 50%, transparent);
+  border-color: color-mix(in srgb, var(--line2), var(--fg) 20%);
+  background: var(--raised);
 }
 .radio-card[aria-pressed="true"],
 .radio-card[aria-checked="true"] {
-  border-color: var(--accent);
+  border-color: var(--fg);
   background: var(--raised);
 }
 .radio-dot {
   width: 14px;
   height: 14px;
   flex: 0 0 14px;
-  border-radius: 7px;
-  border: 1.5px solid var(--faint);
+  border-radius: 50%;
+  border: 1px solid var(--faint);
   margin-top: 2px;
-  transition: border var(--t) var(--ease-spring);
+  transition: border var(--t-fast) var(--ease);
 }
 [aria-pressed="true"] > .radio-dot,
 [aria-checked="true"] > .radio-dot {
-  border: 4px solid var(--accent);
+  border: 4px solid var(--fg);
 }
 .hint {
   font-size: 12px;
@@ -1231,8 +1228,8 @@ body.dragging-tab * {
   border-radius: 0;
 }
 .project-remove:hover:not(:disabled) {
-  background: #d23a31;
-  color: #fff;
+  background: var(--del-bg);
+  color: var(--del-fg);
 }
 
 /* ---------- welcome ---------- */
@@ -1243,14 +1240,14 @@ body.dragging-tab * {
 }
 .welcome-hero > svg {
   flex: none;
-  border-radius: 14px;
-  box-shadow: var(--shadow-pop);
+  border-radius: var(--r);
 }
+/* Screen titles speak in the display face (DESIGN.md, the One Loud Voice Rule). */
 .welcome-hero h1 {
   margin: 0;
-  font-size: 28px;
-  font-weight: 600;
-  letter-spacing: -0.015em;
+  font: 600 32px/1 var(--display);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 .welcome-hero p {
   margin: 0;
@@ -1271,7 +1268,7 @@ body.dragging-tab * {
   transition: background-color var(--t) var(--ease);
 }
 .onboard-dots > i[data-on] {
-  background: var(--accent);
+  background: var(--fg);
 }
 /* Back, Skip and Continue stay in sight under a long step, like the theme list. */
 .onboard-foot {
@@ -1306,13 +1303,9 @@ body.dragging-tab * {
   height: 22px;
   margin-top: -1px;
   border-radius: 50%;
-  background: color-mix(in srgb, var(--accent) 16%, transparent);
-  color: var(--accent-fg);
-  font-size: 11.5px;
-  font-weight: 600;
-}
-[data-theme="light"]:not([data-palette]) .steps > li::before {
-  color: #a35f00;
+  border: 1px solid var(--line2);
+  color: var(--fg);
+  font: 500 11px var(--mono);
 }
 /* Pairing QR scan: the camera preview shows through the see-through page. */
 html.scanning,
@@ -1332,7 +1325,7 @@ html.scanning body {
 .scan-view > p {
   margin: 0;
   padding: 10px 14px;
-  border-radius: 10px;
+  border-radius: var(--r);
   background: rgba(0, 0, 0, 0.6);
   color: #fff;
   font-size: 14px;
@@ -1346,11 +1339,9 @@ html.scanning body {
   align-items: center;
   gap: 18px;
   padding: 48px 24px;
-  border: 1.5px dashed var(--line);
-  border-radius: var(--r-lg);
-  background:
-    radial-gradient(120% 90% at 50% 0%, color-mix(in srgb, var(--accent) 5%, transparent), transparent 70%),
-    var(--panel);
+  border: 1px dashed var(--line2);
+  border-radius: var(--r);
+  background: var(--panel);
   text-align: center;
   transition:
     border-color var(--t) var(--ease),
@@ -1362,10 +1353,8 @@ html.scanning body {
   border-color: color-mix(in srgb, var(--line), var(--fg) 14%);
 }
 .dropzone[data-over] {
-  border-color: var(--accent);
+  border-color: var(--fg);
   background-color: var(--raised);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 14%, transparent);
-  transform: scale(1.01);
 }
 .dropzone-icon {
   display: grid;
@@ -1375,12 +1364,7 @@ html.scanning body {
   border: 1px solid var(--line);
   border-radius: 50%;
   background: var(--raised);
-  color: var(--accent-fg);
-  box-shadow: 0 0 0 8px color-mix(in srgb, var(--raised) 45%, transparent);
-  transition: transform var(--t-slow) var(--ease-spring);
-}
-.dropzone[data-over] .dropzone-icon {
-  transform: translateY(-4px) scale(1.08);
+  color: var(--fg);
 }
 .empty {
   padding: 40px 24px;
@@ -1458,10 +1442,6 @@ html.scanning body {
   border-radius: 50%;
   background: var(--raised);
   color: var(--muted);
-  /* Two faint rings around it, like ripples. */
-  box-shadow:
-    0 0 0 8px color-mix(in srgb, var(--raised) 45%, transparent),
-    0 0 0 16px color-mix(in srgb, var(--raised) 20%, transparent);
 }
 /* A detail pane's placeholder sits in its middle. */
 .detail > .empty-state {
@@ -1568,9 +1548,9 @@ html.scanning body {
 }
 .page h1 {
   margin: 0;
-  font-size: 22px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
+  font: 600 24px/1 var(--display);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
 }
 .page h2 {
   margin: 0;
@@ -1686,7 +1666,7 @@ html.scanning body {
 .resizer:hover::after,
 .resizer:focus-visible::after,
 body.resizing .resizer:active::after {
-  background: var(--accent);
+  background: var(--fg);
 }
 body.resizing {
   cursor: col-resize;
@@ -1708,16 +1688,9 @@ body.resizing .term {
 }
 
 /* ---------- branch map (BranchMap.tsx) ---------- */
-/* Columns of tiles on a dotted canvas: the trunk, then the releases and branches cut from it, then the ones stacked on those. */
+/* A line diagram on a slate field: the trunk a hairline with the shipped releases on it as stations, every branch a box of a
+   header row and one info row, its commits floating free under it, ahead / behind as a chip on the line coming in. */
 .map {
-  --map-line: color-mix(in srgb, var(--fg) 14%, var(--bg));
-  /* Between a tile's title and its commits. */
-  --map-sep: color-mix(in srgb, var(--fg) 28%, var(--bg));
-  --map-edge: color-mix(in srgb, var(--faint) 70%, var(--bg));
-  --map-tile: var(--raised);
-  --map-pulse: color-mix(in srgb, var(--trunk-fg), #fff 65%);
-  /* The selected branch and its line: blue, apart from the checked-out one's orange even where the accent is orange too. */
-  --map-sel: var(--mod-fg);
   flex: 1 1 0;
   min-height: 0;
   display: flex;
@@ -1726,109 +1699,104 @@ body.resizing .term {
   background: var(--bg);
   animation: fade-in var(--t) var(--ease);
 }
-[data-theme="light"] .map {
-  --map-tile: var(--panel);
-  --map-line: color-mix(in srgb, var(--fg) 18%, var(--bg));
-  --map-sep: color-mix(in srgb, var(--fg) 32%, var(--bg));
-  --map-pulse: color-mix(in srgb, var(--trunk-fg), #000 25%);
-}
+/* The toolbar: the screen's title, the filters, then search, stashes, fetch and zoom on the right. */
 .map-bar {
   flex: none;
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 8px 12px;
-  padding: 8px 12px 8px 16px;
+  gap: 8px;
+  min-height: 48px;
+  padding: 9px 16px;
   border-bottom: 1px solid var(--line);
-  background: var(--panel);
+  background: var(--bg);
 }
 .map-title {
-  margin: 0;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.1em;
+  margin: 0 10px 0 0;
+  font: 600 18px/1 var(--display);
+  letter-spacing: 0.06em;
   text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--fg);
 }
 .map-group {
   display: flex;
   align-items: center;
   gap: 6px;
 }
-.map-group-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--muted);
-}
 .map-zoom {
-  gap: 2px;
-  padding: 2px;
-  border: 1px solid var(--line);
+  gap: 0;
+  border: 1px solid var(--line2);
   border-radius: var(--r);
-  background: var(--bg);
 }
 .map-zoom > span {
-  min-width: 42px;
+  min-width: 40px;
   text-align: center;
-  font-size: 12px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
+  font: 500 12px var(--mono);
+  color: var(--muted);
 }
 .map-zoom > .btn {
-  height: 28px;
+  height: 26px;
+}
+.map-zoom > .btn-icon {
+  width: 26px;
+}
+.map-zoom > .btn:not(.btn-icon) {
+  border-left: 1px solid var(--line2);
+  border-radius: 0 var(--r) var(--r) 0;
 }
 .map-toggles,
 .map-acts {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  gap: 8px;
+}
+.map-acts {
   gap: 6px;
 }
-/* Shows or hides a part of the map: a checkbox in a chip, dashed while off. */
+/* Check toggles: a set shown on the map or not; a 12px box before the label, filled ink while on. */
 .map-toggle {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  height: 30px;
+  gap: 8px;
+  height: 28px;
   padding: 0 10px;
-  border: 1px dashed var(--line);
+  border: 1px solid var(--line2);
   border-radius: var(--r);
   background: transparent;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
 }
+.map-toggle .faint {
+  font: 500 11px var(--mono);
+}
+.map-toggle:hover,
 .map-toggle[aria-pressed="true"] {
-  border-style: solid;
-  background: var(--raised);
-  color: var(--fg);
-}
-.map-toggle:hover {
-  border-color: color-mix(in srgb, var(--line), var(--fg) 20%);
   color: var(--fg);
 }
 .map-box {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 14px;
-  height: 14px;
+  display: inline-grid;
+  place-items: center;
+  width: 12px;
+  height: 12px;
   border: 1px solid var(--faint);
   border-radius: var(--r-sm);
-  color: var(--on-accent);
+  color: var(--bg);
 }
 .map-box > svg {
   opacity: 0;
 }
 .map-toggle[aria-pressed="true"] .map-box {
-  border-color: var(--accent);
-  background: var(--accent);
+  border-color: var(--fg);
+  background: var(--fg);
 }
 .map-toggle[aria-pressed="true"] .map-box > svg {
   opacity: 1;
 }
-/* A toggle with its section's Clean up as its right side. They share the border between them (the Clean up's, 1px over the
-   toggle's): the hovered one comes on top, so its whole border lights up. */
+/* A toggle with its section's Clean up as its right side, one border between them; the hovered one comes on top. */
 .map-toggle-split {
   display: inline-flex;
 }
@@ -1843,76 +1811,78 @@ body.resizing .term {
   border-bottom-right-radius: 0;
 }
 .map-toggle-split > .map-clean {
-  height: 30px;
+  height: 28px;
   margin-left: -1px;
-  padding: 0 9px;
-  border: 1px dashed var(--line);
+  padding: 0 10px;
   border-radius: 0 var(--r) var(--r) 0;
-  background: transparent;
-}
-.map-toggle-split > .map-toggle[aria-pressed="true"] + .map-clean {
-  border-style: solid;
-  background: var(--raised);
+  font-size: 13px;
 }
 /* A section's Clean up: it deletes the branches the section lists, a spinner and what is left while that runs. */
 .map-clean {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  height: 24px;
-  padding: 0 8px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: var(--panel);
+  gap: 6px;
+  height: 22px;
+  padding: 0 6px;
+  border: 1px solid var(--line2);
+  border-radius: var(--r);
+  background: transparent;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
   letter-spacing: 0;
   text-transform: none;
-  font-variant-numeric: tabular-nums;
 }
 .map-clean:hover:not(:disabled) {
-  border-color: color-mix(in srgb, var(--line), var(--fg) 20%);
   color: var(--fg);
 }
 .map-clean .spinner {
   width: 10px;
   height: 10px;
 }
-/* On a narrower window, the toolbar drops its title, text labels and checkboxes to stay on one row. */
-@container map (max-width: 1280px) {
-  .map-bar {
-    column-gap: 8px;
-  }
+/* On a narrower window, the toolbar drops its title and checkboxes to stay on one row. */
+@container map (max-width: 1100px) {
   .map-title,
-  .map-label,
   .map-box {
     display: none;
   }
 }
 .map-find {
   flex: none;
-  padding: 6px 12px 6px 16px;
+  padding: 8px 16px;
   border-bottom: 1px solid var(--line);
-  background: var(--panel);
+  background: var(--bg);
 }
 .map-find > .input {
   flex: 1 1 auto;
   min-width: 0;
-  height: 30px;
+  height: 28px;
 }
+.map-find-kinds {
+  display: inline-flex;
+  gap: 6px;
+}
+.map-find-kinds .spinner {
+  width: 10px;
+  height: 10px;
+}
+/* The map over its legend: the legend is a band of its own, so no row ever runs under it. */
 .map-view {
   position: relative;
   flex: 1 1 auto;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
   container: map-view / size;
 }
+/* The field: slate at the top of the view fading to the ground. Fixed to the view while the map scrolls under it. */
 .map-canvas {
-  position: absolute;
-  inset: 0;
+  position: relative;
+  flex: 1 1 0;
+  min-height: 0;
   overflow: auto;
   overscroll-behavior: contain;
-  background-color: var(--bg);
+  background: linear-gradient(180deg, var(--ground), var(--bg) 70%);
   /* Dragged around with the mouse: nothing gets selected on the way. */
   -webkit-user-select: none;
   user-select: none;
@@ -1922,11 +1892,8 @@ body.resizing .term {
 .map-canvas[data-panning] * {
   cursor: grabbing;
 }
-/* The dots scroll with the map from here: a `local` background on .map-canvas left the strip under its scrollbars unpainted, black, in macOS WebKit. */
 .map-size {
   position: relative;
-  background-image: radial-gradient(circle, color-mix(in srgb, var(--fg) 10%, transparent) 1px, transparent 1.4px);
-  background-size: 22px 22px;
 }
 .map-layer {
   position: absolute;
@@ -1937,522 +1904,335 @@ body.resizing .term {
 .map-col {
   position: absolute;
   top: 14px;
-  font-size: 10.5px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  line-height: 13px;
   text-transform: uppercase;
   white-space: nowrap;
   color: var(--faint);
 }
-.map-edges,
-.map-pulse,
-.map-history {
+/* Every line is a hairline (DESIGN.md, the Hairline Rule): the trunk faint, the route a little heavier in the route colour,
+   the rest dim; dashed when falling behind. */
+.map-edges {
   position: absolute;
   left: 0;
   top: 0;
   overflow: visible;
   pointer-events: none;
   fill: none;
-  stroke-linecap: round;
 }
 .map-edges path {
-  stroke: var(--map-edge);
-  stroke-width: 1.6;
+  stroke: var(--link);
+  stroke-width: 1;
 }
-.map-edges path[data-line="far"] {
-  stroke-dasharray: 3 5;
-}
-.map-edges path[data-line="stale"] {
-  stroke: var(--warn-fg);
-  stroke-dasharray: 5 5;
-  opacity: 0.8;
-}
-.map-edges path[data-line="desc"] {
-  stroke: var(--map-sel);
-  stroke-width: 2;
-  opacity: 0.55;
-}
-.map-edges path[data-line="lin"] {
-  stroke: var(--map-sel);
-  stroke-width: 2.5;
+.map-edges path.map-trunk-line {
+  stroke: var(--faint);
 }
 .map-edges path[data-line="head"] {
-  stroke: var(--trunk-fg);
-  stroke-width: 2.5;
-}
-.map-edges path.map-glow {
-  stroke: var(--trunk-fg);
-  stroke-width: 4;
-  opacity: 0.55;
-}
-.map-edges path.map-merged-line {
-  stroke: var(--add-fg);
-  stroke-linejoin: round;
-  opacity: 0.7;
-}
-/* A streak runs down the checked-out branch's line to it, 92px a second; on a layer of its own, so a step repaints only it.
-   60 steps a second, not the shared 12, so it glides: 5 steps per tick, so it adds no off-beat frames. */
-.map-pulse {
-  will-change: transform;
-}
-.map-pulse path {
-  stroke: var(--map-pulse);
-  stroke-width: 2.5;
-  /* Drawn over the tiles: a round cap would reach past the line's end onto their border. */
-  stroke-linecap: butt;
-  stroke-dasharray: 16 400;
-  animation: map-pulse 4.5s steps(270) infinite;
-}
-@keyframes map-pulse {
-  from {
-    stroke-dashoffset: 416;
-  }
-  to {
-    stroke-dashoffset: 0;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .map-pulse {
-    display: none;
-  }
-}
-/* The releases shipped from the trunk, the newest last, just above it. */
-.map-history path {
-  stroke: var(--trunk-fg);
-  stroke-width: 2;
-  opacity: 0.4;
-}
-.map-history circle {
-  fill: var(--release-fg);
-  stroke: var(--bg);
+  stroke: var(--route);
   stroke-width: 1.5;
 }
-.map-history circle[data-new] {
-  fill: var(--add-fg);
+.map-edges path[data-line="stale"] {
+  stroke-dasharray: 3 4;
 }
+.map-edges path[data-line="far"] {
+  opacity: 0.6;
+}
+/* Stations: rings on the trunk (the shipped releases, the latest in ink), the default branch's large one where the route
+   starts, small ones for merged branches, and one on each box's left border, filled on the route. */
+.map-stn {
+  position: absolute;
+  z-index: 2;
+  width: 11px;
+  height: 11px;
+  border: 1px solid var(--faint);
+  border-radius: 50%;
+  background: var(--bg);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+.map-stn[data-lit] {
+  border-color: var(--fg);
+}
+.map-stn:is([data-on], [data-main]) {
+  border-color: var(--route);
+}
+.map-stn:is([data-on], [data-main])::after {
+  content: "";
+  position: absolute;
+  inset: 2px;
+  border-radius: 50%;
+  background: var(--route);
+}
+/* On the route but not the checked-out branch: its inner dot a step quieter. */
+.map-stn[data-on="via"]::after {
+  opacity: 0.3;
+}
+.map-stn[data-main] {
+  width: 17px;
+  height: 17px;
+  border-width: 1.5px;
+}
+.map-stn[data-main]::after {
+  inset: 3px;
+}
+.map-stn[data-small] {
+  width: 7px;
+  height: 7px;
+}
+.map-tile > .map-stn {
+  left: -0.5px;
+  top: 18px;
+  transform: translate(-50%, -50%);
+}
+.map-tile:is([data-role="release"], [data-role="trunk"]) > .map-stn {
+  top: 25px;
+}
+/* The shipped releases on the trunk: their label, then a row per station: version, date, and its commits to unfold. */
 .map-history-head {
   position: absolute;
-  left: 24px;
-  display: inline-flex;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 22px;
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.map-ship-row {
+  position: absolute;
+  display: flex;
   align-items: center;
   gap: 6px;
-  height: 20px;
-  font-size: 10.5px;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  white-space: nowrap;
-  color: var(--add-fg);
-}
-.map-history-head > span {
-  font-weight: 600;
-  letter-spacing: 0;
-  color: var(--fg);
-}
-.map-history-head > .map-clean {
-  height: 20px;
+  height: 24px;
 }
 .map-ship {
-  position: absolute;
-  left: 50px;
-  height: 14px;
-  display: flex;
+  display: grid;
+  grid-template-columns: 64px 46px;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
+  height: 24px;
   padding: 0 4px;
   border: 0;
-  border-radius: var(--r-sm);
+  border-radius: var(--r);
   background: transparent;
-  color: var(--fg);
-  font-size: 10.5px;
-  line-height: 14px;
+  color: var(--muted);
+  font: 13px var(--mono);
+  text-align: left;
+}
+.map-ship-date {
+  font: 12px var(--sans);
+  color: var(--faint);
   white-space: nowrap;
 }
+.map-ship[data-new],
 .map-ship:hover {
-  background: color-mix(in srgb, var(--fg) 7%, transparent);
-}
-.map-ship.map-crow-more {
-  color: var(--muted);
-}
-.map-ship[data-new] > .mono {
-  color: var(--add-fg);
-  font-weight: 700;
+  color: var(--fg);
 }
 .map-ship[aria-pressed="true"] {
-  box-shadow: inset 0 0 0 1px var(--map-sel);
+  background: var(--sel);
+  color: var(--fg);
 }
-.map-ship > .mono {
-  flex: 0 1 auto;
-}
-/* A shipped release's commit count, on the right of its row: unfolds what it shipped, as a tile's pill does its commits. */
 .map-ship-count {
-  position: absolute;
-  height: 14px;
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: 3px;
+  gap: 4px;
+  height: 24px;
   padding: 0 4px;
   border: 0;
-  border-radius: var(--r-sm);
+  border-radius: var(--r);
   background: transparent;
   color: var(--faint);
-  font-family: var(--mono);
-  font-size: 10px;
-  line-height: 14px;
+  font: 11px var(--mono);
   white-space: nowrap;
-  transition:
-    background-color var(--t-fast) var(--ease),
-    color var(--t-fast) var(--ease);
 }
-.map-ship-count:hover {
-  background: color-mix(in srgb, var(--fg) 7%, transparent);
-  color: var(--fg);
-}
+.map-ship-count:hover,
 .map-ship-count[aria-expanded="true"] {
-  background: color-mix(in srgb, var(--map-sel) 16%, transparent);
   color: var(--fg);
 }
-/* Counts of one to three digits keep the icon and the chevron in columns. */
-.map-ship-n {
-  min-width: 3ch;
-  font-variant-numeric: tabular-nums;
+.map-ship-count .chev,
+.map-crow-more .chev {
+  transition: transform var(--t-fast) var(--ease);
 }
-/* What a shipped release holds, hung under its row: the line of releases runs on past its left edge. */
+.map-ship-count[aria-expanded="true"] .chev {
+  transform: rotate(180deg);
+}
+/* What a shipped release holds, floating under its station: two lines a commit, no box. */
 .map-ship-list {
   position: absolute;
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 4px 6px;
-  border: 1px solid var(--map-line);
-  border-left: 2px solid color-mix(in srgb, var(--release-fg) 55%, transparent);
-  border-radius: var(--r-sm) var(--r) var(--r) var(--r-sm);
-  background: var(--map-tile);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
-  overflow: hidden;
-  animation: map-ship-open 0.18s var(--ease);
 }
-@keyframes map-ship-open {
-  from {
-    opacity: 0;
-    transform: translateY(-4px);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .map-ship-list {
-    animation: none;
-  }
-}
-/* One of its commits, on two lines: its subject, then its date and SHA. A button behind the row opens it; the SHA, on top, copies it. */
 .map-relrow {
   position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
   flex: none;
+  height: 32px;
+  min-width: 0;
+}
+.map-relrow-subject {
+  position: relative;
+  font-size: 12px;
+  color: var(--muted);
+  pointer-events: none;
+}
+.map-relrow:hover .map-relrow-subject {
+  color: var(--fg);
+}
+.map-relrow-meta {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 32px;
-  margin: 0 -4px;
-  padding: 0 4px;
-  border-radius: var(--r-sm);
+  min-width: 0;
+  font: 11px var(--mono);
+  color: var(--faint);
   pointer-events: none;
 }
-.map-relrow > .map-hitbox {
+.map-relrow-meta button {
   pointer-events: auto;
-}
-.map-relrow > .map-crow-who {
-  width: 18px;
-  height: 18px;
-}
-.map-relrow-text {
-  flex: 1 1 auto;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-.map-relrow-subject {
-  color: var(--fg);
-  font-size: 11px;
-  line-height: 14px;
-}
-.map-relrow-meta {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  color: var(--faint);
-  font-size: 10px;
-  line-height: 13px;
-  white-space: nowrap;
 }
 .map-sha {
-  position: relative;
-  padding: 0 3px;
+  padding: 0;
   border: 0;
-  border-radius: 3px;
   background: transparent;
-  color: var(--muted);
-  font-size: 10px;
-  line-height: 13px;
-  cursor: copy;
-  pointer-events: auto;
+  color: var(--faint);
+  font: inherit;
 }
 .map-sha:hover {
-  background: color-mix(in srgb, var(--fg) 10%, transparent);
   color: var(--fg);
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
-.map-sha:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-}
-/* The match the search is on, wherever it is: outlined as a tile is. */
-:is(.map-crow, .map-relrow, .map-ship, .map-merged)[data-find-at] {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-}
-/* A tile row's SHA, shown when the search found the commit by it. */
-.map-crow-sha {
-  flex: none;
-  color: var(--muted);
-  font-size: 10.5px;
-}
-/* What the search looks through, beside its box. */
-.map-find-kinds {
-  display: inline-flex;
-  gap: 6px;
-  margin: 0 4px 0 6px;
-}
-.map-find-kinds .spinner {
-  width: 10px;
-  height: 10px;
-}
-/* A commit's tags, before its age: shipped green, as in a file's history. */
-.map-tags {
-  flex: 0 1 auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  min-width: 0;
-  max-width: 120px;
-}
-.map-tagchip {
-  flex: 0 1 auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  min-width: 0;
-  height: 14px;
-  padding: 0 4px;
-  border: 1px solid color-mix(in srgb, var(--add-fg) 45%, transparent);
-  border-radius: 4px;
-  background: color-mix(in srgb, var(--add-fg) 10%, transparent);
-  color: var(--add-fg);
-  font-size: 9.5px;
-  font-weight: 600;
-  line-height: 12px;
-  white-space: nowrap;
-}
-.map-tagchip > svg {
-  flex: none;
-}
-/* The default branch's latest release, closing the list of what came after it: a tag on a line. */
-.map-crow.map-crow-tag {
-  gap: 6px;
-  color: var(--add-fg);
-}
-.map-crow-mark {
-  align-items: center;
-  justify-content: center;
-  background: color-mix(in srgb, var(--add-fg) 16%, transparent);
-  color: var(--add-fg);
-}
-.map-crow-rule {
-  flex: 1 1 auto;
-  min-width: 8px;
-  border-top: 1px dashed color-mix(in srgb, var(--add-fg) 50%, transparent);
-}
-.map-behind {
-  position: absolute;
-  height: 18px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid color-mix(in srgb, var(--warn-fg) 45%, transparent);
-  border-radius: 9px;
-  background: var(--bg);
-  color: var(--warn-fg);
-  font-family: var(--mono);
-  font-size: 10.5px;
-  white-space: nowrap;
-  pointer-events: none;
-}
-/* A work branch's: asks to rebase it onto the branch on its left. */
-button.map-behind {
-  padding: 0;
-  pointer-events: auto;
-  cursor: pointer;
-}
-button.map-behind:not([aria-disabled]):hover {
-  background: color-mix(in srgb, var(--warn-fg) 16%, var(--bg));
-}
-/* Its branch's agent is working: the rebase waits, the tooltip says why. */
-button.map-behind[aria-disabled] {
-  cursor: not-allowed;
-}
-/* Branches merged into a tile's branch, chipped under it on a green line. */
+/* Merged branches: small stations under their base, a check, the name and a MERGED tag; then "+N more" and the clean up. */
 .map-merged {
   position: absolute;
-  max-width: 210px;
-  height: 24px;
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 0 10px 0 8px;
-  border: 1px solid color-mix(in srgb, var(--add-fg) 45%, transparent);
-  border-radius: 12px;
-  background: var(--map-tile);
+  gap: 8px;
+  height: 24px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: var(--r);
+  background: transparent;
   color: var(--muted);
-  font-family: var(--mono);
-  font-size: 11px;
+  font-size: 12px;
   white-space: nowrap;
 }
-.map-merged > svg {
+.map-merged > .tag {
   flex: none;
-  color: var(--add-fg);
-}
-.map-merged[data-likely] {
-  border-style: dashed;
-  border-color: var(--map-line);
-}
-.map-merged[data-likely] > svg {
-  color: var(--faint);
+  padding: 1px 6px;
 }
 .map-merged:hover {
   color: var(--fg);
 }
 .map-merged[aria-pressed="true"] {
-  border: 1px solid var(--map-sel);
+  background: var(--sel);
   color: var(--fg);
 }
 .map-merged-foot {
   position: absolute;
-  height: 24px;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 10px;
+}
+.map-clean-big {
+  height: 26px;
 }
 .map-more {
   height: 22px;
-  padding: 0 8px;
+  padding: 0 4px;
   border: 0;
-  border-radius: 11px;
+  border-radius: var(--r);
   background: transparent;
-  color: var(--muted);
+  color: var(--faint);
   font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.map-layer > .map-more {
+  position: absolute;
+  font-size: 10px;
+  font-weight: 400;
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 .map-more:hover {
-  background: color-mix(in srgb, var(--fg) 7%, transparent);
   color: var(--fg);
 }
-/* One branch: its name, a few words on its state, its commits once unfolded. */
+/* A box: panel, a strong hairline, 3px corners. Checked out or selected, its border is ink; falling behind, dashed. */
 .map-tile {
   position: absolute;
-  overflow: hidden;
-  border: 1px solid var(--map-line);
-  border-radius: var(--r-lg);
-  background: var(--map-tile);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
-  transition:
-    border-color var(--t-fast) var(--ease),
-    box-shadow var(--t-fast) var(--ease),
-    background-color var(--t-fast) var(--ease);
+  border: 1px solid var(--line2);
+  border-radius: var(--r);
+  background: var(--panel);
+  color: var(--fg);
 }
-[data-theme="light"] :is(.map-tile, .map-out, .map-pill) {
-  box-shadow: 0 1px 2px rgba(20, 20, 30, 0.08);
+.map-tile:is([data-head], [data-sel]) {
+  border-color: var(--fg);
 }
-.map-tile[data-role="release"] {
-  background: color-mix(in srgb, var(--release-fg) 5%, var(--map-tile));
+.map-tile[data-sel]:not([data-head]) {
+  background: var(--raised);
 }
-.map-tile[data-role="trunk"] {
-  background: color-mix(in srgb, var(--trunk-fg) 5%, var(--map-tile));
-}
-:is(.map-tile, .map-out, .map-pill)[data-far] {
+.map-tile[data-stale] {
   border-style: dashed;
-  border-color: color-mix(in srgb, var(--fg) 24%, var(--bg));
 }
-:is(.map-tile, .map-out, .map-pill)[data-stale] {
-  border: 1px dashed color-mix(in srgb, var(--warn-fg) 65%, transparent);
+.map-tile[data-ghost] {
+  opacity: 0.5;
 }
-:is(.map-tile, .map-out, .map-pill)[data-gone] {
-  border: 1px dashed color-mix(in srgb, var(--del-fg) 50%, transparent);
+.map-tile[data-far] {
   opacity: 0.75;
 }
-:is(.map-tile, .map-out, .map-pill)[data-ghost] {
-  border-style: dashed;
-  opacity: 0.6;
+.map-tile[data-gone] {
+  opacity: 0.55;
 }
-:is(.map-tile, .map-out, .map-pill)[data-desc] {
-  border-color: color-mix(in srgb, var(--map-sel) 45%, transparent);
-}
-:is(.map-tile, .map-out, .map-pill)[data-head] {
-  border-color: color-mix(in srgb, var(--trunk-fg) 80%, transparent);
-  box-shadow: 0 0 5px color-mix(in srgb, var(--trunk-fg) 22%, transparent);
-}
-:is(.map-tile, .map-out, .map-pill)[data-lin] {
-  border-color: color-mix(in srgb, var(--map-sel) 75%, transparent);
-}
-:is(.map-tile, .map-out, .map-pill)[data-sel] {
-  border-color: var(--map-sel);
-  background: color-mix(in srgb, var(--map-sel) 9%, var(--map-tile));
-  box-shadow: inset 0 0 5px 1px color-mix(in srgb, var(--map-sel) 32%, transparent);
-}
-/* The checked-out branch keeps its orange border when selected or in the selected line. */
-:is(.map-tile, .map-out, .map-pill)[data-head]:is([data-sel], [data-lin]) {
-  border-color: color-mix(in srgb, var(--trunk-fg) 80%, transparent);
-}
-/* Selected and checked out: the selection's inner glow plus the checked-out one's outer glow. */
-:is(.map-tile, .map-out, .map-pill)[data-sel][data-head] {
-  box-shadow:
-    inset 0 0 5px 1px color-mix(in srgb, var(--map-sel) 32%, transparent),
-    0 0 5px color-mix(in srgb, var(--trunk-fg) 22%, transparent);
+.map-tile[data-gone] .map-name {
+  text-decoration: line-through;
 }
 .map-tile[data-hit] {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
+  outline: 1px solid var(--fg);
+  outline-offset: 3px;
 }
 .map-tile[data-locked] > .map-tile-in {
-  filter: grayscale(1);
-  opacity: 0.4;
+  opacity: 0.5;
 }
-/* The whole tile picks the branch; its own buttons (fold, WIP, agent) sit above it. */
+/* The whole box picks the branch; its own buttons (WIP, agent, "+") sit above it. */
 .map-hitbox {
   position: absolute;
   inset: 0;
-  width: 100%;
-  height: 100%;
   padding: 0;
   border: 0;
   border-radius: inherit;
   background: transparent;
+  cursor: pointer;
 }
-.map-hitbox:hover {
-  background: color-mix(in srgb, var(--fg) 4%, transparent);
+.map-tile > .map-hitbox:hover {
+  background: color-mix(in srgb, var(--fg) 3%, transparent);
 }
 .map-hitbox:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
+  outline: 1px solid var(--fg);
+  outline-offset: 2px;
 }
 .map-tile-in {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 5px;
-  padding: 9px 12px 10px;
+  gap: 4px;
+  padding: 8px 24px 8px 18px;
   pointer-events: none;
 }
-.map-tile[data-role="trunk"] > .map-tile-in {
-  padding: 13px 12px 12px;
+/* The default branch's box has no station of its own (it is on the trunk): less room on the left. */
+.map-tile[data-trunk] > .map-tile-in {
+  padding-left: 14px;
 }
 .map-tile-in button {
   pointer-events: auto;
@@ -2460,400 +2240,324 @@ button.map-behind[aria-disabled] {
 .map-row {
   display: flex;
   align-items: center;
-  gap: 7px;
-  min-width: 0;
+  gap: 10px;
   height: 20px;
+  min-width: 0;
+  white-space: nowrap;
 }
-.map-row > svg {
+.map-tile:is([data-role="release"], [data-role="trunk"]) .map-row {
+  height: 34px;
+}
+.map-row > .tag {
   flex: none;
 }
 .map-kind {
   flex: none;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.14em;
+  line-height: 13px;
   text-transform: uppercase;
+  color: var(--faint);
 }
 .map-name {
-  flex: 1 1 auto;
-  min-width: 0;
-  font-size: 11.5px;
+  font-size: 13px;
   font-weight: 500;
   color: var(--fg);
 }
-.map-tile[data-head] .map-name {
-  font-weight: 700;
+.map-tile:is([data-head], [data-trunk]) .map-name {
+  font-weight: 600;
 }
-.map-tile:is([data-stale], [data-ghost]) .map-name {
-  font-weight: 400;
-  color: var(--muted);
-}
-.map-trunk {
-  min-width: 0;
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--trunk-fg);
-}
+/* A release's version or a trunk's name: the loud voices on the map. */
 .map-ver {
   min-width: 0;
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--release-fg);
-}
-.tag.map-tag-trunk {
-  color: var(--trunk-fg);
-  border-color: color-mix(in srgb, var(--trunk-fg) 50%, transparent);
-}
-:is(.map-row, .map-chips, .map-card-name, .focus-crumbs) > .tag {
-  flex: none;
-  padding-block: 0;
-  line-height: 14px;
-}
-:is(.map-row, .map-chips) > .tag {
-  font-size: 9.5px;
-}
-.map-sub {
-  height: 14px;
-  line-height: 14px;
-  font-size: 11px;
-  color: var(--faint);
-  white-space: nowrap;
   overflow: hidden;
+  font: 600 30px/40px var(--display); /* room for descenders under the ellipsis clip */
+  letter-spacing: 0.01em;
+  white-space: nowrap;
   text-overflow: ellipsis;
+  color: var(--fg);
 }
-/* The branch's state, a few words each: its agent, its checkout, its uncommitted work, origin. */
-.map-chips {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  min-width: 0;
-  height: 16px;
-  /* Room for the chip buttons' hover background, which reaches past their text. */
-  margin: 0 -6px;
-  padding: 0 6px;
+/* The info row: one line of facts, never commits. */
+.map-info {
+  display: block;
+  height: 18px;
   overflow: hidden;
+  font-size: 12px;
+  line-height: 18px;
   white-space: nowrap;
-  font-size: 11px;
+  text-overflow: ellipsis;
+  color: var(--muted);
 }
-.map-chip {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  height: 16px;
+.map-info svg {
+  vertical-align: -2px;
+  margin-right: 4px;
+}
+.map-info .pulse {
+  display: inline-block;
+  vertical-align: 1px;
+  margin-right: 6px;
+}
+.map-info .mono {
+  font-size: 12px;
+}
+.map-info-btn {
   padding: 0;
   border: 0;
   background: transparent;
-  font-size: 11px;
-  line-height: 15px;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
 }
-/* No weight: a chip's colour class (c-warn, c-add…) wins. */
-:where(.map-chip) {
-  color: var(--muted);
+.map-info-btn .spinner {
+  width: 10px;
+  height: 10px;
+  margin-right: 4px;
+  vertical-align: -1px;
 }
-/* An agent's chip: its long label gives way, its state stays. */
-.map-chip.map-agent {
-  flex: 0 1 auto;
-  min-width: 0;
+.map-wip {
+  color: var(--fg);
+  font-weight: 500;
 }
-:is(.map-chip.c-add, .map-chip.c-warn, .map-chip.c-del, .map-chip.c-current, .map-chip.c-acc, .map-chip.glow-working) {
-  font-weight: 600;
+.map-wip > b {
+  font: 500 12px var(--mono);
 }
-button.map-chip {
-  margin: 0 -6px;
-  padding: 0 6px;
-  border-radius: 8px;
+.map-info-btn:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
-button.map-chip:hover {
-  background: color-mix(in srgb, currentColor 14%, transparent);
-}
-.map-chip.wip-badge {
-  font-weight: 700;
-}
-.map-chip .spinner {
-  width: 9px;
-  height: 9px;
-}
-.map-chip .pulse {
-  flex: 0 0 6px;
-  border-radius: 50%;
-  background: currentColor;
-}
-.map-dot {
+/* Uncommitted: a dashed dot (dashes mean not there yet). */
+.map-wip-dot {
+  display: inline-block;
   width: 6px;
   height: 6px;
+  margin-right: 6px;
+  vertical-align: 1px;
+  border: 1px dashed var(--fg);
   border-radius: 50%;
-  background: currentColor;
 }
-/* A tile's commit count: unfolds its newest commits. Like the "+", it carries its tile's state for the same border and glow. */
-.map-pill {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  height: 20px;
-  padding: 0 6px;
-  border: 1px solid var(--map-line);
-  border-radius: 10px;
-  background: var(--panel);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
-  color: var(--muted);
-  font-family: var(--mono);
-  font-size: 11px;
-  transition:
-    border-color var(--t-fast) var(--ease),
-    box-shadow var(--t-fast) var(--ease),
-    color var(--t-fast) var(--ease);
+/* An agent waiting for you: its dot in the warning colour, never the working rainbow. */
+.pulse.map-wait {
+  background: var(--warn-fg);
 }
-/* The ghost tile already fades the pill inside it. */
-.map-pill[data-ghost] {
-  opacity: 1;
-}
-.map-pill:hover {
-  border-color: var(--map-sel);
-  color: var(--fg);
-}
-/* A tile's "+", on its right side where its lines leave: starts a branch off it. It carries its tile's state, so the tile rules above give it the same border and glow. */
+/* The "+" straddles the box's right edge at its header row: shown where lines leave and on the route, on hover or focus elsewhere. */
 .map-out {
   position: absolute;
-  width: 18px;
-  height: 18px;
+  z-index: 2;
+  top: 8px;
+  right: -11px;
   display: grid;
   place-items: center;
+  width: 20px;
+  height: 20px;
   padding: 0;
-  border: 1px solid var(--map-line);
-  border-radius: 50%;
-  background: var(--map-tile);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--line2);
+  border-radius: var(--r-sm);
+  background: var(--panel);
   color: var(--muted);
-  transition:
-    border-color var(--t-fast) var(--ease),
-    box-shadow var(--t-fast) var(--ease),
-    color var(--t-fast) var(--ease);
+}
+.map-tile:is([data-role="release"], [data-role="trunk"]) > .map-out {
+  top: 15px;
 }
 .map-out:hover {
-  border-color: var(--map-sel);
+  border-color: var(--fg);
   color: var(--fg);
 }
-.map-out:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
+/* On the checked-out or selected box, the "+" wears the box's ink border and fills with it on hover. */
+.map-tile:is([data-head], [data-sel]) > .map-out {
+  border-color: var(--fg);
 }
-.map-pill[aria-expanded="true"] {
-  border-color: var(--map-sel);
-  background: color-mix(in srgb, var(--map-sel) 16%, transparent);
-  color: var(--fg);
+.map-tile:is([data-head], [data-sel]) > .map-out:hover {
+  background: var(--fg);
+  color: var(--bg);
 }
-.map-commits {
+.map-out[data-quiet] {
+  opacity: 0;
+}
+.map-tile:is(:hover, :focus-within) > .map-out[data-quiet] {
+  opacity: 1;
+}
+/* A box's commits float under it with no container: the subject, then the author's initials and age. */
+.map-float {
+  position: absolute;
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  margin-top: 3px;
-  padding-top: 6px;
-  border-top: 1px solid var(--map-sep);
 }
 .map-crow {
   display: flex;
   align-items: center;
-  gap: 7px;
-  width: calc(100% + 8px);
-  height: 18px;
-  margin: 0 -4px;
-  padding: 0 4px;
-  border: 0;
-  border-radius: var(--r-sm);
-  background: transparent;
-  color: var(--fg);
-  font-size: 11.5px;
-  text-align: left;
-}
-.map-crow:disabled {
-  opacity: 0.5;
-}
-.map-crow:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--fg) 9%, transparent);
-}
-.map-crow > .ellipsis,
-.map-latest > .ellipsis {
-  flex: 1 1 auto;
+  gap: 12px;
+  flex: none;
+  height: 22px;
   min-width: 0;
-}
-.map-crow > .faint,
-.map-latest > .faint {
-  flex: none;
-  font-size: 11px;
-}
-/* The author's picture or initials; ringed on the commit checked out: green at the newest, yellow with newer ones to pull. */
-.map-crow-who {
-  flex: none;
-  display: inline-flex;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: color-mix(in srgb, var(--fg) 8%, transparent);
-}
-.map-crow-who[data-on="latest"] {
-  box-shadow: 0 0 0 1.5px var(--add-fg);
-}
-.map-crow-who[data-on="behind"] {
-  box-shadow: 0 0 0 1.5px var(--warn-fg);
-}
-.map-crow.map-crow-more {
-  gap: 8px;
-  padding-left: 25px;
+  padding: 0;
+  border: 0;
+  background: transparent;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
 }
-.map-crow-act {
+.map-crow > .ellipsis {
+  flex: 1 1 auto;
+}
+/* The author hangs left of the row, so the subject stays in line with the box text above. */
+.map-crow > .user-avatar {
+  margin: 0 -6px 0 -18px;
+}
+.map-crow > i,
+.map-who {
+  flex: none;
   display: inline-flex;
   align-items: center;
-  gap: 3px;
+  gap: 6px;
+  font: 11px var(--mono);
+  font-style: normal;
+  white-space: nowrap;
+  color: var(--faint);
+}
+.map-crow:hover:not(:disabled),
+.map-crow:hover:not(:disabled) > i {
+  color: var(--fg);
+}
+.map-crow:disabled {
+  cursor: default;
+}
+/* The commit checked out: in ink. */
+.map-crow[data-on] {
   color: var(--fg);
   font-weight: 500;
 }
-/* Down to show more, up to fold them away (not the shared disclosure turn, which points right when shut). */
-.map-crow-more[aria-expanded="true"] .chev {
-  transform: rotate(180deg);
+/* On origin, not pulled yet. */
+.map-crow > .c-warn {
+  flex: none;
+  margin-right: -6px;
+  font: 500 12px var(--mono);
 }
-.map-latest {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  height: 21px;
-  padding: 6px 0 0;
+.map-crow-tag > .mono {
+  flex: none;
+  font-size: 12px;
+}
+.map-crow-rule {
+  flex: 1 1 auto;
+  height: 1px;
+  background: var(--line);
+}
+.map-crow-more {
+  align-self: flex-start;
+  flex: none;
+  height: 22px;
+  padding: 0;
   border: 0;
-  border-top: 1px solid var(--map-sep);
-  border-radius: 0;
   background: transparent;
-  color: var(--muted);
+  color: var(--faint);
   font-size: 11px;
-  text-align: left;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  white-space: nowrap;
 }
-.map-latest:hover:not(:disabled) > .ellipsis {
+.map-crow-more:hover {
   color: var(--fg);
 }
-/* A shine sweeps left to right across the checked-out branch's name every few seconds: a soft white band over the name's colour. */
-.map-tile[data-head] :is(.map-name, .map-trunk, .map-ver) {
-  --name-fg: var(--fg);
-  background:
-    linear-gradient(100deg, transparent 40%, color-mix(in srgb, white 60%, transparent) 50%, transparent 60%) 100% 0 / 250% 100% no-repeat,
-    linear-gradient(var(--name-fg), var(--name-fg));
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  animation: shine 6s steps(30) infinite;
+.map-crow-sha {
+  flex: none;
+  font-size: 11px;
+  color: var(--faint);
 }
-.map-tile[data-head] .map-trunk {
-  --name-fg: var(--trunk-fg);
+.map-tags {
+  flex: none;
+  display: inline-flex;
+  gap: 4px;
 }
-.map-tile[data-head] .map-ver {
-  --name-fg: var(--release-fg);
+.map-tagchip {
+  display: inline-flex;
+  max-width: 96px;
+  padding: 0 5px;
+  border: 1px solid var(--line2);
+  border-radius: var(--r-sm);
+  font: 11px/16px var(--mono);
+  color: var(--muted);
 }
-@keyframes shine {
-  0% {
-    background-position:
-      100% 0,
-      0 0;
-  }
-  41.6667%,
-  100% {
-    background-position:
-      0 0,
-      0 0;
-  }
+/* The match the search is on, wherever it is: outlined in ink. */
+:is(.map-crow, .map-relrow, .map-ship, .map-merged)[data-find-at] {
+  outline: 1px solid var(--fg);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
 }
-@media (prefers-reduced-motion: reduce) {
-  .map-tile[data-head] :is(.map-name, .map-trunk, .map-ver) {
-    animation: none;
-  }
-}
-/* Part of a branch name the search matches, and the match the find bar's arrows are on. */
+/* Part of a name the search matches, and the match the find bar's arrows are on (inverted). */
 .map-hit {
-  border-radius: 2px;
-  background: color-mix(in srgb, var(--accent) 35%, transparent);
+  border-radius: var(--r-sm);
+  background: color-mix(in srgb, var(--fg) 22%, transparent);
   color: inherit;
 }
 .map-hit.at {
-  background: var(--accent);
-  color: var(--on-accent);
+  background: var(--fg);
+  color: var(--bg);
 }
-.map-legend {
+/* Ahead / behind, on the middle of the line coming into a box: a square chip, the route's in the route colour; behind, it rebases. */
+.map-line-chip {
   position: absolute;
-  left: 16px;
-  bottom: 16px;
-  z-index: 4;
+  z-index: 3;
   display: flex;
   align-items: center;
+  height: 18px;
+  padding: 0 6px;
+  transform: translate(-50%, -50%);
+  border: 1px solid var(--line2);
+  border-radius: var(--r-sm);
+  background: var(--bg);
+  color: var(--muted);
+  font: 500 11px var(--mono);
+  white-space: pre;
+}
+.map-line-chip[data-line="head"] {
+  border-color: var(--route);
+  color: var(--fg);
+}
+.map-line-chip[data-line="stale"] {
+  border-style: dashed;
+}
+button.map-line-chip {
+  cursor: pointer;
+}
+button.map-line-chip:not([aria-disabled]):hover {
+  border-color: var(--fg);
+  color: var(--fg);
+}
+button.map-line-chip[aria-disabled] {
+  cursor: not-allowed;
+}
+/* The three line styles, along the bottom on the ground the map fades into. */
+.map-legend {
+  flex: none;
+  display: flex;
   flex-wrap: wrap;
-  gap: 6px 14px;
-  max-width: calc(100% - 240px);
-  padding: 8px 12px;
-  border: 1px solid var(--line);
-  border-radius: var(--r-lg);
-  background: color-mix(in srgb, var(--bg) 92%, transparent);
-  font-size: 11.5px;
+  align-items: center;
+  gap: 6px 22px;
+  padding: 8px 16px 10px;
+  background: var(--bg);
+  font-size: 12px;
   color: var(--muted);
 }
 .map-legend > span {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
 }
 .map-legend path {
   fill: none;
-  stroke-width: 2.5;
-  stroke-linecap: round;
+  stroke: var(--link);
 }
 .map-legend .map-key-head {
-  stroke: var(--trunk-fg);
-}
-.map-legend .map-key-lin {
-  stroke: var(--map-sel);
+  stroke: var(--route);
+  stroke-width: 1.5;
 }
 .map-legend .map-key-stale {
-  stroke: var(--warn-fg);
-  stroke-width: 2;
-  stroke-dasharray: 4 4;
+  stroke-dasharray: 3 4;
 }
-/* The map in small, the view's frame over it: a click goes there. */
-.map-mini {
-  position: absolute;
-  right: 16px;
-  bottom: 16px;
-  z-index: 5;
-  width: 176px;
-  height: 118px;
-  padding: 0;
-  overflow: hidden;
-  border: 1px solid var(--line);
-  border-radius: var(--r-lg);
-  background: color-mix(in srgb, var(--bg) 94%, transparent);
-}
-.map-mini-in > span {
-  position: absolute;
-  border-radius: 2px;
-  background: color-mix(in srgb, var(--faint) 70%, var(--bg));
-}
-.map-mini-in > [data-k="trunk"] {
-  background: var(--trunk-fg);
-}
-.map-mini-in > [data-k="release"] {
-  background: var(--release-fg);
-}
-.map-mini-in > [data-k="lin"] {
-  background: color-mix(in srgb, var(--map-sel) 55%, transparent);
-}
-.map-mini-in > [data-k="sel"] {
-  background: var(--map-sel);
-}
-.map-mini-frame {
-  position: absolute;
-  border: 1px solid color-mix(in srgb, var(--map-sel) 75%, transparent);
-  border-radius: 3px;
-  pointer-events: none;
-}
-/* The selected branch, floating over the map's top right. On its own layer: the pulse and the map scrolling under it never redraw its shadow. */
+/* The selected branch, floating over the map's top right: flat, a panel and a strong hairline. On its own layer: the map
+   scrolling under it doesn't repaint it. */
 .map-card {
   position: absolute;
   top: 16px;
@@ -2861,16 +2565,15 @@ button.map-chip:hover {
   z-index: 6;
   width: 288px;
   max-width: calc(100% - 32px);
-  max-height: calc(100% - 160px);
+  max-height: calc(100% - 32px);
   overflow: auto;
   display: flex;
   flex-direction: column;
   gap: 14px;
   padding: 16px;
-  border: 1px solid color-mix(in srgb, var(--fg) 13%, var(--panel));
-  border-radius: 14px;
+  border: 1px solid var(--line2);
+  border-radius: var(--r);
   background: var(--panel);
-  box-shadow: var(--shadow-pop);
   will-change: transform;
   animation: fade-in var(--t) var(--ease);
 }
@@ -2878,47 +2581,45 @@ button.map-chip:hover {
 .map-card > * {
   flex-shrink: 0;
 }
-/* A short map: the card takes the full height over the overview, which goes. */
-@container map-view (max-height: 640px) {
-  .map-card {
-    max-height: calc(100% - 32px);
-  }
-  .map-mini {
-    display: none;
-  }
+/* Its kind and tags on a line above the name, so the name gets the card's full width; the fold button at the top right. */
+.map-card-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px;
 }
-.map-card-sec {
+.map-card-head > h3 {
+  grid-column: 1;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 18px;
+  overflow-wrap: anywhere;
+}
+.map-card-tags:not(:empty) + h3 {
+  grid-column: 1 / -1;
+}
+/* Its 24px box kept to the height of the first line it sits on: the name's, or the tags'. */
+.map-card-fold {
+  grid-area: 1 / 2;
+  width: 24px;
+  height: 24px;
+  margin: -3px -6px -3px 0;
+}
+.map-card-tags:not(:empty) ~ .map-card-fold {
+  margin-block: -3px -2px;
+}
+.map-card-tags {
   display: flex;
-  flex-direction: column;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 6px;
 }
-.map-eyebrow {
-  margin: 0;
-  font-size: 10.5px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--faint);
+.map-card-tags:empty {
+  display: none;
 }
-.map-card-fold {
-  display: inline-flex;
-  width: 28px;
-  height: 28px;
-  margin: -6px -8px -6px 0;
-}
-.map-card-name {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px 8px;
-}
-.map-card-name > h3 {
-  min-width: 0;
-  margin: 0;
-  font-size: 13.5px;
-  font-weight: 700;
-  line-height: 1.35;
-  overflow-wrap: anywhere;
+.map-card-tags > .map-kind {
+  margin-right: 2px;
 }
 /* The name opens the branch full screen, like "Look at the code". */
 .map-card-look {
@@ -2933,60 +2634,57 @@ button.map-chip:hover {
 .map-card-look:disabled {
   cursor: default;
 }
-/* Folded, the eye after the name, in the name's colour. */
+.map-card-tail {
+  white-space: nowrap;
+}
 .map-card-eye {
   margin-left: 6px;
   vertical-align: -2px;
 }
-/* Folded: smaller text and button, to take less of the map. */
-.map-card[data-folded] {
-  gap: 10px;
+/* Its headline numbers in the display face, a label under each. */
+.map-big {
+  display: flex;
+  gap: 26px;
 }
-.map-card[data-folded] .map-card-name > h3 {
-  font-size: 12.5px;
+.map-big > div {
+  display: flex;
+  flex-direction: column;
 }
-.map-card[data-folded] :is(.map-card-acts > .btn, .map-look) {
-  height: 30px;
-  font-size: 12px;
+.map-big b {
+  margin-bottom: 6px;
+  font: 600 44px/1 var(--display);
+  color: var(--fg);
+}
+.map-big b.c-del {
+  color: var(--del-fg);
 }
 /* Opens the branch full screen, on what is most likely wanted: its uncommitted work, else its changes. */
 .map-look {
   justify-content: flex-start;
   width: 100%;
   min-width: 0;
-  font-weight: 600;
 }
-.map-look > .faint {
-  flex: 0 1 auto;
-  min-width: 0;
+.map-look-n {
   margin-left: auto;
-  font-size: 11.5px;
-  font-weight: 400;
-}
-/* Uncommitted work: the node's orange WIP chip, on the right. */
-.map-look > .wip-badge {
-  margin-left: auto;
-}
-.btn-primary.map-look > .faint {
-  color: inherit;
-  opacity: 0.7;
+  font: 500 11px var(--mono);
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--muted);
 }
 .map-sentence {
   margin: 0;
-  padding: 10px 12px;
-  border-radius: var(--r);
-  background: var(--bg);
-  font-size: 12.5px;
-  line-height: 1.5;
+  font-size: 12px;
+  line-height: 18px;
   color: var(--muted);
   text-wrap: pretty;
 }
 .map-status {
   display: grid;
-  grid-template-columns: 92px minmax(0, 1fr);
-  gap: 6px 10px;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 6px 16px;
   margin: 0;
   font-size: 12px;
+  color: var(--fg);
 }
 .map-status > div {
   display: contents;
@@ -2997,57 +2695,47 @@ button.map-chip:hover {
 .map-status dd {
   min-width: 0;
   margin: 0;
+  text-align: right;
+  font-family: var(--mono);
   overflow-wrap: anywhere;
+}
+/* Folded: smaller, to take less of the map. */
+.map-card[data-folded] {
+  gap: 10px;
+}
+.map-card[data-folded] > .map-card-acts {
+  margin-top: 6px;
 }
 /* The suggested action with its "…" as one split button. */
 .map-card-acts {
   display: flex;
-  margin-top: 6px;
 }
-.map-card-acts > .btn-primary,
-.map-card-acts > .btn-danger {
+.map-card-acts > .split-main {
   min-width: 0;
 }
 .link-btn {
   padding: 0;
   border: 0;
   background: transparent;
-  color: var(--accent-fg);
+  color: inherit;
   font: inherit;
   text-decoration: underline dotted;
-  text-underline-offset: 2px;
+  text-underline-offset: 3px;
 }
 .link-btn:hover {
   color: var(--fg);
   text-decoration-style: solid;
 }
-.c-release {
-  color: var(--release-fg);
+/* The agent line keeps its dots at rest and loses them on hover. */
+.link-btn.agent-link:hover {
+  text-decoration: none;
 }
+.c-release,
 .c-wip {
-  color: #ff7a00;
+  color: var(--fg);
 }
-/* Light mode: the Gitnetix theme's punchier takes on the role colours inside the map's tiles, as the branch rows had. */
-[data-theme="light"]:not([data-palette]) :is(.map-tile, .map-out, .map-card, .rail) {
-  --add-fg: #1fc48c;
-  --warn-fg: #e0a01f;
-  --del-fg: #ff5a50;
-  --mod-fg: #4f86ff;
-  --trunk-fg: #f5a04a;
-  --release-fg: #a57bff;
-}
-/* A phone: the toolbar one row that scrolls sideways, the card a panel at the top that folds away with the map under it; no legend nor overview. */
+/* A phone: the toolbar one row that scrolls sideways, the card a panel at the top that folds away with the map under it; no legend. */
 @media (max-width: 720px) {
-  .map-view {
-    display: flex;
-    flex-direction: column;
-  }
-  .map-canvas {
-    position: relative;
-    inset: auto;
-    flex: 1 1 0;
-    min-height: 0;
-  }
   .map-bar {
     flex-wrap: nowrap;
     overflow-x: auto;
@@ -3059,8 +2747,7 @@ button.map-chip:hover {
   }
   .map-title,
   .map-bar > .grow,
-  .map-legend,
-  .map-mini {
+  .map-legend {
     display: none;
   }
   /* Out of the map's way: above it, not over it. The card comes after the map for keyboards and screen readers. */
@@ -3077,6 +2764,17 @@ button.map-chip:hover {
     gap: 12px;
     padding: 12px 14px;
   }
+  .map-big b {
+    font-size: 32px;
+  }
+  /* Taller than its room, the card scrolls under its suggested action, which stays in view. */
+  .map-card-acts {
+    position: sticky;
+    bottom: -12px;
+    margin: 0 -14px -12px;
+    padding: 10px 14px 12px;
+    background: var(--panel);
+  }
 }
 
 /* ---------- focus: one branch full screen ---------- */
@@ -3086,88 +2784,70 @@ button.map-chip:hover {
   display: flex;
   flex-direction: column;
   background: var(--bg);
-  animation: focus-in var(--t-slow) var(--ease) both;
+  animation: focus-in var(--t) var(--ease) both;
 }
 @keyframes focus-in {
   from {
     opacity: 0;
-    transform: scale(0.985);
   }
 }
+/* The focus head: back to the map (with its Esc key cap), where the branch comes from, then its state on the right. */
 .focus-head {
   flex: none;
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 8px 12px;
-  min-height: 52px;
-  padding: 8px 16px 8px 10px;
+  gap: 8px 14px;
+  min-height: 48px;
+  padding: 6px 16px;
   border-bottom: 1px solid var(--line);
-  background: var(--panel);
-}
-.focus-back {
-  height: 34px;
-  padding: 0 8px 0 9px;
-  font-weight: 600;
+  background: var(--bg);
 }
 :is(.focus-head, .code-foot) kbd {
   padding: 0 5px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--line2);
   border-radius: var(--r-sm);
-  font-family: var(--mono);
-  font-size: 10.5px;
-  font-weight: 500;
-  line-height: 16px;
-  color: var(--fg);
+  font: 500 11px/16px var(--mono);
+  color: var(--faint);
 }
 .focus-crumbs {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 2px;
+  gap: 8px;
   min-width: 0;
-  padding-left: 12px;
-  border-left: 1px solid var(--line);
-  font-size: 12.5px;
 }
 .focus-crumbs > button {
-  height: 28px;
-  padding: 0 8px;
+  padding: 0;
   border: 0;
-  border-radius: var(--r-sm);
   background: transparent;
-  font-size: inherit;
+  color: var(--muted);
+  font-size: 13px;
 }
 .focus-crumbs > button:hover:not([aria-current]) {
-  background: var(--raised);
+  color: var(--fg);
 }
 .focus-crumbs > button[aria-current="true"] {
-  background: color-mix(in srgb, var(--accent) 16%, transparent);
   color: var(--fg);
-  font-weight: 700;
+  font-weight: 500;
   cursor: default;
 }
 .focus-crumbs > .tag {
-  margin-left: 6px;
+  margin-left: 2px;
 }
 .focus-pills {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  align-items: center;
+  gap: 6px 18px;
+  font: 12px var(--mono);
+  color: var(--muted);
 }
 .focus-pills > span {
   display: inline-flex;
   align-items: center;
-  height: 26px;
-  padding: 0 10px;
-  border: 1px solid var(--line);
-  border-radius: 13px;
-  font-size: 12px;
+  gap: 6px;
   white-space: nowrap;
-  color: var(--muted);
-}
-.focus-pills > span:is(.c-warn, .c-del, .c-add, .c-mod, .c-release) {
-  font-weight: 600;
 }
 .focus-body {
   flex: 1 1 auto;
@@ -3183,11 +2863,11 @@ button.map-chip:hover {
   display: flex;
   flex-direction: column;
   border-right: 1px solid var(--line);
-  background: var(--panel);
+  background: var(--bg);
 }
 .rail-head {
-  gap: 10px;
-  padding: 12px 14px;
+  gap: 12px;
+  padding: 14px 16px;
   border-bottom: 1px solid var(--line);
 }
 .rail-files {
@@ -3208,34 +2888,31 @@ button.map-chip:hover {
   flex-direction: column;
   background: var(--bg);
 }
+/* What the code shows: its title, then what it is and its numbers on the same line; actions on the right. */
 .code-top {
   flex: none;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   flex-wrap: wrap;
-  gap: 12px 20px;
-  padding: 16px 16px 14px 24px;
+  gap: 8px 20px;
+  min-height: 40px;
+  padding: 8px 16px;
   border-bottom: 1px solid var(--line);
-  background: var(--panel);
+  background: var(--bg);
 }
 .code-title {
   flex: 1 1 320px;
   min-width: 0;
   display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.code-eyebrow {
-  font-size: 10.5px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 16px;
 }
 .code-title > h2 {
   margin: 0;
-  font-size: 17px;
+  font-size: 13px;
   font-weight: 600;
-  line-height: 1.3;
+  line-height: 18px;
   overflow-wrap: anywhere;
 }
 .code-meta {
@@ -3263,21 +2940,17 @@ button.map-chip:hover {
 .code-files {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
-  padding: 2px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--line2);
   border-radius: var(--r);
-  background: var(--bg);
 }
 .code-files > .btn {
-  width: 28px;
+  width: 26px;
   height: 26px;
 }
 .code-files > span {
   min-width: 76px;
   text-align: center;
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
+  font: 500 12px var(--mono);
   color: var(--muted);
 }
 .code-banner {
@@ -3286,7 +2959,7 @@ button.map-chip:hover {
   align-items: center;
   flex-wrap: wrap;
   gap: 8px 10px;
-  margin: 12px 16px 0 24px;
+  margin: 12px 16px 0;
   padding: 8px 10px 8px 12px;
   border: 1px solid color-mix(in srgb, currentColor 45%, transparent);
   border-radius: var(--r);
@@ -3311,16 +2984,18 @@ button.map-chip:hover {
   align-items: center;
   flex-wrap: wrap;
   gap: 6px 10px;
-  min-height: 46px;
-  padding: 6px 12px 6px 24px;
+  min-height: 40px;
+  padding: 6px 12px 6px 16px;
   border-bottom: 1px solid var(--line);
 }
 .code-path {
   min-width: 0;
-  font-size: 12.5px;
+  font-size: 13px;
+  color: var(--muted);
 }
 .code-path > b {
-  font-weight: 600;
+  font-weight: 500;
+  color: var(--fg);
 }
 .code-note {
   min-width: 0;
@@ -3328,7 +3003,7 @@ button.map-chip:hover {
 }
 /* History open: its button stays lit. */
 .code-file > .btn[aria-pressed="true"] {
-  border-color: var(--accent);
+  border-color: var(--fg);
   background: var(--sel);
   color: var(--fg);
 }
@@ -3354,7 +3029,7 @@ button.map-chip:hover {
   }
 }
 /* Author's initial or picture, round; see Avatar.tsx.
-   A glow in the author's colour, not a solid disc: it fades out before its edge, so it never crowds a card's rounded corner. */
+   A flat disc tinted with the author's colour. */
 .user-avatar {
   flex: none;
   display: inline-flex;
@@ -3362,7 +3037,7 @@ button.map-chip:hover {
   justify-content: center;
   overflow: hidden;
   border-radius: 50%;
-  background: radial-gradient(closest-side, hsl(var(--avatar-hue) 60% 50% / 0.5) 35%, transparent);
+  background: color-mix(in srgb, hsl(var(--avatar-hue) 45% 50%) 28%, var(--raised));
   letter-spacing: -0.02em;
   color: hsl(var(--avatar-hue) 70% 75%);
   font-weight: 600;
@@ -3376,26 +3051,17 @@ button.map-chip:hover {
     padding-top: 0.12em;
   }
 }
-/* The picture fades into the card the same way. */
 .user-avatar > img {
   display: block;
   object-fit: cover;
-  mask-image: radial-gradient(closest-side, #000 65%, transparent);
 }
 [data-theme="light"] .user-avatar {
-  background: radial-gradient(closest-side, hsl(var(--avatar-hue) 60% 50% / 0.55) 35%, transparent);
+  background: color-mix(in srgb, hsl(var(--avatar-hue) 50% 50%) 22%, var(--panel));
   color: hsl(var(--avatar-hue) 60% 27%);
 }
-/* Uncommitted work on a branch: loud orange, gently pulsing so it isn't forgotten. */
+/* Uncommitted work: ink and a touch heavier, never a hue. */
 .wip-badge {
-  color: #ff7a00;
   font-weight: 600;
-  animation: agpulse 1.5s steps(9) infinite;
-}
-@media (prefers-reduced-motion: reduce) {
-  .wip-badge {
-    animation: none;
-  }
 }
 /* Held by a rebase AI is carrying through (BranchMap.tsx): a veil that takes the clicks, a lock on the right;
    hovering it says why, a click shows the rebase's progress. */
@@ -3418,7 +3084,7 @@ button.map-chip:hover {
   height: 24px;
   padding: 0 10px;
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: var(--r-sm);
   background: var(--panel);
   color: var(--muted);
   font-size: 11.5px;
@@ -3427,7 +3093,7 @@ button.map-chip:hover {
 }
 .lock-veil:hover .lock-badge {
   color: var(--fg);
-  border-color: color-mix(in srgb, var(--accent-fg) 55%, var(--line));
+  border-color: var(--fg);
 }
 /* Row actions (stashes, worktrees) fill the row's height, flush with its right edge; their rows show them on hover. */
 .tree-acts {
@@ -3446,10 +3112,11 @@ button.map-chip:hover {
   }
 }
 .kind-chip {
-  font-family: var(--mono);
-  font-size: 10px;
-  font-weight: 500;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
+  color: var(--faint);
 }
 /* Icon-only split: the suggested action full height, "+" and "…" stacked half height beside it. */
 .acts {
@@ -3538,21 +3205,42 @@ button.map-chip:hover {
   border-top-left-radius: 0;
   border-bottom-left-radius: 0;
 }
+/* As tall as the main part beside it. */
+.split-more.btn-icon {
+  align-self: stretch;
+  height: auto;
+  width: 34px;
+}
 .commit-btn {
-  --commit-h: 38px;
+  --commit-h: 30px;
   height: var(--commit-h);
+}
+/* The commit box's "Commit message" fold: a tracked-caps toggle like the files' sections. */
+.commit-sec {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--faint);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.commit-sec:hover {
+  color: var(--fg);
 }
 .split-more.commit-btn {
   width: var(--commit-h);
 }
 /* Primary buttons have no border: a darker accent hairline splits the arrow from the main button. */
+/* A primary split: one fill, a hairline between its parts. */
 .btn-primary.split-more {
   margin-left: 0;
-  border-left: 1px solid color-mix(in srgb, var(--accent) 80%, #000);
-}
-.btn.btn-danger.split-more {
-  margin-left: 0;
-  border-left-color: color-mix(in srgb, #d23a31 70%, #000);
+  border-left-color: color-mix(in srgb, var(--accent) 70%, var(--bg));
 }
 .ctx-menu {
   position: fixed;
@@ -3812,7 +3500,7 @@ button.map-chip:hover {
   /* Always a light fill so it reads as a button; stronger on hover. Mixed from the text color: fits light and dark themes. */
   background: color-mix(in srgb, var(--fg) 7%, transparent);
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
   /* Whole pixels: the 10px box lands 3px into a 16px button, not on half a pixel (blurry, off center at 1.5x). */
   line-height: 12px;
 }
@@ -3921,23 +3609,26 @@ button.map-chip:hover {
     min-height: 28px;
   }
 }
+/* A file row: its status letter, name in ink then its folder faint, its counts; hovered and picked rows sit on the selected ground. */
 .file-btn {
   display: flex;
   align-items: center;
   gap: 10px;
   width: 100%;
-  min-height: 32px;
-  padding: 0 14px;
+  min-height: 30px;
+  padding: 0 16px;
   border: 0;
   background: transparent;
+  color: var(--muted);
   font-size: 12.5px;
   text-align: left;
 }
 .file-btn[aria-pressed="true"] {
   background: var(--sel);
+  color: var(--fg);
 }
 .file-btn:hover {
-  background: var(--raised);
+  background: var(--sel);
 }
 .file-row {
   position: relative;
@@ -3950,11 +3641,11 @@ button.map-chip:hover {
   padding-right: 8px;
 }
 .file-row:hover .file-btn {
-  background: var(--raised);
+  background: var(--sel);
 }
 .file-nums {
-  gap: 6px;
-  font-size: 11px;
+  gap: 8px;
+  font: 12px var(--mono);
 }
 /* Each count centred under its button: + under stage, − under discard. */
 .file-row .file-nums {
@@ -3996,16 +3687,14 @@ button.map-chip:hover {
   z-index: 1;
   align-items: center;
   gap: 6px;
-  height: 30px;
-  padding: 0 8px 0 0;
+  height: 32px;
+  padding: 0 10px 0 0;
   font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--muted);
+  color: var(--faint);
   background: var(--bg);
-  border-top: 1px solid var(--line);
-  border-bottom: 1px solid var(--line);
 }
 .file-sec-toggle {
   flex: 1 1 auto;
@@ -4014,7 +3703,7 @@ button.map-chip:hover {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 0 6px 0 14px;
+  padding: 0 6px 0 16px;
   border: 0;
   background: transparent;
   color: inherit;
@@ -4023,11 +3712,18 @@ button.map-chip:hover {
   text-transform: inherit;
   cursor: pointer;
 }
+/* Its count in Mono, untracked. */
+.file-sec-toggle > .faint,
+.file-sec-toggle > span:last-child {
+  font-family: var(--mono);
+  font-weight: 500;
+  letter-spacing: 0;
+}
 .file-sec-toggle:hover {
   color: var(--fg);
 }
 .chev {
-  transition: transform 0.15s ease;
+  transition: transform var(--t-fast) var(--ease);
 }
 [aria-expanded="false"] > .chev {
   transform: rotate(-90deg);
@@ -4042,8 +3738,8 @@ button.map-chip:hover {
   gap: 2px;
 }
 .btn-act {
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   padding: 0;
   color: var(--muted);
 }
@@ -4055,8 +3751,8 @@ button.map-chip:hover {
 }
 .file-st {
   font-family: var(--mono);
-  font-size: 11px;
-  font-weight: 500;
+  font-size: 12px;
+  font-weight: 600;
   width: 14px;
   flex: 0 0 14px;
 }
@@ -4069,8 +3765,8 @@ button.map-chip:hover {
   overflow-x: hidden;
   overflow-y: auto;
   font-family: var(--mono);
-  font-size: 12.5px;
-  line-height: 21px;
+  font-size: 12px;
+  line-height: 20px;
 }
 .diff-u {
   display: flex;
@@ -4126,7 +3822,7 @@ button.map-chip:hover {
   color: var(--muted);
 }
 .diff-row.marker .tx {
-  color: var(--accent-fg);
+  color: var(--fg);
   font-weight: 500;
 }
 /* Blame: the author of the line under the pointer (and of selected lines) over its line number, which it hides, or beside a
@@ -4153,7 +3849,7 @@ button.map-chip:hover {
 }
 .blame-ic:hover > .user-avatar,
 .blame-ic:focus-visible > .user-avatar {
-  outline: 1px solid var(--accent-fg);
+  outline: 1px solid var(--fg);
   outline-offset: 1px;
 }
 :is(.diff-row, .diff-half) > .ln[data-blamed=""] {
@@ -4199,6 +3895,14 @@ button.map-chip:hover {
 .sx-h {
   font-weight: 500;
 }
+/* The black & white themes highlight in their own two inks: keywords and types bold in ink, the rest muted. */
+[data-palette^="gitnetix-bw"] :is(.sx-k, .sx-t) {
+  color: var(--fg);
+  font-weight: 600;
+}
+[data-palette^="gitnetix-bw"] :is(.sx-s, .sx-n, .sx-f, .sx-l, .sx-p) {
+  color: var(--muted);
+}
 .sx-e {
   font-style: italic;
 }
@@ -4243,12 +3947,6 @@ button.map-chip:hover {
   background: color-mix(in srgb, var(--del-fg) 80%, #000);
 }
 /* Light mode: brighter marks than the dark text colours of the light theme. */
-[data-theme="light"]:not([data-palette]) .diff-heatmap .hm.add {
-  background: #4fd6a4;
-}
-[data-theme="light"]:not([data-palette]) .diff-heatmap .hm.del {
-  background: #ff7d74;
-}
 .diff-heatmap.split .hm.del {
   right: 50%;
   margin-right: 1px;
@@ -4356,7 +4054,7 @@ button.map-chip:hover {
   bottom: 0;
   width: 2px;
   margin-left: -1px;
-  background: var(--accent);
+  background: var(--fg);
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
   pointer-events: none;
 }
@@ -4456,17 +4154,17 @@ input.img-slider {
 .diff-row.pick:hover > .sg,
 .diff-half.pick:hover > .ln,
 .diff-half.pick:hover > .sg {
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
 }
 .diff-row.pick.picked,
 .diff-half.pick.picked {
-  background-image: linear-gradient(color-mix(in srgb, var(--accent) 10%, transparent), color-mix(in srgb, var(--accent) 10%, transparent));
+  background-image: linear-gradient(color-mix(in srgb, var(--fg) 8%, transparent), color-mix(in srgb, var(--fg) 8%, transparent));
 }
 .diff-row.pick.picked > .ln,
 .diff-row.pick.picked > .sg,
 .diff-half.pick.picked > .ln,
 .diff-half.pick.picked > .sg {
-  background: color-mix(in srgb, var(--accent) 28%, transparent);
+  background: color-mix(in srgb, var(--fg) 16%, transparent);
 }
 .diff-row.pick.picked > .ln,
 .diff-half.pick.picked > .ln {
@@ -4474,7 +4172,7 @@ input.img-slider {
 }
 .diff-row.pick.picked > .ln:first-child,
 .diff-half.pick.picked > .ln {
-  box-shadow: inset 3px 0 0 var(--accent);
+  box-shadow: inset 2px 0 0 var(--fg);
 }
 /* Hovering a changed line turns its sign into a checkbox, so the gutter shows it picks lines; a picked line's is ticked. */
 :is(.diff-row, .diff-half).pick > .sg {
@@ -4500,8 +4198,8 @@ input.img-slider {
   border-color: var(--fg);
 }
 :is(.diff-row, .diff-half).pick.picked > .sg::after {
-  border-color: var(--accent);
-  background: var(--accent) var(--tick) center / 8px no-repeat;
+  border-color: var(--fg);
+  background: var(--fg) var(--tick) center / 8px no-repeat;
 }
 .hunk-tx {
   display: flex;
@@ -4557,7 +4255,7 @@ input.img-slider {
 }
 
 .term {
-  animation: term-in 0.26s var(--ease);
+  animation: term-in var(--t) var(--ease);
   flex: 0 0 45%;
   display: flex;
   flex-direction: column;
@@ -4569,7 +4267,6 @@ input.img-slider {
 @keyframes term-in {
   from {
     opacity: 0;
-    transform: translateY(14px);
   }
 }
 /* Doubled class: outranks the wide layout's `.term` max-width below. */
@@ -4664,7 +4361,6 @@ input.img-slider {
 @keyframes term-in-side {
   from {
     opacity: 0;
-    transform: translateX(14px);
   }
 }
 /* The whole closed bar opens the panel, so it highlights as one. */
@@ -4674,7 +4370,7 @@ button.term-bar:hover {
 /* Open, the bar's empty parts collapse it: hovering them fades the bar in toward the collapse button. */
 .term-bar:hover:not(:has(button:hover, select:hover, input:hover)) > .term-side:last-child {
   /* 72px: the expand and collapse buttons at its end; expand stays unlit. */
-  background: linear-gradient(to right, transparent 50%, color-mix(in srgb, var(--raised) 60%, transparent) calc(100% - 72px), transparent 0);
+  background: color-mix(in srgb, var(--raised) 60%, transparent);
 }
 .term-bar:hover:not(:has(button:hover, select:hover, input:hover)) .term-collapse {
   background: var(--raised);
@@ -4710,19 +4406,30 @@ button.picker-act {
   color: var(--fg);
 }
 .picker-act:focus-visible {
-  outline: 1px solid var(--accent);
+  outline: 1px solid var(--fg);
   outline-offset: -1px;
 }
+/* The agents panel's tabs: Inter 12px muted between hairlines; the open one ink over a 2px ink rule. */
 .term-tab {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 0 14px;
+  gap: 6px;
+  padding: 0 12px;
   border: 0;
   border-left: 1px solid var(--line);
   background: transparent;
   color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
   white-space: nowrap;
+}
+.term-tab:hover {
+  color: var(--fg);
+}
+.term-tabs > span.term-tab > .mono {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--fg);
 }
 .term-side {
   flex: 1 1 0;
@@ -4735,10 +4442,14 @@ button.picker-act {
   min-width: max-content;
 }
 .term-tabs > span.term-tab,
-.term-tabs > span.term-tab > .mono {
+.term-tabs > span.term-tab > :is(.mono, .faint) {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+/* "main checkout" gives way before the branch's name does. */
+.term-tabs > span.term-tab > .faint {
+  flex-shrink: 20;
 }
 .term-tab-x {
   padding: 0 10px;
@@ -4748,14 +4459,10 @@ button.picker-act {
 .term-tab-x:hover {
   color: var(--fg);
 }
-/* The active tab: lit, with an accent bar under it like the page tabs. */
+/* The active tab: ink, with an ink rule under it like the page tabs. */
 .term-tab[aria-pressed="true"] {
-  background: var(--term);
   color: var(--fg);
-  box-shadow: inset 0 -2px var(--accent);
-}
-.term-tab[aria-pressed="true"] > svg {
-  color: var(--accent);
+  box-shadow: inset 0 -2px var(--fg);
 }
 /* The terminals button closes the Shell tab: no line between them, and lit with it. */
 .term-tab-menu {
@@ -4765,16 +4472,15 @@ button.picker-act {
   cursor: pointer;
 }
 .term-tab[aria-pressed="true"] + .term-tab-menu {
-  background: var(--term);
   color: var(--fg);
-  box-shadow: inset 0 -2px var(--accent);
+  box-shadow: inset 0 -2px var(--fg);
 }
 .term-tab-menu:hover > svg {
   color: var(--fg);
   transform: translateY(1px);
 }
 .term-tab-menu > svg {
-  transition: transform 0.12s;
+  transition: transform var(--t-fast) var(--ease);
 }
 /* Nerd Font icons for the shell (prompts, ls icons); fetched only when a terminal draws one. */
 @font-face {
@@ -4833,10 +4539,10 @@ button.picker-act {
 }
 /* Diff find matches (CSS highlights, see DiffView), the current one stronger. */
 ::highlight(diff-find) {
-  background-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  background-color: color-mix(in srgb, var(--fg) 22%, transparent);
 }
 ::highlight(diff-find-at) {
-  background-color: var(--accent);
+  background-color: var(--fg);
   color: var(--on-accent);
 }
 .term-log {
@@ -4856,13 +4562,15 @@ button.picker-act {
   word-break: break-word;
 }
 /* ---------- agent chat ---------- */
+/* The log: the assistant in muted text, your messages in ink behind a hairline, tool rows in faint Mono. No avatars. */
 .term-log.ag-log {
   gap: 14px;
-  background: color-mix(in srgb, var(--term), #000 7%);
-  padding: 16px 18px 20px;
+  background: var(--term);
+  padding: 16px;
   font-family: var(--sans);
   font-size: 13px;
-  line-height: 1.55;
+  line-height: 1.5;
+  color: var(--muted);
 }
 .ag-log > div,
 .ag-log > details {
@@ -4884,31 +4592,25 @@ button.picker-act {
 }
 .ag-you-row {
   display: grid;
-  grid-template-columns: 26px minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr);
   gap: 10px;
   align-items: start;
   width: 100%;
-}
-.ag-you-row > .user-avatar {
-  justify-self: center;
-  margin-top: 4px;
 }
 .ag-you-row .ag-bubble {
   justify-self: start;
 }
 .ag-bubble {
-  max-width: min(85%, 640px);
-  padding: 7px 12px;
-  border-radius: 3px 12px 12px 12px;
-  background: var(--sel);
+  max-width: 100%;
+  padding: 0 0 0 12px;
+  border-left: 1px solid var(--line2);
   color: var(--fg);
   white-space: pre-wrap;
   word-break: break-word;
 }
-/* Sent while the agent works: an outline until its run ends and the message goes out. */
+/* Sent while the agent works: dashed until its run ends and the message goes out. */
 .ag-queued .ag-bubble {
-  border: 1px dashed color-mix(in srgb, var(--muted) 60%, transparent);
-  background: none;
+  border-left-style: dashed;
   color: var(--muted);
 }
 /* Under the bubble: past the avatar column and its gap. */
@@ -4917,7 +4619,7 @@ button.picker-act {
   flex-wrap: wrap;
   align-items: center;
   gap: 4px 12px;
-  margin-left: 36px;
+  margin-left: 44px;
   font-size: 11.5px;
   color: var(--faint);
 }
@@ -4970,7 +4672,7 @@ button.picker-act {
   transition: opacity var(--t-fast);
 }
 .ag-you > .ag-meta {
-  left: 36px;
+  left: 44px;
 }
 :is(.ag-you, .ag-ai):is(:hover, :focus-within) > .ag-meta {
   opacity: 1;
@@ -5001,7 +4703,7 @@ button.picker-act {
 .ag-jump > .btn {
   flex: none;
   gap: 6px;
-  border-radius: 999px;
+  border-radius: var(--r);
   background: var(--raised);
   margin-bottom: 10px;
 }
@@ -5045,7 +4747,7 @@ button.picker-act {
 .ag-task-full {
   max-height: 40vh;
   overflow-y: auto;
-  padding: 2px 12px 10px 36px;
+  padding: 2px 12px 10px;
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -5053,20 +4755,14 @@ button.picker-act {
 .ag-err,
 .ag-act {
   position: relative;
-  margin-left: 36px;
 }
 /* Room for its hover line (.ag-meta). */
 .ag-ai {
   margin-bottom: 4px;
 }
-/* The answer's mark sits in the gutter, level with its first line. */
+/* The answer's mark: none in the log (DESIGN.md, Agents panel). */
 :is(.ag-ai, .ag-act) > .ag-avatar {
-  position: absolute;
-  top: 2px;
-  left: -36px;
-}
-.ag-ai > .ag-avatar {
-  top: -3px;
+  display: none;
 }
 .ag-avatar {
   display: grid;
@@ -5079,13 +4775,13 @@ button.picker-act {
 }
 .ag-mono {
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
 }
 .ag-ai .md {
   font-size: 13px;
-  line-height: 1.6;
-  color: var(--fg);
+  line-height: 1.5;
+  color: var(--muted);
   min-width: 0;
   word-break: break-word;
 }
@@ -5110,11 +4806,14 @@ button.picker-act {
   margin-top: 3px;
 }
 .ag-ai .md li::marker {
-  color: var(--accent-fg);
+  color: var(--faint);
 }
+/* Code names inline: Mono in ink, no chip. */
 .ag-ai .md code {
-  font-size: 11.5px;
-  color: var(--accent-fg);
+  padding: 0;
+  background: none;
+  font-size: 12px;
+  color: var(--fg);
 }
 .ag-ai .md .code-block {
   margin: 4px 0 8px;
@@ -5127,10 +4826,8 @@ button.picker-act {
 }
 .ag-steps {
   min-width: 0;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--panel);
-  font-size: 12px;
+  font: 12px var(--mono);
+  color: var(--faint);
 }
 .ag-steps > summary {
   display: flex;
@@ -5179,7 +4876,7 @@ button.picker-act {
   color: var(--muted);
 }
 .ag-step-run .ag-step-name {
-  color: var(--accent-fg);
+  color: var(--fg);
 }
 .ag-step-detail {
   overflow: hidden;
@@ -5221,7 +4918,7 @@ button.picker-act {
   flex-direction: column;
   max-width: 640px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--r);
   background: var(--panel);
   font-size: 12px;
   overflow: hidden;
@@ -5331,7 +5028,7 @@ button.picker-act {
 }
 .ag-ok {
   padding: 2px 10px;
-  border-radius: 999px;
+  border-radius: var(--r-sm);
   background: var(--add-bg);
   color: var(--add-fg);
 }
@@ -5341,7 +5038,7 @@ button.picker-act {
   justify-content: space-between;
   gap: 10px;
   padding: 7px 12px;
-  border-left: 3px solid var(--del-fg);
+  border: 1px solid color-mix(in srgb, var(--del-fg) 45%, transparent);
   border-radius: var(--r);
   background: var(--del-bg);
   color: var(--del-fg);
@@ -5362,7 +5059,7 @@ button.picker-act {
 .ag-wait-chip {
   padding: 4px 14px;
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: var(--r-sm);
   font-size: 13px;
   font-weight: 500;
   color: var(--fg);
@@ -5399,19 +5096,15 @@ button.picker-act {
   gap: 8px;
   max-width: min(100%, 640px);
   padding: 10px 12px 12px;
-  border: 1px solid var(--line);
-  border-radius: 3px 12px 12px 12px;
+  border: 1px solid var(--line2);
+  border-radius: var(--r);
   background: var(--raised);
 }
 .ag-q-text {
   font-size: 14px;
   font-weight: 600;
   line-height: 1.4;
-  color: var(--accent-fg);
-}
-/* The light theme's --accent-fg is too pale to read as text. */
-[data-theme="light"]:not([data-palette]) .ag-q-text {
-  color: #a35f00;
+  color: var(--fg);
 }
 /* Wrapped options line up with the question text. */
 .ag-q .ag-choices {
@@ -5434,7 +5127,7 @@ button.picker-act {
   padding: 0;
 }
 .ag-choices .btn[aria-pressed="true"] {
-  border-color: var(--accent);
+  border-color: var(--fg);
   background: var(--raised);
 }
 /* The merge options inline in the chat, as in their modal. */
@@ -5578,9 +5271,9 @@ button.picker-act {
   width: min(100%, 560px);
   margin: 6px 0;
   padding: 12px 14px;
-  border: 1px solid color-mix(in srgb, var(--accent-fg) 30%, var(--line));
+  border: 1px solid var(--line2);
   border-radius: var(--r-lg);
-  background: color-mix(in srgb, var(--panel), var(--accent-fg) 5%);
+  background: var(--panel);
 }
 .ag-bg-head {
   display: flex;
@@ -5609,7 +5302,7 @@ button.picker-act {
   font-size: 12.5px;
 }
 .ag-bg-task > svg {
-  color: var(--accent-fg);
+  color: var(--muted);
 }
 .ag-bg-what {
   color: var(--fg);
@@ -5640,14 +5333,14 @@ button.picker-act {
   flex: 0 1 140px;
   height: 4px;
   overflow: hidden;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--accent-fg) 18%, transparent);
+  border-radius: var(--r-sm);
+  background: var(--line2);
 }
 .ag-bg-bar > i {
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: var(--accent-fg);
+  background: var(--fg);
 }
 .ag-bg-hint {
   font-size: 11.5px;
@@ -5656,15 +5349,22 @@ button.picker-act {
 /* Where the log records it: a pill, like a finished run's. */
 .ag-limited {
   padding: 2px 10px;
-  border-radius: 999px;
+  border-radius: var(--r-sm);
   background: color-mix(in srgb, var(--warn-fg) 14%, transparent);
   color: var(--warn-fg);
 }
+/* The agent's input: a box 16px in from the panel's edges; the text on top, then attach, dictate, the model and the action. */
 .term-input {
   display: flex;
   flex-direction: column;
   flex: none;
-  border-top: 1px solid var(--line);
+  margin: 0 16px 16px;
+  border: 1px solid var(--line2);
+  border-radius: var(--r);
+  background: var(--panel);
+}
+.term-input:focus-within {
+  border-color: var(--fg);
 }
 /* The panel holding a prompt box takes file drops; its overlay covers the whole panel. */
 :has(> .term-input) {
@@ -5672,30 +5372,18 @@ button.picker-act {
 }
 .term-input-row {
   display: flex;
-  align-items: flex-end;
-  min-height: 40px;
-  padding: 0 16px;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
 }
-/* Attach and dictate, right of the text: side by side on one line, the attach button above the mic from 2 lines.
-   The mic keeps 9px from the bottom (centered on the last line) and from the next column. */
 .term-tools {
-  flex: none;
-  align-self: stretch;
   display: flex;
   align-items: center;
-  gap: 2px;
-  margin: 0 9px 0 6px;
-}
-.term-input-multi .term-tools {
-  flex-direction: column;
-  justify-content: space-between;
-  padding: 4px 0 9px;
+  gap: 8px;
+  min-width: 0;
 }
 .term-attach {
   flex: none;
-  width: 22px;
-  height: 22px;
-  padding: 0;
 }
 /* In the row, not floating over the box like other fields' mics (src/lib/dictation.tsx). */
 .term-tools .field-mic {
@@ -5703,26 +5391,21 @@ button.picker-act {
   /* A flex item keeps its z-index even when static: 61 would put it over modal scrims (50). */
   z-index: auto;
 }
-/* Full-height, flush with the panel's right edge. Square while the text grows to 3 lines (40, 58, 76px), then only taller. */
 .term-send {
   flex: none;
-  align-self: stretch;
-  width: calc(22px + 18px * var(--lines, 1));
-  height: auto;
-  margin-right: -16px;
-  padding: 0;
-  border: 0;
-  border-left: 1px solid color-mix(in srgb, white 35%, transparent);
-  border-radius: 0;
 }
-/* The plane's tip points right: nudge it to look centered. */
-.term-send svg {
-  transform: translate(-1px, 1px);
+/* The model picker in the box: a compact outlined control. */
+.term-tools .picker-act {
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--line2);
+  border-radius: var(--r);
+  font-size: 12px;
 }
 .term-input textarea {
-  flex: 1 1 auto;
   min-width: 0;
-  padding: 11px 0;
+  min-height: 36px;
+  padding: 0;
   border: 0;
   outline: none;
   resize: none;
@@ -5732,9 +5415,12 @@ button.picker-act {
   text-overflow: ellipsis;
   background: transparent;
   color: var(--fg);
-  font-family: var(--mono);
-  font-size: 12px;
+  font-family: var(--sans);
+  font-size: 13px;
   line-height: 18px;
+}
+.term-input textarea:focus-visible {
+  outline: none;
 }
 /* The placeholder stays on one line, cut with "…": wrapped, it grew the empty box, whose height is measured with it. */
 .term-input textarea::placeholder {
@@ -5742,13 +5428,12 @@ button.picker-act {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-/* Files waiting to go with the next message: a band of its own, so the bar's columns start on its line. */
+/* Files waiting to go with the next message: a band of its own over the text. */
 .ag-attach {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  padding: 8px 16px;
-  border-bottom: 1px solid var(--line);
+  padding: 12px 12px 0;
 }
 .ag-file {
   display: inline-flex;
@@ -5785,7 +5470,7 @@ button.picker-act {
 /* A picked option, styled like it is in the log. */
 .ag-pick {
   padding-left: 10px;
-  border-color: var(--accent);
+  border-color: var(--fg);
   background: var(--raised);
 }
 .ag-file-x {
@@ -5807,7 +5492,7 @@ button.picker-act {
   color: var(--fg);
 }
 .ag-file-x:focus-visible {
-  outline: 1px solid var(--accent);
+  outline: 1px solid var(--fg);
 }
 /* Files sent with a message, under its text. */
 .ag-files {
@@ -5856,7 +5541,7 @@ button.picker-act {
 }
 .ag-audio-play:focus-visible,
 .ag-audio-wave:focus-visible {
-  outline: 1px solid var(--accent);
+  outline: 1px solid var(--fg);
   outline-offset: 2px;
 }
 .ag-audio-body {
@@ -5901,7 +5586,7 @@ button.picker-act {
 .ag-audio-played {
   position: absolute;
   inset: 0;
-  color: var(--accent);
+  color: var(--fg);
   clip-path: inset(0 calc((1 - var(--p)) * 100%) 0 0);
 }
 .ag-audio-line {
@@ -5911,14 +5596,14 @@ button.picker-act {
   left: calc(var(--p) * 100%);
   width: 2px;
   margin-left: -1px;
-  border-radius: 1px;
+  border-radius: var(--r-sm);
   background: var(--fg);
   opacity: 0.7;
   pointer-events: none;
 }
 /* A sent image previews on hover or focus. */
 .ag-file[tabindex]:focus-visible {
-  outline: 1px solid var(--accent);
+  outline: 1px solid var(--fg);
 }
 .ag-preview {
   position: fixed;
@@ -6086,7 +5771,7 @@ button.picker-act {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  border: 1.5px dashed var(--accent);
+  border: 1px dashed var(--fg);
   border-radius: var(--r-lg);
   background: color-mix(in srgb, var(--term) 88%, transparent);
   color: var(--fg);
@@ -6095,7 +5780,7 @@ button.picker-act {
   pointer-events: none;
 }
 .ag-drop > svg {
-  color: var(--accent);
+  color: var(--fg);
 }
 /* The new agent session modal takes drops anywhere on it. */
 .modal:has(.ag-drop) {
@@ -6126,7 +5811,7 @@ button.picker-act {
 }
 .effort-bars > i {
   width: 2.5px;
-  border-radius: 1px;
+  border-radius: var(--r-sm);
   background: currentColor;
   opacity: 0.25;
 }
@@ -6142,10 +5827,10 @@ button.picker-act {
   text-align: left;
 }
 .agent-ultra {
-  font-size: 8.5px;
+  font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.02em;
-  color: var(--accent-fg);
+  color: var(--fg);
 }
 /* Narrow: the cell shrinks to its icon and bars, leaving the room to the text. */
 @media (max-width: 900px) and (pointer: coarse), (max-width: 480px) {
@@ -6259,7 +5944,7 @@ button.picker-act {
   min-width: 18px;
   height: 18px;
   padding: 0 5px;
-  border-radius: 9px;
+  border-radius: var(--r-sm);
   background: color-mix(in srgb, var(--fg) 8%, transparent);
   color: var(--muted);
   font-size: 11px;
@@ -6268,21 +5953,9 @@ button.picker-act {
   line-height: 18px;
   text-align: center;
 }
-/* Until the fresh list lands, an accent glint sweeps across each project name like the checked-out branch's shine, but quicker,
-   one project a beat after the other down the list. It starts after a moment, so quick loads show nothing. */
+/* Until the fresh list lands, the project names wait in the faint tone. */
 .wt-group-head > [data-glint] {
-  background:
-    linear-gradient(100deg, transparent 40%, var(--accent-fg) 50%, transparent 60%) 100% 0 / 250% 100% no-repeat,
-    linear-gradient(currentColor, currentColor);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  animation: shine 1.6s steps(8) calc(0.3s + min(var(--i), 8) * 0.1s) infinite;
-}
-@media (prefers-reduced-motion: reduce) {
-  .wt-group-head > [data-glint] {
-    animation: none;
-  }
+  color: var(--faint);
 }
 .wt-group[data-empty] .wt-group-head {
   min-height: 34px;
@@ -6297,30 +5970,13 @@ button.picker-act {
 .wt-group:first-child {
   margin-top: 6px;
 }
-/* Yellow hairline fading at both ends between projects, like the commit list. */
+/* A hairline between projects. */
 .wt-group + .wt-group::before {
   content: "";
   display: block;
   height: 1px;
   margin: 8px 14px;
-  background: linear-gradient(
-    90deg,
-    transparent,
-    var(--warn-fg) 15%,
-    var(--warn-fg) 85%,
-    transparent
-  );
-  opacity: 0.1;
-}
-[data-theme="light"]:not([data-palette]) .wt-group + .wt-group::before {
-  background: linear-gradient(
-    90deg,
-    transparent,
-    #c8960c 12%,
-    #f5c518 50%,
-    #c8960c 88%,
-    transparent
-  );
+  background: var(--line);
 }
 /* A worktree: the row's button beside its "…" (like a stash row), sharing one hover and selection background.
    Boxed like a branch row, and as wide as the filter tabs above. */
@@ -6337,7 +5993,7 @@ button.picker-act {
   background: color-mix(in srgb, var(--raised), var(--fg) 6%);
 }
 .wt-item:has(> .item-btn[aria-pressed="true"]) {
-  border-color: color-mix(in srgb, var(--accent) 25%, var(--line));
+  border-color: var(--fg);
   background: color-mix(in srgb, var(--sel), var(--fg) 4%);
 }
 .wt-item > .item-btn {
@@ -6548,23 +6204,23 @@ button.picker-act {
   position: absolute;
   inset: 2px 1px auto;
   height: 17px;
-  border-radius: 4px;
-  background: var(--accent);
+  border-radius: var(--r-sm);
+  background: var(--fg);
   color: var(--on-accent);
   font-weight: 700;
   line-height: 17px;
   text-align: center;
 }
 :is(.diff-row, .diff-half).noted {
-  background-image: linear-gradient(color-mix(in srgb, var(--accent) 12%, transparent), color-mix(in srgb, var(--accent) 12%, transparent));
+  background-image: linear-gradient(color-mix(in srgb, var(--fg) 8%, transparent), color-mix(in srgb, var(--fg) 8%, transparent));
 }
 :is(.diff-row, .diff-half).noted > .ln {
-  background: color-mix(in srgb, var(--accent) 28%, transparent);
+  background: color-mix(in srgb, var(--fg) 16%, transparent);
   color: var(--fg);
 }
 .diff-row.noted > .ln:first-child,
 .diff-half.noted > .ln {
-  box-shadow: inset 3px 0 0 var(--accent);
+  box-shadow: inset 2px 0 0 var(--fg);
 }
 .thread-file {
   display: flex;
@@ -6604,7 +6260,7 @@ button.picker-act {
   width: 28px;
   height: 28px;
   flex: 0 0 28px;
-  border-radius: 14px;
+  border-radius: 50%;
   background: var(--sel);
   font-size: 11px;
   font-weight: 600;
@@ -6639,13 +6295,13 @@ button.picker-act {
   height: 24px;
   padding: 0 8px;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: var(--r);
   background: transparent;
   color: var(--muted);
   font-size: 12px;
 }
 .reaction[aria-pressed="true"] {
-  border-color: var(--accent);
+  border-color: var(--fg);
   background: var(--raised);
   color: var(--fg);
 }
@@ -6728,7 +6384,7 @@ button.picker-act {
   --p: var(--mod-fg);
   margin: 8px 0;
   padding: 8px 12px;
-  border-left: 3px solid var(--p);
+  border: 1px solid color-mix(in srgb, var(--p) 45%, transparent);
   border-radius: var(--r);
   background: color-mix(in srgb, var(--p) 10%, transparent);
 }
@@ -6838,17 +6494,17 @@ button.picker-act {
   background: var(--panel);
   border-left: 1px solid var(--line);
   box-shadow: var(--shadow-lg);
-  animation: menu-in 0.34s var(--ease-drawer);
+  animation: menu-in var(--t-slow) var(--ease);
 }
 .menu-scrim {
   position: absolute;
   inset: 0;
   background: var(--scrim);
-  animation: fade-in 0.34s var(--ease);
+  animation: fade-in var(--t) var(--ease);
 }
 /* The menu's two columns follow the drawer in, a beat apart. */
 .menu-grid:not(.menu-embed) > .menu-col {
-  animation: rise-in 0.4s var(--ease) both;
+  animation: rise-in var(--t) var(--ease) both;
 }
 .menu-grid:not(.menu-embed) > .menu-col + .menu-col {
   animation-delay: 0.05s;
@@ -6965,14 +6621,12 @@ button.picker-act {
   align-items: center;
   gap: 14px 18px;
   padding: 18px;
-  border: 1px solid color-mix(in srgb, var(--p-color) 30%, var(--line));
-  border-radius: var(--r-lg);
-  background: radial-gradient(120% 160% at 0% 0%, color-mix(in srgb, var(--p-color) 12%, transparent), transparent 60%), var(--panel);
+  border: 1px solid var(--line2);
+  border-radius: var(--r);
+  background: var(--panel);
 }
 .profile-card > .profile-avatar {
-  box-shadow:
-    inset 0 0 0 1px color-mix(in srgb, var(--p-color) 50%, transparent),
-    0 8px 22px -8px color-mix(in srgb, var(--p-color) 60%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--p-color) 50%, transparent);
 }
 .profile-card .menu-section {
   padding: 0;
@@ -7000,7 +6654,7 @@ button.picker-act {
   align-items: center;
   min-height: 34px;
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: var(--r);
   background: var(--bg);
 }
 .profile-chip-open {
@@ -7011,7 +6665,7 @@ button.picker-act {
   min-height: 32px;
   padding: 0 10px 0 5px;
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--r);
   background: transparent;
   transition: background-color var(--t-fast) var(--ease);
 }
@@ -7104,7 +6758,7 @@ button.picker-act {
   transform: scale(1.1);
 }
 .profile-avatars > button[aria-checked="true"] {
-  border-color: var(--accent);
+  border-color: var(--fg);
   background: var(--raised);
 }
 .profile-hues {
@@ -7145,27 +6799,24 @@ button.picker-act {
   justify-content: center;
   gap: 4px;
   pointer-events: none;
-  background: radial-gradient(closest-side, color-mix(in srgb, var(--p-color) 18%, color-mix(in srgb, var(--bg) 80%, transparent)), color-mix(in srgb, var(--bg) 60%, transparent));
+  background: color-mix(in srgb, var(--bg) 80%, transparent);
   animation: profile-splash 1.4s var(--ease) forwards;
 }
 .profile-splash > .profile-avatar {
   margin-bottom: 10px;
-  box-shadow:
-    inset 0 0 0 1px color-mix(in srgb, var(--p-color) 50%, transparent),
-    0 0 0 7px color-mix(in srgb, var(--p-color) 16%, transparent),
-    0 14px 44px -10px color-mix(in srgb, var(--p-color) 70%, transparent);
-  animation: profile-pop 0.55s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--p-color) 50%, transparent);
+  animation: profile-pop 0.2s var(--ease) both;
 }
 .profile-splash > strong {
   font-size: 22px;
   font-weight: 600;
   letter-spacing: -0.01em;
-  animation: rise-in 0.4s var(--ease) 0.08s both;
+  animation: rise-in var(--t) var(--ease) 0.08s both;
 }
 .profile-splash > span {
   color: var(--muted);
   font-size: 12.5px;
-  animation: rise-in 0.4s var(--ease) 0.14s both;
+  animation: rise-in var(--t) var(--ease) 0.14s both;
 }
 @keyframes profile-splash {
   0% {
@@ -7182,7 +6833,6 @@ button.picker-act {
 @keyframes profile-pop {
   from {
     opacity: 0;
-    transform: scale(0.6);
   }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -7234,7 +6884,7 @@ button.app-row:hover {
   background: var(--raised);
 }
 .app-row > svg {
-  color: var(--accent-fg);
+  color: var(--muted);
   flex: 0 0 auto;
 }
 .app-row-label {
@@ -7353,9 +7003,9 @@ button.app-row:hover > .app-row-chev {
   align-items: start;
   gap: 14px 16px;
   padding: 16px;
-  border: 1px solid color-mix(in srgb, var(--accent) 26%, var(--line));
-  border-radius: var(--r-lg);
-  background: radial-gradient(130% 150% at 0% 0%, color-mix(in srgb, var(--accent) 9%, transparent), transparent 62%), var(--panel);
+  border: 1px solid var(--line2);
+  border-radius: var(--r);
+  background: var(--panel);
 }
 .phone-title {
   font-size: 14px;
@@ -7367,8 +7017,8 @@ button.app-row:hover > .app-row-chev {
   width: 36px;
   height: 36px;
   border-radius: var(--r);
-  background: color-mix(in srgb, var(--accent) 16%, transparent);
-  color: var(--accent-fg);
+  background: var(--raised);
+  color: var(--fg);
 }
 .phone-qr {
   width: 132px;
@@ -7462,13 +7112,13 @@ button.app-row:hover > .app-row-chev {
   border-radius: var(--r-lg);
   /* No blurred shadow: WebKitGTK 2.50 (the AppImage's) redraws it on the main thread each time anything under it repaints, so an open modal over a busy agent log tripled the page's CPU. */
   overflow: hidden;
-  animation: modal-in 0.28s var(--ease);
+  animation: modal-in var(--t) var(--ease);
 }
 /* Rises a few pixels and settles to full size. */
 @keyframes modal-in {
   from {
     opacity: 0;
-    transform: translateY(12px) scale(0.97);
+    transform: translateY(4px);
   }
 }
 .modal-head {
@@ -7480,7 +7130,7 @@ button.app-row:hover > .app-row-chev {
 }
 .modal-head h1 {
   margin: 0;
-  font-size: 17px;
+  font-size: 15px;
   font-weight: 600;
 }
 .modal-body {
@@ -7525,7 +7175,7 @@ button.app-row:hover > .app-row-chev {
 }
 /* A rebase AI carries through (RebaseRun.tsx), minimized: how far it is, in the same corner. */
 .run-chip > .spinner {
-  color: var(--accent-fg);
+  color: var(--fg);
 }
 .run-chip-failed {
   border-color: color-mix(in srgb, var(--del-fg) 55%, var(--line));
@@ -7543,7 +7193,7 @@ button.app-row:hover > .app-row-chev {
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: var(--accent-fg);
+  background: var(--fg);
   transition: width 0.4s var(--ease);
 }
 .run-bar[data-failed] > span {
@@ -7587,7 +7237,7 @@ button.app-row:hover > .app-row-chev {
   white-space: pre-wrap;
   word-break: break-word;
   cursor: pointer;
-  animation: toast-in 0.36s var(--ease-spring);
+  animation: toast-in var(--t) var(--ease);
 }
 .toast > svg {
   flex: none;
@@ -7599,7 +7249,7 @@ button.app-row:hover > .app-row-chev {
 }
 .toast > .spinner {
   margin-top: 3px;
-  color: var(--accent-fg);
+  color: var(--fg);
 }
 .toast.error {
   border-color: color-mix(in srgb, var(--del-fg) 55%, var(--line));
@@ -7614,12 +7264,12 @@ button.app-row:hover > .app-row-chev {
   color: var(--add-fg);
 }
 .toast[data-leaving] {
-  animation: toast-out 0.22s var(--ease-in) forwards;
+  animation: toast-out var(--t) var(--ease-in) forwards;
 }
 @keyframes toast-in {
   from {
     opacity: 0;
-    transform: translateX(28px) scale(0.98);
+    transform: translateX(8px);
   }
 }
 @keyframes toast-out {
@@ -7643,11 +7293,11 @@ button.app-row:hover > .app-row-chev {
   width: min(340px, calc(100vw - 32px));
   padding: 14px 16px 12px;
   border: 1px solid var(--line);
-  border-radius: 16px;
+  border-radius: var(--r);
   background: var(--raised);
   /* No blurred shadow or glow, as on `.modal`: with the wave redrawn every frame, they nearly doubled the page's CPU while dictating. */
   translate: -50% 0;
-  animation: dictation-in 0.36s var(--ease-spring);
+  animation: dictation-in var(--t) var(--ease);
 }
 .dictation-head {
   display: flex;
@@ -7687,8 +7337,8 @@ button.app-row:hover > .app-row-chev {
 .dictation-wave > span {
   flex: 1;
   height: calc(100% * (0.16 + 0.3 / (1 + var(--d) * 0.3)));
-  border-radius: 99px;
-  background: linear-gradient(var(--accent-fg), var(--accent));
+  border-radius: var(--r-sm);
+  background: var(--fg);
   transition: height 0.08s linear;
 }
 /* Listening with no level to show (Web Audio can't run, e.g. WebKitGTK without gst-plugins-good): a slow swell.
@@ -7723,7 +7373,7 @@ button.app-row:hover > .app-row-chev {
   padding: 0;
   border: 0;
   border-radius: var(--r-sm);
-  background: color-mix(in srgb, var(--accent) 16%, var(--raised));
+  background: var(--raised);
   /* Not --accent-fg: the light theme's is too pale to read on this tint. */
   color: var(--fg);
 }
@@ -7733,7 +7383,7 @@ button.app-row:hover > .app-row-chev {
   height: calc(var(--mic-h) * 14 / 22);
 }
 .field-mic:hover:not([data-on]) {
-  background: color-mix(in srgb, var(--accent) 26%, var(--raised));
+  background: var(--sel);
 }
 .field-mic[data-on] {
   background: var(--accent);
@@ -7794,12 +7444,12 @@ button.app-row:hover > .app-row-chev {
 .keys-input[aria-pressed="true"] {
   justify-content: center;
   padding: 0 10px;
-  border-color: var(--accent);
+  border-color: var(--fg);
   background: var(--panel);
   box-shadow: var(--ring);
 }
 .keys-wait {
-  color: var(--accent-fg);
+  color: var(--fg);
 }
 .keys-taken {
   color: var(--warn-fg);
@@ -7871,14 +7521,14 @@ button.app-row:hover > .app-row-chev {
   flex-direction: column;
   gap: 6px;
   padding: 16px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--line2);
   border-radius: var(--r);
   background: var(--panel);
 }
+/* Headline numbers: the display face. */
 .kpi .v {
-  font-size: 26px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
+  font: 600 44px/1 var(--display);
+  letter-spacing: 0;
 }
 .chart {
   position: relative;
@@ -8066,7 +7716,7 @@ button.app-row:hover > .app-row-chev {
   flex-direction: column;
   gap: 16px;
   padding: 20px;
-  background: linear-gradient(135deg, color-mix(in srgb, var(--s1) 7%, var(--panel)), var(--panel) 55%);
+  background: var(--panel);
 }
 .page h2.spr-title {
   font-size: 18px;
@@ -8085,7 +7735,7 @@ button.app-row:hover > .app-row-chev {
   gap: 6px;
   padding: 3px 10px;
   border: 1px solid;
-  border-radius: 999px;
+  border-radius: var(--r-sm);
   font-size: 12px;
   font-weight: 600;
   white-space: nowrap;
@@ -8124,12 +7774,12 @@ button.app-row:hover > .app-row-chev {
   display: block;
   height: 8px;
   overflow: hidden;
-  border-radius: 999px;
+  border-radius: var(--r-sm);
 }
 .spr-track > span {
   display: block;
   height: 100%;
-  border-radius: 999px;
+  border-radius: var(--r-sm);
   transition: width var(--t-slow) var(--ease);
 }
 .spr-track.time {
@@ -8153,7 +7803,7 @@ button.app-row:hover > .app-row-chev {
   grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
 }
 .spr-kpis .kpi .v {
-  font-size: 22px;
+  font-size: 36px;
   white-space: nowrap;
 }
 /* Values and short figures never break across lines; long titles give way instead. */
@@ -8323,7 +7973,7 @@ button.app-row:hover > .app-row-chev {
   position: absolute;
   top: -17px;
   transform: translateX(-50%);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -8361,7 +8011,7 @@ button.app-row:hover > .app-row-chev {
   cursor: default;
 }
 .spr-hit:focus-visible {
-  outline: 1px solid var(--accent);
+  outline: 1px solid var(--fg);
   outline-offset: -1px;
 }
 .spr-plot .chart-tip {
@@ -8398,9 +8048,9 @@ button.app-row:hover > .app-row-chev {
   display: block;
   width: min(20px, 42%);
   min-height: 1px;
-  border-radius: 4px 4px 0 0;
+  border-radius: var(--r-sm) var(--r-sm) 0 0;
   transform-origin: bottom;
-  animation: bar-grow 0.5s var(--ease) both;
+  animation: bar-grow var(--t-slow) var(--ease) both;
   transition: opacity var(--t-fast);
 }
 .spr-bar.ctx {
@@ -8592,7 +8242,7 @@ button.app-row:hover > .app-row-chev {
 .spr-ramp {
   width: 140px;
   height: 8px;
-  border-radius: 999px;
+  border-radius: var(--r-sm);
   background: linear-gradient(90deg, color-mix(in srgb, var(--s1) 10%, var(--panel)), var(--s1));
 }
 .chart-tip.spr-float {
@@ -8610,7 +8260,7 @@ button.app-row:hover > .app-row-chev {
   min-width: 4px;
   padding: 0 8px;
   overflow: hidden;
-  border-radius: 4px;
+  border-radius: var(--r-sm);
   font-size: 12px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
@@ -8638,7 +8288,7 @@ button.app-row:hover > .app-row-chev {
   background: var(--s-ctx);
 }
 .spr-hbar-bar > :last-child {
-  border-radius: 0 4px 4px 0;
+  border-radius: 0 var(--r-sm) var(--r-sm) 0;
 }
 /* A label row of the weekly view: picking it lists its tickets. */
 .spr-hbar-btn {
@@ -8719,8 +8369,8 @@ button.app-row:hover > .app-row-chev {
   align-self: flex-end;
   max-width: 80%;
   padding: 8px 12px;
-  border-radius: 12px 12px 4px 12px;
-  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  border-radius: var(--r);
+  background: var(--raised);
   white-space: pre-wrap;
 }
 .spr-a {
@@ -8859,16 +8509,16 @@ button.app-row:hover > .app-row-chev {
 .spr-chip {
   flex: none;
   padding: 1px 6px;
-  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border: 1px solid var(--line2);
+  border-radius: var(--r-sm);
+  background: transparent;
   font-family: var(--mono);
   font-size: 10.5px;
-  color: var(--accent-fg);
+  color: var(--fg);
   cursor: pointer;
 }
 .spr-chip:hover {
-  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  background: var(--raised);
 }
 .spr-heat.weeks td {
   min-width: 34px;
@@ -8936,7 +8586,7 @@ button.app-row:hover > .app-row-chev {
   }
   /* A pane leaving display:none restarts its animation, so the one switched to slides in. */
   .ws[data-slide] .focus-body > [data-pane][data-active="true"] {
-    animation: pane-in 0.22s ease-out;
+    animation: pane-in var(--t) var(--ease);
   }
   .ws[data-slide="prev"] .focus-body > [data-pane][data-active="true"] {
     --pane-from: -24%;
@@ -8976,14 +8626,14 @@ button.app-row:hover > .app-row-chev {
   .menu-scrim {
     display: none;
   }
-  /* Smaller code, and line numbers smaller still in one column, as wide as the diff's highest one (--ln digits, set
-     by DiffView). The row takes the numbers' font so the column's ch matches it; the code sets its own. */
+  /* Smaller code, and line numbers in one column, as wide as the diff's highest one (--ln digits, set by DiffView).
+     The row takes the numbers' font so the column's ch matches it; the code sets its own. */
   .diff {
     line-height: 18px;
   }
   .diff-row,
   .diff-half {
-    font-size: 10px;
+    font-size: 11px;
   }
   .diff-row .tx,
   .diff-half .tx {
@@ -9010,7 +8660,7 @@ button.app-row:hover > .app-row-chev {
   }
   /* A picked line's bar on the number shown, and its checkbox fitting the narrower sign column. */
   .diff-row.pick.picked > .ln {
-    box-shadow: inset 3px 0 0 var(--accent);
+    box-shadow: inset 2px 0 0 var(--fg);
   }
   :is(.diff-row, .diff-half).pick:is(:hover, .picked) > .sg::after {
     inset: 4px 2px auto 0;
@@ -9057,7 +8707,7 @@ button.app-row:hover > .app-row-chev {
     font-size: 11px;
   }
   .mobile-tabs button[aria-pressed="true"] {
-    color: var(--accent-fg);
+    color: var(--fg);
   }
   /* Above the bottom tabs. */
   .start-chips {
@@ -9080,8 +8730,8 @@ button.app-row:hover > .app-row-chev {
     top: 0;
     left: 0;
     z-index: -1;
-    border-radius: 999px;
-    background: color-mix(in srgb, var(--accent) 16%, transparent);
+    border-radius: var(--r);
+    background: var(--sel);
     transition:
       transform 0.26s var(--ease),
       width 0.26s var(--ease),
@@ -9143,27 +8793,10 @@ button.app-row:hover > .app-row-chev {
   right: 0;
   top: -4px;
   height: 1px;
-  background: linear-gradient(
-    90deg,
-    transparent,
-    var(--warn-fg) 15%,
-    var(--warn-fg) 85%,
-    transparent
-  );
-  opacity: 0.6;
+  background: var(--line);
   pointer-events: none;
 }
 /* Light --warn-fg reads brown; use a brighter gold for the line. */
-[data-theme="light"]:not([data-palette]) .commit-list > .commit-row + .commit-row::before {
-  background: linear-gradient(
-    90deg,
-    transparent,
-    #c8960c 12%,
-    #f5c518 50%,
-    #c8960c 88%,
-    transparent
-  );
-}
 .commit-list > .commit-row[aria-pressed="true"] {
   background: color-mix(in srgb, var(--raised), var(--warn-fg) 5%);
 }
@@ -9356,62 +8989,6 @@ button.app-row:hover > .app-row-chev {
     animation: none;
   }
 }
-/* A commit just landed: the link zooms in and settles while an accent glow sweeps its text left to right, once. */
-.meta-link-grow {
-  display: inline-block;
-  background:
-    linear-gradient(
-        100deg,
-        transparent 35%,
-        var(--accent-fg) 50%,
-        transparent 65%
-      )
-      100% 0 / 300% 100% no-repeat,
-    linear-gradient(currentColor, currentColor);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  animation:
-    commit-pop 0.55s cubic-bezier(0.34, 1.56, 0.64, 1),
-    commit-glow 1.4s ease-out 0.15s both;
-}
-@keyframes commit-pop {
-  0% {
-    transform: scale(0.6);
-    opacity: 0;
-  }
-  60% {
-    transform: scale(1.15);
-    opacity: 1;
-  }
-  100% {
-    transform: none;
-  }
-}
-@keyframes commit-glow {
-  0% {
-    background-position:
-      100% 0,
-      0 0;
-    filter: drop-shadow(0 0 0 transparent);
-  }
-  50% {
-    filter: drop-shadow(
-      0 0 4px color-mix(in srgb, var(--accent-fg) 70%, transparent)
-    );
-  }
-  100% {
-    background-position:
-      0 0,
-      0 0;
-    filter: none;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .meta-link-grow {
-    animation: none;
-  }
-}
 
 /* ---------- entrances ---------- */
 /* Rows fade in as they appear: a file moving to Staged, a new commit, an agent's reply. */
@@ -9420,7 +8997,7 @@ button.app-row:hover > .app-row-chev {
 .stash-row,
 .item-btn,
 .ag-log > * {
-  animation: row-in 0.24s var(--ease);
+  animation: row-in var(--t) var(--ease);
 }
 /* A stash's button is a commit row inside the stash row, which already fades in. */
 .stash-row > .commit-row {
@@ -9444,7 +9021,7 @@ button.app-row:hover > .app-row-chev {
 /* Chart bars grow up from the axis, KPI cards rise in. */
 .chart-bar > span {
   transform-origin: bottom;
-  animation: bar-grow 0.5s var(--ease) both;
+  animation: bar-grow var(--t-slow) var(--ease) both;
 }
 @keyframes bar-grow {
   from {
@@ -9452,7 +9029,7 @@ button.app-row:hover > .app-row-chev {
   }
 }
 .kpi {
-  animation: rise-in 0.36s var(--ease) both;
+  animation: rise-in var(--t) var(--ease) both;
 }
 .kpi:nth-child(2) {
   animation-delay: 0.04s;
@@ -9525,9 +9102,6 @@ button.app-row:hover > .app-row-chev {
   ) {
   animation: none !important;
 }
-:root[data-anim-off~="commit"] .meta-link-grow {
-  animation: none !important;
-}
 :root[data-anim-off~="nudge"] .act-nudge > svg {
   animation: none !important;
 }
@@ -9569,7 +9143,7 @@ button.app-row:hover > .app-row-chev {
 :root[data-anim-off~="panes"] .ws [data-pane] {
   animation: none !important;
 }
-:root[data-anim-off~="seg"] :is(.seg-thumb, .tabs-ink, .mobile-tabs-bubble) {
+:root[data-anim-off~="seg"] :is(.seg-thumb, .seg > button, .tabs-ink, .mobile-tabs-bubble) {
   transition: none !important;
 }
 :root[data-anim-off~="tooltips"] .tip {
@@ -9593,6 +9167,7 @@ button.app-row:hover > .app-row-chev {
     animation: none !important;
   }
   .seg-thumb,
+  .seg > button,
   .tabs-ink,
   .mobile-tabs-bubble {
     transition: none !important;
@@ -9626,7 +9201,7 @@ button.app-row:hover > .app-row-chev {
 .tk-bars i {
   width: 2.5px;
   height: 4px;
-  border-radius: 1px;
+  border-radius: var(--r-sm);
   background: currentColor;
   opacity: 0.3;
 }

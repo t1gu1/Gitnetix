@@ -1,4 +1,4 @@
-import { useId, useLayoutEffect, useRef, type MouseEvent, type ReactNode, type RefObject } from 'react';
+import { useId, type MouseEvent, type ReactNode } from 'react';
 import { Icon } from '../../../../src/components/Icon';
 import { plural } from '../../../../src/lib/format';
 import type { Branch, Commit } from '../HeroDemo';
@@ -591,57 +591,6 @@ function TileCommits({ b, log, list, all, current, on }: { b: Branch; log: Commi
       ))}
       {more}
     </span>
-  );
-}
-
-/** The map in small, the view's frame over it, like MiniMap in BranchMap.tsx: a click goes there. */
-export function MiniMap({ layout, shown, canvas, zoom }: { layout: MapLayout; shown: string; canvas: RefObject<HTMLDivElement | null>; zoom: number }) {
-  const frame = useRef<HTMLSpanElement>(null);
-  const scale = Math.min(156 / layout.W, 102 / layout.H);
-  const lin = new Set(lineageOf(layout, shown));
-  // The frame follows the canvas's scroll and size, outside React: a scroll redraws nothing else.
-  useLayoutEffect(() => {
-    const el = canvas.current;
-    const f = frame.current;
-    if (!el || !f) return;
-    const place = () => {
-      const [vx, vy, vw, vh] = [el.scrollLeft / zoom, el.scrollTop / zoom, el.clientWidth / zoom, el.clientHeight / zoom];
-      f.style.left = `${10 + vx * scale}px`;
-      f.style.top = `${8 + vy * scale}px`;
-      f.style.width = `${Math.max(0, Math.min(layout.W, vx + vw) - vx) * scale}px`;
-      f.style.height = `${Math.max(0, Math.min(layout.H, vy + vh) - vy) * scale}px`;
-    };
-    place();
-    el.addEventListener('scroll', place, { passive: true });
-    const ro = new ResizeObserver(place);
-    ro.observe(el);
-    return () => {
-      el.removeEventListener('scroll', place);
-      ro.disconnect();
-    };
-  }, [canvas, zoom, scale, layout.W, layout.H]);
-  return (
-    <button
-      className="map-mini"
-      aria-label="Map overview: click to go there"
-      onClick={(e) => {
-        const el = canvas.current;
-        if (!el) return;
-        const r = e.currentTarget.getBoundingClientRect();
-        el.scrollTo({ left: ((e.clientX - r.left - 10) / scale) * zoom - el.clientWidth / 2, top: ((e.clientY - r.top - 8) / scale) * zoom - el.clientHeight / 2, behavior: 'smooth' });
-      }}
-    >
-      <span className="map-mini-in" aria-hidden="true">
-        {layout.tiles.map((t) => (
-          <span
-            key={t.b.name}
-            data-k={t.b.name === shown ? 'sel' : lin.has(t.b.name) ? 'lin' : t.b.role}
-            style={{ left: Math.round(10 + t.x * scale), top: Math.round(8 + t.y * scale), width: Math.max(3, Math.round(t.w * scale)), height: Math.max(2, Math.round(t.h * scale)) }}
-          />
-        ))}
-      </span>
-      <span ref={frame} className="map-mini-frame" />
-    </button>
   );
 }
 

@@ -542,7 +542,7 @@ pub struct UiPrefs {
 
 impl Default for UiPrefs {
     fn default() -> Self {
-        UiPrefs { language: "en".into(), theme: "tokyo-night-storm".into(), last_project: None, view: BTreeMap::new(), animations_off: Vec::new(), spoken_language: None, dictation_polish: true, onboarding: false }
+        UiPrefs { language: "en".into(), theme: "gitnetix-bw".into(), last_project: None, view: BTreeMap::new(), animations_off: Vec::new(), spoken_language: None, dictation_polish: true, onboarding: false }
     }
 }
 

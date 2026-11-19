@@ -357,22 +357,14 @@ details[open] .chev{transform:rotate(45deg)}
 @media (prefers-reduced-motion:reduce){.hd .map-tile[data-head] :is(.map-name, .map-trunk, .map-ver){animation:none}}
 .hd .map-hit{border-radius:2px;background:color-mix(in srgb,var(--accent) 35%,transparent);color:inherit}
 .hd .map-hit.at{background:var(--accent);color:var(--on-accent)}
-.hd .map-legend{position:absolute;left:16px;bottom:16px;z-index:4;display:flex;align-items:center;flex-wrap:wrap;gap:6px 14px;max-width:calc(100% - 240px);padding:8px 12px;border:1px solid var(--line);border-radius:var(--r-lg);background:color-mix(in srgb,var(--bg) 92%,transparent);font-size:11.5px;color:var(--muted)}
+.hd .map-legend{position:absolute;left:16px;bottom:16px;z-index:4;display:flex;align-items:center;flex-wrap:wrap;gap:6px 14px;max-width:calc(100% - 336px);padding:8px 12px;border:1px solid var(--line);border-radius:var(--r-lg);background:color-mix(in srgb,var(--bg) 92%,transparent);font-size:11.5px;color:var(--muted)}
 .hd .map-legend > span{display:inline-flex;align-items:center;gap:6px}
 .hd .map-legend path{fill:none;stroke-width:2.5;stroke-linecap:round}
 .hd .map-legend .map-key-head{stroke:var(--trunk-fg)}
 .hd .map-legend .map-key-lin{stroke:var(--map-sel)}
 .hd .map-legend .map-key-stale{stroke:var(--warn-fg);stroke-width:2;stroke-dasharray:4 4}
-.hd .map-mini{position:absolute;right:16px;bottom:16px;z-index:5;width:176px;height:118px;padding:0;overflow:hidden;border:1px solid var(--line);border-radius:var(--r-lg);background:color-mix(in srgb,var(--bg) 94%,transparent)}
-.hd .map-mini-in > span{position:absolute;border-radius:2px;background:color-mix(in srgb,var(--faint) 70%,var(--bg))}
-.hd .map-mini-in > [data-k=trunk]{background:var(--trunk-fg)}
-.hd .map-mini-in > [data-k=release]{background:var(--release-fg)}
-.hd .map-mini-in > [data-k=lin]{background:color-mix(in srgb,var(--map-sel) 55%,transparent)}
-.hd .map-mini-in > [data-k=sel]{background:var(--map-sel)}
-.hd .map-mini-frame{position:absolute;border:1px solid color-mix(in srgb,var(--map-sel) 75%,transparent);border-radius:3px;pointer-events:none}
-.hd .map-card{position:absolute;top:16px;right:16px;z-index:6;width:288px;max-width:calc(100% - 32px);max-height:calc(100% - 160px);overflow:auto;display:flex;flex-direction:column;gap:14px;padding:16px;border:1px solid color-mix(in srgb,var(--fg) 13%,var(--panel));border-radius:14px;background:var(--panel);box-shadow:var(--shadow-pop);will-change:transform;animation:hd-fade var(--t) var(--ease)}
+.hd .map-card{position:absolute;top:16px;right:16px;z-index:6;width:288px;max-width:calc(100% - 32px);max-height:calc(100% - 32px);overflow:auto;display:flex;flex-direction:column;gap:14px;padding:16px;border:1px solid color-mix(in srgb,var(--fg) 13%,var(--panel));border-radius:14px;background:var(--panel);box-shadow:var(--shadow-pop);will-change:transform;animation:hd-fade var(--t) var(--ease)}
 .hd .map-card > *{flex-shrink:0}
-@container map-view (max-height:640px){.hd .map-card{max-height:calc(100% - 32px)}.hd .map-mini{display:none}}
 .hd .map-card-sec{display:flex;flex-direction:column;gap:6px}
 .hd .map-eyebrow{margin:0;font-size:10.5px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:var(--faint)}
 .hd .map-card-fold{display:inline-flex;width:28px;height:28px;margin:-6px -8px -6px 0}
@@ -396,7 +388,7 @@ details[open] .chev{transform:rotate(45deg)}
 .hd .c-release{color:var(--release-fg)}
 .hd .c-wip{color:#ff7a00}
 [data-theme=light]:not([data-palette]) .hd :is(.map-tile, .map-out, .map-card, .rail){--add-fg:#1fc48c;--warn-fg:#e0a01f;--del-fg:#ff5a50;--mod-fg:#4f86ff;--trunk-fg:#f5a04a;--release-fg:#a57bff}
-@container hd (max-width:720px){.hd .map-view{display:flex;flex-direction:column}.hd .map-canvas{position:relative;inset:auto;flex:1 1 0;min-height:0}.hd .map-bar{flex-wrap:nowrap;overflow-x:auto;padding:6px 10px;scrollbar-width:none}.hd .map-bar > *{flex:none}.hd .map-title,.hd .map-bar > .grow,.hd .map-legend,.hd .map-mini{display:none}.hd .map-card{position:relative;top:auto;right:auto;order:-1;flex:none;margin:8px 8px 0;width:auto;max-width:none;max-height:52%;gap:12px;padding:12px 14px}}
+@container hd (max-width:720px){.hd .map-view{display:flex;flex-direction:column}.hd .map-canvas{position:relative;inset:auto;flex:1 1 0;min-height:0}.hd .map-bar{flex-wrap:nowrap;overflow-x:auto;padding:6px 10px;scrollbar-width:none}.hd .map-bar > *{flex:none}.hd .map-title,.hd .map-bar > .grow,.hd .map-legend{display:none}.hd .map-card{position:relative;top:auto;right:auto;order:-1;flex:none;margin:8px 8px 0;width:auto;max-width:none;max-height:52%;gap:12px;padding:12px 14px}}
 /* The home page's map (Home.tsx): the same tiles, at the zoom its box fits, and no buttons to press. */
 .hd.map-static{height:480px;border-color:color-mix(in srgb,var(--accent) 35%,transparent);border-radius:14px;box-shadow:none;container-type:inline-size}
 .hd.map-static .map-size{flex:1 1 auto}

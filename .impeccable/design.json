@@ -1,0 +1,433 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-19T23:30:00Z",
+  "title": "Design System: Gitnetix",
+  "extensions": {
+    "colorMeta": {
+      "ground": {
+        "role": "neutral",
+        "displayName": "Slate Night (--bg)",
+        "tonalRamp": [
+          "#05070a",
+          "#0a0d12",
+          "#0f151d",
+          "#151b24",
+          "#1f2732",
+          "#344050",
+          "#808b9a",
+          "#e9eef4"
+        ]
+      },
+      "control": {
+        "role": "primary",
+        "displayName": "Control White (Black & White --accent and --route)",
+        "tonalRamp": [
+          "#0a0d12",
+          "#2c3644",
+          "#5f6a79",
+          "#a3aebb",
+          "#c9d0da",
+          "#dde2e9",
+          "#e9eef4",
+          "#f2f5f8"
+        ]
+      },
+      "light-control": {
+        "role": "primary",
+        "displayName": "Control Ink (Black & White Light --accent and --route)"
+      },
+      "add": {
+        "role": "status",
+        "displayName": "Added"
+      },
+      "delete": {
+        "role": "status",
+        "displayName": "Deleted / falling behind"
+      },
+      "warn": {
+        "role": "status",
+        "displayName": "Warning"
+      },
+      "working-amber": {
+        "role": "agent-working",
+        "displayName": "Working Amber (--g1)"
+      },
+      "light-working-amber": {
+        "role": "agent-working",
+        "displayName": "Working Amber light (--g1)"
+      },
+      "working-violet": {
+        "role": "agent-working",
+        "displayName": "Working Violet (--g2)"
+      },
+      "light-working-violet": {
+        "role": "agent-working",
+        "displayName": "Working Violet light (--g2)"
+      },
+      "working-cyan": {
+        "role": "agent-working",
+        "displayName": "Working Cyan (--g3)"
+      },
+      "light-working-cyan": {
+        "role": "agent-working",
+        "displayName": "Working Cyan light (--g3)"
+      },
+      "working-green": {
+        "role": "agent-working",
+        "displayName": "Working Green (--g4)"
+      },
+      "light-working-green": {
+        "role": "agent-working",
+        "displayName": "Working Green light (--g4)"
+      },
+      "ground-top": {
+        "role": "neutral",
+        "displayName": "Canvas top (--ground)"
+      },
+      "hairline-strong": {
+        "role": "neutral",
+        "displayName": "Hairline Strong (--line2)"
+      },
+      "link-dim": {
+        "role": "neutral",
+        "displayName": "Link Dim (--link)"
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "The next release in its box on the branch map."
+      },
+      "display-numeral": {
+        "displayName": "Headline numeral",
+        "purpose": "Counts that matter: ahead, behind, changed, KPI values."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Tracked small caps for column headings, branch type and status tags."
+      },
+      "ref": {
+        "displayName": "Ref",
+        "purpose": "Branch names, refs, shipped versions on the trunk, file paths."
+      },
+      "display-title": {
+        "displayName": "Display title",
+        "purpose": "Screen titles at the left of the toolbar, uppercase."
+      },
+      "count": {
+        "displayName": "Count",
+        "purpose": "Mono counts: tab and segment counts, the ahead/behind line chip, the Esc key cap."
+      },
+      "field": {
+        "displayName": "Field",
+        "purpose": "Text inputs and the code view's rail file rows."
+      }
+    },
+    "shadows": [
+      {
+        "name": "float",
+        "value": "0 12px 32px -8px rgba(0,0,0,0.6)",
+        "purpose": "Menus, popovers, modals and toasts only. Light mode: rgba(15,20,30,0.18)."
+      },
+      {
+        "name": "working-glow",
+        "value": "filter: drop-shadow(0 0 5px color-mix(in srgb, var(--g2) 45%, transparent))",
+        "purpose": "Agent Working Rule only: rainbow text and icons (4px on the working dot). Never on any other element."
+      }
+    ],
+    "motion": [
+      {
+        "name": "ease",
+        "value": "cubic-bezier(0.2, 0, 0, 1)",
+        "purpose": "All transitions (--ease). No spring, no bounce."
+      },
+      {
+        "name": "ease-in",
+        "value": "cubic-bezier(0.4, 0, 1, 1)",
+        "purpose": "Things leaving (--ease-in)."
+      },
+      {
+        "name": "t-fast",
+        "value": "120ms",
+        "purpose": "Hover and press (--t-fast)."
+      },
+      {
+        "name": "t",
+        "value": "160ms",
+        "purpose": "Things that appear, such as the selected card fading in (--t)."
+      },
+      {
+        "name": "t-slow",
+        "value": "200ms",
+        "purpose": "The longest transition (--t-slow)."
+      },
+      {
+        "name": "press",
+        "value": "translateY(1px)",
+        "purpose": "Buttons give a pixel when pressed."
+      },
+      {
+        "name": "blink",
+        "value": "1.5s steps(2, jump-none)",
+        "purpose": "Agent working dot; off under prefers-reduced-motion."
+      },
+      {
+        "name": "glow-name",
+        "value": "8s steps(384) infinite, background-position 0 to 300%",
+        "purpose": "Agent Working Rule: rainbow gradient flowing through working text; off under prefers-reduced-motion."
+      },
+      {
+        "name": "glow-stroke",
+        "value": "8s steps(96) infinite, color g1 > g2 > g3 > g4",
+        "purpose": "Agent Working Rule: icon stroke and working dot colour cycle; off under prefers-reduced-motion."
+      },
+      {
+        "name": "think",
+        "value": "1.333s steps(4) infinite, 3px hop, 0.1667s stagger",
+        "purpose": "Agents panel thinking dots; off under prefers-reduced-motion."
+      }
+    ],
+    "mapLines": [
+      {
+        "name": "route",
+        "value": "1.5px solid var(--route)",
+        "purpose": "Trunk to the checked-out branch; = --fg unless a theme sets it (control white / ink in Black & White)."
+      },
+      {
+        "name": "link",
+        "value": "1px solid var(--link)",
+        "purpose": "Every other branch link and a release's merged-branch drop."
+      },
+      {
+        "name": "behind",
+        "value": "1px var(--link), stroke-dasharray 3 4",
+        "purpose": "Link to a falling-behind branch."
+      },
+      {
+        "name": "trunk",
+        "value": "1px solid var(--faint)",
+        "purpose": "Vertical trunk hairline running the map's whole height, at x 26."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "phone",
+        "value": "max-width 480px, or 900px with pointer: coarse",
+        "purpose": "Single pane and bottom tab bar."
+      },
+      {
+        "name": "map-narrow",
+        "value": "max-width 720px",
+        "purpose": "Map drops title and legend; the selected card moves above the map."
+      }
+    ],
+    "mapGeometry": {
+      "TRUNK_X": 26,
+      "PITCH": 36,
+      "TOP": 48,
+      "GAP": 28,
+      "GROUP_GAP": 40,
+      "BOX_H": 60,
+      "REL_H": 74,
+      "FLOAT_TOP": 6,
+      "ROW": 22,
+      "CARD_ROOM": 304,
+      "colX": "d=0: 46; else 404 + (d-1)*392",
+      "colW": "d=0: 280; else 320"
+    }
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The one main action in a region (Commit, Send). Fills with --accent: white in Black & White, each other theme's own accent. Disabled is the outline with a faint label.",
+      "html": "<button class=\"ds-btn-primary\">Commit 2 files</button> <button class=\"ds-btn-primary\" disabled>Commit</button>",
+      "css": ".ds-btn-primary{display:inline-flex;align-items:center;gap:8px;height:30px;padding:0 14px;border-radius:3px;border:1px solid #f2f5f8;background:#f2f5f8;color:#0a0d12;font:600 11px/13px Inter,system-ui,sans-serif;letter-spacing:.12em;text-transform:uppercase;cursor:pointer;transition:background 120ms cubic-bezier(.2,0,0,1),transform 120ms cubic-bezier(.2,0,0,1)}.ds-btn-primary:hover:not(:disabled){background:#dfe3e8;border-color:#dfe3e8}.ds-btn-primary:active:not(:disabled){transform:translateY(1px)}.ds-btn-primary:disabled{cursor:default;background:transparent;border-color:#2c3644;color:#808b9a}.ds-btn-primary:focus-visible{outline:1px solid #e9eef4;outline-offset:2px}"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Every other action (Push, Stop).",
+      "html": "<button class=\"ds-btn-secondary\">Push</button>",
+      "css": ".ds-btn-secondary{display:inline-flex;align-items:center;height:30px;padding:0 14px;border-radius:3px;border:1px solid #2c3644;background:transparent;color:#e9eef4;font:600 11px Inter,system-ui,sans-serif;letter-spacing:.12em;text-transform:uppercase;cursor:pointer;transition:background 120ms cubic-bezier(.2,0,0,1)}.ds-btn-secondary:hover{background:#151b24}.ds-btn-secondary:focus-visible{outline:1px solid #e9eef4;outline-offset:2px}"
+    },
+    {
+      "name": "Small Button",
+      "kind": "button",
+      "refersTo": "button-small",
+      "description": "Toolbar actions and toggles (Fit, Show all, and the stash button shown only when the project has stashes): 28px, sentence case, muted until hover; the icon never shrinks.",
+      "html": "<button class=\"ds-btn-sm\"><svg viewBox=\"0 0 16 16\"><path d=\"M2.5 5.5h11v8h-11zM4 2.5h8M3.5 4h9\"/></svg>2 stashes</button> <button class=\"ds-btn-sm\">Fit</button>",
+      "css": ".ds-btn-sm{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border-radius:3px;border:1px solid #2c3644;background:transparent;color:#a3aebb;font:500 12px/18px Inter,system-ui,sans-serif;cursor:pointer;transition:background 120ms cubic-bezier(.2,0,0,1),color 120ms cubic-bezier(.2,0,0,1)}.ds-btn-sm:hover{background:#151b24;color:#e9eef4}.ds-btn-sm:focus-visible{outline:1px solid #e9eef4;outline-offset:2px}.ds-btn-sm>svg{flex-shrink:0;width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.25;stroke-linecap:round;stroke-linejoin:round}"
+    },
+    {
+      "name": "Section Tabs",
+      "kind": "nav",
+      "refersTo": "tab",
+      "description": "Repo tabs and section tabs; active marked by a 2px ink underline.",
+      "html": "<nav class=\"ds-tabs\"><a class=\"on\">Workspace</a><a>Pull requests</a><a>Tickets</a><a>Release notes</a><a>Submodules</a><a>Analytics</a></nav>",
+      "css": ".ds-tabs{display:flex;height:40px;background:#0a0d12;border-bottom:1px solid #1f2732;font:500 13px Inter,system-ui,sans-serif}.ds-tabs a{display:flex;align-items:center;gap:8px;padding:0 12px;color:#a3aebb;cursor:pointer}.ds-tabs a span{font:500 11px 'JetBrains Mono',monospace;color:#808b9a}.ds-tabs a:hover{color:#e9eef4}.ds-tabs a.on{color:#e9eef4;box-shadow:inset 0 -2px 0 #e9eef4}"
+    },
+    {
+      "name": "Segmented Filter",
+      "kind": "custom",
+      "refersTo": "segment",
+      "description": "Branch map filters; the active segment inverts.",
+      "html": "<div class=\"ds-seg\"><span class=\"on\">Everyone <b>4</b></span><span>Mine <b>1</b></span></div>",
+      "css": ".ds-seg{display:inline-flex;border:1px solid #2c3644;border-radius:3px;overflow:hidden;font:500 13px Inter,system-ui,sans-serif}.ds-seg span{display:flex;align-items:center;gap:6px;height:28px;padding:0 11px;color:#a3aebb;border-right:1px solid #2c3644;cursor:pointer}.ds-seg span:last-child{border-right:0}.ds-seg span:hover{background:#151b24}.ds-seg b{font:500 11px 'JetBrains Mono',monospace;color:#808b9a}.ds-seg span.on{background:#e9eef4;color:#0a0d12}.ds-seg span.on b{color:#344050}"
+    },
+    {
+      "name": "Status Tag",
+      "kind": "chip",
+      "refersTo": "status-tag",
+      "description": "Branch state as a word; one per screen inverts.",
+      "html": "<span class=\"ds-tag\">Merged</span> <span class=\"ds-tag on\">Checked out</span>",
+      "css": ".ds-tag{display:inline-block;font:600 11px/13px Inter,system-ui,sans-serif;letter-spacing:.12em;text-transform:uppercase;color:#a3aebb;border:1px solid #2c3644;border-radius:2px;padding:3px 8px}.ds-tag.on{background:#e9eef4;color:#0a0d12;border-color:#e9eef4}"
+    },
+    {
+      "name": "Check Toggle",
+      "kind": "chip",
+      "refersTo": "check-toggle",
+      "description": "Map filter that shows or hides a set; a 12px box fills ink when on.",
+      "html": "<button class=\"ds-tg on\"><span class=\"ck\"><svg viewBox=\"0 0 16 16\"><path d=\"M3 8.5l3 3 7-7\"/></svg></span>Merged <b>2</b></button> <button class=\"ds-tg\"><span class=\"ck\"><svg viewBox=\"0 0 16 16\"><path d=\"M3 8.5l3 3 7-7\"/></svg></span>Shipped <b>4</b></button>",
+      "css": ".ds-tg{all:unset;cursor:pointer;height:28px;display:inline-flex;align-items:center;gap:8px;padding:0 10px;border:1px solid #2c3644;border-radius:3px;color:#a3aebb;font:500 13px Inter,system-ui,sans-serif}.ds-tg b{font:500 11px 'JetBrains Mono',monospace;color:#808b9a}.ds-tg .ck{width:12px;height:12px;border:1px solid #808b9a;border-radius:2px;display:grid;place-items:center}.ds-tg svg{width:10px;height:10px;fill:none;stroke:currentColor;stroke-width:2;opacity:0}.ds-tg:hover,.ds-tg.on{color:#e9eef4}.ds-tg.on .ck{background:#e9eef4;border-color:#e9eef4;color:#0a0d12}.ds-tg.on svg{opacity:1}.ds-tg:focus-visible{outline:1px solid #e9eef4;outline-offset:2px}"
+    },
+    {
+      "name": "Trunk",
+      "kind": "custom",
+      "refersTo": "trunk-station",
+      "description": "Hairline trunk with shipped versions as 11px ring stations at a 36px pitch, main as the 17px route station, merged branches as 7px stations.",
+      "html": "<div class=\"ds-trunk\"><div class=\"r\"><i></i><b>v0.5.1</b><em>Nov 4</em><u>3 commits</u></div><div class=\"r lit\"><i></i><b>v0.5.2</b><em>Nov 14</em><u>6 commits</u></div><div class=\"r main\"><i></i><b>main</b></div><div class=\"r mg\"><i></i><b>&#10003; fix/tab-order</b><span>Merged</span></div></div>",
+      "css": ".ds-trunk{position:relative;padding:8px 0 8px 0;background:#0a0d12}.ds-trunk:before{content:'';position:absolute;left:6px;top:0;bottom:0;border-left:1px solid #808b9a}.ds-trunk .r{position:relative;height:36px;display:grid;grid-template-columns:24px 62px 54px auto;align-items:center;font:13px 'JetBrains Mono',monospace;color:#a3aebb}.ds-trunk i{width:11px;height:11px;margin-left:1px;border:1px solid #808b9a;border-radius:50%;background:#0a0d12;z-index:1}.ds-trunk em{font:12px Inter,sans-serif;font-style:normal;color:#808b9a}.ds-trunk u{text-decoration:none;font:11px 'JetBrains Mono',monospace;color:#808b9a}.ds-trunk .lit{color:#e9eef4}.ds-trunk .lit i{border-color:#e9eef4}.ds-trunk .main b{font-weight:600;color:#e9eef4}.ds-trunk .main i{width:17px;height:17px;margin-left:-2px;border:1.5px solid #f2f5f8;box-shadow:inset 0 0 0 2px #0a0d12;background:#f2f5f8}.ds-trunk .mg{grid-template-columns:24px auto auto;justify-content:start;gap:8px;font-size:12px}.ds-trunk .mg i{width:7px;height:7px;margin-left:3px}.ds-trunk .mg span{font:600 11px/13px Inter,sans-serif;letter-spacing:.12em;text-transform:uppercase;border:1px solid #2c3644;border-radius:2px;padding:2px 6px}"
+    },
+    {
+      "name": "Branch Box",
+      "kind": "card",
+      "refersTo": "branch-box",
+      "description": "Two-row branch box: a header row (type, name, tags) and one info row (agent state, WIP button, situation); ring station at the header's centre, + where lines leave; commits float beneath with no container.",
+      "html": "<div class=\"ds-bx-wrap\"><div class=\"ds-bx\"><i class=\"stn\"></i><div class=\"h\"><span class=\"ty\">FEAT</span><span class=\"nm\">branch-tree</span><span class=\"tag\">Checked out</span></div><div class=\"h2\"><span class=\"pulse\"></span>Claude working &middot; 6 min &middot; <button class=\"wip\"><span class=\"wd\"></span>WIP 2 &middot; <b class=\"a\">+48</b> <b class=\"r\">&minus;12</b></button></div><button class=\"add\">+</button></div><div class=\"ds-fl\"><button><span>Draw the path from the trunk to the checkout</span><i>IS &middot; 2h</i></button><button><span>Add usePath</span><i>IS &middot; 1d</i></button><button class=\"more\">See all 7</button></div></div>",
+      "css": ".ds-bx-wrap{width:356px;padding:4px 12px 4px 6px}.ds-bx{position:relative;display:flex;flex-direction:column;gap:4px;padding:8px 24px 8px 18px;background:#0f141b;border:1px solid #e9eef4;border-radius:3px;color:#e9eef4}.ds-bx .stn{position:absolute;left:-6px;top:12px;width:11px;height:11px;border-radius:50%;border:1px solid #f2f5f8;background:#0a0d12;box-shadow:inset 0 0 0 2px #0a0d12,inset 0 0 0 6px #f2f5f8}.ds-bx .h{display:flex;align-items:center;gap:10px;height:20px}.ds-bx .ty{font:600 11px Inter,sans-serif;letter-spacing:.14em;color:#808b9a}.ds-bx .nm{font:600 13px 'JetBrains Mono',monospace}.ds-bx .tag{font:600 11px/13px Inter,sans-serif;letter-spacing:.12em;text-transform:uppercase;background:#e9eef4;color:#0a0d12;border-radius:2px;padding:3px 8px}.ds-bx .h2{display:flex;align-items:center;gap:8px;height:18px;font:12px Inter,sans-serif;color:#a3aebb}.ds-bx .pulse{width:6px;height:6px;border-radius:50%;background:#e9eef4;animation:ds-p 1.6s steps(2,jump-none) infinite}@keyframes ds-p{50%{opacity:.25}}@media (prefers-reduced-motion:reduce){.ds-bx .pulse{animation:none}}.ds-bx .wip{all:unset;cursor:pointer;display:inline-flex;align-items:center;gap:6px;color:#e9eef4;font-weight:500}.ds-bx .wip:hover{text-decoration:underline;text-underline-offset:3px}.ds-bx .wip:focus-visible{outline:1px solid #e9eef4;outline-offset:2px}.ds-bx .wd{width:6px;height:6px;border-radius:50%;border:1px dashed #e9eef4}.ds-bx .a{color:#5fd39a;font:500 12px 'JetBrains Mono',monospace}.ds-bx .r{color:#ff7b72;font:500 12px 'JetBrains Mono',monospace}.ds-bx .add{all:unset;cursor:pointer;position:absolute;right:-11px;top:8px;width:20px;height:20px;display:grid;place-items:center;border:1px solid #2c3644;border-radius:2px;background:#0f141b;color:#a3aebb;font:14px/1 Inter,sans-serif}.ds-bx .add:hover,.ds-bx .add:focus-visible{color:#e9eef4;border-color:#e9eef4;outline:none}.ds-fl{display:flex;flex-direction:column;padding:6px 0 0 18px}.ds-fl button{all:unset;cursor:pointer;height:22px;display:flex;align-items:center;gap:12px;color:#a3aebb;font:12px Inter,sans-serif}.ds-fl button>span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.ds-fl i{font:11px 'JetBrains Mono',monospace;font-style:normal;color:#808b9a}.ds-fl button:hover,.ds-fl button:hover i{color:#e9eef4}.ds-fl .more{font:600 11px Inter,sans-serif;letter-spacing:.12em;text-transform:uppercase;color:#808b9a}"
+    },
+    {
+      "name": "Ahead/Behind Line Chip",
+      "kind": "chip",
+      "refersTo": "line-chip",
+      "description": "Square chip on the midpoint of an incoming line; a rebase button when there is a behind count, dashed on a falling-behind line, route-bordered on the route.",
+      "html": "<div class=\"ds-lcs\"><span class=\"ds-lc on\">&#8593;9</span><button class=\"ds-lc stale\">&#8593;3 <span class=\"d\">&#8595;31</span></button><button class=\"ds-lc on\" aria-disabled=\"true\" title=\"Can't rebase while its agent is working\">&#8593;4 <span class=\"d\">&#8595;2</span></button><span class=\"ds-lc\">&#8593;2</span></div>",
+      "css": ".ds-lcs{display:flex;gap:12px;padding:12px;background:#0a0d12}.ds-lc{all:unset;height:18px;display:inline-flex;align-items:center;gap:5px;padding:0 6px;border:1px solid #2c3644;border-radius:2px;background:#0a0d12;font:500 11px 'JetBrains Mono',monospace;color:#a3aebb;white-space:nowrap}.ds-lc.on{border-color:#f2f5f8;color:#e9eef4}.ds-lc.stale{border-style:dashed}.ds-lc .d{color:#ff7b72}button.ds-lc{cursor:pointer}button.ds-lc:hover{border-color:#e9eef4;color:#e9eef4}button.ds-lc[aria-disabled]{cursor:not-allowed}button.ds-lc:focus-visible{outline:1px solid #e9eef4;outline-offset:2px}"
+    },
+    {
+      "name": "Selected-Branch Card",
+      "kind": "card",
+      "refersTo": "selected-card",
+      "description": "288px card top right of the map: Antonio numerals, outlined Look at the code, Parent/Origin/Ticket/Agent list, white split primary for the next step (Stage & commit all).",
+      "html": "<aside class=\"ds-sc\"><div class=\"hd\"><span class=\"ty\">FEAT</span><b>branch-tree</b></div><div class=\"nums\"><div><b>4</b><span>Ahead</span></div><div><b class=\"d\">2</b><span>Behind</span></div><div><b>2</b><span>WIP files</span></div></div><button class=\"look\">Look at the code<span>WIP &middot; 2</span></button><dl class=\"dl\"><dt>Parent</dt><dd>v0.6.0</dd><dt>Agent</dt><dd>Claude working</dd></dl><div class=\"split\"><button class=\"p\">Stage &amp; commit all</button><button class=\"p m\">&middot;&middot;&middot;</button></div></aside>",
+      "css": ".ds-sc{width:288px;background:#0f141b;border:1px solid #2c3644;border-radius:3px;padding:16px;display:flex;flex-direction:column;gap:14px;color:#e9eef4}.ds-sc .hd{display:flex;gap:8px;align-items:center}.ds-sc .ty{font:600 11px Inter,sans-serif;letter-spacing:.14em;color:#808b9a}.ds-sc .hd b{font:600 14px 'JetBrains Mono',monospace}.ds-sc .nums{display:flex;gap:26px}.ds-sc .nums div{display:flex;flex-direction:column}.ds-sc .nums b{font:600 44px/1 Antonio,Inter,sans-serif;margin-bottom:6px}.ds-sc .nums b.d{color:#ff7b72}.ds-sc .nums span{font:600 11px Inter,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:#808b9a}.ds-sc button{all:unset;cursor:pointer;height:30px;display:flex;align-items:center;justify-content:center;gap:8px;padding:0 14px;border-radius:3px;font:600 11px Inter,sans-serif;letter-spacing:.12em;text-transform:uppercase}.ds-sc .look{border:1px solid #2c3644;color:#e9eef4}.ds-sc .look span{margin-left:auto;font:500 11px 'JetBrains Mono',monospace;letter-spacing:0;text-transform:none;color:#a3aebb}.ds-sc .look:hover{background:#151b24}.ds-sc .split{display:flex}.ds-sc .p{background:#f2f5f8;color:#0a0d12;flex:1;border-radius:3px 0 0 3px}.ds-sc .p.m{flex:none;padding:0 9px;border-left:1px solid #2c3644;border-radius:0 3px 3px 0}.ds-sc .p:hover{background:#d9dfe6}.ds-sc button:focus-visible{outline:1px solid #e9eef4;outline-offset:2px}.ds-sc .dl{display:grid;grid-template-columns:auto 1fr;gap:6px 16px;margin:0;font:12px Inter,sans-serif}.ds-sc .dl dt{color:#808b9a}.ds-sc .dl dd{margin:0;color:#e9eef4;font-family:'JetBrains Mono',monospace;text-align:right}"
+    },
+    {
+      "name": "Headline Numerals",
+      "kind": "custom",
+      "refersTo": "display-numeral",
+      "description": "Counts that matter, in the condensed display face with a tracked label.",
+      "html": "<div class=\"ds-nums\"><div><b>4</b><span>Ahead</span></div><div><b class=\"d\">2</b><span>Behind</span></div><div><b>2</b><span>Changed</span></div></div>",
+      "css": ".ds-nums{display:flex;gap:28px;color:#e9eef4}.ds-nums div{display:flex;flex-direction:column}.ds-nums b{font:600 44px/1 Antonio,Inter,sans-serif;margin-bottom:6px}.ds-nums b.d{color:#ff7b72}.ds-nums span{font:600 11px Inter,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:#808b9a}"
+    },
+    {
+      "name": "Files Rail",
+      "kind": "custom",
+      "refersTo": "file-row",
+      "description": "Code view's left rail: tracked-caps section rows with icon actions, 30px file rows with hover-revealed stage/discard, and the commit box.",
+      "html": "<div class=\"ds-fr\"><div class=\"sec\"><button class=\"sect\"><svg viewBox=\"0 0 16 16\" class=\"cv\"><path d=\"M4.5 6.5L8 10l3.5-3.5\"/></svg>Unstaged <span>1</span></button><span class=\"acts\"><button class=\"ib\" aria-label=\"Stage all\"><svg viewBox=\"0 0 16 16\"><path d=\"M8 3v10M3 8h10\"/></svg></button><button class=\"ib dz\" aria-label=\"Discard all\"><svg viewBox=\"0 0 16 16\"><path d=\"M5 4L2 7l3 3M2 7h7.5a4 4 0 0 1 0 8H7\"/></svg></button></span></div><div class=\"row on\"><button class=\"fb\"><span class=\"s\">M</span><span class=\"p\"><b>BranchMap.tsx</b> src/screens</span><span class=\"c2\"><i class=\"ad\">+41</i><i class=\"dl\">&minus;12</i></span></button></div><div class=\"row\"><button class=\"fb\"><span class=\"s a\">A</span><span class=\"p\"><b>path.ts</b> src/lib</span><span class=\"c2\"><i class=\"ad\">+7</i></span></button></div><div class=\"cb\"><input class=\"in\" placeholder=\"Summary &mdash; leave empty for AI\"><button class=\"pr\">Commit <span>1</span></button></div></div>",
+      "css": ".ds-fr{width:320px;background:#0a0d12;color:#e9eef4;padding:6px 0;font:12.5px Inter,system-ui,sans-serif}.ds-fr .sec{display:flex;align-items:center;height:32px;padding:0 10px 0 16px}.ds-fr .sect{all:unset;cursor:pointer;flex:1;display:flex;align-items:center;gap:6px;font:600 11px Inter,sans-serif;letter-spacing:.12em;text-transform:uppercase;color:#808b9a}.ds-fr .sect span{font:500 11px 'JetBrains Mono',monospace;letter-spacing:0}.ds-fr .sect:hover{color:#e9eef4}.ds-fr .sect .cv{width:12px;height:12px}.ds-fr .acts{display:flex;gap:2px}.ds-fr .ib{all:unset;cursor:pointer;width:24px;height:24px;display:grid;place-items:center;color:#a3aebb;border-radius:3px}.ds-fr .ib:hover{color:#e9eef4}.ds-fr .ib.dz:hover{color:#ff7b72}.ds-fr svg{width:13px;height:13px;fill:none;stroke:currentColor;stroke-width:1.25;stroke-linecap:round;stroke-linejoin:round}.ds-fr .row:hover,.ds-fr .row.on{background:#1b2330}.ds-fr .fb{all:unset;cursor:pointer;box-sizing:border-box;width:100%;display:grid;grid-template-columns:18px 1fr auto;gap:10px;align-items:center;height:30px;padding:0 16px;color:#a3aebb}.ds-fr .fb:focus-visible{outline:1px solid #e9eef4;outline-offset:-1px}.ds-fr .s{font:600 12px 'JetBrains Mono',monospace}.ds-fr .s.a{color:#5fd39a}.ds-fr .p{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#808b9a;font-size:11.5px}.ds-fr .p b{color:#e9eef4;font-weight:500;font-size:12.5px;margin-right:4px}.ds-fr .c2{display:flex;gap:8px;font:12px 'JetBrains Mono',monospace}.ds-fr i{font-style:normal}.ds-fr .ad{color:#5fd39a}.ds-fr .dl{color:#ff7b72}.ds-fr .cb{border-top:1px solid #1f2732;margin-top:6px;padding:10px 16px 14px;display:flex;flex-direction:column;gap:8px}.ds-fr .in{all:unset;box-sizing:border-box;height:32px;padding:0 10px;border:1px solid #2c3644;border-radius:3px;background:#0a0d12;color:#e9eef4;font:12.5px Inter,sans-serif}.ds-fr .in::placeholder{color:#808b9a}.ds-fr .in:focus-visible{border-color:#e9eef4}.ds-fr .pr{all:unset;cursor:pointer;height:30px;display:flex;align-items:center;justify-content:center;gap:6px;border-radius:3px;background:#f2f5f8;color:#0a0d12;font:600 11px Inter,sans-serif;letter-spacing:.12em;text-transform:uppercase}.ds-fr .pr span{font-weight:400;opacity:.7}.ds-fr .pr:hover{background:#d9dfe6}.ds-fr .pr:focus-visible{outline:1px solid #e9eef4;outline-offset:2px}"
+    },
+    {
+      "name": "Agent Working",
+      "kind": "custom",
+      "description": "The owner-kept rainbow: flowing gradient text, colour-cycling icon and dot with a soft violet glow. Only on things an agent is working on; a waiting agent is plain Warn.",
+      "html": "<div class=\"ds-aw\"><button class=\"ds-wt ds-gw\" aria-label=\"Worktrees &amp; agents, 1 running\"><svg viewBox=\"0 0 16 16\"><path d=\"M8 2l6 3.2-6 3.2-6-3.2zM2 8.3l6 3.2 6-3.2M2 11.3l6 3.2 6-3.2\"/></svg></button><span class=\"row\"><span class=\"ds-gd\"></span><span class=\"ds-gw\"><span>Claude working</span></span> &middot; 6 min</span><span class=\"row\"><span class=\"wd\"></span>Codex waiting for you</span></div>",
+      "css": ".ds-aw{display:flex;align-items:center;gap:20px;padding:12px;background:#0a0d12;color:#a3aebb;font:12px Inter,sans-serif}.ds-aw .row{display:inline-flex;align-items:center;gap:8px}.ds-wt{all:unset;cursor:pointer;width:40px;height:40px;display:grid;place-items:center}.ds-wt svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.25;stroke-linecap:round;stroke-linejoin:round}.ds-wt:focus-visible{outline:1px solid #e9eef4;outline-offset:2px}.ds-aw .wd{width:6px;height:6px;border-radius:50%;background:#e8b85a}.ds-gw>span{font-weight:600;background:linear-gradient(90deg,#f7c48a,#c4a7ff,#5fd0e0,#62d6ae,#f7c48a) 0 0/300% 100%;-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;filter:drop-shadow(0 0 5px rgba(196,167,255,.45));animation:ds-gn 8s steps(384) infinite}.ds-gw>svg{filter:drop-shadow(0 0 5px rgba(196,167,255,.45));animation:ds-gs 8s steps(96) infinite}.ds-gd{display:inline-block;width:6px;height:6px;border-radius:50%;background:currentColor;filter:drop-shadow(0 0 4px rgba(196,167,255,.45));animation:ds-p 1.6s steps(2,jump-none) infinite,ds-gs 8s steps(96) infinite}@keyframes ds-gn{to{background-position:300% 0}}@keyframes ds-gs{0%,100%{color:#f7c48a}25%{color:#c4a7ff}50%{color:#5fd0e0}75%{color:#62d6ae}}@keyframes ds-p{50%{opacity:.25}}@media (prefers-reduced-motion:reduce){.ds-gw>*,.ds-gd{animation:none}}"
+    },
+    {
+      "name": "Agents Panel",
+      "kind": "custom",
+      "refersTo": "agent-panel",
+      "description": "Right-docked 460px agents panel: 34px tab bar (Agent/Shell, session, icon buttons), muted log with tool rows and thinking dots, input box with text on top and a row of attach, dictate, model picker, then the labelled Stop/Queue/Send button. Expand and collapse are 34px-wide full-height icon cells with 16px muted icons and a hairline on the left.",
+      "html": "<aside class=\"ds-ap\"><div class=\"tb\"><button class=\"tt on\">Agent</button><button class=\"tt\">Shell</button><span class=\"tt ss\"><span class=\"ds-gd\"></span><b>feat/branch-tree</b><i>main checkout</i></span><span class=\"sp\"></span><button class=\"tt ic\" aria-label=\"Expand\"><svg viewBox=\"0 0 16 16\"><path d=\"M9.5 2.5h4v4M13.5 2.5L9 7M6.5 13.5h-4v-4M2.5 13.5L7 9\"/></svg></button></div><div class=\"lg\"><div class=\"me\">Draw the path from main to the checked-out branch.</div><div>I'll compute the path in <code>layoutMap</code>.</div><div class=\"tl\">Edit src/screens/BranchMap.tsx <span class=\"a\">+41</span> <span class=\"d\">&minus;12</span></div><div class=\"th\"><i></i><i></i><i></i></div></div><form class=\"ask\" onsubmit=\"return false\"><textarea rows=\"2\" placeholder=\"Agent is working&hellip; a message now waits for it to finish\"></textarea><div class=\"rw\"><button type=\"button\" class=\"ib\" aria-label=\"Attach files\"><svg viewBox=\"0 0 16 16\"><path d=\"M10.5 5L6 9.5a1.5 1.5 0 0 0 2 2L13 6.5a3 3 0 0 0-4-4L4 7.5a4.5 4.5 0 0 0 6 6L13 11\"/></svg></button><button type=\"button\" class=\"ib\" aria-label=\"Dictate\"><svg viewBox=\"0 0 16 16\"><rect x=\"6\" y=\"2\" width=\"4\" height=\"8\" rx=\"2\"/><path d=\"M3.5 8a4.5 4.5 0 0 0 9 0M8 12.5V14\"/></svg></button><button type=\"button\" class=\"pk\">Opus &middot; high</button><span class=\"sp\"></span><button type=\"button\" class=\"stop\"><svg viewBox=\"0 0 16 16\"><rect x=\"4\" y=\"4\" width=\"8\" height=\"8\" rx=\"1\"/></svg>Stop</button></div></form></aside>",
+      "css": ".ds-ap{width:460px;display:flex;flex-direction:column;background:#0a0d12;border-left:1px solid #1f2732;color:#a3aebb;font:13px/18px Inter,system-ui,sans-serif}.ds-ap .tb{display:flex;height:34px;background:#0f141b;border-bottom:1px solid #1f2732}.ds-ap .tt{all:unset;cursor:pointer;display:flex;align-items:center;gap:8px;padding:0 12px;border-right:1px solid #1f2732;font:500 12px Inter,sans-serif;color:#a3aebb;white-space:nowrap}.ds-ap .tt:hover{color:#e9eef4}.ds-ap .tt.on{color:#e9eef4;box-shadow:inset 0 -2px 0 #e9eef4}.ds-ap .tt:focus-visible{outline:1px solid #e9eef4;outline-offset:-2px}.ds-ap .ss{cursor:default;border-right:0;min-width:0}.ds-ap .ss b{font:12px 'JetBrains Mono',monospace;color:#e9eef4}.ds-ap .ss i{font-style:normal;color:#808b9a;overflow:hidden;text-overflow:ellipsis}.ds-ap .sp{flex:1}.ds-ap .ic{width:34px;padding:0;justify-content:center;flex-shrink:0;border-right:0;border-left:1px solid #1f2732;color:#a3aebb}.ds-ap .ic svg{width:16px;height:16px;flex-shrink:0}.ds-ap svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.25;stroke-linecap:round;stroke-linejoin:round}.ds-ap .lg{padding:16px;display:flex;flex-direction:column;gap:14px}.ds-ap .me{color:#e9eef4;border-left:1px solid #2c3644;padding-left:12px}.ds-ap code{font:12px 'JetBrains Mono',monospace;color:#e9eef4}.ds-ap .tl{font:12px 'JetBrains Mono',monospace;color:#808b9a}.ds-ap .a{color:#5fd39a}.ds-ap .d{color:#ff7b72}.ds-ap .th{display:flex;gap:4px;height:20px;align-items:center}.ds-ap .th i{width:6px;height:6px;border-radius:50%;background:#a3aebb;animation:ds-th 1.333s steps(4) infinite}.ds-ap .th i:nth-child(2){animation-delay:.1667s}.ds-ap .th i:nth-child(3){animation-delay:.3333s}@keyframes ds-th{0%,50%,100%{opacity:.3;transform:none}25%{opacity:1;transform:translateY(-3px)}}.ds-ap .ask{margin:16px;padding:12px;display:flex;flex-direction:column;gap:12px;border:1px solid #2c3644;border-radius:3px;background:#0f141b}.ds-ap .ask:focus-within{border-color:#e9eef4}.ds-ap textarea{all:unset;min-height:36px;color:#e9eef4;font:13px/18px Inter,sans-serif}.ds-ap textarea::placeholder{color:#808b9a}.ds-ap .rw{display:flex;align-items:center;gap:8px}.ds-ap .ib{all:unset;cursor:pointer;width:28px;height:28px;display:grid;place-items:center;color:#a3aebb;border-radius:3px}.ds-ap .ib:hover{color:#e9eef4;background:#151b24}.ds-ap .pk{all:unset;cursor:pointer;height:28px;display:inline-flex;align-items:center;padding:0 8px;border:1px solid #2c3644;border-radius:3px;font:12px Inter,sans-serif;color:#a3aebb}.ds-ap .pk:hover{color:#e9eef4}.ds-ap .stop{all:unset;cursor:pointer;height:30px;display:inline-flex;align-items:center;gap:8px;padding:0 14px;border:1px solid #2c3644;border-radius:3px;color:#ff7b72;font:600 11px Inter,sans-serif;letter-spacing:.12em;text-transform:uppercase}.ds-ap .stop:hover{background:#151b24}.ds-ap button:focus-visible{outline:1px solid #e9eef4;outline-offset:2px}@media (prefers-reduced-motion:reduce){.ds-ap .th i{animation:none}}.ds-gw>span{font-weight:600;background:linear-gradient(90deg,#f7c48a,#c4a7ff,#5fd0e0,#62d6ae,#f7c48a) 0 0/300% 100%;-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;filter:drop-shadow(0 0 5px rgba(196,167,255,.45));animation:ds-gn 8s steps(384) infinite}.ds-gw>svg{filter:drop-shadow(0 0 5px rgba(196,167,255,.45));animation:ds-gs 8s steps(96) infinite}.ds-gd{display:inline-block;width:6px;height:6px;border-radius:50%;background:currentColor;filter:drop-shadow(0 0 4px rgba(196,167,255,.45));animation:ds-p 1.6s steps(2,jump-none) infinite,ds-gs 8s steps(96) infinite}@keyframes ds-gn{to{background-position:300% 0}}@keyframes ds-gs{0%,100%{color:#f7c48a}25%{color:#c4a7ff}50%{color:#5fd0e0}75%{color:#62d6ae}}@keyframes ds-p{50%{opacity:.25}}@media (prefers-reduced-motion:reduce){.ds-gw>*,.ds-gd{animation:none}}"
+    }
+  ],
+  "narrative": {
+    "northStar": "Slate Night",
+    "overview": "One cool monochrome field, slate fading to black, kept open beside the editor all day. White (ink in light mode) is the only control colour of the default Black & White theme and the selection and focus colour of every theme; hue appears only when it means something, and the few numbers that matter speak in a tall condensed face. The views and behaviour of the app stay exactly as they are; only the visual layer changes. Inside this world the branch map reads as a line diagram: one hairline trunk carries the shipped releases as stations, branches hang off it as small boxes (a header and one info row), ahead/behind rides on the incoming line as a small chip, and their commits float free beneath them. One piece of the old look stays by owner decision: the flowing rainbow on anything an agent is working on. The palette ships as the Gitnetix Black & White pair (gitnetix-bw, gitnetix-bw-light), the default and what System follows; Gitnetix Dark/Light and the 34 third-party themes keep their palettes and take the same shapes, type, hairlines and map structure.",
+    "keyCharacteristics": [
+      "Cool slate-to-black ground with 1px hairlines",
+      "Branch map as a station line: hairline trunk, ring stations, two-row boxes, ahead/behind chips on the lines, floating commits",
+      "White controls in Black & White (each other theme keeps its accent for controls); ink selection and focus everywhere",
+      "Hue reserved for add, delete, warn, conflict, and the rainbow on agent work",
+      "Antonio condensed for versions and headline numerals",
+      "2 to 3px corners, no pills, no glows outside agent work",
+      "1.25px icon strokes, short ease-out motion"
+    ],
+    "rules": [
+      {
+        "name": "The Control Rule",
+        "body": "Ink (--fg) means this is yours: selection, active tab, segment and tag, check fills and focus, in every theme. --accent means you can press this and marks controls only: primary buttons, links, a few control states. In Black & White the accent is white (ink in light); other themes keep their own accent as their control colour. Never spend an accent on selection, focus, roles or status.",
+        "section": "colors"
+      },
+      {
+        "name": "The Meaning Rule",
+        "body": "Branch type, trunk, release and props carry no hue; a hue must mean added, deleted, warning or conflict. The one exception is the Agent Working rainbow.",
+        "section": "colors"
+      },
+      {
+        "name": "The Agent Working Rule",
+        "body": "Anything an agent is working on flows with the incumbent rainbow (g1 to g4 gradient text, colour-cycling icons and dot, soft g2 drop-shadow), and nothing else may. A waiting agent is Warn. Reduced motion stops it.",
+        "section": "colors"
+      },
+      {
+        "name": "The Theme Rule",
+        "section": "colors",
+        "body": "Black & White is the default and what System follows; every other theme (Gitnetix Dark/Light in app.css, the 34 third-party themes through tokens()) keeps its own ground, panel, text and accent, gets the derived steps (--line2, --link, --ground, --route, --g1 to --g4) mixed from its colours unless it sets them, and takes the same shapes, type, hairlines and map structure. Role hues are neutral in every theme: no component reads --trunk-fg, --release-fg, --prop-fg or --mod-fg for a role (tokens() still emits them for the marketing website, syntax highlighting and the agent-working rainbow read them)."
+      },
+      {
+        "name": "The One Loud Voice Rule",
+        "body": "Antonio only for screen and page titles, the welcome heading, the next release and headline numerals; shipped versions read in Mono.",
+        "section": "typography"
+      },
+      {
+        "name": "Flat at Rest",
+        "body": "No shadow on resting surfaces; only floating layers get the single float shadow.",
+        "section": "elevation"
+      },
+      {
+        "name": "The Hairline Rule",
+        "body": "Every map line is a hairline: the route to the checked-out branch 1.5px in the route colour, other links 1px Link Dim, falling-behind links dashed 3/4. No thick transit lines, no hue on the route, no pulse, no glow.",
+        "section": "components"
+      }
+    ],
+    "dos": [
+      "Do use ink for selection and focus in every theme, and --accent only for controls (white in Black & White)",
+      "Do show a disabled primary as the outline with a faint label",
+      "Do keep every view and behaviour where it is",
+      "Do show branch type as a text label",
+      "Do keep all themes working through the token layer",
+      "Do draw the branch map in hairlines: 1.5px route, 1px other links, dashed 3/4 when falling behind, 1px faint trunk",
+      "Do keep branch boxes to a header row and one info row, and let commits float beneath them with no container",
+      "Do put ahead/behind on the incoming line as a chip, a rebase button when there is a behind count",
+      "Do put shipped releases on the trunk as ring stations at an even 36px pitch, main as the large station where the route starts",
+      "Do mark everything an agent is working on with the flowing rainbow (the Agent Working Rule), and stop it under reduced motion",
+      "Do dock the agents panel right at 460px in both views"
+    ],
+    "donts": [
+      "Don't use gradient text, glows or drop-shadow filters, except the rainbow on agent work under the Agent Working Rule",
+      "Don't use the working hues for anything but an agent working; a waiting agent is Warn",
+      "Don't use pills or radii above 3px on rectangles",
+      "Don't give roles or branch types their own hue",
+      "Don't use spring or bounce easing",
+      "Don't draw thick transit lines or a coloured route on the branch map; the red route of the trunk reference is not adopted",
+      "Don't put commits inside a branch box or wrap them in a card on the map",
+      "Don't put ahead/behind inside the box, or a separate rebase button under the commits"
+    ]
+  }
+}

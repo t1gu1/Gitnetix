@@ -16,14 +16,24 @@ export interface Theme {
   accent: string;
   /** Text on the accent; `bg` (dark) or `panel` (light) when unset. */
   onAccent?: string;
-  /** The default branch. */
+  /** The default branch's hue before the redesign: now the first of the agent-working rainbow's four (app.css `--g1`). */
   trunk: string;
+  /** app.css tokens the theme sets exactly, over the ones mixed from its colors. */
+  own?: Record<string, string>;
   /** ANSI black, red, green, yellow, blue, magenta, cyan, white, then their bright versions: hex without "#". */
   ansi: string;
 }
 
 export const THEMES: Theme[] = [
-  // The default (SYSTEM), first. Storm leads its family, so the light / dark toggle takes Day back to it.
+  // The default (SYSTEM), first: the slate redesign's own colors, every step set exactly.
+  { id: "gitnetix-bw", name: "Gitnetix Black & White", family: "Gitnetix Black & White", light: false, bg: "#0a0d12", panel: "#0f141b", fg: "#e9eef4", muted: "#a3aebb", faint: "#808b9a", accent: "#f2f5f8", onAccent: "#0a0d12", trunk: "#f7c48a",
+    own: { raised: "#151b24", sel: "#1b2330", line: "#1f2732", line2: "#2c3644", link: "#344050", ground: "#0f151d", route: "#f2f5f8", term: "#0a0d12", "add-bg": "rgba(95, 211, 154, 0.1)", "del-bg": "rgba(255, 123, 114, 0.1)", g4: "#62d6ae" },
+    ansi: "151b24 ff7b72 5fd39a e8b85a 8fa7c4 c4a7ff 5fd0e0 c7d0db 808b9a ff7b72 5fd39a e8b85a a9bdd6 c4a7ff 5fd0e0 f2f5f8" },
+  { id: "gitnetix-bw-light", name: "Gitnetix Black & White Light", family: "Gitnetix Black & White", light: true, bg: "#eef1f5", panel: "#ffffff", fg: "#0b0f14", muted: "#4f5b6a", faint: "#5f6a79", accent: "#0b0f14", onAccent: "#ffffff", trunk: "#a85a12",
+    own: { raised: "#f5f7fa", sel: "#e8ecf2", line: "#dde2e9", line2: "#c9d0da", link: "#b8c1cd", ground: "#e6eaf0", route: "#0b0f14", term: "#eef1f5", "add-bg": "rgba(18, 122, 75, 0.09)", "del-bg": "rgba(192, 54, 44, 0.08)", g4: "#17744d" },
+    ansi: "0b0f14 c0362c 127a4b 8a5a00 2f5a8a 6b46c1 0e7490 a3aebb 4f5b6a c0362c 127a4b 8a5a00 3a6aa0 6b46c1 0e7490 5f6a79" },
+
+  // Storm leads its family, so the light / dark toggle takes Day back to it.
   { id: "tokyo-night-storm", name: "Tokyo Night Storm", family: "Tokyo Night", light: false, bg: "#1f2335", panel: "#24283b", fg: "#c0caf5", muted: "#a9b1d6", faint: "#737aa2", accent: "#7aa2f7", trunk: "#ff9e64",
     ansi: "1d202f f7768e 9ece6a e0af68 7aa2f7 bb9af7 7dcfff a9b1d6 414868 f7768e 9ece6a e0af68 7aa2f7 bb9af7 7dcfff c0caf5" },
   { id: "tokyo-night", name: "Tokyo Night", family: "Tokyo Night", light: false, bg: "#16161e", panel: "#1a1b26", fg: "#c0caf5", muted: "#a9b1d6", faint: "#737aa2", accent: "#7aa2f7", trunk: "#ff9e64",
@@ -116,10 +126,10 @@ export const THEMES: Theme[] = [
 export const ansi = (t: Theme) => t.ansi.split(" ").map((h) => `#${h}`);
 
 /** The themes "system" shows in the computer's dark and light modes. */
-export const SYSTEM = { dark: "tokyo-night-storm", light: "tokyo-night-day" };
+export const SYSTEM = { dark: "gitnetix-bw", light: "gitnetix-bw-light" };
 
 /** The theme shown until the user picks one, in either of the computer's modes. Keep in step with UiPrefs' default (crates/core/src/store.rs). */
-export const DEFAULT_THEME = "tokyo-night-storm";
+export const DEFAULT_THEME = "gitnetix-bw";
 
 /** The theme a preference shows: a theme's id, or "system" (or a gone id) for SYSTEM's in the computer's mode. */
 export const resolveTheme = (pref: string, system: "dark" | "light") => THEMES.find((t) => t.id === pref) ?? THEMES.find((t) => t.id === SYSTEM[system])!;
@@ -158,6 +168,7 @@ export function tokens(t: Theme): Record<string, string> {
     "add-bg": mix(a[10], 14, "transparent"),
     "del-bg": mix(a[9], 14, "transparent"),
     "hunk-bg": mix(a[12], 8, "transparent"),
+    ...t.own,
   };
 }
 

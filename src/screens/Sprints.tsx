@@ -350,7 +350,7 @@ function Kpis({ s, prev, sprints, u }: { s: SprintStat; prev?: SprintStat; sprin
       {tiles.map((t) => (
         <div key={t.label} className="kpi">
           <div className="row" style={{ margin: 0, gap: 8 }}>
-            <span className="muted grow" style={{ fontSize: 12 }}>{t.label}</span>
+            <span className="label grow">{t.label}</span>
             {t.spark && <Spark values={sprints.map((x) => x.completed[u])} at={sprints.indexOf(s)} />}
           </div>
           <span className="v">{t.value}</span>

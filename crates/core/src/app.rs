@@ -1284,10 +1284,13 @@ fn renamed(p: &mut Project, from: &str, to: &str) -> Result<()> {
 /// Long-lived integration branches that sit under the default branch.
 const DEV_TRUNKS: &[&str] = &["develop", "dev", "development"];
 
-/// Long-lived branches that are never work: dev branches, and `main`/`master`
+/// Long-lived environment branches: trunks too, but never merge targets (merged into `qa` is not done).
+const ENV_TRUNKS: &[&str] = &["trunk", "prod", "production", "preprod", "pre-prod", "staging", "stage", "qa", "aq", "uat", "int", "integration", "test", "testing"];
+
+/// Long-lived branches that are never work: dev and environment branches, and `main`/`master`
 /// when the default branch is something else (gitflow).
 fn is_trunk(name: &str) -> bool {
-    DEV_TRUNKS.contains(&name) || matches!(name, "main" | "master")
+    DEV_TRUNKS.contains(&name) || ENV_TRUNKS.contains(&name) || matches!(name, "main" | "master")
 }
 
 /// Make `ticket` the branch's ticket, planned into the branch's release when it has one.
@@ -1924,7 +1927,7 @@ fn plain_view(p: &Project, refs: &Refs, name: &str, parent: Option<String>) -> B
 }
 
 /// Bump when branch views are built differently, so saved ones are not reused.
-const VIEW_CACHE_VERSION: &str = "12";
+const VIEW_CACHE_VERSION: &str = "13";
 
 /// Commits counted past the start of a history with no tag behind it: the default branch's unreleased ones, a
 /// first release's.

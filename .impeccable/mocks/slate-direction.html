@@ -1,0 +1,523 @@
+<!doctype html>
+<html lang="en" data-theme="dark"><head><meta charset="utf-8">
+<title>Gitnetix redesign mock</title>
+<link href="https://fonts.googleapis.com/css2?family=Antonio:wght@400;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root,[data-theme=dark]{--bg:#0a0d12;--ground:#0f151d;--panel:#0f141b;--raised:#151b24;--sel:#1b2330;--line:#1f2732;--line2:#2c3644;--fg:#e9eef4;--muted:#a3aebb;--faint:#808b9a;--accent:#f2f5f8;--on-accent:#0a0d12;--add:#5fd39a;--add-bg:rgba(95,211,154,.10);--del:#ff7b72;--del-bg:rgba(255,123,114,.10);--warn:#e8b85a;--route:#f2f5f8;--link:#344050;color-scheme:dark}
+[data-theme=light]{--bg:#eef1f5;--ground:#e6eaf0;--panel:#ffffff;--raised:#f5f7fa;--sel:#e8ecf2;--line:#dde2e9;--line2:#c9d0da;--fg:#0b0f14;--muted:#4f5b6a;--faint:#5f6a79;--accent:#0b0f14;--on-accent:#ffffff;--add:#127a4b;--add-bg:rgba(18,122,75,.09);--del:#c0362c;--del-bg:rgba(192,54,44,.08);--warn:#8a5a00;--route:#0b0f14;--link:#b8c1cd;color-scheme:light}
+:root{--sans:"Inter",system-ui,sans-serif;--mono:"JetBrains Mono",ui-monospace,monospace;--display:"Antonio","Inter",sans-serif;--r:3px}
+*{box-sizing:border-box;margin:0}
+html{background:#05070a}
+body{font:13px/18px var(--sans);color:#c7d0db;padding:32px 0 64px;display:flex;flex-direction:column;align-items:center;gap:20px;-webkit-font-smoothing:antialiased}
+.cap{width:1920px;display:flex;align-items:center;justify-content:space-between;color:#8995a5;font-size:12px}
+.cap b{color:#e9eef4;font:600 12px var(--sans);letter-spacing:.14em;text-transform:uppercase}
+.toggle{display:flex;border:1px solid #2c3644;border-radius:var(--r)}
+.toggle button{all:unset;cursor:pointer;padding:6px 14px;color:#a3aebb;font:500 12px var(--sans)}
+.toggle button.on{background:#f2f5f8;color:#0a0d12}
+.app{width:1920px;height:1080px;overflow:hidden;background:var(--bg);color:var(--fg);border:1px solid #1f2732;display:flex;flex-direction:column;font-variant-numeric:tabular-nums}
+::selection{background:color-mix(in srgb,var(--fg) 22%,transparent)}
+svg.i{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.25;stroke-linecap:round;stroke-linejoin:round;flex:none}
+/* shell */
+.top{height:40px;display:flex;align-items:stretch;border-bottom:1px solid var(--line);flex:none}
+.rt{display:flex;align-items:center;gap:10px;padding:0 16px;color:var(--muted);border-right:1px solid var(--line);font-weight:500}
+.rt.on{color:var(--fg);box-shadow:inset 0 -2px 0 var(--fg)}
+.rt .x{color:var(--faint)}
+.dot{width:6px;height:6px;border-radius:50%;background:var(--fg)}
+.ico{display:grid;place-items:center;width:40px;color:var(--muted)}
+.sp{flex:1}
+.av{width:22px;height:22px;border-radius:50%;background:linear-gradient(135deg,#3a4656,#1b2330);display:grid;place-items:center;font:600 11px var(--sans);color:#e9eef4;align-self:center;margin:0 14px}
+.tabs{height:40px;display:flex;align-items:stretch;padding:0 8px;border-bottom:1px solid var(--line);flex:none}
+.tabs a{display:flex;align-items:center;gap:8px;padding:0 12px;color:var(--muted);font-weight:500}
+.tabs a.on{color:var(--fg);box-shadow:inset 0 -2px 0 var(--fg)}
+.n{font:500 11px var(--mono);color:var(--faint)}
+.tabs a.on .n{color:var(--muted)}
+.fil{height:48px;display:flex;align-items:center;gap:8px;padding:0 16px;border-bottom:1px solid var(--line);flex:none}
+.seg{display:flex;border:1px solid var(--line2);border-radius:var(--r);overflow:hidden}
+.seg span{height:28px;display:flex;align-items:center;gap:6px;padding:0 11px;color:var(--muted);border-right:1px solid var(--line2);font-weight:500}
+.seg span:last-child{border-right:0}
+.seg span.on{background:var(--fg);color:var(--bg)}
+.seg span.on .n{color:color-mix(in srgb,var(--bg) 70%,var(--fg))}
+.meta-r{display:flex;align-items:center;gap:8px;color:var(--faint);font:12px var(--mono)}
+/* map */
+.map{position:relative;flex:1;background:linear-gradient(180deg,var(--ground),var(--bg) 70%)}
+.ch{position:absolute;top:22px;font:600 11px var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--faint)}
+.card{position:absolute;background:var(--panel);border:1px solid var(--line2);border-radius:var(--r);padding:12px 14px}
+.card.here{border-color:var(--fg)}
+.hd{display:flex;align-items:center;gap:10px;min-height:20px}
+.ty{font:600 11px var(--sans);letter-spacing:.14em;color:var(--faint)}
+.nm{font:500 13px var(--mono);color:var(--fg)}
+.st{font:600 11px var(--sans);letter-spacing:.12em;text-transform:uppercase;color:var(--muted);border:1px solid var(--line2);border-radius:2px;padding:3px 8px;line-height:13px}
+.st.inv{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.ab{margin-left:auto;display:flex;gap:12px;font:500 12px var(--mono);color:var(--muted)}
+.ab .d{color:var(--del)}
+.sub{margin-top:6px;color:var(--muted);font-size:12px;display:flex;gap:6px;align-items:center}
+.cm{display:flex;gap:12px;margin-top:8px;color:var(--muted);font-size:12px}.cm span:last-child{margin-left:auto;font:11px var(--mono);color:var(--faint)}
+.ver{font:600 30px/30px var(--display);letter-spacing:.01em;color:var(--fg)}
+.pill{position:absolute;display:flex;align-items:center;gap:8px;height:26px;padding:0 10px;border:1px solid var(--line);border-radius:var(--r);color:var(--muted);font:12px var(--mono);background:var(--bg)}
+.btn{display:inline-flex;align-items:center;gap:8px;height:30px;padding:0 14px;border-radius:var(--r);font:600 11px var(--sans);letter-spacing:.12em;text-transform:uppercase;border:1px solid var(--line2);color:var(--fg);background:transparent}
+.btn.p{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.ship{position:absolute;font:12px var(--mono);color:var(--muted)}
+.ship .row{display:flex;gap:18px;height:22px;align-items:center}.ship em{font-style:normal;color:var(--faint)}
+.lbl{font:600 11px var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--faint)}
+.add{position:absolute;width:20px;height:20px;border:1px solid var(--line2);border-radius:2px;display:grid;place-items:center;color:var(--muted);background:var(--panel)}
+.add svg{width:12px;height:12px}
+.pulse{width:6px;height:6px;background:var(--fg);border-radius:50%;animation:p 1.6s steps(2,jump-none) infinite}
+@keyframes p{50%{opacity:.25}}
+@media (prefers-reduced-motion:reduce){.pulse{animation:none}}
+svg.links{position:absolute;inset:0;pointer-events:none}
+/* focus view */
+.focus{flex:1;display:grid;grid-template-columns:320px 1fr 44px 460px;min-height:0}
+.rail{border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+.big{display:flex;gap:28px;margin-top:16px}
+.big div{display:flex;flex-direction:column}
+.big b{font:600 44px/1 var(--display);color:var(--fg);margin-bottom:6px}
+.big b.d{color:var(--del)}
+.mid{display:flex;flex-direction:column;min-width:0;border-right:1px solid var(--line)}
+.dh{display:flex;align-items:center;gap:12px;height:40px;padding:0 16px;border-bottom:1px solid var(--line)}
+.diff{font:12px/20px var(--mono);overflow:hidden;flex:1}
+.ln{display:grid;grid-template-columns:44px 44px 16px 1fr;color:var(--muted)}
+.ln span:nth-child(-n+2){color:var(--faint);text-align:right;padding-right:10px;user-select:none}
+.ln.h{background:var(--raised);color:var(--faint)}
+.ln.a{background:var(--add-bg);color:var(--fg)}.ln.a span:nth-child(3){color:var(--add)}
+.ln.r{background:var(--del-bg);color:var(--fg)}.ln.r span:nth-child(3){color:var(--del)}
+.kw{color:var(--fg);font-weight:600}.str{color:var(--muted)}
+.glyphs{display:flex;flex-direction:column;align-items:center;gap:6px;padding-top:12px;border-right:1px solid var(--line)}
+.glyphs a{width:32px;height:32px;display:grid;place-items:center;color:var(--muted);border-radius:var(--r)}
+.glyphs a.on{color:var(--fg);background:var(--sel)}
+.glyphs svg.i{width:18px;height:18px}
+.log{flex:1;padding:16px;display:flex;flex-direction:column;gap:14px;overflow:hidden;font-size:13px;color:var(--muted)}
+.log .me{color:var(--fg);border-left:1px solid var(--line2);padding-left:12px}
+.tool{font:12px var(--mono);color:var(--faint);display:flex;gap:8px;align-items:center}
+.ask{margin:16px;border:1px solid var(--line2);border-radius:var(--r);padding:12px;display:flex;flex-direction:column;gap:12px;background:var(--panel)}
+.ask .ph{color:var(--faint)}
+.ask .row{display:flex;align-items:center;gap:8px}
+/* map: trunk line, header boxes, floating commits */
+.bar{height:48px;display:flex;align-items:center;gap:8px;padding:0 16px;border-bottom:1px solid var(--line);flex:none}
+.ttl{font:600 18px/1 var(--display);letter-spacing:.06em;text-transform:uppercase;color:var(--fg);margin-right:10px}
+.mav{width:14px;height:14px;border-radius:50%;background:linear-gradient(135deg,#3a4656,#1b2330)}
+.tg{all:unset;cursor:pointer;height:28px;display:inline-flex;align-items:center;gap:8px;padding:0 10px;border:1px solid var(--line2);border-radius:var(--r);color:var(--muted);font-weight:500;white-space:nowrap}
+.tg .ck{width:12px;height:12px;border:1px solid var(--faint);border-radius:2px;display:grid;place-items:center}
+.tg .ck svg{width:10px;height:10px;stroke-width:2;opacity:0}
+.tg[aria-pressed=true]{color:var(--fg)}
+.tg[aria-pressed=true] .ck{background:var(--fg);border-color:var(--fg);color:var(--bg)}
+.tg[aria-pressed=true] .ck svg{opacity:1}
+.split{display:inline-flex}
+.split>:first-child{border-top-right-radius:0;border-bottom-right-radius:0}
+.split>:last-child{border-top-left-radius:0;border-bottom-left-radius:0;margin-left:-1px}
+.ib{all:unset;cursor:pointer;width:28px;height:28px;display:grid;place-items:center;color:var(--muted);border-radius:var(--r)}
+.ib:hover,.tg:hover{color:var(--fg)}
+.zm{display:flex;align-items:center;border:1px solid var(--line2);border-radius:var(--r);font:500 12px var(--mono);color:var(--muted)}
+.zm .ib{width:26px;height:26px}.zm span{min-width:38px;text-align:center}
+:is(button,a):focus-visible{outline:1px solid var(--fg);outline-offset:2px}
+.m2{position:relative;flex:1;background:linear-gradient(180deg,var(--ground),var(--bg) 70%);overflow:hidden}
+.m2 .ch{top:20px}
+.m2>.lbl{position:absolute}
+.stn{position:absolute;width:11px;height:11px;border-radius:50%;border:1px solid var(--faint);background:var(--bg);transform:translate(-50%,-50%);z-index:2}
+.stn.lit{border-color:var(--fg)}
+.stn.on{border-color:var(--route)}
+.stn.on::after{content:"";position:absolute;inset:2px;border-radius:50%;background:var(--route)}
+.stn.xl{width:17px;height:17px;border-width:1.5px}.stn.xl::after{inset:3px}
+.stn.sm{width:7px;height:7px}
+.vr{position:absolute;display:grid;grid-template-columns:62px 54px auto;align-items:center;height:24px;font:13px var(--mono);color:var(--muted);transform:translateY(-50%)}
+.vr em{font:12px var(--sans);font-style:normal;color:var(--faint)}
+.vr.lit{color:var(--fg)}
+.cnt{all:unset;cursor:pointer;display:inline-flex;align-items:center;gap:4px;font:11px var(--mono);color:var(--faint)}
+.cnt svg.i{width:12px;height:12px}
+.cnt:hover{color:var(--fg)}
+.mg{all:unset;cursor:pointer;position:absolute;display:flex;align-items:center;gap:8px;height:24px;transform:translateY(-50%);font:12px var(--mono);color:var(--muted)}
+.mg:hover{color:var(--fg)}
+.mg .st{padding:2px 6px}
+.bx{position:absolute;display:flex;flex-direction:column;gap:4px;padding:8px 24px 8px 18px;background:var(--panel);border:1px solid var(--line2);border-radius:var(--r)}
+.bx.nr{padding-left:14px}.bx.rel>.add{top:15px}
+.bx>*{white-space:nowrap;flex:none}
+.lk{white-space:nowrap}
+.bx.here{border-color:var(--fg)}
+.bx.stale{border-style:dashed}
+.bx>.stn{left:-.5px;top:18px}.bx.rel>.stn{top:25px}
+.bx>.add{all:unset;cursor:pointer;position:absolute;right:-11px;top:8px;width:20px;height:20px;display:grid;place-items:center;border:1px solid var(--line2);border-radius:2px;background:var(--panel);color:var(--muted)}
+.bx>.add svg{width:12px;height:12px}
+.bx>.add:hover{color:var(--fg);border-color:var(--fg)}
+.bx>.add.q{opacity:0}
+.bx:hover>.add.q,.bx:focus-within>.add.q{opacity:1}
+.fl{position:absolute;display:flex;flex-direction:column}
+.fl .s{height:22px;display:flex;align-items:center;gap:8px;color:var(--muted);font-size:12px}
+.fc{all:unset;cursor:pointer;height:22px;display:flex;align-items:center;gap:12px;color:var(--muted);font-size:12px}
+.fc>span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fc i{font:11px var(--mono);font-style:normal;color:var(--faint);white-space:nowrap}
+.fc:hover,.fc:hover i{color:var(--fg)}
+.fc.wip{color:var(--fg);font-weight:500}
+.fc .a{color:var(--add);font:500 12px var(--mono)}.fc .r{color:var(--del);font:500 12px var(--mono)}
+.more{all:unset;cursor:pointer;height:22px;display:flex;align-items:center;font:600 11px var(--sans);letter-spacing:.12em;text-transform:uppercase;color:var(--faint)}
+.more:hover{color:var(--fg)}
+.sc{position:absolute;top:16px;right:16px;width:288px;z-index:3;background:var(--panel);border:1px solid var(--line2);border-radius:var(--r);padding:16px;display:flex;flex-direction:column;gap:14px}
+.sc .hd{gap:8px}
+.sc h3{font:600 14px var(--mono);color:var(--fg)}
+.sc .ib{width:24px;height:24px;margin:-4px -6px -4px 0}
+.sc .big{margin-top:0;gap:26px}
+.sc .btn{justify-content:center}
+.lk{width:100%}
+.lk .w{margin-left:auto;font:500 11px var(--mono);letter-spacing:0;text-transform:none;color:var(--muted)}
+.sn{color:var(--muted);font-size:12px;line-height:18px}
+.dl{display:grid;grid-template-columns:auto 1fr;gap:6px 16px;font-size:12px}
+.dl dt{color:var(--faint)}.dl dd{color:var(--fg);font-family:var(--mono);text-align:right}
+.sc .split>.btn.p:first-child{flex:1}
+.sc .split>.btn.p:last-child{padding:0 9px;margin-left:0;border-left:1px solid var(--line2)}
+.lg{position:absolute;left:40px;bottom:14px;display:flex;align-items:center;gap:22px;font-size:12px;color:var(--muted)}
+.lg span{display:flex;align-items:center;gap:8px}
+.lg .h{color:var(--faint)}
+/* boxes: header + info row; ahead/behind on the incoming line */
+.bx .h{display:flex;align-items:center;gap:10px;height:20px;min-width:0}
+.bx.rel .h{height:34px}
+.bx .h2{display:flex;align-items:center;gap:8px;height:18px;font-size:12px;color:var(--muted)}
+.bx .h2 .wip{all:unset;cursor:pointer;display:inline-flex;align-items:center;gap:6px;color:var(--fg);font-weight:500}
+.bx .h2 .wip:hover{text-decoration:underline;text-underline-offset:3px}
+.bx .h2 .a{color:var(--add);font:500 12px var(--mono)}.bx .h2 .r{color:var(--del);font:500 12px var(--mono)}
+.wd{width:6px;height:6px;border-radius:50%;border:1px dashed var(--fg)}
+.lc{all:unset;position:absolute;z-index:2;transform:translate(-50%,-50%);height:18px;display:flex;align-items:center;gap:5px;padding:0 6px;border:1px solid var(--line2);border-radius:2px;background:var(--bg);font:500 11px var(--mono);color:var(--muted);white-space:nowrap}
+.lc.on{border-color:var(--route);color:var(--fg)}
+.lc .d{color:var(--del)}
+button.lc{cursor:pointer}.lc.stale{border-style:dashed}button.lc[aria-disabled]{cursor:not-allowed}.pulse.w{background:var(--warn)}button.lc:not([aria-disabled]):hover{border-color:var(--fg);color:var(--fg)}
+/* code view: head + files rail */
+.fh{height:48px;display:flex;align-items:center;gap:14px;padding:0 16px;border-bottom:1px solid var(--line);flex:none}
+.kbd{font:500 11px var(--mono);color:var(--faint);border:1px solid var(--line2);border-radius:2px;padding:0 5px;line-height:16px}
+.crumbs{display:flex;align-items:center;gap:8px}
+.crumbs button{all:unset;cursor:pointer;font:13px var(--mono);color:var(--muted)}
+.crumbs button:hover{color:var(--fg)}
+.crumbs button[aria-current]{color:var(--fg);font-weight:500}
+.crumbs i{font-style:normal;color:var(--faint)}
+.pills{display:flex;align-items:center;gap:18px;font:12px var(--mono);color:var(--muted)}
+.pills>span{display:inline-flex;align-items:center;gap:6px}.pills .d{color:var(--del)}
+.rh{padding:14px 16px;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:12px}
+.rh .hd{gap:8px}.from{font-size:12px;color:var(--faint);white-space:nowrap}
+.rh .ib{margin:-4px -6px -4px 0}
+.seg.g3{display:grid;grid-template-columns:repeat(3,1fr)}
+.seg.g3 span{justify-content:center}
+.fs{flex:1;overflow:hidden;padding:6px 0}
+.sec{display:flex;align-items:center;height:32px;padding:0 10px 0 16px}
+.sect{all:unset;cursor:pointer;flex:1;display:flex;align-items:center;gap:6px;font:600 11px var(--sans);letter-spacing:.12em;text-transform:uppercase;color:var(--faint)}
+.sect span{font-family:var(--mono);letter-spacing:0;font-weight:500}
+.sect svg.i{width:12px;height:12px}
+.sect:hover{color:var(--fg)}
+.acts,.ra{display:flex;gap:2px}
+.acts .ib,.ra .ib{width:24px;height:24px}
+.acts svg.i,.ra svg.i{width:13px;height:13px}
+.ib.dz:hover{color:var(--del)}
+.fr2{display:flex;align-items:center;padding-right:10px}
+.fr2 .fb{all:unset;cursor:pointer;flex:1;min-width:0;display:grid;grid-template-columns:18px 1fr auto;gap:10px;align-items:center;height:30px;padding:0 6px 0 16px;font-size:12.5px;color:var(--muted)}
+.fr2 .p{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--faint);font-size:11.5px}
+.fr2 .p b{color:var(--fg);font-weight:500;font-size:12.5px;margin-right:4px}
+.fr2 .s{font:600 12px var(--mono)}.fr2 .s.a{color:var(--add)}.fr2 .s.m{color:var(--muted)}
+.fr2 .c2{display:flex;gap:8px;font:12px var(--mono)}.fr2 .c2 .p{color:var(--add);font-size:12px}.fr2 .c2 .m{color:var(--del)}
+.fr2 .ra{opacity:0}
+.fr2:hover,.fr2.on{background:var(--sel)}
+.fr2:hover .ra,.fr2.on .ra,.fr2:focus-within .ra{opacity:1}
+.cb{border-top:1px solid var(--line);padding:10px 16px 14px;display:flex;flex-direction:column;gap:8px}
+.cbh{display:flex;align-items:center;justify-content:space-between}
+.tg.dr{height:24px;padding:0 8px;gap:6px;font-size:12px}
+.tg.dr svg.i{width:12px;height:12px}
+.cbm{display:flex;flex-direction:column;gap:6px}
+.in{all:unset;box-sizing:border-box;width:100%;height:32px;padding:0 10px;border:1px solid var(--line2);border-radius:var(--r);background:var(--bg);color:var(--fg);font:12.5px var(--sans)}
+.in.ta{height:64px;padding:8px 10px;line-height:18px;resize:none}
+.in::placeholder{color:var(--faint)}
+.in:focus-visible{border-color:var(--fg)}
+.cb .split{display:flex}
+.cb .split>.btn.p:first-child{flex:1;justify-content:center}
+.cb .split>.btn.p:last-child{padding:0 9px;margin-left:0;border-left:1px solid var(--line2)}
+.btn .o{font-weight:400;opacity:.7;margin-left:2px}
+/* agent working: the incumbent's flowing rainbow, kept by owner decision */
+:root,[data-theme=dark]{--g1:#f7c48a;--g2:#c4a7ff;--g3:#5fd0e0;--g4:#62d6ae}
+[data-theme=light]{--g1:#a85a12;--g2:#6b46c1;--g3:#0e7490;--g4:#17744d}
+.glow-working>span{font-weight:600;background:linear-gradient(90deg,var(--g1),var(--g2),var(--g3),var(--g4),var(--g1)) 0 0/300% 100%;-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;filter:drop-shadow(0 0 5px color-mix(in srgb,var(--g2) 45%,transparent));animation:glow-name 8s steps(384) infinite;will-change:filter}
+.glow-working>svg{filter:drop-shadow(0 0 5px color-mix(in srgb,var(--g2) 45%,transparent));animation:glow-stroke 8s steps(96) infinite;will-change:filter}
+.pulse.glow-dot{background:currentColor;filter:drop-shadow(0 0 4px color-mix(in srgb,var(--g2) 45%,transparent));animation:p 1.6s steps(2,jump-none) infinite,glow-stroke 8s steps(96) infinite;will-change:filter}
+@keyframes glow-name{to{background-position:300% 0}}
+@keyframes glow-stroke{0%,100%{color:var(--g1)}25%{color:var(--g2)}50%{color:var(--g3)}75%{color:var(--g4)}}
+.top .wt{all:unset;cursor:pointer;width:52px;display:grid;place-items:center;border-right:1px solid var(--line);color:var(--muted)}
+.top .wt svg.i{width:18px;height:18px}
+/* agents panel, docked right */
+.wsb{flex:1;display:flex;min-height:0}
+.wsb>.m2{flex:1;min-width:0}
+.term{display:flex;flex-direction:column;min-height:0;min-width:0;border-left:1px solid var(--line);background:var(--bg)}
+.wsb>.term{flex:0 0 460px}
+.ttabs{display:flex;align-items:stretch;height:34px;flex:none;border-bottom:1px solid var(--line);background:var(--panel)}
+.tt{all:unset;cursor:pointer;display:flex;align-items:center;gap:6px;padding:0 12px;border-right:1px solid var(--line);font:500 12px var(--sans);color:var(--muted);white-space:nowrap}
+.tt:hover{color:var(--fg)}
+.tt[aria-pressed=true]{color:var(--fg);box-shadow:inset 0 -2px 0 var(--fg)}
+.tt svg.i{width:12px;height:12px}
+.tt.sess{cursor:default;gap:8px;font-size:11.5px;border-right:0;min-width:0;flex-shrink:1}
+.tt.sess .fa{overflow:hidden;text-overflow:ellipsis}
+.tt.sess .mono{font:12px var(--mono);color:var(--fg)}.tt.sess .fa{color:var(--faint)}
+.tt.ic{padding:0;width:34px;flex-shrink:0;justify-content:center}
+.sp~.tt{border-right:0;border-left:1px solid var(--line)}
+.tt.col svg{transform:rotate(-90deg)}
+.log .nm{font-size:12px}
+.think{display:flex;gap:4px;height:20px;align-items:center}
+.think i{width:6px;height:6px;border-radius:50%;background:var(--muted);animation:agdot 1.333s steps(4) infinite}
+.think i:nth-child(2){animation-delay:.1667s}.think i:nth-child(3){animation-delay:.3333s}
+@keyframes agdot{0%,50%,100%{opacity:.3;transform:none}25%{opacity:1;transform:translateY(-3px)}}
+.ask textarea{all:unset;display:block;width:100%;min-height:36px;font:13px/18px var(--sans);color:var(--fg);resize:none}
+.ask textarea::placeholder{color:var(--faint)}
+.ask:focus-within{border-color:var(--fg)}
+.pk{all:unset;cursor:pointer;height:28px;display:inline-flex;align-items:center;gap:6px;padding:0 8px;border:1px solid var(--line2);border-radius:var(--r);font:12px var(--sans);color:var(--muted)}
+.pk svg.i{width:12px;height:12px}.pk:hover{color:var(--fg)}
+.btn.dz{color:var(--del)}
+@media (prefers-reduced-motion:reduce){.glow-working>*,.pulse.glow-dot,.think i{animation:none}}
+</style></head><body>
+
+<svg width="0" height="0" style="position:absolute">
+<symbol id="g-plus" viewBox="0 0 16 16"><path d="M8 3v10M3 8h10"/></symbol>
+<symbol id="g-x" viewBox="0 0 16 16"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7"/></symbol>
+<symbol id="g-fetch" viewBox="0 0 16 16"><path d="M13 8a5 5 0 1 1-1.5-3.6M13 2.5v3h-3"/></symbol>
+<symbol id="g-gear" viewBox="0 0 16 16"><circle cx="8" cy="8" r="2"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4"/></symbol>
+<symbol id="g-stage" viewBox="0 0 16 16"><path d="M3 8.5l3 3 7-7"/></symbol>
+<symbol id="g-undo" viewBox="0 0 16 16"><path d="M5 4L2 7l3 3M2 7h7.5a4 4 0 0 1 0 8H7"/></symbol>
+<symbol id="g-blame" viewBox="0 0 16 16"><circle cx="5" cy="5" r="2"/><path d="M2 12.5c.6-2 1.6-3 3-3s2.4 1 3 3M10 4h4M10 7.5h4M10 11h4"/></symbol>
+<symbol id="g-hist" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6"/><path d="M8 4.5V8l2.5 1.5"/></symbol>
+<symbol id="g-open" viewBox="0 0 16 16"><path d="M9 2.5h4.5V7M13.5 2.5L7 9M11.5 9.5v4h-9v-9h4"/></symbol>
+<symbol id="g-send" viewBox="0 0 16 16"><path d="M2.5 8h11M9 3.5L13.5 8 9 12.5"/></symbol>
+<symbol id="g-mic" viewBox="0 0 16 16"><rect x="6" y="2" width="4" height="8" rx="2"/><path d="M3.5 8a4.5 4.5 0 0 0 9 0M8 12.5V14"/></symbol>
+<symbol id="g-file" viewBox="0 0 16 16"><path d="M4 1.5h5l3 3v10H4zM9 1.5v3h3"/></symbol>
+<symbol id="g-search" viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></symbol>
+<symbol id="g-stash" viewBox="0 0 16 16"><path d="M2.5 6h11v7.5h-11zM2.5 6L4 2.5h8L13.5 6M6 9h4"/></symbol>
+<symbol id="g-chev" viewBox="0 0 16 16"><path d="M4.5 6.5L8 10l3.5-3.5"/></symbol>
+<symbol id="g-eye" viewBox="0 0 16 16"><path d="M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/></symbol>
+<symbol id="g-more" viewBox="0 0 16 16"><circle cx="3.5" cy="8" r=".7"/><circle cx="8" cy="8" r=".7"/><circle cx="12.5" cy="8" r=".7"/></symbol>
+<symbol id="g-folder" viewBox="0 0 16 16"><path d="M1.5 4h4.5l1.5 1.5h7v8h-13z"/></symbol>
+<symbol id="g-sparkle" viewBox="0 0 16 16"><path d="M8 2l1.4 4.6L14 8l-4.6 1.4L8 14l-1.4-4.6L2 8l4.6-1.4z"/></symbol>
+<symbol id="g-back" viewBox="0 0 16 16"><path d="M13.5 8h-11M6.5 4L2.5 8l4 4"/></symbol>
+<symbol id="g-alert" viewBox="0 0 16 16"><path d="M8 2l6.5 11.5h-13zM8 6.5v3.5M8 12v.01"/></symbol>
+<symbol id="g-max" viewBox="0 0 16 16"><path d="M9.5 2.5h4v4M13.5 2.5L9 7M6.5 13.5h-4v-4M2.5 13.5L7 9"/></symbol>
+<symbol id="g-clip" viewBox="0 0 16 16"><path d="M13 7.5l-5.2 5.2a3.2 3.2 0 0 1-4.5-4.5L8.6 2.9a2.1 2.1 0 0 1 3 3L6.4 11.1a1 1 0 0 1-1.5-1.5L9.6 5"/></symbol>
+<symbol id="g-layers" viewBox="0 0 16 16"><path d="M8 2l6 3.2-6 3.2-6-3.2zM2 8.3l6 3.2 6-3.2M2 11.3l6 3.2 6-3.2"/></symbol>
+<symbol id="g-stop" viewBox="0 0 16 16"><rect x="4" y="4" width="8" height="8" rx="1"/></symbol>
+<symbol id="g-minus" viewBox="0 0 16 16"><path d="M3.5 8h9"/></symbol>
+</svg>
+
+<div class="cap"><b>Gitnetix · slate direction · mock</b><span>Branch map on a trunk line, then a branch's workspace. Same views and actions as today; only the look changes.</span>
+<div class="toggle"><button class="on" data-t="dark">Dark</button><button data-t="light">Light</button></div></div>
+
+<!-- FRAME 1: BRANCH MAP -->
+<div class="app">
+<div class="top"><button class="wt glow-working" aria-label="Worktrees &amp; agents, 1 running"><svg class="i"><use href="#g-layers"/></svg></button>
+<div class="rt on"><span class="pulse glow-dot" title="1 agent running"></span>acme-web<svg class="i x" style="width:12px;height:12px"><use href="#g-x"/></svg></div>
+<div class="rt">acme-api<svg class="i x" style="width:12px;height:12px"><use href="#g-x"/></svg></div>
+<div class="rt">design-system<svg class="i x" style="width:12px;height:12px"><use href="#g-x"/></svg></div>
+<div class="ico"><svg class="i"><use href="#g-plus"/></svg></div><div class="sp"></div>
+<div class="ico"><svg class="i"><use href="#g-gear"/></svg></div><div class="av">IS</div></div>
+<div class="tabs"><a class="on">Workspace</a><a>Pull requests <span class="n">3</span></a><a>Tickets <span class="n">12</span></a><a>Release notes</a><a>Submodules</a><a>Analytics</a></div>
+<div class="bar">
+<h2 class="ttl">Branch map</h2>
+<div class="seg"><span class="on">Everyone <b class="n">4</b></span><span><i class="mav"></i>Mine <b class="n">1</b></span></div>
+<button class="tg" aria-pressed="true"><span class="ck"><svg class="i"><use href="#g-stage"/></svg></span>Merged <b class="n">2</b></button>
+<span class="split"><button class="tg" aria-pressed="true"><span class="ck"><svg class="i"><use href="#g-stage"/></svg></span>Falling behind <b class="n">1</b></button><button class="tg" aria-label="Clean up the branch falling behind">Clean up</button></span>
+<button class="tg" aria-pressed="true"><span class="ck"><svg class="i"><use href="#g-stage"/></svg></span>Shipped <b class="n">4</b></button>
+<div class="sp"></div>
+<button class="ib" aria-label="Search branches, tags and commits"><svg class="i"><use href="#g-search"/></svg></button>
+<button class="tg"><svg class="i"><use href="#g-stash"/></svg>2 stashes</button>
+<span class="meta-r"><button class="ib" aria-label="Fetch origin"><svg class="i"><use href="#g-fetch"/></svg></button>fetched 2m ago</span>
+<div class="zm" role="group" aria-label="Zoom"><button class="ib" aria-label="Zoom out"><svg class="i"><use href="#g-minus"/></svg></button><span>100%</span><button class="ib" aria-label="Zoom in"><svg class="i"><use href="#g-plus"/></svg></button></div>
+</div>
+<div class="wsb">
+<div class="m2">
+<svg class="links" width="1460" height="952" fill="none">
+<path d="M46 96 V 700" stroke="var(--faint)"/>
+<path d="M424 202 V 392" stroke="var(--link)"/>
+<path d="M46 240 H 66" stroke="var(--route)" stroke-width="1.5"/>
+<path d="M346 240 C 385 240, 385 202, 424 202" stroke="var(--route)" stroke-width="1.5"/>
+<path d="M740 202 C 768 202, 768 114, 796 114" stroke="var(--route)" stroke-width="1.5"/>
+<path d="M740 202 C 768 202, 768 338, 796 338" stroke="var(--link)"/>
+<path d="M346 240 C 385 240, 385 468, 424 468" stroke="var(--link)"/>
+<path d="M346 240 C 385 240, 385 554, 424 554" stroke="var(--link)" stroke-dasharray="3 4"/>
+</svg>
+<div class="ch" style="left:40px">Trunk</div><div class="ch" style="left:424px">Releases &amp; straight to main</div><div class="ch" style="left:796px">Branches</div>
+
+<div class="lbl" style="left:40px;top:52px">Shipped from main · 4</div>
+<div class="stn" style="left:46px;top:96px"></div><div class="vr" style="left:64px;top:96px">v0.4.0<em>Sep 30</em><button class="cnt">22 commits<svg class="i"><use href="#g-chev"/></svg></button></div>
+<div class="stn" style="left:46px;top:132px"></div><div class="vr" style="left:64px;top:132px">v0.5.0<em>Oct 21</em><button class="cnt">14 commits<svg class="i"><use href="#g-chev"/></svg></button></div>
+<div class="stn" style="left:46px;top:168px"></div><div class="vr" style="left:64px;top:168px">v0.5.1<em>Nov 4</em><button class="cnt">3 commits<svg class="i"><use href="#g-chev"/></svg></button></div>
+<div class="stn lit" style="left:46px;top:204px"></div><div class="vr lit" style="left:64px;top:204px">v0.5.2<em>Nov 14</em><button class="cnt">6 commits<svg class="i"><use href="#g-chev"/></svg></button></div>
+
+<div class="stn on xl" style="left:46px;top:240px"></div>
+<div class="bx nr" style="left:66px;top:221px;width:280px"><div class="h"><span class="nm" style="font-weight:600">main</span><span class="st">Default</span></div><div class="h2">3 commits since v0.5.2 · 1 release open</div><button class="add" aria-label="Create a branch from main"><svg class="i"><use href="#g-plus"/></svg></button></div>
+<div class="fl" style="left:80px;top:287px;width:266px">
+<button class="fc"><span>Merge fix/tab-order</span><i>IS · 4d</i></button>
+<button class="fc"><span>Keep tab order in dialogs</span><i>MK · 4d</i></button>
+<button class="fc"><span>Bump Tauri to 2.9</span><i>IS · 5d</i></button>
+</div>
+<div class="stn sm" style="left:46px;top:388px"></div>
+<button class="mg" style="left:64px;top:388px"><svg class="i" style="width:12px;height:12px"><use href="#g-stage"/></svg>fix/tab-order<span class="st">Merged</span></button>
+<button class="btn" style="position:absolute;left:64px;top:410px;height:26px">Clean up merged</button>
+
+<span class="lc on" style="left:385px;top:221px" title="9 commits on release/0.6.0 not on main yet">↑9</span>
+<button class="lc stale" style="left:385px;top:397px" aria-label="Rebase feat/old-sidebar onto main" title="3 commits ahead of main, 31 behind. Click to rebase onto main.">↑3 <span class="d">↓31</span></button>
+<button class="lc on" style="left:768px;top:158px" aria-disabled="true" aria-label="Can't rebase feat/branch-tree onto v0.6.0 while its agent is working" title="Can't rebase feat/branch-tree onto v0.6.0 while its agent is working. Wait until the agent finishes or asks you a question.">↑4 <span class="d">↓2</span></button>
+<span class="lc" style="left:768px;top:270px" title="2 commits ahead of v0.6.0">↑2</span>
+
+<div class="bx rel" style="left:424px;top:176px;width:316px"><div class="stn on"></div><div class="h"><span class="ver">v0.6.0</span><span class="st inv">Next</span></div><div class="h2">release/0.6.0 · from main · 3h ago</div><button class="add" aria-label="Create a branch from release/0.6.0"><svg class="i"><use href="#g-plus"/></svg></button></div>
+<div class="fl" style="left:442px;top:256px;width:298px">
+<button class="fc"><span>Search tags and commits on the map</span><i>IS · 3h</i></button>
+<button class="fc"><span>Unfold shipped releases</span><i>IS · 5h</i></button>
+<button class="fc"><span>Count commits since the latest tag</span><i>MK · 1d</i></button>
+<button class="fc"><span>Drop the commits filter from the map</span><i>IS · 1d</i></button>
+<button class="more">See all 9</button>
+</div>
+<div class="stn sm" style="left:424px;top:392px"></div>
+<button class="mg" style="left:442px;top:392px"><svg class="i" style="width:12px;height:12px"><use href="#g-stage"/></svg>feat/commit-folds<span class="st">Merged</span></button>
+
+<div class="bx" style="left:424px;top:449px;width:316px"><div class="stn"></div><div class="h"><span class="ty">FEAT</span><span class="nm">agent-pane</span></div><div class="h2">no commits yet</div><button class="add q" aria-label="Create a branch from feat/agent-pane"><svg class="i"><use href="#g-plus"/></svg></button></div>
+<div class="bx stale" style="left:424px;top:535px;width:316px"><div class="stn"></div><div class="h"><span class="ty">FEAT</span><span class="nm">old-sidebar</span></div><div class="h2"><svg class="i" style="width:12px;height:12px;color:var(--warn)"><use href="#g-alert"/></svg>idle 41 days · falling behind main</div><button class="add q" aria-label="Create a branch from feat/old-sidebar"><svg class="i"><use href="#g-plus"/></svg></button></div>
+<div class="fl" style="left:442px;top:601px;width:298px">
+<button class="fc"><span>Collapse the sidebar on narrow panes</span><i>MK · 41d</i></button>
+<button class="fc"><span>Remember the sidebar width</span><i>MK · 42d</i></button>
+</div>
+
+<div class="bx here" style="left:796px;top:95px;width:320px"><div class="stn on"></div><div class="h"><span class="ty">FEAT</span><span class="nm" style="font-weight:600">branch-tree</span><span class="st inv">Checked out</span></div><div class="h2"><span class="pulse glow-dot"></span><span class="glow-working"><span>Claude working</span></span> · 6 min · <button class="wip"><span class="wd"></span>WIP 2 · <b class="a">+48</b> <b class="r">−12</b></button></div><button class="add" aria-label="Create a branch from feat/branch-tree"><svg class="i"><use href="#g-plus"/></svg></button></div>
+<div class="fl" style="left:814px;top:161px;width:302px">
+<button class="fc"><span>Draw the path from trunk to checkout</span><i>IS · 2h</i></button>
+<button class="fc"><span>Measure rows with layout offsets</span><i>IS · 5h</i></button>
+<button class="fc"><span>Add usePath</span><i>IS · 1d</i></button>
+<button class="fc"><span>Style the dotted path line</span><i>MK · 1d</i></button>
+<button class="more">See all 7</button>
+</div>
+<div class="bx" style="left:796px;top:319px;width:320px"><div class="stn"></div><div class="h"><span class="ty">FIX</span><span class="nm">stale-remote</span></div><div class="h2"><span class="pulse w"></span>Codex waiting for you · 12 min</div><button class="add q" aria-label="Create a branch from fix/stale-remote"><svg class="i"><use href="#g-plus"/></svg></button></div>
+<div class="fl" style="left:814px;top:385px;width:302px">
+<button class="fc"><span>Retry the fetch when origin moves</span><i>IS · 20m</i></button>
+<button class="fc"><span>Keep remote tips fresh</span><i>IS · 1h</i></button>
+</div>
+
+<aside class="sc" aria-label="Selected branch feat/branch-tree">
+<div class="hd"><span class="ty">FEAT</span><h3>branch-tree</h3><div class="sp"></div><button class="ib" aria-label="Fold the selected branch"><svg class="i"><use href="#g-chev"/></svg></button></div>
+<div class="hd"><span class="st inv">Checked out</span><span class="st">Local</span></div>
+<div class="big"><div><b>4</b><span class="lbl">Ahead</span></div><div><b class="d">2</b><span class="lbl">Behind</span></div><div><b>2</b><span class="lbl">WIP files</span></div></div>
+<button class="btn lk"><svg class="i"><use href="#g-eye"/></svg>Look at the code<span class="w">WIP · 2</span></button>
+<p class="sn">Checked out in this folder. v0.6.0 moved 2 commits past it since you branched.</p>
+<dl class="dl"><dt>Parent</dt><dd>v0.6.0</dd><dt>Origin</dt><dd>↑1 to push</dd><dt>Ticket</dt><dd>ATL-212</dd><dt>Agent</dt><dd><span class="glow-working"><span>Claude working</span></span></dd></dl>
+<div class="split"><button class="btn p"><svg class="i"><use href="#g-sparkle"/></svg>Stage &amp; commit all</button><button class="btn p" aria-label="More actions for feat/branch-tree"><svg class="i"><use href="#g-more"/></svg></button></div>
+</aside>
+
+<div class="lg">
+<span><svg width="20" height="8" aria-hidden="true"><path d="M2 4h16" stroke="var(--route)" stroke-width="1.5"/></svg>You are here</span>
+<span><svg width="20" height="8" aria-hidden="true"><path d="M2 4h16" stroke="var(--link)"/></svg>Other lines</span>
+<span><svg width="20" height="8" aria-hidden="true"><path d="M2 4h16" stroke="var(--link)" stroke-dasharray="3 4"/></svg>Falling behind</span>
+<span class="h">Click a commit or a WIP count to look at its code · click ↓ on a line to rebase</span>
+</div>
+</div>
+<aside class="term" aria-label="Agents">
+<div class="ttabs">
+<button class="tt" aria-pressed="true">Agent</button>
+<button class="tt">Shell<svg class="i"><use href="#g-chev"/></svg></button>
+<span class="tt sess"><span class="pulse glow-dot"></span><span class="mono">feat/branch-tree</span><span class="fa">main checkout</span></span>
+<button class="tt ic" aria-label="Close feat/branch-tree session"><svg class="i"><use href="#g-x"/></svg></button>
+<div class="sp"></div>
+<button class="tt ic" aria-label="Expand terminal"><svg class="i"><use href="#g-max"/></svg></button>
+<button class="tt ic col" aria-label="Collapse agents"><svg class="i"><use href="#g-chev"/></svg></button>
+</div>
+<div class="log">
+<div class="me">Draw the path from main to the checked-out branch, and dim the branches it only passes by.</div>
+<div>I'll compute the path in <span class="nm">layoutMap</span> so the links can draw it without measuring twice.</div>
+<div class="tool"><svg class="i" style="width:12px;height:12px"><use href="#g-file"/></svg>Read src/screens/BranchMap.tsx</div>
+<div class="tool"><svg class="i" style="width:12px;height:12px"><use href="#g-file"/></svg>Edit src/screens/BranchMap.tsx <span style="color:var(--add)">+41</span> <span style="color:var(--del)">−12</span></div>
+<div class="tool"><svg class="i" style="width:12px;height:12px"><use href="#g-file"/></svg>Create src/lib/path.ts <span style="color:var(--add)">+7</span></div>
+<div>The path now comes from <span class="nm">usePath</span>. Next I'm passing the row offsets to <span class="nm">Links</span>.</div>
+<div class="think" role="status" aria-label="Agent is thinking"><i></i><i></i><i></i></div>
+</div>
+<form class="ask" onsubmit="return false">
+<textarea rows="2" aria-label="Ask the agent" placeholder="Agent is working… a message now waits for it to finish"></textarea>
+<div class="row"><button class="ib" type="button" aria-label="Attach files"><svg class="i"><use href="#g-clip"/></svg></button><button class="ib" type="button" aria-label="Dictate"><svg class="i"><use href="#g-mic"/></svg></button><button class="pk" type="button">Opus · high<svg class="i"><use href="#g-chev"/></svg></button><div class="sp"></div><button class="btn dz" type="button" aria-label="Stop the agent"><svg class="i"><use href="#g-stop"/></svg>Stop</button></div>
+</form>
+</aside>
+</div></div>
+
+<!-- FRAME 2: BRANCH WORKSPACE -->
+<div class="app">
+<div class="top"><button class="wt glow-working" aria-label="Worktrees &amp; agents, 1 running"><svg class="i"><use href="#g-layers"/></svg></button>
+<div class="rt on"><span class="pulse glow-dot" title="1 agent running"></span>acme-web<svg class="i x" style="width:12px;height:12px"><use href="#g-x"/></svg></div>
+<div class="rt">acme-api<svg class="i x" style="width:12px;height:12px"><use href="#g-x"/></svg></div>
+<div class="rt">design-system<svg class="i x" style="width:12px;height:12px"><use href="#g-x"/></svg></div>
+<div class="ico"><svg class="i"><use href="#g-plus"/></svg></div><div class="sp"></div>
+<div class="ico"><svg class="i"><use href="#g-gear"/></svg></div><div class="av">IS</div></div>
+<div class="tabs"><a class="on">Workspace</a><a>Pull requests <span class="n">3</span></a><a>Tickets <span class="n">12</span></a><a>Release notes</a><a>Submodules</a><a>Analytics</a></div>
+<div class="fh">
+<button class="tg"><svg class="i"><use href="#g-back"/></svg>Branch map<span class="kbd">Esc</span></button>
+<nav class="crumbs" aria-label="Where it comes from"><button>main</button><i aria-hidden="true">›</i><button>v0.6.0</button><i aria-hidden="true">›</i><button aria-current="true">feat/branch-tree</button><span class="st inv">Checked out</span></nav>
+<div class="sp"></div>
+<span class="pills"><span>↑4 <span class="d">↓2</span> vs v0.6.0</span><span><span class="pulse glow-dot"></span><span class="glow-working"><span>Claude working</span></span></span><span>↑1 to push</span></span>
+</div>
+<div class="focus">
+<div class="rail">
+<div class="rh">
+<div class="hd"><span class="nm" style="font-weight:500">feat/branch-tree</span><span class="from">from v0.6.0</span><div class="sp"></div><button class="ib" aria-label="Show files as a tree"><svg class="i"><use href="#g-folder"/></svg></button></div>
+<div class="seg g3" role="group" aria-label="File view"><span class="on">WIP <b class="n">2</b></span><span>Branch <b class="n">5</b></span><span>Project</span></div>
+</div>
+<div class="fs">
+<div class="sec"><button class="sect" aria-expanded="true"><svg class="i"><use href="#g-chev"/></svg>Staged <span>1</span></button><span class="acts"><button class="ib" aria-label="Unstage all files"><svg class="i"><use href="#g-minus"/></svg></button><button class="ib dz" aria-label="Discard all staged changes"><svg class="i"><use href="#g-undo"/></svg></button></span></div>
+<div class="fr2"><button class="fb"><span class="s a">A</span><span class="p"><b>path.ts</b> src/lib</span><span class="c2"><span class="p">+7</span></span></button><span class="ra"><button class="ib" aria-label="Unstage src/lib/path.ts"><svg class="i"><use href="#g-minus"/></svg></button><button class="ib dz" aria-label="Discard staged changes to src/lib/path.ts"><svg class="i"><use href="#g-undo"/></svg></button></span></div>
+<div class="sec"><button class="sect" aria-expanded="true"><svg class="i"><use href="#g-chev"/></svg>Unstaged <span>1</span></button><span class="acts"><button class="ib" aria-label="Stage all files"><svg class="i"><use href="#g-plus"/></svg></button><button class="ib dz" aria-label="Discard all unstaged changes"><svg class="i"><use href="#g-undo"/></svg></button></span></div>
+<div class="fr2 on"><button class="fb" aria-pressed="true"><span class="s m">M</span><span class="p"><b>BranchMap.tsx</b> src/screens</span><span class="c2"><span class="p">+41</span><span class="m">−12</span></span></button><span class="ra"><button class="ib" aria-label="Stage src/screens/BranchMap.tsx"><svg class="i"><use href="#g-plus"/></svg></button><button class="ib dz" aria-label="Discard unstaged changes to src/screens/BranchMap.tsx"><svg class="i"><use href="#g-undo"/></svg></button></span></div>
+</div>
+<div class="cb">
+<div class="cbh"><button class="sect" aria-expanded="true" aria-controls="msg"><svg class="i"><use href="#g-chev"/></svg>Commit message</button><button class="tg dr" title="AI drafts a message from the staged files"><svg class="i"><use href="#g-sparkle"/></svg>Draft</button></div>
+<div id="msg" class="cbm"><input class="in" aria-label="Summary" placeholder="Summary — leave empty for AI"><textarea class="in ta" rows="3" aria-label="Description" placeholder="Description (optional)"></textarea></div>
+<div class="split"><button class="btn p"><svg class="i"><use href="#g-sparkle"/></svg>Commit <span class="o">1</span></button><button class="btn p" aria-label="Commit options"><svg class="i"><use href="#g-more"/></svg></button></div>
+</div>
+</div>
+<div class="mid">
+<div class="dh"><svg class="i"><use href="#g-file"/></svg><span class="nm">src/screens/BranchMap.tsx</span><div class="sp"></div><div class="seg"><span class="on">Unified</span><span>Split</span></div></div>
+<div class="diff">
+<div class="ln h"><span></span><span></span><span></span><span>@@ -152,12 +152,18 @@ function layoutMap(views: BranchView[])</span></div>
+<div class="ln"><span>152</span><span>152</span><span></span><span>  const rows = measureRows(views);</span></div>
+<div class="ln"><span>153</span><span>153</span><span></span><span>  const cols = columnsOf(views);</span></div>
+<div class="ln r"><span>154</span><span></span><span>−</span><span>  const path = views.filter((v) =&gt; v.checkedOut);</span></div>
+<div class="ln r"><span>155</span><span></span><span>−</span><span>  return { rows, cols, path };</span></div>
+<div class="ln a"><span></span><span>154</span><span>+</span><span>  <span class="kw">const</span> here = views.find((v) =&gt; v.checkedOut);</span></div>
+<div class="ln a"><span></span><span>155</span><span>+</span><span>  <span class="kw">const</span> path = here ? usePath(here, views) : [];</span></div>
+<div class="ln a"><span></span><span>156</span><span>+</span><span>  <span class="kw">const</span> offsets = rows.map((r) =&gt; r.top + r.height / 2);</span></div>
+<div class="ln a"><span></span><span>157</span><span>+</span><span>  <span class="kw">return</span> { rows, cols, path, offsets };</span></div>
+<div class="ln"><span>156</span><span>158</span><span></span><span>}</span></div>
+<div class="ln"><span>157</span><span>159</span><span></span><span></span></div>
+<div class="ln h"><span></span><span></span><span></span><span>@@ -201,7 +203,11 @@ export function BranchMap()</span></div>
+<div class="ln"><span>201</span><span>203</span><span></span><span>  const map = layoutMap(views);</span></div>
+<div class="ln r"><span>202</span><span></span><span>−</span><span>  &lt;Links rows={map.rows} /&gt;</span></div>
+<div class="ln a"><span></span><span>204</span><span>+</span><span>  &lt;Links rows={map.rows} path={map.path} offsets={map.offsets} /&gt;</span></div>
+<div class="ln"><span>203</span><span>205</span><span></span><span>  {map.cols.map((c) =&gt; &lt;Column key={c.id} col={c} /&gt;)}</span></div>
+</div></div>
+<div class="glyphs">
+<a class="on" title="Stage file"><svg class="i"><use href="#g-stage"/></svg></a>
+<a title="Discard changes"><svg class="i"><use href="#g-undo"/></svg></a>
+<a title="Blame"><svg class="i"><use href="#g-blame"/></svg></a>
+<a title="File history"><svg class="i"><use href="#g-hist"/></svg></a>
+<a title="Open in editor"><svg class="i"><use href="#g-open"/></svg></a>
+</div>
+<aside class="term" aria-label="Agents">
+<div class="ttabs">
+<button class="tt" aria-pressed="true">Agent</button>
+<button class="tt">Shell<svg class="i"><use href="#g-chev"/></svg></button>
+<span class="tt sess"><span class="pulse glow-dot"></span><span class="mono">feat/branch-tree</span><span class="fa">main checkout</span></span>
+<button class="tt ic" aria-label="Close feat/branch-tree session"><svg class="i"><use href="#g-x"/></svg></button>
+<div class="sp"></div>
+<button class="tt ic" aria-label="Expand terminal"><svg class="i"><use href="#g-max"/></svg></button>
+<button class="tt ic col" aria-label="Collapse agents"><svg class="i"><use href="#g-chev"/></svg></button>
+</div>
+<div class="log">
+<div class="me">Draw the path from main to the checked-out branch, and dim the branches it only passes by.</div>
+<div>I'll compute the path in <span class="nm">layoutMap</span> so the links can draw it without measuring twice.</div>
+<div class="tool"><svg class="i" style="width:12px;height:12px"><use href="#g-file"/></svg>Read src/screens/BranchMap.tsx</div>
+<div class="tool"><svg class="i" style="width:12px;height:12px"><use href="#g-file"/></svg>Edit src/screens/BranchMap.tsx <span style="color:var(--add)">+41</span> <span style="color:var(--del)">−12</span></div>
+<div class="tool"><svg class="i" style="width:12px;height:12px"><use href="#g-file"/></svg>Create src/lib/path.ts <span style="color:var(--add)">+7</span></div>
+<div>The path now comes from <span class="nm">usePath</span>. Next I'm passing the row offsets to <span class="nm">Links</span>.</div>
+<div class="think" role="status" aria-label="Agent is thinking"><i></i><i></i><i></i></div>
+</div>
+<form class="ask" onsubmit="return false">
+<textarea rows="2" aria-label="Ask the agent" placeholder="Agent is working… a message now waits for it to finish"></textarea>
+<div class="row"><button class="ib" type="button" aria-label="Attach files"><svg class="i"><use href="#g-clip"/></svg></button><button class="ib" type="button" aria-label="Dictate"><svg class="i"><use href="#g-mic"/></svg></button><button class="pk" type="button">Opus · high<svg class="i"><use href="#g-chev"/></svg></button><div class="sp"></div><button class="btn dz" type="button" aria-label="Stop the agent"><svg class="i"><use href="#g-stop"/></svg>Stop</button></div>
+</form>
+</aside>
+</div></div>
+
+<script>
+document.querySelectorAll('.toggle button').forEach(b=>b.onclick=()=>{document.documentElement.dataset.theme=b.dataset.t;document.querySelectorAll('.toggle button').forEach(x=>x.classList.toggle('on',x===b))});
+</script>
+<!-- impeccable-live-start -->
+<script src="http://localhost:8400/live.js?token=ea8758be-56bf-43f0-aaeb-878035b29991"></script>
+<!-- impeccable-live-end -->
+</body></html>

@@ -14,6 +14,10 @@ the in-app update prompt.
 
 ## [Unreleased]
 
+### Changed (App)
+- The branch map no longer has the Commits filter (Hidden, Latest, List). Every branch lists its 4 newest commits, with "See all" for the rest.
+- Branch tiles no longer show a commit count bubble, and the "New commit pop" animation setting is gone with it.
+
 ## [0.25.0] - 2026-11-18
 
 ### Added (App)

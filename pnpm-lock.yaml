@@ -14,8 +14,11 @@ importers:
       '@codemirror/language-data':
         specifier: ^6.5.2
         version: 6.5.2
-      '@fontsource/instrument-sans':
-        specifier: ^5.2.6
+      '@fontsource-variable/inter':
+        specifier: ^5.3.0
+        version: 5.3.0
+      '@fontsource/antonio':
+        specifier: ^5.3.0
         version: 5.3.0
       '@fontsource/jetbrains-mono':
         specifier: ^5.2.6
@@ -419,8 +422,11 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@fontsource/instrument-sans@5.3.0':
-    resolution: {integrity: sha512-QwXc4hb/px3XvSPS2CPAOgey8nyrQFxgxrmXQQ+pN+P51hKdAcchxpg8rSbjANFfPu6VKXhDqkVDucXMZ9CM5g==}
+  '@fontsource-variable/inter@5.3.0':
+    resolution: {integrity: sha512-OupL48va4JNofb97w6NYeF9S7W/kHNKM0Er8Dem5nqi4jeOLrVJDoE8tZEpnMJmtkvNbB1EIPPwHcdkF6b1oUA==}
+
+  '@fontsource/antonio@5.3.0':
+    resolution: {integrity: sha512-LB0XN3BDXKLWsHaR9qouHKGs6PT7NhVmIOPv+a3Kv8UpZSZs67lLH7vX99pOXE0v0rh9bToJQWqvO6X0fiVKxA==}
 
   '@fontsource/jetbrains-mono@5.3.0':
     resolution: {integrity: sha512-fqDfB5I9f1p1TV486aUgB9t8zP84P0O1FtQR5Ol9vjwPy+S+EIGlVYm1cvj2W5shcZMTg2nZFdVMoH5wFu8a1A==}
@@ -1434,7 +1440,9 @@ snapshots:
   '@esbuild/win32-x64@0.25.12':
     optional: true
 
-  '@fontsource/instrument-sans@5.3.0': {}
+  '@fontsource-variable/inter@5.3.0': {}
+
+  '@fontsource/antonio@5.3.0': {}
 
   '@fontsource/jetbrains-mono@5.3.0': {}
 

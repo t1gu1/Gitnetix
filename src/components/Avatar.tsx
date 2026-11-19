@@ -1,5 +1,6 @@
 import { useEffect, useState, type CSSProperties } from "react";
 
+import { useConfig } from "../api/hooks";
 import { useStoredFlag } from "../lib/stored";
 
 /** Profile setting, edited with the profile: show authors' Gravatar pictures instead of initials. */
@@ -54,7 +55,12 @@ export function useGravatar(email: string | undefined, size: number) {
 /** Small round picture of a commit author: their initials, or their Gravatar when turned on in the profile. Full name in the tooltip. */
 export function Avatar({ name, email, size = 16 }: { name: string; email?: string; size?: number }) {
   const [gravatar] = useStoredFlag(GRAVATAR_KEY);
-  const [src, failed] = useGravatar(gravatar ? email : undefined, size);
+  const cfg = useConfig().data;
+  // Your own commits wear your profile's photo or Gravatar.
+  const mine = !!email && email.trim().toLowerCase() === cfg?.profiles[0]?.email?.trim().toLowerCase();
+  const look = (mine && cfg?.userProfiles?.find((p) => p.id === cfg.activeProfile)?.avatar) || "";
+  const [src, failed] = useGravatar(look.startsWith("gravatar:") ? look.slice(9) : gravatar ? email : undefined, size);
+  const pic = look.startsWith("data:image/") ? look : src;
   if (!name) return null;
   return (
     <span
@@ -64,7 +70,7 @@ export function Avatar({ name, email, size = 16 }: { name: string; email?: strin
       role="img"
       style={{ width: size, height: size, fontSize: Math.round(size * 0.45), "--avatar-hue": hue(name) } as CSSProperties}
     >
-      {src ? <img src={src} alt="" width={size} height={size} onError={failed} /> : initials(name)}
+      {pic ? <img src={pic} alt="" width={size} height={size} onError={failed} /> : initials(name)}
     </span>
   );
 }

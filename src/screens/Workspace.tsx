@@ -53,7 +53,7 @@ import { useStoredChoice, useStoredFlag } from "../lib/stored";
 import { agentKey, branchKey, call, runTask, useHidden, wtKey } from "../lib/tasks";
 import { copyToClipboard, toast } from "../lib/toast";
 import { AbortModal } from "./AbortModal";
-import { agentWords, BranchMap, BranchTags, lineageOf, lookItem, originOf, revealBranch, roleCls, useAgentOf, useMapLayout, type FocusItem } from "./BranchMap";
+import { agentWords, BranchMap, BranchTags, lineageOf, lookItem, originOf, revealBranch, useAgentOf, useMapLayout, type FocusItem } from "./BranchMap";
 import { offersRebase, useBranchActions, useCommit, type BranchDialog, type BranchTarget } from "./BranchMenu";
 import { DeleteTagModal } from "./CommitMenu";
 import { FileHistory } from "./FileHistory";
@@ -498,7 +498,6 @@ export function Workspace() {
   const stashAct = t && actions.action(t, "stash");
   const prAct = t && hasBase && !view?.worktree && o?.remote ? actions.action(t, "pr") : undefined;
   let eyebrow = "";
-  let eyeCls = "faint";
   let title: ReactNode = "";
   let meta: ReactNode[] = [];
   let acts: ReactNode = null;
@@ -514,7 +513,6 @@ export function Workspace() {
     // No header (eyebrow stays empty): the files panel already shows the commit.
   } else if (mode === "wip") {
     eyebrow = "Not committed";
-    eyeCls = "c-wip";
     title = agent?.state === "working" ? `${agent.label} is still changing these files` : agent?.state ? `${agent.label} changed these files` : "Your changes since the last commit";
     meta = [<span key="n">{plural(wipCount, "file")}</span>, ...nums(wipList), <span key="where">{where}</span>];
     acts = stashAct && (
@@ -525,7 +523,6 @@ export function Workspace() {
     );
   } else if (mode === "branch") {
     eyebrow = hasBase ? "All changes on this branch" : "History";
-    eyeCls = "c-mod";
     title = branch ? labelOf(branch) : "";
     meta = [
       <span key="c">{plural(view?.ahead ?? 0, "commit")}</span>,
@@ -593,8 +590,8 @@ export function Workspace() {
           <div className="ws-head">
             {focused ? (
               <div className="focus-head">
-                <button className="btn focus-back" data-tip="Back to the branch map (Esc)" onClick={closeFocus}>
-                  <Icon name="back" size={13} />
+                <button className="btn btn-sm focus-back" data-tip="Back to the branch map (Esc)" onClick={closeFocus}>
+                  <Icon name="back" size={14} />
                   <span className="hide-narrow">Branch map</span>
                   <kbd className="hide-narrow">Esc</kbd>
                 </button>
@@ -603,7 +600,7 @@ export function Workspace() {
                     <Fragment key={c.name}>
                       {i > 0 && <span className="faint" aria-hidden>›</span>}
                       <button
-                        className={`mono${c.name === branch ? "" : ` ${roleCls(c)}`}`}
+                        className="mono"
                         aria-current={c.name === branch || undefined}
                         onClick={() => c.name !== branch && openFocus(c.name, lookItem(c))}
                       >
@@ -617,18 +614,27 @@ export function Workspace() {
                 {view && (
                   <span className="focus-pills hide-narrow">
                     {view.role === "branch" && hasBase && !view.merged && view.exists && (
-                      <span className={view.behind ? "c-warn" : undefined}>
+                      <span>
                         ↑{view.ahead}
-                        {view.behind ? ` ↓${view.behind}` : ""} vs {labelOf(base)}
+                        {view.behind > 0 && <span className="c-del"> ↓{view.behind}</span>} vs {labelOf(base)}
                       </span>
                     )}
                     {view.conflict && <span className="c-del">{op ?? "operation"} stopped on a conflict</span>}
-                    {agent && (
-                      <span className={agent.state === "working" ? "c-release" : agent.state === "done" ? "c-add" : agent.state ? "c-warn" : undefined}>
-                        {agent.label} {agentWords(agent)}
-                      </span>
-                    )}
-                    {view.merged && <span className="c-add">merged into {labelOf(base)}</span>}
+                    {agent &&
+                      (agent.state === "working" ? (
+                        <span>
+                          <span className="pulse glow-dot" />
+                          <span className="glow-working">
+                            <span>{agent.label} working</span>
+                          </span>
+                        </span>
+                      ) : (
+                        <span className={agent.state === "waiting" || agent.state === "limit" ? "c-warn" : undefined}>
+                          {agent.state === "waiting" && <span className="pulse map-wait" />}
+                          {agent.label} {agentWords(agent)}
+                        </span>
+                      ))}
+                    {view.merged && <span>merged into {labelOf(base)}</span>}
                     {view.exists && !view.merged && <span className={originCls}>{originText}</span>}
                   </span>
                 )}
@@ -790,9 +796,11 @@ export function Workspace() {
                     {eyebrow && (
                       <div className="code-top">
                         <div className="code-title">
-                          <span className={`code-eyebrow ${eyeCls}`}>{eyebrow}</span>
                           <h2>{title}</h2>
-                          <div className="code-meta">{meta}</div>
+                          <div className="code-meta">
+                            <span className="faint">{eyebrow}</span>
+                            {meta}
+                          </div>
                         </div>
                         <div className="code-acts">
                           {acts}
@@ -2412,19 +2420,19 @@ function CommitBox({ pid, branch, enabled, locked, staged, changed }: { pid: str
     }
   };
   return (
-    <div className="col" style={{ padding: "6px 12px 10px", gap: 6, borderTop: "1px solid var(--line)" }}>
-      <div className="row faint" style={{ justifyContent: "space-between", fontSize: 11, margin: 0 }}>
-        <button className="row" style={{ gap: 6, margin: "1px 0", padding: 0, border: 0, background: "transparent", color: "inherit", font: "inherit", cursor: "pointer" }} aria-expanded={open} aria-controls="ag-msg" onClick={toggle}>
+    <div className="col" style={{ padding: "10px 16px 14px", gap: 8, borderTop: "1px solid var(--line)" }}>
+      <div className="row" style={{ justifyContent: "space-between", minHeight: 24, margin: 0 }}>
+        <button className="commit-sec" aria-expanded={open} aria-controls="ag-msg" onClick={toggle}>
           <Icon name="chevronDown" size={12} className="chev" />
           <span>Commit message</span>
         </button>
-        {open && <button className="btn btn-ghost btn-sm" style={{ height: 20 }} disabled={!enabled || !staged || draft.isPending}
+        {open && <button className="btn btn-sm" style={{ height: 24, padding: "0 8px" }} disabled={!enabled || !staged || draft.isPending}
           title={staged ? "AI drafts a message from the staged files" : "Stage files first"} onClick={() => draft.mutate({ projectId: pid, branch }, { onSuccess: (r) => {
             const [first, ...rest] = r.message.split("\n");
             setSummary(first);
             setBody(rest.join("\n").trim());
           } })}>
-          <Busy on={draft.isPending}><Icon name="sparkle" size={10} /></Busy>
+          <Busy on={draft.isPending}><Icon name="sparkle" size={12} /></Busy>
           Draft
         </button>}
       </div>
@@ -2457,7 +2465,7 @@ function CommitBox({ pid, branch, enabled, locked, staged, changed }: { pid: str
           title={orphanBody ? "Add a summary to go with the description" : open ? "Commit (Ctrl+Enter in the message)" : undefined}
           onClick={doCommit}>
           <Busy on={busy}><Icon name="sparkle" size={12} /></Busy>
-          <span>{all ? "Stage all & Commit" : "Commit"}<span style={{ fontWeight: 400, opacity: 0.75, marginLeft: 6 }}>{all ? changed || null : staged}</span></span>
+          <span>{all ? "Stage all & Commit" : "Commit"}<span style={{ fontWeight: 400, opacity: 0.7, marginLeft: 6 }}>{all ? changed || null : staged}</span></span>
         </button>
         <button
           className="btn btn-primary btn-icon split-more commit-btn"
@@ -2569,8 +2577,8 @@ function Terminal({ pid, branch, cwd, worktree, open, setOpen, onCloseWorktree, 
           </div>
           {!shell && cur && (
             <>
-              <span className="term-tab" style={{ fontSize: 11.5, borderLeft: 0 }}>
-                {cur.status === "running" && <span className="pulse" />}
+              <span className="term-tab" style={{ borderLeft: 0 }}>
+                {cur.status === "running" && <span className="pulse glow-dot" />}
                 <span className="mono">{cur.branch}</span>
                 <span className="faint">{cur.worktree ? "worktree" : "main checkout"}</span>
               </span>
@@ -2581,11 +2589,11 @@ function Terminal({ pid, branch, cwd, worktree, open, setOpen, onCloseWorktree, 
           )}
           <div className="term-side" style={{ justifyContent: "flex-end" }}>
             {!shell && cur && !cur.ai && <span className="row faint hide-narrow" style={{ padding: "0 10px", fontSize: 11.5, whiteSpace: "nowrap" }}>{cur.agentLabel}</span>}
-            <button className="btn btn-ghost" style={{ width: 36, height: "auto", border: 0, borderLeft: "1px solid var(--line)", borderRadius: 0 }} aria-label={max ? "Restore terminal size" : "Expand terminal"} aria-pressed={max} data-tip={max ? "Restore" : "Expand"} onClick={() => setMax(!max)}>
-              <Icon name={max ? "minimize" : "maximize"} size={13} />
+            <button className="btn btn-ghost btn-icon" style={{ width: 34, height: "auto", border: 0, borderLeft: "1px solid var(--line)", borderRadius: 0 }} aria-label={max ? "Restore terminal size" : "Expand terminal"} aria-pressed={max} data-tip={max ? "Restore" : "Expand"} onClick={() => setMax(!max)}>
+              <Icon name={max ? "minimize" : "maximize"} size={16} />
             </button>
-            <button className="btn btn-ghost term-collapse" style={{ width: 36, height: "auto", border: 0, borderLeft: "1px solid var(--line)", borderRadius: 0 }} aria-label="Collapse agents" onClick={() => setOpen(false)}>
-              <Icon name="chevronDown" size={13} />
+            <button className="btn btn-ghost btn-icon term-collapse" style={{ width: 34, height: "auto", border: 0, borderLeft: "1px solid var(--line)", borderRadius: 0 }} aria-label="Collapse agents" onClick={() => setOpen(false)}>
+              <Icon name="chevronDown" size={16} />
             </button>
           </div>
         </div>

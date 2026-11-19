@@ -55,8 +55,15 @@ export function Seg<T extends string>({
     >
       {/* The highlight sliding behind the buttons to the selected one. */}
       {thumb && <span className="seg-thumb" style={thumb} aria-hidden />}
-      {options.map((o) => (
-        <button key={o.value} type="button" aria-pressed={o.value === value} onClick={() => onChange(o.value)}>
+      {options.map((o, i) => (
+        <button
+          key={o.value}
+          type="button"
+          aria-pressed={o.value === value}
+          onClick={() => onChange(o.value)}
+          data-top={grid && cols && i >= cols ? "" : undefined}
+          data-row-start={grid && cols && i % cols === 0 ? "" : undefined}
+        >
           {grid ? o.label : <FixedWidth>{o.label}</FixedWidth>}
         </button>
       ))}
@@ -75,11 +82,17 @@ export function useThumb(ref: RefObject<HTMLElement | null>, index: number, coun
     // `resized`: follow at once instead of sliding, and only when the box really moved, since the observer also fires on its first observe.
     const place = (resized?: boolean) => {
       const b = btns[index];
-      const box = b?.offsetWidth ? [b.offsetWidth, b.offsetHeight, b.offsetLeft, b.offsetTop].join() : "";
+      // Fractional box against `el`'s padding box: offset* round to whole px, which at page zoom spilled the highlight past the next option's divider.
+      // Borders from the computed style: zoomed, they snap to device pixels (0.667px at 1.5) while clientLeft stays a whole 1.
+      const r = b?.offsetWidth ? b.getBoundingClientRect() : undefined;
+      const o = el.getBoundingClientRect();
+      const cs = getComputedStyle(el);
+      const [w, h, x, y] = r ? [r.width, r.height, r.left - o.left - parseFloat(cs.borderLeftWidth) + el.scrollLeft, r.top - o.top - parseFloat(cs.borderTopWidth) + el.scrollTop] : [];
+      const box = r ? [w, h, x, y].join() : "";
       if (resized && box === last) return;
       last = box;
       // Hidden (no box): no highlight, so it appears in place rather than sliding in when shown.
-      setThumb(b?.offsetWidth ? { width: b.offsetWidth, height: b.offsetHeight, transform: `translate(${b.offsetLeft}px, ${b.offsetTop}px)`, ...(resized && { transition: "none" }) } : undefined);
+      setThumb(r ? { width: w, height: h, transform: `translate(${x}px, ${y}px)`, ...(resized && { transition: "none" }) } : undefined);
     };
     place();
     const ro = new ResizeObserver(() => place(true));

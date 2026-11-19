@@ -166,7 +166,7 @@ function Figures({ r }: { r: WeeklyReport }) {
     <section aria-label="Key figures" className="kpis spr-kpis">
       {tiles.map((t) => (
         <div key={t.label} className="kpi">
-          <span className="muted" style={{ fontSize: 12 }}>{t.label}</span>
+          <span className="label">{t.label}</span>
           <span className="v">{t.value}</span>
           <span className="spr-delta faint">{t.sub}</span>
         </div>
