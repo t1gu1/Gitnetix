@@ -105,7 +105,7 @@ pub struct Resolved {
     pub model: String,
     pub effort: String,
     pub base_url: Option<String>,
-    /// Agents only: how their actions get approved (`agents::claude_permission`). Empty = Bypass.
+    /// Agents only: how their actions get approved (`agents::claude_permission`, `agents::copilot_permission`). Empty = Bypass.
     #[serde(default)]
     pub permission: String,
     /// Claude agents only: run in Claude Code's ultracode.

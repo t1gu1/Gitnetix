@@ -309,7 +309,7 @@ pub struct Route {
     pub provider: Option<String>,
     pub model: Option<String>,
     pub effort: Option<String>,
-    /// Agents only: how their actions get approved (`agents::claude_permission`). None = Bypass.
+    /// Agents only: how their actions get approved (`agents::claude_permission`, `agents::copilot_permission`). None = Bypass.
     pub permission: Option<String>,
     /// Claude agents only: Claude Code's ultracode (standing workflow orchestration). None = off.
     pub ultracode: Option<bool>,

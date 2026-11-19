@@ -124,6 +124,31 @@ pub fn below_app(cmd: &mut std::process::Command) -> &mut std::process::Command 
     cmd
 }
 
+/// Puts the login shell's PATH ([`crate::project_commands::login_dirs_now`]) ahead of the one `cmd` gets. A desktop app's
+/// lacks what the user's profile adds, so an agent's hooks and commands (`graphify`, `cargo`, `node`…) are not found, and
+/// Copilot CLI denies every tool call whose hook fails to run. Call it after [`without_appimage`], which may set that PATH.
+pub fn with_login_path(cmd: &mut std::process::Command) -> &mut std::process::Command {
+    let own = cmd.get_envs().find(|(k, _)| *k == "PATH").map_or_else(|| std::env::var_os("PATH"), |(_, v)| v.map(std::ffi::OsStr::to_os_string));
+    if let Some(path) = login_first(crate::project_commands::login_dirs_now(), own) {
+        cmd.env("PATH", path);
+    }
+    cmd
+}
+
+/// `login`'s dirs, then those of `own` it lacks. None until the login shell's PATH is read.
+fn login_first(login: &[std::path::PathBuf], own: Option<std::ffi::OsString>) -> Option<std::ffi::OsString> {
+    if login.is_empty() {
+        return None;
+    }
+    let mut dirs = login.to_vec();
+    for d in own.iter().flat_map(std::env::split_paths) {
+        if !dirs.contains(&d) {
+            dirs.push(d);
+        }
+    }
+    std::env::join_paths(dirs).ok()
+}
+
 fn b64(b: &[u8]) -> String {
     base64::engine::general_purpose::STANDARD.encode(b)
 }
@@ -258,6 +283,15 @@ mod tests {
         };
         let ours = nice(&mut std::process::Command::new("sh"));
         assert_eq!(nice(below_app(&mut std::process::Command::new("sh"))), (ours + 10).min(19));
+    }
+
+    #[test]
+    fn the_login_path_comes_first_without_repeats() {
+        let login = ["/home/u/.local/bin", "/usr/bin"].map(std::path::PathBuf::from);
+        let own = std::env::join_paths(["/usr/bin", "/bin"]).unwrap();
+        let path = login_first(&login, Some(own.clone())).unwrap();
+        assert_eq!(std::env::split_paths(&path).collect::<Vec<_>>(), ["/home/u/.local/bin", "/usr/bin", "/bin"].map(std::path::PathBuf::from));
+        assert_eq!(login_first(&[], Some(own)), None, "before the login shell's PATH is read the child keeps the app's");
     }
 
     fn decode(s: &str) -> Vec<u8> {

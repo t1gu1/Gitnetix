@@ -622,7 +622,7 @@ export interface AgentSession {
   queued: string[];
   /** The usage limit its last run stopped at: it waits (status "waiting") for the reset, or for you. */
   limit?: AgentLimit | null;
-  /** Actions its run waits on you to allow or refuse (Claude Code outside Bypass), oldest first. */
+  /** Actions its run waits on you to allow or refuse (Claude Code outside Bypass, Copilot at Accept edits or Use agent permissions), oldest first. */
   asks?: AgentAsk[];
   /** Work its run left going in the background (Claude Code), oldest first: the run waits for it before it ends. */
   tasks?: AgentTask[];

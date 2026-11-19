@@ -2,7 +2,7 @@ import { type CSSProperties, type ReactNode, useEffect, useState } from "react";
 
 import { useAction, useAiCatalog, useAiModels } from "../api/hooks";
 import type { AiCatalog, ConnectMethod } from "../api/types";
-import { effortLabel, effortsFor, fitEffort, MenuChoice, PERMISSIONS, takesUltracode } from "../components/AgentPicker";
+import { effortLabel, effortsFor, fitEffort, MenuChoice, PERMISSIONS, takesPermissions, takesUltracode } from "../components/AgentPicker";
 import { Resizer, usePaneWidth } from "../components/Resizer";
 import { Loading, Seg } from "../components/ui";
 
@@ -289,7 +289,7 @@ function RouteRow({ cat, task, label, usable, set }: { cat: AiCatalog; task: str
           onChange={(v) => put({ effort: v || null })}
         />
       )}
-      {task === "agent" && prov?.info.id === "claude" && (
+      {task === "agent" && takesPermissions(prov?.info.id) && (
         <MenuChoice className="select menu-select" style={{ height: 32, width: 170 }} label={`${label} permissions`} value={r.permission ?? ""} options={PERMISSIONS} onChange={(v) => put({ permission: v || null })} />
       )}
       {task === "agent" && takesUltracode(prov?.info.id, models, r.model || prov?.conf?.model || "") && (

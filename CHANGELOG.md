@@ -27,6 +27,13 @@ the in-app update prompt.
 - "Use as default AI" in AI Setup now hands it every task (commit messages, merges, conflicts, agents…): before, tasks stayed on Claude. Agent permissions stay. Task routing shows "Use … for every task" when some tasks run on another AI.
 - The app icon follows the Black & White theme: a white faceted G on a slate tile, on the desktop, on a phone's home screen and in the Android and iOS builds.
 
+### Added (App)
+- GitHub Copilot agents take the Permissions setting, as Claude Code agents do. Bypass allows everything, and Auto-approve lets Copilot's safety judge decide. At Accept edits (file edits allowed) and Use agent permissions (Copilot's own rules), Copilot asks before anything else with an Allow / Refuse card in the chat, and Refuse has it look for another way. A level you picked for Claude Code now applies to Copilot too.
+- At Accept edits and Use agent permissions, a follow-up message to a Copilot agent continues its conversation instead of starting over.
+
+### Fixed (App)
+- A Copilot agent in a worktree could not open the files you attached, look outside its worktree or open URLs, and the chat showed "Permission denied because no interactive user response was available". Bypass now allows these, and Copilot gets your attached images with the prompt.
+
 ### Changed (Website)
 - The website takes the app's new look: Black & White by default, Inter and Antonio type, hairline boxes and square corners. The other 37 themes still repaint it.
 - The playable demo draws with the app's own styles and its new branch map: shipped releases as stations on the trunk, two-row branch boxes, commits under each branch, and behind counts on the lines.

@@ -29,7 +29,7 @@ A Git client with no commit graph. It shows work as branches, releases and agent
 - Tickets: Jira, Trello, Asana, Linear and GitHub issues, with comment threads, files, priority, and editable priority/type/labels on Jira and Linear.
 - Analytics, with Sprints and Weekly views when a tracker is connected.
 - Also: worktrees, stash, file history (author avatar over the line number, click to the commit), logs, templates, settings, onboarding (theme, then required Agent setup), phone pairing by QR code.
-- Agents: a signed-in agent CLI is required (`claude`, `codex`, `agy`, `copilot` or `ollama`); runs have permission modes (Bypass by default) and in-chat Allow / Refuse cards.
+- Agents: a signed-in agent CLI is required (`claude`, `codex`, `agy`, `copilot` or `ollama`); Claude Code and Copilot runs have permission modes (Bypass by default, the other CLIs always bypass) with in-chat Allow / Refuse cards; Copilot asks through its ACP server (`copilot --acp`) at Accept edits and Use agent permissions.
 - AI writes commit messages, branch names, PR descriptions, release notes, conflict resolutions and ticket triage from editable templates with per-task model routing.
 - Every client (desktop, phone/browser, MCP agents) goes through one RPC surface (`crates/core/src/rpc.rs`).
 

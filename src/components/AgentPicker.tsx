@@ -21,13 +21,20 @@ export const effortsFor = (info: ProviderInfo | undefined, models: ModelInfo[], 
 /** The effort to keep after picking another model: the same if that model takes it, else its default (""). */
 export const fitEffort = (efforts: string[], effort: string) => (efforts.includes(effort) ? effort : "");
 
-/** How an agent's actions get approved: Claude Code's permission modes, "" (Bypass) by default. Others always bypass. */
+/**
+ * How an agent's actions get approved, "" (Bypass) by default: Claude Code's permission modes, which Copilot gets as
+ * flags (`copilot_permission` in agents.rs). Both ask in the chat at Accept edits and Use agent permissions. Other CLIs
+ * always bypass.
+ */
 export const PERMISSIONS = [
   { value: "", label: "Bypass" },
   { value: "auto", label: "Auto-approve" },
   { value: "acceptEdits", label: "Accept edits" },
   { value: "cli", label: "Use agent permissions" },
 ];
+
+/** The agent CLIs that take a level from `PERMISSIONS`. */
+export const takesPermissions = (provider: string | undefined) => provider === "claude" || provider === "copilot";
 
 /**
  * Claude Code turns ultracode on, at any effort, only for the models that take xhigh effort. A model missing from the
@@ -100,10 +107,10 @@ export function AgentPicker({ value: saved, onChange, compact }: { value: AgentP
     "sep" as const,
     ...(listsModels ? col("Model", models, model, pickModel) : [{ heading: "Model" }, { heading: modelField }]),
     ...(efforts.length > 1 ? ["sep" as const, ...col("Effort", efforts, effort, (v) => set({ effort: v }), canUltra ? ultraHead : undefined)] : []),
-    ...(provider === "claude" ? ["sep" as const, ...col("Permissions", PERMISSIONS, permission, (v) => set({ permission: v }))] : []),
+    ...(takesPermissions(provider) ? ["sep" as const, ...col("Permissions", PERMISSIONS, permission, (v) => set({ permission: v }))] : []),
   ];
   const level = EFFORTS.indexOf(effort) + 1;
-  const summary = [name(provs, provider), model && name(models, model), effort && `${effortLabel(effort)} effort`, provider === "claude" && `${name(PERMISSIONS, permission)} permissions`, ultraOn && "Ultracode"].filter(Boolean).join(" · ");
+  const summary = [name(provs, provider), model && name(models, model), effort && `${effortLabel(effort)} effort`, takesPermissions(provider) && `${name(PERMISSIONS, permission)} permissions`, ultraOn && "Ultracode"].filter(Boolean).join(" · ");
   return (
     <>
       <button

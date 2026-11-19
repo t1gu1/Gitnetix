@@ -755,7 +755,7 @@ const TICKET_FILE: &str = "gitnetix-ticket.md";
 
 /// Folder in a checkout's git dir holding files sent to its agent, out of the working tree.
 // shortcut: never pruned on the main checkout (a worktree's git dir goes with it), prune per session if it grows.
-const ATTACH_DIR: &str = "gitnetix-attachments";
+pub(crate) const ATTACH_DIR: &str = "gitnetix-attachments";
 
 /// A file sent with an agent message: its contents in base64, or a path on this machine (dropped on the desktop app).
 #[derive(Debug, Clone, Deserialize)]

@@ -60,7 +60,7 @@ pub struct AgentSession {
     pub lines: Vec<LogLine>,
     pub started_at: String,
     pub updated_at: String,
-    /// Claude Code session id, used to resume the conversation.
+    /// The CLI's session id (`resumes`), used to resume the conversation.
     pub resume_id: Option<String>,
     /// What the session was started on; follow-ups reuse it.
     #[serde(default)]
@@ -211,8 +211,71 @@ const LIMIT_NOTE: &str = "(A usage limit stopped you before you finished. Contin
 /// Closes the task asked again of another agent, which can't pick that conversation up, after a usage limit stopped it.
 const LIMIT_TASK_NOTE: &str = "(A usage limit stopped the agent working on this before it finished. Its changes so far are in the working tree: check them, then finish the task.)";
 
-/// What Claude Code reads when you refuse an action. Its first line shows in the log.
+/// What Claude Code reads when you refuse an action, and Copilot as its next message. Its first line shows in the log.
 const REFUSED: &str = "Not allowed: the user refused this action.\nLook for another way to do the task without it, and carry on if you can. If you can't go on without it, stop and say which part of the task is blocked for lack of permission.";
+
+/// The log line for an action Copilot refused by itself: a deny rule, its organization's policy or its safety judge.
+const COPILOT_DENIED: &str = "Not allowed by Copilot's permission rules.";
+
+/// The ids of the requests Gitnetix sends Copilot's ACP server: the handshake, the session (new or loaded) and each prompt.
+const ACP_INIT: u64 = 1;
+const ACP_SESSION: u64 = 2;
+const ACP_PROMPT: u64 = 3;
+
+/// Whether `r` picks its conversation back up on a follow-up: Claude Code and Copilot do, whichever way Copilot runs
+/// (`copilot_acp`), since both ways share its saved sessions.
+fn resumes(r: &Resolved) -> bool {
+    r.provider == "claude" || r.provider == "copilot"
+}
+
+/// Copilot at Accept edits or Use agent permissions runs as an ACP server, which asks Gitnetix before what needs approval
+/// (`session/request_permission`). Bypass and Auto-approve stay `-p` runs: `--assisted-approval` refuses `--acp`.
+fn copilot_acp(r: &Resolved) -> bool {
+    r.provider == "copilot" && matches!(r.permission.as_str(), "acceptEdits" | "cli")
+}
+
+/// One JSON-RPC request to Copilot's ACP server, as a line.
+fn acp_request(id: u64, method: &str, params: Value) -> String {
+    format!("{}\n", json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params }))
+}
+
+/// What a Copilot ACP run opens with: the handshake, then its conversation, loaded when it has one (`resume`). Its
+/// `sessionEvent`s are the events `-p` prints, so `copilot_event` reads both.
+fn acp_open(cwd: &Path, resume: Option<&str>) -> String {
+    let events = ["assistant.message", "tool.execution_start", "tool.execution_complete", "session.error"];
+    let init = acp_request(ACP_INIT, "initialize", json!({ "protocolVersion": 1, "clientCapabilities": { "_meta": { "github.com/copilot": { "events": events } } } }));
+    let session = match resume {
+        Some(sid) => acp_request(ACP_SESSION, "session/load", json!({ "sessionId": sid, "cwd": cwd, "mcpServers": [] })),
+        None => acp_request(ACP_SESSION, "session/new", json!({ "cwd": cwd, "mcpServers": [] })),
+    };
+    format!("{init}{session}")
+}
+
+/// The prompt Copilot's ACP server gets: the text, then the images in the attachments folder `dir` it lists.
+fn acp_prompt(prompt: &str, dir: Option<&Path>) -> Value {
+    use base64::Engine as _;
+    let mut blocks = vec![json!({ "type": "text", "text": prompt })];
+    for f in dir.map(|d| attached_images(prompt, d)).unwrap_or_default() {
+        let Ok(bytes) = std::fs::read(&f) else { continue };
+        let ext = f.extension().and_then(|e| e.to_str()).unwrap_or("png").to_ascii_lowercase();
+        let mime = if ext == "jpg" { "image/jpeg".into() } else { format!("image/{ext}") };
+        blocks.push(json!({ "type": "image", "mimeType": mime, "data": base64::engine::general_purpose::STANDARD.encode(bytes) }));
+    }
+    Value::Array(blocks)
+}
+
+/// Where a Copilot ACP run is: its prompt waits for the session, and an action you refused ends its turn, which then gets
+/// `REFUSED` as its next message so it looks for another way, as Claude Code does.
+struct AcpRun {
+    prompt: Value,
+    cwd: PathBuf,
+    /// Asked to load its conversation: a new one is opened instead when that fails.
+    loading: bool,
+    session: Option<String>,
+    refused: bool,
+    /// Its error event came: the failed request saying it too is not shown twice.
+    failed: bool,
+}
 
 /// Claude Code's `--permission-mode` for an agent's `permission`: None leaves its own settings in charge.
 pub fn claude_permission(permission: &str) -> Result<Option<&str>> {
@@ -222,6 +285,32 @@ pub fn claude_permission(permission: &str) -> Result<Option<&str>> {
         m @ ("auto" | "acceptEdits") => Ok(Some(m)),
         other => Err(Error::Invalid(format!("Unknown agent permission {other}"))),
     }
+}
+
+/// Copilot CLI's flags for an agent's `permission`. At Accept edits and Use agent permissions, it asks Gitnetix about the
+/// rest (`copilot_acp`); at Auto-approve, its judge refuses what it would not allow.
+pub fn copilot_permission(permission: &str) -> Result<&'static [&'static str]> {
+    match permission {
+        // Files outside the working tree and URLs too, as the other CLIs get with their approvals off.
+        "" => Ok(&["--allow-all-tools", "--allow-all-paths", "--allow-all-urls"]),
+        // Copilot's safety judge decides, as Claude Code's auto mode does.
+        "auto" => Ok(&["--assisted-approval"]),
+        "acceptEdits" => Ok(&["--allow-tool=write"]),
+        "cli" => Ok(&[]),
+        other => Err(Error::Invalid(format!("Unknown agent permission {other}"))),
+    }
+}
+
+/// The images in the checkout's attachments folder `dir` that `prompt` lists ("- <path>"), which Copilot gets with the
+/// prompt instead of opening them. Other paths are left out, since a ticket's text is in the prompt too.
+fn attached_images(prompt: &str, dir: &Path) -> Vec<PathBuf> {
+    let Ok(dir) = dir.canonicalize() else { return vec![] };
+    let image = |p: &Path| p.extension().and_then(|e| e.to_str()).is_some_and(|e| matches!(e.to_ascii_lowercase().as_str(), "png" | "jpg" | "jpeg" | "gif" | "webp"));
+    prompt
+        .lines()
+        .filter_map(|l| Path::new(l.strip_prefix("- ")?.trim()).canonicalize().ok())
+        .filter(|f| image(f) && f.starts_with(&dir))
+        .collect()
 }
 
 /// What a Claude Code run that a quit cut off picks its conversation back up with. Its sub agents and workflows died with
@@ -331,11 +420,11 @@ fn tool_error_line(msg: &str) -> String {
     }
 }
 
-/// What `s`, which `limit` stopped, is asked when it continues on `ai`, and the Claude Code conversation it picks up.
-/// Claude Code goes on in its conversation, after the messages queued meanwhile. Another CLI, which keeps none, is asked
+/// What `s`, which `limit` stopped, is asked when it continues on `ai`, and the conversation it picks up.
+/// A CLI that `resumes` goes on in its conversation, after the messages queued meanwhile. Another CLI, which keeps none, is asked
 /// its last prompt again, or the task once you picked another agent, then the messages.
 fn carried<'a>(s: &'a AgentSession, ai: &Resolved, limit: &Limit) -> (String, Option<&'a str>) {
-    let resume = s.resume_id.as_deref().filter(|_| ai.provider == "claude");
+    let resume = s.resume_id.as_deref().filter(|_| resumes(ai));
     let said = s.queued.iter().map(String::as_str);
     let prompt: Vec<&str> = match (resume, &s.last_prompt) {
         (Some(_), _) => said.chain([LIMIT_NOTE]).collect(),
@@ -376,8 +465,8 @@ impl AgentManager {
             if s.pid.take().is_some_and(|p| std::fs::read_link(format!("/proc/{p}/cwd")).is_ok_and(|d| d == std::path::Path::new(&s.cwd))) {
                 continue;
             }
-            // Only Claude Code can pick its conversation back up; a paused run stays as the user left it.
-            if s.status == AgentStatus::Running && s.resume_id.is_some() && s.ai.as_ref().is_some_and(|r| r.provider == "claude") {
+            // Only a CLI that `resumes` can pick its conversation back up; a paused run stays as the user left it.
+            if s.status == AgentStatus::Running && s.resume_id.is_some() && s.ai.as_ref().is_some_and(resumes) {
                 // Its background tasks died with it: kept until `resume_interrupted` names them in its message.
                 interrupted.push(s.id.clone());
             } else {
@@ -590,7 +679,7 @@ impl AgentManager {
         self.get(id)
     }
 
-    /// Send a follow-up message. Claude Code resumes the same conversation;
+    /// Send a follow-up message. A CLI that `resumes` goes on in the same conversation;
     /// other CLIs get a fresh run in the same directory. While the agent
     /// works, it waits for the run to end (`end_run`).
     pub fn message(&self, id: &str, text: &str, ai: &Resolved) -> Result<()> {
@@ -842,7 +931,7 @@ impl AgentManager {
             return Ok(());
         }
         // Another CLI (or Claude before it named its session) starts over: the task would be lost.
-        if s.resume_id.is_none() || s.ai.as_ref().is_none_or(|a| a.provider != "claude") {
+        if s.resume_id.is_none() || s.ai.as_ref().is_none_or(|a| !resumes(a)) {
             return Err(Error::Invalid("This agent can't pick its task back up: your message goes out when its run ends.".into()));
         }
         let mut g = self.inner.lock().unwrap();
@@ -938,7 +1027,8 @@ impl AgentManager {
         let (bin, path) = ai::cli_path(&r.provider)?;
         let effort = ai::cli_effort(r);
         let mut cmd = Command::new(path);
-        crate::shell::below_app(crate::shell::without_appimage(cmd.as_std_mut()));
+        // As in a terminal: the repo's hooks (a failing Copilot preToolUse hook denies the tool) and the agent's commands need it.
+        crate::shell::below_app(crate::shell::with_login_path(crate::shell::without_appimage(cmd.as_std_mut())));
         // The run leads its own process group, so Stop, Pause and quit reach the builds and tests the CLI started.
         #[cfg(unix)]
         {
@@ -948,10 +1038,13 @@ impl AgentManager {
         cmd.current_dir(cwd);
         let structured = r.provider == "claude";
         let copilot = r.provider == "copilot";
+        let acp = copilot_acp(r);
         let mut stdin_prompt = true;
-        // Outside Bypass, Claude Code asks Gitnetix before what needs approval (`control_request` on stdout) and reads
-        // the answer on stdin, which stays open until its result.
+        // Outside Bypass, Claude Code asks Gitnetix before what needs approval (`control_request` on stdout), Copilot in ACP
+        // (`session/request_permission`), and reads the answer on stdin, which stays open until its result.
         let mut asks = false;
+        // A Copilot ACP run's first requests, and where it is (`handle_copilot_acp`).
+        let mut acp_run = None;
         match r.provider.as_str() {
             "claude" => {
                 cmd.args(["-p", "--output-format", "stream-json", "--verbose"]);
@@ -1012,9 +1105,29 @@ impl AgentManager {
                 if !effort.is_empty() {
                     cmd.args(["--reasoning-effort", &effort]);
                 }
-                // JSONL events, so its replies keep their Markdown and its tool calls show as steps (`handle_copilot_json`).
-                cmd.args(["--allow-all-tools", "--output-format", "json", "-p", prompt]);
-                stdin_prompt = false;
+                cmd.args(copilot_permission(&r.permission)?);
+                // Files sent to the agent and the images it shows sit in the git dir: a worktree's is outside its folder,
+                // where Copilot limits files to.
+                let dir = Git::new(cwd).own_git_dir().map(|d| d.join(crate::app::ATTACH_DIR)).filter(|d| d.is_dir());
+                if acp {
+                    cmd.arg("--acp");
+                    if let Some(d) = &dir {
+                        cmd.arg("--add-dir").arg(d);
+                    }
+                    asks = true;
+                    let run = AcpRun { prompt: acp_prompt(prompt, dir.as_deref()), cwd: cwd.to_path_buf(), loading: resume.is_some(), session: resume.map(Into::into), refused: false, failed: false };
+                    acp_run = Some((acp_open(cwd, resume), run));
+                } else {
+                    for f in dir.iter().flat_map(|d| attached_images(prompt, d)) {
+                        cmd.arg("--attachment").arg(f);
+                    }
+                    if let Some(rid) = resume {
+                        cmd.args(["--resume", rid]);
+                    }
+                    // JSONL events, so its replies keep their Markdown and its tool calls show as steps (`copilot_event`).
+                    cmd.args(["--output-format", "json", "-p", prompt]);
+                    stdin_prompt = false;
+                }
             }
             "ollama" => {
                 let model = if r.model.is_empty() { "llama3.2" } else { r.model.as_str() };
@@ -1062,14 +1175,16 @@ impl AgentManager {
         let prompt = prompt.to_string();
         let r = r.clone();
         let cwd = cwd.to_path_buf();
+        let (open, mut acp_state) = acp_run.map_or((None, None), |(open, st)| (Some(open), Some(st)));
         tokio::spawn(async move {
             // Before the prompt goes in, so the agent has changed nothing yet. The CLI is starting meanwhile (seconds for
             // Claude Code), so this rarely delays it; one given its prompt as an argument takes that long to edit anything.
             let base = snapshot(&cwd).await;
             if let Some(mut w) = stdin {
-                let input = match answers {
-                    Some(_) => format!("{}\n", json!({ "type": "user", "message": { "role": "user", "content": prompt } })),
-                    None => prompt,
+                let input = match (open, &answers) {
+                    (Some(open), _) => open,
+                    (None, Some(_)) => format!("{}\n", json!({ "type": "user", "message": { "role": "user", "content": prompt } })),
+                    (None, None) => prompt,
                 };
                 let _ = w.write_all(input.as_bytes()).await;
                 // Answers go in until the run's last result drops the sender (`close_input`), which closes stdin and ends the CLI.
@@ -1097,6 +1212,11 @@ impl AgentManager {
                             if out_me.get(&out_id).is_ok_and(|s| s.tasks.is_empty()) {
                                 out_me.close_input(&out_id, run);
                             }
+                        }
+                    } else if let Some(st) = acp_state.as_mut() {
+                        if let Some(o) = out_me.handle_copilot_acp(&out_id, run, &l, st) {
+                            outcome = Some(o);
+                            out_me.close_input(&out_id, run);
                         }
                     } else if copilot {
                         if let Some(o) = out_me.handle_copilot_json(&out_id, &l) {
@@ -1316,8 +1436,22 @@ impl AgentManager {
             }
             return None;
         };
+        self.copilot_event(id, &v)
+    }
+
+    /// One Copilot event (`type`, `data`), from `-p` or an ACP run's `sessionEvent`, as log lines.
+    fn copilot_event(&self, id: &str, v: &Value) -> Option<bool> {
         let d = &v["data"];
         match v["type"].as_str() {
+            // A `-p` run's conversation, which the next one resumes.
+            Some("session.start") => {
+                if let (Some(sid), Some(s)) = (d["sessionId"].as_str(), self.inner.lock().unwrap().sessions.get_mut(id)) {
+                    s.resume_id = Some(sid.into());
+                }
+                // Saved now so a quit mid-run can resume it.
+                self.persist();
+                None
+            }
             Some("assistant.message") => {
                 // One line per reply, blank lines kept, so the UI can render it as Markdown.
                 let text = d["content"].as_str().unwrap_or("").trim();
@@ -1332,6 +1466,11 @@ impl AgentManager {
                 let detail = tool_detail(&d["arguments"]);
                 let kind = if name == "Bash" { "run" } else { "dim" };
                 self.push(id, LogLine::new(kind, format!("  {name} {detail}")));
+                None
+            }
+            // Its own line says to retry in an interactive session, which a run here never is.
+            Some("tool.execution_complete") if d["success"] == false && d["error"]["code"] == "denied" => {
+                self.push(id, LogLine::new("err", format!("✕ {COPILOT_DENIED}")));
                 None
             }
             Some("tool.execution_complete") if d["success"] == false => {
@@ -1358,6 +1497,88 @@ impl AgentManager {
         }
     }
 
+    /// One line from a Copilot ACP run (`copilot_acp`): its events show as `-p`'s do, what it asks becomes an `Ask`, and
+    /// the answers to Gitnetix's requests move the run on. Returns Some(success) once its prompt is done.
+    fn handle_copilot_acp(&self, id: &str, run: u64, raw: &str, st: &mut AcpRun) -> Option<bool> {
+        let Ok(v) = serde_json::from_str::<Value>(raw) else { return self.handle_copilot_json(id, raw) };
+        let p = &v["params"];
+        match v["method"].as_str() {
+            // Only once the prompt is out: loading a conversation replays it first.
+            Some("github.com/copilot/sessionEvent") if st.session.is_some() && !st.loading => {
+                if p["type"] == "tool.execution_complete" && p["data"]["error"]["code"] == "rejected" {
+                    st.refused = true;
+                }
+                st.failed |= p["type"] == "session.error";
+                self.copilot_event(id, p)
+            }
+            Some("session/request_permission") => {
+                let call = &p["toolCall"];
+                let title = call["title"].as_str().unwrap_or_default();
+                let tool = match call["kind"].as_str() {
+                    Some("execute") => "Bash",
+                    Some("read") => "Read",
+                    Some("edit") => "Edit",
+                    Some("fetch") => "WebFetch",
+                    _ => title,
+                };
+                let detail = Some(tool_detail(&call["rawInput"])).filter(|d| !d.is_empty()).unwrap_or(title);
+                // The request's id and options: `answer` picks one.
+                let ask = Ask { id: v["id"].to_string(), tool: tool.into(), detail: detail.into(), description: String::new(), input: json!({ "id": v["id"], "options": p["options"] }) };
+                if let Some(s) = self.inner.lock().unwrap().sessions.get_mut(id) {
+                    s.asks.push(ask);
+                }
+                self.asks_changed(id);
+                None
+            }
+            Some(_) => None,
+            None => {
+                if let Some(msg) = v["error"]["message"].as_str() {
+                    // Its saved conversation is gone: a new one, which gets the prompt all the same.
+                    if v["id"] == ACP_SESSION && std::mem::take(&mut st.loading) {
+                        st.session = None;
+                        self.send_input(id, run, acp_request(ACP_SESSION, "session/new", json!({ "cwd": st.cwd, "mcpServers": [] })));
+                        return None;
+                    }
+                    // Sign-in, usage limit or unknown model: said as `-p` says it.
+                    if !st.failed {
+                        self.copilot_event(id, &json!({ "type": "session.error", "data": { "message": msg } }));
+                    }
+                    return Some(false);
+                }
+                match v["id"].as_u64() {
+                    Some(ACP_SESSION) => {
+                        st.loading = false;
+                        if let Some(sid) = v["result"]["sessionId"].as_str() {
+                            st.session = Some(sid.into());
+                            if let Some(s) = self.inner.lock().unwrap().sessions.get_mut(id) {
+                                s.resume_id = Some(sid.into());
+                            }
+                            // Saved now so a quit mid-run can resume it.
+                            self.persist();
+                        }
+                        let prompt = std::mem::take(&mut st.prompt);
+                        self.send_input(id, run, acp_request(ACP_PROMPT, "session/prompt", json!({ "sessionId": st.session, "prompt": prompt })));
+                        None
+                    }
+                    // Refusing an action ends Copilot's turn: it goes on with the note, in the same conversation.
+                    Some(ACP_PROMPT) if std::mem::take(&mut st.refused) => {
+                        self.send_input(id, run, acp_request(ACP_PROMPT, "session/prompt", json!({ "sessionId": st.session, "prompt": [{ "type": "text", "text": REFUSED }] })));
+                        None
+                    }
+                    Some(ACP_PROMPT) => Some(v["result"]["stopReason"] != "refusal"),
+                    _ => None,
+                }
+            }
+        }
+    }
+
+    /// Writes `line` to the stdin of run `run` of `id`, while it reads it.
+    fn send_input(&self, id: &str, run: u64, line: String) {
+        if let Some((_, tx)) = self.inner.lock().unwrap().answers.get(id).filter(|(n, _)| *n == run) {
+            let _ = tx.send(line);
+        }
+    }
+
     /// Allow or refuse `ask`, an action the run of `id` waits on.
     pub fn answer(&self, id: &str, ask: &str, allow: bool) -> Result<()> {
         {
@@ -1368,8 +1589,16 @@ impl AgentManager {
             // Another Gitnetix on this folder runs it: the answer goes in from there.
             let tx = tx.ok_or_else(|| Error::Invalid("This agent runs in another Gitnetix window: answer there.".into()))?;
             let a = s.asks.remove(i);
-            let response = if allow { json!({ "behavior": "allow", "updatedInput": a.input }) } else { json!({ "behavior": "deny", "message": REFUSED }) };
-            let line = json!({ "type": "control_response", "response": { "subtype": "success", "request_id": a.id, "response": response } });
+            // Copilot asks only in its ACP runs, whatever level was picked since.
+            let line = if s.ai.as_ref().is_some_and(|r| r.provider == "copilot") {
+                // Copilot's own option for it (`session/request_permission`).
+                let kind = if allow { "allow_once" } else { "reject_once" };
+                let option = a.input["options"].as_array().and_then(|o| o.iter().find(|o| o["kind"] == kind)).and_then(|o| o["optionId"].as_str()).unwrap_or(kind);
+                json!({ "jsonrpc": "2.0", "id": a.input["id"], "result": { "outcome": { "outcome": "selected", "optionId": option } } })
+            } else {
+                let response = if allow { json!({ "behavior": "allow", "updatedInput": a.input }) } else { json!({ "behavior": "deny", "message": REFUSED }) };
+                json!({ "type": "control_response", "response": { "subtype": "success", "request_id": a.id, "response": response } })
+            };
             tx.send(format!("{line}\n")).map_err(|_| Error::Invalid("The agent's run has ended.".into()))?;
         }
         self.asks_changed(id);
@@ -1816,12 +2045,16 @@ mod tests {
             r#"{"type":"tool.execution_complete","data":{"success":false,"error":{"message":"Path does not exist","code":"failure"}}}"#,
             r#"{"type":"tool.execution_start","data":{"toolName":"bash","arguments":{"command":"wc -l notes.txt","description":"Count"}}}"#,
             r#"{"type":"tool.execution_complete","data":{"success":true,"result":{"content":"2 notes.txt"}}}"#,
+            r#"{"type":"tool.execution_start","data":{"toolName":"bash","arguments":{"command":"ls ..","description":"List"}}}"#,
+            r#"{"type":"tool.execution_complete","data":{"success":false,"error":{"message":"Permission denied because no interactive user response was available.","code":"denied"}}}"#,
             r###"{"type":"assistant.message","data":{"content":"## What it does\n\nFirst **paragraph**.\n\nSecond one.\n\n- a\n- b\n"}}"###,
             r#"{"type":"session.error","data":{"errorType":"query","message":"Execution failed: Model \"x\" is not available."}}"#,
         ];
         for e in events {
             assert_eq!(m.handle_copilot_json("a", e), None);
         }
+        // Its next run resumes that conversation.
+        assert_eq!(m.get("a").unwrap().resume_id.as_deref(), Some("s1"));
         assert_eq!(m.handle_copilot_json("a", r#"{"type":"result","exitCode":0}"#), Some(true));
         assert_eq!(m.handle_copilot_json("a", r#"{"type":"result","exitCode":1}"#), Some(false));
         let lines: Vec<(String, String)> = m.get("a").unwrap().lines.into_iter().map(|l| (l.kind, l.text)).collect();
@@ -1831,6 +2064,8 @@ mod tests {
                 ("dim".into(), "  Read /r/notes.txt".into()),
                 ("err".into(), "✕ Path does not exist".into()),
                 ("run".into(), "  Bash wc -l notes.txt".into()),
+                ("run".into(), "  Bash ls ..".into()),
+                ("err".into(), format!("✕ {COPILOT_DENIED}")),
                 ("ai".into(), "✦ ## What it does\n\nFirst **paragraph**.\n\nSecond one.\n\n- a\n- b".into()),
                 ("err".into(), "✕ Execution failed: Model \"x\" is not available.".into()),
             ]
@@ -2041,6 +2276,125 @@ mod tests {
         assert_eq!(s.status, AgentStatus::Stopped);
         assert_eq!(s.lines.last().unwrap().kind, "files");
         assert!(!s.lines.iter().any(|l| l.kind == "wait"));
+    }
+
+    #[test]
+    fn copilot_permissions_map_to_its_flags() {
+        assert_eq!(copilot_permission("").unwrap(), ["--allow-all-tools", "--allow-all-paths", "--allow-all-urls"]);
+        assert_eq!(copilot_permission("auto").unwrap(), ["--assisted-approval"]);
+        assert_eq!(copilot_permission("acceptEdits").unwrap(), ["--allow-tool=write"]);
+        assert!(copilot_permission("cli").unwrap().is_empty());
+        assert!(copilot_permission("--allow-all").is_err());
+    }
+
+    /// Session `id` on Copilot at Accept edits, its run reading what Gitnetix writes to `rx`.
+    fn copilot_acp_run(m: &AgentManager, id: &str, loading: Option<&str>) -> (mpsc::UnboundedReceiver<String>, AcpRun) {
+        running(m, id);
+        let mut g = m.inner.lock().unwrap();
+        let s = g.sessions.get_mut(id).unwrap();
+        s.resume_id = loading.map(Into::into);
+        s.ai = Some(Resolved { permission: "acceptEdits".into(), ..cli("copilot") });
+        let (tx, rx) = mpsc::unbounded_channel();
+        g.answers.insert(id.into(), (1, tx));
+        let st = AcpRun { prompt: acp_prompt("do it", None), cwd: "/w".into(), loading: loading.is_some(), session: loading.map(Into::into), refused: false, failed: false };
+        (rx, st)
+    }
+
+    /// The next request Gitnetix wrote to the run, parsed.
+    fn sent(rx: &mut mpsc::UnboundedReceiver<String>) -> Value {
+        serde_json::from_str(&rx.try_recv().expect("a request")).unwrap()
+    }
+
+    #[test]
+    fn copilot_asks_in_the_chat_and_a_refusal_has_it_look_for_another_way() {
+        let dir = tempfile::tempdir().unwrap();
+        let m = AgentManager::new(broadcast::channel(64).0, dir.path());
+        let (mut rx, mut st) = copilot_acp_run(&m, "a", None);
+        let mut feed = |l: &str| m.handle_copilot_acp("a", 1, l, &mut st);
+        // As Copilot 1.0.109 sent them, trimmed.
+        assert_eq!(feed(r#"{"jsonrpc":"2.0","id":2,"result":{"sessionId":"s1","models":{}}}"#), None);
+        let p = sent(&mut rx);
+        assert_eq!((p["id"].as_u64(), p["method"].as_str(), p["params"]["sessionId"].as_str()), (Some(ACP_PROMPT), Some("session/prompt"), Some("s1")));
+        assert_eq!(p["params"]["prompt"][0]["text"], "do it");
+        assert_eq!(m.get("a").unwrap().resume_id.as_deref(), Some("s1"));
+        let ask = |n: u32, cmd: &str| format!(r#"{{"jsonrpc":"2.0","id":{n},"method":"session/request_permission","params":{{"sessionId":"s1","toolCall":{{"toolCallId":"t{n}","title":"{cmd}","kind":"execute","status":"pending","rawInput":{{"command":"{cmd}","commands":["touch"]}}}},"options":[{{"optionId":"allow_once","kind":"allow_once","name":"Allow once"}},{{"optionId":"allow_always","kind":"allow_always","name":"Always allow"}},{{"optionId":"reject_once","kind":"reject_once","name":"Deny"}}]}}}}"#);
+        for l in [
+            r#"{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s1","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"I need"}}}}"#,
+            r#"{"jsonrpc":"2.0","method":"github.com/copilot/sessionEvent","params":{"sessionId":"s1","type":"tool.execution_start","data":{"toolCallId":"t0","toolName":"bash","arguments":{"command":"touch a.txt","description":"Create a.txt"}}}}"#,
+            &ask(0, "touch a.txt"),
+        ] {
+            assert_eq!(feed(l), None);
+        }
+        let asks = m.get("a").unwrap().asks;
+        assert_eq!((asks[0].id.as_str(), asks[0].tool.as_str(), asks[0].detail.as_str()), ("0", "Bash", "touch a.txt"));
+        m.answer("a", "0", true).unwrap();
+        assert_eq!(sent(&mut rx), json!({ "jsonrpc": "2.0", "id": 0, "result": { "outcome": { "outcome": "selected", "optionId": "allow_once" } } }));
+        let mut feed = |l: &str| m.handle_copilot_acp("a", 1, l, &mut st);
+        assert_eq!(feed(&ask(1, "touch b.txt")), None);
+        m.answer("a", "1", false).unwrap();
+        assert_eq!(sent(&mut rx)["result"]["outcome"]["optionId"], "reject_once");
+        let mut feed = |l: &str| m.handle_copilot_acp("a", 1, l, &mut st);
+        assert_eq!(feed(r#"{"jsonrpc":"2.0","method":"github.com/copilot/sessionEvent","params":{"sessionId":"s1","type":"tool.execution_complete","data":{"toolCallId":"t1","success":false,"error":{"message":"The user rejected this tool call.","code":"rejected"}}}}"#), None);
+        // Copilot ends its turn on a refusal: it gets the note as its next message instead of the run ending.
+        assert_eq!(feed(r#"{"jsonrpc":"2.0","id":3,"result":{"stopReason":"end_turn"}}"#), None);
+        let p = sent(&mut rx);
+        assert_eq!((p["params"]["sessionId"].as_str(), p["params"]["prompt"][0]["text"].as_str()), (Some("s1"), Some(REFUSED)));
+        assert_eq!(feed(r#"{"jsonrpc":"2.0","method":"github.com/copilot/sessionEvent","params":{"sessionId":"s1","type":"assistant.message","data":{"content":"Ran touch a.txt only."}}}"#), None);
+        assert_eq!(feed(r#"{"jsonrpc":"2.0","id":3,"result":{"stopReason":"end_turn"}}"#), Some(true));
+        let lines: Vec<(String, String)> = m.get("a").unwrap().lines.into_iter().map(|l| (l.kind, l.text)).collect();
+        assert_eq!(
+            lines,
+            [
+                ("run".into(), "  Bash touch a.txt".into()),
+                ("err".into(), "✕ The user rejected this tool call.".into()),
+                ("ai".into(), "✦ Ran touch a.txt only.".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_copilot_follow_up_loads_its_conversation_or_opens_a_new_one() {
+        let open = |resume| acp_open(Path::new("/w"), resume).lines().map(|l| serde_json::from_str::<Value>(l).unwrap()).collect::<Vec<_>>();
+        let load = &open(Some("s1"))[1];
+        assert_eq!((load["method"].as_str(), load["params"]["sessionId"].as_str(), load["params"]["cwd"].as_str()), (Some("session/load"), Some("s1"), Some("/w")));
+        assert_eq!(open(None)[1]["method"], "session/new");
+        let dir = tempfile::tempdir().unwrap();
+        let m = AgentManager::new(broadcast::channel(64).0, dir.path());
+        let (mut rx, mut st) = copilot_acp_run(&m, "a", Some("gone"));
+        let mut feed = |l: &str| m.handle_copilot_acp("a", 1, l, &mut st);
+        // What loading replays is not shown again.
+        assert_eq!(feed(r#"{"jsonrpc":"2.0","method":"github.com/copilot/sessionEvent","params":{"sessionId":"gone","type":"assistant.message","data":{"content":"old reply"}}}"#), None);
+        assert_eq!(feed(r#"{"jsonrpc":"2.0","id":2,"error":{"code":-32002,"message":"Session not found"}}"#), None);
+        assert_eq!(sent(&mut rx)["method"], "session/new");
+        assert_eq!(feed(r#"{"jsonrpc":"2.0","id":2,"result":{"sessionId":"s2"}}"#), None);
+        assert_eq!(sent(&mut rx)["params"]["sessionId"], "s2");
+        assert_eq!(feed(r#"{"jsonrpc":"2.0","id":3,"error":{"code":-32603,"message":"Execution failed: Model \"x\" is not available."}}"#), Some(false));
+        let lines: Vec<String> = m.get("a").unwrap().lines.into_iter().map(|l| l.text).collect();
+        assert_eq!(lines, ["✕ Execution failed: Model \"x\" is not available."]);
+        assert!(resumes(&cli("copilot")) && resumes(&cli("claude")) && !resumes(&cli("codex")));
+    }
+
+    #[test]
+    fn copilot_gets_the_attached_images_only() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join(crate::app::ATTACH_DIR);
+        std::fs::create_dir_all(dir.join("ab12")).unwrap();
+        for f in ["ab12/image.png", "ab12/Shot.JPG", "ab12/notes.txt"] {
+            std::fs::write(dir.join(f), "x").unwrap();
+        }
+        let outside = tmp.path().join("secret.png");
+        std::fs::write(&outside, "x").unwrap();
+        let at = |f: &str| dir.join(f).display().to_string();
+        let prompt = format!(
+            "look\n\nAttached files:\n- {}\n- {}\n- {}\n- {}\n- {}",
+            at("ab12/image.png"),
+            at("ab12/Shot.JPG"),
+            at("ab12/notes.txt"),
+            at("ab12/missing.png"),
+            outside.display()
+        );
+        let got: Vec<PathBuf> = attached_images(&prompt, &dir).into_iter().map(|p| p.strip_prefix(dir.canonicalize().unwrap()).unwrap().to_path_buf()).collect();
+        assert_eq!(got, [PathBuf::from("ab12/image.png"), PathBuf::from("ab12/Shot.JPG")]);
     }
 
     #[test]

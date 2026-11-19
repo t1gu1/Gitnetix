@@ -685,7 +685,7 @@ impl Git {
     }
 
     /// The git dir `.git` is or names (`gitdir: …` in a worktree or submodule); None when `cwd` isn't a checkout's top.
-    fn own_git_dir(&self) -> Option<PathBuf> {
+    pub(crate) fn own_git_dir(&self) -> Option<PathBuf> {
         let dot = self.cwd.join(".git");
         if dot.is_dir() {
             return Some(dot);
