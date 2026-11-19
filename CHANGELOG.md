@@ -20,6 +20,11 @@ the in-app update prompt.
 ### Fixed (App)
 - The branch map's box no longer shows a "Checked out" tag. The tag stays on the branch's list and the map's Checked out row.
 - On a version's box, its tags sit centred on the version, as the branch name's tags do.
+- Project tab names and close buttons are laid out correctly.
+- Agent chip content stays on one line.
+
+### Fixed (Website)
+- The demo page's header shows only on narrow screens.
 
 ## [0.26.1] - 2026-11-19
 
