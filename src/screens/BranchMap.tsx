@@ -87,7 +87,7 @@ interface MapPrefs {
   findBranches: boolean;
   findCommits: boolean;
 }
-const PREFS: MapPrefs = { who: "all", merged: true, behind: true, shipped: true, zoom: 1, findBranches: true, findCommits: true };
+const PREFS: MapPrefs = { who: "me", merged: false, behind: false, shipped: true, zoom: 1, findBranches: true, findCommits: true };
 
 /** The map's filters and zoom, kept between sessions. */
 function useMapPrefs() {
