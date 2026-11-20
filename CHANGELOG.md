@@ -14,6 +14,8 @@ the in-app update prompt.
 
 ## [Unreleased]
 
+## [0.27.1] - 2026-11-20
+
 ### Fixed (App)
 
 - The branch map starts from the trunk furthest behind the default branch, so it works when main ships to prod through merge commits and prod holds the release tag
