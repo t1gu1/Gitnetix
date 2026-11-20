@@ -179,7 +179,9 @@ fn tls(dir: &Path) -> anyhow::Result<TlsAcceptor> {
 /// Where the companion listens with these settings.
 pub fn bind_addr(cfg: &ServerConfig) -> SocketAddr {
     let host = if cfg.lan { [0, 0, 0, 0] } else { [127, 0, 0, 1] };
-    SocketAddr::from((host, cfg.port))
+    // Two instances on one settings folder (scripts/two-apps.mjs) share its port: each is given its own.
+    let port = std::env::var("GITNETIX_PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(cfg.port);
+    SocketAddr::from((host, port))
 }
 
 /// Bind and serve until the process exits. Returns the bound address.

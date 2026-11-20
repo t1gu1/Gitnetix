@@ -21,6 +21,10 @@ pub enum Event {
     FilesChanged { project_id: String, branch: Option<String> },
     #[serde(rename_all = "camelCase")]
     ConfigChanged {},
+    /// Debug builds (scripts/two-apps.mjs): the desktop app saves a picture of its window as `window.png` in its settings folder.
+    Screenshot {},
+    /// Another instance on the same settings folder switched to `profile`, and this one followed.
+    ProfileSwitched { profile: crate::store::UserProfile },
     /// Events went past this UI while it was behind (a busy terminal writes one per read): what it shows may be stale,
     /// read it all again.
     Missed {},

@@ -11,6 +11,7 @@
     "check:ui-branches": "node scripts/ui-branch-check.mjs",
     "tauri": "tauri",
     "app": "node scripts/dev.mjs",
+    "app:two": "node scripts/two-apps.mjs",
     "app:build": "tauri build",
     "app:build:local": "pnpm tauri build --config src-tauri/tauri.local.conf.json",
     "ios": "tauri ios dev",

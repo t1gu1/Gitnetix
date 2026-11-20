@@ -2949,3 +2949,53 @@ async fn a_release_published_from_main_keeps_its_tag_when_merged_again() {
     assert_eq!(rev(&repo, "v0.3.0^{commit}"), published);
     assert_eq!(rev(&origin, "v0.3.0^{commit}"), published);
 }
+
+#[tokio::test]
+async fn a_second_instance_follows_the_profile_and_the_deletes() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("atlas-api");
+    init_repo(&repo);
+    sh(&repo, &["branch", "feat/gone"]);
+    let home = tmp.path().join("home");
+    let a = Gitnetix::open(&home).unwrap();
+    let added = call(&a, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await;
+    let pid = added[0]["id"].as_str().unwrap().to_string();
+    call(&a, "branches.setParent", json!({ "projectId": pid, "branch": "feat/gone", "parent": "main" })).await;
+    // A dev build next to the installed app, open before the other one switches profile.
+    let b = Gitnetix::open(&home).unwrap();
+    let mut rx = b.subscribe();
+    let work = call(&a, "userProfiles.save", json!({ "name": "Work", "from": "default" })).await;
+    call(&a, "userProfiles.switch", json!({ "id": work["id"] })).await;
+    assert_eq!(call(&b, "config.get", json!({})).await["activeProfile"], work["id"], "the other instance stays on the old profile");
+    let followed = async {
+        loop {
+            if let Ok(gitnetix_core::Event::ProfileSwitched { profile }) = rx.recv().await {
+                return profile.id;
+            }
+        }
+    };
+    assert_eq!(tokio::time::timeout(std::time::Duration::from_secs(5), followed).await.unwrap(), work["id"].as_str().unwrap());
+
+    call(&a, "branches.delete", json!({ "projectId": pid, "branch": "feat/gone", "force": true })).await;
+    let names = |o: &Value| o["branches"].as_array().unwrap().iter().map(|b| b["name"].as_str().unwrap().to_string()).collect::<Vec<_>>();
+    assert!(!names(&call(&b, "workspace.overview", json!({ "projectId": pid })).await).contains(&"feat/gone".to_string()));
+    // The profile it was deleted from forgot it, and so did the one it was not.
+    let default = std::fs::read_to_string(home.join("config.json")).unwrap();
+    assert!(!default.contains("feat/gone"), "{default}");
+}
+
+#[tokio::test]
+async fn a_branch_deleted_outside_leaves_the_map() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("atlas-api");
+    init_repo(&repo);
+    sh(&repo, &["branch", "feat/x"]);
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let added = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await;
+    let pid = added[0]["id"].as_str().unwrap().to_string();
+    call(&k, "branches.setParent", json!({ "projectId": pid, "branch": "feat/x", "parent": "main" })).await;
+    // A terminal, or a fetch pruning what another computer deleted on origin.
+    sh(&repo, &["branch", "-D", "feat/x"]);
+    let o = call(&k, "workspace.overview", json!({ "projectId": pid })).await;
+    assert!(o["branches"].as_array().unwrap().iter().all(|b| b["name"] != "feat/x"), "{o}");
+}

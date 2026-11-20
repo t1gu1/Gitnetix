@@ -266,7 +266,7 @@ pub struct BranchView {
     #[serde(default)]
     pub upstream_rewritten: bool,
     pub ticket: Option<String>,
-    /// Exists locally or on origin (false: Gitnetix still tracks it but it is gone).
+    /// Exists locally or on origin (false: an open release whose branch is not made yet).
     pub exists: bool,
     /// Its commits are all in the base (merged, nothing new since).
     pub merged: bool,
@@ -362,7 +362,7 @@ pub struct Overview {
     pub current_branch: Option<String>,
     pub default_branch: String,
     pub releases: Vec<ReleaseView>,
-    /// Every branch (local, origin-only and tracked-but-gone), each with its parent: the only copy of each view, a release's
+    /// Every branch (local, origin-only and open releases' not made yet), each with its parent: the only copy of each view, a release's
     /// branches being those whose `release` is its version (thousands of branches, each sent twice, doubled every reply).
     pub branches: Vec<BranchView>,
     pub rebasing: bool,
@@ -2177,13 +2177,35 @@ fn declared_parent(p: &Project, refs: &Refs, default: &str, name: &str) -> Optio
     given.map(|x| Some(x.clone()))
 }
 
-/// Every branch once: local, origin-only, and the ones Gitnetix tracks that are gone.
+/// Forget deleted `branches` in `p`; true when it held any of them. An open release whose branch is gone everywhere goes
+/// with it; its branches find a new base.
+fn forget_branches(p: &mut Project, branches: &[String], on_origin: &HashSet<String>) -> bool {
+    let mut changed = false;
+    for branch in branches {
+        changed |= p.branches.remove(branch).is_some();
+        let gone = !on_origin.contains(branch);
+        let Some(version) = p.releases.iter().find(|r| &r.branch == branch && r.shipped_at.is_none() && gone).map(|r| r.version.clone()) else {
+            continue;
+        };
+        changed = true;
+        p.releases.retain(|r| !(r.version == version && r.shipped_at.is_none()));
+        if !p.forgotten_releases.contains(&version) {
+            p.forgotten_releases.push(version.clone());
+        }
+        for m in p.branches.values_mut().filter(|m| m.release.as_deref() == Some(version.as_str())) {
+            m.release = None;
+        }
+    }
+    changed
+}
+
+/// Every branch once: local and origin-only, and open releases whose branch is not made yet. A branch git no longer
+/// has shows nowhere, even while its settings stay (deleted from a terminal, or on origin from another computer).
 /// An origin branch a local one tracks under another name is that local branch.
 fn branch_names(p: &Project, refs: &Refs) -> Vec<String> {
     let tracked: Vec<&str> = refs.local.iter().filter_map(|b| b.upstream.as_deref()?.strip_prefix("origin/")).collect();
     let remote_only = refs.remote.iter().filter(|b| !tracked.contains(&b.name.as_str()));
     let mut names: Vec<String> = refs.local.iter().chain(remote_only).map(|b| b.name.clone()).collect();
-    names.extend(p.branches.keys().cloned());
     names.extend(p.releases.iter().filter(|r| r.shipped_at.is_none()).map(|r| r.branch.clone()));
     names.sort();
     names.dedup();
@@ -2265,7 +2287,7 @@ fn plain_view(p: &Project, refs: &Refs, name: &str, parent: Option<String>) -> B
 }
 
 /// Bump when branch views are built differently, so saved ones are not reused.
-const VIEW_CACHE_VERSION: &str = "15";
+const VIEW_CACHE_VERSION: &str = "16";
 
 /// Commits counted past the start of a history with no tag behind it: the default branch's unreleased ones, a
 /// first release's.
@@ -2584,6 +2606,15 @@ impl Gitnetix {
         // Stop the old one first so a repo is never watched twice.
         *w = None;
         *w = crate::watch::watch(&projects, self.events.clone());
+    }
+
+    /// Follow a profile switch made by another instance on the same settings folder (see [`Store::follow`]).
+    // shortcut: checked before each RPC only, so a write from a background task in between still goes to the old profile; also check from the watcher if that shows up.
+    pub fn follow_profile(&self) {
+        if let Some(profile) = self.store.follow() {
+            self.rewatch();
+            let _ = self.events.send(Event::ProfileSwitched { profile });
+        }
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<Event> {
@@ -5466,28 +5497,15 @@ impl Gitnetix {
             || self.hosted_landed(project_id, git, &known.tips[rev], base).await
     }
 
-    /// Forget deleted `branches` in the project's settings, in one write. An open release whose branch is gone
-    /// everywhere goes with it; its branches find a new base.
+    /// Forget deleted `branches` in the project's settings, in one write, and in the other profiles' copies of it: the
+    /// repository is the same whichever profile deleted them.
     async fn forget_branches(&self, project_id: &str, git: &Git, branches: &[String]) -> Result<()> {
         let on_origin: HashSet<String> = git.remote_branches().await?.into_iter().map(|b| b.name).collect();
         self.store.with_project(project_id, |p| {
-            for branch in branches {
-                p.branches.remove(branch);
-                let gone = !on_origin.contains(branch);
-                let Some(version) = p.releases.iter().find(|r| &r.branch == branch && r.shipped_at.is_none() && gone).map(|r| r.version.clone()) else {
-                    continue;
-                };
-                p.releases.retain(|r| !(r.version == version && r.shipped_at.is_none()));
-                if !p.forgotten_releases.contains(&version) {
-                    p.forgotten_releases.push(version.clone());
-                }
-                for m in p.branches.values_mut().filter(|m| m.release.as_deref() == Some(version.as_str())) {
-                    m.release = None;
-                }
-            }
+            forget_branches(p, branches, &on_origin);
             Ok(())
         })?;
-        Ok(())
+        self.store.update_others(|c| c.projects.iter_mut().find(|p| p.id == project_id).is_some_and(|p| forget_branches(p, branches, &on_origin)))
     }
 
     /// Rename a branch and, with `remote`, its copy on origin for everyone. An open release's

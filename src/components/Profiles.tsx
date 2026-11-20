@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { type QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { useAction, useConfig } from "../api/hooks";
-import { rpc } from "../api/transport";
+import { rpc, subscribe } from "../api/transport";
 import type { GitProfile, ProjectSummary, UserProfile } from "../api/types";
 import { plural } from "../lib/format";
 import { showKeys, useKeys } from "../lib/keys";
@@ -78,20 +78,22 @@ async function squarePhoto(file: File, px = 192) {
 /** The profile the app opens on after a switch, greeted once by ProfileSplash. `menu`: the settings were open, open them again. */
 let arriving: { profile: UserProfile; menu: boolean } | null = null;
 
+/** Once the engine is on `p`: drop all that was on screen, the other profile's, and start over on `p` (App keys the screens by profile). */
+async function arriveAt(qc: QueryClient, p: UserProfile, menu = false) {
+  arriving = { profile: p, menu };
+  qc.removeQueries({ predicate: (q) => q.queryKey[0] !== "config" });
+  // Its project tabs then show with the first frame instead of popping in.
+  await qc.prefetchQuery({ queryKey: ["projects"], queryFn: () => rpc<ProjectSummary[]>("projects.list") });
+  await qc.refetchQueries({ queryKey: ["config"] });
+}
+
 /** The profiles, the active one, and moving the whole app over to another. */
 export function useProfiles() {
   const qc = useQueryClient();
   const cfg = useConfig().data;
   const list = cfg?.userProfiles ?? [];
   const active = list.find((p) => p.id === cfg?.activeProfile);
-  /** Once the engine is on `p`: drop all that was on screen, the other profile's, and start over on `p` (App keys the screens by profile). */
-  const arrive = async (p: UserProfile, menu = false) => {
-    arriving = { profile: p, menu };
-    qc.removeQueries({ predicate: (q) => q.queryKey[0] !== "config" });
-    // Its project tabs then show with the first frame instead of popping in.
-    await qc.prefetchQuery({ queryKey: ["projects"], queryFn: () => rpc<ProjectSummary[]>("projects.list") });
-    await qc.refetchQueries({ queryKey: ["config"] });
-  };
+  const arrive = (p: UserProfile, menu = false) => arriveAt(qc, p, menu);
   // Not a mutation: it goes on after the screens it started from are gone.
   const switchTo = async (p: UserProfile, menu = false) => {
     try {
@@ -440,6 +442,15 @@ export function DeleteProfile({ profile, onClose }: { profile: UserProfile; onCl
 /** Right after a switch: the profile's avatar and name, a moment, over the app it opened on. */
 export function ProfileSplash() {
   const nav = useNav();
+  const qc = useQueryClient();
+  // Another window switched the app's profile, and the engine followed: so does this one.
+  useEffect(
+    () =>
+      subscribe((e) => {
+        if (e.type === "profileSwitched") void arriveAt(qc, e.profile);
+      }),
+    [qc],
+  );
   const [shown] = useState(() => arriving);
   const [on, setOn] = useState(!!shown);
   useEffect(() => {

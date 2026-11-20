@@ -59,6 +59,25 @@ pub async fn artifact_capture(app: AppHandle) -> Result<String, String> {
     Ok(file.display().to_string())
 }
 
+/// Save a PNG of the main window's page as `file`, written whole (a script waits for it to appear). Needs no screen
+/// recording permission, unlike capturing the window from outside.
+pub fn save_window(app: &AppHandle, file: std::path::PathBuf) {
+    let Some(win) = app.get_webview_window("main") else { return };
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    if win.with_webview(move |w| snapshot(w, tx)).is_err() {
+        return;
+    }
+    tauri::async_runtime::spawn(async move {
+        let tmp = file.with_extension("png.tmp");
+        match rx.recv().await {
+            Some(Ok(png)) => {
+                let _ = std::fs::write(&tmp, png).and_then(|_| std::fs::rename(&tmp, &file));
+            }
+            other => tracing::warn!("window picture not taken: {:?}", other.and_then(|r| r.err())),
+        }
+    });
+}
+
 /// The part of the page the window shows: the artboard scrolls inside its own frame, so the whole document would miss it.
 #[cfg(target_os = "linux")]
 fn snapshot(w: tauri::webview::PlatformWebview, done: Shot) {
@@ -108,7 +127,7 @@ fn snapshot(w: tauri::webview::PlatformWebview, done: Shot) {
     }
 }
 
-// Untested: written without a Mac to build or run it on.
+// Run on macOS through `save_window` (scripts/two-apps.mjs); the artifact window path itself is untested there.
 #[cfg(target_os = "macos")]
 fn snapshot(w: tauri::webview::PlatformWebview, done: Shot) {
     use objc2_app_kit::{NSBitmapImageFileType, NSBitmapImageRep, NSImage};

@@ -386,7 +386,7 @@ export interface Overview {
   currentBranch?: string | null;
   defaultBranch: string;
   releases: ReleaseView[];
-  /** Every branch (local, origin-only, tracked-but-gone), each with its parent: the only copy of each view. A release's
+  /** Every branch (local, origin-only, open releases' not made yet), each with its parent: the only copy of each view. A release's
    *  branches are those whose `release` is its version. */
   branches: BranchView[];
   rebasing: boolean;
@@ -1071,6 +1071,7 @@ export type GitnetixEvent =
   | { type: "projectChanged"; projectId: string }
   | { type: "filesChanged"; projectId: string; branch: string | null }
   | { type: "configChanged" }
+  | { type: "profileSwitched"; profile: UserProfile }
   | { type: "cleanupStep"; projectId: string; branch: string }
   | { type: "conflictResolving"; projectId: string; files: string[] }
   | { type: "rebaseRun"; run: RebaseRun }

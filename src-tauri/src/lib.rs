@@ -186,7 +186,7 @@ mod desktop {
     pub fn companion(engine: State<'_, Engine>, served: State<'_, Companion>) -> Value {
         let s = engine.0.store.read(|c| c.server.clone());
         let listening = s.enabled && served.0.get() == Some(&bind_addr(&s));
-        serde_json::json!({ "enabled": s.enabled, "port": s.port, "lan": s.lan, "token": s.token, "hosts": lan_hosts(), "ufw": ufw_active(), "listening": listening })
+        serde_json::json!({ "enabled": s.enabled, "port": bind_addr(&s).port(), "lan": s.lan, "token": s.token, "hosts": lan_hosts(), "ufw": ufw_active(), "listening": listening })
     }
 
     // shortcut: ufw only (CachyOS, Ubuntu, Manjaro default); add firewalld if someone needs it.
@@ -347,6 +347,7 @@ mod desktop {
         tauri::async_runtime::spawn(async move {
             loop {
                 match rx.recv().await {
+                    Ok(gitnetix_core::Event::Screenshot {}) => crate::artifact::save_window(&handle, data_dir().join("window.png")),
                     Ok(ev) => {
                         let _ = handle.emit("gitnetix://event", ev);
                     }
@@ -392,7 +393,9 @@ mod desktop {
                 .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
                 .filter(|b| !b.is_empty())
                 .unwrap_or_else(|| "unknown".into());
-            let _ = win.set_title(&format!("{} | dev - {branch}", win.title().unwrap_or_default()));
+            // GITNETIX_TITLE: which of several instances this is (scripts/two-apps.mjs).
+            let label = std::env::var("GITNETIX_TITLE").map(|t| format!(" | {t}")).unwrap_or_default();
+            let _ = win.set_title(&format!("{} | dev - {branch}{label}", win.title().unwrap_or_default()));
         }
         Ok(())
     }
@@ -414,9 +417,12 @@ pub fn run() {
             _ => PermissionResponse::Default,
         });
 
+    // Release builds only: a debug build (scripts/two-apps.mjs builds one with its UI inside) must never offer to replace
+    // itself with a release. Its update check then fails, which the prompt ignores.
+    #[cfg(all(desktop, not(debug_assertions)))]
+    let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
     #[cfg(desktop)]
     let builder = builder
-        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .manage(desktop::Mic::default())
         .manage(desktop::Companion::default())

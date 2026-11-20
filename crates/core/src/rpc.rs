@@ -483,6 +483,7 @@ pub async fn call(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
         crate::log::info(format!("Will attempt to {method} {}", scrub(&p, "")));
     }
     let start = std::time::Instant::now();
+    k.follow_profile();
     // Boxed: `dispatch`'s future is over 1 MiB in debug builds, and inline it overflows the 2 MiB test/worker stacks.
     let out = Box::pin(dispatch(k, method, p)).await;
     let ms = start.elapsed().as_millis();
@@ -514,6 +515,11 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
         "log.get" => to(crate::log::all()),
         "log.clear" => {
             crate::log::clear();
+            ok()
+        }
+        // Not in METHODS, and debug builds only: test scripts take pictures of a real window with it (scripts/two-apps.mjs).
+        "app.screenshot" if cfg!(debug_assertions) => {
+            let _ = k.events.send(crate::events::Event::Screenshot {});
             ok()
         }
         "app.info" => {

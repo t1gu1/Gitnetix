@@ -653,6 +653,8 @@ pub struct Store {
     /// The file as this process last read or wrote it. Another instance on the same folder (a dev
     /// build next to the installed app) writes it too: a different stamp means take theirs in first.
     seen: Mutex<Option<Stamp>>,
+    /// `profiles.json` as [`Store::follow`] last looked at it.
+    profiles_seen: Mutex<Option<Stamp>>,
 }
 
 /// Modification time and size of a file.
@@ -723,7 +725,51 @@ impl Store {
         data.ui.onboarding |= fresh;
         let seen = save(&path, &data)?;
         crate::secrets::use_profile(&active);
-        Ok(Store { dir: dir.to_path_buf(), active: Mutex::new(active), data: RwLock::new(data), seen: Mutex::new(seen) })
+        let profiles_seen = Mutex::new(stamp(&dir.join("profiles.json")));
+        Ok(Store { dir: dir.to_path_buf(), active: Mutex::new(active), data: RwLock::new(data), seen: Mutex::new(seen), profiles_seen })
+    }
+
+    /// Move to the profile another instance on the same folder switched to: the profile is the app's, not a window's.
+    /// Returns that profile when it moved.
+    pub fn follow(&self) -> Option<UserProfile> {
+        let path = self.dir.join("profiles.json");
+        let now = stamp(&path);
+        {
+            let mut seen = self.profiles_seen.lock().unwrap();
+            if now == *seen {
+                return None;
+            }
+            *seen = now;
+        }
+        let mut g = self.data.write().expect("config lock");
+        let profiles = load_profiles(&self.dir);
+        if profiles.active == self.active() {
+            return None;
+        }
+        let profile = profiles.list.into_iter().find(|p| p.id == profiles.active)?;
+        let path = profile_path(&self.dir, &profile.id);
+        let next = read_config(&path).ok()?;
+        *self.seen.lock().unwrap() = stamp(&path);
+        *self.active.lock().unwrap() = profile.id.clone();
+        *g = next;
+        crate::secrets::use_profile(&profile.id);
+        Some(profile)
+    }
+
+    /// Change the settings of every profile but the active one, each saved when `f` says it changed them.
+    pub fn update_others(&self, f: impl Fn(&mut Config) -> bool) -> Result<()> {
+        // Under the lock, like every other profile change.
+        let _g = self.data.write().expect("config lock");
+        let active = self.active();
+        for p in load_profiles(&self.dir).list.iter().filter(|p| p.id != active) {
+            let path = profile_path(&self.dir, &p.id);
+            // Unreadable: left as it is.
+            let Ok(mut cfg) = read_config(&path) else { continue };
+            if f(&mut cfg) {
+                save(&path, &cfg)?;
+            }
+        }
+        Ok(())
     }
 
     /// The active profile's settings file.
