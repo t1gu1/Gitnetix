@@ -16,11 +16,12 @@ const why = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 /**
  * Local open branches under `name`, each one before the branches under it. Merged and shipped branches, ones only
- * on origin and ones an agent is working on are left out, with the branches under them.
+ * on origin and ones an agent is working on are left out, with the branches under them; so is the default branch, filed
+ * under a less advanced trunk for the map only (main under prod).
  */
-export function childrenOf(branches: BranchView[], name: string): Child[] {
+export function childrenOf(branches: BranchView[], name: string, defaultBranch: string): Child[] {
   const out: Child[] = [];
-  const seen = new Set([name]);
+  const seen = new Set([name, defaultBranch]);
   const walk = (parent: string, depth: number) => {
     for (const b of branches) {
       if (b.parent !== parent || seen.has(b.name)) continue;
@@ -97,8 +98,8 @@ function updateChildren(pid: string, root: BranchView, picked: Child[], push: bo
 }
 
 /** `branch` just took in new commits: asks whether the branches under it take them in too. */
-export function UpdateChildrenModal({ pid, branch, branches, labelOf, onClose }: { pid: string; branch: string; branches: BranchView[]; labelOf: (b: string) => string; onClose: () => void }) {
-  const [kids] = useState(() => childrenOf(branches, branch));
+export function UpdateChildrenModal({ pid, branch, branches, defaultBranch, labelOf, onClose }: { pid: string; branch: string; branches: BranchView[]; defaultBranch: string; labelOf: (b: string) => string; onClose: () => void }) {
+  const [kids] = useState(() => childrenOf(branches, branch, defaultBranch));
   const [picked, setPicked] = useState(() => new Set(kids.map((c) => c.view.name)));
   const [push, setPush] = useState(true);
   const ai = useAiOn("conflict");

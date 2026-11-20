@@ -1404,6 +1404,43 @@ fn is_trunk(name: &str) -> bool {
     DEV_TRUNKS.contains(&name) || ENV_TRUNKS.contains(&name) || matches!(name, "main" | "master")
 }
 
+/// Which trunk the map starts from when several are as far behind: production first (the one tagged), then pre-production,
+/// staging, `main`/`master`, the others.
+fn root_rank(name: &str) -> u8 {
+    match name {
+        "prod" | "production" => 0,
+        "preprod" | "pre-prod" => 1,
+        "staging" | "stage" => 2,
+        "main" | "master" => 3,
+        _ => 4,
+    }
+}
+
+/// The map's root: the least advanced trunk, the one most commits behind the default branch (`prod` left of the `main`
+/// it takes releases from), [`root_rank`] breaking ties; the default branch when none is behind it. Dev branches, ahead by
+/// design, and trunks given a parent keep their place.
+/// shortcut: a default branch named outside the trunk names (`stable`) stays the root, since `plain_view` would make it work
+/// once under another branch; give `plain_view` the default branch if such a project needs it.
+async fn root_of(p: &Project, git: &Git, refs: &Refs, default: &str) -> String {
+    let Some(base) = refs.rev(default).filter(|_| is_trunk(default)) else {
+        return default.to_string();
+    };
+    let mut best = (0, std::cmp::Reverse(root_rank(default)), default.to_string());
+    for name in branch_names(p, refs) {
+        let given = p.branches.get(&name).is_some_and(|m| m.parent.is_some());
+        if name == default || !is_trunk(&name) || DEV_TRUNKS.contains(&name.as_str()) || given {
+            continue;
+        }
+        let Some(rev) = refs.rev(&name) else { continue };
+        let Ok((behind, _)) = refs.left_right(git, &base, &rev).await else { continue };
+        let key = (behind, std::cmp::Reverse(root_rank(&name)));
+        if key > (best.0, best.1) {
+            best = (key.0, key.1, name);
+        }
+    }
+    best.2
+}
+
 /// Make `ticket` the branch's ticket, planned into the branch's release when it has one.
 fn link_ticket(p: &mut Project, branch: &str, ticket: &str) {
     let meta = p.branches.entry(branch.to_string()).or_insert_with(|| BranchMeta { created_at: now(), ..Default::default() });
@@ -2323,7 +2360,7 @@ fn plain_view(p: &Project, refs: &Refs, name: &str, parent: Option<String>) -> B
 }
 
 /// Bump when branch views are built differently, so saved ones are not reused.
-const VIEW_CACHE_VERSION: &str = "17";
+const VIEW_CACHE_VERSION: &str = "18";
 
 /// Most commits of its own a branch is looked through for the branch it was built on (see [`Gitnetix::built_on`]).
 const OWN_MAX: usize = 1000;
@@ -2746,8 +2783,12 @@ impl Gitnetix {
         }
     }
 
-    /// Branch `branch` merges into (rebases onto, diffs against); the default branch maps to itself.
+    /// Branch `branch` merges into (rebases onto, diffs against); the default branch maps to itself, even when the map files
+    /// it under a less advanced trunk (`main` under `prod`, see [`root_of`]): that is for the map only.
     async fn base_of(&self, p: &Project, branch: &str, default: &str) -> String {
+        if branch == default {
+            return default.to_string();
+        }
         let git = self.git(p);
         let fingerprint = git.ref_fingerprint().await.ok();
         if let Some(parent) = fingerprint.as_deref().and_then(|f| self.cached_parent(p, f, branch, default)) {
@@ -3497,6 +3538,14 @@ impl Gitnetix {
             let bases: Vec<String> = merge_targets(p, refs, default).iter().filter_map(|t| refs.rev(t)).collect();
             refs.prefetch(git, &bases).await;
         }
+        let root = root_of(p, git, refs, default).await;
+        // The root has no parent and the default branch sits under it; a saved view placed otherwise is redone (another
+        // trunk fell further behind).
+        let placed = |n: &str| match n {
+            n if n == root => Some(None),
+            n if n == default => Some(Some(root.clone())),
+            _ => None,
+        };
         // A long rebuild tells the UI how far it is, every few branches.
         let done = std::sync::atomic::AtomicU32::new(0);
         let tell = |n: u32| {
@@ -3507,12 +3556,15 @@ impl Gitnetix {
         // Several branches at once, keeping the order.
         stream::iter(names)
             .map(|n| {
-                let (done, tell) = (&done, &tell);
+                let (done, tell, placed) = (&done, &tell, &placed);
                 async move {
-                    if let Some(v) = keep.get(&n) {
+                    if let Some(v) = keep.get(&n).filter(|v| placed(&n).is_none_or(|w| v.parent == w)) {
                         return v.clone();
                     }
-                    let parent = self.parent_of(p, git, refs, default, &n).await;
+                    let parent = match placed(&n) {
+                        Some(w) => w,
+                        None => self.parent_of(p, git, refs, default, &n).await,
+                    };
                     let v = self.branch_view(p, git, refs, &n, parent).await;
                     tell(done.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1);
                     v

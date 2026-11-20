@@ -95,6 +95,7 @@ These rules keep the suite consistent. Follow them when a case moves from `To au
 | BR-19 | Commit a file that still has conflict markers. | Refused. | Auto | `commit_guard.rs::commit_with_conflict_markers_is_refused` |
 | BR-20 | Stage, unstage, discard files and single lines. | Each file and line moves to the side it was sent to. | Auto | `release_flow.rs::stage_unstage_discard`, `line_staging.rs::picked_lines_move_between_sides` |
 | BR-21 | Stash a branch's changes, list, apply, drop. | The changes come back where they were. | Auto | `release_flow.rs::stash_flow` |
+| BR-22 | main ships to a tagged `prod` by merge commits, so prod is behind main. staging sits level with main, dev further behind than prod. Then prod catches up with main. Merge main with no target. | The map starts from prod (no parent, its latest tag shown) with main under it. staging and dev stay under main. Level with main, prod still goes first (prod, preprod, staging, main/master, the others). Main's actions keep it as the default branch: the merge is refused, nothing goes into prod. | Auto | `branch_regression.rs::br22_least_advanced_trunk_is_the_root` |
 
 ## Suggested actions (SA)
 

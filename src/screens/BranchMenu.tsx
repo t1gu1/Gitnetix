@@ -149,7 +149,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
   const inMain = [...rebasing.keys()].find((b) => !ov?.branches.find((x) => x.name === b)?.worktree);
   const run = (m: BranchMutation, branch: string, ok: string) => m.mutate({ projectId: pid, branch }, { onSuccess: () => toast(ok, "ok") });
   /** `b` just took in new commits: offer to carry them down to the branches under it. */
-  const offerChildren = (b: string) => ov && childrenOf(ov.branches, b).length > 0 && openDialog("children", b);
+  const offerChildren = (b: string) => ov && childrenOf(ov.branches, b, ov.defaultBranch).length > 0 && openDialog("children", b);
   // Git refuses to switch in the middle of a rebase, merge…: ask to abort it first. One AI is carrying through is left alone.
   const switchOrAsk = (b: string, ok: string) =>
     inMain ? toast(`AI is rebasing ${inMain} in this checkout: wait for it to finish, or abort it`, "error") : ov?.inProgress ? openDialog("abortSwitch", b) : run(sw, b, ok);

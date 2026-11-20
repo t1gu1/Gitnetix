@@ -154,7 +154,12 @@ export function Workspace() {
   const layout = useMapLayout(focused ? o : undefined);
   const agentOf = useAgentOf(pid);
   const branch = nav.selectedBranch ?? o?.currentBranch ?? o?.defaultBranch ?? undefined;
-  const baseFor = (b: string) => byName.get(b)?.parent ?? "";
+  /** What a branch's actions merge into and rebase onto: its parent. Not for the default branch, even filed under a less
+   * advanced trunk (main under prod); that trunk, the map's root, keeps the default branch. */
+  const baseFor = (b: string) => {
+    const v = byName.get(b);
+    return b === o?.defaultBranch ? "" : (v?.parent ?? (v?.role === "trunk" ? (o?.defaultBranch ?? "") : ""));
+  };
   /** Delete `branches` in the background: `section` stays locked on the map until it is done, whatever screen or project the user is on. */
   const cleanUp = (section: string, branches: string[], opts: { force?: boolean; remote: boolean }, what: string) =>
     startCleanup({ projectId: pid, projectName: o?.project.name ?? "", section, branches, ...opts, what, onDeleted: (gone) => nav.forgetBranches(pid, gone) });
@@ -167,7 +172,7 @@ export function Workspace() {
   };
   const target = (b: string): BranchTarget => {
     const v = byName.get(b) ?? synthetic(b, b === o?.currentBranch);
-    const base = v.parent ?? "";
+    const base = baseFor(b);
     const shippedRel = v.shipped ? o?.releases.find((r) => !r.open && r.version === v.shipped) : undefined;
     return {
       view: v,
@@ -1086,7 +1091,7 @@ export function Workspace() {
       )}
       {dialog?.kind === "rebase" && dialog.onto && <RebaseOntoModal pid={pid} branch={dialog.branch} onto={labelOf(dialog.onto)} onClose={() => setDialog(null)} />}
       {dialog?.kind === "rebaseOnto" && o && (
-        <RebaseOntoBranchModal pid={pid} branch={dialog.branch} onto={dialog.onto} branches={o.branches} labelOf={labelOf} onClose={() => setDialog(null)} onChildren={(b) => setDialog({ kind: "children", branch: b })} />
+        <RebaseOntoBranchModal pid={pid} branch={dialog.branch} onto={dialog.onto} branches={o.branches} defaultBranch={o.defaultBranch} labelOf={labelOf} onClose={() => setDialog(null)} onChildren={(b) => setDialog({ kind: "children", branch: b })} />
       )}
       {dialog?.kind === "delete" && dialogView?.worktree && (
         <DiscardWorktreeModal branch={dialog.branch} path={dialogView.worktree} onClose={() => setDialog(null)} onConfirm={() => finish.discard({ projectId: pid, branch: dialog.branch, cwd: dialogView.worktree! })} />
@@ -1097,7 +1102,7 @@ export function Workspace() {
       {dialog?.kind === "switchWip" && o && (
         <SwitchWipModal from={o.currentBranch} branch={dialog.branch} onClose={() => setDialog(null)} onConfirm={(wip) => actions.switchWith(dialog.branch, wip)} />
       )}
-      {dialog?.kind === "children" && o && <UpdateChildrenModal pid={pid} branch={dialog.branch} branches={o.branches} labelOf={labelOf} onClose={() => setDialog(null)} />}
+      {dialog?.kind === "children" && o && <UpdateChildrenModal pid={pid} branch={dialog.branch} branches={o.branches} defaultBranch={o.defaultBranch} labelOf={labelOf} onClose={() => setDialog(null)} />}
       {dialog?.kind === "pullWip" && (
         <PullWipModal branch={dialog.branch} upstream={dialogView?.upstream} onClose={() => setDialog(null)} onConfirm={(wip) => actions.pullWith(dialog.branch, wip)} />
       )}
@@ -1996,7 +2001,7 @@ function RebaseOntoModal({ pid, branch, onto, onClose }: { pid: string; branch: 
 
 /** Replays the checked-out `branch` on top of `onto`, or of a branch picked here; its target stays. */
 /** Once it went through: pushed when asked to, then `onChildren` asks about the branches under it. */
-function RebaseOntoBranchModal({ pid, branch, onto, branches, labelOf, onClose, onChildren }: { pid: string; branch: string; onto?: string; branches: BranchView[]; labelOf: (b: string) => string; onClose: () => void; onChildren: (b: string) => void }) {
+function RebaseOntoBranchModal({ pid, branch, onto, branches, defaultBranch, labelOf, onClose, onChildren }: { pid: string; branch: string; onto?: string; branches: BranchView[]; defaultBranch: string; labelOf: (b: string) => string; onClose: () => void; onChildren: (b: string) => void }) {
   const [picked, setPicked] = useState<string | null>(onto ?? null);
   const [push, setPush] = useState(true);
   const choices = useMemo(() => branches.filter((b) => b.exists && b.name !== branch), [branches, branch]);
@@ -2019,7 +2024,7 @@ function RebaseOntoBranchModal({ pid, branch, onto, branches, labelOf, onClose, 
       queryClient.invalidateQueries({ queryKey: ["overview", pid] });
       if (!ok) return;
     }
-    if (childrenOf(branches, branch).length) onChildren(branch);
+    if (childrenOf(branches, branch, defaultBranch).length) onChildren(branch);
   };
   return (
     <Modal

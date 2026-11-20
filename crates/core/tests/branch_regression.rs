@@ -258,6 +258,46 @@ async fn br04_group_update_rebases_each_child_onto_its_updated_parent() {
     assert_eq!(e.view("feat/d").await["parent"], "feat/c");
 }
 
+/// BR-22: main ships to prod by merge commits, so prod is behind main and holds the release tag. The map starts from
+/// prod with main under it; staging, level with main, stays under main, and so does a dev further behind than prod
+/// (dev branches are ahead by design). Main's actions still treat it as the default branch: a merge has nowhere to go.
+#[tokio::test]
+async fn br22_least_advanced_trunk_is_the_root() {
+    let e = env().await;
+    sh(&e.repo, &["branch", "prod"]);
+    sh(&e.repo, &["switch", "-qc", "dev"]);
+    commit_file(&e.repo, "dev.txt", "d\n");
+    sh(&e.repo, &["switch", "-q", "main"]);
+    for f in ["a.txt", "b.txt", "c.txt"] {
+        commit_file(&e.repo, f, "x\n");
+    }
+    sh(&e.repo, &["branch", "staging"]);
+    sh(&e.repo, &["switch", "-q", "prod"]);
+    sh(&e.repo, &["merge", "-q", "--no-ff", "-m", "Merge main into prod", "main~2"]);
+    sh(&e.repo, &["tag", "v1.0.0"]);
+    sh(&e.repo, &["switch", "-q", "main"]);
+    sh(&e.repo, &["push", "-q", "origin", "main", "prod", "staging", "dev", "v1.0.0"]);
+
+    let (prod, main) = (e.view("prod").await, e.view("main").await);
+    assert_eq!((prod["parent"].as_str(), prod["role"].as_str(), prod["lastTag"].as_str()), (None, Some("trunk"), Some("v1.0.0")), "{prod}");
+    assert_eq!((main["parent"].as_str(), main["role"].as_str()), (Some("prod"), Some("trunk")), "{main}");
+    // b and c are not in prod yet; prod's merge commit is not in main.
+    assert_eq!((main["ahead"].as_u64(), main["behind"].as_u64()), (Some(2), Some(1)), "{main}");
+    assert_eq!(e.view("staging").await["parent"], "main");
+    assert_eq!(e.view("dev").await["parent"], "main");
+
+    let err = e.refused("branches.merge", json!({ "branch": "main" })).await;
+    assert!(err.contains("no other branch to merge into"), "{err}");
+    assert!(!is_ancestor(&e.repo, "main", "prod"), "main went into prod");
+
+    // Level with main, prod still goes first: it is the one tagged.
+    sh(&e.repo, &["switch", "-q", "prod"]);
+    sh(&e.repo, &["merge", "-q", "--no-ff", "-m", "Merge main into prod", "main"]);
+    sh(&e.repo, &["switch", "-q", "main"]);
+    assert_eq!(e.view("prod").await["parent"], Value::Null);
+    assert_eq!(e.view("main").await["parent"], "prod");
+}
+
 // ---------------------------------------------------------------- Suggested actions
 
 /// feat/x pushed with a.txt, then a teammate pushes `theirs` (file, body) on top, fetched here.

@@ -32,6 +32,8 @@ const ownCommits = (b: BranchView) => b.ahead || (b.unreleased ?? 0);
 const commitRows = (b: BranchView) => ownCommits(b) + b.upstreamBehind;
 /** Commit rows an unfolded tile lists: the newest few, or all once "see all" is open. */
 const listedRows = (b: BranchView, all: boolean) => Math.min(commitRows(b), all ? (b.parent ? Infinity : HISTORY_MAX) : COMMITS_SHOWN);
+/** The trunk the map starts from: the default branch, or a trunk further behind it (`prod` left of `main`). */
+const isRoot = (b: BranchView) => b.role === "trunk" && !b.parent;
 /** The default branch's list, when whole, ends on the latest tag: the release its commits came after. */
 const endsOnTag = (b: BranchView, listed: number) => !b.parent && !!b.lastTag && listed === commitRows(b);
 /** A count as a pill shows it: a whole history counted up to 1000 reads "999+". */
@@ -138,7 +140,7 @@ function familyOf(o: Overview) {
     kids.set(p, list.filter(kept).sort(order));
     for (const c of list) parent.set(c.name, p);
   }
-  const tops = roots.filter(kept).sort((a, b) => (a.name === o.defaultBranch ? -1 : b.name === o.defaultBranch ? 1 : order(a, b)));
+  const tops = roots.filter(kept).sort((a, b) => Number(isRoot(b)) - Number(isRoot(a)) || order(a, b));
   return { roots: tops, shipped, kids: (n: string) => kids.get(n) ?? [], parent: (n: string) => parent.get(n) };
 }
 
@@ -188,6 +190,8 @@ export interface MapLayout {
   /** Shipped releases past the latest few, listed only once "see all" unfolds them. */
   shippedEarlier: number;
   shippedLeft: BranchView[];
+  /** The trunk the map starts from (see `isRoot`): its box sits on the trunk's hairline. */
+  root: string;
   /** Where the trunk's hairline starts and ends. */
   trunkTop: number;
   trunkEnd: number;
@@ -229,6 +233,7 @@ type ReleaseCounts = Record<string, ReleaseCount>;
  */
 function layoutMap(o: Overview, prefs: Pick<MapPrefs, "who" | "merged" | "behind" | "shipped">, me: string, toggles: ReadonlyMap<string, boolean>, counts?: ReleaseCounts): MapLayout {
   const fam = familyOf(o);
+  const root = fam.roots.find(isRoot)?.name ?? o.defaultBranch;
   const mine = (b: BranchView) => !!me && b.email.toLowerCase() === me;
   const stale = (b: BranchView) => b.role === "branch" && b.exists && !b.merged && b.behind >= BEHIND_LIMIT;
   // A branch open in a worktree or with an agent session is listed on Worktrees & agents: the map shows it whatever the filters.
@@ -296,7 +301,7 @@ function layoutMap(o: Overview, prefs: Pick<MapPrefs, "who" | "merged" | "behind
     const a = anchorOf(b);
     const gap = last[d] === undefined ? 0 : last[d] === par ? GAP : GROUP_GAP;
     let pMin = Math.max(floor, (bottom[d] ?? TOP) + gap);
-    const isTrunk = b.name === o.defaultBranch;
+    const isTrunk = b.name === root;
     if (isTrunk) pMin = Math.max(pMin, trunkY);
     const ks = live(b).filter((k) => vis.has(k.name));
     let y = pMin;
@@ -328,7 +333,7 @@ function layoutMap(o: Overview, prefs: Pick<MapPrefs, "who" | "merged" | "behind
   };
   for (const r of fam.roots) if (vis.has(r.name)) place(r, 0, TOP, "");
 
-  const trunk = at.get(o.defaultBranch);
+  const trunk = at.get(root);
   const depth = tiles.reduce((m, t) => Math.max(m, t.d), 0);
   const work = new Map<string, { open: number; merged: number }>();
   for (const r of tiles.filter((t) => t.b.role === "release")) {
@@ -356,6 +361,7 @@ function layoutMap(o: Overview, prefs: Pick<MapPrefs, "who" | "merged" | "behind
     shippedAll,
     shippedEarlier,
     shippedLeft: [...fam.shipped.values()].filter((b) => b.exists),
+    root,
     trunkTop: trunk && shippedAt.length ? shippedAt[0].y : trunkAnchor,
     // The spine ends just under the default branch's own block (its commits, merged branches), not the map's bottom.
     trunkEnd: trunk ? Math.max(trunkAnchor + 40, trunk.y + blockH(trunk.b) + 24) : trunkAnchor,
@@ -674,7 +680,7 @@ export function BranchMap({
     const m = 300;
     setSeen((s) => {
       const near = tiles.filter((t) => {
-        const e = extent(t, t.b.name === o.defaultBranch);
+        const e = extent(t, t.b.name === layout.root);
         return e.left < vx + vw + m && e.right > vx - m && e.top < vy + vh + m && e.bottom > vy - m;
       });
       return near.length === s.size && near.every((t) => s.has(t.b.name)) ? s : new Set(near.map((t) => t.b.name));
@@ -872,9 +878,10 @@ export function BranchMap({
     const n = t.b.name;
     const cls = head.has(n) ? "head" : layout.stale(t.b) ? "stale" : t.ghost || (t.b.remote && !t.b.local) ? "far" : "";
     edges.push({ d: `M${x1} ${y1}C${x1 + dx} ${y1} ${x2 - dx} ${y2} ${x2} ${y2}`, cls });
-    if (t.b.behind > 0 && t.b.exists && !t.b.merged) lineChips.push({ x: Math.round((x1 + x2) / 2), y: Math.round((y1 + y2) / 2), t, onto: pn!, cls });
+    // The default branch under a less advanced trunk (main under prod) is not rebased onto it.
+    if (t.b.behind > 0 && t.b.exists && !t.b.merged && n !== o.defaultBranch) lineChips.push({ x: Math.round((x1 + x2) / 2), y: Math.round((y1 + y2) / 2), t, onto: pn!, cls });
   }
-  const trunk = at.get(o.defaultBranch);
+  const trunk = at.get(layout.root);
   const shippedName = (r: ReleaseView) => r.tagName ?? label(r.version);
   const shippedDate = (r: ReleaseView) => {
     const iso = o.project.releases.find((x) => x.version === r.version)?.shippedAt ?? /tagged (\d{4}-\d{2}-\d{2})/.exec(r.base)?.[1];
@@ -1061,13 +1068,13 @@ export function BranchMap({
                 {trunk && <path d={`M${TRUNK_X} ${trunk.y + trunk.a}H${trunk.x}`} data-line={o.currentBranch ? "head" : undefined} />}
                 {edges.map((e, i) => <path key={i} d={e.d} data-line={e.cls || undefined} />)}
                 {/* A box's merged branches hang on a hairline dropping from its station; the default branch's sit on the trunk. */}
-                {tiles.map((t) => t.merged.length > 0 && t.b.name !== o.defaultBranch && <path key={`m${t.b.name}`} d={`M${t.x} ${t.y + t.a}V${t.mergedY + (t.merged.length - 1) * MERGED_ROW}`} />)}
+                {tiles.map((t) => t.merged.length > 0 && t.b.name !== layout.root && <path key={`m${t.b.name}`} d={`M${t.x} ${t.y + t.a}V${t.mergedY + (t.merged.length - 1) * MERGED_ROW}`} />)}
               </svg>
 
               {trunk && layout.shipped.length > 0 && (
                 <>
                   <span className="map-history-head" style={{ left: TRUNK_X - 6, top: TOP - 6 }}>
-                    Shipped from {o.defaultBranch} · {layout.shippedAll.length}
+                    Shipped from {layout.root} · {layout.shippedAll.length}
                     {(layout.shippedLeft.length > 0 || cleaning("shipped")) && (
                       <CleanupButton
                         pid={pid}
@@ -1157,7 +1164,7 @@ export function BranchMap({
               {drawn.map((t) => {
                 if (!t.merged.length && !t.foot && !cleaning(`merged:${t.b.name}`)) return null;
                 // The default branch's merged branches sit on the trunk; any other box's on the hairline under its station.
-                const sx = t.b.name === o.defaultBranch ? TRUNK_X : t.x;
+                const sx = t.b.name === layout.root ? TRUNK_X : t.x;
                 return (
                   <Fragment key={`mg${t.b.name}`}>
                     {t.merged.map((m, i) => (
@@ -1225,10 +1232,10 @@ export function BranchMap({
                     onSelect={select}
                     onStashes={onStashes}
                     quietAdd={!head.has(t.b.name) && !layout.kids(t.b.name).length}
-                    shippedTip={t.b.name === o.defaultBranch && layout.shippedAll[0] ? shippedName(layout.shippedAll[0]) : undefined}
+                    shippedTip={t.b.name === layout.root && layout.shippedAll[0] ? shippedName(layout.shippedAll[0]) : undefined}
                   />
                   {t.open && (
-                    <div className="map-float" style={{ left: t.x + (t.b.name === o.defaultBranch ? 14 : 18), top: t.y + t.h + FLOAT_TOP, width: t.w - (t.b.name === o.defaultBranch ? 14 : 18) }}>
+                    <div className="map-float" style={{ left: t.x + (t.b.name === layout.root ? 14 : 18), top: t.y + t.h + FLOAT_TOP, width: t.w - (t.b.name === layout.root ? 14 : 18) }}>
                       <TileCommits
                         pid={pid}
                         b={t.b}
@@ -1299,7 +1306,7 @@ export function BranchMap({
             actions={actions}
             onFocus={onFocus}
             onStashes={onStashes}
-            shippedTip={layout.shippedAll[0]}
+            shippedTip={sel.name === layout.root ? layout.shippedAll[0] : undefined}
             shippedName={shippedName}
             shippedDate={shippedDate}
           />
@@ -1374,7 +1381,7 @@ function TileView({
   const lock = actions.locks.get(b.name);
   const parent = b.parent ?? "";
   const own = ownCommits(b);
-  const trunk = b.name === o.defaultBranch;
+  const trunk = isRoot(b);
   const rel = b.role === "release" ? o.releases.find((r) => r.open && r.branch === b.name) : undefined;
   const openReleases = o.releases.filter((r) => r.open).length;
 
@@ -1500,7 +1507,7 @@ function TileView({
               <span className="map-name mono ellipsis">{marked(b.role === "branch" && b.kind ? b.short : b.name, q, hitAt)}</span>
             </>
           )}
-          {trunk && !current && <span className="tag">Default</span>}
+          {b.name === o.defaultBranch && !current && <span className="tag">Default</span>}
           {rel && <span className={rel.tag === "next" ? "tag inv" : "tag"}>{releaseTagLabel(rel.tag)}</span>}
         </span>
         <span className="map-info">
@@ -1803,7 +1810,7 @@ function SelectedCard({
   else if (b.inProgress) rows.push([b.inProgress[0].toUpperCase() + b.inProgress.slice(1), "paused in the middle", "c-warn"]);
   if (b.merged) rows.push([b.likelyMerged ? "Likely in" : "Merged into", t.baseLabel]);
   else if (b.role === "release" && b.release) rows.push(["Ships as", labelOf(b.name)]);
-  else if (trunk && b.name === o.defaultBranch && shippedTip) rows.push(["Tip", `${shippedName(shippedTip)}${shippedDate(shippedTip) ? ` · shipped ${shippedDate(shippedTip)}` : ""}`]);
+  else if (trunk && shippedTip) rows.push(["Tip", `${shippedName(shippedTip)}${shippedDate(shippedTip) ? ` · shipped ${shippedDate(shippedTip)}` : ""}`]);
   // What the next release ships from it so far.
   if (trunk && !b.parent && b.exists) {
     const n = b.unreleased ?? 0;
