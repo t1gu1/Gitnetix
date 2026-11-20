@@ -688,6 +688,44 @@ async fn a_failing_post_checkout_hook_keeps_the_stash_where_it_was_asked() {
     assert_eq!(git_out(&repo, &["stash", "list"]).lines().count(), 1);
 }
 
+/// A refresh while git still makes a new branch (the watcher's, on a slow checkout) already files it under the branch it
+/// came from: the map never shows it under a guess first.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_new_branch_has_its_parent_while_git_makes_it() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("child");
+    init_repo(&repo);
+    sh(&repo, &["switch", "-qc", "feat/base"]);
+    commit_file(&repo, "base.txt", "b\n");
+    sh(&repo, &["switch", "-q", "main"]);
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let added = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await;
+    let pid = added[0]["id"].as_str().unwrap().to_string();
+    let get = |ov: &Value, n: &str| ov["branches"].as_array().unwrap().iter().find(|b| b["name"] == n).cloned();
+    let item = |name: &str| json!({ "projectId": pid, "from": "feat/base", "kind": "feat", "description": "", "branchName": name, "where": "switch" });
+
+    // An untracked base.txt is in the way: git refuses, and Gitnetix tracks no gone branch.
+    std::fs::write(repo.join("base.txt"), "mine\n").unwrap();
+    assert!(rpc::call(&k, "items.create", item("feat/lost")).await.is_err());
+    assert!(get(&call(&k, "workspace.overview", json!({ "projectId": pid })).await, "feat/lost").is_none());
+    std::fs::remove_file(repo.join("base.txt")).unwrap();
+
+    // The branch exists while this hook runs.
+    hook(&repo, "post-checkout", "sleep 1");
+    let create = tokio::spawn({
+        let (k, p) = (k.clone(), item("feat/child"));
+        async move { call(&k, "items.create", p).await }
+    });
+    while rev(&repo, "feat/child").is_empty() {
+        assert!(!create.is_finished(), "items.create ended without making feat/child");
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    let ov = call(&k, "workspace.overview", json!({ "projectId": pid })).await;
+    assert_eq!(get(&ov, "feat/child").unwrap()["parent"], "feat/base");
+    create.await.unwrap();
+}
+
 #[tokio::test]
 async fn removing_a_worktree_never_deletes_another_folder() {
     let tmp = tempfile::tempdir().unwrap();

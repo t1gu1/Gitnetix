@@ -5240,19 +5240,9 @@ impl Gitnetix {
         if git.ref_exists(&format!("refs/heads/{branch}")).await? {
             return Err(Error::Invalid(format!("{branch} already exists")));
         }
-        let mut worktree = None;
         // An agent always gets its own worktree, so it keeps working while the main checkout moves on.
-        let cwd = if req.r#where == "worktree" || req.start_agent {
-            let path = worktree_path(&p, &branch);
-            git.worktree_add(&path, &branch, Some(&start)).await?;
-            init_submodules(&path).await;
-            copy_worktree_files(&self.store, &p, &path).await;
-            worktree = Some(path.to_string_lossy().to_string());
-            path
-        } else {
-            git.switch_create(&branch, &start).await?;
-            top_path(&p)
-        };
+        let wt_path = (req.r#where == "worktree" || req.start_agent).then(|| worktree_path(&p, &branch));
+        let worktree = wt_path.as_ref().map(|path| path.to_string_lossy().to_string());
         let meta = BranchMeta {
             kind: kind.clone(),
             release: release.as_ref().map(|r| r.version.clone()),
@@ -5262,8 +5252,35 @@ impl Gitnetix {
             description: Some(req.description.clone()),
             created_at: now(),
         };
+        // Saved before git makes the branch: a refresh while git works (a worktree checking out files) files it under its parent
+        // at once, instead of under a guess that moves once the parent is saved.
+        let before = self.store.with_project(project_id, |p| Ok(p.branches.insert(branch.clone(), meta)))?;
+        let made = match &wt_path {
+            Some(path) => git.worktree_add(path, &branch, Some(&start)).await,
+            None => git.switch_create(&branch, &start).await,
+        };
+        if let Err(e) = made {
+            // A failing hook fails git after it made the branch: that branch keeps its parent.
+            if !git.ref_exists(&format!("refs/heads/{branch}")).await.unwrap_or(true) {
+                self.store.with_project(project_id, |p| {
+                    match before {
+                        Some(m) => p.branches.insert(branch.clone(), m),
+                        None => p.branches.remove(&branch),
+                    };
+                    Ok(())
+                })?;
+            }
+            return Err(e);
+        }
+        let cwd = match wt_path {
+            Some(path) => {
+                init_submodules(&path).await;
+                copy_worktree_files(&self.store, &p, &path).await;
+                path
+            }
+            None => top_path(&p),
+        };
         self.store.with_project(project_id, |p| {
-            p.branches.insert(branch.clone(), meta);
             // A prefix used for the first time joins the dialogs' types.
             p.branch_types.add(&kind);
             if let (Some(t), Some(r)) = (req.ticket.as_ref().filter(|t| !t.is_empty()), &release) {
