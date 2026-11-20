@@ -14,3 +14,8 @@ Rules:
 - Branch views are saved per project in `~/.config/gitnetix/overview-cache/<id>.json`, keyed by the ref fingerprint and `VIEW_CACHE_VERSION` (`crates/core/src/app.rs`). Branches whose refs did not move reuse their saved view.
 - When you change how a `BranchView` field is computed (`branch_view`, `plain_view`), bump `VIEW_CACHE_VERSION` in the same change. Otherwise tests pass but the running app keeps showing the old values.
 - When the app shows stale branch state that the code says should have changed, check that branch in the cache JSON first.
+
+## App logs
+
+- The app appends every Logs page entry to `<data dir>/logs/gitnetix.log`. On macOS that is `~/Library/Application Support/gitnetix/logs/gitnetix.log`, or `$GITNETIX_HOME/logs/` when `GITNETIX_HOME` is set. Past 5 MB the file moves to `gitnetix.old.log` (`crates/core/src/log.rs`).
+- Each run starts with a `Started Gitnetix` line: the version, or for a dev build the last tag, the branch and the commit. To debug a run, read the log from the last `Started Gitnetix` line onward.

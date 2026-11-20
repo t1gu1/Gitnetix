@@ -2570,7 +2570,8 @@ impl Gitnetix {
         let (events, _) = broadcast::channel(1024);
         let agents = AgentManager::new(events.clone(), dir);
         let shells = crate::shell::Shells::new(events.clone());
-        crate::log::attach(events.clone());
+        crate::log::attach(events.clone(), dir);
+        crate::log::started();
         let k = Arc::new(Gitnetix { store, agents, shells, events, dir: dir.to_path_buf(), dictation: Default::default(), protected: Default::default(), watcher: Default::default(), commits: CommitCache::open(dir), views: ViewCache::open(dir.join("overview-cache")), history: Default::default(), building: Default::default(), cleaning: Default::default(), shipped: Default::default(), hosted: Default::default(), auto_fetch: Default::default(), worktrees: LastCache::open(dir.join("worktrees-cache.json")), drafts: Default::default(), sprint_fetches: Default::default(), runs: Default::default(), publishing: Default::default() });
         k.rewatch();
         Ok(k)
