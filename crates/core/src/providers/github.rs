@@ -20,6 +20,9 @@ pub struct PrSummary {
     pub number: u64,
     pub title: String,
     pub head: String,
+    /// Its head branch lives in a fork, not in origin: a branch of the same name here is not it.
+    #[serde(default)]
+    pub fork: bool,
     pub base: String,
     /// open | draft | merged | closed
     pub state: String,
@@ -460,6 +463,8 @@ impl GitHub {
             number: v["number"].as_u64().unwrap_or(0),
             title: v["title"].as_str().unwrap_or("").into(),
             head: v["head"]["ref"].as_str().unwrap_or("").into(),
+            // A deleted fork leaves `head.repo` null: a fork still.
+            fork: v["head"]["repo"]["full_name"] != v["base"]["repo"]["full_name"],
             base: v["base"]["ref"].as_str().unwrap_or("").into(),
             state: state.into(),
             mine: author == me,
@@ -749,6 +754,15 @@ impl GitHub {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tells_a_pull_request_from_a_fork() {
+        let pr = |head: Value| GitHub::summary(&json!({ "number": 1, "title": "T", "head": { "ref": "release/2.5", "repo": head }, "base": { "ref": "main", "repo": { "full_name": "us/r" } }, "user": { "login": "x" }, "state": "open" }), "me");
+        assert!(!pr(json!({ "full_name": "us/r" })).fork);
+        assert!(pr(json!({ "full_name": "them/r" })).fork);
+        // Its fork deleted since: still not origin's branch.
+        assert!(pr(Value::Null).fork);
+    }
 
     /// A fake API serving `/user/repos` pages of 100, 100 and 1 repositories.
     #[tokio::test]

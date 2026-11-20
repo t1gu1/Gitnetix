@@ -216,6 +216,7 @@ impl Bitbucket {
             number: v["id"].as_u64().unwrap_or(0),
             title: v["title"].as_str().unwrap_or("").into(),
             head: v["source"]["branch"]["name"].as_str().unwrap_or("").into(),
+            fork: v["source"]["repository"]["full_name"] != v["destination"]["repository"]["full_name"],
             base: v["destination"]["branch"]["name"].as_str().unwrap_or("").into(),
             state: state.into(),
             mine: v["author"]["uuid"].as_str() == Some(me.uuid.as_str()),
@@ -404,6 +405,10 @@ mod tests {
         assert_eq!(pr(json!({ "draft": true })).state, "draft");
         assert_eq!(pr(json!({ "state": "DECLINED" })).state, "closed");
         assert_eq!(pr(json!({ "state": "MERGED" })).state, "merged");
+        // From a fork: its source branch lives in another repository.
+        let repo = |source: &str| json!({ "source": { "branch": { "name": "feat" }, "repository": { "full_name": source } }, "destination": { "branch": { "name": "main" }, "repository": { "full_name": "w/r" } } });
+        assert!(pr(repo("them/r")).fork);
+        assert!(!pr(repo("w/r")).fork);
     }
 
     #[test]

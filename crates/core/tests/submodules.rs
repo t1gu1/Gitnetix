@@ -131,6 +131,34 @@ async fn submodule_manager() {
 }
 
 #[tokio::test]
+async fn submodule_names_climbing_out_of_the_repo_are_skipped() {
+    std::env::set_var("GIT_CONFIG_COUNT", "1");
+    std::env::set_var("GIT_CONFIG_KEY_0", "protocol.file.allow");
+    std::env::set_var("GIT_CONFIG_VALUE_0", "always");
+
+    let tmp = tempfile::tempdir().unwrap();
+    let lib = tmp.path().join("lib");
+    init_repo(&lib, "lib.txt");
+    // The repo sits in `work`: removing `.git/modules/../../..` would delete `work`.
+    let app = tmp.path().join("work/app");
+    init_repo(&app, "app.txt");
+    sh(&app, &["submodule", "add", "-q", lib.to_str().unwrap(), "vendor/lib"]);
+    sh(&app, &["commit", "-qm", "add lib"]);
+    let mut modules = std::fs::read_to_string(app.join(".gitmodules")).unwrap();
+    modules.push_str("[submodule \"../../..\"]\n\tpath = vendor/evil\n\turl = ../evil\n");
+    std::fs::write(app.join(".gitmodules"), modules).unwrap();
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let added = call(&k, "projects.add", json!({ "paths": [app.to_string_lossy()] })).await;
+    let pid = added[0]["id"].as_str().unwrap().to_string();
+
+    let list = call(&k, "submodules.list", json!({ "projectId": pid })).await;
+    let paths: Vec<&str> = list.as_array().unwrap().iter().map(|s| s["path"].as_str().unwrap()).collect();
+    assert_eq!(paths, ["vendor/lib"]);
+    assert!(rpc::call(&k, "submodules.remove", json!({ "projectId": pid, "path": "vendor/evil" })).await.is_err());
+    assert!(app.join("app.txt").exists() && tmp.path().join("work").exists());
+}
+
+#[tokio::test]
 async fn worktree_gets_submodules() {
     std::env::set_var("GIT_CONFIG_COUNT", "1");
     std::env::set_var("GIT_CONFIG_KEY_0", "protocol.file.allow");

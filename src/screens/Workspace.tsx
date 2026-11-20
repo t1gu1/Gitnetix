@@ -23,7 +23,6 @@ import {
   useFiles,
   useFilesProgress,
   useOverview,
-  useOverviewProgress,
   usePendingBranches,
   useProjectPrefs,
   useProjects,
@@ -73,11 +72,17 @@ const BIG_FOLDER = 200;
 /** The flat list draws this many files until "Show all". */
 const MAX_ROWS = 1000;
 
+/** Loads the checked-out branch's uncommitted files even while another branch is shown: each refetch keeps its
+ *  "WIP n" right (syncWipCount). Draws nothing, so a save redraws nothing else. */
+function KeepWipCount({ pid, branch }: { pid: string; branch?: string }) {
+  useFiles(pid, branch, "wip");
+  return null;
+}
+
 export function Workspace() {
   const nav = useNav();
   const pid = nav.projectId!;
   const ov = useOverview(pid);
-  const progress = useOverviewProgress(pid);
   const idle = useIdle();
   useAutoFetch(pid, !!ov.data?.remote && !idle);
   const [mode, setMode] = useState<Mode>("wip");
@@ -106,7 +111,7 @@ export function Workspace() {
   const [cleanup, setCleanup] = useState<{ parent: string; label: string; branches: BranchView[] } | null>(null);
   const [cleanupBehind, setCleanupBehind] = useState<{ section: string; base: string; branches: BranchView[] } | null>(null);
   const [cleanupShipped, setCleanupShipped] = useState<BranchView[] | null>(null);
-  const cleanupLeft = useCleaning(pid);
+  const cleaning = useCleaning(pid);
   // The commit picked in the timeline (none = all the branch's changes).
   const [commit, setCommit] = useState<Commit | undefined>();
   // Stash list in place of the timeline: one branch's ("" = every stash), and the stash picked there.
@@ -240,9 +245,8 @@ export function Workspace() {
 
   // The map needs no file lists: only the focus view loads them.
   const files = useFiles(pid, focused ? branch : undefined, mode, commit?.sha, stash?.sha);
-  const wipList = useFiles(pid, branch, "wip").data ?? [];
-  // Loaded even while another branch is shown: each refetch keeps the current branch's "WIP n" right (syncWipCount).
-  useFiles(pid, o?.currentBranch ?? undefined, "wip");
+  // Only the focus view lists them: on the map, each save would redraw every tile.
+  const wipList = useFiles(pid, focused ? branch : undefined, "wip").data ?? [];
   const wipCount = new Set(wipList.map((f) => f.path)).size;
   const stagedCount = wipList.filter((f) => f.staged).length;
   const branchFiles = useFiles(pid, focused ? branch : undefined, "branch").data ?? [];
@@ -569,6 +573,7 @@ export function Workspace() {
 
   return (
     <>
+      <KeepWipCount pid={pid} branch={o?.currentBranch ?? undefined} />
       {ov.error && (
         <div style={{ padding: 16 }}>
           <ErrorBox error={ov.error} />
@@ -656,12 +661,10 @@ export function Workspace() {
                 onCleanup={(parent, label, branches) => setCleanup({ parent, label, branches })}
                 onCleanupBehind={(section, base, branches) => setCleanupBehind({ section, base, branches })}
                 onCleanupShipped={setCleanupShipped}
-                cleanupLeft={cleanupLeft}
+                cleaning={cleaning}
                 tagItems={tagItems}
                 onStashes={openStashes}
                 building={ov.isPlaceholderData}
-                updating={ov.isFetching && !ov.isPlaceholderData}
-                progress={progress}
                 bar={mapBar}
               />
             ) : (

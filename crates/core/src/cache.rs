@@ -3,53 +3,80 @@
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-/// Past this many answers the commit cache starts over, keeping the file small.
-const MAX_ENTRIES: usize = 20_000;
+/// Answers the commit cache adds before the older ones go: the file holds at most twice this.
+const MAX_ENTRIES: usize = if cfg!(test) { 4 } else { 20_000 };
 
 /// Checks whose answer is fixed for a pair of commits, so it stays true for good: a yes or no,
 /// or a list (patch ids). Keyed by the check's name and both SHAs.
 pub struct CommitCache {
     file: PathBuf,
-    map: Mutex<HashMap<String, Value>>,
+    map: Mutex<Answers>,
     dirty: AtomicBool,
 }
 
+/// Two generations: once `fresh` is full it becomes `old`, and what `old` held goes. An answer read from `old` comes
+/// back to `fresh`, so the ones still asked for live on while those of tips long gone drop out, and a big repository
+/// never loses all of them at once (each lost answer is git work again).
+#[derive(Default)]
+struct Answers {
+    fresh: HashMap<String, Value>,
+    old: HashMap<String, Value>,
+}
+
+impl Answers {
+    fn get(&mut self, key: &str) -> Option<Value> {
+        if let Some(answer) = self.fresh.get(key) {
+            return Some(answer.clone());
+        }
+        let answer = self.old.remove(key)?;
+        self.put(key.to_string(), answer.clone());
+        Some(answer)
+    }
+
+    fn put(&mut self, key: String, answer: Value) {
+        if self.fresh.len() >= MAX_ENTRIES {
+            self.old = std::mem::take(&mut self.fresh);
+        }
+        self.fresh.insert(key, answer);
+    }
+}
+
 impl CommitCache {
-    /// Load the answers saved under `dir`; a missing or unreadable file starts empty.
+    /// Load the answers saved under `dir`, as the older generation; a missing or unreadable file starts empty.
     pub fn open(dir: &Path) -> CommitCache {
         let file = dir.join("commit-cache.json");
-        let map = std::fs::read(&file).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
-        CommitCache { file, map: Mutex::new(map), dirty: AtomicBool::new(false) }
+        let old = std::fs::read(&file).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+        CommitCache { file, map: Mutex::new(Answers { fresh: HashMap::new(), old }), dirty: AtomicBool::new(false) }
     }
 
     pub fn get<T: DeserializeOwned>(&self, check: &str, tip: &str, base: &str) -> Option<T> {
-        let answer = self.map.lock().unwrap().get(&format!("{check}:{tip}:{base}"))?.clone();
+        let answer = self.map.lock().unwrap().get(&format!("{check}:{tip}:{base}"))?;
         serde_json::from_value(answer).ok()
     }
 
     pub fn insert(&self, check: &str, tip: &str, base: &str, answer: impl Serialize) {
         let Ok(answer) = serde_json::to_value(answer) else { return };
-        let mut map = self.map.lock().unwrap();
-        if map.len() >= MAX_ENTRIES {
-            map.clear();
-        }
-        map.insert(format!("{check}:{tip}:{base}"), answer);
+        self.map.lock().unwrap().put(format!("{check}:{tip}:{base}"), answer);
         self.dirty.store(true, Ordering::Relaxed);
     }
 
-    /// Write new answers to disk, if there are any.
+    /// Write new answers to disk, if there are any: both generations, in one map.
     pub fn save(&self) {
         if !self.dirty.swap(false, Ordering::Relaxed) {
             return;
         }
-        let Ok(json) = serde_json::to_string(&*self.map.lock().unwrap()) else { return };
+        let json = {
+            let a = self.map.lock().unwrap();
+            serde_json::to_string(&a.old.iter().chain(&a.fresh).collect::<HashMap<_, _>>())
+        };
+        let Ok(json) = json else { return };
         write_atomic(&self.file, json);
     }
 }
@@ -146,11 +173,14 @@ pub fn key_of(parts: &[&str]) -> u64 {
     h.finish()
 }
 
-/// Temp file and rename so a reader never sees a torn file.
+/// Temp file and rename so a reader never sees a torn file. Each write its own temp name: two writers of one file (the
+/// app and gitnetix-server share the data folder, two projects' builds save the commit cache) would otherwise rename
+/// each other's half-written one into place.
 fn write_atomic(file: &Path, contents: String) {
-    let tmp = file.with_extension("json.tmp");
-    if std::fs::write(&tmp, contents).is_ok() {
-        let _ = std::fs::rename(&tmp, file);
+    static WRITES: AtomicU64 = AtomicU64::new(0);
+    let tmp = file.with_extension(format!("json.{}.{}.tmp", std::process::id(), WRITES.fetch_add(1, Ordering::Relaxed)));
+    if std::fs::write(&tmp, contents).and_then(|_| std::fs::rename(&tmp, file)).is_err() {
+        let _ = std::fs::remove_file(&tmp);
     }
 }
 
@@ -170,6 +200,51 @@ mod tests {
         assert_eq!(again.get::<bool>("squash2", "a", "b"), Some(true));
         assert_eq!(again.get::<Vec<String>>("patches", "a", "c"), Some(vec!["p1".to_string(), "p2".to_string()]));
         assert_eq!(again.get::<bool>("patches", "a", "c"), None);
+    }
+
+    #[test]
+    fn a_full_cache_drops_the_answers_nobody_read_again() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = CommitCache::open(dir.path());
+        for i in 0..MAX_ENTRIES {
+            cache.insert("ancestor", &format!("t{i}"), "b", true);
+        }
+        // Full: the next answers start a new generation, and every earlier one is still there.
+        cache.insert("ancestor", "new", "b", true);
+        assert!((0..MAX_ENTRIES).all(|i| cache.get::<bool>("ancestor", &format!("t{i}"), "b") == Some(true)));
+        // Reading them brought them back; filling up twice more drops only what was not read since.
+        cache.insert("ancestor", "read-later", "b", false);
+        for i in 0..2 * MAX_ENTRIES {
+            cache.insert("ancestor", &format!("n{i}"), "b", true);
+            if i == MAX_ENTRIES {
+                assert_eq!(cache.get::<bool>("ancestor", "read-later", "b"), Some(false));
+            }
+        }
+        assert_eq!(cache.get::<bool>("ancestor", "read-later", "b"), Some(false));
+        assert_eq!(cache.get::<bool>("ancestor", "t0", "b"), None);
+        // Both generations reach the file, and come back from it.
+        cache.save();
+        assert_eq!(CommitCache::open(dir.path()).get::<bool>("ancestor", "read-later", "b"), Some(false));
+    }
+
+    #[test]
+    fn writers_of_one_file_never_tear_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("views.json");
+        std::thread::scope(|s| {
+            for t in 0..8 {
+                let file = &file;
+                s.spawn(move || {
+                    for i in 0..50 {
+                        write_atomic(file, format!("{{\"writer\":{t},\"write\":{i},\"pad\":\"{}\"}}", "x".repeat(10_000)));
+                    }
+                });
+            }
+        });
+        let last: Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+        assert_eq!(last["pad"].as_str().unwrap().len(), 10_000);
+        let left: Vec<_> = std::fs::read_dir(dir.path()).unwrap().map(|e| e.unwrap().file_name()).collect();
+        assert_eq!(left, vec![std::ffi::OsString::from("views.json")], "no temp file left behind");
     }
 
     #[test]

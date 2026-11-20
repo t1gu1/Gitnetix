@@ -2,7 +2,7 @@
 //! companion HTTP API for mobile, MCP bridge). All behaviour lives here;
 //! `rpc` only maps method names onto these calls.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
@@ -42,6 +42,8 @@ pub struct Gitnetix {
     commits: CommitCache,
     /// Every project's branch views as last built, with the refs they were built from.
     views: ViewCache<BuiltViews>,
+    /// Each project's history walks as last read ([`Gitnetix::history`]); one read at a time per project.
+    history: std::sync::Mutex<HashMap<String, Arc<tokio::sync::Mutex<Option<History>>>>>,
     /// Held while a project's branch views build: a refresh asked meanwhile waits, then reuses them.
     building: std::sync::Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
     /// Projects with a branch cleanup running, once per cleanup: their views wait for it to end to rebuild.
@@ -91,6 +93,18 @@ const HOSTED_TTL: std::time::Duration = std::time::Duration::from_secs(300);
 /// Least time between two looks at a project's origin, however many windows and phone pages ask.
 pub const AUTO_FETCH_GAP: std::time::Duration = std::time::Duration::from_secs(4);
 
+/// Time before looking at origin again once it stayed unchanged for `quiet`: a fifth of it, from [`AUTO_FETCH_GAP`]
+/// up to a minute (5 minutes quiet). An idle repo open all day was asked every few seconds.
+fn ask_gap(quiet: std::time::Duration) -> std::time::Duration {
+    (quiet / 5).clamp(AUTO_FETCH_GAP, std::time::Duration::from_secs(60))
+}
+
+/// Longest the background check waits on origin's tips, then on the fetch, before giving up (git is killed with it). A
+/// connection left hanging (the laptop slept, the network changed) otherwise holds the project's check until TCP gives
+/// up, hours later. The fetch gets longer: a big one can take minutes.
+const TIPS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(if cfg!(test) { 2 } else { 60 });
+const FETCH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15 * 60);
+
 /// [`Gitnetix::auto_fetch`]'s state for one project.
 #[derive(Default)]
 struct AutoFetch {
@@ -98,6 +112,8 @@ struct AutoFetch {
     asked: Option<Instant>,
     /// Origin's tips ([`Git::remote_tips`]) at the last fetch.
     tips: Option<String>,
+    /// When those tips last moved (the first look counts): the longer ago, the less often origin is asked.
+    moved: Option<Instant>,
     /// When the git host was last asked again about pull requests.
     hosted: Option<Instant>,
     /// [`Git::own_ssh`]; none until read, and again after a failed check (the ssh setting may be why).
@@ -289,10 +305,7 @@ pub struct ReleaseView {
     pub branch: String,
     pub base: String,
     pub open: bool,
-    pub items: Vec<BranchView>,
     pub note: String,
-    /// The release branch itself (open releases only).
-    pub view: Option<BranchView>,
     /// Git tag it shipped as (shipped releases only).
     pub tag_name: Option<String>,
     /// HEAD is detached on its tag.
@@ -331,18 +344,26 @@ pub struct ReleaseCount {
     pub commits: u32,
 }
 
+/// What the overview's readers use of the project; the rest of it (every branch's settings, prefs) comes with `config.get`
+/// and made every reply as big again in the projects that use them most.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OverviewProject {
+    pub id: String,
+    pub name: String,
+    pub path: String,
+    pub releases: Vec<Release>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Overview {
-    pub project: Project,
+    pub project: OverviewProject,
     pub current_branch: Option<String>,
     pub default_branch: String,
     pub releases: Vec<ReleaseView>,
-    /// Branches no release claims (excluding default and release/*).
-    pub other_branches: Vec<BranchView>,
-    /// The default branch itself (tracking state for pull/push).
-    pub default_view: Option<BranchView>,
-    /// Every branch (local, origin-only and tracked-but-gone), each with its parent.
+    /// Every branch (local, origin-only and tracked-but-gone), each with its parent: the only copy of each view, a release's
+    /// branches being those whose `release` is its version (thousands of branches, each sent twice, doubled every reply).
     pub branches: Vec<BranchView>,
     pub rebasing: bool,
     /// Branch the main checkout's paused rebase replays onto (the commit when no branch is there).
@@ -448,6 +469,84 @@ pub struct NewItemResult {
     pub branch: String,
     pub worktree: Option<String>,
     pub agent_session: Option<String>,
+}
+
+/// What deleting a branch has left to do once its checks passed: its local branch, and origin's copy at the commit the
+/// checks saw (the push's lease).
+struct DeletePlan {
+    /// The local branch's commit (none: no local branch).
+    tip: Option<String>,
+    theirs: Option<String>,
+}
+
+/// What deleting branches checks them against, read once for all of them: their commits, their checkouts, and per base
+/// the refs in its history (one ref listing per base; each branch took about 10 git calls before).
+struct DeleteRefs {
+    default: String,
+    /// Local branches and origin's, by full ref name.
+    tips: HashMap<String, String>,
+    /// The worktree each checked-out branch is in.
+    checkouts: HashMap<String, PathBuf>,
+    /// Base → the refs in its history, at their commit then; read on first use.
+    merged: tokio::sync::Mutex<HashMap<String, Arc<HashMap<String, String>>>>,
+}
+
+impl DeleteRefs {
+    async fn read(git: &Git) -> Result<DeleteRefs> {
+        Ok(DeleteRefs {
+            default: git.default_branch().await?,
+            tips: git.ref_tips(&["refs/heads", "refs/remotes/origin"], None).await?,
+            checkouts: git.worktrees().await?.into_iter().filter_map(|w| Some((w.branch?, PathBuf::from(w.path)))).collect(),
+            merged: Default::default(),
+        })
+    }
+
+    /// Commit of `rev` spelled like [`Refs::rev`] (`main`, `origin/main`), as read here.
+    fn sha(&self, rev: &str) -> Option<&String> {
+        self.tips.get(&format!("refs/heads/{rev}")).or_else(|| self.tips.get(&format!("refs/remotes/origin/{}", rev.strip_prefix("origin/")?)))
+    }
+
+    /// [`Git::is_squash_merged`] for full ref `r` at the commit read here: the answer the branch map saved for the pair of
+    /// commits (its squash index answers for every branch it shows), else git's own check, saved for next time.
+    async fn squashed(&self, git: &Git, cache: &CommitCache, r: &str, base: &str) -> bool {
+        let (Some(tip), Some(base_tip)) = (self.tips.get(r), self.sha(base)) else {
+            return git.is_squash_merged(r, base).await.unwrap_or(false);
+        };
+        if let Some(hit) = cache.get("squash2", tip, base_tip) {
+            return hit;
+        }
+        let Ok(squashed) = git.is_squash_merged(r, base).await else { return false };
+        cache.insert("squash2", tip, base_tip, squashed);
+        squashed
+    }
+
+    /// [`Git::rev_of`] as read here: the local branch, else origin's copy, else `name` as given.
+    fn rev_of(&self, name: &str) -> String {
+        if self.tips.contains_key(&format!("refs/heads/{name}")) {
+            name.into()
+        } else if self.tips.contains_key(&format!("refs/remotes/origin/{name}")) {
+            format!("origin/{name}")
+        } else {
+            name.into()
+        }
+    }
+
+    /// [`Git::is_ancestor`] for full ref `r` at the commit read here: no when it moved since.
+    async fn in_history(&self, git: &Git, r: &str, base: &str) -> bool {
+        let merged = {
+            let mut all = self.merged.lock().await;
+            match all.get(base) {
+                Some(m) => m.clone(),
+                None => {
+                    // A base git can't read holds nothing, as `is_ancestor` answers.
+                    let m = Arc::new(git.ref_tips(&["refs/heads", "refs/remotes/origin"], Some(base)).await.unwrap_or_default());
+                    all.insert(base.into(), m.clone());
+                    m
+                }
+            }
+        };
+        merged.get(r).is_some_and(|sha| self.tips.get(r) == Some(sha))
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -991,6 +1090,14 @@ fn release_branch(version: &str) -> String {
 const CHANGELOG: &str = "CHANGELOG.md";
 
 /// Refused while CHANGELOG.md has uncommitted changes in the checkout at `dir`.
+/// Refuses a file the checkout holds as a symbolic link: a branch can point one anywhere on disk, and a write follows it.
+fn not_a_link(file: &Path) -> Result<()> {
+    if std::fs::symlink_metadata(file).is_ok_and(|m| m.file_type().is_symlink()) {
+        return Err(Error::Invalid(format!("{} is a symbolic link: Gitnetix does not write through it", file.display())));
+    }
+    Ok(())
+}
+
 async fn clean_changelog(g: &Git, dir: &Path) -> Result<()> {
     if !g.run(&["status", "--porcelain", "--", CHANGELOG]).await?.trim().is_empty() {
         return Err(Error::Invalid(format!("{CHANGELOG} has uncommitted changes at {}", dir.display())));
@@ -1343,10 +1450,12 @@ struct Refs {
     /// Position of each branch in `local` and `remote`, by name.
     local_at: HashMap<String, usize>,
     remote_at: HashMap<String, usize>,
-    /// Merge commit subject, keyed by the tip it merged in; read on first use (a long history walk).
-    merges: OnceCell<HashMap<String, String>>,
-    /// Set when most branches get compared: counts then come from one ref scan per base.
-    batch: bool,
+    /// Merge commit subject, keyed by the tip it merged in; read on first use (a long history walk) unless
+    /// [`Refs::set_history`] gave it.
+    merges: OnceCell<Arc<HashMap<String, String>>>,
+    /// Set when most branches get compared: counts then come from one ref scan per base, and merge checks from the
+    /// whole commit graph. Off, each branch asks git: cheaper for a few branches in a big repository.
+    batch: std::sync::atomic::AtomicBool,
     /// `left_right` of every branch against a base, keyed by base, read on first use.
     counts: std::sync::Mutex<HashMap<String, Arc<OnceCell<Counts>>>>,
     /// (ahead, behind) of local branches against their upstream, read on first use.
@@ -1354,12 +1463,14 @@ struct Refs {
     /// Patch id of each commit only shipped releases hold (not the default branch), to the
     /// lowest version holding it; read on first use.
     shipped_patches: OnceCell<Arc<ShippedIndex>>,
-    /// Pull request squashes ([`Git::pr_squashes`]), read on first use.
-    squashes: OnceCell<Vec<PrSquash>>,
+    /// Pull request squashes ([`Git::pr_squashes`]), read on first use unless [`Refs::set_history`] gave them.
+    squashes: OnceCell<Arc<Vec<PrSquash>>>,
     /// Branches holding a commit ([`Git::branches_containing`]), by commit, read on first use.
     containing: std::sync::Mutex<HashMap<String, Arc<OnceCell<Vec<String>>>>>,
     /// Every commit and its parents, read on first use; None when too big or unreadable.
     graph: OnceCell<Option<Graph>>,
+    /// [`SquashIndex`] against each base, read on first use while batched.
+    squash_indexes: std::sync::Mutex<HashMap<String, Arc<OnceCell<Option<Arc<SquashIndex>>>>>>,
     /// Completed pull requests that took in branch tips, by tip, as the git host said.
     hosted: HashMap<String, Vec<MergedPr>>,
 }
@@ -1377,13 +1488,14 @@ impl Refs {
             local,
             remote,
             merges: OnceCell::new(),
-            batch: false,
+            batch: Default::default(),
             counts: Default::default(),
             upstream: OnceCell::new(),
             shipped_patches: OnceCell::new(),
             squashes: OnceCell::new(),
             containing: Default::default(),
             graph: OnceCell::new(),
+            squash_indexes: Default::default(),
             hosted: HashMap::new(),
         }
     }
@@ -1401,14 +1513,23 @@ impl Refs {
         tips
     }
 
-    /// Answer `left_right` from batched ref scans: for views comparing every branch.
-    fn batched(self) -> Refs {
-        Refs { batch: true, ..self }
+    /// Answer `left_right` from batched ref scans and merge checks from the commit graph: for views comparing most branches.
+    fn set_batch(&self, on: bool) {
+        self.batch.store(on, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    fn batch(&self) -> bool {
+        self.batch.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// The history walks' answers, read already (see [`Gitnetix::history`]).
+    fn set_history(&self, merges: Arc<HashMap<String, String>>, squashes: Arc<Vec<PrSquash>>) {
+        let _ = (self.merges.set(merges), self.squashes.set(squashes));
     }
 
     /// `git.left_right(base, rev)`, both revisions as [`Refs::rev`] spells them.
     async fn left_right(&self, git: &Git, base: &str, rev: &str) -> Result<(u32, u32)> {
-        if self.batch {
+        if self.batch() {
             if let Some(c) = self.counts_against(git, base).await.get().and_then(|all| all.get(rev)) {
                 return Ok(*c);
             }
@@ -1419,7 +1540,24 @@ impl Refs {
     /// Every branch's counts against `base`, scanned on first use.
     async fn counts_against(&self, git: &Git, base: &str) -> Arc<OnceCell<Counts>> {
         let cell = self.counts.lock().unwrap().entry(base.to_string()).or_default().clone();
-        cell.get_or_init(|| async { git.left_right_all(base).await.unwrap_or_default() }).await;
+        cell.get_or_init(|| async {
+            if !NO_AHEAD_BEHIND.load(std::sync::atomic::Ordering::Relaxed) {
+                match git.left_right_all(base).await {
+                    Ok(counts) => return counts,
+                    Err(Error::Git { stderr, .. }) if stderr.contains("ahead-behind") => {
+                        NO_AHEAD_BEHIND.store(true, std::sync::atomic::Ordering::Relaxed);
+                        crate::log::info("This git cannot count every branch in one call (that takes git 2.41): the counts come from the commit graph instead, or a git call per branch past 300,000 commits");
+                    }
+                    Err(_) => return Counts::default(),
+                }
+            }
+            // Else each branch would ask git on its own: thousands of processes on a big repository.
+            match (self.graph(git).await, self.sha(base)) {
+                (Some(g), Some(tip)) => g.counts(tip, self.local.iter().map(|b| (b.name.clone(), &b.sha)).chain(self.remote.iter().map(|b| (format!("origin/{}", b.name), &b.sha)))),
+                _ => Counts::default(),
+            }
+        })
+        .await;
         cell
     }
 
@@ -1442,7 +1580,11 @@ impl Refs {
 
     /// (ahead, behind) of local branch `name` against its upstream; zeros when it has none on a remote.
     async fn upstream_counts(&self, git: &Git, name: &str) -> (u32, u32) {
-        let all = self.upstream.get_or_init(|| async { git.upstream_counts().await.unwrap_or_default() }).await;
+        if !self.batch() {
+            let own = git.upstream_counts(&format!("refs/heads/{name}")).await.unwrap_or_default();
+            return own.get(name).copied().unwrap_or((0, 0));
+        }
+        let all = self.upstream.get_or_init(|| async { git.upstream_counts("refs/heads").await.unwrap_or_default() }).await;
         all.get(name).copied().unwrap_or((0, 0))
     }
 
@@ -1467,18 +1609,20 @@ impl Refs {
     }
 
     async fn merges(&self, git: &Git) -> &HashMap<String, String> {
-        self.merges.get_or_init(|| async { git.merge_subjects(5000).await.unwrap_or_default() }).await
+        self.merges.get_or_init(|| async { Arc::new(git.merge_subjects(5000).await.unwrap_or_default()) }).await
     }
 
     async fn squashes(&self, git: &Git) -> &[PrSquash] {
-        self.squashes.get_or_init(|| async { git.pr_squashes(5000).await.unwrap_or_default() }).await
+        self.squashes.get_or_init(|| async { Arc::new(git.pr_squashes(5000).await.unwrap_or_default()) }).await
     }
 
     /// The merges and pull request squashes seen, for view keys: a new one can move any branch.
     async fn history_digest(&self, git: &Git) -> String {
         let mut seen: Vec<String> = self.merges(git).await.iter().map(|(tip, subject)| format!("{tip} {subject}")).collect();
         seen.sort_unstable();
-        seen.extend(self.squashes(git).await.iter().map(|s| s.sha.clone()));
+        let mut squashes: Vec<&str> = self.squashes(git).await.iter().map(|s| s.sha.as_str()).collect();
+        squashes.sort_unstable();
+        seen.extend(squashes.into_iter().map(String::from));
         seen.join("\n")
     }
 
@@ -1530,9 +1674,22 @@ impl Refs {
         false
     }
 
-    /// The commit graph, read on first use.
+    /// The commit graph, read on first use; none unless batched: every commit is a lot to read for a few branches.
     async fn graph(&self, git: &Git) -> Option<&Graph> {
+        if !self.batch() {
+            return None;
+        }
         self.graph.get_or_init(|| Graph::read(git)).await.as_ref()
+    }
+
+    /// [`SquashIndex`] against `base` for the branches no saved answer covers: while batched, when at least 16 need
+    /// one (fewer cost less with a `squash_check` each).
+    async fn squash_index(&self, git: &Git, cache: &CommitCache, base: &str) -> Option<Arc<SquashIndex>> {
+        if !self.batch() {
+            return None;
+        }
+        let cell = self.squash_indexes.lock().unwrap().entry(base.to_string()).or_default().clone();
+        cell.get_or_init(|| SquashIndex::read(self, git, cache, base, 16)).await.clone()
     }
 
     /// [`Git::merge_base`] of two revisions, from the graph when they have a single one.
@@ -1580,6 +1737,9 @@ impl Refs {
         }
     }
 }
+
+/// Set once git refused `%(ahead-behind)` (before 2.41): not asked again, the counts come from the graph.
+static NO_AHEAD_BEHIND: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Past this many commits the graph is not held: git is asked each question instead.
 const GRAPH_MAX: usize = 300_000;
@@ -1672,11 +1832,165 @@ impl Graph {
         (best.len() == 1).then(|| self.sha[best[0] as usize].clone())
     }
 
+    /// (behind, ahead) of each named tip against commit `base`, as [`Git::left_right_all`] gives them: the commits
+    /// only `base` holds, and those only the tip holds. Tips the graph lacks are left out.
+    fn counts<'a>(&self, base: &str, tips: impl Iterator<Item = (String, &'a String)>) -> Counts {
+        let Some(&b) = self.at.get(base) else { return Counts::default() };
+        let held = self.ancestors(b);
+        let in_base = held.iter().filter(|h| **h).count();
+        tips.filter_map(|(name, sha)| {
+            let mine = self.reach(*self.at.get(sha)?, &self.parents);
+            let (mut shared, mut ahead) = (0, 0);
+            for (m, h) in mine.iter().zip(held.iter()) {
+                match (m, h) {
+                    (true, true) => shared += 1,
+                    (true, false) => ahead += 1,
+                    _ => {}
+                }
+            }
+            Some((name, ((in_base - shared) as u32, ahead)))
+        })
+        .collect()
+    }
+
     /// [`Git::merged_by_commit`]: a merge commit in `base_tip` has `tip` as a merged-in parent.
     fn merged_by_commit(&self, tip: &str, base_tip: &str) -> Option<bool> {
         let (t, b) = (*self.at.get(tip)?, *self.at.get(base_tip)?);
         let held = self.ancestors(b);
         Some(self.children[t as usize].iter().any(|&m| held[m as usize] && self.parents[m as usize].iter().skip(1).any(|&p| p == t)))
+    }
+}
+
+/// [`Git::squash_check`]'s answer for one branch, from a [`SquashIndex`].
+enum Squash {
+    /// Squashed (or rebased) in or not, and the commit its squash was looked for from.
+    Known(bool, Option<String>),
+    /// Its oldest commits are in the base already: the squash of the rest, from this commit, is checked on demand.
+    Partial(String),
+}
+
+/// What [`Git::squash_check`] compares, for many branches against one base at once: patch ids of the base's commits
+/// past the oldest fork, and of each branch's own commits and whole change, in three git calls. `squash_check` walks
+/// the base past each branch's fork on its own: branches times history.
+struct SquashIndex {
+    /// Base commits past the oldest fork covered, by patch id.
+    base: HashMap<String, Vec<String>>,
+    /// By branch tip.
+    verdicts: HashMap<String, Squash>,
+    /// Patch ids of a tip's own commits and of its whole change since its fork ([`patches_since`]), for the tips left
+    /// unsquashed with their fork.
+    patches: HashMap<String, (Vec<String>, Option<String>)>,
+}
+
+impl SquashIndex {
+    /// The index of the branches ahead of and behind `base` (spelled like [`Refs::rev`]) that no saved answer covers;
+    /// none when fewer than `min` are, or without the commit graph.
+    async fn read(refs: &Refs, git: &Git, cache: &CommitCache, base: &str, min: usize) -> Option<Arc<SquashIndex>> {
+        let g = refs.graph(git).await?;
+        let base_tip = refs.sha(base)?.to_string();
+        let b = *g.at.get(&base_tip)?;
+        let in_base = g.ancestors(b);
+        let counts = refs.counts_against(git, base).await;
+        let saved = |rev: &str, tip: &str| cache.get::<bool>("squash2", tip, &base_tip).is_some() || cache.get::<serde_json::Value>("unsquashed", tip, &format!("{rev} {base}")).is_some();
+        let mut tips: Vec<&str> = counts
+            .get()?
+            .iter()
+            .filter(|(_, &(behind, ahead))| behind > 0 && ahead > 0)
+            .filter_map(|(rev, _)| refs.sha(rev).filter(|tip| !saved(rev, tip)))
+            .collect();
+        tips.sort_unstable();
+        tips.dedup();
+        if tips.is_empty() || tips.len() < min {
+            return None;
+        }
+        // Each tip's fork, and its own commits (not in the base, merges left out) oldest first, like `rev-list --reverse`.
+        let mut found: Vec<(&str, u32, Vec<u32>)> = Vec::new();
+        for tip in tips {
+            let (Some(&t), Some(fork)) = (g.at.get(tip), g.merge_base(&base_tip, tip)) else { continue };
+            let Some(&fork) = g.at.get(&fork) else { continue };
+            let (mut own, mut seen, mut todo) = (Vec::new(), std::collections::HashSet::new(), vec![t]);
+            while let Some(c) = todo.pop() {
+                if in_base[c as usize] || !seen.insert(c) {
+                    continue;
+                }
+                if g.parents[c as usize].len() <= 1 {
+                    own.push(c);
+                }
+                todo.extend(g.parents[c as usize].iter().filter(|&&p| p != u32::MAX));
+            }
+            // The graph lists newest first.
+            own.sort_unstable_by(|a, b| b.cmp(a));
+            found.push((tip, fork, own));
+        }
+        // The base's commits past the oldest fork: past every other fork too, for those it holds (the rest are left out).
+        let oldest = found.iter().map(|f| f.1).max()?;
+        let after = g.reach(oldest, &g.children);
+        found.retain(|f| after[f.1 as usize]);
+        let before = g.ancestors(oldest);
+        let (mut base_list, mut seen, mut todo) = (Vec::new(), std::collections::HashSet::new(), vec![b]);
+        while let Some(c) = todo.pop() {
+            if before[c as usize] || !seen.insert(c) {
+                continue;
+            }
+            if g.parents[c as usize].len() <= 1 {
+                base_list.push(g.sha[c as usize].clone());
+            }
+            todo.extend(g.parents[c as usize].iter().filter(|&&p| p != u32::MAX));
+        }
+        let own_list: Vec<String> = found.iter().flat_map(|f| f.2.iter().map(|&c| g.sha[c as usize].clone())).collect::<std::collections::HashSet<_>>().into_iter().collect();
+        let whole_list: Vec<String> = found.iter().map(|f| format!("{} {}", f.0, g.sha[f.1 as usize])).collect();
+        let (base_ids, own_ids, whole_ids) = tokio::join!(git.patch_ids_stdin(&base_list), git.patch_ids_stdin(&own_list), git.patch_ids_stdin(&whole_list));
+        let mut by_id: HashMap<String, Vec<String>> = HashMap::new();
+        for (id, c) in base_ids.ok()? {
+            by_id.entry(id).or_default().push(c);
+        }
+        let own_id: HashMap<String, String> = own_ids.ok()?.into_iter().map(|(id, c)| (c, id)).collect();
+        let whole: HashMap<String, String> = whole_ids.ok()?.into_iter().map(|(id, tip)| (tip, id)).collect();
+        let (mut verdicts, mut patches) = (HashMap::new(), HashMap::new());
+        for (tip, fork, own) in found {
+            // A base commit with the patch, past the fork: the only ones `rev-list --cherry` compares with.
+            let mut forked: Option<Vec<bool>> = None;
+            let mut held = |id: &str| -> bool {
+                let Some(commits) = by_id.get(id) else { return false };
+                let mine = forked.get_or_insert_with(|| g.reach(fork, &g.parents));
+                commits.iter().any(|c| g.at.get(c).is_some_and(|&c| !mine[c as usize]))
+            };
+            let ids: Vec<Option<&String>> = own.iter().map(|&c| own_id.get(&g.sha[c as usize])).collect();
+            let marks: Vec<bool> = ids.iter().map(|id| id.is_some_and(|id| held(id))).collect();
+            let upstream = marks.iter().take_while(|m| **m).count();
+            let verdict = if !marks.is_empty() && upstream == marks.len() {
+                Squash::Known(true, None)
+            } else if upstream > 0 && marks[upstream..].iter().all(|m| !m) {
+                Squash::Partial(g.sha[own[upstream - 1] as usize].clone())
+            } else {
+                let squashed = whole.get(tip).is_some_and(|id| held(id));
+                if !squashed {
+                    patches.insert(tip.to_string(), (ids.iter().flatten().map(|id| id.to_string()).collect(), whole.get(tip).cloned()));
+                }
+                Squash::Known(squashed, Some(g.sha[fork as usize].clone()))
+            };
+            verdicts.insert(tip.to_string(), verdict);
+        }
+        Some(Arc::new(SquashIndex { base: by_id, verdicts, patches }))
+    }
+
+    /// [`Git::squash_check`]'s answer for the branch at `tip`; None when the index leaves it out.
+    async fn verdict(&self, git: &Git, cache: &CommitCache, tip: &str) -> Option<(bool, Option<String>)> {
+        match self.verdicts.get(tip)? {
+            Squash::Known(squashed, from) => Some((*squashed, from.clone())),
+            Squash::Partial(parent) => {
+                // The squash of the rest, from the last commit already in the base, past the fork too.
+                let id = git.diff_patch_id(parent, tip).await.ok()?;
+                let mut squashed = false;
+                for c in id.and_then(|id| self.base.get(&id)).into_iter().flatten() {
+                    if ancestor(git, cache, c, tip).await == Some(false) {
+                        squashed = true;
+                        break;
+                    }
+                }
+                Some((squashed, Some(parent.clone())))
+            }
+        }
     }
 }
 
@@ -1722,12 +2036,31 @@ async fn proved_landed(git: &Git, refs: &Refs, cache: &CommitCache, rev: &str, b
                 }
             }
         }
-        // The fork from the commit graph when it has it: one git call fewer per branch.
-        let fork = refs.merge_base(git, base, rev).await.ok();
-        let Ok((squashed, from)) = git.squash_check(rev, base, fork.as_deref()).await else { return false };
+        // Many branches at once: from one index of patch ids (see `SquashIndex`). Else, and for one it leaves out, git's own check.
+        let index = match shas {
+            Some(_) => refs.squash_index(git, cache, base).await,
+            None => None,
+        };
+        let known = match (&index, shas) {
+            (Some(index), Some((t, _))) => index.verdict(git, cache, t).await,
+            _ => None,
+        };
+        let (squashed, from) = match known {
+            Some(answer) => answer,
+            None => {
+                // The fork from the commit graph when it has it: one git call fewer per branch.
+                let fork = refs.merge_base(git, base, rev).await.ok();
+                let Ok(answer) = git.squash_check(rev, base, fork.as_deref()).await else { return false };
+                answer
+            }
+        };
         if let Some((t, b)) = shas {
             cache.insert("squash2", t, b, squashed);
             if let (false, Some(from)) = (squashed, from) {
+                // What `still_unsquashed` reads the next time the base moves, when the index read it already.
+                if let Some(patches) = index.as_ref().and_then(|i| i.patches.get(t)) {
+                    cache.insert("patch-ids", t, &from, patches);
+                }
                 cache.insert("unsquashed", t, &pair, (b, ahead, from));
             }
         }
@@ -1774,13 +2107,13 @@ async fn still_unsquashed(git: &Git, cache: &CommitCache, tip: &str, at: &str, b
     if ancestor(git, cache, at, base_tip).await != Some(true) {
         return false;
     }
-    let added: Vec<String> = match cache.get("patches-added", base_tip, at) {
+    let added: Vec<String> = match cache.get("patch-ids-added", base_tip, at) {
         Some(ids) => ids,
         None => {
             let not_at = format!("^{at}");
             let Ok(list) = git.patch_ids(&[base_tip, &not_at]).await else { return false };
             let ids: Vec<String> = list.into_iter().map(|(id, _)| id).collect();
-            cache.insert("patches-added", base_tip, at, &ids);
+            cache.insert("patch-ids-added", base_tip, at, &ids);
             ids
         }
     };
@@ -1791,14 +2124,14 @@ async fn still_unsquashed(git: &Git, cache: &CommitCache, tip: &str, at: &str, b
 /// Patch ids of what `tip` adds to `fork`: each commit's, and the whole change's (None: no change).
 /// Fixed for the pair: read once, not again each time a base moves on. None when git failed.
 async fn patches_since(git: &Git, cache: &CommitCache, tip: &str, fork: &str) -> Option<(Vec<String>, Option<String>)> {
-    if let Some(ids) = cache.get("patches", tip, fork) {
+    if let Some(ids) = cache.get("patch-ids", tip, fork) {
         return Some(ids);
     }
     let not_fork = format!("^{fork}");
     let revs = [tip, not_fork.as_str()];
     let (each, whole) = tokio::join!(git.patch_ids(&revs), git.diff_patch_id(fork, tip));
     let ids = (each.ok()?.into_iter().map(|(id, _)| id).collect::<Vec<_>>(), whole.ok()?);
-    cache.insert("patches", tip, fork, &ids);
+    cache.insert("patch-ids", tip, fork, &ids);
     Some(ids)
 }
 
@@ -1932,7 +2265,7 @@ fn plain_view(p: &Project, refs: &Refs, name: &str, parent: Option<String>) -> B
 }
 
 /// Bump when branch views are built differently, so saved ones are not reused.
-const VIEW_CACHE_VERSION: &str = "14";
+const VIEW_CACHE_VERSION: &str = "15";
 
 /// Commits counted past the start of a history with no tag behind it: the default branch's unreleased ones, a
 /// first release's.
@@ -1959,8 +2292,55 @@ async fn since_last_tag(git: &Git, rev: &str) -> (Option<String>, u32) {
 /// what Gitnetix knows about its releases and branches, and what the git host said.
 fn view_key(p: &Project, default: &str, fingerprint: &str, hosted: &str) -> u64 {
     let releases = serde_json::to_string(&p.releases).unwrap_or_default();
-    let branches = serde_json::to_string(&p.branches).unwrap_or_default();
+    // Only the settings views read: a branch's worktree, description or creation date moves none of them.
+    let read: Vec<_> = p.branches.iter().map(|(name, m)| (name, &m.kind, &m.release, &m.parent, &m.ticket)).collect();
+    let branches = serde_json::to_string(&read).unwrap_or_default();
     key_of(&[VIEW_CACHE_VERSION, env!("CARGO_PKG_VERSION"), default, fingerprint, &releases, &branches, hosted])
+}
+
+/// A project's merge subjects and pull request squashes, as walked at refs `fingerprint` (see [`Gitnetix::history`]).
+struct History {
+    fingerprint: String,
+    merges: Arc<HashMap<String, String>>,
+    squashes: Arc<Vec<PrSquash>>,
+}
+
+/// Whether the refs moved from fingerprint `before` to `after` only forward (none deleted or rewritten), and every
+/// commit they brought is plain: no merge commit, no pull request squash. The history walks then answer as they did
+/// at `before`. False when unsure.
+async fn same_history(git: &Git, before: &str, after: &str) -> bool {
+    let tips = |f: &str| -> HashMap<String, String> {
+        f.lines()
+            .filter_map(|l| {
+                let mut w = l.split(' ');
+                Some((w.next()?.to_string(), w.next()?.to_string()))
+            })
+            .collect()
+    };
+    let (old, new) = (tips(before), tips(after));
+    if old.keys().any(|r| !new.contains_key(r)) {
+        return false;
+    }
+    let moved: Vec<&String> = new.iter().filter(|(r, sha)| old.get(*r) != Some(*sha)).map(|(_, sha)| sha).collect();
+    // shortcut: up to 16 moved refs are checked one by one; a fetch moving more walks the history again.
+    if moved.len() > 16 {
+        return false;
+    }
+    for (r, sha) in new.iter().filter(|(r, sha)| old.get(*r).is_some_and(|was| was != *sha)) {
+        if git.ancestry(&old[r], sha).await.ok().flatten() != Some(true) {
+            return false;
+        }
+    }
+    if moved.is_empty() {
+        return true;
+    }
+    // The commits no ref held before.
+    let mut input: String = moved.iter().map(|sha| format!("{sha}\n")).collect();
+    for sha in old.values().collect::<std::collections::HashSet<_>>() {
+        input.push_str(&format!("^{sha}\n"));
+    }
+    let Ok(out) = git.run_stdin(&["log", "--stdin", "--format=%P%x1f%s"], input).await else { return false };
+    out.lines().all(|l| l.split_once('\x1f').is_some_and(|(parents, subject)| !parents.contains(' ') && !crate::git::is_pr_squash(subject)))
 }
 
 /// Branch views as last built, with what they were built from, so a build after a commit or
@@ -1991,6 +2371,17 @@ fn unmoved_views(p: &Project, default: &str, built: &BuiltViews, now: &str) -> s
             None => return Err(format!("{} changed", r.strip_prefix("refs/").unwrap_or(r))),
         };
     }
+    // A local branch tracking another name (`fix-login` on origin/feature/login) moves with it: its counts against its
+    // upstream, and whether that was force pushed, come from there.
+    let tracking: Vec<String> = after
+        .iter()
+        .filter_map(|l| {
+            let mut w = l.split(' ');
+            let (name, upstream) = (w.next()?.strip_prefix("refs/heads/")?, branch(w.nth(1)?)?);
+            (moved.contains(upstream) && name != upstream).then(|| name.to_string())
+        })
+        .collect();
+    moved.extend(tracking);
     let here: std::collections::HashSet<&str> = after.iter().filter_map(|l| branch(l.split(' ').next()?)).collect();
     // A shipped release branch deleted everywhere (the Shipped cleanup) only moves the branches filed under it.
     // shortcut: a branch it held only partly may now match a later unmerged release's patches; rebuilt on the next shared move.
@@ -2180,7 +2571,7 @@ impl Gitnetix {
         let agents = AgentManager::new(events.clone(), dir);
         let shells = crate::shell::Shells::new(events.clone());
         crate::log::attach(events.clone());
-        let k = Arc::new(Gitnetix { store, agents, shells, events, dir: dir.to_path_buf(), dictation: Default::default(), protected: Default::default(), watcher: Default::default(), commits: CommitCache::open(dir), views: ViewCache::open(dir.join("overview-cache")), building: Default::default(), cleaning: Default::default(), shipped: Default::default(), hosted: Default::default(), auto_fetch: Default::default(), worktrees: LastCache::open(dir.join("worktrees-cache.json")), drafts: Default::default(), sprint_fetches: Default::default(), runs: Default::default(), publishing: Default::default() });
+        let k = Arc::new(Gitnetix { store, agents, shells, events, dir: dir.to_path_buf(), dictation: Default::default(), protected: Default::default(), watcher: Default::default(), commits: CommitCache::open(dir), views: ViewCache::open(dir.join("overview-cache")), history: Default::default(), building: Default::default(), cleaning: Default::default(), shipped: Default::default(), hosted: Default::default(), auto_fetch: Default::default(), worktrees: LastCache::open(dir.join("worktrees-cache.json")), drafts: Default::default(), sprint_fetches: Default::default(), runs: Default::default(), publishing: Default::default() });
         k.rewatch();
         Ok(k)
     }
@@ -2287,18 +2678,47 @@ impl Gitnetix {
     /// Branch `branch` merges into (rebases onto, diffs against); the default branch maps to itself.
     async fn base_of(&self, p: &Project, branch: &str, default: &str) -> String {
         let git = self.git(p);
-        if let Some(parent) = self.cached_parent(p, &git, branch, default).await {
+        let fingerprint = git.ref_fingerprint().await.ok();
+        if let Some(parent) = fingerprint.as_deref().and_then(|f| self.cached_parent(p, f, branch, default)) {
             return parent.unwrap_or_else(|| default.to_string());
         }
         let refs = Refs::load(&git, git.branches().await.unwrap_or_default()).await;
+        if let Some(parent) = declared_parent(p, &refs, default, branch) {
+            return parent.unwrap_or_else(|| default.to_string());
+        }
+        // Asked by every tile of the map right after a ref moved: the history walks come once, not once a tile.
+        if let Some(f) = &fingerprint {
+            let (merges, squashes) = self.history(&p.id, &git, f).await;
+            refs.set_history(merges, squashes);
+        }
         self.base_in(p, &git, &refs, branch, default).await
     }
 
-    /// Parent of `branch` as the last overview found it, as long as no ref moved since.
-    async fn cached_parent(&self, p: &Project, git: &Git, branch: &str, default: &str) -> Option<Option<String>> {
-        let key = view_key(p, default, &git.ref_fingerprint().await.ok()?, &self.hosted_digest(&p.id));
+    /// Parent of `branch` as the last overview found it, as long as no ref moved since (`fingerprint` is now).
+    fn cached_parent(&self, p: &Project, fingerprint: &str, branch: &str, default: &str) -> Option<Option<String>> {
+        let key = view_key(p, default, fingerprint, &self.hosted_digest(&p.id));
         let saved = self.views.get(&p.id, key)?;
         saved.value().views.iter().find(|b| b.name == branch).map(|b| b.parent.clone())
+    }
+
+    /// The history walks' answers (merge subjects, pull request squashes) at refs `fingerprint`: those read last
+    /// when the refs only moved forward since and brought no merge commit or squash; walked again otherwise.
+    async fn history(&self, project_id: &str, git: &Git, fingerprint: &str) -> (Arc<HashMap<String, String>>, Arc<Vec<PrSquash>>) {
+        let slot = self.history.lock().unwrap().entry(project_id.to_string()).or_default().clone();
+        let mut last = slot.lock().await;
+        if let Some(h) = last.as_mut() {
+            if h.fingerprint == fingerprint || same_history(git, &h.fingerprint, fingerprint).await {
+                h.fingerprint = fingerprint.to_string();
+                return (h.merges.clone(), h.squashes.clone());
+            }
+        }
+        let (merges, squashes) = match tokio::join!(git.merge_subjects(5000), git.pr_squashes(5000)) {
+            (Ok(m), Ok(s)) => (Arc::new(m), Arc::new(s)),
+            // Not kept: the next look walks again.
+            (m, s) => return (Arc::new(m.unwrap_or_default()), Arc::new(s.unwrap_or_default())),
+        };
+        *last = Some(History { fingerprint: fingerprint.to_string(), merges: merges.clone(), squashes: squashes.clone() });
+        (merges, squashes)
     }
 
     /// `base_of` with the refs already loaded.
@@ -2820,7 +3240,7 @@ impl Gitnetix {
         let agents = self.agents.list();
         let conflicts = if rebasing { git.conflicted_files().await.unwrap_or_default() } else { Vec::new() };
 
-        let refs = Refs::new(branches, remote_branches).batched();
+        let refs = Refs::new(branches, remote_branches);
         // Never wait on the git host for a first look.
         let hosted = self.hosted_prs(&p, &refs.tips(), !quick).await;
         let refs = refs.with_hosted(hosted);
@@ -2846,6 +3266,10 @@ impl Gitnetix {
                 match key.and_then(|k| self.views.get(project_id, k)) {
                     Some(saved) => saved.value().views.clone(),
                     None => {
+                        if let Some(f) = &fingerprint {
+                            let (merges, squashes) = self.history(&p.id, &git, f).await;
+                            refs.set_history(merges, squashes);
+                        }
                         let shared = view_key(&p, &default, &refs.history_digest(&git).await, &digest);
                         let (keep, why) = match (self.views.last(project_id), &fingerprint) {
                             (Some(saved), Some(f)) if saved.value().shared == shared => match unmoved_views(&p, &default, saved.value(), f) {
@@ -2890,11 +3314,9 @@ impl Gitnetix {
         let mut open: Vec<&Release> = p.releases.iter().filter(|r| r.shipped_at.is_none()).collect();
         // Newest version first; stable sort keeps unparseable versions in registration order, last.
         open.sort_by_key(|r| std::cmp::Reverse(parse_version(&r.version)));
-        let find = |n: &str| all.iter().find(|b| b.name == n).cloned();
 
         let mut releases = Vec::new();
         for r in &open {
-            let items = all.iter().filter(|b| p.branches.get(&b.name).and_then(|m| m.release.as_deref()) == Some(r.version.as_str())).cloned().collect();
             releases.push(ReleaseView {
                 version: r.version.clone(),
                 tag: match r.kind {
@@ -2904,9 +3326,7 @@ impl Gitnetix {
                 branch: r.branch.clone(),
                 base: r.branch.clone(),
                 open: true,
-                items,
                 note: String::new(),
-                view: find(&r.branch),
                 tag_name: None,
                 checked_out: false,
             });
@@ -2936,8 +3356,6 @@ impl Gitnetix {
                 tag: "released".into(),
                 base: if on.is_empty() { format!("tagged {date}") } else { format!("{on} · tagged {date}") },
                 open: false,
-                items: vec![],
-                view: None,
                 note: if shipped > 0 { format!("{shipped} branches shipped") } else { String::new() },
                 checked_out: detached.as_deref() == Some(t.sha.as_str()),
                 tag_name: Some(t.name),
@@ -2955,8 +3373,6 @@ impl Gitnetix {
                 tag: "released".into(),
                 base: format!("{default} · went out as {with}"),
                 open: false,
-                items: vec![],
-                view: None,
                 note: String::new(),
                 checked_out: false,
                 tag_name: None,
@@ -2965,12 +3381,6 @@ impl Gitnetix {
         // Shipped ones newest version first, like the open ones.
         let first_shipped = releases.iter().position(|r| !r.open).unwrap_or(releases.len());
         releases[first_shipped..].sort_by_key(|r| std::cmp::Reverse(parse_version(&r.version)));
-        let other_branches = all
-            .iter()
-            .filter(|b| b.local && b.name != default && !p.releases.iter().any(|r| r.branch == b.name) && !p.branches.contains_key(&b.name))
-            .cloned()
-            .collect();
-        let default_view = find(&default);
         let remote = remote.ok().flatten();
         let has_changelog = Path::new(&p.path).join(CHANGELOG).is_file();
         let changelog_version = std::fs::read_to_string(Path::new(&p.path).join(CHANGELOG)).ok().and_then(|t| latest_changelog_version(&t));
@@ -2978,18 +3388,24 @@ impl Gitnetix {
             Some(b) => Self::rebasing_onto(&git, b, all.iter().find(|v| v.name == b).and_then(|v| v.parent.as_deref()).unwrap_or(&default)).await,
             None => None,
         };
-        Ok((Overview { project: p, current_branch: current, default_branch: default, releases, other_branches, default_view, branches: all, rebasing, rebase_onto, in_progress, conflicts, remote, stashes, has_changelog, changelog_version, tags_use_v }, built))
+        let project = OverviewProject { id: p.id, name: p.name, path: p.path, releases: p.releases };
+        Ok((Overview { project, current_branch: current, default_branch: default, releases, branches: all, rebasing, rebase_onto, in_progress, conflicts, remote, stashes, has_changelog, changelog_version, tags_use_v }, built))
     }
 
     /// Every branch's view with counts, merge state and parent: a few git calls per branch,
     /// except those in `keep`, still right from the last build.
     async fn branch_views(&self, p: &Project, git: &Git, refs: &Refs, default: &str, keep: &HashMap<String, BranchView>) -> Vec<BranchView> {
-        // The bases every branch is weighed against, scanned up front and side by side.
-        let bases: Vec<String> = merge_targets(p, refs, default).iter().filter_map(|t| refs.rev(t)).collect();
-        refs.prefetch(git, &bases).await;
         let names = branch_names(p, refs);
-        // A long rebuild tells the UI how far it is, every few branches.
         let total = names.iter().filter(|n| !keep.contains_key(*n)).count() as u32;
+        // Every ref's counts and the whole commit graph pay off when most branches get weighed; for a few, a git call each costs less.
+        let many = total > 32 || total as usize * 8 >= names.len();
+        refs.set_batch(many);
+        if many {
+            // The bases every branch is weighed against, scanned up front and side by side.
+            let bases: Vec<String> = merge_targets(p, refs, default).iter().filter_map(|t| refs.rev(t)).collect();
+            refs.prefetch(git, &bases).await;
+        }
+        // A long rebuild tells the UI how far it is, every few branches.
         let done = std::sync::atomic::AtomicU32::new(0);
         let tell = |n: u32| {
             if total >= 20 && (n % 10 == 0 || n == total) {
@@ -3233,11 +3649,19 @@ impl Gitnetix {
     /// Commits a branch has that its base does not, newest first; a trunk lists its recent history.
     /// `limit` caps how many (200 for a trunk, 500 for a branch when not given): raised to load older ones.
     /// `unreleased`: the default branch lists only its commits since its latest tag, the tagged one as its base.
-    pub async fn commits(&self, project_id: &str, branch: &str, limit: Option<u32>, unreleased: bool) -> Result<Vec<Commit>> {
+    pub async fn commits(&self, project_id: &str, branch: &str, limit: Option<u32>, unreleased: bool, base: Option<&str>) -> Result<Vec<Commit>> {
+        // The map's tiles all ask at once after each change: a few lists at a time, else hundreds of git processes start
+        // side by side and crawl (300 tiles after a ref moved: 27 s side by side, 12 s eight at a time).
+        static LISTING: std::sync::LazyLock<tokio::sync::Semaphore> = std::sync::LazyLock::new(|| tokio::sync::Semaphore::new(8));
+        let _turn = LISTING.acquire().await.map_err(|e| Error::Invalid(e.to_string()))?;
         let p = self.store.project(project_id)?;
         let git = self.git(&p);
         let default = git.default_branch().await?;
-        let base = self.base_of(&p, branch, &default).await;
+        // The base the caller files it under (the map's parent) saves working it out again, once per tile.
+        let base = match base.filter(|b| valid_branch_name(b)) {
+            Some(b) => b.to_string(),
+            None => self.base_of(&p, branch, &default).await,
+        };
         let (local_ref, origin_ref) = (format!("refs/heads/{branch}"), format!("refs/remotes/origin/{branch}"));
         let (local, origin) = tokio::join!(git.rev_parse(&local_ref), git.rev_parse(&origin_ref));
         let (local, origin) = (local.ok(), origin.ok());
@@ -3468,7 +3892,10 @@ impl Gitnetix {
             return Err(Error::Invalid(format!("unknown reset mode {mode:?}")));
         }
         let p = self.store.project(project_id)?;
-        self.require_checkout(&p, branch).await?.reset(check_sha(sha)?, mode).await?;
+        let git = self.require_checkout(&p, branch).await?;
+        // A paused rebase has HEAD detached: the reset would move HEAD, not the branch, and drop the rebase's work.
+        refuse_in_progress(&git, git.cwd(), branch).await?;
+        git.reset(check_sha(sha)?, mode).await?;
         self.changed(project_id);
         Ok(())
     }
@@ -3525,12 +3952,16 @@ impl Gitnetix {
         };
         let out = git.switch(branch).await;
         self.changed(project_id);
+        // A post-checkout hook failing (git-lfs missing from the app's PATH, say) errors after git switched: then the work
+        // goes where it was asked to, and the hook's error is in the Logs.
         if let Err(e) = out {
-            // Still on the branch the stash was made on: it goes back cleanly.
-            if git.stash_apply(&sha).await.is_ok_and(|c| c.is_empty()) {
-                git.stash_drop(&sha).await?;
+            if git.current_branch().await.ok().flatten().as_deref() != Some(branch) {
+                // Still on the branch the stash was made on: it goes back cleanly.
+                if git.stash_apply(&sha).await.is_ok_and(|c| c.is_empty()) {
+                    git.stash_drop(&sha).await?;
+                }
+                return Err(e);
             }
-            return Err(e);
         }
         if wip == "stash" {
             return Ok(Vec::new());
@@ -3619,6 +4050,7 @@ impl Gitnetix {
         let p = self.store.project(project_id)?;
         let git = self.require_checkout(&p, branch).await?;
         let file = git.cwd().join(".gitignore");
+        not_a_link(&file)?;
         let mut text = match tokio::fs::read_to_string(&file).await {
             Ok(t) => t,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
@@ -3630,7 +4062,8 @@ impl Gitnetix {
         text.push_str(&ignore_line(path, dir));
         tokio::fs::write(&file, text).await?;
         // .gitignore only hides untracked files: stop tracking it too (kept on disk) so it leaves the WIP once committed.
-        git.run(&["rm", "-r", "--cached", "--quiet", "--ignore-unmatch", "--", path]).await?;
+        // Literal: `report[1].csv` would otherwise also untrack `report1.csv`.
+        git.run(&["rm", "-r", "--cached", "--quiet", "--ignore-unmatch", "--", &format!(":(literal){path}")]).await?;
         self.changed(project_id);
         Ok(())
     }
@@ -3744,7 +4177,13 @@ impl Gitnetix {
         };
         let out = if force {
             let upstream = git.upstream(branch).await?.ok_or_else(|| Error::Invalid(format!("{branch} has no upstream to force push to.")))?;
-            git.force_push(branch, &upstream).await?
+            // Only its own copy on origin: a branch made from origin/main tracks it, and would replace main.
+            if upstream != format!("origin/{branch}") {
+                return Err(Error::Invalid(format!(
+                    "{branch} tracks {upstream}, not origin/{branch}: a force push would replace {upstream}. Push it without force to give it its own copy on origin."
+                )));
+            }
+            git.force_push(branch).await?
         } else {
             // Track it unless it already does: a branch pushed without -u (on origin, untracked), or one
             // tracking another name (e.g. renamed locally), gets `origin/<branch>` as its upstream now.
@@ -3913,8 +4352,9 @@ impl Gitnetix {
         // A finished rebase exits 0 even when `--autostash` could not put the uncommitted changes back.
         r.stash_conflicts = git.conflicted_files().await?;
         // Its upstream no longer fits under it: the rewritten commits only go up forced.
+        // Only to its own copy on origin, the one `Gitnetix::push` force pushes.
         r.force_push_to = match git.upstream(branch).await? {
-            Some(u) if git.ref_exists(&format!("refs/remotes/{u}")).await? && !git.is_ancestor(&u, branch).await? => Some(u),
+            Some(u) if u == format!("origin/{branch}") && git.ref_exists(&format!("refs/remotes/{u}")).await? && !git.is_ancestor(&u, branch).await? => Some(u),
             _ => None,
         };
         Ok(r)
@@ -3997,6 +4437,7 @@ impl Gitnetix {
         if !body.ends_with('\n') {
             body.push('\n');
         }
+        not_a_link(&git.cwd().join(path))?;
         std::fs::write(git.cwd().join(path), body)?;
         git.add(path).await
     }
@@ -4692,6 +5133,7 @@ impl Gitnetix {
                 let g = self.git_at(&dir);
                 refuse_in_progress(&g, &dir, branch).await?;
                 clean_changelog(&g, &dir).await?;
+                not_a_link(&dir.join(CHANGELOG))?;
                 tokio::fs::write(dir.join(CHANGELOG), text).await?;
                 if let Err(e) = g.commit_paths(&[CHANGELOG], message).await {
                     // Clean before the write, so HEAD's copy is the user's: a refused commit (a hook) leaves nothing half done.
@@ -4902,59 +5344,65 @@ impl Gitnetix {
     /// the one on origin. Without `force`, refuses when it has commits not in its base.
     /// The default branch and branches the git host protects are never deleted.
     pub async fn delete_branch(&self, project_id: &str, branch: &str, force: bool, remote: bool) -> Result<()> {
-        self.delete_branch_onto(project_id, branch, None, force, remote).await
+        let git = self.git(&self.store.project(project_id)?);
+        let plan = self.plan_delete(project_id, &DeleteRefs::read(&git).await?, branch, None, force, remote).await?;
+        // Origin first: if the host refuses, the local branch is still there.
+        if let Some(theirs) = &plan.theirs {
+            git.delete_remote_branch(branch, theirs).await?;
+        }
+        if plan.tip.is_some() {
+            git.delete_branch(branch, true).await?;
+        }
+        self.forget_branches(project_id, &git, &[branch.to_string()]).await?;
+        self.changed(project_id);
+        Ok(())
     }
 
-    /// `delete_branch` with the branch's base already known (`None`: work it out).
-    async fn delete_branch_onto(&self, project_id: &str, branch: &str, base: Option<String>, force: bool, remote: bool) -> Result<()> {
+    /// The checks before deleting `branch` (merged into `base`, `None`: work it out; origin's copy seen), then its
+    /// worktree removed; what is left to delete, nothing deleted yet.
+    async fn plan_delete(&self, project_id: &str, known: &DeleteRefs, branch: &str, base: Option<String>, force: bool, remote: bool) -> Result<DeletePlan> {
         self.refuse_locked(project_id, branch)?;
         let p = self.store.project(project_id)?;
         let git = self.git(&p);
-        let default = git.default_branch().await?;
-        if branch == default {
+        if branch == known.default {
             return Err(Error::Invalid(format!("{branch} is the default branch")));
         }
         if self.protected_branches(project_id, false).await.iter().any(|b| b == branch) {
             return Err(Error::Invalid(format!("{branch} is protected on the git host")));
         }
-        let local = git.ref_exists(&format!("refs/heads/{branch}")).await?;
-        let on_origin = remote && git.ref_exists(&format!("refs/remotes/origin/{branch}")).await?;
+        // Full refs: a bare name resolves to a tag of the same name first.
+        let (mine, origins) = (format!("refs/heads/{branch}"), format!("refs/remotes/origin/{branch}"));
+        let tip = known.tips.get(&mine).cloned();
+        let local = tip.is_some();
+        let on_origin = remote && known.tips.contains_key(&origins);
         if !local && !on_origin {
-            let only_origin = !remote && git.ref_exists(&format!("refs/remotes/origin/{branch}")).await?;
+            let only_origin = !remote && known.tips.contains_key(&origins);
             let tracked = p.branches.contains_key(branch) || p.releases.iter().any(|r| r.branch == branch);
             if only_origin || !tracked {
                 return Err(Error::Invalid(if only_origin { format!("{branch} is only on origin") } else { format!("{branch} not found") }));
             }
         }
-        // Gone everywhere: nothing to check or delete, only forget it below.
-        if local || on_origin {
-            // Full refs: a bare name resolves to a tag of the same name first.
-            let rev = if local { format!("refs/heads/{branch}") } else { format!("refs/remotes/origin/{branch}") };
+        // Origin's copy as the checks below see it, and the only one the delete may remove (its lease).
+        let theirs = on_origin.then(|| known.tips[&origins].clone());
+        // Gone everywhere: nothing to check or delete, only forget it below. Forced: nothing to check.
+        if !force && (local || on_origin) {
+            let rev = if local { &mine } else { &origins };
             let base = match base {
                 Some(b) => b,
-                None => self.base_of(&p, branch, &default).await,
+                None => self.base_of(&p, branch, &known.default).await,
             };
-            let local_base = git.rev_of(&base).await;
+            let local_base = known.rev_of(&base);
             // Merged on the host while the local base lags behind: origin's copy has it.
             let origin_base = format!("origin/{base}");
-            let tip = git.rev_parse(&rev).await?;
-            let base_rev = if !git.is_ancestor(&rev, &local_base).await?
-                && git.ref_exists(&format!("refs/remotes/{origin_base}")).await?
-                && (git.is_ancestor(&rev, &origin_base).await?
-                    || git.is_squash_merged(&rev, &origin_base).await.unwrap_or(false)
-                    || git.pr_merged_into(branch, &rev, &origin_base).await.unwrap_or(false)
-                    || self.hosted_landed(project_id, &git, &tip, &origin_base).await)
-            {
-                origin_base
+            let (base_rev, landed) = if known.in_history(&git, rev, &local_base).await {
+                (local_base, true)
+            } else if known.tips.contains_key(&format!("refs/remotes/{origin_base}")) && self.landed(project_id, &git, known, branch, rev, &origin_base).await {
+                (origin_base, true)
             } else {
-                local_base
+                let landed = self.landed(project_id, &git, known, branch, rev, &local_base).await;
+                (local_base, landed)
             };
-            if !force
-                && !git.is_ancestor(&rev, &base_rev).await?
-                && !git.is_squash_merged(&rev, &base_rev).await.unwrap_or(false)
-                && !git.pr_merged_into(branch, &rev, &base_rev).await.unwrap_or(false)
-                && !self.hosted_landed(project_id, &git, &tip, &base_rev).await
-            {
+            if !landed {
                 let n = git.count(&format!("{base_rev}..{rev}")).await?;
                 return Err(Error::Invalid(format!(
                     "{branch} has {n} commit{} not merged into {base}. Merge it first or force the delete.",
@@ -4963,47 +5411,59 @@ impl Gitnetix {
             }
             // The local branch is merged; origin's copy may still hold commits pushed from elsewhere.
             // It goes when those are in the base too, or the local branch had them (then rewrote them, e.g. a squash).
-            if !force && local && on_origin {
-                let theirs = git.rev_parse(&format!("refs/remotes/origin/{branch}")).await?;
-                let seen = git.is_ancestor(&theirs, &base_rev).await?
-                    || git.in_reflog(&format!("refs/heads/{branch}"), &theirs).await?
-                    || git.is_squash_merged(&theirs, &base_rev).await.unwrap_or(false);
+            if let (true, Some(theirs)) = (local, &theirs) {
+                // The local branch's own commit: nothing more on origin.
+                let seen = tip.as_ref() == Some(theirs)
+                    || known.in_history(&git, &origins, &base_rev).await
+                    || git.in_reflog(&mine, theirs).await?
+                    || known.squashed(&git, &self.commits, &origins, &base_rev).await;
                 if !seen {
                     return Err(Error::Invalid(format!("origin/{branch} has commits that are neither in {base} nor in {branch}. Pull them first or force the delete.")));
                 }
             }
         }
-        let dir = if local { self.checkout_dir(&p, branch).await? } else { None };
+        let dir = if local { known.checkouts.get(branch).cloned() } else { None };
         if dir.as_deref() == Some(Path::new(&p.path)) {
             return Err(Error::Invalid(format!("{branch} is checked out. Switch away first.")));
         }
-        // Origin first: if the host refuses, the local branch is still there.
-        if on_origin {
-            git.delete_remote_branch(branch).await?;
+        // Its worktree first: refused while it holds work, and then nothing is gone yet (deleting origin's copy closes its
+        // pull request on the host).
+        if let Some(dir) = dir {
+            self.remove_worktree(project_id, &dir.to_string_lossy(), false).await?;
         }
-        if local {
-            if let Some(dir) = dir {
-                self.remove_worktree(project_id, &dir.to_string_lossy(), false).await?;
-            }
-            git.delete_branch(branch, true).await?;
-        }
-        // An open release whose branch is gone everywhere goes with it; its branches find a new base.
-        let gone = !git.ref_exists(&format!("refs/remotes/origin/{branch}")).await?;
+        Ok(DeletePlan { tip, theirs })
+    }
+
+    /// Whether `rev`, branch `branch`'s full ref, landed in `base`: in its history, rebased or squashed in, or its pull
+    /// request merged (as git or the git host tells).
+    async fn landed(&self, project_id: &str, git: &Git, known: &DeleteRefs, branch: &str, rev: &str, base: &str) -> bool {
+        known.in_history(git, rev, base).await
+            || known.squashed(git, &self.commits, rev, base).await
+            || git.pr_merged_into(branch, rev, base).await.unwrap_or(false)
+            || self.hosted_landed(project_id, git, &known.tips[rev], base).await
+    }
+
+    /// Forget deleted `branches` in the project's settings, in one write. An open release whose branch is gone
+    /// everywhere goes with it; its branches find a new base.
+    async fn forget_branches(&self, project_id: &str, git: &Git, branches: &[String]) -> Result<()> {
+        let on_origin: HashSet<String> = git.remote_branches().await?.into_iter().map(|b| b.name).collect();
         self.store.with_project(project_id, |p| {
-            p.branches.remove(branch);
-            let Some(version) = p.releases.iter().find(|r| r.branch == branch && r.shipped_at.is_none() && gone).map(|r| r.version.clone()) else {
-                return Ok(());
-            };
-            p.releases.retain(|r| !(r.version == version && r.shipped_at.is_none()));
-            if !p.forgotten_releases.contains(&version) {
-                p.forgotten_releases.push(version.clone());
-            }
-            for m in p.branches.values_mut().filter(|m| m.release.as_deref() == Some(version.as_str())) {
-                m.release = None;
+            for branch in branches {
+                p.branches.remove(branch);
+                let gone = !on_origin.contains(branch);
+                let Some(version) = p.releases.iter().find(|r| &r.branch == branch && r.shipped_at.is_none() && gone).map(|r| r.version.clone()) else {
+                    continue;
+                };
+                p.releases.retain(|r| !(r.version == version && r.shipped_at.is_none()));
+                if !p.forgotten_releases.contains(&version) {
+                    p.forgotten_releases.push(version.clone());
+                }
+                for m in p.branches.values_mut().filter(|m| m.release.as_deref() == Some(version.as_str())) {
+                    m.release = None;
+                }
             }
             Ok(())
         })?;
-        self.changed(project_id);
         Ok(())
     }
 
@@ -5140,32 +5600,73 @@ impl Gitnetix {
         // Bases first, while the refs still match the last overview: once a delete moves them,
         // `base_of` misses its cache and works the whole tree out again, for every branch left.
         let p = self.store.project(project_id)?;
-        let default = self.git(&p).default_branch().await?;
+        let git = self.git(&p);
+        let known = DeleteRefs::read(&git).await?;
+        let default = &known.default;
+        // One ref listing for every saved parent, not one a branch.
+        let fingerprint = git.ref_fingerprint().await.ok();
         let mut bases = Vec::with_capacity(branches.len());
         for b in branches {
-            bases.push((b.clone(), self.base_of(&p, b, &default).await));
+            let base = match fingerprint.as_deref().and_then(|f| self.cached_parent(&p, f, b, default)) {
+                Some(parent) => parent.unwrap_or_else(|| default.clone()),
+                None => self.base_of(&p, b, default).await,
+            };
+            bases.push((b.clone(), base));
         }
-        // Each delete's refresh meanwhile shows the views as last built: one rebuild once all are gone, not one per delete.
+        // Each refresh meanwhile shows the views as last built: one rebuild once all are gone, not one per delete.
         let cleaning = Cleaning::enter(&self.cleaning, project_id);
-        // Kept small: deletes share git's packed-refs lock, and remote ones a connection to origin.
-        let results = stream::iter(bases)
+        // Each one checked (and its worktree removed) a few at a time; the deletes themselves together after.
+        let known = &known;
+        let checked = stream::iter(bases)
             .map(|(b, base)| async move {
-                let r = self.delete_branch_onto(project_id, &b, Some(base), force, remote).await;
+                let r = self.plan_delete(project_id, known, &b, Some(base), force, remote).await;
+                // Progress counts it once checked: the deletes after are a push or two for all of them.
                 let _ = self.events.send(Event::CleanupStep { project_id: project_id.into(), branch: b.clone() });
                 (b, r)
             })
             .buffered(4)
             .collect::<Vec<_>>()
             .await;
-        drop(cleaning);
-        self.changed(project_id);
         let mut out = CleanupResult::default();
-        for (b, r) in results {
+        let mut plans = Vec::new();
+        // A branch that moved since its check (an agent committed meanwhile) is kept, on origin too: `branch -D` would
+        // take the new commit with it.
+        let tips = git.ref_tips(&["refs/heads"], None).await?;
+        for (b, r) in checked {
             match r {
-                Ok(()) => out.deleted.push(b),
+                Ok(plan) if plan.tip.as_ref().is_some_and(|t| tips.get(&format!("refs/heads/{b}")) != Some(t)) => {
+                    out.skipped.push(Skipped { reason: format!("{b} got new commits while it was checked"), branch: b })
+                }
+                Ok(plan) => plans.push((b, plan)),
                 Err(e) => out.skipped.push(Skipped { branch: b, reason: e.to_string() }),
             }
         }
+        // Origin's copies in one push (a connection each was minutes for a big cleanup), then the local ones of those it took.
+        let on_origin: Vec<(String, String)> = plans.iter().filter_map(|(b, plan)| Some((b.clone(), plan.theirs.clone()?))).collect();
+        let refused = git.delete_remote_branches(&on_origin).await.map_err(|e| e.to_string());
+        let refusal = |b: &String, plan: &DeletePlan| match (&refused, &plan.theirs) {
+            (_, None) => None,
+            (Err(e), Some(_)) => Some(e.clone()),
+            (Ok(r), Some(_)) => r.get(b).cloned(),
+        };
+        let local: Vec<&str> = plans.iter().filter(|(b, plan)| plan.tip.is_some() && refusal(b, plan).is_none()).map(|(b, _)| b.as_str()).collect();
+        let kept = git.delete_branches(&local).await.map_err(|e| e.to_string());
+        let mut deleted = Vec::new();
+        for (b, plan) in &plans {
+            let why = refusal(b, plan).or_else(|| match &kept {
+                _ if plan.tip.is_none() => None,
+                Ok(kept) => kept.get(b).cloned(),
+                Err(e) => Some(e.clone()),
+            });
+            match why {
+                Some(reason) => out.skipped.push(Skipped { branch: b.clone(), reason }),
+                None => deleted.push(b.clone()),
+            }
+        }
+        self.forget_branches(project_id, &git, &deleted).await?;
+        out.deleted = deleted;
+        drop(cleaning);
+        self.changed(project_id);
         Ok(out)
     }
 
@@ -5466,6 +5967,7 @@ impl Gitnetix {
     /// `safe`: refused unless it loses nothing, checked now rather than trusting a view that may be stale:
     /// no uncommitted changes, and no commit origin never had.
     pub async fn reset_to_upstream(&self, project_id: &str, branch: &str, safe: bool) -> Result<()> {
+        self.refuse_locked(project_id, branch)?;
         let p = self.store.project(project_id)?;
         let git = self.git(&p);
         let upstream = git
@@ -5478,6 +5980,10 @@ impl Gitnetix {
             .ok_or_else(|| Error::Invalid(format!("{branch} has no upstream to reset to.")))?;
         let sha = git.rev_parse(&upstream).await?;
         let dir = self.checkout_dir(&p, branch).await?;
+        if let Some(d) = &dir {
+            Self::refuse_mid_run(self.rebasing_in(d))?;
+            refuse_in_progress(&self.git_at(d), d, branch).await?;
+        }
         if safe {
             let local = format!("refs/heads/{branch}");
             let wip = match &dir {
@@ -5742,15 +6248,19 @@ impl Gitnetix {
         if git.is_ancestor(from, into).await? {
             return Ok((git.rev_parse(into).await?, true));
         }
-        if !git.is_ancestor(into, from).await? {
+        // Read before the rebase, which can take minutes when conflicts get resolved: a merge landing in `into`
+        // meanwhile then stops this one instead of being rewound by it.
+        let before = git.rev_parse(into).await?;
+        if !git.is_ancestor(&before, from).await? {
             self.rebase_branch(p, from, into).await?;
         }
         let tip = git.rev_parse(from).await?;
         match self.checkout_dir(p, into).await? {
             Some(dir) => self.git_at(&dir).merge_ff_only(from).await?,
             None => {
-                let old = git.rev_parse(into).await?;
-                git.update_ref_from(&format!("refs/heads/{into}"), &tip, &old).await?;
+                if git.update_ref_from(&format!("refs/heads/{into}"), &tip, &before).await.is_err() {
+                    return Err(Error::Invalid(format!("{into} moved while {from} was rebased onto it: nothing was merged. Merge again to take its new commits.")));
+                }
             }
         }
         Ok((tip, false))
@@ -5867,8 +6377,16 @@ impl Gitnetix {
 
     async fn fetch_with(&self, project_id: &str, git: &Git) -> Result<()> {
         git.fetch().await?;
-        self.protected_branches(project_id, true).await;
-        self.recheck_host(project_id);
+        let before = self.protected.lock().unwrap().get(project_id).map(|(_, l)| l.clone());
+        let after = self.protected_branches(project_id, true).await;
+        // The next overview asks the git host again. The watcher already refreshes for the refs the fetch moved:
+        // one more refresh only for a new list of protected branches.
+        if let Some(h) = self.hosted.lock().unwrap().get_mut(project_id) {
+            h.asked.clear();
+        }
+        if before.as_ref() != Some(&after) {
+            self.changed(project_id);
+        }
         Ok(())
     }
 
@@ -5882,13 +6400,19 @@ impl Gitnetix {
 
     /// Fetch only when origin's tips moved since the last time this fetched (always the first time).
     /// Returns whether it fetched. Read before the fetch: a push landing in between shows as moved next time.
-    /// Asks origin at most every [`AUTO_FETCH_GAP`]; a call meanwhile, or while a check runs, returns false.
-    pub async fn auto_fetch(&self, project_id: &str) -> Result<bool> {
+    /// Asks origin at most every [`AUTO_FETCH_GAP`], less often while it stays unchanged ([`ask_gap`]); a call meanwhile,
+    /// or while a check runs, returns false. `back`: someone just came back to a window (focused it, or its looks had
+    /// paused): the wait starts over, so origin is asked now.
+    pub async fn auto_fetch(&self, project_id: &str, back: bool) -> Result<bool> {
         let p = self.store.project(project_id)?;
         let slot = self.auto_fetch.lock().unwrap().entry(project_id.into()).or_default().clone();
         // A second window asking while the first one's check runs waits for it, then shares it.
         let mut s = slot.lock().await;
-        if s.asked.is_some_and(|t| t.elapsed() < AUTO_FETCH_GAP) {
+        if back {
+            s.moved = Some(Instant::now());
+        }
+        let gap = ask_gap(s.moved.map_or(std::time::Duration::ZERO, |t| t.elapsed()));
+        if s.asked.is_some_and(|t| t.elapsed() < gap) {
             return Ok(false);
         }
         let git = self.git(&p);
@@ -5897,20 +6421,29 @@ impl Gitnetix {
             None => git.own_ssh().await,
         };
         let git = git.unattended(own_ssh);
-        let tips = git.remote_tips().await;
+        let tips = match tokio::time::timeout(TIPS_TIMEOUT, git.remote_tips()).await {
+            Ok(tips) => tips,
+            Err(_) => Err(Error::Invalid(format!("origin did not answer within {} s", TIPS_TIMEOUT.as_secs()))),
+        };
         s.asked = Some(Instant::now());
         s.own_ssh = tips.is_ok().then_some(own_ssh);
         let tips = tips?;
         if s.tips.as_ref() != Some(&tips) {
-            self.fetch_with(project_id, &git).await?;
+            tokio::time::timeout(FETCH_TIMEOUT, self.fetch_with(project_id, &git))
+                .await
+                .map_err(|_| Error::Invalid(format!("the fetch from origin took over {} minutes", FETCH_TIMEOUT.as_secs() / 60)))??;
             s.tips = Some(tips);
+            s.moved = Some(Instant::now());
             s.hosted = Some(Instant::now());
             return Ok(true);
         }
         // Nothing moved on origin, but its host may have opened or merged a pull request: ask it as often as the timed fetch did.
+        // Only Azure DevOps answers that (see `hosted_prs`): for other hosts the refresh would show nothing new.
         if s.hosted.is_none_or(|t| t.elapsed() >= HOSTED_TTL) {
             s.hosted = Some(Instant::now());
-            self.recheck_host(project_id);
+            if self.pr_kind(&p).await.ok() == Some("azure") {
+                self.recheck_host(project_id);
+            }
         }
         Ok(false)
     }
@@ -5920,47 +6453,70 @@ impl Gitnetix {
     pub async fn worktrees(&self) -> Result<Vec<WorktreeView>> {
         let projects = self.store.read(|c| c.projects.clone());
         let agents = self.agents.list();
-        let mut out = Vec::new();
-        for p in projects {
-            let git = self.git(&p);
+        // What every worktree of a project needs, read once for all of them: its refs, and the key of its saved views.
+        let mut each = Vec::new();
+        for p in &projects {
+            let git = self.git(p);
             let Ok(list) = git.worktrees().await else { continue };
             let default = git.default_branch().await.unwrap_or_else(|_| "main".into());
             let refs = Refs::load(&git, git.branches().await.unwrap_or_default()).await;
-            for w in list {
-                let (mut add, mut del) = (0, 0);
-                let changes = Git::new(&w.path).wip_changes().await.unwrap_or_default();
-                for f in &changes {
-                    add += f.additions;
-                    del += f.deletions;
-                }
-                let meta = w.branch.as_ref().and_then(|b| p.branches.get(b));
-                let base = match &w.branch {
-                    // As the last overview filed it, while no ref moved: working it out takes many git calls.
-                    Some(b) => Some(self.base_of(&p, b, &default).await).filter(|x| x != b),
-                    None => None,
-                };
-                let (behind, ahead) = match (w.branch.as_deref().and_then(|b| refs.rev(b)), base.as_deref().and_then(|b| refs.rev(b))) {
-                    (Some(r), Some(b)) => refs.left_right(&git, &b, &r).await.unwrap_or((0, 0)),
-                    _ => (0, 0),
-                };
-                out.push(WorktreeView {
-                    project_id: p.id.clone(),
-                    project_name: p.name.clone(),
-                    base,
-                    ticket: meta.and_then(|m| m.ticket.clone()),
-                    // Without its log: agents.list carries it, and here it rode along on every poll (MBs with long sessions).
-                    agent: agents.iter().find(|a| a.cwd == w.path).map(|a| AgentSession { lines: Vec::new(), ..a.clone() }),
-                    path: w.path,
-                    branch: w.branch,
-                    main: w.main,
-                    additions: add,
-                    deletions: del,
-                    ahead,
-                    behind,
-                    wip: changes.len() as u32,
-                });
-            }
+            let fingerprint = git.ref_fingerprint().await.ok();
+            each.push((p, git, default, refs, fingerprint, list));
         }
+        // Several worktrees at once, keeping the order: each reads its files (a `git status`), and with a few projects of
+        // several worktrees one after another took longer than the list's poll.
+        // Indices into `each`, not borrowed tuples: a closure taking references fails the Send check where this is spawned.
+        let jobs: Vec<(usize, usize)> = each.iter().enumerate().flat_map(|(i, e)| (0..e.5.len()).map(move |j| (i, j))).collect();
+        let (each, agents) = (&each, &agents);
+        let out: Vec<WorktreeView> = stream::iter(jobs)
+            .map(|(i, j)| {
+                let (p, git, default, refs, fingerprint, list) = &each[i];
+                let (p, w) = (*p, &list[j]);
+                async move {
+                    let (mut add, mut del) = (0, 0);
+                    let changes = Git::new(&w.path).wip_changes().await.unwrap_or_default();
+                    for f in &changes {
+                        add += f.additions;
+                        del += f.deletions;
+                    }
+                    let meta = w.branch.as_ref().and_then(|b| p.branches.get(b));
+                    let base = match &w.branch {
+                        // As the last overview filed it, while no ref moved: working it out takes many git calls.
+                        Some(b) => {
+                            let saved = fingerprint.as_deref().and_then(|f| self.cached_parent(p, f, b, default));
+                            let base = match saved {
+                                Some(parent) => parent.unwrap_or_else(|| default.clone()),
+                                None => self.base_of(p, b, default).await,
+                            };
+                            Some(base).filter(|x| x != b)
+                        }
+                        None => None,
+                    };
+                    let (behind, ahead) = match (w.branch.as_deref().and_then(|b| refs.rev(b)), base.as_deref().and_then(|b| refs.rev(b))) {
+                        (Some(r), Some(b)) => refs.left_right(git, &b, &r).await.unwrap_or((0, 0)),
+                        _ => (0, 0),
+                    };
+                    WorktreeView {
+                        project_id: p.id.clone(),
+                        project_name: p.name.clone(),
+                        base,
+                        ticket: meta.and_then(|m| m.ticket.clone()),
+                        // Without its log: agents.list carries it, and here it rode along on every poll (MBs with long sessions).
+                        agent: agents.iter().find(|a| a.cwd == w.path).map(|a| AgentSession { lines: Vec::new(), ..a.clone() }),
+                        path: w.path.clone(),
+                        branch: w.branch.clone(),
+                        main: w.main,
+                        additions: add,
+                        deletions: del,
+                        ahead,
+                        behind,
+                        wip: changes.len() as u32,
+                    }
+                }
+            })
+            .buffered(8)
+            .collect()
+            .await;
         // Agents come from their own list, and their logs would make the file big.
         self.worktrees.set(&out.iter().map(|w| WorktreeView { agent: None, ..w.clone() }).collect::<Vec<_>>());
         Ok(out)
@@ -6003,6 +6559,10 @@ impl Gitnetix {
         let p = self.store.project(project_id)?;
         if Path::new(path) == Path::new(&p.path) {
             return Err(Error::Invalid("That is the main checkout".into()));
+        }
+        // One of the project's worktrees, or a folder already gone: any other folder is neither stopped nor deleted.
+        if Path::new(path).exists() {
+            self.require_own_checkout(&p, path).await?;
         }
         // git refuses a dirty worktree; refuse before its shell and agents are stopped for nothing.
         if !force && Path::new(path).exists() && Git::new(path).wip_count().await? > 0 {
@@ -7078,6 +7638,7 @@ impl Gitnetix {
     pub fn add_to_changelog(&self, project_id: &str, markdown: &str) -> Result<String> {
         let p = self.store.project(project_id)?;
         let path = Path::new(&p.path).join("CHANGELOG.md");
+        not_a_link(&path)?;
         let existing = std::fs::read_to_string(&path).unwrap_or_else(|_| "# Changelog\n".into());
         let (head, rest) = match existing.find("\n## ") {
             Some(i) => existing.split_at(i + 1),
@@ -7582,8 +8143,9 @@ async fn copy_worktree_files(store: &Store, p: &Project, path: &Path) {
         for (f, is_link) in links.into_iter().map(|f| (f, true)).chain(files.into_iter().map(|f| (f, false))) {
             // Rebuilt from components: no trailing `/` (a link can't be made at `x/`), `\` on Windows.
             let (from, to): (PathBuf, PathBuf) = (top.join(&f).components().collect(), dir.join(&f).components().collect());
-            // Tracked paths are already checked out; missing ones have nothing to copy.
-            if !from.exists() || to.exists() {
+            // Tracked paths are already checked out; missing ones have nothing to copy. A link the branch has there, even
+            // one to a missing file, or as one of its folders, is never written through: it could point anywhere.
+            if !from.exists() || to.symlink_metadata().is_ok() || through_link(&dir, Path::new(&f)) {
                 continue;
             }
             let res = to.parent().map_or(Ok(()), std::fs::create_dir_all).and_then(|_| if is_link { link(&from, &to) } else { copy_tree(&from, &to) });
@@ -7600,6 +8162,17 @@ async fn copy_worktree_files(store: &Store, p: &Project, path: &Path) {
     if let Err(e) = exclude_links(path, &linked).await {
         crate::log::error(format!("Could not hide the links of {} from git: {e}", path.display()));
     }
+}
+
+/// Whether a folder on the way from `root` to `rel` is a link: a checked-out branch can hold one, and a write under it
+/// lands wherever it points.
+fn through_link(root: &Path, rel: &Path) -> bool {
+    let mut at = root.to_path_buf();
+    let parts: Vec<_> = rel.components().collect();
+    parts[..parts.len().saturating_sub(1)].iter().any(|c| {
+        at.push(c);
+        at.symlink_metadata().is_ok_and(|m| m.file_type().is_symlink())
+    })
 }
 
 /// A link at `to` to `target`, so the worktree reads and writes the main checkout's.
@@ -8342,6 +8915,158 @@ mod tests {
         assert_eq!(ignore_line("x[1]*.txt", false), "/x\\[1]\\*.txt\n");
     }
 
+    #[test]
+    fn origin_is_asked_less_often_the_longer_it_stays_unchanged() {
+        let secs = std::time::Duration::from_secs;
+        assert_eq!(ask_gap(secs(0)), AUTO_FETCH_GAP);
+        assert_eq!(ask_gap(secs(60)), secs(12));
+        assert_eq!(ask_gap(secs(3600)), secs(60), "capped");
+    }
+
+    #[tokio::test]
+    async fn auto_fetch_gives_up_on_an_origin_that_never_answers() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        let git = |args: &[&str]| assert!(std::process::Command::new("git").current_dir(&repo).args(["-c", "user.name=A", "-c", "user.email=a@x", "-c", "commit.gpgsign=false"]).args(args).status().unwrap().success());
+        git(&["init", "-q", "-b", "main"]);
+        git(&["commit", "-q", "--allow-empty", "-m", "init"]);
+        // An ssh that connects and then hangs, like a connection the network dropped.
+        git(&["remote", "add", "origin", "ssh://git@example.invalid/r.git"]);
+        git(&["config", "core.sshCommand", "sleep 30;:"]);
+        let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+        let added = crate::rpc::call(&k, "projects.add", serde_json::json!({ "paths": [repo.to_string_lossy()] })).await.unwrap();
+        let pid = added[0]["id"].as_str().unwrap().to_string();
+        let started = Instant::now();
+        let err = k.auto_fetch(&pid, false).await.unwrap_err();
+        assert!(err.to_string().contains("did not answer"), "{err}");
+        assert!(started.elapsed() < TIPS_TIMEOUT + std::time::Duration::from_secs(3), "{:?}", started.elapsed());
+        // The project's check is free again: the next one answers at once (asked too soon, it skips).
+        let again = Instant::now();
+        assert!(!k.auto_fetch(&pid, false).await.unwrap());
+        assert!(again.elapsed() < std::time::Duration::from_secs(1));
+    }
+
+    #[tokio::test]
+    async fn cleanup_takes_the_squash_answers_the_branch_map_saved() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().join("repo");
+        let git = |args: &[&str]| {
+            let out = std::process::Command::new("git").current_dir(&repo).args(["-c", "user.name=A", "-c", "user.email=a@x", "-c", "commit.gpgsign=false"]).args(args).output().unwrap();
+            assert!(out.status.success(), "git {args:?}");
+            String::from_utf8(out.stdout).unwrap().trim().to_string()
+        };
+        std::fs::create_dir_all(&repo).unwrap();
+        git(&["init", "-q", "-b", "main"]);
+        git(&["commit", "-q", "--allow-empty", "-m", "init"]);
+        // Two branches with a commit main lacks: git's own check finds neither squashed in.
+        for b in ["feat/saved", "feat/asked"] {
+            git(&["switch", "-qc", b, "main"]);
+            git(&["commit", "-q", "--allow-empty", "-m", b]);
+        }
+        git(&["switch", "-q", "main"]);
+        let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+        let added = crate::rpc::call(&k, "projects.add", serde_json::json!({ "paths": [repo.to_string_lossy()] })).await.unwrap();
+        let pid = added[0]["id"].as_str().unwrap().to_string();
+        // As the branch map would have saved it from its squash index.
+        k.commits.insert("squash2", &git(&["rev-parse", "feat/saved"]), &git(&["rev-parse", "main"]), true);
+
+        let r = k.cleanup_branches(&pid, &["feat/saved".into(), "feat/asked".into()], false, false).await.unwrap();
+        assert_eq!(r.deleted, ["feat/saved"], "{:?}", r.skipped);
+        assert_eq!(r.skipped.len(), 1);
+        assert!(r.skipped[0].branch == "feat/asked" && r.skipped[0].reason.contains("not merged"), "{:?}", r.skipped);
+    }
+
+    #[tokio::test]
+    async fn coming_back_asks_origin_without_waiting_out_its_quiet_spell() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (origin, repo) = (tmp.path().join("origin.git"), tmp.path().join("repo"));
+        let git = |dir: &Path, args: &[&str]| {
+            let ok = std::process::Command::new("git").current_dir(dir).args(["-c", "user.name=A", "-c", "user.email=a@x", "-c", "commit.gpgsign=false"]).args(args).status();
+            assert!(ok.unwrap().success(), "git {args:?}");
+        };
+        git(tmp.path(), &["init", "-q", "--bare", "-b", "main", origin.to_str().unwrap()]);
+        git(tmp.path(), &["init", "-q", "-b", "main", repo.to_str().unwrap()]);
+        git(&repo, &["commit", "-q", "--allow-empty", "-m", "init"]);
+        git(&repo, &["remote", "add", "origin", origin.to_str().unwrap()]);
+        git(&repo, &["push", "-q", "origin", "main"]);
+        let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+        let added = crate::rpc::call(&k, "projects.add", serde_json::json!({ "paths": [repo.to_string_lossy()] })).await.unwrap();
+        let pid = added[0]["id"].as_str().unwrap().to_string();
+        assert!(k.auto_fetch(&pid, false).await.unwrap(), "the first look fetches");
+
+        // Origin unchanged for 100 s and asked 10 s ago: the next look is due 20 s after that one.
+        let slot = k.auto_fetch.lock().unwrap()[&pid].clone();
+        let ago = |secs| Instant::now().checked_sub(std::time::Duration::from_secs(secs)).unwrap();
+        let asked = ago(10);
+        {
+            let mut s = slot.lock().await;
+            s.moved = Some(ago(100));
+            s.asked = Some(asked);
+        }
+        assert!(!k.auto_fetch(&pid, false).await.unwrap());
+        assert_eq!(slot.lock().await.asked, Some(asked), "waits out the gap");
+        assert!(!k.auto_fetch(&pid, true).await.unwrap(), "origin has nothing new");
+        assert!(slot.lock().await.asked.unwrap() > asked, "coming back asks at once");
+    }
+
+    #[tokio::test]
+    async fn squash_index_answers_like_squash_check() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("repo");
+        std::fs::create_dir_all(&dir).unwrap();
+        let run = |args: &[&str]| {
+            let ok = std::process::Command::new("git").current_dir(&dir).args(["-c", "user.name=A", "-c", "user.email=a@x", "-c", "commit.gpgsign=false"]).args(args).status().unwrap().success();
+            assert!(ok, "git {args:?}");
+        };
+        let commit = |file: &str, body: &str, msg: &str| {
+            std::fs::write(dir.join(file), body).unwrap();
+            run(&["add", "-A"]);
+            run(&["commit", "-qm", msg]);
+        };
+        run(&["init", "-q", "-b", "main"]);
+        commit("base.txt", "0\n", "init");
+        // Squashed in as one commit; rebased in commit by commit; its first commit picked, the rest squashed; still open;
+        // a change undone (no net change at all).
+        run(&["switch", "-qc", "sq"]);
+        commit("sq1.txt", "a\n", "sq 1");
+        commit("sq2.txt", "b\n", "sq 2");
+        run(&["switch", "-qc", "rb", "main"]);
+        commit("rb.txt", "r\n", "rb 1");
+        run(&["switch", "-qc", "part", "main"]);
+        commit("p1.txt", "1\n", "p 1");
+        commit("p2.txt", "2\n", "p 2");
+        commit("p3.txt", "3\n", "p 3");
+        run(&["switch", "-qc", "open", "main"]);
+        commit("o.txt", "o\n", "open 1");
+        run(&["switch", "-qc", "gone", "main"]);
+        commit("g.txt", "g\n", "g add");
+        run(&["rm", "-q", "g.txt"]);
+        run(&["commit", "-qm", "g rm"]);
+        run(&["switch", "-q", "main"]);
+        commit("m1.txt", "m\n", "main moves");
+        run(&["checkout", "sq", "--", "sq1.txt", "sq2.txt"]);
+        run(&["commit", "-qm", "sq (#1)"]);
+        run(&["cherry-pick", "rb"]);
+        run(&["cherry-pick", "part~2"]);
+        run(&["checkout", "part", "--", "p2.txt", "p3.txt"]);
+        run(&["commit", "-qm", "part rest (#2)"]);
+        commit("m2.txt", "m2\n", "main moves again");
+
+        let git = Git::new(&dir);
+        let listed = git.read_refs().await.unwrap();
+        let refs = Refs::new(listed.branches, listed.remote_branches);
+        refs.set_batch(true);
+        let cache = CommitCache::open(&tmp.path().join("home"));
+        let index = SquashIndex::read(&refs, &git, &cache, "main", 0).await.expect("index");
+        for b in ["sq", "rb", "part", "open", "gone"] {
+            let tip = git.rev_parse(b).await.unwrap();
+            let want = git.squash_check(b, "main", None).await.unwrap();
+            assert_eq!(index.verdict(&git, &cache, &tip).await, Some(want.clone()), "{b}");
+            assert_eq!(want.0, ["sq", "rb", "part"].contains(&b), "{b}");
+        }
+    }
+
     #[tokio::test]
     async fn graph_answers_like_git() {
         let tmp = tempfile::tempdir().unwrap();
@@ -8375,7 +9100,14 @@ mod tests {
             sh(step).await;
         }
         let refs = Refs::new(git.branches().await.unwrap(), vec![]);
+        // The graph is read only when most branches get weighed.
+        refs.set_batch(true);
         let g = refs.graph(&git).await.unwrap();
+        // Counts as git 2.41's `%(ahead-behind)` gives them, for git without it.
+        for base in ["main", "feat", "x", "y"] {
+            let tip = git.rev_parse(base).await.unwrap();
+            assert_eq!(g.counts(&tip, refs.local.iter().map(|b| (b.name.clone(), &b.sha))), git.left_right_all(base).await.unwrap(), "against {base}");
+        }
         let all: Vec<String> = git.run(&["rev-list", "--all"]).await.unwrap().lines().map(String::from).collect();
         for a in &all {
             let (mut mine, mut theirs) = (refs.containing(&git, a).await, git.branches_containing(a).await.unwrap());

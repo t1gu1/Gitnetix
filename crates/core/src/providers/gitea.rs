@@ -151,6 +151,7 @@ impl Gitea {
             number: v["number"].as_u64().unwrap_or(0),
             title: v["title"].as_str().unwrap_or("").into(),
             head: v["head"]["ref"].as_str().unwrap_or("").into(),
+            fork: v["head"]["repo"]["full_name"] != v["base"]["repo"]["full_name"],
             base: v["base"]["ref"].as_str().unwrap_or("").into(),
             state: state.into(),
             // shortcut: Gitea lists reviewers who already reviewed here too, so their review stays "requested"; read each PR's reviews if that misleads.
@@ -439,5 +440,9 @@ mod tests {
         assert_eq!(pr(json!({ "draft": true })).state, "draft");
         assert_eq!(pr(json!({ "state": "closed", "merged": true })).state, "merged");
         assert_eq!(pr(json!({ "state": "closed" })).state, "closed");
+        // From a fork: its head branch lives in another repository.
+        let repo = |head: &str| json!({ "head": { "ref": "feat", "repo": { "full_name": head } }, "base": { "ref": "main", "repo": { "full_name": "us/r" } } });
+        assert!(pr(repo("them/r")).fork);
+        assert!(!pr(repo("us/r")).fork);
     }
 }

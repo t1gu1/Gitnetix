@@ -1,8 +1,9 @@
-import { useQuery } from "@tanstack/react-query";
+import { useIsFetching, useQuery } from "@tanstack/react-query";
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
-import { useAction, useAgents, useCommits, useConfig, useFiles, useMapCommits, useReleaseCommits, useReleaseCounts, useTagV } from "../api/hooks";
+import { useCleanupLeft } from "../lib/cleanups";
+import { useAction, useAgents, useCommits, useConfig, useFiles, useMapCommits, useOverviewProgress, useReleaseCommits, useReleaseCounts, useTagV } from "../api/hooks";
 import { rpc } from "../api/transport";
 import type { BranchView, Commit, MapCommits, Overview, RebaseRun, ReleaseCount, ReleaseView } from "../api/types";
 import { Avatar } from "../components/Avatar";
@@ -58,6 +59,8 @@ const ROW = 22;
 /** Merged branches: small stations under the commits, MERGED_ROW apart; their foot (more, clean up) after them. */
 const MERGED_TOP = 24;
 const MERGED_ROW = 26;
+/** Past this many tiles the map draws only those near the view: small maps keep them all, for the keyboard and screen readers. */
+const CULL_FROM = 200;
 const FOOT_H = 26;
 /** A shipped release's commits, unfolded under its station: two lines each, under the row's middle. */
 const SHIPPED_LIST_TOP = 14;
@@ -383,6 +386,13 @@ interface Hit {
   needs: [string, boolean][];
 }
 
+/** The space a tile takes on the map: its box, the commits floating under it, its merged stations and their foot (the
+ *  default branch's sit on the trunk, left of its box). */
+function extent(t: Tile, onTrunk: boolean) {
+  const bottom = Math.max(t.y + t.h + FLOAT_TOP + t.list, t.merged.length ? t.mergedY + t.merged.length * MERGED_ROW : 0, t.foot ? t.footY + MERGED_ROW : 0);
+  return { left: onTrunk ? TRUNK_X : t.x, top: t.y, right: t.x + t.w, bottom };
+}
+
 /** Every shipped release listed, as "see all" lists them. */
 const ALL_SHIPPED: ReadonlyMap<string, boolean> = new Map([["shipped:all", true]]);
 
@@ -506,8 +516,23 @@ function marked(name: string, q: string, at: boolean): ReactNode {
   return <>{name.slice(0, i)}<mark className={at ? "map-hit at" : "map-hit"}>{name.slice(i, i + q.length)}</mark>{name.slice(i + q.length)}</>;
 }
 
+/** "Updating…" while the overview is read again (after an action, a fetch, a change in git), with how far a rebuild is.
+ *  Its own component: a rebuild reports every ten branches, and each report redrew the whole map. */
+function MapUpdating({ pid }: { pid: string }) {
+  const progress = useOverviewProgress(pid);
+  const fetching = useIsFetching({ queryKey: ["overview", pid] }) > 0;
+  if (!fetching) return null;
+  return (
+    <span className="map-updating faint" role="status">
+      <span className="spinner" />
+      {progress && progress.done < progress.total ? `Updating ${progress.done}/${progress.total}…` : "Updating…"}
+    </span>
+  );
+}
+
 /** A section's "Clean up": a spinner and what is left while its cleanup runs in the background. `big`: an outlined button of its own. */
-function CleanupButton({ left, title, onClick, text, big }: { left: number | undefined; title: string; onClick: () => void; text?: string; big?: boolean }) {
+function CleanupButton({ pid, section, title, onClick, text, big }: { pid: string; section: string; title: string; onClick: () => void; text?: string; big?: boolean }) {
+  const left = useCleanupLeft(pid, section);
   const busy = left !== undefined;
   return (
     <button className={big ? "btn map-clean-big" : "map-clean"} aria-label={busy ? `Cleaning up, ${branches(left)} left` : title} data-tip={busy ? `Deleting branches… ${branches(left)} left` : title} disabled={busy} aria-busy={busy || undefined} onClick={onClick}>
@@ -527,12 +552,10 @@ export function BranchMap({
   onCleanup,
   onCleanupBehind,
   onCleanupShipped,
-  cleanupLeft,
+  cleaning,
   tagItems,
   onStashes,
   building,
-  updating,
-  progress,
   bar,
 }: {
   o: Overview;
@@ -548,17 +571,14 @@ export function BranchMap({
   onCleanupBehind: (section: string, base: string, branches: BranchView[]) => void;
   /** Clean up (delete) shipped release branches still around; their tags stay. */
   onCleanupShipped: (branches: BranchView[]) => void;
-  /** Branches a running cleanup has left on a section ("merged:<parent>", "behind", "shipped"); undefined when none runs. */
-  cleanupLeft: (section: string) => number | undefined;
+  /** Whether a cleanup runs on a section ("merged:<parent>", "behind", "shipped"). */
+  cleaning: (section: string) => boolean;
   /** Actions for a shipped release's tag; the first one (check out) also runs on double-click. */
   tagItems: (tag: string, checkedOut: boolean) => MenuItem[];
   /** The stashes made on `b`, or every one. */
   onStashes: (b?: string) => void;
   /** First look at the project: branches are not filed under their parents yet. */
   building?: boolean;
-  /** The overview is being read again (after an action, a fetch, a change in git). */
-  updating?: boolean;
-  progress?: { done: number; total: number } | null;
   /** Where the toolbar goes: a row above the map and the agent panel beside it. */
   bar: HTMLElement | null;
 }) {
@@ -638,7 +658,9 @@ export function BranchMap({
     el.scrollLeft += pad.x - was.x;
     el.scrollTop += pad.y - was.y;
   }, [pad]);
-  // Tiles near the view: only those fetch the commits they list.
+  // Tiles near the view now (anything of theirs: box, commits, merged stations): only those fetch the commits they list
+  // and refetch them when the project changes, and on a big map only those are drawn. One scrolled past stops, else a
+  // big map panned once kept thousands of lists refetching on every change.
   const [seen, setSeen] = useState<ReadonlySet<string>>(new Set());
   const look = () => {
     const el = scroller.current;
@@ -649,8 +671,11 @@ export function BranchMap({
     const vh = el.clientHeight / zoom;
     const m = 300;
     setSeen((s) => {
-      const add = tiles.filter((t) => !s.has(t.b.name) && t.x < vx + vw + m && t.x + t.w > vx - m && t.y < vy + vh + m && t.y + t.h > vy - m);
-      return add.length ? new Set([...s, ...add.map((t) => t.b.name)]) : s;
+      const near = tiles.filter((t) => {
+        const e = extent(t, t.b.name === o.defaultBranch);
+        return e.left < vx + vw + m && e.right > vx - m && e.top < vy + vh + m && e.bottom > vy - m;
+      });
+      return near.length === s.size && near.every((t) => s.has(t.b.name)) ? s : new Set(near.map((t) => t.b.name));
     });
   };
   const ticking = useRef(false);
@@ -856,6 +881,9 @@ export function BranchMap({
   };
   const staleLeft = o.branches.filter((b) => layout.stale(b) && !b.protected && !b.checkedOut && !b.running && b.wip === 0);
   const sel = shown ? byName.get(shown) : undefined;
+  // A big map draws the tiles near the view, plus the selected one and the search's hit, which the code scrolls to.
+  const pinned = new Set([shown, atHit?.tile, atHit?.b && (atHit.chip ? layout.parent(atHit.b.name) : atHit.b.name)]);
+  const drawn = tiles.length > CULL_FROM ? tiles.filter((t) => seen.has(t.b.name) || pinned.has(t.b.name)) : tiles;
   const cols = Array.from({ length: layout.depth + 1 }, (_, d) => (d === 0 ? "Trunk" : d === 1 ? `Releases & straight to ${o.defaultBranch}` : d === 2 ? "Branches" : "Stacked"));
   // What the search looks through, one at least: a filter beside its box, with what it found there.
   const findKind = (key: "findBranches" | "findCommits", text: string, n: number, busy = false) => {
@@ -900,23 +928,18 @@ export function BranchMap({
         />
         <div className="map-toggles" role="group" aria-label="Show on the map">
           {toggleBtn("merged", "Merged", layout.counts.merged)}
-          {staleLeft.length > 0 || cleanupLeft("behind") !== undefined ? (
+          {staleLeft.length > 0 || cleaning("behind") ? (
             // Its Clean up as the toggle's right side: one control.
             <span className="map-toggle-split">
               {toggleBtn("behind", "Falling behind", layout.counts.behind)}
-              <CleanupButton left={cleanupLeft("behind")} title={`Pick which of the ${branches(staleLeft.length)} falling behind to delete`} onClick={() => onCleanupBehind("behind", "their base", staleLeft)} />
+              <CleanupButton pid={pid} section="behind" title={`Pick which of the ${branches(staleLeft.length)} falling behind to delete`} onClick={() => onCleanupBehind("behind", "their base", staleLeft)} />
             </span>
           ) : (
             toggleBtn("behind", "Falling behind", layout.counts.behind)
           )}
           {toggleBtn("shipped", "Shipped", layout.shippedAll.length)}
         </div>
-        {updating && !building && (
-          <span className="map-updating faint" role="status">
-            <span className="spinner" />
-            {progress && progress.done < progress.total ? `Updating ${progress.done}/${progress.total}…` : "Updating…"}
-          </span>
-        )}
+        {!building && <MapUpdating pid={pid} />}
         <span className="grow" />
         <span className="map-acts">
           <button className="btn btn-sm btn-icon" aria-label="Search the map" data-tip={`Search branches, tags and commits (${showKeys(keys.find)})`} onClick={openFind}>
@@ -1043,9 +1066,10 @@ export function BranchMap({
                 <>
                   <span className="map-history-head" style={{ left: TRUNK_X - 6, top: TOP - 6 }}>
                     Shipped from {o.defaultBranch} · {layout.shippedAll.length}
-                    {(layout.shippedLeft.length > 0 || cleanupLeft("shipped") !== undefined) && (
+                    {(layout.shippedLeft.length > 0 || cleaning("shipped")) && (
                       <CleanupButton
-                        left={cleanupLeft("shipped")}
+                        pid={pid}
+                        section="shipped"
                         title={`Delete the ${branches(layout.shippedLeft.length, "shipped release branch")}, locally and on origin. Their tags stay.`}
                         onClick={() => onCleanupShipped(layout.shippedLeft)}
                       />
@@ -1128,8 +1152,8 @@ export function BranchMap({
               {/* The default branch's station: where the route starts. */}
               {trunk && <span className="map-stn" data-main="" style={{ left: TRUNK_X, top: trunk.y + trunk.a }} />}
 
-              {tiles.map((t) => {
-                if (!t.merged.length && !t.foot && cleanupLeft(`merged:${t.b.name}`) === undefined) return null;
+              {drawn.map((t) => {
+                if (!t.merged.length && !t.foot && !cleaning(`merged:${t.b.name}`)) return null;
                 // The default branch's merged branches sit on the trunk; any other box's on the hairline under its station.
                 const sx = t.b.name === o.defaultBranch ? TRUNK_X : t.x;
                 return (
@@ -1153,7 +1177,7 @@ export function BranchMap({
                         </button>
                       </Fragment>
                     ))}
-                    {(t.foot || cleanupLeft(`merged:${t.b.name}`) !== undefined) && (
+                    {(t.foot || cleaning(`merged:${t.b.name}`)) && (
                       <span className="map-merged-foot" style={{ left: sx + 14, top: t.footY }}>
                         {t.more > 0 && (
                           <button className="map-more" onClick={() => toggle(`merged:${t.b.name}`, true)}>
@@ -1165,10 +1189,11 @@ export function BranchMap({
                             Show fewer
                           </button>
                         )}
-                        {(t.removable.length > 0 || cleanupLeft(`merged:${t.b.name}`) !== undefined) && (
+                        {(t.removable.length > 0 || cleaning(`merged:${t.b.name}`)) && (
                           <CleanupButton
                             big
-                            left={cleanupLeft(`merged:${t.b.name}`)}
+                            pid={pid}
+                            section={`merged:${t.b.name}`}
                             text="Clean up merged"
                             title={`Delete the ${branches(t.removable.length, "merged branch")} under ${labelOf(t.b.name)}, locally and on origin`}
                             onClick={() => onCleanup(t.b.name, labelOf(t.b.name), t.removable)}
@@ -1180,7 +1205,7 @@ export function BranchMap({
                 );
               })}
 
-              {tiles.map((t) => (
+              {drawn.map((t) => (
                 <Fragment key={t.b.name}>
                   <TileView
                     t={t}
@@ -1537,7 +1562,7 @@ function TileCommits({
   // The default branch lists what it has not released; once whole, the tagged commit they came after closes the list.
   const unreleased = !b.parent;
   const tagged = endsOnTag(b, n);
-  const q = useCommits(pid, enabled ? b.name : undefined, n + (tagged ? 1 : 0), unreleased);
+  const q = useCommits(pid, enabled ? b.name : undefined, n + (tagged ? 1 : 0), unreleased, b.parent);
   const commits = q.data?.filter((c) => !c.base);
   const since = tagged ? q.data?.find((c) => c.base) : undefined;
   // A commit's own menu, not the box's branch menu.

@@ -39,7 +39,10 @@ export function PublishModal({ pid, view, onClose }: { pid: string; view: Branch
   // Planned on another release branch: its tag is that branch's to create.
   // Looks merged into this branch (nothing of its own left over it, and the branch moved past it): publishing
   // here releases it. The backend makes sure its commits really came in through a merge.
-  const mergedHere = (r: ReleaseView) => r.view?.parent === b && r.view.ahead === 0 && r.view.behind > 0;
+  const mergedHere = (r: ReleaseView) => {
+    const v = ov?.branches.find((x) => x.name === r.branch);
+    return v?.parent === b && v.ahead === 0 && v.behind > 0;
+  };
   const planned = version ? ov?.releases.find((r) => r.open && r.branch !== b && r.version.replace(/^v/i, "") === version && !mergedHere(r)) : undefined;
   // The AI changelog step runs inside the publish, after its checks: a refused publish leaves no changelog commit behind.
   const publish = useAction<PublishResult, { projectId: string; branch: string; version: string; v: boolean; tag?: string; aiChangelog: boolean }>("branches.publish", {
@@ -54,7 +57,8 @@ export function PublishModal({ pid, view, onClose }: { pid: string; view: Branch
   // A release branch's base gets the release only by merging it.
   const base = view.role === "release" ? view.parent || ov?.defaultBranch : undefined;
   // Planned for this release, not in it yet: publishing now goes without them. Gone ones have nothing left to merge.
-  const unmerged = view.role === "release" ? (ov?.releases.find((r) => r.open && r.branch === b)?.items.filter((x) => x.exists && !x.merged) ?? []) : [];
+  const rel = view.role === "release" ? ov?.releases.find((r) => r.open && r.branch === b) : undefined;
+  const unmerged = rel ? (ov?.branches.filter((x) => x.release === rel.version && x.name !== b && x.exists && !x.merged) ?? []) : [];
   const badVersion =
     version &&
     !valid && (

@@ -21,6 +21,9 @@ pub enum Event {
     FilesChanged { project_id: String, branch: Option<String> },
     #[serde(rename_all = "camelCase")]
     ConfigChanged {},
+    /// Events went past this UI while it was behind (a busy terminal writes one per read): what it shows may be stale,
+    /// read it all again.
+    Missed {},
     /// One branch of a running cleanup is done with (deleted or kept).
     #[serde(rename_all = "camelCase")]
     CleanupStep { project_id: String, branch: String },

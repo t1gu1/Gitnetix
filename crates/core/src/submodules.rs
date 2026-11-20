@@ -91,6 +91,10 @@ async fn declared(git: &Git) -> Result<Vec<(String, Declared)>> {
         let (key, value) = rec.split_once('\n').unwrap_or((rec, ""));
         // Names may hold dots: the setting is after the last one.
         let Some((name, field)) = key.strip_prefix("submodule.").and_then(|k| k.rsplit_once('.')) else { continue };
+        // Its clone lives at `.git/modules/<name>`, which removing deletes: a name climbing out with `..` (git ignores those too) is skipped.
+        if name.split(['/', '\\']).any(|c| c == "..") {
+            continue;
+        }
         let i = match list.iter().position(|(n, _)| n == name) {
             Some(i) => i,
             None => {

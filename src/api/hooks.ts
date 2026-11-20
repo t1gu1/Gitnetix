@@ -86,8 +86,9 @@ export function useEngineEvents() {
             qc.invalidateQueries({ queryKey: ["agents"] });
             qc.invalidateQueries({ queryKey: ["worktrees"] });
             qc.invalidateQueries({ queryKey: ["projects"] });
-            qc.invalidateQueries({ queryKey: ["overview"] });
-            qc.invalidateQueries({ queryKey: ["files"] });
+            // Its own project only, when known: every other project's overview would reload for nothing.
+            qc.invalidateQueries({ queryKey: prev ? ["overview", prev.projectId] : ["overview"] });
+            qc.invalidateQueries({ queryKey: prev ? ["files", prev.projectId] : ["files"] });
             if (!isLocal && prev?.status !== e.status && (e.status === "waiting" || e.status === "failed")) {
               navigator.vibrate?.([200, 100, 200]);
               const on = prev ? ` on ${prev.branch}` : "";
@@ -150,6 +151,10 @@ export function useEngineEvents() {
           case "githubSignedOut":
             // Read by GitHubSignInPrompt. Each failed refresh sends it again: false (put off) stays false for the run.
             qc.setQueryData<boolean | null>(["githubSignedOut"], (v) => v !== false);
+            break;
+          case "missed":
+            // The engine's events outran this window: anything shown may be stale.
+            qc.invalidateQueries();
             break;
           case "configChanged":
             qc.invalidateQueries({ queryKey: ["config"] });
@@ -238,22 +243,13 @@ export function switchedOverview(o: Overview, branch: string | null, tag?: strin
     ...o,
     currentBranch: branch,
     branches: o.branches.map(mark),
-    otherBranches: o.otherBranches.map(mark),
-    defaultView: o.defaultView && mark(o.defaultView),
-    releases: o.releases.map((r) => ({ ...r, checkedOut: !!tag && r.tagName === tag, view: r.view && mark(r.view) })),
+    releases: o.releases.map((r) => ({ ...r, checkedOut: !!tag && r.tagName === tag })),
   };
 }
 
-/** `o` with branch `name`'s view put through `f`, wherever it shows. */
+/** `o` with branch `name`'s view put through `f`. */
 export function patchBranch(o: Overview, name: string, f: (b: BranchView) => BranchView): Overview {
-  const mark = (b: BranchView) => (b.name === name ? f(b) : b);
-  return {
-    ...o,
-    branches: o.branches.map(mark),
-    otherBranches: o.otherBranches.map(mark),
-    defaultView: o.defaultView && mark(o.defaultView),
-    releases: o.releases.map((r) => ({ ...r, items: r.items.map(mark), view: r.view && mark(r.view) })),
-  };
+  return { ...o, branches: o.branches.map((b) => (b.name === name ? f(b) : b)) };
 }
 
 /** Show at once what an action did to branch `name`; the refreshed overview replaces it. */
@@ -287,8 +283,7 @@ export const pushed = (b: BranchView, force = false): BranchView => ({
 /** The overview once branch `name` is deleted here (`remote`: from origin too). One origin keeps stays, origin-only. */
 export function deletedOverview(o: Overview, name: string, remote: boolean): Overview {
   if (!remote && o.branches.some((b) => b.name === name && b.remote)) return patchBranch(o, name, (b) => ({ ...b, local: false, checkedOut: false, worktree: null, wip: 0 }));
-  const drop = (l: BranchView[]) => l.filter((b) => b.name !== name);
-  return { ...o, branches: drop(o.branches), otherBranches: drop(o.otherBranches), releases: o.releases.map((r) => ({ ...r, items: drop(r.items) })) };
+  return { ...o, branches: o.branches.filter((b) => b.name !== name) };
 }
 
 /** Show at once that branch `name` is deleted (`remote`: from origin too); the refreshed overview replaces it. */
@@ -489,10 +484,11 @@ export const useAgentBlobs = (id: string, from: string, to: string, path: string
  * Newest `limit` commits of `branch`: raising it keeps the shorter list shown while the longer one loads.
  * `unreleased`: the default branch's since its latest tag, the tagged commit last as `base`.
  */
-export const useCommits = (projectId?: string, branch?: string, limit?: number, unreleased = false) =>
+export const useCommits = (projectId?: string, branch?: string, limit?: number, unreleased = false, base?: string | null) =>
   useQuery({
-    queryKey: ["commits", projectId, branch, limit, unreleased],
-    queryFn: () => rpc<Commit[]>("workspace.commits", { projectId, branch, limit, unreleased }),
+    queryKey: ["commits", projectId, branch, limit, unreleased, base],
+    // `base`, the parent the map shows, saves the engine working it out again for every tile.
+    queryFn: () => rpc<Commit[]>("workspace.commits", { projectId, branch, limit, unreleased, base: base ?? undefined }),
     enabled: !!projectId && !!branch,
     placeholderData: (prev, prevQuery) => (prevQuery?.queryKey[2] === branch ? prev : undefined),
   });
@@ -526,17 +522,42 @@ export const useReleaseCommits = (projectId: string, tag: string, limit: number)
     placeholderData: (prev, prevQuery) => (prevQuery?.queryKey[2] === `tag:${tag}` ? prev : undefined),
   });
 
-/** Every 5 s while someone uses the window (the caller turns it off while idle; coming back asks at once), ask origin for its tips and fetch only when they moved.
+// When this window last looked at each project's origin, and whether it was focused since.
+const lastLook = new Map<string, number>();
+let focused = false;
+
+/** Every 5 s while someone uses the window (the caller turns it off while idle), ask origin for its tips and fetch only when they moved.
+ *  The engine asks origin less often the longer it stays unchanged, up to once a minute; coming back (the window focused, or
+ *  its looks paused over 15 s: idle, hidden) tells it to ask at once.
  *  A fetch sends projectChanged, which reloads the overview. After a failure (offline, signed out) once a minute, quietly: it runs unasked. */
-export const useAutoFetch = (projectId?: string, enabled = true) =>
-  useQuery({
+export const useAutoFetch = (projectId?: string, enabled = true) => {
+  const q = useQuery({
     queryKey: ["autoFetch", projectId],
-    queryFn: () => rpc<boolean>("branches.autoFetch", { projectId }),
+    queryFn: () => {
+      const key = projectId ?? "";
+      const back = focused || Date.now() - (lastLook.get(key) ?? 0) > 15_000;
+      focused = false;
+      lastLook.set(key, Date.now());
+      return rpc<boolean>("branches.autoFetch", { projectId, back });
+    },
     enabled: enabled && !!projectId,
     staleTime: 4_000,
     retry: false,
     refetchInterval: (q) => (q.state.status === "error" ? 60_000 : 5_000),
   });
+  const { refetch } = q;
+  const on = enabled && !!projectId;
+  useEffect(() => {
+    if (!on) return;
+    const back = () => {
+      focused = true;
+      void refetch();
+    };
+    window.addEventListener("focus", back);
+    return () => window.removeEventListener("focus", back);
+  }, [on, refetch]);
+  return q;
+};
 
 /** `select` picks the part shown: the caller then redraws when that part changes, not on every line any agent logs. */
 export const useAgents = <T = AgentSession[]>(select?: (list: AgentSession[]) => T) =>

@@ -350,7 +350,10 @@ mod desktop {
                     Ok(ev) => {
                         let _ = handle.emit("gitnetix://event", ev);
                     }
-                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                    // Some went past while the window was behind: one of them may have been a project's change.
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                        let _ = handle.emit("gitnetix://event", gitnetix_core::Event::Missed {});
+                    }
                     Err(_) => break,
                 }
             }

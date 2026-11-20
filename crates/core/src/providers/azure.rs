@@ -249,6 +249,7 @@ impl Azure {
             number,
             title: v["title"].as_str().unwrap_or("").into(),
             head: branch(&v["sourceRefName"]),
+            fork: !v["forkSource"].is_null(),
             base: branch(&v["targetRefName"]),
             state: state.into(),
             author: v["createdBy"]["displayName"].as_str().unwrap_or("").into(),

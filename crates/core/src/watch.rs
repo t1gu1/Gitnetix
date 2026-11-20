@@ -23,6 +23,9 @@ use crate::store::Project;
 const SETTLE: Duration = Duration::from_millis(300);
 /// A checkout that keeps changing (an agent at work) re-reads its files at most this often: the old timer's rate.
 const GAP: Duration = Duration::from_millis(if cfg!(test) { 600 } else { 4000 });
+/// Refs that keep moving (a long rebase, a fetch writing many refs) refresh the project at most this often: every
+/// refresh reloads the overview and the open lists, and one asked while another runs is not cancelled.
+const REFS_GAP: Duration = Duration::from_millis(1500);
 /// Windows drops a burst of events that overflows its 16 KB buffer, and notify reports nothing then. A checkout is
 /// watched whole there, so a build writing in `target/` overflows it too: every checkout is re-read this often.
 // shortcut: idle checkouts are re-read too; sweep only the ones with events since the last sweep if idle git calls matter there.
@@ -133,8 +136,9 @@ fn run(mut repos: Vec<Repo>, rx: &Receiver<Msg>, w: &Weak<Mutex<RecommendedWatch
         if relist(w, r).is_none() {
             return;
         }
-        // A save made while this was setting up went unseen.
-        mark(&mut due, &last, Key::Files(r.id.clone(), None), Instant::now());
+        // A save made or a ref moved while this was setting up went unseen: watching a checkout restarts the event
+        // stream on macOS, and writes meanwhile are lost. A project refresh covers its files too.
+        mark(&mut due, &last, Key::Refs(r.id.clone()), Instant::now());
     }
     let mut next_poll = Instant::now() + GAP;
     let mut next_sweep = Instant::now() + SWEEP;
@@ -178,8 +182,9 @@ fn run(mut repos: Vec<Repo>, rx: &Receiver<Msg>, w: &Weak<Mutex<RecommendedWatch
         });
         for k in ready {
             match k {
-                Key::Refs(project_id) => {
-                    let _ = events.send(Event::ProjectChanged { project_id });
+                Key::Refs(ref project_id) => {
+                    let _ = events.send(Event::ProjectChanged { project_id: project_id.clone() });
+                    last.insert(k, now);
                 }
                 Key::Files(ref project_id, ref branch) if !whole.contains(project_id) => {
                     let _ = events.send(Event::FilesChanged { project_id: project_id.clone(), branch: branch.clone() });
@@ -191,11 +196,12 @@ fn run(mut repos: Vec<Repo>, rx: &Receiver<Msg>, w: &Weak<Mutex<RecommendedWatch
     }
 }
 
-/// Mark `key` for a refresh once writes settle; a checkout's files no sooner than [`GAP`] after their last one.
+/// Mark `key` for a refresh once writes settle; a checkout's files no sooner than [`GAP`] after their last one,
+/// a project's refs no sooner than [`REFS_GAP`].
 fn mark(due: &mut HashMap<Key, Instant>, last: &HashMap<Key, Instant>, key: Key, now: Instant) {
     let mut at = now + SETTLE;
-    if let (Key::Files(..), Some(l)) = (&key, last.get(&key)) {
-        at = at.max(*l + GAP);
+    if let Some(l) = last.get(&key) {
+        at = at.max(*l + if matches!(key, Key::Files(..)) { GAP } else { REFS_GAP });
     }
     due.entry(key).or_insert(at);
 }
@@ -590,9 +596,14 @@ mod tests {
         last.insert(k.clone(), t);
         mark(&mut due, &last, k.clone(), t + SETTLE);
         assert_eq!(due[&k], t + GAP);
-        // Branches refresh at once, as before.
-        mark(&mut due, &last, Key::Refs("p".into()), t);
-        assert_eq!(due[&Key::Refs("p".into())], t + SETTLE);
+        // Branches refresh at once, then no sooner than REFS_GAP after the last refresh: a long rebase sends a few, not one per write.
+        let r = Key::Refs("p".into());
+        mark(&mut due, &last, r.clone(), t);
+        assert_eq!(due[&r], t + SETTLE);
+        due.clear();
+        last.insert(r.clone(), t);
+        mark(&mut due, &last, r.clone(), t + SETTLE);
+        assert_eq!(due[&r], t + REFS_GAP);
     }
 
     fn sh(dir: &Path, args: &[&str]) {
@@ -613,6 +624,19 @@ mod tests {
         .ok()
     }
 
+    /// Whether a ProjectChanged comes within `secs`, skipping other events.
+    async fn project_changed(rx: &mut broadcast::Receiver<Event>, secs: f64) -> bool {
+        tokio::time::timeout(Duration::from_secs_f64(secs), async {
+            loop {
+                if let Ok(Event::ProjectChanged { .. }) = rx.recv().await {
+                    return;
+                }
+            }
+        })
+        .await
+        .is_ok()
+    }
+
     #[tokio::test]
     async fn saves_and_staging_refresh_the_files_but_ignored_writes_dont() {
         let tmp = tempfile::tempdir().unwrap();
@@ -629,7 +653,7 @@ mod tests {
         let project = Project { id: "p".into(), path: repo.to_string_lossy().into(), ..Default::default() };
         let (tx, mut rx) = broadcast::channel(256);
         let _w = watch(&[project], tx).unwrap();
-        assert_eq!(files_changed(&mut rx, 5.0).await, Some(None), "one refresh once set up");
+        assert!(project_changed(&mut rx, 5.0).await, "one refresh once set up");
 
         std::fs::write(repo.join("target/debug/out"), "x").unwrap();
         std::fs::write(repo.join("src/build.log"), "x").unwrap();
@@ -674,7 +698,7 @@ mod tests {
         let project = Project { id: "p".into(), path: repo.to_string_lossy().into(), ..Default::default() };
         let (tx, mut rx) = broadcast::channel(256);
         let _w = watch(&[project], tx).unwrap();
-        assert_eq!(files_changed(&mut rx, 5.0).await, Some(None));
+        assert!(project_changed(&mut rx, 5.0).await, "one refresh once set up");
 
         let wt = tmp.path().join("wt");
         sh(&repo, &["worktree", "add", "-q", "-b", "feat/x", wt.to_str().unwrap()]);

@@ -38,6 +38,12 @@ pub(crate) fn pr_source(subject: &str) -> Option<&str> {
     (!n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()) && source_name(source)).then_some(source)
 }
 
+/// Whether `subject` is a pull request squash's, as [`PR_ANY_GREP`] finds them.
+pub(crate) fn is_pr_squash(subject: &str) -> bool {
+    let n = subject.strip_prefix("Merged PR ").and_then(|r| r.split_once(": ")).map_or("", |(n, _)| n);
+    !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit())
+}
+
 /// Whether a pull request title is the bare name of its branch.
 fn source_name(title: &str) -> bool {
     !title.is_empty() && !title.contains(char::is_whitespace)
@@ -643,6 +649,16 @@ impl Git {
         self.branch_rev(name).await.ok().flatten().unwrap_or_else(|| name.to_string())
     }
 
+    /// The commit of every ref under `patterns`, by full name; with `merged`, only the refs in that revision's history
+    /// (one listing instead of an ancestry check per ref).
+    pub async fn ref_tips(&self, patterns: &[&str], merged: Option<&str>) -> Result<HashMap<String, String>> {
+        let merged = merged.map(|m| format!("--merged={m}"));
+        let mut args = vec!["for-each-ref", "--format=%(objectname) %(refname)"];
+        args.extend(merged.as_deref());
+        args.extend_from_slice(patterns);
+        Ok(self.run(&args).await?.lines().filter_map(|l| l.split_once(' ')).map(|(sha, r)| (r.to_string(), sha.to_string())).collect())
+    }
+
     pub async fn rev_parse(&self, r: &str) -> Result<String> {
         Ok(self.run(&["rev-parse", r]).await?.trim().to_string())
     }
@@ -774,9 +790,10 @@ impl Git {
         Ok(self.list_refs(&["refs/remotes/origin"]).await?.remote_branches)
     }
 
-    /// Subjects of recent merge commits, keyed by each merged-in (non-first) parent.
+    /// Subjects of recent merge commits, keyed by each merged-in (non-first) parent. Branches, remotes and tags only,
+    /// like [`Git::ref_fingerprint`]: `--all` would count stash commits (merges) and `refs/prefetch`.
     pub async fn merge_subjects(&self, limit: u32) -> Result<HashMap<String, String>> {
-        let out = self.run(&["log", "--all", "--merges", &format!("--max-count={limit}"), "--format=%P%x1f%s"]).await?;
+        let out = self.run(&["log", "--branches", "--remotes", "--tags", "--merges", &format!("--max-count={limit}"), "--format=%P%x1f%s"]).await?;
         let mut map = HashMap::new();
         for l in out.lines() {
             let Some((parents, subject)) = l.split_once('\x1f') else { continue };
@@ -791,7 +808,7 @@ impl Git {
     /// commit, commit time and the title.
     pub async fn pr_squashes(&self, limit: u32) -> Result<Vec<PrSquash>> {
         let max = format!("--max-count={limit}");
-        let out = self.run(&["log", "--all", "--no-merges", &max, "-E", PR_ANY_GREP, "--format=%H%x1f%ct%x1f%s"]).await?;
+        let out = self.run(&["log", "--branches", "--remotes", "--tags", "--no-merges", &max, "-E", PR_ANY_GREP, "--format=%H%x1f%ct%x1f%s"]).await?;
         Ok(out
             .lines()
             .filter_map(|l| {
@@ -868,10 +885,10 @@ impl Git {
             .collect())
     }
 
-    /// `left_right(branch, upstream)` for every local branch whose upstream is a
-    /// remote-tracking branch that still exists.
-    pub async fn upstream_counts(&self) -> Result<HashMap<String, (u32, u32)>> {
-        let out = self.run(&["for-each-ref", "refs/heads", "--format=%(refname:lstrip=2)%1f%(upstream)%1f%(upstream:track,nobracket)"]).await?;
+    /// `left_right(branch, upstream)` for every local branch under `pattern` (`refs/heads`, or one branch's
+    /// `refs/heads/x`) whose upstream is a remote-tracking branch that still exists.
+    pub async fn upstream_counts(&self, pattern: &str) -> Result<HashMap<String, (u32, u32)>> {
+        let out = self.run(&["for-each-ref", pattern, "--format=%(refname:lstrip=2)%1f%(upstream)%1f%(upstream:track,nobracket)"]).await?;
         Ok(out
             .lines()
             .filter_map(|l| {
@@ -1067,11 +1084,12 @@ impl Git {
         self.push_atomic(&[&format!("--force-with-lease={from}:{sha}"), &format!("--force-with-lease={to}:"), &format!("{sha}:{to}"), &format!(":{from}")]).await
     }
 
-    pub async fn delete_remote_branch(&self, name: &str) -> Result<()> {
-        // Lease on the last fetched tip: a push made since then is never deleted unseen.
-        // Full ref: a bare name also matching a tag on origin is refused as ambiguous.
+    pub async fn delete_remote_branch(&self, name: &str, expect: &str) -> Result<()> {
+        // Lease on `expect`, the commit the caller checked: a push made since, even one a background fetch already
+        // brought here, is never deleted unseen. Full ref: a bare name also matching a tag on origin is refused as ambiguous.
         let r = format!("refs/heads/{name}");
-        let (ok, _, err) = self.try_run(&["push", "--force-with-lease", "origin", "--delete", &r]).await?;
+        let lease = format!("--force-with-lease={r}:{expect}");
+        let (ok, _, err) = self.try_run(&["push", &lease, "origin", "--delete", &r]).await?;
         if ok {
             return Ok(());
         }
@@ -1081,6 +1099,70 @@ impl Git {
             return self.run(&["update-ref", "-d", &format!("refs/remotes/origin/{name}")]).await.map(|_| ());
         }
         Err(Error::Git { cmd: "push".into(), stderr: err.trim().into() })
+    }
+
+    /// Delete branches on origin in as few pushes as it takes (100 each), each leased on the commit the caller checked
+    /// (name, commit); a push per branch was a connection to origin each, minutes for a big cleanup. Returns why each
+    /// one not deleted was refused; a branch origin had dropped already only loses its tracking ref, as deleted.
+    pub async fn delete_remote_branches(&self, branches: &[(String, String)]) -> Result<HashMap<String, String>> {
+        let mut refused = HashMap::new();
+        for chunk in branches.chunks(100) {
+            let mut args = vec!["push".to_string(), "--porcelain".into()];
+            args.extend(chunk.iter().map(|(name, sha)| format!("--force-with-lease=refs/heads/{name}:{sha}")));
+            args.push("origin".into());
+            args.extend(chunk.iter().map(|(name, _)| format!(":refs/heads/{name}")));
+            let (_, out, err) = self.try_run(&args.iter().map(String::as_str).collect::<Vec<_>>()).await?;
+            // A line a ref: `-\t:refs/heads/x\t[deleted]`, or `!` and why (`(delete):refs/heads/x\t[rejected] (stale info)`:
+            // origin moved or dropped it).
+            let mut seen: HashMap<&str, (char, &str)> = HashMap::new();
+            for l in out.lines() {
+                let mut f = l.splitn(3, '\t');
+                let (Some(flag), Some(spec)) = (f.next().and_then(|f| f.chars().next()), f.next()) else { continue };
+                if let Some(name) = spec.split_once(':').and_then(|(_, to)| to.strip_prefix("refs/heads/")) {
+                    seen.insert(name, (flag, f.next().unwrap_or("")));
+                }
+            }
+            let mut stale = Vec::new();
+            for (name, _) in chunk {
+                match seen.get(name.as_str()) {
+                    Some(('-', _)) => {}
+                    Some(('!', why)) if why.contains("stale info") => stale.push(name.clone()),
+                    Some((_, why)) => _ = refused.insert(name.clone(), format!("origin refused it: {}", why.trim())),
+                    None => _ = refused.insert(name.clone(), err.trim().to_string()),
+                }
+            }
+            if stale.is_empty() {
+                continue;
+            }
+            // Dropped on origin already (deleted with its merged pull request): only the leftover tracking ref goes.
+            let mut ls = vec!["ls-remote".to_string(), "origin".into()];
+            ls.extend(stale.iter().map(|n| format!("refs/heads/{n}")));
+            let there = self.run(&ls.iter().map(String::as_str).collect::<Vec<_>>()).await?;
+            for name in stale {
+                if there.lines().any(|l| l.ends_with(&format!("\trefs/heads/{name}"))) {
+                    refused.insert(name, "origin has commits pushed since it was checked".into());
+                } else {
+                    self.run(&["update-ref", "-d", &format!("refs/remotes/origin/{name}")]).await?;
+                }
+            }
+        }
+        Ok(refused)
+    }
+
+    /// Delete local `names` in as few git calls as it takes (`branch -D` takes many); why each one kept was refused.
+    pub async fn delete_branches(&self, names: &[&str]) -> Result<HashMap<String, String>> {
+        let mut refused = HashMap::new();
+        for chunk in names.chunks(100) {
+            let mut args = vec!["branch", "-D", "--"];
+            args.extend_from_slice(chunk);
+            let (_, out, err) = self.try_run(&args).await?;
+            let deleted: HashSet<&str> = out.lines().filter_map(|l| Some(l.strip_prefix("Deleted branch ")?.rsplit_once(" (was ")?.0)).collect();
+            for name in chunk.iter().filter(|n| !deleted.contains(**n)) {
+                let why = err.lines().find(|l| l.contains(&format!("'{name}'"))).unwrap_or(err.trim());
+                refused.insert(name.to_string(), why.trim_start_matches("error: ").to_string());
+            }
+        }
+        Ok(refused)
     }
 
     pub async fn tag(&self, name: &str, target: &str, message: &str) -> Result<()> {
@@ -1157,12 +1239,17 @@ impl Git {
             self.run(&["worktree", "prune"]).await?;
             return Ok(());
         }
+        let real = std::fs::canonicalize(path)?;
+        let listed = |list: Vec<WorktreeInfo>| list.iter().any(|w| std::fs::canonicalize(&w.path).is_ok_and(|w| w == real));
+        // Only a folder git lists as a worktree may be deleted below: never another repository or any other folder.
+        if !listed(self.worktrees().await?) {
+            return Err(Error::Invalid(format!("{} is not a worktree of this repository", path.display())));
+        }
         let p = path.to_string_lossy();
         let res = if force { self.run(&["worktree", "remove", "--force", &p]).await } else { self.run(&["worktree", "remove", &p]).await };
         let Err(e) = res else { return Ok(()) };
         // Refused (locked, dirty): git still lists it, and its folder stays as it is.
-        let real = std::fs::canonicalize(path)?;
-        if self.worktrees().await?.iter().any(|w| std::fs::canonicalize(&w.path).is_ok_and(|w| w == real)) {
+        if listed(self.worktrees().await?) {
             return Err(e);
         }
         // Git dropped its record but a process just killed in there (its shell's or agent's build) kept writing:
@@ -1256,8 +1343,10 @@ impl Git {
     /// Put a stash's changes back into this checkout; the stash stays.
     /// Returns the files left conflicted (empty: applied cleanly).
     pub async fn stash_apply(&self, sha: &str) -> Result<Vec<String>> {
-        let r = self.stash_ref(sha).await?;
-        let (ok, _, err) = self.try_run(&["stash", "apply", &r]).await?;
+        // Still listed, else it is gone; then by its id, not `stash@{n}`: every checkout shares the stack, and one
+        // stashing meanwhile shifts the positions.
+        self.stash_ref(sha).await?;
+        let (ok, _, err) = self.try_run(&["stash", "apply", sha]).await?;
         if ok {
             return Ok(Vec::new());
         }
@@ -1268,9 +1357,18 @@ impl Git {
         Ok(conflicts)
     }
 
+    /// Drop stash `sha`. Git drops by position only, and another checkout stashing between the listing and the drop
+    /// shifts them: the one git names as dropped is checked, and put back when it was another.
     pub async fn stash_drop(&self, sha: &str) -> Result<()> {
         let r = self.stash_ref(sha).await?;
-        self.run(&["stash", "drop", &r]).await.map(|_| ())
+        let out = self.run(&["stash", "drop", &r]).await?;
+        let dropped = out.trim().rsplit_once(" (").and_then(|(_, s)| s.strip_suffix(')')).unwrap_or(sha);
+        if dropped != sha {
+            let message = self.run(&["log", "-1", "--format=%s", dropped]).await?;
+            self.run(&["stash", "store", "-m", message.trim(), dropped]).await?;
+            return Err(Error::Invalid("The stashes changed meanwhile: nothing was dropped. Try again.".into()));
+        }
+        Ok(())
     }
 
     /// Uncommitted changes split by side: staged (index vs HEAD) and
@@ -1582,6 +1680,10 @@ impl Git {
                 if code.starts_with('R') || code.starts_with('C') {
                     let (old, new) = (parts.next().unwrap_or(""), parts.next().unwrap_or(""));
                     if code.starts_with('R') && picked.contains(new) {
+                        // A file made there since would be overwritten by the one brought back.
+                        if self.cwd.join(old).symlink_metadata().is_ok() {
+                            return Err(Error::Invalid(format!("{old} is there again as a new file: discarding the rename would overwrite it with the old one. Move it away first.")));
+                        }
                         targets.push(old.to_string());
                     }
                 } else {
@@ -1747,12 +1849,11 @@ impl Git {
         self.push_with(&args).await
     }
 
-    /// Replace `upstream` (`remote/branch`) with local `branch`, e.g. after a rebase.
+    /// Replace origin's copy of `branch` with the local one, e.g. after a rebase.
     /// Refused when origin has commits that were never on the local branch
     /// (`--force-if-includes`), even if a background fetch already saw them.
-    pub async fn force_push(&self, branch: &str, upstream: &str) -> Result<String> {
-        let (remote, dest) = upstream.split_once('/').unwrap_or(("origin", upstream));
-        self.push_with(&["push", "--force-with-lease", "--force-if-includes", remote, &format!("{branch}:refs/heads/{dest}")]).await
+    pub async fn force_push(&self, branch: &str) -> Result<String> {
+        self.push_with(&["push", "--force-with-lease", "--force-if-includes", "origin", &format!("{branch}:refs/heads/{branch}")]).await
     }
 
     /// Push several refs to origin: all of them land, or none do.
@@ -1981,25 +2082,47 @@ impl Git {
 
     /// Stable patch id of each non-merge commit in `revs` (rev-list syntax), with its commit.
     pub async fn patch_ids(&self, revs: &[&str]) -> Result<Vec<(String, String)>> {
-        let mut args = vec!["log", "-p", "--no-merges", "--no-color", "--no-ext-diff", "--format=commit %H"];
+        let mut args = vec!["rev-list", "--no-merges"];
         args.extend_from_slice(revs);
         args.push("--");
-        let log = self.run(&args).await?;
-        if log.trim().is_empty() {
-            return Ok(vec![]);
-        }
-        let out = self.run_stdin(&["patch-id", "--stable"], &log).await?;
-        Ok(out.lines().filter_map(|l| l.split_once(' ')).map(|(id, c)| (id.to_string(), c.to_string())).collect())
+        let commits: Vec<String> = self.run(&args).await?.lines().map(String::from).collect();
+        self.patch_ids_stdin(&commits).await
     }
 
     /// Stable patch id of the whole change from `from` to `to`; None when nothing changed.
     pub async fn diff_patch_id(&self, from: &str, to: &str) -> Result<Option<String>> {
-        let diff = self.run(&["diff", "--no-color", "--no-ext-diff", from, to, "--"]).await?;
-        if diff.trim().is_empty() {
-            return Ok(None);
+        Ok(self.patch_ids_stdin(&[format!("{to} {from}")]).await?.into_iter().next().map(|(id, _)| id))
+    }
+
+    /// Stable patch ids of many changes from one `git diff-tree --stdin -p | git patch-id --stable`, piped from one
+    /// to the other so the diffs never sit in memory. Each line is a commit (its own change) or `<commit> <from>`
+    /// (the change from `from` to `commit`); answers come as (patch id, commit). Merges and empty changes give none.
+    /// Plumbing's diff: no rename detection nor the user's diff settings, so every id compared is made the same way.
+    pub async fn patch_ids_stdin(&self, lines: &[String]) -> Result<Vec<(String, String)>> {
+        use std::process::Stdio;
+        use tokio::io::AsyncWriteExt;
+        if lines.is_empty() {
+            return Ok(Vec::new());
         }
-        let out = self.run_stdin(&["patch-id", "--stable"], &diff).await?;
-        Ok(out.split_whitespace().next().map(str::to_string))
+        let args = ["diff-tree", "--stdin", "--root", "-p", "--no-color", "--no-ext-diff"];
+        let mut diff = self.command(&args).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
+        let diffs: Stdio = diff.stdout.take().expect("piped stdout").try_into()?;
+        let ids = self.command(&["patch-id", "--stable"]).stdin(diffs).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
+        let mut stdin = diff.stdin.take().expect("piped stdin");
+        let input = lines.join("\n") + "\n";
+        let feed = async move {
+            let fed = stdin.write_all(input.as_bytes()).await;
+            drop(stdin);
+            fed
+        };
+        let (fed, out, diffed) = tokio::join!(feed, ids.wait_with_output(), diff.wait_with_output());
+        let diffed = diffed?;
+        if !diffed.status.success() {
+            return Err(Error::Git { cmd: "diff-tree".into(), stderr: String::from_utf8_lossy(&diffed.stderr).trim().into() });
+        }
+        fed?;
+        let out = Self::stdout_or_err(&["patch-id"], out?)?;
+        Ok(out.lines().filter_map(|l| l.split_once(' ')).map(|(id, c)| (id.to_string(), c.to_string())).collect())
     }
 
     pub async fn merge_base(&self, a: &str, b: &str) -> Result<String> {
@@ -2428,6 +2551,11 @@ fn pick_patch(diff: &[u8], path: &str, picked: &[LinePick], reverse: bool) -> Re
         if !any {
             continue;
         }
+        // A line missing its final newline must stay the last of its side (of both, as context): a picked line after one
+        // left as context would be glued onto it, a line neither version has.
+        if out.iter().enumerate().any(|(i, (kind, _, no_eol))| *no_eol && out[i + 1..].iter().any(|(k, ..)| *kind == b' ' || *k == b' ' || k == kind)) {
+            return Err(Error::Invalid("The file's last line has no newline at its end, so it changes too: pick that line's change as well.".into()));
+        }
         let old_count = out.iter().filter(|l| l.0 != b'+').count() as u32;
         let new_count = out.iter().filter(|l| l.0 != b'-').count() as u32;
         // The base side keeps its numbers; the other moves by what the hunks before changed.
@@ -2582,6 +2710,95 @@ mod tests {
         std::fs::write(tmp.path().join("a.txt"), "3\n").unwrap();
         let fresh = g.stash("fresh").await.unwrap();
         assert!(fresh.is_some() && fresh != old);
+    }
+
+    #[tokio::test]
+    async fn worktree_remove_never_deletes_a_folder_git_does_not_list() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (repo, other, wt) = (tmp.path().join("repo"), tmp.path().join("other"), tmp.path().join("wt"));
+        std::fs::create_dir_all(&repo).unwrap();
+        std::fs::create_dir_all(other.join("src")).unwrap();
+        std::fs::write(other.join("src/keep.txt"), "keep\n").unwrap();
+        let sh = |args: &[&str]| {
+            let ok = std::process::Command::new("git")
+                .current_dir(&repo)
+                .args(["-c", "user.name=T", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false"])
+                .args(args)
+                .status()
+                .unwrap()
+                .success();
+            assert!(ok, "git {args:?}");
+        };
+        sh(&["init", "-q", "-b", "main"]);
+        std::fs::write(repo.join("a.txt"), "1\n").unwrap();
+        sh(&["add", "a.txt"]);
+        sh(&["commit", "-qm", "a"]);
+        let g = Git::new(&repo);
+        // git refuses it ("is not a working tree"), and it was never listed: the folder stays.
+        assert!(g.worktree_remove(&other, true).await.is_err());
+        assert!(other.join("src/keep.txt").exists());
+        sh(&["worktree", "add", "-q", "-b", "x", wt.to_str().unwrap()]);
+        g.worktree_remove(&wt, true).await.unwrap();
+        assert!(!wt.exists());
+    }
+
+    #[tokio::test]
+    async fn discarding_a_staged_rename_keeps_a_new_file_at_its_old_path() {
+        let tmp = tempfile::tempdir().unwrap();
+        let sh = |args: &[&str]| {
+            let ok = std::process::Command::new("git")
+                .current_dir(tmp.path())
+                .args(["-c", "user.name=T", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false"])
+                .args(args)
+                .status()
+                .unwrap()
+                .success();
+            assert!(ok, "git {args:?}");
+        };
+        sh(&["init", "-q", "-b", "main"]);
+        std::fs::write(tmp.path().join("cfg.json"), "old\n").unwrap();
+        sh(&["add", "cfg.json"]);
+        sh(&["commit", "-qm", "cfg"]);
+        sh(&["mv", "cfg.json", "cfg.old.json"]);
+        // A new file where the renamed one was.
+        std::fs::write(tmp.path().join("cfg.json"), "new\n").unwrap();
+        let g = Git::new(tmp.path());
+        assert!(g.discard_staged(&["cfg.old.json".to_string()], &|_, _| {}).await.is_err());
+        assert_eq!(std::fs::read_to_string(tmp.path().join("cfg.json")).unwrap(), "new\n");
+        // With the old path free, the rename is undone whole.
+        std::fs::remove_file(tmp.path().join("cfg.json")).unwrap();
+        g.discard_staged(&["cfg.old.json".to_string()], &|_, _| {}).await.unwrap();
+        assert_eq!(std::fs::read_to_string(tmp.path().join("cfg.json")).unwrap(), "old\n");
+        assert!(!tmp.path().join("cfg.old.json").exists());
+    }
+
+    #[tokio::test]
+    async fn stashes_go_by_their_id() {
+        let tmp = tempfile::tempdir().unwrap();
+        let sh = |args: &[&str]| {
+            let ok = std::process::Command::new("git")
+                .current_dir(tmp.path())
+                .args(["-c", "user.name=T", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false"])
+                .args(args)
+                .status()
+                .unwrap()
+                .success();
+            assert!(ok, "git {args:?}");
+        };
+        sh(&["init", "-q", "-b", "main"]);
+        std::fs::write(tmp.path().join("a.txt"), "1\n").unwrap();
+        sh(&["add", "a.txt"]);
+        sh(&["commit", "-qm", "a"]);
+        let g = Git::new(tmp.path());
+        std::fs::write(tmp.path().join("a.txt"), "old\n").unwrap();
+        let old = g.stash("old").await.unwrap().unwrap();
+        std::fs::write(tmp.path().join("a.txt"), "new\n").unwrap();
+        let new = g.stash("new").await.unwrap().unwrap();
+        // The older one, below the newer: applied and dropped by its id, the newer stays.
+        assert!(g.stash_apply(&old).await.unwrap().is_empty());
+        assert_eq!(std::fs::read_to_string(tmp.path().join("a.txt")).unwrap(), "old\n");
+        g.stash_drop(&old).await.unwrap();
+        assert_eq!(g.stashes().await.unwrap().iter().map(|s| s.sha.clone()).collect::<Vec<_>>(), vec![new]);
     }
 
     #[tokio::test]
@@ -3021,6 +3238,17 @@ mod tests {
         assert!(p.ends_with("@@ -1,2 +1,1 @@\n a\n-b\n\\ No newline at end of file\n"), "{p}");
         let p = patch(diff, "f", &[pick('-', 2, "b"), pick('+', 2, "B")], false);
         assert!(p.ends_with("@@ -1,2 +1,2 @@\n a\n-b\n\\ No newline at end of file\n+B\n\\ No newline at end of file\n"), "{p}");
+    }
+
+    #[test]
+    fn refuses_to_glue_a_line_onto_one_without_its_newline() {
+        // Old `a\nb` without a final newline, new `a\nb\nc`: git rewrites `b` with its newline, then adds `c`.
+        let diff = "diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1,2 +1,3 @@\n a\n-b\n\\ No newline at end of file\n+b\n+c\n";
+        // `+c` alone would stage `a\nbc`.
+        assert!(pick_patch(diff.as_bytes(), "f", &[pick('+', 3, "c")], false).is_err());
+        // With `b`'s change too, it is whole.
+        let p = patch(diff, "f", &[pick('-', 2, "b"), pick('+', 2, "b"), pick('+', 3, "c")], false);
+        assert!(p.ends_with("@@ -1,2 +1,3 @@\n a\n-b\n\\ No newline at end of file\n+b\n+c\n"), "{p}");
     }
 
     #[test]

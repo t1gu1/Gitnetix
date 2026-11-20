@@ -18,6 +18,42 @@ async fn call(k: &Gitnetix, m: &str, p: Value) -> Value {
     }
 }
 
+#[cfg(unix)]
+#[tokio::test]
+async fn files_are_never_copied_through_a_link_the_branch_holds() {
+    let tmp = tempfile::tempdir().unwrap();
+    let app = tmp.path().join("linked-app");
+    let outside = tmp.path().join("outside");
+    std::fs::create_dir_all(&app).unwrap();
+    std::fs::create_dir_all(&outside).unwrap();
+    sh(&app, &["init", "-q", "-b", "main"]);
+    sh(&app, &["config", "user.email", "t@example.com"]);
+    sh(&app, &["config", "user.name", "Test"]);
+    sh(&app, &["config", "commit.gpgsign", "false"]);
+    std::fs::write(app.join(".gitignore"), ".env\n.claude/settings.local.json\n").unwrap();
+    sh(&app, &["add", "."]);
+    sh(&app, &["commit", "-qm", "init"]);
+    // A branch tracking `.env` as a link to a file in the checkout, and `.claude` as a link to a folder outside it.
+    sh(&app, &["switch", "-q", "-c", "evil"]);
+    std::os::unix::fs::symlink("docs/notes.md", app.join(".env")).unwrap();
+    std::os::unix::fs::symlink(&outside, app.join(".claude")).unwrap();
+    sh(&app, &["add", "-f", ".env", ".claude"]);
+    sh(&app, &["commit", "-qm", "links"]);
+    sh(&app, &["switch", "-q", "main"]);
+    // The main checkout's own, copied into new worktrees by default.
+    std::fs::write(app.join(".env"), "SECRET=1\n").unwrap();
+    std::fs::create_dir_all(app.join(".claude")).unwrap();
+    std::fs::write(app.join(".claude/settings.local.json"), "{}").unwrap();
+
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let pid = call(&k, "projects.add", json!({ "paths": [app.to_string_lossy()] })).await[0]["id"].as_str().unwrap().to_string();
+    let wt = call(&k, "worktrees.create", json!({ "projectId": pid, "branch": "evil" })).await["path"].as_str().unwrap().to_string();
+    let wt = Path::new(&wt);
+    assert!(!wt.join("docs/notes.md").exists(), "the secret went through the .env link");
+    assert!(!outside.join("settings.local.json").exists(), "a file went through the .claude link");
+    assert!(wt.join(".env").symlink_metadata().unwrap().file_type().is_symlink(), "the branch's own link stays as it is");
+}
+
 #[tokio::test]
 async fn new_worktrees_get_the_listed_ignored_files_only() {
     let tmp = tempfile::tempdir().unwrap();

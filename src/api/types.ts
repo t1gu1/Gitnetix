@@ -351,10 +351,7 @@ export interface ReleaseView {
   branch: string;
   base: string;
   open: boolean;
-  items: BranchView[];
   note: string;
-  /** The release branch itself (open releases only). */
-  view?: BranchView | null;
   /** Git tag it shipped as (shipped releases only). */
   tagName?: string | null;
   /** HEAD is detached on its tag. */
@@ -381,14 +378,16 @@ export interface ReleaseCount {
   commits: number;
 }
 
+/** What the overview carries of its project; the rest comes with the config. */
+export type OverviewProject = Pick<Project, "id" | "name" | "path" | "releases">;
+
 export interface Overview {
-  project: Project;
+  project: OverviewProject;
   currentBranch?: string | null;
   defaultBranch: string;
   releases: ReleaseView[];
-  otherBranches: BranchView[];
-  defaultView?: BranchView | null;
-  /** Every branch (local, origin-only, tracked-but-gone), each with its parent. */
+  /** Every branch (local, origin-only, tracked-but-gone), each with its parent: the only copy of each view. A release's
+   *  branches are those whose `release` is its version. */
   branches: BranchView[];
   rebasing: boolean;
   /** Branch the main checkout's paused rebase replays onto (the commit when no branch is there). */
@@ -747,6 +746,8 @@ export interface PrSummary {
   number: number;
   title: string;
   head: string;
+  /** Its head branch lives in a fork: a branch of the same name here is not it. */
+  fork: boolean;
   base: string;
   state: "open" | "draft" | "merged" | "closed";
   author: string;
@@ -1063,6 +1064,7 @@ export interface SprintReport {
 }
 
 export type GitnetixEvent =
+  | { type: "missed" }
   | { type: "agentLine"; sessionId: string; line: LogLine }
   | { type: "agentStatus"; sessionId: string; status: AgentStatus }
   | { type: "agentTasks"; sessionId: string; tasks: AgentTask[] }

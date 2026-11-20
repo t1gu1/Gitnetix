@@ -225,6 +225,7 @@ impl GitLab {
             number: v["iid"].as_u64().unwrap_or(0),
             title: v["title"].as_str().unwrap_or("").into(),
             head: v["source_branch"].as_str().unwrap_or("").into(),
+            fork: v["source_project_id"] != v["target_project_id"],
             base: v["target_branch"].as_str().unwrap_or("").into(),
             state: state.into(),
             mine: author == me,
@@ -468,6 +469,13 @@ impl GitLab {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tells_a_merge_request_from_a_fork() {
+        let mr = |source: u64| GitLab::summary(&json!({ "iid": 1, "title": "T", "source_branch": "feat", "target_branch": "main", "author": { "username": "x" }, "state": "opened", "source_project_id": source, "target_project_id": 7 }), "me");
+        assert!(!mr(7).fork);
+        assert!(mr(8).fork);
+    }
 
     #[test]
     fn pictures_go_to_the_uploads_api_and_never_off_the_host() {

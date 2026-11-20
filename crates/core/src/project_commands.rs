@@ -472,7 +472,7 @@ fn package_scripts(files: &[&str], read: impl Fn(&str) -> Option<String>) -> Vec
 }
 
 /// `s` as one shell word: as is when plain, else single-quoted (the same in bash, zsh and fish).
-fn shell_word(s: &str) -> String {
+pub(crate) fn shell_word(s: &str) -> String {
     if !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || "-_./:@+=,".contains(c)) {
         s.into()
     } else {

@@ -81,8 +81,10 @@ async fn release_flow() {
     let ov = call(&k, "workspace.overview", json!({ "projectId": pid })).await;
     let rel = &ov["releases"][0];
     assert_eq!(rel["version"], "2.4.0");
-    assert_eq!(rel["items"][0]["name"], "feat/oauth-login");
-    assert_eq!(rel["items"][0]["ahead"], 1);
+    // Its branches: the ones filed under its version.
+    let items: Vec<&Value> = ov["branches"].as_array().unwrap().iter().filter(|b| b["release"] == rel["version"] && b["name"] != rel["branch"]).collect();
+    assert_eq!(items[0]["name"], "feat/oauth-login");
+    assert_eq!(items[0]["ahead"], 1);
 
     // Merge the feature into the release, then ship.
     // The release is not checked out: merged without touching any checkout.
@@ -241,6 +243,58 @@ async fn cleanup_branch_named_like_a_tag() {
     assert!(!rev(&repo, "refs/tags/2.13.0").is_empty(), "tag kept");
 }
 
+#[cfg(unix)]
+#[tokio::test]
+async fn cleanup_deletes_on_origin_in_one_push_and_keeps_what_it_refuses() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("atlas-api");
+    init_repo(&repo);
+    let origin = tmp.path().join("origin.git");
+    sh(tmp.path(), &["init", "-q", "--bare", "-b", "main", origin.to_str().unwrap()]);
+    sh(&repo, &["remote", "add", "origin", origin.to_str().unwrap()]);
+    let branches = ["done/a", "done/b", "gone/c", "moved/d", "wip/e", "theirs/f"];
+    for b in branches {
+        sh(&repo, &["branch", b]);
+    }
+    sh(&repo, &["switch", "-q", "wip/e"]);
+    commit_file(&repo, "wip.txt", "wip\n");
+    sh(&repo, &["switch", "-q", "main"]);
+    sh(&repo, &[&["push", "-q", "origin", "main"][..], &branches].concat());
+    sh(&repo, &["fetch", "-q", "origin"]);
+    // Behind this clone's back: gone/c deleted on origin (its pull request merged), moved/d given a new commit.
+    sh(&origin, &["branch", "-D", "gone/c"]);
+    let tree = rev(&origin, "main^{tree}");
+    let pushed = git_out(&origin, &["-c", "user.name=O", "-c", "user.email=o@example.com", "commit-tree", &tree, "-p", "main", "-m", "pushed elsewhere"]);
+    sh(&origin, &["update-ref", "refs/heads/moved/d", pushed.trim()]);
+    // And origin's theirs/f given that commit too, which this clone fetched but its branch never had.
+    sh(&origin, &["update-ref", "refs/heads/theirs/f", pushed.trim()]);
+    sh(&repo, &["fetch", "-q", "origin", "theirs/f"]);
+    hook(&repo, "pre-push", &format!("echo push >> {}", tmp.path().join("pushes").display()));
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let added = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await;
+    let pid = added[0]["id"].as_str().unwrap().to_string();
+
+    let r = call(&k, "branches.cleanup", json!({ "projectId": pid, "branches": branches, "remote": true })).await;
+    assert_eq!(r["deleted"], json!(["done/a", "done/b", "gone/c"]), "{r}");
+    let skipped: Vec<(&str, &str)> = r["skipped"].as_array().unwrap().iter().map(|s| (s["branch"].as_str().unwrap(), s["reason"].as_str().unwrap())).collect();
+    assert_eq!(skipped.len(), 3, "{r}");
+    assert!(skipped.iter().any(|(b, why)| *b == "wip/e" && why.contains("not merged")), "{r}");
+    assert!(skipped.iter().any(|(b, why)| *b == "moved/d" && why.contains("pushed since")), "{r}");
+    assert!(skipped.iter().any(|(b, why)| *b == "theirs/f" && why.contains("neither in main nor in theirs/f")), "{r}");
+    assert_eq!(std::fs::read_to_string(tmp.path().join("pushes")).unwrap().lines().count(), 1, "one push for all of origin's copies");
+
+    for b in ["done/a", "done/b", "gone/c"] {
+        assert!(rev(&repo, &format!("refs/heads/{b}")).is_empty(), "{b} deleted here");
+        assert!(rev(&repo, &format!("refs/remotes/origin/{b}")).is_empty(), "{b} tracking ref gone");
+        assert!(rev(&origin, &format!("refs/heads/{b}")).is_empty(), "{b} deleted on origin");
+    }
+    assert_eq!(rev(&origin, "refs/heads/moved/d"), pushed.trim(), "the commit pushed elsewhere is kept");
+    assert!(!rev(&repo, "refs/heads/moved/d").is_empty(), "kept here while origin keeps it");
+    for b in ["wip/e", "theirs/f"] {
+        assert!(!rev(&repo, &format!("refs/heads/{b}")).is_empty() && !rev(&origin, &format!("refs/heads/{b}")).is_empty(), "{b} kept");
+    }
+}
+
 #[tokio::test]
 async fn delete_release_branch_before_its_items() {
     let tmp = tempfile::tempdir().unwrap();
@@ -378,7 +432,8 @@ async fn pull_and_tracking() {
     let pid = added[0]["id"].as_str().unwrap().to_string();
 
     let ov = call(&k, "workspace.overview", json!({ "projectId": pid })).await;
-    let x = &ov["otherBranches"][0];
+    let feat_x = |ov: &Value| ov["branches"].as_array().unwrap().iter().find(|b| b["name"] == "feat/x").unwrap().clone();
+    let x = feat_x(&ov);
     assert_eq!(x["name"], "feat/x");
     assert_eq!(x["upstream"], "origin/feat/x");
     assert_eq!(x["upstreamBehind"], 1);
@@ -393,8 +448,8 @@ async fn pull_and_tracking() {
 
     // feat/x is now behind main by the commit pushed there.
     let ov = call(&k, "workspace.overview", json!({ "projectId": pid })).await;
-    assert_eq!(ov["otherBranches"][0]["behind"], 1);
-    assert_eq!(ov["otherBranches"][0]["upstreamBehind"], 0);
+    assert_eq!(feat_x(&ov)["behind"], 1);
+    assert_eq!(feat_x(&ov)["upstreamBehind"], 0);
 
     // Diverged both ways: reset drops the local commit and lands on origin's.
     sh(&repo, &["switch", "-q", "feat/x"]);
@@ -470,6 +525,205 @@ async fn pull_and_tracking() {
     let theirs = rev(&origin, "feat/x");
     assert!(rpc::call(&k, "workspace.push", json!({ "projectId": pid, "branch": "feat/x", "force": true })).await.is_err());
     assert_eq!(rev(&origin, "feat/x"), theirs, "teammate's commit kept");
+}
+
+#[tokio::test]
+async fn force_push_only_replaces_the_branchs_own_copy() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("own-copy");
+    init_repo(&repo);
+    let origin = tmp.path().join("origin.git");
+    sh(tmp.path(), &["init", "-q", "--bare", "-b", "main", origin.to_str().unwrap()]);
+    sh(&repo, &["remote", "add", "origin", origin.to_str().unwrap()]);
+    sh(&repo, &["push", "-q", "-u", "origin", "main"]);
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let added = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await;
+    let pid = added[0]["id"].as_str().unwrap().to_string();
+    // Main moves on after `release` was cut from it.
+    sh(&repo, &["branch", "release"]);
+    commit_file(&repo, "m2.txt", "m2\n");
+    sh(&repo, &["push", "-q", "origin", "main"]);
+    let main = rev(&origin, "main");
+
+    // Made from origin/main, it tracks main: rebased onto `release`, a force push must not replace main.
+    sh(&repo, &["switch", "-q", "-c", "feature", "--track", "origin/main"]);
+    commit_file(&repo, "f.txt", "f\n");
+    let r = call(&k, "workspace.rebase", json!({ "projectId": pid, "branch": "feature", "onto": "release" })).await;
+    assert!(r["forcePushTo"].is_null(), "not its own copy: {r}");
+    let err = rpc::call(&k, "workspace.push", json!({ "projectId": pid, "branch": "feature", "force": true })).await.unwrap_err();
+    assert!(err.to_string().contains("origin/feature"), "{err}");
+    // A local upstream names no copy on origin either.
+    sh(&repo, &["branch", "-q", "--set-upstream-to", "main", "feature"]);
+    assert!(rpc::call(&k, "workspace.push", json!({ "projectId": pid, "branch": "feature", "force": true })).await.is_err());
+    assert_eq!(rev(&origin, "main"), main);
+    assert_eq!(rev(&origin, "feature"), "");
+
+    // Pushed under its own name, it force pushes there.
+    call(&k, "workspace.push", json!({ "projectId": pid, "branch": "feature" })).await;
+    sh(&repo, &["commit", "-q", "--amend", "-m", "f again"]);
+    call(&k, "workspace.push", json!({ "projectId": pid, "branch": "feature", "force": true })).await;
+    assert_eq!(rev(&origin, "feature"), rev(&repo, "feature"));
+    assert_eq!(rev(&origin, "main"), main);
+}
+
+#[tokio::test]
+async fn an_upstream_under_another_name_moves_its_branch() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("renamed-upstream");
+    init_repo(&repo);
+    let origin = tmp.path().join("origin.git");
+    sh(tmp.path(), &["init", "-q", "--bare", "-b", "main", origin.to_str().unwrap()]);
+    sh(&repo, &["remote", "add", "origin", origin.to_str().unwrap()]);
+    sh(&repo, &["push", "-q", "-u", "origin", "main"]);
+    sh(&repo, &["switch", "-q", "-c", "feature/login"]);
+    commit_file(&repo, "login.txt", "1\n");
+    sh(&repo, &["push", "-q", "-u", "origin", "feature/login"]);
+    sh(&repo, &["switch", "-q", "-c", "fix-login", "--track", "origin/feature/login"]);
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let added = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await;
+    let pid = added[0]["id"].as_str().unwrap().to_string();
+    let fix = |ov: &Value| ov["branches"].as_array().unwrap().iter().find(|b| b["name"] == "fix-login").unwrap().clone();
+    assert_eq!(fix(&call(&k, "workspace.overview", json!({ "projectId": pid })).await)["upstreamBehind"], 0);
+
+    // A teammate pushed to feature/login and a fetch brought it: only origin/feature/login moved.
+    let sha = git_out(&repo, &["commit-tree", "origin/feature/login^{tree}", "-p", "origin/feature/login", "-m", "teammate"]);
+    sh(&repo, &["update-ref", "refs/remotes/origin/feature/login", sha.trim()]);
+    let x = fix(&call(&k, "workspace.overview", json!({ "projectId": pid })).await);
+    assert_eq!(x["upstreamBehind"], 1, "{x}");
+}
+
+/// Make `.git/hooks/<name>` run `body`.
+#[cfg(unix)]
+fn hook(repo: &std::path::Path, name: &str, body: &str) {
+    use std::os::unix::fs::PermissionsExt;
+    let file = repo.join(".git/hooks").join(name);
+    std::fs::write(&file, format!("#!/bin/sh\n{body}\n")).unwrap();
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn rebase_merge_never_rewinds_a_target_that_moved_meanwhile() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("busy-target");
+    init_repo(&repo);
+    sh(&repo, &["branch", "team/base"]);
+    sh(&repo, &["switch", "-q", "-c", "feat"]);
+    commit_file(&repo, "f.txt", "f\n");
+    sh(&repo, &["switch", "-q", "team/base"]);
+    commit_file(&repo, "r1.txt", "r1\n");
+    sh(&repo, &["switch", "-q", "main"]);
+    // Someone else's merge lands in team/base while feat is rebased onto it.
+    let theirs = git_out(&repo, &["commit-tree", "team/base^{tree}", "-p", "team/base", "-m", "their merge"]);
+    hook(&repo, "post-rewrite", &format!("git update-ref refs/heads/team/base {}\nrm -f \"$0\"", theirs.trim()));
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let added = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await;
+    let pid = added[0]["id"].as_str().unwrap().to_string();
+    let err = rpc::call(&k, "branches.merge", json!({ "projectId": pid, "branch": "feat", "into": "team/base", "rebase": true, "stay": true })).await.unwrap_err();
+    assert!(err.to_string().contains("moved while"), "{err}");
+    assert_eq!(rev(&repo, "team/base"), theirs.trim(), "their merge kept");
+}
+
+#[tokio::test]
+async fn reset_is_refused_while_a_rebase_is_paused() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("paused");
+    init_repo(&repo);
+    sh(&repo, &["switch", "-q", "-c", "topic"]);
+    commit_file(&repo, "c.txt", "topic\n");
+    sh(&repo, &["switch", "-q", "main"]);
+    commit_file(&repo, "c.txt", "main\n");
+    sh(&repo, &["switch", "-q", "topic"]);
+    // A conflict stops the rebase half way, HEAD detached from topic.
+    assert!(!Command::new("git").current_dir(&repo).args(["rebase", "main"]).output().unwrap().status.success());
+    let topic = rev(&repo, "topic");
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let added = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await;
+    let pid = added[0]["id"].as_str().unwrap().to_string();
+    let err = rpc::call(&k, "commits.reset", json!({ "projectId": pid, "branch": "topic", "sha": rev(&repo, "main"), "mode": "hard" })).await.unwrap_err();
+    assert!(err.to_string().contains("middle of a rebase"), "{err}");
+    assert!(rpc::call(&k, "branches.reset", json!({ "projectId": pid, "branch": "topic" })).await.is_err());
+    assert_eq!(rev(&repo, "topic"), topic);
+    assert!(repo.join(".git/rebase-merge").exists(), "the rebase is still there to finish or abort");
+}
+
+#[tokio::test]
+async fn deleting_a_branch_keeps_origin_while_its_worktree_holds_work() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("kept");
+    init_repo(&repo);
+    let origin = tmp.path().join("origin.git");
+    sh(tmp.path(), &["init", "-q", "--bare", "-b", "main", origin.to_str().unwrap()]);
+    sh(&repo, &["remote", "add", "origin", origin.to_str().unwrap()]);
+    sh(&repo, &["push", "-q", "-u", "origin", "main"]);
+    sh(&repo, &["branch", "feat/w"]);
+    sh(&repo, &["push", "-q", "origin", "feat/w"]);
+    sh(&repo, &["fetch", "-q", "origin"]);
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let added = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await;
+    let pid = added[0]["id"].as_str().unwrap().to_string();
+    let wt = call(&k, "worktrees.create", json!({ "projectId": pid, "branch": "feat/w" })).await;
+    std::fs::write(std::path::Path::new(wt["path"].as_str().unwrap()).join("notes.txt"), "draft\n").unwrap();
+    let err = rpc::call(&k, "branches.delete", json!({ "projectId": pid, "branch": "feat/w", "remote": true })).await.unwrap_err();
+    assert!(err.to_string().contains("untracked"), "{err}");
+    assert_eq!(rev(&origin, "feat/w"), rev(&repo, "feat/w"), "origin's copy kept, and with it its pull request");
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_failing_post_checkout_hook_keeps_the_stash_where_it_was_asked() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("hooked");
+    init_repo(&repo);
+    sh(&repo, &["branch", "other"]);
+    std::fs::write(repo.join("README.md"), "# changed\n").unwrap();
+    // git switches, then the hook fails: a git-lfs hook without git-lfs on the PATH does that.
+    hook(&repo, "post-checkout", "exit 1");
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let added = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await;
+    let pid = added[0]["id"].as_str().unwrap().to_string();
+    let _ = rpc::call(&k, "workspace.switch", json!({ "projectId": pid, "branch": "other", "wip": "stash" })).await;
+    assert_eq!(git_out(&repo, &["branch", "--show-current"]).trim(), "other");
+    assert_eq!(std::fs::read_to_string(repo.join("README.md")).unwrap(), "# atlas\n", "the work stays stashed, not put on other");
+    assert_eq!(git_out(&repo, &["stash", "list"]).lines().count(), 1);
+}
+
+#[tokio::test]
+async fn removing_a_worktree_never_deletes_another_folder() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("wt-owner");
+    let other = tmp.path().join("other-repo");
+    init_repo(&repo);
+    init_repo(&other);
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let added = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await;
+    let pid = added[0]["id"].as_str().unwrap().to_string();
+    for force in [false, true] {
+        let err = rpc::call(&k, "worktrees.remove", json!({ "projectId": pid, "path": other.to_string_lossy(), "force": force })).await.unwrap_err();
+        assert!(err.to_string().contains("Not a checkout"), "{err}");
+        assert!(other.join(".git").exists() && other.join("README.md").exists());
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn writes_never_follow_a_tracked_symlink() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("linked");
+    init_repo(&repo);
+    // Where a branch's links can point: anywhere outside the checkout.
+    let outside = tmp.path().join("outside.txt");
+    std::fs::write(&outside, "keep\n").unwrap();
+    std::os::unix::fs::symlink(&outside, repo.join("CHANGELOG.md")).unwrap();
+    std::os::unix::fs::symlink(&outside, repo.join(".gitignore")).unwrap();
+    sh(&repo, &["add", "."]);
+    sh(&repo, &["commit", "-qm", "links"]);
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let added = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await;
+    let pid = added[0]["id"].as_str().unwrap().to_string();
+    assert!(rpc::call(&k, "notes.changelog", json!({ "projectId": pid, "markdown": "## 1.0.0\n- x" })).await.is_err());
+    assert!(rpc::call(&k, "workspace.ignore", json!({ "projectId": pid, "branch": "main", "path": "x.log" })).await.is_err());
+    assert_eq!(std::fs::read_to_string(&outside).unwrap(), "keep\n");
 }
 
 #[tokio::test]
@@ -752,15 +1006,15 @@ async fn release_branch_created_after_add_is_picked_up() {
     let ov = call(&k, "workspace.overview", json!({ "projectId": pid })).await;
     let open: Vec<&str> = ov["releases"].as_array().unwrap().iter().filter(|r| r["open"] == true).map(|r| r["version"].as_str().unwrap()).collect();
     assert_eq!(open, ["1.2.0"]);
-    let others: Vec<&str> = ov["otherBranches"].as_array().unwrap().iter().map(|b| b["name"].as_str().unwrap()).collect();
-    assert_eq!(others, ["feat/loose"]);
+    // Plain local branches: no release's, no trunk.
+    let plain = |ov: &Value| -> Vec<String> { ov["branches"].as_array().unwrap().iter().filter(|b| b["local"] == true && b["role"] == "branch").map(|b| b["name"].as_str().unwrap().to_string()).collect() };
+    assert_eq!(plain(&ov), ["feat/loose"]);
 
     // Forgotten releases stay forgotten; their branch shows up as a plain branch.
     call(&k, "releases.delete", json!({ "projectId": pid, "version": "1.2.0" })).await;
     let ov = call(&k, "workspace.overview", json!({ "projectId": pid })).await;
     assert!(ov["releases"].as_array().unwrap().iter().all(|r| r["open"] == false));
-    let others: Vec<&str> = ov["otherBranches"].as_array().unwrap().iter().map(|b| b["name"].as_str().unwrap()).collect();
-    assert_eq!(others, ["feat/loose", "release/1.2.0"]);
+    assert_eq!(plain(&ov), ["feat/loose", "release/1.2.0"]);
 }
 
 #[tokio::test]
@@ -892,7 +1146,7 @@ async fn merged_branches_are_flagged() {
     sh(&repo, &["branch", "-qf", "fresh", "main"]);
 
     let ov = call(&k, "workspace.overview", json!({ "projectId": pid })).await;
-    let merged = |n: &str| ov["otherBranches"].as_array().unwrap().iter().find(|b| b["name"] == n).unwrap()["merged"].as_bool().unwrap();
+    let merged = |n: &str| ov["branches"].as_array().unwrap().iter().find(|b| b["name"] == n).unwrap()["merged"].as_bool().unwrap();
     assert!(!merged("fresh"));
     assert!(!merged("open"));
     assert!(merged("via-merge"));
@@ -1293,20 +1547,41 @@ async fn outside_git_changes_refresh_the_project() {
     let added = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await;
     let pid = added[0]["id"].as_str().unwrap().to_string();
     let mut rx = k.subscribe();
+    async fn changed(rx: &mut tokio::sync::broadcast::Receiver<gitnetix_core::Event>, pid: &str) -> bool {
+        let next = async {
+            loop {
+                if let Ok(gitnetix_core::Event::ProjectChanged { project_id }) = rx.recv().await {
+                    if project_id == pid {
+                        return;
+                    }
+                }
+            }
+        };
+        tokio::time::timeout(std::time::Duration::from_secs(5), next).await.is_ok()
+    }
+    // Once set up, the watcher refreshes the project: what moved meanwhile went unseen.
+    assert!(changed(&mut rx, &pid).await, "no ProjectChanged once watching");
 
     // A commit made in a terminal, not through Gitnetix.
     commit_file(&repo, "outside.txt", "x\n");
-    let seen = tokio::time::timeout(std::time::Duration::from_secs(5), async {
-        loop {
-            if let Ok(gitnetix_core::Event::ProjectChanged { project_id }) = rx.recv().await {
-                if project_id == pid {
-                    return;
-                }
-            }
-        }
-    })
-    .await;
-    assert!(seen.is_ok(), "no ProjectChanged after an outside commit");
+    assert!(changed(&mut rx, &pid).await, "no ProjectChanged after an outside commit");
+}
+
+#[tokio::test]
+async fn ignore_takes_the_name_as_written() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("reports");
+    init_repo(&repo);
+    commit_file(&repo, "report[1].csv", "a\n");
+    commit_file(&repo, "report1.csv", "b\n");
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let added = call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await;
+    let pid = added[0]["id"].as_str().unwrap().to_string();
+    call(&k, "workspace.ignore", json!({ "projectId": pid, "branch": "main", "path": "report[1].csv" })).await;
+    // `report[1].csv` as a pattern also matches `report1.csv`: that one stays tracked.
+    let tracked = git_out(&repo, &["ls-files"]);
+    assert!(tracked.lines().any(|l| l == "report1.csv"), "{tracked}");
+    assert!(!tracked.lines().any(|l| l == "report[1].csv"), "{tracked}");
 }
 
 #[tokio::test]
@@ -1459,8 +1734,9 @@ async fn stash_flow() {
     assert_eq!(s["branch"], "main");
     assert_eq!(s["message"], "2 files: README.md, new.ts");
     assert_eq!(s["untracked"], true);
-    assert_eq!(ov["defaultView"]["stashes"], 1);
-    assert_eq!(ov["defaultView"]["wip"], 0);
+    let main = ov["branches"].as_array().unwrap().iter().find(|b| b["name"] == "main").unwrap();
+    assert_eq!(main["stashes"], 1);
+    assert_eq!(main["wip"], 0);
     let sha = s["sha"].as_str().unwrap().to_string();
 
     // Tracked changes and untracked files both show, each with its diff.
@@ -1985,8 +2261,11 @@ async fn rename_on_origin_and_follow_it_elsewhere() {
     let open: Vec<&Value> = ov["releases"].as_array().unwrap().iter().filter(|r| r["open"] == true).collect();
     assert_eq!(open.len(), 1, "{ov}");
     assert_eq!((open[0]["version"].as_str(), open[0]["branch"].as_str()), (Some("2.5.0"), Some("release/2.5.0")));
-    assert_eq!(open[0]["items"][0]["name"], "feat/b");
-    assert_eq!(ov["project"]["ticketReleases"]["ATL-1"], "2.5.0");
+    let items: Vec<&Value> = ov["branches"].as_array().unwrap().iter().filter(|b| b["release"] == "2.5.0" && b["name"] != "release/2.5.0").collect();
+    assert_eq!(items[0]["name"], "feat/b");
+    let cfg = call(&k, "config.get", json!({})).await;
+    let project = cfg["projects"].as_array().unwrap().iter().find(|p| p["id"] == pid.as_str()).unwrap();
+    assert_eq!(project["ticketReleases"]["ATL-1"], "2.5.0");
 
     // A teammate's copy: its upstream is gone after a fetch, and it follows the rename.
     let mate = tmp.path().join("mate");

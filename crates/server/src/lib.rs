@@ -101,7 +101,8 @@ async fn events_handler(
         return Err(unauthorized());
     }
     let stream = BroadcastStream::new(s.k.subscribe()).filter_map(|ev| {
-        let ev = ev.ok()?;
+        // Some went past while this client was behind: one of them may have been a project's change.
+        let ev = ev.unwrap_or(gitnetix_core::Event::Missed {});
         let data = serde_json::to_string(&ev).ok()?;
         Some(Ok(SseEvent::default().data(data)))
     });

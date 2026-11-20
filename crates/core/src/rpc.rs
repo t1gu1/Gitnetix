@@ -43,7 +43,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("workspace.files", "Changed files of a branch, or of one commit when `commit` is given", "projectId, branch, mode: branch|wip|project, commit?"),
     ("workspace.diff", "Diff of one file; in wip mode `staged` picks the side; `commit` diffs that commit (`from` = the file's old path when that commit renamed it); `full` keeps the whole file", "projectId, branch, mode, path, staged?, commit?, from?, full?"),
     ("workspace.blobs", "Old and new contents of one file, base64 (image previews); same picking as workspace.diff", "projectId, branch, mode, path, staged?, commit?"),
-    ("workspace.commits", "Commits a branch has that its base does not (a trunk: recent history), newest first; once all are listed, the last one, flagged `base`, is where the branch left its base; `limit` (default 200 for a trunk, 500 for a branch) is raised to reach older ones; `unreleased`: the default branch lists only its commits since its latest tag, the tagged commit as `base`", "projectId, branch, limit?, unreleased?"),
+    ("workspace.commits", "Commits a branch has that its base does not (a trunk: recent history), newest first; once all are listed, the last one, flagged `base`, is where the branch left its base; `limit` (default 200 for a trunk, 500 for a branch) is raised to reach older ones; `unreleased`: the default branch lists only its commits since its latest tag, the tagged commit as `base`; `base`: the branch it is filed under, when the caller knows it already", "projectId, branch, limit?, unreleased?, base?"),
     ("workspace.blame", "Who last changed each line of one file on the new side of its diff (the old side with old: true, for removed lines), sides picked like workspace.diff: lines, runs [sha, line count] in file order, and their commits (the all-zero sha is uncommitted work)", "projectId, branch, mode, path, commit?, staged?, old?"),
     ("workspace.fileHistory", "Commits of a branch that changed one file, newest first, following renames: each with the file's path there, from (its old path, on a rename), status and line counts; `limit` (default 200) is raised to reach older ones", "projectId, branch, path, limit?"),
     ("commits.revert", "Revert a commit with a new commit on its branch", "projectId, branch, sha"),
@@ -94,7 +94,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("branches.sync", "Merge a branch's base into it to bring it up to date", "projectId, branch"),
     ("branches.setParent", "Choose what a branch merges into (an open release branch attaches it to that release; a release branch changes the branch it was cut from)", "projectId, branch, parent"),
     ("branches.fetch", "Fetch origin, pruning deleted branches", "projectId"),
-    ("branches.autoFetch", "Fetch origin only when its branch or tag tips moved since this last fetched (asked with ls-remote, which writes nothing); returns whether it fetched", "projectId"),
+    ("branches.autoFetch", "Fetch origin only when its branch or tag tips moved since this last fetched (asked with ls-remote, which writes nothing); returns whether it fetched. Origin is asked less often the longer it stays unchanged; back = someone just came back to the window, ask now", "projectId, back?"),
     ("branches.cleanup", "Delete branches, skipping the ones that can't go; force = even if unmerged, remote = on origin too", "projectId, branches: string[], force?, remote?"),
     ("branches.delete", "Delete a local branch and its worktree; force = even if unmerged, remote = on origin too. Not the default or a host-protected branch", "projectId, branch, force?, remote?"),
     ("branches.rename", "Rename a branch; remote = on origin too, for everyone (GitHub moves its open PRs along; Azure DevOps refuses while a PR is open from or into it). An open release's branch takes the version of its new name, release/<version>, and its CHANGELOG.md section is renamed in a commit (changelog = true; not pushed; changelogError says why that commit failed, the rename done). A local branch whose upstream is gone and whose renamedTo is set follows that rename and tracks it", "projectId, branch, name, remote?"),
@@ -718,7 +718,7 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
             Some(sha) => to(k.commit_blobs(&s(&p, "projectId")?, &sha, &s(&p, "path")?).await?),
             None => to(k.blobs(&s(&p, "projectId")?, &s(&p, "branch")?, mode(&p)?, &s(&p, "path")?, p.get("staged").and_then(Value::as_bool)).await?),
         },
-        "workspace.commits" => to(k.commits(&s(&p, "projectId")?, &s(&p, "branch")?, p.get("limit").and_then(Value::as_u64).and_then(|n| u32::try_from(n).ok()), b(&p, "unreleased")).await?),
+        "workspace.commits" => to(k.commits(&s(&p, "projectId")?, &s(&p, "branch")?, p.get("limit").and_then(Value::as_u64).and_then(|n| u32::try_from(n).ok()), b(&p, "unreleased"), os(&p, "base").as_deref()).await?),
         "workspace.blame" => to(k.blame(&s(&p, "projectId")?, &s(&p, "branch")?, mode(&p)?, &s(&p, "path")?, os(&p, "commit").as_deref(), p.get("staged").and_then(Value::as_bool), b(&p, "old")).await?),
         "workspace.fileHistory" => to(k.file_history(&s(&p, "projectId")?, &s(&p, "branch")?, &s(&p, "path")?, p.get("limit").and_then(Value::as_u64).and_then(|n| u32::try_from(n).ok())).await?),
         "commits.revert" => to(json!({ "sha": k.revert_commit(&s(&p, "projectId")?, &s(&p, "branch")?, &s(&p, "sha")?).await? })),
@@ -854,7 +854,7 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
             k.fetch(&s(&p, "projectId")?).await?;
             ok()
         }
-        "branches.autoFetch" => to(k.auto_fetch(&s(&p, "projectId")?).await?),
+        "branches.autoFetch" => to(k.auto_fetch(&s(&p, "projectId")?, b(&p, "back")).await?),
         "branches.cleanup" => {
             let branches = list(&p, "branches")?;
             to(k.cleanup_branches(&s(&p, "projectId")?, &branches, b(&p, "force"), b(&p, "remote")).await?)
@@ -1073,8 +1073,9 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
             let id = s(&p, "id")?;
             let (_, path) = ai::cli_path(&id)?;
             // Claude Code signs in right away with `auth login`; the other CLIs ask on their first run.
-            let login = if id == "claude" { " auth login" } else { "" };
-            open_terminal(&format!("{}{login}", path.to_string_lossy()))?;
+            let path = path.to_string_lossy();
+            let words: &[&str] = if id == "claude" { &[&path, "auth", "login"] } else { &[&path] };
+            open_terminal(words)?;
             ok()
         }
 
@@ -1158,10 +1159,17 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
         }
         "prs.close" => {
             let gh = k.pr_host(&s(&p, "projectId")?).await?;
-            gh.set_closed(u(&p, "number")?, !b(&p, "reopen")).await?;
-            // The PR is closed either way; a refused delete is reported, not raised.
+            let number = u(&p, "number")?;
+            gh.set_closed(number, !b(&p, "reopen")).await?;
+            // The PR is closed either way; a refused delete is reported, not raised. Only its own head branch, on origin: a
+            // fork's lives in the fork, and a branch of that name here (`release/2.5`, say) is someone else's work.
             let delete_error = match os(&p, "deleteBranch") {
-                Some(branch) => k.delete_branch(&s(&p, "projectId")?, &branch, true, true).await.err().map(|e| e.to_string()),
+                Some(branch) => match gh.detail(number).await {
+                    Ok(pr) if pr.summary.fork => Some(format!("it comes from a fork, so {branch} here is not its branch")),
+                    Ok(pr) if pr.summary.head != branch => Some(format!("its branch is {}, not {branch}", pr.summary.head)),
+                    Ok(_) => k.delete_branch(&s(&p, "projectId")?, &branch, true, true).await.err().map(|e| e.to_string()),
+                    Err(e) => Some(format!("could not tell where its branch lives: {e}")),
+                },
                 None => None,
             };
             to(json!({ "deleteError": delete_error }))
@@ -1713,18 +1721,21 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
 
 /// AppleScript that runs `program` in a new Terminal window. The shell gets the path quoted: Claude Desktop's copy is under "Application Support".
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
-fn terminal_script(program: &str) -> String {
-    let sh = format!("'{}'", program.replace('\'', r"'\''"));
+fn terminal_script(words: &[&str]) -> String {
+    // Each word on its own: one quote around them all made `<cli> auth login` the name of a program.
+    let sh = words.iter().map(|w| crate::project_commands::shell_word(w)).collect::<Vec<_>>().join(" ");
     format!("tell application \"Terminal\" to do script \"{}\"\ntell application \"Terminal\" to activate", sh.replace('\\', r"\\").replace('"', "\\\""))
 }
 
-/// Open the user's terminal running `cmd` (used for CLI sign-in).
-fn open_terminal(cmd: &str) -> Result<()> {
+/// Open the user's terminal running the program and arguments `words` (used for CLI sign-in).
+fn open_terminal(words: &[&str]) -> Result<()> {
     #[cfg(target_os = "macos")]
     {
-        std::process::Command::new("osascript").args(["-e", &terminal_script(cmd)]).spawn()?;
+        std::process::Command::new("osascript").args(["-e", &terminal_script(words)]).spawn()?;
         Ok(())
     }
+    #[cfg(not(target_os = "macos"))]
+    let cmd = &words.join(" ");
     #[cfg(target_os = "windows")]
     {
         std::process::Command::new("cmd").args(["/C", "start", "cmd", "/K", cmd]).spawn()?;
@@ -1777,8 +1788,11 @@ fn worktree_files(v: &Value) -> Result<Vec<String>> {
 mod tests {
     #[test]
     fn terminal_script_quotes_the_path_for_the_shell() {
-        let s = super::terminal_script("/Users/a/Library/Application Support/Claude/it's/claude");
+        let s = super::terminal_script(&["/Users/a/Library/Application Support/Claude/it's/claude"]);
         assert!(s.starts_with(r#"tell application "Terminal" to do script "'/Users/a/Library/Application Support/Claude/it'\\''s/claude'""#), "{s}");
+        // The arguments as words of their own, not part of the program's name.
+        let s = super::terminal_script(&["/Applications/My Tools/claude", "auth", "login"]);
+        assert!(s.starts_with(r#"tell application "Terminal" to do script "'/Applications/My Tools/claude' auth login""#), "{s}");
     }
 
     #[tokio::test]

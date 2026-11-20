@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from "react";
+import { useMemo, useSyncExternalStore } from "react";
 
 import { queryClient } from "../api/hooks";
 import { rpc, subscribe } from "../api/transport";
@@ -66,13 +66,27 @@ export function startCleanup({ projectId, projectName, section, branches, force,
 }
 
 /** How many branches a cleanup running on a section of `projectId`'s branch map has left; undefined when none runs. */
-export function useCleaning(projectId: string): (section: string) => number | undefined {
-  const now = useSyncExternalStore(
-    (l) => {
-      listeners.add(l);
-      return () => listeners.delete(l);
-    },
-    () => running,
+const watch = (l: () => void) => {
+  listeners.add(l);
+  return () => listeners.delete(l);
+};
+
+/** Which of `projectId`'s sections have a cleanup running. Changes only when one starts or ends, not at each branch it
+ *  deletes: the map reads it, and redrawing thousands of tiles per deleted branch froze it. */
+export function useCleaning(projectId: string): (section: string) => boolean {
+  const now = useSyncExternalStore(watch, () =>
+    [...running.keys()]
+      .filter((k) => k.startsWith(`${projectId} `))
+      .map((k) => k.slice(projectId.length + 1))
+      .join("\n"),
   );
-  return (section) => now.get(`${projectId} ${section}`)?.size;
+  return useMemo(() => {
+    const sections = new Set(now.split("\n"));
+    return (section: string) => sections.has(section);
+  }, [now]);
+}
+
+/** Branches `section`'s cleanup has left to delete, none while none runs: only what shows the count redraws. */
+export function useCleanupLeft(projectId: string, section: string): number | undefined {
+  return useSyncExternalStore(watch, () => running.get(`${projectId} ${section}`)?.size);
 }

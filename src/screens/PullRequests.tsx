@@ -362,7 +362,7 @@ function Detail({ pid, number }: { pid: string; number: number }) {
             <>
               <button className="btn btn-md btn-danger" disabled={close.isPending} onClick={() =>
                   close.mutate(
-                    { projectId: pid, number, ...(deleteBranch && { deleteBranch: d.head }) },
+                    { projectId: pid, number, ...(deleteBranch && !d.fork && { deleteBranch: d.head }) },
                     {
                       onSuccess: (r) => {
                         if (r.deleteError) toast(`Closed #${number}, but the branch was kept: ${r.deleteError}`, "error");
@@ -385,10 +385,13 @@ function Detail({ pid, number }: { pid: string; number: number }) {
               <>Abandons the pull request on {host}. The branch <span className="mono">{d.head}</span> and its commits stay, and you can reopen it later.</>
             )}
           </p>
-          <label className="check" style={{ marginTop: 12 }}>
-            <input type="checkbox" checked={deleteBranch} onChange={() => setDeleteBranch(!deleteBranch)} />
-            <span>Also delete <span className="mono">{d.head}</span>, locally and on origin</span>
-          </label>
+          {/* A fork's branch lives in the fork: one of that name here is someone else's work. */}
+          {!d.fork && (
+            <label className="check" style={{ marginTop: 12 }}>
+              <input type="checkbox" checked={deleteBranch} onChange={() => setDeleteBranch(!deleteBranch)} />
+              <span>Also delete <span className="mono">{d.head}</span>, locally and on origin</span>
+            </label>
+          )}
         </Modal>
       )}
 

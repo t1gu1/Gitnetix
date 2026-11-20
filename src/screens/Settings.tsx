@@ -1199,6 +1199,11 @@ function Companion({ cfg }: { cfg: Config }) {
           <input type="checkbox" checked={s.lan} disabled={!isLocal} onChange={() => set.mutate({ lan: !s.lan })} />
           <span>Allow devices on my network (needed for the phone)</span>
         </label>
+        {s.enabled && s.lan && (
+          <div className="err-box warn" role="alert">
+            Devices on your network can also reach this computer over plain HTTP. Anyone on the network who sees one of those requests can read the pairing token and run commands here. Keep this on only on networks you trust, and turn it off on public or shared Wi-Fi.
+          </div>
+        )}
         <p className="hint">
           Phones connect over HTTPS with a certificate made on this computer, so their browser warns once and then allows voice dictation. The pairing token protects every call. Anyone with the token on the same network can run Git commands and agents on this computer. Turn LAN access on only on networks you trust, or use a VPN like Tailscale.
         </p>

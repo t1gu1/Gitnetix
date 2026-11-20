@@ -1,4 +1,4 @@
-import { useState, type MouseEvent } from "react";
+import { useMemo, useState, type MouseEvent } from "react";
 
 import { committed, droppedWorktree, patchOverview, patchWip, pushed, queryClient, settle, switchedOverview, useAction, useAgents, useAiOn, useOverview, usePendingBranches, useProjectPrefs, useTagV } from "../api/hooks";
 import { RpcError } from "../api/transport";
@@ -204,9 +204,11 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
 
   // The branch checked out here: any other branch can be the one it gets rebased onto, unless AI is rebasing it already.
   const cur = (!inMain && ov?.currentBranch) || undefined;
+  // By name: every tile of the map builds its actions, and a scan of thousands of branches each time made a redraw seconds long.
+  const byName = useMemo(() => new Map((ov?.branches ?? []).map((y) => [y.name, y])), [ov?.branches]);
   /** A release branch reads as its version. */
   const labelOf = (name: string) => {
-    const x = ov?.branches.find((y) => y.name === name);
+    const x = byName.get(name);
     return x?.role === "release" && x.release ? label(x.release) : name;
   };
 

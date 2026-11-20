@@ -1,4 +1,5 @@
-//! A repo with 500 branches: how long its branch views take, cold, warm and after refs move.
+//! A repo with 2,000 branches: how long its branch views take, cold, warm and after refs move, and what the map's
+//! commit lists cost once refs moved.
 //! Run: cargo test --release -p gitnetix-core --test many_branches -- --ignored --nocapture
 //! With `MANY_BRANCHES_REPO=<new dir>` it only builds the repo there, to open in the app.
 
@@ -13,6 +14,10 @@ use serde_json::{json, Value};
 
 /// Plain commits on main.
 const MAIN: usize = 2000;
+/// Branches, in the mix below.
+const BRANCHES: usize = 2000;
+/// Commit lists the map asks at once: the tiles near the view.
+const TILES: usize = 300;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum Kind {
@@ -33,7 +38,7 @@ struct Branch {
     unpushed: bool,
 }
 
-/// The 500 branches: work in progress, merged by merge commit, squashed by a pull request; some only on origin.
+/// The branches: work in progress, merged by merge commit, squashed by a pull request; some only on origin.
 fn branches() -> Vec<Branch> {
     let mut seed = 42u64;
     let mut rnd = |n: usize| {
@@ -43,7 +48,7 @@ fn branches() -> Vec<Branch> {
     let mix = [(Kind::Open, 150, true), (Kind::Merged, 150, true), (Kind::Squashed, 120, true), (Kind::Open, 40, false), (Kind::Merged, 20, false), (Kind::Squashed, 20, false)];
     let mut out = Vec::new();
     for (kind, n, local) in mix {
-        for _ in 0..n {
+        for _ in 0..n * BRANCHES / 500 {
             let i = out.len();
             let fork = match kind {
                 Kind::Open => MAIN - 400 + rnd(399),
@@ -150,6 +155,8 @@ fn build(repo: &Path, list: &[Branch]) {
     }
     std::fs::OpenOptions::new().append(true).open(repo.join(".git/config")).unwrap().write_all(config.as_bytes()).unwrap();
     git(repo, &["reset", "-q", "--hard"], None);
+    // Like a clone: refs packed, not one file each, which would make every ref listing crawl.
+    git(repo, &["pack-refs", "--all"], None);
 }
 
 async fn call(k: &Gitnetix, m: &str, p: Value) -> Value {
@@ -176,9 +183,23 @@ fn merged_names(v: &Value) -> Vec<String> {
     names
 }
 
+/// Every listed branch's commits at once, with the parent the map files it under, as the map's tiles ask for them
+/// after a change; all must answer.
+async fn tile_lists(k: &std::sync::Arc<Gitnetix>, pid: &str, tiles: &[(String, Value)], label: &str) {
+    let started = Instant::now();
+    let mut set = tokio::task::JoinSet::new();
+    for (n, base) in tiles {
+        let (k, pid, n, base) = (k.clone(), pid.to_string(), n.clone(), base.clone());
+        set.spawn(async move { rpc::call(&k, "workspace.commits", json!({ "projectId": pid, "branch": n, "base": base })).await.is_ok() });
+    }
+    let ok = set.join_all().await.into_iter().filter(|ok| *ok).count();
+    println!("{label:<28} {:>6} ms  {} lists", started.elapsed().as_millis(), tiles.len());
+    assert_eq!(ok, tiles.len());
+}
+
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "benchmark: builds a 500-branch repo"]
-async fn five_hundred_branches() {
+#[ignore = "benchmark: builds a 2,000-branch repo"]
+async fn many_branches() {
     let list = branches();
     // Only build the repo, there, to open it in the app.
     if let Ok(dir) = std::env::var("MANY_BRANCHES_REPO") {
@@ -209,11 +230,28 @@ async fn five_hundred_branches() {
     let k = Gitnetix::open(&home).unwrap();
     timed(&k, &pid, "app restart, nothing moved", false).await;
 
-    // A commit on one branch in progress.
+    // The map's tiles near the view list their commits; the views are current.
+    let parent = |n: &str| cold["branches"].as_array().unwrap().iter().find(|b| b["name"] == n).map(|b| b["parent"].clone()).unwrap_or_default();
+    let tiles: Vec<(String, Value)> = list.iter().filter(|b| b.kind == Kind::Open && b.local).take(TILES).map(|b| (b.name.clone(), parent(&b.name))).collect();
+    tile_lists(&k, &pid, &tiles, "map tiles, views current").await;
+
+    // A commit on one branch in progress: the tiles ask again before the views are rebuilt.
     let one = &list.iter().find(|b| b.kind == Kind::Open && b.local).unwrap().name;
     let sha = git(&repo, &["commit-tree", &format!("{one}^{{tree}}"), "-p", one, "-m", "more"], None);
     git(&repo, &["update-ref", &format!("refs/heads/{one}"), sha.trim()], None);
+    tile_lists(&k, &pid, &tiles, "map tiles, a ref just moved").await;
     timed(&k, &pid, "one branch moved", false).await;
+
+    // A fetch: teammates pushed to some branches in progress on origin.
+    let mut fetched = String::new();
+    for b in list.iter().filter(|b| b.kind == Kind::Open).step_by(15) {
+        let r = format!("refs/remotes/origin/{}", b.name);
+        let sha = git(&repo, &["commit-tree", &format!("{r}^{{tree}}"), "-p", &r, "-m", "teammate"], None);
+        fetched += &format!("update {r} {}\n", sha.trim());
+    }
+    git(&repo, &["update-ref", "--stdin", "-m", "fetch"], Some(fetched.as_bytes()));
+    let after_fetch = timed(&k, &pid, "fetch moved some on origin", false).await;
+    assert_eq!(merged_names(&after_fetch), want);
 
     // Pulls: main and origin/main gain a change, every branch is weighed again.
     for label in ["main moved (pull)", "main moved again"] {
@@ -224,4 +262,9 @@ async fn five_hundred_branches() {
         let pulled = timed(&k, &pid, label, false).await;
         assert_eq!(merged_names(&pulled), want);
     }
+
+    git(&repo, &["branch", "feature/new-one", "main"], None);
+    timed(&k, &pid, "new branch created", false).await;
+    git(&repo, &["switch", "-q", one], None);
+    timed(&k, &pid, "switched branch", false).await;
 }

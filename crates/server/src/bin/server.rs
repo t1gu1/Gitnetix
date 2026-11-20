@@ -1,6 +1,8 @@
 //! Headless Gitnetix: the companion API without the desktop window.
 //! Handy on a dev box you drive from the mobile app.
 
+use std::io::IsTerminal;
+
 use gitnetix_core::{store::data_dir, Gitnetix};
 
 #[tokio::main]
@@ -11,7 +13,12 @@ async fn main() -> anyhow::Result<()> {
     match gitnetix_server::spawn(k.clone(), None).await? {
         Some(addr) => {
             println!("Gitnetix companion API on http(s)://{addr}");
-            println!("Pairing token: {}", cfg.token);
+            // Only to a terminal: under launchd, systemd or nohup stdout goes to a log file, and the token gives full control.
+            if std::io::stdout().is_terminal() {
+                println!("Pairing token: {}", cfg.token);
+            } else {
+                println!("Pairing token: server.token in {}", gitnetix_core::store::active_config_path(&data_dir()).display());
+            }
             if !cfg.lan {
                 println!("Listening on localhost only. Allow devices on your network in the Gitnetix menu to pair a phone.");
             }
