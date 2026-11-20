@@ -14,6 +14,8 @@ the in-app update prompt.
 
 ## [Unreleased]
 
+## [0.27.0] - 2026-11-20
+
 ### Added (App)
 - Branches built on another work branch are filed under it in the branch map. When the parent's commits are missing upstream, Pull replays only the branch's own commits.
 - The Logs page entries are also written to `logs/gitnetix.log` in the data folder, which only the owner can read. At 5 MB the file moves to `gitnetix.old.log`, so logs stay under 10 MB. Each run starts with a "Started Gitnetix" line that shows the version.
