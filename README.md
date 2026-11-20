@@ -9,6 +9,10 @@ Runs on macOS, Windows and Linux; pair your phone by QR code to manage it remote
 
 Built with a Rust engine, a React UI and a Tauri 2 shell.
 
+Gitnetix shows each branch as a piece of work: what it changes, which release it targets, and whether it is ahead of or behind its base.
+You open a branch to see its files and its diff, not a list of hashes.
+Every Git action runs the real `git` command, so a repository Gitnetix touches stays readable by any other Git tool.
+
 **Website:** https://gitnetix.app/
 
 ## Workflow
