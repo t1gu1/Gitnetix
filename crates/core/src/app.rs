@@ -1473,6 +1473,8 @@ struct Refs {
     squash_indexes: std::sync::Mutex<HashMap<String, Arc<OnceCell<Option<Arc<SquashIndex>>>>>>,
     /// Completed pull requests that took in branch tips, by tip, as the git host said.
     hosted: HashMap<String, Vec<MergedPr>>,
+    /// Branch names by tip, local and on origin, read on first use.
+    by_tip: std::sync::OnceLock<HashMap<String, Vec<String>>>,
 }
 
 impl Refs {
@@ -1497,6 +1499,7 @@ impl Refs {
             graph: OnceCell::new(),
             squash_indexes: Default::default(),
             hosted: HashMap::new(),
+            by_tip: Default::default(),
         }
     }
 
@@ -1724,6 +1727,21 @@ impl Refs {
         self.local_at.get(name).map(|&i| &self.local[i])
     }
 
+    /// Branches whose tip is `sha`, local or on origin, each name once.
+    fn branches_at(&self, sha: &str) -> &[String] {
+        let at = self.by_tip.get_or_init(|| {
+            let mut at: HashMap<String, Vec<String>> = HashMap::new();
+            for b in self.local.iter().chain(&self.remote) {
+                let names = at.entry(b.sha.clone()).or_default();
+                if !names.contains(&b.name) {
+                    names.push(b.name.clone());
+                }
+            }
+            at
+        });
+        at.get(sha).map_or(&[], Vec::as_slice)
+    }
+
     fn remote(&self, name: &str) -> Option<&BranchInfo> {
         self.remote_at.get(name).map(|&i| &self.remote[i])
     }
@@ -1798,6 +1816,24 @@ impl Graph {
         let held = Arc::new(self.reach(of, &self.parents));
         self.ancestors.lock().unwrap().insert(of, held.clone());
         held
+    }
+
+    /// Commits `tip` holds that `base` does not, nearest first, at most `max`; None when the graph lacks either.
+    fn own_commits(&self, tip: &str, base: &str, max: usize) -> Option<Vec<String>> {
+        let (t, b) = (*self.at.get(tip)?, *self.at.get(base)?);
+        let held = self.ancestors(b);
+        let (mut seen, mut todo, mut out) = (std::collections::HashSet::new(), std::collections::VecDeque::from([t]), Vec::new());
+        while let Some(c) = todo.pop_front() {
+            if out.len() >= max {
+                break;
+            }
+            if held[c as usize] || !seen.insert(c) {
+                continue;
+            }
+            out.push(self.sha[c as usize].clone());
+            todo.extend(self.parents[c as usize].iter().filter(|&&p| p != u32::MAX));
+        }
+        Some(out)
     }
 
     /// Commits holding `sha` (itself included); None when the graph lacks it.
@@ -2287,7 +2323,10 @@ fn plain_view(p: &Project, refs: &Refs, name: &str, parent: Option<String>) -> B
 }
 
 /// Bump when branch views are built differently, so saved ones are not reused.
-const VIEW_CACHE_VERSION: &str = "16";
+const VIEW_CACHE_VERSION: &str = "17";
+
+/// Most commits of its own a branch is looked through for the branch it was built on (see [`Gitnetix::built_on`]).
+const OWN_MAX: usize = 1000;
 
 /// Commits counted past the start of a history with no tag behind it: the default branch's unreleased ones, a
 /// first release's.
@@ -2797,7 +2836,28 @@ impl Gitnetix {
             }
         }
         let target = best.map(|(_, t)| t).unwrap_or_else(|| default.to_string());
+        if let Some(on) = self.built_on(p, git, refs, default, name, &rev, &target).await {
+            return Some(on);
+        }
         Some(self.shipped_home(p, git, refs, default, name, &rev, &target).await.unwrap_or(target))
+    }
+
+    /// The nearest other work branch whose tip is among `name`'s own commits (those `target` lacks): the branch it was
+    /// built on. The person who made it has it declared; this files it there on a teammate's map too, and when it was
+    /// made with a plain `git switch -c`. Trunks and releases are left to [`merge_targets`].
+    /// shortcut: once that branch moves on, its tip is no longer in `name`'s history and `name` goes back under
+    /// `target` until rebased; reading where origin's copy was before (its reflog) would keep it there.
+    #[allow(clippy::too_many_arguments)]
+    async fn built_on(&self, p: &Project, git: &Git, refs: &Refs, default: &str, name: &str, rev: &str, target: &str) -> Option<String> {
+        let (tip, trev) = (refs.sha(rev)?.to_string(), refs.rev(target)?);
+        let own: Vec<String> = match refs.graph(git).await {
+            Some(g) => g.own_commits(&tip, refs.sha(&trev)?, OWN_MAX)?,
+            // Batched yet too big for the graph: a git call per branch is too many.
+            None if refs.batch() => return None,
+            None => git.run(&["rev-list", "--topo-order", &format!("--max-count={OWN_MAX}"), &format!("{trev}..{rev}")]).await.ok()?.lines().map(String::from).collect(),
+        };
+        let work = |b: &&String| b.as_str() != name && b.as_str() != default && !b.starts_with("release/") && !is_trunk(b) && !p.releases.iter().any(|r| &r.branch == *b);
+        own.iter().filter(|c| **c != tip).find_map(|c| refs.branches_at(c).iter().find(work)).cloned()
     }
 
     /// Where `name` landed (squashed by a PR, say) while it has not landed in `target`: the default
@@ -6005,12 +6065,27 @@ impl Gitnetix {
                     if let Some(dir) = dir {
                         self.check_wip_clear(dir, upstream, branch).await?;
                     }
-                    self.rebase_branch(p, branch, upstream).await?;
+                    let cut = self.own_commits_start(p, &git, branch, upstream).await;
+                    self.rebase_branch(p, branch, upstream, cut.as_deref()).await?;
                     format!("{branch} and {upstream} had diverged: rebased {branch} onto {upstream}")
                 }
             }
             out => out?,
         })
+    }
+
+    /// Where `branch`'s own commits start, when it holds commits of its parent that `upstream` lacks: rebased onto its
+    /// parent here while a teammate pushed to origin's copy. Replaying the branch onto `upstream` from there leaves the
+    /// parent's commits out; replayed too, they would land on top as copies, the rebase undone. None otherwise: the
+    /// whole branch is replayed, git dropping what `upstream` already holds.
+    async fn own_commits_start(&self, p: &Project, git: &Git, branch: &str, upstream: &str) -> Option<String> {
+        let default = git.default_branch().await.ok()?;
+        let parent = self.base_of(p, branch, &default).await;
+        if parent == branch {
+            return None;
+        }
+        let fork = git.merge_base(branch, &git.rev_of(&parent).await).await.ok()?;
+        (!git.is_ancestor(&fork, upstream).await.ok()?).then_some(fork)
     }
 
     /// Move a branch to exactly where its upstream is, dropping local commits. In its
@@ -6319,7 +6394,7 @@ impl Gitnetix {
         // meanwhile then stops this one instead of being rewound by it.
         let before = git.rev_parse(into).await?;
         if !git.is_ancestor(&before, from).await? {
-            self.rebase_branch(p, from, into).await?;
+            self.rebase_branch(p, from, into, None).await?;
         }
         let tip = git.rev_parse(from).await?;
         match self.checkout_dir(p, into).await? {
@@ -6334,14 +6409,14 @@ impl Gitnetix {
     }
 
     /// Rebase `from` onto `into` where it's checked out, else in a throwaway worktree. See [`Self::rebase_resolving`].
-    async fn rebase_branch(&self, p: &Project, from: &str, into: &str) -> Result<()> {
+    async fn rebase_branch(&self, p: &Project, from: &str, into: &str, cut: Option<&str>) -> Result<()> {
         if let Some(dir) = self.checkout_dir(p, from).await? {
-            return self.rebase_resolving(p, &self.git_at(&dir), from, into).await;
+            return self.rebase_resolving(p, &self.git_at(&dir), from, into, cut).await;
         }
         let git = self.git(p);
         let tmp = std::env::temp_dir().join(format!("gitnetix-rebase-{}", new_id()));
         git.worktree_add(&tmp, from, None).await?;
-        let done = self.rebase_resolving(p, &self.git_at(&tmp), from, into).await;
+        let done = self.rebase_resolving(p, &self.git_at(&tmp), from, into, cut).await;
         // The rebase stands either way: a folder that won't go (a tool still writing there) is only logged.
         if let Err(e) = git.worktree_remove(&tmp, true).await {
             crate::log::error(format!("Could not remove the temporary checkout {}: {e}", tmp.display()));
@@ -6349,10 +6424,10 @@ impl Gitnetix {
         done
     }
 
-    /// Rebase `g`'s checkout of `from` onto `into`, AI resolving the conflicts on the way.
-    /// When they can't be, the rebase is aborted.
-    async fn rebase_resolving(&self, p: &Project, g: &Git, from: &str, into: &str) -> Result<()> {
-        if g.rebase(into).await? {
+    /// Rebase `g`'s checkout of `from` onto `into` (only its commits past `cut`, when given), AI resolving the
+    /// conflicts on the way. When they can't be, the rebase is aborted.
+    async fn rebase_resolving(&self, p: &Project, g: &Git, from: &str, into: &str, cut: Option<&str>) -> Result<()> {
+        if g.rebase_from(into, cut).await? {
             return Ok(());
         }
         self.resolve_or_abort(p, g, "rebase", from, into, |r| format!("Rebasing {from} onto {into} stopped on conflicts.{} Rebase it by hand and resolve first.", r.why())).await

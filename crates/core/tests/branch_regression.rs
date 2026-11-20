@@ -211,7 +211,8 @@ async fn br03_rebase_on_parent_from_the_node_button() {
 /// BR-04: main → feat/a → feat/b → feat/c (each child made from its parent with New branch), and main moved
 /// on. feat/a is rebased onto main, then the "Update the branches under it" dialog runs: pin each child to its
 /// parent, rebase parents first. Every branch ends on its updated parent, each commit once, the checked-out one
-/// too. (A child made with a plain `git switch -c` has no declared parent: it sits under main.)
+/// too. A child made with a plain `git switch -c` has no declared parent: once it has a commit, the map files it under
+/// the branch it was made from, found from history.
 #[tokio::test]
 async fn br04_group_update_rebases_each_child_onto_its_updated_parent() {
     let e = env().await;
@@ -251,6 +252,10 @@ async fn br04_group_update_rebases_each_child_onto_its_updated_parent() {
     }
     assert_eq!(e.head(&e.repo), "feat/c");
     assert_eq!(status(&e.repo), "");
+
+    sh(&e.repo, &["switch", "-qc", "feat/d"]);
+    commit_file(&e.repo, "d.txt", "x\n");
+    assert_eq!(e.view("feat/d").await["parent"], "feat/c");
 }
 
 // ---------------------------------------------------------------- Suggested actions

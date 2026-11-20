@@ -1924,7 +1924,17 @@ impl Git {
 
     /// Rebase the current branch. Returns false when it stopped on conflicts.
     pub async fn rebase(&self, onto: &str) -> Result<bool> {
-        let (ok, _, err) = self.try_run(&["rebase", "--autostash", onto]).await?;
+        self.rebase_from(onto, None).await
+    }
+
+    /// [`Git::rebase`], replaying only the commits past `cut` when given (`git rebase --onto <onto> <cut>`).
+    pub async fn rebase_from(&self, onto: &str, cut: Option<&str>) -> Result<bool> {
+        let mut args = vec!["rebase", "--autostash"];
+        match cut {
+            Some(cut) => args.extend(["--onto", onto, cut]),
+            None => args.push(onto),
+        }
+        let (ok, _, err) = self.try_run(&args).await?;
         if ok {
             return Ok(true);
         }
