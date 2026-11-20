@@ -9,6 +9,12 @@ Rules:
 - After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
 - A committed graphify-out/graph.json is rewritten whole on every build, so a large diff to it in a pull request is expected. Do not flag it as churn or suggest skipping the graph rebuild or its hooks.
 
+## Branch test list
+
+- `list-of-test.md` at the repo root lists every branch, commit, worktree and AI conflict test case, each with its status and the test that checks it. Read its "How this file works" section before writing or changing one of these tests.
+- The user adds new cases there with the status `To automate`. To automate one, follow "Turning a case into a test" in that file, then update its row.
+- After changing branch, commit, worktree or conflict code, run `cargo test -p gitnetix-core --test branch_regression` and update the rows whose behavior changed.
+
 ## Branch view cache
 
 - Branch views are saved per project in `~/.config/gitnetix/overview-cache/<id>.json`, keyed by the ref fingerprint and `VIEW_CACHE_VERSION` (`crates/core/src/app.rs`). Branches whose refs did not move reuse their saved view.

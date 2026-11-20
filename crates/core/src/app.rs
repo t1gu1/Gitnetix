@@ -4393,11 +4393,16 @@ impl Gitnetix {
         const TRIES: usize = 3;
         let content = std::fs::read_to_string(git.cwd().join(path))?;
         let lines: Vec<&str> = content.lines().collect();
-        if conflict_regions(&lines, 0).is_empty() {
+        let conflicts = real_conflicts(&lines, &sides_of(git, path).await);
+        if conflicts.is_empty() {
             return Err(Error::Invalid(format!("{path} has no conflict markers to resolve")));
         }
         let mut t = self.template("conflict", None, Some(&p.id))?;
         t.body = format!("{}\n\n{}", t.body, templates::CONFLICT_EDITS);
+        let text: Vec<String> = conflict_regions(&lines, 0).into_iter().filter(|r| !conflicts.contains(r)).map(|(s, e)| format!("{}-{}", s + 1, e)).collect();
+        if !text.is_empty() {
+            t.body.push_str(&format!("\n\nLines {} of the file show conflict markers as text, not conflicts: leave them exactly as they are.", text.join(", ")));
+        }
         // A huge file would not fit some models: its conflicts then, with room around each.
         let (shown, about) = if content.len() <= 200_000 {
             (lines.join("\n"), path.to_string())
@@ -4418,7 +4423,7 @@ impl Gitnetix {
             vars.insert("theirs".into(), theirs.to_string());
             vars.insert("why".into(), why.clone());
             let answer = self.ask("conflict", &t, vars, "en", Some(git.cwd())).await?;
-            match resolve_answer(&lines, &answer) {
+            match resolve_answer(&lines, &conflicts, &answer) {
                 // `lines()` drops the `\r`: a CRLF file keeps its line endings.
                 Ok(out) => return Ok(out.join(if content.contains("\r\n") { "\r\n" } else { "\n" })),
                 Err(e) => {
@@ -4588,7 +4593,7 @@ impl Gitnetix {
         const AROUND: usize = 30;
         let content = std::fs::read_to_string(git.cwd().join(path))?;
         let lines: Vec<&str> = content.lines().collect();
-        let conflicts = conflict_regions(&lines, 0);
+        let conflicts = real_conflicts(&lines, &sides_of(git, path).await);
         if conflicts.is_empty() {
             return Err(Error::Invalid(format!("{path} has no conflict markers to resolve")));
         }
@@ -5982,9 +5987,10 @@ impl Gitnetix {
 
     /// Move a branch to exactly where its upstream is, dropping local commits. In its
     /// checkout this is a hard reset (uncommitted changes are lost too); elsewhere the ref just moves.
-    /// `safe`: refused unless it loses nothing, checked now rather than trusting a view that may be stale:
-    /// no uncommitted changes, and no commit origin never had.
-    pub async fn reset_to_upstream(&self, project_id: &str, branch: &str, safe: bool) -> Result<()> {
+    /// `safe`: loses nothing. Refused when the branch has a commit origin never had, checked now rather than
+    /// trusting a view that may be stale; uncommitted changes are stashed and put back on top. Returns the files
+    /// left conflicted by putting them back (the stash is kept then).
+    pub async fn reset_to_upstream(&self, project_id: &str, branch: &str, safe: bool) -> Result<Vec<String>> {
         self.refuse_locked(project_id, branch)?;
         let p = self.store.project(project_id)?;
         let git = self.git(&p);
@@ -6002,26 +6008,41 @@ impl Gitnetix {
             Self::refuse_mid_run(self.rebasing_in(d))?;
             refuse_in_progress(&self.git_at(d), d, branch).await?;
         }
+        let mut stashed = None;
         if safe {
             let local = format!("refs/heads/{branch}");
-            let wip = match &dir {
-                Some(d) => !self.git_at(d).wip_changes().await?.is_empty(),
-                None => false,
-            };
             // Commits origin lacks are fine only when origin had them before a force push.
             let own = git.run(&["rev-list", "--count", &format!("{upstream}..{local}")]).await?.trim() != "0"
                 && !git.in_reflog(&format!("refs/remotes/{upstream}"), &git.rev_parse(&local).await?).await?;
-            if wip || own {
-                let what = if wip { "uncommitted changes" } else { "commits origin never had" };
-                return Err(Error::Invalid(format!("{branch} now has {what}: not reset. Look at it again before resetting.")));
+            if own {
+                return Err(Error::Invalid(format!("{branch} now has commits origin never had: not reset. Look at it again before resetting.")));
+            }
+            if let Some(d) = &dir {
+                let g = self.git_at(d);
+                let files = g.wip_changes().await?;
+                if !files.is_empty() {
+                    // None: only a submodule changed, so there is nothing to put back.
+                    stashed = g.stash(&stash_message(&files)).await?;
+                }
             }
         }
-        match dir {
-            Some(dir) => self.git_at(&dir).reset(&sha, "hard").await?,
-            None => git.update_ref(&format!("refs/heads/{branch}"), &sha).await?,
-        }
+        let reset = match &dir {
+            Some(dir) => self.git_at(dir).reset(&sha, "hard").await,
+            None => git.update_ref(&format!("refs/heads/{branch}"), &sha).await,
+        };
         self.changed(project_id);
-        Ok(())
+        let (Some(stash), Some(dir)) = (stashed, &dir) else {
+            return reset.map(|_| Vec::new());
+        };
+        if let Err(e) = reset {
+            // The failed reset left the branch where it was: the stash goes back cleanly.
+            let g = self.git_at(dir);
+            if g.stash_apply(&stash).await.is_ok_and(|c| c.is_empty()) {
+                g.stash_drop(&stash).await?;
+            }
+            return Err(e);
+        }
+        Ok(self.apply_stash(project_id, branch, &stash, true).await?.conflicts)
     }
 
     /// Merge a branch into its base (its release, else its parent). Works whether or not
@@ -9428,15 +9449,35 @@ fn conflict_regions(lines: &[&str], context: usize) -> Vec<(usize, usize)> {
     regions
 }
 
-/// The new lines of conflicted file `lines` from AI's answer: its edits made in order, or, answered
-/// with no edits, the whole text when the lines around the conflicts came back as they were.
+/// What each side of conflicted `path` holds (index stages 2 and 3), the sides it has.
+async fn sides_of(git: &Git, path: &str) -> Vec<String> {
+    let mut sides = Vec::new();
+    for stage in [2, 3] {
+        if let Ok((true, text, _)) = git.try_run(&["show", &format!(":{stage}:{path}")]).await {
+            sides.push(text);
+        }
+    }
+    sides
+}
+
+/// The conflicts of `lines` (each `<<<<<<<` to `>>>>>>>`), less the marker blocks a side already holds word for
+/// word: conflict markers shown as text (a page about conflicts), which stay as they are.
+// shortcut: an example block inside a conflicting side hides that conflict's own markers (it is then left to the
+// user); regenerate the file with git's `conflict-marker-size` if that case shows up.
+fn real_conflicts(lines: &[&str], sides: &[String]) -> Vec<(usize, usize)> {
+    let sides: Vec<Vec<&str>> = sides.iter().map(|s| s.lines().collect()).collect();
+    conflict_regions(lines, 0).into_iter().filter(|&(s, e)| !sides.iter().any(|side| side.windows(e - s).any(|w| w == &lines[s..e]))).collect()
+}
+
+/// The new lines of conflicted file `lines` from AI's answer to its `conflicts`: its edits made in order, or,
+/// answered with no edits, the whole text when the lines around the conflicts came back as they were.
 /// Err says why it can't be used, for AI to be told when asked again.
-fn resolve_answer(lines: &[&str], answer: &str) -> std::result::Result<Vec<String>, String> {
+fn resolve_answer(lines: &[&str], conflicts: &[(usize, usize)], answer: &str) -> std::result::Result<Vec<String>, String> {
     let edits = parse_edits(answer)?;
     let out = if edits.is_empty() { fit_answer(lines, answer).ok_or("it has no [[FIND]] … [[END]] edit")? } else { apply_edits(lines, &edits)? };
     // Markers outside the conflicts (a page about them) stay.
     let marker = |l: &str| l.starts_with("<<<<<<<") || l.starts_with("|||||||") || l.starts_with(">>>>>>>") || l.trim_end() == "=======";
-    let inside: usize = conflict_regions(lines, 0).iter().map(|&(s, e)| lines[s..e].iter().filter(|l| marker(l)).count()).sum();
+    let inside: usize = conflicts.iter().map(|&(s, e)| lines[s..e].iter().filter(|l| marker(l)).count()).sum();
     if out.iter().filter(|l| marker(l)).count() + inside > lines.iter().filter(|l| marker(l)).count() {
         return Err("conflict markers are left in the file: each conflict, from <<<<<<< to >>>>>>>, goes inside the FIND of an edit".into());
     }
@@ -9599,7 +9640,12 @@ mod fit_answer_tests {
 
 #[cfg(test)]
 mod resolve_answer_tests {
-    use super::resolve_answer;
+    use super::{conflict_regions, real_conflicts, resolve_answer};
+
+    /// Every block between markers taken for a conflict.
+    fn resolve(lines: &[&str], answer: &str) -> Result<Vec<String>, String> {
+        resolve_answer(lines, &conflict_regions(lines, 0), answer)
+    }
 
     /// Rebasing a branch onto a release: both declare `hidden`, the branch's line merged cleanly next
     /// to the conflicts. Resolving takes renaming it, outside the markers.
@@ -9631,7 +9677,7 @@ mod resolve_answer_tests {
     #[test]
     fn edits_change_lines_outside_the_conflicts_too() {
         let answer = "[[FIND]]\n  const hidden = useHidden();\n<<<<<<< 5647557\n  const all: Row[] = useMemo(() => {\n=======\n  // Worktrees a background action is taking away are gone from the click on.\n  const rows: Row[] = useMemo(() => {\n>>>>>>> 32867d5\n[[REPLACE]]\n  const leaving = useHidden();\n  // Worktrees a background action is taking away are gone from the click on.\n  const all: Row[] = useMemo(() => {\n[[END]]\n\n[[FIND]]\n<<<<<<< 5647557\n    return list;\n  }, [wts.data]);\n  const rows = all.filter((r) => !hidden.includes(r.projectId));\n=======\n    return list.filter((r) => !hidden.has(wtKey(r.path)));\n  }, [wts.data, hidden]);\n>>>>>>> 32867d5\n[[REPLACE]]\n    return list.filter((r) => !leaving.has(wtKey(r.path)));\n  }, [wts.data, leaving]);\n  const rows = all.filter((r) => !hidden.includes(r.projectId));\n[[END]]";
-        let got = resolve_answer(&FILE, answer).unwrap();
+        let got = resolve(&FILE, answer).unwrap();
         assert_eq!(
             got,
             [
@@ -9652,32 +9698,45 @@ mod resolve_answer_tests {
         );
         // Far from any conflict, with a preamble and the edits fenced.
         let far = format!("Here are the edits:\n```\n[[FIND]]\nexport function Worktrees() {{\n[[REPLACE]]\nexport function Worktrees({{ initial }}: Props) {{\n[[END]]\n{}\n```", &answer);
-        assert_eq!(resolve_answer(&FILE, &far).unwrap()[0], "export function Worktrees({ initial }: Props) {");
+        assert_eq!(resolve(&FILE, &far).unwrap()[0], "export function Worktrees({ initial }: Props) {");
     }
 
     #[test]
     fn find_whitespace_aside_takes_the_file_indent() {
         let file = ["fn a() {", "\tone();  ", "<<<<<<< HEAD", "\ttwo();", "=======", "\tthree();", ">>>>>>> b", "}"];
         let answer = "[[FIND]]\n    one();\n<<<<<<< HEAD\n    two();\n=======\n    three();\n>>>>>>> b\n[[REPLACE]]\n    one();\n    two();\n\n        three();\n[[END]]";
-        assert_eq!(resolve_answer(&file, answer).unwrap(), ["fn a() {", "\tone();", "\ttwo();", "", "\t    three();", "}"]);
+        assert_eq!(resolve(&file, answer).unwrap(), ["fn a() {", "\tone();", "\ttwo();", "", "\t    three();", "}"]);
     }
 
     #[test]
     fn whole_file_answer_still_fits() {
         let file = ["a", "<<<<<<< HEAD", "b", "=======", "c", ">>>>>>> x", "d"];
-        assert_eq!(resolve_answer(&file, "a\nb\nc\nd").unwrap(), ["a", "b", "c", "d"]);
+        assert_eq!(resolve(&file, "a\nb\nc\nd").unwrap(), ["a", "b", "c", "d"]);
     }
 
     #[test]
     fn markers_outside_the_conflicts_stay() {
         let doc = ["```", "<<<<<<< HEAD", "```", "<<<<<<< HEAD", "a", "=======", "b", ">>>>>>> x"];
         let answer = "[[FIND]]\n```\n<<<<<<< HEAD\na\n=======\nb\n>>>>>>> x\n[[REPLACE]]\n```\na b\n[[END]]";
-        assert_eq!(resolve_answer(&doc, answer).unwrap(), ["```", "<<<<<<< HEAD", "```", "a b"]);
+        assert_eq!(resolve(&doc, answer).unwrap(), ["```", "<<<<<<< HEAD", "```", "a b"]);
+    }
+
+    #[test]
+    fn markers_a_side_already_holds_are_text() {
+        let side = "```\n<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> feature\n```\n- Pull first.\n- Rebase often.\n";
+        let doc = ["```", "<<<<<<< HEAD", "ours", "=======", "theirs", ">>>>>>> feature", "```", "- Pull first.", "<<<<<<< HEAD", "- Rebase often.", "=======", "- Commit small.", ">>>>>>> 1a2b3c4 (docs: commit small)"];
+        let conflicts = real_conflicts(&doc, &[side.to_string()]);
+        assert_eq!(conflicts, [(8, 13)]);
+        let answer = "[[FIND]]\n<<<<<<< HEAD\n- Rebase often.\n=======\n- Commit small.\n>>>>>>> 1a2b3c4 (docs: commit small)\n[[REPLACE]]\n- Rebase often.\n- Commit small.\n[[END]]";
+        let want: Vec<&str> = [&doc[..8], &["- Rebase often.", "- Commit small."]].concat();
+        assert_eq!(resolve_answer(&doc, &conflicts, answer).unwrap(), want);
+        // Taken for a conflict, the example would have to go.
+        assert!(resolve(&doc, answer).is_err());
     }
 
     #[test]
     fn unusable_answers_say_why() {
-        let why = |answer: &str| resolve_answer(&FILE, answer).unwrap_err();
+        let why = |answer: &str| resolve(&FILE, answer).unwrap_err();
         assert!(why("[[FIND]]\n  const nope = 1;\n[[REPLACE]]\n[[END]]").contains("the FIND of edit 1 (from \"const nope = 1;\") is not in the file"));
         assert!(why("[[FIND]]\n\n[[REPLACE]]\nx\n[[END]]").contains("the FIND of edit 1 is empty"));
         assert!(why("[[FIND]]\n  }, [wts.data, hidden]);\n[[REPLACE]]\n[[END]]\n[[FIND]]\n\n[[REPLACE]]\n[[END]]").contains("edit 2"));
@@ -9686,7 +9745,7 @@ mod resolve_answer_tests {
         assert!(why("[[FIND]]\n  const cur = rows[0];\n[[FIND]]").contains("[[FIND]] is out of place"));
         assert!(why("Resolved: I kept both.").contains("it has no [[FIND]]"));
         let twice = ["x();", "<<<<<<< HEAD", "a", "=======", "b", ">>>>>>> y", "x();"];
-        assert!(resolve_answer(&twice, "[[FIND]]\nx();\n[[REPLACE]]\nz();\n[[END]]").unwrap_err().contains("matches 2 places"));
+        assert!(resolve(&twice, "[[FIND]]\nx();\n[[REPLACE]]\nz();\n[[END]]").unwrap_err().contains("matches 2 places"));
     }
 }
 

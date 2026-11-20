@@ -822,18 +822,17 @@ async fn origin_force_pushed_over_the_branch() {
     commit_file(&repo, "c.txt", "c\n");
     let m = main(&call(&k, "workspace.overview", json!({ "projectId": pid })).await);
     assert_eq!(m["upstreamRewritten"], false, "{m}");
-    // The suggested reset checks again: the new commit, then uncommitted changes, make it refuse.
+    // The suggested reset checks again: the new commit makes it refuse.
     let safe = json!({ "projectId": pid, "branch": "main", "safe": true });
     let mine = rev(&repo, "main");
     assert!(rpc::call(&k, "branches.reset", safe.clone()).await.unwrap_err().to_string().contains("commits origin never had"));
     assert_eq!(rev(&repo, "main"), mine, "refused: the commit stays");
     sh(&repo, &["reset", "-q", "--hard", "HEAD~1"]);
-    std::fs::write(repo.join("a.txt"), "edited\n").unwrap();
-    assert!(rpc::call(&k, "branches.reset", safe.clone()).await.unwrap_err().to_string().contains("uncommitted changes"));
-    assert_eq!(std::fs::read_to_string(repo.join("a.txt")).unwrap(), "edited\n", "refused: the change stays");
-    sh(&repo, &["checkout", "--", "a.txt"]);
-    call(&k, "branches.reset", safe).await;
+    // Uncommitted changes are set aside and put back on top of origin's copy.
+    std::fs::write(repo.join("README.md"), "edited\n").unwrap();
+    assert_eq!(call(&k, "branches.reset", safe).await["conflicts"], json!([]));
     assert_eq!(rev(&repo, "main"), rev(&origin, "main"));
+    assert_eq!(std::fs::read_to_string(repo.join("README.md")).unwrap(), "edited\n", "the change came back");
 }
 
 #[tokio::test]

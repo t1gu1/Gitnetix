@@ -104,8 +104,8 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
     },
   });
   const push = useAction<{ output: string }, { projectId: string; branch: string }>("workspace.push", { invalidate: inv, patch: (qc, v) => patchOverview(qc, pid, v.branch, pushed) });
-  // The suggested reset: no dialog, the server refuses it if the branch has gained anything of its own since.
-  const reset = useAction<unknown, { projectId: string; branch: string; safe: boolean }>("branches.reset", {
+  // The suggested reset: no dialog, the server refuses it if the branch has gained commits of its own since, and puts uncommitted changes back on top.
+  const reset = useAction<{ conflicts: string[] }, { projectId: string; branch: string; safe: boolean }>("branches.reset", {
     invalidate: inv,
     patch: (qc, v) => patchOverview(qc, pid, v.branch, (b) => ({ ...b, upstreamAhead: 0, upstreamBehind: 0, upstreamRewritten: false })),
   });
@@ -585,21 +585,32 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
     if (!v.exists) return a.delete;
     if (locks.has(v.name)) return a.progress;
     if (v.conflict && v.inProgress === "rebase") return a.conflicts;
+    // A rebased work branch: pulling would bring the old commits back, so suggest replacing origin's copy.
+    const forcePush = v.role === "branch" && !v.protected && v.rewritten;
+    // Origin moved on and the branch has no commits of its own: take origin's copy as is, uncommitted changes put back on top.
+    const takeOrigin = v.local && !v.renamedTo && !forcePush && v.upstreamBehind > 0 && (!v.upstreamAhead || v.upstreamRewritten) && !v.inProgress && !v.running;
     // Uncommitted work comes first: committed before anything moves the branch. Not while an agent still works there.
-    if (v.wip > 0 && v.checkedOut && !v.inProgress && !v.running) return a.commit;
+    if (v.wip > 0 && v.checkedOut && !v.inProgress && !v.running && !takeOrigin) return a.commit;
     if (!v.local) return a.switch;
     if (v.renamedTo) return a.follow;
-    // A rebased work branch: pulling would bring the old commits back, so suggest replacing origin's copy.
-    if (v.role === "branch" && !v.protected && v.rewritten) return a.forcePush;
-    // Origin moved on and the branch has nothing of its own: take origin's copy as is. Not over uncommitted work.
-    if (v.upstreamBehind > 0 && (!v.upstreamAhead || v.upstreamRewritten) && !v.wip && !v.inProgress && !v.running)
+    if (forcePush) return a.forcePush;
+    if (takeOrigin)
       return {
         ...a.reset,
         label: <>Reset to <span className="mono">{v.upstream}</span></>,
         short: "Reset to origin",
-        tip: `Reset ${v.name} to ${v.upstream}: it has nothing of its own to lose`,
+        tip: `Reset ${v.name} to ${v.upstream}: it has nothing of its own to lose${v.wip ? ". Your uncommitted changes are set aside and put back on top" : ""}`,
         danger: false,
-        run: () => reset.mutate({ projectId: pid, branch: v.name, safe: true }, { onSuccess: () => toast(`Reset ${v.name} to ${v.upstream}`, "ok") }),
+        run: () =>
+          reset.mutate(
+            { projectId: pid, branch: v.name, safe: true },
+            {
+              onSuccess: (r) =>
+                r.conflicts.length
+                  ? toast(`Reset ${v.name} to ${v.upstream} with ${plural(r.conflicts.length, "conflict")}: resolve them in the WIP files. The stash is kept.`, "error")
+                  : toast(`Reset ${v.name} to ${v.upstream}${v.wip ? ", your changes are back on top" : ""}`, "ok"),
+            },
+          ),
       };
     if (v.upstreamBehind > 0) return a.pull;
     const needsPush = v.upstreamAhead > 0 || (!v.upstream && v.ahead > 0);

@@ -1,0 +1,460 @@
+//! Branch regression suite: the branch, commit and worktree flows the branch map drives, through the RPC calls
+//! the UI makes. Each test is a case of `list-of-test.md` at the repo root; its ID starts the name (BR-03 is
+//! `br03_…`). One case: `cargo test -p gitnetix-core --test branch_regression br03`.
+//!
+//! Suggested actions (SA-*) are picked in the UI (`primary` in `src/screens/BranchMenu.tsx`) from the branch view's
+//! flags. These tests check the flags each suggestion reads, and the call the suggestion makes.
+
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::sync::Arc;
+
+use gitnetix_core::{rpc, Gitnetix};
+use serde_json::{json, Value};
+
+fn sh(dir: &Path, args: &[&str]) {
+    let ok = Command::new("git").current_dir(dir).args(args).status().unwrap().success();
+    assert!(ok, "git {args:?}");
+}
+
+fn git_out(dir: &Path, args: &[&str]) -> String {
+    let out = Command::new("git").current_dir(dir).args(args).output().unwrap().stdout;
+    String::from_utf8(out).unwrap().trim_end().to_string()
+}
+
+fn rev(dir: &Path, r: &str) -> String {
+    git_out(dir, &["rev-parse", "--verify", "-q", r])
+}
+
+fn is_ancestor(dir: &Path, a: &str, b: &str) -> bool {
+    Command::new("git").current_dir(dir).args(["merge-base", "--is-ancestor", a, b]).status().unwrap().success()
+}
+
+fn commit_file(dir: &Path, file: &str, body: &str) {
+    std::fs::write(dir.join(file), body).unwrap();
+    sh(dir, &["add", file]);
+    sh(dir, &["commit", "-qm", &format!("edit {file}")]);
+}
+
+fn config(dir: &Path, email: &str) {
+    for (k, v) in [("user.email", email), ("user.name", "Test"), ("commit.gpgsign", "false"), ("tag.gpgsign", "false"), ("core.autocrlf", "false"), ("core.longpaths", "true")] {
+        sh(dir, &["config", k, v]);
+    }
+}
+
+/// A repo on `main` (one commit) pushed to a bare origin, opened in a fresh Gitnetix home.
+struct Env {
+    _tmp: tempfile::TempDir,
+    root: PathBuf,
+    repo: PathBuf,
+    origin: PathBuf,
+    k: Arc<Gitnetix>,
+    pid: String,
+}
+
+async fn env() -> Env {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().to_path_buf();
+    let origin = root.join("origin.git");
+    sh(&root, &["init", "-q", "--bare", "-b", "main", origin.to_str().unwrap()]);
+    let repo = root.join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    sh(&repo, &["init", "-q", "-b", "main"]);
+    config(&repo, "t@example.com");
+    sh(&repo, &["remote", "add", "origin", origin.to_str().unwrap()]);
+    commit_file(&repo, "README.md", "# repo\n");
+    sh(&repo, &["push", "-q", "-u", "origin", "main"]);
+    let k = Gitnetix::open(&root.join("home")).unwrap();
+    let added = rpc::call(&k, "projects.add", json!({ "paths": [repo.to_string_lossy()] })).await.unwrap();
+    let pid = added[0]["id"].as_str().unwrap().to_string();
+    let e = Env { _tmp: tmp, root, repo, origin, k, pid };
+    // Whatever AI the machine has stays out: conflicts are left to the test.
+    e.call("projects.setPrefs", json!({ "merge": { "resolveConflicts": false } })).await;
+    e
+}
+
+impl Env {
+    fn params(&self, mut p: Value) -> Value {
+        p["projectId"] = json!(self.pid);
+        p
+    }
+
+    async fn call(&self, m: &str, p: Value) -> Value {
+        match rpc::call(&self.k, m, self.params(p)).await {
+            Ok(v) => v,
+            Err(e) => panic!("{m}: {e}"),
+        }
+    }
+
+    /// The error of a call that has to be refused.
+    async fn refused(&self, m: &str, p: Value) -> String {
+        match rpc::call(&self.k, m, self.params(p)).await {
+            Ok(v) => panic!("{m} went through: {v}"),
+            Err(e) => e.to_string(),
+        }
+    }
+
+    /// The branch as the branch map gets it.
+    async fn view(&self, branch: &str) -> Value {
+        let ov = self.call("workspace.overview", json!({})).await;
+        ov["branches"].as_array().unwrap().iter().find(|b| b["name"] == branch).cloned().unwrap_or_else(|| panic!("no {branch} in {ov:#}"))
+    }
+
+    /// A teammate's clone, checked out on `branch`.
+    fn teammate(&self, branch: &str) -> PathBuf {
+        let other = self.root.join("other");
+        sh(&self.root, &["clone", "-q", "-b", branch, self.origin.to_str().unwrap(), other.to_str().unwrap()]);
+        config(&other, "o@example.com");
+        other
+    }
+
+    fn head(&self, dir: &Path) -> String {
+        git_out(dir, &["symbolic-ref", "--short", "-q", "HEAD"])
+    }
+}
+
+fn status(dir: &Path) -> String {
+    git_out(dir, &["status", "--porcelain"])
+}
+
+// ---------------------------------------------------------------- Branches
+
+/// BR-01: a new branch off main is checked out and filed under main. Deleting it is refused while it holds
+/// commits main lacks, forced after; a merged one goes without force, on origin too.
+#[tokio::test]
+async fn br01_create_switch_and_delete_a_branch() {
+    let e = env().await;
+    let r = e.call("items.create", json!({ "from": "main", "kind": "feat", "description": "login", "branchName": "feat/login", "where": "switch" })).await;
+    assert_eq!(r["branch"], "feat/login", "{r}");
+    assert_eq!(e.head(&e.repo), "feat/login");
+    let v = e.view("feat/login").await;
+    assert_eq!((v["parent"].as_str(), v["checkedOut"].as_bool(), v["local"].as_bool()), (Some("main"), Some(true), Some(true)), "{v}");
+
+    commit_file(&e.repo, "login.txt", "login\n");
+    e.call("workspace.switch", json!({ "branch": "main" })).await;
+    let why = e.refused("branches.delete", json!({ "branch": "feat/login" })).await;
+    assert_eq!(rev(&e.repo, "refs/heads/feat/login").len(), 40, "refused ({why}): the branch stays");
+    e.call("branches.delete", json!({ "branch": "feat/login", "force": true })).await;
+    assert!(rev(&e.repo, "refs/heads/feat/login").is_empty());
+
+    e.call("items.create", json!({ "from": "main", "kind": "feat", "description": "done", "branchName": "feat/done", "where": "switch" })).await;
+    e.call("workspace.push", json!({ "branch": "feat/done" })).await;
+    assert_eq!(rev(&e.origin, "refs/heads/feat/done").len(), 40);
+    e.call("workspace.switch", json!({ "branch": "main" })).await;
+    e.call("branches.delete", json!({ "branch": "feat/done", "remote": true })).await;
+    assert!(rev(&e.repo, "refs/heads/feat/done").is_empty());
+    assert!(rev(&e.origin, "refs/heads/feat/done").is_empty(), "gone on origin too");
+}
+
+/// BR-02: staging picks what the commit takes; Stage & commit takes everything. The first push publishes the
+/// branch and sets its upstream; a later commit waits to be pushed, then goes.
+#[tokio::test]
+async fn br02_stage_commit_and_push_a_new_branch() {
+    let e = env().await;
+    sh(&e.repo, &["switch", "-qc", "feat/x"]);
+    std::fs::write(e.repo.join("a.txt"), "a\n").unwrap();
+    std::fs::write(e.repo.join("b.txt"), "b\n").unwrap();
+    assert_eq!(e.view("feat/x").await["wip"], 2);
+
+    e.call("workspace.stage", json!({ "branch": "feat/x", "paths": ["a.txt"] })).await;
+    e.call("workspace.commit", json!({ "branch": "feat/x", "message": "feat: a" })).await;
+    assert_eq!(git_out(&e.repo, &["show", "--name-only", "--format=", "HEAD"]), "a.txt", "only the staged file");
+    assert_eq!(git_out(&e.repo, &["log", "-1", "--format=%s"]), "feat: a");
+    assert_eq!(status(&e.repo), "?? b.txt");
+
+    e.call("workspace.commit", json!({ "branch": "feat/x", "message": "feat: b", "all": true })).await;
+    assert_eq!(status(&e.repo), "", "Stage & commit leaves nothing behind");
+    let v = e.view("feat/x").await;
+    assert_eq!((v["ahead"].as_u64(), v["wip"].as_u64(), v["upstream"].is_null()), (Some(2), Some(0), true), "{v}");
+
+    e.call("workspace.push", json!({ "branch": "feat/x" })).await;
+    assert_eq!(rev(&e.origin, "feat/x"), rev(&e.repo, "feat/x"));
+    let v = e.view("feat/x").await;
+    assert_eq!((v["upstream"].as_str(), v["upstreamAhead"].as_u64()), (Some("origin/feat/x"), Some(0)), "{v}");
+
+    commit_file(&e.repo, "c.txt", "c\n");
+    assert_eq!(e.view("feat/x").await["upstreamAhead"], 1, "the map suggests Push");
+    e.call("workspace.push", json!({ "branch": "feat/x" })).await;
+    assert_eq!(rev(&e.origin, "feat/x"), rev(&e.repo, "feat/x"));
+}
+
+/// BR-03 (+ SA-01, SA-04): main moved on, so the branch is behind its parent and the map suggests Rebase. The
+/// rebase (the node line's update button) puts it on main. It was pushed before, so the map now suggests Force
+/// push: a plain push is refused, a forced one replaces origin's copy.
+#[tokio::test]
+async fn br03_rebase_on_parent_from_the_node_button() {
+    let e = env().await;
+    sh(&e.repo, &["switch", "-qc", "feat/a"]);
+    commit_file(&e.repo, "a.txt", "a\n");
+    e.call("workspace.push", json!({ "branch": "feat/a" })).await;
+    sh(&e.repo, &["switch", "-q", "main"]);
+    commit_file(&e.repo, "main.txt", "m\n");
+    sh(&e.repo, &["switch", "-q", "feat/a"]);
+
+    let v = e.view("feat/a").await;
+    let flags = |v: &Value| (v["behind"].as_u64(), v["ahead"].as_u64(), v["upstreamBehind"].as_u64(), v["upstreamAhead"].as_u64(), v["wip"].as_u64());
+    assert_eq!(flags(&v), (Some(1), Some(1), Some(0), Some(0), Some(0)), "SA-01, behind main only: {v}");
+
+    let r = e.call("workspace.rebase", json!({ "branch": "feat/a" })).await;
+    assert_eq!(r["conflicts"], json!([]), "{r}");
+    assert!(is_ancestor(&e.repo, "main", "feat/a"));
+    assert!(!r["forcePushTo"].is_null(), "already on origin: {r}");
+    assert_eq!(e.head(&e.repo), "feat/a");
+
+    let v = e.view("feat/a").await;
+    assert_eq!((v["behind"].as_u64(), v["ahead"].as_u64(), v["rewritten"].as_bool()), (Some(0), Some(1), Some(true)), "SA-04: {v}");
+    e.refused("workspace.push", json!({ "branch": "feat/a" })).await;
+    e.call("workspace.push", json!({ "branch": "feat/a", "force": true })).await;
+    assert_eq!(rev(&e.origin, "feat/a"), rev(&e.repo, "feat/a"));
+}
+
+/// BR-04: main → feat/a → feat/b → feat/c (each child made from its parent with New branch), and main moved
+/// on. feat/a is rebased onto main, then the "Update the branches under it" dialog runs: pin each child to its
+/// parent, rebase parents first. Every branch ends on its updated parent, each commit once, the checked-out one
+/// too. (A child made with a plain `git switch -c` has no declared parent: it sits under main.)
+#[tokio::test]
+async fn br04_group_update_rebases_each_child_onto_its_updated_parent() {
+    let e = env().await;
+    sh(&e.repo, &["switch", "-qc", "feat/a"]);
+    commit_file(&e.repo, "a.txt", "x\n");
+    for (b, from) in [("feat/b", "feat/a"), ("feat/c", "feat/b")] {
+        e.call("items.create", json!({ "from": from, "kind": "feat", "description": "", "branchName": b, "where": "switch" })).await;
+        commit_file(&e.repo, &format!("{}.txt", &b[5..]), "x\n");
+    }
+    sh(&e.repo, &["switch", "-q", "main"]);
+    commit_file(&e.repo, "main.txt", "m\n");
+    // The deepest one is checked out: it rebases in place, the others in throwaway worktrees.
+    sh(&e.repo, &["switch", "-q", "feat/c"]);
+    assert_eq!(e.view("feat/b").await["parent"], "feat/a");
+    assert_eq!(e.view("feat/c").await["parent"], "feat/b");
+
+    let r = e.call("workspace.rebase", json!({ "branch": "feat/a" })).await;
+    assert_eq!(r["conflicts"], json!([]), "{r}");
+    // The dialog lists the children from the parents the map showed: rebasing feat/a must not move them elsewhere.
+    assert_eq!(e.view("feat/b").await["parent"], "feat/a", "feat/b still under feat/a once it is rebased");
+
+    for (b, parent) in [("feat/b", "feat/a"), ("feat/c", "feat/b")] {
+        e.call("branches.setParent", json!({ "branch": b, "parent": parent })).await;
+    }
+    for b in ["feat/b", "feat/c"] {
+        let r = e.call("workspace.rebase", json!({ "branch": b })).await;
+        assert_eq!(r["conflicts"], json!([]), "{b}: {r}");
+    }
+
+    assert!(is_ancestor(&e.repo, "main", "feat/a"));
+    assert!(is_ancestor(&e.repo, "feat/a", "feat/b"));
+    assert!(is_ancestor(&e.repo, "feat/b", "feat/c"));
+    assert_eq!(git_out(&e.repo, &["log", "--format=%s", "main..feat/c"]), "edit c.txt\nedit b.txt\nedit a.txt", "old copies dropped");
+    for (b, parent) in [("feat/a", "main"), ("feat/b", "feat/a"), ("feat/c", "feat/b")] {
+        let v = e.view(b).await;
+        assert_eq!((v["parent"].as_str(), v["behind"].as_u64()), (Some(parent), Some(0)), "{b}: {v}");
+    }
+    assert_eq!(e.head(&e.repo), "feat/c");
+    assert_eq!(status(&e.repo), "");
+}
+
+// ---------------------------------------------------------------- Suggested actions
+
+/// feat/x pushed with a.txt, then a teammate pushes `theirs` (file, body) on top, fetched here.
+async fn teammate_pushed(e: &Env, theirs: (&str, &str)) {
+    sh(&e.repo, &["switch", "-qc", "feat/x"]);
+    commit_file(&e.repo, "a.txt", "a\n");
+    e.call("workspace.push", json!({ "branch": "feat/x" })).await;
+    let other = e.teammate("feat/x");
+    commit_file(&other, theirs.0, theirs.1);
+    sh(&other, &["push", "-q", "origin", "feat/x"]);
+    e.call("branches.fetch", json!({})).await;
+}
+
+/// SA-02: a teammate pushed to the branch and it has nothing of its own, so the map suggests "Reset to origin".
+/// The reset fast-forwards it.
+#[tokio::test]
+async fn sa02_origin_moved_on_offers_reset_to_origin() {
+    let e = env().await;
+    teammate_pushed(&e, ("t.txt", "t\n")).await;
+    let v = e.view("feat/x").await;
+    assert_eq!((v["upstreamBehind"].as_u64(), v["upstreamAhead"].as_u64(), v["wip"].as_u64()), (Some(1), Some(0), Some(0)), "{v}");
+
+    let r = e.call("branches.reset", json!({ "branch": "feat/x", "safe": true })).await;
+    assert_eq!(r["conflicts"], json!([]), "{r}");
+    assert_eq!(rev(&e.repo, "feat/x"), rev(&e.origin, "feat/x"));
+    assert!(e.repo.join("t.txt").exists());
+    assert_eq!(e.view("feat/x").await["upstreamBehind"], 0);
+}
+
+/// SA-11: same as SA-02 with uncommitted changes: the map still suggests "Reset to origin". The changes (an edit
+/// and a new file) are stashed, the branch reset, the changes put back on top, the stash dropped. When putting them
+/// back conflicts with origin's copy, the files are left in conflict and the stash is kept.
+#[tokio::test]
+async fn sa11_reset_to_origin_puts_uncommitted_changes_back() {
+    let e = env().await;
+    teammate_pushed(&e, ("t.txt", "t\n")).await;
+    std::fs::write(e.repo.join("a.txt"), "edited\n").unwrap();
+    std::fs::write(e.repo.join("new.txt"), "new\n").unwrap();
+    let v = e.view("feat/x").await;
+    assert_eq!((v["upstreamBehind"].as_u64(), v["upstreamAhead"].as_u64(), v["wip"].as_u64()), (Some(1), Some(0), Some(2)), "{v}");
+
+    let r = e.call("branches.reset", json!({ "branch": "feat/x", "safe": true })).await;
+    assert_eq!(r["conflicts"], json!([]), "{r}");
+    assert_eq!(rev(&e.repo, "feat/x"), rev(&e.origin, "feat/x"));
+    assert!(e.repo.join("t.txt").exists());
+    assert_eq!(std::fs::read_to_string(e.repo.join("a.txt")).unwrap(), "edited\n");
+    assert_eq!(std::fs::read_to_string(e.repo.join("new.txt")).unwrap(), "new\n");
+    assert_eq!(git_out(&e.repo, &["stash", "list"]), "", "stash dropped");
+
+    // The teammate changed a.txt too: the edit put back conflicts with theirs.
+    let e = env().await;
+    teammate_pushed(&e, ("a.txt", "theirs\n")).await;
+    std::fs::write(e.repo.join("a.txt"), "mine\n").unwrap();
+    let r = e.call("branches.reset", json!({ "branch": "feat/x", "safe": true })).await;
+    assert_eq!(r["conflicts"], json!(["a.txt"]), "{r}");
+    assert_eq!(rev(&e.repo, "feat/x"), rev(&e.origin, "feat/x"));
+    assert_eq!(git_out(&e.repo, &["stash", "list"]).lines().count(), 1, "stash kept");
+    assert!(std::fs::read_to_string(e.repo.join("a.txt")).unwrap().contains("mine"), "the edit is in the conflict");
+}
+
+// ---------------------------------------------------------------- Commits
+
+/// CM-02: reset to a commit keeps the dropped change staged (soft), unstaged (mixed), or drops it (hard).
+#[tokio::test]
+async fn cm02_reset_soft_mixed_hard() {
+    let e = env().await;
+    let base = rev(&e.repo, "HEAD");
+    sh(&e.repo, &["switch", "-qc", "feat/r"]);
+    commit_file(&e.repo, "README.md", "# changed\n");
+    let reset = |mode: &'static str| e.call("commits.reset", json!({ "branch": "feat/r", "sha": base, "mode": mode }));
+
+    reset("soft").await;
+    assert_eq!((rev(&e.repo, "HEAD"), status(&e.repo)), (base.clone(), "M  README.md".into()), "soft: staged");
+    sh(&e.repo, &["commit", "-qm", "again"]);
+    reset("mixed").await;
+    assert_eq!((rev(&e.repo, "HEAD"), status(&e.repo)), (base.clone(), " M README.md".into()), "mixed: unstaged");
+    sh(&e.repo, &["commit", "-qam", "again"]);
+    reset("hard").await;
+    assert_eq!((rev(&e.repo, "HEAD"), status(&e.repo)), (base.clone(), String::new()), "hard: gone");
+    assert_eq!(std::fs::read_to_string(e.repo.join("README.md")).unwrap(), "# repo\n");
+}
+
+/// CM-03: a pushed branch reset back a commit from the commit list. The map suggests Force push: a plain push
+/// is refused, a forced one moves origin back too.
+#[tokio::test]
+async fn cm03_reset_a_pushed_branch_then_force_push() {
+    let e = env().await;
+    sh(&e.repo, &["switch", "-qc", "feat/r"]);
+    commit_file(&e.repo, "a.txt", "a\n");
+    commit_file(&e.repo, "b.txt", "b\n");
+    e.call("workspace.push", json!({ "branch": "feat/r" })).await;
+    let first = rev(&e.repo, "feat/r~1");
+
+    e.call("commits.reset", json!({ "branch": "feat/r", "sha": first, "mode": "hard" })).await;
+    let v = e.view("feat/r").await;
+    assert_eq!((v["upstreamAhead"].as_u64(), v["upstreamBehind"].as_u64(), v["rewritten"].as_bool()), (Some(0), Some(1), Some(true)), "{v}");
+    e.refused("workspace.push", json!({ "branch": "feat/r" })).await;
+    e.call("workspace.push", json!({ "branch": "feat/r", "force": true })).await;
+    assert_eq!(rev(&e.origin, "feat/r"), first);
+}
+
+/// CM-04: the commit list flags the local tip and origin's tip, which the UI highlights. In step, one commit
+/// holds both; reset back, origin's tip shows as not pulled; a new commit shows as not pushed.
+#[tokio::test]
+async fn cm04_commit_list_marks_the_local_and_origin_tips() {
+    let e = env().await;
+    sh(&e.repo, &["switch", "-qc", "feat/h"]);
+    for f in ["a.txt", "b.txt", "c.txt"] {
+        commit_file(&e.repo, f, "x\n");
+    }
+    e.call("workspace.push", json!({ "branch": "feat/h" })).await;
+    let flags = |list: &Value| -> Vec<(String, bool, bool, bool, bool)> {
+        list.as_array()
+            .unwrap()
+            .iter()
+            .filter(|c| c["base"] != true)
+            .map(|c| (c["subject"].as_str().unwrap().to_string(), c["local"] == true, c["origin"] == true, c["unpulled"] == true, c["unpushed"] == true))
+            .collect()
+    };
+    let list = || e.call("workspace.commits", json!({ "branch": "feat/h" }));
+    let t = |s: &str, l, o, pl, ps| (s.to_string(), l, o, pl, ps);
+    // Commits made in the same second come in either order.
+    let sorted = |mut v: Vec<(String, bool, bool, bool, bool)>| {
+        v.sort();
+        v
+    };
+
+    assert_eq!(flags(&list().await), [t("edit c.txt", true, true, false, false), t("edit b.txt", false, false, false, false), t("edit a.txt", false, false, false, false)]);
+
+    let b = rev(&e.repo, "feat/h~1");
+    e.call("commits.reset", json!({ "branch": "feat/h", "sha": b, "mode": "hard" })).await;
+    assert_eq!(flags(&list().await).len(), 3, "origin's tip is still listed");
+    assert_eq!(sorted(flags(&list().await)), [t("edit a.txt", false, false, false, false), t("edit b.txt", true, false, false, false), t("edit c.txt", false, true, true, false)]);
+
+    commit_file(&e.repo, "d.txt", "d\n");
+    assert_eq!(
+        sorted(flags(&list().await)),
+        [t("edit a.txt", false, false, false, false), t("edit b.txt", false, false, false, false), t("edit c.txt", false, true, true, false), t("edit d.txt", true, false, false, true)]
+    );
+}
+
+// ---------------------------------------------------------------- Worktrees
+
+/// WT-01: a new branch opened in a worktree, committed to through the app, rebased in its worktree once main
+/// moved, then squash merged with delete: one squash commit on main with all its files, branch and folder gone.
+#[tokio::test]
+async fn wt01_worktree_create_commit_rebase_and_squash_merge() {
+    let e = env().await;
+    let r = e.call("items.create", json!({ "from": "main", "kind": "feat", "description": "wt", "branchName": "feat/wt", "where": "worktree" })).await;
+    let wt = PathBuf::from(r["worktree"].as_str().unwrap_or_else(|| panic!("no worktree: {r}")));
+    assert_eq!(e.head(&wt), "feat/wt");
+    assert_eq!(e.head(&e.repo), "main", "the main checkout stays where it was");
+    assert!(e.view("feat/wt").await["worktree"].is_string());
+
+    for (f, msg) in [("one.txt", "feat: one"), ("two.txt", "feat: two")] {
+        std::fs::write(wt.join(f), "x\n").unwrap();
+        e.call("workspace.commit", json!({ "branch": "feat/wt", "message": msg, "all": true })).await;
+    }
+    assert_eq!(status(&wt), "");
+    assert_eq!(git_out(&e.repo, &["log", "--format=%s", "main..feat/wt"]), "feat: two\nfeat: one");
+
+    commit_file(&e.repo, "main.txt", "m\n");
+    assert_eq!(e.view("feat/wt").await["behind"], 1);
+    let r = e.call("workspace.rebase", json!({ "branch": "feat/wt" })).await;
+    assert_eq!(r["conflicts"], json!([]), "{r}");
+    assert!(is_ancestor(&e.repo, "main", "feat/wt"));
+    assert!(wt.join("main.txt").exists(), "rebased in its worktree");
+    assert_eq!(status(&wt), "");
+
+    // Squash without Rebase: the branch's commits collapse into one, merged into main by a merge commit.
+    let before = rev(&e.repo, "main");
+    let m = e.call("branches.merge", json!({ "branch": "feat/wt", "squash": true, "deleteBranch": true })).await;
+    assert_eq!(m["deleted"], true, "{m}");
+    assert_eq!(git_out(&e.repo, &["log", "--no-merges", "--format=%s", &format!("{before}..main")]).lines().next(), Some("squash | feat/wt"));
+    assert_eq!(git_out(&e.repo, &["rev-list", "--no-merges", "--count", &format!("{before}..main")]), "1", "one squash commit");
+    let files = git_out(&e.repo, &["ls-tree", "--name-only", "main"]);
+    assert!(files.contains("one.txt") && files.contains("two.txt"), "{files}");
+    assert!(rev(&e.repo, "refs/heads/feat/wt").is_empty());
+    assert!(!wt.exists(), "worktree folder removed");
+    assert_eq!(e.head(&e.repo), "main");
+}
+
+/// WT-02: an existing branch opened in a worktree and closed again. Closing is refused while the worktree holds
+/// uncommitted work, unless forced. The branch stays either way.
+#[tokio::test]
+async fn wt02_open_an_existing_branch_in_a_worktree_and_remove_it() {
+    let e = env().await;
+    sh(&e.repo, &["switch", "-qc", "feat/e"]);
+    commit_file(&e.repo, "e.txt", "e\n");
+    sh(&e.repo, &["switch", "-q", "main"]);
+
+    let path = e.call("worktrees.create", json!({ "branch": "feat/e" })).await["path"].as_str().unwrap().to_string();
+    let wt = PathBuf::from(&path);
+    assert_eq!(e.head(&wt), "feat/e");
+    assert!(wt.join("e.txt").exists());
+    assert!(e.view("feat/e").await["worktree"].is_string());
+
+    std::fs::write(wt.join("scratch.txt"), "wip\n").unwrap();
+    e.refused("worktrees.remove", json!({ "path": path })).await;
+    assert!(wt.join("scratch.txt").exists(), "refused: the work stays");
+    e.call("worktrees.remove", json!({ "path": path, "force": true })).await;
+    assert!(!wt.exists());
+    assert_eq!(rev(&e.repo, "refs/heads/feat/e").len(), 40, "the branch stays");
+    assert!(e.view("feat/e").await["worktree"].is_null());
+}
