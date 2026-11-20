@@ -1,4 +1,4 @@
-// UI checks of the branch map (list-of-test.md, UI-01 to UI-04 and SA-11): builds a throwaway repo with one branch
+// UI checks of the branch map (list-of-test.md, UI-01 to UI-04, UI-07 and SA-11): builds a throwaway repo with one branch
 // per state, opens it in the app with a headless browser, selects each branch and checks the action its card
 // suggests. Exits 1 when a check fails.
 //
@@ -58,6 +58,10 @@ git(repo, "reset", "-q", "--hard", "HEAD~1");
 branch("feat/merged", "main", ["merged", "fix: typo in footer"]);
 git(repo, "switch", "-q", "main");
 git(repo, "merge", "-q", "--no-ff", "feat/merged", "-m", "Merge feat/merged");
+// Merged into main but still open in a worktree: UI-07.
+branch("feat/wtdone", "main", ["wtdone", "docs: debug logs"]);
+git(repo, "switch", "-q", "main");
+git(repo, "merge", "-q", "--no-ff", "feat/wtdone", "-m", "Merge feat/wtdone");
 branch("feat/local", "main", ["local", "feat: dark mode"]);
 branch("feat/stack", "feat/local", ["stack", "feat: dark mode toggle"]);
 git(repo, "switch", "-q", "main");
@@ -67,6 +71,7 @@ branch("feat/wt", "main", ["wt", "feat: in a worktree"]);
 git(repo, "switch", "-q", "main");
 git(repo, "worktree", "add", "-q", "../wt", "feat/wt");
 git(repo, "worktree", "add", "-q", "../wipreset", "feat/wipreset");
+git(repo, "worktree", "add", "-q", "../wtdone", "feat/wtdone");
 // A teammate pushes on top of feat/pulled and feat/wipreset.
 git(tmp, "clone", "-q", "origin.git", "other");
 const other = join(tmp, "other");
@@ -159,6 +164,8 @@ try {
   const errors = [];
   page.on("pageerror", (e) => errors.push(String(e)));
   await page.addInitScript((r) => localStorage.setItem("gitnetix.remote", JSON.stringify(r)), { url: SERVER, token });
+  // "Mine" goes by this machine's Git identity, not the scenario's author: every branch, merged ones hidden (the default).
+  await page.addInitScript(() => localStorage.getItem("gnx.map") || localStorage.setItem("gnx.map", JSON.stringify({ who: "all" })));
   // The sandbox has no AI set up: without this the app opens on the AI setup instead of the map.
   await page.route(`${SERVER}/rpc`, async (route) => {
     if (JSON.parse(route.request().postData() || "{}").method !== "config.get") return route.continue();
@@ -202,12 +209,26 @@ try {
   await select("feat/behind");
   const active = await page.locator(".map-crow[data-on]").evaluateAll((els) => els.map((e) => e.getAttribute("aria-label")));
   check("UI-03", active.length === 1 && active[0].includes("feat: login validation"), `highlighted commit is the local tip: ${JSON.stringify(active)}`);
+  // With the default filters (merged branches hidden), every worktree Worktrees & agents lists is a tile on the map.
+  const worktrees = (await rpc("worktrees.list", {})).filter((w) => w.projectId === pid && !w.main);
+  check("UI-07", worktrees.some((w) => w.branch === "feat/wtdone"), `worktrees.list has the merged worktree: ${JSON.stringify(worktrees.map((w) => w.branch))}`);
+  for (const w of worktrees) {
+    const tiles = await page.locator(`button.map-hitbox[aria-label="Select ${w.branch}"]`).count();
+    check("UI-07", tiles === 1, `${w.branch} (worktree at ${w.path}) has a tile on the map: ${tiles}`);
+  }
+  const wtdone = await select("feat/wtdone");
+  check("UI-07", wtdone.text.includes("merged"), "feat/wtdone's card says it is merged");
+  // UI-04 is about merged branches: the Merged filter on.
+  await page.getByRole("button", { name: /^Merged/ }).click();
+  await page.getByText("Clean up merged", { exact: false }).first().waitFor({ timeout: 10000 }).catch(() => {});
   const trunk = (await page.locator("body").innerText()).toLowerCase();
   check("UI-04", trunk.includes("feat/merged") && trunk.includes("clean up merged"), "merged branch listed under the trunk with Clean up merged");
   check("UI", errors.length === 0, `no page errors ${errors.length ? JSON.stringify(errors) : ""}`);
 
   mkdirSync(out, { recursive: true });
   await page.screenshot({ path: join(out, "branch-map-rebase.png") });
+  await select("feat/wtdone");
+  await page.screenshot({ path: join(out, "branch-map-merged-worktree.png") });
   await select("feat/wipreset");
   await page.screenshot({ path: join(out, "branch-map-reset-with-wip.png") });
   console.log(`\nScreenshots in ${out}`);

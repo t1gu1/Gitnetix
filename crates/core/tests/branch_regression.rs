@@ -463,3 +463,54 @@ async fn wt02_open_an_existing_branch_in_a_worktree_and_remove_it() {
     assert_eq!(rev(&e.repo, "refs/heads/feat/e").len(), 40, "the branch stays");
     assert!(e.view("feat/e").await["worktree"].is_null());
 }
+
+/// The project's worktrees as the Worktrees & agents page lists them (`worktrees.list`), main checkout left out.
+async fn listed_worktrees(e: &Env) -> Vec<(String, String)> {
+    let list = e.call("worktrees.list", json!({})).await;
+    let mut out: Vec<(String, String)> = list
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|w| w["projectId"] == e.pid.as_str() && w["main"] == false)
+        .map(|w| (w["branch"].as_str().unwrap().to_string(), w["path"].as_str().unwrap().to_string()))
+        .collect();
+    out.sort();
+    out
+}
+
+/// The project's branches the map gets with a worktree, and its path.
+async fn mapped_worktrees(e: &Env) -> Vec<(String, String)> {
+    let ov = e.call("workspace.overview", json!({})).await;
+    let mut out: Vec<(String, String)> = ov["branches"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|b| Some((b["name"].as_str()?.to_string(), b["worktree"].as_str()?.to_string())))
+        .collect();
+    out.sort();
+    out
+}
+
+#[tokio::test]
+async fn wt09_worktrees_page_and_map_list_the_same_worktrees() {
+    // WT-09: an open worktree, one whose branch is merged into main with nothing of its own left, then one removed.
+    let e = env().await;
+    let open = e.call("worktrees.create", json!({ "branch": "feat/open" })).await["path"].as_str().unwrap().to_string();
+    commit_file(Path::new(&open), "open.txt", "open\n");
+    let done = e.call("worktrees.create", json!({ "branch": "feat/done" })).await["path"].as_str().unwrap().to_string();
+    commit_file(Path::new(&done), "done.txt", "done\n");
+    sh(&e.repo, &["merge", "-q", "--no-ff", "feat/done", "-m", "Merge feat/done"]);
+    commit_file(&e.repo, "later.txt", "main moved on\n");
+
+    let listed = listed_worktrees(&e).await;
+    assert_eq!(listed.len(), 2, "{listed:?}");
+    assert_eq!(mapped_worktrees(&e).await, listed, "the map gets every worktree the page lists, at the same path");
+    let merged = e.view("feat/done").await;
+    assert_eq!(merged["merged"], true, "feat/done is merged into main: {merged:#}");
+    assert_eq!(merged["worktree"], json!(done), "and still flagged with its worktree, which keeps it a tile on the map");
+
+    e.call("worktrees.remove", json!({ "path": done })).await;
+    let listed = listed_worktrees(&e).await;
+    assert_eq!(listed, vec![("feat/open".to_string(), open)]);
+    assert_eq!(mapped_worktrees(&e).await, listed, "a removed worktree leaves both");
+}

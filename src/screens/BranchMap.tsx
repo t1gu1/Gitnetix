@@ -231,9 +231,11 @@ function layoutMap(o: Overview, prefs: Pick<MapPrefs, "who" | "merged" | "behind
   const fam = familyOf(o);
   const mine = (b: BranchView) => !!me && b.email.toLowerCase() === me;
   const stale = (b: BranchView) => b.role === "branch" && b.exists && !b.merged && b.behind >= BEHIND_LIMIT;
-  const passes = (b: BranchView) => (prefs.behind || !stale(b)) && (prefs.who === "all" || mine(b));
+  // A branch open in a worktree or with an agent session is listed on Worktrees & agents: the map shows it whatever the filters.
+  const inUse = (b: BranchView) => !!b.worktree || b.running || b.waiting;
+  const passes = (b: BranchView) => inUse(b) || ((prefs.behind || !stale(b)) && (prefs.who === "all" || mine(b)));
   // A merged branch with nothing live left on it is a station under its base, not a box.
-  const chip = (b: BranchView) => b.merged && fam.kids(b.name).every((k) => k.merged);
+  const chip = (b: BranchView) => b.merged && !inUse(b) && fam.kids(b.name).every((k) => !inUse(k) && k.merged);
   const live = (b: BranchView) => fam.kids(b.name).filter((k) => !chip(k));
   const vis = new Set<string>();
   const ghost = new Set<string>();

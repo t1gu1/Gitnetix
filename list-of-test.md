@@ -68,6 +68,7 @@ These rules keep the suite consistent. Follow them when a case moves from `To au
 | WT-06 | Remove a worktree whose path points at another folder. | Only the worktree goes. | Auto | `release_flow.rs::removing_a_worktree_never_deletes_another_folder` |
 | WT-07 | Create a worktree in a repo with submodules. | The worktree gets the submodules. | Auto | `submodules.rs::worktree_gets_submodules` |
 | WT-08 | Click Continue on a branch open in a worktree. | The worktree is removed and the branch is checked out in the main checkout. Refused while the worktree has uncommitted changes. | To automate | |
+| WT-09 | Open two worktrees, merge one branch into main and move main on, then remove that worktree. | `worktrees.list` (Worktrees & agents page) and the map's branch views name the same worktrees at the same paths. The merged one keeps its `worktree`. Once removed, it leaves both. | Auto | `branch_regression.rs::wt09_worktrees_page_and_map_list_the_same_worktrees` |
 
 ## Branches (BR)
 
@@ -171,6 +172,7 @@ Checks of the redesigned branch map. `pnpm check:ui-branches` runs them (see "Ru
 | UI-04 | A branch merged into main. | It shows under the trunk with a MERGED tag and a "Clean up merged" button. | Auto, UI script |
 | UI-05 | Rebase a parent from its node line, then accept "Update the branches under it". | The dialog lists the children, parents first. Each one is updated, and pushed when asked. | Manual, not checked yet |
 | UI-06 | An AI rebase running on a branch. | The branch's button spins, the card shows "AI rebasing onto … n of m", and a lock covers branches being rebased onto. | Manual, not checked yet |
+| UI-07 | A branch merged into main but still open in a worktree (or with an agent session), map filters at their defaults (merged hidden). | Every worktree `worktrees.list` returns has a tile on the map, the merged one too, and its card says merged. | Auto, UI script |
 
 ## Findings
 
