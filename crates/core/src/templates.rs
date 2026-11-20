@@ -68,7 +68,7 @@ pub const KINDS: &[(&str, &str)] = &[
 pub fn variables(kind: &str) -> Vec<(&'static str, &'static str)> {
     let mut v: Vec<(&str, &str)> = match kind {
         "commit" => vec![("{diff}", "Staged diff"), ("{files}", "Changed file list"), ("{branch}", "Current branch"), ("{ticket}", "Linked ticket key"), ("{maxLength}", "Subject length rule")],
-        "branch" => vec![("{description}", "What the user typed"), ("{type}", "feat or fix"), ("{ticket}", "Linked ticket key")],
+        "branch" => vec![("{description}", "What the user typed"), ("{type}", "Type the user picked, else the project's first"), ("{types}", "Types to pick from: the one the user picked, else the project's branch types"), ("{ticket}", "Linked ticket key")],
         "pr" => vec![("{diff}", "Branch diff"), ("{commits}", "Commit list"), ("{branch}", "Head branch"), ("{base}", "Base branch"), ("{ticket}", "Linked ticket")],
         "release" => vec![
             ("{commits}", "Commits in range, oldest first, with their whole message; added at the end when left out"),
@@ -249,6 +249,7 @@ pub const OLD_BODIES: &[(&str, &str)] = &[
     ("conflict", "Resolve the merge conflicts in {path} between {ours} and {theirs}.\n\n- Keep the structure from {theirs} (the release branch)\n- Re-apply the intent of the change from {ours} on top\n- Never drop a change silently\n\nReturn the COMPLETE resolved file content, with no conflict markers left.\n\nFile with conflict markers:\n{conflict}"),
     ("conflict", "Resolve the merge conflicts in {path} between {ours} and {theirs}.\n\n- Keep the structure from {theirs} (the release branch)\n- Re-apply the intent of the change from {ours} on top\n- Never drop a change silently\n\nReturn the COMPLETE resolved text below, every line of it, with no conflict markers left.\n\nText with conflict markers:\n{conflict}"),
     ("agent", "You work for the user in {worktree} on branch {branch}.\n\nBefore acting, state the plan and the exact commands.\nNever force-push to main or release/* branches.\nStop and ask if the request is ambiguous.\n\nRequest:\n{request}"),
+    ("branch", "Name a git branch for this work.\n\nFormat: {type}/[slug]\n- slug: 2 to {maxWords} lowercase English words joined by hyphens, ASCII only\n- no ticket key unless asked\n\nWork description:\n{description}"),
 ];
 
 /// Body of the Unslop global skill: plain writing without the patterns that give machine-written text away.
@@ -371,7 +372,7 @@ pub fn default_templates() -> Vec<Template> {
             rules: vec![
                 rule("maxWords", "Max slug words", "number", json!(4)),
             ],
-            body: "Name a git branch for this work.\n\nFormat: {type}/[slug]\n- slug: 2 to {maxWords} lowercase English words joined by hyphens, ASCII only\n- no ticket key unless asked\n\nWork description:\n{description}".into(),
+            body: "Name a git branch for this work.\n\nFormat: [type]/[slug]\n- type: the one of these that fits the work best: {types}\n- slug: 2 to {maxWords} lowercase English words joined by hyphens, ASCII only\n- no ticket key unless asked\n\nWork description:\n{description}".into(),
             ..Default::default()
         },
         Template {

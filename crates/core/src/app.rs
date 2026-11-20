@@ -5197,19 +5197,27 @@ impl Gitnetix {
         Ok(())
     }
 
-    pub async fn suggest_branch_name(&self, project_id: &str, kind: &str, description: &str, ticket: Option<&str>) -> Result<(String, bool)> {
+    /// `kind`: the type the user picked, which the name keeps. None: AI picks the type among the project's branch types.
+    pub async fn suggest_branch_name(&self, project_id: &str, kind: Option<&str>, description: &str, ticket: Option<&str>) -> Result<(String, bool)> {
         let p = self.store.project(project_id)?;
         let t = self.template("branch", None, Some(&p.id))?;
         let max_words = templates::rule_num(&t, "maxWords").unwrap_or(4) as usize;
+        let kind = kind.and_then(type_of);
+        let types: Vec<String> = match &kind {
+            Some(k) => vec![k.clone()],
+            None => p.branch_types.list.iter().map(|t| t.id.clone()).filter(|id| id != "release").collect(),
+        };
+        let kind = kind.unwrap_or_else(|| p.branch_types.first());
         // The ticket key is added by with_ticket when the branch is created.
         let fallback = || format!("{kind}/{}", slugify(description, max_words));
         let mut vars = BTreeMap::new();
         vars.insert("description".into(), description.to_string());
-        vars.insert("type".into(), kind.to_string());
+        vars.insert("type".into(), kind.clone());
+        vars.insert("types".into(), types.join(", "));
         vars.insert("ticket".into(), ticket.unwrap_or("").to_string());
         match self.ask("branch", &t, vars, "en", None).await {
             Ok(name) => {
-                let name = name.lines().next().unwrap_or("").trim().trim_matches('`').to_string();
+                let name = offered_type(name.lines().next().unwrap_or("").trim().trim_matches('`'), &types, &kind);
                 if valid_branch_name(&name) && name.contains('/') {
                     Ok((name, true))
                 } else {
@@ -5249,7 +5257,9 @@ impl Gitnetix {
                 }
             },
         };
-        let kind = type_of(&req.kind).unwrap_or_else(|| p.branch_types.first());
+        // No kind sent: when AI names the branch, it picks the type too.
+        let picked = type_of(&req.kind);
+        let kind = picked.clone().unwrap_or_else(|| p.branch_types.first());
         let branch = match req.branch_name.clone().filter(|s| !s.trim().is_empty()) {
             Some(b) if b.contains('/') => b.trim().to_string(),
             Some(b) => format!("{kind}/{}", b.trim()),
@@ -5258,10 +5268,10 @@ impl Gitnetix {
                 // Only on an explicit switch: API callers that omit `where` keep the plain slug fallback.
                 let wip = if req.description.trim().is_empty() && req.r#where == "switch" { git.wip_diff(20_000).await? } else { String::new() };
                 if wip.trim().is_empty() {
-                    self.suggest_branch_name(project_id, &kind, &req.description, req.ticket.as_deref()).await?.0
+                    self.suggest_branch_name(project_id, picked.as_deref(), &req.description, req.ticket.as_deref()).await?.0
                 } else {
                     let wip = format!("Name it after these uncommitted changes:\n{wip}");
-                    match self.suggest_branch_name(project_id, &kind, &wip, req.ticket.as_deref()).await? {
+                    match self.suggest_branch_name(project_id, picked.as_deref(), &wip, req.ticket.as_deref()).await? {
                         (name, true) => name,
                         _ => return Err(Error::Invalid("AI couldn't name the branch from your changes. Type a name.".into())),
                     }
@@ -8153,6 +8163,18 @@ fn type_of(kind: &str) -> Option<String> {
     normalize_kind(kind).or_else(|| custom_type(kind)).map(str::to_string)
 }
 
+/// `name` with its prefix one of `types`, as listed (`feature/x` → `feat/x`); a prefix not among them becomes `kind`.
+fn offered_type(name: &str, types: &[String], kind: &str) -> String {
+    match name.split_once('/') {
+        Some((pre, rest)) => {
+            let k = type_of(pre).unwrap_or_default();
+            let pre = types.iter().find(|t| t.eq_ignore_ascii_case(&k)).map_or(kind, |t| t.as_str());
+            format!("{pre}/{rest}")
+        }
+        None => name.to_string(),
+    }
+}
+
 /// Kind implied by a branch name's prefix (`feature/x` → feat).
 fn kind_of_branch(name: &str) -> Option<&'static str> {
     name.split_once('/').and_then(|(pre, _)| normalize_kind(pre))
@@ -8585,6 +8607,17 @@ fn fix_version_release(fix_versions: &[String], releases: &[Release]) -> Option<
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_ai_branch_name_keeps_an_offered_type_only() {
+        let types = ["feat".to_string(), "fix".into(), "WIP".into()];
+        assert_eq!(offered_type("fix/login-crash", &types, "feat"), "fix/login-crash");
+        assert_eq!(offered_type("feature/login", &types, "fix"), "feat/login", "an alias of an offered type");
+        assert_eq!(offered_type("wip/try-it", &types, "feat"), "WIP/try-it", "as the project lists it");
+        assert_eq!(offered_type("docs/readme", &types, "feat"), "feat/readme", "not offered");
+        assert_eq!(offered_type("fix/x", &["docs".to_string()], "docs"), "docs/x", "the type the user picked wins");
+        assert_eq!(offered_type("no-prefix", &types, "feat"), "no-prefix");
+    }
 
     #[tokio::test]
     async fn an_agent_pick_without_a_provider_still_sets_its_permission_and_ultracode() {

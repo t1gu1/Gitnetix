@@ -30,6 +30,8 @@ export function NewItem({ draft, min, onMinimize, onClose }: { draft: NewItemDra
   const tagV = useTagV(pid);
   // The type clicked (or the draft's) while listed, else the first; a prefix typed in the name wins over it.
   const [clicked, setPicked] = useState<string | undefined>(draft.kind);
+  // The type clicked here, which AI names keep; until then AI picks the type with the name.
+  const chosen = useRef<string | undefined>(undefined);
   const picked = clicked && (clicked === "release" || branchTypes.list.some((t) => t.id === clicked)) ? clicked : firstType(branchTypes.list);
   const [relKind, setRelKind] = useState<"next" | "hotfix">("next");
   // Null until the user types their own; the suggestion shows meanwhile.
@@ -73,20 +75,22 @@ export function NewItem({ draft, min, onMinimize, onClose }: { draft: NewItemDra
   const version = typedVersion ?? suggested.data?.version ?? "";
 
   // Ask AI for a branch name once the description settles. One call at a time, each a CLI run of seconds: what is typed meanwhile
-  // is asked once it returns, so answers land in order. Spaces alone ask nothing; a name typed by hand meanwhile stays.
+  // is asked once it returns, so answers land in order. Spaces alone ask nothing; a name typed by hand meanwhile stays,
+  // and so does a type clicked meanwhile.
   const about = desc.trim().replace(/\s+/g, " ");
   const asked = useRef("");
   const typed = useRef(false);
   useEffect(() => {
-    const ask = JSON.stringify([about, picked, ticket, pid]);
+    const ask = JSON.stringify([about, ticket, pid]);
     if (!agent || named === "you" || naming || about.length < 6 || ask === asked.current) return;
     const t = setTimeout(async () => {
       asked.current = ask;
       setNaming(true);
       try {
-        const r = await rpc<{ name: string; ai: boolean }>("items.suggestName", { projectId: pid, kind: picked, description: desc, ticket });
+        const r = await rpc<{ name: string; ai: boolean }>("items.suggestName", { projectId: pid, kind: chosen.current, description: desc, ticket });
         if (typed.current) return;
-        setName(r.name.replace(/\s/g, "-"));
+        const n = r.name.replace(/\s/g, "-");
+        setName(chosen.current ? withType(n, chosen.current) : n);
         setNamed(r.ai ? "ai" : "auto");
       } catch {
         /* keep whatever is there */
@@ -95,7 +99,7 @@ export function NewItem({ draft, min, onMinimize, onClose }: { draft: NewItemDra
       }
     }, 1500);
     return () => clearTimeout(t);
-  }, [agent, about, picked, ticket, pid, naming]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [agent, about, ticket, pid, naming]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const create = useAction<{ branch: string; worktree?: string; agentSession?: string }>("items.create", {
     // Config: a prefix used for the first time joined the project's branch types.
@@ -114,7 +118,9 @@ export function NewItem({ draft, min, onMinimize, onClose }: { draft: NewItemDra
   // Switching type rewrites the name's prefix (feature/x → fix/x).
   const pickKind = (k: string) => {
     setPicked(k);
-    if (k !== "release") setName(withType(name, k));
+    if (k === "release") return;
+    chosen.current = k;
+    setName(withType(name, k));
   };
 
   const label = kindNoun(kind);
@@ -217,7 +223,8 @@ export function NewItem({ draft, min, onMinimize, onClose }: { draft: NewItemDra
     // The next new branch starts where this one went.
     setDialogs({ newWorktree: where === "worktree", newAgent: agent });
     create.mutate(
-      { projectId: pid, release: rel?.version ?? "", from: rel ? undefined : from, kind, description: agent ? desc : "", branchName: branch || undefined, ticket: ticket || undefined, where, startAgent: agent, files: up, ...(agent && pick) },
+      // No name and no type clicked: AI picks the type when it names the branch.
+      { projectId: pid, release: rel?.version ?? "", from: rel ? undefined : from, kind: branch || chosen.current ? kind : "", description: agent ? desc : "", branchName: branch || undefined, ticket: ticket || undefined, where, startAgent: agent, files: up, ...(agent && pick) },
       {
         onSuccess: (r) => {
           revealBranch(pid, r.branch);
