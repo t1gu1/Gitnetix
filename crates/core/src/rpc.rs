@@ -217,8 +217,8 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("gitea.repos", "Repositories of the linked Gitea account, like github.repos", ""),
     ("integrations.disconnect", "Disconnect an integration (kind github, azure, gitlab, bitbucket, gitea, jira, trello, asana, linear; id = which Jira, Trello, Asana or Linear connection)", "kind, id?"),
     ("notes.refs", "Tags and branches for a notes range", "projectId"),
-    ("notes.range", "Commit, branch and ticket counts in a range", "projectId, from, to"),
-    ("notes.generate", "AI release notes", "projectId, from, to, templateId?, language, include"),
+    ("notes.range", "Commit, branch and ticket counts in a range, and its changes (merged branches and direct commits)", "projectId, from, to"),
+    ("notes.generate", "AI release notes; exclude lists ids of notes.range changes to leave out", "projectId, from, to, templateId?, language, include, exclude?"),
     ("notes.changelog", "Prepend notes to CHANGELOG.md", "projectId, markdown"),
     ("changelog.update", "AI adds what a branch changes to the Unreleased section of its CHANGELOG.md and commits it on the branch", "projectId, branch"),
     ("changelog.release", "Move the Unreleased section of an open release's CHANGELOG.md into its version and commit it on the release branch; when the version already lists entries, AI merges both (highlights first), else they are added under the matching headings", "projectId, version"),
@@ -1707,7 +1707,7 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
         "notes.generate" => {
             let inc: NotesInclude = serde_json::from_value(p.get("include").cloned().unwrap_or(json!({"feat":true,"fix":true,"internal":true,"tickets":true})))?;
             let (markdown, model) = k
-                .generate_notes(&s(&p, "projectId")?, &s(&p, "from")?, &s(&p, "to")?, os(&p, "templateId").as_deref(), &os(&p, "language").unwrap_or_else(|| "en".into()), inc)
+                .generate_notes(&s(&p, "projectId")?, &s(&p, "from")?, &s(&p, "to")?, os(&p, "templateId").as_deref(), &os(&p, "language").unwrap_or_else(|| "en".into()), inc, &strings(&p, "exclude"))
                 .await?;
             to(json!({ "markdown": markdown, "model": model }))
         }

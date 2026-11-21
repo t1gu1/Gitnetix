@@ -1113,6 +1113,11 @@ body.dragging-tab * {
   outline: 1px solid var(--fg);
   outline-offset: 2px;
 }
+/* Some of a group checked: an ink bar. */
+.check input:indeterminate {
+  border-color: var(--fg);
+  background: linear-gradient(var(--fg), var(--fg)) center / 8px 1.5px no-repeat;
+}
 .check input:disabled,
 .ctx-item:disabled > .ctx-box {
   opacity: 0.5;
@@ -10974,4 +10979,405 @@ button.app-row:hover > .app-row-chev {
   font-size: 12px;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+/* Release notes: four steps left to right (range, what goes in, notes, ship) under one step line. */
+.rn {
+  display: grid;
+  grid-template-columns: 300px minmax(340px, 420px) minmax(0, 1fr) 300px;
+  grid-template-rows: 48px minmax(0, 1fr);
+  grid-template-areas: "steps steps steps steps" "range items notes ship";
+}
+.rn-steps {
+  grid-area: steps;
+  display: grid;
+  grid-template-columns: subgrid;
+  border-bottom: 1px solid var(--line);
+  min-width: 0;
+}
+.rn-step {
+  --pad: 20px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding-left: var(--pad);
+}
+/* The step line: one hairline from station to station, broken around each label. Ink up to the last step done. */
+.rn-stn {
+  position: relative;
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border: 1px solid var(--faint);
+  border-radius: 50%;
+}
+.rn-step[data-on="true"] .rn-stn {
+  border-color: var(--fg);
+}
+.rn-step[data-on="true"] .rn-stn::after {
+  content: "";
+  position: absolute;
+  inset: 1.5px;
+  border-radius: 50%;
+  background: var(--fg);
+}
+.rn-step .label {
+  flex: none;
+  color: var(--muted);
+}
+.rn-step[data-on="true"] .label {
+  color: var(--fg);
+}
+.rn-step-meta {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--muted);
+}
+.rn-step-meta.mono {
+  font-size: 11.5px;
+  color: var(--faint);
+}
+/* One element per gap, so every piece of the line sits on the same pixel row: it runs on into the next
+   step's padding and stops 8px short of its station. */
+.rn-rl {
+  flex: 1 1 16px;
+  min-width: 16px;
+  height: 1px;
+  margin: 0 calc(8px - var(--pad)) 0 4px;
+  background: var(--line2);
+}
+.rn-rl[data-on="true"] {
+  background: var(--fg);
+}
+.rn-col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.rn-range {
+  grid-area: range;
+  border-right: 1px solid var(--line);
+}
+.rn-items {
+  grid-area: items;
+  border-right: 1px solid var(--line);
+}
+.rn-notes {
+  grid-area: notes;
+}
+.rn-ship {
+  grid-area: ship;
+  border-left: 1px solid var(--line);
+  overflow-y: auto;
+}
+.rn-pad {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 20px;
+  min-height: 0;
+}
+.rn-items .rn-pad {
+  flex: 1 1 auto;
+  gap: 14px;
+}
+.rn-fld {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.rn-swap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: -12px 0;
+}
+.rn-swap::before,
+.rn-swap::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+/* The range drawn as a line: the From station, one dot per change, the To station. */
+.rn-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--panel);
+  font-size: 12px;
+}
+.rn-rail-line {
+  position: relative;
+  height: 11px;
+  margin: 0 5px;
+}
+.rn-rail-line::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 5px;
+  height: 1px;
+  background: var(--fg);
+}
+.rn-rail-line::after {
+  content: "";
+  position: absolute;
+  right: -5px;
+  top: 0;
+  width: 11px;
+  height: 11px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  background: radial-gradient(var(--fg) 0 2.5px, var(--panel) 3px);
+  border: 1px solid var(--fg);
+}
+.rn-rail-dot {
+  position: absolute;
+  top: 3px;
+  width: 5px;
+  height: 5px;
+  margin-left: -2.5px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+.rn-rail-dot[data-off="true"] {
+  background: var(--panel);
+  box-shadow: inset 0 0 0 1px var(--faint);
+}
+.rn-rail-ends {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.rn-nums {
+  display: flex;
+  gap: 20px;
+  margin-top: 4px;
+  color: var(--muted);
+}
+.rn-nums b {
+  margin-right: 4px;
+  font: 600 24px/1 var(--display);
+  color: var(--fg);
+}
+.rn-grp {
+  display: flex;
+  flex-direction: column;
+}
+.rn-gh {
+  font-weight: 600;
+  min-height: 30px;
+}
+.rn-it {
+  min-height: 30px;
+  padding-left: 24px;
+}
+.rn-it-t {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rn-it-ref {
+  margin-left: 6px;
+  font-size: 11.5px;
+  color: var(--faint);
+}
+.rn-it input:not(:checked) + .rn-it-t {
+  color: var(--faint);
+  text-decoration: line-through;
+  text-decoration-color: var(--line2);
+}
+.rn-n {
+  font-size: 11px;
+  color: var(--faint);
+}
+.rn-chip {
+  flex: none;
+  padding: 1px 6px;
+  border: 1px solid var(--line2);
+  border-radius: var(--r-sm);
+  font-size: 11px;
+  color: var(--muted);
+}
+.rn-foot {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 20px;
+  border-top: 1px solid var(--line);
+}
+.rn-hint {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 0;
+}
+.rn-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  padding: 0 24px;
+  border-bottom: 1px solid var(--line);
+}
+.rn-paper {
+  flex: 1 1 auto;
+  padding: 32px 48px 64px;
+}
+.rn-paper > article {
+  max-width: 680px;
+}
+.rn-dest {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--line);
+}
+.rn-dest:last-child {
+  border-bottom: 0;
+}
+.rn-dest-h {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+.rn-dest p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--muted);
+}
+/* The lines the changelog gains, as added lines. */
+.rn-peek {
+  display: flex;
+  flex-direction: column;
+  padding: 6px 0;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: color-mix(in srgb, var(--add-fg) 8%, var(--panel));
+  font-size: 11.5px;
+  line-height: 19px;
+  color: var(--add-fg);
+}
+.rn-peek span {
+  padding: 0 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Narrower: range above what goes in, in one column. */
+@media (max-width: 1439px) {
+  .rn {
+    grid-template-columns: 320px minmax(0, 1fr) 280px;
+    grid-template-rows: 48px auto minmax(0, 1fr);
+    grid-template-areas: "steps steps steps" "range notes ship" "items notes ship";
+  }
+  .rn-steps {
+    display: flex;
+  }
+  .rn-step {
+    flex: 1 1 0;
+  }
+  .rn-range {
+    border-bottom: 1px solid var(--line);
+  }
+  .rn-range .rn-pad {
+    gap: 14px;
+  }
+  /* The step line already names the range; the change list needs the height. */
+  .rn-rail {
+    display: none;
+  }
+}
+/* Narrower still: ship under the notes, its three parts side by side. */
+@media (max-width: 1099px) {
+  .rn {
+    grid-template-columns: 300px minmax(0, 1fr);
+    grid-template-rows: 48px auto minmax(0, 1fr) auto;
+    grid-template-areas: "steps steps" "range notes" "items notes" "items ship";
+  }
+  .rn-step-meta {
+    display: none;
+  }
+  .rn-ship {
+    flex-direction: row;
+    border-left: 0;
+    border-top: 1px solid var(--line);
+  }
+  .rn-dest {
+    flex: 1 1 0;
+    border-bottom: 0;
+    border-right: 1px solid var(--line);
+  }
+  .rn-dest p,
+  .rn-peek {
+    display: none;
+  }
+}
+/* Phone: the setup steps, or the notes and ship. */
+@media (max-width: 900px) and (pointer: coarse), (max-width: 480px) {
+  .rn {
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+  }
+  .rn > * {
+    flex: none;
+  }
+  .rn-steps {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    height: 44px;
+    background: var(--bg);
+  }
+  .rn-step {
+    --pad: 12px;
+    flex: 1 1 auto;
+  }
+  /* Only the two steps of the pane on screen keep their names. */
+  .rn[data-pane-on="setup"] .rn-step:nth-child(n + 3) .label,
+  .rn[data-pane-on="notes"] .rn-step:nth-child(-n + 2) .label {
+    display: none;
+  }
+  .rn[data-pane-on="setup"] > [data-pane="notes"],
+  .rn[data-pane-on="notes"] > [data-pane="setup"] {
+    display: none;
+  }
+  .rn-range,
+  .rn-items {
+    border-right: 0;
+  }
+  .rn-paper {
+    padding: 20px 16px 32px;
+  }
+  .rn-ship {
+    flex-direction: column;
+    overflow: visible;
+  }
+  .rn-dest {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
 }

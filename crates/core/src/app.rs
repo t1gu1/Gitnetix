@@ -797,6 +797,23 @@ pub struct NotesInclude {
     pub tickets: bool,
 }
 
+/// One change in a release-notes range: a merged branch with its commits, or a commit made on the
+/// range's own line. The notes page lists these so one can be left out.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct NotesItem {
+    /// Full sha of the merge, or of the commit.
+    pub id: String,
+    /// "feat", "fix" or "internal".
+    pub kind: &'static str,
+    pub title: String,
+    /// The PR number ("#12"), when the message names one.
+    pub pr: Option<String>,
+    /// Commits the change brings, its merge commit included.
+    pub commits: usize,
+    pub tickets: Vec<String>,
+}
+
 pub fn slugify(s: &str, max_words: usize) -> String {
     let lower = s.to_lowercase();
     let words: Vec<String> = lower
@@ -8129,19 +8146,33 @@ impl Gitnetix {
         let commits = git.log(&range, Some(NOTES_MAX_COMMITS)).await?;
         let merges = merge_shas(&git, &range).await;
         let branches = commits.iter().filter(|c| merged_branch(c, merges.contains(&c.sha)).is_some()).count();
+        let items: Vec<NotesItem> = range_items(&git, from, to, &commits, &merges).await.into_iter().map(|(item, _)| item).collect();
         Ok(serde_json::json!({
             "commits": commits.len(),
             "branches": branches,
             "tickets": tickets::extract_keys(&release_commit_lines(&commits, &HashMap::new())).len(),
+            "items": items,
         }))
     }
 
-    pub async fn generate_notes(&self, project_id: &str, from: &str, to: &str, template_id: Option<&str>, language: &str, inc: NotesInclude) -> Result<(String, String)> {
+    /// `exclude`: ids of `notes_range` items left out, with every commit they bring.
+    pub async fn generate_notes(&self, project_id: &str, from: &str, to: &str, template_id: Option<&str>, language: &str, inc: NotesInclude, exclude: &[String]) -> Result<(String, String)> {
         let p = self.store.project(project_id)?;
         let git = self.git(&p);
-        let commits = git.log(&format!("{from}..{to}"), Some(NOTES_MAX_COMMITS)).await?;
+        let range = format!("{from}..{to}");
+        let commits = git.log(&range, Some(NOTES_MAX_COMMITS)).await?;
+        let mut dropped = HashSet::new();
+        if !exclude.is_empty() {
+            let merges = merge_shas(&git, &range).await;
+            for (item, shas) in range_items(&git, from, to, &commits, &merges).await {
+                if exclude.contains(&item.id) {
+                    dropped.extend(shas);
+                }
+            }
+        }
         let kept: Vec<_> = commits
             .into_iter()
+            .filter(|c| !dropped.contains(&c.sha))
             .filter(|c| match change_kind(&c.subject) {
                 ChangeKind::Feat => inc.feat,
                 ChangeKind::Fix => inc.fix,
@@ -8893,6 +8924,75 @@ async fn commit_projects(git: &Git, commits: &[Commit], rev: &str) -> (String, H
 /// Most commits release notes read from a range.
 const NOTES_MAX_COMMITS: u32 = 1000;
 
+/// The changes in `from..to`, newest first, each with the shas of the commits it brings: every commit
+/// on the range's first-parent line, a merge taking the commits of the branch it merged.
+/// `commits`: `git log from..to`; `merges`: its merge commits.
+async fn range_items(git: &Git, from: &str, to: &str, commits: &[Commit], merges: &HashSet<String>) -> Vec<(NotesItem, Vec<String>)> {
+    let by_sha: HashMap<&str, &Commit> = commits.iter().map(|c| (c.sha.as_str(), c)).collect();
+    let line = git.run(&["rev-list", "--first-parent", &format!("{from}..{to}")]).await.unwrap_or_default();
+    let mut out = Vec::new();
+    for sha in line.lines().map(str::trim).filter(|l| !l.is_empty()) {
+        let Some(c) = by_sha.get(sha) else { continue };
+        let mut shas = vec![c.sha.clone()];
+        if merges.contains(&c.sha) {
+            let merged = git.run(&["rev-list", &format!("{sha}^2"), "--not", &format!("{sha}^1"), from]).await.unwrap_or_default();
+            shas.extend(merged.lines().map(str::trim).filter(|l| by_sha.contains_key(l)).map(String::from));
+        }
+        let mine: Vec<Commit> = shas.iter().filter_map(|s| by_sha.get(s.as_str()).map(|c| (*c).clone())).collect();
+        let mut kind = change_kind(&c.subject);
+        // A merge whose message names no type takes the strongest type of what it merged.
+        if kind == ChangeKind::Internal {
+            let kinds: Vec<ChangeKind> = mine.iter().map(|m| change_kind(&m.subject)).collect();
+            kind = if kinds.contains(&ChangeKind::Feat) { ChangeKind::Feat } else if kinds.contains(&ChangeKind::Fix) { ChangeKind::Fix } else { ChangeKind::Internal };
+        }
+        let (title, pr) = change_title(c);
+        out.push((
+            NotesItem {
+                id: c.sha.clone(),
+                kind: match kind {
+                    ChangeKind::Feat => "feat",
+                    ChangeKind::Fix => "fix",
+                    ChangeKind::Internal => "internal",
+                },
+                title,
+                pr,
+                commits: shas.len(),
+                tickets: tickets::extract_keys(&release_commit_lines(&mine, &HashMap::new())),
+            },
+            shas,
+        ));
+    }
+    out
+}
+
+/// What a change is called on the notes page, and the PR number its message names: the branch a merge
+/// brings, a PR's title, else the subject.
+fn change_title(c: &Commit) -> (String, Option<String>) {
+    let s = c.subject.trim();
+    let pr = |n: &str| Some(format!("#{}", n.trim_start_matches('#')));
+    if let Some(rest) = s.strip_prefix("Merged PR ") {
+        // Azure DevOps: "Merged PR 12: title".
+        return match rest.split_once(": ") {
+            Some((n, title)) => (title.trim().into(), pr(n)),
+            None => (s.into(), None),
+        };
+    }
+    if let Some(rest) = s.strip_prefix("Merge pull request ") {
+        // GitHub: "#3 from owner/branch", the PR's title on the body's first line.
+        let (n, head) = rest.split_once(" from ").unwrap_or((rest, ""));
+        let branch = head.split_once('/').map_or(head, |(_, b)| b);
+        let title = c.body.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or(branch);
+        return (if title.is_empty() { s.into() } else { title.into() }, pr(n));
+    }
+    if let Some(rest) = s.strip_prefix("Merge branch '").and_then(|r| r.split_once('\'')) {
+        return (rest.0.into(), None);
+    }
+    if let Some((title, n)) = s.rsplit_once(" (#").and_then(|(t, n)| Some((t, n.strip_suffix(')')?))).filter(|(_, n)| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit())) {
+        return (title.into(), pr(n));
+    }
+    (s.into(), None)
+}
+
 /// Merge commits in `range`, by full sha.
 async fn merge_shas(git: &Git, range: &str) -> std::collections::HashSet<String> {
     git.run(&["rev-list", "--merges", range]).await.unwrap_or_default().lines().map(|l| l.trim().to_string()).filter(|l| !l.is_empty()).collect()
@@ -9312,6 +9412,17 @@ mod tests {
         let tight = net_diff(&diff, 3_000, 200);
         assert!(tight.ends_with("… 1 more files left out here: the file list has them all"), "{tight}");
         assert_eq!(net_diff("", 3_000, 40_000), "");
+    }
+
+    #[test]
+    fn change_title_names_the_branch_or_pr() {
+        let c = |subject: &str, body: &str| commit("394b339b1111", "2026-10-01T10:00:00+02:00", subject, body);
+        assert_eq!(change_title(&c("Merged PR 122219: fix/MNC-7393-update-title", "")), ("fix/MNC-7393-update-title".into(), Some("#122219".into())));
+        assert_eq!(change_title(&c("Merge pull request #3 from octo/fix/login", "\nFix the login loop\n")), ("Fix the login loop".into(), Some("#3".into())));
+        assert_eq!(change_title(&c("Merge pull request #3 from octo/fix/login", "")), ("fix/login".into(), Some("#3".into())));
+        assert_eq!(change_title(&c("Merge branch 'feat/search' into release/1.2.0", "")), ("feat/search".into(), None));
+        assert_eq!(change_title(&c("Add dark mode (#42)", "")), ("Add dark mode".into(), Some("#42".into())));
+        assert_eq!(change_title(&c("fix: shout beta", "")), ("fix: shout beta".into(), None));
     }
 
     #[test]

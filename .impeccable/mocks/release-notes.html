@@ -1,0 +1,553 @@
+<!doctype html>
+<html lang="en" data-theme="dark"><head><meta charset="utf-8">
+<title>Gitnetix release notes mocks</title>
+<link href="https://fonts.googleapis.com/css2?family=Antonio:wght@400;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root,[data-theme=dark]{--bg:#0a0d12;--ground:#0f151d;--panel:#0f141b;--raised:#151b24;--sel:#1b2330;--line:#1f2732;--line2:#2c3644;--fg:#e9eef4;--muted:#a3aebb;--faint:#808b9a;--accent:#f2f5f8;--on-accent:#0a0d12;--add:#5fd39a;--add-bg:rgba(95,211,154,.10);--del:#ff7b72;--del-bg:rgba(255,123,114,.10);--warn:#e8b85a;--route:#f2f5f8;color-scheme:dark}
+[data-theme=light]{--bg:#eef1f5;--ground:#e6eaf0;--panel:#ffffff;--raised:#f5f7fa;--sel:#e8ecf2;--line:#dde2e9;--line2:#c9d0da;--fg:#0b0f14;--muted:#4f5b6a;--faint:#5f6a79;--accent:#0b0f14;--on-accent:#ffffff;--add:#127a4b;--add-bg:rgba(18,122,75,.09);--del:#c0362c;--del-bg:rgba(192,54,44,.08);--warn:#8a5a00;--route:#0b0f14;color-scheme:light}
+:root{--sans:"Inter",system-ui,sans-serif;--mono:"JetBrains Mono",ui-monospace,monospace;--display:"Antonio","Inter",sans-serif;--r:3px}
+*{box-sizing:border-box;margin:0;padding:0}
+html{background:#05070a}
+body{font:13px/18px var(--sans);color:#c7d0db;padding:32px 0 64px;display:flex;flex-direction:column;align-items:center;gap:20px;-webkit-font-smoothing:antialiased}
+.cap{width:1920px;display:flex;align-items:center;justify-content:space-between;gap:24px;color:#8995a5;font-size:12px}
+.cap b{color:#e9eef4;font:600 12px var(--sans);letter-spacing:.14em;text-transform:uppercase;white-space:nowrap}
+.cap span{flex:1}
+.toggle{display:flex;border:1px solid #2c3644;border-radius:var(--r)}
+.toggle button{all:unset;cursor:pointer;padding:6px 14px;color:#a3aebb;font:500 12px var(--sans)}
+.toggle button.on{background:#f2f5f8;color:#0a0d12}
+.app{width:1920px;height:1080px;overflow:hidden;background:var(--bg);color:var(--fg);border:1px solid #1f2732;display:flex;flex-direction:column;font-variant-numeric:tabular-nums}
+::selection{background:color-mix(in srgb,var(--fg) 22%,transparent)}
+:is(button,a,input,textarea,label):focus-visible{outline:1px solid var(--fg);outline-offset:2px}
+svg.i{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.25;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.mono{font-family:var(--mono)}
+.muted{color:var(--muted)}.faint{color:var(--faint)}.c-add{color:var(--add)}.c-del{color:var(--del)}
+.sp{flex:1}
+/* shell */
+.top{height:40px;display:flex;align-items:stretch;border-bottom:1px solid var(--line);flex:none}
+.top .wt{all:unset;cursor:pointer;width:52px;display:grid;place-items:center;border-right:1px solid var(--line);color:var(--muted)}
+.rt{display:flex;align-items:center;gap:10px;padding:0 16px;color:var(--muted);border-right:1px solid var(--line);font-weight:500}
+.rt.on{color:var(--fg);box-shadow:inset 0 -2px 0 var(--fg)}
+.rt .x{color:var(--faint);width:12px;height:12px}
+.ico{display:grid;place-items:center;width:40px;color:var(--muted)}
+.av{width:22px;height:22px;border-radius:50%;background:var(--line2);display:grid;place-items:center;font:600 10px var(--sans);color:var(--fg);flex:none}
+.top>.av{align-self:center;margin:0 14px}
+.tabs{height:40px;display:flex;align-items:stretch;padding:0 8px;border-bottom:1px solid var(--line);flex:none}
+.tabs a{display:flex;align-items:center;gap:8px;padding:0 12px;color:var(--muted);font-weight:500}
+.tabs a.on{color:var(--fg);box-shadow:inset 0 -2px 0 var(--fg)}
+.n{font:500 11px var(--mono);color:var(--faint)}
+.bar{height:56px;display:flex;align-items:center;gap:10px;padding:0 20px;border-bottom:1px solid var(--line);flex:none}
+.ttl{font:600 18px/1 var(--display);letter-spacing:.06em;text-transform:uppercase;color:var(--fg);margin-right:12px;white-space:nowrap}
+.seg{display:flex;border:1px solid var(--line2);border-radius:var(--r);overflow:hidden;flex:none}
+.seg span{height:28px;display:flex;align-items:center;gap:6px;padding:0 11px;color:var(--muted);border-right:1px solid var(--line2);font-weight:500;white-space:nowrap;cursor:pointer}
+.seg span:last-child{border-right:0}
+.seg span.on{background:var(--fg);color:var(--bg)}
+.seg.sm span{height:24px;padding:0 9px;font-size:12px}
+.seg.fill{display:grid;grid-auto-flow:column;grid-auto-columns:1fr}
+.seg.fill span{justify-content:center}
+.sel{all:unset;box-sizing:border-box;cursor:pointer;display:inline-flex;align-items:center;gap:8px;height:30px;padding:0 8px 0 10px;border:1px solid var(--line2);border-radius:var(--r);background:var(--bg);color:var(--fg);font:12.5px var(--sans);white-space:nowrap;min-width:0}
+.sel.mono{font:12px var(--mono)}
+.sel .v{flex:1;overflow:hidden;text-overflow:ellipsis}
+.sel .k{color:var(--faint);font:11px var(--mono)}
+.sel svg.i{width:12px;height:12px;color:var(--faint)}
+.sel:hover{border-color:var(--fg)}
+.ib{all:unset;cursor:pointer;width:28px;height:28px;display:grid;place-items:center;color:var(--muted);border-radius:var(--r);flex:none}
+.ib:hover{color:var(--fg)}
+.ib svg.i{width:14px;height:14px}
+.btn{all:unset;box-sizing:border-box;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:8px;height:30px;padding:0 14px;border-radius:var(--r);font:600 11px var(--sans);letter-spacing:.12em;text-transform:uppercase;border:1px solid var(--line2);color:var(--fg);background:transparent;white-space:nowrap}
+.btn svg.i{width:12px;height:12px}
+.btn:hover{border-color:var(--fg)}
+.btn.p{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.btn.gh{border-color:transparent;color:var(--muted)}.btn.gh:hover{color:var(--fg);border-color:var(--line2)}
+.btn.sm{height:24px;padding:0 9px;gap:6px}
+.btn.lg{height:40px;font-size:12px}
+.lbl{font:600 11px var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--faint)}
+.st{display:inline-flex;align-items:center;gap:6px;font:600 11px var(--sans);letter-spacing:.12em;text-transform:uppercase;color:var(--muted);border:1px solid var(--line2);border-radius:2px;padding:3px 7px;line-height:13px;white-space:nowrap}
+.st.inv{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.st.dash{border-style:dashed}
+.ref{display:inline-flex;align-items:center;gap:6px;font:12px var(--mono);color:var(--muted);white-space:nowrap}
+.ref b{font-weight:500;color:var(--fg)}
+.ref svg.i{width:12px;height:12px;color:var(--faint)}
+.chip{display:inline-flex;align-items:center;gap:5px;height:20px;padding:0 6px;border:1px solid var(--line2);border-radius:2px;font:11px var(--mono);color:var(--muted);white-space:nowrap}
+.chip svg.i{width:11px;height:11px;color:var(--faint)}
+.ck{width:14px;height:14px;border:1px solid var(--faint);border-radius:2px;display:grid;place-items:center;flex:none}
+.ck.on{background:var(--fg);border-color:var(--fg);color:var(--bg)}
+.ck svg{width:11px;height:11px;stroke-width:2}
+.ck.part::after{content:"";width:7px;height:1.5px;background:var(--fg)}
+.body{flex:1;display:flex;min-height:0}
+/* the notes document */
+.doc{font-size:14px;line-height:23px;color:var(--fg)}
+.doc h1{font:600 22px/1.2 var(--sans);letter-spacing:-.01em;margin-bottom:6px}
+.doc .date{font:12px var(--mono);color:var(--faint);margin-bottom:26px}
+.doc h3{font:600 14px var(--sans);margin:26px 0 8px;color:var(--fg)}
+.doc h3:first-of-type{margin-top:0}
+.doc ul{list-style:none}
+.doc li{position:relative;padding-left:18px;margin-bottom:8px;max-width:68ch}
+.doc li::before{content:"";position:absolute;left:3px;top:10px;width:5px;height:5px;border-radius:50%;background:var(--faint)}
+.doc li b{font-weight:600}
+.doc .tk{white-space:nowrap;font:12px var(--mono);color:var(--muted);text-decoration:underline;text-decoration-color:var(--line2);text-underline-offset:3px}
+.doc code{font:12.5px var(--mono);background:var(--raised);border:1px solid var(--line);border-radius:2px;padding:0 4px}
+.mdsrc{font:12.5px/22px var(--mono);color:var(--muted);white-space:pre-wrap}
+.mdsrc .h{color:var(--fg);font-weight:600}
+
+/* ============ A: provenance margin ============ */
+.a .bar{gap:8px}
+.a .rng{display:flex;align-items:center;gap:6px}
+.a .rng .sel{width:196px}
+.a .cnt{display:flex;gap:14px;margin-left:10px;font-size:12px;color:var(--muted);white-space:nowrap}
+.a .cnt b{color:var(--fg);font:500 12px var(--mono);margin-right:4px}
+.a .vr{width:1px;height:24px;background:var(--line);margin:0 8px}
+.a .work{flex:1;display:grid;grid-template-columns:1fr 440px 340px;min-height:0}
+.a .paper{display:flex;flex-direction:column;min-width:0;border-right:1px solid var(--line)}
+.a .ph{display:flex;align-items:center;gap:10px;height:44px;padding:0 24px 0 40px;border-bottom:1px solid var(--line);flex:none}
+.a .scroll{flex:1;overflow:hidden;padding:36px 40px 0 112px}
+.a .doc li{padding:4px 10px 4px 28px;margin:0 0 4px -10px;border:1px solid transparent;border-radius:var(--r);cursor:pointer}
+.a .doc li::before{left:13px;top:14px}
+.a .doc li:hover{background:var(--raised)}
+.a .doc li.on{border-color:var(--fg);background:var(--sel)}
+.a .doc li .src{display:none}
+.a .doc li.on .src{display:block;position:absolute;left:100%;top:50%;width:var(--reach);height:1px;background:var(--fg)}
+.a .paper{--reach:386px}
+.a .margin{display:flex;flex-direction:column;min-height:0;background:var(--ground);border-right:1px solid var(--line)}
+.a .mh{display:flex;align-items:center;gap:10px;height:44px;padding:0 20px;border-bottom:1px solid var(--line);flex:none}
+.a .srcs{flex:1;overflow:hidden;padding:28px 20px 0;display:flex;flex-direction:column}
+.a .sg{position:relative;padding:8px 0 8px 14px;border-left:1px solid var(--line2);margin-bottom:6px}
+.a .sg .t{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);white-space:nowrap}
+.a .sg .t b{font:500 12px var(--mono);color:var(--fg)}
+.a .sg.on{border-left-color:var(--fg)}
+.a .cm{display:grid;grid-template-columns:62px 1fr auto;gap:10px;align-items:center;height:22px;font-size:12px;color:var(--muted);margin-top:2px}
+.a .cm .h{font:11px var(--mono);color:var(--faint)}
+.a .cm .m{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--fg)}
+.a .cm .d{font:11px var(--mono)}
+.a .out{margin-top:auto;border-top:1px solid var(--line);padding:16px 0 20px}
+.a .out .cm .m{color:var(--muted)}
+.a .ship{display:flex;flex-direction:column;min-height:0}
+.a .sec{padding:20px;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:12px}
+.a .sec h2{display:flex;align-items:center;gap:8px}
+.a .sec p{font-size:12px;line-height:18px;color:var(--muted)}
+.a .sec .btn{width:100%}
+.a .tgt{display:flex;flex-direction:column;gap:6px;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r);background:var(--panel);font-size:12px;color:var(--muted)}
+.a .tgt .r{display:flex;align-items:center;gap:8px;white-space:nowrap}
+.a .tgt .r b{font:500 12px var(--mono);color:var(--fg)}
+.a .opts{padding:20px;display:flex;flex-direction:column;gap:12px}
+.a .chk{display:flex;align-items:center;gap:10px;height:26px;font-size:12.5px;color:var(--fg)}
+.a .chk .n{margin-left:auto}
+
+/* ============ B: pipeline ============ */
+.b .work{flex:1;display:grid;grid-template-columns:var(--cols);min-height:0}
+.b .col{display:flex;flex-direction:column;min-height:0;border-right:1px solid var(--line)}
+.b .col:last-child{border-right:0}
+.b{--cols:330px 440px 1fr 340px}
+.b .work{grid-template-rows:48px 1fr}
+.b .steps{grid-column:1/-1;display:grid;grid-template-columns:var(--cols);border-bottom:1px solid var(--line)}
+.b .sx{display:flex;align-items:center;gap:8px;padding-left:20px;min-width:0;position:relative}
+.b .sx .stn{width:9px;height:9px;border-radius:50%;border:1px solid var(--faint);flex:none;position:relative}
+.b .sx.on .stn{border-color:var(--fg)}
+.b .sx.on .stn::after{content:"";position:absolute;inset:1.5px;border-radius:50%;background:var(--fg)}
+.b .sx .lbl{color:var(--muted)}
+.b .sx.on .lbl{color:var(--fg)}
+.b .sx .mt{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:inline-flex;align-items:center;gap:6px}
+.b .sx .mt.mono{font:11.5px var(--mono);color:var(--faint)}
+.b .sx .mt svg.i{width:11px;height:11px;color:var(--faint)}
+.b .sx .rl{flex:1;min-width:16px;height:1px;background:var(--line2);margin:0 -12px 0 4px}
+.b .sx .rl.on{background:var(--fg)}
+.b .pad{padding:20px;display:flex;flex-direction:column;gap:20px;overflow:hidden;flex:1}
+.b .fld{display:flex;flex-direction:column;gap:8px}
+.b .fld .sel{width:100%}
+.b .swap{display:flex;align-items:center;gap:8px;color:var(--faint);font-size:12px}
+.b .swap::before,.b .swap::after{content:"";flex:1;height:1px;background:var(--line)}
+.b .rail{position:relative;height:118px;border:1px solid var(--line);border-radius:var(--r);background:var(--panel);padding:16px}
+.b .rail .hl{position:absolute;left:24px;right:24px;top:30px;height:1px;background:var(--route)}
+.b .rail .st0,.b .rail .st1{position:absolute;top:30px;width:11px;height:11px;border-radius:50%;border:1px solid var(--route);background:var(--panel);transform:translate(-50%,-50%)}
+.b .rail .st0{left:24px}.b .rail .st1{right:13px;transform:translate(0,-50%)}
+.b .rail .st1::after{content:"";position:absolute;inset:2px;border-radius:50%;background:var(--route)}
+.b .rail .mg{position:absolute;top:30px;width:5px;height:5px;border-radius:50%;background:var(--muted);transform:translate(-50%,-50%)}
+.b .rail .l0,.b .rail .l1{position:absolute;top:44px;font:11px var(--mono);color:var(--muted)}
+.b .rail .l0{left:16px}.b .rail .l1{right:16px}
+.b .rail .nums{position:absolute;left:16px;right:16px;bottom:12px;display:flex;gap:22px}
+.b .rail .nums div{display:flex;align-items:baseline;gap:6px}
+.b .rail .nums b{font:600 24px/1 var(--display);color:var(--fg)}
+.b .rail .nums span{font-size:12px;color:var(--muted)}
+.b .grp{display:flex;flex-direction:column}
+.b .gh{display:flex;align-items:center;gap:10px;height:30px;font-weight:600;font-size:12.5px}
+.b .gh .n{margin-left:auto}
+.b .it{display:grid;grid-template-columns:14px 1fr auto;gap:10px;align-items:center;min-height:30px;padding:4px 0 4px 24px;font-size:12.5px;color:var(--fg)}
+.b .it .m{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.b .it .m i{font-style:normal;color:var(--faint);font:11.5px var(--mono);margin-left:6px}
+.b .it.off .m{color:var(--faint);text-decoration:line-through;text-decoration-color:var(--line2)}
+.b .it .chip{height:18px}
+.b .gofoot{border-top:1px solid var(--line);padding:14px 20px;display:flex;flex-direction:column;gap:8px;flex:none}
+.b .gofoot p{font-size:12px;color:var(--muted)}
+.b .notesbar{display:flex;align-items:center;gap:10px;height:44px;padding:0 20px;border-bottom:1px solid var(--line);flex:none}
+.b .scroll{flex:1;overflow:hidden;padding:32px 48px}
+.b .dest{display:flex;flex-direction:column;gap:10px;padding:18px 20px;border-bottom:1px solid var(--line)}
+.b .dest .hd{display:flex;align-items:center;gap:10px}
+.b .dest .hd b{font-weight:600;font-size:13px}
+.b .dest p{font-size:12px;line-height:18px;color:var(--muted)}
+.b .dest .btn{width:100%}
+.b .peek{font:11.5px/19px var(--mono);color:var(--faint);border:1px solid var(--line);border-radius:var(--r);background:var(--panel);padding:8px 10px;white-space:pre}
+.b .peek .a2{color:var(--add);background:var(--add-bg);display:block;margin:0 -10px;padding:0 10px}
+
+/* ============ C: release sheet ============ */
+.c .head{display:flex;align-items:flex-end;gap:28px;padding:28px 40px 0;flex:none}
+.c .ver{font:600 64px/0.9 var(--display);letter-spacing:.02em;color:var(--fg)}
+.c .vmeta{display:flex;flex-direction:column;gap:10px;padding-bottom:4px}
+.c .vmeta .r{display:flex;align-items:center;gap:10px}
+.c .hacts{margin-left:auto;display:flex;gap:8px;padding-bottom:4px}
+.c .line{position:relative;height:128px;margin:22px 40px 0;border-bottom:1px solid var(--line);flex:none}
+.c .line .hl{position:absolute;left:6px;right:10px;top:24px;height:1px;background:var(--route)}
+.c .line .stn{position:absolute;top:24px;width:11px;height:11px;border-radius:50%;border:1px solid var(--route);background:var(--bg);transform:translate(-50%,-50%);z-index:1;cursor:pointer}
+.c .line .stn.end{width:17px;height:17px;border-width:1.5px}
+.c .line .stn.end::after{content:"";position:absolute;inset:3px;border-radius:50%;background:var(--route)}
+.c .line .stn.on{box-shadow:0 0 0 3px var(--bg),0 0 0 4px var(--fg)}
+.c .line .cmt{position:absolute;top:24px;width:3px;height:3px;border-radius:50%;background:var(--faint);transform:translate(-50%,-50%)}
+.c .line .lb{position:absolute;top:42px;display:flex;flex-direction:column;gap:3px;white-space:nowrap;transform:translateX(-6px)}
+.c .line .lb b{font:500 12px var(--mono);color:var(--fg)}
+.c .line .lb span{font-size:11.5px;color:var(--muted)}
+.c .line .lb .tag{font:11px var(--mono);color:var(--faint)}
+.c .line .lb.r{transform:translateX(calc(-100% + 8px));align-items:flex-end}
+.c .line .nums{position:absolute;right:0;top:-6px;display:none}
+.c .cols{flex:1;display:grid;grid-template-columns:1fr 380px;min-height:0}
+.c .paper{display:flex;flex-direction:column;min-width:0}
+.c .ph{display:flex;align-items:center;gap:10px;height:48px;padding:0 max(40px,calc((100% - 760px) / 2));flex:none}
+.c .scroll{flex:1;overflow:hidden;padding:12px max(40px,calc((100% - 760px) / 2)) 0}
+.c .doc li{padding:4px 10px 4px 28px;margin:0 0 4px -10px;border:1px solid transparent;border-radius:var(--r)}
+.c .doc li::before{left:13px;top:14px}
+.c .doc li.on{border-color:var(--fg);background:var(--sel)}
+.c .doc{max-width:760px}
+.c .doc h1,.c .doc .date{display:none}
+.c .side{border-left:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+.c .blk{padding:20px 24px;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:12px}
+.c .blk .row2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.c .chk{display:flex;align-items:center;gap:10px;height:26px;font-size:12.5px;color:var(--fg)}
+.c .chk .n{margin-left:auto}
+.c .shp{display:flex;flex-direction:column;gap:8px;margin-top:auto;padding:20px 24px;border-top:1px solid var(--line);border-bottom:0}
+.c .shp .btn{width:100%}
+.c .shp p{font-size:12px;line-height:18px;color:var(--muted);margin-bottom:4px}
+.c .shp .two{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+</style></head><body>
+
+<svg width="0" height="0" style="position:absolute">
+<symbol id="g-plus" viewBox="0 0 16 16"><path d="M8 3v10M3 8h10"/></symbol>
+<symbol id="g-x" viewBox="0 0 16 16"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7"/></symbol>
+<symbol id="g-gear" viewBox="0 0 16 16"><circle cx="8" cy="8" r="2"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4"/></symbol>
+<symbol id="g-check" viewBox="0 0 16 16"><path d="M3 8.5l3 3 7-7"/></symbol>
+<symbol id="g-chev" viewBox="0 0 16 16"><path d="M4.5 6.5L8 10l3.5-3.5"/></symbol>
+<symbol id="g-sparkle" viewBox="0 0 16 16"><path d="M8 2l1.4 4.6L14 8l-4.6 1.4L8 14l-1.4-4.6L2 8l4.6-1.4z"/></symbol>
+<symbol id="g-arrow" viewBox="0 0 16 16"><path d="M2.5 8h11M9.5 4l4 4-4 4"/></symbol>
+<symbol id="g-swap" viewBox="0 0 16 16"><path d="M3 5.5h10M10.5 3l2.5 2.5L10.5 8M13 10.5H3M5.5 8L3 10.5 5.5 13"/></symbol>
+<symbol id="g-refresh" viewBox="0 0 16 16"><path d="M13 8a5 5 0 1 1-1.5-3.6M13 2.5v3h-3"/></symbol>
+<symbol id="g-copy" viewBox="0 0 16 16"><rect x="5.5" y="5.5" width="8" height="8" rx="1"/><path d="M10.5 3.5v-1h-8v8h1"/></symbol>
+<symbol id="g-file" viewBox="0 0 16 16"><path d="M4 1.5h5.5L12.5 4.5v10H4zM9.5 1.5v3h3"/></symbol>
+<symbol id="g-upload" viewBox="0 0 16 16"><path d="M8 11V2.5M4.5 6L8 2.5 11.5 6M2.5 10.5v3h11v-3"/></symbol>
+<symbol id="g-tag" viewBox="0 0 16 16"><path d="M2 2.5h5.5l6.5 6.5-5 5L2.5 7.5z"/><circle cx="5" cy="5" r=".8"/></symbol>
+<symbol id="g-branch" viewBox="0 0 16 16"><circle cx="4.5" cy="3.5" r="1.5"/><circle cx="4.5" cy="12.5" r="1.5"/><circle cx="11.5" cy="5.5" r="1.5"/><path d="M4.5 5v6M11.5 7c0 3-7 2-7 4"/></symbol>
+<symbol id="g-merge" viewBox="0 0 16 16"><circle cx="4.5" cy="3.5" r="1.5"/><circle cx="4.5" cy="12.5" r="1.5"/><circle cx="11.5" cy="12.5" r="1.5"/><path d="M4.5 5v6M4.5 5c0 4 7 3 7 6"/></symbol>
+<symbol id="g-ticket" viewBox="0 0 16 16"><path d="M2 4.5h12v2a1.5 1.5 0 0 0 0 3v2H2v-2a1.5 1.5 0 0 0 0-3z"/></symbol>
+<symbol id="g-layers" viewBox="0 0 16 16"><path d="M8 2l6 3.2-6 3.2-6-3.2zM2 8.3l6 3.2 6-3.2M2 11.3l6 3.2 6-3.2"/></symbol>
+<symbol id="g-sliders" viewBox="0 0 16 16"><path d="M2.5 4.5h11M2.5 11.5h11"/><circle cx="6" cy="4.5" r="1.5" fill="var(--bg)"/><circle cx="10" cy="11.5" r="1.5" fill="var(--bg)"/></symbol>
+</svg>
+
+<div class="cap"><b>Gitnetix · release notes · three directions</b><span>Same data in all three: acme-web, range v0.21.3 to release/0.22.0 (the open release), notes already written. Black &amp; White theme.</span>
+<div class="toggle"><button class="on" data-t="dark">Dark</button><button data-t="light">Light</button></div></div>
+
+<!-- ======================= A ======================= -->
+<div class="cap"><b>A · Sources in the margin</b><span>The range and its counts sit in the toolbar; template, language and Include move to the right column with shipping under them. The notes read as a page, and the margin beside it lists the merges and commits each line came from. Click a line to see its sources; "Left out" shows what the notes skipped. Shipping lives in its own column.</span></div>
+<div class="app a" id="frame-a">
+<div class="top"><button class="wt" aria-label="Worktrees &amp; agents"><svg class="i"><use href="#g-layers"/></svg></button>
+<div class="rt on">acme-web<svg class="i x"><use href="#g-x"/></svg></div>
+<div class="rt">acme-api<svg class="i x"><use href="#g-x"/></svg></div>
+<div class="ico"><svg class="i"><use href="#g-plus"/></svg></div><div class="sp"></div>
+<div class="ico"><svg class="i"><use href="#g-gear"/></svg></div><div class="av">IS</div></div>
+<div class="tabs"><a>Workspace</a><a>Pull requests <span class="n">4</span></a><a>Tickets <span class="n">12</span></a><a class="on">Release notes</a><a>Submodules</a><a>Analytics</a></div>
+<div class="bar">
+<h2 class="ttl">Release notes</h2>
+<div class="rng">
+<button class="sel mono"><span class="v">v0.21.3</span><span class="k">tag</span><svg class="i"><use href="#g-chev"/></svg></button>
+<button class="ib" aria-label="Swap"><svg class="i"><use href="#g-swap"/></svg></button>
+<button class="sel mono"><span class="v">release/0.22.0</span><span class="k">next</span><svg class="i"><use href="#g-chev"/></svg></button>
+</div>
+<div class="cnt"><span><b>23</b>commits</span><span><b>6</b>merges</span><span><b>4</b>tickets</span></div>
+<div class="sp"></div>
+<button class="btn"><svg class="i"><use href="#g-refresh"/></svg>Rewrite</button>
+</div>
+<div class="body"><div class="work">
+<section class="paper" aria-label="Notes">
+<div class="ph">
+<div class="seg sm"><span class="on">Preview</span><span>Markdown</span></div>
+<span class="faint mono" style="font-size:11.5px">sonnet-5.5 · 2 min ago</span>
+<div class="sp"></div>
+<button class="btn gh sm"><svg class="i"><use href="#g-copy"/></svg>Copy</button>
+</div>
+<div class="scroll"><article class="doc" style="max-width:640px">
+<h1>v0.22.0</h1>
+<div class="date">21 Nov 2026</div>
+<h3>Features</h3>
+<ul>
+<li class="on"><b>Ticket reader.</b> Open any ticket in a focus reader with its work line, status rings and linked pull request. <span class="tk">ACME-142</span><span class="src"></span></li>
+<li><b>Markdown diff preview.</b> Added text is tinted and removed text is struck through when you preview a Markdown file.<span class="src"></span></li>
+<li><b>Map legend.</b> The legend fits on one line at the bottom of the map, and See all opens every symbol.<span class="src"></span></li>
+</ul>
+<h3>Fixes</h3>
+<ul>
+<li>Branches whose refs did not move no longer show stale ahead and behind counts after a fetch. <span class="tk">ACME-138</span><span class="src"></span></li>
+<li>A push that loses its connection retries once instead of failing the whole release. <span class="tk">ACME-140</span><span class="src"></span></li>
+<li>The legend box keeps its margin beside the side panel.<span class="src"></span></li>
+</ul>
+<h3>Internal</h3>
+<ul>
+<li>Updated Tauri to 2.9 and Vite to 7.2. <span class="tk">ACME-131</span><span class="src"></span></li>
+</ul>
+</article></div>
+</section>
+<aside class="margin" aria-label="Sources">
+<div class="mh"><h2 class="lbl">Sources</h2><span class="sp"></span><span class="faint" style="font-size:12px">Click a line in the notes</span></div>
+<div class="srcs">
+<div class="sg on" style="margin-top:130px">
+<div class="t"><svg class="i" style="width:12px;height:12px"><use href="#g-merge"/></svg><b>feat/ticket-reader</b><span>#418</span><span class="sp"></span><span class="chip"><svg class="i"><use href="#g-ticket"/></svg>ACME-142</span></div>
+<div class="cm"><span class="h">4047a92</span><span class="m">add reader, work line and status rings</span><span class="d c-add">+612</span></div>
+<div class="cm"><span class="h">9c1e0b3</span><span class="m">lazy activity dates via tickets.activity</span><span class="d c-add">+88</span></div>
+<div class="cm"><span class="h">e72aa10</span><span class="m">avatar-only assignee with name tooltip</span><span class="d c-add">+41</span></div>
+</div>
+<div class="sg"><div class="t"><svg class="i" style="width:12px;height:12px"><use href="#g-merge"/></svg><b>feat/markdown-diff</b><span>#415</span><span class="sp"></span><span class="faint mono" style="font-size:11px">2 commits</span></div></div>
+<div class="sg"><div class="t"><svg class="i" style="width:12px;height:12px"><use href="#g-merge"/></svg><b>feat/map-legend</b><span>#409</span><span class="sp"></span><span class="faint mono" style="font-size:11px">5 commits</span></div></div>
+<div class="sg" style="margin-top:44px"><div class="t"><svg class="i" style="width:12px;height:12px"><use href="#g-merge"/></svg><b>fix/stale-cache</b><span>#412</span><span class="sp"></span><span class="chip"><svg class="i"><use href="#g-ticket"/></svg>ACME-138</span></div></div>
+<div class="sg"><div class="t"><svg class="i" style="width:12px;height:12px"><use href="#g-merge"/></svg><b>fix/push-retry</b><span>#414</span><span class="sp"></span><span class="chip"><svg class="i"><use href="#g-ticket"/></svg>ACME-140</span></div></div>
+<div class="sg"><div class="t"><svg class="i" style="width:12px;height:12px"><use href="#g-branch"/></svg><b>4071f90</b><span>on release/0.22.0</span></div></div>
+<div class="sg" style="margin-top:44px"><div class="t"><svg class="i" style="width:12px;height:12px"><use href="#g-merge"/></svg><b>chore/deps-bump</b><span>#411</span><span class="sp"></span><span class="chip"><svg class="i"><use href="#g-ticket"/></svg>ACME-131</span></div></div>
+<div class="out">
+<div class="t" style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><h3 class="lbl">Left out</h3><span class="n">3 commits</span></div>
+<div class="cm"><span class="h">1e0ec2e</span><span class="m">docs(changelog): add changes from main</span><span class="d faint">docs</span></div>
+<div class="cm"><span class="h">b3f8c21</span><span class="m">test: fix flaky busy counter</span><span class="d faint">test</span></div>
+<div class="cm"><span class="h">0a9d4e6</span><span class="m">style: format map legend</span><span class="d faint">style</span></div>
+</div>
+</div>
+</aside>
+<aside class="ship" aria-label="Settings and ship">
+<div class="opts">
+<h2 class="lbl">Write with</h2>
+<button class="sel"><span class="faint">Template</span><span class="v">Customer-facing</span><svg class="i"><use href="#g-chev"/></svg></button>
+<div class="seg fill sm"><span class="on">English</span><span>Français</span><span>Base</span></div>
+<div style="margin-top:8px">
+<label class="chk"><span class="ck on"><svg class="i"><use href="#g-check"/></svg></span>Features<span class="n">3</span></label>
+<label class="chk"><span class="ck on"><svg class="i"><use href="#g-check"/></svg></span>Fixes<span class="n">3</span></label>
+<label class="chk"><span class="ck on"><svg class="i"><use href="#g-check"/></svg></span>Internal changes<span class="n">1</span></label>
+<label class="chk"><span class="ck on"><svg class="i"><use href="#g-check"/></svg></span>Ticket links<span class="n">4</span></label>
+</div>
+</div>
+<div class="sec" style="margin-top:auto;border-top:1px solid var(--line);border-bottom:0">
+<h2 class="lbl">Ship</h2>
+<div class="tgt">
+<div class="r"><svg class="i" style="width:13px;height:13px"><use href="#g-file"/></svg><b>CHANGELOG.md</b><span>new section above v0.21.3</span></div>
+</div>
+<button class="btn"><svg class="i"><use href="#g-plus"/></svg>Add to changelog</button>
+<div class="tgt" style="margin-top:8px">
+<div class="r"><svg class="i" style="width:13px;height:13px"><use href="#g-tag"/></svg><b>v0.22.0</b><span>on GitHub, acme/acme-web</span></div>
+<div class="r">targets <b style="font-weight:400;color:var(--muted)">release/0.22.0</b></div>
+</div>
+<button class="btn p lg"><svg class="i"><use href="#g-upload"/></svg>Publish v0.22.0</button>
+</div>
+</aside>
+</div></div>
+</div>
+
+<!-- ======================= B ======================= -->
+<div class="cap"><b>B · Four steps, left to right</b><span>Range, what goes in, notes, ship. "What goes in" lists the real merges in the range by type, each with a box, so leaving one branch out is one click (new: needs the engine to take a list). The step line on top fills as you go.</span></div>
+<div class="app b" id="frame-b">
+<div class="top"><button class="wt" aria-label="Worktrees &amp; agents"><svg class="i"><use href="#g-layers"/></svg></button>
+<div class="rt on">acme-web<svg class="i x"><use href="#g-x"/></svg></div>
+<div class="rt">acme-api<svg class="i x"><use href="#g-x"/></svg></div>
+<div class="ico"><svg class="i"><use href="#g-plus"/></svg></div><div class="sp"></div>
+<div class="ico"><svg class="i"><use href="#g-gear"/></svg></div><div class="av">IS</div></div>
+<div class="tabs"><a>Workspace</a><a>Pull requests <span class="n">4</span></a><a>Tickets <span class="n">12</span></a><a class="on">Release notes</a><a>Submodules</a><a>Analytics</a></div>
+<div class="body"><div class="work">
+<nav class="steps" aria-label="Steps">
+<div class="sx on"><span class="stn"></span><h2 class="lbl">Range</h2><span class="mt mono">v0.21.3<svg class="i"><use href="#g-arrow"/></svg>release/0.22.0</span><span class="rl on"></span></div>
+<div class="sx on"><span class="stn"></span><h2 class="lbl">What goes in</h2><span class="mt">8 of 9 changes</span><span class="rl on"></span></div>
+<div class="sx on"><span class="stn"></span><h2 class="lbl">Notes</h2><span class="mt mono">sonnet-5.5 · 2 min ago</span><span class="rl"></span></div>
+<div class="sx"><span class="stn"></span><h2 class="lbl">Ship</h2><span class="mt">Not shipped yet</span></div>
+</nav>
+<section class="col" aria-label="Range">
+<div class="pad">
+<div class="fld"><span class="lbl">From</span><button class="sel mono"><span class="v">v0.21.3</span><span class="k">tag · 9 Nov</span><svg class="i"><use href="#g-chev"/></svg></button></div>
+<div class="swap"><button class="ib" aria-label="Swap" style="width:24px;height:24px"><svg class="i"><use href="#g-swap"/></svg></button></div>
+<div class="fld" style="margin-top:-12px"><span class="lbl">To</span><button class="sel mono"><span class="v">release/0.22.0</span><span class="k">next release</span><svg class="i"><use href="#g-chev"/></svg></button></div>
+<div class="rail">
+<span class="hl"></span><span class="st0"></span>
+<span class="mg" style="left:22%"></span><span class="mg" style="left:36%"></span><span class="mg" style="left:49%"></span><span class="mg" style="left:61%"></span><span class="mg" style="left:72%"></span><span class="mg" style="left:84%"></span>
+<span class="st1"></span>
+<span class="l0">v0.21.3</span><span class="l1">v0.22.0</span>
+<div class="nums"><div><b>23</b><span>commits</span></div><div><b>6</b><span>merges</span></div><div><b>4</b><span>tickets</span></div></div>
+</div>
+<div class="fld"><span class="lbl">Template</span><button class="sel"><span class="v">Customer-facing</span><span class="k">default</span><svg class="i"><use href="#g-chev"/></svg></button></div>
+<div class="fld"><span class="lbl">Language</span><div class="seg fill sm"><span class="on">English</span><span>Français</span><span>Base</span></div></div>
+</div>
+</section>
+<section class="col" aria-label="What goes in">
+<div class="pad" style="gap:14px">
+<div class="grp">
+<label class="gh"><span class="ck on"><svg class="i"><use href="#g-check"/></svg></span>Features<span class="n">3</span></label>
+<label class="it"><span class="ck on"><svg class="i"><use href="#g-check"/></svg></span><span class="m">Ticket reader, work line and status rings<i>#418</i></span><span class="chip">ACME-142</span></label>
+<label class="it"><span class="ck on"><svg class="i"><use href="#g-check"/></svg></span><span class="m">Tint added text in Markdown preview<i>#415</i></span><span></span></label>
+<label class="it"><span class="ck on"><svg class="i"><use href="#g-check"/></svg></span><span class="m">One-line map legend with See all<i>#409</i></span><span></span></label>
+</div>
+<div class="grp">
+<label class="gh"><span class="ck on"><svg class="i"><use href="#g-check"/></svg></span>Fixes<span class="n">3</span></label>
+<label class="it"><span class="ck on"><svg class="i"><use href="#g-check"/></svg></span><span class="m">Stale ahead and behind after fetch<i>#412</i></span><span class="chip">ACME-138</span></label>
+<label class="it"><span class="ck on"><svg class="i"><use href="#g-check"/></svg></span><span class="m">Retry a push that drops its connection<i>#414</i></span><span class="chip">ACME-140</span></label>
+<label class="it"><span class="ck on"><svg class="i"><use href="#g-check"/></svg></span><span class="m">Legend box margins beside the side panel<i>4071f90</i></span><span></span></label>
+</div>
+<div class="grp">
+<label class="gh"><span class="ck part"></span>Internal<span class="n">1 of 2</span></label>
+<label class="it"><span class="ck on"><svg class="i"><use href="#g-check"/></svg></span><span class="m">Bump Tauri 2.9, Vite 7.2<i>#411</i></span><span class="chip">ACME-131</span></label>
+<label class="it off"><span class="ck"></span><span class="m">Fix flaky busy counter test<i>b3f8c21</i></span><span></span></label>
+</div>
+<div class="grp">
+<label class="gh"><span class="ck on"><svg class="i"><use href="#g-check"/></svg></span>Link tickets in the notes<span class="n">4</span></label>
+</div>
+</div>
+<div class="gofoot">
+<button class="btn lg"><svg class="i"><use href="#g-sparkle"/></svg>Rewrite notes</button>
+<p>The notes match these boxes. Change one and Rewrite turns on.</p>
+</div>
+</section>
+<section class="col" aria-label="Notes">
+<div class="notesbar">
+<div class="seg sm"><span class="on">Preview</span><span>Markdown</span></div>
+<div class="sp"></div>
+<button class="btn gh sm"><svg class="i"><use href="#g-copy"/></svg>Copy</button>
+</div>
+<div class="scroll"><article class="doc" style="max-width:680px">
+<h1>v0.22.0</h1>
+<div class="date">21 Nov 2026</div>
+<h3>Features</h3>
+<ul>
+<li><b>Ticket reader.</b> Open any ticket in a focus reader with its work line, status rings and linked pull request. <span class="tk">ACME-142</span></li>
+<li><b>Markdown diff preview.</b> Added text is tinted and removed text is struck through when you preview a Markdown file.</li>
+<li><b>Map legend.</b> The legend fits on one line at the bottom of the map, and See all opens every symbol.</li>
+</ul>
+<h3>Fixes</h3>
+<ul>
+<li>Branches whose refs did not move no longer show stale ahead and behind counts after a fetch. <span class="tk">ACME-138</span></li>
+<li>A push that loses its connection retries once instead of failing the whole release. <span class="tk">ACME-140</span></li>
+<li>The legend box keeps its margin beside the side panel.</li>
+</ul>
+<h3>Internal</h3>
+<ul>
+<li>Updated Tauri to 2.9 and Vite to 7.2. <span class="tk">ACME-131</span></li>
+</ul>
+</article></div>
+</section>
+<section class="col" aria-label="Ship">
+<div class="dest">
+<div class="hd"><svg class="i"><use href="#g-tag"/></svg><b>GitHub release</b></div>
+<p>Publishes <span class="mono" style="color:var(--fg)">v0.22.0</span> on acme/acme-web with these notes, targeting <span class="mono">release/0.22.0</span>.</p>
+<button class="btn p lg"><svg class="i"><use href="#g-upload"/></svg>Publish v0.22.0</button>
+</div>
+<div class="dest">
+<div class="hd"><svg class="i"><use href="#g-file"/></svg><b>CHANGELOG.md</b></div>
+<div class="peek"><span class="a2">## v0.22.0</span><span class="a2">### Features</span><span class="a2">- **Ticket reader.** Open any…</span>
+## v0.21.3
+### Fixes</div>
+<button class="btn"><svg class="i"><use href="#g-plus"/></svg>Add to changelog</button>
+</div>
+<div class="dest" style="border-bottom:0">
+<div class="hd"><svg class="i"><use href="#g-copy"/></svg><b>Clipboard</b></div>
+<p>Markdown, for a chat or an email.</p>
+<button class="btn">Copy Markdown</button>
+</div>
+</section>
+</div></div>
+</div>
+
+<!-- ======================= C ======================= -->
+<div class="cap"><b>C · The release itself</b><span>The page opens on the version it is writing for, in the display face, with the range drawn as a line of stations: one per merge, the last tag on the left, the release on the right. Click a station to mark the lines it produced. Settings and shipping sit in one column on the right; publishing is the last thing in it.</span></div>
+<div class="app c" id="frame-c">
+<div class="top"><button class="wt" aria-label="Worktrees &amp; agents"><svg class="i"><use href="#g-layers"/></svg></button>
+<div class="rt on">acme-web<svg class="i x"><use href="#g-x"/></svg></div>
+<div class="rt">acme-api<svg class="i x"><use href="#g-x"/></svg></div>
+<div class="ico"><svg class="i"><use href="#g-plus"/></svg></div><div class="sp"></div>
+<div class="ico"><svg class="i"><use href="#g-gear"/></svg></div><div class="av">IS</div></div>
+<div class="tabs"><a>Workspace</a><a>Pull requests <span class="n">4</span></a><a>Tickets <span class="n">12</span></a><a class="on">Release notes</a><a>Submodules</a><a>Analytics</a></div>
+<div class="body" style="flex-direction:column">
+<div class="head">
+<h1 class="ver">v0.22.0</h1>
+<div class="vmeta">
+<div class="r"><span class="st dash">Next release</span><span class="ref"><svg class="i"><use href="#g-branch"/></svg><b>release/0.22.0</b></span></div>
+<div class="r muted" style="font-size:12px"><span class="ref">since <b>v0.21.3</b></span><span>·</span><span><b style="color:var(--fg);font:500 12px var(--mono)">23</b> commits</span><span><b style="color:var(--fg);font:500 12px var(--mono)">6</b> merges</span><span><b style="color:var(--fg);font:500 12px var(--mono)">4</b> tickets</span></div>
+</div>
+<div class="hacts"><button class="btn gh"><svg class="i"><use href="#g-swap"/></svg>Change range</button></div>
+</div>
+<div class="line">
+<span class="hl"></span>
+<span class="stn" style="left:6px"></span>
+<div class="lb" style="left:6px"><b>v0.21.3</b><span class="tag">9 Nov</span></div>
+<span class="cmt" style="left:11%"></span><span class="cmt" style="left:13%"></span>
+<span class="stn" style="left:17%"></span><div class="lb" style="left:17%"><b>chore/deps-bump</b><span>#411</span></div>
+<span class="cmt" style="left:24%"></span>
+<span class="stn" style="left:30%"></span><div class="lb" style="left:30%"><b>feat/map-legend</b><span>#409 · 5 commits</span></div>
+<span class="stn" style="left:43%"></span><div class="lb" style="left:43%"><b>fix/stale-cache</b><span>#412 · ACME-138</span></div>
+<span class="cmt" style="left:50%"></span>
+<span class="stn on" style="left:57%"></span><div class="lb" style="left:57%"><b>feat/ticket-reader</b><span>#418 · ACME-142</span></div>
+<span class="stn" style="left:70%"></span><div class="lb" style="left:70%"><b>fix/push-retry</b><span>#414 · ACME-140</span></div>
+<span class="stn" style="left:82%"></span><div class="lb" style="left:82%"><b>feat/markdown-diff</b><span>#415</span></div>
+<span class="cmt" style="left:89%"></span><span class="cmt" style="left:92%"></span>
+<span class="stn end" style="left:calc(100% - 10px)"></span>
+<div class="lb r" style="left:calc(100% - 10px)"><b>release/0.22.0</b><span class="tag">today</span></div>
+</div>
+<div class="cols">
+<section class="paper" aria-label="Notes">
+<div class="ph">
+<div class="seg sm"><span class="on">Preview</span><span>Markdown</span></div>
+<span class="faint mono" style="font-size:11.5px">sonnet-5.5 · 2 min ago</span>
+<div class="sp"></div>
+<button class="btn gh sm"><svg class="i"><use href="#g-copy"/></svg>Copy</button>
+</div>
+<div class="scroll"><article class="doc">
+<h3>Features</h3>
+<ul>
+<li class="on"><b>Ticket reader.</b> Open any ticket in a focus reader with its work line, status rings and linked pull request. <span class="tk">ACME-142</span></li>
+<li><b>Markdown diff preview.</b> Added text is tinted and removed text is struck through when you preview a Markdown file.</li>
+<li><b>Map legend.</b> The legend fits on one line at the bottom of the map, and See all opens every symbol.</li>
+</ul>
+<h3>Fixes</h3>
+<ul>
+<li>Branches whose refs did not move no longer show stale ahead and behind counts after a fetch. <span class="tk">ACME-138</span></li>
+<li>A push that loses its connection retries once instead of failing the whole release. <span class="tk">ACME-140</span></li>
+<li>The legend box keeps its margin beside the side panel.</li>
+</ul>
+<h3>Internal</h3>
+<ul>
+<li>Updated Tauri to 2.9 and Vite to 7.2. <span class="tk">ACME-131</span></li>
+</ul>
+</article></div>
+</section>
+<aside class="side" aria-label="Settings and ship">
+<div class="blk">
+<h2 class="lbl">Write with</h2>
+<button class="sel"><span class="faint">Template</span><span class="v">Customer-facing</span><svg class="i"><use href="#g-chev"/></svg></button>
+<div class="seg fill sm"><span class="on">English</span><span>Français</span><span>Base</span></div>
+</div>
+<div class="blk">
+<h2 class="lbl">Include</h2>
+<div>
+<label class="chk"><span class="ck on"><svg class="i"><use href="#g-check"/></svg></span>Features<span class="n">3</span></label>
+<label class="chk"><span class="ck on"><svg class="i"><use href="#g-check"/></svg></span>Fixes<span class="n">3</span></label>
+<label class="chk"><span class="ck on"><svg class="i"><use href="#g-check"/></svg></span>Internal changes<span class="n">1</span></label>
+<label class="chk"><span class="ck on"><svg class="i"><use href="#g-check"/></svg></span>Ticket links<span class="n">4</span></label>
+</div>
+<button class="btn"><svg class="i"><use href="#g-refresh"/></svg>Rewrite notes</button>
+</div>
+<div class="blk shp">
+<p>Publishes <span class="mono" style="color:var(--fg)">v0.22.0</span> on GitHub, acme/acme-web, targeting <span class="mono">release/0.22.0</span>.</p>
+<button class="btn"><svg class="i"><use href="#g-file"/></svg>Add to CHANGELOG.md</button>
+<button class="btn p lg"><svg class="i"><use href="#g-upload"/></svg>Publish v0.22.0</button>
+</div>
+</aside>
+</div>
+</div>
+</div>
+
+<script>
+document.querySelectorAll('.toggle button').forEach(b=>b.onclick=()=>{document.documentElement.dataset.theme=b.dataset.t;document.querySelectorAll('.toggle button').forEach(x=>x.classList.toggle('on',x===b))});
+</script>
+</body></html>
