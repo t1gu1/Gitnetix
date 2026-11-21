@@ -14,6 +14,8 @@ the in-app update prompt.
 
 ## [Unreleased]
 
+## [0.29.0] - 2026-11-21
+
 ### Added (App)
 
 - The Markdown preview of a changed file tints blocks with added lines green. Removed text shows as a red notch in the left margin of the next block, with the removed text in a tooltip.
