@@ -210,6 +210,10 @@ pub struct Commit {
     /// (set for one branch's commit list only).
     #[serde(default)]
     pub base: bool,
+    /// A merge commit in a branch's commit list: the commits it brought in, newest first, listed under it rather than
+    /// on rows of their own (set for one branch's commit list only).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub merged: Vec<Commit>,
 }
 
 /// Who last changed each line of a file (`git blame`).

@@ -2485,6 +2485,12 @@ body.resizing .term {
   font: 11px/16px var(--mono);
   color: var(--muted);
 }
+/* A merge's row: how many commits it brought in, folded under it. */
+.map-fold {
+  flex: none;
+  align-items: center;
+  gap: 3px;
+}
 /* The match the search is on, wherever it is: outlined in ink. */
 :is(.map-crow, .map-relrow, .map-ship, .map-merged)[data-find-at] {
   outline: 1px solid var(--fg);

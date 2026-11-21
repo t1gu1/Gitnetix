@@ -127,6 +127,7 @@ The selected branch's card has one main button: the action the user most likely 
 | CM-06 | Reset forward onto commits that are on origin. | The branch moves forward to them. | Auto | `release_flow.rs::reset_forward_onto_pushed_commits` |
 | CM-07 | Reset while a rebase is paused. | Refused. | Auto | `release_flow.rs::reset_is_refused_while_a_rebase_is_paused` |
 | CM-08 | The commit list on a long branch. | Unpushed commits are flagged. A larger limit reaches older history. The list ends where the branch left its base. | Auto | `release_flow.rs::commits_flag_unpushed`, `commits_limit_reaches_older_history`, `branch_commits_end_where_it_left_its_base` |
+| CM-09 | Finish and merge a one-commit branch into main with a merge commit. Then merge main into another branch (Update). | main is 2 ahead of origin (the merge and the branch's commit), but its list has one row for the merge, the branch's commit folded under it (flagged never pushed), and the map counts one row less. The branch that took main in folds nothing. | Auto | `branch_regression.rs::cm09_a_merge_commit_lists_what_it_brought_under_it` |
 
 ## Two users (TU)
 

@@ -50,8 +50,10 @@ export function useCommitMenu({
   // Commits of the local branch; origin's unpulled ones are listed too: they can't be reverted, only hard reset to.
   const local = list.filter((c) => !c.unpulled);
   const unpulled = list.filter((c) => c.unpulled);
-  // Commits of the local branch a reset to `c` takes off it: those above it, or all of them at the base.
+  // Rows of the local branch a reset to `c` takes off it: those above it, or all of them at the base.
   const above = (c: Commit) => (c.base ? local.length : local.findIndex((l) => l.sha === c.sha));
+  // Rows with the commits folded under their merge: a reset moves those too.
+  const withFolds = (rows: Commit[]) => rows.flatMap((c) => [c, ...(c.merged ?? [])]);
 
   const open = (c: Commit, e: MouseEvent) => {
     e.preventDefault();
@@ -110,10 +112,10 @@ export function useCommitMenu({
           branch={branch}
           commit={reset.c}
           fork={reset.c.base ? base : undefined}
-          dropped={above(reset.c)}
-          restored={reset.c.unpulled ? unpulled.length - unpulled.findIndex((c) => c.sha === reset.c.sha) : 0}
+          dropped={withFolds(local.slice(0, above(reset.c))).length}
+          restored={reset.c.unpulled ? withFolds(unpulled.slice(unpulled.findIndex((c) => c.sha === reset.c.sha))).length : 0}
           // Going forward onto origin drops every unpushed commit; going back, the ones above the target.
-          lost={(reset.c.unpulled ? local : local.slice(0, above(reset.c))).filter((c) => c.unpushed)}
+          lost={withFolds(reset.c.unpulled ? local : local.slice(0, above(reset.c))).filter((c) => c.unpushed)}
           mode={reset.mode}
           upstream={upstream}
           onMode={(mode) => setReset({ ...reset, mode })}

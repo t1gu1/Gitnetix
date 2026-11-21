@@ -439,6 +439,40 @@ async fn cm04_commit_list_marks_the_local_and_origin_tips() {
     );
 }
 
+/// CM-09: a branch merged with a merge commit. The merge keeps its commit, so the target is 2 ahead of origin, but
+/// its list has one row for the merge with the branch's commit folded under it, and the map counts one row. A branch
+/// that merged its base in folds nothing: the base's commits are not in its list.
+#[tokio::test]
+async fn cm09_a_merge_commit_lists_what_it_brought_under_it() {
+    let e = env().await;
+    sh(&e.repo, &["switch", "-qc", "docs/readme"]);
+    commit_file(&e.repo, "docs.md", "docs\n");
+    sh(&e.repo, &["switch", "-q", "main"]);
+    let merge = json!({ "branch": "docs/readme", "into": "main", "deleteBranch": true, "push": false, "rebase": false, "squash": false, "squashAi": false, "stay": false });
+    e.call("branches.merge", merge).await;
+    assert_eq!(git_out(&e.repo, &["rev-list", "--count", "origin/main..main"]), "2", "the merge commit and the branch's");
+
+    let main = e.view("main").await;
+    assert_eq!((main["upstreamAhead"].as_u64(), main["unreleased"].as_u64(), main["folded"].as_u64()), (Some(2), Some(3), Some(1)));
+    let list = e.call("workspace.commits", json!({ "branch": "main", "unreleased": true })).await;
+    let rows: Vec<(&str, Vec<(&str, bool)>)> = list
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| (c["subject"].as_str().unwrap(), c["merged"].as_array().map_or(vec![], |m| m.iter().map(|m| (m["subject"].as_str().unwrap(), m["unpushed"] == true)).collect())))
+        .collect();
+    assert_eq!(rows, [("Merge branch 'docs/readme' into main", vec![("edit docs.md", true)]), ("edit README.md", vec![])]);
+
+    // main merged into a branch: its commits are main's, none fold under the merge.
+    sh(&e.repo, &["switch", "-qc", "feat/s", "main~1"]);
+    commit_file(&e.repo, "s.txt", "s\n");
+    e.call("branches.sync", json!({ "branch": "feat/s" })).await;
+    let s = e.view("feat/s").await;
+    assert_eq!((s["ahead"].as_u64(), s["folded"].as_u64()), (Some(2), Some(0)));
+    let list = e.call("workspace.commits", json!({ "branch": "feat/s" })).await;
+    assert!(list.as_array().unwrap().iter().all(|c| c.get("merged").is_none()), "{list:#}");
+}
+
 // ---------------------------------------------------------------- Worktrees
 
 /// WT-01: a new branch opened in a worktree, committed to through the app, rebased in its worktree once main

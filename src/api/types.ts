@@ -188,6 +188,8 @@ export interface BranchView {
   unreleased?: number;
   /** The default branch: the latest tag in its history, which `unreleased` counts from. */
   lastTag?: string | null;
+  /** Of the commits its list shows (`ahead`, else `unreleased`, and `upstreamBehind`), those a merge brought in: listed under their merge, not on rows of their own. */
+  folded?: number;
   upstream?: string | null;
   upstreamAhead: number;
   upstreamBehind: number;
@@ -243,6 +245,8 @@ export interface Commit {
   unpushed?: boolean;
   /** Where the branch left its base, listed last below its own commits: a reset there drops them all (a branch's commit list only). */
   base?: boolean;
+  /** A merge commit: the commits it brought in, newest first, listed under it rather than on rows of their own (a branch's commit list only). */
+  merged?: Commit[];
 }
 
 /** Who last changed each line of a file. */

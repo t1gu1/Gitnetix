@@ -255,6 +255,10 @@ pub struct BranchView {
     /// The default branch: the latest tag in its history, which `unreleased` counts from.
     #[serde(default)]
     pub last_tag: Option<String>,
+    /// Of the commits its list shows (`ahead`, else `unreleased`, and `upstream_behind`), those a merge commit brought in:
+    /// listed under their merge, not on rows of their own.
+    #[serde(default)]
+    pub folded: u32,
     pub upstream: Option<String>,
     pub upstream_ahead: u32,
     pub upstream_behind: u32,
@@ -2335,6 +2339,7 @@ fn plain_view(p: &Project, refs: &Refs, name: &str, parent: Option<String>) -> B
         behind: 0,
         unreleased: 0,
         last_tag: None,
+        folded: 0,
         upstream: info.and_then(|b| b.upstream.clone()),
         upstream_ahead: 0,
         upstream_behind: 0,
@@ -2360,7 +2365,7 @@ fn plain_view(p: &Project, refs: &Refs, name: &str, parent: Option<String>) -> B
 }
 
 /// Bump when branch views are built differently, so saved ones are not reused.
-const VIEW_CACHE_VERSION: &str = "18";
+const VIEW_CACHE_VERSION: &str = "19";
 
 /// Most commits of its own a branch is looked through for the branch it was built on (see [`Gitnetix::built_on`]).
 const OWN_MAX: usize = 1000;
@@ -3621,6 +3626,24 @@ impl Gitnetix {
         if v.upstream.is_some() {
             (v.upstream_ahead, v.upstream_behind) = refs.upstream_counts(git, name).await;
         }
+        // Its list has a row a commit on its own line (first parents), as `commits` lists it: the others fold under their merge.
+        // A fold takes a merge and a commit it brought, so 2 listed at least.
+        let listed = (if v.ahead > 0 { v.ahead } else { v.unreleased }) + v.upstream_behind;
+        let not_in = match (&base_rev, &v.last_tag) {
+            (Some(b), _) => Some(format!("^{b}")),
+            (None, Some(t)) => Some(format!("^refs/tags/{t}")),
+            (None, None) => None,
+        };
+        if listed >= 2 && (base_rev.is_some() || v.parent.is_none()) {
+            let max = format!("--max-count={UNRELEASED_MAX}");
+            let mut args = vec!["rev-list", "--first-parent", "--count", &max];
+            let tips: Vec<&str> = [info, refs.remote(name)].into_iter().flatten().map(|b| b.sha.as_str()).collect();
+            args.extend(tips);
+            args.extend(not_in.as_deref());
+            if let Ok((true, out, _)) = git.try_run(&args).await {
+                v.folded = listed.saturating_sub(out.trim().parse().unwrap_or(listed));
+            }
+        }
         v.rewritten = match &v.upstream {
             Some(u) if v.upstream_behind > 0 => match git.rev_parse(u).await {
                 Ok(sha) => git.in_reflog(&format!("refs/heads/{name}"), &sha).await.unwrap_or(false),
@@ -3832,7 +3855,43 @@ impl Gitnetix {
             revs.push(format!("^{b}"));
         }
         let limit = limit.unwrap_or(if trunk { 200 } else { 500 });
-        let mut list = git.log_revs(&revs.iter().map(String::as_str).collect::<Vec<_>>(), Some(limit)).await?;
+        // One row a commit on the branch's own line; what a merge brought in is listed under its merge commit.
+        revs.insert(0, "--first-parent".into());
+        let revs: Vec<&str> = revs.iter().map(String::as_str).collect();
+        let mut list = git.log_revs(&revs, Some(limit)).await?;
+        let merges: std::collections::HashSet<String> = {
+            let mut args = vec!["rev-list", "--merges"];
+            let n = format!("-n{limit}");
+            args.push(&n);
+            args.extend(&revs);
+            git.run(&args).await?.lines().map(Into::into).collect()
+        };
+        let brought: Vec<Vec<Commit>> = stream::iter(list.iter().map(|c| c.sha.clone()).collect::<Vec<_>>())
+            .map(|sha| {
+                let (git, base_rev, merge) = (&git, &base_rev, merges.contains(&sha));
+                async move {
+                    if !merge {
+                        return Ok(Vec::new());
+                    }
+                    // Past its first parent and the base: what it brought that the list has no row for. Itself first.
+                    let not_first = format!("^{sha}^");
+                    let mut args = vec![sha.as_str(), not_first.as_str()];
+                    let not_base = base_rev.as_ref().map(|b| format!("^{b}"));
+                    args.extend(not_base.as_deref());
+                    // shortcut: a merge listing more than `limit` commits under it shows only the newest `limit`; count them apart if ever needed.
+                    let mut under = git.log_revs(&args, Some(limit + 1)).await?;
+                    under.retain(|c| c.sha != sha);
+                    Ok::<_, Error>(under)
+                }
+            })
+            .buffered(8)
+            .collect::<Vec<_>>()
+            .await
+            .into_iter()
+            .collect::<Result<_>>()?;
+        for (c, under) in list.iter_mut().zip(brought) {
+            c.merged = under;
+        }
         // The whole list loaded: below it, where the local branch left its base, to reset back past all its commits.
         // None when the local branch has no commits of its own (it would reset to where it is).
         if let (Some(b), Some(l), true) = (&base_rev, &local, list.len() < limit as usize) {
@@ -3847,9 +3906,10 @@ impl Gitnetix {
             (Some(l), Some(o)) if l != o => git.rev_list(&format!("{l}..{o}")).await.unwrap_or_default().into_iter().collect(),
             _ => std::collections::HashSet::new(),
         };
-        // Local commits on no origin branch: a hard reset past them loses them.
+        // Local commits on no origin branch: a hard reset past them loses them. As many as listed, rows and those under merges.
+        let listed: usize = list.iter().map(|c| 1 + c.merged.len()).sum();
         let unpushed: std::collections::HashSet<String> = match &local {
-            Some(l) => git.run(&["rev-list", &format!("-n{limit}"), l, "--not", "--remotes=origin"]).await.map(|o| o.lines().map(Into::into).collect()).unwrap_or_default(),
+            Some(l) => git.run(&["rev-list", &format!("-n{listed}"), l, "--not", "--remotes=origin"]).await.map(|o| o.lines().map(Into::into).collect()).unwrap_or_default(),
             None => std::collections::HashSet::new(),
         };
         for c in &mut list {
@@ -3858,6 +3918,10 @@ impl Gitnetix {
             c.unpulled = unpulled.contains(&c.sha);
             // Still on the base after a reset there: nothing lost.
             c.unpushed = !c.base && unpushed.contains(&c.sha);
+            for m in &mut c.merged {
+                m.unpulled = unpulled.contains(&m.sha);
+                m.unpushed = unpushed.contains(&m.sha);
+            }
         }
         Ok(list)
     }
@@ -3913,6 +3977,8 @@ impl Gitnetix {
                     None => git.last_tag(&tip).await.ok().flatten().map(|(t, _)| format!("refs/tags/{t}")),
                 };
                 revs.extend(since.map(|s| format!("^{s}")));
+                // Its rows, as listed: what a merge brought in is folded under it, not found apart.
+                revs.insert(0, "--first-parent".into());
                 let limit = if l.base.is_some() { 500 } else { 200 };
                 let list = git.log_revs(&revs.iter().map(String::as_str).collect::<Vec<_>>(), Some(limit)).await.unwrap_or_default();
                 (l.name, found(list))
@@ -8853,6 +8919,7 @@ mod tests {
             unpulled: false,
             unpushed: false,
             base: false,
+            merged: Vec::new(),
         }
     }
 

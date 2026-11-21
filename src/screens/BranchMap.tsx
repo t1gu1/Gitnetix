@@ -28,8 +28,8 @@ const COMMITS_SHOWN = 4;
 const HISTORY_MAX = 200;
 /** A tile's own commits: those not in its base, or the default branch's not released yet (since its latest tag). */
 const ownCommits = (b: BranchView) => b.ahead || (b.unreleased ?? 0);
-/** A tile's commit rows: its own, and origin's not pulled yet above them. */
-const commitRows = (b: BranchView) => ownCommits(b) + b.upstreamBehind;
+/** A tile's commit rows: its own, and origin's not pulled yet above them; what a merge brought in folds under its row. */
+const commitRows = (b: BranchView) => ownCommits(b) + b.upstreamBehind - (b.folded ?? 0);
 /** Commit rows an unfolded tile lists: the newest few, or all once "see all" is open. */
 const listedRows = (b: BranchView, all: boolean) => Math.min(commitRows(b), all ? (b.parent ? Infinity : HISTORY_MAX) : COMMITS_SHOWN);
 /** The trunk the map starts from: the default branch, or a trunk further behind it (`prod` left of `main`). */
@@ -1655,7 +1655,7 @@ function TileCommits({
             // The commit checked out: the newest local one.
             data-on={(current && c?.local) || undefined}
             data-find-at={i === at || undefined}
-            aria-label={c ? `Look at commit ${c.sha.slice(0, 7)}, ${c.subject}${c.unpulled ? ", not pulled yet" : ""}` : undefined}
+            aria-label={c ? `Look at commit ${c.sha.slice(0, 7)}, ${c.subject}${c.merged?.length ? `, bringing in ${plural(c.merged.length, "commit")}` : ""}${c.unpulled ? ", not pulled yet" : ""}` : undefined}
             onClick={() => c && onFocus(b.name, c)}
             onContextMenu={menu(c)}
           >
@@ -1663,6 +1663,12 @@ function TileCommits({
             {c?.unpulled && <span className="c-warn" title="On origin, not pulled yet">↓</span>}
             <span className="ellipsis">{c ? marked(c.subject, find, i === at) : "…"}</span>
             {c && sha(c, i === at)}
+            {!!c?.merged?.length && (
+              <span className="map-tagchip map-fold" data-tip={foldTip(c.merged)}>
+                <Icon name="merged" size={11} stroke={1.4} />
+                {c.merged.length}
+              </span>
+            )}
             {c && <TagChips tags={c.tags} q={find} />}
             <i>{c && age(c.date)}</i>
           </button>
@@ -1691,6 +1697,16 @@ function TileCommits({
     </>
   );
 }
+
+/** Subjects a tooltip lists of what a merge brought in; past them, a count. */
+const FOLD_TIP_MAX = 8;
+/** A merge row's fold: the commits it brought in, newest first. */
+const foldTip = (merged: Commit[]) =>
+  [
+    `Brought in ${plural(merged.length, "commit")}, folded under this merge:`,
+    ...merged.slice(0, FOLD_TIP_MAX).map((m) => `• ${m.subject}`),
+    ...(merged.length > FOLD_TIP_MAX ? [`and ${merged.length - FOLD_TIP_MAX} more`] : []),
+  ].join("\n");
 
 /** A commit the search finds: by its subject, the start of its SHA (4 characters or more), or a tag (but `skip`, its list's own). */
 const commitMatches = (c: { sha: string; subject: string; tags: string[] }, q: string, skip?: string) =>
