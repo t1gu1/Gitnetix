@@ -131,6 +131,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("shell.close", "End a checkout's terminal and forget its output", "path, tab"),
     ("shell.scripts", "Commands of every project tool in a checkout of the project (package.json scripts, Cargo, Docker Compose, Make, LÖVE…) whose program is installed, each with the command line that runs it from the checkout root", "projectId, path"),
     ("ai.catalog", "AI providers, their status and settings", ""),
+    ("ai.skills", "Skills and custom commands the agent CLI (provider, else the one agents use) finds for the project, with what each is typed after (/ or $)", "projectId, provider?"),
     ("ai.models", "Models an AI provider offers, each with the effort levels it takes (Copilot's, Codex's and Antigravity's are read from their CLI for the signed-in account)", "id"),
     ("ai.saveProvider", "Configure an AI provider", "id, method?, model?, effort?, baseUrl?, apiKey?"),
     ("ai.setDefault", "Default AI provider, handed every task too (Claude keeps its per-task models; agent permissions stay)", "id"),
@@ -976,6 +977,12 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
             to(json!({ "providers": list, "defaultProvider": cfg.default_provider, "routing": cfg.routing }))
         }
         "ai.models" => to(ai::models(&s(&p, "id")?).await?),
+        "ai.skills" => {
+            let cfg = k.store.read(|c| c.ai.clone());
+            let provider = os(&p, "provider").or_else(|| cfg.routing.get("agent").and_then(|r| r.provider.clone())).unwrap_or(cfg.default_provider);
+            let path = k.store.project(&s(&p, "projectId")?)?.path;
+            to(json!({ "prefix": crate::skills::prefix(&provider), "skills": crate::skills::list(&provider, Path::new(&path)) }))
+        }
         "ai.saveProvider" => {
             let id = s(&p, "id")?;
             let info = ai::provider_info(&id)?;

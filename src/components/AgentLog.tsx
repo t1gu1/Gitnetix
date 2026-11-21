@@ -1,9 +1,9 @@
-import { type ClipboardEvent, type CSSProperties, type KeyboardEvent, type ReactNode, memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { type ClipboardEvent, type CSSProperties, type KeyboardEvent, type ReactNode, type RefObject, memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-import { useAction, useAgentBlobs, useAgentDiff, useAgentFile, useAiCatalog, useConfig } from "../api/hooks";
+import { useAction, useAgentBlobs, useAgentDiff, useAgentFile, useAiCatalog, useConfig, useSkills } from "../api/hooks";
 import { captureArtifact, clipboardFiles, copyAgentFile, downloadAgentFile, isLocal, localHead, localImage, onPathDrop, openArtifact } from "../api/transport";
-import type { AgentAsk, AgentLimit, AgentTask, LogLine } from "../api/types";
+import type { AgentAsk, AgentLimit, AgentTask, LogLine, Skill } from "../api/types";
 import { blocks, errText, folds, questions, said, stepsLabel, tasksLabel, took, type Block, type Fold, type Opt, type Question } from "../lib/agentLog";
 import { OwnMic } from "../lib/dictation";
 import { bytes, clock, plural } from "../lib/format";
@@ -1161,9 +1161,102 @@ function paste(e: ClipboardEvent<HTMLTextAreaElement>, add: (f: Attachment[]) =>
   clipboardFiles().then(add, (err) => toast(`Could not paste: ${err}`, "error"));
 }
 
+/** The skills menu of a prompt box: typing `/` (or `$`) at the start of a word lists the skills of the agent's CLI whose name holds what follows.
+ * ↑↓ move, Enter or Tab puts the skill in, Escape closes it for that word. `keyDown` runs before the box's own keys and says whether it took the key. */
+function useSkillMenu(box: RefObject<HTMLTextAreaElement | null>, value: string, onChange: (v: string) => void, projectId?: string, provider?: string) {
+  const [caret, setCaret] = useState(0);
+  const [focused, setFocused] = useState(false);
+  const [at, setAt] = useState(0);
+  // Where the word Escape closed the menu for starts.
+  const [closed, setClosed] = useState(-1);
+  const m = /(^|\s)[/$]([\w:.-]*)$/.exec(value.slice(0, caret));
+  const start = m ? m.index + m[1].length : -1;
+  const q = m?.[2].toLowerCase() ?? "";
+  const open = focused && start >= 0 && start !== closed;
+  const { data } = useSkills(projectId, provider, open);
+  const starts = (s: Skill) => (s.name.toLowerCase().startsWith(q) ? 0 : 1);
+  const hits = open && data ? data.skills.filter((s) => s.name.toLowerCase().includes(q)).sort((a, b) => starts(a) - starts(b)) : [];
+  const cur = Math.min(at, hits.length - 1);
+  useEffect(() => {
+    setAt(0);
+  }, [q, start]);
+  const list = useRef<HTMLDivElement>(null);
+  // Braces: browsers whose scrollIntoView returns a promise would hand React that as the cleanup.
+  useEffect(() => {
+    list.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
+  }, [cur]);
+
+  const pick = (s: Skill) => {
+    const text = `${data!.prefix}${s.name} `;
+    const pos = start + text.length;
+    onChange(value.slice(0, start) + text + value.slice(caret));
+    setCaret(pos);
+    requestAnimationFrame(() => box.current?.setSelectionRange(pos, pos));
+  };
+  const keyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (!hits.length || e.nativeEvent.isComposing) return false;
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") setAt((cur + (e.key === "ArrowDown" ? 1 : -1) + hits.length) % hits.length);
+    else if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey && !e.ctrlKey && !e.metaKey)) pick(hits[cur]);
+    else if (e.key === "Escape") {
+      // The modal around the box closes on Escape too: this one only closes the menu.
+      e.stopPropagation();
+      setClosed(start);
+    } else return false;
+    e.preventDefault();
+    return true;
+  };
+  const r = hits.length ? box.current?.getBoundingClientRect() : undefined;
+  // Opens on the side of the box with more room: above the prompt box at the bottom of a panel, below the field of a modal.
+  const up = !!r && r.top > innerHeight - r.bottom;
+  const room = r ? (up ? r.top : innerHeight - r.bottom) - 12 : 0;
+  const menu =
+    r &&
+    createPortal(
+      <div ref={list} id={`${box.current!.id}-skills`} className="ctx-menu skill-menu" role="listbox" aria-label="Skills" style={{ left: r.left, width: Math.min(r.width, 460), maxHeight: Math.min(320, room), ...(up ? { bottom: innerHeight - r.top + 4 } : { top: r.bottom + 4 }), ["--origin" as string]: up ? "bottom left" : "top left" }}>
+        <div className="skill-head">Skills · Enter or Tab to use</div>
+        {hits.map((s, i) => (
+          <button
+            key={s.name}
+            type="button"
+            id={`${box.current!.id}-skill-${i}`}
+            role="option"
+            aria-selected={i === cur}
+            className="ctx-item skill-item"
+            // Keeps the focus (and the caret) in the box.
+            onMouseDown={(e) => e.preventDefault()}
+            onMouseEnter={() => setAt(i)}
+            onClick={() => pick(s)}
+          >
+            <span>
+              <span className="mono ellipsis">{data!.prefix}{s.name}</span>
+              <span className="faint">{s.from}</span>
+            </span>
+            {s.description && <span className="skill-desc" title={s.description}>{s.description}</span>}
+          </button>
+        ))}
+      </div>,
+      document.body,
+    );
+  const caretAt = (e: { currentTarget: HTMLTextAreaElement }) => setCaret(e.currentTarget.selectionEnd);
+  // Spread on the textarea.
+  const bind = {
+    onSelect: caretAt,
+    onFocus: (e: { currentTarget: HTMLTextAreaElement }) => (setFocused(true), caretAt(e)),
+    onBlur: () => setFocused(false),
+    role: "combobox",
+    "aria-autocomplete": "list" as const,
+    "aria-expanded": !!r,
+    "aria-controls": r ? `${box.current!.id}-skills` : undefined,
+    "aria-activedescendant": r ? `${box.current!.id}-skill-${cur}` : undefined,
+  };
+  return { keyDown, menu, bind };
+}
+
 /** What a new agent session should do, in a modal: files are picked, pasted, or dropped anywhere on it. ⌘↵ runs `onSubmit`. */
-export function RequestField({ value, onChange, files, onFiles, onSubmit }: { value: string; onChange: (v: string) => void; files: Attachment[]; onFiles: (f: Attachment[]) => void; onSubmit: () => void }) {
+export function RequestField({ value, onChange, files, onFiles, onSubmit, projectId, provider }: { value: string; onChange: (v: string) => void; files: Attachment[]; onFiles: (f: Attachment[]) => void; onSubmit: () => void; projectId?: string; provider?: string }) {
   const field = useRef<HTMLDivElement>(null);
+  const box = useRef<HTMLTextAreaElement>(null);
+  const skills = useSkillMenu(box, value, onChange, projectId, provider);
   const chooser = useRef<HTMLInputElement>(null);
   const { over, add } = useAttach(() => field.current?.closest<HTMLElement>(".modal"), files, onFiles, false);
   // A file just pasted, dropped or picked can land below the modal's fold: its chip scrolls into view.
@@ -1181,15 +1274,18 @@ export function RequestField({ value, onChange, files, onFiles, onSubmit }: { va
       <label htmlFor="ag-req">What should the agent do?</label>
       <textarea
         id="ag-req"
+        ref={box}
+        {...skills.bind}
         className="textarea"
         rows={5}
         placeholder="Let users sign in with Google and GitHub."
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) onSubmit(); }}
+        onKeyDown={(e) => { if (!skills.keyDown(e) && e.key === "Enter" && (e.metaKey || e.ctrlKey)) onSubmit(); }}
         onPaste={(e) => paste(e, add)}
         autoFocus
       />
+      {skills.menu}
       {files.length > 0 && (
         <div ref={chips} className="ag-files">
           <Drafts files={files} onFiles={onFiles} />
@@ -1200,7 +1296,7 @@ export function RequestField({ value, onChange, files, onFiles, onSubmit }: { va
           <Icon name="attach" size={12} />
           Attach files
         </button>
-        <span className="hint">⌘↵ to start · drop files to attach</span>
+        <span className="hint">⌘↵ to start · / for skills · drop files to attach</span>
       </div>
       <input
         ref={chooser}
@@ -1227,7 +1323,7 @@ export function RequestField({ value, onChange, files, onFiles, onSubmit }: { va
  * Enter sends, Shift+Enter or Ctrl+Enter starts a new line. Files come from the clip, a paste, or a drop anywhere on the panel it sits in.
  * `picks` (options picked in the log) go first in the message, the text after them adds to it.
  * `onStop` (while the agent works) swaps Send for Stop until something is typed, which then queues for the run's end; Up/Down on the first or last line walk your past messages in `log`. */
-export function AgentInput({ id, label, value, onChange, files, onFiles, picks, onPicks, onSend, onStop, log = [], placeholder, disabled, pending, picker }: { id: string; label: string; value: string; onChange: (v: string) => void; files: Attachment[]; onFiles: (f: Attachment[]) => void; picks: Choice[]; onPicks: (c: Choice[]) => void; onSend: (files: Upload[], text: string) => void; onStop?: () => void; log?: LogLine[]; placeholder: string; disabled: boolean; pending: boolean; picker?: ReactNode }) {
+export function AgentInput({ id, label, value, onChange, files, onFiles, picks, onPicks, onSend, onStop, log = [], placeholder, disabled, pending, picker, projectId, provider }: { id: string; label: string; value: string; onChange: (v: string) => void; files: Attachment[]; onFiles: (f: Attachment[]) => void; picks: Choice[]; onPicks: (c: Choice[]) => void; onSend: (files: Upload[], text: string) => void; onStop?: () => void; log?: LogLine[]; placeholder: string; disabled: boolean; pending: boolean; picker?: ReactNode; projectId?: string; provider?: string }) {
   // Position in the history, and the unsent text it replaced.
   const [at, setAt] = useState<number | null>(null);
   const draft = useRef("");
@@ -1235,6 +1331,7 @@ export function AgentInput({ id, label, value, onChange, files, onFiles, picks, 
   const input = useRef<HTMLTextAreaElement>(null);
   const chooser = useRef<HTMLInputElement>(null);
   const { over, add } = useAttach(() => form.current?.parentElement, files, onFiles, disabled);
+  const skills = useSkillMenu(input, value, onChange, projectId, provider);
   // A claude.ai artifact link in the text asks for its picture or an export; done or dismissed, that link asks no more.
   const link = artifactLink(value);
   const [settled, setSettled] = useState<string>();
@@ -1276,6 +1373,7 @@ export function AgentInput({ id, label, value, onChange, files, onFiles, picks, 
   }, [value]);
 
   const keys = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (skills.keyDown(e)) return;
     const el = e.currentTarget;
     // Shift+Enter is the textarea's own new line.
     if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
@@ -1354,6 +1452,7 @@ export function AgentInput({ id, label, value, onChange, files, onFiles, picks, 
         <textarea
           id={id}
           ref={input}
+          {...skills.bind}
           rows={1}
           value={value}
           disabled={disabled}
@@ -1365,6 +1464,7 @@ export function AgentInput({ id, label, value, onChange, files, onFiles, picks, 
           }}
           placeholder={placeholder}
         />
+        {skills.menu}
         {/* Under the text: attach and dictate, the model, then the action. */}
         <div className="term-tools">
           <button type="button" className="btn btn-ghost btn-icon term-attach" aria-label="Attach files" data-tip="Attach files or images" disabled={disabled} onClick={() => chooser.current?.click()}>

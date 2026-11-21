@@ -27,6 +27,7 @@ import type {
   PrSummary,
   ProjectSummary,
   ReleaseCount,
+  Skill,
   SprintReport,
   Submodule,
   Template,
@@ -592,6 +593,10 @@ export const useSubmodules = (projectId?: string) =>
 export const useAiCatalog = () => useQuery({ queryKey: ["ai"], queryFn: () => rpc<AiCatalog>("ai.catalog") });
 
 /** The provider's models with the efforts each takes. Copilot's come from its CLI, for the signed-in account. */
+/** Skills of the agent CLI (`provider`, else the one agents use) for the project, asked once `enabled`; `prefix` is what a name is typed after. */
+export const useSkills = (projectId?: string, provider?: string, enabled = true) =>
+  useQuery({ queryKey: ["ai", "skills", projectId, provider], queryFn: () => rpc<{ prefix: string; skills: Skill[] }>("ai.skills", { projectId, provider }), enabled: enabled && !!projectId, staleTime: 30_000 });
+
 export const useAiModels = (id?: string) =>
   useQuery({ queryKey: ["ai", "models", id], queryFn: () => rpc<ModelInfo[]>("ai.models", { id }), enabled: !!id, retry: false });
 

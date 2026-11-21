@@ -700,6 +700,13 @@ export interface WorktreeView {
   agent?: AgentSession | null;
 }
 
+/** A skill or custom command of an agent CLI (`ai.skills`); `from` is "project", "personal" or its Claude Code plugin. */
+export interface Skill {
+  name: string;
+  description: string;
+  from: string;
+}
+
 export interface ModelInfo {
   id: string;
   label: string;

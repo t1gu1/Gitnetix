@@ -402,6 +402,8 @@ function Detail({ r, menu, onMenuClose }: { r: Row; menu?: { x: number; y: numbe
             <AgentInput
               id="wt-ask"
               label="Message the agent"
+              projectId={r.projectId}
+              provider={a?.ai?.provider ?? pick.provider}
               value={text}
               onChange={setText}
               files={files}
@@ -613,7 +615,7 @@ function StartModal({ onClose, onMinimize }: { onClose: () => void; onMinimize: 
         <span>Agent</span>
         <AgentPicker value={pick} onChange={setPick} />
       </div>
-      <RequestField value={request} onChange={setRequest} files={files} onFiles={setFiles} onSubmit={() => ready && go()} />
+      <RequestField value={request} onChange={setRequest} files={files} onFiles={setFiles} onSubmit={() => ready && go()} projectId={pid} provider={pick.provider} />
     </Modal>
   );
 }

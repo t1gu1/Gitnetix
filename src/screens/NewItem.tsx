@@ -353,7 +353,7 @@ export function NewItem({ draft, min, onMinimize, onClose }: { draft: NewItemDra
             <span>Agent</span>
             <AgentPicker value={pick} onChange={setPick} />
           </div>
-          <RequestField value={desc} onChange={setDesc} files={files} onFiles={setFiles} onSubmit={() => ready && submit()} />
+          <RequestField value={desc} onChange={setDesc} files={files} onFiles={setFiles} onSubmit={() => ready && submit()} projectId={pid} provider={pick.provider} />
         </>
       )}
     </Modal>

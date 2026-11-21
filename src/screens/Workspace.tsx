@@ -2941,6 +2941,8 @@ function Terminal({ pid, branch, cwd, worktree, open, setOpen, onCloseWorktree, 
             <AgentInput
               id="ag-ask"
               label="Ask the agent"
+              projectId={pid}
+              provider={cur?.ai?.provider ?? pick.provider}
               value={text}
               onChange={setText}
               files={files}
