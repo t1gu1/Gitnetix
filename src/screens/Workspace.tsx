@@ -61,7 +61,7 @@ import { startRebase } from "./RebaseRun";
 import { StashList } from "./StashList";
 import { childrenOf, UpdateChildrenModal } from "./UpdateChildren";
 
-type Mode = "branch" | "wip" | "project";
+export type Mode = "branch" | "wip" | "project";
 /** On a phone, the focus view shows one at a time: the branch's timeline, or the code with the agent. */
 type Pane = "rail" | "code";
 const PANES: Pane[] = ["rail", "code"];
@@ -222,6 +222,17 @@ export function Workspace() {
     closeFileLog();
     closeStashes();
     setFocused(false);
+  };
+  /** A file an agent on `b` names in a reply, open over the map. */
+  const openAgentFile = async (b: string, path: string) => {
+    const at = await mapFileOf(pid, b, path);
+    if (!at) return false;
+    closeFocus();
+    nav.selectBranch(b);
+    // With no WIP, the files panel waits for the card's Files button.
+    if (at.mode !== "wip") setMapFiles(b);
+    setMapAt({ branch: b, ...at });
+    return true;
   };
   /** `b` = the stashes made on that branch, none = every stash. */
   const openStashes = (b?: string) => {
@@ -1050,6 +1061,7 @@ export function Workspace() {
               open={termOpen}
               setOpen={setTermOpen}
               onCloseWorktree={setClosingSession}
+              onOpenFile={openAgentFile}
               finish={finish}
             />
           </div>
@@ -1212,7 +1224,7 @@ function synthetic(name: string, checkedOut: boolean): BranchView {
 }
 
 /** WIP files appear once per side, so the side is part of the identity. */
-function fileKey(f: FileChange) {
+export function fileKey(f: FileChange) {
   return f.staged === undefined ? f.path : `${f.staged ? "s" : "u"}:${f.path}`;
 }
 
@@ -1684,9 +1696,20 @@ function MapFiles({
   );
 }
 
+/** Where `path` of `branch` opens in MapDiff: its uncommitted change, else the project's file (with the branch's changes,
+ *  if any). None when neither list has it (an ignored or deleted file). */
+export async function mapFileOf(pid: string, branch: string, path: string): Promise<{ mode: Mode; file: string } | null> {
+  // useFiles' cache, so an open files panel and this read the same list.
+  const list = (mode: Mode) =>
+    queryClient.fetchQuery({ queryKey: ["files", pid, branch, mode, undefined, undefined], queryFn: () => rpc<FileChange[]>("workspace.files", { projectId: pid, branch, mode }), staleTime: 5000 });
+  const wip = (await list("wip")).filter((f) => f.path === path);
+  if (wip.length) return { mode: "wip", file: fileKey(wip.find((f) => !f.staged) ?? wip[0]) };
+  return (await list("project")).some((f) => f.path === path) ? { mode: "project", file: path } : null;
+}
+
 /** A file of the map's files panel, floating over the map. [ and ] go through the list, S switches split and unified,
  *  Esc or the close button puts it away. */
-function MapDiff({ pid, branch, mode, file, onPick, onClose }: { pid: string; branch: string; mode: Mode; file: string; onPick: (f: FileChange) => void; onClose: () => void }) {
+export function MapDiff({ pid, branch, mode, file, onPick, onClose }: { pid: string; branch: string; mode: Mode; file: string; onPick: (f: FileChange) => void; onClose: () => void }) {
   const [asTree] = useStoredFlag("gnx.files.tree");
   const files = useFiles(pid, branch, mode).data;
   const listed = useMemo(() => fileOrder(files ?? [], asTree), [files, asTree]);
@@ -2806,7 +2829,7 @@ function CommitBox({ pid, branch, enabled, locked, staged, changed }: { pid: str
 }
 
 /** The agent of the selected branch, or the shell of its checkout (`cwd`). Several agents at once are managed on the Worktrees & agents page. */
-function Terminal({ pid, branch, cwd, worktree, open, setOpen, onCloseWorktree, finish }: { pid: string; branch?: string; cwd?: string; worktree: boolean; open: boolean; setOpen: (b: boolean) => void; onCloseWorktree: (s: AgentSession) => void; finish: FinishHandlers }) {
+function Terminal({ pid, branch, cwd, worktree, open, setOpen, onCloseWorktree, onOpenFile, finish }: { pid: string; branch?: string; cwd?: string; worktree: boolean; open: boolean; setOpen: (b: boolean) => void; onCloseWorktree: (s: AgentSession) => void; onOpenFile: (branch: string, path: string) => Promise<boolean>; finish: FinishHandlers }) {
   const hidden = useHidden();
   // A session being cleared, or whose worktree is being deleted, is gone already.
   const cur = useAgents((l) => l.find((a) => a.projectId === pid && a.branch === branch && !hidden.has(agentKey(a.id)) && !hidden.has(wtKey(a.cwd)))).data;
@@ -2828,6 +2851,12 @@ function Terminal({ pid, branch, cwd, worktree, open, setOpen, onCloseWorktree, 
   const shell = view === "shell";
   // Maximized, the terminal takes the map's or the focus view's place.
   const [max, setMax] = useState(false);
+  // Over the map, which the maximized terminal covers.
+  const openFile = async (path: string) => {
+    const ok = !!cur && (await onOpenFile(cur.branch, path));
+    if (ok) setMax(false);
+    return ok;
+  };
   const [clearing, setClearing] = useState<AgentSession | null>(null);
 
   if (!open) {
@@ -2911,6 +2940,8 @@ function Terminal({ pid, branch, cwd, worktree, open, setOpen, onCloseWorktree, 
             <AgentLog
               lines={cur?.lines ?? []}
               session={cur?.id}
+              cwd={cur?.cwd}
+              onOpenFile={openFile}
               provider={cur ? cur.ai?.provider : pick.provider}
               thinking={cur?.status === "running" || start.isPending || reserved.pending || message.isPending}
               working={busy}

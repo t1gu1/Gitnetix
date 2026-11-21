@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type CSSProperties, type MouseEvent } from "react";
+import { createPortal } from "react-dom";
 
 import { useAction, useAgents, useFiles, useOverview, usePendingBranches, useProjectPrefs, useProjects, useWorktrees } from "../api/hooks";
 import { rpc } from "../api/transport";
@@ -12,7 +13,7 @@ import { ContextMenu, type MenuItem } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
 import { Resizer, usePaneWidth } from "../components/Resizer";
 import { ShellPane, TermTabs, useTermView } from "../components/Shell";
-import { ago, Confirm, Empty, EmptyState, Header, Modal, Seg, swipeProps } from "../components/ui";
+import { ago, Confirm, Empty, EmptyState, Header, Modal, Seg, swipeProps, useCoverScrollbars } from "../components/ui";
 import { plural } from "../lib/format";
 import { agentKey, call, runTask, useHidden, wtKey } from "../lib/tasks";
 import { copyToClipboard } from "../lib/toast";
@@ -23,7 +24,7 @@ import { useBranchActions } from "./BranchMenu";
 import { revealBranch } from "./BranchMap";
 import { AbortModal } from "./AbortModal";
 import { startRebase } from "./RebaseRun";
-import { clearSession, DiscardWorktreeModal, FinishWorktreeCard, MergeModal, mergeTargets, TargetBranchModal, useFinishHandlers, useReservedStart } from "./Workspace";
+import { clearSession, DiscardWorktreeModal, fileKey, FinishWorktreeCard, MapDiff, mapFileOf, MergeModal, mergeTargets, TargetBranchModal, useFinishHandlers, useReservedStart, type Mode } from "./Workspace";
 
 type Filter = "all" | "running" | "needs";
 
@@ -309,6 +310,13 @@ function Detail({ r, menu, onMenuClose }: { r: Row; menu?: { x: number; y: numbe
   const [discarding, setDiscarding] = useState(false);
   const [clearing, setClearing] = useState(false);
   const [targeting, setTargeting] = useState(false);
+  // A file the agent's reply names, open over the page.
+  const [fileAt, setFileAt] = useState<{ mode: Mode; file: string } | null>(null);
+  const openFile = async (path: string) => {
+    const at = await mapFileOf(r.projectId, r.branch, path);
+    if (at) setFileAt(at);
+    return !!at;
+  };
   const finish = useFinishHandlers(r.projectId, actions.continueOn, (_, cwd, stay, into) => setMerging({ cwd, stay, into }));
   const isWorktree = !!r.wt && !r.wt.main;
   const session = { projectId: r.projectId, branch: r.branch, cwd: r.path };
@@ -398,7 +406,7 @@ function Detail({ r, menu, onMenuClose }: { r: Row; menu?: { x: number; y: numbe
           <ShellPane projectId={r.projectId} path={r.wt ? r.path : undefined} />
         ) : (
           <>
-            <AgentLog lines={a?.lines ?? []} session={a?.id} provider={a ? a.ai?.provider : pick.provider} thinking={a?.status === "running" || msg.isPending || start.isPending || reserved.pending} working={busy} queued={a?.queued} onEditQueued={(q) => setText((t) => [q, t].filter(Boolean).join("\n\n"))} canSendNow={a?.ai?.provider === "claude" && !!a.resumeId} limit={a?.limit} asks={a?.asks} tasks={a?.tasks} onCancelLimit={a ? () => halt(a) : undefined} actions={isWorktree && <FinishWorktreeCard session={session} finish={finish} />} picks={picks} onPicks={setPicks} empty={r.wt ? "No agent session on this checkout." : "Directory removed."} />
+            <AgentLog lines={a?.lines ?? []} session={a?.id} cwd={a?.cwd} onOpenFile={openFile} provider={a ? a.ai?.provider : pick.provider} thinking={a?.status === "running" || msg.isPending || start.isPending || reserved.pending} working={busy} queued={a?.queued} onEditQueued={(q) => setText((t) => [q, t].filter(Boolean).join("\n\n"))} canSendNow={a?.ai?.provider === "claude" && !!a.resumeId} limit={a?.limit} asks={a?.asks} tasks={a?.tasks} onCancelLimit={a ? () => halt(a) : undefined} actions={isWorktree && <FinishWorktreeCard session={session} finish={finish} />} picks={picks} onPicks={setPicks} empty={r.wt ? "No agent session on this checkout." : "Directory removed."} />
             <AgentInput
               id="wt-ask"
               label="Message the agent"
@@ -436,6 +444,7 @@ function Detail({ r, menu, onMenuClose }: { r: Row; menu?: { x: number; y: numbe
         // This screen shows branch names as they are, releases included.
         <TargetBranchModal pid={r.projectId} branch={r.branch} branches={ov.data.branches} labelOf={(b) => b} onClose={() => setTargeting(false)} onTargeted={() => setTargeting(false)} />
       )}
+      {fileAt && <FileOver pid={r.projectId} branch={r.branch} at={fileAt} onPick={(file) => setFileAt({ ...fileAt, file })} onClose={() => setFileAt(null)} />}
       {discarding && <DiscardWorktreeModal branch={r.branch} path={r.path} onClose={() => setDiscarding(false)} onConfirm={() => finish.discard(session)} />}
       {clearing && a && (
         <Confirm
@@ -617,5 +626,16 @@ function StartModal({ onClose, onMinimize }: { onClose: () => void; onMinimize: 
       </div>
       <RequestField value={request} onChange={setRequest} files={files} onFiles={setFiles} onSubmit={() => ready && go()} projectId={pid} provider={pick.provider} />
     </Modal>
+  );
+}
+
+/** The map's file view over the page, for a file an agent named: no map here. Esc, its close button or a click beside it closes it. */
+function FileOver({ pid, branch, at, onPick, onClose }: { pid: string; branch: string; at: { mode: Mode; file: string }; onPick: (file: string) => void; onClose: () => void }) {
+  useCoverScrollbars();
+  return createPortal(
+    <div className="modal-scrim" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <MapDiff pid={pid} branch={branch} mode={at.mode} file={at.file} onPick={(f) => onPick(fileKey(f))} onClose={onClose} />
+    </div>,
+    document.body,
   );
 }

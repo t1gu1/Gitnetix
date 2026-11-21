@@ -2695,6 +2695,13 @@ button.map-line-chip[aria-disabled] {
 .map-diff > .code-file {
   background: var(--panel);
 }
+/* Over the Worktrees page, where there is no map (FileOver). */
+.modal-scrim > .map-diff {
+  position: relative;
+  inset: auto;
+  width: min(1100px, 100%);
+  height: min(80vh, 100%);
+}
 .map-view[data-file-open] .map-legend {
   visibility: hidden;
 }
@@ -4957,6 +4964,10 @@ button.picker-act {
   background: none;
   font-size: 12px;
   color: var(--fg);
+}
+/* A file named in code links to its folder: link colours, not ink. */
+.ag-ai .md a code {
+  color: inherit;
 }
 .ag-ai .md .code-block {
   margin: 4px 0 8px;

@@ -8,6 +8,7 @@ import { blocks, errText, folds, questions, said, stepsLabel, tasksLabel, took, 
 import { OwnMic } from "../lib/dictation";
 import { bytes, clock, plural } from "../lib/format";
 import { copyToClipboard, toast } from "../lib/toast";
+import { FileRoot } from "./Adf";
 import { AudioPlayer, isAudio } from "./AudioPlayer";
 import { ProfileAvatar } from "./Profiles";
 import { DiffView } from "./DiffView";
@@ -452,9 +453,9 @@ const TAIL = 60;
  * `working`: its run is going (or paused), so the last turn stays unfolded. `canSendNow`: its run can be cut short for the queue (Claude Code, which resumes its task).
  * `limit`: the usage limit its last run stopped at, shown under the log until it continues; `onCancelLimit` stops it instead.
  * `asks`: actions its run waits on you to allow, each as a card at the end of the log. `tasks`: what its run has going in
- * the background, shown while it works.
+ * the background, shown while it works. `cwd`: the folder it works in, which the files its replies name are in; `onOpenFile` opens one of them (its path from `cwd`), false when no file list has it.
  */
-export function AgentLog({ lines, empty, picks, onPicks, actions, thinking, working, provider, session, queued = [], onEditQueued, canSendNow, limit, onCancelLimit, asks = [], tasks = [] }: { lines: LogLine[]; empty?: string; picks: Choice[]; onPicks: (c: Choice[]) => void; actions?: ReactNode; thinking?: boolean; working?: boolean; provider?: string; session?: string; queued?: string[]; onEditQueued?: (text: string) => void; canSendNow?: boolean; limit?: AgentLimit | null; onCancelLimit?: () => void; asks?: AgentAsk[]; tasks?: AgentTask[] }) {
+export function AgentLog({ lines, empty, picks, onPicks, actions, thinking, working, provider, session, queued = [], onEditQueued, canSendNow, limit, onCancelLimit, asks = [], tasks = [], cwd, onOpenFile }: { lines: LogLine[]; empty?: string; picks: Choice[]; onPicks: (c: Choice[]) => void; actions?: ReactNode; thinking?: boolean; working?: boolean; provider?: string; session?: string; queued?: string[]; onEditQueued?: (text: string) => void; canSendNow?: boolean; limit?: AgentLimit | null; onCancelLimit?: () => void; asks?: AgentAsk[]; tasks?: AgentTask[]; cwd?: string; onOpenFile?: (path: string) => Promise<boolean> }) {
   const me = useMe();
   const ref = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
@@ -485,6 +486,11 @@ export function AgentLog({ lines, empty, picks, onPicks, actions, thinking, work
     if (el.scrollHeight - el.clientHeight < 400) more();
   }, [from]); // eslint-disable-line react-hooks/exhaustive-deps
   const qs = questions(lines);
+  // Through a ref: a new handler on each key typed below would redraw every file link.
+  const opener = useRef(onOpenFile);
+  opener.current = onOpenFile;
+  const canOpen = !!onOpenFile;
+  const fileRoot = useMemo(() => (cwd ? { root: cwd, open: canOpen ? (p: string) => opener.current!(p) : undefined } : null), [cwd, canOpen]);
   // A usage limit holds it: its card shows under the log.
   const held = !!limit && !!session && !working;
   // Picks for questions no longer asked (answered, another session) leave the prompt box.
@@ -656,7 +662,7 @@ export function AgentLog({ lines, empty, picks, onPicks, actions, thinking, work
         </div>
       )}
       {lines.length === 0 && <div className="ag-empty">{empty ?? "No output yet."}</div>}
-      {history}
+      <FileRoot.Provider value={fileRoot}>{history}</FileRoot.Provider>
       {list.at(-1)?.kind === "wait" && (
         <div className="ag-wait">
           <span className="ag-wait-chip">Your turn!</span>

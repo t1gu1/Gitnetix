@@ -1,7 +1,7 @@
 import { createElement, type CSSProperties, Fragment, memo, type ReactNode, type Ref, type RefObject, type TouchEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-import { link } from "./Adf";
+import { FileLink, link } from "./Adf";
 import { Icon } from "./Icon";
 import { Picture } from "./Picture";
 import { isPageRoute } from "./TopBar";
@@ -403,7 +403,7 @@ export function ago(iso?: string | null) {
 // A link's text can be a picture: [![alt](src)](href).
 // Every span has a length cap: a comment of nothing but `[`, `**` or backticks, never closed, makes each opener scan the
 // rest of the text, and the time grows with the square of its length (65 000 `[` took 2 s, `[a](` repeated far longer).
-const INLINE = /(`[^`]{1,2000}`)|\*\*(.{1,2000}?)\*\*|~~(.{1,2000}?)~~|(!?)\[(!\[[^\]]{0,500}\]\([^)\s]{1,2000}(?:\s[^)]{0,2000})?\)|[^\]]{0,500})\]\(([^)\s]{1,2000})(?:\s[^)]{0,2000})?\)|(https?:\/\/[^\s<>)]{0,2000}[^\s<>).,;:!?])|(?<![\w*])[*_](?![\s*_])(.{1,2000}?)[*_](?![\w*])/g;
+const INLINE = /(`[^`]{1,2000}`)|\*\*(.{1,2000}?)\*\*|~~(.{1,2000}?)~~|(!?)\[(!\[[^\]]{0,500}\]\([^)\s]{1,2000}(?:\s[^)]{0,2000})?\)|[^\]]{0,500})\]\(([^)\s]{1,2000})(?:\s[^)]{0,2000})?\)|((?:https?|file):\/\/[^\s<>)]{0,2000}[^\s<>).,;:!?])|(?<![\w*])[*_](?![\s*_])(.{1,2000}?)[*_](?![\w*])/g;
 const PICTURE = /^!\[([^\]]*)\]\(([^)\s]+)/;
 const TAG = /<\/?[a-z][\w-]*(?:\s[^<>]*)?\/?>/i;
 // Code spans first, so a tag inside one stays text.
@@ -428,7 +428,7 @@ export function inline(s: string, key?: string, html: Media = false): ReactNode 
     out.push(s.slice(last, m.index));
     const [, code, bold, strike, bang, label, href, url, em] = m;
     const j = m.index;
-    if (code) out.push(<code key={j}>{code.slice(1, -1)}</code>);
+    if (code) out.push(<FileLink key={j} to={code.slice(1, -1)} code><code>{code.slice(1, -1)}</code></FileLink>);
     else if (bold) out.push(<strong key={j}>{inline(bold, undefined, html)}</strong>);
     else if (strike) out.push(<s key={j}>{inline(strike, undefined, html)}</s>);
     else if (href && bang && html) out.push(<Fragment key={j}>{picture({ src: href, alt: label })}</Fragment>);
