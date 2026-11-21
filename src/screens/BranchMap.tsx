@@ -1025,12 +1025,10 @@ export function BranchMap({
           }
         />
       )}
-      {/* A file open over the map: the map under it holds still, WebKitGTK paints its scrollbars above everything. */}
       <div ref={view} className="map-view" data-file-open={openFile ? "" : undefined}>
         <div
           ref={scroller}
           className="map-canvas"
-          data-covered={openFile ? "" : undefined}
           role="region"
           aria-label="Branches"
           onScroll={onScroll}

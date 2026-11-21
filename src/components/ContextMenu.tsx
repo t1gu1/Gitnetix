@@ -2,7 +2,6 @@ import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type 
 import { createPortal } from "react-dom";
 
 import { Icon } from "./Icon";
-import { useCoverScrollbars } from "./ui";
 
 export type MenuItem =
   | "sep"
@@ -81,7 +80,6 @@ export function ContextMenu({ x, y, items, label, alignRight, columns, search, o
   }));
   // Filtering only shrinks the list: the menu keeps the side and width it opened with instead of jumping around.
   const opened = useRef<{ up: boolean; width: number } | null>(null);
-  useCoverScrollbars(ref);
 
   useLayoutEffect(() => {
     const el = ref.current;

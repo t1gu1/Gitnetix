@@ -168,25 +168,6 @@ export function swipeProps(onSwipe: (dir: 1 | -1) => void) {
   };
 }
 
-// WebKitGTK (the Linux app) draws a scroller's overlay scrollbar above everything, dialogs included, and ignores scrollbar
-// style changes once it is drawn. Only a scroller that stops scrolling loses it, which costs no room with overlay scrollbars.
-const WEBKITGTK = /Linux/.test(navigator.userAgent) && /AppleWebKit/.test(navigator.userAgent) && !/Chrome|Android/.test(navigator.userAgent);
-// shortcut: marks the scrollers there when it opens; one the page adds under it later keeps its scrollbar.
-/**
- * While a dialog is up, the scrollers of the page under it (#root) stop scrolling (app.css), taking their scrollbars away.
- * With `own` (a floating menu), every scroller but its own does, a dialog's under it included.
- */
-export function useCoverScrollbars(own?: RefObject<HTMLElement | null>) {
-  useEffect(() => {
-    if (!WEBKITGTK) return;
-    const mine = [...document.querySelectorAll<HTMLElement>(`${own ? "body" : "#root"} *:not([data-covered])`)].filter(
-      (el) => !own?.current?.contains(el) && (el.scrollHeight > el.clientHeight || el.scrollWidth > el.clientWidth) && /auto|scroll/.test(getComputedStyle(el).overflow),
-    );
-    for (const el of mine) el.dataset.covered = "";
-    return () => mine.forEach((el) => delete el.dataset.covered);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-}
-
 /** Without `onClose` it stays up (no close button): while what it started is still running. */
 /** `actions` stand in the head, before the close button. */
 /** `minimize`: closing (Escape, a click outside, its button) only tucks it away, the work it shows going on. */
@@ -197,8 +178,6 @@ export function Modal({ title, sub, onClose, onDismiss, children, footer, width,
     window.addEventListener("keydown", k);
     return () => window.removeEventListener("keydown", k);
   }, [onClose, onDismiss]);
-  useCoverScrollbars();
-  // Portaled out of #root so hiding the scrollbars behind the modal skips the modal's own.
   return createPortal(
     <div className="modal-scrim" onMouseDown={(e) => e.target === e.currentTarget && (onDismiss ?? onClose)?.()}>
       <div ref={ref} className="modal" role="dialog" aria-modal="true" style={width ? { width } : undefined}>

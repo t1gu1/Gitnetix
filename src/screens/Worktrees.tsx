@@ -13,7 +13,7 @@ import { ContextMenu, type MenuItem } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
 import { Resizer, usePaneWidth } from "../components/Resizer";
 import { ShellPane, TermTabs, useTermView } from "../components/Shell";
-import { ago, Confirm, Empty, EmptyState, Header, Modal, Seg, swipeProps, useCoverScrollbars } from "../components/ui";
+import { ago, Confirm, Empty, EmptyState, Header, Modal, Seg, swipeProps } from "../components/ui";
 import { plural } from "../lib/format";
 import { agentKey, call, runTask, useHidden, wtKey } from "../lib/tasks";
 import { copyToClipboard } from "../lib/toast";
@@ -631,7 +631,6 @@ function StartModal({ onClose, onMinimize }: { onClose: () => void; onMinimize: 
 
 /** The map's file view over the page, for a file an agent named: no map here. Esc, its close button or a click beside it closes it. */
 function FileOver({ pid, branch, at, onPick, onClose }: { pid: string; branch: string; at: { mode: Mode; file: string; preview?: boolean }; onPick: (file: string) => void; onClose: () => void }) {
-  useCoverScrollbars();
   const nav = useNav();
   // History lives in the Workspace's full-screen branch: the file opens there.
   const history = (path: string, sha?: string) => {

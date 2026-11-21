@@ -143,8 +143,9 @@ a:hover {
 * {
   caret-color: var(--fg);
 }
-/* Thin scrollbars that sit on the surface instead of the OS's grey gutter. */
-* {
+/* Thin scrollbars that sit on the surface instead of the OS's grey gutter. WebKitGTK (data-gtk, main.tsx) skips this rule:
+   with it set, that engine drops the ::-webkit-scrollbar ones below for overlay scrollbars painted above toasts and dialogs. */
+:where(:root:not([data-gtk])) * {
   scrollbar-width: thin;
   scrollbar-color: color-mix(in srgb, var(--fg) 18%, transparent) transparent;
 }
@@ -163,6 +164,13 @@ a:hover {
 }
 ::-webkit-scrollbar-thumb:hover {
   background-color: color-mix(in srgb, var(--fg) 30%, transparent);
+}
+/* WebKitGTK keeps a scrollbar's first colors through a theme change: a gray that reads on light and dark themes. */
+[data-gtk] ::-webkit-scrollbar-thumb {
+  background-color: rgb(128 128 128 / 35%);
+}
+[data-gtk] ::-webkit-scrollbar-thumb:hover {
+  background-color: rgb(128 128 128 / 55%);
 }
 .mono {
   font-family: var(--mono);
@@ -8139,10 +8147,6 @@ button.app-row:hover > .app-row-chev {
   padding: 16px;
   background: var(--scrim);
   animation: fade-in var(--t) var(--ease);
-}
-/* WebKitGTK paints overlay scrollbars above everything, the modal included: the scrollers under it stop scrolling (useCoverScrollbars in ui.tsx). */
-[data-covered] {
-  overflow: hidden !important;
 }
 .modal {
   width: 560px;
