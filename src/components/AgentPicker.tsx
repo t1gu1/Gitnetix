@@ -142,15 +142,16 @@ export function AgentPicker({ value: saved, onChange, compact }: { value: AgentP
 }
 
 /** `hint`: a word on the option, at the menu row's end (the picked one shows its check there instead). */
-type Option = { value: string; label: string; hint?: string };
+/** `lead`: a mark drawn before the label in the menu row (a status ring, priority bars). */
+type Option = { value: string; label: string; hint?: string; lead?: ReactNode };
 
-type ChoiceProps = { label: string; value: string; options: Option[]; onChange: (v: string) => void; className?: string; id?: string; style?: CSSProperties; search?: string };
+type ChoiceProps = { label: string; value: string; options: Option[]; onChange: (v: string) => void; className?: string; id?: string; style?: CSSProperties; search?: string; lead?: ReactNode };
 
 /**
  * A button opening the options as a menu, like a branch's right-click one; `select menu-select` styles it as a form field.
  * `search`: the placeholder of a field filtering the options, in a wider menu (e.g. branches, whose names run long); on by itself for long lists.
  */
-export function MenuChoice({ label, value, options, onChange, className = "picker-act", id, style, search }: ChoiceProps) {
+export function MenuChoice({ label, value, options, onChange, className = "picker-act", id, style, search, lead }: ChoiceProps) {
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   return (
     <>
@@ -166,7 +167,10 @@ export function MenuChoice({ label, value, options, onChange, className = "picke
           setMenu({ x: r.left, y: r.bottom + 2 });
         }}
       >
-        <span className="ellipsis">{options.find((o) => o.value === value)?.label ?? (value || label)}</span>
+        <span className="menu-lead">
+          {lead}
+          <span className="ellipsis">{options.find((o) => o.value === value)?.label ?? (value || label)}</span>
+        </span>
         <Icon name="chevronDown" size={10} />
       </button>
       {menu && (
@@ -176,7 +180,7 @@ export function MenuChoice({ label, value, options, onChange, className = "picke
           label={label}
           onClose={() => setMenu(null)}
           search={search ?? (options.length > SEARCH_ABOVE ? "Filter" : undefined)}
-          items={options.map((o) => ({ id: o.value || "default", label: o.label, icon: null, hint: o.value === value ? <Icon name="check" size={13} /> : o.hint, run: () => onChange(o.value) }))}
+          items={options.map((o) => ({ id: o.value || "default", label: o.lead ? <span className="menu-lead">{o.lead}{o.label}</span> : o.label, text: o.label, icon: null, hint: o.value === value ? <Icon name="check" size={13} /> : o.hint, run: () => onChange(o.value) }))}
         />
       )}
     </>

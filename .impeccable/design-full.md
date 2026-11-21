@@ -133,6 +133,18 @@ typography:
     fontWeight: 400
     lineHeight: "20px"
     letterSpacing: "0em"
+  ticket-title:
+    fontFamily: "Inter, system-ui, sans-serif"
+    fontSize: "26px"
+    fontWeight: 600
+    lineHeight: "32px"
+    letterSpacing: "-0.015em"
+  reading:
+    fontFamily: "Inter, system-ui, sans-serif"
+    fontSize: "14px"
+    fontWeight: 400
+    lineHeight: 1.65
+    letterSpacing: "0em"
 rounded:
   none: "0px"
   sm: "2px"
@@ -418,6 +430,70 @@ components:
     typography: "{typography.body-strong}"
     padding: "0 10px"
     height: "38px"
+  tk-row:
+    textColor: "{colors.muted}"
+    typography: "{typography.body}"
+    rounded: "{rounded.md}"
+    padding: "0 12px"
+    height: "32px"
+  tk-row-open:
+    textColor: "{colors.ink}"
+    typography: "{typography.body}"
+    rounded: "{rounded.md}"
+    padding: "0 12px"
+    height: "32px"
+  tk-row-touch:
+    textColor: "{colors.muted}"
+    typography: "{typography.body}"
+    rounded: "{rounded.md}"
+    padding: "8px 12px"
+    height: "44px"
+  tk-ring:
+    backgroundColor: "transparent"
+    rounded: "{rounded.circle}"
+    size: "11px"
+  tk-ring-done:
+    backgroundColor: "{colors.add}"
+    rounded: "{rounded.circle}"
+    size: "11px"
+  tk-reader:
+    textColor: "{colors.ink}"
+    typography: "{typography.reading}"
+    width: "1180px"
+  tk-title:
+    textColor: "{colors.ink}"
+    typography: "{typography.ticket-title}"
+  tk-margin:
+    padding: "26px 28px 40px"
+    width: "400px"
+  tk-stop:
+    backgroundColor: "{colors.ground}"
+    rounded: "{rounded.circle}"
+    size: "11px"
+  tk-stop-on:
+    backgroundColor: "{colors.control}"
+    rounded: "{rounded.circle}"
+    size: "11px"
+  tk-stop-release:
+    backgroundColor: "{colors.ground}"
+    rounded: "{rounded.circle}"
+    size: "17px"
+  tk-release-numeral:
+    textColor: "{colors.ink}"
+    typography: "{typography.display}"
+  tk-kv-row:
+    textColor: "{colors.faint}"
+    typography: "{typography.meta}"
+    height: "40px"
+  tk-skel-bar:
+    backgroundColor: "{colors.raised}"
+    rounded: "{rounded.sm}"
+    height: "9px"
+  avatar:
+    backgroundColor: "{colors.hairline-strong}"
+    textColor: "{colors.ink}"
+    rounded: "{rounded.circle}"
+    size: "16px"
 ---
 
 # Design System: Gitnetix
@@ -436,6 +512,7 @@ Key characteristics:
 - Cool slate-to-black ground, panels one step up, 1px hairlines.
 - Branch map as a station line: hairline trunk, ring stations, two-row boxes, ahead/behind chips on the lines, floating commits.
 - Pull requests read as the same line: ring stations by state in the list, and each pull request's checks, review and conversations as stations on its way to the base.
+- Tickets read like a page: one-line rows with a status ring, a 1180px reading column, and the ticket's way to a release as a station line in the margin.
 - White controls: solid white primary, 1px outline secondary.
 - Hue only for diff add/delete, warnings and conflicts, plus the flowing rainbow on agent work.
 - Tall condensed numerals and versions; tracked small-caps labels.
@@ -466,7 +543,7 @@ The Black & White pair highlights code in its two inks: keywords and types bold 
 ### Named Rules
 **The Control Rule.** Ink (`--fg`) means "this is yours": selection, the active tab, segment and tag, check fills and focus, in every theme. `--accent` means "you can press this" and marks controls only: primary buttons, links and a few control states. In Black & White the accent is white (ink in light), so ink is the only control colour; Gitnetix Dark/Light and the third-party themes keep their own accent as their control colour. Never spend an accent on selection, focus, roles or status.
 
-**The Meaning Rule.** Branch type, trunk, release and props carry no hue. Type reads as a text label (FEAT, FIX); trunk and release read by position and the display face. A hue on screen must answer "added, deleted, warning or conflict", or be the Agent Working rainbow.
+**The Meaning Rule.** Branch type, trunk, release, props and people carry no hue. Type reads as a text label (FEAT, FIX); trunk and release read by position and the display face. Names carry no hue either, like branch types and labels: an avatar without a picture is the same neutral disc for everyone. A hue on screen must answer "added, deleted, warning or conflict", or be the Agent Working rainbow.
 
 **The Agent Working Rule.** Anything an agent is working on flows with the incumbent rainbow, and nothing else may. Text gets weight 600, a 90deg gradient of g1, g2, g3, g4, g1 at 300% size clipped to the text, flowing in 8s `steps(384)`, with no glow (the colour change is enough). Icons cycle their stroke through g1, g2, g3, g4 in 8s `steps(96)` with a `drop-shadow(0 0 5px)` of g2 at 45%; the working dot blinks and cycles the same way, with no glow. It appears on the top bar's Worktrees & agents icon, the project tab's dot while agents run, a branch box's "Claude working" info row, the selected card's Agent value, the focus head's agent pill and the agents panel's session dot. A waiting agent is Warn, never rainbow. Reduced motion stops all three animations and leaves the colours still.
 
@@ -481,7 +558,7 @@ The Black & White pair highlights code in its two inks: keywords and types bold 
 Character: one loud condensed voice for the few numbers and versions that matter; everything else is small, even and tabular.
 
 ### Hierarchy
-- **Display** (Antonio 600, 30px, line-height 1): the next release in its box on the branch map (`v0.6.0`).
+- **Display** (Antonio 600, 30px, line-height 1): the next release in its box on the branch map (`v0.6.0`) and on a ticket's Release station.
 - **Display Title** (Antonio 600, 18px, line-height 1, 0.06em tracking, uppercase): screen titles at the left of the toolbar (BRANCH MAP).
 - **Page Title** (Antonio 600, 24px, line-height 1, 0.05em tracking, uppercase): the title of a full page (Analytics, Tickets, Templates, AI setup). **Hero Title** (Antonio 600, 32px, 0.04em, uppercase): the welcome screen's heading.
 - **Display Numeral** (Antonio 600, 44px, line-height 1): headline counts with a Label caption under them (Ahead / Behind / WIP files on the selected card; KPI values in Analytics, Sprints, Weekly).
@@ -491,9 +568,11 @@ Character: one loud condensed voice for the few numbers and versions that matter
 - **Button** (Inter 600, 11px, 0.12em tracking, uppercase): regular buttons.
 - **Button Small** (Inter 500, 12px/18px, no tracking, sentence case): small toolbar buttons and toggles (Fit, Show all).
 - **Ref** (JetBrains Mono 13px, 500; 600 for the current branch and `main`): branch names, refs, shipped versions on the trunk, file paths. Code view crumbs are Mono 13px.
-- **Count** (JetBrains Mono 11px, 500): counts after tab and segment labels, the ahead/behind line chip, the Esc key cap. Commit author initials and ages use the same face at 400, faint.
+- **Count** (JetBrains Mono 11px, 500): counts after tab and segment labels, the ahead/behind line chip, the Esc key cap. Commit ages use the same face at 400, faint, beside the author's avatar.
 - **Field** (Inter 12.5px/18px): text inputs and the file rows of the code view's rail (file name 500 ink, its folder 11.5px faint).
 - **Code** (JetBrains Mono 12px/20px): diffs, logs, terminal.
+- **Ticket Title** (Inter 600, 26px/32px, -0.015em, balanced wrap): a ticket's title at the head of the reader; 22px/28px when the reader is under 520px wide.
+- **Reading** (Inter 14px, line-height 1.65): a ticket's description in the reading column.
 
 All numbers use `font-variant-numeric: tabular-nums`. Nothing functional is set below 11px.
 
@@ -553,7 +632,7 @@ A box holds a header row and one info row, never commits. Panel background, 1px 
 Behind lives on the line, not in the box: a square chip centred on the midpoint of each incoming line whose branch is behind its parent. Ahead is not shown on the line. 18px tall, padding 0 6px, 1px hairline-strong border, 2px corners, ground fill, Count type (Mono 11px 500) in muted, reading "↓behind" in Delete. On the route its border takes the route colour and its text ink; on a falling-behind line its border is dashed. With a behind count it is a button that rebases onto the parent (ink border and text on hover); while the branch's agent works it is `aria-disabled` with a not-allowed cursor and a title saying why. Otherwise (a remote or non-work branch) it is a plain label.
 
 ### Floating commits
-Commits float under their box with no container, indented 18px. Rows are 22px: subject in Inter 12px muted (ellipsis), author initials and age on the right in Mono 11px faint; the whole row turns ink on hover. Only commits float: the box's situation, agent and WIP live in its info row. The list ends with "See all N" in tracked caps (Inter 600, 11px, 0.12em, faint). Merged stations and "Clean up merged" follow on the trunk or release line below.
+Commits float under their box with no container, indented 18px. Rows are 22px: subject in Inter 12px muted (ellipsis), the author's 14px avatar and the age on the right (age in Mono 11px faint); the whole row turns ink on hover. Only commits float: the box's situation, agent and WIP live in its info row. The list ends with "See all N" in tracked caps (Inter 600, 11px, 0.12em, faint). Merged stations and "Clean up merged" follow on the trunk or release line below.
 
 ### Branch map route
 **The Hairline Rule.** Every map line is a hairline. The route from the trunk to the checked-out branch is 1.5px in the route colour (control white, ink in light mode); every other link is a 1px Link Dim curve; a falling-behind branch's link is dashed 3/4. No thick transit lines, no hue on the route, no pulse travelling along it, no glow. A one-line legend box floats at the canvas's bottom left (8px in, 16px up; 1px hairline-strong border, 3px corners, ground at 85%, padding 6px 12px, Inter 12px muted) with the route, other lines, falling behind and the line chip. Keys that don't fit wrap out of sight, never cut in half, and a "See all" link lists them in a 360px modal. It stops short of the selected branch's side column.
@@ -575,6 +654,17 @@ The branch map's grammar applied to a pull request: ring stations in the list, a
 - **Conversation:** from 760px the description and the talk sit side by side in two columns that scroll on their own, a hairline between them (a short description stacks above the talk instead); narrower, they stack and the pane scrolls as one. Sections pad 18px 24px; their headings (DESCRIPTION, CONVERSATION) are Label type; the description stops at 76ch. Threads hang on a vertical Hairline Strong line (22px indent), each on a 9px ring: ink while unresolved, faint once resolved. The new comment box sticks to the foot of the talk on ground.
 - **New pull request modal:** on a fork, the repository it opens on; From → To branch pickers; then its commits, or why it can't open.
 
+### Tickets screen
+A ticket reads like a page, and its way to a release is drawn as a station line beside it, in the branch map's grammar.
+- **Toolbar:** the map's 48px toolbar. "TICKETS" in Display Title, then a 28px trackers menu (up to 220px: All trackers or one tracker with its count, and Connect another tracker), a Mine / Everyone segment, the "Active sprint" (or cycle) check toggle when Jira or Linear cycles are connected, a By status / By release segment; pushed right, the search input ("Search by key or title"), a sync icon button whose tooltip says when it last synced, and a small "Triage N unplanned" button with a sparkle when open releases have unplanned tickets. Under 720px the toolbar wraps: segments, then the toggle and trackers, then the search with sync and triage at its end; a phone's detail pane goes without it.
+- **List rows:** one line a ticket, at least 32px, padding 0 12px, 10px gaps, 1px apart, under Label group heads with a Mono count. An 11px status ring: to do an empty faint ring; in progress an ink ring half full; in review three quarters full; ready to merge an Add ring with an Add dot; done an Add disc with a ground check. Only ready and done are green. Then the key in Mono 12px faint (one width for the whole list), the title in muted Inter 13px with an ellipsis, and the priority as three bars 2.5px wide (Delete urgent, high an orange mixed 60/40 from Warn and Delete, medium faint with a 32% hint of Warn, faint otherwise). With Everyone on, the assignee's 18px avatar alone (neutral, one initial), the full name in its tooltip; nobody's ticket shows an 18px dashed faint ring. An agent on the ticket's branch puts the working dot before the title (Agent Working Rule); a waiting agent's dot is Warn. The open row's key and title turn ink and the row takes an inset 1px ink outline. Ticket types and labels show as text, never hue. On a phone each row takes two lines, 44px, padding 8px 12px: the ring and title, then the key, priority, avatar and the first name beside it (up to 96px, 12px muted), since a phone can't hover for the tooltip.
+- **Loading:** "Syncing tickets…" with a spinner (12px muted, padding 12px 18px 8px), then seven 33px skeleton rows: a ring drawn in Hairline Strong, a 46px bar and a title bar, 9px tall in Raised with 2px corners.
+- **Empty states:** with no tracker connected, the empty state shows the line a ticket travels above its text: Ticket, Branch, Pull request and Release as faint stations down a Hairline Strong line, the release the 17px station, then "Connect a tracker" as the primary. A filtered-out list says why in a 20px 18px padded block and offers Clear search, Show everyone's tickets or Show all trackers as small buttons.
+- **Reader:** the detail pane holds a reading column and a right margin, each scrolling on its own. The column centres at 1180px (padding 40px 32px 64px). Its head is the Ticket Title with the tracker's link button top right, then the fields 14px under it as a wrapping row of 28px field menus at 12.5px (up to 240px): the key in Mono 12px, status with its ring, priority, type (a menu for Jira, plain muted text otherwise), labels for Linear, and the assignee's avatar with the full name. The body follows 28px down, 32px between sections: the description in Reading type, then criteria, files and comments under Label section heads with Mono counts. Criteria and comment threads lie open between hairlines (36px criteria rows), never in panels.
+- **Work line:** the margin, 400px with a hairline on its left (padding 26px 28px 40px; 320px under 1000px of detail pane), lists Ticket, Branch, Pull request, Release and Shipped as stations down a Hairline Strong line, 22px apart. Reached stations fill with the route colour and the line between them is 1.5px route; the next station rings in ink; later stations and their line are dashed. Release is the 17px station (1.5px ring). Each station carries a Label name (ink once reached), a 13px line and a 12px muted meta line, and holds what can be done there: the ticket's status and how long it has been in it, with who opened it and when; the branch in Mono 500 with commits, WIP and parent, its agent state (rainbow while working, Warn while waiting), and Start a branch or Go to branch as small primaries; the pull request's Mono number and state with Open pull request; the planned release as a Display numeral with its tag and its branch in Mono, or an AI suggestion box (ink border) with Dismiss and Accept; Shipped "In vX" or a faint "Not yet".
+- **Planning rows:** under the work line, a hairline above them: Release, Fix versions (Jira), Parent, Project, Time left and Tracker as 40px rows split by hairlines, the term 104px in 12px faint, the value 12.5px or a full-width 30px menu select.
+- **Narrow panes:** under 760px of detail pane the reader stacks and scrolls as one: the title and fields (padding 28px 24px 22px), the work line between hairlines, then the text. Under 520px the title drops to 22px/28px and paddings to 16px.
+
 ### Focus head (code view)
 A 48px bar above the code view. Left: a "Branch map" back control (check-toggle shape with a back icon) carrying an Esc key cap (Count type, faint, 1px hairline-strong border, 2px corners, padding 0 5px). Then crumbs in Mono 13px muted with faint › separators, the current one ink 500, followed by the CHECKED OUT tag. Pushed right, status pills in Mono 12px muted, 18px apart: "↑4 ↓2 vs v0.6.0" (↓ in Delete), the agent state with its dot (rainbow while working), "↑1 to push".
 
@@ -587,6 +677,9 @@ The app's left rail in the new style, 320px, hairline on the right.
 - **Section rows:** 32px. A tracked-caps toggle (Inter 600, 11px, 0.12em, faint, ink on hover) with a 12px chevron and a Mono 500 count ("STAGED 1"); icon actions on the right as 24px buttons with 13px icons (stage all or unstage all, discard all; discard turns Delete on hover).
 - **File rows:** 30px, Field type. A Mono 600 status letter (A in Add, M muted), the file name in ink 500 then its folder in 11.5px faint, +/− counts in Mono 12px Add/Delete. Per-row stage and discard icons show on hover, focus or selection. Hover and the selected row sit on the Selected background.
 - **Commit box:** at the bottom, a hairline above it, padding 10px 16px 14px, 8px gaps. A "COMMIT MESSAGE" section toggle with a small outlined "Draft" button (24px check-toggle shape, sparkle icon, AI drafts from staged files); a Summary input ("Summary — leave empty for AI"); a Description textarea; and a full-width primary split "Commit 1" with a sparkle, the count at 70% opacity, and an options part.
+
+### Avatars
+A person is a small neutral circle, or their picture. `Avatar` (`src/components/Avatar.tsx`, class `.user-avatar`) draws the person's picture when there is one: their Gravatar when it is turned on in the profile, and for your own commits your profile's photo or Gravatar. Otherwise it shows initials on one disc for everyone: Hairline Strong (`--line2`) with the initials in ink, Inter 600 whatever face the row around it uses, slightly tight (-0.02em), the capitals centred; no per-person hue, in any theme (Meaning Rule). From 22px it holds two initials at 42% of its size, never under 11px; under 22px the first initial alone at 11px, or 3px under the dot's size when the dot can't hold 11px (the 12px commit avatar in the focus timeline, 9px). Sizes in use: 12, 14, 16, 18, 20, 24 and 28px. The full name is its tooltip and label; where the name already shows beside it (Analytics, ticket comment authors) it is decorative, hidden from assistive tech and without a tooltip. Not part of this rule: your own profile picture (`ProfileAvatar`), which keeps the colour and emoji you chose for it, and the agent provider's logo mark (`.ag-avatar`).
 
 ### Inputs
 Ground fill, 1px hairline-strong border, 3px corners, Field type in ink, faint placeholder. A single line is 32px with 0 10px padding; a textarea is 64px with 8px 10px padding and no resize handle. Focus: the border turns ink (no outline).

@@ -4,7 +4,7 @@ import { plural } from '../../../../src/lib/format';
 import { kindOf, kindOfBranch } from '../../../../src/lib/kinds';
 import { trackersOf } from './sprintData';
 import { Sprints } from './Sprints';
-import { CheckPicker, Empty, Modal, Seg } from './ui';
+import { Avatar, CheckPicker, Empty, Modal, Seg } from './ui';
 import { Weekly } from './Weekly';
 
 /** src/screens/Analytics.tsx over made-up activity: the same numbers for the same day, so the charts hold still between visits. */
@@ -121,7 +121,6 @@ const lead = (h: number) => {
   return d === 0 ? `${r} h` : r === 0 ? `${d} d` : `${d} d ${r} h`;
 };
 const fmt = (date: string, opts: Intl.DateTimeFormatOptions) => new Date(`${date}T12:00:00`).toLocaleDateString('en-US', opts);
-const initials = (name: string) => name.split(' ').map((w) => w[0]).join('').slice(0, 2).toUpperCase();
 const GROUPS = [['feat', 'Features'], ['fix', 'Fixes'], ['other', 'Other']] as const;
 /** Ticket keys in a commit's subject, or in the branch it was made on, as keysIn in src/screens/Analytics.tsx finds them. */
 const keysIn = (subject: string, branch: string) => [...new Set([...(subject.match(/\b[A-Z][A-Z0-9]{1,9}-\d+\b/g) ?? []), ...(branch.toUpperCase().match(/\b[A-Z][A-Z0-9]{1,9}-\d+/g) ?? [])])];
@@ -258,7 +257,7 @@ function Body({ a, by, multi, onDay }: { a: A; by: string | null; multi: boolean
                 </div>
                 {hover.authors.map(([name, c]) => (
                   <div key={name} className="row">
-                    <span className="avatar" style={{ width: 20, height: 20, flexBasis: 20, fontSize: 9 }}>{initials(name)}</span>
+                    <Avatar name={name} size={20} decorative />
                     <span className="grow">{name}</span>
                     <span className="mono">{c}</span>
                   </div>
@@ -332,7 +331,7 @@ function DayModal({ date, ids, who, multi, onClose, onTicket }: { date: string; 
       {[...people].sort((x, y) => y[1].length - x[1].length).map(([name, of]) => (
         <section key={name} className="col" style={{ gap: 8 }}>
           <div className="row">
-            <span className="avatar" style={{ width: 24, height: 24, flexBasis: 24, fontSize: 10 }}>{initials(name)}</span>
+            <Avatar name={name} size={24} decorative />
             <strong className="grow">{name}</strong>
             <span className="muted">{plural(of.length, 'commit')}</span>
           </div>

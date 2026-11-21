@@ -175,6 +175,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("tickets.setStatus", "Move a ticket to one of tickets.statuses", "source, conn, id, to"),
     ("tickets.fields", "Priorities, issue types and labels a Jira or Linear ticket can be set to (Jira: priorities and types; Linear: priorities and labels); empty for the other trackers", "source, conn, id"),
     ("tickets.comments", "A ticket's comments, oldest first (id, author, body as Markdown, doc for Jira's ADF, createdAt, replies: a Linear thread's replies under its first comment)", "source, conn, id"),
+    ("tickets.activity", "When a ticket was opened and by whom, and since when it has had its status (createdAt?, createdBy, statusAt?; empty when the tracker doesn't say)", "source, conn, id"),
     ("tickets.comment", "Post a comment (Markdown) on a Linear ticket; with parentId (the id of a thread's first comment from tickets.comments), a reply in that thread", "source, conn, id, body, parentId?"),
     ("tickets.picture", "A picture in a ticket that needs the tracker's sign-in (a Jira attachment's name or link, a Trello attachment, a Linear upload, a private GitHub picture), as a data: URL", "source, conn, id, url"),
     ("tickets.files", "A ticket's files (id, name, size?): Jira, Trello and Asana attachments, the files uploaded in a Linear or GitHub ticket's description and comments", "source, conn, id"),
@@ -1292,6 +1293,7 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
         "tickets.statuses" => to(k.ticket_status(&s(&p, "source")?, &os(&p, "conn").unwrap_or_default(), &s(&p, "id")?, None).await?),
         "tickets.fields" => to(k.ticket_fields(&s(&p, "source")?, &os(&p, "conn").unwrap_or_default(), &s(&p, "id")?, None).await?),
         "tickets.comments" => to(k.ticket_comments(&s(&p, "source")?, &os(&p, "conn").unwrap_or_default(), &s(&p, "id")?).await?),
+        "tickets.activity" => to(k.ticket_activity(&s(&p, "source")?, &os(&p, "conn").unwrap_or_default(), &s(&p, "id")?).await?),
         "tickets.comment" => {
             k.ticket_add_comment(&s(&p, "source")?, &os(&p, "conn").unwrap_or_default(), &s(&p, "id")?, &s(&p, "body")?, os(&p, "parentId").as_deref()).await?;
             ok()

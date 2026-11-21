@@ -130,6 +130,15 @@ pub struct TicketComment {
     pub replies: Vec<TicketComment>,
 }
 
+/// When a ticket was opened and by whom, and since when it has had its status; None or empty when the tracker doesn't say.
+#[derive(Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TicketActivity {
+    pub created_at: Option<DateTime<Utc>>,
+    pub created_by: String,
+    pub status_at: Option<DateTime<Utc>>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Criterion {
     pub text: String,
@@ -1052,8 +1061,7 @@ fn trello_moves(actions: &Value, cards: &HashMap<&str, &Value>, place: &str, me:
                 labels: Vec::new(),
                 assignee: member.unwrap_or("Unassigned").into(),
                 done_at: at,
-                // A Trello id starts with the second it was made at, in hex.
-                created: id.get(..8).and_then(|h| i64::from_str_radix(h, 16).ok()).and_then(|secs| DateTime::from_timestamp(secs, 0)),
+                created: trello_id_date(id),
                 points: None,
             },
         );
@@ -1481,6 +1489,25 @@ pub async fn linear_comments(token: &str, issue: &str) -> Result<Vec<TicketComme
     Ok(linear_threads(&v["issue"]["comments"]["nodes"]))
 }
 
+/// When Linear issue `issue` was made and by whom (a person, an integration's user or a bot), and when it entered its state.
+pub async fn linear_activity(token: &str, issue: &str) -> Result<TicketActivity> {
+    let v = linear_gql(token, "query($id: String!) { issue(id: $id) { createdAt creator { name } externalUserCreator { name } botActor { name } stateHistory(first: 250) { nodes { startedAt endedAt } } } }", json!({ "id": issue })).await?;
+    Ok(linear_activity_from(&v["issue"]))
+}
+
+fn linear_activity_from(i: &Value) -> TicketActivity {
+    let created = jira_date(&i["createdAt"]);
+    let spans: Vec<&Value> = i["stateHistory"]["nodes"].as_array().into_iter().flatten().collect();
+    // The span still open is the state it is in; else the one that started last.
+    let now = spans.iter().find(|s| s["endedAt"].is_null()).and_then(|s| jira_date(&s["startedAt"]));
+    let name = [&i["creator"], &i["externalUserCreator"], &i["botActor"]].into_iter().find_map(|p| p["name"].as_str().filter(|n| !n.is_empty()));
+    TicketActivity {
+        created_at: created,
+        created_by: name.unwrap_or("").into(),
+        status_at: now.or_else(|| spans.iter().filter_map(|s| jira_date(&s["startedAt"])).max()).or(created),
+    }
+}
+
 /// Posts `body` (Markdown) on the issue, as a reply under the thread that starts with `parent` when given.
 pub async fn linear_add_comment(token: &str, issue: &str, body: &str, parent: Option<&str>) -> Result<()> {
     let input = json!({ "issueId": issue, "body": body, "parentId": parent });
@@ -1779,6 +1806,122 @@ pub async fn github_comments(gh: &GitHub, number: u64) -> Result<Vec<TicketComme
     Ok(gh.issue_comments(number).await?.iter().map(|c| flat_comment(&c["id"], &c["user"]["login"], c["body"].as_str().unwrap_or("").into(), c["created_at"].as_str().unwrap_or("").into())).collect())
 }
 
+/// A ticket id that goes into a tracker's URL path, from the UI: letters, digits and `-` only, so it can't reach
+/// another endpoint with the user's sign-in.
+fn path_id(id: &str) -> Result<&str> {
+    if id.is_empty() || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+        return Err(Error::Invalid(format!("“{id}” is not a ticket id")));
+    }
+    Ok(id)
+}
+
+/// When a Trello id was made: it starts with that second, in hex.
+fn trello_id_date(id: &str) -> Option<DateTime<Utc>> {
+    id.get(..8).and_then(|h| i64::from_str_radix(h, 16).ok()).and_then(|secs| DateTime::from_timestamp(secs, 0))
+}
+
+/// When Jira issue `key` was opened, by its reporter (else its creator), and when it last changed status.
+pub async fn jira_activity(conf: &JiraConf, token: &str, key: &str) -> Result<TicketActivity> {
+    let key = path_id(key)?;
+    let path = format!("/rest/api/3/issue/{key}?fields=created,reporter,creator,statuscategorychangedate");
+    let issue = check(jira_req(conf, token, reqwest::Method::GET, &path).send().await?, "Jira").await?;
+    // Status changes only: in bulk when the site has that API, else from the issue's own changelog.
+    let none = HashMap::new();
+    let changes = match jira_bulk_history(conf, token, &[key.to_string()], &none).await {
+        Ok(found) => found.into_values().flatten().collect(),
+        Err(_) => jira_issue_history(conf, token, key, &none).await.1,
+    };
+    Ok(jira_activity_from(&issue["fields"], &changes))
+}
+
+fn jira_activity_from(fields: &Value, changes: &[StatusChange]) -> TicketActivity {
+    let created = jira_date(&fields["created"]);
+    let who = |p: &Value| p["displayName"].as_str().filter(|n| !n.is_empty()).map(String::from);
+    TicketActivity {
+        created_at: created,
+        created_by: who(&fields["reporter"]).or_else(|| who(&fields["creator"])).unwrap_or_default(),
+        // No change read: when it last changed status category, which Jira keeps, else since it was opened.
+        status_at: changes.iter().map(|c| c.at).max().or_else(|| jira_date(&fields["statuscategorychangedate"])).or(created),
+    }
+}
+
+/// When Trello card `card` was made and by whom, and when it last moved to another list.
+pub async fn trello_activity(conf: &TrelloConf, token: &str, card: &str) -> Result<TicketActivity> {
+    let card = path_id(card)?;
+    // Newest first: its moves between lists and boards, and how it came to be.
+    let path = format!("/cards/{card}/actions?filter=createCard,copyCard,convertToCardFromCheckItem,moveCardToBoard,updateCard:idList&limit=50&memberCreator_fields=fullName");
+    let actions = check(trello_req(conf, token, reqwest::Method::GET, &path).send().await?, "Trello").await?;
+    Ok(trello_activity_from(card, &actions))
+}
+
+fn trello_activity_from(card: &str, actions: &Value) -> TicketActivity {
+    let all: Vec<&Value> = actions.as_array().into_iter().flatten().collect();
+    let made = all.iter().find(|a| matches!(a["type"].as_str(), Some("createCard" | "copyCard" | "convertToCardFromCheckItem")));
+    let created = trello_id_date(card);
+    TicketActivity {
+        created_at: created,
+        created_by: made.and_then(|a| a["memberCreator"]["fullName"].as_str()).unwrap_or("").into(),
+        // Its status is its list: the newest of these put it there.
+        status_at: all.first().and_then(|a| jira_date(&a["date"])).or(created),
+    }
+}
+
+/// When Asana task `task` was made and by whom, and when it last moved section or was completed or reopened.
+pub async fn asana_activity(token: &str, task: &str) -> Result<TicketActivity> {
+    let api = "https://app.asana.com/api/1.0";
+    let task = path_id(task)?;
+    let t = check(http().get(format!("{api}/tasks/{task}?opt_fields=created_at,created_by.name,completed,completed_at")).bearer_auth(token).send().await?, "Asana").await?;
+    // Its stories, oldest first, a page at a time.
+    let mut stories = Vec::new();
+    let mut offset: Option<String> = None;
+    // shortcut: reads 1000 stories at most, page further if a task's move comes out missing.
+    for _ in 0..10 {
+        let mut q: Vec<(&str, String)> = vec![("opt_fields", "resource_subtype,created_at".into()), ("limit", "100".into())];
+        q.extend(offset.take().map(|o| ("offset", o)));
+        let v = check(http().get(format!("{api}/tasks/{task}/stories")).query(&q).bearer_auth(token).send().await?, "Asana").await?;
+        stories.extend(v["data"].as_array().cloned().unwrap_or_default());
+        offset = v["next_page"]["offset"].as_str().map(String::from);
+        if offset.is_none() {
+            break;
+        }
+    }
+    Ok(asana_activity_from(&t["data"], &stories))
+}
+
+fn asana_activity_from(task: &Value, stories: &[Value]) -> TicketActivity {
+    let created = jira_date(&task["created_at"]);
+    // Its status is its section, or completed.
+    let moved = stories
+        .iter()
+        .filter(|s| matches!(s["resource_subtype"].as_str(), Some("section_changed" | "marked_complete" | "marked_incomplete")))
+        .filter_map(|s| jira_date(&s["created_at"]))
+        .max();
+    let done = if task["completed"] == true { jira_date(&task["completed_at"]) } else { None };
+    TicketActivity { created_at: created, created_by: task["created_by"]["name"].as_str().unwrap_or("").into(), status_at: done.or(moved).or(created) }
+}
+
+/// When GitHub issue `number` was opened and by whom, and when it got its status: closed, its board's Status set, else reopened.
+pub async fn github_activity(gh: &GitHub, number: u64) -> Result<TicketActivity> {
+    Ok(github_activity_from(&gh.issue_activity(number).await?))
+}
+
+fn github_activity_from(i: &Value) -> TicketActivity {
+    let created = jira_date(&i["createdAt"]);
+    // As `github_ticket` reads the status: closed, else its column on a project board, else open.
+    let column = i["projectItems"]["nodes"].as_array().into_iter().flatten().find(|c| c["fieldValueByName"]["name"].is_string());
+    let status_at = if i["state"] == "CLOSED" {
+        jira_date(&i["closedAt"])
+    } else {
+        column.and_then(|c| jira_date(&c["fieldValueByName"]["updatedAt"])).or_else(|| jira_date(&i["timelineItems"]["nodes"][0]["createdAt"]))
+    };
+    let a = &i["author"];
+    TicketActivity {
+        created_at: created,
+        created_by: a["name"].as_str().filter(|n| !n.is_empty()).or(a["login"].as_str()).unwrap_or("").into(),
+        status_at: status_at.or(created),
+    }
+}
+
 /// A picture on the Jira site, as a data: URL: a link to the site, else the name of one of the issue's attachments, which
 /// is all a picture in a description or comment (an ADF media node) says of its file.
 // shortcut: two attachments with the same name show the first, match by media id if users hit it.
@@ -2072,6 +2215,53 @@ mod tests {
         let all = vec![s(4, 1, "active", ago(4)), s(1, 1, "closed", ago(60)), s(3, 1, "closed", ago(32)), s(2, 1, "closed", ago(46)), s(5, 1, "future", None), s(6, 2, "closed", ago(10)), s(7, 2, "closed", ago(400))];
         let ids: Vec<u64> = pick_sprints(all, 3, Utc::now() - Duration::days(100)).iter().map(|s| s.id).collect();
         assert_eq!(ids, [2, 3, 4, 6]);
+    }
+
+    #[test]
+    fn ticket_activity_from_each_tracker() {
+        let at = |t: &TicketActivity| (t.created_at.map(|d| d.to_rfc3339()), t.created_by.clone(), t.status_at.map(|d| d.to_rfc3339()));
+        let some = |s: &str| Some(s.to_string());
+        // Jira: the last status change; with none read, the category change, then the creation.
+        let f = json!({ "created": "2026-11-01T10:00:00.000+0000", "reporter": { "displayName": "Maya Ortiz" }, "creator": { "displayName": "Bot" }, "statuscategorychangedate": "2026-11-05T10:00:00.000+0000" });
+        let moves = [StatusChange { at: "2026-11-03T10:00:00Z".parse().unwrap(), to: "progress" }, StatusChange { at: "2026-11-07T10:00:00Z".parse().unwrap(), to: "review" }];
+        assert_eq!(at(&jira_activity_from(&f, &moves)), (some("2026-11-01T10:00:00+00:00"), "Maya Ortiz".into(), some("2026-11-07T10:00:00+00:00")));
+        assert_eq!(at(&jira_activity_from(&f, &[])).2, some("2026-11-05T10:00:00+00:00"));
+        assert_eq!(jira_activity_from(&json!({ "creator": { "displayName": "Bot" } }), &[]).created_by, "Bot");
+        // Trello: made at its id's second, by the createCard action's member; its status since the newest move.
+        let acts = json!([
+            { "type": "updateCard", "date": "2026-11-09T08:00:00.000Z", "memberCreator": { "fullName": "Jon" } },
+            { "type": "createCard", "date": "2020-07-11T19:09:52.000Z", "memberCreator": { "fullName": "Ana" } }
+        ]);
+        assert_eq!(at(&trello_activity_from("5f0a0e80aaaaaaaaaaaaaaaa", &acts)), (some("2020-07-11T19:09:52+00:00"), "Ana".into(), some("2026-11-09T08:00:00+00:00")));
+        assert_eq!(at(&trello_activity_from("5f0a0e80aaaaaaaaaaaaaaaa", &json!([]))).2, some("2020-07-11T19:09:52+00:00"));
+        // Asana: completed wins; else the last section move; comments don't count.
+        let task = json!({ "created_at": "2026-10-01T09:00:00.000Z", "created_by": { "name": "Ana" }, "completed": false });
+        let stories = [json!({ "resource_subtype": "section_changed", "created_at": "2026-10-04T09:00:00.000Z" }), json!({ "resource_subtype": "comment_added", "created_at": "2026-10-09T09:00:00.000Z" })];
+        assert_eq!(at(&asana_activity_from(&task, &stories)), (some("2026-10-01T09:00:00+00:00"), "Ana".into(), some("2026-10-04T09:00:00+00:00")));
+        let done = json!({ "created_at": "2026-10-01T09:00:00.000Z", "completed": true, "completed_at": "2026-10-12T09:00:00.000Z" });
+        assert_eq!(at(&asana_activity_from(&done, &stories)), (some("2026-10-01T09:00:00+00:00"), String::new(), some("2026-10-12T09:00:00+00:00")));
+        // Linear: the open span, whatever the order; a bot made it.
+        let issue = json!({ "createdAt": "2026-11-02T12:00:00.000Z", "creator": null, "botActor": { "name": "GitHub" }, "stateHistory": { "nodes": [
+            { "startedAt": "2026-11-06T12:00:00.000Z", "endedAt": null },
+            { "startedAt": "2026-11-02T12:00:00.000Z", "endedAt": "2026-11-06T12:00:00.000Z" }
+        ] } });
+        assert_eq!(at(&linear_activity_from(&issue)), (some("2026-11-02T12:00:00+00:00"), "GitHub".into(), some("2026-11-06T12:00:00+00:00")));
+        // GitHub: closed → closedAt; open on a board → when its Status was set; open → last reopened, else opened.
+        let open = |extra: Value| {
+            let mut i = json!({ "createdAt": "2026-09-30T10:00:00Z", "closedAt": null, "state": "OPEN", "author": { "login": "ana", "name": "" } });
+            i.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+            i
+        };
+        let board = open(json!({ "projectItems": { "nodes": [{ "fieldValueByName": { "name": "In review", "updatedAt": "2026-10-04T10:00:00Z" } }] } }));
+        assert_eq!(at(&github_activity_from(&board)), (some("2026-09-30T10:00:00+00:00"), "ana".into(), some("2026-10-04T10:00:00+00:00")));
+        let reopened = open(json!({ "timelineItems": { "nodes": [{ "createdAt": "2026-10-02T10:00:00Z" }] } }));
+        assert_eq!(at(&github_activity_from(&reopened)).2, some("2026-10-02T10:00:00+00:00"));
+        assert_eq!(at(&github_activity_from(&open(json!({})))).2, some("2026-09-30T10:00:00+00:00"));
+        let closed = open(json!({ "state": "CLOSED", "closedAt": "2026-10-08T10:00:00Z", "author": { "login": "ana", "name": "Ana B" } }));
+        assert_eq!(at(&github_activity_from(&closed)), (some("2026-09-30T10:00:00+00:00"), "Ana B".into(), some("2026-10-08T10:00:00+00:00")));
+        // A pull request's number has no issue: nothing known.
+        assert_eq!(at(&github_activity_from(&Value::Null)), (None, String::new(), None));
+        assert!(path_id("WEB-482").is_ok() && path_id("../../myself").is_err() && path_id("").is_err());
     }
 
     #[test]

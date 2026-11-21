@@ -34,6 +34,7 @@ import type {
   Template,
   StatusOption,
   Ticket,
+  TicketActivity,
   TicketComment,
   TicketFile,
   TicketFields,
@@ -691,6 +692,16 @@ export const useTicketComments = (t?: Ticket) =>
   useQuery({
     queryKey: ["ticketComments", t?.source, t?.conn, t?.id],
     queryFn: () => rpc<TicketComment[]>("tickets.comments", { source: t!.source, conn: t!.conn, id: t!.id }),
+    enabled: !!t?.id,
+    retry: false,
+    staleTime: 60_000,
+  });
+
+/** When the ticket was opened and by whom, and since when it has had its status; read again when its status changes. */
+export const useTicketActivity = (t?: Ticket) =>
+  useQuery({
+    queryKey: ["ticketActivity", t?.source, t?.conn, t?.id, t?.statusLabel],
+    queryFn: () => rpc<TicketActivity>("tickets.activity", { source: t!.source, conn: t!.conn, id: t!.id }),
     enabled: !!t?.id,
     retry: false,
     staleTime: 60_000,

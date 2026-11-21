@@ -7882,6 +7882,35 @@ impl Gitnetix {
         }
     }
 
+    /// When ticket `id` was opened and by whom, and since when it has had its status.
+    pub async fn ticket_activity(&self, source: &str, conn: &str, id: &str) -> Result<tickets::TicketActivity> {
+        let integ = self.store.read(|c| c.integrations.clone());
+        let missing = || Error::NotConnected(source.into());
+        match source {
+            "jira" => {
+                let j = integ.jira.iter().find(|j| j.id == conn).ok_or_else(missing)?;
+                tickets::jira_activity(j, &tickets::jira_auth::token(j).await?, id).await
+            }
+            "trello" => {
+                let t = integ.trello.iter().find(|t| t.id == conn).ok_or_else(missing)?;
+                tickets::trello_activity(t, &tickets::trello_token(t).await?, id).await
+            }
+            "asana" => {
+                let a = integ.asana.iter().find(|a| a.id == conn).ok_or_else(missing)?;
+                tickets::asana_activity(&tickets::asana_token(a).await?, id).await
+            }
+            "linear" => {
+                let l = integ.linear.iter().find(|l| l.id == conn).ok_or_else(missing)?;
+                tickets::linear_activity(&tickets::linear_token(l).await?, id).await
+            }
+            "github" => {
+                let (gh, number) = self.ticket_github(conn, id).await?;
+                tickets::github_activity(&gh, number).await
+            }
+            other => Err(Error::Invalid(format!("unknown tracker {other}"))),
+        }
+    }
+
     /// Posts a comment on a Linear ticket, or a reply under the thread whose first comment is `parent`.
     pub async fn ticket_add_comment(&self, source: &str, conn: &str, id: &str, body: &str, parent: Option<&str>) -> Result<()> {
         if source != "linear" {

@@ -14,10 +14,18 @@ the in-app update prompt.
 
 ## [Unreleased]
 
+### Changed (App)
+
+- The Tickets page reads like a page. The list shows one row a ticket: a status ring, the key, the title and the priority. With Everyone on, each row ends with the assignee's avatar, which shows their full name on hover; a phone shows their first name beside it. An open ticket shows its text in a centred column, and beside it the ticket's way to a release as a line of stations: the ticket, its branch, pull request, release and shipping, each with what can be done there, such as starting a branch, going to the branch, opening the pull request or accepting the AI's release.
+- A ticket says how long it has had its status, when it was opened and by whom, read from Jira, Linear, GitHub, Trello or Asana.
+- Jira issue types and Linear labels no longer get a colour dot: they show as text.
+- Avatars are a neutral grey disc everywhere, with larger initials: two letters on the larger ones, the first letter alone on the small ones, so they stay readable. A Gravatar or profile photo still shows when one is set.
+
 ### Changed (Website)
 
 - The demo's Workspace matches the app's branch map. The selected branch's card is shorter, and its files show in a panel under it, with stage, unstage, discard and the commit box. Clicking a file opens its diff over the map. A branch without uncommitted changes shows its files from the card's Files button. The legend is a one-line box with "See all", and the trunk line ends under main.
 - The demo's Pull requests page matches the app's redesign. A toolbar holds the filters, search and New pull request, and the list rows use state rings. Each pull request is a line from its branch through Checks, Review and Unresolved to its base, and the base can be changed. The Conversation and Files changed tabs show the threads and a diff with comments under their lines. The new pull request panel picks From and To and lists the commits.
+- The demo's Tickets page matches the app's: one-line rows, the reader with its line of stations, and the toolbar with Mine and Everyone, the sprint filter, grouping, search and triage.
 
 ## [0.28.0] - 2026-11-21
 

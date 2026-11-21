@@ -2,9 +2,10 @@ import { useState } from "react";
 
 import { useAnalytics, useAnalyticsDay, useConfig, useProjects } from "../api/hooks";
 import type { Analytics as A, Config, DayCommit } from "../api/types";
+import { Avatar } from "../components/Avatar";
 import { CheckPicker, keepAbsent } from "../components/CheckPicker";
 import { Icon } from "../components/Icon";
-import { Empty, EmptyState, ErrorBox, Header, initials, Loading, Modal, Seg } from "../components/ui";
+import { Empty, EmptyState, ErrorBox, Header, Loading, Modal, Seg } from "../components/ui";
 import { downloadCsv, plural } from "../lib/format";
 import { kindOf, kindOfBranch } from "../lib/kinds";
 import { useNav } from "../lib/nav";
@@ -196,7 +197,7 @@ function Body({ a, multi, by, busy, onDay }: { a: A; multi: boolean; by: string 
                 </div>
                 {hover.authors.map(([name, c]) => (
                   <div key={name} className="row">
-                    <span className="avatar" style={{ width: 20, height: 20, flexBasis: 20, fontSize: 9 }}>{initials(name)}</span>
+                    <Avatar name={name} size={20} decorative />
                     <span className="grow">{name}</span>
                     <span className="mono">{c}</span>
                   </div>
@@ -277,7 +278,7 @@ function DayModal({ date, ids, who, multi, onClose, onTicket }: { date: string; 
       {[...people].sort((x, y) => y[1].length - x[1].length).map(([name, list]) => (
         <section key={name} className="col" style={{ gap: 8 }}>
           <div className="row">
-            <span className="avatar" style={{ width: 24, height: 24, flexBasis: 24, fontSize: 10 }}>{initials(name)}</span>
+            <Avatar name={name} size={24} decorative />
             <strong className="grow">{name}</strong>
             <span className="muted">{plural(list.length, "commit")}</span>
           </div>

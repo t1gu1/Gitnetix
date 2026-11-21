@@ -154,6 +154,8 @@ details summary:hover h3{color:var(--muted)}
 .hd .detail-inner.pr-detail{flex:1 0 auto}.hd .pr-conv{flex:none}.hd .pr-conv>section{overflow:visible}.hd .pr-talk-new{position:static}
 /* The worktrees view has no page tabs: it takes their 40px, so the window keeps its height. */
 @media (min-width:761px){.hd:not(.hd-phone) .tabs-pages[hidden]~.pg{height:740px}}
+/* Tickets: the toolbar above the list and the reader (app.css's .body.split), its phone rules measured on the page. */
+.hd .pg:has(>.tk-bar){flex-direction:column;overflow:hidden;container:hd/inline-size}
 .hd .term-bar{cursor:pointer}
 .hd .hd-shell{color:var(--muted)}
 /* A narrow demo (a phone's browser showing the desktop one): files above their code, the agent panel under the map. */

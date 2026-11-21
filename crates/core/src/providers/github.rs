@@ -429,6 +429,21 @@ impl GitHub {
         }
     }
 
+    /// When issue `number` was opened and by whom, closed, last reopened, and when its board's Status was last set
+    /// (without boards when the token can't read projects). Null for a pull request's number.
+    pub async fn issue_activity(&self, number: u64) -> Result<Value> {
+        let q = |cards: &str| {
+            format!("query($o:String!,$r:String!,$n:Int!){{repository(owner:$o,name:$r){{issue(number:$n){{createdAt closedAt state author{{login ... on User{{name}}}} timelineItems(last:1,itemTypes:[REOPENED_EVENT]){{nodes{{... on ReopenedEvent{{createdAt}}}}}}{cards}}}}}}}")
+        };
+        let cards = " projectItems(first:5){nodes{fieldValueByName(name:\"Status\"){... on ProjectV2ItemFieldSingleSelectValue{name updatedAt}}}}";
+        let vars = json!({ "o": self.repo.owner, "r": self.repo.repo, "n": number });
+        let got = match self.gql(&q(cards), vars.clone()).await {
+            Err(_) => self.gql(&q(""), vars).await,
+            got => got,
+        };
+        Ok(got?["repository"]["issue"].clone())
+    }
+
     /// Whether issue `number` is open, and the cards it has on project boards with a Status field: each card's id,
     /// its project's id and title, the field's id and its options (id, name). No cards when the token can't read projects.
     pub async fn issue_cards(&self, number: u64) -> Result<(bool, Vec<Value>)> {

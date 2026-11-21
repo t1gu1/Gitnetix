@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-11-21T09:00:00Z",
+  "generatedAt": "2026-11-21T18:00:00Z",
   "title": "Design System: Gitnetix",
   "extensions": {
     "colorMeta": {
@@ -18,6 +18,146 @@
           "#e9eef4"
         ]
       },
+      "ground-top": {
+        "role": "neutral",
+        "displayName": "Canvas top (--ground)",
+        "tonalRamp": [
+          "#05070a",
+          "#0a0d12",
+          "#0f151d",
+          "#0f141b",
+          "#151b24",
+          "#1b2330",
+          "#1f2732",
+          "#2c3644"
+        ]
+      },
+      "panel": {
+        "role": "neutral",
+        "displayName": "Panel (--panel)",
+        "tonalRamp": [
+          "#05070a",
+          "#0a0d12",
+          "#0f151d",
+          "#0f141b",
+          "#151b24",
+          "#1b2330",
+          "#1f2732",
+          "#2c3644"
+        ]
+      },
+      "raised": {
+        "role": "neutral",
+        "displayName": "Raised (--raised)",
+        "tonalRamp": [
+          "#05070a",
+          "#0a0d12",
+          "#0f151d",
+          "#0f141b",
+          "#151b24",
+          "#1b2330",
+          "#1f2732",
+          "#2c3644"
+        ]
+      },
+      "selected": {
+        "role": "neutral",
+        "displayName": "Selected (--sel)",
+        "tonalRamp": [
+          "#05070a",
+          "#0a0d12",
+          "#0f151d",
+          "#0f141b",
+          "#151b24",
+          "#1b2330",
+          "#1f2732",
+          "#2c3644"
+        ]
+      },
+      "hairline": {
+        "role": "neutral",
+        "displayName": "Hairline (--line)",
+        "tonalRamp": [
+          "#05070a",
+          "#0a0d12",
+          "#0f151d",
+          "#0f141b",
+          "#151b24",
+          "#1b2330",
+          "#1f2732",
+          "#2c3644"
+        ]
+      },
+      "hairline-strong": {
+        "role": "neutral",
+        "displayName": "Hairline Strong (--line2)",
+        "tonalRamp": [
+          "#05070a",
+          "#0a0d12",
+          "#0f151d",
+          "#0f141b",
+          "#151b24",
+          "#1b2330",
+          "#1f2732",
+          "#2c3644"
+        ]
+      },
+      "link-dim": {
+        "role": "neutral",
+        "displayName": "Link Dim (--link)",
+        "tonalRamp": [
+          "#05070a",
+          "#0a0d12",
+          "#0f151d",
+          "#0f141b",
+          "#151b24",
+          "#1b2330",
+          "#1f2732",
+          "#2c3644"
+        ]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Ink (--fg)",
+        "tonalRamp": [
+          "#0a0d12",
+          "#2c3644",
+          "#5f6a79",
+          "#808b9a",
+          "#a3aebb",
+          "#c9d0da",
+          "#e9eef4",
+          "#f2f5f8"
+        ]
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "Muted (--muted)",
+        "tonalRamp": [
+          "#0a0d12",
+          "#2c3644",
+          "#5f6a79",
+          "#808b9a",
+          "#a3aebb",
+          "#c9d0da",
+          "#e9eef4",
+          "#f2f5f8"
+        ]
+      },
+      "faint": {
+        "role": "neutral",
+        "displayName": "Faint (--faint)",
+        "tonalRamp": [
+          "#0a0d12",
+          "#2c3644",
+          "#5f6a79",
+          "#808b9a",
+          "#a3aebb",
+          "#c9d0da",
+          "#e9eef4",
+          "#f2f5f8"
+        ]
+      },
       "control": {
         "role": "primary",
         "displayName": "Control White (Black & White --accent and --route)",
@@ -32,71 +172,403 @@
           "#f2f5f8"
         ]
       },
-      "light-control": {
+      "on-control": {
         "role": "primary",
-        "displayName": "Control Ink (Black & White Light --accent and --route)"
+        "displayName": "On Control",
+        "tonalRamp": [
+          "#0a0d12",
+          "#2c3644",
+          "#5f6a79",
+          "#808b9a",
+          "#a3aebb",
+          "#c9d0da",
+          "#e9eef4",
+          "#f2f5f8"
+        ]
       },
       "add": {
         "role": "status",
-        "displayName": "Added"
+        "displayName": "Added; ready and done tickets",
+        "tonalRamp": [
+          "#000f06",
+          "#012e1a",
+          "#034f31",
+          "#06744a",
+          "#169a65",
+          "#63ba8d",
+          "#9adab7",
+          "#cffbe1"
+        ]
       },
       "delete": {
         "role": "status",
-        "displayName": "Deleted / falling behind"
+        "displayName": "Deleted / falling behind / urgent",
+        "tonalRamp": [
+          "#190404",
+          "#411412",
+          "#6f2724",
+          "#9f3c37",
+          "#d1534d",
+          "#eb837a",
+          "#ffb0a8",
+          "#ffded7"
+        ]
       },
       "warn": {
         "role": "status",
-        "displayName": "Warning"
+        "displayName": "Warning / waiting agent / high priority",
+        "tonalRamp": [
+          "#120a00",
+          "#322200",
+          "#563d00",
+          "#7e5a00",
+          "#a77a08",
+          "#c49f59",
+          "#e2c591",
+          "#ffecc8"
+        ]
+      },
+      "light-ground": {
+        "role": "neutral",
+        "displayName": "Slate Night (--bg) light",
+        "tonalRamp": [
+          "#0b0f14",
+          "#4f5b6a",
+          "#b8c1cd",
+          "#c9d0da",
+          "#dde2e9",
+          "#e6eaf0",
+          "#eef1f5",
+          "#ffffff"
+        ]
+      },
+      "light-ground-top": {
+        "role": "neutral",
+        "displayName": "Canvas top (--ground) light",
+        "tonalRamp": [
+          "#0b0f14",
+          "#4f5b6a",
+          "#b8c1cd",
+          "#c9d0da",
+          "#dde2e9",
+          "#e6eaf0",
+          "#eef1f5",
+          "#ffffff"
+        ]
+      },
+      "light-panel": {
+        "role": "neutral",
+        "displayName": "Panel (--panel) light",
+        "tonalRamp": [
+          "#0b0f14",
+          "#4f5b6a",
+          "#b8c1cd",
+          "#c9d0da",
+          "#dde2e9",
+          "#e6eaf0",
+          "#eef1f5",
+          "#ffffff"
+        ]
+      },
+      "light-raised": {
+        "role": "neutral",
+        "displayName": "Raised (--raised) light",
+        "tonalRamp": [
+          "#0b0f14",
+          "#4f5b6a",
+          "#b8c1cd",
+          "#c9d0da",
+          "#dde2e9",
+          "#e6eaf0",
+          "#eef1f5",
+          "#ffffff"
+        ]
+      },
+      "light-selected": {
+        "role": "neutral",
+        "displayName": "Selected (--sel) light",
+        "tonalRamp": [
+          "#0b0f14",
+          "#4f5b6a",
+          "#b8c1cd",
+          "#c9d0da",
+          "#dde2e9",
+          "#e6eaf0",
+          "#eef1f5",
+          "#ffffff"
+        ]
+      },
+      "light-hairline": {
+        "role": "neutral",
+        "displayName": "Hairline (--line) light",
+        "tonalRamp": [
+          "#0b0f14",
+          "#4f5b6a",
+          "#b8c1cd",
+          "#c9d0da",
+          "#dde2e9",
+          "#e6eaf0",
+          "#eef1f5",
+          "#ffffff"
+        ]
+      },
+      "light-hairline-strong": {
+        "role": "neutral",
+        "displayName": "Hairline Strong (--line2) light",
+        "tonalRamp": [
+          "#0b0f14",
+          "#4f5b6a",
+          "#b8c1cd",
+          "#c9d0da",
+          "#dde2e9",
+          "#e6eaf0",
+          "#eef1f5",
+          "#ffffff"
+        ]
+      },
+      "light-link-dim": {
+        "role": "neutral",
+        "displayName": "Link Dim (--link) light",
+        "tonalRamp": [
+          "#0b0f14",
+          "#4f5b6a",
+          "#b8c1cd",
+          "#c9d0da",
+          "#dde2e9",
+          "#e6eaf0",
+          "#eef1f5",
+          "#ffffff"
+        ]
+      },
+      "light-ink": {
+        "role": "neutral",
+        "displayName": "Ink (--fg) light",
+        "tonalRamp": [
+          "#0b0f14",
+          "#4f5b6a",
+          "#b8c1cd",
+          "#c9d0da",
+          "#dde2e9",
+          "#e6eaf0",
+          "#eef1f5",
+          "#ffffff"
+        ]
+      },
+      "light-muted": {
+        "role": "neutral",
+        "displayName": "Muted (--muted) light",
+        "tonalRamp": [
+          "#0b0f14",
+          "#4f5b6a",
+          "#b8c1cd",
+          "#c9d0da",
+          "#dde2e9",
+          "#e6eaf0",
+          "#eef1f5",
+          "#ffffff"
+        ]
+      },
+      "light-faint": {
+        "role": "neutral",
+        "displayName": "Faint (--faint) light",
+        "tonalRamp": [
+          "#0b0f14",
+          "#4f5b6a",
+          "#b8c1cd",
+          "#c9d0da",
+          "#dde2e9",
+          "#e6eaf0",
+          "#eef1f5",
+          "#ffffff"
+        ]
+      },
+      "light-control": {
+        "role": "primary",
+        "displayName": "Control Ink (Black & White Light --accent and --route)",
+        "tonalRamp": [
+          "#0b0f14",
+          "#4f5b6a",
+          "#b8c1cd",
+          "#c9d0da",
+          "#dde2e9",
+          "#e6eaf0",
+          "#eef1f5",
+          "#ffffff"
+        ]
+      },
+      "light-on-control": {
+        "role": "primary",
+        "displayName": "On Control light",
+        "tonalRamp": [
+          "#0b0f14",
+          "#4f5b6a",
+          "#b8c1cd",
+          "#c9d0da",
+          "#dde2e9",
+          "#e6eaf0",
+          "#eef1f5",
+          "#ffffff"
+        ]
+      },
+      "light-add": {
+        "role": "status",
+        "displayName": "Added; ready and done tickets light",
+        "tonalRamp": [
+          "#020f07",
+          "#0b2c1b",
+          "#194d32",
+          "#28714b",
+          "#3b9766",
+          "#72b78e",
+          "#a4d8b7",
+          "#d5f9e2"
+        ]
+      },
+      "light-delete": {
+        "role": "status",
+        "displayName": "Deleted / falling behind / urgent light",
+        "tonalRamp": [
+          "#1a0402",
+          "#43120d",
+          "#72241d",
+          "#a4372d",
+          "#d74e41",
+          "#f08071",
+          "#ffaea1",
+          "#ffddd3"
+        ]
+      },
+      "light-warn": {
+        "role": "status",
+        "displayName": "Warning / waiting agent / high priority light",
+        "tonalRamp": [
+          "#120901",
+          "#332107",
+          "#583c12",
+          "#7f581f",
+          "#a9772f",
+          "#c69d67",
+          "#e4c39a",
+          "#ffebce"
+        ]
       },
       "working-amber": {
         "role": "agent-working",
-        "displayName": "Working Amber (--g1)"
-      },
-      "light-working-amber": {
-        "role": "agent-working",
-        "displayName": "Working Amber light (--g1)"
+        "displayName": "Working Amber (--g1)",
+        "tonalRamp": [
+          "#120902",
+          "#32210d",
+          "#563c1c",
+          "#7e592c",
+          "#a67840",
+          "#c49d71",
+          "#e2c3a1",
+          "#ffebd3"
+        ]
       },
       "working-violet": {
         "role": "agent-working",
-        "displayName": "Working Violet (--g2)"
-      },
-      "light-working-violet": {
-        "role": "agent-working",
-        "displayName": "Working Violet light (--g2)"
+        "displayName": "Working Violet (--g2)",
+        "tonalRamp": [
+          "#0d0817",
+          "#291e3c",
+          "#483866",
+          "#695394",
+          "#8d70c2",
+          "#ad97dc",
+          "#cfbff5",
+          "#f3e8ff"
+        ]
       },
       "working-cyan": {
         "role": "agent-working",
-        "displayName": "Working Cyan (--g3)"
-      },
-      "light-working-cyan": {
-        "role": "agent-working",
-        "displayName": "Working Cyan light (--g3)"
+        "displayName": "Working Cyan (--g3)",
+        "tonalRamp": [
+          "#000e11",
+          "#002b31",
+          "#004b54",
+          "#006e7a",
+          "#0893a2",
+          "#60b4c0",
+          "#98d5df",
+          "#cef7fe"
+        ]
       },
       "working-green": {
         "role": "agent-working",
-        "displayName": "Working Green (--g4)"
+        "displayName": "Working Green (--g4)",
+        "tonalRamp": [
+          "#000f09",
+          "#002d20",
+          "#014f3a",
+          "#017356",
+          "#119974",
+          "#62b999",
+          "#9ad9c0",
+          "#cffae8"
+        ]
+      },
+      "light-working-amber": {
+        "role": "agent-working",
+        "displayName": "Working Amber (--g1) light",
+        "tonalRamp": [
+          "#150701",
+          "#391d06",
+          "#623510",
+          "#8d4f1c",
+          "#ba6c2c",
+          "#d69465",
+          "#f1bd99",
+          "#ffe6cd"
+        ]
+      },
+      "light-working-violet": {
+        "role": "agent-working",
+        "displayName": "Working Violet (--g2) light",
+        "tonalRamp": [
+          "#0c071c",
+          "#271b48",
+          "#453279",
+          "#664bae",
+          "#8867e3",
+          "#a892f8",
+          "#cbbcff",
+          "#efe6ff"
+        ]
+      },
+      "light-working-cyan": {
+        "role": "agent-working",
+        "displayName": "Working Cyan (--g3) light",
+        "tonalRamp": [
+          "#020d12",
+          "#092934",
+          "#164959",
+          "#246b81",
+          "#378eab",
+          "#6fb0c7",
+          "#a1d2e4",
+          "#d3f5ff"
+        ]
       },
       "light-working-green": {
         "role": "agent-working",
-        "displayName": "Working Green light (--g4)"
-      },
-      "ground-top": {
-        "role": "neutral",
-        "displayName": "Canvas top (--ground)"
-      },
-      "hairline-strong": {
-        "role": "neutral",
-        "displayName": "Hairline Strong (--line2)"
-      },
-      "link-dim": {
-        "role": "neutral",
-        "displayName": "Link Dim (--link)"
+        "displayName": "Working Green (--g4) light",
+        "tonalRamp": [
+          "#020e07",
+          "#0d2c1d",
+          "#1d4d36",
+          "#2d7050",
+          "#42956c",
+          "#75b593",
+          "#a6d6bb",
+          "#d7f8e4"
+        ]
       }
     },
     "typographyMeta": {
       "display": {
         "displayName": "Display",
-        "purpose": "The next release in its box on the branch map."
+        "purpose": "The next release: its box on the branch map and its station on a ticket's work line."
       },
       "display-numeral": {
         "displayName": "Headline numeral",
@@ -121,6 +593,46 @@
       "field": {
         "displayName": "Field",
         "purpose": "Text inputs and the code view's rail file rows."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "All UI text; 500 for tabs and segments."
+      },
+      "body-strong": {
+        "displayName": "Body strong",
+        "purpose": "Tabs, segments, check toggles, pull request titles."
+      },
+      "meta": {
+        "displayName": "Meta",
+        "purpose": "Secondary lines on cards and rows, floating commit subjects, release dates, planning terms."
+      },
+      "button": {
+        "displayName": "Button",
+        "purpose": "Regular buttons, tracked uppercase."
+      },
+      "button-small": {
+        "displayName": "Button small",
+        "purpose": "Small toolbar buttons and toggles, sentence case."
+      },
+      "page-title": {
+        "displayName": "Page title",
+        "purpose": "The title of a full page (Analytics, Templates, AI setup), uppercase."
+      },
+      "hero-title": {
+        "displayName": "Hero title",
+        "purpose": "The welcome screen's heading."
+      },
+      "code": {
+        "displayName": "Code",
+        "purpose": "Diffs, logs, terminal."
+      },
+      "ticket-title": {
+        "displayName": "Ticket title",
+        "purpose": "A ticket's title at the head of the reader, balanced wrap; 22px/28px when the reader is under 520px wide."
+      },
+      "reading": {
+        "displayName": "Reading",
+        "purpose": "A ticket's description in the 1180px reading column."
       }
     },
     "shadows": [
@@ -219,6 +731,21 @@
         "name": "map-narrow",
         "value": "max-width 720px",
         "purpose": "Map drops title and legend; the selected card moves above the map."
+      },
+      {
+        "name": "tickets-margin",
+        "value": "tk-detail container max-width 999px",
+        "purpose": "The ticket reader's right margin narrows from 400px to 320px."
+      },
+      {
+        "name": "tickets-stack",
+        "value": "tk-detail container max-width 759px",
+        "purpose": "The reader stacks: title and fields, the work line, then the text, scrolling as one."
+      },
+      {
+        "name": "tickets-small",
+        "value": "tk-detail container max-width 520px",
+        "purpose": "Ticket title drops to 22px/28px and paddings to 16px."
       }
     ],
     "mapGeometry": {
@@ -371,45 +898,69 @@
       "description": "A pull request as a line of the branch map: the head branch's box, a station per gate (Checks, Review, Unresolved) on a hairline solid in the route colour up to the first gate not passed and dashed after, then the base's large station, what holds the merge back, and the action.",
       "html": "<div class=\"ds-ml\"><span class=\"box\"><span class=\"ty\">FEAT</span><b>route</b></span><span class=\"sg on\"></span><button class=\"gt\"><span class=\"st ps\"></span><span class=\"lb\">Checks</span><b>4<small>/4</small></b></button><span class=\"sg\"></span><button class=\"gt\" aria-expanded=\"true\"><span class=\"st nw\"></span><span class=\"lb\">Review</span><b>0<small>/2</small></b></button><span class=\"sg\"></span><button class=\"gt\"><span class=\"st\"></span><span class=\"lb\">Unresolved</span><b>1</b></button><span class=\"sg\"></span><span class=\"bs\"><span class=\"st mn\"></span>main</span><span class=\"say\">Waiting for a review.</span><button class=\"act\">Merge</button></div>",
       "css": ".ds-ml{display:flex;align-items:center;width:900px;color:#e9eef4;font:13px/18px Inter,system-ui,sans-serif}.ds-ml .box{flex:none;display:inline-flex;align-items:center;gap:8px;height:26px;padding:0 10px;border:1px solid #e9eef4;border-radius:3px;background:#0f141b;box-sizing:border-box}.ds-ml .ty{font:600 11px Inter,sans-serif;letter-spacing:.14em;color:#808b9a}.ds-ml .box b{font:500 13px 'JetBrains Mono',monospace}.ds-ml .sg{flex:1 1 24px;min-width:16px;border-top:1px dashed #2c3644}.ds-ml .sg.on{border-top:1px solid #f2f5f8}.ds-ml .gt{all:unset;cursor:pointer;display:flex;align-items:center;gap:8px;height:26px;padding:0 8px;border:1px solid transparent;border-radius:3px;white-space:nowrap;box-sizing:border-box}.ds-ml .gt:hover{border-color:#2c3644}.ds-ml .gt[aria-expanded=true]{border-color:#e9eef4;background:#1b2330}.ds-ml .gt:focus-visible{outline:1px solid #e9eef4;outline-offset:2px}.ds-ml .lb{font:600 11px Inter,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:#808b9a}.ds-ml .gt b{font:600 13px 'JetBrains Mono',monospace}.ds-ml .gt small{font-size:12px;font-weight:500;color:#808b9a}.ds-ml .st{position:relative;flex:none;width:11px;height:11px;border:1px solid #808b9a;border-radius:50%;background:#0a0d12;box-sizing:border-box}.ds-ml .st.nw{border-color:#e9eef4}.ds-ml .st.ps{border-color:#f2f5f8}.ds-ml .st.ps::after{content:'';position:absolute;inset:2px;border-radius:50%;background:#f2f5f8}.ds-ml .st.mn{width:17px;height:17px;border-width:1.5px}.ds-ml .bs{flex:none;display:inline-flex;align-items:center;gap:8px;font:500 13px 'JetBrains Mono',monospace}.ds-ml .say{margin:0 12px 0 20px;font-size:12px;color:#a3aebb}.ds-ml .act{all:unset;cursor:pointer;flex:none;height:30px;padding:0 14px;border-radius:3px;background:#f2f5f8;color:#0a0d12;font:600 11px Inter,sans-serif;letter-spacing:.12em;text-transform:uppercase}.ds-ml .act:hover{background:#d9dfe6}.ds-ml .act:focus-visible{outline:1px solid #e9eef4;outline-offset:2px}"
+    },
+    {
+      "name": "Ticket Row",
+      "kind": "custom",
+      "refersTo": "tk-row",
+      "description": "Tickets list row, one line: a status ring (to do an empty faint ring, in progress half full, in review three quarters, ready to merge an Add ring and dot, done an Add disc with a check; green only for ready and done), the key in Mono 12px faint, the title muted (ink when open), three priority bars (Delete urgent, high an orange mixed 60/40 from Warn and Delete, medium faint with a 32% hint of Warn, faint otherwise), and under Everyone the assignee's 18px avatar alone (a neutral disc with one initial, or their picture) with the full name in its tooltip (a dashed ring when nobody has it). An agent on the ticket's branch puts the working rainbow dot before the title, a waiting one the Warn dot. Ticket types, labels and people carry no hue. On a phone the row takes two lines (title, then key, priority, avatar and first name), 44px tall.",
+      "html": "<div class=\"ds-tkl\"><button class=\"ds-tkr\"><span class=\"ring\" data-s=\"todo\"></span><span class=\"k\">GNX-214</span><span class=\"t\">Show the release on the ticket's work line</span><span class=\"pr d\" title=\"Priority\"><i data-on></i><i data-on></i><i data-on></i></span><span class=\"av\" title=\"Ana Silva\" aria-label=\"Ana Silva\" role=\"img\">A</span></button><button class=\"ds-tkr\" aria-pressed=\"true\"><span class=\"ring\" data-s=\"progress\"></span><span class=\"k\">GNX-209</span><span class=\"t\"><span class=\"ds-gd\"></span>Fold merged commits under the merge row</span><span class=\"pr w\" title=\"Priority\"><i data-on></i><i data-on></i><i></i></span><span class=\"av\" title=\"Tom Reed\" aria-label=\"Tom Reed\" role=\"img\">T</span></button><button class=\"ds-tkr\"><span class=\"ring\" data-s=\"review\"></span><span class=\"k\">GNX-198</span><span class=\"t\">Tune the theme contrast floors</span><span class=\"pr f\" title=\"Priority\"><i data-on></i><i></i><i></i></span><span class=\"av\" title=\"Ana Silva\" aria-label=\"Ana Silva\" role=\"img\">A</span></button><button class=\"ds-tkr\"><span class=\"ring\" data-s=\"ready\"></span><span class=\"k\">GNX-191</span><span class=\"t\">Avatar only on list rows</span><span class=\"pr f\" title=\"Priority\"><i data-on></i><i></i><i></i></span><span class=\"av\" title=\"Lea Park\" aria-label=\"Lea Park\" role=\"img\">L</span></button><button class=\"ds-tkr\"><span class=\"ring\" data-s=\"done\"></span><span class=\"k\">GNX-187</span><span class=\"t\">Lazy ticket dates from each tracker</span><span class=\"pr f\" title=\"Priority\"><i data-on></i><i></i><i></i></span><span class=\"av\" title=\"Tom Reed\" aria-label=\"Tom Reed\" role=\"img\">T</span></button></div>",
+      "css": ".ds-tkl{width:400px;display:flex;flex-direction:column;background:#0a0d12;padding:4px 0}.ds-tkr{all:unset;cursor:pointer;box-sizing:border-box;width:calc(100% - 16px);margin:0 8px;display:flex;align-items:center;gap:10px;min-height:32px;padding:0 12px;border-radius:3px;box-shadow:inset 0 0 0 1px transparent;font:13px/18px Inter,system-ui,sans-serif;color:#a3aebb}.ds-tkr:hover{background:#151b24}.ds-tkr[aria-pressed=true]{box-shadow:inset 0 0 0 1px #e9eef4}.ds-tkr[aria-pressed=true] :is(.k,.t){color:#e9eef4}.ds-tkr:focus-visible{outline:1px solid #e9eef4;outline-offset:2px}.ds-tkr .k{flex:0 0 7ch;font:12px 'JetBrains Mono',monospace;color:#808b9a;white-space:nowrap}.ds-tkr .t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.ds-tkr .pr{flex:none;display:inline-flex;align-items:flex-end;gap:1.5px;height:10px}.ds-tkr .pr i{width:2.5px;height:4px;border-radius:2px;background:currentColor;opacity:.3}.ds-tkr .pr i:nth-child(2){height:7px}.ds-tkr .pr i:nth-child(3){height:10px}.ds-tkr .pr i[data-on]{opacity:1}.ds-tkr .d{color:#ff7b72}.ds-tkr .w{color:#e8b85a}.ds-tkr .f{color:#808b9a}.ds-tkr .av{flex:none;width:18px;height:18px;display:grid;place-items:center;border-radius:50%;background:#2c3644;color:#e9eef4;font:600 11px/1 Inter,sans-serif;letter-spacing:-0.02em}.ring{position:relative;flex:none;width:11px;height:11px;box-sizing:border-box;border:1px solid #808b9a;border-radius:50%;color:#e9eef4}.ring::after{content:'';position:absolute;inset:2px;border-radius:50%}.ring[data-s=progress],.ring[data-s=review]{border-color:#e9eef4}.ring[data-s=progress]::after{background:conic-gradient(currentColor 0 50%,transparent 0)}.ring[data-s=review]::after{background:conic-gradient(currentColor 0 75%,transparent 0)}.ring[data-s=ready]{border-color:#5fd39a;color:#5fd39a}.ring[data-s=ready]::after{background:currentColor}.ring[data-s=done]{border-color:#5fd39a;background:#5fd39a}.ring[data-s=done]::after{inset:1.5px auto auto 3.25px;width:2.5px;height:5px;border:solid #0a0d12;border-width:0 1.5px 1.5px 0;border-radius:0;transform:rotate(45deg)}.ds-gd{display:inline-block;width:6px;height:6px;margin-right:7px;vertical-align:1px;border-radius:50%;background:currentColor;animation:ds-p 1.6s steps(2,jump-none) infinite,ds-gs 8s steps(96) infinite}@keyframes ds-gs{0%,100%{color:#f7c48a}25%{color:#c4a7ff}50%{color:#5fd0e0}75%{color:#62d6ae}}@keyframes ds-p{50%{opacity:.25}}@media (prefers-reduced-motion:reduce){.ds-gd{animation:none}}"
+    },
+    {
+      "name": "Ticket Reader",
+      "kind": "card",
+      "refersTo": "tk-reader",
+      "description": "The ticket reads like a page: a 1180px column centred in the detail pane (padding 40px 32px 64px), the title in Inter 600 26px/32px at -0.015em with the tracker's link top right, field menus under it (28px menu selects, 12.5px, the Mono key, status with its ring, priority, type as plain text, the assignee), then the description in 14px at 1.65 line height, 32px between sections. Section heads are Label type with Mono counts; criteria and comment threads lie open between hairlines, not in panels.",
+      "html": "<article class=\"ds-tkp\"><div class=\"hd\"><h1>Show the release on the ticket's work line</h1><button class=\"op\">Open in Jira</button></div><div class=\"pp\"><span class=\"ky\">GNX-214</span><button class=\"ms\"><span class=\"ring\" data-s=\"progress\"></span>In progress</button><button class=\"ms\">Medium</button><span class=\"tx\">Story</span><span class=\"tx\">Ana Silva</span></div><p class=\"ds\">The margin draws the ticket's way to a release as stations, white up to where it stands. The release station shows the planned version in the display face.</p><h2>Criteria <span>2</span></h2><ul><li>Release station shows the version</li><li>Shipped station names the tag</li></ul></article>",
+      "css": ".ds-tkp{max-width:1180px;padding:32px;background:#0a0d12;color:#e9eef4;font:13px/18px Inter,system-ui,sans-serif}.ds-tkp .hd{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:0 16px;align-items:start}.ds-tkp h1{margin:0;font:600 26px/32px Inter,sans-serif;letter-spacing:-.015em;text-wrap:balance}.ds-tkp .op{all:unset;cursor:pointer;margin-top:4px;height:28px;padding:0 10px;border:1px solid #2c3644;border-radius:3px;font:500 12px/26px Inter,sans-serif;color:#a3aebb}.ds-tkp .op:hover{background:#151b24;color:#e9eef4}.ds-tkp .pp{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:14px;font-size:12.5px}.ds-tkp .ky{margin-right:6px;font:12px 'JetBrains Mono',monospace;color:#808b9a}.ds-tkp .ms{all:unset;cursor:pointer;height:28px;display:inline-flex;align-items:center;gap:7px;padding:0 8px;border:1px solid #2c3644;border-radius:3px}.ds-tkp .ms:hover{background:#151b24}.ds-tkp :is(.op,.ms):focus-visible{outline:1px solid #e9eef4;outline-offset:2px}.ds-tkp .tx{padding:0 6px;color:#a3aebb}.ds-tkp .ds{margin:28px 0 32px;font-size:14px;line-height:1.65}.ds-tkp h2{display:flex;gap:10px;margin:0 0 10px;font:600 11px/13px Inter,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:#808b9a}.ds-tkp h2 span{font:500 11px 'JetBrains Mono',monospace;letter-spacing:0}.ds-tkp ul{margin:0;padding:0;list-style:none}.ds-tkp li{display:flex;align-items:center;min-height:36px;border-bottom:1px solid #1f2732}.ds-tkp li:first-child{border-top:1px solid #1f2732}.ds-tkp .ring{position:relative;flex:none;width:11px;height:11px;box-sizing:border-box;border:1px solid #808b9a;border-radius:50%;color:#e9eef4}.ds-tkp .ring::after{content:'';position:absolute;inset:2px;border-radius:50%}.ds-tkp .ring[data-s=progress],.ds-tkp .ring[data-s=review]{border-color:#e9eef4}.ds-tkp .ring[data-s=progress]::after{background:conic-gradient(currentColor 0 50%,transparent 0)}.ds-tkp .ring[data-s=review]::after{background:conic-gradient(currentColor 0 75%,transparent 0)}.ds-tkp .ring[data-s=ready]{border-color:#5fd39a;color:#5fd39a}.ds-tkp .ring[data-s=ready]::after{background:currentColor}.ds-tkp .ring[data-s=done]{border-color:#5fd39a;background:#5fd39a}.ds-tkp .ring[data-s=done]::after{inset:1.5px auto auto 3.25px;width:2.5px;height:5px;border:solid #0a0d12;border-width:0 1.5px 1.5px 0;border-radius:0;transform:rotate(45deg)}"
+    },
+    {
+      "name": "Work Line",
+      "kind": "custom",
+      "refersTo": "tk-stop",
+      "description": "A ticket's way to a release, down the reader's right margin (400px; 320px under 1000px of pane; under 760px it stacks between the fields and the text): Ticket, Branch, Pull request, Release, Shipped as 11px stations on a Hairline Strong line. Reached stations fill with the route colour and the line between them is 1.5px route, the next station rings in ink, later stations and their line are dashed. The release is the 17px station and its planned version is an Antonio 30px numeral with its tag (One Loud Voice: the next release). Each station holds what can be done there (Start a branch, Go to branch, accept the AI release). Planning rows follow under a hairline: 104px faint terms, 40px rows, 30px menu selects.",
+      "html": "<div class=\"ds-wl\"><ol><li data-l=\"on\"><i data-on></i><div><span class=\"lb on\">Ticket</span><span class=\"tx\">Opened by Ana Silva · 3d ago</span></div></li><li data-l=\"on\"><i data-on></i><div><span class=\"lb on\">Branch</span><span class=\"nm\">feat/release-station</span><span class=\"mt\"><span class=\"ds-gd\"></span>An agent is working on it</span></div></li><li data-l=\"later\"><i data-next></i><div><span class=\"lb\">Pull request</span><button class=\"b\">Open pull request</button></div></li><li data-l=\"later\"><i data-later data-big></i><div><span class=\"lb\">Release</span><span class=\"num\">0.29.0<span class=\"tag\">Next</span></span><span class=\"mt mono\">release/0.29.0</span></div></li><li><i data-later></i><div><span class=\"lb\">Shipped</span><span class=\"mt f\">Not yet</span></div></li></ol><dl><div><dt>Release</dt><dd>0.29.0</dd></div><div><dt>Fix versions</dt><dd>0.29.0</dd></div></dl></div>",
+      "css": ".ds-wl{width:344px;padding:26px 28px;background:#0a0d12;color:#e9eef4;font:13px/18px Inter,system-ui,sans-serif;border-left:1px solid #1f2732}.ds-wl ol{margin:0 0 22px;padding:0;list-style:none}.ds-wl li{position:relative;display:grid;grid-template-columns:22px minmax(0,1fr);gap:12px;padding-bottom:22px}.ds-wl li:last-child{padding-bottom:0}.ds-wl li:not(:last-child)::before{content:'';position:absolute;left:10.5px;top:16px;bottom:-4px;width:1px;background:#2c3644}.ds-wl li[data-l=on]::before{left:10.25px;width:1.5px;background:#f2f5f8}.ds-wl li[data-l=later]::before{background:none;border-left:1px dashed #2c3644}.ds-wl i{position:relative;z-index:1;display:block;box-sizing:border-box;width:11px;height:11px;margin:1px 0 0 5.5px;border:1px solid #808b9a;border-radius:50%;background:#0a0d12}.ds-wl i[data-on]{border-color:#f2f5f8}.ds-wl i[data-on]::after{content:'';position:absolute;inset:2px;border-radius:50%;background:#f2f5f8}.ds-wl i[data-next]{border-color:#e9eef4}.ds-wl i[data-later]{border-style:dashed}.ds-wl i[data-big]{width:17px;height:17px;margin:-2px 0 0 2.5px;border-width:1.5px}.ds-wl li>div{display:flex;flex-direction:column;align-items:flex-start;gap:5px;min-width:0}.ds-wl .lb{font:600 11px/13px Inter,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:#808b9a}.ds-wl .lb.on{color:#e9eef4}.ds-wl .nm{font-weight:500}.ds-wl .mt{display:flex;align-items:center;gap:7px;font-size:12px;line-height:17px;color:#a3aebb}.ds-wl .mono{font-family:'JetBrains Mono',monospace}.ds-wl .f{color:#808b9a}.ds-wl .num{display:flex;align-items:center;gap:10px;font:600 30px/1 Antonio,Inter,sans-serif}.ds-wl .tag{font:600 11px/13px Inter,sans-serif;letter-spacing:.12em;text-transform:uppercase;background:#e9eef4;color:#0a0d12;border-radius:2px;padding:3px 8px}.ds-wl .b{all:unset;cursor:pointer;margin-top:5px;height:30px;padding:0 14px;border-radius:3px;background:#f2f5f8;color:#0a0d12;font:600 11px/30px Inter,sans-serif;letter-spacing:.12em;text-transform:uppercase}.ds-wl .b:hover{background:#d9dfe6}.ds-wl .b:focus-visible{outline:1px solid #e9eef4;outline-offset:2px}.ds-wl dl{margin:0;padding-top:6px;border-top:1px solid #1f2732}.ds-wl dl div{display:grid;grid-template-columns:104px minmax(0,1fr);align-items:center;gap:12px;min-height:40px;border-bottom:1px solid #1f2732}.ds-wl dl div:last-child{border-bottom:0}.ds-wl dt{font-size:12px;color:#808b9a}.ds-wl dd{margin:0;font:12.5px 'JetBrains Mono',monospace}.ds-gd{display:inline-block;width:6px;height:6px;margin-right:7px;vertical-align:1px;border-radius:50%;background:currentColor;animation:ds-p 1.6s steps(2,jump-none) infinite,ds-gs 8s steps(96) infinite}@keyframes ds-gs{0%,100%{color:#f7c48a}25%{color:#c4a7ff}50%{color:#5fd0e0}75%{color:#62d6ae}}@keyframes ds-p{50%{opacity:.25}}@media (prefers-reduced-motion:reduce){.ds-gd{animation:none}}"
     }
   ],
   "narrative": {
     "northStar": "Slate Night",
     "overview": "One cool monochrome field, slate fading to black, kept open beside the editor all day. White (ink in light mode) is the only control colour of the default Black & White theme and the selection and focus colour of every theme; hue appears only when it means something, and the few numbers that matter speak in a tall condensed face. The views and behaviour of the app stay exactly as they are; only the visual layer changes. Inside this world the branch map reads as a line diagram: one hairline trunk carries the shipped releases as stations, branches hang off it as small boxes (a header and one info row), ahead/behind rides on the incoming line as a small chip, and their commits float free beneath them. One piece of the old look stays by owner decision: the flowing rainbow on anything an agent is working on. The palette ships as the Gitnetix Black & White pair (gitnetix-bw, gitnetix-bw-light), the default and what System follows; Gitnetix Dark/Light and the 34 third-party themes keep their palettes and take the same shapes, type, hairlines and map structure.",
     "keyCharacteristics": [
-      "Cool slate-to-black ground with 1px hairlines",
-      "Branch map as a station line: hairline trunk, ring stations, two-row boxes, ahead/behind chips on the lines, floating commits",
+      "Cool slate-to-black ground, panels one step up, 1px hairlines.",
+      "Branch map as a station line: hairline trunk, ring stations, two-row boxes, ahead/behind chips on the lines, floating commits.",
       "Pull requests read as the same line: ring stations by state in the list, and each pull request's checks, review and conversations as stations on its way to the base.",
-      "White controls in Black & White (each other theme keeps its accent for controls); ink selection and focus everywhere",
-      "Hue reserved for add, delete, warn, conflict, and the rainbow on agent work",
-      "Antonio condensed for versions and headline numerals",
-      "2 to 3px corners, no pills, no glows outside agent work",
-      "1.25px icon strokes, short ease-out motion"
+      "Tickets read like a page: one-line rows with a status ring, a 1180px reading column, and the ticket's way to a release as a station line in the margin.",
+      "White controls: solid white primary, 1px outline secondary.",
+      "Hue only for diff add/delete, warnings and conflicts, plus the flowing rainbow on agent work.",
+      "Tall condensed numerals and versions; tracked small-caps labels.",
+      "Thin 1.25px icon strokes; hard, short motion."
     ],
     "rules": [
       {
         "name": "The Control Rule",
-        "body": "Ink (--fg) means this is yours: selection, active tab, segment and tag, check fills and focus, in every theme. --accent means you can press this and marks controls only: primary buttons, links, a few control states. In Black & White the accent is white (ink in light); other themes keep their own accent as their control colour. Never spend an accent on selection, focus, roles or status.",
+        "body": "Ink (--fg) means \"this is yours\": selection, the active tab, segment and tag, check fills and focus, in every theme. --accent means \"you can press this\" and marks controls only: primary buttons, links and a few control states. In Black & White the accent is white (ink in light), so ink is the only control colour; Gitnetix Dark/Light and the third-party themes keep their own accent as their control colour. Never spend an accent on selection, focus, roles or status.",
         "section": "colors"
       },
       {
         "name": "The Meaning Rule",
-        "body": "Branch type, trunk, release and props carry no hue; a hue must mean added, deleted, warning or conflict. The one exception is the Agent Working rainbow.",
+        "body": "Branch type, trunk, release, props and people carry no hue. Type reads as a text label (FEAT, FIX); trunk and release read by position and the display face. Names carry no hue either, like branch types and labels: an avatar without a picture is the same neutral disc for everyone. A hue on screen must answer \"added, deleted, warning or conflict\", or be the Agent Working rainbow.",
         "section": "colors"
       },
       {
         "name": "The Agent Working Rule",
-        "body": "Anything an agent is working on flows with the incumbent rainbow (g1 to g4 gradient text, colour-cycling icons and dot, soft g2 drop-shadow), and nothing else may. A waiting agent is Warn. Reduced motion stops it.",
+        "body": "Anything an agent is working on flows with the incumbent rainbow, and nothing else may. Text gets weight 600, a 90deg gradient of g1, g2, g3, g4, g1 at 300% size clipped to the text, flowing in 8s steps(384), with no glow (the colour change is enough). Icons cycle their stroke through g1, g2, g3, g4 in 8s steps(96) with a drop-shadow(0 0 5px) of g2 at 45%; the working dot blinks and cycles the same way, with no glow. It appears on the top bar's Worktrees & agents icon, the project tab's dot while agents run, a branch box's \"Claude working\" info row, the selected card's Agent value, the focus head's agent pill and the agents panel's session dot. A waiting agent is Warn, never rainbow. Reduced motion stops all three animations and leaves the colours still.",
         "section": "colors"
       },
       {
         "name": "The Theme Rule",
         "section": "colors",
-        "body": "Black & White is the default and what System follows; every other theme (Gitnetix Dark/Light in app.css, the 34 third-party themes through tokens()) keeps its own ground, panel, text and accent, gets the derived steps (--line2, --link, --ground, --route, --g1 to --g4) mixed from its colours unless it sets them, and takes the same shapes, type, hairlines and map structure. Role hues are neutral in every theme: no component reads --trunk-fg, --release-fg, --prop-fg or --mod-fg for a role (tokens() still emits them for the marketing website, syntax highlighting and the agent-working rainbow read them)."
+        "body": "Black & White is the default and what System follows; every other theme (Gitnetix Dark/Light in app.css, the 34 third-party themes through tokens() in src/lib/themes.ts) keeps its own ground, panel, text and accent, gets the derived steps (--line2, --link, --ground, --route, --g1 to --g4) mixed from its colours unless it sets them, and takes the same shapes, type, hairlines and map structure. A third-party theme sets its raised, selected, hairline and status colours from its own palette in the palette's own roles (own); a colour under the floors (muted 4.5:1, faint 4:1, status and link text 4.5:1 on light panels and 4:1 on dark ones) only moves lighter or darker. Role hues are neutral in every theme: no component reads --trunk-fg, --release-fg, --prop-fg or --mod-fg for a role (tokens() still emits them for the marketing website, syntax highlighting and the agent-working rainbow read them)."
       },
       {
         "name": "The One Loud Voice Rule",
-        "body": "Antonio only for screen and page titles, the welcome heading, the next release and headline numerals; shipped versions read in Mono.",
+        "body": "Antonio is used only for screen and page titles, the welcome heading, the next release and headline numerals. Shipped versions read in Mono. Never Antonio for body, buttons, labels or branch names.",
         "section": "typography"
       },
       {
@@ -419,16 +970,17 @@
       },
       {
         "name": "The Hairline Rule",
-        "body": "Every map line is a hairline: the route to the checked-out branch 1.5px in the route colour, other links 1px Link Dim, falling-behind links dashed 3/4. No thick transit lines, no hue on the route, no pulse, no glow.",
+        "body": "Every map line is a hairline. The route from the trunk to the checked-out branch is 1.5px in the route colour (control white, ink in light mode); every other link is a 1px Link Dim curve; a falling-behind branch's link is dashed 3/4. No thick transit lines, no hue on the route, no pulse travelling along it, no glow. A one-line legend box floats at the canvas's bottom left (8px in, 16px up; 1px hairline-strong border, 3px corners, ground at 85%, padding 6px 12px, Inter 12px muted) with the route, other lines, falling behind and the line chip. Keys that don't fit wrap out of sight, never cut in half, and a \"See all\" link lists them in a 360px modal. It stops short of the selected branch's side column.",
         "section": "components"
       }
     ],
     "dos": [
       "Do use ink for selection and focus in every theme, and --accent only for controls (white in Black & White)",
       "Do show a disabled primary as the outline with a faint label",
-      "Do keep every view and behaviour where it is",
-      "Do show branch type as a text label",
-      "Do keep all themes working through the token layer",
+      "Do show branch type, trunk and release by label, position and type, not hue",
+      "Do keep colour for add, delete, warn and conflict only",
+      "Do set screen and page titles, the next release and headline numbers in Antonio, everything else (shipped versions included) in Inter and JetBrains Mono",
+      "Do keep every view, control and behaviour exactly where it is today",
       "Do draw the branch map in hairlines: 1.5px route, 1px other links, dashed 3/4 when falling behind, 1px faint trunk",
       "Do keep branch boxes to a header row and one info row, and let commits float beneath them with no container",
       "Do put ahead/behind on the incoming line as a chip, a rebase button when there is a behind count",
@@ -437,11 +989,13 @@
       "Do dock the agents panel right at 460px in both views"
     ],
     "donts": [
-      "Don't use gradient text, glows or drop-shadow filters, except the rainbow on agent work under the Agent Working Rule",
+      "Don't use gradient text, glows, coloured halos or drop-shadow filters, except the rainbow on agent work under the Agent Working Rule",
       "Don't use the working hues for anything but an agent working; a waiting agent is Warn",
-      "Don't use pills or radii above 3px on rectangles",
-      "Don't give roles or branch types their own hue",
-      "Don't use spring or bounce easing",
+      "Don't use pills (999px radius) or radii above 3px on rectangles",
+      "Don't give branch types, roles or sections their own hue",
+      "Don't use spring or bounce easing; motion is short ease-out, under 200ms",
+      "Don't put a shadow on a resting surface",
+      "Don't set functional text below 11px",
       "Don't draw thick transit lines or a coloured route on the branch map; the red route of the trunk reference is not adopted",
       "Don't put commits inside a branch box or wrap them in a card on the map",
       "Don't put ahead/behind inside the box, or a separate rebase button under the commits"

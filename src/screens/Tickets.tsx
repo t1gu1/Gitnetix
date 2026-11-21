@@ -1,8 +1,9 @@
 import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 
-import { useAction, useFixVersions, useOverview, useProjectPrefs, useProjects, useTagV, useTicketComments, useTicketFields, useTicketStatuses, useTickets } from "../api/hooks";
+import { useAction, useFixVersions, useOverview, useProjectPrefs, useProjects, useTagV, useTicketActivity, useTicketComments, useTicketFields, useTicketStatuses, useTickets } from "../api/hooks";
 import { openExternal, rpc } from "../api/transport";
-import type { FieldOption, Suggestion, Ticket, TicketComment } from "../api/types";
+import type { BranchView, FieldOption, PrSummary, Suggestion, Ticket, TicketComment } from "../api/types";
 import { MenuChoice } from "../components/AgentPicker";
 import { Adf, type AdfNode } from "../components/Adf";
 import { Avatar } from "../components/Avatar";
@@ -11,45 +12,68 @@ import { Icon } from "../components/Icon";
 import { PictureSource } from "../components/Picture";
 import { Resizer, usePaneWidth } from "../components/Resizer";
 import { TicketFiles } from "../components/TicketFiles";
-import { ago, Busy, Empty, EmptyState, ErrorBox, Header, initials, Loading, Markdown, MEDIA, MediaAsk, PICTURES, releaseTagLabel, Seg, swipeProps } from "../components/ui";
-import { plural } from "../lib/format";
+import { ago, Busy, EmptyState, ErrorBox, Header, Markdown, MEDIA, MediaAsk, PICTURES, releaseTagLabel, Seg, swipeProps } from "../components/ui";
+import { lasted, plural } from "../lib/format";
 import { useNav } from "../lib/nav";
 import { useStored } from "../lib/stored";
 import { toast } from "../lib/toast";
 
-const STATUS: Record<Ticket["status"], [string, string]> = {
-  todo: ["To do", "muted"],
-  progress: ["In progress", "c-mod"],
-  review: ["In review", "c-acc"],
-  ready: ["Ready to merge", "c-add"],
-  done: ["Done", "c-add"],
+/** Each status's name, in the list's order: the work under way first, then what waits, then what's done. */
+const STATUS: Record<Ticket["status"], string> = {
+  progress: "In progress",
+  review: "In review",
+  ready: "Ready to merge",
+  todo: "To do",
+  done: "Done",
 };
 const SRC = { jira: "Jira", trello: "Trello", asana: "Asana", linear: "Linear", github: "GitHub" };
+const PR_STATE = { open: "Open", draft: "Draft", merged: "Merged", closed: "Closed" };
 const ADD = "\0add";
-/** Jira's colors for its usual issue types, named in English or French. */
-const TYPE_COLORS: [RegExp, string][] = [
-  [/bug|bogue|défaut/i, "#e5493a"],
-  [/epic|épopée/i, "#904ee2"],
-  [/story|récit|histoire|feature|fonctionnalité|improvement|amélioration/i, "#63ba3c"],
-  [/task|tâche/i, "#4bade8"],
-];
-const typeColor = (t: Ticket) => (t.source === "jira" ? TYPE_COLORS.find(([re]) => re.test(t.kind))?.[1] : undefined);
-const Dot = ({ color }: { color?: string }) => (color ? <span className="tk-dot" style={{ background: color }} aria-hidden="true" /> : null);
-/** A ticket's priority: the alert icon when urgent, else bars filled by how urgent it is. */
-const Prio = ({ t }: { t: Ticket }) =>
+const NOBODY = "Unassigned";
+/** A status as a station ring: empty to do, filling up through review, green once ready or done. `tip`: its name on hover. */
+const Ring = ({ status, tip }: { status?: Ticket["status"]; tip?: string }) => <span className="tk-ring" data-status={status ?? "todo"} data-tip={tip} aria-hidden="true" />;
+const TicketRing = ({ t }: { t: Ticket }) => <Ring status={t.status} tip={t.statusLabel || STATUS[t.status]} />;
+/** How urgent a priority name is, as the engine ranks it (priority_rank in tickets/mod.rs): 0 the most, 4 the least, 5 none. */
+function rankOf(name: string) {
+  const n = name.trim().toLowerCase();
+  if (!n || n === "none" || n === "no priority") return 5;
+  const p = /(?:^|[^\p{L}\p{N}])p(\d+)(?=$|[^\p{L}\p{N}])/u.exec(n);
+  if (p) return Math.min(4, Number(p[1]));
+  const has = (words: string[]) => words.some((w) => n.includes(w));
+  if (has(["urgent", "blocker", "critical", "highest", "critique", "bloquant", "très haute", "très élevée"])) return 0;
+  if (has(["lowest", "trivial", "très basse", "très faible"])) return 4;
+  if (has(["high", "major", "haute", "élevée"])) return 1;
+  return has(["low", "minor", "basse", "faible", "mineur"]) ? 3 : 2;
+}
+/** A priority's mark: the alert icon when urgent, else bars filled by how urgent it is (none lit without one). */
+const PrioMark = ({ rank }: { rank: number }) =>
+  rank === 0 ? <Icon name="alert" size={11} /> : <span className="tk-bars" aria-hidden="true">{[1, 2, 3].map((b) => <i key={b} data-on={b <= 4 - rank || undefined} />)}</span>;
+// Urgent red, high orange, medium a faint touch of yellow, the rest faint.
+const prioClass = (rank: number) => `tk-prio ${["c-del", "tk-prio-high", "tk-prio-medium"][rank] ?? "faint"}`;
+/** A ticket's priority: its mark and name; `bare` leaves the name to the tooltip. */
+const Prio = ({ t, bare }: { t: Ticket; bare?: boolean }) =>
   t.priority ? (
-    <span className={`tk-prio ${["c-del", "c-warn"][t.priorityRank] ?? "faint"}`} data-tip={`Priority · ${t.priority}`}>
-      {t.priorityRank === 0 ? (
-        <Icon name="alert" size={11} />
-      ) : (
-        <span className="tk-bars" aria-hidden="true">{[1, 2, 3].map((b) => <i key={b} data-on={b <= 4 - t.priorityRank || undefined} />)}</span>
-      )}
-      {t.priority}
+    <span className={prioClass(t.priorityRank)} data-tip={`Priority · ${t.priority}`}>
+      <PrioMark rank={t.priorityRank} />
+      {bare ? <span className="sr-only">{t.priority}</span> : t.priority}
     </span>
   ) : null;
+/** A priority option's mark in its menu, coloured as in the list. */
+const PrioOption = ({ name }: { name: string }) => (
+  <span className={prioClass(rankOf(name))} aria-hidden="true">
+    <PrioMark rank={rankOf(name)} />
+  </span>
+);
+/** Who has the ticket: their avatar, the full name in its tooltip; a dashed empty ring for nobody. */
+const Assignee = ({ name }: { name: string }) =>
+  name && name !== NOBODY ? <Avatar name={name} size={18} /> : <span className="tk-nobody" role="img" aria-label={NOBODY} data-tip={NOBODY} />;
+/** An agent on the ticket's branch: the working rainbow, or the warning dot while it waits. */
+const AgentDot = ({ b }: { b?: BranchView }) =>
+  b?.running ? <span className="pulse glow-dot" data-tip="An agent is working on its branch" /> : b?.waiting ? <span className="pulse map-wait" data-tip="An agent waits for you on its branch" /> : null;
 
 export function Tickets({ initial }: { initial?: string }) {
   const nav = useNav();
+  const qc = useQueryClient();
   const pid = nav.projectId!;
   const [mine, setMine] = useStored("gnx.tickets.mine", true);
   const [sprint, setSprint] = useStored("gnx.tickets.sprint", true);
@@ -75,12 +99,14 @@ export function Tickets({ initial }: { initial?: string }) {
   const term = search.trim().toLowerCase();
   const base = all.filter((t) => (!mine || t.mine) && (!term || `${t.key} ${t.title}`.toLowerCase().includes(term)));
   const places = [...new Set(all.map((x) => x.place))].sort();
+  // The trackers menu counts before the search, so a search finding nothing doesn't read as empty trackers.
+  const counted = all.filter((t) => !mine || t.mine);
   const shown = places.includes(place) ? place : "all";
   const visible = base.filter((t) => shown === "all" || t.place === shown);
   const groups =
     group === "release"
       ? [...open.map((r) => ({ id: r.version, label: `${releaseTagLabel(r.tag)} · ${label(r.version)}` })), { id: "", label: "Unplanned" }]
-      : (Object.keys(STATUS) as Ticket["status"][]).map((s) => ({ id: s, label: STATUS[s][0] }));
+      : (Object.keys(STATUS) as Ticket["status"][]).map((s) => ({ id: s, label: STATUS[s] }));
   const grouped = groups
     .map((g) => ({ ...g, items: visible.filter((t) => (group === "release" ? (open.some((r) => r.version === t.release) ? t.release : "") === g.id : t.status === g.id)) }))
     .filter((g) => g.items.length);
@@ -89,22 +115,58 @@ export function Tickets({ initial }: { initial?: string }) {
   // Linear calls its sprints cycles; a Linear team with cycles off has none, so no toggle for it.
   const jira = q.data?.sources.includes("jira");
   const cycles = q.data?.cycles;
+  // Titles start at the same place on every row: the longest key sets the column, and a long Asana gid gives up its end.
+  // One character over, as WebKitGTK sets a key a hair wider than its count of `ch`.
+  const keyW = Math.min(14, Math.max(4, ...visible.map((x) => x.key.length))) + 1;
+  // A ticket's branch in this project, for its agent, commits and changes.
+  const here = (x: Ticket) => !!x.branch && (!x.branchProject || x.branchProject === pid);
+  const branchOf = (x: Ticket) => (here(x) ? ov?.branches.find((b) => b.name === x.branch) : undefined);
+  // Its pull request, from the list the Pull requests screen has loaded: asking the host from here could ask to sign in to it.
+  const prs = qc.getQueryData<{ items: PrSummary[] }>(["prs", pid])?.items ?? [];
+  const prOf = (x: Ticket) => {
+    const found = here(x) ? prs.filter((p) => p.head === x.branch && !p.fork) : [];
+    return found.find((p) => p.state === "open" || p.state === "draft") ?? found[0];
+  };
+  const settings = () => nav.go({ name: "menu", section: "tools" });
 
-  if (q.isLoading) return (<><Header title="Tickets" hideWide /><Loading /></>);
-  if (q.data && q.data.sources.length === 0) {
+  if (q.isLoading)
+    return (
+      <>
+        <Header title="Tickets" hideWide />
+        <div className="map-bar tk-bar">
+          <h2 className="map-title hide-narrow">Tickets</h2>
+        </div>
+        <div className="body split">
+          <section className="master" style={{ "--master-w": `${listW.width}px` } as CSSProperties} data-pane data-active aria-label="Ticket list" aria-busy="true">
+            <p className="tk-sync"><span className="spinner" />Syncing tickets…</p>
+            {[78, 64, 70, 82, 58, 74, 66].map((w, i) => (
+              <span key={i} className="tk-skel" aria-hidden="true"><i /><i /><i style={{ width: `${w}%` }} /></span>
+            ))}
+          </section>
+          <main className="detail" data-pane />
+        </div>
+      </>
+    );
+  if (q.data && q.data.sources.length === 0)
     return (
       <>
         <Header title="Tickets" sub={ov?.project.name} hideWide />
-        <EmptyState
-          icon="ticket"
-          title="No ticket tracker connected"
-          action={<button className="btn btn-primary btn-md" onClick={() => nav.go({ name: "menu", section: "tools" })}>Connect a tracker</button>}
-        >
-          Connect Jira, Trello, Asana or Linear, or sign in to GitHub under Git providers for the issues of a GitHub repository, to see tickets here, plan them into releases and start a branch from one.
-        </EmptyState>
+        <div className="map-bar tk-bar">
+          <h2 className="map-title hide-narrow">Tickets</h2>
+          {ov && <span className="pr-where mono ellipsis hide-narrow">{ov.project.name}</span>}
+        </div>
+        <div className="empty-state">
+          <span className="tk-mini" aria-hidden="true">
+            {["Ticket", "Branch", "Pull request", "Release"].map((s) => (
+              <span key={s}><span className="tk-stop" data-big={s === "Release" || undefined} />{s}</span>
+            ))}
+          </span>
+          <h2>No ticket tracker connected</h2>
+          <p>Connect Jira, Trello, Asana or Linear, or sign in to GitHub under Git providers for the issues of a GitHub repository, to see tickets here, plan them into releases and start a branch from one.</p>
+          <button className="btn btn-primary btn-md" onClick={settings}>Connect a tracker</button>
+        </div>
       </>
     );
-  }
 
   return (
     <>
@@ -120,148 +182,201 @@ export function Tickets({ initial }: { initial?: string }) {
             <ErrorBox error={q.error} />
             <div className="row" style={{ marginTop: 14, justifyContent: "center" }}>
               <button className="btn" onClick={() => q.refetch()}><Busy on={q.isFetching}>Retry</Busy></button>
-              <button className="btn btn-primary" onClick={() => nav.go({ name: "menu", section: "tools" })}>Open settings</button>
+              <button className="btn btn-primary" onClick={settings}>Open settings</button>
             </div>
           </div>
         </div>
       ) : (
-        <div className="body split">
-          <section className="master" style={{ "--master-w": `${listW.width}px` } as CSSProperties} data-pane data-active={pane === "list"} aria-label="Ticket list">
-            <div className="master-tools">
+        <>
+          {/* The branch map's toolbar: the title, the filters, then search, sync and triage. The narrow detail pane goes without it. */}
+          <div className="map-bar tk-bar" data-detail={pane === "detail" || undefined}>
+            <h2 className="map-title hide-narrow">Tickets</h2>
+            <MenuChoice
+              className="select menu-select tk-trackers"
+              label="Tracker"
+              value={shown}
+              options={[
+                { value: "all", label: `All trackers · ${counted.length}` },
+                ...places.map((p) => ({ value: p, label: `${p} · ${counted.filter((x) => x.place === p).length}` })),
+                { value: ADD, label: "Connect another tracker…" },
+              ]}
+              onChange={(v) => (v === ADD ? settings() : setPlace(v))}
+            />
+            <Seg<"mine" | "all">
+              label="Whose tickets"
+              value={mine ? "mine" : "all"}
+              onChange={(v) => setMine(v === "mine")}
+              options={[{ value: "mine", label: "Mine" }, { value: "all", label: "Everyone" }]}
+            />
+            {(jira || cycles) && (
+              <button
+                className="map-toggle"
+                aria-pressed={sprint}
+                data-tip={`${jira && cycles ? "Jira tickets in an open sprint and Linear issues in the active cycle" : jira ? "Jira tickets in an open sprint" : "Linear issues in the active cycle"}; hides the other trackers`}
+                onClick={() => setSprint(!sprint)}
+              >
+                <span className="map-box" aria-hidden><Icon name="check" size={10} stroke={2.4} /></span>
+                <span>{jira && cycles ? "Active sprint or cycle" : jira ? "Active sprint" : "Active cycle"}</span>
+              </button>
+            )}
+            <Seg label="Group by" value={group} onChange={setGroup} options={[{ value: "status", label: "By status" }, { value: "release", label: "By release" }]} />
+            <span className="grow" />
+            <div className="pr-search">
+              <Icon name="search" size={13} className="faint" />
               <label htmlFor="tk-q" className="sr-only">Search tickets</label>
-              <div className="row" style={{ gap: 6, margin: 0 }}>
-                <input id="tk-q" className="input grow" placeholder="Search by key or title" value={search} onChange={(e) => setSearch(e.target.value, false)} onBlur={() => setSearch(search)} />
-                <button className="btn btn-icon" aria-label="Sync now" data-tip={q.data?.syncedAt ? `Sync now · synced ${ago(q.data.syncedAt)}` : "Sync now"} onClick={() => q.refetch()}>
-                  <Busy on={q.isFetching}><Icon name="refresh" size={13} /></Busy>
-                </button>
-              </div>
-              <MenuChoice
-                className="select menu-select"
-                style={{ height: 30, width: "100%" }}
-                label="Tracker"
-                value={shown}
-                options={[
-                  { value: "all", label: `All trackers · ${base.length}` },
-                  ...places.map((p) => ({ value: p, label: `${p} · ${base.filter((x) => x.place === p).length}` })),
-                  { value: ADD, label: "Connect another tracker…" },
-                ]}
-                onChange={(v) => (v === ADD ? nav.go({ name: "menu", section: "tools" }) : setPlace(v))}
-              />
-              <div className="row wrap">
-                <Seg label="Group by" value={group} onChange={setGroup} options={[{ value: "release", label: "By release" }, { value: "status", label: "By status" }]} />
-                <label className="check" style={{ minHeight: 28 }}>
-                  <input type="checkbox" checked={mine} onChange={() => setMine(!mine)} />
-                  <span>Assigned to me</span>
-                </label>
-                {(jira || cycles) && (
-                  <label
-                    className="check"
-                    style={{ minHeight: 28 }}
-                    data-tip={`${jira && cycles ? "Jira tickets in an open sprint and Linear issues in the active cycle" : jira ? "Jira tickets in an open sprint" : "Linear issues in the active cycle"}; hides the other trackers`}
-                  >
-                    <input type="checkbox" checked={sprint} onChange={() => setSprint(!sprint)} />
-                    <span>{jira && cycles ? "Active sprint or cycle" : jira ? "Active sprint" : "Active cycle"}</span>
-                  </label>
-                )}
-              </div>
+              <input id="tk-q" className="input" placeholder="Search by key or title" value={search} onChange={(e) => setSearch(e.target.value, false)} onBlur={() => setSearch(search)} />
             </div>
-            <div className="scroll" style={{ flex: "1 1 auto", paddingBottom: 12 }}>
-              {grouped.map((g) => (
-                <div key={g.id || "none"}>
-                  <div className="group-head" style={{ fontSize: 13, fontWeight: 700 }}>
-                    <span className={group === "status" ? STATUS[g.id as Ticket["status"]][1] : undefined}>{g.label}</span>
-                    <span>{g.items.length}</span>
-                  </div>
-                  <div className="col" style={{ gap: 2 }}>
-                    {g.items.map((x) => (
-                      <button key={x.key} className="item-btn" style={{ gap: 1, padding: "7px 12px" }} aria-pressed={x.key === t?.key} onClick={() => { setSel(x.key); setPane("detail"); }}>
-                        <span className="row" style={{ gap: 8, margin: "0 0 2px", fontSize: 11.5 }}>
-                          <Avatar name={x.assignee} />
-                          <span className="mono faint">{x.key}</span>
-                          <span className={STATUS[x.status][1]} style={{ fontSize: 13 }}>{x.statusLabel || STATUS[x.status][0]}</span>
-                          <Prio t={x} />
-                          <span className="faint ellipsis grow tk-types">
-                            {x.source === "linear" && x.labels?.length ? x.labels.map((l) => <span key={l}><Dot color={x.labelColors?.[l]} />{l}</span>) : <span><Dot color={typeColor(x)} />{x.kind}</span>}
-                          </span>
-                          {suggestions[x.key] && !x.release && <Icon name="sparkle" size={11} className="c-acc" />}
-                          <span className="faint">{SRC[x.source]}</span>
-                        </span>
-                        <span className="ellipsis" style={{ fontWeight: 500 }}>{x.title}</span>
-                        <span className="mono faint ellipsis" style={{ fontSize: 11.5, marginTop: 8 }}>{x.branch ? [home(x), x.branch].filter(Boolean).join(" · ") : "No branch"}</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              ))}
-              {grouped.length === 0 &&
-                (all.length ? (
-                  <Empty>No tickets match these filters.</Empty>
-                ) : (
-                  <Empty>
-                    No open tickets from {(q.data?.sources ?? []).map((s) => SRC[s as keyof typeof SRC]).join(", ")}. Check the query in its settings.
-                    <div style={{ marginTop: 14 }}>
-                      <button className="btn" onClick={() => nav.go({ name: "menu", section: "tools" })}>Open settings</button>
-                    </div>
-                  </Empty>
-                ))}
-            </div>
+            <button className="btn btn-sm btn-icon" aria-label="Sync now" data-tip={q.data?.syncedAt ? `Sync now · synced ${ago(q.data.syncedAt)}` : "Sync now"} onClick={() => q.refetch()}>
+              <Busy on={q.isFetching}><Icon name="refresh" size={14} /></Busy>
+            </button>
             {unplanned > 0 && open.length > 0 && (
-              <div className="master-tools" style={{ borderBottom: 0, borderTop: "1px solid var(--line)" }}>
-                <button
-                  className="btn btn-primary"
-                  style={{ height: 48, fontSize: 13.5 }}
-                  disabled={triage.isPending}
-                  onClick={() => triage.mutate({ projectId: pid }, { onSuccess: (r) => setSuggestions(Object.fromEntries(r.map((s) => [s.key, s]))) })}
-                >
-                  <Busy on={triage.isPending}><Icon name="sparkle" size={13} /></Busy>
-                  Triage {unplanned} unplanned with AI
-                </button>
+              <button
+                className="btn btn-sm tk-triage"
+                aria-label={`Triage ${unplanned} unplanned with AI`}
+                data-tip={`Ask AI which release each of the ${plural(unplanned, "unplanned ticket")} belongs in`}
+                disabled={triage.isPending}
+                onClick={() => triage.mutate({ projectId: pid }, { onSuccess: (r) => setSuggestions(Object.fromEntries(r.map((s) => [s.key, s]))) })}
+              >
+                <Busy on={triage.isPending}><Icon name="sparkle" size={12} /></Busy>
+                <span>
+                  Triage {unplanned}
+                  <span className="hide-narrow"> unplanned</span>
+                </span>
+              </button>
+            )}
+          </div>
+          <div className="body split">
+            <section className="master" style={{ "--master-w": `${listW.width}px`, "--key-w": `${keyW}ch` } as CSSProperties} data-pane data-active={pane === "list"} aria-label="Ticket list">
+              <div className="scroll tk-list">
+                {grouped.map((g) => (
+                  <div key={g.id || "none"}>
+                    <div className="group-head">
+                      <span>{g.label}</span>
+                      <span className="mono">{g.items.length}</span>
+                    </div>
+                    <div className="col" style={{ gap: 1 }}>
+                      {g.items.map((x) => (
+                        <TicketRow
+                          key={x.key}
+                          x={x}
+                          active={x.key === t?.key}
+                          everyone={!mine}
+                          branch={branchOf(x)}
+                          suggested={!!suggestions[x.key] && !x.release}
+                          onPick={() => {
+                            setSel(x.key);
+                            setPane("detail");
+                          }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                ))}
+                {grouped.length === 0 &&
+                  (all.length ? (
+                    <div className="tk-none">
+                      <strong>{term ? `No tickets match “${search.trim()}”.` : "No tickets match these filters."}</strong>
+                      <p className="hint">
+                        {term ? "Search reads keys and titles" : "Nothing left"}
+                        {mine ? " of your tickets" : ""}
+                        {sprint && (jira || cycles) ? " in the active sprint or cycle" : ""}
+                        {shown !== "all" ? ` in ${shown}` : ""}.
+                      </p>
+                      <div className="row wrap">
+                        {term && <button className="btn btn-sm" onClick={() => setSearch("")}>Clear search</button>}
+                        {mine && <button className="btn btn-sm" onClick={() => setMine(false)}>{term ? "Search everyone's tickets" : "Show everyone's tickets"}</button>}
+                        {shown !== "all" && <button className="btn btn-sm" onClick={() => setPlace("all")}>Show all trackers</button>}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="tk-none">
+                      <p>No open tickets from {(q.data?.sources ?? []).map((s) => SRC[s as keyof typeof SRC]).join(", ")}. Check the query in its settings.</p>
+                      <div className="row">
+                        <button className="btn btn-sm" onClick={settings}>Open settings</button>
+                      </div>
+                    </div>
+                  ))}
               </div>
-            )}
-          </section>
-          <Resizer pane={listW} label="Resize ticket list" />
-          <main className="detail" data-pane data-active={pane === "detail"} {...swipeProps((dir) => dir < 0 && setPane("list"))}>
-            {t ? (
-              <TicketDetail
-                t={t}
-                home={home(t)}
-                releases={open.map((r) => ({ version: r.version, label: `${label(r.version)} · ${releaseTagLabel(r.tag)}`, branch: r.branch }))}
-                suggestion={!t.release ? suggestions[t.key] : undefined}
-                onRelease={(v) => setRel.mutate({ projectId: pid, key: t.key, release: v })}
-                onDismiss={() => {
-                  const n = { ...suggestions };
-                  delete n[t.key];
-                  setSuggestions(n);
-                }}
-              />
-            ) : (
-              <EmptyState icon="ticket" title="No ticket selected">Pick one from the list to see its details and start a branch from it.</EmptyState>
-            )}
-          </main>
-        </div>
+            </section>
+            <Resizer pane={listW} label="Resize ticket list" />
+            <main className="detail tk-detail" data-pane data-active={pane === "detail"} {...swipeProps((dir) => dir < 0 && setPane("list"))}>
+              {t ? (
+                <TicketDetail
+                  t={t}
+                  home={home(t)}
+                  branch={branchOf(t)}
+                  pr={prOf(t)}
+                  releases={open.map((r) => ({ version: r.version, label: `${label(r.version)} · ${releaseTagLabel(r.tag)}`, branch: r.branch, tag: r.tag }))}
+                  shipped={ov?.releases.find((r) => r.version === t.release && !r.open)?.version}
+                  suggestion={!t.release ? suggestions[t.key] : undefined}
+                  onRelease={(v) => setRel.mutate({ projectId: pid, key: t.key, release: v })}
+                  onDismiss={() => {
+                    const n = { ...suggestions };
+                    delete n[t.key];
+                    setSuggestions(n);
+                  }}
+                />
+              ) : visible.length ? (
+                <EmptyState icon="ticket" title="No ticket selected">Pick one from the list to see its details and start a branch from it.</EmptyState>
+              ) : null}
+            </main>
+          </div>
+        </>
       )}
     </>
   );
 }
 
+/** A row of the list: status ring, key, title, then priority and, with Everyone, who has it: their avatar, and on a phone,
+ * which has no hover for the avatar's tooltip, their first name beside it. */
+function TicketRow({ x, active, everyone, branch, suggested, onPick }: { x: Ticket; active: boolean; everyone: boolean; branch?: BranchView; suggested: boolean; onPick: () => void }) {
+  return (
+    <button className="item-btn tk-row" aria-pressed={active} onClick={onPick}>
+      <TicketRing t={x} />
+      <span className="mono tk-row-key">{x.key}</span>
+      <span className="tk-row-title">
+        <AgentDot b={branch} />
+        {x.title}
+      </span>
+      <span className="sr-only">{x.statusLabel || STATUS[x.status]}</span>
+      {suggested && <Icon name="sparkle" size={11} className="c-acc" />}
+      <Prio t={x} bare />
+      {everyone && (
+        <span className="tk-row-who">
+          <Assignee name={x.assignee} />
+          <span className="tk-row-name" aria-hidden="true">{x.assignee.split(/\s+/)[0]}</span>
+        </span>
+      )}
+    </button>
+  );
+}
+
+type Rel = { version: string; label: string; branch: string; tag: string };
+
+/** The ticket as a page: its title and fields, then what it says, its files and comments; beside it, its way to a release. */
 function TicketDetail({
   t,
   home,
+  branch,
+  pr,
   releases,
+  shipped,
   suggestion,
   onRelease,
   onDismiss,
 }: {
   t: Ticket;
   home?: string;
-  releases: { version: string; label: string; branch: string }[];
+  branch?: BranchView;
+  pr?: PrSummary;
+  releases: Rel[];
+  shipped?: string;
   suggestion?: Suggestion;
   onRelease: (v: string) => void;
   onDismiss: () => void;
 }) {
   const nav = useNav();
   const prefs = useProjectPrefs(nav.projectId);
-  const { label } = useTagV(nav.projectId);
   // Only GitHub's Markdown holds HTML; the other trackers' show their pictures, and any tag stays text.
   const github = t.source === "github";
   const media = prefs.dialogs.prMedia;
@@ -306,83 +421,56 @@ function TicketDetail({
   });
   const edit = (e: Edit) => setFields.mutate({ source: t.source, conn: t.conn, id: t.id, ...e });
   const busy = (k: keyof Edit) => (setFields.isPending && setFields.variables?.[k] !== undefined ? "Saving…" : undefined);
-  const kind = /bug|fix/i.test(t.kind) ? "fix" : "feat";
   const rel = releases.find((r) => r.version === t.release);
   const done = t.criteria.filter((c) => c.done).length;
   const source = media ? pictures : null;
+  const tracked = t.source === "jira" || t.source === "linear";
+  const link = (href: string | undefined, title: string, text: ReactNode) =>
+    href ? (
+      <a className="ellipsis" href={href} title={title} onClick={(e) => { e.preventDefault(); openExternal(href); }}>{text}</a>
+    ) : (
+      <span className="faint">None</span>
+    );
   return (
-    <div className="detail-inner">
-      <div className="col" style={{ gap: 8 }}>
-        <div className="row wrap muted" style={{ fontSize: 12.5 }}>
-          <span className="row" style={{ gap: 6, color: "var(--fg)" }} title="Assignee"><Avatar name={t.assignee} />{t.assignee}</span>
-          <span className="faint">·</span>
-          <span className="mono">{t.key}</span>
-          <span className="faint">·</span>
-          <span><Dot color={typeColor(t)} />{t.kind}</span>
-          <span className="faint">·</span>
-          <span>{t.whereLabel}</span>
-          {t.labels?.map((l) => <span key={l} className="tag tk-label"><Dot color={t.labelColors?.[l]} />{l}</span>)}
-          <span className="grow" />
-          {t.url && (
-            <button className="btn btn-sm" onClick={() => openExternal(t.url)}>
-              <Icon name="external" size={11} />
-              Open in {SRC[t.source]}
-            </button>
-          )}
-        </div>
-        <h1>{t.title}</h1>
-      </div>
-      <div className="kv tk-kv">
-        {(t.source === "jira" || t.source === "linear") && (
-          <>
-            <div>
-              <span>Parent</span>
-              {t.parentKey ? (
-                <a className="ellipsis" href={t.parentUrl} title={`Open ${t.parentKey} in ${SRC[t.source]}`} onClick={(e) => { e.preventDefault(); openExternal(t.parentUrl!); }}>
-                  <span className="mono">{t.parentKey}</span> {t.parentTitle}
-                </a>
-              ) : (
-                <span className="faint">None</span>
-              )}
-            </div>
-            {t.source === "linear" && (
-              <div>
-                <span>Project</span>
-                {t.projectName ? (
-                  <a className="ellipsis" href={t.projectUrl} title={`Open ${t.projectName} in Linear`} onClick={(e) => { e.preventDefault(); openExternal(t.projectUrl!); }}>
-                    {t.projectName}
-                  </a>
-                ) : (
-                  <span className="faint">None</span>
-                )}
-              </div>
+    <div className="tk-page">
+      <div className="tk-read">
+        <div className="tk-col">
+          <header className="tk-head">
+            <h1>{t.title}</h1>
+            {t.url && (
+              <button className="btn btn-sm tk-open" onClick={() => openExternal(t.url)}>
+                <Icon name="external" size={11} />
+                Open in {SRC[t.source]}
+              </button>
             )}
-            {t.source === "jira" && (
-              <div>
-                <label htmlFor="tk-type">Type</label>
-                {f?.types.length ? (
-                  <FieldMenu id="tk-type" label="Type" current={t.kind} options={f.types} busy={busy("kind")} onPick={(k) => edit({ kind: k })} />
-                ) : (
-                  <span><Dot color={typeColor(t)} />{t.kind}</span>
-                )}
-              </div>
-            )}
-            <div>
-              <label htmlFor="tk-priority">Priority</label>
-              {f?.priorities.length ? (
-                <FieldMenu id="tk-priority" label="Priority" current={t.priority || "None"} options={f.priorities} busy={busy("priority")} onPick={(priority) => edit({ priority })} />
+            <div className="tk-props">
+              <span className="mono faint tk-key">{t.key}</span>
+              <FieldMenu
+                id="tk-status"
+                label="Status"
+                lead={<TicketRing t={t} />}
+                mark={(o) => <Ring status={o.status} />}
+                current={t.statusLabel || STATUS[t.status]}
+                options={statuses.data ?? []}
+                busy={setStatus.isPending ? `Moving to ${setStatus.variables?.name}…` : undefined}
+                onPick={(to) => setStatus.mutate({ source: t.source, conn: t.conn, id: t.id, to, name: statuses.data?.find((o) => o.id === to)?.name ?? "" })}
+              />
+              {tracked && f?.priorities.length ? (
+                <FieldMenu id="tk-priority" label="Priority" lead={<Prio t={t} bare />} mark={(o) => <PrioOption name={o.name} />} current={t.priority || "No priority"} options={f.priorities} busy={busy("priority")} onPick={(priority) => edit({ priority })} />
               ) : (
-                <span className={t.priority ? "" : "faint"}>{t.priority || "None"}</span>
+                <Prio t={t} />
               )}
-            </div>
-            {t.source === "linear" && (
-              <div>
-                <label htmlFor="tk-labels">Labels</label>
+              {t.source === "jira" && f?.types.length ? (
+                <FieldMenu id="tk-type" label="Type" current={t.kind} options={f.types} busy={busy("kind")} onPick={(kind) => edit({ kind })} />
+              ) : (
+                <span className="tk-kind">{t.kind}</span>
+              )}
+              {t.source === "linear" && (
                 <PickMany
                   id="tk-labels"
                   label="Labels"
                   value={t.labels ?? []}
-                  options={(f?.labels ?? []).map((l) => ({ ...l, label: <><Dot color={l.color} />{l.name}</> }))}
+                  options={f?.labels ?? []}
                   loading={fields.isLoading}
                   saving={!!busy("labels")}
                   empty="No labels in this team"
@@ -390,124 +478,247 @@ function TicketDetail({
                   missing="Couldn't find every label in Linear, nothing changed"
                   onSave={(labels) => edit({ labels })}
                 />
-              </div>
-            )}
-          </>
-        )}
-        {t.source === "jira" && (
-          <>
-            <div>
-              <span>Time left</span>
-              <span className={t.timeRemaining || t.timeEstimate ? "" : "faint"}>
-                {t.timeRemaining && t.timeEstimate ? `${t.timeRemaining} of ${t.timeEstimate}` : t.timeRemaining || (t.timeEstimate ? `? of ${t.timeEstimate}` : "Not estimated")}
+              )}
+              <span className="tk-who" title="Assignee">
+                <Assignee name={t.assignee} />
+                {t.assignee}
               </span>
             </div>
-            <div>
-              <label htmlFor="tk-fix">Fix versions</label>
-              <FixVersions t={t} />
-            </div>
-          </>
-        )}
-        <div>
-          <label htmlFor="tk-rel">Release</label>
-          <MenuChoice id="tk-rel" className="select menu-select" style={{ height: 30, width: "100%" }} label="Release" value={rel ? t.release : ""} options={[...releases.map((r) => ({ value: r.version, label: r.label })), { value: "", label: "Unplanned" }]} onChange={onRelease} />
-        </div>
-        <div>
-          <label htmlFor="tk-status">Status</label>
-          <FieldMenu
-            id="tk-status"
-            label="Status"
-            current={t.statusLabel || STATUS[t.status][0]}
-            options={statuses.data ?? []}
-            busy={setStatus.isPending ? `Moving to ${setStatus.variables?.name}…` : undefined}
-            onPick={(to) => setStatus.mutate({ source: t.source, conn: t.conn, id: t.id, to, name: statuses.data?.find((o) => o.id === to)?.name ?? "" })}
-          />
+          </header>
+          <div className="tk-body">
+            <section className="section tk-desc">
+              <h2 className="sr-only">Description</h2>
+              {descHidden && ask}
+              <PictureSource.Provider value={source}>
+                {t.doc ? (
+                  <Adf doc={t.doc} />
+                ) : t.description ? (
+                  <Markdown text={t.description} html={media && (github || "pictures")} breaks={github} />
+                ) : (
+                  <p className="muted" style={{ margin: 0 }}>No description.</p>
+                )}
+              </PictureSource.Provider>
+            </section>
+            {t.criteria.length > 0 && !t.doc && (
+              <section className="section">
+                <h2>Acceptance criteria <span className="mono">{done} of {t.criteria.length}</span></h2>
+                <ul className="tk-criteria">
+                  {t.criteria.map((c, i) => (
+                    <li key={i}>
+                      <span className="tk-ring" data-status={c.done ? "done" : "todo"} aria-hidden="true" />
+                      <span className={c.done ? "muted" : ""}>{c.text}</span>
+                      <span className="sr-only">{c.done ? "(done)" : "(not done)"}</span>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+            <TicketFiles key={`${t.source}:${t.id}`} t={t} pictures={media} />
+            <PictureSource.Provider value={source}>
+              <Comments t={t} html={media && (github || "pictures")} ask={commentsHidden && ask} />
+            </PictureSource.Provider>
+          </div>
         </div>
       </div>
-      {suggestion && (
-        <div className="col note-box" style={{ gap: 8, borderColor: "var(--accent)" }}>
-          <span className="row" style={{ gap: 6, fontWeight: 500 }}>
-            <Icon name="sparkle" size={12} className="c-acc" />
-            AI suggests: {suggestion.kind === "fix" ? "a fix" : "a feature"} in {label(suggestion.release)}
-          </span>
-          <span className="muted">{suggestion.reason}</span>
-          <div className="row" style={{ justifyContent: "flex-end" }}>
-            <button className="btn btn-sm" onClick={onDismiss}>Dismiss</button>
-            <button className="btn btn-sm btn-primary" onClick={() => onRelease(suggestion.release)}>Accept</button>
+      <aside className="tk-side" aria-label="Work">
+        <h2 className="label">Work</h2>
+        <WorkLine t={t} home={home} branch={branch} pr={pr} rel={rel} shipped={shipped} suggestion={suggestion} onRelease={onRelease} onDismiss={onDismiss} />
+        <dl className="tk-kvs">
+          <div>
+            <dt><label htmlFor="tk-rel">Release</label></dt>
+            <dd>
+              <MenuChoice id="tk-rel" className="select menu-select" label="Release" value={rel ? t.release : ""} options={[...releases.map((r) => ({ value: r.version, label: r.label })), { value: "", label: "Unplanned" }]} onChange={onRelease} />
+            </dd>
           </div>
-        </div>
+          {t.source === "jira" && (
+            <div>
+              <dt><label htmlFor="tk-fix">Fix versions</label></dt>
+              <dd><FixVersions t={t} /></dd>
+            </div>
+          )}
+          {tracked && (
+            <div>
+              <dt>Parent</dt>
+              <dd>{link(t.parentKey && t.parentUrl, `Open ${t.parentKey} in ${SRC[t.source]}`, <><span className="mono faint">{t.parentKey}</span> {t.parentTitle}</>)}</dd>
+            </div>
+          )}
+          {t.source === "linear" && (
+            <div>
+              <dt>Project</dt>
+              <dd>{link(t.projectName && t.projectUrl, `Open ${t.projectName} in Linear`, t.projectName)}</dd>
+            </div>
+          )}
+          {t.source === "jira" && (
+            <div>
+              <dt>Time left</dt>
+              <dd className={t.timeRemaining || t.timeEstimate ? "" : "faint"}>
+                {t.timeRemaining && t.timeEstimate ? `${t.timeRemaining} of ${t.timeEstimate}` : t.timeRemaining || (t.timeEstimate ? `? of ${t.timeEstimate}` : "Not estimated")}
+              </dd>
+            </div>
+          )}
+          <div>
+            <dt>Tracker</dt>
+            <dd className="muted">{t.whereLabel}</dd>
+          </div>
+        </dl>
+      </aside>
+    </div>
+  );
+}
+
+/**
+ * The ticket's way to a release, as stations down a line: the ticket, its branch, pull request, release and shipping.
+ * White up to where it stands, the next station outlined, the ones after dashed; each holds what can be done there.
+ */
+function WorkLine({
+  t,
+  home,
+  branch,
+  pr,
+  rel,
+  shipped,
+  suggestion,
+  onRelease,
+  onDismiss,
+}: {
+  t: Ticket;
+  home?: string;
+  branch?: BranchView;
+  pr?: PrSummary;
+  rel?: Rel;
+  shipped?: string;
+  suggestion?: Suggestion;
+  onRelease: (v: string) => void;
+  onDismiss: () => void;
+}) {
+  const nav = useNav();
+  const { label } = useTagV(nav.projectId);
+  const activity = useTicketActivity(t).data;
+  const go = (then: () => void) => () => {
+    if (t.branchProject) nav.setProject(t.branchProject);
+    then();
+  };
+  const reached = [true, !!t.branch, !!pr && pr.state !== "closed", !!shipped, !!shipped];
+  const next = reached.indexOf(false);
+  const stop = (i: number) => (next === -1 || i < next ? { "data-on": true } : i === next ? { "data-next": true } : { "data-later": true });
+  const line = (i: number) => (next === -1 || i + 1 < next ? "on" : i + 1 > next ? "later" : undefined);
+  const station = (i: number, name: string, body: ReactNode, big?: boolean) => (
+    <li className="tk-stn" data-link={i < 4 ? line(i) : undefined}>
+      <span className="tk-stop" {...stop(i)} data-big={big || undefined} />
+      <div className="tk-stn-body">
+        <span className="label" data-on={reached[i] || undefined}>{name}</span>
+        {body}
+      </div>
+    </li>
+  );
+  const kind = /bug|fix/i.test(t.kind) ? "fix" : "feat";
+  return (
+    <ol className="tk-work">
+      {station(
+        0,
+        "Ticket",
+        <>
+          <span className="tk-stn-text">
+            {t.statusLabel || STATUS[t.status]}
+            {activity?.statusAt && ` ${lasted(activity.statusAt)}`}
+          </span>
+          {activity?.createdAt && (
+            <span className="tk-stn-meta">
+              Opened {ago(activity.createdAt)}
+              {activity.createdBy && ` by ${activity.createdBy}`}
+            </span>
+          )}
+        </>,
       )}
-      <section className="section">
-        <h2>Work</h2>
-        {t.branch ? (
-          <div className="row wrap card" style={{ padding: 14 }}>
-            <Icon name="branch" />
-            <span className="mono grow">{t.branch}{home && <span className="faint"> in {home}</span>}</span>
-            <button
-              className="btn btn-sm"
-              onClick={() => {
-                if (t.branchProject) nav.setProject(t.branchProject);
-                nav.go({ name: "prs" });
-              }}
-            >
-              Pull requests
-            </button>
-            <button
-              className="btn btn-sm"
-              onClick={() => {
-                if (t.branchProject) nav.setProject(t.branchProject);
-                nav.selectBranch(t.branch!);
-                nav.go({ name: "workspace" });
-              }}
-            >
-              Go to branch
-            </button>
+      {station(
+        1,
+        "Branch",
+        t.branch ? (
+          <>
+            <span className="mono tk-stn-name">
+              {t.branch}
+              {home && <span className="faint"> in {home}</span>}
+            </span>
+            {branch && (
+              <span className="tk-stn-meta">
+                {[plural(branch.ahead, "commit"), branch.wip > 0 && `WIP ${plural(branch.wip, "file")}`, branch.parent && `off ${branch.parent}`].filter(Boolean).join(" · ")}
+              </span>
+            )}
+            {branch?.running ? (
+              <span className="tk-stn-meta">
+                <span className="pulse glow-dot" />
+                <span className="glow-working"><span>An agent is working on it</span></span>
+              </span>
+            ) : branch?.waiting ? (
+              <span className="tk-stn-meta c-warn"><span className="pulse map-wait" />An agent waits for you</span>
+            ) : null}
+            <span className="tk-stn-acts">
+              <button className="btn btn-sm btn-primary" onClick={go(() => { nav.selectBranch(t.branch!); nav.go({ name: "workspace" }); })}>Go to branch</button>
+            </span>
+          </>
+        ) : (
+          <>
+            <span className="tk-stn-text">No branch yet</span>
+            <span className="tk-stn-meta">{rel ? `Branches off ${rel.branch}. AI names the branch from this ticket.` : "Pick a release first, or choose one when you start. AI names the branch from this ticket."}</span>
+            <span className="tk-stn-acts">
+              <button className="btn btn-sm btn-primary" onClick={() => nav.openNewItem({ release: rel?.version, ticket: t.key, description: t.title, kind })}>
+                <Icon name="plus" size={11} />
+                Start a branch
+              </button>
+            </span>
+          </>
+        ),
+      )}
+      {station(
+        2,
+        "Pull request",
+        !t.branch ? (
+          <span className="tk-stn-meta faint">Opens from the branch</span>
+        ) : pr ? (
+          <>
+            <span className="tk-stn-text"><span className="mono">#{pr.number}</span> · {PR_STATE[pr.state]}</span>
+            <span className="tk-stn-acts">
+              <button className="btn btn-sm" onClick={go(() => nav.go({ name: "prs", number: pr.number }))}>Open pull request</button>
+            </span>
+          </>
+        ) : (
+          <span className="tk-stn-acts">
+            <button className="btn btn-sm" onClick={go(() => nav.go({ name: "prs" }))}>Pull requests</button>
+          </span>
+        ),
+      )}
+      {station(
+        3,
+        "Release",
+        shipped ? (
+          <span className="tk-stn-text">{label(shipped)}</span>
+        ) : rel ? (
+          <>
+            <span className="tk-stn-num">
+              {rel.version}
+              <span className="tag">{releaseTagLabel(rel.tag)}</span>
+            </span>
+            <span className="tk-stn-meta mono">{rel.branch}</span>
+          </>
+        ) : suggestion ? (
+          <div className="col note-box tk-suggest">
+            <span className="row" style={{ gap: 6, fontWeight: 500 }}>
+              <Icon name="sparkle" size={12} className="c-acc" />
+              Suggested: {suggestion.kind === "fix" ? "a fix" : "a feature"} in {label(suggestion.release)}
+            </span>
+            <span className="muted">{suggestion.reason}</span>
+            <div className="row" style={{ justifyContent: "flex-end" }}>
+              <button className="btn btn-sm" onClick={onDismiss}>Dismiss</button>
+              <button className="btn btn-sm btn-primary" onClick={() => onRelease(suggestion.release)}>Accept</button>
+            </div>
           </div>
         ) : (
-          <div className="row wrap card" style={{ padding: 14 }}>
-            <span className="col grow" style={{ gap: 2 }}>
-              <span>No branch yet</span>
-              <span className="hint">{rel ? `Branches off ${rel.branch}. AI names the branch from this ticket.` : "Pick a release first, or choose one when you start."}</span>
-            </span>
-            <button className="btn btn-primary" onClick={() => nav.openNewItem({ release: rel?.version, ticket: t.key, description: t.title, kind })}>
-              <Icon name="plus" size={12} />
-              Start a branch
-            </button>
-          </div>
-        )}
-      </section>
-      <section className="section">
-        <h2>Description</h2>
-        {descHidden && ask}
-        <PictureSource.Provider value={source}>
-          {t.doc ? (
-            <Adf doc={t.doc} />
-          ) : t.description ? (
-            <Markdown text={t.description} html={media && (github || "pictures")} breaks={github} />
-          ) : (
-            <p style={{ margin: 0, lineHeight: 1.6, whiteSpace: "pre-wrap" }} className={t.description ? "" : "muted"}>{t.description || "No description."}</p>
-          )}
-        </PictureSource.Provider>
-      </section>
-      {t.criteria.length > 0 && !t.doc && (
-        <section className="section">
-          <h2>Acceptance criteria <span className="faint" style={{ fontWeight: 400 }}>{done} of {t.criteria.length}</span></h2>
-          <ul className="list">
-            {t.criteria.map((c, i) => (
-              <li key={i} className="list-row" style={{ minHeight: 40 }}>
-                <span className={c.done ? "c-add" : "faint"} aria-hidden="true"><Icon name={c.done ? "check" : "stop"} size={12} /></span>
-                <span className={c.done ? "muted" : ""}>{c.text}</span>
-                <span className="sr-only">{c.done ? "(done)" : "(not done)"}</span>
-              </li>
-            ))}
-          </ul>
-        </section>
+          <span className="tk-stn-meta">Unplanned · pick one below</span>
+        ),
+        true,
       )}
-      <TicketFiles key={`${t.source}:${t.id}`} t={t} pictures={media} />
-      <PictureSource.Provider value={source}>
-        <Comments t={t} html={media && (github || "pictures")} ask={commentsHidden && ask} />
-      </PictureSource.Provider>
-    </div>
+      {station(4, "Shipped", <span className={shipped ? "tk-stn-meta" : "tk-stn-meta faint"}>{shipped ? `In ${label(shipped)}` : "Not yet"}</span>)}
+    </ol>
   );
 }
 
@@ -522,7 +733,7 @@ function Comments({ t, html, ask }: { t: Ticket; html: boolean | "pictures"; ask
   const linear = t.source === "linear";
   return (
     <section className="section">
-      <h2>Comments {count > 0 && <span className="faint" style={{ fontWeight: 400 }}>{count}</span>}</h2>
+      <h2>Comments {count > 0 && <span className="mono">{count}</span>}</h2>
       {ask}
       {q.isLoading ? (
         <span className="muted">Loading comments…</span>
@@ -574,7 +785,7 @@ function CommentBox({ t, parent }: { t: Ticket; parent?: string }) {
 function Comment({ c, html, style }: { c: TicketComment; html: boolean | "pictures"; style?: CSSProperties }) {
   return (
     <div className="comment" style={style}>
-      <span className="avatar" aria-hidden="true">{initials(c.author)}</span>
+      <Avatar name={c.author} size={28} decorative />
       <div className="col grow" style={{ gap: 6, minWidth: 0 }}>
         <div className="row" style={{ gap: 8 }}>
           <span style={{ fontWeight: 500 }}>{c.author}</span>
@@ -588,16 +799,19 @@ function Comment({ c, html, style }: { c: TicketComment; html: boolean | "pictur
 
 type Edit = { priority?: string; kind?: string; labels?: string[] };
 
-/** A field's menu: its current value, then the others to switch to; `busy` stands in for the value while it saves. */
-function FieldMenu({ id, label, current, options, busy, onPick }: { id: string; label: string; current: string; options: { id: string; name: string }[]; busy?: string; onPick: (id: string) => void }) {
+/** A field's menu: its current value, then the others to switch to; `busy` stands in for the value while it saves. `lead`: its
+ * mark (status ring, priority bars) inside the menu, before the value. */
+type FieldOpt = { id: string; name: string; status?: Ticket["status"] };
+/** `mark`: each other option's mark in the menu, as `lead` is the current value's. */
+function FieldMenu({ id, label, lead, mark, current, options, busy, onPick }: { id: string; label: string; lead?: ReactNode; mark?: (o: FieldOpt) => ReactNode; current: string; options: FieldOpt[]; busy?: string; onPick: (id: string) => void }) {
   return (
     <MenuChoice
       id={id}
+      lead={lead}
       className="select menu-select"
-      style={{ height: 30, width: "100%" }}
       label={label}
       value=""
-      options={[{ value: "", label: busy ?? current }, ...options.filter((o) => o.name !== current).map((o) => ({ value: o.id, label: o.name }))]}
+      options={[{ value: "", label: busy ?? current, lead }, ...options.filter((o) => o.name !== current).map((o) => ({ value: o.id, label: o.name, lead: mark?.(o) }))]}
       onChange={(v) => v && onPick(v)}
     />
   );
@@ -629,7 +843,6 @@ function PickMany(p: { id: string; label: string; value: string[]; options: Pick
       <button
         id={p.id}
         className="select menu-select"
-        style={{ height: 30, width: "100%" }}
         aria-haspopup="menu"
         aria-label={p.label}
         onClick={(e) => {
@@ -638,7 +851,7 @@ function PickMany(p: { id: string; label: string; value: string[]; options: Pick
           setMenu({ x: r.left, y: r.bottom + 2 });
         }}
       >
-        <span className="ellipsis">{p.saving ? "Saving…" : (menu ? draft : p.value).join(", ") || "None"}</span>
+        <span className="ellipsis">{p.saving ? "Saving…" : (menu ? draft : p.value).join(", ") || `No ${p.label.toLowerCase()}`}</span>
         <Icon name="chevronDown" size={10} />
       </button>
       {menu && (

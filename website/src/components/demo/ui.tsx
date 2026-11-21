@@ -46,20 +46,20 @@ export function useLater() {
   return (ms: number, f: () => void) => void timers.current.push(window.setTimeout(f, ms));
 }
 
-// Same as src/components/Avatar.tsx: initials in a glow of a colour picked from the name.
-function hue(name: string) {
-  let h = 0;
-  for (const c of name) h = (h * 31 + c.charCodeAt(0)) % 360;
-  return h;
-}
+// Same as src/components/Avatar.tsx: initials on a neutral disc, two from 22px, else the first alone at the 11px floor.
 function initials(name: string) {
   const w = name.trim().split(/\s+/);
   return (w.length > 1 ? w[0][0] + w[w.length - 1][0] : w[0].slice(0, 2)).toUpperCase();
 }
-export function Avatar({ name, size = 16 }: { name: string; size?: number }) {
+export function Avatar({ name, size = 16, decorative }: { name: string; size?: number; decorative?: boolean }) {
+  const two = size >= 22;
   return (
-    <span className="user-avatar" role="img" aria-label={name} title={name} style={{ width: size, height: size, fontSize: Math.round(size * 0.45), '--avatar-hue': hue(name) } as CSSProperties}>
-      {initials(name)}
+    <span
+      className="user-avatar"
+      {...(decorative ? { 'aria-hidden': true } : { role: 'img', 'aria-label': name, title: name })}
+      style={{ width: size, height: size, fontSize: two ? Math.max(11, Math.round(size * 0.42)) : Math.min(11, size - 3) }}
+    >
+      {two ? initials(name) : initials(name)[0]}
     </span>
   );
 }
@@ -287,15 +287,18 @@ export function useMenu() {
 }
 
 /** A button opening its options as a menu; `select menu-select` styles it as a form field. */
-export function Choice({ label, value, options, onChange, className = 'picker-act', id, style }: { label: string; value: string; options: { value: string; label: string }[]; onChange: (v: string) => void; className?: string; id?: string; style?: CSSProperties }) {
+export function Choice({ label, value, options, onChange, className = 'picker-act', id, style, lead }: { label: string; value: string; options: { value: string; label: string; lead?: ReactNode }[]; onChange: (v: string) => void; className?: string; id?: string; style?: CSSProperties; lead?: ReactNode }) {
   const m = useMenu();
   return (
     <>
       <button type="button" id={id} className={className} style={style} aria-haspopup="menu" aria-expanded={!!m.at} aria-label={label} onClick={(e) => m.toggle(e)}>
-        <span className="ellipsis">{options.find((o) => o.value === value)?.label ?? (value || label)}</span>
+        <span className="menu-lead">
+          {lead}
+          <span className="ellipsis">{options.find((o) => o.value === value)?.label ?? (value || label)}</span>
+        </span>
         <Icon name="chevronDown" size={10} />
       </button>
-      {m.at && <Menu {...m.at} label={label} onClose={m.close} items={options.map((o) => ({ id: o.value || 'default', label: o.label, icon: null, hint: o.value === value && <Icon name="check" size={13} />, run: () => onChange(o.value) }))} />}
+      {m.at && <Menu {...m.at} label={label} onClose={m.close} items={options.map((o) => ({ id: o.value || 'default', label: o.lead ? <span className="menu-lead">{o.lead}{o.label}</span> : o.label, icon: null, hint: o.value === value && <Icon name="check" size={13} />, run: () => onChange(o.value) }))} />}
     </>
   );
 }

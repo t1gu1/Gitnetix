@@ -133,6 +133,18 @@ typography:
     fontWeight: 400
     lineHeight: "20px"
     letterSpacing: "0em"
+  ticket-title:
+    fontFamily: "Inter, system-ui, sans-serif"
+    fontSize: "26px"
+    fontWeight: 600
+    lineHeight: "32px"
+    letterSpacing: "-0.015em"
+  reading:
+    fontFamily: "Inter, system-ui, sans-serif"
+    fontSize: "14px"
+    fontWeight: 400
+    lineHeight: 1.65
+    letterSpacing: "0em"
 rounded:
   none: "0px"
   sm: "2px"
@@ -418,6 +430,70 @@ components:
     typography: "{typography.body-strong}"
     padding: "0 10px"
     height: "38px"
+  tk-row:
+    textColor: "{colors.muted}"
+    typography: "{typography.body}"
+    rounded: "{rounded.md}"
+    padding: "0 12px"
+    height: "32px"
+  tk-row-open:
+    textColor: "{colors.ink}"
+    typography: "{typography.body}"
+    rounded: "{rounded.md}"
+    padding: "0 12px"
+    height: "32px"
+  tk-row-touch:
+    textColor: "{colors.muted}"
+    typography: "{typography.body}"
+    rounded: "{rounded.md}"
+    padding: "8px 12px"
+    height: "44px"
+  tk-ring:
+    backgroundColor: "transparent"
+    rounded: "{rounded.circle}"
+    size: "11px"
+  tk-ring-done:
+    backgroundColor: "{colors.add}"
+    rounded: "{rounded.circle}"
+    size: "11px"
+  tk-reader:
+    textColor: "{colors.ink}"
+    typography: "{typography.reading}"
+    width: "1180px"
+  tk-title:
+    textColor: "{colors.ink}"
+    typography: "{typography.ticket-title}"
+  tk-margin:
+    padding: "26px 28px 40px"
+    width: "400px"
+  tk-stop:
+    backgroundColor: "{colors.ground}"
+    rounded: "{rounded.circle}"
+    size: "11px"
+  tk-stop-on:
+    backgroundColor: "{colors.control}"
+    rounded: "{rounded.circle}"
+    size: "11px"
+  tk-stop-release:
+    backgroundColor: "{colors.ground}"
+    rounded: "{rounded.circle}"
+    size: "17px"
+  tk-release-numeral:
+    textColor: "{colors.ink}"
+    typography: "{typography.display}"
+  tk-kv-row:
+    textColor: "{colors.faint}"
+    typography: "{typography.meta}"
+    height: "40px"
+  tk-skel-bar:
+    backgroundColor: "{colors.raised}"
+    rounded: "{rounded.sm}"
+    height: "9px"
+  avatar:
+    backgroundColor: "{colors.hairline-strong}"
+    textColor: "{colors.ink}"
+    rounded: "{rounded.circle}"
+    size: "16px"
 ---
 
 # Design System: Gitnetix
@@ -425,12 +501,12 @@ components:
 <!-- impeccable:design-map -->
 Name: Gitnetix
 Colors: primary: control #f2f5f8; neutral: ground #0a0d12; status: add #5fd39a; agent-working: working-amber #f7c48a; primary: light-control #0b0f14; neutral: ground-top #0f151d (+11 more in the sidecar)
-Fonts: Antonio (display, display-title, display-numeral, page-title, hero-title); Inter (body, body-strong, meta, label, button, button-small, field); JetBrains Mono (ref, count, code)
+Fonts: Antonio (display, display-title, display-numeral, page-title, hero-title); Inter (body, body-strong, meta, label, button, button-small, field, ticket-title, reading); JetBrains Mono (ref, count, code)
 Spacing: xs 4px, sm 8px, md 12px, lg 16px, xl 24px, 2xl 32px
 Radius: none 0px, sm 2px, md 3px, circle 50%
 Rules:
 - The Control Rule. Ink (`--fg`) means "this is yours": selection, the active tab, segment and tag, check fills and focus, in every theme.
-- The Meaning Rule. Branch type, trunk, release and props carry no hue.
+- The Meaning Rule. Branch type, trunk, release, props and people carry no hue.
 - The Agent Working Rule. Anything an agent is working on flows with the incumbent rainbow, and nothing else may.
 - The Theme Rule. Black & White is the default and what System follows; every other theme (Gitnetix Dark/Light in `app.css`, the 34 third-party themes through `tokens()` in `src/lib/themes.ts`) keeps its own ground, panel, text and accent, gets the derived steps (`--line2`, `-...
 - The One Loud Voice Rule. Antonio is used only for screen and page titles, the welcome heading, the next release and headline numerals.

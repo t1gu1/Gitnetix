@@ -940,6 +940,13 @@ export interface TicketComment {
   replies: TicketComment[];
 }
 
+/** When a ticket was opened and by whom, and since when it has had its status; missing or empty when the tracker doesn't say. */
+export interface TicketActivity {
+  createdAt?: string | null;
+  createdBy: string;
+  statusAt?: string | null;
+}
+
 /** A file attached to a ticket; `id` is what `tickets.file` reads it by. */
 export interface TicketFile {
   id: string;
