@@ -34,7 +34,7 @@ import { AgentInput, AgentLog, type Choice, type Upload } from "../components/Ag
 import { AgentPicker, useAgentPick, type AgentPick } from "../components/AgentPicker";
 import { Avatar } from "../components/Avatar";
 import { DiffView, LargeDiff, type Blamed, type DiffMode, type Staging } from "../components/DiffView";
-import { IMAGE_MODES, ImageDiff, MARKDOWN, comparable, dataUrl, isImage, useImageMode, type ImageMode } from "../components/ImageDiff";
+import { IMAGE_MODES, ImageDiff, MARKDOWN, comparable, dataUrl, decodeText, isImage, useImageMode, type ImageMode } from "../components/ImageDiff";
 import { ContextMenu, type MenuItem } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
 import { Resizer, usePaneWidth } from "../components/Resizer";
@@ -3395,9 +3395,3 @@ function MarkdownPreview({ pid, branch, mode, path, staged, commit, stash, text 
   return <MarkdownDoc pid={pid} id={`md:${JSON.stringify([at, stash, path])}`} text={text} load={load} />;
 }
 
-/** A base64 blob as UTF-8 text; null when it is binary (holds a NUL byte). */
-function decodeText(b64: string | null | undefined): string | null | undefined {
-  if (b64 == null) return b64;
-  const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
-  return bytes.includes(0) ? null : new TextDecoder().decode(bytes);
-}

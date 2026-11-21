@@ -2,8 +2,8 @@ import { type ClipboardEvent, type CSSProperties, type KeyboardEvent, type React
 import { createPortal } from "react-dom";
 
 import { useAction, useAgentBlobs, useAgentDiff, useAgentFile, useAiCatalog, useConfig, useSkills } from "../api/hooks";
-import { captureArtifact, clipboardFiles, copyAgentFile, downloadAgentFile, isLocal, localHead, localImage, onPathDrop, openArtifact, revealPath } from "../api/transport";
-import type { AgentAsk, AgentLimit, AgentTask, LogLine, Skill } from "../api/types";
+import { captureArtifact, clipboardFiles, copyAgentFile, downloadAgentFile, isLocal, localHead, localImage, onPathDrop, openArtifact, revealPath, rpc } from "../api/transport";
+import type { AgentAsk, AgentLimit, AgentTask, Blobs, LogLine, Skill } from "../api/types";
 import { blocks, errText, folds, questions, said, stepsLabel, tasksLabel, took, type Block, type Fold, type Opt, type Question } from "../lib/agentLog";
 import { OwnMic } from "../lib/dictation";
 import { bytes, clock, plural } from "../lib/format";
@@ -13,7 +13,7 @@ import { AudioPlayer, isAudio } from "./AudioPlayer";
 import { ProfileAvatar } from "./Profiles";
 import { DiffView } from "./DiffView";
 import { Icon } from "./Icon";
-import { IMAGE_MODES, ImageDiff, MARKDOWN, comparable, dataUrl, isImage, useImageMode, type ImageMode } from "./ImageDiff";
+import { IMAGE_MODES, ImageDiff, MARKDOWN, comparable, dataUrl, decodeText, isImage, useImageMode, type ImageMode } from "./ImageDiff";
 import { Markdown, MarkdownDoc, Modal, repoPath, Seg } from "./ui";
 import { Zoom } from "./Zoom";
 
@@ -204,7 +204,7 @@ function Stat({ add, del }: { add: number; del: number }) {
 const FEW_FILES = 6;
 
 /** What a turn changed: its files and their added and removed lines. A click shows a file's diff for that turn. */
-function Changes({ b, session }: { b: Extract<Block, { kind: "files" }>; session?: string }) {
+function Changes({ b, session, pid }: { b: Extract<Block, { kind: "files" }>; session?: string; pid?: string }) {
   const [all, setAll] = useState(false);
   const [open, setOpen] = useState<number>();
   const add = b.files.reduce((n, f) => n + (f[1] ?? 0), 0);
@@ -233,27 +233,32 @@ function Changes({ b, session }: { b: Extract<Block, { kind: "files" }>; session
         </button>
       )}
       {all && b.more > 0 && <span className="faint ag-changes-all">{plural(b.more, "more file")} not listed</span>}
-      {open !== undefined && session && <TurnDiff session={session} b={b} at={open} onStep={setOpen} onClose={() => setOpen(undefined)} />}
+      {open !== undefined && session && <TurnDiff session={session} pid={pid} b={b} at={open} onStep={setOpen} onClose={() => setOpen(undefined)} />}
     </div>
   );
 }
 
-/** File `at` of turn `b`'s changes, as that turn changed it; an image (SVG too, with a Code view) shows as its preview. The arrows and ←/→ `onStep` through its files, round. */
-function TurnDiff({ session, b, at, onStep, onClose }: { session: string; b: Extract<Block, { kind: "files" }>; at: number; onStep: (i: number) => void; onClose: () => void }) {
+/** File `at` of turn `b`'s changes, as that turn changed it; an image (SVG too, with a Code view) shows as its preview, a
+ *  Markdown file of project `pid` has a Preview too. The arrows and ←/→ `onStep` through its files, round. */
+function TurnDiff({ session, pid, b, at, onStep, onClose }: { session: string; pid?: string; b: Extract<Block, { kind: "files" }>; at: number; onStep: (i: number) => void; onClose: () => void }) {
   const [path, added] = b.files[at];
   const n = b.files.length;
   // An SVG is text too: it shows as a picture, its Code view as any other file.
   const svg = /\.svg$/i.test(path);
   const [svgCode, setSvgCode] = useState(false);
   const image = isImage(path) && (added === null || (svg && !svgCode));
+  const markdown = !!pid && MARKDOWN.test(path);
+  // Kept while stepping, so the next Markdown file opens on Preview too.
+  const [preview, setPreview] = useState(false);
   const diff = useAgentDiff(session, b.from, b.to, path, !image);
-  const blobs = useAgentBlobs(session, b.from, b.to, path, image || svg);
+  const blobs = useAgentBlobs(session, b.from, b.to, path, image || svg || (markdown && preview));
+  const text = markdown && preview && blobs.data ? decodeText(blobs.data.new ?? blobs.data.old) : undefined;
   const [imageMode, setImageMode] = useImageMode();
   const [anyway, setAnyway] = useState(false);
   const step = (d: number) => onStep((at + d + n) % n);
   useArrows(n, step);
   const compare = comparable(blobs.data);
-  const modes = (svg || (image && compare)) && (
+  const modes = ((svg || (image && compare)) && (
     <Seg<ImageMode | "code">
       value={svg && svgCode ? "code" : imageMode}
       onChange={(v) => {
@@ -263,7 +268,23 @@ function TurnDiff({ session, b, at, onStep, onClose }: { session: string; b: Ext
       label="Image comparison"
       options={[...(compare ? IMAGE_MODES : [{ value: imageMode, label: "Image" }]), ...(svg ? [{ value: "code" as const, label: "Code" }] : [])]}
     />
-  );
+  )) || (markdown && (
+    <Seg
+      value={preview ? "preview" : "diff"}
+      onChange={(v) => setPreview(v === "preview")}
+      label="View"
+      options={[{ value: "diff", label: "Diff" }, { value: "preview", label: "Preview" }]}
+    />
+  ));
+  // A picture the Markdown links to, from the same snapshot as the file.
+  const load = async (src: string) => {
+    const pic = repoPath(path, src);
+    if (!pic || !isImage(pic)) throw new Error("Not a picture of the repository");
+    const p = await rpc<Blobs>("agents.blobs", { id: session, from: b.from, to: b.to, path: pic });
+    const b64 = p.new ?? p.old;
+    if (!b64) throw new Error("Picture not found");
+    return dataUrl(pic, b64);
+  };
   return (
     <Modal
       title={path}
@@ -286,7 +307,13 @@ function TurnDiff({ session, b, at, onStep, onClose }: { session: string; b: Ext
         </>
       )}
     >
-      {image ? (
+      {markdown && preview ? (
+        typeof text === "string" ? (
+          <MarkdownDoc pid={pid!} id={`turn:${JSON.stringify([session, b.to, path])}`} text={text} load={load} />
+        ) : (
+          <div className="ag-diff">{blobs.isError ? <span className="faint">Could not load the file: {blobs.error.message}</span> : blobs.data ? <span className="faint">Not a text file</span> : <span className="spinner" />}</div>
+        )
+      ) : image ? (
         blobs.data ? (
           <ImageDiff key={path} path={path} blobs={blobs.data} mode={imageMode} />
         ) : (
@@ -609,7 +636,7 @@ export function AgentLog({ lines, empty, picks, onPicks, actions, thinking, work
         case "files":
           return (
             <div key={i} className="ag-act">
-              <Changes b={b} session={session} />
+              <Changes b={b} session={session} pid={projectId} />
             </div>
           );
         case "wait":

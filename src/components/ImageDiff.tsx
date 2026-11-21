@@ -26,6 +26,13 @@ export const MARKDOWN = /\.(md|markdown|mdx)$/i;
 /** An image's base64 contents as an `<img>` source, typed by its file name. */
 export const dataUrl = (path: string, b64: string) => `data:${MIME[ext(path)]};base64,${b64}`;
 
+/** A base64 blob as UTF-8 text; null when it is binary (holds a NUL byte). */
+export function decodeText(b64: string | null | undefined): string | null | undefined {
+  if (b64 == null) return b64;
+  const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+  return bytes.includes(0) ? null : new TextDecoder().decode(bytes);
+}
+
 export type ImageMode = "side" | "swipe" | "onion" | "difference";
 
 export const IMAGE_MODES: { value: ImageMode; label: string }[] = [
