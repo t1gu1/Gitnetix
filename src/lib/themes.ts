@@ -29,10 +29,12 @@ export interface Theme {
 export const THEMES: Theme[] = [
   // The default (SYSTEM), first: the slate redesign's own colors, every step set exactly.
   { id: "gitnetix-bw", name: "Gitnetix Black & White", family: "Gitnetix Black & White", light: false, bg: "#0a0d12", panel: "#0f141b", fg: "#e9eef4", muted: "#a3aebb", faint: "#808b9a", accent: "#f2f5f8", onAccent: "#0a0d12", trunk: "#f7c48a",
-    own: { raised: "#151b24", sel: "#1b2330", line: "#1f2732", line2: "#2c3644", link: "#344050", ground: "#0f151d", route: "#f2f5f8", term: "#0a0d12", "add-bg": "rgba(95, 211, 154, 0.1)", "del-bg": "rgba(255, 123, 114, 0.1)", g4: "#62d6ae" },
+    own: { raised: "#151b24", sel: "#1b2330", line: "#1f2732", line2: "#2c3644", link: "#344050", ground: "#0f151d", route: "#f2f5f8", term: "#0a0d12", "add-bg": "rgba(95, 211, 154, 0.1)", "del-bg": "rgba(255, 123, 114, 0.1)", g4: "#62d6ae",
+      "add-fg": "#5fd39a", "del-fg": "#ff7b72", "warn-fg": "#e8b85a", "release-fg": "#c4a7ff", "prop-fg": "#5fd0e0" },
     ansi: "151b24 ff7b72 5fd39a e8b85a 8fa7c4 c4a7ff 5fd0e0 c7d0db 808b9a ff7b72 5fd39a e8b85a a9bdd6 c4a7ff 5fd0e0 f2f5f8" },
   { id: "gitnetix-bw-light", name: "Gitnetix Black & White Light", family: "Gitnetix Black & White", light: true, bg: "#eef1f5", panel: "#ffffff", fg: "#0b0f14", muted: "#4f5b6a", faint: "#5f6a79", accent: "#0b0f14", onAccent: "#ffffff", trunk: "#a85a12",
-    own: { raised: "#f5f7fa", sel: "#e8ecf2", line: "#dde2e9", line2: "#c9d0da", link: "#b8c1cd", ground: "#e6eaf0", route: "#0b0f14", term: "#eef1f5", "add-bg": "rgba(18, 122, 75, 0.09)", "del-bg": "rgba(192, 54, 44, 0.08)", g4: "#17744d" },
+    own: { raised: "#f5f7fa", sel: "#e8ecf2", line: "#dde2e9", line2: "#c9d0da", link: "#b8c1cd", ground: "#e6eaf0", route: "#0b0f14", term: "#eef1f5", "add-bg": "rgba(18, 122, 75, 0.09)", "del-bg": "rgba(192, 54, 44, 0.08)", g4: "#17744d",
+      "add-fg": "#127a4b", "del-fg": "#c0362c", "warn-fg": "#8a5a00", "release-fg": "#6b46c1", "prop-fg": "#0e7490" },
     ansi: "0b0f14 c0362c 127a4b 8a5a00 2f5a8a 6b46c1 0e7490 a3aebb 4f5b6a c0362c 127a4b 8a5a00 3a6aa0 6b46c1 0e7490 5f6a79" },
 
   // Storm leads its family, so the light / dark toggle takes Day back to it.
