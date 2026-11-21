@@ -3852,9 +3852,11 @@ button.map-line-chip[aria-disabled] {
 /* Each count centred under its button: + under stage, − under discard. */
 .file-row .file-nums {
   gap: 2px;
+  font-size: 11px;
 }
+/* min-width, not width: wide counts like +212 grow instead of overlapping. */
 .file-row .file-nums > span {
-  width: 22px;
+  min-width: 22px;
   display: flex;
   justify-content: center;
 }
