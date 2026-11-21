@@ -14,70 +14,33 @@ the in-app update prompt.
 
 ## [Unreleased]
 
-### Added (App)
-
-- Pushing to a GitHub project you can't write to offers to fork it. The app forks the repository, pushes the branch to your fork, and opens the pull request on the original.
-- The Pull requests page lists and opens pull requests on the repository a fork came from. The choice is saved per project in `prRepo`.
-- Rebase a branch onto the checked-out branch from the branch menu.
-- A `/` menu in the prompt boxes inserts a skill by name (`$` for Codex). It lists the skills and commands found in each CLI's folders.
-- Links to files in log replies, and code spans that look like paths such as `src/app.ts:12`, open the file in the map's diff view or on the Worktrees page.
-- Links to an image or Markdown file outside the working folder open in the app's viewer. Markdown renders with its pictures.
-- The map and worktree file views have an "Open in file explorer" button.
-- The map shows a branch's files in a panel under its card. A file click opens its diff over the map.
-- The map files panel has a collapse-all toggle.
-- A branch card has a button to show its files when there is no WIP.
-- The map file view shows history, preview, and blame.
-- SVG changes in the log preview as images, with a Code view toggle.
-- The map legend fits on one line, with a "See all" modal for the rest.
-- The menu has a "Check and update" button that runs the update check on demand and reports "up to date" or the error.
-
-### Changed (App)
-
-- The pull requests screen has a new layout with a list, a detail view, a merge gate, and dark and light themes. A card shows checks, approvals, and reviewers.
-- The Gemini provider runs the Antigravity CLI (`agy`) and is labeled Antigravity / Gemini. The API key option still takes a Gemini API key. When only the older `gemini` CLI is installed, AI setup reports it and notes that it works only with a paid Gemini API key.
-- The commit list shows one row per first-parent commit. Commits a merge brought in are listed under that merge, with a count on the map row. The ahead and unreleased counts, the reset preview, and the unpushed flag count them too.
-- The default zoom is now the webview's 100%. Saved zoom levels from the old default are dropped.
-- Dev builds show the newest `v*` git tag and "dev" in the menu. The update check offers only a release newer than that tag.
-- Pasted images without a name get the letters A, B, C instead of `image.png`, so a message can refer to "image A".
-- User messages in the log no longer have a border.
-- Both Gitnetix black and white themes set explicit colors for added, deleted, warning, release, and property text.
-
-### Fixed (App)
-
-- A sentence after an option list counts as a question only when it ends with "?" or asks the user to pick or respond.
-- Sessions saved by another instance now show.
-- Workspace scrollbars no longer show through the menu overlay.
-- File counts such as `+212` no longer overflow and overlap. They use a smaller font and grow with their content.
-- The split and unified diff controls stay visible on narrow screens.
-- The branch map legend stays pinned at the bottom of the map and no longer pushes the scrollbar away from it.
-
 ## [0.28.0] - 2026-11-21
 
 ### Added (App)
 
 - Pushing to a GitHub project you can't push to (a clone of someone else's repository) no longer ends on git's "Permission denied". The app offers to fork the project to your GitHub account and push the branch to your fork, signing in to GitHub first if needed. It then explains that you can open a pull request from your fork, with a button that opens one.
 - Pull requests on GitHub projects you can't push to: **Fork and open pull request** forks the repository to your account (or reuses your fork), pushes the branch there and opens the pull request on the original repository. It works from the Pull requests page and from a branch's menu on the branch map. Later pushes of that branch go to your fork.
-- When the project's origin is your GitHub fork, the Pull requests page asks where pull requests go: the repository you forked from or your fork. With the original repository picked, the list, reviews and new pull requests are on it, and new pull requests come from your fork.
+- When the project's origin is your GitHub fork, the Pull requests page asks where pull requests go, the repository you forked from or your fork. With the original repository picked, the list, reviews and new pull requests are on it, and new pull requests come from your fork. The choice is saved per project in `prRepo`.
 - The branch map shows the selected branch's files in a panel under its card. Clicking a file opens its diff over the map, and a collapse-all toggle folds the panel. When the branch has no uncommitted changes, a button on the card shows its files.
 - The branch menu can rebase a branch onto the checked-out branch.
-- Typing `/` (or `$` for Codex) in a prompt box opens a menu of the skills and commands installed for that CLI and inserts the one you pick by name.
+- Typing `/` (or `$` for Codex) in a prompt box opens a menu of the skills and commands found in that CLI's folders and inserts the one you pick by name.
 - Links to files in log replies, and code spans that look like paths such as `src/app.ts:12`, open the file in the map's diff view or on the Worktrees page. Files outside the working folder show in the file manager on desktop.
 - Links to an image or Markdown file outside the working folder open in the app's viewer. Markdown renders with its pictures, and a Markdown file opened from a link starts on Preview. The map and worktree file views have an "Open in file explorer" button.
 - The map file view shows history, preview and blame.
-- Changes to an SVG file can be previewed, with a Code view toggle to switch back to the source.
-- The menu has a "Check and update" button that checks for a new release on demand and reports "up to date" or the error. Dev builds show the newest v* git tag with "dev" next to it, and only a newer release is offered.
+- Changes to an SVG file in the log preview as images, with a Code view toggle to switch back to the source.
+- The menu has a "Check and update" button that checks for a new release on demand and reports "up to date" or the error. Dev builds show the newest `v*` git tag with "dev" next to it, and only a newer release is offered.
 - The branch map legend fits on one line, and a "See all" button opens the full legend in a modal.
 
 ### Changed (App)
 
-- The Pull requests page follows the app's new look. A card beside the conversation shows passed checks, approvals and unresolved conversations as large numbers, says what still blocks the merge, and lists the checks and reviewers. The list rows put the title first, and the new pull request panel shows the branch and the repository it opens on. When a pull request is already open from the branch, the panel and the branch menu show it instead of offering another one.
-
+- The Pull requests page follows the app's new look, with dark and light themes. A card beside the conversation shows passed checks, approvals and unresolved conversations as large numbers, says what still blocks the merge, and lists the checks and reviewers. The list rows put the title first, and the new pull request panel shows the branch and the repository it opens on. When a pull request is already open from the branch, the panel and the branch menu show it instead of offering another one.
 - The Gemini provider is now called Antigravity / Gemini. Agents and AI tasks run the Antigravity CLI (`agy`), and the API key option still takes a Gemini API key. Agent labels say Antigravity CLI.
 - When only the older Gemini CLI is installed, AI setup and Agent setup say they found `gemini`, not `agy`. That CLI works only with a paid Gemini API key.
 - The commit list shows one row per first-parent commit. Commits a merge brought in are listed under that merge, with a count on the map row. The ahead and unreleased counts, the reset preview and the unpushed flag include those commits.
-- Pasted images without a name get the next free letter (A, B, C) instead of image.png, so a message can refer to "image A".
-- The default zoom is 1.3, and previously saved zoom levels are dropped.
+- Pasted images without a name get the next free letter (A, B, C) instead of `image.png`, so a message can refer to "image A".
+- The default zoom is now the webview's 100%, and saved zoom levels from the old default are dropped.
 - User messages in the log no longer have a border.
+- Both Gitnetix black and white themes set explicit colors for added, deleted, warning, release and property text.
 
 ### Changed (Website)
 
@@ -87,10 +50,10 @@ the in-app update prompt.
 
 - A sentence after an option list, such as a note saying "which makes it stale", no longer marks the block as a question. Only a sentence ending in "?" or asking you to pick or respond counts.
 - Sessions saved by another instance of the app now show up in the list.
-- File counts such as +212 no longer overflow and overlap in file rows.
+- File counts such as `+212` no longer overflow and overlap in file rows. They use a smaller font and grow with their content.
 - The split and unified diff controls stay visible on narrow screens.
 - Workspace scrollbars no longer show through the menu overlay.
-- The branch map legend sits over the map's scrollbar instead of pushing it apart from the map, and tiles are no longer hidden behind it.
+- The branch map legend sits over the map's scrollbar, pinned at the bottom of the map, instead of pushing it apart from the map, and tiles are no longer hidden behind it.
 
 ## [0.27.1] - 2026-11-20
 
