@@ -979,7 +979,7 @@ export function Workspace() {
                       {image && shown && blobs.data && <ImageDiff path={shown.path} blobs={blobs.data} mode={imageMode} />}
                       {blobs.error && (image || unchanged) && <div style={{ padding: 16 }}><ErrorBox error={blobs.error} /></div>}
                       {showPreview ? (
-                        <MarkdownPreview pid={pid} branch={branch} mode={mode} path={shown.path} staged={shown.staged} commit={shownCommit} stash={shownStash} text={text} />
+                        <MarkdownPreview pid={pid} branch={branch} mode={mode} path={shown.path} staged={shown.staged} commit={shownCommit} stash={shownStash} text={text} hunks={diff.data} />
                       ) : (
                         <>
                           {huge && !image && <LargeDiff lines={changedLines} onShow={showAnyway} />}
@@ -1831,7 +1831,7 @@ export function MapDiff({
         {blobs.error && <div style={{ padding: 16 }}><ErrorBox error={blobs.error} /></div>}
         {image && f && blobs.data && <ImageDiff path={f.path} blobs={blobs.data} mode={imageMode} />}
         {showPreview ? (
-          <MarkdownPreview pid={pid} branch={branch} mode={mode} path={f.path} staged={f.staged} text={text} />
+          <MarkdownPreview pid={pid} branch={branch} mode={mode} path={f.path} staged={f.staged} text={text} hunks={diff.data} />
         ) : (
           <>
             {huge && !image && <LargeDiff lines={lines} onShow={() => setAnyway(file)} />}
@@ -3381,8 +3381,9 @@ function FileModes(p: {
   );
 }
 
-/** A Markdown file of the repository rendered, its own pictures loaded from the repository at the same version. */
-function MarkdownPreview({ pid, branch, mode, path, staged, commit, stash, text }: { pid: string; branch?: string; mode: Mode; path: string; staged?: boolean; commit?: string; stash?: string; text: string }) {
+/** A Markdown file of the repository rendered, its own pictures loaded from the repository at the same version, what
+ *  `hunks` added tinted green. */
+function MarkdownPreview({ pid, branch, mode, path, staged, commit, stash, text, hunks }: { pid: string; branch?: string; mode: Mode; path: string; staged?: boolean; commit?: string; stash?: string; text: string; hunks?: Hunk[] }) {
   const at = { projectId: pid, branch, mode, staged, commit };
   const load = async (src: string) => {
     const pic = repoPath(path, src);
@@ -3392,6 +3393,6 @@ function MarkdownPreview({ pid, branch, mode, path, staged, commit, stash, text 
     if (!b64) throw new Error("Picture not found");
     return dataUrl(pic, b64);
   };
-  return <MarkdownDoc pid={pid} id={`md:${JSON.stringify([at, stash, path])}`} text={text} load={load} />;
+  return <MarkdownDoc pid={pid} id={`md:${JSON.stringify([at, stash, path])}`} text={text} load={load} hunks={hunks} />;
 }
 

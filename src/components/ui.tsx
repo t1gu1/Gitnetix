@@ -2,10 +2,12 @@ import { createElement, type CSSProperties, Fragment, memo, type ReactNode, type
 import { createPortal } from "react-dom";
 
 import { useProjectPrefs } from "../api/hooks";
+import type { Hunk } from "../api/types";
 import { FileLink, link } from "./Adf";
 import { Icon } from "./Icon";
 import { Picture, PictureSource } from "./Picture";
 import { isPageRoute } from "./TopBar";
+import { plural } from "../lib/format";
 import { useTokens } from "../lib/highlight";
 import { comboOf, useKeys } from "../lib/keys";
 import { copyToClipboard } from "../lib/toast";
@@ -479,17 +481,19 @@ const BLOCK = /^(#{1,6}\s|```|\s*[-*]\s|\s*\d+[.)]\s|>|\s*\||\s*(-{3,}|\*{3,})\s
 // paragraph), or a line that is one tag alone.
 const HTML_BLOCK = /^ {0,3}<\/?(address|article|aside|blockquote|center|dd|details|div|dl|dt|figcaption|figure|footer|h[1-6]|header|hr|li|main|nav|ol|p|section|summary|table|tbody|td|tfoot|th|thead|tr|ul)(\s|\/?>|$)/i;
 const HTML_LINE = new RegExp(`^ {0,3}${TAG.source}\\s*$`, "i");
-const item = (t: string, j: number, html: Media) => {
+const item = (t: string, j: number, html: Media, className?: string, notch?: ReactNode) => {
   const task = /^\[([ xX])\]\s+(.*)$/.exec(t);
   return (
-    <li key={j}>
+    <li key={j} className={className}>
+      {notch}
       {task ? <><input type="checkbox" checked={task[1] !== " "} disabled aria-readonly /> {inline(task[2], undefined, html)}</> : inline(t, undefined, html)}
     </li>
   );
 };
 
-/** A fenced code block under its language and a copy button, in syntax colors once the worker sends them. */
-function CodeBlock({ lang, text }: { lang: string; text: string }) {
+/** A fenced code block under its language and a copy button, in syntax colors once the worker sends them. The rows
+ *  `added` picks are tinted green, `notches` (by row) mark what was removed above them. */
+function CodeBlock({ lang, text, added, notches }: { lang: string; text: string; added?: (row: number) => boolean; notches?: ReactNode[] }) {
   const hunks = useMemo(() => [{ header: "", oldStart: 1, newStart: 1, lines: text.split("\n").map((t) => ({ kind: " " as const, text: t })) }], [text]);
   // The text the colors are for: a reply still coming keeps the colored previous version until the new colors land.
   const shown = useTokens(`code.${lang}`, hunks);
@@ -503,13 +507,13 @@ function CodeBlock({ lang, text }: { lang: string; text: string }) {
         </button>
       </div>
       <pre className="pre">
-        {rows.map((r, j) => (
-          <Fragment key={j}>
-            {/* Not `code()`: its colour swatches would take "#1234" in a log for a colour. */}
-            {shown.tokens?.[0]?.[j]?.map(([t, cls], k) => (cls ? <span key={k} className={cls}>{t}</span> : t)) ?? r.text}
-            {j < rows.length - 1 && "\n"}
-          </Fragment>
-        ))}
+        {rows.map((r, j) => {
+          // Not `code()`: its colour swatches would take "#1234" in a log for a colour.
+          const row = shown.tokens?.[0]?.[j]?.map(([t, cls], k) => (cls ? <span key={k} className={cls}>{t}</span> : t)) ?? r.text;
+          const end = j < rows.length - 1 && "\n";
+          // A block, so the tint spans the whole row; its line break inside it, else it adds an empty row.
+          return added?.(j) ? <span key={j} className="md-add">{notches?.[j]}{row}{end}</span> : <Fragment key={j}>{notches?.[j]}{row}{end}</Fragment>;
+        })}
       </pre>
     </div>
   );
@@ -536,17 +540,45 @@ export function MediaAsk({ onShow, html = true }: { onShow: () => void; html?: b
 // A picture in Markdown or an <img>.
 const ANY_PICTURE = /!\[[^\]]*\]\(|<img\s/i;
 
+/** A Markdown file's diff, by line of its new text from 0: the lines added, and each text removed just before line `at`. */
+type MdDiff = { added: Set<number>; removed: { at: number; text: string }[] };
+
+/** What `hunks` changed in a Markdown file. None for a new or deleted file: all green, or one notch holding it all,
+ *  would show nothing. */
+function mdDiff(hunks: Hunk[] | undefined): MdDiff | undefined {
+  const all = (kind: string) => hunks!.every((h) => h.lines.every((l) => l.kind === kind));
+  if (!hunks?.length || all("+") || all("-")) return undefined;
+  const diff: MdDiff = { added: new Set(), removed: [] };
+  for (const h of hunks) {
+    // "+4,0": no line on the new side, the removed ones sat after line 4.
+    let n = h.newStart - (/ \+\d+,0 /.test(h.header) ? 0 : 1);
+    h.lines.forEach((l, k) => {
+      if (l.kind !== "-") {
+        if (l.kind === "+") diff.added.add(n);
+        n++;
+      } else if (h.lines[k - 1]?.kind === "-") diff.removed[diff.removed.length - 1].text += `\n${l.text}`;
+      else diff.removed.push({ at: n, text: l.text });
+    });
+  }
+  // Blank lines around a removed text show nothing; removed blank lines alone get no notch.
+  diff.removed = diff.removed.map((c) => ({ ...c, text: c.text.replace(/^\s*\n|\n\s*$/g, "") })).filter((c) => c.text.trim());
+  return diff;
+}
+
 /** A Markdown file rendered, its own pictures loaded by `load` (`id` tells apart two files' pictures of the same name).
- * Like a pull request's, none show until project `pid` allows them. */
-export function MarkdownDoc({ pid, id, text, load }: { pid: string; id: string; text: string; load: (src: string) => Promise<string> }) {
+ * Like a pull request's, none show until project `pid` allows them. What `hunks` (its diff) added is tinted green, a red
+ * notch in the margin marks what it removed. */
+export function MarkdownDoc({ pid, id, text, load, hunks }: { pid: string; id: string; text: string; load: (src: string) => Promise<string>; hunks?: Hunk[] }) {
   const prefs = useProjectPrefs(pid);
   // `id` names everything `load` reads from.
   const pictures = useMemo(() => ({ key: id, hidden: !prefs.dialogs.prMedia, load }), [id, prefs.dialogs.prMedia]); // eslint-disable-line react-hooks/exhaustive-deps
+  const diff = useMemo(() => mdDiff(hunks), [hunks]);
+  // Relative: the notches of removed text line up in its left padding.
   return (
-    <article style={{ maxWidth: 760, margin: "0 auto", padding: "24px 24px 48px", fontFamily: "var(--sans)", fontSize: 14, lineHeight: 1.6 }}>
+    <article style={{ position: "relative", maxWidth: 760, margin: "0 auto", padding: "24px 24px 48px", fontFamily: "var(--sans)", fontSize: 14, lineHeight: 1.6 }}>
       {!prefs.dialogs.prMedia && ANY_PICTURE.test(text) && <MediaAsk html={false} onShow={() => prefs.setDialogs({ prMedia: true })} />}
       <PictureSource.Provider value={pictures}>
-        <Markdown text={text} html />
+        <Markdown text={text} html diff={diff} />
       </PictureSource.Provider>
     </article>
   );
@@ -571,14 +603,58 @@ export function repoPath(file: string, src: string): string | undefined {
   return parts.join("/") || undefined;
 }
 
+const COMMENT = /<!--[\s\S]*?-->/g;
+const newlines = (s: string) => s.split("\n").length - 1;
+
+/** A line of `src` as a line of `src` once its comments are dropped: a comment over several lines joins them. */
+function commentless(src: string): (n: number) => number {
+  // The lines a comment joins to the one above.
+  const joined: number[] = [];
+  for (const m of src.matchAll(COMMENT)) {
+    const at = newlines(src.slice(0, m.index));
+    for (let j = 1; j <= newlines(m[0]); j++) joined.push(at + j);
+  }
+  return (n) => n - joined.filter((j) => j <= n).length;
+}
+
+const CUT_LINES = 12;
+
+/** A red notch in the margin where the texts `cut` were removed; they show in its tooltip, on hover or keyboard focus. */
+function Notch({ cut }: { cut: string[] }) {
+  const lines = cut.join("\n\n").split("\n");
+  const text = lines.length > CUT_LINES ? `${lines.slice(0, CUT_LINES).join("\n")}\n… ${plural(lines.length - CUT_LINES, "more line")}` : lines.join("\n");
+  return <button type="button" className="md-del" data-tip={text} aria-label={`Removed: ${text}`} />;
+}
+
 /** `html`: pictures and the HTML GitHub allows, which load from the web, so only where the user allowed them;
  * `"pictures"` keeps any HTML as text.
- * `breaks`: a line break in a paragraph stays one, as in GitHub's pull requests and comments. */
+ * `breaks`: a line break in a paragraph stays one, as in GitHub's pull requests and comments.
+ * `diff`: what changed in `text`. Blocks with an added line are tinted green; a removed text gets a notch in the next
+ * block that can hold one. */
 // Memo: an agent log redraws every reply when a line arrives; only new text is parsed again.
-export const Markdown = memo(function Markdown({ text, html = false, breaks = false }: { text: string; html?: Media; breaks?: boolean }) {
+export const Markdown = memo(function Markdown({ text, html = false, breaks = false, diff }: { text: string; html?: Media; breaks?: boolean; diff?: MdDiff }) {
   const blocks: Part[] = [];
+  const src = text.replace(/\r/g, "");
   // PR templates leave <!-- hints --> behind.
-  const lines = text.replace(/\r/g, "").replace(/<!--[\s\S]*?-->/g, "").split("\n");
+  const lines = src.replace(COMMENT, "").split("\n");
+  const at = diff ? commentless(src) : (n: number) => n;
+  const added = new Set(diff ? [...diff.added].map(at) : []);
+  const removed = (diff?.removed ?? []).map((c) => ({ ...c, at: at(c.at) }));
+  // The class of the block made of lines `from` to `to`, when one of them was added.
+  const add = (from: number, to = from + 1) => {
+    for (let k = from; k < to; k++) if (added.has(k)) return "md-add";
+  };
+  // The removed texts before line `to` not placed yet; blocks take them in order.
+  let placed = 0;
+  const take = (to: number) => {
+    const from = placed;
+    while (placed < removed.length && removed[placed].at < to) placed++;
+    return removed.slice(from, placed);
+  };
+  const cut = (to: number) => {
+    const c = take(to);
+    return c.length > 0 && <Notch cut={c.map((x) => x.text)} />;
+  };
   let i = 0;
   while (i < lines.length) {
     const l = lines[i];
@@ -593,6 +669,7 @@ export const Markdown = memo(function Markdown({ text, html = false, breaks = fa
       continue;
     }
     if (html === true && (HTML_BLOCK.test(l) || HTML_LINE.test(l))) {
+      // shortcut: an added HTML block is not tinted (its tags may open in one block and close in another); wrap it if missed.
       const raw: string[] = [];
       while (i < lines.length && lines[i].trim()) raw.push(lines[i++]);
       blocks.push({ raw: raw.join("\n") });
@@ -600,17 +677,17 @@ export const Markdown = memo(function Markdown({ text, html = false, breaks = fa
     }
     const h = /^(#{1,6})\s+(.*)$/.exec(l);
     if (h) {
-      blocks.push(createElement(`h${h[1].length}`, { key: i }, inline(h[2], "h", html)));
+      blocks.push(createElement(`h${h[1].length}`, { key: i, className: add(i) }, cut(i + 1), inline(h[2], "h", html)));
       i++;
       continue;
     }
     if (l.startsWith("```")) {
       const lang = l.slice(3).trim().split(/\s/)[0];
       const code: string[] = [];
-      i++;
+      const s = ++i;
       while (i < lines.length && !lines[i].startsWith("```")) code.push(lines[i++]);
       i++;
-      blocks.push(<CodeBlock key={i} lang={lang} text={code.join("\n")} />);
+      blocks.push(<CodeBlock key={i} lang={lang} text={code.join("\n")} added={(j) => added.has(s + j)} notches={code.map((_, j) => cut(s + j + 1))} />);
       continue;
     }
     if (/^\s*(-{3,}|\*{3,})\s*$/.test(l)) {
@@ -620,20 +697,28 @@ export const Markdown = memo(function Markdown({ text, html = false, breaks = fa
     }
     if (l.startsWith(">")) {
       const quote: string[] = [];
+      const s = i;
       while (i < lines.length && lines[i].startsWith(">")) quote.push(lines[i++].replace(/^>\s?/, ""));
-      blocks.push(<blockquote key={i}><Markdown text={quote.join("\n")} html={html} breaks={breaks} /></blockquote>);
+      const inner = diff && { added: new Set([...added].map((k) => k - s)), removed: take(i).map((c) => ({ ...c, at: c.at - s })) };
+      blocks.push(<blockquote key={i}><Markdown text={quote.join("\n")} html={html} breaks={breaks} diff={inner} /></blockquote>);
       continue;
     }
     if (l.trim().startsWith("|") && TABLE_SEP.test(lines[i + 1] ?? "")) {
       const head = cells(l);
+      const s = i;
       i += 2;
       const rows: string[][] = [];
       while (i < lines.length && lines[i].trim().startsWith("|")) rows.push(cells(lines[i++]));
       blocks.push(
         <div key={i} className="adf-table">
           <table>
-            <thead><tr>{head.map((c, j) => <th key={j}>{inline(c, undefined, html)}</th>)}</tr></thead>
-            <tbody>{rows.map((r, k) => <tr key={k}>{head.map((_, j) => <td key={j}>{inline(r[j] ?? "", undefined, html)}</td>)}</tr>)}</tbody>
+            <thead><tr className={add(s)}>{head.map((c, j) => <th key={j}>{j === 0 && cut(s + 1)}{inline(c, undefined, html)}</th>)}</tr></thead>
+            <tbody>
+              {rows.map((r, k) => {
+                const notch = cut(s + 3 + k);
+                return <tr key={k} className={add(s + 2 + k)}>{head.map((_, j) => <td key={j}>{j === 0 && notch}{inline(r[j] ?? "", undefined, html)}</td>)}</tr>;
+              })}
+            </tbody>
           </table>
         </div>,
       );
@@ -641,20 +726,26 @@ export const Markdown = memo(function Markdown({ text, html = false, breaks = fa
     }
     if (/^\s*[-*]\s+/.test(l)) {
       const items: string[] = [];
+      const s = i;
       while (i < lines.length && /^\s*[-*]\s+/.test(lines[i])) items.push(lines[i++].replace(/^\s*[-*]\s+/, ""));
-      blocks.push(<ul key={i}>{items.map((t, j) => item(t, j, html))}</ul>);
+      blocks.push(<ul key={i}>{items.map((t, j) => item(t, j, html, add(s + j), cut(s + j + 1)))}</ul>);
       continue;
     }
     if (/^\s*\d+[.)]\s+/.test(l)) {
       const items: string[] = [];
+      const s = i;
       while (i < lines.length && /^\s*\d+[.)]\s+/.test(lines[i])) items.push(lines[i++].replace(/^\s*\d+[.)]\s+/, ""));
-      blocks.push(<ol key={i}>{items.map((t, j) => item(t, j, html))}</ol>);
+      blocks.push(<ol key={i}>{items.map((t, j) => item(t, j, html, add(s + j), cut(s + j + 1)))}</ol>);
       continue;
     }
     // The first line goes in whatever it starts: a "|" row with no "|---|" under it is no table, and would loop forever.
+    const s = i;
     const para: string[] = [lines[i++]];
     while (i < lines.length && lines[i].trim() && !BLOCK.test(lines[i]) && !(html === true && HTML_BLOCK.test(lines[i]))) para.push(lines[i++]);
-    blocks.push(<p key={i}>{breaks ? para.map((t, k) => <Fragment key={k}>{k > 0 && <br />}{inline(t, undefined, html)}</Fragment>) : inline(para.join(" "), "p", html)}</p>);
+    blocks.push(<p key={i} className={add(s, i)}>{cut(i)}{breaks ? para.map((t, k) => <Fragment key={k}>{k > 0 && <br />}{inline(t, undefined, html)}</Fragment>) : inline(para.join(" "), "p", html)}</p>);
   }
+  // Removed at the very end: after the last block.
+  const end = cut(Infinity);
+  if (end) blocks.push(<div key="end">{end}</div>);
   return <div className="md">{blocks.some(isRaw) ? weave(blocks, "\n") : (blocks as ReactNode[])}</div>;
 });

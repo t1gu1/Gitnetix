@@ -309,7 +309,7 @@ function TurnDiff({ session, pid, b, at, onStep, onClose }: { session: string; p
     >
       {markdown && preview ? (
         typeof text === "string" ? (
-          <MarkdownDoc pid={pid!} id={`turn:${JSON.stringify([session, b.to, path])}`} text={text} load={load} />
+          <MarkdownDoc pid={pid!} id={`turn:${JSON.stringify([session, b.to, path])}`} text={text} load={load} hunks={diff.data} />
         ) : (
           <div className="ag-diff">{blobs.isError ? <span className="faint">Could not load the file: {blobs.error.message}</span> : blobs.data ? <span className="faint">Not a text file</span> : <span className="spinner" />}</div>
         )

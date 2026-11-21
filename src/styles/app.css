@@ -7394,6 +7394,46 @@ button.pr-status-row:hover > .grow {
 .md p {
   margin: 6px 0;
 }
+/* What a file's diff added, in its Markdown preview: tinted, nothing moved. The shadows widen the tint past the text. */
+.md .md-add {
+  background: var(--add-bg);
+  box-shadow: -6px 0 var(--add-bg), 6px 0 var(--add-bg);
+}
+.md tr.md-add {
+  box-shadow: none;
+}
+/* A code row, tinted across the whole block. */
+.md .pre .md-add {
+  display: block;
+  margin: 0 -16px;
+  padding: 0 16px;
+  box-shadow: none;
+}
+/* Where the diff removed lines: a red notch in the preview's left padding, on the top edge of the block after them.
+   Out of the flow, so nothing moves; the removed text is its tooltip. */
+.md .md-del {
+  position: absolute;
+  left: 0;
+  width: 22px;
+  height: 20px;
+  margin-top: -10px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: help;
+}
+.md .md-del::before {
+  content: "";
+  position: absolute;
+  inset: 5px 8px 5px 6px;
+  background: var(--del-fg);
+  clip-path: polygon(0 0, 100% 50%, 0 100%);
+}
+/* In a table row: on the row's edge, above the cell's 6px padding. */
+.md td > .md-del,
+.md th > .md-del {
+  margin-top: -16px;
+}
 /* Jira descriptions, sized like Jira's own headings. */
 .adf > :first-child {
   margin-top: 0;
