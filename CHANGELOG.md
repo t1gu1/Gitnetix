@@ -14,6 +14,43 @@ the in-app update prompt.
 
 ## [Unreleased]
 
+### Added (App)
+
+- Pushing to a GitHub project you can't write to offers to fork it. The app forks the repository, pushes the branch to your fork, and opens the pull request on the original.
+- The Pull requests page lists and opens pull requests on the repository a fork came from. The choice is saved per project in `prRepo`.
+- Rebase a branch onto the checked-out branch from the branch menu.
+- A `/` menu in the prompt boxes inserts a skill by name (`$` for Codex). It lists the skills and commands found in each CLI's folders.
+- Links to files in log replies, and code spans that look like paths such as `src/app.ts:12`, open the file in the map's diff view or on the Worktrees page.
+- Links to an image or Markdown file outside the working folder open in the app's viewer. Markdown renders with its pictures.
+- The map and worktree file views have an "Open in file explorer" button.
+- The map shows a branch's files in a panel under its card. A file click opens its diff over the map.
+- The map files panel has a collapse-all toggle.
+- A branch card has a button to show its files when there is no WIP.
+- The map file view shows history, preview, and blame.
+- SVG changes in the log preview as images, with a Code view toggle.
+- The map legend fits on one line, with a "See all" modal for the rest.
+- The menu has a "Check and update" button that runs the update check on demand and reports "up to date" or the error.
+
+### Changed (App)
+
+- The pull requests screen has a new layout with a list, a detail view, a merge gate, and dark and light themes. A card shows checks, approvals, and reviewers.
+- The Gemini provider runs the Antigravity CLI (`agy`) and is labeled Antigravity / Gemini. The API key option still takes a Gemini API key. When only the older `gemini` CLI is installed, AI setup reports it and notes that it works only with a paid Gemini API key.
+- The commit list shows one row per first-parent commit. Commits a merge brought in are listed under that merge, with a count on the map row. The ahead and unreleased counts, the reset preview, and the unpushed flag count them too.
+- The default zoom is now the webview's 100%. Saved zoom levels from the old default are dropped.
+- Dev builds show the newest `v*` git tag and "dev" in the menu. The update check offers only a release newer than that tag.
+- Pasted images without a name get the letters A, B, C instead of `image.png`, so a message can refer to "image A".
+- User messages in the log no longer have a border.
+- Both Gitnetix black and white themes set explicit colors for added, deleted, warning, release, and property text.
+
+### Fixed (App)
+
+- A sentence after an option list counts as a question only when it ends with "?" or asks the user to pick or respond.
+- Sessions saved by another instance now show.
+- Workspace scrollbars no longer show through the menu overlay.
+- File counts such as `+212` no longer overflow and overlap. They use a smaller font and grow with their content.
+- The split and unified diff controls stay visible on narrow screens.
+- The branch map legend stays pinned at the bottom of the map and no longer pushes the scrollbar away from it.
+
 ## [0.28.0] - 2026-11-21
 
 ### Added (App)
