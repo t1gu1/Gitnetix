@@ -148,6 +148,10 @@ details summary:hover h3{color:var(--muted)}
 .hd .hdr{border-top:0}
 .hd .ws{flex:none;height:700px;container:hd/inline-size}
 .hd .pg{display:flex;height:700px;min-height:0;overflow:hidden;background:var(--bg)}
+/* Pull requests: the toolbar above the list and the detail (app.css's .body.split), its phone rules measured on the page. */
+.hd .pg:has(>.pr-bar){flex-direction:column;overflow:hidden;container:hd/inline-size}
+/* The demo's pane is too short for the app's two columns scrolling on their own: the detail scrolls as one. */
+.hd .detail-inner.pr-detail{flex:1 0 auto}.hd .pr-conv{flex:none}.hd .pr-conv>section{overflow:visible}.hd .pr-talk-new{position:static}
 /* The worktrees view has no page tabs: it takes their 40px, so the window keeps its height. */
 @media (min-width:761px){.hd:not(.hd-phone) .tabs-pages[hidden]~.pg{height:740px}}
 .hd .term-bar{cursor:pointer}
@@ -163,7 +167,7 @@ details summary:hover h3{color:var(--muted)}
 }
 @container (max-width:520px){.hd .hd-opt{display:none}}
 @container (max-width:420px){.hd .picker-acts,.hd .term-tabs>.term-tab{display:none}}
-@media (max-width:760px){.hd .pg{flex-direction:column;height:auto}.hd :is(.master,.sidenav){flex:none;border-right:0;border-bottom:1px solid var(--line)}.hd .pg>:is(.detail,main){flex:none}.hd .pg>:is(.wt-pane,main:not(.detail,.page)){height:560px}.hd :is(.detail,.page){padding:20px 16px 40px}.hd :is(.hide-sm,.hide-narrow){display:none}}
+@media (max-width:760px){.hd .pg>.split{flex-direction:column}.hd .pg{flex-direction:column;height:auto}.hd :is(.master,.sidenav){flex:none;border-right:0;border-bottom:1px solid var(--line)}.hd .pg>:is(.detail,main){flex:none}.hd .pg>:is(.wt-pane,main:not(.detail,.page)){height:560px}.hd :is(.detail,.page){padding:20px 16px 40px}.hd :is(.hide-sm,.hide-narrow){display:none}}
 /* The phone (HeroDemo phone): app.css's phone layout holds in it at any window width (demo.css); here, the frame's own sizes. */
 .hd-phone{height:620px;border-radius:14px}
 .hd-phone .ws{flex:1 1 0;height:auto}

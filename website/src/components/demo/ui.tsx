@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode, type RefObject } from 'react';
 import { Icon } from '../../../../src/components/Icon';
-import type { Branch } from '../HeroDemo';
+import type { Branch, Commit } from '../HeroDemo';
 import type { Ai, Agents } from './agents';
 
 /**
@@ -19,6 +19,8 @@ export type Demo = {
   /** The row it last asked for: a new object each time, so the same row is picked again. */
   wtPick?: { key: string };
   branches: Record<string, Branch>;
+  /** A branch's commits, newest first: those its base doesn't have, or a trunk's recent history. */
+  logOf: (b: Branch) => Commit[];
   /** Selected and checked-out branches in the workspace. */
   sel: string;
   head: string;

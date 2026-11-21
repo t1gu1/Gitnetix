@@ -14,6 +14,11 @@ the in-app update prompt.
 
 ## [Unreleased]
 
+### Changed (Website)
+
+- The demo's Workspace matches the app's branch map. The selected branch's card is shorter, and its files show in a panel under it, with stage, unstage, discard and the commit box. Clicking a file opens its diff over the map. A branch without uncommitted changes shows its files from the card's Files button. The legend is a one-line box with "See all", and the trunk line ends under main.
+- The demo's Pull requests page matches the app's redesign. A toolbar holds the filters, search and New pull request, and the list rows use state rings. Each pull request is a line from its branch through Checks, Review and Unresolved to its base, and the base can be changed. The Conversation and Files changed tabs show the threads and a diff with comments under their lines. The new pull request panel picks From and To and lists the commits.
+
 ## [0.28.0] - 2026-11-21
 
 ### Added (App)

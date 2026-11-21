@@ -1,8 +1,8 @@
-import { Fragment, type MouseEvent, type ReactNode } from 'react';
+import { Fragment, useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react';
 import { Icon } from '../../../../src/components/Icon';
 import { plural } from '../../../../src/lib/format';
 import type { Branch, Commit } from '../HeroDemo';
-import { Avatar } from './ui';
+import { Avatar, Modal } from './ui';
 
 /**
  * The demo's copy of src/screens/BranchMap.tsx, drawn from the demo's branches: the same layout, markup and class names, so
@@ -39,8 +39,8 @@ const FOOT_H = 26;
 /** A shipped release's commits, unfolded under its station: two lines each. */
 const SHIPPED_LIST_TOP = 14;
 const SHIPPED_COMMIT_H = 32;
-/** Room the floating card takes on the right (its width and gap). */
-export const CARD_ROOM = 304;
+/** Room the selected branch's column (its card, and its files under it) takes on the right: its width and gap. */
+export const CARD_ROOM = 376;
 /** Column `d` of the map: the default branch's box beside the trunk, then each level of branches under it. */
 const colX = (d: number) => (d === 0 ? TRUNK_X + 20 : 404 + (d - 1) * 392);
 const colW = (d: number) => (d === 0 ? 280 : 320);
@@ -211,8 +211,8 @@ export function layoutMap(bs: Record<string, Branch>, head: string, prefs: MapPr
     shippedAll: shipped,
     shippedEarlier: earlier,
     trunkTop: trunk && shippedAt.length ? shippedAt[0].y : trunkAnchor,
-    // The spine runs the map's whole height, past the default branch's own block.
-    trunkEnd: trunk ? Math.max(trunkAnchor + 40, trunk.y + blockH(trunk.b) + 24, lowest) : trunkAnchor,
+    // The spine ends just under the default branch's own block (its commits, merged branches), not the map's bottom.
+    trunkEnd: trunk ? Math.max(trunkAnchor + 40, trunk.y + blockH(trunk.b) + 24) : trunkAnchor,
     parent,
     kids,
     stale,
@@ -551,7 +551,6 @@ function TileView({ t, head, selected, onRoute, stale, q, hitAt, agent, log, lab
           )}
           {trunk && !current && <span className="tag">Default</span>}
           {b.tag && <span className={b.tag === 'Next' ? 'tag inv' : 'tag'}>{b.tag}</span>}
-          {current && <span className="tag inv">Checked out</span>}
         </span>
         <span className="map-info">
           {info.map((x, i) => (
@@ -597,7 +596,7 @@ function TileCommits({ b, log, all, current, on }: { b: Branch; log: Commit[]; a
   );
 }
 
-/** What the lines mean, in a band under the map; `behind`: the falling-behind line too, `hint`: what a click on the map does. */
+/** What the lines mean, in a band under the map (the home page's); `behind`: the falling-behind line too, `hint`: what a click on the map does. */
 export function MapLegend({ hint = true, behind = true }: { hint?: boolean; behind?: boolean }) {
   return (
     <div className="map-legend">
@@ -605,6 +604,52 @@ export function MapLegend({ hint = true, behind = true }: { hint?: boolean; behi
       <span><svg width="20" height="8" aria-hidden="true"><path d="M2 4h16" /></svg>Other lines</span>
       {behind && <span><svg width="20" height="8" aria-hidden="true"><path d="M2 4h16" className="map-key-stale" /></svg>Falling behind</span>}
       {hint && <span className="faint">Click a commit to look at its code · click ↓ on a line to rebase</span>}
+    </div>
+  );
+}
+
+/** The line styles and chips, a mark then its words, as LEGEND_KEYS in BranchMap.tsx says them. */
+const LEGEND_KEYS: [ReactNode, string][] = [
+  [<svg width="20" height="8" aria-hidden="true"><path d="M2 4h16" className="map-key-head" /></svg>, 'You are here'],
+  [<svg width="20" height="8" aria-hidden="true"><path d="M2 4h16" /></svg>, 'Other lines'],
+  [<svg width="20" height="8" aria-hidden="true"><path d="M2 4h16" className="map-key-stale" /></svg>, 'Falling behind'],
+  [<span className="map-line-chip"><span className="c-del">↓</span></span>, 'on a line, click to rebase'],
+];
+
+/** The demo's legend, as the app's MapLegend: a box over the map's bottom left, on one line; keys past its width wrap out of
+ *  sight, and "See all" lists every one. */
+export function MapLegendBox() {
+  const keys = useRef<HTMLDivElement>(null);
+  const [cut, setCut] = useState(false);
+  const [all, setAll] = useState(false);
+  useLayoutEffect(() => {
+    const el = keys.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setCut(el.scrollHeight > el.clientHeight + 1));
+    [el, ...el.children].forEach((c) => ro.observe(c));
+    return () => ro.disconnect();
+  }, []);
+  return (
+    <div className="map-legend map-legend-box">
+      <div ref={keys} className="map-legend-keys">
+        {LEGEND_KEYS.map(([mark, words]) => (
+          <span key={words}>{mark}{words}</span>
+        ))}
+      </div>
+      {cut && (
+        <button className="link-btn map-legend-all" aria-haspopup="dialog" onClick={() => setAll(true)}>
+          See all
+        </button>
+      )}
+      {all && (
+        <Modal title="Legend" width={360} onClose={() => setAll(false)}>
+          <ul className="map-legend-list">
+            {LEGEND_KEYS.map(([mark, words]) => (
+              <li key={words}>{mark}{words}</li>
+            ))}
+          </ul>
+        </Modal>
+      )}
     </div>
   );
 }

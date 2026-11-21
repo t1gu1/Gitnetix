@@ -7,7 +7,7 @@ import { kindOfBranch } from '../../../src/lib/kinds';
 import { otherMode, resolveTheme } from '../../../src/lib/themes';
 import Analytics from './demo/Analytics';
 import { AgentInput, AgentLog, AgentPicker, FinishCard, ME, TRY, keyOf, pathOf, shown, useAgents, type Ai, type Pick } from './demo/agents';
-import { CARD_ROOM, MapLayer, MapLegend, PREFS, branches, layoutMap, lineageOf, onMap, type AgentInfo, type MapHandlers, type MapPrefs, type Shipped } from './demo/BranchMap';
+import { CARD_ROOM, MapLayer, MapLegendBox, PREFS, branches, layoutMap, lineageOf, onMap, type AgentInfo, type MapHandlers, type MapPrefs, type Shipped } from './demo/BranchMap';
 import PullRequests from './demo/PullRequests';
 import ReleaseNotes from './demo/ReleaseNotes';
 import Submodules from './demo/Submodules';
@@ -231,8 +231,8 @@ function FileRow({ f, depth, active, onPick, actions }: { f: File; depth?: numbe
   );
 }
 
-/** Changed files as a flat list, or nested under their folders, like FileList in Workspace.tsx. */
-function FileList({ list, tree, current, onPick, actions }: { list: File[]; tree: boolean; current?: File; onPick: (f: File) => void; actions?: (fs: File[], name: string) => ReactNode }) {
+/** Changed files as a flat list, or nested under their folders, like FileList in Workspace.tsx; `allClosed`: folders start closed. */
+function FileList({ list, tree, allClosed = false, current, onPick, actions }: { list: File[]; tree: boolean; allClosed?: boolean; current?: File; onPick: (f: File) => void; actions?: (fs: File[], name: string) => ReactNode }) {
   const [closed, setClosed] = useState<Record<string, boolean>>({});
   const row = (f: File, depth?: number) => (
     <li key={f.path}>
@@ -250,8 +250,9 @@ function FileList({ list, tree, current, onPick, actions }: { list: File[]; tree
       }
       const key = `${path}${name}/`;
       const fs = filesUnder(sub);
+      const shut = closed[key] ?? allClosed;
       const btn = (
-        <button className="file-btn" style={{ paddingLeft: 14 + depth * 14 }} aria-expanded={!closed[key]} onClick={() => setClosed((c) => ({ ...c, [key]: !c[key] }))}>
+        <button className="file-btn" style={{ paddingLeft: 14 + depth * 14 }} aria-expanded={!shut} onClick={() => setClosed((c) => ({ ...c, [key]: !shut }))}>
           <Icon name="chevronDown" size={12} className="chev" />
           <span className="grow ellipsis faint">{name}</span>
           <Nums add={fs.reduce((n, f) => n + f.add, 0)} del={fs.reduce((n, f) => n + f.del, 0)} />
@@ -260,7 +261,7 @@ function FileList({ list, tree, current, onPick, actions }: { list: File[]; tree
       return (
         <li key={key}>
           {actions ? <div className="file-row">{btn}<span className="file-acts">{actions(fs, key)}</span></div> : btn}
-          <ul hidden={closed[key]}>{walk(sub, key, depth + 1)}</ul>
+          <ul hidden={shut}>{walk(sub, key, depth + 1)}</ul>
         </li>
       );
     }),
@@ -268,6 +269,21 @@ function FileList({ list, tree, current, onPick, actions }: { list: File[]; tree
   ];
   return <>{walk(buildTree(list), '', 0)}</>;
 }
+
+type Mode = 'wip' | 'branch' | 'project';
+/** Collapse/expand all for the lists showing `list` (useFold in Workspace.tsx): a new `n` remounts them, dropping per-folder
+ *  toggles. Each new list starts expanded, the Project one collapsed: the whole repo. */
+function useFold(list: string) {
+  const [fold, setFold] = useState({ closed: list === 'project', n: 0, list });
+  if (fold.list !== list) setFold({ closed: list === 'project', n: fold.n + 1, list });
+  return [fold, () => setFold((f) => ({ ...f, closed: !f.closed, n: f.n + 1 }))] as const;
+}
+/** The Collapse all / Expand all button of a file list head, in tree view. */
+const FoldBtn = ({ closed, onClick, style }: { closed: boolean; onClick: () => void; style?: CSSProperties }) => (
+  <button className="btn btn-sm btn-icon" style={style} aria-label={closed ? 'Expand all folders' : 'Collapse all folders'} title={closed ? 'Expand all' : 'Collapse all'} aria-expanded={!closed} onClick={onClick}>
+    <Icon name="chevronDown" size={12} className="chev" />
+  </button>
+);
 
 /** Unified, split or whole-file diff with the change map on its right, like src/components/DiffView.tsx; `raw` is an unchanged file as it is. */
 function Diff({ mode }: { mode: 'split' | 'unified' | 'full' | 'raw' }) {
@@ -420,7 +436,7 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
   // The map, or the selected branch full screen (Workspace.tsx `focused`), and what it shows there: WIP, the branch's changes, the
   // project's files, or one commit opened from the map.
   const [focused, setFocused] = useState(false);
-  const [mode, setMode] = useState<'wip' | 'branch' | 'project'>('wip');
+  const [mode, setMode] = useState<Mode>('wip');
   const [commit, setCommit] = useState<Commit>();
   const [file, setFile] = useState<string>();
   const [tree, setTree] = useState(false);
@@ -432,6 +448,11 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
   const [zoom, setZoom] = useState(phone ? 0.8 : 0.9);
   const [toggles, setToggles] = useState<ReadonlyMap<string, boolean>>(new Map());
   const [folded, setFolded] = useState(!!phone);
+  // The files under the card (MapFiles in Workspace.tsx): the list it shows and the file open over the map, for one branch;
+  // and the branch whose files its "Files" button opened, which a branch with uncommitted work doesn't need.
+  const [mapAt, setMapAt] = useState<{ branch: string; mode?: Mode; file?: string }>({ branch: '' });
+  const [mapFiles, setMapFiles] = useState('');
+  const [mapDiffMode, setMapDiffMode] = useState<'split' | 'unified' | 'full'>('unified');
   // The branch search (Ctrl+F): its text and the match its arrows are on.
   const [finding, setFinding] = useState(false);
   const [query, setQuery] = useState('');
@@ -488,9 +509,11 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
   const running = agents.sessions.filter((s) => s.status === 'running');
   const isOut = b.name === head || !!b.wt;
   const wipCount = b.wip.length;
-  const staged = b.wip.filter((f) => f.staged).length;
-  const all = staged === 0;
-  const canCommit = isOut && wipCount > 0 && !busy;
+  /** Whether `x`'s uncommitted work can be committed here: checked out, some to commit, no agent at work on it. */
+  const canCommitOn = (x: Branch) => {
+    const st = agents.get(keyOf('acme-web', x.name))?.status;
+    return (x.name === head || !!x.wt) && x.wip.length > 0 && st !== 'running' && st !== 'paused';
+  };
   const later = (ms: number, f: () => void) => timers.current.push(window.setTimeout(f, ms));
   const flash = (t: string, error?: boolean) => {
     const id = ++toastId.current;
@@ -772,16 +795,54 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
     if (!why) setText('');
   };
 
-  const commitBox = () => {
-    if (!canCommit) return;
-    // With nothing staged, everything goes.
-    const done = all ? b.wip : b.wip.filter((f) => f.staged);
+  /** The commit box's Commit on `x`: its staged files, or with nothing staged, everything. */
+  const commitBox = (x: Branch) => {
+    if (!canCommitOn(x)) return;
+    const staged = x.wip.filter((f) => f.staged);
+    const done = staged.length ? staged : x.wip;
     const subject = summary.trim() || aiSubject(done);
-    setBs((x) => ({ ...x, [b.name]: fold(b, done, subject, body.trim() || undefined) }));
+    setBs((y) => ({ ...y, [x.name]: fold(x, done, subject, body.trim() || undefined) }));
     flash(summary.trim() ? `Committed: ${subject}` : `AI wrote: ${subject}`);
     setSummary('');
     setBody('');
-    if (done.length === wipCount) setMode('branch');
+    if (focused && done.length === x.wip.length) setMode('branch');
+  };
+  /** CommitBox in src/screens/Workspace.tsx, for `x`: the message (AI writes it when left empty) and Commit. */
+  const commitArea = (x: Branch) => {
+    const out = x.name === head || !!x.wt;
+    const can = canCommitOn(x);
+    const staged = x.wip.filter((f) => f.staged).length;
+    return (
+      <div className="col" style={{ padding: '10px 16px 14px', gap: 8, borderTop: '1px solid var(--line)' }}>
+        <div className="row" style={{ justifyContent: 'space-between', minHeight: 24, margin: 0 }}>
+          <button className="commit-sec" aria-expanded={msgOpen} onClick={() => setMsgOpen(!msgOpen)}>
+            <Icon name="chevronDown" size={12} className="chev" />
+            <span>Commit message</span>
+          </button>
+          {msgOpen && (
+            <button className="btn btn-sm" style={{ height: 24, padding: '0 8px' }} disabled={!can} title="AI drafts a message from the changed files" onClick={() => { setSummary(aiSubject(x.wip)); setBody('Runs from the trunk to the checked-out branch and restarts on switch.'); }}>
+              <Icon name="sparkle" size={12} />
+              Draft
+            </button>
+          )}
+        </div>
+        {msgOpen && (
+          <div className="col">
+            <input className="input" style={{ height: 32, fontSize: 12.5, padding: '0 10px' }} value={summary} disabled={!can} onChange={(e) => setSummary(e.target.value)} placeholder={!out ? 'Check out this branch to commit' : !x.wip.length ? 'No changes to commit' : 'Summary — leave empty for AI'} aria-label="Summary" />
+            <textarea className="textarea" rows={3} style={{ fontSize: 12.5, padding: '8px 10px', resize: 'none' }} value={body} disabled={!can} onChange={(e) => setBody(e.target.value)} placeholder="Description (optional)" aria-label="Description" />
+          </div>
+        )}
+        <span className="split-btn" style={{ display: 'flex', width: '100%' }}>
+          <button className="btn btn-primary split-main commit-btn" style={{ flex: '1 1 auto' }} disabled={!can} onClick={() => commitBox(x)}>
+            <Icon name="sparkle" size={12} />
+            <span>{staged ? 'Commit' : 'Stage all & Commit'}<span style={{ fontWeight: 400, opacity: 0.7, marginLeft: 6 }}>{staged || x.wip.length || null}</span></span>
+          </button>
+          <span className="btn btn-primary btn-icon split-more commit-btn" aria-hidden="true">
+            <Icon name="more" size={14} />
+          </span>
+        </span>
+      </div>
+    );
   };
 
   const demo: Demo = {
@@ -799,6 +860,7 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
     },
     wtPick,
     branches: bs,
+    logOf,
     sel,
     head,
     addBranch,
@@ -811,9 +873,16 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
   };
 
   // The focus view: its files, the one shown and where it sits among them.
-  const project: File[] = [...new Set([...PROJECT, ...b.files.map((f) => f.path), ...b.wip.map((f) => f.path)])].sort().map((p) => b.wip.find((f) => f.path === p) ?? b.files.find((f) => f.path === p) ?? { path: p, add: 0, del: 0, s: ' ' });
-  const list: File[] = commit ? commit.files : mode === 'wip' ? b.wip : mode === 'branch' ? b.files : project;
+  /** `x`'s files in list `m`: its uncommitted ones, its own changes, or every file of the project, changed or not. */
+  const filesOf = (x: Branch, m: Mode): File[] =>
+    m === 'wip'
+      ? x.wip
+      : m === 'branch'
+        ? x.files
+        : [...new Set([...PROJECT, ...x.files.map((f) => f.path), ...x.wip.map((f) => f.path)])].sort().map((p) => x.wip.find((f) => f.path === p) ?? x.files.find((f) => f.path === p) ?? { path: p, add: 0, del: 0, s: ' ' });
+  const list: File[] = commit ? commit.files : filesOf(b, mode);
   const isWip = mode === 'wip' && !commit;
+  const [railFold, toggleRailFold] = useFold(commit ? commit.sha : mode);
   // In the order the list shows them: staged files first.
   const listed = isWip ? [...list.filter((f) => f.staged), ...list.filter((f) => !f.staged)] : list;
   const current = list.find((f) => f.path === file) ?? (mode === 'project' && !commit ? (listed.find((f) => f.s !== ' ') ?? listed[0]) : listed[0]);
@@ -824,20 +893,43 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
     setPane('code');
   };
   const step = (d: number) => listed[fileAt + d] && setFile(listed[fileAt + d].path);
-  const fileActs = (fs: File[], name: string) => {
+  /** Stage (or unstage) and discard buttons for files `fs` of branch `n`'s uncommitted work. */
+  const fileActs = (n: string) => (fs: File[], name: string) => {
     const up = !fs[0]?.staged;
     const paths = fs.map((f) => f.path);
     return (
       <>
-        <button className="btn btn-ghost btn-act" title={up ? 'Stage' : 'Unstage'} aria-label={`${up ? 'Stage' : 'Unstage'} ${name}`} onClick={() => setWip(b.name, (w) => w.map((f) => (paths.includes(f.path) ? { ...f, staged: up } : f)))}>
+        <button className="btn btn-ghost btn-act" title={up ? 'Stage' : 'Unstage'} aria-label={`${up ? 'Stage' : 'Unstage'} ${name}`} onClick={() => setWip(n, (w) => w.map((f) => (paths.includes(f.path) ? { ...f, staged: up } : f)))}>
           <Icon name={up ? 'plus' : 'minus'} size={12} />
         </button>
-        <button className="btn btn-ghost btn-act btn-danger" title="Discard changes" aria-label={`Discard changes to ${name}`} onClick={() => setWip(b.name, (w) => w.filter((f) => !paths.includes(f.path)))}>
+        <button className="btn btn-ghost btn-act btn-danger" title="Discard changes" aria-label={`Discard changes to ${name}`} onClick={() => setWip(n, (w) => w.filter((f) => !paths.includes(f.path)))}>
           <Icon name="undo" size={12} />
         </button>
       </>
     );
   };
+  /** Branch `n`'s uncommitted files under Staged and Unstaged, each side folding (WipList in Workspace.tsx). */
+  const wipList = (n: string, list: File[], at: File | undefined, onPick: (f: File) => void, fd: { closed: boolean; n: number }) =>
+    [true, false].map((sd) => {
+      const side = list.filter((f) => !!f.staged === sd);
+      if (!side.length) return null;
+      const k = String(sd) as 'true' | 'false';
+      return (
+        <li key={k}>
+          <div className="file-sec">
+            <button className="file-sec-toggle" aria-expanded={secOpen[k]} onClick={() => setSecOpen((o) => ({ ...o, [k]: !o[k] }))}>
+              <Icon name="chevronDown" size={12} className="chev" />
+              <span>{sd ? 'Staged' : 'Unstaged'}</span>
+              <span style={{ fontWeight: 400 }}>{side.length}</span>
+            </button>
+            <span className="file-sec-acts">{fileActs(n)(side, sd ? 'all staged files' : 'all unstaged files')}</span>
+          </div>
+          <ul hidden={!secOpen[k]}>
+            <FileList key={fd.n} list={side} tree={tree} allClosed={fd.closed} current={at} onPick={onPick} actions={fileActs(n)} />
+          </ul>
+        </li>
+      );
+    });
   const agentHere = !!b.wt && !!ses;
   const agent = agentOf(b.name);
   const chain = lineageOf(layout, b.name);
@@ -872,45 +964,18 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
   const cut = current ? current.path.lastIndexOf('/') : -1;
 
   /** The selected branch, floating over the map: what it is, how it stands, and what to do next (SelectedCard in BranchMap.tsx). */
+  const cb = bs[shownSel];
   const card = (() => {
-    const c = bs[shownSel];
+    const c = cb;
     const p = primary(c.name);
     const look = lookItem(c);
     const ca = agentOf(c.name);
     const base = c.base ? labelOf(c.base) : '';
-    const cchain = lineageOf(layout, c.name).map((n) => bs[n]);
-    const stale = layout.stale(c);
     const trunk = c.role === 'trunk';
-    const tip = SHIPPED[0];
-    const sentence = (() => {
-      if (trunk) return `The default branch, ${c.ahead ? `${plural(c.ahead, 'commit')} past ${tip.tag}` : `at ${tip.tag}`}. Releases are cut from it; shipping one merges it back and tags the version.`;
-      if (c.role === 'release') {
-        const w = layout.work.get(c.name) ?? { open: 0, merged: 0 };
-        return `Release cut from ${base}. ${branches(w.open, 'open branch')}${w.merged ? ` and ${w.merged} merged in` : ''}. Shipping it merges it into main and tags ${labelOf(c.name)}.`;
-      }
-      if (c.merged) return `All its commits are in ${base}, so it ships with it. Safe to delete.`;
-      const pv = cchain[cchain.length - 2];
-      const rel = cchain.find((x) => x.role !== 'branch');
-      let s = `Merges into ${base}`;
-      if (pv?.role === 'branch' && rel) s += `, which ships with ${labelOf(rel.name)}`;
-      else if (pv?.role === 'release') s += ' and ships with it';
-      s += '.';
-      if (stale) s += ` ${base} is ${plural(c.behind, 'commit')} ahead and nothing moved here for ${c.idle} days.`;
-      else if (c.behind) s += ` ${base} moved ${plural(c.behind, 'commit')} ahead: update before merging.`;
-      else if (c.ahead) s += ` ${plural(c.ahead, 'commit')} ahead, nothing to pull.`;
-      else s += ' No commits yet.';
-      return s;
-    })();
-    const [ot, oc] = originOf(c);
     const rows: [string, ReactNode, string?][] = [];
     if (c.base) rows.push(['Parent', base]);
     if (c.merged) rows.push(['Merged into', base]);
     else if (c.role === 'release') rows.push(['Ships as', labelOf(c.name)]);
-    else if (trunk) rows.push(['Tip', `${tip.tag} · shipped ${tip.date}`]);
-    // What the next release ships from it so far.
-    if (trunk) rows.push(['Unreleased', c.ahead ? `${plural(c.ahead, 'commit')} since ${tip.tag}` : `none since ${tip.tag}`, c.ahead ? undefined : 'faint']);
-    rows.push(['Checkout', c.name === head ? 'checked out here' : c.wt ? 'open in a worktree' : 'not checked out']);
-    rows.push(['Origin', ot, oc]);
     if (c.role === 'branch' && !c.merged) {
       const words = ca && `${ca.label} · ${agentWords(ca)}`;
       rows.push([
@@ -932,6 +997,8 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
     const tone = p.danger ? 'btn-danger' : 'btn-primary';
     const kind = c.role === 'branch' && c.kind;
     const name = c.role === 'release' ? `${labelOf(c.name)} · ${c.name}` : kind ? c.name.slice(kind.length + 1) : c.name;
+    // With no uncommitted work, the files under the card wait for this button (filesButton in Workspace.tsx).
+    const filesShown = mapFiles === c.name;
     return (
       <aside className="map-card" aria-label={`Selected branch ${c.name}`} data-folded={folded || undefined}>
         <div className="map-card-head">
@@ -940,7 +1007,7 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
             {kind && <span className="map-kind">{kind}</span>}
             <BranchTags b={c} head={head} />
           </div>
-          {/* The name opens the branch full screen too; folded, the eye says so, as the hidden "Look at the code" did. */}
+          {/* The name opens the branch full screen; folded, the eye says so. */}
           <h3 className="mono">
             <button className="map-card-look" title="Look at the code" onClick={() => openFocus(c.name, look)}>
               {folded ? (
@@ -970,20 +1037,16 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
                 </div>
               ))}
             </div>
-            <button className="btn map-look" title="Opens this branch full screen. Esc brings you back here." onClick={() => openFocus(c.name, look)}>
-              <Icon name="eye" size={14} />
-              <span>Look at the code</span>
-              <span className="map-look-n">{look === 'wip' ? `WIP · ${c.wip.length}` : look === 'all' ? `Branch · ${c.ahead}` : 'Project'}</span>
-            </button>
-            <p className="map-sentence">{sentence}</p>
-            <dl className="map-status">
-              {rows.map(([k, v, cls]) => (
-                <div key={k}>
-                  <dt>{k}</dt>
-                  <dd className={cls}>{v}</dd>
-                </div>
-              ))}
-            </dl>
+            {rows.length > 0 && (
+              <dl className="map-status">
+                {rows.map(([k, v, cls]) => (
+                  <div key={k}>
+                    <dt>{k}</dt>
+                    <dd className={cls}>{v}</dd>
+                  </div>
+                ))}
+              </dl>
+            )}
           </>
         )}
         {/* Folded, the card still offers the suggested action. */}
@@ -995,10 +1058,117 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
           <button className={`btn btn-icon ${tone} split-more`} aria-label={`More actions for ${c.name}`} title={`More actions for ${c.name}`} aria-haspopup="menu" aria-expanded={menu?.n === c.name && menu.right} onClick={(e) => (menu?.right ? setMenu(null) : openMenu(c.name, e, true))}>
             <Icon name="more" size={14} />
           </button>
+          {!c.wip.length && (
+            <button
+              className="btn btn-sm map-card-files"
+              aria-pressed={filesShown}
+              title={filesShown ? 'Hide the files' : "Show the branch's files"}
+              onClick={() => {
+                setMapFiles(filesShown ? '' : c.name);
+                // Hidden, its open file goes too.
+                if (filesShown) setMapAt({ branch: c.name, mode: side.mode });
+              }}
+            >
+              <Icon name="folder" size={12} />
+              Files
+            </button>
+          )}
         </div>
       </aside>
     );
   })();
+
+  // The card's branch's files under it, and the one picked from them over the map (MapFiles and MapDiff in Workspace.tsx):
+  // on their own while it has uncommitted work, else once its Files button opens them. A phone has no room: the focus view lists them.
+  const side = (() => {
+    const at = mapAt.branch === cb.name ? mapAt : { branch: cb.name };
+    return { ...at, mode: at.mode ?? (cb.wip.length ? 'wip' : cb.base ? 'branch' : 'project') } as { branch: string; mode: Mode; file?: string };
+  })();
+  const sideOpen = !phone && (cb.wip.length > 0 || mapFiles === cb.name);
+  const sideList = filesOf(cb, side.mode);
+  const sideWip = side.mode === 'wip' && sideList.length > 0;
+  // In the order the list shows them: staged files first.
+  const sideListed = sideWip ? [...sideList.filter((f) => f.staged), ...sideList.filter((f) => !f.staged)] : sideList;
+  const sideFile = sideOpen ? sideList.find((f) => f.path === side.file) : undefined;
+  const sideAt = sideFile ? sideListed.indexOf(sideFile) : -1;
+  const [sideFold, toggleSideFold] = useFold(side.mode);
+  const openSide = (f: File) => setMapAt({ branch: cb.name, mode: side.mode, file: f.path });
+  const closeSide = () => setMapAt({ branch: cb.name, mode: side.mode });
+  const stepSide = (d: number) => sideListed[sideAt + d] && openSide(sideListed[sideAt + d]);
+  const files = sideOpen && (
+    <section className="map-files" aria-label={`Files of ${cb.name}`}>
+      <div className="map-files-head">
+        <Seg
+          label="Files"
+          grid
+          value={side.mode}
+          onChange={(m) => setMapAt({ branch: cb.name, mode: m })}
+          options={[
+            ['wip', cb.wip.length > 0 ? <span className="wip-badge">WIP {cb.wip.length}</span> : <>WIP <span className="faint">0</span></>],
+            ['branch', 'Branch'],
+            ['project', 'Project'],
+          ]}
+        />
+        {tree && <FoldBtn closed={sideFold.closed} onClick={toggleSideFold} />}
+        <button className="btn btn-sm btn-icon" aria-label={tree ? 'Show files as a list' : 'Show files as a tree'} title={tree ? 'List view' : 'Tree view'} onClick={() => setTree(!tree)}>
+          <Icon name={tree ? 'menu' : 'folder'} size={12} />
+        </button>
+      </div>
+      <ul className="scroll map-files-list" data-wip={sideWip || undefined}>
+        {sideWip ? wipList(cb.name, sideList, sideFile, openSide, sideFold) : <FileList key={sideFold.n} list={sideList} tree={tree} allClosed={sideFold.closed} current={sideFile} onPick={openSide} />}
+        {sideList.length === 0 && (
+          <li className="empty">
+            {side.mode === 'wip' ? (cb.name === head || cb.wt ? 'No uncommitted changes.' : 'Not checked out: nothing uncommitted here.') : side.mode === 'project' ? 'No files.' : cb.base ? 'No changes on this branch yet.' : 'Nothing to compare: it is the base branch.'}
+          </li>
+        )}
+      </ul>
+      {side.mode === 'wip' && (cb.name === head || cb.wt) && commitArea(cb)}
+    </section>
+  );
+  const sideCut = sideFile ? sideFile.path.lastIndexOf('/') : -1;
+  const sideUnchanged = sideFile?.s === ' ';
+  const fileDiff = sideFile && (
+    <section className="map-diff" aria-label={`Changes to ${sideFile.path}`}>
+      <div className="code-file">
+        <span className={`file-st ${{ A: 'c-add', D: 'c-del', M: 'c-mod', ' ': 'faint' }[sideFile.s]}`}>{sideUnchanged ? '·' : sideFile.s}</span>
+        <span className="code-path mono ellipsis" title={sideFile.path}>
+          {sideCut >= 0 && <span className="faint">{sideFile.path.slice(0, sideCut + 1)}</span>}
+          <b>{sideFile.path.slice(sideCut + 1)}</b>
+        </span>
+        <span className="row mono" style={{ gap: 6, margin: 0 }}>
+          {sideFile.add ? <span className="c-add">+{sideFile.add}</span> : null}
+          {sideFile.del ? <span className="c-del">−{sideFile.del}</span> : null}
+        </span>
+        {side.mode !== 'branch' && <span className="faint ellipsis code-note">{side.mode === 'wip' ? (sideFile.staged ? 'staged' : 'not staged') : sideUnchanged ? 'unchanged on this branch' : 'changed on this branch'}</span>}
+        <span className="grow" />
+        {sideListed.length > 1 && (
+          <span className="code-files" role="group" aria-label="Files">
+            <button className="btn btn-ghost btn-sm btn-icon" aria-label="Previous file ([)" title="Previous file ([)" disabled={sideAt <= 0} onClick={() => stepSide(-1)}>
+              <Icon name="chevronLeft" size={12} />
+            </button>
+            <span>{`File ${sideAt + 1} of ${sideListed.length}`}</span>
+            <button className="btn btn-ghost btn-sm btn-icon" aria-label="Next file (])" title="Next file (])" disabled={sideAt >= sideListed.length - 1} onClick={() => stepSide(1)}>
+              <Icon name="chevronRight" size={12} />
+            </button>
+          </span>
+        )}
+        {!sideUnchanged && <Seg label="Diff mode" value={mapDiffMode} onChange={setMapDiffMode} options={[['split', 'Split'], ['unified', 'Unified'], ['full', 'Full']]} />}
+        {(cb.name === head || cb.wt) && sideFile.s !== 'D' && (
+          <button className="btn btn-sm btn-icon" aria-label="Open in file explorer" title="Open in file explorer" onClick={() => flash(`In the app, this shows ${sideFile.path.slice(sideCut + 1)} in your file manager`)}>
+            <Icon name="folder" size={12} />
+          </button>
+        )}
+        <button className="btn btn-sm" aria-label="File history" title="Commits that changed this file" onClick={() => flash(`In the app, History lists the commits that changed ${sideFile.path.slice(sideCut + 1)}, beside the file`)}>
+          <Icon name="history" size={12} />
+          <span className="hide-narrow">History</span>
+        </button>
+        <button className="btn btn-sm btn-icon" aria-label="Close the file (Esc)" title="Close (Esc)" onClick={closeSide}>
+          <Icon name="close" size={12} />
+        </button>
+      </div>
+      <Diff mode={sideUnchanged ? 'raw' : mapDiffMode} />
+    </section>
+  );
 
   const toggleBtn = (k: 'merged' | 'behind' | 'shipped', label: string, n: number) => (
     <button key={k} className="map-toggle" aria-pressed={prefs[k]} onClick={() => setPrefs({ ...prefs, [k]: !prefs[k] })}>
@@ -1022,12 +1192,13 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
           e.preventDefault();
           return openFind();
         }
-        // The focus view's keys (Workspace.tsx), outside a field, the agent panel or a menu: [ and ] move through the files,
-        // S switches split and unified, Escape goes back to the map.
-        if (!focused || e.ctrlKey || e.metaKey || e.altKey || (e.target as HTMLElement).closest('input, textarea, [role="menu"], .term')) return;
-        if (e.key === 'Escape') setFocused(false);
-        else if (e.key === '[' || e.key === ']') step(e.key === '[' ? -1 : 1);
-        else if (k === 's') setDiffMode((m) => (m === 'split' ? 'unified' : 'split'));
+        // The focus view's keys, and those of a file open over the map (Workspace.tsx), outside a field, the agent panel or a
+        // menu: [ and ] move through the files, S switches split and unified, Escape goes back to the map or closes the file.
+        if (!(focused || fileDiff) || e.ctrlKey || e.metaKey || e.altKey || (e.target as HTMLElement).closest('input, textarea, [role="menu"], [role="dialog"], .term')) return;
+        const split = (m: 'split' | 'unified' | 'full') => (m === 'split' ? 'unified' : 'split');
+        if (e.key === 'Escape') (focused ? setFocused(false) : closeSide());
+        else if (e.key === '[' || e.key === ']') (focused ? step : stepSide)(e.key === '[' ? -1 : 1);
+        else if (k === 's') (focused ? setDiffMode : setMapDiffMode)(split);
         else return;
         e.preventDefault();
       }}
@@ -1243,10 +1414,12 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
                   onClose={() => setFinding(false)}
                 />
               )}
-              <div className="map-view">
+              {/* A file open over the map: the map under it holds still. */}
+              <div className="map-view" data-file-open={fileDiff ? '' : undefined}>
                 <div
                   ref={canvas}
                   className="map-canvas"
+                  data-covered={fileDiff ? '' : undefined}
                   role="region"
                   aria-label="Branches"
                   // A click on the empty map keeps focus in the demo, so Ctrl+F finds a branch.
@@ -1290,8 +1463,18 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
                     </div>
                   </div>
                 </div>
-                <MapLegend />
-                {card}
+                {/* Floating over the view's bottom left, level with the card's column at the right. */}
+                <MapLegendBox />
+                {phone ? (
+                  card
+                ) : (
+                  // The card, and the branch's files under it in the room it leaves.
+                  <div className="map-side">
+                    {card}
+                    {files}
+                  </div>
+                )}
+                {fileDiff}
               </div>
             </section>
           ) : (
@@ -1303,11 +1486,7 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
                     <div className="row" style={{ alignItems: 'center', minWidth: 0, margin: 0 }}>
                       <span className="mono ellipsis" style={{ fontSize: 13, fontWeight: 500 }}>{b.name}</span>
                       {b.base && <span className="faint" style={{ fontSize: 11.5, whiteSpace: 'nowrap' }}>{b.merged ? 'merged into' : 'from'} {labelOf(b.base)}</span>}
-                      {tree && (
-                        <span className="btn btn-sm btn-icon" style={{ marginLeft: 'auto', flex: '0 0 auto' }} aria-hidden="true">
-                          <Icon name="chevronDown" size={12} className="chev" />
-                        </span>
-                      )}
+                      {tree && <FoldBtn closed={railFold.closed} onClick={toggleRailFold} style={{ marginLeft: 'auto', flex: '0 0 auto', alignSelf: 'center' }} />}
                       <button className="btn btn-sm btn-icon" style={{ marginLeft: tree ? 0 : 'auto', flex: '0 0 auto' }} aria-label={tree ? 'Show files as a list' : 'Show files as a tree'} title={tree ? 'List view' : 'Tree view'} onClick={() => setTree(!tree)}>
                         <Icon name={tree ? 'menu' : 'folder'} size={12} />
                       </button>
@@ -1346,65 +1525,16 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
                   </div>
                   <ul className="scroll rail-files" data-wip={(isWip && list.length > 0) || undefined}>
                     {isWip && list.length > 0 ? (
-                      [true, false].map((sd) => {
-                        const side = list.filter((f) => !!f.staged === sd);
-                        if (!side.length) return null;
-                        const k = String(sd) as 'true' | 'false';
-                        return (
-                          <li key={k}>
-                            <div className="file-sec">
-                              <button className="file-sec-toggle" aria-expanded={secOpen[k]} onClick={() => setSecOpen((o) => ({ ...o, [k]: !o[k] }))}>
-                                <Icon name="chevronDown" size={12} className="chev" />
-                                <span>{sd ? 'Staged' : 'Unstaged'}</span>
-                                <span style={{ fontWeight: 400 }}>{side.length}</span>
-                              </button>
-                              <span className="file-sec-acts">{fileActs(side, sd ? 'all staged files' : 'all unstaged files')}</span>
-                            </div>
-                            <ul hidden={!secOpen[k]}>
-                              <FileList list={side} tree={tree} current={current} onPick={pickFile} actions={fileActs} />
-                            </ul>
-                          </li>
-                        );
-                      })
+                      wipList(b.name, list, current, pickFile, railFold)
                     ) : (
-                      <FileList list={list} tree={tree} current={current} onPick={pickFile} />
+                      <FileList key={railFold.n} list={list} tree={tree} allClosed={railFold.closed} current={current} onPick={pickFile} />
                     )}
                     {list.length === 0 && (
                       <li className="empty engraved">{commit ? 'This commit changes no files.' : mode === 'wip' ? (isOut ? 'No uncommitted changes.' : 'This branch is not checked out.') : 'No changes on this branch yet.'}</li>
                     )}
                   </ul>
                   {/* CommitBox in src/screens/Workspace.tsx, gone while a commit shows */}
-                  {!commit && (
-                    <div className="col" style={{ padding: '10px 16px 14px', gap: 8, borderTop: '1px solid var(--line)' }}>
-                      <div className="row" style={{ justifyContent: 'space-between', minHeight: 24, margin: 0 }}>
-                        <button className="commit-sec" aria-expanded={msgOpen} onClick={() => setMsgOpen(!msgOpen)}>
-                          <Icon name="chevronDown" size={12} className="chev" />
-                          <span>Commit message</span>
-                        </button>
-                        {msgOpen && (
-                          <button className="btn btn-sm" style={{ height: 24, padding: '0 8px' }} disabled={!canCommit} title="AI drafts a message from the changed files" onClick={() => { setSummary(aiSubject(b.wip)); setBody('Runs from the trunk to the checked-out branch and restarts on switch.'); }}>
-                            <Icon name="sparkle" size={12} />
-                            Draft
-                          </button>
-                        )}
-                      </div>
-                      {msgOpen && (
-                        <div className="col">
-                          <input className="input" style={{ height: 32, fontSize: 12.5, padding: '0 10px' }} value={summary} disabled={!canCommit} onChange={(e) => setSummary(e.target.value)} placeholder={!isOut ? 'Check out this branch to commit' : !wipCount ? 'No changes to commit' : 'Summary — leave empty for AI'} aria-label="Summary" />
-                          <textarea className="textarea" rows={3} style={{ fontSize: 12.5, padding: '8px 10px', resize: 'none' }} value={body} disabled={!canCommit} onChange={(e) => setBody(e.target.value)} placeholder="Description (optional)" aria-label="Description" />
-                        </div>
-                      )}
-                      <span className="split-btn" style={{ display: 'flex', width: '100%' }}>
-                        <button className="btn btn-primary split-main commit-btn" style={{ flex: '1 1 auto' }} disabled={!canCommit} onClick={commitBox}>
-                          <Icon name="sparkle" size={12} />
-                          <span>{all ? 'Stage all & Commit' : 'Commit'}<span style={{ fontWeight: 400, opacity: 0.7, marginLeft: 6 }}>{all ? wipCount || null : staged}</span></span>
-                        </button>
-                        <span className="btn btn-primary btn-icon split-more commit-btn" aria-hidden="true">
-                          <Icon name="more" size={14} />
-                        </span>
-                      </span>
-                    </div>
-                  )}
+                  {!commit && commitArea(b)}
                 </aside>
                 {/* the code of what the rail picked */}
                 <section aria-label="Code" className="focus-code" data-pane data-active={pane === 'code'}>
@@ -1449,7 +1579,7 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
                         </button>
                       </span>
                     )}
-                    {current && (unchanged ? <Seg label="Diff mode" value="raw" onChange={() => {}} options={[['raw', 'Raw']]} /> : <Seg label="Diff mode" value={diffMode} onChange={setDiffMode} options={[['split', 'Split'], ['unified', 'Unified'], ['full', 'Full']]} />)}
+                    {current && !unchanged && <Seg label="Diff mode" value={diffMode} onChange={setDiffMode} options={[['split', 'Split'], ['unified', 'Unified'], ['full', 'Full']]} />}
                     {current && (
                       <button className="btn btn-sm" aria-label="File history" title="Commits that changed this file" onClick={() => flash(`In the app, History lists the commits that changed ${current.path.slice(cut + 1)}, and Esc comes back`)}>
                         <Icon name="history" size={12} />
