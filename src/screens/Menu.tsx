@@ -6,6 +6,7 @@ import type { Config, DialogPrefs, Project, UserProfile } from "../api/types";
 import { BranchTypesEditor } from "../components/BranchTypes";
 import { Icon } from "../components/Icon";
 import { Logo } from "../components/Logo";
+import { checkUpdate, devVersion } from "../components/UpdatePrompt";
 import { DeleteProfile, ProfileAvatar, ProfileDialog, useProfiles } from "../components/Profiles";
 import { plural } from "../lib/format";
 import { useTermDefault } from "../components/Shell";
@@ -14,6 +15,7 @@ import { DEFAULTS, SHORTCUTS, showKeys, useKeys } from "../lib/keys";
 import { animates, useAnimations } from "../lib/motion";
 import { useNav } from "../lib/nav";
 import { THEMES } from "../lib/themes";
+import { toast } from "../lib/toast";
 import { AISetupPanes } from "./AISetup";
 import { LogsPane } from "./Logs";
 import { GROUPS, LINK_PLACEHOLDER, PhoneCard, SettingsSection, WorktreeFiles } from "./Settings";
@@ -37,12 +39,20 @@ export function Menu({ onUnpair }: { onUnpair: () => void }) {
   // The workspace under the panel would show its scrollbar through it.
   const overlay = useRef<HTMLDivElement>(null);
   useCoverScrollbars(overlay);
-  // The app's own version; a plain browser has no app to ask.
-  const [version, setVersion] = useState<string | null>(null);
+  // The app's own version; a plain browser has no app to ask. A dev build shows the release tag it builds on.
+  const [version, setVersion] = useState<string | null>(devVersion ?? null);
   useEffect(() => {
-    if (!isTauri) return;
+    if (!isTauri || devVersion) return;
     import("@tauri-apps/api/app").then(({ getVersion }) => getVersion()).then(setVersion, () => {});
   }, []);
+  const [checking, setChecking] = useState(false);
+  const check = () => {
+    setChecking(true);
+    checkUpdate()
+      .then((u) => !u && toast("Gitnetix is up to date", "ok"))
+      .catch((e) => toast(`Could not check for updates: ${e}`, "error"))
+      .finally(() => setChecking(false));
+  };
   // Slide out before unmounting; skip the animation when it is off or the user prefers reduced motion.
   const close = useCallback(() => {
     if (!animates("menu")) nav.closeMenu();
@@ -88,6 +98,12 @@ export function Menu({ onUnpair }: { onUnpair: () => void }) {
           <div className="hdr-title">
             {!view && <Logo className="hdr-logo" />}
             <strong>{view ? TITLES[view] : "Gitnetix"}</strong>
+            {!view && version && (
+              <span className="mono faint" style={{ fontSize: 9, position: "relative", top: 2, marginLeft: -3 }}>
+                v{version}
+                {devVersion && " dev"}
+              </span>
+            )}
             {!view && project && (
               <>
                 <span className="faint">·</span>
@@ -95,9 +111,11 @@ export function Menu({ onUnpair }: { onUnpair: () => void }) {
               </>
             )}
           </div>
-          {!view && version && (
+          {!view && isLocal && (
             <div className="hdr-tools">
-              <span className="mono faint" style={{ fontSize: 11.5 }}>v{version}</span>
+              <button className="btn btn-ghost btn-sm" disabled={checking} onClick={check}>
+                {checking ? "Checking…" : "Check and update"}
+              </button>
             </div>
           )}
         </header>

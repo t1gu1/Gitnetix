@@ -4,23 +4,32 @@ import type { Update } from "@tauri-apps/plugin-updater";
 import { isLocal } from "../api/transport";
 import { ErrorBox, Markdown, Modal } from "./ui";
 
-/** On launch, asks to install a newer release published on GitHub. */
+/** The version this app runs: a dev build keeps 0.1.0 in its config, so it goes by the newest release tag. */
+export const devVersion = import.meta.env.DEV ? __DEV_TAG__?.replace(/^v/, "") : undefined;
+
+let show: (u: Update) => void = () => {};
+
+/** Asks GitHub for a newer release and, when there is one, opens the prompt to install it. Null when this is the latest. */
+export async function checkUpdate(): Promise<Update | null> {
+  const { check } = await import("@tauri-apps/plugin-updater");
+  const u = await check();
+  // The updater compares with 0.1.0 in a dev build: only a release past its tag is newer.
+  if (!u || (devVersion && u.version.localeCompare(devVersion, undefined, { numeric: true }) <= 0)) return null;
+  show(u);
+  return u;
+}
+
+/** On launch, asks to install a newer release published on GitHub; `checkUpdate` asks again on demand. */
 export function UpdatePrompt() {
   const [update, setUpdate] = useState<Update | null>(null);
   const [progress, setProgress] = useState<number | null>(null);
   const [error, setError] = useState<unknown>(null);
 
   useEffect(() => {
+    show = setUpdate;
     if (!isLocal || import.meta.env.DEV) return;
-    let cancelled = false;
-    import("@tauri-apps/plugin-updater")
-      .then(({ check }) => check())
-      .then((u) => !cancelled && setUpdate(u))
-      // Offline or no release feed yet: try again next launch.
-      .catch((e) => console.warn("update check failed", e));
-    return () => {
-      cancelled = true;
-    };
+    // Offline or no release feed yet: try again next launch.
+    checkUpdate().catch((e) => console.warn("update check failed", e));
   }, []);
 
   if (!update) return null;
@@ -52,7 +61,7 @@ export function UpdatePrompt() {
   return (
     <Modal
       title={`Gitnetix ${update.version} is available`}
-      sub={`You have ${update.currentVersion}`}
+      sub={`You have ${devVersion ? `a dev build of ${devVersion}` : update.currentVersion}`}
       onClose={close}
       width={520}
       footer={

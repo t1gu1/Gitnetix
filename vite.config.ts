@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
@@ -45,7 +46,18 @@ const inlineTouchIcon: Plugin = {
     ),
 };
 
+/** The newest release tag, shown as the dev build's version: Cargo.toml and tauri.conf.json keep 0.1.0.
+ * shortcut: read when Vite starts, and `pnpm app` keeps Vite across restarts; restart it to show a newer tag. */
+function lastTag() {
+  try {
+    return execFileSync("git", ["tag", "--list", "v*", "--sort=-creatordate"], { encoding: "utf8" }).split("\n")[0].trim() || null;
+  } catch {
+    return null;
+  }
+}
+
 export default defineConfig({
+  define: { __DEV_TAG__: JSON.stringify(lastTag()) },
   plugins: [react(), inlineTouchIcon, busy ? holdWhileBusy(busy) : null],
   clearScreen: false,
   server: {

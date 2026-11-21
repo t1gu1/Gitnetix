@@ -313,9 +313,9 @@ a:hover {
   min-width: 0;
 }
 .hdr-logo {
-  width: 36px;
-  height: 36px;
-  margin-left: -12px;
+  width: 28px;
+  height: 28px;
+  margin-left: -11px;
   flex: none;
 }
 .hdr-title strong {
