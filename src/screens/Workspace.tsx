@@ -130,6 +130,8 @@ export function Workspace() {
   const [fold, setFold] = useState({ closed: false, n: 0 });
   // The map's files panel: for which branch, WIP, Branch or Project (none = WIP while there is some), and the file open over the map.
   const [mapAt, setMapAt] = useState<{ branch: string; mode?: Mode; file?: string }>({ branch: "" });
+  // The branch whose files panel the card's Files button opened: with no WIP, the panel waits for it.
+  const [mapFiles, setMapFiles] = useState("");
   const actions = useBranchActions(pid, (kind, branch, onto) => {
     // Committing everything with no AI to write the message: the branch's uncommitted work, its message box open.
     if (kind === "commit") return openFocus(branch, "wip");
@@ -466,12 +468,12 @@ export function Workspace() {
     setFile(fileKey(f));
     setPane("code");
   };
-  // Another branch on the map's card: its files start over, on WIP while it has some or when it has no base to compare with.
+  // Another branch on the map's card: its files start over, on WIP while it has some, else its own changes, else (a base) the project.
   const mapOf = (b: BranchView) => {
     const at = mapAt.branch === b.name ? mapAt : { branch: b.name };
     const base = baseFor(b.name);
     const hasBase = !!base && base !== b.name;
-    return { ...at, hasBase, mode: at.mode ?? (b.wip || !hasBase ? "wip" : "branch") } as const;
+    return { ...at, hasBase, mode: at.mode ?? (b.wip ? "wip" : hasBase ? "branch" : "project") } as const;
   };
   const [originText, originCls] = view ? originOf(view, !!o?.remote) : ["", ""];
 
@@ -680,8 +682,9 @@ export function Workspace() {
                 onStashes={openStashes}
                 building={ov.isPlaceholderData}
                 bar={mapBar}
+                // On its own while the branch has uncommitted work; otherwise once the card's Files button opens it.
                 files={(b) => {
-                  if (!b.exists) return null;
+                  if (!b.exists || !(b.wip || mapFiles === b.name)) return null;
                   const m = mapOf(b);
                   return (
                     <MapFiles
@@ -700,8 +703,28 @@ export function Workspace() {
                   );
                 }}
                 fileDiff={(b) => {
+                  if (!b.wip && mapFiles !== b.name) return null;
                   const m = mapOf(b);
                   return m.file && <MapDiff pid={pid} branch={b.name} mode={m.mode} file={m.file} onPick={(f) => setMapAt({ branch: b.name, mode: m.mode, file: fileKey(f) })} onClose={() => setMapAt({ branch: b.name, mode: m.mode })} />;
+                }}
+                filesButton={(b) => {
+                  if (!b.exists || b.wip) return null;
+                  const shown = mapFiles === b.name;
+                  return (
+                    <button
+                      className="btn btn-sm map-card-files"
+                      aria-pressed={shown}
+                      data-tip={shown ? "Hide the files" : "Show the branch's files"}
+                      onClick={() => {
+                        setMapFiles(shown ? "" : b.name);
+                        // Hidden, its open file goes too.
+                        if (shown) setMapAt({ branch: b.name, mode: mapOf(b).mode });
+                      }}
+                    >
+                      <Icon name="folder" size={12} />
+                      Files
+                    </button>
+                  );
                 }}
               />
             ) : (

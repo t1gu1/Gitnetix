@@ -567,6 +567,7 @@ export function BranchMap({
   bar,
   files,
   fileDiff,
+  filesButton,
 }: {
   o: Overview;
   selected?: string;
@@ -595,6 +596,8 @@ export function BranchMap({
   files?: (b: BranchView) => ReactNode;
   /** The file picked there, floating over the map. */
   fileDiff?: (b: BranchView) => ReactNode;
+  /** Beside the card's action: shows or hides its files when the panel isn't there on its own. */
+  filesButton?: (b: BranchView) => ReactNode;
 }) {
   const pid = o.project.id;
   const keys = useKeys();
@@ -1321,6 +1324,7 @@ export function BranchMap({
               actions={actions}
               onFocus={onFocus}
               onStashes={onStashes}
+              extra={filesButton?.(sel)}
             />
             {files?.(sel)}
           </div>
@@ -1744,6 +1748,7 @@ function SelectedCard({
   actions,
   onFocus,
   onStashes,
+  extra,
 }: {
   o: Overview;
   b: BranchView;
@@ -1754,6 +1759,8 @@ function SelectedCard({
   actions: BranchActions;
   onFocus: (b: string, item: FocusItem) => void;
   onStashes: (b?: string) => void;
+  /** After the suggested action, on its row. */
+  extra?: ReactNode;
 }) {
   // Folding or unfolding the card holds for every branch, across restarts.
   const [chosen, setFolded] = useStoredChoice("gnx.map.cardFolded");
@@ -1871,6 +1878,7 @@ function SelectedCard({
         <button className={`btn btn-icon ${tone} split-more`} aria-label={`More actions for ${b.name}`} data-tip={`More actions for ${b.name}`} aria-haspopup="menu" onClick={(e) => actions.openMenu(t, e)}>
           <Icon name="more" size={14} />
         </button>
+        {extra}
       </div>
     </aside>
   );

@@ -2830,6 +2830,18 @@ button.map-line-chip[aria-disabled] {
 .map-card-acts > .split-main {
   min-width: 0;
 }
+/* Same height as the split button beside it. */
+.map-card-acts > .map-card-files {
+  flex: none;
+  height: auto;
+  margin-left: 8px;
+}
+/* Open: outlined in the text colour, so it reads as a toggle that is on. */
+.map-card-files[aria-pressed="true"] {
+  border-color: var(--fg);
+  background: var(--sel);
+  color: var(--fg);
+}
 .link-btn {
   padding: 0;
   border: 0;
@@ -2872,7 +2884,8 @@ button.map-line-chip[aria-disabled] {
     display: contents;
   }
   .map-files,
-  .map-diff {
+  .map-diff,
+  .map-card-files {
     display: none;
   }
   /* Out of the map's way: above it, not over it. The card comes after the map for keyboards and screen readers. */
