@@ -3,6 +3,7 @@ import { createContext, Fragment, type ReactNode, useContext } from "react";
 import { isLocal, openExternal, revealPath } from "../api/transport";
 import { toast } from "../lib/toast";
 import { Icon } from "./Icon";
+import { MARKDOWN, isImage } from "./ImageDiff";
 import { Linked, Picture, PictureSource } from "./Picture";
 
 /** A node of Atlassian Document Format, the shape of a Jira description. */
@@ -27,8 +28,9 @@ export const link = (href: unknown, body: ReactNode) => {
 };
 
 /** The folder an agent works in, and how its replies open a file in it (`open` takes the path from `root`, false when nothing
- * lists it). In its replies, links to files and `path/to/file.ts:12` code open there, or show in the file manager when outside. */
-export const FileRoot = createContext<{ root: string; open?: (path: string) => Promise<boolean> } | null>(null);
+ * lists it). In its replies, links to files and `path/to/file.ts:12` code open there, or show in the file manager when outside.
+ * `view` shows an image or Markdown file no list has in the app instead (desktop only), from its absolute path. */
+export const FileRoot = createContext<{ root: string; open?: (path: string) => Promise<boolean>; view?: (path: string) => void } | null>(null);
 
 // A file named in code: at least one folder, then a name with an extension, maybe with :line or :line:col.
 const CODE_PATH = /^(?:[A-Za-z]:|~)?[\w.@+-]*(?:[/\\][\w.@+-]+)*[/\\][\w@+-][\w.@+-]*\.[A-Za-z][\w-]*(?::\d+(?:[:-]\d+)?)?$/;
@@ -65,34 +67,37 @@ export function inside(root: string, p: string) {
   return out.length ? out.join("/") : null;
 }
 
-/** A file an agent names, as a link: one in its folder opens in the app, any other shows in the file manager (desktop only).
+/** A file an agent names, as a link: one in its folder opens in the app, any other shows in the file manager (desktop only),
+ * or in the app's viewer when it is an image or Markdown.
  * `code`: from a code span, so only when it looks like a path. Outside an agent's reply, `children` as they are. */
 export function FileLink({ to, code, children }: { to: string; code?: boolean; children: ReactNode }) {
   const at = useContext(FileRoot);
   // Other schemes (tel:, vscode:…) stay text; a drive letter (C:) is one letter, no scheme.
   const other = /^[a-z][\w+.-]+:/i.test(to) && !/^file:/i.test(to);
   if (!at || !to || to.startsWith("#") || (code ? !CODE_PATH.test(to) : other)) return children;
-  const { root, open } = at;
+  const { root, open, view } = at;
   const p = filePath(to);
   const rel = open ? inside(root, p) : null;
   if (!rel && !isLocal) return children;
-  const reveal = async () => {
+  const viewable = isLocal && !!view && (isImage(p) || MARKDOWN.test(p));
+  const abs = async () => {
     const { homeDir, resolve } = await import("@tauri-apps/api/path");
     // Relative to the agent's folder; `resolve` keeps an absolute path and drops `..`.
-    await revealPath(/^~[/\\]/.test(p) ? await resolve(await homeDir(), p.slice(2)) : await resolve(root, p));
+    return /^~[/\\]/.test(p) ? await resolve(await homeDir(), p.slice(2)) : await resolve(root, p);
   };
   const show = async () => {
     try {
       // A file no list has (ignored, gone) still shows in its folder.
       if (rel && open && (await open(rel))) return;
-      if (isLocal) await reveal();
+      if (viewable) view!(await abs());
+      else if (isLocal) await revealPath(await abs());
       else toast(`${p} is not in the project's files`, "error");
     } catch (e) {
       toast(`Could not show ${p}: ${e}`, "error");
     }
   };
   return (
-    <a href="#" data-tip={rel ? "Open the file" : "Show in folder"} onClick={(e) => { e.preventDefault(); show(); }}>
+    <a href="#" data-tip={rel || viewable ? "Open the file" : "Show in folder"} onClick={(e) => { e.preventDefault(); show(); }}>
       {children}
     </a>
   );

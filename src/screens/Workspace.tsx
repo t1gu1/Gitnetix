@@ -34,13 +34,12 @@ import { AgentInput, AgentLog, type Choice, type Upload } from "../components/Ag
 import { AgentPicker, useAgentPick, type AgentPick } from "../components/AgentPicker";
 import { Avatar } from "../components/Avatar";
 import { DiffView, LargeDiff, type Blamed, type DiffMode, type Staging } from "../components/DiffView";
-import { IMAGE_MODES, ImageDiff, comparable, dataUrl, isImage, useImageMode, type ImageMode } from "../components/ImageDiff";
-import { PictureSource } from "../components/Picture";
+import { IMAGE_MODES, ImageDiff, MARKDOWN, comparable, dataUrl, isImage, useImageMode, type ImageMode } from "../components/ImageDiff";
 import { ContextMenu, type MenuItem } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
 import { Resizer, usePaneWidth } from "../components/Resizer";
 import { ShellPane, TermTabs, useTermView } from "../components/Shell";
-import { Busy, Confirm, ErrorBox, Loading, Markdown, MediaAsk, Modal, Seg, swipeProps } from "../components/ui";
+import { Busy, Confirm, ErrorBox, Loading, MarkdownDoc, Modal, repoPath, Seg, swipeProps } from "../components/ui";
 import { ago, plural, timeLeft } from "../lib/format";
 import { limitLabel, shownStatus, STATUS_SHOWN, tasksLabel } from "../lib/agentLog";
 import { startCleanup, useCleaning } from "../lib/cleanups";
@@ -129,7 +128,7 @@ export function Workspace() {
   // Collapse/expand all: a new `n` remounts the file lists, dropping per-folder toggles.
   const [fold, setFold] = useState({ closed: false, n: 0 });
   // The map's files panel: for which branch, WIP, Branch or Project (none = WIP while there is some), and the file open over the map.
-  const [mapAt, setMapAt] = useState<{ branch: string; mode?: Mode; file?: string }>({ branch: "" });
+  const [mapAt, setMapAt] = useState<{ branch: string; mode?: Mode; file?: string; preview?: boolean }>({ branch: "" });
   // The branch whose files panel the card's Files button opened: with no WIP, the panel waits for it.
   const [mapFiles, setMapFiles] = useState("");
   const actions = useBranchActions(pid, (kind, branch, onto) => {
@@ -300,7 +299,7 @@ export function Workspace() {
   const shownStash = logged ? undefined : stash?.sha;
   // Project view lists untouched files too: those show as the plain file, no diff.
   const unchanged = mode === "project" && !shownCommit && !shownStash && shown?.status === " ";
-  const markdown = /\.(md|markdown|mdx)$/i.test(shown?.path ?? "");
+  const markdown = MARKDOWN.test(shown?.path ?? "");
   // The file whose large diff the user asked to see anyway. One with a huge known line count isn't even fetched before that.
   const [anyway, setAnyway] = useState<string>();
   const forced = !!shown && anyway === fileKey(shown);
@@ -700,6 +699,7 @@ export function Workspace() {
                         branch={b.name}
                         mode={m.mode}
                         file={file}
+                        startPreview={m.preview}
                         onPick={(f) => setMapAt({ branch: b.name, mode: m.mode, file: fileKey(f) })}
                         onHistory={(path, sha) => openMapHistory(b.name, m.mode, file, path, sha)}
                         onClose={() => setMapAt({ branch: b.name, mode: m.mode })}
@@ -954,6 +954,7 @@ export function Workspace() {
                           {...{ imageMode, setImageMode, diffMode, setDiffMode, preview, setPreview, setSvgCode }}
                         />
                       )}
+                      {shown && <RevealFile root={checkedOut && shown.status !== "D" ? root : undefined} path={shown.path} />}
                       {shown && branch && (
                         <button
                           className="btn btn-sm"
@@ -1665,14 +1666,15 @@ export function historyLater(pid: string, h: HistoryAsk) {
 }
 
 /** Where `path` of `branch` opens in MapDiff: its uncommitted change, else the project's file (with the branch's changes,
- *  if any). None when neither list has it (an ignored or deleted file). */
-export async function mapFileOf(pid: string, branch: string, path: string): Promise<{ mode: Mode; file: string } | null> {
+ *  if any), on Preview for Markdown. None when neither list has it (an ignored or deleted file). */
+export async function mapFileOf(pid: string, branch: string, path: string): Promise<{ mode: Mode; file: string; preview: boolean } | null> {
   // useFiles' cache, so an open files panel and this read the same list.
   const list = (mode: Mode) =>
     queryClient.fetchQuery({ queryKey: ["files", pid, branch, mode, undefined, undefined], queryFn: () => rpc<FileChange[]>("workspace.files", { projectId: pid, branch, mode }), staleTime: 5000 });
+  const preview = MARKDOWN.test(path);
   const wip = (await list("wip")).filter((f) => f.path === path);
-  if (wip.length) return { mode: "wip", file: fileKey(wip.find((f) => !f.staged) ?? wip[0]) };
-  return (await list("project")).some((f) => f.path === path) ? { mode: "project", file: path } : null;
+  if (wip.length) return { mode: "wip", file: fileKey(wip.find((f) => !f.staged) ?? wip[0]), preview };
+  return (await list("project")).some((f) => f.path === path) ? { mode: "project", file: path, preview } : null;
 }
 
 /** A file of the map's files panel, floating over the map. [ and ] go through the list, S switches split and unified,
@@ -1682,6 +1684,7 @@ export function MapDiff({
   branch,
   mode,
   file,
+  startPreview,
   onPick,
   onHistory,
   onClose,
@@ -1690,6 +1693,8 @@ export function MapDiff({
   branch: string;
   mode: Mode;
   file: string;
+  /** A Markdown file opened from a link: it starts on Preview. */
+  startPreview?: boolean;
   onPick: (f: FileChange) => void;
   /** Opens `path`'s history, on commit `sha` if given. None: no History button and no blame (nowhere to show it). */
   onHistory?: (path: string, sha?: string) => void;
@@ -1702,14 +1707,19 @@ export function MapDiff({
   const f = at >= 0 ? listed[at] : undefined;
   const [diffMode, setDiffMode] = useState<DiffMode>("unified");
   const [preview, setPreview] = useState(false);
+  // Also when it is already open on another file.
+  useEffect(() => {
+    if (startPreview) setPreview(true);
+  }, [startPreview, file]);
   const [svgCode, setSvgCode] = useState(false);
   const [imageMode, setImageMode] = useImageMode();
   const [anyway, setAnyway] = useState<string>();
   const forced = anyway === file;
+  const root = useCheckoutPath(pid, branch);
   const lines = f ? f.additions + f.deletions : 0;
   const huge = !forced && lines > HUGE_DIFF;
   const image = isImage(f?.path) && !(/\.svg$/i.test(f?.path ?? "") && svgCode);
-  const markdown = /\.(md|markdown|mdx)$/i.test(f?.path ?? "");
+  const markdown = MARKDOWN.test(f?.path ?? "");
   // Project lists untouched files too: those show as the plain file, no diff.
   const unchanged = f?.status === " ";
   const diff = useDiff(pid, branch, mode, f && !huge && !image && !unchanged ? f.path : undefined, f?.staged, undefined, undefined, diffMode === "full");
@@ -1785,6 +1795,7 @@ export function MapDiff({
           </span>
         )}
         {f && <FileModes path={f.path} blobs={blobs.data} image={image} unchanged={unchanged} {...{ imageMode, setImageMode, diffMode, setDiffMode, preview, setPreview, setSvgCode }} />}
+        {f && <RevealFile root={f.status === "D" ? undefined : root} path={f.path} />}
         {f && onHistory && (
           <button className="btn btn-sm" aria-label="File history" data-tip="Commits that changed this file" onClick={() => onHistory(f.path)}>
             <Icon name="history" size={12} />
@@ -1816,6 +1827,24 @@ export function MapDiff({
         ) : null}
       </div>
     </section>
+  );
+}
+
+/** Where `branch` is on disk: its worktree, or the project's folder when the main checkout has it; none when no checkout has it. */
+function useCheckoutPath(pid: string, branch: string) {
+  const o = useOverview(pid).data;
+  const projects = useProjects().data;
+  const v = o?.branches.find((x) => x.name === branch);
+  return v?.worktree ?? (v?.checkedOut || branch === o?.currentBranch ? projects?.find((p) => p.id === pid)?.path : undefined);
+}
+
+/** Shows file `path` of the checkout at `root` in the system file manager (desktop only). None without a `root`. */
+function RevealFile({ root, path }: { root?: string; path: string }) {
+  if (!isLocal || !root) return null;
+  return (
+    <button className="btn btn-sm btn-icon" aria-label="Open in file explorer" data-tip="Open in file explorer" onClick={() => revealPath(`${root}/${path}`).catch((e) => toast(String(e), "error"))}>
+      <Icon name="folder" size={12} />
+    </button>
   );
 }
 
@@ -2940,6 +2969,7 @@ function Terminal({ pid, branch, cwd, worktree, open, setOpen, onCloseWorktree, 
               session={cur?.id}
               cwd={cur?.cwd}
               onOpenFile={openFile}
+              projectId={pid}
               provider={cur ? cur.ai?.provider : pick.provider}
               thinking={cur?.status === "running" || start.isPending || reserved.pending || message.isPending}
               working={busy}
@@ -3294,7 +3324,7 @@ function FileModes(p: {
   setSvgCode: (on: boolean) => void;
 }) {
   const svg = /\.svg$/i.test(p.path);
-  const markdown = /\.(md|markdown|mdx)$/i.test(p.path);
+  const markdown = MARKDOWN.test(p.path);
   if (p.image) {
     const compare = comparable(p.blobs);
     if (!compare && !svg) return null;
@@ -3332,58 +3362,21 @@ function FileModes(p: {
   );
 }
 
-/** A Markdown file rendered. Its own pictures load from the repository at the same version; like a pull request's, none
- *  show until the project allows them. */
+/** A Markdown file of the repository rendered, its own pictures loaded from the repository at the same version. */
 function MarkdownPreview({ pid, branch, mode, path, staged, commit, stash, text }: { pid: string; branch?: string; mode: Mode; path: string; staged?: boolean; commit?: string; stash?: string; text: string }) {
-  const prefs = useProjectPrefs(pid);
-  const pictures = useMemo(() => {
-    const at = { projectId: pid, branch, mode, staged, commit };
-    return {
-      key: `md:${JSON.stringify([at, stash, path])}`,
-      hidden: !prefs.dialogs.prMedia,
-      load: async (src: string) => {
-        const pic = repoPath(path, src);
-        if (!pic || !isImage(pic)) throw new Error("Not a picture of the repository");
-        const b = await (stash ? rpc<Blobs>("stashes.blobs", { projectId: pid, sha: stash, path: pic }) : rpc<Blobs>("workspace.blobs", { ...at, path: pic }));
-        const b64 = b.new ?? b.old;
-        if (!b64) throw new Error("Picture not found");
-        return dataUrl(pic, b64);
-      },
-    };
-  }, [pid, branch, mode, path, staged, commit, stash, prefs.dialogs.prMedia]);
-  return (
-    <article style={{ maxWidth: 760, margin: "0 auto", padding: "24px 24px 48px", fontFamily: "var(--sans)", fontSize: 14, lineHeight: 1.6 }}>
-      {!prefs.dialogs.prMedia && ANY_PICTURE.test(text) && <MediaAsk html={false} onShow={() => prefs.setDialogs({ prMedia: true })} />}
-      <PictureSource.Provider value={pictures}>
-        <Markdown text={text} html />
-      </PictureSource.Provider>
-    </article>
-  );
+  const at = { projectId: pid, branch, mode, staged, commit };
+  const load = async (src: string) => {
+    const pic = repoPath(path, src);
+    if (!pic || !isImage(pic)) throw new Error("Not a picture of the repository");
+    const b = await (stash ? rpc<Blobs>("stashes.blobs", { projectId: pid, sha: stash, path: pic }) : rpc<Blobs>("workspace.blobs", { ...at, path: pic }));
+    const b64 = b.new ?? b.old;
+    if (!b64) throw new Error("Picture not found");
+    return dataUrl(pic, b64);
+  };
+  return <MarkdownDoc pid={pid} id={`md:${JSON.stringify([at, stash, path])}`} text={text} load={load} />;
 }
 
 /** A base64 blob as UTF-8 text; null when it is binary (holds a NUL byte). */
-// A picture in Markdown or an <img>.
-const ANY_PICTURE = /!\[[^\]]*\]\(|<img\s/i;
-
-/** Where a picture link of the Markdown file at `file` points in the repository: next to the file, or from the root with
- * a leading "/", as on GitHub. Undefined for a web link or one that climbs out of the repository. */
-export function repoPath(file: string, src: string): string | undefined {
-  if (/^[a-z][a-z\d+.-]*:|^\/\//i.test(src)) return undefined;
-  let link = src.replace(/[?#].*$/, "");
-  try {
-    link = decodeURIComponent(link);
-  } catch {
-    // A stray "%" stays as written.
-  }
-  const parts = link.startsWith("/") ? [] : file.split("/").slice(0, -1);
-  for (const p of link.split("/")) {
-    if (p === "..") {
-      if (!parts.pop()) return undefined;
-    } else if (p && p !== ".") parts.push(p);
-  }
-  return parts.join("/") || undefined;
-}
-
 function decodeText(b64: string | null | undefined): string | null | undefined {
   if (b64 == null) return b64;
   const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));

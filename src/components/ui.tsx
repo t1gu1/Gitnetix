@@ -1,9 +1,10 @@
 import { createElement, type CSSProperties, Fragment, memo, type ReactNode, type Ref, type RefObject, type TouchEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
+import { useProjectPrefs } from "../api/hooks";
 import { FileLink, link } from "./Adf";
 import { Icon } from "./Icon";
-import { Picture } from "./Picture";
+import { Picture, PictureSource } from "./Picture";
 import { isPageRoute } from "./TopBar";
 import { useTokens } from "../lib/highlight";
 import { comboOf, useKeys } from "../lib/keys";
@@ -551,6 +552,44 @@ export function MediaAsk({ onShow, html = true }: { onShow: () => void; html?: b
       <button className="btn btn-sm" onClick={onShow}>Show for this project</button>
     </div>
   );
+}
+
+// A picture in Markdown or an <img>.
+const ANY_PICTURE = /!\[[^\]]*\]\(|<img\s/i;
+
+/** A Markdown file rendered, its own pictures loaded by `load` (`id` tells apart two files' pictures of the same name).
+ * Like a pull request's, none show until project `pid` allows them. */
+export function MarkdownDoc({ pid, id, text, load }: { pid: string; id: string; text: string; load: (src: string) => Promise<string> }) {
+  const prefs = useProjectPrefs(pid);
+  // `id` names everything `load` reads from.
+  const pictures = useMemo(() => ({ key: id, hidden: !prefs.dialogs.prMedia, load }), [id, prefs.dialogs.prMedia]); // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <article style={{ maxWidth: 760, margin: "0 auto", padding: "24px 24px 48px", fontFamily: "var(--sans)", fontSize: 14, lineHeight: 1.6 }}>
+      {!prefs.dialogs.prMedia && ANY_PICTURE.test(text) && <MediaAsk html={false} onShow={() => prefs.setDialogs({ prMedia: true })} />}
+      <PictureSource.Provider value={pictures}>
+        <Markdown text={text} html />
+      </PictureSource.Provider>
+    </article>
+  );
+}
+
+/** Where a picture link of the Markdown file at `file` points in the repository: next to the file, or from the root with
+ * a leading "/", as on GitHub. Undefined for a web link or one that climbs out of the repository. */
+export function repoPath(file: string, src: string): string | undefined {
+  if (/^[a-z][a-z\d+.-]*:|^\/\//i.test(src)) return undefined;
+  let link = src.replace(/[?#].*$/, "");
+  try {
+    link = decodeURIComponent(link);
+  } catch {
+    // A stray "%" stays as written.
+  }
+  const parts = link.startsWith("/") ? [] : file.split("/").slice(0, -1);
+  for (const p of link.split("/")) {
+    if (p === "..") {
+      if (!parts.pop()) return undefined;
+    } else if (p && p !== ".") parts.push(p);
+  }
+  return parts.join("/") || undefined;
 }
 
 /** `html`: pictures and the HTML GitHub allows, which load from the web, so only where the user allowed them;

@@ -311,7 +311,7 @@ function Detail({ r, menu, onMenuClose }: { r: Row; menu?: { x: number; y: numbe
   const [clearing, setClearing] = useState(false);
   const [targeting, setTargeting] = useState(false);
   // A file the agent's reply names, open over the page.
-  const [fileAt, setFileAt] = useState<{ mode: Mode; file: string } | null>(null);
+  const [fileAt, setFileAt] = useState<{ mode: Mode; file: string; preview?: boolean } | null>(null);
   const openFile = async (path: string) => {
     const at = await mapFileOf(r.projectId, r.branch, path);
     if (at) setFileAt(at);
@@ -406,7 +406,7 @@ function Detail({ r, menu, onMenuClose }: { r: Row; menu?: { x: number; y: numbe
           <ShellPane projectId={r.projectId} path={r.wt ? r.path : undefined} />
         ) : (
           <>
-            <AgentLog lines={a?.lines ?? []} session={a?.id} cwd={a?.cwd} onOpenFile={openFile} provider={a ? a.ai?.provider : pick.provider} thinking={a?.status === "running" || msg.isPending || start.isPending || reserved.pending} working={busy} queued={a?.queued} onEditQueued={(q) => setText((t) => [q, t].filter(Boolean).join("\n\n"))} canSendNow={a?.ai?.provider === "claude" && !!a.resumeId} limit={a?.limit} asks={a?.asks} tasks={a?.tasks} onCancelLimit={a ? () => halt(a) : undefined} actions={isWorktree && <FinishWorktreeCard session={session} finish={finish} />} picks={picks} onPicks={setPicks} empty={r.wt ? "No agent session on this checkout." : "Directory removed."} />
+            <AgentLog lines={a?.lines ?? []} session={a?.id} cwd={a?.cwd} onOpenFile={openFile} projectId={r.projectId} provider={a ? a.ai?.provider : pick.provider} thinking={a?.status === "running" || msg.isPending || start.isPending || reserved.pending} working={busy} queued={a?.queued} onEditQueued={(q) => setText((t) => [q, t].filter(Boolean).join("\n\n"))} canSendNow={a?.ai?.provider === "claude" && !!a.resumeId} limit={a?.limit} asks={a?.asks} tasks={a?.tasks} onCancelLimit={a ? () => halt(a) : undefined} actions={isWorktree && <FinishWorktreeCard session={session} finish={finish} />} picks={picks} onPicks={setPicks} empty={r.wt ? "No agent session on this checkout." : "Directory removed."} />
             <AgentInput
               id="wt-ask"
               label="Message the agent"
@@ -444,7 +444,7 @@ function Detail({ r, menu, onMenuClose }: { r: Row; menu?: { x: number; y: numbe
         // This screen shows branch names as they are, releases included.
         <TargetBranchModal pid={r.projectId} branch={r.branch} branches={ov.data.branches} labelOf={(b) => b} onClose={() => setTargeting(false)} onTargeted={() => setTargeting(false)} />
       )}
-      {fileAt && <FileOver pid={r.projectId} branch={r.branch} at={fileAt} onPick={(file) => setFileAt({ ...fileAt, file })} onClose={() => setFileAt(null)} />}
+      {fileAt && <FileOver pid={r.projectId} branch={r.branch} at={fileAt} onPick={(file) => setFileAt({ mode: fileAt.mode, file })} onClose={() => setFileAt(null)} />}
       {discarding && <DiscardWorktreeModal branch={r.branch} path={r.path} onClose={() => setDiscarding(false)} onConfirm={() => finish.discard(session)} />}
       {clearing && a && (
         <Confirm
@@ -630,7 +630,7 @@ function StartModal({ onClose, onMinimize }: { onClose: () => void; onMinimize: 
 }
 
 /** The map's file view over the page, for a file an agent named: no map here. Esc, its close button or a click beside it closes it. */
-function FileOver({ pid, branch, at, onPick, onClose }: { pid: string; branch: string; at: { mode: Mode; file: string }; onPick: (file: string) => void; onClose: () => void }) {
+function FileOver({ pid, branch, at, onPick, onClose }: { pid: string; branch: string; at: { mode: Mode; file: string; preview?: boolean }; onPick: (file: string) => void; onClose: () => void }) {
   useCoverScrollbars();
   const nav = useNav();
   // History lives in the Workspace's full-screen branch: the file opens there.
@@ -641,7 +641,7 @@ function FileOver({ pid, branch, at, onPick, onClose }: { pid: string; branch: s
   };
   return createPortal(
     <div className="modal-scrim" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <MapDiff pid={pid} branch={branch} mode={at.mode} file={at.file} onPick={(f) => onPick(fileKey(f))} onHistory={history} onClose={onClose} />
+      <MapDiff pid={pid} branch={branch} mode={at.mode} file={at.file} startPreview={at.preview} onPick={(f) => onPick(fileKey(f))} onHistory={history} onClose={onClose} />
     </div>,
     document.body,
   );

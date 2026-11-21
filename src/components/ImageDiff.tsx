@@ -20,6 +20,9 @@ const ext = (path: string) => path.slice(path.lastIndexOf(".") + 1).toLowerCase(
 
 export const isImage = (path?: string) => !!path && ext(path) in MIME;
 
+/** A Markdown file, which shows rendered on Preview. */
+export const MARKDOWN = /\.(md|markdown|mdx)$/i;
+
 /** An image's base64 contents as an `<img>` source, typed by its file name. */
 export const dataUrl = (path: string, b64: string) => `data:${MIME[ext(path)]};base64,${b64}`;
 

@@ -2,7 +2,7 @@ import { type ClipboardEvent, type CSSProperties, type KeyboardEvent, type React
 import { createPortal } from "react-dom";
 
 import { useAction, useAgentBlobs, useAgentDiff, useAgentFile, useAiCatalog, useConfig, useSkills } from "../api/hooks";
-import { captureArtifact, clipboardFiles, copyAgentFile, downloadAgentFile, isLocal, localHead, localImage, onPathDrop, openArtifact } from "../api/transport";
+import { captureArtifact, clipboardFiles, copyAgentFile, downloadAgentFile, isLocal, localHead, localImage, onPathDrop, openArtifact, revealPath } from "../api/transport";
 import type { AgentAsk, AgentLimit, AgentTask, LogLine, Skill } from "../api/types";
 import { blocks, errText, folds, questions, said, stepsLabel, tasksLabel, took, type Block, type Fold, type Opt, type Question } from "../lib/agentLog";
 import { OwnMic } from "../lib/dictation";
@@ -13,8 +13,8 @@ import { AudioPlayer, isAudio } from "./AudioPlayer";
 import { ProfileAvatar } from "./Profiles";
 import { DiffView } from "./DiffView";
 import { Icon } from "./Icon";
-import { IMAGE_MODES, ImageDiff, comparable, dataUrl, isImage, useImageMode } from "./ImageDiff";
-import { Markdown, Modal, Seg } from "./ui";
+import { IMAGE_MODES, ImageDiff, MARKDOWN, comparable, dataUrl, isImage, useImageMode } from "./ImageDiff";
+import { Markdown, MarkdownDoc, Modal, repoPath, Seg } from "./ui";
 import { Zoom } from "./Zoom";
 
 // A new line regroups the whole log: every block gets fresh arrays of the same line objects, so compare items.
@@ -454,8 +454,9 @@ const TAIL = 60;
  * `limit`: the usage limit its last run stopped at, shown under the log until it continues; `onCancelLimit` stops it instead.
  * `asks`: actions its run waits on you to allow, each as a card at the end of the log. `tasks`: what its run has going in
  * the background, shown while it works. `cwd`: the folder it works in, which the files its replies name are in; `onOpenFile` opens one of them (its path from `cwd`), false when no file list has it.
+ * Another image or Markdown file they name shows here, as project `projectId`'s (desktop only).
  */
-export function AgentLog({ lines, empty, picks, onPicks, actions, thinking, working, provider, session, queued = [], onEditQueued, canSendNow, limit, onCancelLimit, asks = [], tasks = [], cwd, onOpenFile }: { lines: LogLine[]; empty?: string; picks: Choice[]; onPicks: (c: Choice[]) => void; actions?: ReactNode; thinking?: boolean; working?: boolean; provider?: string; session?: string; queued?: string[]; onEditQueued?: (text: string) => void; canSendNow?: boolean; limit?: AgentLimit | null; onCancelLimit?: () => void; asks?: AgentAsk[]; tasks?: AgentTask[]; cwd?: string; onOpenFile?: (path: string) => Promise<boolean> }) {
+export function AgentLog({ lines, empty, picks, onPicks, actions, thinking, working, provider, session, queued = [], onEditQueued, canSendNow, limit, onCancelLimit, asks = [], tasks = [], cwd, onOpenFile, projectId }: { lines: LogLine[]; empty?: string; picks: Choice[]; onPicks: (c: Choice[]) => void; actions?: ReactNode; thinking?: boolean; working?: boolean; provider?: string; session?: string; queued?: string[]; onEditQueued?: (text: string) => void; canSendNow?: boolean; limit?: AgentLimit | null; onCancelLimit?: () => void; asks?: AgentAsk[]; tasks?: AgentTask[]; cwd?: string; onOpenFile?: (path: string) => Promise<boolean>; projectId?: string }) {
   const me = useMe();
   const ref = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
@@ -490,7 +491,8 @@ export function AgentLog({ lines, empty, picks, onPicks, actions, thinking, work
   const opener = useRef(onOpenFile);
   opener.current = onOpenFile;
   const canOpen = !!onOpenFile;
-  const fileRoot = useMemo(() => (cwd ? { root: cwd, open: canOpen ? (p: string) => opener.current!(p) : undefined } : null), [cwd, canOpen]);
+  const [viewing, setViewing] = useState<string>();
+  const fileRoot = useMemo(() => (cwd ? { root: cwd, open: canOpen ? (p: string) => opener.current!(p) : undefined, view: projectId ? setViewing : undefined } : null), [cwd, canOpen, projectId]);
   // A usage limit holds it: its card shows under the log.
   const held = !!limit && !!session && !working;
   // Picks for questions no longer asked (answered, another session) leave the prompt box.
@@ -663,6 +665,7 @@ export function AgentLog({ lines, empty, picks, onPicks, actions, thinking, work
       )}
       {lines.length === 0 && <div className="ag-empty">{empty ?? "No output yet."}</div>}
       <FileRoot.Provider value={fileRoot}>{history}</FileRoot.Provider>
+      {viewing && projectId && <LocalFile pid={projectId} path={viewing} onClose={() => setViewing(undefined)} />}
       {list.at(-1)?.kind === "wait" && (
         <div className="ag-wait">
           <span className="ag-wait-chip">Your turn!</span>
@@ -879,6 +882,75 @@ export async function peek(file: Attachment): Promise<Peeked> {
   } catch {
     return { none: "No preview" };
   }
+}
+
+/** A file on this computer that an agent's reply names and no file list has, at absolute `path`: an image, which opens
+ *  full screen to zoom into, or a Markdown file rendered, its pictures read next to it (desktop only). */
+function LocalFile({ pid, path, onClose }: { pid: string; path: string; onClose: () => void }) {
+  const name = nameOf(path);
+  const [p, setP] = useState<Peeked>();
+  const [full, setFull] = useState(false);
+  useEffect(() => {
+    let live = true;
+    let url = "";
+    peek(path).then(
+      (p) => {
+        if ("url" in p) url = p.url;
+        if (live) setP(p);
+        else if (url) URL.revokeObjectURL(url);
+      },
+      (e) => live && setP({ none: `Could not read ${name}: ${e}` }),
+    );
+    return () => {
+      live = false;
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [path]); // eslint-disable-line react-hooks/exhaustive-deps
+  // `local_image` turns SVG down: its text draws it, in an <img>, which runs none of its scripts.
+  const src = p && ("url" in p ? p.url : "text" in p && /\.svg$/i.test(path) ? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(p.text)}` : undefined);
+  const dir = path.replace(/[^\\/]*$/, "");
+  const load = async (pic: string) => {
+    const at = repoPath(nameOf(path), pic);
+    if (!at || !isImage(at)) throw new Error("Not a picture next to the file");
+    const b64 = await new Promise<string>((ok, no) => {
+      const r = new FileReader();
+      r.onload = () => ok(String(r.result).split(",")[1]);
+      r.onerror = () => no(r.error);
+      localImage(dir + at).then((b) => r.readAsDataURL(b), no);
+    });
+    return dataUrl(at, b64);
+  };
+  return (
+    <Modal
+      title={name}
+      sub={p && "cut" in p && p.cut && `First ${bytes(TEXT_CAP)} shown`}
+      onClose={onClose}
+      actions={
+        <button type="button" className="btn btn-ghost btn-icon" aria-label="Open in file explorer" data-tip="Open in file explorer" onClick={() => revealPath(path).catch((e) => toast(String(e), "error"))}>
+          <Icon name="folder" />
+        </button>
+      }
+    >
+      {!p ? (
+        <div className="ag-shot"><span className="spinner" /></div>
+      ) : src ? (
+        <div className="ag-shot">
+          <button type="button" className="ag-shot-open" aria-label={`Zoom into ${name}`} onClick={() => setFull(true)}>
+            <img src={src} alt={name} />
+          </button>
+        </div>
+      ) : "text" in p && MARKDOWN.test(path) ? (
+        <MarkdownDoc pid={pid} id={`local:${path}`} text={p.text} load={load} />
+      ) : (
+        <div className="ag-shot"><span className="faint">{"none" in p ? p.none : "No preview"}</span></div>
+      )}
+      {full && src && (
+        <Zoom name={name} onClose={() => setFull(false)}>
+          <img src={src} alt={name} />
+        </Zoom>
+      )}
+    </Modal>
+  );
 }
 
 /** The files `files` about to be sent, full size from the `at`th: images, text files' text, else "No preview". The arrows and ←/→ `onStep` through them, round; Remove takes the one shown off the message. */
