@@ -346,6 +346,16 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
         disabled: !!ov?.inProgress,
         run: () => cur && openDialog("rebaseOnto", cur, b),
       },
+      // The other way: this branch onto the checked-out one, in its own checkout or a throwaway one.
+      rebaseOntoActive: {
+        id: "rebaseOntoActive",
+        label: <>Rebase <span className="mono">{labelOf(b)}</span> onto <span className="mono">{cur && labelOf(cur)}</span>…</>,
+        tip: v.inProgress ? `Finish or abort the ${v.inProgress} on ${b} first` : agentBusy ? `Wait until the agent working on ${b} finishes` : `Replay the commits of ${labelOf(b)} on top of ${cur}. Its target stays as it is`,
+        icon: "branch",
+        hint: v.inProgress ? `${v.inProgress} in progress` : agentBusy ? "agent working" : undefined,
+        disabled: !!v.inProgress || agentBusy,
+        run: () => cur && openDialog("rebaseOnto", b, cur),
+      },
       rebasePick: {
         id: "rebasePick",
         label: "Rebase onto a specific branch…",
@@ -546,11 +556,16 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
         list.push(a.merge);
       }
     }
-    // Rebase the checked-out branch onto this one; on the checked-out branch itself, onto one picked.
+    // Rebase the checked-out branch onto this one, or this one onto it; on the checked-out branch itself, onto one picked.
     if (cur) {
       // Joins the rebase group; otherwise starts its own.
       if (v.local && !t.base) list.push("sep");
-      list.push(v.name === cur ? a.rebasePick : a.rebaseActive);
+      if (v.name === cur) list.push(a.rebasePick);
+      else {
+        list.push(a.rebaseActive);
+        // Only a local branch has commits here to replay.
+        if (v.local) list.push(a.rebaseOntoActive);
+      }
     }
     // A worktree's branch ends by merging or deleting it, not through a PR.
     if (t.base && !v.worktree) list.push(a.pr);
