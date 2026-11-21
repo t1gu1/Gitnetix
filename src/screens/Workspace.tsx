@@ -33,7 +33,7 @@ import type { AgentSession, Blobs, BranchView, Commit, FileChange, FileCommit, H
 import { AgentInput, AgentLog, type Choice, type Upload } from "../components/AgentLog";
 import { AgentPicker, useAgentPick, type AgentPick } from "../components/AgentPicker";
 import { Avatar } from "../components/Avatar";
-import { DiffView, LargeDiff, type DiffMode, type Staging } from "../components/DiffView";
+import { DiffView, LargeDiff, type Blamed, type DiffMode, type Staging } from "../components/DiffView";
 import { IMAGE_MODES, ImageDiff, comparable, dataUrl, isImage, useImageMode, type ImageMode } from "../components/ImageDiff";
 import { PictureSource } from "../components/Picture";
 import { ContextMenu, type MenuItem } from "../components/ContextMenu";
@@ -223,6 +223,15 @@ export function Workspace() {
     closeStashes();
     setFocused(false);
   };
+  // Set until the reset of the file and its history on a new branch or mode has run (see below).
+  const mapHistory = useRef<{ branch: string; mode: Mode }>(undefined);
+  /** The history of the map's open `file` of `b`, `path` in its `mode` list: `b` full screen, on commit `sha` if given. */
+  const openMapHistory = (b: string, mode: Mode, file: string, path: string, sha?: string) => {
+    openFocus(b, mode === "branch" ? "all" : mode);
+    setFile(file);
+    openFileLog(path, sha);
+    mapHistory.current = { branch: b, mode };
+  };
   /** A file an agent on `b` names in a reply, open over the map. */
   const openAgentFile = async (b: string, path: string) => {
     const at = await mapFileOf(pid, b, path);
@@ -311,55 +320,11 @@ export function Workspace() {
   );
   // No textual diff: binary, unless a rename that changed nothing else.
   const binary = unchanged ? text === null : diff.data?.length === 0 && shown?.status !== "R";
-  // Blame needs a text diff of a file outside a stash. The new side needs the file still there; the old side, removed lines.
+  // Blame needs a text diff of a file outside a stash. A blamed line's author opens its commit in the file's history.
   const canBlame = !!shown && !image && !shownStash && !binary && blameFor === fileKey(shown);
-  const removed = useMemo(() => !!diff.data?.some((h) => h.lines.some((l) => l.kind === "-")), [diff.data]);
-  const newOk = canBlame && shown.status !== "D";
-  const oldOk = canBlame && removed;
-  const blamedNew = useBlame(pid, branch, mode, shown?.path, shownCommit, shown?.staged, false, newOk);
-  const blamedOld = useBlame(pid, branch, mode, logged?.from ?? shown?.path, shownCommit, shown?.staged, true, oldOk);
-  // Gated again: a disabled query still hands back what it cached. A blamed line's author opens its commit in the file's history.
-  const newBlame = newOk ? blamedNew.data : undefined;
-  const oldBlame = oldOk ? blamedOld.data : undefined;
-  const blame = newBlame || oldBlame ? { blame: newBlame, old: oldBlame, onPick: (sha: string) => openFileLog(fileLog ?? shown?.path ?? "", sha) } : undefined;
-  const showPreview = markdown && preview && typeof text === "string";
-  const prefs = useProjectPrefs(pid);
-  // A README's own pictures load from the repository at the same version. Like a pull request's, none show until the project allows them.
-  const pictures = useMemo(() => {
-    const at = { projectId: pid, branch, mode, staged: shown?.staged, commit: shownCommit };
-    return {
-      key: `md:${JSON.stringify([at, shownStash, shown?.path])}`,
-      hidden: !prefs.dialogs.prMedia,
-      load: async (src: string) => {
-        const path = repoPath(shown?.path ?? "", src);
-        if (!path || !isImage(path)) throw new Error("Not a picture of the repository");
-        const b = await (shownStash ? rpc<Blobs>("stashes.blobs", { projectId: pid, sha: shownStash, path }) : rpc<Blobs>("workspace.blobs", { ...at, path }));
-        const b64 = b.new ?? b.old;
-        if (!b64) throw new Error("Picture not found");
-        return dataUrl(path, b64);
-      },
-    };
-  }, [pid, branch, mode, shown?.path, shown?.staged, shownCommit, shownStash, prefs.dialogs.prMedia]);
-  const hiddenPictures = showPreview && !prefs.dialogs.prMedia && ANY_PICTURE.test(text || "");
-  // A WIP file's diff stages or unstages some of its lines. Like whole files, that moves no ref (see WipList).
-  type LineMove = { projectId: string; branch: string; path: string; lines: LinePick[] };
-  const lineInv = [["files", pid], ["diff", pid], ["blobs", pid], ...(o?.inProgress || view?.inProgress ? [["overview", pid]] : [])];
-  const stageLines = useAction<unknown, LineMove>("workspace.stageLines", { invalidate: lineInv });
-  const unstageLines = useAction<unknown, LineMove>("workspace.unstageLines", { invalidate: lineInv });
-  // Discarding a file's last lines takes it out of the WIP count the overview shows.
-  const discardLines = useAction<unknown, LineMove>("workspace.discardLines", {
-    invalidate: [["files", pid], ["diff", pid], ["blobs", pid], ["overview", pid]],
-    success: "Changes discarded",
-  });
-  const staging: Staging | undefined =
-    mode === "wip" && !commit && !stash && branch && checkedOut && shown?.staged !== undefined && shown.status !== "C"
-      ? {
-          staged: shown.staged,
-          busy: stageLines.isPending || unstageLines.isPending || discardLines.isPending,
-          apply: (lines) => (shown.staged ? unstageLines : stageLines).mutateAsync({ projectId: pid, branch, path: shown.path, lines }),
-          discard: shown.staged ? undefined : (lines) => discardLines.mutateAsync({ projectId: pid, branch, path: shown.path, lines }),
-        }
-      : undefined;
+  const blame = useDiffBlame(pid, branch, mode, canBlame ? shown : undefined, diff.data, shownCommit, logged?.from, (sha) => openFileLog(fileLog ?? shown?.path ?? "", sha));
+  const showPreview = markdown && preview && shown !== undefined && typeof text === "string";
+  const staging = useLineStaging(pid, mode === "wip" && !commit && !stash && checkedOut ? branch : undefined, shown, !!(o?.inProgress || view?.inProgress));
   const [discarding, setDiscarding] = useState<{ staged: boolean; paths: string[] } | null>(null);
   // The main checkout has no worktree path: it lives at the project's own path.
   const projects = useProjects().data;
@@ -402,9 +367,20 @@ export function Workspace() {
   };
 
   useEffect(() => {
+    // Unless the map's file asked for its history (openMapHistory): that history is for this branch and mode.
+    const next = mapHistory.current;
+    mapHistory.current = undefined;
+    if (next && next.branch === branch && next.mode === mode && !commit && !stash) return;
     setFile(undefined);
     closeFileLog();
   }, [branch, mode, commit, stash]);
+  // A file history asked from another page (historyLater), once this project's Workspace shows; after the reset above.
+  useEffect(() => {
+    const h = historyNext.get(pid);
+    if (!h) return;
+    historyNext.delete(pid);
+    openMapHistory(h.branch, h.mode, h.file, h.path, h.sha);
+  });
   // A WIP file whose last lines on its side were staged (or unstaged) lives on the other side now: follow it there.
   useEffect(() => {
     if (picked || !file || mode !== "wip") return;
@@ -716,7 +692,20 @@ export function Workspace() {
                 fileDiff={(b) => {
                   if (!b.wip && mapFiles !== b.name) return null;
                   const m = mapOf(b);
-                  return m.file && <MapDiff pid={pid} branch={b.name} mode={m.mode} file={m.file} onPick={(f) => setMapAt({ branch: b.name, mode: m.mode, file: fileKey(f) })} onClose={() => setMapAt({ branch: b.name, mode: m.mode })} />;
+                  const file = m.file;
+                  return (
+                    file && (
+                      <MapDiff
+                        pid={pid}
+                        branch={b.name}
+                        mode={m.mode}
+                        file={file}
+                        onPick={(f) => setMapAt({ branch: b.name, mode: m.mode, file: fileKey(f) })}
+                        onHistory={(path, sha) => openMapHistory(b.name, m.mode, file, path, sha)}
+                        onClose={() => setMapAt({ branch: b.name, mode: m.mode })}
+                      />
+                    )
+                  );
                 }}
                 filesButton={(b) => {
                   if (!b.exists || b.wip) return null;
@@ -956,39 +945,14 @@ export function Workspace() {
                           </button>
                         </span>
                       )}
-                      {image ? (
-                        (comparable(blobs.data) || svg) && (
-                          <Seg<ImageMode | "code">
-                            value={imageMode}
-                            onChange={(v) => (v === "code" ? setSvgCode(true) : setImageMode(v))}
-                            label="Image comparison"
-                            options={[...(comparable(blobs.data) ? IMAGE_MODES : [{ value: imageMode, label: "Image" }]), ...(svg ? [{ value: "code" as const, label: "Code" }] : [])]}
-                          />
-                        )
-                      ) : (
-                        (!unchanged || markdown || svg) &&
-                        shown && (
-                          <Seg<DiffMode | "raw" | "preview" | "image">
-                            value={markdown && preview ? "preview" : unchanged ? "raw" : diffMode}
-                            onChange={(v) => {
-                              setPreview(v === "preview");
-                              if (v === "image") setSvgCode(false);
-                              else if (v !== "preview" && v !== "raw") setDiffMode(v);
-                            }}
-                            label="Diff mode"
-                            options={[
-                              ...(unchanged
-                                ? [{ value: "raw" as const, label: "Raw" }]
-                                : [
-                                    { value: "split" as const, label: "Split" },
-                                    { value: "unified" as const, label: "Unified" },
-                                    { value: "full" as const, label: "Full" },
-                                  ]),
-                              ...(markdown ? [{ value: "preview" as const, label: "Preview" }] : []),
-                              ...(svg ? [{ value: "image" as const, label: "Image" }] : []),
-                            ]}
-                          />
-                        )
+                      {shown && (
+                        <FileModes
+                          path={shown.path}
+                          blobs={blobs.data}
+                          image={image}
+                          unchanged={unchanged}
+                          {...{ imageMode, setImageMode, diffMode, setDiffMode, preview, setPreview, setSvgCode }}
+                        />
                       )}
                       {shown && branch && (
                         <button
@@ -1015,12 +979,7 @@ export function Workspace() {
                       {image && shown && blobs.data && <ImageDiff path={shown.path} blobs={blobs.data} mode={imageMode} />}
                       {blobs.error && (image || unchanged) && <div style={{ padding: 16 }}><ErrorBox error={blobs.error} /></div>}
                       {showPreview ? (
-                        <article style={{ maxWidth: 760, margin: "0 auto", padding: "24px 24px 48px", fontFamily: "var(--sans)", fontSize: 14, lineHeight: 1.6 }}>
-                          {hiddenPictures && <MediaAsk html={false} onShow={() => prefs.setDialogs({ prMedia: true })} />}
-                          <PictureSource.Provider value={pictures}>
-                            <Markdown text={text} html />
-                          </PictureSource.Provider>
-                        </article>
+                        <MarkdownPreview pid={pid} branch={branch} mode={mode} path={shown.path} staged={shown.staged} commit={shownCommit} stash={shownStash} text={text} />
                       ) : (
                         <>
                           {huge && !image && <LargeDiff lines={changedLines} onShow={showAnyway} />}
@@ -1696,6 +1655,15 @@ function MapFiles({
   );
 }
 
+type HistoryAsk = { branch: string; mode: Mode; file: string; path: string; sha?: string };
+/** Per project, a MapDiff file's history to open once its Workspace shows. */
+const historyNext = new Map<string, HistoryAsk>();
+/** From a page with no focus view (Worktrees): `h.file` of `h.branch` in its `h.mode` list, full screen in project `pid`'s
+ *  Workspace with `h.path`'s history beside it, on commit `h.sha` if given. The caller then goes to that Workspace. */
+export function historyLater(pid: string, h: HistoryAsk) {
+  historyNext.set(pid, h);
+}
+
 /** Where `path` of `branch` opens in MapDiff: its uncommitted change, else the project's file (with the branch's changes,
  *  if any). None when neither list has it (an ignored or deleted file). */
 export async function mapFileOf(pid: string, branch: string, path: string): Promise<{ mode: Mode; file: string } | null> {
@@ -1709,28 +1677,60 @@ export async function mapFileOf(pid: string, branch: string, path: string): Prom
 
 /** A file of the map's files panel, floating over the map. [ and ] go through the list, S switches split and unified,
  *  Esc or the close button puts it away. */
-export function MapDiff({ pid, branch, mode, file, onPick, onClose }: { pid: string; branch: string; mode: Mode; file: string; onPick: (f: FileChange) => void; onClose: () => void }) {
+export function MapDiff({
+  pid,
+  branch,
+  mode,
+  file,
+  onPick,
+  onHistory,
+  onClose,
+}: {
+  pid: string;
+  branch: string;
+  mode: Mode;
+  file: string;
+  onPick: (f: FileChange) => void;
+  /** Opens `path`'s history, on commit `sha` if given. None: no History button and no blame (nowhere to show it). */
+  onHistory?: (path: string, sha?: string) => void;
+  onClose: () => void;
+}) {
   const [asTree] = useStoredFlag("gnx.files.tree");
   const files = useFiles(pid, branch, mode).data;
   const listed = useMemo(() => fileOrder(files ?? [], asTree), [files, asTree]);
   const at = findFile(listed, file);
   const f = at >= 0 ? listed[at] : undefined;
   const [diffMode, setDiffMode] = useState<DiffMode>("unified");
+  const [preview, setPreview] = useState(false);
+  const [svgCode, setSvgCode] = useState(false);
   const [imageMode, setImageMode] = useImageMode();
   const [anyway, setAnyway] = useState<string>();
   const forced = anyway === file;
   const lines = f ? f.additions + f.deletions : 0;
   const huge = !forced && lines > HUGE_DIFF;
-  const image = isImage(f?.path);
+  const image = isImage(f?.path) && !(/\.svg$/i.test(f?.path ?? "") && svgCode);
+  const markdown = /\.(md|markdown|mdx)$/i.test(f?.path ?? "");
   // Project lists untouched files too: those show as the plain file, no diff.
   const unchanged = f?.status === " ";
   const diff = useDiff(pid, branch, mode, f && !huge && !image && !unchanged ? f.path : undefined, f?.staged, undefined, undefined, diffMode === "full");
-  const blobs = useBlobs(pid, branch, mode, f?.path, f?.staged, undefined, undefined, image || unchanged);
+  const blobs = useBlobs(pid, branch, mode, f?.path, f?.staged, undefined, undefined, image || unchanged || markdown);
   const text = useMemo(() => !image && decodeText(blobs.data?.new ?? blobs.data?.old), [blobs.data, image]);
+  const showPreview = markdown && preview && f !== undefined && typeof text === "string";
   const raw = useMemo<Hunk[] | undefined>(
     () => (unchanged && typeof text === "string" ? [{ header: "", oldStart: 1, newStart: 1, lines: text.replace(/\n$/, "").split("\n").map((t) => ({ kind: " ", text: t })) }] : undefined),
     [unchanged, text],
   );
+  const ov = useOverview(pid).data;
+  const staging = useLineStaging(pid, mode === "wip" ? branch : undefined, f, !!ov?.inProgress || !!ov?.branches.find((x) => x.name === branch)?.inProgress);
+  // Like the code view's: loads once the pointer reaches the lines.
+  const [blameFor, setBlameFor] = useState<string>();
+  const binary = unchanged ? text === null : diff.data?.length === 0 && f?.status !== "R";
+  const canBlame = !!onHistory && !!f && !image && !binary && !showPreview && blameFor === file;
+  const blame = useDiffBlame(pid, branch, mode, canBlame ? f : undefined, diff.data, undefined, undefined, (sha) => f && onHistory?.(f.path, sha));
+  // Its last lines on one side staged (or unstaged), findFile shows it on the other side: stay there once lines move back.
+  useEffect(() => {
+    if (f && fileKey(f) !== file) onPick(f);
+  }, [f, file]);
   const keys = useRef({ file: (_: 1 | -1) => {}, split: () => {}, close: onClose });
   keys.current = {
     file: (d) => listed[at + d] && onPick(listed[at + d]),
@@ -1784,33 +1784,31 @@ export function MapDiff({ pid, branch, mode, file, onPick, onClose }: { pid: str
             </button>
           </span>
         )}
-        {image
-          ? comparable(blobs.data) && <Seg<ImageMode> value={imageMode} onChange={setImageMode} label="Image comparison" options={IMAGE_MODES} />
-          : f &&
-            !unchanged && (
-              <Seg<DiffMode>
-                value={diffMode}
-                onChange={setDiffMode}
-                label="Diff mode"
-                options={[
-                  { value: "split", label: "Split" },
-                  { value: "unified", label: "Unified" },
-                  { value: "full", label: "Full" },
-                ]}
-              />
-            )}
+        {f && <FileModes path={f.path} blobs={blobs.data} image={image} unchanged={unchanged} {...{ imageMode, setImageMode, diffMode, setDiffMode, preview, setPreview, setSvgCode }} />}
+        {f && onHistory && (
+          <button className="btn btn-sm" aria-label="File history" data-tip="Commits that changed this file" onClick={() => onHistory(f.path)}>
+            <Icon name="history" size={12} />
+            <span className="hide-narrow">History</span>
+          </button>
+        )}
         <button className="btn btn-sm btn-icon" aria-label="Close the file (Esc)" data-tip="Close (Esc)" onClick={onClose}>
           <Icon name="close" size={12} />
         </button>
       </div>
-      <div className="diff">
+      <div className="diff" onPointerOver={() => blameFor !== file && setBlameFor(file)}>
         {(diff.isLoading || blobs.isLoading) && <Loading />}
         {diff.error && <div style={{ padding: 16 }}><ErrorBox error={diff.error} /></div>}
         {blobs.error && <div style={{ padding: 16 }}><ErrorBox error={blobs.error} /></div>}
         {image && f && blobs.data && <ImageDiff path={f.path} blobs={blobs.data} mode={imageMode} />}
-        {huge && !image && <LargeDiff lines={lines} onShow={() => setAnyway(file)} />}
-        {raw && f && <DiffView path={f.path} hunks={raw} mode="full" anyway={forced} onAnyway={() => setAnyway(file)} />}
-        {!image && f && diff.data && diff.data.length > 0 && <DiffView path={f.path} hunks={diff.data} mode={diffMode} anyway={forced} onAnyway={() => setAnyway(file)} />}
+        {showPreview ? (
+          <MarkdownPreview pid={pid} branch={branch} mode={mode} path={f.path} staged={f.staged} text={text} />
+        ) : (
+          <>
+            {huge && !image && <LargeDiff lines={lines} onShow={() => setAnyway(file)} />}
+            {raw && f && <DiffView path={f.path} hunks={raw} mode="full" blame={blame} anyway={forced} onAnyway={() => setAnyway(file)} />}
+            {!image && f && diff.data && diff.data.length > 0 && <DiffView path={f.path} hunks={diff.data} mode={diffMode} staging={staging} blame={blame} anyway={forced} onAnyway={() => setAnyway(file)} />}
+          </>
+        )}
         {(files && !f) || (!image && diff.data?.length === 0) || (unchanged && !image && text === null) ? (
           <div className="empty" style={{ fontFamily: "var(--sans)" }}>
             {!f ? "This file has no changes here anymore." : unchanged ? "Binary file." : f.status === "R" ? "Renamed, no other changes." : "No textual changes in this file."}
@@ -3242,6 +3240,125 @@ export function FinishWorktreeCard({ session: s, finish }: { session: WtSession;
   // Not in the overview: no base to merge into.
   if (!branches.some((x) => x.name === s.branch)) return null;
   return <CloseWorktreeModal session={s} finish={finish} onClose={() => {}} inline />;
+}
+
+/** Picked lines of a WIP file's diff staged, unstaged or (unstaged ones) discarded, for both the code view and the map's
+ *  floating file. Like whole files, that moves no ref (see WipList). None without a `branch` whose WIP `f` is.
+ *  `midOp`: mid rebase or merge, where the overview counts what staging changes. */
+function useLineStaging(pid: string, branch: string | undefined, f: FileChange | undefined, midOp: boolean): Staging | undefined {
+  type LineMove = { projectId: string; branch: string; path: string; lines: LinePick[] };
+  const inv = [["files", pid], ["diff", pid], ["blobs", pid], ...(midOp ? [["overview", pid]] : [])];
+  const stageLines = useAction<unknown, LineMove>("workspace.stageLines", { invalidate: inv });
+  const unstageLines = useAction<unknown, LineMove>("workspace.unstageLines", { invalidate: inv });
+  // Discarding a file's last lines takes it out of the WIP count the overview shows.
+  const discardLines = useAction<unknown, LineMove>("workspace.discardLines", {
+    invalidate: [["files", pid], ["diff", pid], ["blobs", pid], ["overview", pid]],
+    success: "Changes discarded",
+  });
+  if (!branch || f?.staged === undefined || f.status === "C") return undefined;
+  return {
+    staged: f.staged,
+    busy: stageLines.isPending || unstageLines.isPending || discardLines.isPending,
+    apply: (lines) => (f.staged ? unstageLines : stageLines).mutateAsync({ projectId: pid, branch, path: f.path, lines }),
+    discard: f.staged ? undefined : (lines) => discardLines.mutateAsync({ projectId: pid, branch, path: f.path, lines }),
+  };
+}
+
+/** Who last changed each line of `f`'s diff (`hunks`), for both the code view and the map's floating file; none
+ *  without `f`. The new side needs the file still there; the old side (`from` when renamed), removed lines. */
+function useDiffBlame(pid: string, branch: string | undefined, mode: Mode, f: FileChange | undefined, hunks: Hunk[] | undefined, commit: string | undefined, from: string | undefined, onPick: (sha: string) => void): Blamed | undefined {
+  const removed = useMemo(() => !!hunks?.some((h) => h.lines.some((l) => l.kind === "-")), [hunks]);
+  const newOk = !!f && f.status !== "D";
+  const oldOk = !!f && removed;
+  const blamedNew = useBlame(pid, branch, mode, f?.path, commit, f?.staged, false, newOk);
+  const blamedOld = useBlame(pid, branch, mode, from ?? f?.path, commit, f?.staged, true, oldOk);
+  // Gated again: a disabled query still hands back what it cached.
+  const blame = newOk ? blamedNew.data : undefined;
+  const old = oldOk ? blamedOld.data : undefined;
+  return blame || old ? { blame, old, onPick } : undefined;
+}
+
+/** How a file shows, for both the code view and the map's floating file: image comparison (with Code for an SVG), else
+ *  the diff modes (Raw for an untouched file), with Preview for Markdown and Image for an SVG shown as code. */
+function FileModes(p: {
+  path: string;
+  blobs: Blobs | undefined;
+  image: boolean;
+  unchanged: boolean;
+  imageMode: ImageMode;
+  setImageMode: (m: ImageMode) => void;
+  diffMode: DiffMode;
+  setDiffMode: (m: DiffMode) => void;
+  preview: boolean;
+  setPreview: (on: boolean) => void;
+  setSvgCode: (on: boolean) => void;
+}) {
+  const svg = /\.svg$/i.test(p.path);
+  const markdown = /\.(md|markdown|mdx)$/i.test(p.path);
+  if (p.image) {
+    const compare = comparable(p.blobs);
+    if (!compare && !svg) return null;
+    return (
+      <Seg<ImageMode | "code">
+        value={p.imageMode}
+        onChange={(v) => (v === "code" ? p.setSvgCode(true) : p.setImageMode(v))}
+        label="Image comparison"
+        options={[...(compare ? IMAGE_MODES : [{ value: p.imageMode, label: "Image" }]), ...(svg ? [{ value: "code" as const, label: "Code" }] : [])]}
+      />
+    );
+  }
+  if (p.unchanged && !markdown && !svg) return null;
+  return (
+    <Seg<DiffMode | "raw" | "preview" | "image">
+      value={markdown && p.preview ? "preview" : p.unchanged ? "raw" : p.diffMode}
+      onChange={(v) => {
+        p.setPreview(v === "preview");
+        if (v === "image") p.setSvgCode(false);
+        else if (v !== "preview" && v !== "raw") p.setDiffMode(v);
+      }}
+      label="Diff mode"
+      options={[
+        ...(p.unchanged
+          ? [{ value: "raw" as const, label: "Raw" }]
+          : [
+              { value: "split" as const, label: "Split" },
+              { value: "unified" as const, label: "Unified" },
+              { value: "full" as const, label: "Full" },
+            ]),
+        ...(markdown ? [{ value: "preview" as const, label: "Preview" }] : []),
+        ...(svg ? [{ value: "image" as const, label: "Image" }] : []),
+      ]}
+    />
+  );
+}
+
+/** A Markdown file rendered. Its own pictures load from the repository at the same version; like a pull request's, none
+ *  show until the project allows them. */
+function MarkdownPreview({ pid, branch, mode, path, staged, commit, stash, text }: { pid: string; branch?: string; mode: Mode; path: string; staged?: boolean; commit?: string; stash?: string; text: string }) {
+  const prefs = useProjectPrefs(pid);
+  const pictures = useMemo(() => {
+    const at = { projectId: pid, branch, mode, staged, commit };
+    return {
+      key: `md:${JSON.stringify([at, stash, path])}`,
+      hidden: !prefs.dialogs.prMedia,
+      load: async (src: string) => {
+        const pic = repoPath(path, src);
+        if (!pic || !isImage(pic)) throw new Error("Not a picture of the repository");
+        const b = await (stash ? rpc<Blobs>("stashes.blobs", { projectId: pid, sha: stash, path: pic }) : rpc<Blobs>("workspace.blobs", { ...at, path: pic }));
+        const b64 = b.new ?? b.old;
+        if (!b64) throw new Error("Picture not found");
+        return dataUrl(pic, b64);
+      },
+    };
+  }, [pid, branch, mode, path, staged, commit, stash, prefs.dialogs.prMedia]);
+  return (
+    <article style={{ maxWidth: 760, margin: "0 auto", padding: "24px 24px 48px", fontFamily: "var(--sans)", fontSize: 14, lineHeight: 1.6 }}>
+      {!prefs.dialogs.prMedia && ANY_PICTURE.test(text) && <MediaAsk html={false} onShow={() => prefs.setDialogs({ prMedia: true })} />}
+      <PictureSource.Provider value={pictures}>
+        <Markdown text={text} html />
+      </PictureSource.Provider>
+    </article>
+  );
 }
 
 /** A base64 blob as UTF-8 text; null when it is binary (holds a NUL byte). */

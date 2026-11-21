@@ -647,6 +647,29 @@ body.dragging-tab * {
 .act:active:not(:disabled) {
   transform: translateY(1px);
 }
+/* Sizes before the colour variants: a small primary or danger button keeps its colours. */
+.btn-lg {
+  height: 36px;
+  padding: 0 18px;
+}
+.btn-md {
+  height: 30px;
+  padding: 0 14px;
+}
+.btn-sm {
+  height: 28px;
+  padding: 0 10px;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
+  line-height: 18px;
+  text-transform: none;
+  color: var(--muted);
+}
+.btn-sm:hover:not(:disabled) {
+  color: var(--fg);
+}
 .btn-raised {
   background: var(--raised);
 }
@@ -681,28 +704,6 @@ body.dragging-tab * {
 .btn-danger,
 .btn.btn-danger:hover:not(:disabled) {
   color: var(--del-fg);
-}
-.btn-lg {
-  height: 36px;
-  padding: 0 18px;
-}
-.btn-md {
-  height: 30px;
-  padding: 0 14px;
-}
-.btn-sm {
-  height: 28px;
-  padding: 0 10px;
-  gap: 6px;
-  font-size: 12px;
-  font-weight: 500;
-  letter-spacing: 0;
-  line-height: 18px;
-  text-transform: none;
-  color: var(--muted);
-}
-.btn-sm:hover:not(:disabled) {
-  color: var(--fg);
 }
 /* Icon buttons: a bare 28px square, muted, lit on hover; square even beside a long label in a narrow header. */
 .btn-icon {

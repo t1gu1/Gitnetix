@@ -24,7 +24,7 @@ import { useBranchActions } from "./BranchMenu";
 import { revealBranch } from "./BranchMap";
 import { AbortModal } from "./AbortModal";
 import { startRebase } from "./RebaseRun";
-import { clearSession, DiscardWorktreeModal, fileKey, FinishWorktreeCard, MapDiff, mapFileOf, MergeModal, mergeTargets, TargetBranchModal, useFinishHandlers, useReservedStart, type Mode } from "./Workspace";
+import { clearSession, DiscardWorktreeModal, fileKey, FinishWorktreeCard, historyLater, MapDiff, mapFileOf, MergeModal, mergeTargets, TargetBranchModal, useFinishHandlers, useReservedStart, type Mode } from "./Workspace";
 
 type Filter = "all" | "running" | "needs";
 
@@ -51,7 +51,7 @@ const GROUP: Partial<Record<Row["status"], Exclude<Filter, "all">>> = {
 const match = (s: Row["status"], f: Filter) => f === "all" || GROUP[s] === f;
 
 /** Show `r`'s branch selected in its project's workspace, scrolled into view on the map. */
-function openInWorkspace(nav: ReturnType<typeof useNav>, r: Row) {
+function openInWorkspace(nav: ReturnType<typeof useNav>, r: Pick<Row, "projectId" | "branch">) {
   revealBranch(r.projectId, r.branch);
   nav.setProject(r.projectId);
   nav.selectBranch(r.branch);
@@ -632,9 +632,16 @@ function StartModal({ onClose, onMinimize }: { onClose: () => void; onMinimize: 
 /** The map's file view over the page, for a file an agent named: no map here. Esc, its close button or a click beside it closes it. */
 function FileOver({ pid, branch, at, onPick, onClose }: { pid: string; branch: string; at: { mode: Mode; file: string }; onPick: (file: string) => void; onClose: () => void }) {
   useCoverScrollbars();
+  const nav = useNav();
+  // History lives in the Workspace's full-screen branch: the file opens there.
+  const history = (path: string, sha?: string) => {
+    historyLater(pid, { branch, mode: at.mode, file: at.file, path, sha });
+    onClose();
+    openInWorkspace(nav, { projectId: pid, branch });
+  };
   return createPortal(
     <div className="modal-scrim" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <MapDiff pid={pid} branch={branch} mode={at.mode} file={at.file} onPick={(f) => onPick(fileKey(f))} onClose={onClose} />
+      <MapDiff pid={pid} branch={branch} mode={at.mode} file={at.file} onPick={(f) => onPick(fileKey(f))} onHistory={history} onClose={onClose} />
     </div>,
     document.body,
   );
