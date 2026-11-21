@@ -173,6 +173,8 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("tickets.triage", "AI suggestions for unplanned tickets", "projectId"),
     ("tickets.statuses", "Statuses a ticket can move to (Jira transitions, Trello lists, Asana sections, Linear workflow states, GitHub project board columns and closed/open)", "source, conn, id"),
     ("tickets.setStatus", "Move a ticket to one of tickets.statuses", "source, conn, id, to"),
+    ("tickets.assignees", "People a ticket can be assigned to (id, name): Jira assignable users, Trello board members, Asana workspace users, Linear team members, GitHub assignable users", "source, conn, id"),
+    ("tickets.setAssignee", "Assign a ticket to one of tickets.assignees, or to nobody when to is empty; on Trello and GitHub that one becomes its only member or assignee", "source, conn, id, to"),
     ("tickets.fields", "Priorities, issue types and labels a Jira or Linear ticket can be set to (Jira: priorities and types; Linear: priorities and labels); empty for the other trackers", "source, conn, id"),
     ("tickets.comments", "A ticket's comments, oldest first (id, author, body as Markdown, doc for Jira's ADF, createdAt, replies: a Linear thread's replies under its first comment)", "source, conn, id"),
     ("tickets.activity", "When a ticket was opened and by whom, and since when it has had its status (createdAt?, createdBy, statusAt?; empty when the tracker doesn't say)", "source, conn, id"),
@@ -1308,6 +1310,11 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
         }
         "tickets.setStatus" => {
             k.ticket_status(&s(&p, "source")?, &os(&p, "conn").unwrap_or_default(), &s(&p, "id")?, Some(&s(&p, "to")?)).await?;
+            ok()
+        }
+        "tickets.assignees" => to(k.ticket_assignee(&s(&p, "source")?, &os(&p, "conn").unwrap_or_default(), &s(&p, "id")?, None).await?),
+        "tickets.setAssignee" => {
+            k.ticket_assignee(&s(&p, "source")?, &os(&p, "conn").unwrap_or_default(), &s(&p, "id")?, Some(&os(&p, "to").unwrap_or_default())).await?;
             ok()
         }
         "integrations.save" => {

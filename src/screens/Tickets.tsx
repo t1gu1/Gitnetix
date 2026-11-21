@@ -1,7 +1,7 @@
 import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
-import { useAction, useFixVersions, useOverview, useProjectPrefs, useProjects, useTagV, useTicketActivity, useTicketComments, useTicketFields, useTicketStatuses, useTickets } from "../api/hooks";
+import { useAction, useFixVersions, useOverview, useProjectPrefs, useProjects, useTagV, useTicketActivity, useTicketAssignees, useTicketComments, useTicketFields, useTicketStatuses, useTickets } from "../api/hooks";
 import { openExternal, rpc } from "../api/transport";
 import type { BranchView, FieldOption, PrSummary, Suggestion, Ticket, TicketComment } from "../api/types";
 import { MenuChoice } from "../components/AgentPicker";
@@ -64,9 +64,16 @@ const PrioOption = ({ name }: { name: string }) => (
     <PrioMark rank={rankOf(name)} />
   </span>
 );
-/** Who has the ticket: their avatar, the full name in its tooltip; a dashed empty ring for nobody. */
-const Assignee = ({ name }: { name: string }) =>
-  name && name !== NOBODY ? <Avatar name={name} size={18} /> : <span className="tk-nobody" role="img" aria-label={NOBODY} data-tip={NOBODY} />;
+/** Who has the ticket: their avatar, the full name in its tooltip; a dashed empty ring for nobody. `decorative`: the name
+ * shows beside it, so no tooltip. */
+const Assignee = ({ name, decorative }: { name: string; decorative?: boolean }) =>
+  name && name !== NOBODY ? (
+    <Avatar name={name} size={18} decorative={decorative} />
+  ) : (
+    <span className="tk-nobody" {...(decorative ? { "aria-hidden": true } : { role: "img", "aria-label": NOBODY, "data-tip": NOBODY })} />
+  );
+/** The assignee menu's option that leaves the ticket with nobody. */
+const UNASSIGN = "\0nobody";
 /** An agent on the ticket's branch: the working rainbow, or the warning dot while it waits. */
 const AgentDot = ({ b }: { b?: BranchView }) =>
   b?.running ? <span className="pulse glow-dot" data-tip="An agent is working on its branch" /> : b?.waiting ? <span className="pulse map-wait" data-tip="An agent waits for you on its branch" /> : null;
@@ -419,6 +426,15 @@ function TicketDetail({
         },
       ),
   });
+  const assignees = useTicketAssignees(t);
+  const setAssignee = useAction<unknown, { source: string; conn: string; id: string; to: string; name: string }>("tickets.setAssignee", {
+    invalidate: [["tickets", nav.projectId]],
+    success: "Assignee changed",
+    patch: (qc, v) =>
+      qc.setQueriesData<{ tickets: Ticket[] }>({ queryKey: ["tickets", nav.projectId] }, (d) =>
+        d && { ...d, tickets: d.tickets.map((x) => (x.source === v.source && x.id === v.id ? { ...x, assignee: v.name } : x)) },
+      ),
+  });
   const edit = (e: Edit) => setFields.mutate({ source: t.source, conn: t.conn, id: t.id, ...e });
   const busy = (k: keyof Edit) => (setFields.isPending && setFields.variables?.[k] !== undefined ? "Saving…" : undefined);
   const rel = releases.find((r) => r.version === t.release);
@@ -479,10 +495,16 @@ function TicketDetail({
                   onSave={(labels) => edit({ labels })}
                 />
               )}
-              <span className="tk-who" title="Assignee">
-                <Assignee name={t.assignee} />
-                {t.assignee}
-              </span>
+              <FieldMenu
+                id="tk-assignee"
+                label="Assignee"
+                lead={<Assignee name={t.assignee} decorative />}
+                mark={(o) => <Assignee name={o.name} decorative />}
+                current={t.assignee || NOBODY}
+                options={[...(assignees.data ?? []), { id: UNASSIGN, name: NOBODY }]}
+                busy={setAssignee.isPending ? `Assigning to ${setAssignee.variables?.name}…` : undefined}
+                onPick={(id) => setAssignee.mutate({ source: t.source, conn: t.conn, id: t.id, to: id === UNASSIGN ? "" : id, name: assignees.data?.find((o) => o.id === id)?.name ?? NOBODY })}
+              />
             </div>
           </header>
           <div className="tk-body">

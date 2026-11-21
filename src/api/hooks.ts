@@ -14,6 +14,7 @@ import type {
   CommitPrefs,
   DayCommit,
   DialogPrefs,
+  FieldOption,
   LogEntry,
   MapCommits,
   Config,
@@ -686,6 +687,16 @@ export const useTicketFields = (t?: Ticket) =>
     enabled: !!t?.id && (t.source === "jira" || t.source === "linear"),
     retry: false,
     staleTime: 60_000,
+  });
+
+/** Who the ticket can be assigned to, by name. */
+export const useTicketAssignees = (t?: Ticket) =>
+  useQuery({
+    queryKey: ["ticketAssignees", t?.source, t?.conn, t?.id],
+    queryFn: () => rpc<FieldOption[]>("tickets.assignees", { source: t!.source, conn: t!.conn, id: t!.id }),
+    enabled: !!t?.id,
+    retry: false,
+    staleTime: 5 * 60_000,
   });
 
 export const useTicketComments = (t?: Ticket) =>

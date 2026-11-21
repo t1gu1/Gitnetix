@@ -991,12 +991,16 @@ fn trello_card(conf: &TrelloConf, c: &Value, place: &str) -> Ticket {
     }
 }
 
+/// The id of the card's board.
+async fn trello_board(conf: &TrelloConf, token: &str, card: &str) -> Result<String> {
+    let c = check(trello_req(conf, token, reqwest::Method::GET, &format!("/cards/{card}?fields=idBoard")).send().await?, "Trello").await?;
+    Ok(c["idBoard"].as_str().unwrap_or("").into())
+}
+
 /// The open lists of the card's board.
 pub async fn trello_statuses(conf: &TrelloConf, token: &str, card: &str) -> Result<Vec<StatusOption>> {
-    let get = |path: String| trello_req(conf, token, reqwest::Method::GET, &path).send();
-    let c = check(get(format!("/cards/{card}?fields=idBoard")).await?, "Trello").await?;
-    let board = c["idBoard"].as_str().unwrap_or("");
-    let v = check(get(format!("/boards/{board}/lists?filter=open&fields=name")).await?, "Trello").await?;
+    let board = trello_board(conf, token, card).await?;
+    let v = check(trello_req(conf, token, reqwest::Method::GET, &format!("/boards/{board}/lists?filter=open&fields=name")).send().await?, "Trello").await?;
     Ok(v.as_array()
         .into_iter()
         .flatten()
@@ -1607,8 +1611,12 @@ fn github_kind(issue: &Value, labels: &[String]) -> String {
 }
 
 fn github_assignee(issue: &Value) -> String {
-    let a = &issue["assignees"]["nodes"][0];
-    a["name"].as_str().filter(|n| !n.is_empty()).or(a["login"].as_str()).unwrap_or("Unassigned").into()
+    github_name(&issue["assignees"]["nodes"][0]).unwrap_or("Unassigned").into()
+}
+
+/// A GitHub user's name, else their login.
+fn github_name(user: &Value) -> Option<&str> {
+    user["name"].as_str().filter(|n| !n.is_empty()).or(user["login"].as_str())
 }
 
 /// A GitHub issue, as [`GitHub::issues`] reads them, as a ticket of `repo` (`owner/repo`). Its status is its column on
@@ -1804,6 +1812,102 @@ pub async fn asana_comments(token: &str, task: &str) -> Result<Vec<TicketComment
 /// The GitHub issue's comments, oldest first.
 pub async fn github_comments(gh: &GitHub, number: u64) -> Result<Vec<TicketComment>> {
     Ok(gh.issue_comments(number).await?.iter().map(|c| flat_comment(&c["id"], &c["user"]["login"], c["body"].as_str().unwrap_or("").into(), c["created_at"].as_str().unwrap_or("").into())).collect())
+}
+
+// ---------- Assignees ----------
+
+/// People a ticket can be assigned to, from (id, name) pairs, by name; a pair missing either is left out.
+fn people<'a>(list: impl Iterator<Item = (&'a str, &'a str)>) -> Vec<FieldOption> {
+    let mut out: Vec<FieldOption> = list.filter(|(id, name)| !id.is_empty() && !name.is_empty()).map(|(id, name)| FieldOption { id: id.into(), name: name.into(), color: String::new(), group: String::new() }).collect();
+    out.sort_by_key(|o| o.name.to_lowercase());
+    out
+}
+
+/// `to` as a JSON id, null (nobody) when empty.
+fn id_or_null(to: &str) -> Value {
+    if to.is_empty() { Value::Null } else { to.into() }
+}
+
+/// The active people Jira lets ticket `key` be assigned to.
+pub async fn jira_assignees(conf: &JiraConf, token: &str, key: &str) -> Result<Vec<FieldOption>> {
+    // shortcut: Jira sends 1000 people at most, search by name as typed if a site ever has more who can be assigned.
+    let req = jira_req(conf, token, reqwest::Method::GET, "/rest/api/3/user/assignable/search").query(&[("issueKey", path_id(key)?), ("maxResults", "1000")]);
+    let v = check(req.send().await?, "Jira").await?;
+    Ok(jira_people(&v))
+}
+
+fn jira_people(users: &Value) -> Vec<FieldOption> {
+    people(users.as_array().into_iter().flatten().filter(|u| u["active"] != false).map(|u| (u["accountId"].as_str().unwrap_or(""), u["displayName"].as_str().unwrap_or(""))))
+}
+
+/// Assigns ticket `key` to account `to`, or to nobody when `to` is empty.
+pub async fn jira_set_assignee(conf: &JiraConf, token: &str, key: &str, to: &str) -> Result<()> {
+    let path = format!("/rest/api/3/issue/{}/assignee", path_id(key)?);
+    jira_write(jira_req(conf, token, reqwest::Method::PUT, &path).json(&json!({ "accountId": id_or_null(to) }))).await
+}
+
+/// The members of the card's board.
+pub async fn trello_assignees(conf: &TrelloConf, token: &str, card: &str) -> Result<Vec<FieldOption>> {
+    let board = trello_board(conf, token, path_id(card)?).await?;
+    let v = check(trello_req(conf, token, reqwest::Method::GET, &format!("/boards/{}/members?fields=fullName,username", path_id(&board)?)).send().await?, "Trello").await?;
+    Ok(people(v.as_array().into_iter().flatten().map(|m| (m["id"].as_str().unwrap_or(""), m["fullName"].as_str().filter(|n| !n.is_empty()).or(m["username"].as_str()).unwrap_or("")))))
+}
+
+/// Makes member `to` the card's only member, or leaves it with none when `to` is empty.
+pub async fn trello_set_assignee(conf: &TrelloConf, token: &str, card: &str, to: &str) -> Result<()> {
+    check(trello_req(conf, token, reqwest::Method::PUT, &format!("/cards/{}", path_id(card)?)).query(&[("idMembers", to)]).send().await?, "Trello").await?;
+    Ok(())
+}
+
+/// The users of the task's workspace.
+pub async fn asana_assignees(token: &str, task: &str) -> Result<Vec<FieldOption>> {
+    let api = "https://app.asana.com/api/1.0";
+    let t = check(http().get(format!("{api}/tasks/{}?opt_fields=workspace", path_id(task)?)).bearer_auth(token).send().await?, "Asana").await?;
+    let workspace = t["data"]["workspace"]["gid"].as_str().unwrap_or("");
+    let mut users = Vec::new();
+    let mut offset: Option<String> = None;
+    // shortcut: stops at 1000 people, page further if a workspace ever has more.
+    while users.len() < 1000 {
+        let mut q = vec![("workspace", workspace), ("opt_fields", "name"), ("limit", "100")];
+        q.extend(offset.as_deref().map(|o| ("offset", o)));
+        let v = check(http().get(format!("{api}/users")).query(&q).bearer_auth(token).send().await?, "Asana").await?;
+        users.extend(v["data"].as_array().cloned().unwrap_or_default());
+        offset = v["next_page"]["offset"].as_str().map(String::from);
+        if offset.is_none() {
+            break;
+        }
+    }
+    Ok(people(users.iter().map(|u| (u["gid"].as_str().unwrap_or(""), u["name"].as_str().unwrap_or("")))))
+}
+
+/// Assigns the task to user `to`, or to nobody when `to` is empty.
+pub async fn asana_set_assignee(token: &str, task: &str, to: &str) -> Result<()> {
+    let url = format!("https://app.asana.com/api/1.0/tasks/{}", path_id(task)?);
+    check(http().put(url).bearer_auth(token).json(&json!({ "data": { "assignee": id_or_null(to) } })).send().await?, "Asana").await?;
+    Ok(())
+}
+
+/// The active members of the issue's team.
+pub async fn linear_assignees(token: &str, issue: &str) -> Result<Vec<FieldOption>> {
+    // shortcut: the first 250 members, page further if a team ever has more.
+    let v = linear_gql(token, "query($id: String!) { issue(id: $id) { team { members(first: 250) { nodes { id name active } } } } }", json!({ "id": issue })).await?;
+    let members = v["issue"]["team"]["members"]["nodes"].as_array().cloned().unwrap_or_default();
+    Ok(people(members.iter().filter(|m| m["active"] != false).map(|m| (m["id"].as_str().unwrap_or(""), m["name"].as_str().unwrap_or("")))))
+}
+
+/// Assigns the issue to user `to`, or to nobody when `to` is empty.
+pub async fn linear_set_assignee(token: &str, issue: &str, to: &str) -> Result<()> {
+    let v = linear_gql(token, "mutation($id: String!, $to: String) { issueUpdate(id: $id, input: { assigneeId: $to }) { success } }", json!({ "id": issue, "to": id_or_null(to) })).await?;
+    if v["issueUpdate"]["success"] != true {
+        return Err(Error::Http("Linear did not change the assignee".into()));
+    }
+    Ok(())
+}
+
+/// The people the repository's issues can be assigned to, by login.
+pub async fn github_assignees(gh: &GitHub) -> Result<Vec<FieldOption>> {
+    let users = gh.assignable_users().await?;
+    Ok(people(users.iter().map(|u| (u["login"].as_str().unwrap_or(""), github_name(u).unwrap_or("")))))
 }
 
 /// A ticket id that goes into a tracker's URL path, from the UI: letters, digits and `-` only, so it can't reach
@@ -2377,6 +2481,19 @@ mod tests {
         let workspace = json!([{ "id": "w", "name": "web", "color": "#000" }, { "id": "a", "name": "Area", "color": "#fff" }]);
         let got: Vec<_> = linear_label_options(&[&team, &workspace]).into_iter().map(|o| (o.id, o.group)).collect();
         assert_eq!(got, [("a".into(), String::new()), ("w".into(), String::new()), ("b".into(), "Type".into())]);
+    }
+
+    #[test]
+    fn jira_assignees_by_name_skip_inactive() {
+        let users = json!([
+            { "accountId": "b1", "displayName": "bea Roy", "active": true },
+            { "accountId": "x9", "displayName": "Gone Person", "active": false },
+            { "accountId": "a1", "displayName": "Al Martin", "active": true },
+            { "accountId": "", "displayName": "No id" },
+        ]);
+        let got: Vec<_> = jira_people(&users).into_iter().map(|o| (o.id, o.name)).collect();
+        assert_eq!(got, [("a1".into(), "Al Martin".into()), ("b1".into(), "bea Roy".into())]);
+        assert_eq!(id_or_null(""), Value::Null, "empty means nobody");
     }
 
     #[test]

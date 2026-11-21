@@ -471,6 +471,19 @@ impl GitHub {
         self.req(reqwest::Method::PATCH, &format!("{}/issues/{number}", self.rp()), Some(body)).await.map(|_| ())
     }
 
+    /// The people the repository's issues can be assigned to: their login and name.
+    pub async fn assignable_users(&self) -> Result<Vec<Value>> {
+        let q = "query($o:String!,$r:String!,$after:String){repository(owner:$o,name:$r){assignableUsers(first:100,after:$after){nodes{login name}pageInfo{hasNextPage endCursor}}}}";
+        // shortcut: stops at 1000 people, page further if a repository ever has more.
+        self.pages(q, json!({ "o": self.repo.owner, "r": self.repo.repo }), &["repository", "assignableUsers"], 1000).await
+    }
+
+    /// Makes `login` issue `number`'s only assignee, or leaves it with none when `login` is empty.
+    pub async fn set_issue_assignee(&self, number: u64, login: &str) -> Result<()> {
+        let assignees: Vec<&str> = [login].into_iter().filter(|l| !l.is_empty()).collect();
+        self.req(reqwest::Method::PATCH, &format!("{}/issues/{number}", self.rp()), Some(json!({ "assignees": assignees }))).await.map(|_| ())
+    }
+
     /// Moves card `item` of `project` to `option` of its single-select `field` (a board column).
     pub async fn set_card_field(&self, project: &str, item: &str, field: &str, option: &str) -> Result<()> {
         let m = "mutation($p:ID!,$i:ID!,$f:ID!,$o:String!){updateProjectV2ItemFieldValue(input:{projectId:$p,itemId:$i,fieldId:$f,value:{singleSelectOptionId:$o}}){projectV2Item{id}}}";

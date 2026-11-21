@@ -7826,6 +7826,55 @@ impl Gitnetix {
         }
     }
 
+    /// The people ticket `id` of connection `conn` can be assigned to or, with `to`, assigns it to that one (and returns
+    /// none); an empty `to` leaves it with nobody.
+    pub async fn ticket_assignee(&self, source: &str, conn: &str, id: &str, to: Option<&str>) -> Result<Vec<tickets::FieldOption>> {
+        let integ = self.store.read(|c| c.integrations.clone());
+        let missing = || Error::NotConnected(source.into());
+        match source {
+            "jira" => {
+                let j = integ.jira.iter().find(|j| j.id == conn).ok_or_else(missing)?;
+                let tok = tickets::jira_auth::token(j).await?;
+                match to {
+                    Some(to) => tickets::jira_set_assignee(j, &tok, id, to).await.map(|_| vec![]),
+                    None => tickets::jira_assignees(j, &tok, id).await,
+                }
+            }
+            "trello" => {
+                let t = integ.trello.iter().find(|t| t.id == conn).ok_or_else(missing)?;
+                let tok = tickets::trello_token(t).await?;
+                match to {
+                    Some(to) => tickets::trello_set_assignee(t, &tok, id, to).await.map(|_| vec![]),
+                    None => tickets::trello_assignees(t, &tok, id).await,
+                }
+            }
+            "asana" => {
+                let a = integ.asana.iter().find(|a| a.id == conn).ok_or_else(missing)?;
+                let tok = tickets::asana_token(a).await?;
+                match to {
+                    Some(to) => tickets::asana_set_assignee(&tok, id, to).await.map(|_| vec![]),
+                    None => tickets::asana_assignees(&tok, id).await,
+                }
+            }
+            "linear" => {
+                let l = integ.linear.iter().find(|l| l.id == conn).ok_or_else(missing)?;
+                let tok = tickets::linear_token(l).await?;
+                match to {
+                    Some(to) => tickets::linear_set_assignee(&tok, id, to).await.map(|_| vec![]),
+                    None => tickets::linear_assignees(&tok, id).await,
+                }
+            }
+            "github" => {
+                let (gh, number) = self.ticket_github(conn, id).await?;
+                match to {
+                    Some(to) => gh.set_issue_assignee(number, to).await.map(|_| vec![]),
+                    None => tickets::github_assignees(&gh).await,
+                }
+            }
+            other => Err(Error::Invalid(format!("unknown tracker {other}"))),
+        }
+    }
+
     /// What a Jira or Linear ticket's priority, type and labels can be set to, or, with `edit`, sets them.
     /// The other trackers have none to offer.
     pub async fn ticket_fields(&self, source: &str, conn: &str, id: &str, edit: Option<&tickets::FieldEdit>) -> Result<tickets::FieldOptions> {
