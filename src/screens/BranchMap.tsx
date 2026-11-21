@@ -651,6 +651,9 @@ export function BranchMap({
   const flagsOf = (t: Tile): TileFlags => ({ head: head.has(t.b.name), stale: layout.stale(t.b) });
 
   const scroller = useRef<HTMLDivElement>(null);
+  const legend = useRef<HTMLDivElement>(null);
+  /** The view's height above the legend pinned over its bottom. */
+  const viewH = (el: HTMLElement) => el.clientHeight - (legend.current?.offsetHeight ?? 0);
   // Empty room around the map, half the view on each side: any tile can be dragged or zoomed to the middle.
   // Its size changing (opening, resizing) moves the scroll with it, so the map stays put.
   const [pad, setPad] = useState({ x: 0, y: 0 });
@@ -711,12 +714,13 @@ export function BranchMap({
     const room = el.clientWidth > 720 ? CARD_ROOM : 0;
     const left = pad.x + t.x * zoom;
     const top = pad.y + t.y * zoom;
-    const inView = left >= el.scrollLeft && left + t.w * zoom <= el.scrollLeft + el.clientWidth - room && top >= el.scrollTop && top + t.h * zoom <= el.scrollTop + el.clientHeight;
+    const inView = left >= el.scrollLeft && left + t.w * zoom <= el.scrollLeft + el.clientWidth - room && top >= el.scrollTop && top + t.h * zoom <= el.scrollTop + viewH(el);
     if (inView) return;
     // The map's own top left when the tile shows whole from there, so the trunk stays in view; else the tile in the middle.
     const w = el.clientWidth - room;
     const x = left + t.w * zoom <= pad.x + w - 24 ? pad.x : left + (t.w * zoom) / 2 - w / 2;
-    const y = top + t.h * zoom <= pad.y + el.clientHeight - 24 ? pad.y : top + (t.h * zoom) / 2 - el.clientHeight / 2;
+    const h = viewH(el);
+    const y = top + t.h * zoom <= pad.y + h - 24 ? pad.y : top + (t.h * zoom) / 2 - h / 2;
     el.scrollTo({ left: x, top: y, behavior: smooth ? "smooth" : "auto" });
   };
   /** Brings `el`, on the map, into view unless it is already, out from under the card; a tall one from its top. */
@@ -726,8 +730,9 @@ export function BranchMap({
     const r = el.getBoundingClientRect();
     const v = s.getBoundingClientRect();
     const w = s.clientWidth - (s.clientWidth > 720 ? CARD_ROOM : 0);
-    if (r.left >= v.left && r.right <= v.left + w && r.top >= v.top && r.bottom <= v.top + s.clientHeight) return;
-    const dy = r.height > s.clientHeight - 40 ? r.top - v.top - 20 : r.top + r.height / 2 - (v.top + s.clientHeight / 2);
+    const h = viewH(s);
+    if (r.left >= v.left && r.right <= v.left + w && r.top >= v.top && r.bottom <= v.top + h) return;
+    const dy = r.height > h - 40 ? r.top - v.top - 20 : r.top + r.height / 2 - (v.top + h / 2);
     s.scrollTo({ left: s.scrollLeft + r.left + r.width / 2 - (v.left + w / 2), top: s.scrollTop + dy, behavior: "smooth" });
   };
   // Opening: the selected branch in view. Later, one selected elsewhere (a ticket, a new branch) scrolls in too; a click here doesn't.
@@ -761,7 +766,7 @@ export function BranchMap({
     const el = scroller.current;
     if (el) {
       sx ??= el.clientWidth / 2;
-      sy ??= el.clientHeight / 2;
+      sy ??= viewH(el) / 2;
       keep.current = { x: (el.scrollLeft + sx - pad.x) / zoom, y: (el.scrollTop + sy - pad.y) / zoom, sx, sy };
     }
     setPrefs({ zoom: Math.max(0.4, Math.min(1.4, fine ? z : Math.round(z * 10) / 10)) });
@@ -842,7 +847,7 @@ export function BranchMap({
     const el = scroller.current;
     if (!el) return;
     const room = el.clientWidth > 720 ? CARD_ROOM : 0;
-    const z = Math.max(0.4, Math.min(1, Math.floor(Math.min((el.clientWidth - room) / W, el.clientHeight / H) * 10) / 10));
+    const z = Math.max(0.4, Math.min(1, Math.floor(Math.min((el.clientWidth - room) / W, viewH(el) / H) * 10) / 10));
     // The map's top left corner at the view's, once zoomed.
     keep.current = z === zoom ? null : { x: 0, y: 0, sx: 0, sy: 0 };
     setPrefs({ zoom: z });
@@ -1293,14 +1298,14 @@ export function BranchMap({
                 );
               })}
             </div>
+            {/* Pinned over the view's bottom, inside the scroller: the map's scrollbar goes under it. */}
+            <div ref={legend} className="map-legend">
+              <span><svg width="20" height="8" aria-hidden><path d="M2 4h16" className="map-key-head" /></svg>You are here</span>
+              <span><svg width="20" height="8" aria-hidden><path d="M2 4h16" /></svg>Other lines</span>
+              <span><svg width="20" height="8" aria-hidden><path d="M2 4h16" className="map-key-stale" /></svg>Falling behind</span>
+              <span><span className="map-line-chip"><span className="c-del">↓</span></span>on a line, click to rebase</span>
+            </div>
           </div>
-        </div>
-
-        <div className="map-legend">
-          <span><svg width="20" height="8" aria-hidden><path d="M2 4h16" className="map-key-head" /></svg>You are here</span>
-          <span><svg width="20" height="8" aria-hidden><path d="M2 4h16" /></svg>Other lines</span>
-          <span><svg width="20" height="8" aria-hidden><path d="M2 4h16" className="map-key-stale" /></svg>Falling behind</span>
-          <span className="faint">Click a commit to look at its code · click ↓ on a line to rebase</span>
         </div>
 
         {sel && (

@@ -1866,7 +1866,7 @@ body.resizing .term {
   width: 10px;
   height: 10px;
 }
-/* The map over its legend: the legend is a band of its own, so no row ever runs under it. */
+/* The map, its legend pinned over its bottom with the scrollbar under it. */
 .map-view {
   position: relative;
   flex: 1 1 auto;
@@ -1894,6 +1894,11 @@ body.resizing .term {
 }
 .map-size {
   position: relative;
+  /* The legend at its bottom left, from where it sticks to the view's. */
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: flex-start;
 }
 .map-layer {
   position: absolute;
@@ -2545,6 +2550,14 @@ button.map-line-chip[aria-disabled] {
   font-size: 12px;
   color: var(--muted);
 }
+/* In the app it scrolls with the map, stuck to the view's bottom: above the scrollbar, over the rows. */
+.map-size > .map-legend {
+  position: sticky;
+  left: 0;
+  bottom: 0;
+  z-index: 4;
+  width: 100cqw;
+}
 .map-legend > span {
   display: inline-flex;
   align-items: center;
@@ -2560,6 +2573,11 @@ button.map-line-chip[aria-disabled] {
 }
 .map-legend .map-key-stale {
   stroke-dasharray: 3 4;
+}
+/* The behind chip as a key, in line with its words. */
+.map-legend .map-line-chip {
+  position: static;
+  transform: none;
 }
 /* The selected branch, floating over the map's top right: flat, a panel and a strong hairline. On its own layer: the map
    scrolling under it doesn't repaint it. */
@@ -2613,7 +2631,7 @@ button.map-line-chip[aria-disabled] {
     max-width: none;
     max-height: none;
   }
-  .map-view:has(> .map-side) > .map-legend {
+  .map-view:has(> .map-side) .map-legend {
     padding-right: 352px;
   }
 }
@@ -2677,7 +2695,7 @@ button.map-line-chip[aria-disabled] {
 .map-diff > .code-file {
   background: var(--panel);
 }
-.map-view[data-file-open] > .map-legend {
+.map-view[data-file-open] .map-legend {
   visibility: hidden;
 }
 /* Its kind and tags on a line above the name, so the name gets the card's full width; the fold button at the top right. */
