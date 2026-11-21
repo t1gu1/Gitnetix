@@ -1037,9 +1037,19 @@ body.dragging-tab * {
     color: var(--g4);
   }
 }
+/* A skill called in a prompt box (AgentLog.tsx `SkillMarks`): the one exception to the rule above (DESIGN.md), on the same flow.
+   The weight stays the box's, or the marked letters would no longer sit under the caret. */
+.skill-marks .skill-mark {
+  background: linear-gradient(90deg, var(--g1), var(--g2), var(--g3), var(--g4), var(--g1)) 0 0 / 300% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: glow-name 8s steps(384) infinite;
+}
 @media (prefers-reduced-motion: reduce) {
   .glow-name > .ellipsis,
   .glow-working > *,
+  .skill-marks .skill-mark,
   .pulse,
   .pulse.glow-dot {
     animation: none;
@@ -5697,6 +5707,25 @@ button.picker-act {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+/* A prompt box and the layer that draws its text again with the skills marked. The layer sits over the box, which keeps
+   the caret, the selection and the clicks; the box's own letters turn transparent while the layer is there. */
+.skill-box {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.skill-marks {
+  position: absolute;
+  box-sizing: border-box;
+  overflow: hidden;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  pointer-events: none;
+}
+.skill-marks ~ textarea {
+  -webkit-text-fill-color: transparent;
 }
 /* Files waiting to go with the next message: a band of its own over the text. */
 .ag-attach {

@@ -1303,7 +1303,8 @@ function useSkillMenu(box: RefObject<HTMLTextAreaElement | null>, value: string,
   const start = m ? m.index + m[1].length : -1;
   const q = m?.[2].toLowerCase() ?? "";
   const open = focused && start >= 0 && start !== closed;
-  const { data } = useSkills(projectId, provider, open);
+  // Loaded too when the text names a skill, for its rainbow.
+  const { data } = useSkills(projectId, provider, open || /(^|\s)[/$][\w:.-]/.test(value));
   const starts = (s: Skill) => (s.name.toLowerCase().startsWith(q) ? 0 : 1);
   const hits = open && data ? data.skills.filter((s) => s.name.toLowerCase().includes(q)).sort((a, b) => starts(a) - starts(b)) : [];
   const cur = Math.min(at, hits.length - 1);
@@ -1379,7 +1380,64 @@ function useSkillMenu(box: RefObject<HTMLTextAreaElement | null>, value: string,
     "aria-controls": r ? `${box.current!.id}-skills` : undefined,
     "aria-activedescendant": r ? `${box.current!.id}-skill-${cur}` : undefined,
   };
-  return { keyDown, menu, bind };
+  // The skills named in the text, in the rainbow; any other `/word` (a path) stays plain.
+  const names = new Set(data?.skills.map((s) => s.name));
+  const parts: ReactNode[] = [];
+  let last = 0;
+  if (data)
+    for (const w of value.matchAll(/(^|\s)([/$][\w:.-]+)(?=\s|$)/g)) {
+      const word = w[2];
+      if (!word.startsWith(data.prefix) || !names.has(word.slice(data.prefix.length))) continue;
+      const i = w.index + w[1].length;
+      parts.push(value.slice(last, i), <span key={i} className="skill-mark">{word}</span>);
+      last = i + word.length;
+    }
+  const marks = parts.length > 0 && <SkillMarks box={box}>{[...parts, value.slice(last)]}</SkillMarks>;
+  return { keyDown, menu, bind, marks };
+}
+
+/** The text of a prompt box drawn again over it with its skills marked: the box's own text turns transparent under it (app.css `.skill-marks`).
+ * Takes the box's font, padding, size and scroll so each letter lands on its own, under the box's caret and selection. */
+function SkillMarks({ box, children }: { box: RefObject<HTMLTextAreaElement | null>; children: ReactNode }) {
+  const layer = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const el = box.current;
+    const m = layer.current;
+    if (!el || !m) return;
+    const sync = () => {
+      const s = getComputedStyle(el);
+      // The padding box: clientWidth leaves out a scrollbar, which narrows the lines.
+      Object.assign(m.style, {
+        top: `${el.clientTop}px`,
+        left: `${el.clientLeft}px`,
+        width: `${el.clientWidth}px`,
+        height: `${el.clientHeight}px`,
+        padding: s.padding,
+        fontFamily: s.fontFamily,
+        fontSize: s.fontSize,
+        fontWeight: s.fontWeight,
+        lineHeight: s.lineHeight,
+        letterSpacing: s.letterSpacing,
+        color: s.color,
+      });
+      m.scrollTop = el.scrollTop;
+    };
+    sync();
+    const size = new ResizeObserver(sync);
+    size.observe(el);
+    el.addEventListener("scroll", sync);
+    return () => {
+      size.disconnect();
+      el.removeEventListener("scroll", sync);
+    };
+  });
+  return (
+    <div ref={layer} className="skill-marks" aria-hidden="true">
+      {children}
+      {/* A last empty line, which the box shows after a final new line and a div drops. */}
+      {"\u200b"}
+    </div>
+  );
 }
 
 /** What a new agent session should do, in a modal: files are picked, pasted, or dropped anywhere on it. ⌘↵ runs `onSubmit`. */
@@ -1402,19 +1460,22 @@ export function RequestField({ value, onChange, files, onFiles, onSubmit, projec
   return (
     <div ref={field} className="field">
       <label htmlFor="ag-req">What should the agent do?</label>
-      <textarea
-        id="ag-req"
-        ref={box}
-        {...skills.bind}
-        className="textarea"
-        rows={5}
-        placeholder="Let users sign in with Google and GitHub."
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        onKeyDown={(e) => { if (!skills.keyDown(e) && e.key === "Enter" && (e.metaKey || e.ctrlKey)) onSubmit(); }}
-        onPaste={(e) => paste(e, files, add)}
-        autoFocus
-      />
+      <div className="skill-box">
+        {skills.marks}
+        <textarea
+          id="ag-req"
+          ref={box}
+          {...skills.bind}
+          className="textarea"
+          rows={5}
+          placeholder="Let users sign in with Google and GitHub."
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          onKeyDown={(e) => { if (!skills.keyDown(e) && e.key === "Enter" && (e.metaKey || e.ctrlKey)) onSubmit(); }}
+          onPaste={(e) => paste(e, files, add)}
+          autoFocus
+        />
+      </div>
       {skills.menu}
       {files.length > 0 && (
         <div ref={chips} className="ag-files">
@@ -1486,7 +1547,7 @@ export function AgentInput({ id, label, value, onChange, files, onFiles, picks, 
     // From 2 lines the attach button moves above the mic, which widens the text.
     // Count lines in the narrower layout below, or the text rewraps shorter and drops back at the next key.
     // The wider layout stays while its own count still needs it: the narrower one is only longer, and recounting rewraps the whole text again.
-    const row = el.parentElement!.classList;
+    const row = el.closest(".term-input-row")!.classList;
     // The textarea's 11px padding and 18px lines (app.css).
     const count = () => Math.max(1, Math.round((el.scrollHeight - 22) / 18));
     let n = count();
@@ -1579,21 +1640,24 @@ export function AgentInput({ id, label, value, onChange, files, onFiles, picks, 
           }}
         />
         <label htmlFor={id} className="sr-only">{label}</label>
-        <textarea
-          id={id}
-          ref={input}
-          {...skills.bind}
-          rows={1}
-          value={value}
-          disabled={disabled}
-          onKeyDown={keys}
-          onPaste={(e) => paste(e, files, add)}
-          onChange={(e) => {
-            setAt(null);
-            onChange(e.target.value);
-          }}
-          placeholder={placeholder}
-        />
+        <div className="skill-box">
+          {skills.marks}
+          <textarea
+            id={id}
+            ref={input}
+            {...skills.bind}
+            rows={1}
+            value={value}
+            disabled={disabled}
+            onKeyDown={keys}
+            onPaste={(e) => paste(e, files, add)}
+            onChange={(e) => {
+              setAt(null);
+              onChange(e.target.value);
+            }}
+            placeholder={placeholder}
+          />
+        </div>
         {skills.menu}
         {/* Under the text: attach and dictate, the model, then the action. */}
         <div className="term-tools">

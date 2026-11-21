@@ -507,12 +507,12 @@ Radius: none 0px, sm 2px, md 3px, circle 50%
 Rules:
 - The Control Rule. Ink (`--fg`) means "this is yours": selection, the active tab, segment and tag, check fills and focus, in every theme.
 - The Meaning Rule. Branch type, trunk, release, props and people carry no hue.
-- The Agent Working Rule. Anything an agent is working on flows with the incumbent rainbow, and nothing else may.
+- The Agent Working Rule. Anything an agent is working on flows with the incumbent rainbow, and nothing else may, except a skill called in a prompt box (`/name` the agent will run), which takes the same flow at the box's own weight.
 - The Theme Rule. Black & White is the default and what System follows; every other theme (Gitnetix Dark/Light in `app.css`, the 34 third-party themes through `tokens()` in `src/lib/themes.ts`) keeps its own ground, panel, text and accent, gets the derived steps (`--line2`, `-...
 - The One Loud Voice Rule. Antonio is used only for screen and page titles, the welcome heading, the next release and headline numerals.
 - The Hairline Rule. Every map line is a hairline.
 Don't:
-- Don't use gradient text, glows, coloured halos or drop-shadow filters, except the rainbow on agent work under the Agent Working Rule.
+- Don't use gradient text, glows, coloured halos or drop-shadow filters, except the rainbow on agent work and called skills under the Agent Working Rule.
 - Don't use the working hues for anything but an agent working; a waiting agent is Warn.
 - Don't use pills (999px radius) or radii above 3px on rectangles.
 - Don't give branch types, roles or sections their own hue.
