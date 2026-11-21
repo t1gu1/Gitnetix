@@ -114,7 +114,13 @@ export function questions(lines: LogLine[]): Question[] {
     // The intro may be bold or a heading: "**A. Which one?**".
     const intro = (rows.slice(0, l.start).filter((r) => r.trim()).at(-1) ?? "").replace(/\*\*|`/g, "").replace(/^\s*#+\s*/, "").trim();
     const after = final ? rows.slice(l.end).join("\n") : "";
-    const asks = ask && (/\?$/.test(intro) || PICK.test(intro) || PICK.test(after) || /\b\d+\s+(or|ou)\s+\d+\b/i.test(after));
+    // After the list, only a sentence that asks counts: "…, which makes it stale" in a note is not a question.
+    const asking = after
+      .split(/(?<=[.!?])\s+|\n/)
+      .map((s) => s.replace(/\*\*|`/g, "").replace(/^\s*[-*•]\s+/, "").trim())
+      .filter((s) => /\?$/.test(s) || /\b(let me know|tell me|dis-moi)\b/i.test(s) || /^(pick|choose|choisis)/i.test(s))
+      .join("\n");
+    const asks = ask && (/\?$/.test(intro) || PICK.test(intro) || PICK.test(asking) || /\b\d+\s+(or|ou)\s+\d+\b/i.test(after));
     return { l, ask, asks, intro, id: /^([A-Z])[.)]\s/.exec(intro)?.[1] ?? "" };
   });
   // "C. If it fails:" next to "A. Which one?" is a question too.
