@@ -1156,15 +1156,27 @@ function ArtifactAsk({ link, onAttach, onChoose, onDismiss }: { link: string; on
 }
 
 /** Screenshots, copied images and copied files attach instead of pasting nothing. WebKitGTK (the desktop app on Linux) hands the page none of them: they come from the desktop's clipboard. */
-function paste(e: ClipboardEvent<HTMLTextAreaElement>, add: (f: Attachment[]) => void) {
+function paste(e: ClipboardEvent<HTMLTextAreaElement>, files: Attachment[], add: (f: Attachment[]) => void) {
   const pasted = [...e.clipboardData.files];
   if (pasted.length) {
     e.preventDefault();
-    return add(pasted);
+    return add(lettered(files, pasted));
   }
   if (!isLocal || e.clipboardData.getData("text/plain")) return;
   e.preventDefault();
-  clipboardFiles().then(add, (err) => toast(`Could not paste: ${err}`, "error"));
+  clipboardFiles().then((more) => add(lettered(files, more)), (err) => toast(`Could not paste: ${err}`, "error"));
+}
+
+/** Pasted images with no name of their own ("image.png") become A.png, B.png… after the letters the message already holds, so it can say "on image A". */
+function lettered(files: Attachment[], pasted: Attachment[]) {
+  const taken = new Set(files.map((a) => nameOf(a).replace(/\.[^.]*$/, "").toUpperCase()));
+  return pasted.map((f) => {
+    if (typeof f === "string" || !/^image\.\w+$/i.test(f.name)) return f;
+    const letter = [..."ABCDEFGHIJKLMNOPQRSTUVWXYZ"].find((c) => !taken.has(c));
+    if (!letter) return f;
+    taken.add(letter);
+    return new File([f], letter + f.name.slice("image".length), { type: f.type, lastModified: f.lastModified });
+  });
 }
 
 /** The skills menu of a prompt box: typing `/` (or `$`) at the start of a word lists the skills of the agent's CLI whose name holds what follows.
@@ -1288,7 +1300,7 @@ export function RequestField({ value, onChange, files, onFiles, onSubmit, projec
         value={value}
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={(e) => { if (!skills.keyDown(e) && e.key === "Enter" && (e.metaKey || e.ctrlKey)) onSubmit(); }}
-        onPaste={(e) => paste(e, add)}
+        onPaste={(e) => paste(e, files, add)}
         autoFocus
       />
       {skills.menu}
@@ -1463,7 +1475,7 @@ export function AgentInput({ id, label, value, onChange, files, onFiles, picks, 
           value={value}
           disabled={disabled}
           onKeyDown={keys}
-          onPaste={(e) => paste(e, add)}
+          onPaste={(e) => paste(e, files, add)}
           onChange={(e) => {
             setAt(null);
             onChange(e.target.value);
