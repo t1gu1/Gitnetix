@@ -2586,6 +2586,100 @@ button.map-line-chip[aria-disabled] {
 .map-card > * {
   flex-shrink: 0;
 }
+/* The selected branch's column at the map's top right: its card, then its files in the room the card leaves, more once it
+   folds. The gap between them lets the map take clicks. */
+@media (min-width: 721px) {
+  .map-side {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    bottom: 16px;
+    z-index: 6;
+    width: 320px;
+    max-width: calc(100% - 32px);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    pointer-events: none;
+  }
+  .map-side > * {
+    pointer-events: auto;
+  }
+  /* Too tall, the card gives way first and scrolls; the files keep a few rows. */
+  .map-side > .map-card {
+    position: static;
+    flex: 0 1 auto;
+    width: auto;
+    max-width: none;
+    max-height: none;
+  }
+  .map-view:has(> .map-side) > .map-legend {
+    padding-right: 352px;
+  }
+}
+.map-files {
+  flex: 1 1 0;
+  min-height: 180px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--line2);
+  border-radius: var(--r);
+  background: var(--panel);
+  will-change: transform;
+  animation: fade-in var(--t) var(--ease);
+}
+.map-files-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 10px 10px 12px;
+  border-bottom: 1px solid var(--line);
+}
+.map-files-head > .seg {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.map-files-list {
+  flex: 1 1 auto;
+  margin: 0;
+  padding: 4px 0;
+  list-style: none;
+}
+.map-files-list[data-wip] {
+  padding-top: 0;
+}
+.map-files-list > .empty {
+  padding: 28px 20px;
+}
+/* Staged / Unstaged stick to the top on the panel's colour. */
+.map-files .file-sec {
+  background: var(--panel);
+}
+/* A file picked in the column, floating over the rest of the map with the same margins. */
+.map-diff {
+  position: absolute;
+  top: 16px;
+  bottom: 16px;
+  left: 16px;
+  right: 352px;
+  z-index: 7;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--line2);
+  border-radius: var(--r);
+  background: var(--bg);
+  will-change: transform;
+  animation: fade-in var(--t) var(--ease);
+}
+.map-diff > .code-file {
+  background: var(--panel);
+}
+.map-view[data-file-open] > .map-legend {
+  visibility: hidden;
+}
 /* Its kind and tags on a line above the name, so the name gets the card's full width; the fold button at the top right. */
 .map-card-head {
   display: grid;
@@ -2753,6 +2847,14 @@ button.map-line-chip[aria-disabled] {
   .map-title,
   .map-bar > .grow,
   .map-legend {
+    display: none;
+  }
+  /* The card alone, as a phone has no room for the files: the focus view lists them. */
+  .map-side {
+    display: contents;
+  }
+  .map-files,
+  .map-diff {
     display: none;
   }
   /* Out of the map's way: above it, not over it. The card comes after the map for keyboards and screen readers. */
@@ -9122,6 +9224,8 @@ button.app-row:hover > .app-row-chev {
   .map,
   .focus,
   .map-card,
+  .map-files,
+  .map-diff,
   .term,
   .file-row,
   .commit-row,
@@ -9148,7 +9252,7 @@ button.app-row:hover > .app-row-chev {
 }
 
 /* Animations turned off in the menu's Animations page, one by one (ids from src/lib/motion.ts). */
-:root[data-anim-off~="pages"] :is(.app-main > *, .map, .focus, .map-card, .term) {
+:root[data-anim-off~="pages"] :is(.app-main > *, .map, .focus, .map-card, .map-files, .map-diff, .term) {
   animation: none !important;
 }
 :root[data-anim-off~="pages"] .profile-splash {

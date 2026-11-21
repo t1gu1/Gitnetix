@@ -68,7 +68,7 @@ const FOOT_H = 26;
 const SHIPPED_LIST_TOP = 14;
 const SHIPPED_COMMIT_H = 32;
 /** Room the floating card takes on the right (its width and gap): the map scrolls out from under it. */
-const CARD_ROOM = 304;
+const CARD_ROOM = 336;
 /** Column `d` of the map: the default branch's box beside the trunk, then each level of branches under it. */
 const colX = (d: number) => (d === 0 ? TRUNK_X + 20 : 404 + (d - 1) * 392);
 const colW = (d: number) => (d === 0 ? 280 : 320);
@@ -565,6 +565,8 @@ export function BranchMap({
   onStashes,
   building,
   bar,
+  files,
+  fileDiff,
 }: {
   o: Overview;
   selected?: string;
@@ -589,6 +591,10 @@ export function BranchMap({
   building?: boolean;
   /** Where the toolbar goes: a row above the map and the agent panel beside it. */
   bar: HTMLElement | null;
+  /** The selected branch's files, under its card. */
+  files?: (b: BranchView) => ReactNode;
+  /** The file picked there, floating over the map. */
+  fileDiff?: (b: BranchView) => ReactNode;
 }) {
   const pid = o.project.id;
   const keys = useKeys();
@@ -781,6 +787,8 @@ export function BranchMap({
     if (!v) return;
     const s = { z: 0, x: 0, y: 0, raf: 0, acc: 0, pad: -Infinity };
     const w = (e: WheelEvent) => {
+      // The files and the open file scroll as pages do.
+      if ((e.target as Element).closest(".map-files, .map-diff")) return;
       const card = (e.target as Element).closest(".map-card");
       if (card && card.scrollHeight > card.clientHeight) return;
       // shortcut: guesses a trackpad from its events (WebKit and Chromium give it wheelDeltaY = -3 × deltaY; a mouse wheel has
@@ -890,6 +898,7 @@ export function BranchMap({
   };
   const staleLeft = o.branches.filter((b) => layout.stale(b) && !b.protected && !b.checkedOut && !b.running && b.wip === 0);
   const sel = shown ? byName.get(shown) : undefined;
+  const openFile = sel && fileDiff?.(sel);
   // A big map draws the tiles near the view, plus the selected one and the search's hit, which the code scrolls to.
   const pinned = new Set([shown, atHit?.tile, atHit?.b && (atHit.chip ? layout.parent(atHit.b.name) : atHit.b.name)]);
   const drawn = tiles.length > CULL_FROM ? tiles.filter((t) => seen.has(t.b.name) || pinned.has(t.b.name)) : tiles;
@@ -1008,10 +1017,12 @@ export function BranchMap({
           }
         />
       )}
-      <div ref={view} className="map-view">
+      {/* A file open over the map: the map under it holds still, WebKitGTK paints its scrollbars above everything. */}
+      <div ref={view} className="map-view" data-file-open={openFile ? "" : undefined}>
         <div
           ref={scroller}
           className="map-canvas"
+          data-covered={openFile ? "" : undefined}
           role="region"
           aria-label="Branches"
           onScroll={onScroll}
@@ -1293,24 +1304,23 @@ export function BranchMap({
         </div>
 
         {sel && (
-          <SelectedCard
-            o={o}
-            b={sel}
-            t={target(sel.name)}
-            chain={lineageOf(layout, sel.name).map((n) => byName.get(n)).filter((x): x is BranchView => !!x)}
-            labelOf={labelOf}
-            work={layout.work.get(sel.name)}
-            stale={layout.stale(sel)}
-            agent={agentOf(sel)}
-            run={rebasing.get(sel.name)}
-            actions={actions}
-            onFocus={onFocus}
-            onStashes={onStashes}
-            shippedTip={sel.name === layout.root ? layout.shippedAll[0] : undefined}
-            shippedName={shippedName}
-            shippedDate={shippedDate}
-          />
+          // The card, and the branch's files under it in the room it leaves.
+          <div className="map-side">
+            <SelectedCard
+              o={o}
+              b={sel}
+              t={target(sel.name)}
+              labelOf={labelOf}
+              agent={agentOf(sel)}
+              run={rebasing.get(sel.name)}
+              actions={actions}
+              onFocus={onFocus}
+              onStashes={onStashes}
+            />
+            {files?.(sel)}
+          </div>
         )}
+        {openFile}
       </div>
       {tagMenu && <ContextMenu x={tagMenu.x} y={tagMenu.y} label={`Actions for ${tagMenu.tag}`} items={tagItems(tagMenu.tag, tagMenu.checkedOut)} onClose={() => setTagMenu(null)} />}
       {commitMenu.el}
@@ -1723,34 +1733,22 @@ function SelectedCard({
   o,
   b,
   t,
-  chain,
   labelOf,
-  work,
-  stale,
   agent,
   run,
   actions,
   onFocus,
   onStashes,
-  shippedTip,
-  shippedName,
-  shippedDate,
 }: {
   o: Overview;
   b: BranchView;
   t: BranchTarget;
-  chain: BranchView[];
   labelOf: (n: string) => string;
-  work?: { open: number; merged: number };
-  stale: boolean;
   agent?: AgentInfo;
   run?: RebaseRun;
   actions: BranchActions;
   onFocus: (b: string, item: FocusItem) => void;
   onStashes: (b?: string) => void;
-  shippedTip?: ReleaseView;
-  shippedName: (r: ReleaseView) => string;
-  shippedDate: (r: ReleaseView) => string;
 }) {
   // Folding or unfolding the card holds for every branch, across restarts.
   const [chosen, setFolded] = useStoredChoice("gnx.map.cardFolded");
@@ -1762,47 +1760,18 @@ function SelectedCard({
     setPhone(false);
   }
   const folded = chosen ?? phone;
-  const parent = t.base;
   // Once the worktree's agent is done, suggest wrapping it up: merge into the parent and delete the worktree.
   const finish = b.worktree && agent?.state === "done" ? actions.action(t, "merge") : undefined;
   const p = finish && !finish.disabled ? finish : actions.primary(t);
   const tone = p.danger ? "btn-danger" : "btn-primary";
   const busy = actions.busy.has(b.name) || actions.rebasing.has(b.name);
-  const checkedOut = b.checkedOut || b.name === o.currentBranch;
   const trunk = b.role === "trunk";
   const kind = b.role === "branch" && b.kind;
   const name = b.role === "release" && b.release ? `${labelOf(b.name)} · ${b.name}` : kind ? b.short : b.name;
 
   const look = lookItem(b);
 
-  const root = chain.find((x) => x.role !== "branch");
-  const sentence = (() => {
-    if (trunk) {
-      if (b.name !== o.defaultBranch) return `Long-lived branch${parent ? ` that merges into ${t.baseLabel}` : ""}.`;
-      const at = b.lastTag ? (b.unreleased ? `, ${plural(b.unreleased, "commit")} past ${b.lastTag}` : `, at ${b.lastTag}`) : shippedTip ? `, at ${shippedName(shippedTip)}` : "";
-      return `The default branch${at}. Releases are cut from it; shipping one merges it back and tags the version.`;
-    }
-    if (b.role === "release") {
-      const rel = o.releases.find((r) => r.open && r.branch === b.name);
-      const w = work ?? { open: 0, merged: 0 };
-      return `${rel?.tag === "hotfix" ? "Hotfix release" : "Release"} cut from ${t.baseLabel}. ${branches(w.open, "open branch")}${w.merged ? ` and ${w.merged} merged in` : ""}. Shipping it merges it into ${o.defaultBranch} and tags ${b.release ? labelOf(b.name) : "the version"}.`;
-    }
-    if (!b.exists) return "Deleted here and on origin. Gitnetix still remembers it: delete it to forget it.";
-    if (b.merged) return b.likelyMerged ? `Looks merged into ${t.baseLabel}: a pull request carrying its ticket went in after its last commit. It is never cleaned up as merged.` : `All its commits are in ${t.baseLabel}, so it ships with it. Safe to delete.`;
-    const pv = chain[chain.length - 2];
-    let s = `Merges into ${t.baseLabel}`;
-    if (pv?.role === "branch" && root) s += `, which ships with ${labelOf(root.name)}`;
-    else if (pv?.role === "release") s += " and ships with it";
-    s += ".";
-    if (stale) s += ` ${t.baseLabel} is ${plural(b.behind, "commit")} ahead and nothing moved here since ${ago(b.date)}.`;
-    else if (b.behind) s += ` ${t.baseLabel} moved ${plural(b.behind, "commit")} ahead: update before merging.`;
-    else if (b.ahead) s += ` ${plural(b.ahead, "commit")} ahead, nothing to pull.`;
-    else s += " No commits yet.";
-    return s;
-  })();
-
   const nav = useNav();
-  const [originText, originCls] = originOf(b, !!o.remote);
   const rows: [string, ReactNode, string?][] = [];
   if (b.parent) rows.push(["Parent", labelOf(b.parent)]);
   if (run) rows.push(["Rebase", `AI rebasing onto ${labelOf(run.onto)}${run.steps ? `, ${run.step} of ${run.steps}` : ""}`]);
@@ -1810,16 +1779,6 @@ function SelectedCard({
   else if (b.inProgress) rows.push([b.inProgress[0].toUpperCase() + b.inProgress.slice(1), "paused in the middle", "c-warn"]);
   if (b.merged) rows.push([b.likelyMerged ? "Likely in" : "Merged into", t.baseLabel]);
   else if (b.role === "release" && b.release) rows.push(["Ships as", labelOf(b.name)]);
-  else if (trunk && shippedTip) rows.push(["Tip", `${shippedName(shippedTip)}${shippedDate(shippedTip) ? ` · shipped ${shippedDate(shippedTip)}` : ""}`]);
-  // What the next release ships from it so far.
-  if (trunk && !b.parent && b.exists) {
-    const n = b.unreleased ?? 0;
-    rows.push(["Unreleased", b.lastTag ? (n ? `${plural(n, "commit")} since ${b.lastTag}` : `none since ${b.lastTag}`) : `${n >= 1000 ? "999+ commits" : plural(n, "commit")}, no tag yet`, n ? undefined : "faint"]);
-  }
-  if (b.exists) {
-    rows.push(["Checkout", checkedOut && !b.worktree ? "checked out here" : b.worktree ? "open in a worktree" : "not checked out"]);
-    rows.push(["Origin", originText, originCls]);
-  }
   if (b.role === "branch" && b.exists && !b.merged) {
     const text = agent && `${agent.label} · ${agentWords(agent)}`;
     // While its agent works, the row wears the agent chip's flowing colours.
@@ -1886,12 +1845,6 @@ function SelectedCard({
               ))}
             </div>
           )}
-          <button className="btn map-look" disabled={!b.exists} data-tip="Opens this branch full screen. Esc brings you back here." onClick={() => onFocus(b.name, look)}>
-            <Icon name="eye" size={14} />
-            <span>Look at the code</span>
-            <span className="map-look-n">{look === "wip" ? `WIP · ${b.wip}` : look === "all" ? `Branch · ${b.ahead}` : "Project"}</span>
-          </button>
-          <p className="map-sentence">{sentence}</p>
           {rows.length > 0 && (
             <dl className="map-status">
               {rows.map(([k, v, cls]) => (

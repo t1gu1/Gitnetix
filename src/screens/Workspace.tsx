@@ -128,6 +128,8 @@ export function Workspace() {
   const [asTree, setAsTree] = useStoredFlag("gnx.files.tree");
   // Collapse/expand all: a new `n` remounts the file lists, dropping per-folder toggles.
   const [fold, setFold] = useState({ closed: false, n: 0 });
+  // The map's files panel: for which branch, WIP, Branch or Project (none = WIP while there is some), and the file open over the map.
+  const [mapAt, setMapAt] = useState<{ branch: string; mode?: Mode; file?: string }>({ branch: "" });
   const actions = useBranchActions(pid, (kind, branch, onto) => {
     // Committing everything with no AI to write the message: the branch's uncommitted work, its message box open.
     if (kind === "commit") return openFocus(branch, "wip");
@@ -464,6 +466,13 @@ export function Workspace() {
     setFile(fileKey(f));
     setPane("code");
   };
+  // Another branch on the map's card: its files start over, on WIP while it has some or when it has no base to compare with.
+  const mapOf = (b: BranchView) => {
+    const at = mapAt.branch === b.name ? mapAt : { branch: b.name };
+    const base = baseFor(b.name);
+    const hasBase = !!base && base !== b.name;
+    return { ...at, hasBase, mode: at.mode ?? (b.wip || !hasBase ? "wip" : "branch") } as const;
+  };
   const [originText, originCls] = view ? originOf(view, !!o?.remote) : ["", ""];
 
   const filesEl = (
@@ -671,6 +680,29 @@ export function Workspace() {
                 onStashes={openStashes}
                 building={ov.isPlaceholderData}
                 bar={mapBar}
+                files={(b) => {
+                  if (!b.exists) return null;
+                  const m = mapOf(b);
+                  return (
+                    <MapFiles
+                      pid={pid}
+                      b={b}
+                      checkedOut={b.checkedOut || b.name === o.currentBranch}
+                      hasBase={m.hasBase}
+                      midOp={!!o.inProgress || !!b.inProgress}
+                      locked={rebasing.get(b.name) ? "AI is rebasing this branch" : locks.get(b.name) ? "Locked while AI rebases a branch onto this one" : undefined}
+                      mode={m.mode}
+                      open={m.file}
+                      onMode={(mode) => setMapAt({ branch: b.name, mode })}
+                      // Open, the list keeps its mode: the file doesn't swap lists when the last WIP is committed.
+                      onOpen={(f) => setMapAt({ branch: b.name, mode: m.mode, file: fileKey(f) })}
+                    />
+                  );
+                }}
+                fileDiff={(b) => {
+                  const m = mapOf(b);
+                  return m.file && <MapDiff pid={pid} branch={b.name} mode={m.mode} file={m.file} onPick={(f) => setMapAt({ branch: b.name, mode: m.mode, file: fileKey(f) })} onClose={() => setMapAt({ branch: b.name, mode: m.mode })} />;
+                }}
               />
             ) : (
               <section className="focus" aria-label={`${branch} full screen`}>
@@ -1525,6 +1557,221 @@ function FileRow({ f, active, onPick, actions, depth }: { f: FileChange; active:
       {btn}
       <span className="file-acts">{actions}</span>
     </div>
+  );
+}
+
+/** `key`'s file in `list`: on the same side, else on the other one once staged or unstaged. */
+const findFile = (list: FileChange[], key?: string) => {
+  const at = list.findIndex((f) => fileKey(f) === key);
+  return at >= 0 ? at : list.findIndex((f) => f.staged !== undefined && fileKey({ ...f, staged: !f.staged }) === key);
+};
+
+/** The branch's files under its card on the map, WIP, Branch or Project; a click opens one over the map. WIP files stage, unstage,
+ *  discard and commit as in the focus view. Its own component: a save redraws this list, not the map. */
+function MapFiles({
+  pid,
+  b,
+  checkedOut,
+  hasBase,
+  midOp,
+  locked,
+  mode,
+  open,
+  onMode,
+  onOpen,
+}: {
+  pid: string;
+  b: BranchView;
+  checkedOut: boolean;
+  hasBase: boolean;
+  midOp: boolean;
+  /** Why its files are left alone: AI rebasing it, or onto it. */
+  locked?: string;
+  mode: Mode;
+  open?: string;
+  onMode: (m: Mode) => void;
+  onOpen: (f: FileChange) => void;
+}) {
+  const files = useFiles(pid, b.name, mode);
+  const list = files.data ?? [];
+  const current = list[findFile(list, open)];
+  const wip = mode === "wip" && list.length > 0;
+  const [discarding, setDiscarding] = useState<{ staged: boolean; paths: string[] } | null>(null);
+  const [asTree, setAsTree] = useStoredFlag("gnx.files.tree");
+  return (
+    <section className="map-files" aria-label={`Files of ${b.name}`}>
+      <div className="map-files-head">
+        <Seg<Mode>
+          label="Files"
+          grid
+          value={mode}
+          onChange={onMode}
+          options={[
+            { value: "wip", label: b.wip > 0 ? <span className="wip-badge">WIP {b.wip}</span> : <>WIP <span className="faint">0</span></> },
+            { value: "branch", label: "Branch" },
+            { value: "project", label: "Project" },
+          ]}
+        />
+        <button className="btn btn-sm btn-icon" aria-label={asTree ? "Show files as a list" : "Show files as a tree"} data-tip={asTree ? "List view" : "Tree view"} onClick={() => setAsTree(!asTree)}>
+          <Icon name={asTree ? "menu" : "folder"} size={12} />
+        </button>
+      </div>
+      <ul className="scroll map-files-list" data-wip={wip || undefined}>
+        {files.isLoading && <li className="empty"><span className="spinner" /></li>}
+        {files.error && <li style={{ padding: 12 }}><ErrorBox error={files.error} /></li>}
+        {wip ? (
+          <WipList
+            pid={pid}
+            branch={b.name}
+            midOp={midOp}
+            locked={!!locked}
+            list={list}
+            current={current}
+            tree={asTree}
+            fold={{ closed: false, n: 0 }}
+            menu={(t) => [{ id: "copy", label: "Copy path", icon: "copy", run: () => copyToClipboard(t.path) }]}
+            onPick={onOpen}
+            onMoved={(f) => open === fileKey(f) && onOpen({ ...f, staged: !f.staged })}
+            onDiscard={(staged, paths) => setDiscarding({ staged, paths })}
+          />
+        ) : (
+          <FileList list={list} current={current} tree={asTree} allClosed={false} onPick={onOpen} />
+        )}
+        {files.data && list.length === 0 && (
+          <li className="empty">
+            {mode === "wip" ? (checkedOut ? "No uncommitted changes." : "Not checked out: nothing uncommitted here.") : mode === "project" ? "No files." : hasBase ? "No changes on this branch yet." : "Nothing to compare: it is the base branch."}
+          </li>
+        )}
+      </ul>
+      {mode === "wip" && checkedOut && (
+        <CommitBox
+          key={b.name}
+          pid={pid}
+          branch={b.name}
+          enabled={!locked}
+          locked={locked}
+          staged={list.filter((f) => f.staged).length}
+          changed={new Set(list.map((f) => f.path)).size}
+        />
+      )}
+      {discarding && (
+        <DiscardModal pid={pid} branch={b.name} staged={discarding.staged} paths={discarding.paths} total={list.filter((f) => f.staged === discarding.staged).length} onClose={() => setDiscarding(null)} />
+      )}
+    </section>
+  );
+}
+
+/** A file of the map's files panel, floating over the map. [ and ] go through the list, S switches split and unified,
+ *  Esc or the close button puts it away. */
+function MapDiff({ pid, branch, mode, file, onPick, onClose }: { pid: string; branch: string; mode: Mode; file: string; onPick: (f: FileChange) => void; onClose: () => void }) {
+  const [asTree] = useStoredFlag("gnx.files.tree");
+  const files = useFiles(pid, branch, mode).data;
+  const listed = useMemo(() => fileOrder(files ?? [], asTree), [files, asTree]);
+  const at = findFile(listed, file);
+  const f = at >= 0 ? listed[at] : undefined;
+  const [diffMode, setDiffMode] = useState<DiffMode>("unified");
+  const [imageMode, setImageMode] = useImageMode();
+  const [anyway, setAnyway] = useState<string>();
+  const forced = anyway === file;
+  const lines = f ? f.additions + f.deletions : 0;
+  const huge = !forced && lines > HUGE_DIFF;
+  const image = isImage(f?.path);
+  // Project lists untouched files too: those show as the plain file, no diff.
+  const unchanged = f?.status === " ";
+  const diff = useDiff(pid, branch, mode, f && !huge && !image && !unchanged ? f.path : undefined, f?.staged, undefined, undefined, diffMode === "full");
+  const blobs = useBlobs(pid, branch, mode, f?.path, f?.staged, undefined, undefined, image || unchanged);
+  const text = useMemo(() => !image && decodeText(blobs.data?.new ?? blobs.data?.old), [blobs.data, image]);
+  const raw = useMemo<Hunk[] | undefined>(
+    () => (unchanged && typeof text === "string" ? [{ header: "", oldStart: 1, newStart: 1, lines: text.replace(/\n$/, "").split("\n").map((t) => ({ kind: " ", text: t })) }] : undefined),
+    [unchanged, text],
+  );
+  const keys = useRef({ file: (_: 1 | -1) => {}, split: () => {}, close: onClose });
+  keys.current = {
+    file: (d) => listed[at + d] && onPick(listed[at + d]),
+    split: () => setDiffMode(diffMode === "split" ? "unified" : "split"),
+    close: onClose,
+  };
+  // Captured, so the map's own keys don't run too; not from a field, a dialog, a menu, or a diff letting go of picked lines.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented) return;
+      if ((e.target as HTMLElement).closest("input, textarea, select, [contenteditable], .xterm")) return;
+      if (document.querySelector("[role=dialog], [role=menu], .diff-picks, .diff-find")) return;
+      const k = e.key.toLowerCase();
+      if (k === "escape") keys.current.close();
+      else if (k === "[" || k === "]") keys.current.file(k === "]" ? 1 : -1);
+      else if (k === "s") keys.current.split();
+      else return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, []);
+  const cut = f ? f.path.lastIndexOf("/") : -1;
+  return (
+    <section className="map-diff" aria-label={f ? `Changes to ${f.path}` : "File"}>
+      <div className="code-file">
+        {f && (
+          <>
+            <span className={`file-st ${{ A: "c-add", D: "c-del", C: "c-acc", M: "c-mod", R: "c-mod", " ": "faint" }[f.status] ?? "faint"}`}>{unchanged ? "·" : f.status}</span>
+            <span className="code-path mono ellipsis" data-tip={f.path} data-tip-overflow>
+              {cut >= 0 && <span className="faint">{f.path.slice(0, cut + 1)}</span>}
+              <b>{f.path.slice(cut + 1)}</b>
+            </span>
+            <span className="row mono" style={{ gap: 6, margin: 0 }}>
+              {f.additions ? <span className="c-add">+{f.additions}</span> : null}
+              {f.deletions ? <span className="c-del">−{f.deletions}</span> : null}
+            </span>
+            {mode !== "branch" && <span className="faint code-note">{mode === "wip" ? (f.staged ? "staged" : "not staged") : unchanged ? "unchanged on this branch" : "changed on this branch"}</span>}
+          </>
+        )}
+        <span className="grow" />
+        {listed.length > 1 && (
+          <span className="code-files" role="group" aria-label="Files">
+            <button className="btn btn-ghost btn-sm btn-icon" aria-label="Previous file ([)" data-tip="Previous file ([)" disabled={at <= 0} onClick={() => keys.current.file(-1)}>
+              <Icon name="chevronLeft" size={12} />
+            </button>
+            <span>{at >= 0 ? `File ${at + 1} of ${listed.length}` : `${listed.length} files`}</span>
+            <button className="btn btn-ghost btn-sm btn-icon" aria-label="Next file (])" data-tip="Next file (])" disabled={at >= listed.length - 1} onClick={() => keys.current.file(1)}>
+              <Icon name="chevronRight" size={12} />
+            </button>
+          </span>
+        )}
+        {image
+          ? comparable(blobs.data) && <Seg<ImageMode> value={imageMode} onChange={setImageMode} label="Image comparison" options={IMAGE_MODES} />
+          : f &&
+            !unchanged && (
+              <Seg<DiffMode>
+                value={diffMode}
+                onChange={setDiffMode}
+                label="Diff mode"
+                options={[
+                  { value: "split", label: "Split" },
+                  { value: "unified", label: "Unified" },
+                  { value: "full", label: "Full" },
+                ]}
+              />
+            )}
+        <button className="btn btn-sm btn-icon" aria-label="Close the file (Esc)" data-tip="Close (Esc)" onClick={onClose}>
+          <Icon name="close" size={12} />
+        </button>
+      </div>
+      <div className="diff">
+        {(diff.isLoading || blobs.isLoading) && <Loading />}
+        {diff.error && <div style={{ padding: 16 }}><ErrorBox error={diff.error} /></div>}
+        {blobs.error && <div style={{ padding: 16 }}><ErrorBox error={blobs.error} /></div>}
+        {image && f && blobs.data && <ImageDiff path={f.path} blobs={blobs.data} mode={imageMode} />}
+        {huge && !image && <LargeDiff lines={lines} onShow={() => setAnyway(file)} />}
+        {raw && f && <DiffView path={f.path} hunks={raw} mode="full" anyway={forced} onAnyway={() => setAnyway(file)} />}
+        {!image && f && diff.data && diff.data.length > 0 && <DiffView path={f.path} hunks={diff.data} mode={diffMode} anyway={forced} onAnyway={() => setAnyway(file)} />}
+        {(files && !f) || (!image && diff.data?.length === 0) || (unchanged && !image && text === null) ? (
+          <div className="empty" style={{ fontFamily: "var(--sans)" }}>
+            {!f ? "This file has no changes here anymore." : unchanged ? "Binary file." : f.status === "R" ? "Renamed, no other changes." : "No textual changes in this file."}
+          </div>
+        ) : null}
+      </div>
+    </section>
   );
 }
 
