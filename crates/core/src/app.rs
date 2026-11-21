@@ -824,9 +824,9 @@ pub struct PrRefs {
     pub head_sha: String,
 }
 
-/// Commit `sha` (full or abbreviated) as this clone has it, fetched from origin when missing: from each of `refs` in
-/// turn, then by itself when full, which some hosts hand out.
-async fn fetched_commit(git: &Git, sha: &str, refs: &[String]) -> Result<Option<String>> {
+/// Commit `sha` (full or abbreviated) as this clone has it, fetched from `from` (a remote or a URL) when missing: from
+/// each of `refs` in turn, then by itself when full, which some hosts hand out.
+async fn fetched_commit(git: &Git, from: &str, sha: &str, refs: &[String]) -> Result<Option<String>> {
     if sha.is_empty() {
         return Ok(None);
     }
@@ -835,13 +835,45 @@ async fn fetched_commit(git: &Git, sha: &str, refs: &[String]) -> Result<Option<
     }
     let full = sha.len() >= 40 && sha.bytes().all(|b| b.is_ascii_hexdigit());
     for what in refs.iter().map(String::as_str).chain(full.then_some(sha)) {
-        if git.fetch_objects(what).await? {
+        if git.fetch_objects(from, what).await? {
             if let Some(c) = git.commit_of(sha).await? {
                 return Ok(Some(c));
             }
         }
     }
     Ok(None)
+}
+
+/// The remote holding `branch`'s own copy, when `upstream` (`remote/name`) is one: `fork` for `fork/feat/x`.
+fn own_remote<'a>(upstream: &'a str, branch: &str) -> Option<&'a str> {
+    upstream.strip_suffix(branch)?.strip_suffix('/').filter(|r| !r.is_empty())
+}
+
+/// Git's words when the host turns a push down for lack of write access: GitHub's over SSH ("ERROR: Permission to o/r.git
+/// denied to me.") and over HTTPS ("remote: Permission to o/r.git denied to me." then "returned error: 403").
+fn push_refused(stderr: &str) -> bool {
+    (stderr.contains("Permission to") && stderr.contains("denied")) || stderr.contains("returned error: 403")
+}
+
+/// `url` (origin's) naming repository `to` instead of `from`, on the same host and protocol so the same sign-in
+/// reaches it.
+fn swap_repo(url: &str, from: &RepoRef, to: &RepoRef) -> String {
+    let path = format!("{}/{}", from.owner, from.repo);
+    match url.rfind(&path) {
+        Some(i) => format!("{}{}/{}{}", &url[..i], to.owner, to.repo, &url[i + path.len()..]),
+        None => format!("https://{}/{}/{}.git", to.host, to.owner, to.repo),
+    }
+}
+
+/// The remote here that already points at GitHub repository `full_name` (owner/repo), if any.
+fn remote_of<'a>(remotes: &'a [(String, String)], full_name: &str) -> Option<&'a str> {
+    remotes.iter().find(|(_, url)| parse_remote(url).is_some_and(|r| format!("{}/{}", r.owner, r.repo).eq_ignore_ascii_case(full_name))).map(|(n, _)| n.as_str())
+}
+
+/// A name for the user's fork's new remote: `fork`, as the GitHub CLI names it, else the fork's owner.
+fn fork_remote_name(remotes: &[(String, String)], owner: &str) -> String {
+    let taken = |n: &str| remotes.iter().any(|(r, _)| r == n);
+    ["fork", owner].into_iter().find(|n| !taken(n)).map(String::from).unwrap_or_else(|| format!("{owner}-fork"))
 }
 
 fn github_host_ok(host: &str, api_set: bool) -> bool {
@@ -4378,27 +4410,43 @@ impl Gitnetix {
         Ok(CommitResult { sha, message, ai_written })
     }
 
-    /// Push a branch; `force` replaces its upstream (see [`Git::force_push`]), e.g. after a rebase.
+    /// Push a branch; `force` replaces its upstream (see [`Git::force_push_to`]), e.g. after a rebase.
     pub async fn push(&self, project_id: &str, branch: &str, force: bool) -> Result<String> {
         let p = self.store.project(project_id)?;
         let git = match self.checkout_dir(&p, branch).await? {
             Some(d) => self.git_at(&d),
             None => self.git(&p),
         };
+        let upstream = git.upstream(branch).await?;
+        // Its own copy on another remote (a fork's, to open a pull request from) is where it goes; origin otherwise.
+        let own = match upstream.as_deref().and_then(|u| own_remote(u, branch)) {
+            Some(r) if git.remote_url(r).await?.is_some() => Some(r),
+            _ => None,
+        };
         let out = if force {
-            let upstream = git.upstream(branch).await?.ok_or_else(|| Error::Invalid(format!("{branch} has no upstream to force push to.")))?;
-            // Only its own copy on origin: a branch made from origin/main tracks it, and would replace main.
-            if upstream != format!("origin/{branch}") {
+            let upstream = upstream.as_deref().ok_or_else(|| Error::Invalid(format!("{branch} has no upstream to force push to.")))?;
+            // Only its own copy: a branch made from origin/main tracks it, and would replace main.
+            let Some(remote) = own else {
                 return Err(Error::Invalid(format!(
                     "{branch} tracks {upstream}, not origin/{branch}: a force push would replace {upstream}. Push it without force to give it its own copy on origin."
                 )));
-            }
-            git.force_push(branch).await?
+            };
+            git.force_push_to(remote, branch).await?
         } else {
             // Track it unless it already does: a branch pushed without -u (on origin, untracked), or one
             // tracking another name (e.g. renamed locally), gets `origin/<branch>` as its upstream now.
-            let tracked = git.upstream(branch).await?.is_some_and(|u| u == format!("origin/{branch}"));
-            git.push(branch, !tracked).await?
+            match git.push_to(own.unwrap_or("origin"), branch, own.is_none()).await {
+                // A GitHub origin the user can't write to (a clone of someone else's project): the app offers a fork.
+                Err(Error::Git { stderr, .. }) if own.is_none_or(|r| r == "origin") && push_refused(&stderr) => {
+                    let url = git.remote_url("origin").await?.unwrap_or_default();
+                    let api = self.store.read(|c| c.integrations.github_api.clone()).is_some_and(|a| !a.is_empty());
+                    return Err(match parse_remote(&url).filter(|r| github_host_ok(&r.host, api)) {
+                        Some(r) => Error::NoPushAccess { repo: format!("{}/{}", r.owner, r.repo) },
+                        None => Error::Git { cmd: "push".into(), stderr },
+                    });
+                }
+                r => r?,
+            }
         };
         self.changed(project_id);
         Ok(out)
@@ -7220,6 +7268,97 @@ impl Gitnetix {
         Ok(PrHost::GitHub(self.github(project_id).await?))
     }
 
+    /// [`Self::pr_host`] for pull requests: a GitHub fork's go to the repository it was forked from once picked on the
+    /// pull requests page. Renames and protected branches stay with origin's.
+    pub async fn prs_host(&self, project_id: &str) -> Result<PrHost> {
+        match self.pr_host(project_id).await? {
+            PrHost::GitHub(gh) => {
+                let to = self.pr_target(project_id, &gh.repo)?;
+                Ok(PrHost::GitHub(match to {
+                    Some(to) => gh.retarget(to),
+                    None => gh,
+                }))
+            }
+            other => Ok(other),
+        }
+    }
+
+    /// The repository pull requests go to instead of origin `repo`, as picked for this origin.
+    fn pr_target(&self, project_id: &str, repo: &RepoRef) -> Result<Option<RepoRef>> {
+        let origin = format!("{}/{}", repo.owner, repo.repo);
+        let p = self.store.project(project_id)?;
+        Ok(p.pr_repo.filter(|r| r.origin.eq_ignore_ascii_case(&origin) && !r.to.eq_ignore_ascii_case(&origin)).and_then(|r| {
+            let (owner, name) = r.to.split_once('/')?;
+            Some(RepoRef { owner: owner.into(), repo: name.into(), ..repo.clone() })
+        }))
+    }
+
+    /// Where pull requests' commits are fetched from: origin, or the URL of the repository they go to instead.
+    async fn pr_source(&self, p: &Project) -> Result<String> {
+        let url = self.git(p).remote_url("origin").await?;
+        let target = match url.as_deref().and_then(parse_remote) {
+            Some(repo) => self.pr_target(&p.id, &repo)?.map(|to| swap_repo(url.as_deref().unwrap_or_default(), &repo, &to)),
+            None => None,
+        };
+        Ok(target.unwrap_or_else(|| "origin".into()))
+    }
+
+    /// For the pull requests page, when origin is a GitHub fork or the user can't push to it: origin (owner/repo as
+    /// its URL names it), the repository it was forked from, push access, and where pull requests go as picked (null:
+    /// never picked, so origin). None otherwise, or when GitHub can't be asked.
+    pub async fn pr_fork(&self, project_id: &str) -> Option<serde_json::Value> {
+        let gh = self.github(project_id).await.ok()?;
+        let info = gh.info().await.ok()?;
+        if info.parent.is_none() && info.can_push {
+            return None;
+        }
+        let origin = format!("{}/{}", gh.repo.owner, gh.repo.repo);
+        let to = self.store.project(project_id).ok()?.pr_repo.filter(|r| r.origin.eq_ignore_ascii_case(&origin)).map(|r| r.to);
+        Some(serde_json::json!({ "origin": origin, "parent": info.parent, "canPush": info.can_push, "to": to }))
+    }
+
+    /// Forks origin to the user's GitHub account (or finds their fork), gives it a remote here unless one points at it,
+    /// and pushes `branch` there, tracking it so its later pushes go there too. Returns the fork (owner/repo).
+    async fn push_to_fork(&self, p: &Project, gh: &GitHub, branch: &str) -> Result<String> {
+        let git = match self.checkout_dir(p, branch).await? {
+            Some(d) => self.git_at(&d),
+            None => self.git(p),
+        };
+        let fork = gh.fork().await?;
+        let owner = fork.full_name.split_once('/').map(|(o, _)| o.to_string()).ok_or_else(|| Error::Http(format!("GitHub named the fork “{}”", fork.full_name)))?;
+        let remotes = git.remotes().await?;
+        let remote = match remote_of(&remotes, &fork.full_name) {
+            Some(r) => r.to_string(),
+            None => {
+                let name = fork_remote_name(&remotes, &owner);
+                // Same protocol as origin, so the same sign-in (credential helper or ssh key) pushes to it.
+                let ssh = git.remote_url("origin").await?.is_some_and(|u| !u.starts_with("http"));
+                git.add_remote(&name, if ssh { &fork.ssh_url } else { &fork.clone_url }).await?;
+                name
+            }
+        };
+        // A new fork takes a few seconds to copy: GitHub answers "not found" until then.
+        for left in (0..10).rev() {
+            match git.push_to(&remote, branch, true).await {
+                Err(Error::Git { stderr, .. }) if left > 0 && stderr.to_lowercase().contains("not found") => tokio::time::sleep(std::time::Duration::from_secs(3)).await,
+                r => {
+                    r?;
+                    break;
+                }
+            }
+        }
+        self.changed(&p.id);
+        Ok(fork.full_name)
+    }
+
+    /// Pushes `branch` to the user's GitHub fork of origin, made if needed: for an origin they can't push to. Returns
+    /// the fork (owner/repo).
+    pub async fn push_via_fork(&self, project_id: &str, branch: &str) -> Result<String> {
+        let p = self.store.project(project_id)?;
+        let gh = self.github(project_id).await?;
+        self.push_to_fork(&p, &gh, branch).await
+    }
+
     /// Which host [`Self::pr_host`] connects to, read from origin without signing in: its [`PrHost::provider`].
     async fn pr_kind(&self, p: &Project) -> Result<&'static str> {
         let Some(url) = self.git(p).remote_url("origin").await? else { return Ok("github") };
@@ -7235,10 +7374,11 @@ impl Gitnetix {
     /// lacks (its branch since rewritten) gives way to origin's copy of the base branch.
     async fn pr_range(&self, p: &Project, number: u64, pr: &PrRefs) -> Result<String> {
         let git = self.git(p);
+        let from = self.pr_source(p).await?;
         let refs = providers::head_refs(self.pr_kind(p).await?, number, &pr.head);
-        let head = fetched_commit(&git, &pr.head_sha, &refs).await?.ok_or_else(|| Error::NotFound(format!("the commits of #{number} on origin")))?;
+        let head = fetched_commit(&git, &from, &pr.head_sha, &refs).await?.ok_or_else(|| Error::NotFound(format!("the commits of #{number} on origin")))?;
         let base_refs: Vec<String> = providers::plain_branch(&pr.base).then(|| format!("refs/heads/{}", pr.base)).into_iter().collect();
-        let base = match fetched_commit(&git, &pr.base_sha, &base_refs).await? {
+        let base = match fetched_commit(&git, &from, &pr.base_sha, &base_refs).await? {
             Some(b) => b,
             None => git.branch_rev(&pr.base).await?.ok_or_else(|| Error::NotFound(format!("{} on origin", pr.base)))?,
         };
@@ -7266,7 +7406,9 @@ impl Gitnetix {
         let base = self.base_of(&p, branch, &default).await;
         let t = self.template("pr", None, Some(&p.id))?;
         let ticket = p.branches.get(branch).and_then(|m| m.ticket.clone()).unwrap_or_else(|| "(none)".into());
-        let (base_rev, rev) = tokio::join!(git.rev_of(&base), git.rev_of(branch));
+        // The default branch is its own base: through a fork, its pull request holds what it adds to origin's copy.
+        let base_ref = if base == branch { format!("origin/{base}") } else { base.clone() };
+        let (base_rev, rev) = tokio::join!(git.rev_of(&base_ref), git.rev_of(branch));
         let mut vars = BTreeMap::new();
         vars.insert("diff".into(), git.range_diff(&format!("{base_rev}...{rev}"), 60_000).await?);
         vars.insert("commits".into(), commit_lines(&git.log(&format!("{base_rev}..{rev}"), Some(100)).await?));
@@ -7278,30 +7420,51 @@ impl Gitnetix {
         Ok((title, body))
     }
 
+    /// Pushes `branch` and opens its pull request. On GitHub, an origin the user can't push to gets it through their
+    /// fork of it, made if needed.
     pub async fn create_pr(&self, project_id: &str, branch: &str, draft: bool, title: Option<String>, body: Option<String>) -> Result<crate::providers::github::PrSummary> {
         let p = self.store.project(project_id)?;
-        let gh = self.pr_host(project_id).await?;
+        let gh = self.prs_host(project_id).await?;
         let git = self.git(&p);
         let default = git.default_branch().await?;
         let base = self.base_of(&p, branch, &default).await;
-        // The base must exist on the remote too.
-        if !git.ref_exists(&format!("refs/remotes/origin/{base}")).await? {
-            git.push(&base, true).await?;
-        }
-        // A branch only on origin is already there.
-        if git.ref_exists(&format!("refs/heads/{branch}")).await? {
-            if let Some(u) = git.upstream(branch).await? {
-                if git.ref_exists(&format!("refs/remotes/{u}")).await? && !git.is_ancestor(&u, branch).await? {
-                    return Err(Error::Invalid(format!("{branch} was rewritten since it was pushed (rebased?). Force push it to {u} first, then open the pull request.")));
-                }
+        // GitHub says origin is read only to the user (a fork's own pull requests already go through origin, theirs).
+        let via_fork = match &gh {
+            PrHost::GitHub(g) if !g.retargeted() => g.info().await.is_ok_and(|i| !i.can_push),
+            _ => false,
+        };
+        // In another repository than its own, the head is named `owner:branch`.
+        let head = match &gh {
+            PrHost::GitHub(g) if via_fork => {
+                let fork = self.push_to_fork(&p, g, branch).await?;
+                format!("{}:{branch}", fork.split_once('/').map_or(fork.as_str(), |(owner, _)| owner))
             }
-            self.push(project_id, branch, false).await?;
-        }
+            _ => {
+                let head = match &gh {
+                    PrHost::GitHub(g) => g.head_of(branch),
+                    _ => branch.to_string(),
+                };
+                // The base must exist on the remote too (its own repository's: a fork's pull requests go to its parent's).
+                if head == branch && !git.ref_exists(&format!("refs/remotes/origin/{base}")).await? {
+                    git.push(&base, true).await?;
+                }
+                // A branch only on origin is already there.
+                if git.ref_exists(&format!("refs/heads/{branch}")).await? {
+                    if let Some(u) = git.upstream(branch).await? {
+                        if git.ref_exists(&format!("refs/remotes/{u}")).await? && !git.is_ancestor(&u, branch).await? {
+                            return Err(Error::Invalid(format!("{branch} was rewritten since it was pushed (rebased?). Force push it to {u} first, then open the pull request.")));
+                        }
+                    }
+                    self.push(project_id, branch, false).await?;
+                }
+                head
+            }
+        };
         let (title, body) = match (title.filter(|s| !s.is_empty()), body) {
             (Some(t), b) => (t, b.unwrap_or_default()),
             (None, _) => self.generate_pr(project_id, branch).await?,
         };
-        let pr = gh.create(branch, &base, &title, &body, draft).await?;
+        let pr = gh.create(&head, &base, &title, &body, draft).await?;
         self.changed(project_id);
         Ok(pr)
     }
@@ -7309,7 +7472,7 @@ impl Gitnetix {
     /// A reply for a review conversation; with `draft`, the author's started reply polished instead.
     /// `editing` is the comment the draft rewrites: the conversation then stops before it.
     pub async fn draft_reply(&self, project_id: &str, number: u64, thread_id: &str, draft: Option<&str>, editing: Option<&str>) -> Result<String> {
-        let gh = self.pr_host(project_id).await?;
+        let gh = self.prs_host(project_id).await?;
         let d = gh.detail(number).await?;
         let th = d.threads.iter().find(|t| t.id == thread_id).ok_or_else(|| Error::NotFound("thread".into()))?;
         let mut convo = String::new();
@@ -7336,7 +7499,7 @@ impl Gitnetix {
 
     pub async fn draft_review(&self, project_id: &str, number: u64) -> Result<String> {
         let p = self.store.project(project_id)?;
-        let gh = self.pr_host(project_id).await?;
+        let gh = self.prs_host(project_id).await?;
         let d = gh.detail(number).await?;
         let git = self.git(&p);
         let _ = git.fetch().await;
@@ -8799,6 +8962,33 @@ fn fix_version_release(fix_versions: &[String], releases: &[Release]) -> Option<
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn fork_remotes_follow_origins_protocol_and_names() {
+        let repo = |o: &str, r: &str| RepoRef { host: "github.com".into(), owner: o.into(), repo: r.into(), port: None };
+        let (from, to) = (repo("me", "app"), repo("acme", "app"));
+        assert_eq!(swap_repo("git@github.com:me/app.git", &from, &to), "git@github.com:acme/app.git");
+        assert_eq!(swap_repo("https://tok@github.com/me/app", &from, &to), "https://tok@github.com/acme/app");
+        // A URL naming it otherwise: plain https on the host.
+        assert_eq!(swap_repo("ssh://example/x", &from, &to), "https://github.com/acme/app.git");
+
+        // The two ways GitHub turns down a push from someone without write access, and a push refused for another reason.
+        assert!(push_refused("ERROR: Permission to Swess/exe_launcher.git denied to t1gu1.\nfatal: Could not read from remote repository."));
+        assert!(push_refused("remote: Permission to o/r.git denied to me.\nfatal: unable to access 'https://github.com/o/r.git/': The requested URL returned error: 403"));
+        assert!(!push_refused(" ! [rejected]        main -> main (fetch first)"));
+
+        assert_eq!(own_remote("fork/feat/x", "feat/x"), Some("fork"));
+        assert_eq!(own_remote("origin/main", "feat/x"), None);
+        assert_eq!(own_remote("feat/x", "feat/x"), None);
+
+        let remotes = vec![("origin".to_string(), "git@github.com:acme/app.git".to_string()), ("mine".to_string(), "https://github.com/Me/App.git".to_string())];
+        assert_eq!(remote_of(&remotes, "me/app"), Some("mine"));
+        assert_eq!(remote_of(&remotes, "other/app"), None);
+        assert_eq!(fork_remote_name(&remotes, "me"), "fork");
+        let taken = vec![("fork".to_string(), String::new()), ("me".to_string(), String::new())];
+        assert_eq!(fork_remote_name(&taken[..1], "me"), "me");
+        assert_eq!(fork_remote_name(&taken, "me"), "me-fork");
+    }
     use super::*;
 
     #[test]

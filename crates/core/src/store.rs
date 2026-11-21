@@ -92,6 +92,17 @@ pub struct Project {
     pub worktree_links: Vec<String>,
     /// The types (branch prefixes) the new branch dialogs offer.
     pub branch_types: BranchTypes,
+    /// Where pull requests go when origin is a GitHub fork, as last picked: unset reads them on origin.
+    pub pr_repo: Option<PrRepo>,
+}
+
+/// Pull requests read and opened on `to` (origin's or the repository it was forked from) while origin is `origin`:
+/// another origin since leaves them on origin. Both owner/repo.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PrRepo {
+    pub origin: String,
+    pub to: String,
 }
 
 /// Two rows of six, Release in Build's slot, Build just past them. The UI's DEFAULT_TYPES: keep the two in step.

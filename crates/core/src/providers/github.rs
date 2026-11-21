@@ -12,6 +12,9 @@ pub struct GitHub {
     /// Swapped for a renewed one when GitHub turns it down.
     token: std::sync::Mutex<String>,
     pub repo: RepoRef,
+    /// owner/repo of origin when the pull requests live elsewhere (origin is a fork of `repo`): a head branch there is
+    /// one of ours, not a fork's.
+    origin: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -44,6 +47,23 @@ pub struct UserRepo {
     pub private: bool,
     pub clone_url: String,
     pub ssh_url: String,
+}
+
+/// What GitHub says of a repository: the one it was forked from, and whether the signed-in user can push to it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RepoInfo {
+    /// owner/repo, as GitHub spells it.
+    pub full_name: String,
+    /// owner/repo of the repository it is a fork of.
+    pub parent: Option<String>,
+    pub can_push: bool,
+}
+
+impl RepoInfo {
+    fn read(v: &Value) -> Self {
+        let name = |v: &Value| v["full_name"].as_str().map(String::from);
+        RepoInfo { full_name: name(v).unwrap_or_default(), parent: (v["fork"] == true).then(|| name(&v["parent"])).flatten(), can_push: v["permissions"]["push"] == true }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -234,7 +254,39 @@ impl GitHub {
     pub fn new(repo: RepoRef, token: String, api: Option<String>) -> Self {
         let api = api.filter(|s| !s.is_empty()).unwrap_or_else(|| "https://api.github.com".into());
         let http = crate::net::client();
-        GitHub { http, api: api.trim_end_matches('/').into(), token: std::sync::Mutex::new(token), repo }
+        GitHub { http, api: api.trim_end_matches('/').into(), token: std::sync::Mutex::new(token), repo, origin: None }
+    }
+
+    /// The same sign-in on `to`, the repository origin was forked from, whose pull requests a fork's branches go to.
+    pub fn retarget(mut self, to: RepoRef) -> Self {
+        self.origin = Some(format!("{}/{}", self.repo.owner, self.repo.repo));
+        self.repo = to;
+        self
+    }
+
+    /// Pull requests read on the repository origin was forked from, not on origin.
+    pub fn retargeted(&self) -> bool {
+        self.origin.is_some()
+    }
+
+    /// How a pull request names `branch` as its head: `owner:branch` when it lives in origin, a fork of this repository.
+    pub fn head_of(&self, branch: &str) -> String {
+        match self.origin.as_deref().and_then(|o| o.split_once('/')) {
+            Some((owner, _)) => format!("{owner}:{branch}"),
+            None => branch.to_string(),
+        }
+    }
+
+    /// The repository's parent when it is a fork, and whether the user can push to it.
+    pub async fn info(&self) -> Result<RepoInfo> {
+        Ok(RepoInfo::read(&self.get(&self.rp()).await?))
+    }
+
+    /// Forks the repository to the signed-in user's account (its default branch only), or finds the fork made before:
+    /// GitHub answers with that one. A new fork may still be copying when this returns.
+    pub async fn fork(&self) -> Result<UserRepo> {
+        let v = self.req(reqwest::Method::POST, &format!("{}/forks", self.rp()), Some(json!({ "default_branch_only": true }))).await?;
+        Ok(serde_json::from_value(v)?)
     }
 
     fn graphql_url(&self) -> String {
@@ -444,7 +496,8 @@ impl GitHub {
         Ok(self.get("/user").await?["login"].as_str().unwrap_or("").to_string())
     }
 
-    fn summary(v: &Value, me: &str) -> PrSummary {
+    /// `origin`: see [`GitHub::origin`].
+    fn summary(v: &Value, me: &str, origin: Option<&str>) -> PrSummary {
         let author = v["user"]["login"].as_str().unwrap_or("").to_string();
         let state = if !v["merged_at"].is_null() {
             "merged"
@@ -464,7 +517,10 @@ impl GitHub {
             title: v["title"].as_str().unwrap_or("").into(),
             head: v["head"]["ref"].as_str().unwrap_or("").into(),
             // A deleted fork leaves `head.repo` null: a fork still.
-            fork: v["head"]["repo"]["full_name"] != v["base"]["repo"]["full_name"],
+            fork: match origin {
+                Some(o) => !v["head"]["repo"]["full_name"].as_str().is_some_and(|h| h.eq_ignore_ascii_case(o)),
+                None => v["head"]["repo"]["full_name"] != v["base"]["repo"]["full_name"],
+            },
             base: v["base"]["ref"].as_str().unwrap_or("").into(),
             state: state.into(),
             mine: author == me,
@@ -478,13 +534,13 @@ impl GitHub {
     pub async fn list(&self) -> Result<Vec<PrSummary>> {
         let me = self.me().await?;
         let v = self.get(&format!("{}/pulls?state=all&per_page=60&sort=updated&direction=desc", self.rp())).await?;
-        Ok(v.as_array().into_iter().flatten().map(|p| Self::summary(p, &me)).collect())
+        Ok(v.as_array().into_iter().flatten().map(|p| Self::summary(p, &me, self.origin.as_deref())).collect())
     }
 
     pub async fn detail(&self, number: u64) -> Result<PrDetail> {
         let me = self.me().await?;
         let p = self.get(&format!("{}/pulls/{number}", self.rp())).await?;
-        let summary = Self::summary(&p, &me);
+        let summary = Self::summary(&p, &me, self.origin.as_deref());
         let sha = p["head"]["sha"].as_str().unwrap_or("").to_string();
 
         let checks = match self.get(&format!("{}/commits/{sha}/check-runs?per_page=50", self.rp())).await {
@@ -648,7 +704,7 @@ impl GitHub {
                 Some(json!({ "head": head, "base": base, "title": title, "body": body, "draft": draft })),
             )
             .await?;
-        Ok(Self::summary(&v, &me))
+        Ok(Self::summary(&v, &me, self.origin.as_deref()))
     }
 
     pub async fn update(&self, number: u64, title: &str, body: &str) -> Result<()> {
@@ -757,11 +813,25 @@ mod tests {
 
     #[test]
     fn tells_a_pull_request_from_a_fork() {
-        let pr = |head: Value| GitHub::summary(&json!({ "number": 1, "title": "T", "head": { "ref": "release/2.5", "repo": head }, "base": { "ref": "main", "repo": { "full_name": "us/r" } }, "user": { "login": "x" }, "state": "open" }), "me");
+        let on = |head: Value, origin| GitHub::summary(&json!({ "number": 1, "title": "T", "head": { "ref": "release/2.5", "repo": head }, "base": { "ref": "main", "repo": { "full_name": "us/r" } }, "user": { "login": "x" }, "state": "open" }), "me", origin);
+        let pr = |head| on(head, None);
         assert!(!pr(json!({ "full_name": "us/r" })).fork);
         assert!(pr(json!({ "full_name": "them/r" })).fork);
         // Its fork deleted since: still not origin's branch.
         assert!(pr(Value::Null).fork);
+        // Pull requests read on the repository origin was forked from: a head in origin is ours, any other a fork's.
+        assert!(!on(json!({ "full_name": "Me/R" }), Some("me/r")).fork);
+        assert!(on(json!({ "full_name": "us/r" }), Some("me/r")).fork);
+        assert!(on(Value::Null, Some("me/r")).fork);
+    }
+
+    #[test]
+    fn reads_a_forks_parent_and_push_access() {
+        let fork = RepoInfo::read(&json!({ "full_name": "me/r", "fork": true, "parent": { "full_name": "us/r" }, "permissions": { "push": true } }));
+        assert_eq!(fork, RepoInfo { full_name: "me/r".into(), parent: Some("us/r".into()), can_push: true });
+        // Someone else's repository: not a fork, and read only.
+        let theirs = RepoInfo::read(&json!({ "full_name": "us/r", "fork": false, "permissions": { "push": false, "pull": true } }));
+        assert_eq!((theirs.parent, theirs.can_push), (None, false));
     }
 
     /// A fake API serving `/user/repos` pages of 100, 100 and 1 repositories.
@@ -832,6 +902,61 @@ mod tests {
         let got = gh.issues(json!({ "states": ["OPEN"] }), 60).await.unwrap();
         assert_eq!((got.len(), got[59]["number"].as_u64()), (60, Some(59)));
         assert!(explain("Your token has not been granted the required scopes to execute this query.").contains("Sign in to GitHub again"));
+    }
+
+    /// A fake API: forking answers with the user's fork, and a pull request opened on the repository origin was forked
+    /// from names its head `owner:branch` and reads as ours, not a fork's.
+    #[tokio::test]
+    async fn opens_a_forks_pull_request_on_its_parent() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let api = format!("http://{}", listener.local_addr().unwrap());
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        tokio::spawn(async move {
+            loop {
+                let (mut sock, _) = listener.accept().await.unwrap();
+                let mut req = Vec::new();
+                let mut buf = vec![0; 8192];
+                let (line, body) = loop {
+                    let n = sock.read(&mut buf).await.unwrap();
+                    req.extend_from_slice(&buf[..n]);
+                    let text = String::from_utf8_lossy(&req).to_string();
+                    let Some((head, body)) = text.split_once("\r\n\r\n") else { continue };
+                    let len: usize = head.lines().find_map(|l| l.to_lowercase().strip_prefix("content-length:").map(|v| v.trim().parse().unwrap())).unwrap_or(0);
+                    if n == 0 || body.len() >= len {
+                        break (head.lines().next().unwrap().to_string(), body.to_string());
+                    }
+                };
+                let out = match line.split(' ').take(2).collect::<Vec<_>>()[..] {
+                    ["GET", "/user"] => json!({ "login": "me" }),
+                    ["POST", "/repos/us/app/forks"] => json!({ "full_name": "me/app", "private": false, "clone_url": "https://github.com/me/app.git", "ssh_url": "git@github.com:me/app.git", "description": null }),
+                    ["POST", "/repos/us/app/pulls"] => {
+                        let b: Value = serde_json::from_str(&body).unwrap();
+                        json!({ "number": 7, "title": b["title"], "head": { "ref": "feat/x", "repo": { "full_name": "me/app" } }, "base": { "ref": "main", "repo": { "full_name": "us/app" } }, "user": { "login": "me" }, "state": "open" })
+                    }
+                    _ => json!({ "message": "Not Found" }),
+                };
+                tx.send((line, body)).unwrap();
+                let res = format!("HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{out}", out.to_string().len());
+                sock.write_all(res.as_bytes()).await.unwrap();
+            }
+        });
+        let repo = |owner: &str| RepoRef { host: "github.com".into(), owner: owner.into(), repo: "app".into(), port: None };
+
+        let fork = GitHub::new(repo("us"), "t".into(), Some(api.clone())).fork().await.unwrap();
+        assert_eq!((fork.full_name.as_str(), fork.ssh_url.as_str()), ("me/app", "git@github.com:me/app.git"));
+        assert!(rx.recv().await.unwrap().1.contains("default_branch_only"));
+
+        assert!(!GitHub::new(repo("us"), "t".into(), None).retargeted());
+        let gh = GitHub::new(repo("me"), "t".into(), Some(api)).retarget(repo("us"));
+        assert!(gh.retargeted());
+        assert_eq!(gh.head_of("feat/x"), "me:feat/x");
+        let pr = gh.create(&gh.head_of("feat/x"), "main", "T", "", false).await.unwrap();
+        assert!(!pr.fork, "its head lives in origin");
+        rx.recv().await.unwrap();
+        let (line, body) = rx.recv().await.unwrap();
+        assert!(line.starts_with("POST /repos/us/app/pulls"), "{line}");
+        assert_eq!(serde_json::from_str::<Value>(&body).unwrap()["head"], "me:feat/x");
     }
 
     #[test]

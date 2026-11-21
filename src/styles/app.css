@@ -6317,6 +6317,355 @@ button.picker-act {
 }
 .thread-file > .btn {
   margin-block: -4px;
+  font-family: var(--sans);
+}
+
+/* ---------- pull requests ---------- */
+/* List rows: author, title and age on top, number and branches under it. */
+.pr-row {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 12px;
+}
+.pr-row > .user-avatar {
+  margin-top: 1px;
+}
+.pr-row-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.pr-row-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+  color: var(--fg);
+}
+.pr-row-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--faint);
+  white-space: nowrap;
+}
+.pr-row-meta > .mono {
+  font-size: 11.5px;
+}
+.pr-row-meta > .tag {
+  padding: 0 5px;
+}
+.pr-row-meta > :not(.tag) + :not(.tag)::before {
+  content: "·";
+  margin-right: 8px;
+  font-family: var(--sans);
+}
+.pr-row-route {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pr-row-age {
+  flex: none;
+  font: 400 11px/20px var(--mono);
+  color: var(--faint);
+}
+.pr-list {
+  flex: 1 1 auto;
+  padding-bottom: 12px;
+}
+.pr-list .group-head {
+  letter-spacing: 0.14em;
+  color: var(--faint);
+}
+.pr-list .group-head > .mono {
+  letter-spacing: 0;
+  font-weight: 500;
+}
+/* Where a fork's pull requests go, over the filters. */
+.pr-repo {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.pr-repo > .hint {
+  margin: 0;
+}
+/* The new pull request, at the foot of the list: the branch it opens from and into, then the button. */
+.pr-new {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px 14px;
+  border-top: 1px solid var(--line);
+}
+.pr-new-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+.pr-new-head > .mono {
+  min-width: 0;
+  font-size: 11.5px;
+  color: var(--faint);
+}
+.pr-new-route {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fg);
+}
+.pr-new-route > .ellipsis:first-child {
+  min-width: 0;
+}
+.pr-new-route > .ellipsis:last-child {
+  flex: none;
+  max-width: 40%;
+}
+.pr-new > .hint {
+  margin: 0;
+}
+.pr-new > .btn {
+  width: 100%;
+  height: 32px;
+}
+/* The detail: title and facts, the actions, then the conversation beside where it stands. */
+.pr-detail {
+  container-type: inline-size;
+  gap: 20px;
+}
+.pr-head {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.pr-title {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.detail .pr-title > h1 {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-wrap: balance;
+}
+.pr-title > .btn {
+  margin-top: -2px;
+}
+.pr-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.pr-meta > .mono {
+  font-size: 12px;
+}
+.pr-meta-by {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.pr-route {
+  display: inline-flex;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+  font-size: 12.5px;
+  color: var(--fg);
+}
+/* Between two branch names: the mono face draws a small arrow sitting low, Inter's sits on the middle of the names. */
+.pr-arrow {
+  font-family: var(--sans);
+  font-size: 1.15em;
+  line-height: 1;
+  color: var(--faint);
+}
+.tag.c-del {
+  border-color: currentColor;
+  color: var(--del-fg);
+}
+.tag.c-warn {
+  border-color: currentColor;
+  color: var(--warn-fg);
+}
+.pr-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+/* Destructive, so kept apart: at the row's far end. */
+.pr-close {
+  margin-left: auto;
+}
+.pr-cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 24px;
+}
+.pr-main {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  min-width: 0;
+}
+.pr-sec-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 28px;
+}
+.detail .pr-sec-head > h2 {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  line-height: 13px;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+/* The view switch keeps its own width. */
+.pr-detail > .seg {
+  align-self: flex-start;
+}
+.card.pr-body {
+  padding: 6px 16px;
+}
+/* Where it stands: the selected branch card's look. Above the conversation its parts sit side by side, beside it
+   (once the pane has room) they stack as on the card. */
+.pr-status {
+  order: -1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: start;
+  gap: 18px 32px;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--line2);
+  border-radius: var(--r);
+  background: var(--panel);
+}
+.pr-status-top {
+  grid-row: span 2;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.pr-status .map-big small {
+  font-size: 24px;
+  color: var(--faint);
+}
+.pr-status-part {
+  grid-column: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+.pr-status-part > h3 {
+  margin-bottom: 4px;
+}
+.pr-status-list {
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.pr-status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 28px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+}
+.pr-status-row > :last-child {
+  flex: none;
+}
+.pr-status-row > span:not(.grow) {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+button.pr-status-row:hover > .grow {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.pr-check-dot {
+  background: var(--faint);
+  animation: none;
+}
+.pr-check-dot.pass {
+  background: var(--add-fg);
+}
+.pr-check-dot.fail {
+  background: var(--del-fg);
+}
+.pr-check-dot.run {
+  background: var(--fg);
+  animation: agpulse 1.5s steps(2, jump-none) infinite;
+}
+.pr-check-dot.wait {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--faint);
+}
+@container (max-width: 560px) {
+  .pr-status {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .pr-status-top,
+  .pr-status-part {
+    grid-row: auto;
+    grid-column: auto;
+  }
+}
+@container (min-width: 880px) {
+  .pr-cols {
+    grid-template-columns: minmax(0, 1fr) 288px;
+    gap: 32px;
+    align-items: start;
+  }
+  .pr-status {
+    order: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 14px;
+  }
+  .pr-status .map-big {
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .pr-status-part {
+    padding-top: 14px;
+    border-top: 1px solid var(--line);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pr-check-dot.run {
+    animation: none;
+  }
 }
 
 /* A pull request's files: the code fills the pane under the header (at least 420px, the pane scrolls past that), the

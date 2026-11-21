@@ -3,13 +3,13 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react"
 
 import { useAction, useOverview, usePendingBranches, usePr, usePrDiff, usePrFiles, useProjectPrefs, usePrs } from "../api/hooks";
 import { openExternal, rpc, RpcError } from "../api/transport";
-import type { FileChange, PrDetail, PrSummary, PrThread } from "../api/types";
+import type { FileChange, PrDetail, PrFork, PrSummary, PrThread } from "../api/types";
 import { Avatar } from "../components/Avatar";
 import { DiffView, type DiffAt, type Review } from "../components/DiffView";
 import { Icon } from "../components/Icon";
 import { PictureSource } from "../components/Picture";
 import { Resizer, usePaneWidth } from "../components/Resizer";
-import { ago, Busy, Empty, EmptyState, ErrorBox, Header, initials, Loading, Markdown, MEDIA, MediaAsk, Modal, Seg, swipeProps } from "../components/ui";
+import { ago, Busy, Empty, EmptyState, ErrorBox, Header, Loading, Markdown, MEDIA, MediaAsk, Modal, Seg, swipeProps } from "../components/ui";
 import { plural } from "../lib/format";
 import { useNav } from "../lib/nav";
 import { useStored } from "../lib/stored";
@@ -19,6 +19,7 @@ type Tab = "open" | "review" | "closed";
 type View = "conversation" | "files";
 type Who = "mine" | "others" | "all";
 const GROUPS: PrSummary["state"][] = ["open", "draft", "merged", "closed"];
+const GROUP_LABEL: Record<PrSummary["state"], string> = { open: "Open", draft: "Draft", merged: "Merged", closed: "Closed" };
 const EMOJI: [string, string, string][] = [
   ["THUMBS_UP", "👍", "Thumbs up"],
   ["THUMBS_DOWN", "👎", "Thumbs down"],
@@ -35,15 +36,21 @@ function useHost(pid: string) {
   return HOSTS[usePrs(pid).data?.provider ?? ""] ?? "GitHub";
 }
 
+/** The open pull request already made from `branch` here. One from a fork is it only when it is the user's: other
+ * people's forks have branches of every name. */
+export const openPrOf = (items: PrSummary[] | undefined, branch?: string | null) =>
+  items?.find((p) => p.head === branch && (p.state === "open" || p.state === "draft") && (!p.fork || p.mine));
+
+/** A pull request's state and its tag's look: the one ready to merge inverts, a conflict reads in Delete. */
 function stateOf(p: PrSummary, d?: PrDetail): [string, string] {
-  if (p.state === "merged") return ["Merged", "c-mod"];
-  if (p.state === "closed") return ["Closed", "faint"];
+  if (p.state === "merged") return ["Merged", ""];
+  if (p.state === "closed") return ["Closed", ""];
   if (d?.conflict) return ["Conflict", "c-del"];
-  if (p.state === "draft") return ["Draft", "muted"];
-  if (d?.checks.some((c) => c.status === "run")) return ["Checks running", "c-acc"];
-  if (d?.checks.some((c) => c.status === "wait")) return ["Checks waiting", "c-acc"];
-  if (d && d.reviewers.some((r) => r.vote === "approve") && !d.checks.some((c) => c.status === "fail")) return ["Ready to merge", "c-add"];
-  return ["Open", "c-add"];
+  if (p.state === "draft") return ["Draft", ""];
+  if (d?.checks.some((c) => c.status === "run")) return ["Checks running", ""];
+  if (d?.checks.some((c) => c.status === "wait")) return ["Checks waiting", ""];
+  if (d && d.reviewers.some((r) => r.vote === "approve") && !d.checks.some((c) => c.status === "fail")) return ["Ready to merge", "inv"];
+  return ["Open", ""];
 }
 
 export function PullRequests({ initial }: { initial?: number }) {
@@ -59,6 +66,7 @@ export function PullRequests({ initial }: { initial?: number }) {
   const [pane, setPane] = useState<"list" | "detail">(initial ? "detail" : "list");
   const listW = usePaneWidth("gnx.pane.prs", 460, 280, 720);
   const all = prs.data?.items ?? [];
+  const fork = prs.data?.fork ?? undefined;
   const term = search.trim().toLowerCase();
   const items = all.filter((p) => !term || `#${p.number} ${p.title} ${p.head} ${p.author}`.toLowerCase().includes(term));
   // The open pull request's checks and reviews are fetched on their own, so a sync refreshes them too.
@@ -66,6 +74,19 @@ export function PullRequests({ initial }: { initial?: number }) {
     prs.refetch();
     qc.invalidateQueries({ queryKey: ["pr", pid] });
   };
+  // Another repository's pull requests: the list starts over, none of the old one stays picked.
+  const pick = useAction("projects.setPrefs", { invalidate: [["pr", pid]] });
+  const pickRepo = (to: string) =>
+    fork &&
+    pick.mutate(
+      { projectId: pid, prRepo: { origin: fork.origin, to } },
+      {
+        onSuccess: () => {
+          setSel(undefined);
+          qc.resetQueries({ queryKey: ["prs", pid] });
+        },
+      },
+    );
   // Review requests are always on someone else's pull requests, so the author filter skips them.
   const inTab = (p: PrSummary, t: Tab) =>
     t === "review"
@@ -73,24 +94,12 @@ export function PullRequests({ initial }: { initial?: number }) {
       : (who === "all" || p.mine === (who === "mine")) && (t === "closed" ? p.state === "merged" || p.state === "closed" : p.state === "open" || p.state === "draft");
   const list = items.filter((p) => inTab(p, tab));
   const current = sel ?? list[0]?.number;
-  const create = useAction<PrSummary>("prs.create", { invalidate: [["prs", pid]], success: (r) => `Opened #${r.number}` });
-  const branch = nav.selectedBranch ?? ov?.currentBranch;
-  // From the mutation cache, so it still shows after leaving the page and coming back.
-  const creating = usePendingBranches("prs.create", pid).includes(branch ?? "");
-  const bv = ov?.branches.find((b) => b.name === branch);
-  // Pushed commits = commits ahead of its base that origin already has.
-  const unpushed = !bv
-    ? undefined
-    : bv.ahead === 0
-      ? `${branch} has no commits ahead of its base yet.`
-      : !bv.remote || bv.ahead - bv.upstreamAhead <= 0
-        ? `Push commits to ${branch} before opening a pull request.`
-        : undefined;
   const errCode = prs.error instanceof RpcError ? prs.error.code : undefined;
+  const repo = prs.data && `${prs.data.repo.owner}/${prs.data.repo.repo}`;
 
   return (
     <>
-      <Header title="Pull requests" sub={`${ov?.project.name ?? ""}${prs.data ? ` · ${HOSTS[prs.data.provider] ?? "GitHub"} ${prs.data.repo.owner}/${prs.data.repo.repo}` : ""}`} hideWide onBack={pane === "detail" ? () => setPane("list") : undefined} />
+      <Header title="Pull requests" sub={`${ov?.project.name ?? ""}${prs.data ? ` · ${HOSTS[prs.data.provider] ?? "GitHub"} ${repo}` : ""}`} hideWide onBack={pane === "detail" ? () => setPane("list") : undefined} />
       {prs.error ? (
         <EmptyState
           icon="pr"
@@ -103,6 +112,7 @@ export function PullRequests({ initial }: { initial?: number }) {
         <div className="body split">
           <section aria-label="Pull request list" className="master" style={{ "--master-w": `${listW.width}px` } as CSSProperties} data-pane data-active={pane === "list"}>
             <div className="master-tools">
+              {fork?.parent && <ForkPick fork={fork} onPick={pickRepo} />}
               <label htmlFor="pr-q" className="sr-only">Search pull requests</label>
               <div className="row" style={{ gap: 6, margin: 0 }}>
                 <input id="pr-q" className="input grow" placeholder="Search by number, title, branch or author" value={search} onChange={(e) => setSearch(e.target.value, false)} onBlur={() => setSearch(search)} />
@@ -130,45 +140,26 @@ export function PullRequests({ initial }: { initial?: number }) {
                 />
               )}
             </div>
-            <div className="scroll" style={{ flex: "1 1 auto", paddingBottom: 12 }}>
-              {prs.isLoading && <Loading />}
-              {!prs.isLoading && list.length === 0 && <Empty>{term && all.length ? "No pull requests match this search." : "Nothing here."}</Empty>}
+            <div className="scroll pr-list">
+              {(prs.isLoading || pick.isPending) && <Loading />}
+              {!prs.isLoading && !pick.isPending && list.length === 0 && <Empty>{term && all.length ? "No pull requests match this search." : "Nothing here."}</Empty>}
               {GROUPS.map((s) => ({ s, items: list.filter((p) => p.state === s) }))
                 .filter((g) => g.items.length)
-                .map(({ s, items }) => {
-                  const [label, cls] = stateOf(items[0]);
-                  return (
-                    <div key={s}>
-                      <div className="group-head" style={{ fontSize: 13, fontWeight: 700 }}>
-                        <span className={cls}>{label}</span>
-                        <span>{items.length}</span>
-                      </div>
-                      <div className="col" style={{ gap: 2 }}>
-                        {items.map((p) => (
-                          <button key={p.number} className="item-btn" style={{ gap: 1, padding: "7px 12px" }} aria-pressed={p.number === current} onClick={() => { setSel(p.number); setPane("detail"); }}>
-                            <span className="row" style={{ gap: 8, margin: "0 0 2px", fontSize: 11.5 }}>
-                              <Avatar name={p.author} />
-                              <span className="mono faint">#{p.number}</span>
-                              <span className={cls} style={{ fontSize: 13 }}>{label}</span>
-                              <span className="faint ellipsis grow">{p.mine ? "You" : p.author}</span>
-                              <span className="faint">{ago(p.updatedAt)}</span>
-                            </span>
-                            <span className="ellipsis" style={{ fontWeight: 500 }}>{p.title}</span>
-                            <span className="mono faint ellipsis" style={{ fontSize: 11.5, marginTop: 8 }}>{p.head} → {p.base}</span>
-                          </button>
-                        ))}
-                      </div>
+                .map(({ s, items }) => (
+                  <div key={s}>
+                    <div className="group-head">
+                      <span>{GROUP_LABEL[s]}</span>
+                      <span className="mono">{items.length}</span>
                     </div>
-                  );
-                })}
+                    <div className="col" style={{ gap: 2 }}>
+                      {items.map((p) => (
+                        <PrRow key={p.number} p={p} active={p.number === current} onPick={() => { setSel(p.number); setPane("detail"); }} />
+                      ))}
+                    </div>
+                  </div>
+                ))}
             </div>
-            <div className="master-tools" style={{ borderBottom: 0, borderTop: "1px solid var(--line)" }}>
-              {unpushed && <div className="err-box warn">{unpushed}</div>}
-              <button className="btn btn-primary" style={{ height: 48, fontSize: 13.5 }} disabled={!branch || creating || !!unpushed} onClick={() => branch && create.mutate({ projectId: pid, branch }, { onSuccess: (r) => { setSel(r.number); setPane("detail"); } })}>
-                <Busy on={creating}><Icon name="sparkle" size={13} /></Busy>
-                <span className="ellipsis">New PR from {branch ?? "current branch"}</span>
-              </button>
-            </div>
+            <NewPr pid={pid} repo={repo} fork={fork} onOpened={(n) => { setSel(n); setPane("detail"); }} />
           </section>
           <Resizer pane={listW} label="Resize pull request list" />
           <main className="detail" data-pane data-active={pane === "detail"} {...swipeProps((dir) => dir < 0 && setPane("list"))}>
@@ -177,6 +168,100 @@ export function PullRequests({ initial }: { initial?: number }) {
         </div>
       )}
     </>
+  );
+}
+
+/** Where a GitHub fork's pull requests go: the repository it was forked from, or the fork itself. Asked until picked. */
+function ForkPick({ fork, onPick }: { fork: PrFork; onPick: (to: string) => void }) {
+  const to = fork.to ?? fork.origin;
+  return (
+    <div className="pr-repo">
+      <span className="label" aria-hidden="true">Pull requests on</span>
+      <Seg<string>
+        grid
+        label="Pull requests on"
+        value={to}
+        onChange={(r) => r !== to && onPick(r)}
+        options={[fork.parent!, fork.origin].map((r) => ({ value: r, label: <span className="mono ellipsis" data-tip={r} data-tip-overflow>{r}</span> }))}
+      />
+      {!fork.to && <p className="hint">{fork.origin} is your fork of {fork.parent}. Pick {fork.parent} to open your pull requests there.</p>}
+    </div>
+  );
+}
+
+function PrRow({ p, active, onPick }: { p: PrSummary; active: boolean; onPick: () => void }) {
+  return (
+    <button className="item-btn pr-row" aria-pressed={active} onClick={onPick}>
+      <Avatar name={p.author} size={20} />
+      <span className="pr-row-text">
+        <span className="pr-row-title">{p.title}</span>
+        <span className="pr-row-meta">
+          <span className="mono">#{p.number}</span>
+          <span>{p.mine ? "You" : p.author}</span>
+          {p.fork && <span className="tag">Fork</span>}
+          <span className="mono pr-row-route">{p.head} <span className="pr-arrow">→</span> {p.base}</span>
+        </span>
+      </span>
+      <span className="pr-row-age">{ago(p.updatedAt)}</span>
+    </button>
+  );
+}
+
+/** Opens a pull request from the selected branch (else the checked-out one), its title and description written by AI;
+ * through the user's fork when GitHub won't take their pushes on origin. */
+function NewPr({ pid, repo, fork, onOpened }: { pid: string; repo?: string; fork?: PrFork; onOpened: (n: number) => void }) {
+  const nav = useNav();
+  const ov = useOverview(pid).data;
+  const branch = nav.selectedBranch ?? ov?.currentBranch;
+  const create = useAction<PrSummary>("prs.create", { invalidate: [["prs", pid]], success: (r) => (r.fork ? `Forked ${repo} and opened #${r.number}` : `Opened #${r.number}`) });
+  // From the mutation cache, so it still shows after leaving the page and coming back.
+  const creating = usePendingBranches("prs.create", pid).includes(branch ?? "");
+  const bv = ov?.branches.find((b) => b.name === branch);
+  const already = openPrOf(usePrs(pid).data?.items, branch);
+  const viaFork = !!fork && !fork.canPush;
+  // Pushed commits = commits ahead of its base that origin already has. Through a fork, opening it pushes them.
+  // The default branch has no base here: through a fork, it goes to origin's copy of it.
+  const base = bv?.parent ?? ov?.defaultBranch;
+  const blocked = !bv
+    ? undefined
+    : bv.ahead === 0 && !(viaFork && !bv.parent)
+      ? `${branch} has no commits ahead of its base yet.`
+      : !viaFork && (!bv.remote || bv.ahead - bv.upstreamAhead <= 0)
+        ? `Push commits to ${branch} before opening a pull request.`
+        : undefined;
+  const how = viaFork
+    ? `You can't push to ${repo}. This forks it to your GitHub account, pushes the branch there and opens the pull request on ${repo}.`
+    : fork && repo && repo !== fork.origin
+      ? `Pushes the branch to your fork ${fork.origin}, then opens the pull request on ${repo}.`
+      : "AI writes its title and description from the changes.";
+  return (
+    <div className="pr-new">
+      <div className="pr-new-head">
+        <span className="label">New pull request</span>
+        {repo && <span className="mono ellipsis" data-tip={`Opens on ${repo}`}>{repo}</span>}
+      </div>
+      {branch && (
+        <div className="pr-new-route mono">
+          <span className="ellipsis" data-tip={branch} data-tip-overflow>{branch}</span>
+          <span className="pr-arrow">→</span>
+          <span className="ellipsis">{base ?? "its base"}</span>
+        </div>
+      )}
+      {already ? (
+        <>
+          <p className="hint">#{already.number} is already open from {branch}. Commits you push to it show there.</p>
+          <button className="btn" onClick={() => onOpened(already.number)}>Show #{already.number}</button>
+        </>
+      ) : (
+        <>
+          {blocked ? <div className="err-box warn">{blocked}</div> : branch && <p className="hint">{how}</p>}
+          <button className="btn btn-primary" disabled={!branch || creating || !!blocked} onClick={() => branch && create.mutate({ projectId: pid, branch }, { onSuccess: (r) => onOpened(r.number) })}>
+            <Busy on={creating}><Icon name={viaFork ? "branch" : "sparkle"} size={13} /></Busy>
+            <span className="ellipsis">{creating ? (viaFork ? "Forking and pushing…" : "Opening pull request…") : viaFork ? "Fork and open pull request" : "Open pull request"}</span>
+          </button>
+        </>
+      )}
+    </div>
   );
 }
 
@@ -219,7 +304,6 @@ function Detail({ pid, number }: { pid: string; number: number }) {
   const [confirmClose, setConfirmClose] = useState(false);
   const [deleteBranch, setDeleteBranch] = useState(false);
   const [filter, setFilter] = useState<"all" | "open">("all");
-  const [checksOpen, setChecksOpen] = useState(false);
   const [view, setView] = useState<View>("conversation");
   // A conversation to see in the code: the files view opens on its file and line.
   const [focus, setFocus] = useState<PrThread | null>(null);
@@ -229,15 +313,9 @@ function Detail({ pid, number }: { pid: string; number: number }) {
   if (q.error) return <EmptyState icon="pr" title="Couldn't load pull request">{q.error.message}</EmptyState>;
   const d = q.data!;
   const open = d.state === "open" || d.state === "draft";
-  const [label, cls] = stateOf(d, d);
-  const failing = d.checks.filter((c) => c.status === "fail").length;
-  const running = d.checks.filter((c) => c.status === "run").length;
-  const waiting = d.checks.filter((c) => c.status === "wait").length;
-  const pending = [running && `${running} running`, waiting && `${waiting} waiting`].filter(Boolean).join(", ");
+  const [label, tag] = stateOf(d, d);
+  const pending = d.checks.filter((c) => c.status === "run" || c.status === "wait").length;
   const unresolved = d.threads.filter((t) => t.resolvable && !t.resolved).length;
-  const approvals = d.reviewers.filter((r) => r.vote === "approve").length;
-  const changes = d.reviewers.filter((r) => r.vote === "changes").length;
-  const votes = [approvals && plural(approvals, "approval"), changes && `${changes} changes requested`].filter(Boolean).join(" · ");
   const threads = filter === "open" ? d.threads.filter((t) => t.resolvable && !t.resolved) : d.threads;
   const hidden = !media && (MEDIA.test(d.body) || d.threads.some((t) => t.comments.some((c) => MEDIA.test(c.body))));
   const startEdit = () => {
@@ -251,35 +329,42 @@ function Detail({ pid, number }: { pid: string; number: number }) {
   };
 
   return (
-    <div className="detail-inner">
-      {/* Cancels the page's 24px section gap so the action buttons sit right below. */}
-      <div className="col" style={{ gap: 2, marginBottom: -4 }}>
+    <div className="detail-inner pr-detail">
+      <header className="pr-head">
         {editing ? (
           <div className="field">
             <label htmlFor="pr-title">Title</label>
             <input id="pr-title" className="input" value={title} onChange={(e) => setTitle(e.target.value)} />
           </div>
         ) : (
-          <div className="row" style={{ alignItems: "flex-start", margin: 0 }}>
-            <h1 className="grow">{d.title}</h1>
+          <div className="pr-title">
+            <h1>{d.title}</h1>
             {open && (
-              <button className="btn btn-ghost btn-icon" style={{ marginBlock: -3 }} aria-label="Edit title and description" onClick={startEdit}>
+              <button className="btn btn-ghost btn-icon" aria-label="Edit title and description" onClick={startEdit}>
                 <Icon name="edit" />
               </button>
             )}
           </div>
         )}
-        <div className="row wrap muted" style={{ fontSize: 12.5, margin: 0 }}>
-          <span className={`pill ${cls}`}>{label}</span>
-          <span className="mono">#{d.number} · {d.head} → {d.base}</span>
-          <span className="faint">·</span>
-          <span>{d.mine ? "Opened by you" : `Opened by ${d.author}`} · {ago(d.updatedAt)}</span>
+        <div className="pr-meta">
+          <span className={`tag ${tag}`}>{label}</span>
+          <span className="mono faint">#{d.number}</span>
+          <span className="pr-meta-by">
+            <Avatar name={d.author} size={16} />
+            {d.mine ? "Opened by you" : `Opened by ${d.author}`} · updated {ago(d.updatedAt)}
+          </span>
+          <span className="pr-route mono">
+            <span className="ellipsis" data-tip={d.head} data-tip-overflow>{d.head}</span>
+            <span className="pr-arrow">→</span>
+            <span>{d.base}</span>
+          </span>
+          {d.fork && <span className="tag" data-tip="Its branch lives in a fork">Fork</span>}
         </div>
-      </div>
+      </header>
 
-      <div className="row wrap" style={{ gap: 6, margin: 0 }}>
+      <div className="pr-actions">
         {open && !d.conflict && d.state !== "draft" && (
-          <button className="btn btn-primary" disabled={merging || running + waiting > 0} onClick={() => merge.mutate({ projectId: pid, number })}>
+          <button className="btn btn-primary" disabled={merging || pending > 0} onClick={() => merge.mutate({ projectId: pid, number })}>
             {merging && <span className="spinner" />}
             {merging ? `Merging into ${d.base}…` : `Merge into ${d.base}`}
           </button>
@@ -294,6 +379,12 @@ function Detail({ pid, number }: { pid: string; number: number }) {
           >
             <Icon name="sparkle" size={12} />
             Resolve conflicts with AI
+          </button>
+        )}
+        {d.state === "closed" && (
+          <button className="btn btn-primary" disabled={reopen.isPending} onClick={() => reopen.mutate({ projectId: pid, number, reopen: true })}>
+            {reopen.isPending && <span className="spinner" />}
+            Reopen
           </button>
         )}
         {open && (
@@ -316,7 +407,7 @@ function Detail({ pid, number }: { pid: string; number: number }) {
               )
             }
           >
-            <Busy on={gen.isPending}><Icon name="sparkle" size={12} className="c-acc" /></Busy>
+            <Busy on={gen.isPending}><Icon name="sparkle" size={12} /></Busy>
             Rewrite with AI
           </button>
         )}
@@ -325,33 +416,11 @@ function Detail({ pid, number }: { pid: string; number: number }) {
           Open on {host}
         </button>
         {open && (
-          <button className="btn btn-danger" disabled={close.isPending} onClick={() => setConfirmClose(true)}>
+          <button className="btn btn-danger pr-close" disabled={close.isPending} onClick={() => setConfirmClose(true)}>
             <Icon name="close" size={12} />
             Close pull request
           </button>
         )}
-        {d.state === "closed" && (
-          <button className="btn" disabled={reopen.isPending} onClick={() => reopen.mutate({ projectId: pid, number, reopen: true })}>
-            {reopen.isPending && <span className="spinner" />}
-            Reopen
-          </button>
-        )}
-        {unresolved > 0 && open && <span className="c-acc" style={{ fontSize: 12.5 }}>{plural(unresolved, "unresolved conversation")}</span>}
-      </div>
-
-      <div className="row" style={{ margin: 0 }}>
-        <Seg<View>
-          label="Show"
-          value={view}
-          onChange={(v) => {
-            setView(v);
-            setFocus(null);
-          }}
-          options={[
-            { value: "conversation", label: <>Conversation <span className="faint">{d.threads.length}</span></> },
-            { value: "files", label: <>Files changed <span className="faint">{files.data?.length ?? ""}</span></> },
-          ]}
-        />
       </div>
 
       {confirmClose && (
@@ -397,127 +466,187 @@ function Detail({ pid, number }: { pid: string; number: number }) {
 
       {reviewOpen && <ReviewForm pid={pid} d={d} onDone={() => setReviewOpen(false)} />}
 
+      <Seg<View>
+        label="Show"
+        value={view}
+        onChange={(v) => {
+          setView(v);
+          setFocus(null);
+        }}
+        options={[
+          { value: "conversation", label: <>Conversation <span className="faint">{d.threads.length}</span></> },
+          { value: "files", label: <>Files changed <span className="faint">{files.data?.length ?? ""}</span></> },
+        ]}
+      />
+
       {view === "files" && (
         <PictureSource.Provider value={source}>
           <PrFiles key={focus?.id} pid={pid} d={d} media={media} focus={focus} />
         </PictureSource.Provider>
       )}
 
-      {view === "conversation" && d.checks.length > 0 && (
-        <section className="section">
-          <div className="row" style={{ margin: 0 }}>
-            <h2>Checks</h2>
-            <span className={failing ? "c-del" : pending ? "c-acc" : "c-add"} style={{ fontSize: 12.5 }}>
-              {failing ? `${failing} failing` : pending ? `${d.checks.length - running - waiting} of ${d.checks.length} passed, ${pending}` : `All ${d.checks.length} passing`}
-            </span>
-            <span className="grow" />
-            <button className="btn btn-sm" aria-expanded={checksOpen} onClick={() => setChecksOpen(!checksOpen)}>
-              <Icon name="chevronDown" size={12} className="chev" />
-              {checksOpen ? "Hide" : "Show all"}
-            </button>
+      {view === "conversation" && (
+        <div className="pr-cols">
+          <div className="pr-main">
+            <section className="section">
+              <div className="pr-sec-head">
+                <h2>Description</h2>
+                <span className="grow" />
+                {open && !editing && (
+                  <button className="btn btn-sm" onClick={startEdit}>
+                    <Icon name="edit" size={12} />
+                    Edit
+                  </button>
+                )}
+              </div>
+              {hidden && !editing && <MediaAsk onShow={() => prefs.setDialogs({ prMedia: true })} />}
+              {editing ? (
+                <div className="col">
+                  <label htmlFor="pr-body" className="sr-only">Description</label>
+                  <textarea id="pr-body" className="textarea mono" rows={14} style={{ fontSize: 12.5 }} value={body} onChange={(e) => setBody(e.target.value)} />
+                  <div className="row wrap">
+                    <span className="grow" />
+                    <button className="btn" onClick={() => setEditing(false)}>Cancel</button>
+                    <button className="btn btn-primary" disabled={!title.trim() || update.isPending} onClick={() => update.mutate({ projectId: pid, number, title, body }, { onSuccess: () => setEditing(false) })}>
+                      Save to {host}
+                    </button>
+                  </div>
+                </div>
+              ) : d.body ? (
+                <div className="card pr-body">
+                  <PictureSource.Provider value={source}>
+                    <Markdown text={d.body} html={media} breaks />
+                  </PictureSource.Provider>
+                </div>
+              ) : (
+                <span className="muted">No description.</span>
+              )}
+            </section>
+
+            <section className="section" aria-label="Conversation">
+              <div className="pr-sec-head">
+                <h2>Conversation</h2>
+                <span className="hint">{d.threads.length ? `${unresolved} unresolved of ${d.threads.length}` : ""}</span>
+                <span className="grow" />
+                <Seg label="Show" value={filter} onChange={setFilter} options={[{ value: "all", label: "All" }, { value: "open", label: "Unresolved" }]} />
+              </div>
+              <PictureSource.Provider value={source}>
+                {threads.map((t) => <ThreadView key={t.id} pid={pid} number={number} t={t} media={media} onShowCode={t.path ? () => showCode(t) : undefined} />)}
+              </PictureSource.Provider>
+              {threads.length === 0 && <span className="muted">{d.threads.length === 0 ? "No comments yet." : "Every conversation is resolved."}</span>}
+              <NewComment pid={pid} number={number} />
+            </section>
           </div>
-          {checksOpen && (
-            <ul className="list">
-              {d.checks.map((c, i) => {
-                const row = (
-                  <>
-                    <span className="pulse" style={{ animation: c.status === "run" ? undefined : "none", background: c.status === "pass" ? "var(--add-fg)" : c.status === "fail" ? "var(--del-fg)" : c.status === "wait" ? "var(--faint)" : "var(--accent)" }} />
-                    <span className="grow">{c.name}</span>
-                    {c.url && <Icon name="external" size={12} className="faint" />}
-                    <span className="muted" style={{ fontSize: 12 }}>{c.status === "pass" ? "Passed" : c.status === "fail" ? "Failed" : c.status === "wait" ? "Waiting" : "Running"}</span>
-                  </>
-                );
-                return (
-                  <li key={i}>
-                    {c.url ? (
-                      <button className="list-row list-link" style={{ minHeight: 40 }} onClick={() => openExternal(c.url!)}>{row}</button>
-                    ) : (
-                      <div className="list-row" style={{ minHeight: 40 }}>{row}</div>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
+          <PrStatus d={d} host={host} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+const CHECK_ORDER = { fail: 0, run: 1, wait: 2, pass: 3 };
+const CHECK_WORD = { pass: "Passed", fail: "Failed", run: "Running", wait: "Waiting" };
+const VOTE_WORD = { approve: "Approved", changes: "Changes requested", comment: "Commented", pending: "Review requested" };
+/** Checks listed before "Show all": the failing and running ones come first. */
+const CHECKS_SHOWN = 6;
+
+/** Where the pull request stands, like the branch map's selected card: its headline numbers, a sentence on what holds it
+ * back, then its checks and reviewers. Beside the conversation in a wide pane, above it otherwise. */
+function PrStatus({ d, host }: { d: PrDetail; host: string }) {
+  const [all, setAll] = useState(false);
+  const count = (s: string) => d.checks.filter((c) => c.status === s).length;
+  const [passed, failing, pending] = [count("pass"), count("fail"), count("run") + count("wait")];
+  const approvals = d.reviewers.filter((r) => r.vote === "approve").length;
+  const asked = d.reviewers.filter((r) => r.vote === "changes").map((r) => r.login);
+  const unresolved = d.threads.filter((t) => t.resolvable && !t.resolved).length;
+  const checks = [...d.checks].sort((a, b) => CHECK_ORDER[a.status] - CHECK_ORDER[b.status]);
+  const sentence =
+    d.state === "merged"
+      ? `Merged into ${d.base}.`
+      : d.state === "closed"
+        ? "Closed without merging."
+        : d.conflict
+          ? `Conflicts with ${d.base}: resolve them on ${d.head} to merge it.`
+          : failing
+            ? `${plural(failing, "check")} failing.`
+            : pending
+              ? `Merge waits for ${plural(pending, "check")} still running.`
+              : d.state === "draft"
+                ? `A draft: mark it ready for review on ${host} to merge it.`
+                : asked.length
+                  ? `${asked.join(", ")} asked for changes.`
+                  : approvals
+                    ? `Ready to merge into ${d.base}.`
+                    : d.reviewers.length
+                      ? "Waiting for a review."
+                      : "No review asked for yet.";
+  return (
+    <aside className="pr-status" aria-label="Where it stands">
+      <div className="pr-status-top">
+        <div className="map-big">
+          {d.checks.length > 0 && (
+            <div>
+              <b className={failing ? "c-del" : undefined}>
+                {passed}
+                <small>/{d.checks.length}</small>
+              </b>
+              <span className="label">Checks</span>
+            </div>
+          )}
+          <div>
+            <b>{approvals}</b>
+            <span className="label">{approvals === 1 ? "Approval" : "Approvals"}</span>
+          </div>
+          <div>
+            <b>{unresolved}</b>
+            <span className="label">Unresolved</span>
+          </div>
+        </div>
+        <p className="map-sentence">{sentence}</p>
+      </div>
+      {checks.length > 0 && (
+        <section className="pr-status-part" aria-label="Checks">
+          <h3 className="label">Checks</h3>
+          <ul className="pr-status-list">
+            {(all ? checks : checks.slice(0, CHECKS_SHOWN)).map((c, i) => {
+              const row = (
+                <>
+                  <span className={`pulse pr-check-dot ${c.status}`} />
+                  <span className="grow ellipsis">{c.name}</span>
+                  <span className={c.status === "fail" ? "c-del" : "muted"}>{CHECK_WORD[c.status]}</span>
+                  {c.url && <Icon name="external" size={11} className="faint" />}
+                </>
+              );
+              return <li key={i}>{c.url ? <button className="pr-status-row" data-tip="Open its logs" onClick={() => openExternal(c.url!)}>{row}</button> : <div className="pr-status-row">{row}</div>}</li>;
+            })}
+          </ul>
+          {checks.length > CHECKS_SHOWN && (
+            <button className="btn btn-sm" aria-expanded={all} onClick={() => setAll(!all)}>
+              {all ? "Show fewer" : `Show all ${checks.length}`}
+            </button>
           )}
         </section>
       )}
-
-      {view === "conversation" && (
-        <>
-          <section className="section">
-            <h2>
-              Reviewers
-              {votes && <span className="faint" style={{ fontSize: 13, fontWeight: 400, marginLeft: 8 }}>({votes})</span>}
-            </h2>
-            {d.reviewers.length === 0 ? (
-              <span className="muted">No reviewers yet.</span>
-            ) : (
-              <div className="row wrap" style={{ gap: 12, margin: "4px 0 0" }}>
-                {d.reviewers.map((r) => (
-                  <span key={r.login} className="row" style={{ gap: 8, margin: 0 }}>
-                    <span className="avatar" aria-hidden="true">{initials(r.login)}</span>
-                    <span>{r.login}</span>
-                    <span className={r.vote === "approve" ? "c-add" : r.vote === "changes" ? "c-acc" : "faint"} style={{ fontSize: 12 }}>
-                      {{ approve: "Approved", changes: "Changes requested", comment: "Commented", pending: "Review requested" }[r.vote]}
-                    </span>
-                  </span>
-                ))}
-              </div>
-            )}
-          </section>
-
-          <section className="section">
-            <div className="row">
-              <h2>Description</h2>
-              <span className="grow" />
-              {open && !editing && (
-                <button className="btn btn-sm" onClick={startEdit}>
-                  <Icon name="edit" size={12} />
-                  Edit
-                </button>
-              )}
-            </div>
-            {hidden && !editing && <MediaAsk onShow={() => prefs.setDialogs({ prMedia: true })} />}
-            {editing ? (
-              <div className="col">
-                <label htmlFor="pr-body" className="sr-only">Description</label>
-                <textarea id="pr-body" className="textarea mono" rows={14} style={{ fontSize: 12.5 }} value={body} onChange={(e) => setBody(e.target.value)} />
-                <div className="row wrap">
-                  <span className="grow" />
-                  <button className="btn" onClick={() => setEditing(false)}>Cancel</button>
-                  <button className="btn btn-primary" disabled={!title.trim() || update.isPending} onClick={() => update.mutate({ projectId: pid, number, title, body }, { onSuccess: () => setEditing(false) })}>
-                    Save to {host}
-                  </button>
-                </div>
-              </div>
-            ) : d.body ? (
-              <div className="card" style={{ padding: "6px 16px" }}>
-                <PictureSource.Provider value={source}>
-                  <Markdown text={d.body} html={media} breaks />
-                </PictureSource.Provider>
-              </div>
-            ) : (
-              <span className="muted">No description.</span>
-            )}
-          </section>
-
-          <section className="section" aria-label="Conversation" style={{ gap: 6 }}>
-            <div className="row wrap" style={{ marginBottom: 6 }}>
-              <h2>Conversation</h2>
-              <span className="faint" style={{ fontSize: 12 }}>{d.threads.length ? `${unresolved} unresolved · ${d.threads.length} total` : ""}</span>
-              <span className="grow" />
-              <Seg label="Show" value={filter} onChange={setFilter} options={[{ value: "all", label: "All" }, { value: "open", label: "Unresolved" }]} />
-            </div>
-            <PictureSource.Provider value={source}>
-              {threads.map((t) => <ThreadView key={t.id} pid={pid} number={number} t={t} media={media} onShowCode={t.path ? () => showCode(t) : undefined} />)}
-            </PictureSource.Provider>
-            {threads.length === 0 && <span className="muted">{d.threads.length === 0 ? "No comments yet." : "Every conversation is resolved."}</span>}
-            <NewComment pid={pid} number={number} />
-          </section>
-        </>
-      )}
-
-    </div>
+      <section className="pr-status-part" aria-label="Reviewers">
+        <h3 className="label">Reviewers</h3>
+        {d.reviewers.length === 0 ? (
+          <span className="hint">No reviewers yet.</span>
+        ) : (
+          <ul className="pr-status-list">
+            {d.reviewers.map((r) => (
+              <li key={r.login} className="pr-status-row">
+                <Avatar name={r.login} size={18} />
+                <span className="grow ellipsis">{r.login}</span>
+                <span className={r.vote === "changes" ? "c-warn" : r.vote === "approve" ? "c-current" : "faint"}>
+                  {r.vote === "approve" && <Icon name="check" size={11} />}
+                  {VOTE_WORD[r.vote]}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+    </aside>
   );
 }
 
@@ -874,7 +1003,7 @@ function ThreadView({ pid, number, t, media, inline, onShowCode }: { pid: string
   if (!open) {
     return (
       <article id={`pr-thread-${t.id}`} className="thread row" style={{ padding: "8px 14px", gap: 10 }}>
-        <span className="pill c-add">Resolved</span>
+        <span className="tag">Resolved</span>
         {file && !inline && <span className="mono faint" style={{ fontSize: 11.5 }}>{file}</span>}
         <span className="ellipsis grow muted">{first ? `${first.author}: ${first.body}` : ""}</span>
         <button className="btn btn-sm" onClick={() => setOpen(true)}>Show</button>
@@ -893,9 +1022,9 @@ function ThreadView({ pid, number, t, media, inline, onShowCode }: { pid: string
       {file && !inline && (
         <>
           <div className="thread-file">
-            <Icon name="branch" size={12} />
+            <Icon name="file" size={12} />
             <span className="grow ellipsis">{file}</span>
-            {t.outdated && <span className="pill faint">Outdated</span>}
+            {t.outdated && <span className="tag">Outdated</span>}
             {onShowCode && (
               <button className="btn btn-ghost btn-sm" onClick={onShowCode}>
                 <Icon name="file" size={11} />
@@ -914,12 +1043,12 @@ function ThreadView({ pid, number, t, media, inline, onShowCode }: { pid: string
       )}
       {t.comments.map((c) => (
         <div key={c.id} className="comment">
-          <span className="avatar" aria-hidden="true">{initials(c.author)}</span>
+          <Avatar name={c.author} size={28} />
           <div className="col grow" style={{ gap: 6, minWidth: 0 }}>
             <div className="row" style={{ gap: 8 }}>
               <span style={{ fontWeight: 500 }}>{c.author}</span>
               {t.review && (
-                <span className={`pill ${t.review === "approve" ? "c-add" : t.review === "changes" ? "c-acc" : "faint"}`}>
+                <span className={`tag ${t.review === "changes" ? "c-warn" : ""}`}>
                   {{ approve: "Approved", changes: "Requested changes", comment: "Reviewed" }[t.review]}
                 </span>
               )}

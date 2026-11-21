@@ -24,6 +24,7 @@ import type {
   ModelInfo,
   Overview,
   PrDetail,
+  PrFork,
   PrSummary,
   ProjectSummary,
   ReleaseCount,
@@ -40,6 +41,7 @@ import type {
   WorktreeView,
 } from "./types";
 import { limitLabel, shownStatus } from "../lib/agentLog";
+import { askFork } from "../lib/forkAsk";
 import { askGitLogin } from "../lib/gitLogin";
 import { DEFAULT_TYPES } from "../lib/kinds";
 import { dictationModel } from "../lib/dictation";
@@ -619,7 +621,7 @@ export const useTemplates = () =>
 export const usePrs = (projectId?: string) =>
   useQuery({
     queryKey: ["prs", projectId],
-    queryFn: () => rpc<{ provider: string; repo: { owner: string; repo: string }; items: PrSummary[] }>("prs.list", { projectId }),
+    queryFn: () => rpc<{ provider: string; repo: { owner: string; repo: string }; items: PrSummary[]; fork?: PrFork | null }>("prs.list", { projectId }),
     enabled: !!projectId,
     retry: false,
   });
@@ -818,7 +820,8 @@ export function useAction<T = unknown, V extends Record<string, unknown> = Recor
       if (msg) toast(msg, "ok");
     },
     // A host asking git for a login: the user gives one, then this runs again. Asked before the caller's own handling.
-    onError: (e, vars) => askGitLogin(e, () => mutate(vars, started.current.get(vars))) || opts.onError?.(e, vars) || toast(e.message, "error"),
+    // GitHub refusing a push to someone else's project: the user can push it to their fork instead.
+    onError: (e, vars) => askGitLogin(e, () => mutate(vars, started.current.get(vars))) || askFork(e, vars) || opts.onError?.(e, vars) || toast(e.message, "error"),
   });
   const mutate = useCallback(
     (vars: V, o?: MutateOptions<T, Error, V>) => {

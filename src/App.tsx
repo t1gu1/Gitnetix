@@ -4,6 +4,7 @@ import { useConfig, useEngineEvents, useProjects } from "./api/hooks";
 import { currentRemote, isLocal } from "./api/transport";
 import { ContextMenu, type MenuItem } from "./components/ContextMenu";
 import { AgentConsent } from "./components/AgentConsent";
+import { ForkPush } from "./components/ForkPush";
 import { GitLogin } from "./components/GitLogin";
 import { Icon } from "./components/Icon";
 import { ProfileSplash } from "./components/Profiles";
@@ -115,6 +116,7 @@ function Shell({ onUnpair }: { onUnpair: () => void }) {
           </div>
           <UpdatePrompt />
           <GitLogin />
+          <ForkPush />
           <AgentConsent />
           <SignInPrompt />
           <GitHubSignInPrompt />

@@ -20,6 +20,9 @@ pub enum Error {
     Io(#[from] std::io::Error),
     #[error(transparent)]
     Json(#[from] serde_json::Error),
+    /// GitHub refused a push to origin: the user can't write to `repo` (owner/repo), which they can fork instead.
+    #[error("You can't push to {repo} on GitHub. Fork it to push your commits to your own copy.")]
+    NoPushAccess { repo: String },
     /// Uncommitted changes a checkout would overwrite: git refused to switch.
     #[error("{0}")]
     WouldOverwrite(String),
@@ -52,6 +55,7 @@ impl Error {
             Error::Ai(_) => "ai",
             Error::Io(_) => "io",
             Error::Json(_) => "json",
+            Error::NoPushAccess { .. } => "no_push_access",
             Error::WouldOverwrite(_) => "would_overwrite",
             Error::Other(_) => "other",
         }
@@ -66,6 +70,9 @@ pub struct ErrorBody {
     /// `git_login`: the HTTPS host git couldn't sign in to, for the app to ask the user for a login.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub host: Option<String>,
+    /// `no_push_access`: the GitHub repository (owner/repo) the user can't push to, for the app to offer a fork.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub repo: Option<String>,
 }
 
 impl From<&Error> for ErrorBody {
@@ -74,7 +81,11 @@ impl From<&Error> for ErrorBody {
             Error::Git { stderr, .. } => crate::git::login_host(stderr),
             _ => None,
         };
-        ErrorBody { code: e.code(), message: e.to_string(), host }
+        let repo = match e {
+            Error::NoPushAccess { repo } => Some(repo.clone()),
+            _ => None,
+        };
+        ErrorBody { code: e.code(), message: e.to_string(), host, repo }
     }
 }
 

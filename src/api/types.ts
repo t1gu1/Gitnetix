@@ -770,6 +770,17 @@ export interface PrSummary {
   url: string;
 }
 
+/** A GitHub origin that is a fork, or that the user can't push to (`prs.list`). */
+export interface PrFork {
+  /** owner/repo of origin. */
+  origin: string;
+  /** owner/repo it was forked from. */
+  parent?: string | null;
+  canPush: boolean;
+  /** Where its pull requests go, as picked (owner/repo); null until picked, which reads them on origin. */
+  to?: string | null;
+}
+
 export interface Reaction {
   content: string;
   emoji: string;

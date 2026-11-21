@@ -38,7 +38,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("projects.setHidden", "Close or reopen a project's tab (data kept)", "projectId, hidden"),
     ("projects.reorder", "Set the order of projects", "ids: string[]"),
     ("projects.setGenLang", "Language AI writes in for a project", "projectId, commit?, pr?, release?"),
-    ("projects.setPrefs", "Remembered merge, commit and dialog options for a project", "projectId, merge?: {squash?, squashMessage?: branch|ai, rebase?, deleteBranch?, push?, resolveConflicts?}, commit?: {autoPush?}, dialogs?: {finish?: continue|merge, finishSwitch?, newWorktree?, newAgent?, shipPush?, shipChangelog?, deleteOrigin?, cleanupOrigin?, prMedia? (pictures and HTML in pull requests and tickets)}, worktreeFiles?: string[] (paths copied from the main checkout into new worktrees), worktreeLinks?: string[] (paths linked instead), branchTypes?: {list?: [{id, pinned?}] (the new branch dialogs' types in order, the first 12 shown; release = the new release dialog, always kept), oneRow? (6 shown), tagV?: bool|null (release tags start with v; null follows the project's existing tags)}"),
+    ("projects.setPrefs", "Remembered merge, commit and dialog options for a project", "projectId, merge?: {squash?, squashMessage?: branch|ai, rebase?, deleteBranch?, push?, resolveConflicts?}, commit?: {autoPush?}, dialogs?: {finish?: continue|merge, finishSwitch?, newWorktree?, newAgent?, shipPush?, shipChangelog?, deleteOrigin?, cleanupOrigin?, prMedia? (pictures and HTML in pull requests and tickets)}, worktreeFiles?: string[] (paths copied from the main checkout into new worktrees), worktreeLinks?: string[] (paths linked instead), branchTypes?: {list?: [{id, pinned?}] (the new branch dialogs' types in order, the first 12 shown; release = the new release dialog, always kept), oneRow? (6 shown), tagV?: bool|null (release tags start with v; null follows the project's existing tags)}, prRepo?: {origin, to}|null (a GitHub fork's pull requests go to `to`, owner/repo, while origin is `origin`)"),
     ("workspace.overview", "Releases, their branches and repo state; `quick` skips history checks when nothing is cached", "projectId, quick?"),
     ("workspace.files", "Changed files of a branch, or of one commit when `commit` is given", "projectId, branch, mode: branch|wip|project, commit?"),
     ("workspace.diff", "Diff of one file; in wip mode `staged` picks the side; `commit` diffs that commit (`from` = the file's old path when that commit renamed it); `full` keeps the whole file", "projectId, branch, mode, path, staged?, commit?, from?, full?"),
@@ -61,7 +61,8 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("workspace.commitMessage", "AI-written commit message for the staged changes", "projectId, branch"),
     ("workspace.prepareCommitMessage", "Write ahead, staging nothing, the AI commit message that staging everything and committing would ask for; such a commit made before anything changes takes it", "projectId, branch"),
     ("workspace.commit", "Commit staged changes (all = stage everything first); empty message = AI writes it", "projectId, branch, message?, all?"),
-    ("workspace.push", "Push a branch to origin; force = replace its upstream after a rebase (--force-with-lease --force-if-includes)", "projectId, branch, force?"),
+    ("workspace.push", "Push a branch to origin (or to the remote of its own copy, a fork's); force = replace its upstream after a rebase (--force-with-lease --force-if-includes); refused with code no_push_access (and `repo`) when GitHub says the user can't push to origin", "projectId, branch, force?"),
+    ("workspace.pushToFork", "Fork origin to the user's GitHub account (or reuse their fork), add a remote for it and push the branch there, tracking it; returns the fork (owner/repo)", "projectId, branch"),
     ("workspace.rebase", "Rebase a branch onto onto (a local or origin-only branch), else onto its release; its target stays; AI resolves the conflicts of every commit on the way when the project has it on (resolve = even when it is off); returns conflicts left, stashConflicts (files where the uncommitted changes it set aside conflict once it finished), errors (files AI could not resolve), resolved (files AI resolved), aborted, and forcePushTo when it was already pushed", "projectId, branch, onto?, resolve?"),
     ("workspace.rebaseContinue", "AI resolves a paused rebase's conflicts and carries it through every commit left (even when the project has AI resolving off); returns like workspace.rebase", "projectId, branch"),
     ("workspace.rebaseRuns", "Rebases AI is carrying through right now: branch, onto, step of steps, subject, files being resolved, startedAt", ""),
@@ -146,11 +147,11 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("templates.delete", "Delete a template", "id"),
     ("templates.setDefault", "Make a template the default for its kind", "id"),
     ("templates.preview", "Run a template on real project data", "projectId, id, language"),
-    ("prs.list", "Pull requests of the project", "projectId"),
+    ("prs.list", "Pull requests of the project, on origin or, once picked for a GitHub fork, on the repository it was forked from; `fork` (GitHub, null unless origin is a fork or read-only to the user): {origin, parent, canPush, to} with `to` the repository picked (null: origin)", "projectId"),
     ("prs.get", "Pull request details, checks, reviews and conversations", "projectId, number"),
     ("prs.picture", "A picture of the project's Git host that needs the sign-in (private repository, GitLab or Gitea upload, Azure DevOps attachment), as a data: URL; relative links read from the host", "projectId, url"),
     ("prs.generate", "AI title and description for a branch", "projectId, branch"),
-    ("prs.create", "Push and open a PR from a branch", "projectId, branch, draft?, title?, body?"),
+    ("prs.create", "Push and open a PR from a branch; on GitHub, when the user can't push to origin, origin is forked to their account (or their fork reused), the branch pushed there and the PR opened on origin (`fork` true in the answer)", "projectId, branch, draft?, title?, body?"),
     ("prs.update", "Edit PR title and description", "projectId, number, title, body"),
     ("prs.merge", "Merge a PR", "projectId, number, method?"),
     ("prs.close", "Close (abandon) a PR without merging, or reopen it; deleteBranch = also delete its branch, local and on origin, even if unmerged", "projectId, number, reopen?, deleteBranch? (head branch name)"),
@@ -692,6 +693,9 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
                 if let Some(t) = p.get("branchTypes") {
                     pr.branch_types = branch_types(overlay(&pr.branch_types, t)?)?;
                 }
+                if let Some(r) = p.get("prRepo") {
+                    pr.pr_repo = serde_json::from_value(r.clone())?;
+                }
                 Ok(())
             })?;
             ok()
@@ -770,6 +774,7 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
         }
         "workspace.commit" => to(k.commit(&s(&p, "projectId")?, &s(&p, "branch")?, os(&p, "message"), b(&p, "all")).await?),
         "workspace.push" => to(json!({ "output": k.push(&s(&p, "projectId")?, &s(&p, "branch")?, b(&p, "force")).await? })),
+        "workspace.pushToFork" => to(json!({ "fork": k.push_via_fork(&s(&p, "projectId")?, &s(&p, "branch")?).await? })),
         "workspace.rebase" => to(k.rebase(&s(&p, "projectId")?, &s(&p, "branch")?, os(&p, "onto").as_deref(), b(&p, "resolve")).await?),
         "workspace.rebaseContinue" => to(k.rebase_continue(&s(&p, "projectId")?, &s(&p, "branch")?).await?),
         "workspace.rebaseRuns" => to(k.rebase_runs()),
@@ -1141,34 +1146,36 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
 
         // ---- pull requests ----
         "prs.list" => {
-            let gh = k.pr_host(&s(&p, "projectId")?).await?;
-            to(json!({ "provider": gh.provider(), "repo": gh.repo(), "items": gh.list().await? }))
+            let pid = s(&p, "projectId")?;
+            let gh = k.prs_host(&pid).await?;
+            let (items, fork) = tokio::join!(gh.list(), k.pr_fork(&pid));
+            to(json!({ "provider": gh.provider(), "repo": gh.repo(), "items": items?, "fork": fork }))
         }
         "prs.get" => {
-            let gh = k.pr_host(&s(&p, "projectId")?).await?;
+            let gh = k.prs_host(&s(&p, "projectId")?).await?;
             to(gh.detail(u(&p, "number")?).await?)
         }
-        "prs.picture" => to(k.pr_host(&s(&p, "projectId")?).await?.picture(&s(&p, "url")?).await?),
+        "prs.picture" => to(k.prs_host(&s(&p, "projectId")?).await?.picture(&s(&p, "url")?).await?),
         "prs.generate" => {
             let (title, body) = k.generate_pr(&s(&p, "projectId")?, &s(&p, "branch")?).await?;
             to(json!({ "title": title, "body": body }))
         }
         "prs.create" => to(k.create_pr(&s(&p, "projectId")?, &s(&p, "branch")?, b(&p, "draft"), os(&p, "title"), os(&p, "body")).await?),
         "prs.update" => {
-            let gh = k.pr_host(&s(&p, "projectId")?).await?;
+            let gh = k.prs_host(&s(&p, "projectId")?).await?;
             gh.update(u(&p, "number")?, &s(&p, "title")?, &os(&p, "body").unwrap_or_default()).await?;
             ok()
         }
         "prs.merge" => {
             let pid = s(&p, "projectId")?;
-            let gh = k.pr_host(&pid).await?;
+            let gh = k.prs_host(&pid).await?;
             gh.merge(u(&p, "number")?, &os(&p, "method").unwrap_or_else(|| "merge".into())).await?;
             // The merge happened on origin: fetch it so the branch shows merged here. The merge stands even if this fails.
             let _ = k.fetch(&pid).await;
             ok()
         }
         "prs.close" => {
-            let gh = k.pr_host(&s(&p, "projectId")?).await?;
+            let gh = k.prs_host(&s(&p, "projectId")?).await?;
             let number = u(&p, "number")?;
             gh.set_closed(number, !b(&p, "reopen")).await?;
             // The PR is closed either way; a refused delete is reported, not raised. Only its own head branch, on origin: a
@@ -1185,12 +1192,12 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
             to(json!({ "deleteError": delete_error }))
         }
         "prs.review" => {
-            let gh = k.pr_host(&s(&p, "projectId")?).await?;
+            let gh = k.prs_host(&s(&p, "projectId")?).await?;
             gh.review(u(&p, "number")?, &s(&p, "vote")?, &os(&p, "body").unwrap_or_default()).await?;
             ok()
         }
         "prs.comment" => {
-            let gh = k.pr_host(&s(&p, "projectId")?).await?;
+            let gh = k.prs_host(&s(&p, "projectId")?).await?;
             gh.comment(u(&p, "number")?, &s(&p, "body")?).await?;
             ok()
         }
@@ -1204,27 +1211,27 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
         }
         "prs.lineComment" => {
             let at: LineAnchor = serde_json::from_value(p.clone())?;
-            let gh = k.pr_host(&s(&p, "projectId")?).await?;
+            let gh = k.prs_host(&s(&p, "projectId")?).await?;
             gh.line_comment(u(&p, "number")?, &at, &s(&p, "body")?).await?;
             ok()
         }
         "prs.reply" => {
-            let gh = k.pr_host(&s(&p, "projectId")?).await?;
+            let gh = k.prs_host(&s(&p, "projectId")?).await?;
             gh.reply(u(&p, "number")?, &os(&p, "threadId").unwrap_or_default(), u(&p, "commentId")?, &s(&p, "body")?).await?;
             ok()
         }
         "prs.resolve" => {
-            let gh = k.pr_host(&s(&p, "projectId")?).await?;
+            let gh = k.prs_host(&s(&p, "projectId")?).await?;
             gh.set_resolved(&s(&p, "threadId")?, b(&p, "resolved")).await?;
             ok()
         }
         "prs.editComment" => {
-            let gh = k.pr_host(&s(&p, "projectId")?).await?;
+            let gh = k.prs_host(&s(&p, "projectId")?).await?;
             gh.edit_comment(&s(&p, "commentId")?, &s(&p, "body")?).await?;
             ok()
         }
         "prs.react" => {
-            let gh = k.pr_host(&s(&p, "projectId")?).await?;
+            let gh = k.prs_host(&s(&p, "projectId")?).await?;
             gh.react(&s(&p, "subjectId")?, &s(&p, "content")?, b(&p, "add")).await?;
             ok()
         }

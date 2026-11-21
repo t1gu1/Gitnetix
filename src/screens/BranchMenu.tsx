@@ -2,7 +2,7 @@ import { useMemo, useState, type MouseEvent } from "react";
 
 import { committed, droppedWorktree, patchOverview, patchWip, pushed, queryClient, settle, switchedOverview, useAction, useAgents, useAiOn, useOverview, usePendingBranches, useProjectPrefs, useTagV } from "../api/hooks";
 import { RpcError } from "../api/transport";
-import type { BranchView, MergeResult, Overview, RenameResult, Stash, StashApplied } from "../api/types";
+import type { BranchView, MergeResult, Overview, PrFork, PrSummary, RenameResult, Stash, StashApplied } from "../api/types";
 import { ContextMenu, type MenuItem } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
 import { plural } from "../lib/format";
@@ -11,6 +11,7 @@ import { showRun, useLocks, useRebasing } from "../lib/rebaseRuns";
 import { call, runTask, wtKey } from "../lib/tasks";
 import { copyToClipboard, toast } from "../lib/toast";
 import { publishName } from "./Publish";
+import { openPrOf } from "./PullRequests";
 import { startRebase } from "./RebaseRun";
 import { childrenOf } from "./UpdateChildren";
 
@@ -121,7 +122,11 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
     invalidate: inv,
     success: (r) => (r.conflicts.length ? undefined : "Popped the latest stash"),
   });
-  const pr = useAction<{ number: number }, { projectId: string; branch: string }>("prs.create", { invalidate: [["prs", pid]], success: (r) => `Opened PR #${r.number}` });
+  // Opening one where the user can't push forks origin first: the head then lives in their fork.
+  const pr = useAction<PrSummary, { projectId: string; branch: string }>("prs.create", { invalidate: [["prs", pid]], success: (r) => (r.fork ? `Forked origin and opened PR #${r.number}` : `Opened PR #${r.number}`) });
+  // Known once the Pull requests page has asked GitHub: a fork to go through, and the pull requests already open.
+  const prs = queryClient.getQueryData<{ items: PrSummary[]; fork?: PrFork | null }>(["prs", pid]);
+  const viaFork = prs?.fork?.canPush === false;
   const changelog = useAction<{ message: string }, { projectId: string; branch: string }>("changelog.update", { invalidate: inv, success: (r) => r.message });
   const commit = useCommit(pid);
   // AI writes commit messages: committing everything takes one click. Else the message is written in the branch's uncommitted work.
@@ -218,6 +223,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
     const parent = t.baseLabel;
     const originOnly = v.remote && !v.local;
     const diverged = isDiverged(v);
+    const openPr = openPrOf(prs?.items, b);
     // A worktree's branch merges as its session ends: uncommitted changes count (committed or discarded first), then the worktree goes.
     const agentBusy = !!v.worktree && !!working?.includes(v.worktree);
     const toMerge = v.ahead || (v.worktree ? v.wip : 0);
@@ -433,12 +439,12 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
       abort: { id: "abort", label: `Abort ${v.inProgress ?? "operation"}…`, icon: "undo", danger: true, run: () => openDialog("abort", b) },
       pr: {
         id: "pr",
-        label: <>Open pull request into <span className="mono">{parent}</span></>,
+        label: openPr ? `Show pull request #${openPr.number}` : <>{viaFork ? "Fork and open pull request into" : "Open pull request into"} <span className="mono">{parent}</span></>,
         icon: "pr",
-        hint: diverged ? "force push first" : undefined,
+        hint: !openPr && diverged ? "force push first" : undefined,
         // Origin has a different history: the PR would show it, and pushing first is refused.
-        disabled: !t.base || diverged,
-        run: () => pr.mutate({ projectId: pid, branch: b }, { onSuccess: (r) => nav.go({ name: "prs", number: r.number }) }),
+        disabled: !openPr && (!t.base || diverged),
+        run: () => (openPr ? nav.go({ name: "prs", number: openPr.number }) : pr.mutate({ projectId: pid, branch: b }, { onSuccess: (r) => nav.go({ name: "prs", number: r.number }) })),
       },
       // An open release takes new work as a feature or fix in it; any other branch just starts one off itself.
       create: {

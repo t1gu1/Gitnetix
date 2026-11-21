@@ -690,6 +690,20 @@ impl Git {
         Ok(if ok { Some(out.trim().to_string()) } else { None })
     }
 
+    /// Every remote with the URL it fetches from.
+    pub async fn remotes(&self) -> Result<Vec<(String, String)>> {
+        let out = self.run(&["remote", "-v"]).await?;
+        Ok(out
+            .lines()
+            .filter_map(|l| l.strip_suffix(" (fetch)")?.split_once('\t'))
+            .map(|(name, url)| (name.to_string(), url.to_string()))
+            .collect())
+    }
+
+    pub async fn add_remote(&self, name: &str, url: &str) -> Result<()> {
+        self.run(&["remote", "add", "--", name, url]).await.map(|_| ())
+    }
+
     /// Resolve paths inside the git dir (handles worktrees), in one call.
     pub(crate) async fn git_paths(&self, names: &[&str]) -> Result<Vec<PathBuf>> {
         // An operation's state files sit in the checkout's own git dir, which its `.git` names: no git process,
@@ -1496,8 +1510,9 @@ impl Git {
 
     /// Fetch one ref (or a full commit sha) from origin without updating any local one: its commits land in this
     /// clone, named by FETCH_HEAD only. False when origin refused it (no such ref, or a sha it won't hand out).
-    pub async fn fetch_objects(&self, what: &str) -> Result<bool> {
-        Ok(self.try_run(&["fetch", "--no-tags", "origin", what]).await?.0)
+    /// Fetch `what` from `from`, a remote's name or a URL, into FETCH_HEAD only.
+    pub async fn fetch_objects(&self, from: &str, what: &str) -> Result<bool> {
+        Ok(self.try_run(&["fetch", "--no-tags", from, what]).await?.0)
     }
 
     /// Diff of one side of a file's uncommitted work.
@@ -1845,19 +1860,24 @@ impl Git {
     }
 
     pub async fn push(&self, branch: &str, set_upstream: bool) -> Result<String> {
+        self.push_to("origin", branch, set_upstream).await
+    }
+
+    /// Push `branch` to `remote` (a fork's, say), under the same name.
+    pub async fn push_to(&self, remote: &str, branch: &str, set_upstream: bool) -> Result<String> {
         let mut args = vec!["push"];
         if set_upstream {
             args.push("-u");
         }
-        args.extend(["origin", branch]);
+        args.extend([remote, branch]);
         self.push_with(&args).await
     }
 
-    /// Replace origin's copy of `branch` with the local one, e.g. after a rebase.
-    /// Refused when origin has commits that were never on the local branch
+    /// Replace `remote`'s copy of `branch` with the local one, e.g. after a rebase.
+    /// Refused when the remote has commits that were never on the local branch
     /// (`--force-if-includes`), even if a background fetch already saw them.
-    pub async fn force_push(&self, branch: &str) -> Result<String> {
-        self.push_with(&["push", "--force-with-lease", "--force-if-includes", "origin", &format!("{branch}:refs/heads/{branch}")]).await
+    pub async fn force_push_to(&self, remote: &str, branch: &str) -> Result<String> {
+        self.push_with(&["push", "--force-with-lease", "--force-if-includes", remote, &format!("{branch}:refs/heads/{branch}")]).await
     }
 
     /// Push several refs to origin: all of them land, or none do.

@@ -14,7 +14,15 @@ the in-app update prompt.
 
 ## [Unreleased]
 
+### Added (App)
+
+- Pushing to a GitHub project you can't push to (a clone of someone else's repository) no longer ends on git's "Permission denied". The app offers to fork the project to your GitHub account and push the branch to your fork, signing in to GitHub first if needed. It then explains that you can open a pull request from your fork, with a button that opens one.
+- Pull requests on GitHub projects you can't push to: **Fork and open pull request** forks the repository to your account (or reuses your fork), pushes the branch there and opens the pull request on the original repository. It works from the Pull requests page and from a branch's menu on the branch map. Later pushes of that branch go to your fork.
+- When the project's origin is your GitHub fork, the Pull requests page asks where pull requests go: the repository you forked from or your fork. With the original repository picked, the list, reviews and new pull requests are on it, and new pull requests come from your fork.
+
 ### Changed (App)
+
+- The Pull requests page follows the app's new look. A card beside the conversation shows passed checks, approvals and unresolved conversations as large numbers, says what still blocks the merge, and lists the checks and reviewers. The list rows put the title first, and the new pull request panel shows the branch and the repository it opens on. When a pull request is already open from the branch, the panel and the branch menu show it instead of offering another one.
 
 - The Gemini provider is now called Antigravity / Gemini. Agents and AI tasks run the Antigravity CLI (`agy`), and the API key option still takes a Gemini API key. Agent labels say Antigravity CLI.
 - When only the older Gemini CLI is installed, AI setup and Agent setup say they found `gemini`, not `agy`. That CLI works only with a paid Gemini API key.

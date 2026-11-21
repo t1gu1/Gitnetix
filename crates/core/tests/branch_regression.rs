@@ -399,6 +399,62 @@ async fn cm03_reset_a_pushed_branch_then_force_push() {
     assert_eq!(rev(&e.origin, "feat/r"), first);
 }
 
+/// CM-09: a branch pushed to the user's fork (Fork and open pull request on the Pull requests page tracks it there),
+/// then pushed and force pushed from the branch map. Both go to the fork, never to origin; a branch made from
+/// origin/main still gets its own copy on origin.
+#[tokio::test]
+async fn cm09_a_branch_tracking_a_fork_pushes_to_the_fork() {
+    let e = env().await;
+    let fork = e.root.join("fork.git");
+    sh(&e.root, &["init", "-q", "--bare", "-b", "main", fork.to_str().unwrap()]);
+    sh(&e.repo, &["remote", "add", "fork", fork.to_str().unwrap()]);
+    sh(&e.repo, &["switch", "-qc", "feat/f"]);
+    commit_file(&e.repo, "a.txt", "a\n");
+    sh(&e.repo, &["push", "-q", "-u", "fork", "feat/f"]);
+
+    commit_file(&e.repo, "b.txt", "b\n");
+    e.call("workspace.push", json!({ "branch": "feat/f" })).await;
+    assert_eq!(rev(&fork, "feat/f"), rev(&e.repo, "feat/f"));
+    assert_eq!(rev(&e.origin, "feat/f"), "", "origin never gets it");
+    assert_eq!(git_out(&e.repo, &["rev-parse", "--abbrev-ref", "feat/f@{upstream}"]), "fork/feat/f");
+
+    let first = rev(&e.repo, "feat/f~1");
+    e.call("commits.reset", json!({ "branch": "feat/f", "sha": first, "mode": "hard" })).await;
+    e.call("workspace.push", json!({ "branch": "feat/f", "force": true })).await;
+    assert_eq!(rev(&fork, "feat/f"), first);
+
+    sh(&e.repo, &["switch", "-qc", "feat/o", "--track", "origin/main"]);
+    commit_file(&e.repo, "c.txt", "c\n");
+    e.call("workspace.push", json!({ "branch": "feat/o" })).await;
+    assert_eq!(rev(&e.origin, "feat/o"), rev(&e.repo, "feat/o"));
+    assert_eq!(git_out(&e.repo, &["rev-parse", "--abbrev-ref", "feat/o@{upstream}"]), "origin/feat/o");
+}
+
+/// CM-10: a push to a GitHub origin the user can't write to (a clone of someone else's project). The push is refused
+/// with `no_push_access` naming the repository, which the app answers with its offer to fork; a refusal on a host that is
+/// not GitHub stays a plain git error. Origin's URL is GitHub's; `pushInsteadOf` sends the push to the bare origin, whose
+/// hook answers as GitHub does.
+#[tokio::test]
+async fn cm10_a_push_github_refuses_asks_to_fork() {
+    let e = env().await;
+    let hook = e.origin.join("hooks/pre-receive");
+    std::fs::write(&hook, "#!/bin/sh\necho 'ERROR: Permission to Swess/exe_launcher.git denied to t1gu1.' >&2\nexit 1\n").unwrap();
+    #[cfg(unix)]
+    std::fs::set_permissions(&hook, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    sh(&e.repo, &["remote", "set-url", "origin", "git@github.com:Swess/exe_launcher.git"]);
+    sh(&e.repo, &["config", &format!("url.{}.pushInsteadOf", e.origin.display()), "git@github.com:Swess/exe_launcher.git"]);
+    commit_file(&e.repo, "a.txt", "a\n");
+
+    let err = rpc::call(&e.k, "workspace.push", e.params(json!({ "branch": "main" }))).await.unwrap_err();
+    let body = gitnetix_core::ErrorBody::from(&err);
+    assert_eq!((body.code, body.repo.as_deref()), ("no_push_access", Some("Swess/exe_launcher")), "{err}");
+
+    sh(&e.repo, &["remote", "set-url", "origin", "git@git.example.com:Swess/exe_launcher.git"]);
+    sh(&e.repo, &["config", &format!("url.{}.pushInsteadOf", e.origin.display()), "git@git.example.com:Swess/exe_launcher.git"]);
+    let err = rpc::call(&e.k, "workspace.push", e.params(json!({ "branch": "main" }))).await.unwrap_err();
+    assert_eq!(err.code(), "git", "{err}");
+}
+
 /// CM-04: the commit list flags the local tip and origin's tip, which the UI highlights. In step, one commit
 /// holds both; reset back, origin's tip shows as not pulled; a new commit shows as not pushed.
 #[tokio::test]
