@@ -1769,7 +1769,7 @@ export function MapDiff({
               {f.additions ? <span className="c-add">+{f.additions}</span> : null}
               {f.deletions ? <span className="c-del">−{f.deletions}</span> : null}
             </span>
-            {mode !== "branch" && <span className="faint code-note">{mode === "wip" ? (f.staged ? "staged" : "not staged") : unchanged ? "unchanged on this branch" : "changed on this branch"}</span>}
+            {mode !== "branch" && <span className="faint ellipsis code-note">{mode === "wip" ? (f.staged ? "staged" : "not staged") : unchanged ? "unchanged on this branch" : "changed on this branch"}</span>}
           </>
         )}
         <span className="grow" />

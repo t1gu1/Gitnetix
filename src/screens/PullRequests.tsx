@@ -662,7 +662,7 @@ function PrFiles({ pid, d, media, focus }: { pid: string; d: PrDetail; media: bo
             <span className="faint">{file.path.slice(0, cut + 1)}</span>
             <b>{file.path.slice(cut + 1)}</b>
           </span>
-          <span className="hint hide-narrow">{ranges ? "Click or drag line numbers, or a hunk's Comment, to comment" : "Click a line number to comment"}</span>
+          <span className="hint ellipsis hide-narrow">{ranges ? "Click or drag line numbers, or a hunk's Comment, to comment" : "Click a line number to comment"}</span>
           <Seg<"unified" | "split"> label="Diff mode" value={mode} onChange={setMode} options={[{ value: "unified", label: "Unified" }, { value: "split", label: "Split" }]} />
         </div>
         {elsewhere.length > 0 && (

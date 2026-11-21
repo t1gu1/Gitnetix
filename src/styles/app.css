@@ -2720,6 +2720,7 @@ button.map-line-chip[aria-disabled] {
 /* A file picked in the column, floating over the rest of the map with the same margins. */
 .map-diff {
   position: absolute;
+  container: map-diff / inline-size;
   top: 16px;
   bottom: 16px;
   left: 16px;
@@ -2736,6 +2737,12 @@ button.map-line-chip[aria-disabled] {
 }
 .map-diff > .code-file {
   background: var(--panel);
+}
+/* A narrow window keeps the arrows but drops "File 1 of 3", so close still fits. */
+@container map-diff (max-width: 520px) {
+  .map-diff .code-files > span {
+    display: none;
+  }
 }
 /* Over the Worktrees page, where there is no map (FileOver). */
 .modal-scrim > .map-diff {
@@ -3169,11 +3176,14 @@ button.map-line-chip[aria-disabled] {
   flex: none;
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
+  /* One line: the path and note shrink, the view buttons and close stay top right. */
   gap: 6px 10px;
   min-height: 40px;
   padding: 6px 12px 6px 16px;
   border-bottom: 1px solid var(--line);
+}
+.code-file > :not(.code-path, .code-note, .hint, .grow) {
+  flex: none;
 }
 .code-path {
   min-width: 0;
