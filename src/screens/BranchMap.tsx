@@ -68,7 +68,7 @@ const FOOT_H = 26;
 const SHIPPED_LIST_TOP = 14;
 const SHIPPED_COMMIT_H = 32;
 /** Room the floating card takes on the right (its width and gap): the map scrolls out from under it. */
-const CARD_ROOM = 336;
+const CARD_ROOM = 376;
 /** Column `d` of the map: the default branch's box beside the trunk, then each level of branches under it. */
 const colX = (d: number) => (d === 0 ? TRUNK_X + 20 : 404 + (d - 1) * 392);
 const colW = (d: number) => (d === 0 ? 280 : 320);

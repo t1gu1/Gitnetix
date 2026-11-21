@@ -125,8 +125,7 @@ export function Workspace() {
   // The focus view's timeline, beside the code.
   const railW = usePaneWidth("gnx.pane.rail", 360, 260, 720);
   const [asTree, setAsTree] = useStoredFlag("gnx.files.tree");
-  // Collapse/expand all: a new `n` remounts the file lists, dropping per-folder toggles.
-  const [fold, setFold] = useState({ closed: false, n: 0 });
+  const [fold, toggleFold] = useFold(commit?.sha ?? stash?.sha ?? mode);
   // The map's files panel: for which branch, WIP, Branch or Project (none = WIP while there is some), and the file open over the map.
   const [mapAt, setMapAt] = useState<{ branch: string; mode?: Mode; file?: string; preview?: boolean }>({ branch: "" });
   // The branch whose files panel the card's Files button opened: with no WIP, the panel waits for it.
@@ -777,7 +776,7 @@ export function Workspace() {
                                 aria-label={fold.closed ? "Expand all folders" : "Collapse all folders"}
                                 data-tip={fold.closed ? "Expand all" : "Collapse all"}
                                 aria-expanded={!fold.closed}
-                                onClick={() => setFold((f) => ({ closed: !f.closed, n: f.n + 1 }))}
+                                onClick={toggleFold}
                               >
                                 <Icon name="chevronDown" size={12} className="chev" />
                               </button>
@@ -1426,6 +1425,14 @@ const filesUnder = (d: Dir): FileChange[] => [...d.files, ...[...d.dirs.values()
 /** What a right click landed on: one file, or a folder and every listed file under it. */
 type FileTarget = { path: string; dir: boolean; files: FileChange[] };
 
+/** Collapse/expand all for the file lists showing `list` (a mode, or a commit or stash SHA): a new `n` remounts them,
+ *  dropping per-folder toggles. Each new list starts expanded, the Project one collapsed: the whole repo. */
+function useFold(list: string) {
+  const [fold, setFold] = useState({ closed: list === "project", n: 0, list });
+  if (fold.list !== list) setFold({ closed: list === "project", n: fold.n + 1, list });
+  return [fold, () => setFold((f) => ({ ...f, closed: !f.closed, n: f.n + 1 }))] as const;
+}
+
 /** Changed files as a flat list, or nested under their folders. */
 function FileList({
   list,
@@ -1593,6 +1600,7 @@ function MapFiles({
   const wip = mode === "wip" && list.length > 0;
   const [discarding, setDiscarding] = useState<{ staged: boolean; paths: string[] } | null>(null);
   const [asTree, setAsTree] = useStoredFlag("gnx.files.tree");
+  const [fold, toggleFold] = useFold(mode);
   return (
     <section className="map-files" aria-label={`Files of ${b.name}`}>
       <div className="map-files-head">
@@ -1607,6 +1615,17 @@ function MapFiles({
             { value: "project", label: "Project" },
           ]}
         />
+        {asTree && (
+          <button
+            className="btn btn-sm btn-icon"
+            aria-label={fold.closed ? "Expand all folders" : "Collapse all folders"}
+            data-tip={fold.closed ? "Expand all" : "Collapse all"}
+            aria-expanded={!fold.closed}
+            onClick={toggleFold}
+          >
+            <Icon name="chevronDown" size={12} className="chev" />
+          </button>
+        )}
         <button className="btn btn-sm btn-icon" aria-label={asTree ? "Show files as a list" : "Show files as a tree"} data-tip={asTree ? "List view" : "Tree view"} onClick={() => setAsTree(!asTree)}>
           <Icon name={asTree ? "menu" : "folder"} size={12} />
         </button>
@@ -1623,14 +1642,14 @@ function MapFiles({
             list={list}
             current={current}
             tree={asTree}
-            fold={{ closed: false, n: 0 }}
+            fold={fold}
             menu={(t) => [{ id: "copy", label: "Copy path", icon: "copy", run: () => copyToClipboard(t.path) }]}
             onPick={onOpen}
             onMoved={(f) => open === fileKey(f) && onOpen({ ...f, staged: !f.staged })}
             onDiscard={(staged, paths) => setDiscarding({ staged, paths })}
           />
         ) : (
-          <FileList list={list} current={current} tree={asTree} allClosed={false} onPick={onOpen} />
+          <FileList key={fold.n} list={list} current={current} tree={asTree} allClosed={fold.closed} onPick={onOpen} />
         )}
         {files.data && list.length === 0 && (
           <li className="empty">

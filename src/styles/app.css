@@ -2574,7 +2574,7 @@ button.map-line-chip[aria-disabled] {
 /* Beside the selected branch's column, not under it: that column keeps the view's full height. */
 @media (min-width: 721px) {
   .map-view:has(> .map-side) > .map-legend-box {
-    max-width: calc(100% - 360px);
+    max-width: calc(100% - 400px);
   }
 }
 /* One row tall: keys that don't fit wrap to a second row, out of sight, so none shows cut in half. */
@@ -2664,7 +2664,7 @@ button.map-line-chip[aria-disabled] {
     right: 16px;
     bottom: 16px;
     z-index: 6;
-    width: 320px;
+    width: 360px;
     max-width: calc(100% - 32px);
     display: flex;
     flex-direction: column;
@@ -2730,7 +2730,7 @@ button.map-line-chip[aria-disabled] {
   top: 16px;
   bottom: 16px;
   left: 16px;
-  right: 352px;
+  right: 392px;
   z-index: 7;
   display: flex;
   flex-direction: column;
