@@ -2573,10 +2573,10 @@ button.map-line-chip[aria-disabled] {
 .map-legend-box {
   flex-wrap: nowrap;
   position: absolute;
-  left: 8px;
+  left: 16px;
   bottom: 16px;
   z-index: 4;
-  max-width: calc(100% - 16px);
+  max-width: calc(100% - 32px);
   padding: 6px 12px;
   border: 1px solid var(--line2);
   border-radius: var(--r);
@@ -2589,7 +2589,7 @@ button.map-line-chip[aria-disabled] {
 /* Beside the selected branch's column, not under it: that column keeps the view's full height. */
 @media (min-width: 721px) {
   .map-view:has(> .map-side) > .map-legend-box {
-    max-width: calc(100% - 400px);
+    max-width: calc(100% - 408px);
   }
 }
 /* One row tall: keys that don't fit wrap to a second row, out of sight, so none shows cut in half. */
