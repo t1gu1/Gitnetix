@@ -9,7 +9,7 @@ import { Logo } from "../components/Logo";
 import { DeleteProfile, ProfileAvatar, ProfileDialog, useProfiles } from "../components/Profiles";
 import { plural } from "../lib/format";
 import { useTermDefault } from "../components/Shell";
-import { Confirm, LANGS, RELEASE_LANGS, Seg } from "../components/ui";
+import { Confirm, LANGS, RELEASE_LANGS, Seg, useCoverScrollbars } from "../components/ui";
 import { DEFAULTS, SHORTCUTS, showKeys, useKeys } from "../lib/keys";
 import { animates, useAnimations } from "../lib/motion";
 import { useNav } from "../lib/nav";
@@ -34,6 +34,9 @@ export function Menu({ onUnpair }: { onUnpair: () => void }) {
   const view = views[views.length - 1];
   const open = (id: string) => setViews((vs) => [...vs, id]);
   const closeBtn = useRef<HTMLButtonElement>(null);
+  // The workspace under the panel would show its scrollbar through it.
+  const overlay = useRef<HTMLDivElement>(null);
+  useCoverScrollbars(overlay);
   // The app's own version; a plain browser has no app to ask.
   const [version, setVersion] = useState<string | null>(null);
   useEffect(() => {
@@ -62,7 +65,7 @@ export function Menu({ onUnpair }: { onUnpair: () => void }) {
   }, [close, view]);
 
   return (
-    <div className={`menu-overlay${closing ? " closing" : ""}`}>
+    <div ref={overlay} className={`menu-overlay${closing ? " closing" : ""}`}>
       <div
         className="menu-panel"
         role="dialog"
