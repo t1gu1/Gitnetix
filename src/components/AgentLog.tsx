@@ -13,7 +13,7 @@ import { AudioPlayer, isAudio } from "./AudioPlayer";
 import { ProfileAvatar } from "./Profiles";
 import { DiffView } from "./DiffView";
 import { Icon } from "./Icon";
-import { IMAGE_MODES, ImageDiff, MARKDOWN, comparable, dataUrl, isImage, useImageMode } from "./ImageDiff";
+import { IMAGE_MODES, ImageDiff, MARKDOWN, comparable, dataUrl, isImage, useImageMode, type ImageMode } from "./ImageDiff";
 import { Markdown, MarkdownDoc, Modal, repoPath, Seg } from "./ui";
 import { Zoom } from "./Zoom";
 
@@ -238,19 +238,32 @@ function Changes({ b, session }: { b: Extract<Block, { kind: "files" }>; session
   );
 }
 
-/** File `at` of turn `b`'s changes, as that turn changed it; a binary image shows as its preview. The arrows and ←/→ `onStep` through its files, round. */
+/** File `at` of turn `b`'s changes, as that turn changed it; an image (SVG too, with a Code view) shows as its preview. The arrows and ←/→ `onStep` through its files, round. */
 function TurnDiff({ session, b, at, onStep, onClose }: { session: string; b: Extract<Block, { kind: "files" }>; at: number; onStep: (i: number) => void; onClose: () => void }) {
   const [path, added] = b.files[at];
   const n = b.files.length;
-  // An SVG is text: its diff says more than its picture.
-  const image = added === null && isImage(path);
+  // An SVG is text too: it shows as a picture, its Code view as any other file.
+  const svg = /\.svg$/i.test(path);
+  const [svgCode, setSvgCode] = useState(false);
+  const image = isImage(path) && (added === null || (svg && !svgCode));
   const diff = useAgentDiff(session, b.from, b.to, path, !image);
-  const blobs = useAgentBlobs(session, b.from, b.to, path, image);
+  const blobs = useAgentBlobs(session, b.from, b.to, path, image || svg);
   const [imageMode, setImageMode] = useImageMode();
   const [anyway, setAnyway] = useState(false);
   const step = (d: number) => onStep((at + d + n) % n);
   useArrows(n, step);
-  const modes = image && comparable(blobs.data) && <Seg value={imageMode} onChange={setImageMode} label="Image comparison" options={IMAGE_MODES} />;
+  const compare = comparable(blobs.data);
+  const modes = (svg || (image && compare)) && (
+    <Seg<ImageMode | "code">
+      value={svg && svgCode ? "code" : imageMode}
+      onChange={(v) => {
+        setSvgCode(v === "code");
+        if (v !== "code") setImageMode(v);
+      }}
+      label="Image comparison"
+      options={[...(compare ? IMAGE_MODES : [{ value: imageMode, label: "Image" }]), ...(svg ? [{ value: "code" as const, label: "Code" }] : [])]}
+    />
+  );
   return (
     <Modal
       title={path}
