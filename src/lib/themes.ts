@@ -37,6 +37,12 @@ export const THEMES: Theme[] = [
       "add-fg": "#127a4b", "del-fg": "#c0362c", "warn-fg": "#8a5a00", "release-fg": "#6b46c1", "prop-fg": "#0e7490" },
     ansi: "0b0f14 c0362c 127a4b 8a5a00 2f5a8a 6b46c1 0e7490 a3aebb 4f5b6a c0362c 127a4b 8a5a00 3a6aa0 6b46c1 0e7490 5f6a79" },
 
+  // The two Gitnetix themes keep the ids of the old light / dark preference; their colors live in app.css.
+  { id: "dark", name: "Gitnetix Dark", family: "Gitnetix", light: false, bg: "#0e0f11", panel: "#15171a", fg: "#e8e9eb", muted: "#a0a5ae", faint: "#7a808a", accent: "#f0a43a", trunk: "#f7c48a",
+    ansi: "1c1f23 ff7b72 62d6ae e3b45a 86aeff c4a7ff 5fd0e0 c9ccd1 7a808a ff9089 7ee8c2 f5b65c a5c3ff d6c0ff 8ae3ef ffffff" },
+  { id: "light", name: "Gitnetix Light", family: "Gitnetix", light: true, bg: "#f3f3f1", panel: "#ffffff", fg: "#16171a", muted: "#575c65", faint: "#787d86", accent: "#f6b860", trunk: "#a85a12",
+    ansi: "16171a b0271f 17744d 8a5a00 2452c2 6b46c1 0e7490 a0a5ae 575c65 d1352b 1f9463 a86f00 3b6be0 8257e0 1592b0 787d86" },
+
   // Storm leads its family, so the light / dark toggle takes Day back to it.
   { id: "tokyo-night-storm", name: "Tokyo Night Storm", family: "Tokyo Night", light: false, bg: "#1f2335", panel: "#24283b", fg: "#c0caf5", muted: "#a9b1d6", faint: "#7d84ad", accent: "#7aa2f7", trunk: "#ff9e64",
     ansi: "1d202f f7768e 9ece6a e0af68 7aa2f7 bb9af7 7dcfff a9b1d6 414868 f7768e 9ece6a e0af68 7aa2f7 bb9af7 7dcfff c0caf5" },
@@ -48,12 +54,6 @@ export const THEMES: Theme[] = [
   { id: "tokyo-night-day", name: "Tokyo Night Day", family: "Tokyo Night", light: true, bg: "#e1e2e7", panel: "#e9e9ed", fg: "#3760bf", muted: "#4d69b7", faint: "#5d76ba", accent: "#2463b8", trunk: "#b15c00",
     own: { raised: "#e1e2e7", sel: "#d0d5e3", line: "#c4c8da", line2: "#b4b5b9", link: "#a1a6c5", "add-fg": "#557137", "del-fg": "#c92253", "warn-fg": "#82643a" },
     ansi: "e9e9ed f52a65 587539 8c6c3e 2e7de9 9854f1 007197 6172b0 a1a6c5 f52a65 587539 8c6c3e 2e7de9 9854f1 007197 3760bf" },
-
-  // The two Gitnetix themes keep the ids of the old light / dark preference; their colors live in app.css.
-  { id: "dark", name: "Gitnetix Dark", family: "Gitnetix", light: false, bg: "#0e0f11", panel: "#15171a", fg: "#e8e9eb", muted: "#a0a5ae", faint: "#7a808a", accent: "#f0a43a", trunk: "#f7c48a",
-    ansi: "1c1f23 ff7b72 62d6ae e3b45a 86aeff c4a7ff 5fd0e0 c9ccd1 7a808a ff9089 7ee8c2 f5b65c a5c3ff d6c0ff 8ae3ef ffffff" },
-  { id: "light", name: "Gitnetix Light", family: "Gitnetix", light: true, bg: "#f3f3f1", panel: "#ffffff", fg: "#16171a", muted: "#575c65", faint: "#787d86", accent: "#f6b860", trunk: "#a85a12",
-    ansi: "16171a b0271f 17744d 8a5a00 2452c2 6b46c1 0e7490 a0a5ae 575c65 d1352b 1f9463 a86f00 3b6be0 8257e0 1592b0 787d86" },
 
   { id: "catppuccin-mocha", name: "Catppuccin Mocha", family: "Catppuccin", light: false, bg: "#181825", panel: "#1e1e2e", fg: "#cdd6f4", muted: "#a6adc8", faint: "#7f849c", accent: "#cba6f7", trunk: "#fab387",
     ansi: "45475a f38ba8 a6e3a1 f9e2af 89b4fa f5c2e7 94e2d5 bac2de 585b70 f38ba8 a6e3a1 f9e2af 89b4fa f5c2e7 94e2d5 a6adc8" },
@@ -157,6 +157,9 @@ export const THEMES: Theme[] = [
 
 /** The 16 terminal colors as "#rrggbb". */
 export const ansi = (t: Theme) => t.ansi.split(" ").map((h) => `#${h}`);
+
+/** A theme made for Gitnetix, listed under "Gitnetix original" in the pickers: its family starts with "Gitnetix". Keep them first in THEMES. */
+export const original = (t: Theme) => t.family.startsWith("Gitnetix");
 
 /** The themes "system" shows in the computer's dark and light modes. */
 export const SYSTEM = { dark: "gitnetix-bw", light: "gitnetix-bw-light" };

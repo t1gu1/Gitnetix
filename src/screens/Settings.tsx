@@ -13,7 +13,7 @@ import { Confirm, Seg } from "../components/ui";
 import { BUILT_IN, comboOf, DEFAULTS, keyCaps, SHORTCUTS, showKeys, usedBy, useKeys, useSetKeys } from "../lib/keys";
 import { ANIMATIONS, useAnimations } from "../lib/motion";
 import { useNav } from "../lib/nav";
-import { ansi, resolveTheme, THEMES, type Theme } from "../lib/themes";
+import { ansi, original, resolveTheme, THEMES, type Theme } from "../lib/themes";
 import { copyToClipboard, toast } from "../lib/toast";
 
 const JIRA_TOKENS = "https://id.atlassian.com/manage-profile/security/api-tokens";
@@ -86,16 +86,26 @@ export function ThemeChoices() {
       <span>{label}</span>
     </button>
   );
+  const grid = { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 8 };
   return (
-    <div role="radiogroup" aria-label="Theme" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 8 }}>
-      {card(
-        "system",
-        "System",
-        <span className="row" style={{ gap: 4, margin: 0 }}>
-          {(["dark", "light"] as const).map((m) => <Swatch key={m} t={resolveTheme("system", m)} />)}
-        </span>,
-      )}
-      {THEMES.map((t) => card(t.id, t.name, <Swatch t={t} />))}
+    <div role="radiogroup" aria-label="Theme" className="col" style={{ gap: 20 }}>
+      <section className="section">
+        <h2>Gitnetix original</h2>
+        <div style={grid}>
+          {card(
+            "system",
+            "System",
+            <span className="row" style={{ gap: 4, margin: 0 }}>
+              {(["dark", "light"] as const).map((m) => <Swatch key={m} t={resolveTheme("system", m)} />)}
+            </span>,
+          )}
+          {THEMES.filter(original).map((t) => card(t.id, t.name, <Swatch t={t} />))}
+        </div>
+      </section>
+      <section className="section">
+        <h2>More themes</h2>
+        <div style={grid}>{THEMES.filter((t) => !original(t)).map((t) => card(t.id, t.name, <Swatch t={t} />))}</div>
+      </section>
     </div>
   );
 }
