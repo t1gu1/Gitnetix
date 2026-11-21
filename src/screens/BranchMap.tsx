@@ -94,7 +94,7 @@ const PREFS: MapPrefs = { who: "me", merged: false, behind: false, shipped: true
 /** The map's filters and zoom, kept between sessions. */
 function useMapPrefs() {
   const [p, set] = useStored<MapPrefs>("gnx.map", PREFS, (s) => ({ ...PREFS, ...JSON.parse(s) }));
-  return [p, (next: Partial<MapPrefs>) => set({ ...p, ...next })] as const;
+  return [p, (next: Partial<MapPrefs>, persist = true) => set({ ...p, ...next }, persist)] as const;
 }
 
 /** The email "Mine" goes by: the profile's Git identity, else what Git commits with. */
@@ -764,15 +764,23 @@ export function BranchMap({
   }, [atHit?.key]);
 
   // Zooming keeps the point at (sx, sy) in the view in place: the pointer's for the wheel, else the middle.
+  // `from`, a point on the map (unzoomed), goes to (sx, sy) instead: a pinch's start, following the fingers.
+  // `persist` false: not saved yet (mid-pinch, saved once the fingers lift).
   const keep = useRef<{ x: number; y: number; sx: number; sy: number } | null>(null);
-  const setZoom = (z: number, sx?: number, sy?: number, fine = false) => {
+  const setZoom = (z: number, sx?: number, sy?: number, fine = false, from?: { x: number; y: number }, persist = true) => {
     const el = scroller.current;
+    z = Math.max(0.4, Math.min(1.4, fine ? z : Math.round(z * 10) / 10));
     if (el) {
       sx ??= el.clientWidth / 2;
       sy ??= viewH(el) / 2;
-      keep.current = { x: (el.scrollLeft + sx - pad.x) / zoom, y: (el.scrollTop + sy - pad.y) / zoom, sx, sy };
+      const k = { ...(from ?? { x: (el.scrollLeft + sx - pad.x) / zoom, y: (el.scrollTop + sy - pad.y) / zoom }), sx, sy };
+      // Same zoom (a pinch only moving, or at a limit): no render to wait for.
+      if (z === zoom) {
+        el.scrollLeft = pad.x + k.x * zoom - sx;
+        el.scrollTop = pad.y + k.y * zoom - sy;
+      } else keep.current = k;
     }
-    setPrefs({ zoom: Math.max(0.4, Math.min(1.4, fine ? z : Math.round(z * 10) / 10)) });
+    setPrefs({ zoom: z }, persist);
   };
   useLayoutEffect(() => {
     const el = scroller.current;
@@ -829,13 +837,61 @@ export function BranchMap({
       });
     };
     v.addEventListener("wheel", w, { passive: false });
+
+    // Two fingers on the map pinch it, the point between them following them; one finger keeps the native scroll.
+    // Not passive, so the page does not zoom (iOS ignores the viewport's user-scalable=no) nor scroll under it.
+    const c = scroller.current!;
+    const p = { on: false, d: 0, z: 0, from: { x: 0, y: 0 }, raf: 0, nz: 0, x: 0, y: 0 };
+    const mid = (t: TouchList) => {
+      const r = c.getBoundingClientRect();
+      return { x: (t[0].clientX + t[1].clientX) / 2 - r.left, y: (t[0].clientY + t[1].clientY) / 2 - r.top, d: Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY) };
+    };
+    const tStart = (e: TouchEvent) => {
+      p.on = e.touches.length === 2;
+      if (!p.on) return;
+      if (e.cancelable) e.preventDefault();
+      const m = mid(e.touches);
+      p.d = Math.max(m.d, 1);
+      p.z = zoomNow.current;
+      p.from = { x: (c.scrollLeft + m.x - padWas.current.x) / p.z, y: (c.scrollTop + m.y - padWas.current.y) / p.z };
+      Object.assign(p, { nz: p.z, x: m.x, y: m.y });
+    };
+    const tMove = (e: TouchEvent) => {
+      if (!p.on || e.touches.length !== 2) return;
+      if (e.cancelable) e.preventDefault();
+      const m = mid(e.touches);
+      p.nz = (p.z * m.d) / p.d;
+      p.x = m.x;
+      p.y = m.y;
+      p.raf ||= requestAnimationFrame(() => {
+        p.raf = 0;
+        zoomAt.current(p.nz, p.x, p.y, true, p.from, false);
+      });
+    };
+    // A finger lifted ends the pinch, its zoom saved; the one left scrolls natively.
+    const tEnd = (e: TouchEvent) => {
+      if (!p.on || e.touches.length > 1) return;
+      p.on = false;
+      cancelAnimationFrame(p.raf);
+      p.raf = 0;
+      zoomAt.current(p.nz, p.x, p.y, true, p.from);
+    };
+    c.addEventListener("touchstart", tStart, { passive: false });
+    c.addEventListener("touchmove", tMove, { passive: false });
+    c.addEventListener("touchend", tEnd);
+    c.addEventListener("touchcancel", tEnd);
     return () => {
       v.removeEventListener("wheel", w);
       cancelAnimationFrame(s.raf);
+      c.removeEventListener("touchstart", tStart);
+      c.removeEventListener("touchmove", tMove);
+      c.removeEventListener("touchend", tEnd);
+      c.removeEventListener("touchcancel", tEnd);
+      cancelAnimationFrame(p.raf);
     };
   }, []);
 
-  // A mouse drag anywhere on the map pans it; under 5 px it stays a click. Touch keeps its native scroll.
+  // A mouse drag anywhere on the map pans it; under 5 px it stays a click. Touch keeps its native scroll, two fingers pinch.
   const pan = useRef<{ x: number; y: number; l: number; t: number; on: boolean } | null>(null);
   const panned = useRef(false);
   const endPan = (e: PointerEvent<HTMLDivElement>) => {
