@@ -4,12 +4,13 @@ import { isLocal } from "../api/transport";
 import { comboOf, DEFAULTS, MAC, useKeys } from "./keys";
 import { useStored } from "./stored";
 
-// Five Ctrl + steps up from the webview's 100%.
-const DEFAULT_ZOOM = 1.5;
+// Three Ctrl + steps up from the webview's 100%.
+const DEFAULT_ZOOM = 1.3;
 
 /** Ctrl (Cmd on macOS) + and - zoom the desktop window, 0 resets it (or the keys set for them); the level is kept between sessions. */
 export function useZoomKeys() {
-  const [zoom, setZoom] = useStored("gnx.zoom", DEFAULT_ZOOM, Number, String);
+  // New key: zoom saved under "gnx.zoom" is dropped, so everyone starts again at DEFAULT_ZOOM.
+  const [zoom, setZoom] = useStored("gnx.zoom.v2", DEFAULT_ZOOM, Number, String);
   const keys = useKeys();
   useEffect(() => {
     if (!isLocal) return;
