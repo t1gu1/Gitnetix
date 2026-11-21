@@ -14,6 +14,8 @@ the in-app update prompt.
 
 ## [Unreleased]
 
+## [0.28.0] - 2026-11-21
+
 ### Added (App)
 
 - Pushing to a GitHub project you can't push to (a clone of someone else's repository) no longer ends on git's "Permission denied". The app offers to fork the project to your GitHub account and push the branch to your fork, signing in to GitHub first if needed. It then explains that you can open a pull request from your fork, with a button that opens one.
