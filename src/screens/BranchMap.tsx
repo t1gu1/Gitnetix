@@ -1,5 +1,5 @@
 import { useIsFetching, useQuery } from "@tanstack/react-query";
-import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from "react";
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode, type Ref } from "react";
 import { createPortal } from "react-dom";
 
 import { useCleanupLeft } from "../lib/cleanups";
@@ -9,7 +9,7 @@ import type { BranchView, Commit, MapCommits, Overview, RebaseRun, ReleaseCount,
 import { Avatar } from "../components/Avatar";
 import { ContextMenu, type MenuItem } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
-import { FindBar, releaseTagLabel, Seg, useFindKey } from "../components/ui";
+import { FindBar, Modal, releaseTagLabel, Seg, useFindKey } from "../components/ui";
 import { shownStatus, type ShownStatus } from "../lib/agentLog";
 import { ago, plural, stashCount } from "../lib/format";
 import { showKeys, useKeys } from "../lib/keys";
@@ -1301,15 +1301,10 @@ export function BranchMap({
                 );
               })}
             </div>
-            {/* Pinned over the view's bottom, inside the scroller: the map's scrollbar goes under it. */}
-            <div ref={legend} className="map-legend">
-              <span><svg width="20" height="8" aria-hidden><path d="M2 4h16" className="map-key-head" /></svg>You are here</span>
-              <span><svg width="20" height="8" aria-hidden><path d="M2 4h16" /></svg>Other lines</span>
-              <span><svg width="20" height="8" aria-hidden><path d="M2 4h16" className="map-key-stale" /></svg>Falling behind</span>
-              <span><span className="map-line-chip"><span className="c-del">↓</span></span>on a line, click to rebase</span>
-            </div>
           </div>
         </div>
+        {/* Floating over the view's bottom left, level with the card's column at the right. */}
+        <MapLegend ref={legend} />
 
         {sel && (
           // The card, and the branch's files under it in the room it leaves.
@@ -1338,6 +1333,52 @@ export function BranchMap({
 }
 
 type TileFlags = { head: boolean; stale: boolean };
+
+/** What the map's line styles and chips mean, a mark then its words. */
+const LEGEND_KEYS: [ReactNode, string][] = [
+  [<svg width="20" height="8" aria-hidden><path d="M2 4h16" className="map-key-head" /></svg>, "You are here"],
+  [<svg width="20" height="8" aria-hidden><path d="M2 4h16" /></svg>, "Other lines"],
+  [<svg width="20" height="8" aria-hidden><path d="M2 4h16" className="map-key-stale" /></svg>, "Falling behind"],
+  [<span className="map-line-chip"><span className="c-del">↓</span></span>, "on a line, click to rebase"],
+];
+
+/** The legend on one line: keys past its width wrap out of sight, and "See all" lists every one in a modal. */
+function MapLegend({ ref }: { ref: Ref<HTMLDivElement> }) {
+  const keys = useRef<HTMLDivElement>(null);
+  const [cut, setCut] = useState(false);
+  const [all, setAll] = useState(false);
+  useLayoutEffect(() => {
+    const el = keys.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setCut(el.scrollHeight > el.clientHeight + 1));
+    // The keys too: a bigger font widens them while the row keeps its size.
+    [el, ...el.children].forEach((c) => ro.observe(c));
+    return () => ro.disconnect();
+  }, []);
+  return (
+    <div ref={ref} className="map-legend map-legend-box">
+      <div ref={keys} className="map-legend-keys">
+        {LEGEND_KEYS.map(([mark, words]) => (
+          <span key={words}>{mark}{words}</span>
+        ))}
+      </div>
+      {cut && (
+        <button className="link-btn map-legend-all" aria-haspopup="dialog" onClick={() => setAll(true)}>
+          See all
+        </button>
+      )}
+      {all && (
+        <Modal title="Legend" width={360} onClose={() => setAll(false)}>
+          <ul className="map-legend-list">
+            {LEGEND_KEYS.map(([mark, words]) => (
+              <li key={words}>{mark}{words}</li>
+            ))}
+          </ul>
+        </Modal>
+      )}
+    </div>
+  );
+}
 
 /** The uncommitted work's lines, added and deleted, once the branch's WIP files are read (the checked-out branch's already are). */
 function WipLines({ pid, b, enabled }: { pid: string; b: BranchView; enabled: boolean }) {

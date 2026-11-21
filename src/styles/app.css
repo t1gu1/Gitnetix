@@ -1866,7 +1866,7 @@ body.resizing .term {
   width: 10px;
   height: 10px;
 }
-/* The map, its legend pinned over its bottom with the scrollbar under it. */
+/* The map, its legend floating over its bottom left. */
 .map-view {
   position: relative;
   flex: 1 1 auto;
@@ -1894,11 +1894,6 @@ body.resizing .term {
 }
 .map-size {
   position: relative;
-  /* The legend at its bottom left, from where it sticks to the view's. */
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-end;
-  align-items: flex-start;
 }
 .map-layer {
   position: absolute;
@@ -2550,32 +2545,81 @@ button.map-line-chip[aria-disabled] {
   font-size: 12px;
   color: var(--muted);
 }
-/* In the app it scrolls with the map, stuck to the view's bottom: above the scrollbar, over the rows. */
-.map-size > .map-legend {
-  position: sticky;
-  left: 0;
-  bottom: 0;
+/* In the app a mostly opaque box around its keys, over the view's bottom left while the map scrolls under it, its bottom
+   level with the card's column. Always one line, "See all" at its end once keys don't fit; clicks go through to the map,
+   except on "See all". */
+.map-legend-box {
+  flex-wrap: nowrap;
+  position: absolute;
+  left: 8px;
+  bottom: 16px;
   z-index: 4;
-  width: 100cqw;
+  max-width: calc(100% - 16px);
+  padding: 6px 12px;
+  border: 1px solid var(--line2);
+  border-radius: var(--r);
+  background: color-mix(in srgb, var(--bg) 85%, transparent);
+  pointer-events: none;
 }
-.map-legend > span {
+.map-legend-box .map-legend-all {
+  pointer-events: auto;
+}
+/* Beside the selected branch's column, not under it: that column keeps the view's full height. */
+@media (min-width: 721px) {
+  .map-view:has(> .map-side) > .map-legend-box {
+    max-width: calc(100% - 360px);
+  }
+}
+/* One row tall: keys that don't fit wrap to a second row, out of sight, so none shows cut in half. */
+.map-legend-keys {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: max(18px, 1.5em);
+  overflow: hidden;
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  gap: 18px 22px;
+}
+.map-legend > span,
+.map-legend-keys > span,
+.map-legend-list > li {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  height: max(18px, 1.5em);
+  white-space: nowrap;
 }
-.map-legend path {
+.map-legend-all {
+  flex: none;
+  white-space: nowrap;
+}
+.map-legend-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+}
+.map-legend path,
+.map-legend-list path {
   fill: none;
   stroke: var(--link);
 }
-.map-legend .map-key-head {
+.map-legend .map-key-head,
+.map-legend-list .map-key-head {
   stroke: var(--route);
   stroke-width: 1.5;
 }
-.map-legend .map-key-stale {
+.map-legend .map-key-stale,
+.map-legend-list .map-key-stale {
   stroke-dasharray: 3 4;
 }
 /* The behind chip as a key, in line with its words. */
-.map-legend .map-line-chip {
+.map-legend .map-line-chip,
+.map-legend-list .map-line-chip {
   position: static;
   transform: none;
 }
@@ -2630,9 +2674,6 @@ button.map-line-chip[aria-disabled] {
     width: auto;
     max-width: none;
     max-height: none;
-  }
-  .map-view:has(> .map-side) .map-legend {
-    padding-right: 352px;
   }
 }
 .map-files {
