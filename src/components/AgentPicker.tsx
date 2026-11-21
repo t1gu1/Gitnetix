@@ -141,7 +141,8 @@ export function AgentPicker({ value: saved, onChange, compact }: { value: AgentP
   );
 }
 
-type Option = { value: string; label: string };
+/** `hint`: a word on the option, at the menu row's end (the picked one shows its check there instead). */
+type Option = { value: string; label: string; hint?: string };
 
 type ChoiceProps = { label: string; value: string; options: Option[]; onChange: (v: string) => void; className?: string; id?: string; style?: CSSProperties; search?: string };
 
@@ -175,7 +176,7 @@ export function MenuChoice({ label, value, options, onChange, className = "picke
           label={label}
           onClose={() => setMenu(null)}
           search={search ?? (options.length > SEARCH_ABOVE ? "Filter" : undefined)}
-          items={options.map((o) => ({ id: o.value || "default", label: o.label, icon: null, hint: o.value === value && <Icon name="check" size={13} />, run: () => onChange(o.value) }))}
+          items={options.map((o) => ({ id: o.value || "default", label: o.label, icon: null, hint: o.value === value ? <Icon name="check" size={13} /> : o.hint, run: () => onChange(o.value) }))}
         />
       )}
     </>

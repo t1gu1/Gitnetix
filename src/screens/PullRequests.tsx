@@ -1,9 +1,11 @@
 import { useMutationState, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 
-import { useAction, useOverview, usePendingBranches, usePr, usePrDiff, usePrFiles, useProjectPrefs, usePrs } from "../api/hooks";
+import { useAction, useCommits, useOverview, usePendingBranches, usePr, usePrDiff, usePrFiles, useProjectPrefs, usePrs } from "../api/hooks";
 import { openExternal, rpc, RpcError } from "../api/transport";
-import type { FileChange, PrDetail, PrFork, PrSummary, PrThread } from "../api/types";
+import type { BranchView, FileChange, Overview, PrDetail, PrFork, PrSummary, PrThread } from "../api/types";
+import { MenuChoice } from "../components/AgentPicker";
+import { ContextMenu, type MenuItem } from "../components/ContextMenu";
 import { Avatar } from "../components/Avatar";
 import { DiffView, type DiffAt, type Review } from "../components/DiffView";
 import { Icon } from "../components/Icon";
@@ -41,18 +43,6 @@ function useHost(pid: string) {
 export const openPrOf = (items: PrSummary[] | undefined, branch?: string | null) =>
   items?.find((p) => p.head === branch && (p.state === "open" || p.state === "draft") && (!p.fork || p.mine));
 
-/** A pull request's state and its tag's look: the one ready to merge inverts, a conflict reads in Delete. */
-function stateOf(p: PrSummary, d?: PrDetail): [string, string] {
-  if (p.state === "merged") return ["Merged", ""];
-  if (p.state === "closed") return ["Closed", ""];
-  if (d?.conflict) return ["Conflict", "c-del"];
-  if (p.state === "draft") return ["Draft", ""];
-  if (d?.checks.some((c) => c.status === "run")) return ["Checks running", ""];
-  if (d?.checks.some((c) => c.status === "wait")) return ["Checks waiting", ""];
-  if (d && d.reviewers.some((r) => r.vote === "approve") && !d.checks.some((c) => c.status === "fail")) return ["Ready to merge", "inv"];
-  return ["Open", ""];
-}
-
 export function PullRequests({ initial }: { initial?: number }) {
   const nav = useNav();
   const pid = nav.projectId!;
@@ -64,7 +54,7 @@ export function PullRequests({ initial }: { initial?: number }) {
   const [search, setSearch] = useStored("gnx.prs.search", "");
   const [sel, setSel] = useState<number | undefined>(initial);
   const [pane, setPane] = useState<"list" | "detail">(initial ? "detail" : "list");
-  const listW = usePaneWidth("gnx.pane.prs", 460, 280, 720);
+  const listW = usePaneWidth("gnx.pane.prs", 380, 280, 720);
   const all = prs.data?.items ?? [];
   const fork = prs.data?.fork ?? undefined;
   const term = search.trim().toLowerCase();
@@ -96,10 +86,15 @@ export function PullRequests({ initial }: { initial?: number }) {
   const current = sel ?? list[0]?.number;
   const errCode = prs.error instanceof RpcError ? prs.error.code : undefined;
   const repo = prs.data && `${prs.data.repo.owner}/${prs.data.repo.repo}`;
+  const host = HOSTS[prs.data?.provider ?? ""] ?? "GitHub";
+  const opened = (n: number) => {
+    setSel(n);
+    setPane("detail");
+  };
 
   return (
     <>
-      <Header title="Pull requests" sub={`${ov?.project.name ?? ""}${prs.data ? ` · ${HOSTS[prs.data.provider] ?? "GitHub"} ${repo}` : ""}`} hideWide onBack={pane === "detail" ? () => setPane("list") : undefined} />
+      <Header title="Pull requests" sub={`${ov?.project.name ?? ""}${prs.data ? ` · ${host} ${repo}` : ""}`} hideWide onBack={pane === "detail" ? () => setPane("list") : undefined} />
       {prs.error ? (
         <EmptyState
           icon="pr"
@@ -109,63 +104,81 @@ export function PullRequests({ initial }: { initial?: number }) {
           {prs.error.message}
         </EmptyState>
       ) : (
-        <div className="body split">
-          <section aria-label="Pull request list" className="master" style={{ "--master-w": `${listW.width}px` } as CSSProperties} data-pane data-active={pane === "list"}>
-            <div className="master-tools">
-              {fork?.parent && <ForkPick fork={fork} onPick={pickRepo} />}
-              <label htmlFor="pr-q" className="sr-only">Search pull requests</label>
-              <div className="row" style={{ gap: 6, margin: 0 }}>
-                <input id="pr-q" className="input grow" placeholder="Search by number, title, branch or author" value={search} onChange={(e) => setSearch(e.target.value, false)} onBlur={() => setSearch(search)} />
-                <button className="btn btn-icon" aria-label="Sync now" data-tip={prs.dataUpdatedAt ? `Sync now · synced ${ago(new Date(prs.dataUpdatedAt).toISOString())}` : "Sync now"} onClick={sync}>
-                  <Busy on={prs.isFetching}><Icon name="refresh" size={13} /></Busy>
-                </button>
-              </div>
-              <Seg<Tab>
-                grid
-                label="Filter"
-                value={tab}
-                onChange={(t) => { setTab(t); setSel(undefined); }}
-                options={(["open", "review", "closed"] as Tab[]).map((t) => ({
-                  value: t,
-                  label: <>{t === "open" ? "Open" : t === "review" ? "To review" : "Closed"} <span className="faint">{items.filter((p) => inTab(p, t)).length}</span></>,
-                }))}
+        <>
+          {/* The branch map's toolbar: the title, the filters, then search, sync and the new pull request. In a narrow
+              window the detail pane goes without it. */}
+          <div className="map-bar pr-bar" data-detail={pane === "detail" || undefined}>
+            <h2 className="map-title hide-narrow">Pull requests</h2>
+            {repo && <span className="pr-where mono ellipsis hide-narrow">{host} · {repo}</span>}
+            <Seg<Tab>
+              label="Filter"
+              value={tab}
+              onChange={(t) => { setTab(t); setSel(undefined); }}
+              options={(["open", "review", "closed"] as Tab[]).map((t) => ({
+                value: t,
+                label: <>{t === "open" ? "Open" : t === "review" ? "To review" : "Closed"} <span className="faint">{items.filter((p) => inTab(p, t)).length}</span></>,
+              }))}
+            />
+            {tab !== "review" && (
+              <Seg<Who>
+                label="Author"
+                value={who}
+                onChange={(w) => { setWho(w); setSel(undefined); }}
+                options={[{ value: "mine", label: "Mine" }, { value: "others", label: "Others" }, { value: "all", label: "All" }]}
               />
-              {tab !== "review" && (
-                <Seg<Who>
-                  grid
-                  label="Author"
-                  value={who}
-                  onChange={(w) => { setWho(w); setSel(undefined); }}
-                  options={[{ value: "mine", label: "Mine" }, { value: "others", label: "Others" }, { value: "all", label: "All" }]}
-                />
+            )}
+            <span className="grow" />
+            <div className="pr-search">
+              <Icon name="search" size={13} className="faint" />
+              <label htmlFor="pr-q" className="sr-only">Search pull requests</label>
+              <input id="pr-q" className="input" placeholder="Search by number, title, branch or author" value={search} onChange={(e) => setSearch(e.target.value, false)} onBlur={() => setSearch(search)} />
+            </div>
+            <button className="btn btn-sm btn-icon" aria-label="Sync now" data-tip={prs.dataUpdatedAt ? `Sync now · synced ${ago(new Date(prs.dataUpdatedAt).toISOString())}` : "Sync now"} onClick={sync}>
+              <Busy on={prs.isFetching}><Icon name="refresh" size={14} /></Busy>
+            </button>
+            <NewPr pid={pid} repo={repo} fork={fork} onOpened={opened} />
+          </div>
+          <div className="body split">
+            <section aria-label="Pull request list" className="master" style={{ "--master-w": `${listW.width}px` } as CSSProperties} data-pane data-active={pane === "list"}>
+              {fork?.parent && (
+                <div className="master-tools">
+                  <ForkPick fork={fork} onPick={pickRepo} />
+                </div>
               )}
-            </div>
-            <div className="scroll pr-list">
-              {(prs.isLoading || pick.isPending) && <Loading />}
-              {!prs.isLoading && !pick.isPending && list.length === 0 && <Empty>{term && all.length ? "No pull requests match this search." : "Nothing here."}</Empty>}
-              {GROUPS.map((s) => ({ s, items: list.filter((p) => p.state === s) }))
-                .filter((g) => g.items.length)
-                .map(({ s, items }) => (
-                  <div key={s}>
-                    <div className="group-head">
-                      <span>{GROUP_LABEL[s]}</span>
-                      <span className="mono">{items.length}</span>
+              <div className="scroll pr-list">
+                {(prs.isLoading || pick.isPending) && <Loading />}
+                {!prs.isLoading && !pick.isPending && list.length === 0 && <Empty>{term && all.length ? "No pull requests match this search." : "Nothing here."}</Empty>}
+                {GROUPS.map((s) => ({ s, items: list.filter((p) => p.state === s) }))
+                  .filter((g) => g.items.length)
+                  .map(({ s, items }) => (
+                    <div key={s}>
+                      <div className="group-head">
+                        <span>{GROUP_LABEL[s]}</span>
+                        <span className="mono">{items.length}</span>
+                      </div>
+                      <div className="col" style={{ gap: 2 }}>
+                        {items.map((p) => (
+                          <PrRow key={p.number} p={p} base={ov?.defaultBranch} active={p.number === current} onPick={() => opened(p.number)} />
+                        ))}
+                      </div>
                     </div>
-                    <div className="col" style={{ gap: 2 }}>
-                      {items.map((p) => (
-                        <PrRow key={p.number} p={p} active={p.number === current} onPick={() => { setSel(p.number); setPane("detail"); }} />
-                      ))}
-                    </div>
-                  </div>
-                ))}
-            </div>
-            <NewPr pid={pid} repo={repo} fork={fork} onOpened={(n) => { setSel(n); setPane("detail"); }} />
-          </section>
-          <Resizer pane={listW} label="Resize pull request list" />
-          <main className="detail" data-pane data-active={pane === "detail"} {...swipeProps((dir) => dir < 0 && setPane("list"))}>
-            {current ? <Detail key={current} pid={pid} number={current} /> : <EmptyState icon="pr" title="No pull request selected">Pick one from the list to read its description, checks and reviews.</EmptyState>}
-          </main>
-        </div>
+                  ))}
+              </div>
+              <div className="pr-legend" aria-hidden="true">
+                <span className="label">Legend</span>
+                <span className="pr-legend-keys">
+                  {(tab === "closed" ? (["merged", "closed"] as const) : (["open", "draft"] as const)).map((s) => (
+                    <span key={s}><span className="pr-ring" data-state={s} />{GROUP_LABEL[s]}</span>
+                  ))}
+                </span>
+              </div>
+            </section>
+            <Resizer pane={listW} label="Resize pull request list" />
+            <main className="detail" data-pane data-active={pane === "detail"} {...swipeProps((dir) => dir < 0 && setPane("list"))}>
+              {current ? <Detail key={current} pid={pid} number={current} /> : <EmptyState icon="pr" title="No pull request selected">Pick one from the list to read its description, checks and reviews.</EmptyState>}
+            </main>
+          </div>
+        </>
       )}
     </>
   );
@@ -189,17 +202,22 @@ function ForkPick({ fork, onPick }: { fork: PrFork; onPick: (to: string) => void
   );
 }
 
-function PrRow({ p, active, onPick }: { p: PrSummary; active: boolean; onPick: () => void }) {
+/** A row of the list: its state as a station ring, the title, then number, author and branch (and its base, when it is
+ * not the default branch). */
+function PrRow({ p, base, active, onPick }: { p: PrSummary; base?: string; active: boolean; onPick: () => void }) {
   return (
     <button className="item-btn pr-row" aria-pressed={active} onClick={onPick}>
-      <Avatar name={p.author} size={20} />
+      <span className="pr-ring" data-state={p.state} />
       <span className="pr-row-text">
         <span className="pr-row-title">{p.title}</span>
         <span className="pr-row-meta">
           <span className="mono">#{p.number}</span>
           <span>{p.mine ? "You" : p.author}</span>
           {p.fork && <span className="tag">Fork</span>}
-          <span className="mono pr-row-route">{p.head} <span className="pr-arrow">→</span> {p.base}</span>
+          <span className="mono pr-row-route">
+            {p.head}
+            {p.base !== base && <> <span className="pr-arrow">→</span> {p.base}</>}
+          </span>
         </span>
       </span>
       <span className="pr-row-age">{ago(p.updatedAt)}</span>
@@ -207,61 +225,197 @@ function PrRow({ p, active, onPick }: { p: PrSummary; active: boolean; onPick: (
   );
 }
 
-/** Opens a pull request from the selected branch (else the checked-out one), its title and description written by AI;
- * through the user's fork when GitHub won't take their pushes on origin. */
+/** The toolbar's button: opens the new pull request modal, then shows the pull request opening (its title and
+ * description written by AI takes a while) until it opens. */
 function NewPr({ pid, repo, fork, onOpened }: { pid: string; repo?: string; fork?: PrFork; onOpened: (n: number) => void }) {
   const nav = useNav();
   const ov = useOverview(pid).data;
   const branch = nav.selectedBranch ?? ov?.currentBranch;
+  const [asking, setAsking] = useState(false);
   const create = useAction<PrSummary>("prs.create", { invalidate: [["prs", pid]], success: (r) => (r.fork ? `Forked ${repo} and opened #${r.number}` : `Opened #${r.number}`) });
   // From the mutation cache, so it still shows after leaving the page and coming back.
-  const creating = usePendingBranches("prs.create", pid).includes(branch ?? "");
-  const bv = ov?.branches.find((b) => b.name === branch);
-  const already = openPrOf(usePrs(pid).data?.items, branch);
+  const creating = usePendingBranches("prs.create", pid).length > 0;
   const viaFork = !!fork && !fork.canPush;
-  // Pushed commits = commits ahead of its base that origin already has. Through a fork, opening it pushes them.
-  // The default branch has no base here: through a fork, it goes to origin's copy of it.
-  const base = bv?.parent ?? ov?.defaultBranch;
-  const blocked = !bv
-    ? undefined
-    : bv.ahead === 0 && !(viaFork && !bv.parent)
-      ? `${branch} has no commits ahead of its base yet.`
-      : !viaFork && (!bv.remote || bv.ahead - bv.upstreamAhead <= 0)
-        ? `Push commits to ${branch} before opening a pull request.`
-        : undefined;
-  const how = viaFork
-    ? `You can't push to ${repo}. This forks it to your GitHub account, pushes the branch there and opens the pull request on ${repo}.`
-    : fork && repo && repo !== fork.origin
-      ? `Pushes the branch to your fork ${fork.origin}, then opens the pull request on ${repo}.`
-      : "AI writes its title and description from the changes.";
+  if (!ov) return null;
   return (
-    <div className="pr-new">
-      <div className="pr-new-head">
-        <span className="label">New pull request</span>
-        {repo && <span className="mono ellipsis" data-tip={`Opens on ${repo}`}>{repo}</span>}
-      </div>
-      {branch && (
-        <div className="pr-new-route mono">
-          <span className="ellipsis" data-tip={branch} data-tip-overflow>{branch}</span>
-          <span className="pr-arrow">→</span>
-          <span className="ellipsis">{base ?? "its base"}</span>
-        </div>
+    <>
+      <button
+        className="btn btn-sm btn-primary pr-new-btn"
+        aria-disabled={creating || undefined}
+        data-tip={creating ? undefined : "Pick its branches; AI writes its title and description"}
+        onClick={() => !creating && setAsking(true)}
+      >
+        <Busy on={creating}><Icon name={viaFork ? "branch" : "sparkle"} size={13} /></Busy>
+        <span>{creating ? (viaFork ? "Forking and pushing…" : "Opening pull request…") : "New pull request"}</span>
+        {!creating && branch && <span className="pr-new-from mono ellipsis">{branch}</span>}
+      </button>
+      {asking && (
+        <NewPrModal
+          pid={pid}
+          repo={repo}
+          fork={fork}
+          start={branch ?? ov.defaultBranch}
+          onClose={() => setAsking(false)}
+          onShow={(n) => {
+            setAsking(false);
+            onOpened(n);
+          }}
+          onCreate={(args) => {
+            setAsking(false);
+            create.mutate({ projectId: pid, ...args }, { onSuccess: (r) => onOpened(r.number) });
+          }}
+        />
       )}
-      {already ? (
+    </>
+  );
+}
+
+/** Branches to pick as a pull request's base or head: every branch here but `not`, the parent, default branch, releases
+ * and the checked-out one noted. */
+function branchOptions(ov: Overview, not: string | null, parent?: string | null) {
+  return ov.branches
+    .filter((b) => b.exists && b.name !== not)
+    .map((b) => ({
+      value: b.name,
+      label: b.name,
+      hint: b.name === parent ? "parent" : b.name === ov.defaultBranch ? "default" : b.role === "release" ? "release" : b.checkedOut ? "checked out" : undefined,
+    }));
+}
+
+const COMMITS_SHOWN = 6;
+
+/** A new pull request: the branch it comes from (the selected or checked-out one) and the one it merges into (its
+ * parent), each one to change; on a fork of a repository you can push to, the repository it opens on. Under them, the
+ * commits it would bring, or why it can't open. */
+function NewPrModal({ pid, repo, fork, start, onClose, onShow, onCreate }: {
+  pid: string;
+  repo?: string;
+  fork?: PrFork;
+  start: string;
+  onClose: () => void;
+  onShow: (n: number) => void;
+  onCreate: (args: { branch: string; base: string; to?: string }) => void;
+}) {
+  const ov = useOverview(pid).data!;
+  const items = usePrs(pid).data?.items;
+  const [from, setFrom] = useState(start);
+  // Null: the From branch's parent, following it when From changes.
+  const [picked, setPicked] = useState<string | null>(null);
+  const bv = ov.branches.find((b) => b.name === from);
+  const viaFork = !!fork && !fork.canPush;
+  // Origin is your fork of a repository: the pull request opens there (to contribute) or in the fork itself.
+  const repos = fork?.parent && fork.canPush ? { parent: fork.parent, origin: fork.origin } : null;
+  const [on, setOn] = useState(fork?.to ?? fork?.origin ?? "");
+  // The default branch has no base: through a fork, it goes to origin's copy of it.
+  const to = picked ?? bv?.parent ?? ov.defaultBranch;
+  const self = to === from;
+  const commits = useCommits(pid, self ? undefined : from, 50, false, to);
+  const already = openPrOf(items, from);
+  // Without the row marking where it left its base.
+  const list = (commits.data ?? []).filter((c) => !c.base);
+  const blocked =
+    self && !viaFork
+      ? `${from} can't merge into itself: pick another branch to merge into.`
+      : bv && !viaFork && (!bv.remote || bv.ahead - bv.upstreamAhead <= 0) && to === bv.parent
+        ? `Push commits to ${from} before opening a pull request.`
+        : !self && commits.data && list.length === 0
+          ? `${from} has no commits that ${to} doesn't have.`
+          : undefined;
+  const how = viaFork
+    ? `You can't push to ${repo}. This forks it to your GitHub account, pushes ${from} there and opens the pull request on ${repo}.`
+    : repos
+      ? on === repos.parent
+        ? `Pushes ${from} to your fork ${repos.origin}, then opens the pull request on ${repos.parent}.`
+        : `Between two branches of your fork ${repos.origin}. ${repos.parent} sees nothing.`
+      : null;
+  const ready = !already && !blocked && (self || !!commits.data);
+  return (
+    <Modal
+      title="New pull request"
+      sub="AI writes its title and description from the changes."
+      onClose={onClose}
+      width={580}
+      footer={
         <>
-          <p className="hint">#{already.number} is already open from {branch}. Commits you push to it show there.</p>
-          <button className="btn" onClick={() => onOpened(already.number)}>Show #{already.number}</button>
-        </>
-      ) : (
-        <>
-          {blocked ? <div className="err-box warn">{blocked}</div> : branch && <p className="hint">{how}</p>}
-          <button className="btn btn-primary" disabled={!branch || creating || !!blocked} onClick={() => branch && create.mutate({ projectId: pid, branch }, { onSuccess: (r) => onOpened(r.number) })}>
-            <Busy on={creating}><Icon name={viaFork ? "branch" : "sparkle"} size={13} /></Busy>
-            <span className="ellipsis">{creating ? (viaFork ? "Forking and pushing…" : "Opening pull request…") : viaFork ? "Fork and open pull request" : "Open pull request"}</span>
+          <span className="grow" />
+          <button className="btn btn-md" onClick={onClose}>Cancel</button>
+          <button className="btn btn-md btn-primary" disabled={!ready} onClick={() => onCreate({ branch: from, base: to, ...(repos && { to: on }) })}>
+            <Icon name={viaFork ? "branch" : "sparkle"} size={13} />
+            {viaFork ? "Fork and open pull request" : "Open pull request"}
           </button>
         </>
-      )}
-    </div>
+      }
+    >
+      <div className="pr-new">
+        {repos && (
+          <div className="field">
+            <span className="flabel">Open it on</span>
+            <Seg<string>
+              grid
+              label="Open it on"
+              value={on}
+              onChange={setOn}
+              options={[
+                { value: repos.parent, label: <span className="pr-on"><span className="mono ellipsis">{repos.parent}</span><small>Contribute to the original</small></span> },
+                { value: repos.origin, label: <span className="pr-on"><span className="mono ellipsis">{repos.origin}</span><small>Your fork</small></span> },
+              ]}
+            />
+          </div>
+        )}
+        {how && <p className="hint">{how}</p>}
+        <div className="pr-from-to">
+          <div className="field">
+            <label htmlFor="pr-from">From</label>
+            <MenuChoice
+              id="pr-from"
+              className="select menu-select mono"
+              label="From"
+              search="Filter branches"
+              value={from}
+              options={branchOptions(ov, null)}
+              onChange={(b) => {
+                setFrom(b);
+                setPicked(null);
+              }}
+            />
+          </div>
+          <span className="pr-arrow" aria-hidden="true">→</span>
+          <div className="field">
+            <label htmlFor="pr-to">To</label>
+            {/* shortcut: on a fork, the branches listed are origin's, not those of the repository it opens on; list that one's from its host if they differ. */}
+            <MenuChoice id="pr-to" className="select menu-select mono" label="To" search="Filter branches" value={to} options={branchOptions(ov, viaFork ? null : from, bv?.parent)} onChange={setPicked} />
+          </div>
+        </div>
+        {already ? (
+          <div className="pr-already">
+            <span>
+              #{already.number} is already open from <span className="mono">{from}</span> into <span className="mono">{already.base}</span>. Commits you push to it show there.
+            </span>
+            <button className="btn btn-sm" onClick={() => onShow(already.number)}>Show #{already.number}</button>
+          </div>
+        ) : blocked ? (
+          <div className="err-box warn">{blocked}</div>
+        ) : (
+          !self && (
+            <div className="pr-preview" aria-busy={commits.isFetching || undefined}>
+              <div className="pr-preview-head">
+                <span className="label">{commits.data ? plural(list.length, "commit") : "Commits"}</span>
+                {commits.isFetching && <span className="spinner" />}
+              </div>
+              {commits.error && <div style={{ padding: "8px 12px" }}><ErrorBox error={commits.error} /></div>}
+              {list.slice(0, COMMITS_SHOWN).map((c) => (
+                <div key={c.sha} className="pr-preview-row">
+                  <span className="mono faint">{c.sha.slice(0, 7)}</span>
+                  <span className="ellipsis">{c.subject}</span>
+                  <span className="mono faint">{ago(c.date)}</span>
+                </div>
+              ))}
+              {list.length > COMMITS_SHOWN && <span className="pr-preview-more">and {plural(list.length - COMMITS_SHOWN, "more commit")}</span>}
+            </div>
+          )
+        )}
+      </div>
+    </Modal>
   );
 }
 
@@ -270,6 +424,7 @@ function Detail({ pid, number }: { pid: string; number: number }) {
   const q = usePr(pid, number);
   const host = useHost(pid);
   const prefs = useProjectPrefs(pid);
+  const ov = useOverview(pid).data;
   const media = prefs.dialogs.prMedia;
   // Pictures behind the host's sign-in (private repository, GitLab or Gitea upload, Azure DevOps attachment) load through the app.
   const pictures = useMemo(() => ({ key: `pr:${pid}`, load: (url: string) => rpc<string>("prs.picture", { projectId: pid, url }) }), [pid]);
@@ -297,6 +452,12 @@ function Detail({ pid, number }: { pid: string; number: number }) {
   });
   const reopen = useAction("prs.close", { invalidate: inv, success: `Reopened #${number}` });
   const gen = useAction<{ title: string; body: string }>("prs.generate");
+  const move = useAction("prs.retarget", { invalidate: inv });
+  // The branch picked to merge into instead, asked about before it changes; and whether AI rewrites the text for it.
+  const [retarget, setRetarget] = useState<string | null>(null);
+  // The ⋯ menu of a narrow pane, under its button.
+  const [more, setMore] = useState<{ x: number; y: number } | null>(null);
+  const [rewrite, setRewrite] = useState(true);
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
@@ -313,11 +474,15 @@ function Detail({ pid, number }: { pid: string; number: number }) {
   if (q.error) return <EmptyState icon="pr" title="Couldn't load pull request">{q.error.message}</EmptyState>;
   const d = q.data!;
   const open = d.state === "open" || d.state === "draft";
-  const [label, tag] = stateOf(d, d);
   const pending = d.checks.filter((c) => c.status === "run" || c.status === "wait").length;
   const unresolved = d.threads.filter((t) => t.resolvable && !t.resolved).length;
   const threads = filter === "open" ? d.threads.filter((t) => t.resolvable && !t.resolved) : d.threads;
   const hidden = !media && (MEDIA.test(d.body) || d.threads.some((t) => t.comments.some((c) => MEDIA.test(c.body))));
+  // A short description sits above the conversation, a long one beside it, each half the pane.
+  // shortcut: counts characters and lines, not the drawn height; measure it if short ones still look lost beside the talk.
+  const short = !(media && MEDIA.test(d.body)) && d.body.length < 400 && d.body.split("\n").length <= 6;
+  // Its branch here, when it is not a fork's: its type and how far behind its base it is.
+  const bv = d.fork ? undefined : ov?.branches.find((b) => b.name === d.head);
   const startEdit = () => {
     setTitle(d.title);
     setBody(d.body);
@@ -328,100 +493,140 @@ function Detail({ pid, number }: { pid: string; number: number }) {
     setView("files");
   };
 
+  // What moves it on, at the end of its line: merge it, resolve its conflicts, or reopen it.
+  const action =
+    open && !d.conflict && d.state !== "draft" ? (
+      <button className="btn btn-primary btn-sm" disabled={merging || pending > 0} onClick={() => merge.mutate({ projectId: pid, number })}>
+        {merging && <span className="spinner" />}
+        {merging ? `Merging into ${d.base}…` : `Merge into ${d.base}`}
+      </button>
+    ) : open && d.conflict ? (
+      <button
+        className="btn btn-primary btn-sm"
+        onClick={() => {
+          nav.selectBranch(d.head);
+          nav.go({ name: "workspace" });
+        }}
+      >
+        <Icon name="sparkle" size={12} />
+        Resolve conflicts with AI
+      </button>
+    ) : d.state === "closed" ? (
+      <button className="btn btn-primary btn-sm" disabled={reopen.isPending} onClick={() => reopen.mutate({ projectId: pid, number, reopen: true })}>
+        {reopen.isPending && <span className="spinner" />}
+        Reopen
+      </button>
+    ) : null;
+
   return (
     <div className="detail-inner pr-detail">
-      <header className="pr-head">
-        {editing ? (
-          <div className="field">
-            <label htmlFor="pr-title">Title</label>
-            <input id="pr-title" className="input" value={title} onChange={(e) => setTitle(e.target.value)} />
+      <header className="pr-strip">
+        <div className="pr-strip-top">
+          {editing ? (
+            <div className="field grow">
+              <label htmlFor="pr-title">Title</label>
+              <input id="pr-title" className="input" value={title} onChange={(e) => setTitle(e.target.value)} />
+            </div>
+          ) : (
+            <div className="pr-title">
+              <h1>{d.title}</h1>
+              {open && (
+                <button className="btn btn-ghost btn-icon btn-sm pr-wide" aria-label="Edit title and description" onClick={startEdit}>
+                  <Icon name="edit" size={13} />
+                </button>
+              )}
+            </div>
+          )}
+          <div className="pr-meta">
+            <span className="mono faint">#{d.number}</span>
+            <span className="pr-meta-by">
+              <Avatar name={d.author} size={16} />
+              {d.mine ? "Opened by you" : `Opened by ${d.author}`} · updated {ago(d.updatedAt)}
+            </span>
+            {d.fork && <span className="tag" data-tip="Its branch lives in a fork">Fork</span>}
           </div>
-        ) : (
-          <div className="pr-title">
-            <h1>{d.title}</h1>
+          <span className="grow" />
+          <div className="pr-actions">
             {open && (
-              <button className="btn btn-ghost btn-icon" aria-label="Edit title and description" onClick={startEdit}>
-                <Icon name="edit" />
+              <button className="btn btn-sm" aria-expanded={reviewOpen} onClick={() => setReviewOpen(!reviewOpen)}>Review</button>
+            )}
+            {open && (
+              <button
+                className="btn btn-sm"
+                disabled={gen.isPending}
+                onClick={() =>
+                  gen.mutate(
+                    { projectId: pid, branch: d.head, base: d.base },
+                    {
+                      onSuccess: (r) => {
+                        setTitle(r.title);
+                        setBody(r.body);
+                        setEditing(true);
+                      },
+                    },
+                  )
+                }
+              >
+                <Busy on={gen.isPending}><Icon name="sparkle" size={12} /></Busy>
+                Rewrite with AI
               </button>
             )}
+            <button className="btn btn-sm pr-wide" onClick={() => openExternal(d.url)}>
+              <Icon name="external" size={12} />
+              Open on {host}
+            </button>
+            {open && (
+              <button className="btn btn-sm btn-icon btn-danger pr-wide" aria-label="Close pull request" data-tip="Close pull request" disabled={close.isPending} onClick={() => setConfirmClose(true)}>
+                <Icon name="prClosed" size={14} />
+              </button>
+            )}
+            {/* Narrow, the rest goes in a menu. */}
+            <button
+              className="btn btn-sm btn-icon pr-narrow"
+              aria-label="More actions"
+              aria-haspopup="menu"
+              onClick={(e) => {
+                const r = e.currentTarget.getBoundingClientRect();
+                setMore({ x: r.right, y: r.bottom + 2 });
+              }}
+            >
+              <Icon name="more" size={14} />
+            </button>
+            {more && (
+              <ContextMenu
+                x={more.x}
+                y={more.y}
+                alignRight
+                label="More actions"
+                onClose={() => setMore(null)}
+                items={[
+                  { id: "open", label: `Open on ${host}`, icon: "external", run: () => openExternal(d.url) },
+                  ...(open
+                    ? ([
+                        { id: "edit", label: "Edit title and description", icon: "edit", run: startEdit },
+                        "sep",
+                        { id: "close", label: "Close pull request", icon: "prClosed", danger: true, disabled: close.isPending, run: () => setConfirmClose(true) },
+                      ] as MenuItem[])
+                    : []),
+                ]}
+              />
+            )}
           </div>
-        )}
-        <div className="pr-meta">
-          <span className={`tag ${tag}`}>{label}</span>
-          <span className="mono faint">#{d.number}</span>
-          <span className="pr-meta-by">
-            <Avatar name={d.author} size={16} />
-            {d.mine ? "Opened by you" : `Opened by ${d.author}`} · updated {ago(d.updatedAt)}
-          </span>
-          <span className="pr-route mono">
-            <span className="ellipsis" data-tip={d.head} data-tip-overflow>{d.head}</span>
-            <span className="pr-arrow">→</span>
-            <span>{d.base}</span>
-          </span>
-          {d.fork && <span className="tag" data-tip="Its branch lives in a fork">Fork</span>}
         </div>
+        <PrLine
+          d={d}
+          bv={bv}
+          host={host}
+          action={action}
+          bases={open && ov ? branchOptions(ov, d.head, bv?.parent) : undefined}
+          onBase={setRetarget}
+          onUnresolved={() => {
+            setView("conversation");
+            setFocus(null);
+            setFilter("open");
+          }}
+        />
       </header>
-
-      <div className="pr-actions">
-        {open && !d.conflict && d.state !== "draft" && (
-          <button className="btn btn-primary" disabled={merging || pending > 0} onClick={() => merge.mutate({ projectId: pid, number })}>
-            {merging && <span className="spinner" />}
-            {merging ? `Merging into ${d.base}…` : `Merge into ${d.base}`}
-          </button>
-        )}
-        {d.conflict && (
-          <button
-            className="btn btn-primary"
-            onClick={() => {
-              nav.selectBranch(d.head);
-              nav.go({ name: "workspace" });
-            }}
-          >
-            <Icon name="sparkle" size={12} />
-            Resolve conflicts with AI
-          </button>
-        )}
-        {d.state === "closed" && (
-          <button className="btn btn-primary" disabled={reopen.isPending} onClick={() => reopen.mutate({ projectId: pid, number, reopen: true })}>
-            {reopen.isPending && <span className="spinner" />}
-            Reopen
-          </button>
-        )}
-        {open && (
-          <button className="btn" aria-expanded={reviewOpen} onClick={() => setReviewOpen(!reviewOpen)}>Review</button>
-        )}
-        {open && (
-          <button
-            className="btn"
-            disabled={gen.isPending}
-            onClick={() =>
-              gen.mutate(
-                { projectId: pid, branch: d.head },
-                {
-                  onSuccess: (r) => {
-                    setTitle(r.title);
-                    setBody(r.body);
-                    setEditing(true);
-                  },
-                },
-              )
-            }
-          >
-            <Busy on={gen.isPending}><Icon name="sparkle" size={12} /></Busy>
-            Rewrite with AI
-          </button>
-        )}
-        <button className="btn" onClick={() => openExternal(d.url)}>
-          <Icon name="external" size={12} />
-          Open on {host}
-        </button>
-        {open && (
-          <button className="btn btn-danger pr-close" disabled={close.isPending} onClick={() => setConfirmClose(true)}>
-            <Icon name="close" size={12} />
-            Close pull request
-          </button>
-        )}
-      </div>
 
       {confirmClose && (
         <Modal
@@ -464,20 +669,82 @@ function Detail({ pid, number }: { pid: string; number: number }) {
         </Modal>
       )}
 
-      {reviewOpen && <ReviewForm pid={pid} d={d} onDone={() => setReviewOpen(false)} />}
+      {retarget && (
+        <Modal
+          title={`Change #${number}'s target to ${retarget}?`}
+          sub={<>From <span className="mono">{d.base}</span> to <span className="mono">{retarget}</span> on {host}.</>}
+          onClose={() => setRetarget(null)}
+          width={480}
+          footer={
+            <>
+              <span className="grow" />
+              <button className="btn btn-md" onClick={() => setRetarget(null)}>Cancel</button>
+              <button
+                className="btn btn-md btn-primary"
+                disabled={move.isPending}
+                onClick={() =>
+                  move.mutate(
+                    { projectId: pid, number, base: retarget },
+                    {
+                      onSuccess: () => {
+                        toast(`#${number} now merges into ${retarget}`);
+                        // Rewritten into the editor: saved only once looked at.
+                        if (rewrite)
+                          gen.mutate(
+                            { projectId: pid, branch: d.head, base: retarget },
+                            {
+                              onSuccess: (r) => {
+                                setTitle(r.title);
+                                setBody(r.body);
+                                setEditing(true);
+                              },
+                            },
+                          );
+                        setRetarget(null);
+                      },
+                    },
+                  )
+                }
+              >
+                {move.isPending && <span className="spinner" />}
+                Change target
+              </button>
+            </>
+          }
+        >
+          <label className="check pr-rewrite">
+            <input type="checkbox" checked={rewrite} onChange={() => setRewrite(!rewrite)} />
+            <span>
+              Rewrite the title and description with AI
+              <small>They were written from the changes against {d.base}. You see the new ones before they are saved.</small>
+            </span>
+          </label>
+        </Modal>
+      )}
 
-      <Seg<View>
-        label="Show"
-        value={view}
-        onChange={(v) => {
-          setView(v);
-          setFocus(null);
-        }}
-        options={[
-          { value: "conversation", label: <>Conversation <span className="faint">{d.threads.length}</span></> },
-          { value: "files", label: <>Files changed <span className="faint">{files.data?.length ?? ""}</span></> },
-        ]}
-      />
+      {reviewOpen && (
+        <div className="pr-review">
+          <ReviewForm pid={pid} d={d} onDone={() => setReviewOpen(false)} />
+        </div>
+      )}
+
+      <div className="pr-tabs" role="tablist" aria-label="Show">
+        {(["conversation", "files"] as View[]).map((v) => (
+          <button
+            key={v}
+            role="tab"
+            aria-selected={view === v}
+            onClick={() => {
+              setView(v);
+              setFocus(null);
+            }}
+          >
+            <Icon name={v === "files" ? "file" : "comment"} size={13} />
+            {v === "files" ? "Files changed" : "Conversation"}
+            <span className="faint mono">{v === "files" ? (files.data?.length ?? "") : d.threads.length}</span>
+          </button>
+        ))}
+      </div>
 
       {view === "files" && (
         <PictureSource.Provider value={source}>
@@ -486,58 +753,65 @@ function Detail({ pid, number }: { pid: string; number: number }) {
       )}
 
       {view === "conversation" && (
-        <div className="pr-cols">
-          <div className="pr-main">
-            <section className="section">
-              <div className="pr-sec-head">
-                <h2>Description</h2>
-                <span className="grow" />
-                {open && !editing && (
-                  <button className="btn btn-sm" onClick={startEdit}>
-                    <Icon name="edit" size={12} />
-                    Edit
-                  </button>
-                )}
-              </div>
-              {hidden && !editing && <MediaAsk onShow={() => prefs.setDialogs({ prMedia: true })} />}
-              {editing ? (
-                <div className="col">
-                  <label htmlFor="pr-body" className="sr-only">Description</label>
-                  <textarea id="pr-body" className="textarea mono" rows={14} style={{ fontSize: 12.5 }} value={body} onChange={(e) => setBody(e.target.value)} />
-                  <div className="row wrap">
-                    <span className="grow" />
-                    <button className="btn" onClick={() => setEditing(false)}>Cancel</button>
-                    <button className="btn btn-primary" disabled={!title.trim() || update.isPending} onClick={() => update.mutate({ projectId: pid, number, title, body }, { onSuccess: () => setEditing(false) })}>
-                      Save to {host}
-                    </button>
-                  </div>
-                </div>
-              ) : d.body ? (
-                <div className="card pr-body">
-                  <PictureSource.Provider value={source}>
-                    <Markdown text={d.body} html={media} breaks />
-                  </PictureSource.Provider>
-                </div>
-              ) : (
-                <span className="muted">No description.</span>
+        <div className="pr-conv" data-stacked={short || undefined}>
+          <section className="pr-desc" aria-label="Description">
+            <div className="pr-sec-head">
+              <h2>Description</h2>
+              <span className="grow" />
+              {open && !editing && (
+                <button className="btn btn-sm btn-ghost" onClick={startEdit}>
+                  <Icon name="edit" size={12} />
+                  Edit
+                </button>
               )}
-            </section>
-
-            <section className="section" aria-label="Conversation">
-              <div className="pr-sec-head">
-                <h2>Conversation</h2>
-                <span className="hint">{d.threads.length ? `${unresolved} unresolved of ${d.threads.length}` : ""}</span>
-                <span className="grow" />
-                <Seg label="Show" value={filter} onChange={setFilter} options={[{ value: "all", label: "All" }, { value: "open", label: "Unresolved" }]} />
+            </div>
+            {hidden && !editing && <MediaAsk onShow={() => prefs.setDialogs({ prMedia: true })} />}
+            {editing ? (
+              <div className="col">
+                <label htmlFor="pr-body" className="sr-only">Description</label>
+                <textarea id="pr-body" className="textarea mono" rows={14} style={{ fontSize: 12.5 }} value={body} onChange={(e) => setBody(e.target.value)} />
+                <div className="row wrap">
+                  <span className="grow" />
+                  <button className="btn" onClick={() => setEditing(false)}>Cancel</button>
+                  <button className="btn btn-primary" disabled={!title.trim() || update.isPending} onClick={() => update.mutate({ projectId: pid, number, title, body }, { onSuccess: () => setEditing(false) })}>
+                    Save to {host}
+                  </button>
+                </div>
               </div>
-              <PictureSource.Provider value={source}>
-                {threads.map((t) => <ThreadView key={t.id} pid={pid} number={number} t={t} media={media} onShowCode={t.path ? () => showCode(t) : undefined} />)}
-              </PictureSource.Provider>
-              {threads.length === 0 && <span className="muted">{d.threads.length === 0 ? "No comments yet." : "Every conversation is resolved."}</span>}
+            ) : d.body ? (
+              <div className="pr-body">
+                <PictureSource.Provider value={source}>
+                  <Markdown text={d.body} html={media} breaks />
+                </PictureSource.Provider>
+              </div>
+            ) : (
+              <span className="muted">No description.</span>
+            )}
+          </section>
+
+          <section className="pr-talk" aria-label="Conversation">
+            <div className="pr-sec-head">
+              <h2>Conversation</h2>
+              <span className="hint">{d.threads.length ? `${unresolved} unresolved of ${d.threads.length}` : ""}</span>
+              <span className="grow" />
+              <Seg label="Show" value={filter} onChange={setFilter} options={[{ value: "all", label: "All" }, { value: "open", label: "Unresolved" }]} />
+            </div>
+            {threads.length > 0 && (
+              <div className="pr-rail">
+                <PictureSource.Provider value={source}>
+                  {threads.map((t) => (
+                    <div key={t.id} className="pr-rail-item" data-open={(t.resolvable && !t.resolved) || undefined}>
+                      <ThreadView pid={pid} number={number} t={t} media={media} onShowCode={t.path ? () => showCode(t) : undefined} />
+                    </div>
+                  ))}
+                </PictureSource.Provider>
+              </div>
+            )}
+            {threads.length === 0 && <span className="muted">{d.threads.length === 0 ? "No comments yet." : "Every conversation is resolved."}</span>}
+            <div className="pr-talk-new">
               <NewComment pid={pid} number={number} />
-            </section>
-          </div>
-          <PrStatus d={d} host={host} />
+            </div>
+          </section>
         </div>
       )}
     </div>
@@ -550,10 +824,36 @@ const VOTE_WORD = { approve: "Approved", changes: "Changes requested", comment: 
 /** Checks listed before "Show all": the failing and running ones come first. */
 const CHECKS_SHOWN = 6;
 
-/** Where the pull request stands, like the branch map's selected card: its headline numbers, a sentence on what holds it
- * back, then its checks and reviewers. Beside the conversation in a wide pane, above it otherwise. */
-function PrStatus({ d, host }: { d: PrDetail; host: string }) {
+type Gate = { key: "checks" | "review" | "talk"; label: string; value: ReactNode; state: "pass" | "fail" | "wait"; running?: boolean };
+
+/** The pull request as a line of the branch map: its branch's box, a station for each gate it passes (checks, review,
+ * conversations), then its base. The route runs solid up to the first gate not passed. Checks and Review open what
+ * they hold, Conversations shows the unresolved ones. After the base: what holds it back, and `action`. */
+function PrLine({ d, bv, host, action, bases, onBase, onUnresolved }: {
+  d: PrDetail;
+  bv?: BranchView;
+  host: string;
+  action: ReactNode;
+  /** Branches it can merge into instead: its base then opens them to pick from, while it is open. */
+  bases?: { value: string; label: string; hint?: string }[];
+  onBase: (base: string) => void;
+  onUnresolved: () => void;
+}) {
+  const [pop, setPop] = useState<"checks" | "review" | null>(null);
   const [all, setAll] = useState(false);
+  const line = useRef<HTMLDivElement>(null);
+  // Closed by a press anywhere else or Escape, like a menu.
+  useEffect(() => {
+    if (!pop) return;
+    const down = (e: PointerEvent) => !line.current?.contains(e.target as Node) && setPop(null);
+    const key = (e: KeyboardEvent) => e.key === "Escape" && setPop(null);
+    document.addEventListener("pointerdown", down);
+    window.addEventListener("keydown", key);
+    return () => {
+      document.removeEventListener("pointerdown", down);
+      window.removeEventListener("keydown", key);
+    };
+  }, [pop]);
   const count = (s: string) => d.checks.filter((c) => c.status === s).length;
   const [passed, failing, pending] = [count("pass"), count("fail"), count("run") + count("wait")];
   const approvals = d.reviewers.filter((r) => r.vote === "approve").length;
@@ -580,73 +880,104 @@ function PrStatus({ d, host }: { d: PrDetail; host: string }) {
                     : d.reviewers.length
                       ? "Waiting for a review."
                       : "No review asked for yet.";
+  const gates: Gate[] = [
+    ...(d.checks.length
+      ? [{ key: "checks", label: "Checks", value: <>{passed}<small>/{d.checks.length}</small></>, state: failing ? "fail" : pending ? "wait" : "pass", running: pending > 0 } as Gate]
+      : []),
+    { key: "review", label: "Review", value: <>{approvals}<small>/{d.reviewers.length}</small></>, state: asked.length ? "fail" : approvals ? "pass" : "wait" },
+    { key: "talk", label: "Unresolved", value: unresolved, state: unresolved ? "wait" : "pass" },
+  ];
+  const merged = d.state === "merged";
+  const shut = d.state === "closed";
+  // How far the route runs: through every gate passed in a row (all of them once merged, none once closed).
+  const reach = merged ? gates.length : shut ? -1 : (gates.findIndex((g) => g.state !== "pass") + 1 || gates.length + 1) - 1;
+  const seg = (i: number) => <span className="pr-seg" data-on={(i <= reach && !shut) || undefined} />;
+  const kind = bv?.role === "branch" && bv.kind;
   return (
-    <aside className="pr-status" aria-label="Where it stands">
-      <div className="pr-status-top">
-        <div className="map-big">
-          {d.checks.length > 0 && (
-            <div>
-              <b className={failing ? "c-del" : undefined}>
-                {passed}
-                <small>/{d.checks.length}</small>
-              </b>
-              <span className="label">Checks</span>
-            </div>
-          )}
-          <div>
-            <b>{approvals}</b>
-            <span className="label">{approvals === 1 ? "Approval" : "Approvals"}</span>
-          </div>
-          <div>
-            <b>{unresolved}</b>
-            <span className="label">Unresolved</span>
-          </div>
-        </div>
-        <p className="map-sentence">{sentence}</p>
-      </div>
-      {checks.length > 0 && (
-        <section className="pr-status-part" aria-label="Checks">
-          <h3 className="label">Checks</h3>
-          <ul className="pr-status-list">
-            {(all ? checks : checks.slice(0, CHECKS_SHOWN)).map((c, i) => {
-              const row = (
-                <>
-                  <span className={`pulse pr-check-dot ${c.status}`} />
-                  <span className="grow ellipsis">{c.name}</span>
-                  <span className={c.status === "fail" ? "c-del" : "muted"}>{CHECK_WORD[c.status]}</span>
-                  {c.url && <Icon name="external" size={11} className="faint" />}
-                </>
-              );
-              return <li key={i}>{c.url ? <button className="pr-status-row" data-tip="Open its logs" onClick={() => openExternal(c.url!)}>{row}</button> : <div className="pr-status-row">{row}</div>}</li>;
-            })}
-          </ul>
-          {checks.length > CHECKS_SHOWN && (
-            <button className="btn btn-sm" aria-expanded={all} onClick={() => setAll(!all)}>
-              {all ? "Show fewer" : `Show all ${checks.length}`}
-            </button>
-          )}
-        </section>
-      )}
-      <section className="pr-status-part" aria-label="Reviewers">
-        <h3 className="label">Reviewers</h3>
-        {d.reviewers.length === 0 ? (
-          <span className="hint">No reviewers yet.</span>
-        ) : (
-          <ul className="pr-status-list">
-            {d.reviewers.map((r) => (
-              <li key={r.login} className="pr-status-row">
-                <Avatar name={r.login} size={18} />
-                <span className="grow ellipsis">{r.login}</span>
-                <span className={r.vote === "changes" ? "c-warn" : r.vote === "approve" ? "c-current" : "faint"}>
-                  {r.vote === "approve" && <Icon name="check" size={11} />}
-                  {VOTE_WORD[r.vote]}
-                </span>
-              </li>
-            ))}
-          </ul>
+    <div className="pr-line" ref={line}>
+      <span className="pr-line-head">
+        <span className="pr-line-box" data-draft={d.state === "draft" || undefined}>
+          {kind && <span className="map-kind">{kind}</span>}
+          <span className="mono ellipsis" data-tip={d.head} data-tip-overflow>{kind ? bv.short : d.head}</span>
+        </span>
+        {bv && bv.parent === d.base && bv.behind > 0 && (
+          <span className="pr-chip mono" data-tip={`${plural(bv.behind, "commit")} of ${d.base} not in ${d.head} yet`}>
+            <span className="c-del">↓{bv.behind}</span>
+          </span>
         )}
-      </section>
-    </aside>
+      </span>
+      {gates.map((g, i) => (
+        <Fragment key={g.key}>
+          {seg(i)}
+          <span className="pr-gate-wrap">
+            <button
+              className="pr-gate"
+              aria-expanded={g.key === "talk" ? undefined : pop === g.key}
+              aria-label={g.key === "talk" ? `${plural(unresolved, "unresolved conversation")}, show them` : undefined}
+              onClick={() => (g.key === "talk" ? onUnresolved() : setPop(pop === g.key ? null : g.key))}
+            >
+              <span className="pr-stn" data-state={g.state === "pass" ? "pass" : g.state === "fail" ? "fail" : i === reach ? "now" : undefined} />
+              <span className="label">{g.label}</span>
+              <b>{g.value}</b>
+              {g.running && <span className="pulse pr-check-dot run" />}
+            </button>
+            {pop === "checks" && g.key === "checks" && (
+              <div className="pr-pop" role="group" aria-label="Checks">
+                <ul className="pr-status-list">
+                  {(all ? checks : checks.slice(0, CHECKS_SHOWN)).map((c, i) => {
+                    const row = (
+                      <>
+                        <span className={`pulse pr-check-dot ${c.status}`} />
+                        <span className="grow ellipsis">{c.name}</span>
+                        <span className={c.status === "fail" ? "c-del" : "muted"}>{CHECK_WORD[c.status]}</span>
+                        {c.url && <Icon name="external" size={11} className="faint" />}
+                      </>
+                    );
+                    return <li key={i}>{c.url ? <button className="pr-status-row" data-tip="Open its logs" onClick={() => openExternal(c.url!)}>{row}</button> : <div className="pr-status-row">{row}</div>}</li>;
+                  })}
+                </ul>
+                {checks.length > CHECKS_SHOWN && (
+                  <button className="btn btn-sm" aria-expanded={all} onClick={() => setAll(!all)}>
+                    {all ? "Show fewer" : `Show all ${checks.length}`}
+                  </button>
+                )}
+              </div>
+            )}
+            {pop === "review" && g.key === "review" && (
+              <div className="pr-pop" role="group" aria-label="Reviewers">
+                {d.reviewers.length === 0 ? (
+                  <span className="hint">No reviewers yet.</span>
+                ) : (
+                  <ul className="pr-status-list">
+                    {d.reviewers.map((r) => (
+                      <li key={r.login} className="pr-status-row">
+                        <Avatar name={r.login} size={18} />
+                        <span className="grow ellipsis">{r.login}</span>
+                        <span className={r.vote === "changes" ? "c-warn" : r.vote === "approve" ? "c-current" : "faint"}>
+                          {r.vote === "approve" && <Icon name="check" size={11} />}
+                          {VOTE_WORD[r.vote]}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+          </span>
+        </Fragment>
+      ))}
+      {seg(gates.length)}
+      <span className="pr-line-base">
+        <span className="pr-stn" data-main data-state={merged ? "pass" : undefined} />
+        {bases ? (
+          <MenuChoice className="pr-base-pick" label={`Merges into ${d.base}: change it`} search="Filter branches" value={d.base} options={bases} onChange={(b) => b !== d.base && onBase(b)} />
+        ) : (
+          d.base
+        )}
+      </span>
+      <span className="pr-line-say">{sentence}</span>
+      {action}
+    </div>
   );
 }
 

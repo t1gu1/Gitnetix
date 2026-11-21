@@ -7399,15 +7399,20 @@ impl Gitnetix {
         self.git(&p).review_diff(&range, path, from).await
     }
 
-    pub async fn generate_pr(&self, project_id: &str, branch: &str) -> Result<(String, String)> {
+    /// The title and description AI writes for `branch`'s pull request, from its changes against `base` (its base by
+    /// default).
+    pub async fn generate_pr(&self, project_id: &str, branch: &str, base: Option<&str>) -> Result<(String, String)> {
         let p = self.store.project(project_id)?;
         let git = self.git(&p);
-        let default = git.default_branch().await?;
-        let base = self.base_of(&p, branch, &default).await;
+        let base = match base.filter(|b| !b.is_empty()) {
+            Some(b) => b.to_string(),
+            None => self.base_of(&p, branch, &git.default_branch().await?).await,
+        };
         let t = self.template("pr", None, Some(&p.id))?;
         let ticket = p.branches.get(branch).and_then(|m| m.ticket.clone()).unwrap_or_else(|| "(none)".into());
         // The default branch is its own base: through a fork, its pull request holds what it adds to origin's copy.
-        let base_ref = if base == branch { format!("origin/{base}") } else { base.clone() };
+        // A base picked from origin's branches may have no local copy.
+        let base_ref = if base == branch || !git.ref_exists(&format!("refs/heads/{base}")).await? { format!("origin/{base}") } else { base.clone() };
         let (base_rev, rev) = tokio::join!(git.rev_of(&base_ref), git.rev_of(branch));
         let mut vars = BTreeMap::new();
         vars.insert("diff".into(), git.range_diff(&format!("{base_rev}...{rev}"), 60_000).await?);
@@ -7420,14 +7425,34 @@ impl Gitnetix {
         Ok((title, body))
     }
 
-    /// Pushes `branch` and opens its pull request. On GitHub, an origin the user can't push to gets it through their
-    /// fork of it, made if needed.
-    pub async fn create_pr(&self, project_id: &str, branch: &str, draft: bool, title: Option<String>, body: Option<String>) -> Result<crate::providers::github::PrSummary> {
+    /// Pushes `branch` and opens its pull request into `base` (its base by default). On GitHub, an origin the user can't
+    /// push to gets it through their fork of it, made if needed; when origin is a fork, `to` (owner/repo) picks the
+    /// repository it opens on, origin or the one it was forked from (as picked for the list by default).
+    pub async fn create_pr(&self, project_id: &str, branch: &str, base: Option<String>, to: Option<String>, draft: bool, title: Option<String>, body: Option<String>) -> Result<crate::providers::github::PrSummary> {
         let p = self.store.project(project_id)?;
-        let gh = self.prs_host(project_id).await?;
+        let gh = match (to.filter(|t| !t.is_empty()), self.pr_host(project_id).await?) {
+            (Some(to), PrHost::GitHub(g)) => {
+                let origin = format!("{}/{}", g.repo.owner, g.repo.repo);
+                if to.eq_ignore_ascii_case(&origin) {
+                    PrHost::GitHub(g)
+                } else {
+                    // Only the repository origin was forked from: a pull request goes nowhere else.
+                    let parent = g.info().await?.parent;
+                    if !parent.as_deref().is_some_and(|p| p.eq_ignore_ascii_case(&to)) {
+                        return Err(Error::Invalid(format!("{to} is neither origin nor the repository it was forked from")));
+                    }
+                    let (owner, name) = to.split_once('/').ok_or_else(|| Error::Invalid(format!("{to} is not owner/repo")))?;
+                    let repo = RepoRef { owner: owner.into(), repo: name.into(), ..g.repo.clone() };
+                    PrHost::GitHub(g.retarget(repo))
+                }
+            }
+            _ => self.prs_host(project_id).await?,
+        };
         let git = self.git(&p);
-        let default = git.default_branch().await?;
-        let base = self.base_of(&p, branch, &default).await;
+        let base = match base.filter(|b| !b.is_empty()) {
+            Some(b) => b,
+            None => self.base_of(&p, branch, &git.default_branch().await?).await,
+        };
         // GitHub says origin is read only to the user (a fork's own pull requests already go through origin, theirs).
         let via_fork = match &gh {
             PrHost::GitHub(g) if !g.retargeted() => g.info().await.is_ok_and(|i| !i.can_push),
@@ -7462,7 +7487,7 @@ impl Gitnetix {
         };
         let (title, body) = match (title.filter(|s| !s.is_empty()), body) {
             (Some(t), b) => (t, b.unwrap_or_default()),
-            (None, _) => self.generate_pr(project_id, branch).await?,
+            (None, _) => self.generate_pr(project_id, branch, Some(&base)).await?,
         };
         let pr = gh.create(&head, &base, &title, &body, draft).await?;
         self.changed(project_id);

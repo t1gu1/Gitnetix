@@ -170,6 +170,9 @@ impl PrHost {
     pub async fn update(&self, number: u64, title: &str, body: &str) -> Result<()> {
         each!(self, h => h.update(number, title, body).await)
     }
+    pub async fn set_base(&self, number: u64, base: &str) -> Result<()> {
+        each!(self, h => h.set_base(number, base).await)
+    }
     pub async fn merge(&self, number: u64, method: &str) -> Result<()> {
         each!(self, h => h.merge(number, method).await)
     }

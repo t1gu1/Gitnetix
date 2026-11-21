@@ -318,6 +318,10 @@ impl Gitea {
     pub async fn update(&self, number: u64, title: &str, body: &str) -> Result<()> {
         self.req(reqwest::Method::PATCH, &format!("{}/pulls/{number}", self.rp()), Some(json!({ "title": title, "body": body }))).await.map(|_| ())
     }
+    /// Changes the branch pull request `number` merges into.
+    pub async fn set_base(&self, number: u64, base: &str) -> Result<()> {
+        self.req(reqwest::Method::PATCH, &format!("{}/pulls/{number}", self.rp()), Some(json!({ "base": base }))).await.map(|_| ())
+    }
 
     /// method: merge | squash | rebase
     pub async fn merge(&self, number: u64, method: &str) -> Result<()> {

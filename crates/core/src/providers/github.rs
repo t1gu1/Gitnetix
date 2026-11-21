@@ -712,6 +712,10 @@ impl GitHub {
             .await
             .map(|_| ())
     }
+    /// Changes the branch pull request `number` merges into.
+    pub async fn set_base(&self, number: u64, base: &str) -> Result<()> {
+        self.req(reqwest::Method::PATCH, &format!("{}/pulls/{number}", self.rp()), Some(json!({ "base": base }))).await.map(|_| ())
+    }
 
     pub async fn merge(&self, number: u64, method: &str) -> Result<()> {
         self.req(reqwest::Method::PUT, &format!("{}/pulls/{number}/merge", self.rp()), Some(json!({ "merge_method": method })))
@@ -934,6 +938,7 @@ mod tests {
                         let b: Value = serde_json::from_str(&body).unwrap();
                         json!({ "number": 7, "title": b["title"], "head": { "ref": "feat/x", "repo": { "full_name": "me/app" } }, "base": { "ref": "main", "repo": { "full_name": "us/app" } }, "user": { "login": "me" }, "state": "open" })
                     }
+                    ["PATCH", "/repos/us/app/pulls/7"] => json!({ "number": 7 }),
                     _ => json!({ "message": "Not Found" }),
                 };
                 tx.send((line, body)).unwrap();
@@ -957,6 +962,12 @@ mod tests {
         let (line, body) = rx.recv().await.unwrap();
         assert!(line.starts_with("POST /repos/us/app/pulls"), "{line}");
         assert_eq!(serde_json::from_str::<Value>(&body).unwrap()["head"], "me:feat/x");
+
+        // Its target changed afterwards: only the base goes, on the repository it is on.
+        gh.set_base(7, "release/2").await.unwrap();
+        let (line, body) = rx.recv().await.unwrap();
+        assert!(line.starts_with("PATCH /repos/us/app/pulls/7"), "{line}");
+        assert_eq!(serde_json::from_str::<Value>(&body).unwrap(), json!({ "base": "release/2" }));
     }
 
     #[test]

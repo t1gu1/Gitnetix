@@ -367,6 +367,10 @@ impl GitLab {
     pub async fn update(&self, number: u64, title: &str, body: &str) -> Result<()> {
         self.send(reqwest::Method::PUT, &self.mr(number), json!({ "title": title, "description": body })).await
     }
+    /// Changes the branch merge request `number` merges into.
+    pub async fn set_base(&self, number: u64, base: &str) -> Result<()> {
+        self.send(reqwest::Method::PUT, &self.mr(number), json!({ "target_branch": base })).await
+    }
 
     /// method: merge | squash; GitLab rebases when the project merges that way.
     pub async fn merge(&self, number: u64, method: &str) -> Result<()> {

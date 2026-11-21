@@ -43,6 +43,8 @@ const PATHS: Record<string, { d: string[]; fill?: boolean; circles?: [number, nu
   merged: { d: ["M4 4.5v1c0 2.5 4 3 4 5.5v.5", "M12 4.5v1c0 2.5-4 3-4 5.5"], circles: [[4, 3, 1.5], [12, 3, 1.5], [8, 13, 1.5]] },
   commit: { d: ["M8 1.5v4M8 10.5v4"], circles: [[8, 8, 2.5]] },
   pr: { d: ["M5 4.5v7M11 11.5V7a2 2 0 0 0-2-2H7M8.5 3.5L7 5l1.5 1.5"], circles: [[5, 3, 1.5], [5, 13, 1.5], [11, 13, 1.5]] },
+  // A pull request closed without merging: its head's link to the base cut, a cross where the arrow was.
+  prClosed: { d: ["M5 4.5v7M11 8.5v3", "M9.5 3l3 3M12.5 3l-3 3"], circles: [[5, 3, 1.5], [5, 13, 1.5], [11, 13, 1.5]] },
   ticket: { d: ["M2.5 4.5h11v2a1.5 1.5 0 0 0 0 3v2h-11v-2a1.5 1.5 0 0 0 0-3z"] },
   chart: { d: ["M2.5 13.5h11M4.5 11V8M8 11V4.5M11.5 11V6.5"] },
   table: { d: ["M2.5 3.5h11v9h-11z", "M2.5 6.5h11M2.5 9.5h11M6.5 6.5v6"] },

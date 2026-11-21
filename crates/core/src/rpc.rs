@@ -150,9 +150,10 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("prs.list", "Pull requests of the project, on origin or, once picked for a GitHub fork, on the repository it was forked from; `fork` (GitHub, null unless origin is a fork or read-only to the user): {origin, parent, canPush, to} with `to` the repository picked (null: origin)", "projectId"),
     ("prs.get", "Pull request details, checks, reviews and conversations", "projectId, number"),
     ("prs.picture", "A picture of the project's Git host that needs the sign-in (private repository, GitLab or Gitea upload, Azure DevOps attachment), as a data: URL; relative links read from the host", "projectId, url"),
-    ("prs.generate", "AI title and description for a branch", "projectId, branch"),
-    ("prs.create", "Push and open a PR from a branch; on GitHub, when the user can't push to origin, origin is forked to their account (or their fork reused), the branch pushed there and the PR opened on origin (`fork` true in the answer)", "projectId, branch, draft?, title?, body?"),
+    ("prs.generate", "AI title and description for a branch, from its changes against base (its base by default)", "projectId, branch, base?"),
+    ("prs.create", "Push and open a PR from a branch into base (its base by default); on GitHub, when the user can't push to origin, origin is forked to their account (or their fork reused), the branch pushed there and the PR opened on origin (`fork` true in the answer); when origin is a fork, to = owner/repo it opens on (origin or its parent)", "projectId, branch, base?, to?, draft?, title?, body?"),
     ("prs.update", "Edit PR title and description", "projectId, number, title, body"),
+    ("prs.retarget", "Change the branch an open PR merges into", "projectId, number, base"),
     ("prs.merge", "Merge a PR", "projectId, number, method?"),
     ("prs.close", "Close (abandon) a PR without merging, or reopen it; deleteBranch = also delete its branch, local and on origin, even if unmerged", "projectId, number, reopen?, deleteBranch? (head branch name)"),
     ("prs.review", "Submit a review", "projectId, number, vote: approve|changes|comment, body?"),
@@ -1157,10 +1158,15 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
         }
         "prs.picture" => to(k.prs_host(&s(&p, "projectId")?).await?.picture(&s(&p, "url")?).await?),
         "prs.generate" => {
-            let (title, body) = k.generate_pr(&s(&p, "projectId")?, &s(&p, "branch")?).await?;
+            let (title, body) = k.generate_pr(&s(&p, "projectId")?, &s(&p, "branch")?, os(&p, "base").as_deref()).await?;
             to(json!({ "title": title, "body": body }))
         }
-        "prs.create" => to(k.create_pr(&s(&p, "projectId")?, &s(&p, "branch")?, b(&p, "draft"), os(&p, "title"), os(&p, "body")).await?),
+        "prs.create" => to(k.create_pr(&s(&p, "projectId")?, &s(&p, "branch")?, os(&p, "base"), os(&p, "to"), b(&p, "draft"), os(&p, "title"), os(&p, "body")).await?),
+        "prs.retarget" => {
+            let gh = k.prs_host(&s(&p, "projectId")?).await?;
+            gh.set_base(u(&p, "number")?, &s(&p, "base")?).await?;
+            ok()
+        }
         "prs.update" => {
             let gh = k.prs_host(&s(&p, "projectId")?).await?;
             gh.update(u(&p, "number")?, &s(&p, "title")?, &os(&p, "body").unwrap_or_default()).await?;

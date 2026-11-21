@@ -291,6 +291,11 @@ impl Bitbucket {
     pub async fn update(&self, number: u64, title: &str, body: &str) -> Result<()> {
         self.send(reqwest::Method::PUT, &self.pr(number), json!({ "title": title, "description": body })).await
     }
+    /// Changes the branch pull request `number` merges into. Bitbucket's update wants the title with it.
+    pub async fn set_base(&self, number: u64, base: &str) -> Result<()> {
+        let title = self.detail(number).await?.summary.title;
+        self.send(reqwest::Method::PUT, &self.pr(number), json!({ "title": title, "destination": { "branch": { "name": base } } })).await
+    }
 
     /// method: merge | squash | rebase (a fast-forward on Bitbucket).
     pub async fn merge(&self, number: u64, method: &str) -> Result<()> {

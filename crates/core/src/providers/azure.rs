@@ -405,6 +405,10 @@ impl Azure {
     pub async fn update(&self, number: u64, title: &str, body: &str) -> Result<()> {
         self.send(reqwest::Method::PATCH, &format!("/pullrequests/{number}"), json!({ "title": title, "description": body })).await.map(|_| ())
     }
+    /// Changes the branch pull request `number` merges into (Azure DevOps' "Change target branch").
+    pub async fn set_base(&self, number: u64, base: &str) -> Result<()> {
+        self.send(reqwest::Method::PATCH, &format!("/pullrequests/{number}"), json!({ "targetRefName": format!("refs/heads/{base}") })).await.map(|_| ())
+    }
 
     /// method: merge | squash | rebase, swapped for one the target branch's policy allows.
     pub async fn merge(&self, number: u64, method: &str) -> Result<()> {

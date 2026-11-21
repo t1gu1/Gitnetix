@@ -1,0 +1,538 @@
+<!doctype html>
+<html lang="en" data-theme="dark"><head><meta charset="utf-8">
+<title>Gitnetix pull requests mocks</title>
+<link href="https://fonts.googleapis.com/css2?family=Antonio:wght@400;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root,[data-theme=dark]{--bg:#0a0d12;--ground:#0f151d;--panel:#0f141b;--raised:#151b24;--sel:#1b2330;--line:#1f2732;--line2:#2c3644;--fg:#e9eef4;--muted:#a3aebb;--faint:#808b9a;--accent:#f2f5f8;--on-accent:#0a0d12;--add:#5fd39a;--add-bg:rgba(95,211,154,.10);--del:#ff7b72;--del-bg:rgba(255,123,114,.10);--warn:#e8b85a;--route:#f2f5f8;--link:#344050;color-scheme:dark}
+[data-theme=light]{--bg:#eef1f5;--ground:#e6eaf0;--panel:#ffffff;--raised:#f5f7fa;--sel:#e8ecf2;--line:#dde2e9;--line2:#c9d0da;--fg:#0b0f14;--muted:#4f5b6a;--faint:#5f6a79;--accent:#0b0f14;--on-accent:#ffffff;--add:#127a4b;--add-bg:rgba(18,122,75,.09);--del:#c0362c;--del-bg:rgba(192,54,44,.08);--warn:#8a5a00;--route:#0b0f14;--link:#b8c1cd;color-scheme:light}
+:root{--sans:"Inter",system-ui,sans-serif;--mono:"JetBrains Mono",ui-monospace,monospace;--display:"Antonio","Inter",sans-serif;--r:3px}
+*{box-sizing:border-box;margin:0;padding:0}
+html{background:#05070a}
+body{font:13px/18px var(--sans);color:#c7d0db;padding:32px 0 64px;display:flex;flex-direction:column;align-items:center;gap:20px;-webkit-font-smoothing:antialiased}
+.cap{width:1920px;display:flex;align-items:center;justify-content:space-between;gap:24px;color:#8995a5;font-size:12px}
+.cap b{color:#e9eef4;font:600 12px var(--sans);letter-spacing:.14em;text-transform:uppercase;white-space:nowrap}
+.cap span{flex:1}
+.toggle{display:flex;border:1px solid #2c3644;border-radius:var(--r)}
+.toggle button{all:unset;cursor:pointer;padding:6px 14px;color:#a3aebb;font:500 12px var(--sans)}
+.toggle button.on{background:#f2f5f8;color:#0a0d12}
+.app{width:1920px;height:1080px;overflow:hidden;background:var(--bg);color:var(--fg);border:1px solid #1f2732;display:flex;flex-direction:column;font-variant-numeric:tabular-nums}
+::selection{background:color-mix(in srgb,var(--fg) 22%,transparent)}
+::-webkit-scrollbar{width:8px;height:8px}::-webkit-scrollbar-thumb{background:var(--line2);border-radius:2px}::-webkit-scrollbar-track{background:transparent}
+:is(button,a,input,textarea):focus-visible{outline:1px solid var(--fg);outline-offset:2px}
+svg.i{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.25;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.mono{font-family:var(--mono)}
+.muted{color:var(--muted)}.faint{color:var(--faint)}.c-add{color:var(--add)}.c-del{color:var(--del)}.c-warn{color:var(--warn)}
+.sp{flex:1}
+/* shell */
+.top{height:40px;display:flex;align-items:stretch;border-bottom:1px solid var(--line);flex:none}
+.top .wt{all:unset;cursor:pointer;width:52px;display:grid;place-items:center;border-right:1px solid var(--line);color:var(--muted)}
+.rt{display:flex;align-items:center;gap:10px;padding:0 16px;color:var(--muted);border-right:1px solid var(--line);font-weight:500}
+.rt.on{color:var(--fg);box-shadow:inset 0 -2px 0 var(--fg)}
+.rt .x{color:var(--faint);width:12px;height:12px}
+.ico{display:grid;place-items:center;width:40px;color:var(--muted)}
+.av{width:22px;height:22px;border-radius:50%;background:linear-gradient(135deg,#3a4656,#1b2330);display:grid;place-items:center;font:600 10px var(--sans);color:#e9eef4;flex:none}
+.top>.av{align-self:center;margin:0 14px}
+.av.s{width:18px;height:18px;font-size:9px}.av.xs{width:16px;height:16px;font-size:8px}.av.l{width:28px;height:28px;font-size:11px}
+.tabs{height:40px;display:flex;align-items:stretch;padding:0 8px;border-bottom:1px solid var(--line);flex:none}
+.tabs a{display:flex;align-items:center;gap:8px;padding:0 12px;color:var(--muted);font-weight:500}
+.tabs a.on{color:var(--fg);box-shadow:inset 0 -2px 0 var(--fg)}
+.n{font:500 11px var(--mono);color:var(--faint)}
+.tabs a.on .n{color:var(--muted)}
+.bar{height:48px;display:flex;align-items:center;gap:8px;padding:0 16px;border-bottom:1px solid var(--line);flex:none}
+.ttl{font:600 18px/1 var(--display);letter-spacing:.06em;text-transform:uppercase;color:var(--fg);margin-right:10px}
+.where{display:flex;align-items:center;gap:8px;font:12px var(--mono);color:var(--faint);margin-right:8px}
+.seg{display:flex;border:1px solid var(--line2);border-radius:var(--r);overflow:hidden;flex:none}
+.seg span{height:28px;display:flex;align-items:center;gap:6px;padding:0 11px;color:var(--muted);border-right:1px solid var(--line2);font-weight:500;white-space:nowrap}
+.seg span:last-child{border-right:0}
+.seg span.on{background:var(--fg);color:var(--bg)}
+.seg span.on .n{color:color-mix(in srgb,var(--bg) 70%,var(--fg))}
+.seg.sm span{height:24px;padding:0 9px;font-size:12px}
+.in{all:unset;box-sizing:border-box;height:28px;padding:0 10px 0 30px;border:1px solid var(--line2);border-radius:var(--r);background:var(--bg);color:var(--fg);font:12.5px var(--sans);position:relative}
+.srch{position:relative;display:flex;align-items:center}
+.srch svg{position:absolute;left:9px;width:13px;height:13px;color:var(--faint);z-index:1}
+.srch .in{width:300px}
+.ph{color:var(--faint)}
+.ib{all:unset;cursor:pointer;width:28px;height:28px;display:grid;place-items:center;color:var(--muted);border-radius:var(--r);flex:none}
+.ib:hover{color:var(--fg)}
+.ib.b{border:1px solid var(--line2);width:26px;height:26px}
+.btn{all:unset;box-sizing:border-box;cursor:pointer;display:inline-flex;align-items:center;gap:8px;height:30px;padding:0 14px;border-radius:var(--r);font:600 11px var(--sans);letter-spacing:.12em;text-transform:uppercase;border:1px solid var(--line2);color:var(--fg);background:transparent;white-space:nowrap}
+.btn svg.i{width:12px;height:12px}
+.btn:hover{border-color:var(--fg)}
+.btn.p{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.btn.dz{color:var(--del)}.btn.dz:hover{border-color:var(--del)}
+.btn.sm{height:24px;padding:0 9px;gap:6px}
+.btn.gh{border-color:transparent;color:var(--muted)}.btn.gh:hover{color:var(--fg);border-color:var(--line2)}
+.btn .o{font-weight:400;opacity:.7;letter-spacing:0;text-transform:none;font-family:var(--mono)}
+.split{display:inline-flex}
+.split>.btn:first-child{border-top-right-radius:0;border-bottom-right-radius:0}
+.split>.btn:last-child{border-top-left-radius:0;border-bottom-left-radius:0;padding:0 9px;border-left:1px solid color-mix(in srgb,var(--on-accent) 30%,var(--accent))}
+.lbl{font:600 11px var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--faint)}
+.st{display:inline-flex;align-items:center;gap:6px;font:600 11px var(--sans);letter-spacing:.12em;text-transform:uppercase;color:var(--muted);border:1px solid var(--line2);border-radius:2px;padding:3px 7px;line-height:13px;white-space:nowrap}
+.st.inv{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.st.dash{border-style:dashed}
+.st.del{color:var(--del);border-color:color-mix(in srgb,var(--del) 50%,var(--line2))}
+.route{display:inline-flex;align-items:center;gap:8px;font:12px var(--mono);color:var(--muted);white-space:nowrap}
+.route b{font-weight:500;color:var(--fg)}
+.route svg{width:12px;height:12px;color:var(--faint)}
+.pulse{width:6px;height:6px;background:var(--fg);border-radius:50%;animation:p 1.6s steps(2,jump-none) infinite;flex:none}
+.pulse.w{background:var(--warn)}
+@keyframes p{50%{opacity:.25}}
+.dot{width:6px;height:6px;border-radius:50%;flex:none;background:var(--faint)}
+.dot.ok{background:var(--add)}.dot.no{background:var(--del)}.dot.wait{background:transparent;border:1px solid var(--faint)}
+/* agent working: incumbent rainbow, kept by owner decision */
+:root,[data-theme=dark]{--g1:#f7c48a;--g2:#c4a7ff;--g3:#5fd0e0;--g4:#62d6ae}
+[data-theme=light]{--g1:#a85a12;--g2:#6b46c1;--g3:#0e7490;--g4:#17744d}
+.glow-working>span{font-weight:600;background:linear-gradient(90deg,var(--g1),var(--g2),var(--g3),var(--g4),var(--g1)) 0 0/300% 100%;-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;filter:drop-shadow(0 0 5px color-mix(in srgb,var(--g2) 45%,transparent));animation:glow-name 8s steps(384) infinite}
+.glow-working>svg{filter:drop-shadow(0 0 5px color-mix(in srgb,var(--g2) 45%,transparent));animation:glow-stroke 8s steps(96) infinite}
+.pulse.glow-dot{background:currentColor;filter:drop-shadow(0 0 4px color-mix(in srgb,var(--g2) 45%,transparent));animation:p 1.6s steps(2,jump-none) infinite,glow-stroke 8s steps(96) infinite}
+@keyframes glow-name{to{background-position:300% 0}}
+@keyframes glow-stroke{0%,100%{color:var(--g1)}25%{color:var(--g2)}50%{color:var(--g3)}75%{color:var(--g4)}}
+@media (prefers-reduced-motion:reduce){.pulse,.glow-working>*,.pulse.glow-dot{animation:none}}
+.body{flex:1;display:flex;min-height:0}
+
+/* shared: list rows */
+.list{display:flex;flex-direction:column;min-height:0;border-right:1px solid var(--line);flex:none}
+.list .scroll{flex:1;overflow:hidden;padding:4px 0}
+.gh2{display:flex;align-items:center;justify-content:space-between;height:32px;padding:0 16px}
+.row{all:unset;box-sizing:border-box;cursor:pointer;display:grid;grid-template-columns:22px 1fr auto;gap:12px;align-items:start;width:calc(100% - 16px);margin:0 8px 2px;padding:9px 10px;border:1px solid transparent;border-radius:var(--r)}
+.row:hover{background:var(--raised)}
+.row[aria-pressed=true]{background:var(--sel);border-color:var(--fg)}
+.row .t{color:var(--fg);font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block}
+.row .m{display:flex;align-items:center;gap:8px;margin-top:3px;font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden}
+.row .m .route{font-size:11.5px;overflow:hidden;text-overflow:ellipsis}
+.row .age{font:11px var(--mono);color:var(--faint);padding-top:2px}
+.row .av{margin-top:0}
+/* shared: new PR box */
+.new{border-top:1px solid var(--line);padding:14px 16px;display:flex;flex-direction:column;gap:10px;flex:none}
+.new .hd{display:flex;align-items:center;justify-content:space-between}
+.new .hint{font-size:12px;color:var(--muted);line-height:17px}
+.new .btn{justify-content:center}
+/* shared: description + thread */
+.md{font-size:13px;line-height:21px;color:var(--fg)}
+.md>*{max-width:72ch}
+.md p{margin-bottom:10px;color:var(--fg)}
+.md h4{font:600 13px var(--sans);margin:14px 0 6px}
+.md ul{padding-left:18px;margin-bottom:10px;color:var(--fg)}
+.md li{margin-bottom:3px}
+.md code{font:12px var(--mono);background:var(--raised);border:1px solid var(--line);border-radius:2px;padding:0 4px}
+.th{border:1px solid var(--line2);border-radius:var(--r);background:var(--panel)}
+.th.done{opacity:1}
+.th .fp{display:flex;align-items:center;gap:8px;height:34px;padding:0 12px;border-bottom:1px solid var(--line);font:12px var(--mono);color:var(--muted)}
+.th .fp b{color:var(--fg);font-weight:500}
+.code{font:12px/20px var(--mono);border-bottom:1px solid var(--line)}
+.ln{display:grid;grid-template-columns:44px 16px 1fr;color:var(--muted);white-space:pre}
+.ln>span:first-child{color:var(--faint);text-align:right;padding-right:10px}
+.ln.a{background:var(--add-bg);color:var(--fg)}.ln.a>span:nth-child(2){color:var(--add)}
+.ln.r{background:var(--del-bg);color:var(--fg)}.ln.r>span:nth-child(2){color:var(--del)}
+.ln.h{background:var(--raised);color:var(--faint)}
+.kw{color:var(--fg);font-weight:600}
+.cmt{display:grid;grid-template-columns:22px 1fr;gap:10px;padding:12px}
+.cmt+.cmt{border-top:1px solid var(--line)}
+.cmt .w{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted)}
+.cmt .w b{color:var(--fg);font-weight:600}
+.cmt .w .mono{font-size:11px;color:var(--faint)}
+.cmt p{margin-top:4px;color:var(--fg);line-height:20px;max-width:72ch}
+.reply{display:flex;align-items:center;gap:8px;padding:10px 12px;border-top:1px solid var(--line)}
+.reply .in{flex:1;padding-left:10px;height:28px}
+.rx{display:flex;gap:6px;margin-top:8px}
+.rx span{display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 7px;border:1px solid var(--line2);border-radius:2px;font:11px var(--mono);color:var(--muted)}
+.rx span svg{width:12px;height:12px}
+
+/* ============ A: status column ============ */
+.a .list{width:440px}
+.a .det{flex:1;display:flex;flex-direction:column;min-width:0}
+.a .head{padding:22px 28px 16px;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:12px}
+.a h1{font:600 20px/26px var(--sans);letter-spacing:-.01em;color:var(--fg);display:flex;align-items:center;gap:10px}
+.a .meta{display:flex;align-items:center;gap:14px;font-size:12px;color:var(--muted)}
+.a .meta .by{display:flex;align-items:center;gap:8px}
+.a .acts{display:flex;align-items:center;gap:8px}
+.a .vt{display:flex;align-items:center;gap:0;height:40px;padding:0 20px;border-bottom:1px solid var(--line)}
+.a .vt a{display:flex;align-items:center;gap:8px;height:100%;padding:0 8px;margin-right:8px;color:var(--muted);font-weight:500}
+.a .vt a.on{color:var(--fg);box-shadow:inset 0 -2px 0 var(--fg)}
+.a .cols{flex:1;display:grid;grid-template-columns:1fr 340px;min-height:0}
+.a .main{padding:20px 28px;display:flex;flex-direction:column;gap:22px;overflow:hidden;min-width:0}
+.a .sh{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.a .sh h2{font:600 11px var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--faint)}
+.a .desc{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:16px 18px}
+.a .side{border-left:1px solid var(--line);display:flex;flex-direction:column;overflow:hidden}
+.a .card{margin:16px;padding:16px;border:1px solid var(--line2);border-radius:var(--r);background:var(--panel);display:flex;flex-direction:column;gap:14px}
+.big{display:flex;gap:26px}
+.big div{display:flex;flex-direction:column}
+.big b{font:600 44px/1 var(--display);color:var(--fg);margin-bottom:6px}
+.big b small{font-size:22px;color:var(--faint);font-weight:600}
+.sn{color:var(--muted);font-size:12px;line-height:18px}
+.part{padding:4px 16px 16px;display:flex;flex-direction:column;gap:2px}
+.part h3{margin:8px 0 6px}
+.sr{display:flex;align-items:center;gap:10px;height:28px;font-size:12.5px;color:var(--fg)}
+.sr .nm2{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sr .v{font-size:12px;color:var(--muted);display:inline-flex;align-items:center;gap:5px}
+.sr svg.i{width:11px;height:11px;color:var(--faint)}
+
+/* ============ B: route ============ */
+.b .list{width:380px}
+.b .row{grid-template-columns:14px 1fr auto;gap:12px}
+.ring{width:11px;height:11px;border-radius:50%;border:1px solid var(--faint);margin-top:4px;position:relative;flex:none;background:var(--bg)}
+.ring.ready{border-color:var(--fg)}.ring.ready::after{content:"";position:absolute;inset:2px;border-radius:50%;background:var(--fg)}
+.ring.draft{border-style:dashed}
+.ring.bad{border-color:var(--del)}
+.b .det{flex:1;display:flex;flex-direction:column;min-width:0}
+.b .head{padding:20px 32px 0;display:flex;align-items:flex-start;gap:16px}
+.b h1{font:600 22px/28px var(--sans);letter-spacing:-.01em;color:var(--fg)}
+.b .meta{display:flex;align-items:center;gap:14px;font-size:12px;color:var(--muted);margin-top:8px}
+.b .meta .by{display:flex;align-items:center;gap:8px}
+.b .hacts{margin-left:auto;display:flex;gap:6px;flex:none}
+.line{position:relative;height:262px;margin:8px 32px 0;border-bottom:1px solid var(--line);flex:none}
+.line .hl{position:absolute;height:1px;top:58px;background:var(--line2)}
+.line .hl.on{background:var(--route)}
+.line .hl.dash{background:none;border-top:1px dashed var(--line2);height:0}
+.bx{position:absolute;top:28px;left:0;display:flex;flex-direction:column;gap:4px;padding:8px 14px 8px 14px;background:var(--panel);border:1px solid var(--fg);border-radius:var(--r);z-index:2}
+.bx .h{display:flex;align-items:center;gap:10px;height:20px}
+.bx .h2{display:flex;align-items:center;gap:8px;height:18px;font-size:12px;color:var(--muted);white-space:nowrap}
+.ty{font:600 11px var(--sans);letter-spacing:.14em;color:var(--faint)}
+.nm{font:500 13px var(--mono);color:var(--fg)}
+.stn{position:absolute;top:58px;width:11px;height:11px;border-radius:50%;border:1px solid var(--faint);background:var(--bg);transform:translate(-50%,-50%);z-index:2}
+.stn.on{border-color:var(--route)}.stn.on::after{content:"";position:absolute;inset:2px;border-radius:50%;background:var(--route)}
+.stn.bad{border-color:var(--del)}
+.stn.xl{width:19px;height:19px;border-width:1.5px}.stn.xl::after{inset:3px}
+.sl{position:absolute;top:76px;transform:translateX(-6px);display:flex;flex-direction:column;align-items:flex-start;gap:2px;white-space:nowrap}
+.sl .lbl{font-size:10.5px}
+.sl b{font:600 30px/1 var(--display);color:var(--fg);margin-top:4px}
+.sl b small{font-size:16px;color:var(--faint)}
+.sl b.d{color:var(--del)}
+.fl{position:absolute;top:146px;display:flex;flex-direction:column;width:250px}
+.fl .s{all:unset;cursor:pointer;height:22px;display:flex;align-items:center;gap:8px;color:var(--muted);font-size:12px;white-space:nowrap}
+.fl .s span:nth-child(2){flex:1;overflow:hidden;text-overflow:ellipsis}
+.fl .s i{font:11px var(--mono);font-style:normal;color:var(--faint)}
+.fl .s:hover,.fl .s:hover i{color:var(--fg)}
+.fl .s.bad{color:var(--fg)}
+.more{all:unset;cursor:pointer;height:22px;display:flex;align-items:center;font:600 11px var(--sans);letter-spacing:.12em;text-transform:uppercase;color:var(--faint)}
+.lc{position:absolute;top:58px;transform:translate(-50%,-50%);z-index:3;height:18px;display:flex;align-items:center;gap:5px;padding:0 6px;border:1px solid var(--route);border-radius:2px;background:var(--bg);font:500 11px var(--mono);color:var(--fg);white-space:nowrap}
+.mainlbl{position:absolute;top:30px;transform:translateX(-50%);font:500 13px var(--mono);color:var(--fg)}
+.mergeat{position:absolute;right:0;top:80px;display:flex;flex-direction:column;align-items:flex-end;gap:8px}
+.b .lower{flex:1;display:grid;grid-template-columns:1fr 1fr;min-height:0}
+.b .lower>section{padding:18px 32px;overflow:hidden;display:flex;flex-direction:column;gap:12px}
+.b .lower>section+section{border-left:1px solid var(--line)}
+.b .sh{display:flex;align-items:center;gap:10px}
+.tl{position:relative;display:flex;flex-direction:column;gap:12px;padding-left:22px}
+.tl::before{content:"";position:absolute;left:5px;top:6px;bottom:6px;width:1px;background:var(--line2)}
+.ev{position:relative;font-size:12px;color:var(--muted);display:flex;align-items:center;gap:8px;min-height:20px}
+.ev::before{content:"";position:absolute;left:-21px;top:50%;width:9px;height:9px;transform:translateY(-50%);border-radius:50%;border:1px solid var(--faint);background:var(--bg)}
+.ev.c::before{width:5px;height:5px;left:-19px;background:var(--faint);border:0}
+.ev b{color:var(--fg);font-weight:500}
+.ev i{font:11px var(--mono);font-style:normal;color:var(--faint);margin-left:auto}
+.tl .th{position:relative}
+.tl .th::before{content:"";position:absolute;left:-21px;top:16px;width:9px;height:9px;border-radius:50%;border:1px solid var(--fg);background:var(--bg)}
+
+/* ============ C: review desk ============ */
+.c .list{width:300px}
+.c .row{grid-template-columns:14px 1fr;gap:10px;padding:8px 10px}
+.c .row .age{display:none}
+.c .det{flex:1;display:flex;flex-direction:column;min-width:0}
+.c .strip{display:flex;align-items:center;gap:24px;padding:14px 20px;border-bottom:1px solid var(--line);flex:none}
+.c .strip .tt{min-width:0;flex:1}
+.c h1{font:600 17px/22px var(--sans);color:var(--fg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.c .meta{display:flex;align-items:center;gap:12px;font-size:12px;color:var(--muted);margin-top:6px}
+.nums{display:flex;gap:22px;align-items:flex-end;padding:0 4px}
+.nums div{display:flex;flex-direction:column;align-items:flex-start}
+.nums b{font:600 30px/1 var(--display);color:var(--fg);margin-bottom:4px}
+.nums b small{font-size:16px;color:var(--faint)}
+.nums .lbl{font-size:10.5px}
+.c .vt{display:flex;align-items:center;gap:0;height:38px;padding:0 12px;border-bottom:1px solid var(--line);flex:none}
+.c .vt a{display:flex;align-items:center;gap:8px;height:100%;padding:0 10px;color:var(--muted);font-weight:500}
+.c .vt a.on{color:var(--fg);box-shadow:inset 0 -2px 0 var(--fg)}
+.c .work{flex:1;display:grid;grid-template-columns:300px 1fr;min-height:0}
+.files{border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+.files .gh2{padding:0 12px 0 16px}
+.fr{all:unset;box-sizing:border-box;cursor:pointer;display:grid;grid-template-columns:14px 1fr auto;gap:10px;align-items:center;height:30px;padding:0 12px 0 16px;font-size:12.5px;color:var(--muted)}
+.fr .p{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--faint);font-size:11.5px}
+.fr .p b{color:var(--fg);font-weight:500;font-size:12.5px;margin-right:4px}
+.fr .c2{display:flex;gap:8px;align-items:center;font:11.5px var(--mono)}
+.fr .c2 .tc{display:inline-flex;align-items:center;gap:3px;color:var(--fg)}
+.fr .c2 .tc svg{width:11px;height:11px}
+.fr:hover{background:var(--raised)}
+.fr.on{background:var(--sel);box-shadow:inset 0 0 0 1px var(--fg)}
+.fr .ck{width:12px;height:12px;border:1px solid var(--faint);border-radius:2px;display:grid;place-items:center}
+.fr .ck.on{background:var(--fg);border-color:var(--fg);color:var(--bg)}
+.fr .ck svg{width:10px;height:10px;stroke-width:2}
+.files .prog{padding:12px 16px;border-top:1px solid var(--line);margin-top:auto;display:flex;flex-direction:column;gap:8px;font-size:12px;color:var(--muted)}
+.meter{height:2px;background:var(--line2);position:relative}
+.meter i{position:absolute;inset:0 auto 0 0;background:var(--fg)}
+.dv{display:flex;flex-direction:column;min-width:0;min-height:0}
+.dh{display:flex;align-items:center;gap:12px;height:40px;padding:0 16px;border-bottom:1px solid var(--line);flex:none;font:12.5px var(--mono);color:var(--fg)}
+.diff{font:12px/20px var(--mono);overflow:hidden;flex:1}
+.diff .ln{grid-template-columns:48px 48px 16px 1fr}
+.diff .ln>span:nth-child(2){color:var(--faint);text-align:right;padding-right:10px}
+.diff .ln.a>span:nth-child(3){color:var(--add)}.diff .ln.r>span:nth-child(3){color:var(--del)}
+.diff .ln.a>span:nth-child(2),.diff .ln.r>span:nth-child(2){color:var(--faint)}
+.diff .ln.sel{box-shadow:inset 0 0 0 1px var(--fg)}
+.inl{margin:6px 16px 8px 112px;font-family:var(--sans);font-size:13px;line-height:18px;max-width:760px}
+.inl .th{background:var(--panel)}
+.c .sum{border-top:1px solid var(--line);display:flex;align-items:center;gap:12px;padding:10px 16px;flex:none;background:var(--panel)}
+.c .sum .in{flex:1;padding-left:10px}
+
+/* ===== round 2: B's list + bar, C's slim strip ===== */
+.x .strip{display:flex;align-items:center;gap:20px;padding:14px 20px;border-bottom:1px solid var(--line);flex:none;position:relative}
+.x .strip .tt{min-width:0;flex:1}
+.x h1{font:600 17px/22px var(--sans);color:var(--fg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:8px}
+.x h1 .ib{width:24px;height:24px}
+.x .meta{display:flex;align-items:center;gap:12px;font-size:12px;color:var(--muted);margin-top:6px;white-space:nowrap}
+.x .meta .by{display:inline-flex;align-items:center;gap:6px}
+.x .vt{display:flex;align-items:center;height:38px;padding:0 12px;border-bottom:1px solid var(--line);flex:none}
+.x .vt a{display:flex;align-items:center;gap:8px;height:100%;padding:0 10px;color:var(--muted);font-weight:500}
+.x .vt a.on{color:var(--fg);box-shadow:inset 0 -2px 0 var(--fg)}
+.x .vt svg.i{width:14px;height:14px}
+.nums button{all:unset;cursor:pointer;display:flex;flex-direction:column;align-items:flex-start}
+.nums button:hover .lbl{color:var(--fg)}
+.x .acts{display:flex;flex-direction:column;align-items:flex-end;gap:6px}
+.x .acts .r{display:flex;gap:6px;align-items:center}
+.x .acts .sn{font-size:11.5px;line-height:14px}
+.x .ib.dz{color:var(--del)}
+/* D: conversation, three columns */
+.conv{flex:1;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr) 300px;min-height:0}
+.conv>section{padding:18px 24px;overflow:hidden;display:flex;flex-direction:column;gap:12px;min-width:0}
+.conv>section+section{border-left:1px solid var(--line)}
+.conv>aside{border-left:1px solid var(--line);overflow:hidden;padding-top:8px}
+.conv .sh{display:flex;align-items:center;gap:10px}
+/* E: the merge line in one row */
+.ml{display:flex;align-items:center;height:30px;margin-top:10px;position:relative}
+.ml .mb{display:flex;align-items:center;gap:8px;height:26px;padding:0 10px;border:1px solid var(--fg);border-radius:var(--r);background:var(--panel);flex:none}
+.ml .seg-l{height:1px;background:var(--route);flex:0 0 48px;position:relative}
+.ml .seg-l.dash{background:none;border-top:1px dashed var(--line2);height:0;flex:1 1 40px;min-width:32px}
+.ml .seg-l.on{flex:0 0 40px}
+.ml .chip{height:18px;display:flex;align-items:center;gap:5px;padding:0 6px;border:1px solid var(--route);border-radius:2px;background:var(--bg);font:500 11px var(--mono);color:var(--fg);flex:none}
+.ml .gate{all:unset;cursor:pointer;display:flex;align-items:center;gap:8px;height:26px;padding:0 8px;border:1px solid transparent;border-radius:var(--r);flex:none;white-space:nowrap}
+.ml .gate:hover{border-color:var(--line2)}
+.ml .gate[aria-expanded=true]{border-color:var(--fg);background:var(--sel)}
+.ml .gate .lbl{font-size:10.5px}
+.ml .gate b{font:600 13px var(--mono);color:var(--fg)}
+.ml .gate b small{font-size:12px;color:var(--faint);font-weight:500}
+.ml .ring{margin:0}
+.ml .ring.on{border-color:var(--route)}.ml .ring.on::after{content:"";position:absolute;inset:2px;border-radius:50%;background:var(--route)}
+.ml .ring.fg{border-color:var(--fg)}
+.ml .ring.xl{width:17px;height:17px;border-width:1.5px}
+.ml .end{display:flex;align-items:center;gap:8px;font:500 13px var(--mono);color:var(--fg);flex:none}
+.pop{position:absolute;top:34px;z-index:5;width:300px;background:var(--panel);border:1px solid var(--line2);border-radius:var(--r);padding:8px 12px 10px;display:flex;flex-direction:column}
+.pop .s{all:unset;cursor:pointer;height:26px;display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--muted)}
+.pop .s span:nth-child(2){flex:1;color:var(--fg)}
+.pop .s i{font:11px var(--mono);font-style:normal;color:var(--faint)}
+.pop .s:hover i{color:var(--fg)}
+.pop .foot{display:flex;justify-content:space-between;align-items:center;margin-top:6px;padding-top:8px;border-top:1px solid var(--line)}
+.x .work{flex:1;display:grid;grid-template-columns:300px 1fr;min-height:0}
+.x .fr{grid-template-columns:14px 1fr auto}
+.x .code{overflow:hidden}
+.x .meta{overflow:hidden}
+.fs{font:600 11px var(--mono);color:var(--muted)}.fs.a{color:var(--add)}
+
+/* round 3: two-column conversation under the line strip */
+.conv2{flex:1;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.2fr);min-height:0}
+.conv2>section{padding:18px 28px;overflow:hidden;display:flex;flex-direction:column;gap:12px;min-width:0}
+.conv2>section+section{border-left:1px solid var(--line)}
+.conv2 .sh{display:flex;align-items:center;gap:10px}
+.pop .s .av{margin-right:2px}
+.pop .s.on span:nth-child(3){color:var(--fg)}
+</style></head><body>
+
+<svg width="0" height="0" style="position:absolute">
+<symbol id="g-plus" viewBox="0 0 16 16"><path d="M8 3v10M3 8h10"/></symbol>
+<symbol id="g-x" viewBox="0 0 16 16"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7"/></symbol>
+<symbol id="g-fetch" viewBox="0 0 16 16"><path d="M13 8a5 5 0 1 1-1.5-3.6M13 2.5v3h-3"/></symbol>
+<symbol id="g-gear" viewBox="0 0 16 16"><circle cx="8" cy="8" r="2"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4"/></symbol>
+<symbol id="g-check" viewBox="0 0 16 16"><path d="M3 8.5l3 3 7-7"/></symbol>
+<symbol id="g-open" viewBox="0 0 16 16"><path d="M9 2.5h4.5V7M13.5 2.5L7 9M11.5 9.5v4h-9v-9h4"/></symbol>
+<symbol id="g-send" viewBox="0 0 16 16"><path d="M2.5 8h11M9 3.5L13.5 8 9 12.5"/></symbol>
+<symbol id="g-search" viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></symbol>
+<symbol id="g-chev" viewBox="0 0 16 16"><path d="M4.5 6.5L8 10l3.5-3.5"/></symbol>
+<symbol id="g-sparkle" viewBox="0 0 16 16"><path d="M8 2l1.4 4.6L14 8l-4.6 1.4L8 14l-1.4-4.6L2 8l4.6-1.4z"/></symbol>
+<symbol id="g-edit" viewBox="0 0 16 16"><path d="M10.5 2.5l3 3-8 8h-3v-3z"/></symbol>
+<symbol id="g-arrow" viewBox="0 0 16 16"><path d="M2.5 8h11M9.5 4l4 4-4 4"/></symbol>
+<symbol id="g-layers" viewBox="0 0 16 16"><path d="M8 2l6 3.2-6 3.2-6-3.2zM2 8.3l6 3.2 6-3.2M2 11.3l6 3.2 6-3.2"/></symbol>
+<symbol id="g-chat" viewBox="0 0 16 16"><path d="M2.5 3h11v8h-6l-3 2.5V11h-2z"/></symbol>
+<symbol id="g-code" viewBox="0 0 16 16"><path d="M5.5 4.5L2 8l3.5 3.5M10.5 4.5L14 8l-3.5 3.5"/></symbol>
+<symbol id="g-thumb" viewBox="0 0 16 16"><path d="M5 7v6.5H2.5V7zM5 7l2.5-4.5c1 0 1.6.7 1.4 1.7L8.5 6.5h4.2c.8 0 1.4.8 1.2 1.6l-1.1 4.4c-.2.6-.7 1-1.3 1H5"/></symbol>
+<symbol id="g-close" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6"/><path d="M6 6l4 4M10 6l-4 4"/></symbol>
+<symbol id="g-more" viewBox="0 0 16 16"><circle cx="3.5" cy="8" r=".7"/><circle cx="8" cy="8" r=".7"/><circle cx="12.5" cy="8" r=".7"/></symbol>
+</svg>
+<div class="cap"><b>Gitnetix · pull requests · round 3</b><span>E's line strip with B's two-column conversation.</span>
+<div class="toggle"><button class="on" data-t="dark">Dark</button><button data-t="light">Light</button></div></div>
+<div class="cap"><b>F · Line strip + two columns</b><span>E's strip carries checks, reviews and conversations; the content below is only the description and the activity, each with half the width and the full height.</span></div>
+<div class="app b x" id="frame-f">
+<div class="top"><button class="wt glow-working" aria-label="Worktrees &amp; agents, 1 running"><svg class="i"><use href="#g-layers"/></svg></button>
+<div class="rt on"><span class="pulse glow-dot"></span>acme-web<svg class="i x"><use href="#g-x"/></svg></div>
+<div class="rt">acme-api<svg class="i x"><use href="#g-x"/></svg></div>
+<div class="rt">design-system<svg class="i x"><use href="#g-x"/></svg></div>
+<div class="ico"><svg class="i"><use href="#g-plus"/></svg></div><div class="sp"></div>
+<div class="ico"><svg class="i"><use href="#g-gear"/></svg></div><div class="av">IS</div></div>
+<div class="tabs"><a>Workspace</a><a class="on">Pull requests <span class="n">4</span></a><a>Tickets <span class="n">12</span></a><a>Release notes</a><a>Submodules</a><a>Analytics</a></div>
+<div class="bar">
+<h2 class="ttl">Pull requests</h2><span class="where">GitHub · acme/acme-web</span>
+<div class="seg"><span class="on">Open <b class="n">4</b></span><span>To review <b class="n">2</b></span><span>Closed <b class="n">41</b></span></div>
+<div class="seg"><span class="on">Mine</span><span>Others</span><span>All</span></div>
+<div class="sp"></div>
+<label class="srch"><svg class="i"><use href="#g-search"/></svg><span class="in"><span class="ph" style="line-height:26px">Search by number, title, branch or author</span></span></label>
+<button class="ib b" aria-label="Sync now"><svg class="i" style="width:13px;height:13px"><use href="#g-fetch"/></svg></button>
+<button class="btn p" style="margin-left:4px"><svg class="i"><use href="#g-sparkle"/></svg>New pull request <span class="o">fix/session-expiry</span></button>
+</div>
+<div class="body">
+ <section class="list">
+  <div class="scroll">
+   <div class="gh2"><span class="lbl">Open</span><span class="n">3</span></div>
+   <button class="row" aria-pressed="true"><span class="ring"></span><span><span class="t">Retry failed uploads with backoff</span><span class="m"><span class="mono">#482</span><span class="route">feat/upload-retry</span></span></span><span class="age">2h</span></button>
+   <button class="row"><span class="ring ready"></span><span><span class="t">Settings page reads the new tokens</span><span class="m"><span class="mono">#479</span><span>Ready to merge</span></span></span><span class="age">1d</span></button>
+   <button class="row"><span class="ring bad"></span><span><span class="t">Fix cart total rounding on refunds</span><span class="m"><span class="mono">#476</span><span class="c-del">Conflict</span><span class="route">→ release/2.4.0</span></span></span><span class="age">3d</span></button>
+   <div class="gh2"><span class="lbl">Draft</span><span class="n">1</span></div>
+   <button class="row"><span class="ring draft"></span><span><span class="t">Spike: stream invoices as NDJSON</span><span class="m"><span class="mono">#471</span><span class="route">spike/ndjson</span></span></span><span class="age">6d</span></button>
+  </div>
+  <div class="new" style="gap:6px"><span class="lbl">Legend</span>
+   <span class="route" style="font-family:var(--sans)"><span class="ring ready" style="margin:0"></span>Ready <span class="ring" style="margin:0 0 0 10px"></span>Open <span class="ring bad" style="margin:0 0 0 10px"></span>Conflict <span class="ring draft" style="margin:0 0 0 10px"></span>Draft</span></div>
+ </section>
+ <main class="det">
+  <div class="strip" style="flex-direction:column;align-items:stretch;gap:0">
+   <div style="display:flex;align-items:center;gap:16px">
+    <div class="tt"><h1>Retry failed uploads with backoff<button class="ib" aria-label="Edit title and description"><svg class="i" style="width:13px;height:13px"><use href="#g-edit"/></svg></button><span class="meta" style="margin:0 0 0 6px;font-weight:400"><span class="mono faint">#482</span><span class="by"><span class="av xs">IS</span>Opened by you · updated 2h ago</span><span>9 files · <span class="c-add mono">+214</span> <span class="c-del mono">−37</span></span></span></h1></div>
+    <div class="acts" style="flex-direction:row"><div class="r"><button class="btn">Review</button><button class="btn"><svg class="i"><use href="#g-sparkle"/></svg>Rewrite with AI</button><button class="btn"><svg class="i"><use href="#g-open"/></svg>GitHub</button><button class="ib b dz" aria-label="Close pull request"><svg class="i" style="width:13px;height:13px"><use href="#g-x"/></svg></button></div></div>
+   </div>
+   <div class="ml">
+    <span class="mb"><span class="ty">FEAT</span><span class="nm">feat/upload-retry</span></span>
+    <span class="seg-l"></span><span class="chip">↑6 <span class="faint">↓0</span></span><span class="seg-l on"></span>
+    <button class="gate"><span class="ring on"></span><span class="lbl">Checks</span><b>5<small>/6</small></b><span class="pulse"></span></button>
+    <span class="seg-l dash"></span>
+    <button class="gate"><span class="ring fg"></span><span class="lbl">Review</span><b>1<small>/2</small></b></button>
+    <span class="seg-l dash"></span>
+    <button class="gate"><span class="ring"></span><span class="lbl">Conversations</span><b>1</b><span class="faint" style="font-size:11.5px">unresolved</span></button>
+    <span class="seg-l dash"></span>
+    <span class="end"><span class="ring xl"></span>main</span>
+    <span style="width:16px"></span>
+    <span class="sn" style="margin-right:12px">Waits for 1 check still running.</span>
+    <span class="split"><button class="btn p" aria-disabled="true" style="opacity:.55">Merge into main</button><button class="btn p" aria-label="Merge options" style="opacity:.55"><svg class="i"><use href="#g-chev"/></svg></button></span>
+
+   </div>
+  </div>
+  <nav class="vt"><a class="on"><svg class="i"><use href="#g-chat"/></svg>Conversation <span class="n">3</span></a><a><svg class="i"><use href="#g-code"/></svg>Files changed <span class="n">9</span></a></nav>
+  <div class="conv2">
+   <section>
+    <div class="sh"><span class="lbl">Description</span><span class="sp"></span><button class="btn sm gh"><svg class="i"><use href="#g-edit"/></svg>Edit</button></div>
+    <div class="md">
+     <p>Uploads that fail on a flaky connection now retry up to five times, waiting 0.5 s, 1 s, 2 s, 4 s and 8 s. The progress bar keeps its place between tries instead of starting over.</p>
+     <h4>Changes</h4>
+     <ul><li><code>uploadQueue</code> keeps the failed chunk and its byte offset.</li><li>New <code>backoff()</code> helper with jitter, covered by tests.</li><li>The toast says "Retrying in 4 s" and offers Cancel.</li></ul>
+     <h4>How to test</h4>
+     <ul><li>Throttle the network to "Offline" mid-upload, then back online.</li><li>The bar resumes from its last byte; the toast counts down.</li></ul>
+    </div>
+   </section>
+   <section>
+    <div class="sh"><span class="lbl">Activity</span><span class="faint" style="font-size:12px">1 unresolved of 3</span><span class="sp"></span><div class="seg sm"><span class="on">All</span><span>Unresolved</span></div></div>
+    <div class="tl">
+     <div class="ev c"><b>You</b> pushed <span class="mono">a91f3c2</span> Retry only 5xx and network errors<i>40m</i></div>
+     <div class="th">
+      <div class="fp"><b>src/upload/queue.ts</b><span>line 88</span><span class="sp"></span><button class="btn sm gh">Show in code</button><button class="btn sm">Resolve</button></div>
+      <div class="code"><div class="ln r"><span>87</span><span>-</span><span>  if (err) throw err;</span></div><div class="ln a"><span>88</span><span>+</span><span>  if (err &amp;&amp; job.tries &lt; MAX_TRIES) return schedule(job, backoff(job.tries));</span></div></div>
+      <div class="cmt"><span class="av s">MO</span><div><div class="w"><b>maya-ortiz</b><span class="mono">1h</span></div><p>Should a 4xx stop the retries? A 413 will never succeed on the next try.</p></div></div>
+      <div class="cmt"><span class="av s">IS</span><div><div class="w"><b>You</b><span class="mono">40m</span></div><p>Good catch. Only 5xx and network errors retry now.</p><div class="rx"><span><svg class="i"><use href="#g-thumb"/></svg>1</span></div></div></div>
+      <div class="reply"><span class="in"><span class="ph" style="line-height:26px">Reply</span></span><button class="btn sm">Comment</button></div>
+     </div>
+     <div class="ev"><b>maya-ortiz</b> approved<i>1h</i></div>
+     <div class="ev c"><b>You</b> pushed 5 commits<i>2h</i></div>
+     <div class="ev"><b>You</b> asked <b>maya-ortiz</b> and <b>jon-kim</b> to review<i>1d</i></div>
+     <div class="ev c"><b>You</b> opened this pull request<i>1d</i></div>
+    </div>
+    <div class="reply" style="border:1px solid var(--line2);border-radius:var(--r);margin-top:auto"><span class="in"><span class="ph" style="line-height:26px">Write a comment</span></span><button class="btn sm">Comment</button></div>
+   </section>
+  </div>
+ </main>
+</div>
+</div>
+<div class="cap"><b>G · Same, Review station open</b><span>Reviewers live in the strip now: pressing Review opens them under its station, like Checks in E.</span></div>
+<div class="app b x" id="frame-g">
+<div class="top"><button class="wt glow-working" aria-label="Worktrees &amp; agents, 1 running"><svg class="i"><use href="#g-layers"/></svg></button>
+<div class="rt on"><span class="pulse glow-dot"></span>acme-web<svg class="i x"><use href="#g-x"/></svg></div>
+<div class="rt">acme-api<svg class="i x"><use href="#g-x"/></svg></div>
+<div class="rt">design-system<svg class="i x"><use href="#g-x"/></svg></div>
+<div class="ico"><svg class="i"><use href="#g-plus"/></svg></div><div class="sp"></div>
+<div class="ico"><svg class="i"><use href="#g-gear"/></svg></div><div class="av">IS</div></div>
+<div class="tabs"><a>Workspace</a><a class="on">Pull requests <span class="n">4</span></a><a>Tickets <span class="n">12</span></a><a>Release notes</a><a>Submodules</a><a>Analytics</a></div>
+<div class="bar">
+<h2 class="ttl">Pull requests</h2><span class="where">GitHub · acme/acme-web</span>
+<div class="seg"><span class="on">Open <b class="n">4</b></span><span>To review <b class="n">2</b></span><span>Closed <b class="n">41</b></span></div>
+<div class="seg"><span class="on">Mine</span><span>Others</span><span>All</span></div>
+<div class="sp"></div>
+<label class="srch"><svg class="i"><use href="#g-search"/></svg><span class="in"><span class="ph" style="line-height:26px">Search by number, title, branch or author</span></span></label>
+<button class="ib b" aria-label="Sync now"><svg class="i" style="width:13px;height:13px"><use href="#g-fetch"/></svg></button>
+<button class="btn p" style="margin-left:4px"><svg class="i"><use href="#g-sparkle"/></svg>New pull request <span class="o">fix/session-expiry</span></button>
+</div>
+<div class="body">
+ <section class="list">
+  <div class="scroll">
+   <div class="gh2"><span class="lbl">Open</span><span class="n">3</span></div>
+   <button class="row" aria-pressed="true"><span class="ring"></span><span><span class="t">Retry failed uploads with backoff</span><span class="m"><span class="mono">#482</span><span class="route">feat/upload-retry</span></span></span><span class="age">2h</span></button>
+   <button class="row"><span class="ring ready"></span><span><span class="t">Settings page reads the new tokens</span><span class="m"><span class="mono">#479</span><span>Ready to merge</span></span></span><span class="age">1d</span></button>
+   <button class="row"><span class="ring bad"></span><span><span class="t">Fix cart total rounding on refunds</span><span class="m"><span class="mono">#476</span><span class="c-del">Conflict</span><span class="route">→ release/2.4.0</span></span></span><span class="age">3d</span></button>
+   <div class="gh2"><span class="lbl">Draft</span><span class="n">1</span></div>
+   <button class="row"><span class="ring draft"></span><span><span class="t">Spike: stream invoices as NDJSON</span><span class="m"><span class="mono">#471</span><span class="route">spike/ndjson</span></span></span><span class="age">6d</span></button>
+  </div>
+  <div class="new" style="gap:6px"><span class="lbl">Legend</span>
+   <span class="route" style="font-family:var(--sans)"><span class="ring ready" style="margin:0"></span>Ready <span class="ring" style="margin:0 0 0 10px"></span>Open <span class="ring bad" style="margin:0 0 0 10px"></span>Conflict <span class="ring draft" style="margin:0 0 0 10px"></span>Draft</span></div>
+ </section>
+ <main class="det">
+  <div class="strip" style="flex-direction:column;align-items:stretch;gap:0">
+   <div style="display:flex;align-items:center;gap:16px">
+    <div class="tt"><h1>Retry failed uploads with backoff<button class="ib" aria-label="Edit title and description"><svg class="i" style="width:13px;height:13px"><use href="#g-edit"/></svg></button><span class="meta" style="margin:0 0 0 6px;font-weight:400"><span class="mono faint">#482</span><span class="by"><span class="av xs">IS</span>Opened by you · updated 2h ago</span><span>9 files · <span class="c-add mono">+214</span> <span class="c-del mono">−37</span></span></span></h1></div>
+    <div class="acts" style="flex-direction:row"><div class="r"><button class="btn">Review</button><button class="btn"><svg class="i"><use href="#g-sparkle"/></svg>Rewrite with AI</button><button class="btn"><svg class="i"><use href="#g-open"/></svg>GitHub</button><button class="ib b dz" aria-label="Close pull request"><svg class="i" style="width:13px;height:13px"><use href="#g-x"/></svg></button></div></div>
+   </div>
+   <div class="ml">
+    <span class="mb"><span class="ty">FEAT</span><span class="nm">feat/upload-retry</span></span>
+    <span class="seg-l"></span><span class="chip">↑6 <span class="faint">↓0</span></span><span class="seg-l on"></span>
+    <button class="gate"><span class="ring on"></span><span class="lbl">Checks</span><b>5<small>/6</small></b><span class="pulse"></span></button>
+    <span class="seg-l dash"></span>
+    <button class="gate" aria-expanded="true"><span class="ring fg"></span><span class="lbl">Review</span><b>1<small>/2</small></b></button>
+    <span class="seg-l dash"></span>
+    <button class="gate"><span class="ring"></span><span class="lbl">Conversations</span><b>1</b><span class="faint" style="font-size:11.5px">unresolved</span></button>
+    <span class="seg-l dash"></span>
+    <span class="end"><span class="ring xl"></span>main</span>
+    <span style="width:16px"></span>
+    <span class="sn" style="margin-right:12px">Waits for 1 check still running.</span>
+    <span class="split"><button class="btn p" aria-disabled="true" style="opacity:.55">Merge into main</button><button class="btn p" aria-label="Merge options" style="opacity:.55"><svg class="i"><use href="#g-chev"/></svg></button></span>
+    <div class="pop" style="left:478px">
+     <button class="s on"><span class="av xs">MO</span><span>maya-ortiz</span><i style="color:var(--fg)">approved 1h</i></button>
+     <button class="s"><span class="av xs">JK</span><span>jon-kim</span><i>asked 1d ago</i></button>
+    </div>
+
+   </div>
+  </div>
+  <nav class="vt"><a class="on"><svg class="i"><use href="#g-chat"/></svg>Conversation <span class="n">3</span></a><a><svg class="i"><use href="#g-code"/></svg>Files changed <span class="n">9</span></a></nav>
+  <div class="conv2">
+   <section>
+    <div class="sh"><span class="lbl">Description</span><span class="sp"></span><button class="btn sm gh"><svg class="i"><use href="#g-edit"/></svg>Edit</button></div>
+    <div class="md">
+     <p>Uploads that fail on a flaky connection now retry up to five times, waiting 0.5 s, 1 s, 2 s, 4 s and 8 s. The progress bar keeps its place between tries instead of starting over.</p>
+     <h4>Changes</h4>
+     <ul><li><code>uploadQueue</code> keeps the failed chunk and its byte offset.</li><li>New <code>backoff()</code> helper with jitter, covered by tests.</li><li>The toast says "Retrying in 4 s" and offers Cancel.</li></ul>
+     <h4>How to test</h4>
+     <ul><li>Throttle the network to "Offline" mid-upload, then back online.</li><li>The bar resumes from its last byte; the toast counts down.</li></ul>
+    </div>
+   </section>
+   <section>
+    <div class="sh"><span class="lbl">Activity</span><span class="faint" style="font-size:12px">1 unresolved of 3</span><span class="sp"></span><div class="seg sm"><span class="on">All</span><span>Unresolved</span></div></div>
+    <div class="tl">
+     <div class="ev c"><b>You</b> pushed <span class="mono">a91f3c2</span> Retry only 5xx and network errors<i>40m</i></div>
+     <div class="th">
+      <div class="fp"><b>src/upload/queue.ts</b><span>line 88</span><span class="sp"></span><button class="btn sm gh">Show in code</button><button class="btn sm">Resolve</button></div>
+      <div class="code"><div class="ln r"><span>87</span><span>-</span><span>  if (err) throw err;</span></div><div class="ln a"><span>88</span><span>+</span><span>  if (err &amp;&amp; job.tries &lt; MAX_TRIES) return schedule(job, backoff(job.tries));</span></div></div>
+      <div class="cmt"><span class="av s">MO</span><div><div class="w"><b>maya-ortiz</b><span class="mono">1h</span></div><p>Should a 4xx stop the retries? A 413 will never succeed on the next try.</p></div></div>
+      <div class="cmt"><span class="av s">IS</span><div><div class="w"><b>You</b><span class="mono">40m</span></div><p>Good catch. Only 5xx and network errors retry now.</p><div class="rx"><span><svg class="i"><use href="#g-thumb"/></svg>1</span></div></div></div>
+      <div class="reply"><span class="in"><span class="ph" style="line-height:26px">Reply</span></span><button class="btn sm">Comment</button></div>
+     </div>
+     <div class="ev"><b>maya-ortiz</b> approved<i>1h</i></div>
+     <div class="ev c"><b>You</b> pushed 5 commits<i>2h</i></div>
+     <div class="ev"><b>You</b> asked <b>maya-ortiz</b> and <b>jon-kim</b> to review<i>1d</i></div>
+     <div class="ev c"><b>You</b> opened this pull request<i>1d</i></div>
+    </div>
+    <div class="reply" style="border:1px solid var(--line2);border-radius:var(--r);margin-top:auto"><span class="in"><span class="ph" style="line-height:26px">Write a comment</span></span><button class="btn sm">Comment</button></div>
+   </section>
+  </div>
+ </main>
+</div>
+</div>
+<script>
+document.querySelectorAll('.toggle button').forEach(b=>b.onclick=()=>{document.documentElement.dataset.theme=b.dataset.t;document.querySelectorAll('.toggle button').forEach(x=>x.classList.toggle('on',x===b))});
+</script>
+</body></html>
