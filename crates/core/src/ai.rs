@@ -68,9 +68,9 @@ pub fn catalog() -> Vec<ProviderInfo> {
             id: "codex", name: "Codex", mono: "CX", maker: "OpenAI", bin: Some("codex"),
             methods: vec!["cli", "api"], effort: true, local: false, needs_url: false, models: vec![],
         },
-        // Antigravity CLI, which replaced Gemini CLI: cli_path falls back to `gemini`.
+        // Antigravity CLI, which replaced Gemini CLI (cli_path falls back to `gemini`); the API key is a Gemini API key.
         ProviderInfo {
-            id: "gemini", name: "Gemini", mono: "GM", maker: "Google", bin: Some("agy"),
+            id: "gemini", name: "Antigravity / Gemini", mono: "AG", maker: "Google", bin: Some("agy"),
             methods: vec!["cli", "api"], effort: false, local: false, needs_url: false, models: vec![],
         },
         ProviderInfo {
@@ -709,13 +709,15 @@ pub struct ProviderStatus {
     /// connected | detected | none
     pub status: String,
     pub cli_path: Option<String>,
+    /// The CLI found: `gemini` when Antigravity's `agy` is missing.
+    pub cli_bin: Option<String>,
     pub has_key: bool,
 }
 
 pub fn status(cfg: &AiConfig, id: &str) -> Result<ProviderStatus> {
     provider_info(id)?;
     let conf = cfg.providers.get(id);
-    let cli_path = cli_path(id).ok().map(|(_, p)| p.to_string_lossy().to_string());
+    let (cli_bin, cli_path) = cli_path(id).ok().map(|(b, p)| (b.to_string(), p.to_string_lossy().to_string())).unzip();
     let has_key = secrets::get(&secrets::ai_key(id)).ok().flatten().is_some_and(|k| !k.is_empty());
     let status = match conf {
         Some(c) if c.connected => "connected",
@@ -723,7 +725,7 @@ pub fn status(cfg: &AiConfig, id: &str) -> Result<ProviderStatus> {
         _ if cli_path.is_some() => "detected",
         _ => "none",
     };
-    Ok(ProviderStatus { id: id.into(), status: status.into(), cli_path, has_key })
+    Ok(ProviderStatus { id: id.into(), status: status.into(), cli_path, cli_bin, has_key })
 }
 
 #[cfg(test)]

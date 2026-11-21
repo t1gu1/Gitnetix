@@ -119,7 +119,11 @@ function ProviderDetail({ cat, id }: { cat: AiCatalog; id: string }) {
               <span className="col" style={{ gap: 2 }}>
                 <span style={{ fontWeight: 500 }}>{METHOD_TEXT[m][0]}</span>
                 <span className="muted" style={{ fontSize: 12 }}>
-                  {m === "cli" && info.local ? `Runs models on this computer through ${info.bin}. Nothing leaves your machine.` : METHOD_TEXT[m][1]}
+                  {m === "cli" && info.local
+                    ? `Runs models on this computer through ${info.bin}. Nothing leaves your machine.`
+                    : m === "api" && id === "gemini"
+                      ? "Talks to Google's Gemini API with your Gemini API key. Billed to your API account."
+                      : METHOD_TEXT[m][1]}
                 </span>
               </span>
             </button>
@@ -129,8 +133,13 @@ function ProviderDetail({ cat, id }: { cat: AiCatalog; id: string }) {
           <div className="col card" style={{ padding: 14, gap: 8 }}>
             <div className="row wrap">
               <span className="col grow" style={{ gap: 2, minWidth: 0 }}>
-                <span><span className="mono">{info.bin}</span> {status?.cliPath ? "found" : "not found on your PATH"}</span>
+                <span><span className="mono">{status?.cliBin ?? info.bin}</span> {status?.cliPath ? "found" : "not found on your PATH"}</span>
                 <span className="hint mono ellipsis">{status?.cliPath ?? "Install it, then come back: Gitnetix checks again automatically."}</span>
+                {status?.cliBin === "gemini" && (
+                  <span className="hint">
+                    This is the older Gemini CLI, which works only with a paid Gemini API key. Install Antigravity (<span className="mono">agy</span>) to use your Google account.
+                  </span>
+                )}
               </span>
               {status?.cliPath && <button className="btn" onClick={() => signIn.mutate({ id })}>Sign in with the CLI</button>}
               {status?.cliPath && (

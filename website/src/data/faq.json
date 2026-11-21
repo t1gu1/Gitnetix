@@ -5,7 +5,7 @@
   },
   {
     "q": "Is Gitnetix free?",
-    "a": "Yes. Gitnetix is free to download and use on macOS, Windows and Linux, and updates itself. AI features run through your own signed-in CLI (Claude Code, Codex, Gemini, Copilot) or an API key, so any AI cost goes to your provider, and local models through Ollama cost nothing."
+    "a": "Yes. Gitnetix is free to download and use on macOS, Windows and Linux, and updates itself. AI features run through your own signed-in CLI (Claude Code, Codex, Antigravity, Copilot) or an API key, so any AI cost goes to your provider, and local models through Ollama cost nothing."
   },
   {
     "q": "How is it different from other Git GUIs?",
@@ -17,7 +17,7 @@
   },
   {
     "q": "Which AI agents does it work with?",
-    "a": "Claude Code, Codex, Gemini, Copilot and Ollama through their signed-in CLIs, or any provider with an API key. You pick the provider, model and effort for each agent session, and each one runs in its branch's own worktree."
+    "a": "Claude Code, Codex, Antigravity, Copilot and Ollama through their signed-in CLIs, or any provider with an API key. You pick the provider, model and effort for each agent session, and each one runs in its branch's own worktree."
   },
   {
     "q": "Does it support GitLab or Bitbucket?",

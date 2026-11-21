@@ -731,6 +731,8 @@ export interface ProviderStatus {
   id: string;
   status: "connected" | "detected" | "none";
   cliPath?: string | null;
+  /** The CLI found: `gemini` when Antigravity's `agy` is missing. */
+  cliBin?: string | null;
   hasKey: boolean;
 }
 

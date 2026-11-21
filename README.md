@@ -19,7 +19,7 @@ Every Git action runs the real `git` command, so a repository Gitnetix touches s
 
 - A **release** is a branch `release/x.y.z` cut from `main` (or from the latest tag for a hotfix).
 - **Features and fixes** branch off a release, either by switching branch or in their own **worktree**.
-- An **AI agent** (Claude Code CLI, Codex, Gemini…) can work on each branch in parallel.
+- An **AI agent** (Claude Code CLI, Codex, Antigravity…) can work on each branch in parallel.
 - **Create tag & Update changelog…** (just **Create tag…** without a `CHANGELOG.md`), in the context menu of every local branch (worktree branches included), dates the `Unreleased` section of `CHANGELOG.md`, tags the branch tip and pushes the branch and the tag together.
   It is disabled while that branch has a rebase or merge in progress. The optional AI step that first adds the branch to the changelog runs after its checks, before anything is committed.
   If origin refuses the push, the branch is left as it was: no tag, no changelog commit.

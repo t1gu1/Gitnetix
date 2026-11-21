@@ -10,7 +10,7 @@ Desktop app in a Tauri 2 shell (macOS, Windows, Linux); the same React UI also r
 
 ## Users
 
-Developers who run many release, feature and fix branches at once, often in separate worktrees, with an AI agent (Claude Code, Codex, Gemini, Copilot, Ollama) working on several of them in parallel. The app stays open all day next to their editor and terminal; they glance at it, act, and go back to code. They also check on and drive it from their phone.
+Developers who run many release, feature and fix branches at once, often in separate worktrees, with an AI agent (Claude Code, Codex, Antigravity, Copilot, Ollama) working on several of them in parallel. The app stays open all day next to their editor and terminal; they glance at it, act, and go back to code. They also check on and drive it from their phone.
 
 ## Product Purpose
 

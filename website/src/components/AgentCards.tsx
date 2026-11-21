@@ -38,9 +38,9 @@ const CARDS: Card[] = [
     ],
   },
   {
-    branch: 'feat/dark-mode', agent: { provider: 'gemini', model: 'gemini-2.5-pro', effort: '' }, picker: ['Gemini', 'gemini-2.5-pro'],
+    branch: 'feat/dark-mode', agent: { provider: 'gemini', model: 'gemini-3.8-flash', effort: '' }, picker: ['Antigravity / Gemini', 'Gemini 3.8 Flash'],
     frames: [
-      [600, cmd('$ gemini · Add a dark mode built from the brand palette.')],
+      [600, cmd('$ agy · Add a dark mode built from the brand palette.')],
       [1200, dim('Read tokens/brand.json')], [900, dim('Edit tokens/dark.json')], [900, dim('Edit src/theme.css')], [1100, dim('Bash pnpm build')],
       [1500, { kind: 'err', text: '✕ pnpm build exited with 1: unknown token "surface-2"' }],
       [2200, cmd('› The last run failed. Read the errors above, fix them and try again.')],

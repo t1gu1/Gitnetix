@@ -137,7 +137,7 @@ const SHIPPED: Shipped[] = [
 const logOf = (b: Branch) => [...(b.log ?? []), ...(LOG[b.name] ?? [])].slice(0, b.base ? b.ahead : undefined);
 const PROJECT = ['package.json', 'src/App.tsx', 'src/screens/BranchTree.tsx', 'src/screens/Workspace.tsx', 'src/styles/app.css', 'README.md'];
 /** The agent's name per provider, as the map's chips say it. */
-const LABEL: Record<string, string> = { claude: 'Claude', codex: 'Codex', gemini: 'Gemini', copilot: 'Copilot', ollama: 'Ollama' };
+const LABEL: Record<string, string> = { claude: 'Claude', codex: 'Codex', gemini: 'Antigravity', copilot: 'Copilot', ollama: 'Ollama' };
 
 /** Same pages as PAGES in src/lib/nav.tsx. */
 const PAGES: { id: string; label: string; icon: string; Page?: ComponentType }[] = [

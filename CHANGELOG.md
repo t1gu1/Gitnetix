@@ -14,6 +14,15 @@ the in-app update prompt.
 
 ## [Unreleased]
 
+### Changed (App)
+
+- The Gemini provider is now called Antigravity / Gemini. Agents and AI tasks run the Antigravity CLI (`agy`), and the API key option still takes a Gemini API key. Agent labels say Antigravity CLI.
+- When only the older Gemini CLI is installed, AI setup and Agent setup say they found `gemini`, not `agy`. That CLI works only with a paid Gemini API key.
+
+### Changed (Website)
+
+- Agent lists name Antigravity instead of Gemini, and the download page asks for the `agy` CLI.
+
 ## [0.27.1] - 2026-11-20
 
 ### Fixed (App)

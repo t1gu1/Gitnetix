@@ -147,7 +147,7 @@ export default function Home({ version, demo, agents, phone }: { version: string
     <ol className="cards" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(240px, 100%), 1fr))' }}>
     <li className="box feat"><span className="step-n" aria-hidden="true">1</span><h3>Cut a release</h3><p><code>release/2.4.0</code> from <code>main</code>, or from the last tag for a hotfix. The next version is suggested from your changes.</p></li>
     <li className="box feat"><span className="step-n" aria-hidden="true">2</span><h3>Branch work</h3><p>Features and fixes off the release, each in its own worktree if you like.</p></li>
-    <li className="box feat"><span className="step-n" aria-hidden="true">3</span><h3>Agents help</h3><p>Claude Code, Codex, Gemini work in parallel. AI adds each branch to the changelog and writes the PR.</p></li>
+    <li className="box feat"><span className="step-n" aria-hidden="true">3</span><h3>Agents help</h3><p>Claude Code, Codex, Antigravity work in parallel. AI adds each branch to the changelog and writes the PR.</p></li>
     <li className="box feat" style={{ borderColor: 'var(--line2)' }}><span className="step-n on" aria-hidden="true">4</span><h3>Tag</h3><p><strong style={{ color: 'var(--fg)' }}>Create tag &amp; Update changelog…</strong> on any branch dates the changelog, tags <code>v2.4.0</code> and pushes the branch with its tag. A release reads its version from its name; anywhere else, pick Major, Minor or Patch, or type any tag name.</p></li>
     </ol>
     <p className="flow"><b>release/2.4.0</b> → <b>CHANGELOG [2.4.0] - 2026-10-22</b> → <b>v2.4.0</b> → <b>origin</b></p>
@@ -164,7 +164,7 @@ export default function Home({ version, demo, agents, phone }: { version: string
     <span style={{ fontSize: '14px', color: 'var(--faint)', marginRight: '6px' }}>Bring your agent:</span>
     <span className="chip">Claude Code</span>
     <span className="chip">Codex</span>
-    <span className="chip">Gemini</span>
+    <span className="chip">Antigravity</span>
     <span className="chip">Copilot</span>
     <span className="chip">Ollama</span>
     <span className="chip ghost">or an API key</span>

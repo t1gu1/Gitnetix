@@ -435,7 +435,13 @@ fn carried<'a>(s: &'a AgentSession, ai: &Resolved, limit: &Limit) -> (String, Op
 }
 
 fn agent_label(r: &Resolved) -> Result<String> {
-    Ok(format!("{} CLI · {}", ai::provider_info(&r.provider)?.name, r.label()))
+    // Agents run the CLI only, so name it rather than "Antigravity / Gemini".
+    let name = match ai::cli_path(&r.provider) {
+        Ok(("agy", _)) => "Antigravity",
+        Ok(("gemini", _)) => "Gemini",
+        _ => ai::provider_info(&r.provider)?.name,
+    };
+    Ok(format!("{name} CLI · {}", r.label()))
 }
 
 pub struct StartArgs {
@@ -619,7 +625,7 @@ impl AgentManager {
     pub fn start(&self, args: StartArgs) -> Result<AgentSession> {
         if args.ai.method != ConnectMethod::Cli {
             return Err(Error::Unsupported(
-                "Agents run through a local CLI (Claude Code, Codex, Gemini…). Route “Free-form agent” to a CLI provider in AI setup.".into(),
+                "Agents run through a local CLI (Claude Code, Codex, Antigravity…). Route “Free-form agent” to a CLI provider in AI setup.".into(),
             ));
         }
         let id = crate::store::new_id();

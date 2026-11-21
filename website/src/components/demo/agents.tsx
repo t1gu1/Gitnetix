@@ -114,9 +114,9 @@ const SEED: Session[] = [
   },
   {
     key: 'design-system/feat/dark-tokens', project: 'design-system', branch: 'feat/dark-tokens', base: 'main', behind: 0, add: 58, del: 0, status: 'failed', ago: '1 h ago',
-    ai: { provider: 'gemini', model: 'gemini-2.5-pro', effort: '' },
+    ai: { provider: 'gemini', model: 'gemini-3.8-flash', effort: '' },
     lines: [
-      cmd('$ gemini · Generate dark mode tokens from the light palette and export them as CSS variables.'),
+      cmd('$ agy · Generate dark mode tokens from the light palette and export them as CSS variables.'),
       dim('Read tokens/light.json'), dim('Edit tokens/dark.json'), dim('Edit src/index.ts'), dim('Bash pnpm build'),
       { kind: 'err', text: '✕ pnpm build exited with 1: Cannot find module "./tokens/dark.css"' },
     ],
@@ -258,7 +258,7 @@ const RAYS = Array.from({ length: 12 }, (_, i) => {
 const PROVIDERS: { id: string; name: string; mono: string; effort?: boolean; models?: [string, string][] }[] = [
   { id: 'claude', name: 'Claude', mono: 'CL', effort: true, models: [['claude-opus-5-5', 'Claude Opus 5.5'], ['claude-sonnet-5-5', 'Claude Sonnet 5.5'], ['claude-haiku-5-5', 'Claude Haiku 5.5'], ['claude-fable-5-1', 'Claude Fable 5.1']] },
   { id: 'codex', name: 'Codex', mono: 'CX', effort: true },
-  { id: 'gemini', name: 'Gemini', mono: 'GM' },
+  { id: 'gemini', name: 'Antigravity / Gemini', mono: 'AG' },
   { id: 'copilot', name: 'GitHub Copilot', mono: 'CP', effort: true },
   { id: 'ollama', name: 'Ollama', mono: 'OL' },
 ];

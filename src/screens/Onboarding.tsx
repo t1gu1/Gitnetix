@@ -213,6 +213,10 @@ function AiRow({ p, main, onPick, onWorks }: { p: AiCatalog["providers"][number]
           <span style={{ fontWeight: 500 }}>{name}</span>
           {cliOk(p.conf) ? (
             <span className="c-add" style={{ fontSize: 12 }}>Connected</span>
+          ) : found && p.status?.cliBin !== bin ? (
+            <span className="hint">
+              Found <span className="mono">{p.status?.cliBin}</span>, not <span className="mono">{bin}</span>
+            </span>
           ) : found ? (
             <span className="hint">Found on this computer</span>
           ) : (

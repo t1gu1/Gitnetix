@@ -94,7 +94,7 @@ pnpm app`}</pre>
     <h2 id="req-h" className="display" style={{ margin: '0 0 14px', fontSize: '28px' }}>What you need</h2>
     <ul className="prose" style={{ margin: '0', paddingLeft: '20px', color: 'var(--muted)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
     <li><code>git</code> installed and on your PATH. Gitnetix drives the real git CLI.</li>
-    <li>For AI: a signed-in CLI (<code>claude</code>, <code>codex</code>, <code>gemini</code>, <code>copilot</code>, <code>ollama</code>) or an API key.</li>
+    <li>For AI: a signed-in CLI (<code>claude</code>, <code>codex</code>, <code>agy</code>, <code>copilot</code>, <code>ollama</code>) or an API key.</li>
     <li>For pull requests: a GitHub, GitLab, Bitbucket, Gitea or Azure DevOps sign-in. No token to create.</li>
     </ul>
     </div>

@@ -13,7 +13,7 @@ export const effortLabel = (e: string) => (e === "xhigh" ? "XHigh" : e[0].toUppe
 
 /**
  * The efforts `model` takes: its own when the provider lists it, else every level, or none for a provider that takes
- * effort only for listed models (Gemini).
+ * effort only for listed models (Antigravity).
  */
 export const effortsFor = (info: ProviderInfo | undefined, models: ModelInfo[], model: string) =>
   models.find((m) => m.id === model)?.efforts ?? (info?.effort ? EFFORTS : []);

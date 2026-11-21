@@ -44,7 +44,7 @@ const GROUPS: { title: string; rows: [string, Cell, Cell, Cell, Cell][] }[] = [
       ['AI conflict resolution', y('Proposed per file during a rebase'), y('Paid plans, in preview'), n(), n()],
       ['AI pull request descriptions', y(), y('Paid plans'), n(), n()],
       ['Coding agents on branches', y('Built-in agent chat per branch, in its own worktree'), y('Agent Sessions run your CLI agent in a worktree'), p('Worktrees, no agent runner'), n()],
-      ['AI provider', t('Your signed-in CLI or API key: Claude Code, Codex, Gemini, Copilot, Ollama'), t('GitKraken AI credits in paid plans, or your own key'), t('Your Claude Code, Codex or Cursor CLI. Windows: Claude Code only.'), t('No AI features')],
+      ['AI provider', t('Your signed-in CLI or API key: Claude Code, Codex, Antigravity, Copilot, Ollama'), t('GitKraken AI credits in paid plans, or your own key'), t('Your Claude Code, Codex or Cursor CLI. Windows: Claude Code only.'), t('No AI features')],
       ['Other agents can drive it (MCP)', y('Every action is a tool'), y('GitKraken MCP server'), n(), n()],
     ],
   },
