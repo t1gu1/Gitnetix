@@ -283,7 +283,7 @@ components:
     textColor: "{colors.ink}"
     rounded: "{rounded.md}"
     padding: "16px"
-    width: "288px"
+    width: "360px"
   settings-cell:
     textColor: "{colors.muted}"
     width: "44px"
@@ -292,7 +292,8 @@ components:
     backgroundColor: "{colors.ground}"
     textColor: "{colors.muted}"
     typography: "{typography.meta}"
-    padding: "8px 16px 10px"
+    rounded: "{rounded.md}"
+    padding: "6px 12px"
   kpi:
     backgroundColor: "{colors.panel}"
     textColor: "{colors.ink}"
@@ -376,6 +377,47 @@ components:
     rounded: "{rounded.md}"
     padding: "0 14px"
     height: "30px"
+  map-files:
+    backgroundColor: "{colors.panel}"
+    textColor: "{colors.muted}"
+    typography: "{typography.field}"
+    rounded: "{rounded.md}"
+    width: "360px"
+  pr-row:
+    textColor: "{colors.ink}"
+    typography: "{typography.body-strong}"
+    padding: "9px 12px"
+  pr-line-box:
+    backgroundColor: "{colors.panel}"
+    textColor: "{colors.ink}"
+    typography: "{typography.ref}"
+    rounded: "{rounded.md}"
+    padding: "0 10px"
+    height: "26px"
+  pr-gate:
+    backgroundColor: "transparent"
+    textColor: "{colors.ink}"
+    typography: "{typography.label}"
+    rounded: "{rounded.md}"
+    padding: "0 8px"
+    height: "26px"
+  pr-gate-open:
+    backgroundColor: "{colors.selected}"
+    textColor: "{colors.ink}"
+    typography: "{typography.label}"
+    rounded: "{rounded.md}"
+    padding: "0 8px"
+    height: "26px"
+  pr-tab:
+    textColor: "{colors.muted}"
+    typography: "{typography.body-strong}"
+    padding: "0 10px"
+    height: "38px"
+  pr-tab-active:
+    textColor: "{colors.ink}"
+    typography: "{typography.body-strong}"
+    padding: "0 10px"
+    height: "38px"
 ---
 
 # Design System: Gitnetix

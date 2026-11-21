@@ -283,7 +283,7 @@ components:
     textColor: "{colors.ink}"
     rounded: "{rounded.md}"
     padding: "16px"
-    width: "288px"
+    width: "360px"
   settings-cell:
     textColor: "{colors.muted}"
     width: "44px"
@@ -292,7 +292,8 @@ components:
     backgroundColor: "{colors.ground}"
     textColor: "{colors.muted}"
     typography: "{typography.meta}"
-    padding: "8px 16px 10px"
+    rounded: "{rounded.md}"
+    padding: "6px 12px"
   kpi:
     backgroundColor: "{colors.panel}"
     textColor: "{colors.ink}"
@@ -376,6 +377,47 @@ components:
     rounded: "{rounded.md}"
     padding: "0 14px"
     height: "30px"
+  map-files:
+    backgroundColor: "{colors.panel}"
+    textColor: "{colors.muted}"
+    typography: "{typography.field}"
+    rounded: "{rounded.md}"
+    width: "360px"
+  pr-row:
+    textColor: "{colors.ink}"
+    typography: "{typography.body-strong}"
+    padding: "9px 12px"
+  pr-line-box:
+    backgroundColor: "{colors.panel}"
+    textColor: "{colors.ink}"
+    typography: "{typography.ref}"
+    rounded: "{rounded.md}"
+    padding: "0 10px"
+    height: "26px"
+  pr-gate:
+    backgroundColor: "transparent"
+    textColor: "{colors.ink}"
+    typography: "{typography.label}"
+    rounded: "{rounded.md}"
+    padding: "0 8px"
+    height: "26px"
+  pr-gate-open:
+    backgroundColor: "{colors.selected}"
+    textColor: "{colors.ink}"
+    typography: "{typography.label}"
+    rounded: "{rounded.md}"
+    padding: "0 8px"
+    height: "26px"
+  pr-tab:
+    textColor: "{colors.muted}"
+    typography: "{typography.body-strong}"
+    padding: "0 10px"
+    height: "38px"
+  pr-tab-active:
+    textColor: "{colors.ink}"
+    typography: "{typography.body-strong}"
+    padding: "0 10px"
+    height: "38px"
 ---
 
 # Design System: Gitnetix
@@ -393,6 +435,7 @@ The approved reference is `.impeccable/mocks/slate-direction.html` (branch map a
 Key characteristics:
 - Cool slate-to-black ground, panels one step up, 1px hairlines.
 - Branch map as a station line: hairline trunk, ring stations, two-row boxes, ahead/behind chips on the lines, floating commits.
+- Pull requests read as the same line: ring stations by state in the list, and each pull request's checks, review and conversations as stations on its way to the base.
 - White controls: solid white primary, 1px outline secondary.
 - Hue only for diff add/delete, warnings and conflicts, plus the flowing rainbow on agent work.
 - Tall condensed numerals and versions; tracked small-caps labels.
@@ -459,7 +502,7 @@ All numbers use `font-variant-numeric: tabular-nums`. Nothing functional is set 
 
 ## Layout
 
-4px grid. Shell rows: repo tab bar 40px (Settings gear cell and profile button flush at its right end), section tabs 40px (the app's six: Workspace, Pull requests, Tickets, Release notes, Submodules, Analytics; no counts), toolbar 48px. Cards pad 12px 14px (16px on the selected-branch card); rows are 32px (rail sections), 30px (rail files), 22px (floating commits) or 20px (diff lines). Map column headings (TRUNK, RELEASES & STRAIGHT TO MAIN, BRANCHES) sit 20px below the toolbar; floating commits indent 18px from their box's left edge (14px under `main`, whose box pads 14px on the left since its station sits on the trunk); trunk stations keep an even 36px pitch. Map geometry (`BranchMap.tsx`): trunk hairline at x 26, the default branch's column at x 46 and 280px wide, branch columns at 404 + 392 per level and 320px wide; boxes 28px apart within a parent, 40px between parents; floating commits start 6px under their box. On open the map keeps its own top left when the selected box shows whole from there, so the trunk stays in view; otherwise it centres the box, leaving 304px for the selected card. Gaps: 8px inside groups, 24 to 32px between groups. Density stays where it is today; the redesign changes surfaces, not layout. The agents panel docks on the right below the toolbar in both views at the app's 460px default, so the map loses that width; the mock frames are 1920x1080 so the panel plus the 288px selected card still leave the branch column clear. The code view's grid is 320px files rail | code | 460px agents panel. Phone layout (max 480px, or 900px with a coarse pointer) keeps its single pane and bottom tab bar; under 720px the map drops its title, legend and toolbar spacer, and the selected card moves above the map instead of over it.
+4px grid. Shell rows: repo tab bar 40px (Settings gear cell and profile button flush at its right end), section tabs 40px (the app's six: Workspace, Pull requests, Tickets, Release notes, Submodules, Analytics; no counts), toolbar 48px. Cards pad 12px 14px (16px on the selected-branch card); rows are 32px (rail sections), 30px (rail files), 22px (floating commits) or 20px (diff lines). Map column headings (TRUNK, RELEASES & STRAIGHT TO MAIN, BRANCHES) sit 20px below the toolbar; floating commits indent 18px from their box's left edge (14px under `main`, whose box pads 14px on the left since its station sits on the trunk); trunk stations keep an even 36px pitch. Map geometry (`BranchMap.tsx`): trunk hairline at x 26, the default branch's column at x 46 and 280px wide, branch columns at 404 + 392 per level and 320px wide; boxes 28px apart within a parent, 40px between parents; floating commits start 6px under their box. On open the map keeps its own top left when the selected box shows whole from there, so the trunk stays in view; otherwise it centres the box, leaving 376px (`CARD_ROOM`) for the selected branch's side column. Gaps: 8px inside groups, 24 to 32px between groups. Density stays where it is today; the redesign changes surfaces, not layout. The agents panel docks on the right below the toolbar in both views at the app's 460px default, so the map loses that width; at 1920x1080 the panel plus the 360px side column still leave the branch column clear. The code view's grid is 320px files rail | code | 460px agents panel. Phone layout (max 480px, or 900px with a coarse pointer) keeps its single pane and bottom tab bar; under 720px the map drops its title, legend and toolbar spacer, and the selected card moves above the map instead of over it.
 
 ## Elevation & Depth
 
@@ -513,13 +556,24 @@ Behind lives on the line, not in the box: a square chip centred on the midpoint 
 Commits float under their box with no container, indented 18px. Rows are 22px: subject in Inter 12px muted (ellipsis), author initials and age on the right in Mono 11px faint; the whole row turns ink on hover. Only commits float: the box's situation, agent and WIP live in its info row. The list ends with "See all N" in tracked caps (Inter 600, 11px, 0.12em, faint). Merged stations and "Clean up merged" follow on the trunk or release line below.
 
 ### Branch map route
-**The Hairline Rule.** Every map line is a hairline. The route from the trunk to the checked-out branch is 1.5px in the route colour (control white, ink in light mode); every other link is a 1px Link Dim curve; a falling-behind branch's link is dashed 3/4. No thick transit lines, no hue on the route, no pulse travelling along it, no glow. A legend band under the canvas (not floating over it; ground fill, padding 8px 16px 10px, Inter 12px muted) repeats the three line styles and a one-line hint.
+**The Hairline Rule.** Every map line is a hairline. The route from the trunk to the checked-out branch is 1.5px in the route colour (control white, ink in light mode); every other link is a 1px Link Dim curve; a falling-behind branch's link is dashed 3/4. No thick transit lines, no hue on the route, no pulse travelling along it, no glow. A one-line legend box floats at the canvas's bottom left (8px in, 16px up; 1px hairline-strong border, 3px corners, ground at 85%, padding 6px 12px, Inter 12px muted) with the route, other lines, falling behind and the line chip. Keys that don't fit wrap out of sight, never cut in half, and a "See all" link lists them in a 360px modal. It stops short of the selected branch's side column.
 
 ### Selected-branch card
-Floats top right over the map (16px in), 288px wide, panel background, 1px hairline-strong border, 3px corners, 16px padding, 14px gaps, no shadow; it fades in and scrolls itself when too tall. Top: type label and the Mono 14px 600 name with a fold chevron; then status tags; then Ahead / Behind / WIP files in Display Numeral (behind in Delete). A full-width outlined "Look at the code" button with its WIP count right-aligned in Mono 11px muted; a muted 12px sentence on the branch's situation; a Parent / Origin / Ticket / Agent list (faint terms, Mono ink values right-aligned; a working Agent value flows with the rainbow). It ends with the suggested next step as a full-width primary split button (the app's label, such as "Stage & commit all", with a sparkle icon), the overflow part split off by a hairline-strong divider.
+Heads the selected branch's side column, floating top right over the map (16px in, 360px wide; 288px when it stands alone), panel background, 1px hairline-strong border, 3px corners, 16px padding, 14px gaps, no shadow; it fades in and, when the column runs out of height, gives way first and scrolls. Top: type label and the Mono 14px 600 name with a fold chevron; then status tags; then Ahead / Behind / WIP files in Display Numeral (behind in Delete). A full-width outlined "Look at the code" button with its WIP count right-aligned in Mono 11px muted; a muted 12px sentence on the branch's situation; a Parent / Origin / Ticket / Agent list (faint terms, Mono ink values right-aligned; a working Agent value flows with the rainbow). It ends with the suggested next step as a full-width primary split button (the app's label, such as "Stage & commit all", with a sparkle icon), the overflow part split off by a hairline-strong divider.
 
-### Pull request card
-The Pull requests page's version of the selected-branch card, in the same parts: panel, 1px hairline-strong border, 3px corners, 16px padding, no shadow. Passed checks (as "3/4", the total in faint 24px; Delete when any fail), approvals and unresolved conversations in Display Numeral with a Label under each; a muted 12px sentence on what holds the merge back; then CHECKS (failing and running first, six shown, a 7px status dot: Add passed, Delete failed, a blinking ink dot running, a faint ring waiting) and REVIEWERS (avatar, login, the vote in ink with a check when approved, Warn for changes requested, faint otherwise), each under a hairline. Beside the conversation at 288px once the detail is 880px wide; above it otherwise, numbers on the left and the lists on the right, one column under 560px. The page's state tag inverts only for "Ready to merge" and reads in Delete for a conflict. Section headings in the detail (DESCRIPTION, CONVERSATION) are Label type.
+### Map files panel
+Under the card in the same column, 12px below it, filling the height the card leaves (at least 180px): panel, 1px hairline-strong border, 3px corners. Head (padding 10px 10px 10px 12px, a hairline under it): a WIP / Branch / Project segmented filter filling the row, then, in tree mode, a collapse/expand-all chevron icon button, then the tree/list toggle. Its rows are the files rail's file rows; the Staged and Unstaged section rows stick to the top on panel. A new list starts expanded, Project collapsed. A picked file floats its diff over the rest of the map with the same 16px margins, stopping 16px short of the column: ground fill, 1px hairline-strong border, 3px corners.
+
+### Pull requests screen
+The branch map's grammar applied to a pull request: ring stations in the list, and in the detail one merge line that reads like a branch's route to its base.
+- **Toolbar:** the map's 48px toolbar. "PULL REQUESTS" in Display Title, `host · owner/repo` in Mono 12px faint (up to 280px), an Open / To review / Closed segment with faint counts, a Mine / Others / All segment (not on To review); pushed right, a 280px search input 28px tall with a 13px faint search icon inside it, a sync icon button, and the primary New pull request button, its "from branch" tail in 11.5px sentence case at 70% opacity (40% with a not-allowed cursor when it can't open). Under 720px the search takes a row of its own.
+- **List rows:** an 11px ring station by state (1px border, ground fill): open an ink ring, draft a dashed muted ring, merged a ring with a filled ink core like a station on the route, closed a faint ring. Beside it the title (Inter 13px 500 ink, one line) over a 12px faint meta line split by "·": `#number` in Mono 11.5px, the author, a Fork tag, the head branch (→ base only when the base is not the default branch). The age sits right in Mono 11px faint. Rows pad 9px 12px; the open one takes an inset 1px ink outline. Group heads are Label type with a Mono count. A legend under the list (hairline above, padding 12px 16px 14px) shows the current tab's two rings.
+- **Strip:** the head of the detail, padding 14px 20px 12px, 10px gaps, a hairline under it. The title at 17px/22px with an edit icon button, a 12px muted facts row (`#number` in Mono faint, a 16px avatar with "Opened by … · updated …", a Fork tag), the actions as small buttons (Review, Rewrite with AI, Open on host, a Delete close icon), then the merge line. Under 1100px of detail width the title, facts and actions each take a full row and a ⋯ menu stands in for Open on, Edit and Close.
+- **Merge line:** the head branch in a 26px box (panel, 1px ink border, 3px corners, padding 0 10px: its type label, then the Mono 13px 500 name; dashed for a draft), the map's behind chip after it when the branch is behind its base ("↓N" in Delete), then a station per gate joined by hairlines: Checks ("3/4"), Review (approvals over reviewers) and Unresolved conversations. Each gate is a 26px button (transparent border, Hairline Strong on hover; open: ink border on Selected) holding an 11px station, a Label and the value in Mono 13px 600, its total in 12px faint; a running check adds the blinking ink dot. Stations: passed fills with the route colour, failing rings in Delete, the gate the pull request waits at rings in ink, the rest faint. The hairline is solid in the route colour up to the first gate not passed and dashed Hairline Strong after it (solid throughout once merged, dashed throughout once closed). The base is `main`'s 17px station with its Mono 13px 500 name, or a 26px outlined branch picker (ink border on hover) while the base can still change. Then a muted 12px sentence on what holds the merge back, and the action button. Under 1100px the line stands up like the trunk: the box on top, a row per gate, the hairline vertical at 14px so every ring centres on it, then the base, the sentence and the action; under 560px the action fills the width at 36px.
+- **Gate popover:** Checks and Review open a 300px panel floating 6px under their station (panel, 1px hairline-strong border, 3px corners, the floating shadow; it scrolls past 360px), closed by a press elsewhere or Escape. Checks list failing and running first, six shown, then "Show all N": a 7px dot (Add passed, Delete failed, a blinking ink dot running, a faint ring waiting), the name, the state word (Delete when failed, muted otherwise) and an external-link icon to its logs. Reviewers list an 18px avatar, the login and the vote: ink with a check when approved, Warn for changes asked, faint otherwise. Unresolved shows those conversations instead of opening a panel.
+- **View tabs:** a 38px row under the strip (padding 0 10px, a hairline under it): Conversation and Files changed, each with a 13px icon, Inter 13px 500 muted and a Mono 11px faint count; hover and the selected tab turn ink, the selected one with a 2px inset ink underline.
+- **Conversation:** from 760px the description and the talk sit side by side in two columns that scroll on their own, a hairline between them (a short description stacks above the talk instead); narrower, they stack and the pane scrolls as one. Sections pad 18px 24px; their headings (DESCRIPTION, CONVERSATION) are Label type; the description stops at 76ch. Threads hang on a vertical Hairline Strong line (22px indent), each on a 9px ring: ink while unresolved, faint once resolved. The new comment box sticks to the foot of the talk on ground.
+- **New pull request modal:** on a fork, the repository it opens on; From → To branch pickers; then its commits, or why it can't open.
 
 ### Focus head (code view)
 A 48px bar above the code view. Left: a "Branch map" back control (check-toggle shape with a back icon) carrying an Esc key cap (Count type, faint, 1px hairline-strong border, 2px corners, padding 0 5px). Then crumbs in Mono 13px muted with faint › separators, the current one ink 500, followed by the CHECKED OUT tag. Pushed right, status pills in Mono 12px muted, 18px apart: "↑4 ↓2 vs v0.6.0" (↓ in Delete), the agent state with its dot (rainbow while working), "↑1 to push".
@@ -543,7 +597,7 @@ A 6px dot that blinks in two steps (1.5s, no smooth pulse) plus the words "Claud
 ### Agents panel
 The app's right agents/terminal panel, docked below the toolbar in both views, 460px wide, ground fill, 1px hairline on its left.
 - **Tab bar:** 34px, panel fill, 1px bottom hairline. Tabs are Inter 12px 500 muted, padding 0 12px, a 1px hairline on their right; hover ink; the active tab is ink with an inset 2px ink bottom rule. Shell carries a 12px chevron. The session tab follows: the working dot, the branch in Mono 12px ink, then "main checkout" in faint that truncates first. After a spacer, the icon cells: 34px wide and the bar's full height, no border or radius but a 1px hairline on the left, 16px icons in Muted that never shrink (close, expand, collapse; the collapse chevron turns -90deg when the panel docks at the side).
-- **Log:** padding 16px, 14px gaps, Inter 13px muted for the assistant. The user's message is ink with a 1px hairline-strong rule on its left and 12px indent. Tool rows are Mono 12px faint with a 12px file icon and Add/Delete counts. Code names inline in Mono 12px ink. Thinking is three 6px muted dots that hop 3px in four steps (1.333s, staggered), off under reduced motion.
+- **Log:** padding 16px, 14px gaps, Inter 13px muted for the assistant. The user's message is plain ink text beside their 22px profile avatar (10px gap), with no rule or bubble; one sent while the agent works stays muted until it goes out. A meta line (Inter 11.5px faint) appears under a message on hover, 32px in, past the avatar. Tool rows are Mono 12px faint with a 12px file icon and Add/Delete counts. Code names inline in Mono 12px ink. Thinking is three 6px muted dots that hop 3px in four steps (1.333s, staggered), off under reduced motion.
 - **Input box:** 0 16px 16px from the panel edges, 1px hairline-strong border, 3px corners, panel fill, 12px padding and gaps; the border turns ink on focus-within. Text on top: a borderless 13px textarea (faint placeholder), growing to three lines. Under it one row: attach and dictation icon buttons, the compact model picker (28px, 1px hairline-strong outline, 3px corners, Inter 12px), a spacer, then a labelled action button. While the agent works and the box is empty it is Stop: secondary shape, Delete-coloured text. Typing swaps it to the primary Queue (agent working) or Send, each with its icon and word.
 
 ### Deliberate omissions from the mock
