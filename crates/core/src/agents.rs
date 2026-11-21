@@ -30,7 +30,7 @@ pub enum AgentStatus {
     Stopped,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LogLine {
     /// cmd | ai | ok | dim | err | wait | run | files | limit
     pub kind: String,
@@ -86,7 +86,7 @@ pub struct AgentSession {
 }
 
 /// A sub agent, workflow or command a Claude Code run started in the background (`background_tasks_changed`).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SubTask {
     /// The CLI's task id.
@@ -184,6 +184,8 @@ struct Inner {
     answers: HashMap<String, (u64, mpsc::UnboundedSender<String>)>,
     /// When each session's background tasks were last sent to the UI, in ms: progress goes out at most once a second.
     tasks_sent: HashMap<String, i64>,
+    /// When the file `sync` last read was modified, and its size: a write within the same few ms keeps the time on some systems.
+    synced: Option<(Option<std::time::SystemTime>, u64)>,
 }
 
 #[derive(Clone)]
@@ -498,7 +500,8 @@ impl AgentManager {
         let pids: Vec<u32> = {
             let mut g = self.inner.lock().unwrap();
             g.quitting = true;
-            g.sessions.values().filter_map(|s| s.pid).collect()
+            // Only our runs: a session `sync` took in carries the pid of another Gitnetix's run.
+            g.sessions.values().filter(|s| g.kills.contains_key(&s.id)).filter_map(|s| s.pid).collect()
         };
         #[cfg(unix)]
         for pid in pids {
@@ -531,9 +534,63 @@ impl AgentManager {
         for (id, at) in held {
             self.arm(&id, at);
         }
+        // Another Gitnetix on this folder saves its sessions there too: their changes show without a page asking for the list.
+        if let Ok(rt) = tokio::runtime::Handle::try_current() {
+            let me = self.clone();
+            rt.spawn(async move {
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                    me.sync();
+                }
+            });
+        }
+    }
+
+    /// Take in what another Gitnetix on this folder (a dev build next to the installed app) saved since the last look: the
+    /// sessions it started, and its newer copies of the ones not running here. Reads the file only when it changed.
+    fn sync(&self) {
+        let at = std::fs::metadata(&self.file).ok().map(|m| (m.modified().ok(), m.len()));
+        if self.inner.lock().unwrap().synced == at {
+            return;
+        }
+        let file = saved(&self.file);
+        let mut said = Vec::new();
+        {
+            let mut g = self.inner.lock().unwrap();
+            g.synced = at;
+            for s in file {
+                if g.removed.contains(&s.id) || g.kills.contains_key(&s.id) {
+                    continue;
+                }
+                let had = g.sessions.get(&s.id);
+                if had.is_some_and(|m| s.updated_at <= m.updated_at) {
+                    continue;
+                }
+                // A status event has the page load the list again: a new session, a new status, or lines it can't add up.
+                let mut status = had.is_none_or(|m| m.status != s.status);
+                if let Some(m) = had {
+                    // The lines logged there since, after the last one here, sent as this app sends its own.
+                    match m.lines.last().map(|l| s.lines.iter().rposition(|x| x == l)) {
+                        Some(None) => status = true,
+                        last => said.extend(s.lines[last.flatten().map_or(0, |i| i + 1)..].iter().map(|line| Event::AgentLine { session_id: s.id.clone(), line: line.clone() })),
+                    }
+                    if m.tasks != s.tasks {
+                        said.push(Event::AgentTasks { session_id: s.id.clone(), tasks: s.tasks.clone() });
+                    }
+                }
+                if status {
+                    said.push(Event::AgentStatus { session_id: s.id.clone(), status: s.status });
+                }
+                g.sessions.insert(s.id.clone(), s);
+            }
+        }
+        for e in said {
+            let _ = self.events.send(e);
+        }
     }
 
     pub fn list(&self) -> Vec<AgentSession> {
+        self.sync();
         let g = self.inner.lock().unwrap();
         // A worktree removed outside Gitnetix takes its session with it.
         let mut v: Vec<AgentSession> = g.sessions.values().filter(|s| !s.worktree || std::path::Path::new(&s.cwd).exists()).cloned().collect();
@@ -2168,6 +2225,55 @@ mod tests {
         dev.remove("gone").unwrap();
         app.persist();
         assert!(AgentManager::new(broadcast::channel(8).0, dir.path()).get("gone").is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_session_another_instance_starts_later_shows_here() {
+        let dir = tempfile::tempdir().unwrap();
+        // Both open first, then the dev build starts an agent.
+        let (tx, mut rx) = broadcast::channel(8);
+        let app = AgentManager::new(tx, dir.path());
+        let dev = AgentManager::new(broadcast::channel(8).0, dir.path());
+        assert!(app.list().is_empty());
+        let mut cli_run = std::process::Command::new("sleep").arg("30").spawn().unwrap();
+        dev.inner.lock().unwrap().sessions.insert("theirs".into(), AgentSession { pid: Some(cli_run.id()), ..working("theirs", &cli("claude")) });
+        dev.persist();
+        assert_eq!(app.list()[0].status, AgentStatus::Running);
+        assert!(matches!(rx.try_recv(), Ok(Event::AgentStatus { status: AgentStatus::Running, .. })));
+
+        // What it logs there shows here line by line, as this app's own runs do, without loading the list again.
+        dev.push("theirs", LogLine::new("ai", "one"));
+        dev.persist();
+        app.list();
+        dev.push("theirs", LogLine::new("ai", "two"));
+        dev.push("theirs", LogLine::new("ai", "three"));
+        dev.persist();
+        app.list();
+        let said: Vec<String> = std::iter::from_fn(|| rx.try_recv().ok())
+            .map(|e| match e {
+                Event::AgentLine { line, .. } => line.text,
+                other => format!("{other:?}"),
+            })
+            .collect();
+        assert_eq!(said, ["one", "two", "three"]);
+
+        // Its run ends there: the new status shows here too.
+        dev.set_status("theirs", AgentStatus::Waiting);
+        assert_eq!(app.list()[0].status, AgentStatus::Waiting);
+
+        // Quitting here leaves the other's run alone.
+        if let Some(s) = dev.inner.lock().unwrap().sessions.get_mut("theirs") {
+            (s.status, s.pid) = (AgentStatus::Running, Some(cli_run.id()));
+        }
+        dev.push("theirs", LogLine::new("ai", "again"));
+        dev.persist();
+        assert_eq!(app.list()[0].pid, Some(cli_run.id()));
+        app.shutdown();
+        // A kill takes a moment to end the process.
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        assert!(cli_run.try_wait().unwrap().is_none());
+        cli_run.kill().unwrap();
     }
 
     #[tokio::test]
