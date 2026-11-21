@@ -46,8 +46,10 @@ const og = ogImage(Astro.site);
   // The app's resolveTheme + applyTheme, before the first paint: the saved pick, or DEFAULT_THEME in either of the computer's modes.
   // Picks come from ThemePicker.tsx's [data-pick] buttons and HeroDemo's light / dark toggle (a "themechange" event); every picker shows the one in use.
   // The favicon is the logo redrawn in the theme's colors, which a file can't read off the page.
+  // Renamed from 'theme' on 2026-11-21 so every visitor starts again on DEFAULT_THEME.
+  const key = 'site-theme';
   let pref;
-  try { pref = localStorage.getItem('theme'); } catch {}
+  try { pref = localStorage.getItem(key); } catch {}
   const apply = () => {
     const t = themes.find((x) => x.id === pref) ?? themes.find((x) => x.id === def);
     const root = document.documentElement;
@@ -61,7 +63,7 @@ const og = ogImage(Astro.site);
   };
   const pick = (id) => {
     pref = id;
-    try { localStorage.setItem('theme', id); } catch {}
+    try { localStorage.setItem(key, id); } catch {}
     apply();
   };
   apply();
