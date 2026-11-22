@@ -17,6 +17,12 @@ the in-app update prompt.
 ### Added (App)
 
 - An open ticket's assignee can be changed from its menu in the ticket's header, or set to Unassigned. It works with Jira, Linear, GitHub, Trello and Asana. The menu lists the people the tracker allows: Jira's assignable users, the Linear team's members, the GitHub repository's assignable users, the Trello board's members or the Asana workspace's users. On Trello and GitHub, the picked person becomes the only member or assignee.
+- Ticket comments on Linear, Jira, Trello, Asana and GitHub can carry emoji reactions. Each thread sits in its own box, with replies on a rail under the first comment.
+- Files attach to a ticket comment by paperclip, drag and drop, or paste. The app uploads them to the tracker first, and the comment links them. Linear shows pictures inline. GitHub comments reject files because its API takes none.
+- The comment composer links repo files as commit permalinks and reads the linked lines from the local clone. Repo links come from the origin remote without signing in.
+- The release notes screen lists the changes in the range by type, each with a checkbox. Unchecking a change leaves it out, and the notes rewrite.
+- Two-finger pinch on the branch map zooms around the midpoint between the fingers. The zoom level is saved when the fingers lift and stays between 0.4 and 1.4.
+- Skills named in prompt boxes are marked with the rainbow.
 
 ### Changed (App)
 
@@ -24,14 +30,10 @@ the in-app update prompt.
 - The toolbar says when the remotes were last checked. When a check cannot reach some remotes, the list stays and names the submodules whose new commit counts are from the check before, with Try again.
 - Uncommitted files and a local URL that differs from .gitmodules show as notes under the line, the second with Sync URL. Update, Edit, Sync URL, Copy URL and Remove are in the page's ⋯ menu.
 - Hints beside menu items, such as "then pin them" or "nothing to commit", are in the regular font instead of the code font. A commit ID in a hint stays in the code font.
-- The Analytics page has a list on the left: days and releases on Commits, sprints on Jira, weeks on the other trackers. Each row carries its own bar, so the list reads as a chart. Picking a row shows it on the right without a popup: a day's commits by person and kind, what a release shipped, a sprint's pace, burndown, people and tickets, or a week's people, labels and tickets done. The headline numbers sit in one row without boxes, release tags show on their day in the commits chart, and the charts use shades of the text colour instead of blue, orange and green. On a phone the list comes first and a tap opens the detail.
-- While Analytics loads, the list and the page keep their shape in grey blocks. With no commits in the range, it offers a longer range or everyone.
-- A day on the Analytics Commits tab opens in the workspace: its "Open in the workspace" button picks the release branch of a version tagged that day, or else the branch with the most commits, and each commit's branch is a link too.
 
 ### Changed (Website)
 
 - The demo's Submodules page matches the app's: the list grouped into Needs you and Up to date, the line from the pin through the checked-out commit to the remote with each fix under its commit, the notes under it, and the toolbar with Check remotes, Add submodule and Update all.
-- The demo's Analytics page shows the new layout: a list of days, sprints or weeks on the left, each row with its bar, and the picked one beside it.
 
 ## [0.29.0] - 2026-11-21
 
