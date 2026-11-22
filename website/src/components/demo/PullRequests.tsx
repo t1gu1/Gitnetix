@@ -297,7 +297,7 @@ function NewPrModal({ start, prs, onClose, onShow, onCreate }: { start: string; 
       footer={
         <>
           <span className="grow" />
-          <button className="btn btn-md" onClick={onClose}>Cancel</button>
+          <button className="btn btn-md" onClick={onClose}>Back</button>
           <button className="btn btn-md btn-primary" disabled={!!already || !!blocked} onClick={() => onCreate(from, to)}>
             <Icon name="sparkle" size={13} />
             Open pull request
@@ -493,9 +493,12 @@ function Detail({ p, set }: { p: Pr; set: (f: (p: Pr) => Pr) => void }) {
           title={`Close #${p.number}?`}
           onClose={() => setConfirmClose(false)}
           footer={
-            <button className="btn btn-md btn-danger" onClick={() => { set((x) => ({ ...x, state: 'closed' })); setConfirmClose(false); flash(`Closed #${p.number}`); }}>
-              {deleteBranch ? 'Close and delete branch' : 'Close without merging'}
-            </button>
+            <>
+              <button className="btn btn-md" autoFocus onClick={() => setConfirmClose(false)}>Back</button>
+              <button className="btn btn-md btn-danger" onClick={() => { set((x) => ({ ...x, state: 'closed' })); setConfirmClose(false); flash(`Closed #${p.number}`); }}>
+                {deleteBranch ? 'Close and delete branch' : 'Close without merging'}
+              </button>
+            </>
           }
         >
           <p style={{ margin: 0, lineHeight: 1.55 }}>
@@ -521,7 +524,7 @@ function Detail({ p, set }: { p: Pr; set: (f: (p: Pr) => Pr) => void }) {
           footer={
             <>
               <span className="grow" />
-              <button className="btn btn-md" onClick={() => setRetarget(null)}>Cancel</button>
+              <button className="btn btn-md" onClick={() => setRetarget(null)}>Back</button>
               <button
                 className="btn btn-md btn-primary"
                 disabled={busy === 'move'}

@@ -185,6 +185,9 @@ function ResetModal({
       onClose={onClose}
       footer={
         <>
+          <button className="btn btn-md" autoFocus={mode === "hard"} onClick={onClose}>
+            Back
+          </button>
           <button
             className={`btn btn-md ${mode === "hard" ? "btn-danger" : "btn-primary"}`}
             disabled={pending}
@@ -303,6 +306,9 @@ export function DeleteTagModal({ pid, tag, onClose }: { pid: string; tag: string
       onClose={onClose}
       footer={
         <>
+          <button className="btn btn-md" autoFocus onClick={onClose}>
+            Back
+          </button>
           <button className="btn btn-md btn-danger" disabled={del.isPending} onClick={() => del.mutate({ projectId: pid, name: tag }, { onSuccess: onClose })}>
             {del.isPending && <span className="spinner" />}
             Delete tag

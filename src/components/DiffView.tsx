@@ -501,15 +501,21 @@ function DiscardLines({ path, picking }: { path: string; picking: Picking }) {
       title={`Discard ${plural(lines.length, "unstaged line")}`}
       sub={<span className="mono">{path}</span>}
       onClose={() => picking.askDiscard(null)}
+      hint="This cannot be undone."
       footer={
-        <button className="btn btn-md btn-danger" disabled={picking.staging.busy} onClick={() => picking.discard(lines).catch(setError)}>
+        <>
+          <button className="btn btn-md" autoFocus onClick={() => picking.askDiscard(null)}>
+            Back
+          </button>
+          <button className="btn btn-md btn-danger" disabled={picking.staging.busy} onClick={() => picking.discard(lines).catch(setError)}>
           {picking.staging.busy && <span className="spinner" />}
           Discard
-        </button>
+          </button>
+        </>
       }
     >
       <p style={{ margin: 0, lineHeight: 1.55 }}>
-        Throws away the selected edits — staged changes are kept, and an untracked file left with no lines is deleted. This cannot be undone.
+        Throws away the selected edits — staged changes are kept, and an untracked file left with no lines is deleted.
       </p>
       <ErrorBox error={error} />
     </Modal>

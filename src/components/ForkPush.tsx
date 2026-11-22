@@ -61,7 +61,7 @@ function ForkForm({ projectId, branch, repo }: ForkAsk) {
       width={460}
       footer={
         <>
-          <button className="btn btn-md" disabled={fork.isPending} onClick={close}>Cancel</button>
+          <button className="btn btn-md" disabled={fork.isPending} onClick={close}>Back</button>
           <button className="btn btn-md btn-primary" autoFocus disabled={!signedIn || fork.isPending} onClick={() => fork.mutate({ projectId, branch })}>
             {fork.isPending && <span className="spinner" />}
             {fork.isPending ? "Forking and pushing…" : "Fork and push"}

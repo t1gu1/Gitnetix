@@ -375,7 +375,7 @@ export function ProfileDialog({ profile, from, menu, onClose }: { profile?: User
       width={500}
       footer={
         <>
-          <button type="button" className="btn btn-md" onClick={onClose}>Cancel</button>
+          <button type="button" className="btn btn-md" onClick={onClose}>Back</button>
           <button type="submit" form="profile-form" className="btn btn-md btn-primary" disabled={!f.name || !f.ready || save.isPending}>
             {save.isPending && <span className="spinner" />}
             {profile ? "Save" : "Create and switch"}

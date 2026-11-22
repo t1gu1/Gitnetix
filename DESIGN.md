@@ -533,40 +533,97 @@ components:
   ctx-hint:
     textColor: "{colors.faint}"
     typography: "{typography.meta}"
+  modal:
+    backgroundColor: "{colors.panel}"
+    textColor: "{colors.ink}"
+    rounded: "{rounded.md}"
+    width: "560px"
+  modal-head:
+    padding: "16px 14px 14px 20px"
+  modal-body:
+    padding: "16px 20px 20px"
+  modal-foot:
+    padding: "12px 16px 12px 20px"
+  modal-hint:
+    textColor: "{colors.faint}"
+    typography: "{typography.meta}"
+  route-station:
+    backgroundColor: "{colors.ink}"
+    rounded: "{rounded.circle}"
+    size: "9px"
+  route-station-lost:
+    backgroundColor: "{colors.delete}"
+    rounded: "{rounded.circle}"
+    size: "9px"
+  route-name:
+    textColor: "{colors.ink}"
+  modal-row-label:
+    textColor: "{colors.muted}"
+    typography: "{typography.meta}"
+    width: "100px"
+  stop:
+    textColor: "{colors.ink}"
+    typography: "{typography.body}"
+    height: "32px"
+  stop-fixed-mark:
+    backgroundColor: "{colors.ink}"
+    rounded: "{rounded.none}"
+    size: "7px"
+  button-danger:
+    backgroundColor: "transparent"
+    textColor: "{colors.delete}"
+    typography: "{typography.button}"
+    rounded: "{rounded.md}"
+    padding: "0 14px"
+    height: "30px"
+  button-danger-filled:
+    backgroundColor: "{colors.delete}"
+    textColor: "{colors.panel}"
+    typography: "{typography.button}"
+    rounded: "{rounded.md}"
+    padding: "0 14px"
+    height: "30px"
 ---
 
 # Design System: Gitnetix
 
 <!-- impeccable:design-map -->
 Name: Gitnetix
-Colors: primary: control #f2f5f8; neutral: ground #0a0d12; status: add #5fd39a; agent-working: working-amber #f7c48a; primary: light-control #0b0f14; neutral: ground-top #0f151d (+11 more in the sidecar)
-Fonts: Antonio (display, display-title, display-numeral, page-title, hero-title); Inter (body, body-strong, meta, label, button, button-small, field, ticket-title, reading); JetBrains Mono (ref, count, code)
+Colors: primary: control #f2f5f8; neutral: ground #0a0d12; status: add #5fd39a; agent-working: working-amber #f7c48a; primary: light-control #0b0f14; neutral: ground-top #0f151d (+34 more in the frontmatter)
+Fonts: Antonio (display, display-title, display-numeral, page-title, hero-title); Inter (body, body-strong, meta, label, button, button-small, field, ticket-title, reading, dialog titles 15px 600); JetBrains Mono (ref, count, code)
 Spacing: xs 4px, sm 8px, md 12px, lg 16px, xl 24px, 2xl 32px
 Radius: none 0px, sm 2px, md 3px, circle 50%
 Rules:
-- The Control Rule. Ink (`--fg`) means "this is yours": selection, the active tab, segment and tag, check fills and focus, in every theme.
-- The Meaning Rule. Branch type, trunk, release, props and people carry no hue.
-- The Agent Working Rule. Anything an agent is working on flows with the incumbent rainbow, and nothing else may, except a skill called in a prompt box (`/name` the agent will run), which takes the same flow at the box's own weight.
-- The Theme Rule. Black & White is the default and what System follows; every other theme (Gitnetix Dark/Light in `app.css`, the 34 third-party themes through `tokens()` in `src/lib/themes.ts`) keeps its own ground, panel, text and accent, gets the derived steps (`--line2`, `-...
-- The One Loud Voice Rule. Antonio is used only for screen and page titles, the welcome heading, the next release and headline numerals.
-- The Hairline Rule. Every map line is a hairline.
-- The Mono Rule. Mono is for what a machine hands back: paths, SHAs, refs, URLs and code, plus the Count role's tabular numbers and key caps; plain words (menu hints, captions) are Inter.
+- The Control Rule. Ink (`--fg`) means "this is yours": selection, the active tab, segment and tag, check fills and focus, in every theme; `--accent` marks controls only (white in Black & White).
+- The Meaning Rule. Branch type, trunk, release, props and people carry no hue; a hue answers added, deleted, warning or conflict, or is the Agent Working rainbow.
+- The Agent Working Rule. Anything an agent is working on flows with the incumbent rainbow (`--g1` to `--g4`), and nothing else may, except a skill called in a prompt box; this includes the current commit's station in the AI rebase dialog. A waiting agent is Warn.
+- The Theme Rule. Black & White is the default and what System follows; the other 36 themes keep their own ground, panel, text and accent, get the derived steps mixed from their colours, and take the same shapes, type, hairlines and map structure.
+- The One Loud Voice Rule. Antonio is used only for screen and page titles, the welcome heading, the next release and headline numerals; dialog titles are Inter 15px 600.
+- The Hairline Rule. Every map line is a hairline: 1.5px route, 1px other links, dashed 3/4 when falling behind.
+- The Mono Rule. Mono is for what a machine hands back: paths, SHAs, refs, URLs and code, plus the Count role's tabular numbers and key caps; plain words (menu hints, captions, route labels) are Inter.
 - The Station Action Rule. On a station line each action sits under the stop it moves the subject to, and exactly one white primary goes on the stop that fixes the state.
+- The Route Rule. A dialog shows the operation before its form: the route of what moves where in its head, the steps it runs as stops, then labelled rows, and exactly one loud control, last in the footer.
 Don't:
 - Don't use gradient text, glows, coloured halos or drop-shadow filters, except the rainbow on agent work and called skills under the Agent Working Rule.
 - Don't use the working hues for anything but an agent working; a waiting agent is Warn.
 - Don't use pills (999px radius) or radii above 3px on rectangles.
 - Don't give branch types, roles or sections their own hue.
 - Don't use spring or bounce easing; motion is short ease-out, under 200ms.
-- Don't put a shadow on a resting surface.
+- Don't put a shadow on a resting surface or on a modal; a modal is a hairline panel over the scrim.
 - Don't set functional text below 11px.
-- Don't draw thick transit lines or a coloured route on the branch map; the red route of the trunk reference is not adopted.
+- Don't draw thick transit lines or a coloured route on the branch map.
 - Don't put commits inside a branch box or wrap them in a card on the map.
-- Don't put ahead/behind inside the box, or a separate rebase button under the commits.
 - Don't put a coloured side bar on a box, note or callout; a note is a hairline row with a leading icon.
+- Don't stretch dialog footer buttons to equal widths or stack field labels above their controls in a dialog, except on phones.
+- Don't fill a red button anywhere but the last place in a dialog footer; elsewhere destructive stays the outline with red text.
 Do:
-- Do use ink for selection and focus in every theme, and `--accent` only for controls (white in Black & White).
-- (+13 more)
+- Do use ink for selection and focus in every theme, and `--accent` only for controls.
+- Do show a disabled primary as the outline with a faint label.
+- Do draw a dialog's operation as a route under its title (solid station for what exists, hollow for what will, red and struck for what is lost, dashed line for not yet), its steps as stops, and its form as labelled rows with a 100px label column.
+- Do end a dialog footer with a faint note at the left and Back then one loud control at natural width on the right.
+- (+12 more in the full file)
 Map: src/lib/themes.ts
+Map: src/components/ui.tsx
 Map: .impeccable/mocks/slate-direction.html
+Map: .impeccable/mocks/modals-a.html
 Full: .impeccable/design-full.md (read a section when you need its detail)

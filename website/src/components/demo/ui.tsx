@@ -204,7 +204,7 @@ export function Modal({ title, sub, onClose, children, footer, actions, width }:
           </span>
         </div>
         <div className="modal-body">{children}</div>
-        {footer && <div className="modal-foot">{footer}</div>}
+        {footer && <div className="modal-foot"><div className="modal-btns">{footer}</div></div>}
       </div>
     </div>
   );

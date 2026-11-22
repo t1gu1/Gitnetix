@@ -1475,7 +1475,12 @@ export function RequestField({ value, onChange, files, onFiles, onSubmit, projec
           placeholder="Let users sign in with Google and GitHub."
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          onKeyDown={(e) => { if (!skills.keyDown(e) && e.key === "Enter" && (e.metaKey || e.ctrlKey)) onSubmit(); }}
+          onKeyDown={(e) => {
+            if (skills.keyDown(e) || e.key !== "Enter" || !(e.metaKey || e.ctrlKey)) return;
+            // Taken here, so the dialog around it doesn't press its primary too.
+            e.preventDefault();
+            onSubmit();
+          }}
           onPaste={(e) => paste(e, files, add)}
           autoFocus
         />

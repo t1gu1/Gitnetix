@@ -39,7 +39,7 @@ import { ContextMenu, type MenuItem } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
 import { Resizer, usePaneWidth } from "../components/Resizer";
 import { ShellPane, TermTabs, useTermView } from "../components/Shell";
-import { Busy, Confirm, ErrorBox, Loading, MarkdownDoc, Modal, repoPath, Seg, swipeProps } from "../components/ui";
+import { Busy, Confirm, EnterHint, ErrorBox, Loading, MarkdownDoc, Modal, repoPath, Route, Seg, Stop, swipeProps } from "../components/ui";
 import { ago, plural, timeLeft } from "../lib/format";
 import { limitLabel, shownStatus, STATUS_SHOWN, tasksLabel } from "../lib/agentLog";
 import { startCleanup, useCleaning } from "../lib/cleanups";
@@ -1332,8 +1332,12 @@ function DiscardModal({ pid, branch, staged, paths, total, onClose }: { pid: str
       title={staged ? "Discard staged changes" : "Discard unstaged changes"}
       sub={what}
       onClose={discard.isPending ? undefined : onClose}
+      hint="This cannot be undone."
       footer={
         <>
+          <button className="btn btn-md" autoFocus disabled={discard.isPending} onClick={onClose}>
+            Back
+          </button>
           <button
             className="btn btn-md btn-danger"
             disabled={discard.isPending}
@@ -1903,7 +1907,8 @@ export function MergeModal({
   const [pick, setPick] = useState<{ x: number; y: number } | null>(null);
   const nav = useNav();
   // Uncommitted work on the branch would be left out of the merge: commit or discard it first.
-  const wip = useOverview(pid).data?.branches.find((x) => x.name === branch)?.wip ?? 0;
+  const view = useOverview(pid).data?.branches.find((x) => x.name === branch);
+  const wip = view?.wip ?? 0;
   const [asking, setAsking] = useState(false);
   // In the background: the dialog closes and what the merge deletes leaves the lists at once; a toast tells how it goes.
   const run = () => {
@@ -1947,7 +1952,11 @@ export function MergeModal({
   };
   const footer = (
     <>
-      {inline}
+      {inline ?? (
+        <button className="btn btn-md" onClick={onClose}>
+          Back
+        </button>
+      )}
       <span className="split-btn">
         <button className="btn btn-primary btn-md split-main" onClick={() => (wip ? setAsking(true) : run())}>
           Merge into {base}
@@ -1979,33 +1988,24 @@ export function MergeModal({
       )}
     </>
   );
+  // In the order the engine runs them: catch up, squash, merge, switch, push, delete.
   const body = (
     <>
-      <Seg
-        grid
-        label="How to merge"
-        value={opts.rebase ? "rebase" : "merge"}
-        onChange={(v) => set({ rebase: v === "rebase" })}
-        options={[{ value: "merge", label: "Merge commit" }, { value: "rebase", label: "Rebase & fast-forward" }]}
-      />
-      <p style={{ margin: 0, lineHeight: 1.55 }}>
-        {opts.rebase ? (
-          <>Replays <span className="mono">{branch}</span> on top of <span className="mono">{base}</span>, then fast-forwards {base} to it: no merge commit.</>
-        ) : (
-          <>Creates a merge commit on <span className="mono">{base}</span>.</>
-        )}{" "}
-        {base} catches up with origin first. {stay ? "" : `Then switches to ${base}. `}Uncommitted changes where {base} is checked out stay, unless the merge changes those files{opts.rebase ? `; where ${branch} is checked out, it must have none` : ""}.
-        {opts.resolveConflicts
-          ? "Conflicts are resolved with AI, which can take a few minutes; if it can't, nothing changes."
-          : `Nothing changes when the merge would conflict: rebase onto ${base} and resolve first.`}
-      </p>
-      <div className="col" style={{ gap: 0 }}>
-        <label className="check">
-          <input type="checkbox" checked={opts.squash} onChange={() => set({ squash: !opts.squash })} />
-          <span>Squash <span className="mono">{branch}</span> into one renamed commit first</span>
-        </label>
-        {opts.squash && (
-          <div style={{ margin: "2px 0 6px 26px" }}>
+      <div className="m-row">
+        <span>How</span>
+        <Seg
+          grid
+          label="How to merge"
+          value={opts.rebase ? "rebase" : "merge"}
+          onChange={(v) => set({ rebase: v === "rebase" })}
+          options={[{ value: "merge", label: "Merge commit" }, { value: "rebase", label: "Rebase & fast-forward" }]}
+        />
+      </div>
+      <div className="m-row">
+        <span>What happens</span>
+        <ol className="stops">
+          <Stop label={<><span className="mono">{base}</span> catches up with origin</>} />
+          <Stop label={<>Squash <span className="mono">{branch}</span> into one renamed commit</>} on={opts.squash} onToggle={() => set({ squash: !opts.squash })}>
             <Seg
               grid
               label="Squashed commit summary"
@@ -2016,32 +2016,51 @@ export function MergeModal({
                 { value: "ai", label: <span className="row" style={{ gap: 6, justifyContent: "center" }}><Icon name="sparkle" size={11} />AI writes it</span> },
               ]}
             />
-          </div>
-        )}
-        <label className="check">
-          <input type="checkbox" checked={opts.deleteBranch} onChange={() => set({ deleteBranch: !opts.deleteBranch })} />
-          <span>Delete <span className="mono">{branch}</span> after merging, locally and on origin</span>
-        </label>
-        <label className="check">
-          <input type="checkbox" checked={opts.push} onChange={() => set({ push: !opts.push })} />
-          <span>Push <span className="mono">{base}</span> to origin after merging</span>
-        </label>
+          </Stop>
+          <Stop
+            label={opts.rebase ? <>Replayed on top of <span className="mono">{base}</span>, which fast-forwards to it</> : <>A merge commit on <span className="mono">{base}</span></>}
+          />
+          {!stay && <Stop label={<>Switch to <span className="mono">{base}</span></>} />}
+          <Stop label={<>Push <span className="mono">{base}</span> to origin</>} on={opts.push} onToggle={() => set({ push: !opts.push })} />
+          <Stop label={<>Delete <span className="mono">{branch}</span>, here and on origin</>} on={opts.deleteBranch} onToggle={() => set({ deleteBranch: !opts.deleteBranch })} />
+        </ol>
+      </div>
+      <div className="m-row">
+        <span>Uncommitted</span>
+        <p className="m-text">
+          Changes where <span className="mono">{base}</span> is checked out stay, unless the merge changes those files
+          {opts.rebase ? <>. Where <span className="mono">{branch}</span> is checked out, it must have none.</> : "."}
+        </p>
+      </div>
+      <div className="m-row">
+        <span>Conflicts</span>
+        <p className="m-text">
+          {opts.resolveConflicts ? "AI resolves them, which can take a few minutes. If it can't, nothing changes." : <>Nothing changes: rebase onto <span className="mono">{base}</span> and resolve first.</>}
+        </p>
       </div>
     </>
   );
   // Cancelling brings the merge options back; once the work is committed or discarded, the merge runs.
-  if (asking) return <WipModal pid={pid} branch={branch} files={wip} op="Merge" onClose={() => setAsking(false)} onClean={() => { setAsking(false); run(); }} />;
+  if (asking) return <WipModal pid={pid} branch={branch} into={base} files={wip} op="Merge" onClose={() => setAsking(false)} onClean={() => { setAsking(false); run(); }} />;
   if (inline) return <div className="ag-finish">{body}<div className="ag-finish-foot">{footer}</div></div>;
   return (
-    <Modal title="Merge branch" sub={<span className="mono">{branch} → {base}</span>} onClose={onClose} footer={footer}>
+    <Modal
+      title="Merge branch"
+      route={<Route from={branch} to={base} label={base === defaultBase && view?.ahead ? plural(view.ahead, "commit") : undefined} />}
+      hint={<EnterHint verb="merge" />}
+      onClose={onClose}
+      footer={footer}
+    >
       {body}
     </Modal>
   );
 }
 
 /** Before merging a branch, or deleting its worktree to continue on it, with uncommitted changes: stage all & commit them, or discard them. `onClean` runs once that is done. */
-function WipModal({ pid, branch, files, op, onClose, onClean }: { pid: string; branch: string; files: number; op: "Merge" | "Continue"; onClose: () => void; onClean: () => void }) {
+/** `into`: the branch the merge goes into, drawn as the route it waits on. */
+function WipModal({ pid, branch, into, files, op, onClose, onClean }: { pid: string; branch: string; into?: string; files: number; op: "Merge" | "Continue"; onClose: () => void; onClean: () => void }) {
   const [summary, setSummary] = useState("");
+  const list = useFiles(pid, branch, "wip").data ?? [];
   const [confirming, setConfirming] = useState(false);
   const aiOn = useAiOn("commit");
   const inv = [["overview", pid], ["files", pid], ["diff", pid], ["commits", pid]];
@@ -2076,35 +2095,54 @@ function WipModal({ pid, branch, files, op, onClose, onClean }: { pid: string; b
   return (
     <Modal
       title="Uncommitted changes"
-      sub={<span className="mono">{branch} · {plural(files, "file")}</span>}
-      width={520}
+      sub={op === "Merge" ? `${plural(files, "file")} the merge would leave out` : `${plural(files, "file")} in the worktree about to be deleted`}
+      route={into ? <Route from={branch} to={into} label="merge waits" wait /> : undefined}
       onClose={() => !busy && onClose()}
       footer={
         <>
           <button className="btn btn-md btn-danger" disabled={busy} data-tip={`Throw away every uncommitted change on ${branch}, then ${op.toLowerCase()}`} onClick={() => setConfirming(true)}>
             Discard & {op}
           </button>
+          <button className="btn btn-md" disabled={busy} onClick={onClose}>
+            Back
+          </button>
           <button className="btn btn-md btn-primary" disabled={busy || (!aiOn && !summary.trim())} data-tip={`Commit every change on ${branch}, then ${op.toLowerCase()}`} onClick={stageAndCommit}>
             {commit.isPending && <span className="spinner" />}
-            Stage all, Commit & {op}
+            Commit, then {op.toLowerCase()}
           </button>
         </>
       }
     >
-      <p style={{ margin: 0, lineHeight: 1.55 }}>
-        <span className="mono">{branch}</span> has uncommitted changes {op === "Merge" ? "the merge would leave out" : "in the worktree about to be deleted"}. Commit them all first, or discard them;{" "}
-        {op === "Merge" ? "the merge starts" : "the worktree is deleted"} once that is done.
-      </p>
-      <input
-        className="input"
-        style={{ height: 32, fontSize: 12.5, padding: "0 10px" }}
-        placeholder={aiOn ? "Commit summary — leave empty for AI" : "Commit summary"}
-        aria-label="Commit summary"
-        value={summary}
-        disabled={busy}
-        onChange={(e) => setSummary(e.target.value)}
-      />
-      <p className="c-warn" style={{ margin: 0, lineHeight: 1.55 }}>Discarding deletes untracked files too. This cannot be undone.</p>
+      {list.length > 0 && (
+        <div className="m-row">
+          <span>Files</span>
+          <ul className="run-files">
+            {list.slice(0, 6).map((f) => (
+              <li key={`${f.staged ? "s" : "u"}:${f.path}`} className="row" style={{ gap: 8, margin: 0 }}>
+                <span className={`file-st ${({ A: "c-add", D: "c-del", C: "c-acc", M: "c-mod", R: "c-mod" } as Record<string, string>)[f.status] ?? "faint"}`}>{f.status === " " ? "·" : f.status}</span>
+                <span className="mono ellipsis grow" data-tip={f.path} data-tip-overflow>{f.path}</span>
+                <span className="row mono file-nums" style={{ margin: 0 }}>
+                  <span className="c-add">{f.additions > 0 && `+${f.additions}`}</span>
+                  <span className="c-del">{f.deletions > 0 && `−${f.deletions}`}</span>
+                </span>
+              </li>
+            ))}
+            {list.length > 6 && <li className="faint">{plural(list.length - 6, "more file")}</li>}
+          </ul>
+        </div>
+      )}
+      <div className="field">
+        <label htmlFor="wip-summary">Commit as</label>
+        <input
+          id="wip-summary"
+          className="input"
+          placeholder={aiOn ? "Empty: AI writes the message" : "Commit summary"}
+          value={summary}
+          disabled={busy}
+          autoFocus
+          onChange={(e) => setSummary(e.target.value)}
+        />
+      </div>
       {error && <ErrorBox error={error} />}
     </Modal>
   );
@@ -2116,10 +2154,14 @@ function ResetBranchModal({ pid, view, onClose }: { pid: string; view: BranchVie
   return (
     <Modal
       title="Reset to origin"
-      sub={<span className="mono">{branch}</span>}
+      route={<Route from={branch} to={upstream} label="moves to" />}
+      hint="This cannot be undone."
       onClose={onClose}
       footer={
         <>
+          <button className="btn btn-md" autoFocus onClick={onClose}>
+            Back
+          </button>
           <button className="btn btn-md btn-danger" disabled={reset.isPending} onClick={() => reset.mutate({ projectId: pid, branch }, { onSuccess: onClose })}>
             {reset.isPending && <span className="spinner" />}
             Reset branch
@@ -2131,7 +2173,7 @@ function ResetBranchModal({ pid, view, onClose }: { pid: string; view: BranchVie
         Moves <span className="mono">{branch}</span> to exactly where <span className="mono">{upstream}</span> is
         {view.upstreamBehind > 0 && <>, taking its {plural(view.upstreamBehind, "new commit")}</>}.
         {view.upstreamAhead > 0 && <> The {plural(view.upstreamAhead, "local commit")} not on origin {view.upstreamAhead === 1 ? "is" : "are"} dropped{view.upstreamRewritten && <>: {view.upstreamAhead === 1 ? "it was" : "they were"} on origin before someone force pushed it</>}.</>}
-        {view.checkedOut && view.wip > 0 && <> Uncommitted changes in its checkout are lost ({plural(view.wip, "file")}).</>} This cannot be undone.
+        {view.checkedOut && view.wip > 0 && <> Uncommitted changes in its checkout are lost ({plural(view.wip, "file")}).</>}
       </p>
       {reset.error && <ErrorBox error={reset.error} />}
     </Modal>
@@ -2148,10 +2190,14 @@ function ForcePushModal({ pid, view, onClose }: { pid: string; view: BranchView;
   return (
     <Modal
       title="Force push"
-      sub={<span className="mono">{branch}</span>}
+      route={<Route from={branch} to={upstream} label="replaces" />}
+      hint="Origin can't take it back."
       onClose={onClose}
       footer={
         <>
+          <button className="btn btn-md" autoFocus onClick={onClose}>
+            Back
+          </button>
           <button className="btn btn-md btn-danger" disabled={push.isPending} onClick={() => push.mutate({ projectId: pid, branch, force: true }, { onSuccess: onClose })}>
             {push.isPending && <span className="spinner" />}
             Force push
@@ -2196,10 +2242,15 @@ function RenameBranchModal({ pid, view, onClose, onRenamed }: { pid: string; vie
   return (
     <Modal
       title={release ? "Rename release" : "Rename branch"}
-      sub={<span className="mono">{view.name}</span>}
+      route={to && to !== view.name ? <Route from={view.name} to={to} label="renamed" make wait /> : undefined}
+      sub={to && to !== view.name ? undefined : <span className="mono">{view.name}</span>}
+      hint={<EnterHint verb="rename" />}
       onClose={onClose}
       footer={
         <>
+          <button className="btn btn-md" onClick={onClose}>
+            Back
+          </button>
           <button className="btn btn-md btn-primary" disabled={!name.trim() || to === view.name || rename.isPending} onClick={submit}>
             {rename.isPending && <span className="spinner" />}
             Rename
@@ -2270,10 +2321,15 @@ export function TargetBranchModal({
   return (
     <Modal
       title="Target a specific branch"
-      sub={<><span className="mono">{labelOf(branch)}</span> merges into it from now on</>}
+      route={picked ? <Route from={labelOf(branch)} to={labelOf(picked)} label="merges into" wait /> : undefined}
+      sub={picked ? undefined : <><span className="mono">{labelOf(branch)}</span> merges into it from now on</>}
+      hint={<EnterHint verb="target" />}
       onClose={onClose}
       footer={
         <>
+          <button className="btn btn-md" onClick={onClose}>
+            Back
+          </button>
           <button className="btn btn-md btn-primary" disabled={!picked || move.isPending} onClick={submit}>
             {move.isPending && <span className="spinner" />}
             Target {picked ? labelOf(picked) : "it"}
@@ -2327,6 +2383,9 @@ function RebaseOntoModal({ pid, branch, onto, onClose }: { pid: string; branch: 
       onClose={onClose}
       footer={
         <>
+          <button className="btn btn-md" onClick={onClose}>
+            Not now
+          </button>
           <button className="btn btn-md btn-primary" autoFocus onClick={() => { void startRebase(pid, branch); onClose(); }}>
             Rebase onto {onto}
           </button>
@@ -2368,10 +2427,15 @@ function RebaseOntoBranchModal({ pid, branch, onto, branches, defaultBranch, lab
   return (
     <Modal
       title={onto ? `Rebase onto ${labelOf(onto)}?` : "Rebase onto a specific branch"}
+      route={to ? <Route from={name} to={to} label="rebase onto" /> : undefined}
+      hint={<EnterHint verb="rebase" />}
       sub={view?.checkedOut ? <><span className="mono">{name}</span> is checked out</> : <><span className="mono">{name}</span> is rebased aside: your checkout stays as it is</>}
       onClose={onClose}
       footer={
         <>
+          <button className="btn btn-md" onClick={onClose}>
+            Back
+          </button>
           <button className="btn btn-md btn-primary" autoFocus={!!onto} disabled={!picked} onClick={() => picked && void go(picked)}>
             Rebase {name} onto {to ?? "it"}
           </button>
@@ -2402,6 +2466,9 @@ export function DiscardWorktreeModal({ branch, path, onClose, onConfirm }: { bra
       onClose={onClose}
       footer={
         <>
+          <button className="btn btn-md" autoFocus onClick={onClose}>
+            Back
+          </button>
           <button className="btn btn-md btn-danger" onClick={() => { onConfirm(); onClose(); }}>Cancel and Delete all</button>
         </>
       }
@@ -2422,6 +2489,9 @@ function AbortSwitchModal({ op, branch, path, onClose, onConfirm }: { op: string
       onClose={onClose}
       footer={
         <>
+          <button className="btn btn-md" autoFocus onClick={onClose}>
+            Back
+          </button>
           <button className="btn btn-md btn-danger" onClick={() => { onConfirm(); onClose(); }}>Abort {op} and switch</button>
         </>
       }
@@ -2500,22 +2570,29 @@ function ContinueOnBranchModal({ branch, path, onClose, onConfirm }: { branch: s
     <Modal
       title="Continue on branch"
       sub={<span className="mono">{branch}</span>}
+      hint={<EnterHint verb="continue" />}
       onClose={onClose}
       footer={
         <>
+          <button className="btn btn-md" onClick={onClose}>
+            Back
+          </button>
           <button className="btn btn-md btn-primary" onClick={() => { onConfirm(); onClose(); }}>Delete worktree and switch</button>
         </>
       }
     >
-      <p style={{ margin: 0, lineHeight: 1.55 }}>
-        The agent stops and the worktree at <span className="mono">{path}</span> is deleted, then <span className="mono">{branch}</span> is checked out here with all its commits. Uncommitted changes there get committed or discarded first: you pick.
-      </p>
-      <div className="col" style={{ gap: 6 }}>
-        <h2 className="label">Tip!</h2>
-        <p style={{ margin: 0, lineHeight: 1.55 }}>
-          To keep working on it without switching, select <span className="mono">{branch}</span> in the tree: its changes show here and its agent runs in the panel below, where you can keep asking it for changes.
-        </p>
+      <div className="m-row">
+        <span>What happens</span>
+        <ol className="stops">
+          <Stop label="Any uncommitted changes there: you commit or discard them" />
+          <Stop label="The agent stops" />
+          <Stop label={<>The worktree at <span className="mono">{path}</span> is deleted</>} />
+          <Stop label={<><span className="mono">{branch}</span> is checked out here, with all its commits</>} />
+        </ol>
       </div>
+      <p className="m-note" style={{ margin: 0 }}>
+        To keep working on it without switching, select <span className="mono">{branch}</span> on the map: its changes show there, and you keep asking its agent for changes in the panel below.
+      </p>
     </Modal>
   );
 }
@@ -2573,12 +2650,17 @@ function DeleteBranchModal({
   return (
     <Modal
       title="Delete branch"
-      sub={<span className="mono">{branch}</span>}
+      route={base ? <Route from={base} to={branch} lose /> : undefined}
+      sub={base ? undefined : <span className="mono">{branch}</span>}
+      hint="This cannot be undone."
       onClose={onClose}
       footer={
         <>
+          <button className="btn btn-md" autoFocus onClick={onClose}>
+            Back
+          </button>
           {checkedOut ? (
-            <button className="btn btn-lg btn-danger" onClick={del} disabled={!base}>
+            <button className="btn btn-md btn-danger" onClick={del} disabled={!base}>
               Switch to <span className="mono">{base}</span> and delete
             </button>
           ) : (
@@ -2657,6 +2739,9 @@ function CleanupModal({
       onClose={onClose}
       footer={
         <>
+          <button className="btn btn-md" autoFocus onClick={onClose}>
+            Back
+          </button>
           <button
             className="btn btn-md btn-danger"
             disabled={!branches.length}
@@ -2717,6 +2802,9 @@ function BehindCleanupModal({
       onClose={onClose}
       footer={
         <>
+          <button className="btn btn-md" autoFocus onClick={onClose}>
+            Back
+          </button>
           <button
             className="btn btn-md btn-danger"
             disabled={!picked.size}

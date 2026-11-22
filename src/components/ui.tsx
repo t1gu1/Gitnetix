@@ -9,7 +9,7 @@ import { Picture, PictureSource } from "./Picture";
 import { isPageRoute } from "./TopBar";
 import { plural } from "../lib/format";
 import { useTokens } from "../lib/highlight";
-import { comboOf, useKeys } from "../lib/keys";
+import { comboOf, MAC, useKeys } from "../lib/keys";
 import { copyToClipboard } from "../lib/toast";
 import { useNav } from "../lib/nav";
 
@@ -174,7 +174,8 @@ export function swipeProps(onSwipe: (dir: 1 | -1) => void) {
 /** `actions` stand in the head, before the close button. */
 /** `minimize`: closing (Escape, a click outside, its button) only tucks it away, the work it shows going on. */
 /** `onDismiss`: what Escape and a click outside do instead of `onClose`. `ref`: the dialog's box. */
-export function Modal({ title, sub, onClose, onDismiss, children, footer, width, actions, minimize, ref }: { title: ReactNode; sub?: ReactNode; onClose?: () => void; onDismiss?: () => void; children: ReactNode; footer?: ReactNode; width?: number; actions?: ReactNode; minimize?: boolean; ref?: Ref<HTMLDivElement> }) {
+/** `route`: the operation drawn under the title (a `Route`). `hint`: a short note at the footer's left, before its buttons. */
+export function Modal({ title, sub, route, hint, onClose, onDismiss, children, footer, width, actions, minimize, ref }: { title: ReactNode; sub?: ReactNode; route?: ReactNode; hint?: ReactNode; onClose?: () => void; onDismiss?: () => void; children: ReactNode; footer?: ReactNode; width?: number; actions?: ReactNode; minimize?: boolean; ref?: Ref<HTMLDivElement> }) {
   useEffect(() => {
     const k = (e: KeyboardEvent) => e.key === "Escape" && (onDismiss ?? onClose)?.();
     window.addEventListener("keydown", k);
@@ -182,7 +183,21 @@ export function Modal({ title, sub, onClose, onDismiss, children, footer, width,
   }, [onClose, onDismiss]);
   return createPortal(
     <div className="modal-scrim" onMouseDown={(e) => e.target === e.currentTarget && (onDismiss ?? onClose)?.()}>
-      <div ref={ref} className="modal" role="dialog" aria-modal="true" style={width ? { width } : undefined}>
+      <div
+        ref={ref}
+        className="modal"
+        role="dialog"
+        aria-modal="true"
+        style={width ? { width } : undefined}
+        onKeyDown={(e) => {
+          // Ctrl/⌘+Enter confirms with the footer's primary, unless a field in the dialog took the key (a prompt sending it).
+          if (e.key !== "Enter" || !(e.ctrlKey || e.metaKey) || e.defaultPrevented || e.nativeEvent.isComposing) return;
+          const go = e.currentTarget.querySelector<HTMLButtonElement>(".modal-foot .btn-primary:not(:disabled)");
+          if (!go) return;
+          e.preventDefault();
+          go.click();
+        }}
+      >
         <div className="modal-head">
           <div className="col" style={{ gap: 3 }}>
             <h1>{title}</h1>
@@ -194,12 +209,62 @@ export function Modal({ title, sub, onClose, onDismiss, children, footer, width,
               <Icon name={minimize ? "minus" : "close"} />
             </button>
           )}
+          {route}
         </div>
         <div className="modal-body">{children}</div>
-        {footer && <div className="modal-foot">{footer}</div>}
+        {footer && (
+          <div className="modal-foot">
+            {hint && <span className="modal-hint">{hint}</span>}
+            <div className="modal-btns">{footer}</div>
+          </div>
+        )}
       </div>
     </div>,
     document.body,
+  );
+}
+
+/** The footer hint for Ctrl/⌘+Enter, which presses the dialog's primary: "Ctrl ↵ create". */
+export function EnterHint({ verb }: { verb: string }) {
+  return (
+    <span className="enter-hint">
+      <kbd>{MAC ? "⌘" : "Ctrl"}</kbd> <kbd>↵</kbd> {verb}
+    </span>
+  );
+}
+
+/** An operation as a route: `from` at a station, a hairline (with `label` on it), `to` at its station. `to` is hollow while it
+ *  doesn't exist yet (`make`), red with its line when it is thrown away (`lose`); `wait` dashes the line: not happening yet. */
+export function Route({ from, to, label, make, lose, wait }: { from: ReactNode; to: ReactNode; label?: ReactNode; make?: boolean; lose?: boolean; wait?: boolean }) {
+  return (
+    <div className="route" data-make={make || undefined} data-lose={lose || undefined} data-wait={wait || undefined}>
+      <span className="route-name mono ellipsis">{from}</span>
+      <i className="route-stop" />
+      <span className="route-line">{label && <span>{label}</span>}</span>
+      <i className="route-stop route-to" />
+      <span className="route-name route-to mono ellipsis">{to}</span>
+    </div>
+  );
+}
+
+/** What an action does, stop by stop in the order it runs: a square for a fixed step, a checkbox for an optional one (`onToggle`).
+ *  `aside`: a note at the right. `children` after the label: what the stop opens when on (its options). */
+export function Stop({ label, on = true, onToggle, aside, children }: { label: ReactNode; on?: boolean; onToggle?: () => void; aside?: ReactNode; children?: ReactNode }) {
+  return (
+    <li className="stop" data-off={!on || undefined}>
+      {onToggle ? (
+        <label className="check">
+          <input type="checkbox" checked={on} onChange={onToggle} />
+          <span>{label}</span>
+        </label>
+      ) : (
+        <span className="stop-fixed">
+          <span>{label}</span>
+        </span>
+      )}
+      {aside && <span className="stop-aside">{aside}</span>}
+      {on && children && <div className="stop-more">{children}</div>}
+    </li>
   );
 }
 
@@ -209,6 +274,7 @@ export function Confirm({ title, sub, action, busy, onConfirm, onBack, children 
     <Modal
       title={title}
       sub={sub}
+      hint="This cannot be undone."
       onClose={() => !busy && onBack()}
       footer={
         <>
@@ -220,7 +286,7 @@ export function Confirm({ title, sub, action, busy, onConfirm, onBack, children 
         </>
       }
     >
-      <p style={{ margin: 0, lineHeight: 1.55 }}>{children} This cannot be undone.</p>
+      <p style={{ margin: 0, lineHeight: 1.55 }}>{children}</p>
     </Modal>
   );
 }

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-11-21T20:00:00Z",
+  "generatedAt": "2026-11-22T12:00:00Z",
   "title": "Design System: Gitnetix",
   "extensions": {
     "colorMeta": {
@@ -639,12 +639,17 @@
       {
         "name": "float",
         "value": "0 12px 32px -8px rgba(0,0,0,0.6)",
-        "purpose": "Menus, popovers, modals and toasts only. Light mode: rgba(15,20,30,0.18)."
+        "purpose": "Menus, popovers and toasts only (--shadow). Light mode: rgba(15,20,30,0.18). Never on modals: the bundled WebKitGTK 2.50 redraws a blurred shadow on every repaint under it."
       },
       {
         "name": "working-glow",
         "value": "filter: drop-shadow(0 0 5px color-mix(in srgb, var(--g2) 45%, transparent))",
         "purpose": "Agent Working Rule only: rainbow text and icons (4px on the working dot). Never on any other element."
+      },
+      {
+        "name": "scrim",
+        "value": "rgba(5,6,8,0.55)",
+        "purpose": "Behind a modal (--scrim); light mode rgba(30,30,36,0.32). The modal itself is a hairline panel with no shadow."
       }
     ],
     "motion": [
@@ -697,6 +702,11 @@
         "name": "think",
         "value": "1.333s steps(4) infinite, 3px hop, 0.1667s stagger",
         "purpose": "Agents panel thinking dots; off under prefers-reduced-motion."
+      },
+      {
+        "name": "modal-in",
+        "value": "160ms cubic-bezier(0.2, 0, 0, 1), from opacity 0 and translateY(4px)",
+        "purpose": "A dialog rises 4px and settles; the scrim fades in over the same 160ms."
       }
     ],
     "mapLines": [
@@ -756,6 +766,11 @@
         "name": "submodules-line",
         "value": "sm-detail container max-width 620px",
         "purpose": "The pin line stands up: stops top to bottom, each button at the right of its stop, the rail vertical."
+      },
+      {
+        "name": "dialog-phone",
+        "value": "max-width 480px, or 900px with pointer: coarse",
+        "purpose": "Dialog labels go back above their controls, the route drops its line label, footer buttons share the width and the Ctrl Enter hint hides."
       }
     ],
     "mapGeometry": {
@@ -797,6 +812,14 @@
       "description": "Toolbar actions and toggles (Fit, Show all, and the stash button shown only when the project has stashes): 28px, sentence case, muted until hover; the icon never shrinks.",
       "html": "<button class=\"ds-btn-sm\"><svg viewBox=\"0 0 16 16\"><path d=\"M2.5 5.5h11v8h-11zM4 2.5h8M3.5 4h9\"/></svg>2 stashes</button> <button class=\"ds-btn-sm\">Fit</button>",
       "css": ".ds-btn-sm{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border-radius:3px;border:1px solid #2c3644;background:transparent;color:#a3aebb;font:500 12px/18px Inter,system-ui,sans-serif;cursor:pointer;transition:background 120ms cubic-bezier(.2,0,0,1),color 120ms cubic-bezier(.2,0,0,1)}.ds-btn-sm:hover{background:#151b24;color:#e9eef4}.ds-btn-sm:focus-visible{outline:1px solid #e9eef4;outline-offset:2px}.ds-btn-sm>svg{flex-shrink:0;width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.25;stroke-linecap:round;stroke-linejoin:round}"
+    },
+    {
+      "name": "Danger Button",
+      "kind": "button",
+      "refersTo": "button-danger",
+      "description": "Destructive action outside a dialog's last footer place: the secondary outline with Delete text, kept apart from the primary.",
+      "html": "<button class=\"ds-btn-danger\">Abort rebase</button>",
+      "css": ".ds-btn-danger{display:inline-flex;align-items:center;gap:8px;height:30px;padding:0 14px;border-radius:3px;border:1px solid var(--line2,#2c3644);background:transparent;color:var(--del-fg,#ff7b72);font:600 11px/13px Inter,system-ui,sans-serif;letter-spacing:.12em;text-transform:uppercase;cursor:pointer;transition:background 120ms cubic-bezier(.2,0,0,1)}.ds-btn-danger:hover{background:var(--raised,#151b24)}.ds-btn-danger:active{transform:translateY(1px)}.ds-btn-danger:focus-visible{outline:1px solid var(--fg,#e9eef4);outline-offset:2px}"
     },
     {
       "name": "Section Tabs",
@@ -956,18 +979,35 @@
       "description": "Notes under a panel: a 1px-hairline 3px box of hairline-split rows (padding 10px 14px, 13px at 1.45), each a leading 14px Warn icon, the sentence with Mono 12px for URLs and paths, and an optional small action at the right. Never a coloured side bar.",
       "html": "<div class=\"ds-nt\"><div><svg width=\"14\" height=\"14\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"#e8b85a\" stroke-width=\"1.25\"><path d=\"M8 2 15 14H1z\"/><path d=\"M8 6.5v3.5M8 12h.01\"/></svg><span>3 uncommitted files inside. Commit or stash them in the submodule before you move it.</span></div><div><svg width=\"14\" height=\"14\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"#e8b85a\" stroke-width=\"1.25\"><path d=\"M2 5h10l-3-3M14 11H4l3 3\"/></svg><span>The local clone fetches from <code>git@old.host:lib.git</code>, but .gitmodules says <code>git@new.host:lib.git</code>.</span><button>Sync URL</button></div></div>",
       "css": ".ds-nt{display:flex;flex-direction:column;width:640px;border:1px solid #1f2732;border-radius:3px;color:#e9eef4;font:13px/1.45 Inter,system-ui,sans-serif;background:#0a0d12}.ds-nt>div{display:flex;align-items:center;gap:12px;padding:10px 14px}.ds-nt>div+div{border-top:1px solid #1f2732}.ds-nt svg{flex:none}.ds-nt span{flex:1 1 auto;min-width:0;overflow-wrap:anywhere}.ds-nt code{font:12px 'JetBrains Mono',monospace}.ds-nt button{all:unset;cursor:pointer;flex:none;height:28px;padding:0 10px;border:1px solid #2c3644;border-radius:3px;font:500 12px/26px Inter,sans-serif;color:#a3aebb;box-sizing:border-box}.ds-nt button:hover{color:#e9eef4;background:#151b24}.ds-nt button:focus-visible{outline:1px solid #e9eef4;outline-offset:2px}"
+    },
+    {
+      "name": "Dialog",
+      "kind": "custom",
+      "refersTo": "modal",
+      "description": "Every dialog (Modal / Confirm): title, then the operation as a route (hollow station for what will exist, dashed line while it waits), labelled rows with a 100px label column, a stop list (ink squares fixed, checkboxes optional), a faint footer note at the left and Back then the one primary at natural width on the right.",
+      "html": "<div class=\"ds-modal\" role=\"dialog\"><div class=\"ds-modal-head\"><h1>New release</h1><button class=\"ds-x\" aria-label=\"Close\"><svg width=\"14\" height=\"14\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\"><path d=\"M4 4l8 8M12 4l-8 8\"/></svg></button><div class=\"ds-route\"><span class=\"ds-route-name\">main</span><i class=\"ds-stop\"></i><span class=\"ds-line\"><span>new branch</span></span><i class=\"ds-stop ds-make\"></i><span class=\"ds-route-name\">release/0.31.0</span></div></div><div class=\"ds-body\"><div class=\"ds-row\"><label>Version</label><input class=\"ds-input\" value=\"0.31.0\"></div><div class=\"ds-row\"><label>Then</label><ul class=\"ds-stops\"><li><i class=\"ds-sq\"></i>Create release/0.31.0 from main</li><li><input type=\"checkbox\" checked aria-label=\"Push\">Push it to origin</li></ul></div></div><div class=\"ds-foot\"><span class=\"ds-hint\"><kbd>Ctrl</kbd> <kbd>&#8629;</kbd> create</span><div class=\"ds-btns\"><button class=\"ds-b\">Back</button><button class=\"ds-b ds-primary\">Create release</button></div></div></div>",
+      "css": ".ds-modal{width:560px;max-width:100%;background:var(--panel,#0f141b);color:var(--fg,#e9eef4);border:1px solid var(--line,#1f2732);border-radius:3px;font:400 13px/18px Inter,system-ui,sans-serif}.ds-modal-head{display:flex;flex-wrap:wrap;align-items:center;gap:12px 4px;padding:16px 14px 14px 20px;border-bottom:1px solid var(--line,#1f2732)}.ds-modal-head h1{flex:1 1 0;margin:0 8px 0 0;font-size:15px;font-weight:600}.ds-x{width:28px;height:28px;display:grid;place-items:center;border:0;border-radius:3px;background:transparent;color:var(--muted,#a3aebb);cursor:pointer}.ds-x:hover{background:var(--raised,#151b24);color:var(--fg,#e9eef4)}.ds-route{flex:1 0 100%;display:flex;align-items:center;gap:10px;min-width:0}.ds-route-name{max-width:45%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:500 12px/16px 'JetBrains Mono',ui-monospace,monospace}.ds-stop{flex:none;width:9px;height:9px;border-radius:50%;background:var(--fg,#e9eef4)}.ds-stop.ds-make{background:transparent;box-shadow:inset 0 0 0 1px var(--fg,#e9eef4)}.ds-line{flex:1 1 40px;height:1px;padding-inline:14px;display:flex;justify-content:center;align-items:center;background:repeating-linear-gradient(90deg,var(--fg,#e9eef4) 0 4px,transparent 4px 8px)}.ds-line span{padding:0 8px;background:var(--panel,#0f141b);font-size:11px;line-height:16px;color:var(--muted,#a3aebb)}.ds-body{display:flex;flex-direction:column;gap:14px;padding:16px 20px 20px}.ds-row{display:grid;grid-template-columns:100px minmax(0,1fr);gap:8px 16px}.ds-row+.ds-row{padding-top:14px;border-top:1px solid var(--line,#1f2732)}.ds-row>label{padding-top:7px;font-size:12px;color:var(--muted,#a3aebb)}.ds-input{height:32px;padding:0 10px;border:1px solid var(--line2,#2c3644);border-radius:3px;background:var(--bg,#0a0d12);color:inherit;font:400 12.5px/18px Inter,system-ui,sans-serif}.ds-input:focus{outline:none;border-color:var(--fg,#e9eef4)}.ds-stops{list-style:none;margin:0;padding:0}.ds-stops li{position:relative;display:flex;align-items:center;gap:12px;min-height:32px}.ds-stops li:not(:last-child)::before{content:'';position:absolute;left:6.5px;top:16px;bottom:-16px;width:1px;background:var(--line2,#2c3644);z-index:-1}.ds-sq{width:7px;height:7px;margin:0 3.5px;background:var(--fg,#e9eef4)}.ds-stops input{appearance:none;width:14px;height:14px;margin:0;border:1px solid var(--faint,#808b9a);border-radius:2px;background:var(--panel,#0f141b)}.ds-stops input:checked{border-color:var(--fg,#e9eef4);background:var(--fg,#e9eef4)}.ds-foot{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:12px 16px 12px 20px;border-top:1px solid var(--line,#1f2732)}.ds-hint{flex:1 0 auto;font-size:12px;color:var(--faint,#808b9a)}.ds-hint kbd{padding:0 5px;border:1px solid var(--line2,#2c3644);border-radius:2px;font:500 11px/16px 'JetBrains Mono',monospace}.ds-btns{display:flex;gap:8px;justify-content:flex-end}.ds-b{height:30px;padding:0 14px;border:1px solid var(--line2,#2c3644);border-radius:3px;background:transparent;color:var(--fg,#e9eef4);font:600 11px/13px Inter,system-ui,sans-serif;letter-spacing:.12em;text-transform:uppercase;cursor:pointer;transition:background 120ms cubic-bezier(.2,0,0,1)}.ds-b:hover{background:var(--raised,#151b24)}.ds-b:focus-visible{outline:1px solid var(--fg,#e9eef4);outline-offset:2px}.ds-b.ds-primary{border-color:var(--accent,#f2f5f8);background:var(--accent,#f2f5f8);color:var(--on-accent,#0a0d12)}.ds-b.ds-primary:hover{background:color-mix(in srgb,var(--accent,#f2f5f8) 92%,var(--bg,#0a0d12))}"
+    },
+    {
+      "name": "Dialog Danger Button",
+      "kind": "button",
+      "refersTo": "button-danger-filled",
+      "description": "The last footer button of a dialog that throws work away (Confirm, discard, drop): filled Delete, Panel text; the note says This cannot be undone. Focus starts on Back.",
+      "html": "<div class=\"ds-dfoot\"><span class=\"ds-dhint\">This cannot be undone.</span><button class=\"ds-db\">Back</button><button class=\"ds-db ds-dfill\">Delete branch</button></div>",
+      "css": ".ds-dfoot{display:flex;align-items:center;gap:8px;padding:12px 16px 12px 20px;border-top:1px solid var(--line,#1f2732);background:var(--panel,#0f141b)}.ds-dhint{flex:1;font:400 12px/16px Inter,system-ui,sans-serif;color:var(--faint,#808b9a)}.ds-db{height:30px;padding:0 14px;border:1px solid var(--line2,#2c3644);border-radius:3px;background:transparent;color:var(--fg,#e9eef4);font:600 11px/13px Inter,system-ui,sans-serif;letter-spacing:.12em;text-transform:uppercase;cursor:pointer;transition:background 120ms cubic-bezier(.2,0,0,1)}.ds-db:hover{background:var(--raised,#151b24)}.ds-db:focus-visible{outline:1px solid var(--fg,#e9eef4);outline-offset:2px}.ds-db.ds-dfill{border-color:var(--del-fg,#ff7b72);background:var(--del-fg,#ff7b72);color:var(--panel,#0f141b)}.ds-db.ds-dfill:hover{background:color-mix(in srgb,var(--del-fg,#ff7b72) 88%,var(--fg,#e9eef4));border-color:color-mix(in srgb,var(--del-fg,#ff7b72) 88%,var(--fg,#e9eef4))}.ds-db.ds-dfill:active{transform:translateY(1px)}"
     }
   ],
   "narrative": {
     "northStar": "Slate Night",
-    "overview": "One cool monochrome field, slate fading to black, kept open beside the editor all day. White (ink in light mode) is the only control colour of the default Black & White theme and the selection and focus colour of every theme; hue appears only when it means something, and the few numbers that matter speak in a tall condensed face. The views and behaviour of the app stay exactly as they are; only the visual layer changes. Inside this world the branch map reads as a line diagram: one hairline trunk carries the shipped releases as stations, branches hang off it as small boxes (a header and one info row), ahead/behind rides on the incoming line as a small chip, and their commits float free beneath them. One piece of the old look stays by owner decision: the flowing rainbow on anything an agent is working on. The palette ships as the Gitnetix Black & White pair (gitnetix-bw, gitnetix-bw-light), the default and what System follows; Gitnetix Dark/Light and the 34 third-party themes keep their palettes and take the same shapes, type, hairlines and map structure.",
+    "overview": "Slate night. The app is one cool monochrome field, slate fading to black, that a developer keeps open beside their editor all day. Nothing on it is decorative: white (ink, in light mode) is the only control colour of its default theme and the selection and focus colour of every theme, hue appears only when it means something, and the headline objects (release versions, ahead/behind counts) speak in a tall condensed display face. Everything else is quiet Inter and JetBrains Mono on hairline-ruled panels with 2 to 3px corners.\n\nIt replaces a look built from per-role hues (trunk orange, release violet, props cyan, selection blue), pills and glows. One piece of that look stays by owner decision: the flowing rainbow on anything an agent is working on, the one signal the owner loves and the one place the old hues and glow survive. The views, layout and behaviour of the app do not change; only this visual layer does.\n\nThe palette ships as one theme family, **Gitnetix Black & White** (`gitnetix-bw`) and **Gitnetix Black & White Light** (`gitnetix-bw-light`), in `src/lib/themes.ts`: every step is set exactly in the theme's `own` map. It is the default for new users (`DEFAULT_THEME`) and the pair \"System\" follows (`SYSTEM`). Gitnetix Dark and Gitnetix Light keep their own palettes in `app.css`, and the 34 third-party themes keep theirs through `tokens()`; all of them take this system's shapes, type, hairlines, map structure and neutral roles. The colour tokens below are the Black & White pair.\n\nThe approved reference is `.impeccable/mocks/slate-direction.html` (branch map and branch workspace at 1920x1080, each with the agents panel docked right, dark and light). Inside this world the branch map reads as a line diagram: one hairline trunk carries the shipped releases as stations, branches hang off it as small boxes (a header and one info row), ahead/behind rides on the incoming line as a small chip, and their commits float free beneath them.",
     "keyCharacteristics": [
       "Cool slate-to-black ground, panels one step up, 1px hairlines.",
       "Branch map as a station line: hairline trunk, ring stations, two-row boxes, ahead/behind chips on the lines, floating commits.",
       "Pull requests read as the same line: ring stations by state in the list, and each pull request's checks, review and conversations as stations on its way to the base.",
       "Tickets read like a page: one-line rows with a status ring, a 1180px reading column, and the ticket's way to a release as a station line in the margin.",
       "Submodules read as a pin line: the pinned, checked-out and remote-tip commits as stops on one hairline, each action under the stop it moves the submodule to.",
-      "White controls: solid white primary, 1px outline secondary.",
+      "Dialogs read as a route sheet: the operation drawn as a route under the title, labelled rows in a 100px label column, the steps it runs as stops on a rail, buttons at natural width on the right.",
+      "White controls: solid white primary, 1px outline secondary; a dialog's last footer button fills red when it throws work away.",
       "Hue only for diff add/delete, warnings and conflicts, plus the flowing rainbow on agent work.",
       "Tall condensed numerals and versions; tracked small-caps labels.",
       "Thin 1.25px icon strokes; hard, short motion."
@@ -975,7 +1015,7 @@
     "rules": [
       {
         "name": "The Control Rule",
-        "body": "Ink (--fg) means \"this is yours\": selection, the active tab, segment and tag, check fills and focus, in every theme. --accent means \"you can press this\" and marks controls only: primary buttons, links and a few control states. In Black & White the accent is white (ink in light), so ink is the only control colour; Gitnetix Dark/Light and the third-party themes keep their own accent as their control colour. Never spend an accent on selection, focus, roles or status.",
+        "body": "Ink (`--fg`) means \"this is yours\": selection, the active tab, segment and tag, check fills and focus, in every theme. `--accent` means \"you can press this\" and marks controls only: primary buttons, links and a few control states. In Black & White the accent is white (ink in light), so ink is the only control colour; Gitnetix Dark/Light and the third-party themes keep their own accent as their control colour. Never spend an accent on selection, focus, roles or status.",
         "section": "colors"
       },
       {
@@ -985,13 +1025,13 @@
       },
       {
         "name": "The Agent Working Rule",
-        "body": "Anything an agent is working on flows with the incumbent rainbow, and nothing else may. Text gets weight 600, a 90deg gradient of g1, g2, g3, g4, g1 at 300% size clipped to the text, flowing in 8s steps(384), with no glow (the colour change is enough). Icons cycle their stroke through g1, g2, g3, g4 in 8s steps(96) with a drop-shadow(0 0 5px) of g2 at 45%; the working dot blinks and cycles the same way, with no glow. It appears on the top bar's Worktrees & agents icon, the project tab's dot while agents run, a branch box's \"Claude working\" info row, the selected card's Agent value, the focus head's agent pill and the agents panel's session dot. A waiting agent is Warn, never rainbow. Reduced motion stops all three animations and leaves the colours still.",
+        "body": "Anything an agent is working on flows with the incumbent rainbow, and nothing else may. Text gets weight 600, a 90deg gradient of g1, g2, g3, g4, g1 at 300% size clipped to the text, flowing in 8s `steps(384)`, with no glow (the colour change is enough). Icons cycle their stroke through g1, g2, g3, g4 in 8s `steps(96)` with a `drop-shadow(0 0 5px)` of g2 at 45%; the working dot blinks and cycles the same way, with no glow. It appears on the top bar's Worktrees & agents icon, the project tab's dot while agents run, a branch box's \"Claude working\" info row, the selected card's Agent value, the focus head's agent pill, the agents panel's session dot and the current commit's station in the AI rebase dialog (an 11px disc cycling g1 to g4 in 8s `steps(96)`, no glow; Delete once the rebase stops). A waiting agent is Warn, never rainbow. Reduced motion stops all three animations and leaves the colours still.",
         "section": "colors"
       },
       {
         "name": "The Theme Rule",
-        "section": "colors",
-        "body": "Black & White is the default and what System follows; every other theme (Gitnetix Dark/Light in app.css, the 34 third-party themes through tokens() in src/lib/themes.ts) keeps its own ground, panel, text and accent, gets the derived steps (--line2, --link, --ground, --route, --g1 to --g4) mixed from its colours unless it sets them, and takes the same shapes, type, hairlines and map structure. A third-party theme sets its raised, selected, hairline and status colours from its own palette in the palette's own roles (own); a colour under the floors (muted 4.5:1, faint 4:1, status and link text 4.5:1 on light panels and 4:1 on dark ones) only moves lighter or darker. Role hues are neutral in every theme: no component reads --trunk-fg, --release-fg, --prop-fg or --mod-fg for a role (tokens() still emits them for the marketing website, syntax highlighting and the agent-working rainbow read them)."
+        "body": "Black & White is the default and what System follows; every other theme (Gitnetix Dark/Light in `app.css`, the 34 third-party themes through `tokens()` in `src/lib/themes.ts`) keeps its own ground, panel, text and accent, gets the derived steps (`--line2`, `--link`, `--ground`, `--route`, `--g1` to `--g4`) mixed from its colours unless it sets them, and takes the same shapes, type, hairlines and map structure. A third-party theme sets its raised, selected, hairline and status colours from its own palette in the palette's own roles (`own`); a colour under the floors (muted 4.5:1, faint 4:1, status and link text 4.5:1 on light panels and 4:1 on dark ones) only moves lighter or darker. Role hues are neutral in every theme: no component reads `--trunk-fg`, `--release-fg`, `--prop-fg` or `--mod-fg` for a role (`tokens()` still emits them for the marketing website, syntax highlighting and the agent-working rainbow read them).",
+        "section": "colors"
       },
       {
         "name": "The One Loud Voice Rule",
@@ -1004,11 +1044,6 @@
         "section": "typography"
       },
       {
-        "name": "Flat at Rest",
-        "body": "No shadow on resting surfaces; only floating layers get the single float shadow.",
-        "section": "elevation"
-      },
-      {
         "name": "The Hairline Rule",
         "body": "Every map line is a hairline. The route from the trunk to the checked-out branch is 1.5px in the route colour (control white, ink in light mode); every other link is a 1px Link Dim curve; a falling-behind branch's link is dashed 3/4. No thick transit lines, no hue on the route, no pulse travelling along it, no glow. A one-line legend box floats at the canvas's bottom left (8px in, 16px up; 1px hairline-strong border, 3px corners, ground at 85%, padding 6px 12px, Inter 12px muted) with the route, other lines, falling behind and the line chip. Keys that don't fit wrap out of sight, never cut in half, and a \"See all\" link lists them in a 360px modal. It stops short of the selected branch's side column.",
         "section": "components"
@@ -1017,36 +1052,46 @@
         "name": "The Station Action Rule",
         "body": "On a station line each action sits under the stop it moves the subject to, and exactly one white primary goes on the stop that fixes the state; every other action there is a small outlined button.",
         "section": "components"
+      },
+      {
+        "name": "The Route Rule",
+        "body": "A dialog shows the operation before its form: the route of what moves where in its head, the steps it runs as stops, then labelled rows, and exactly one loud control, last in the footer.",
+        "section": "components"
       }
     ],
     "dos": [
-      "Do use ink for selection and focus in every theme, and --accent only for controls (white in Black & White)",
-      "Do show a disabled primary as the outline with a faint label",
-      "Do show branch type, trunk and release by label, position and type, not hue",
-      "Do keep colour for add, delete, warn and conflict only",
-      "Do set screen and page titles, the next release and headline numbers in Antonio, everything else (shipped versions included) in Inter and JetBrains Mono",
-      "Do keep every view, control and behaviour exactly where it is today",
-      "Do draw the branch map in hairlines: 1.5px route, 1px other links, dashed 3/4 when falling behind, 1px faint trunk",
-      "Do keep branch boxes to a header row and one info row, and let commits float beneath them with no container",
-      "Do put ahead/behind on the incoming line as a chip, a rebase button when there is a behind count",
-      "Do put shipped releases on the trunk as ring stations at an even 36px pitch, main as the large station where the route starts",
-      "Do mark everything an agent is working on with the flowing rainbow (the Agent Working Rule), and stop it under reduced motion",
-      "Do dock the agents panel right at 460px in both views",
-      "Do put each action under the station it moves the subject to, with exactly one white primary on the station that fixes the state",
-      "Do set menu hints, captions and sentences in Inter, and wrap only a SHA, path, ref or URL inside them in Mono"
+      "Do use ink for selection and focus in every theme, and `--accent` only for controls (white in Black & White).",
+      "Do show a disabled primary as the outline with a faint label.",
+      "Do show branch type, trunk and release by label, position and type, not hue.",
+      "Do keep colour for add, delete, warn and conflict only.",
+      "Do set screen and page titles, the next release and headline numbers in Antonio, everything else (shipped versions included) in Inter and JetBrains Mono.",
+      "Do keep every view, control and behaviour exactly where it is today.",
+      "Do draw the branch map in hairlines: 1.5px route, 1px other links, dashed 3/4 when falling behind, 1px faint trunk.",
+      "Do keep branch boxes to a header row and one info row, and let commits float beneath them with no container.",
+      "Do put ahead/behind on the incoming line as a chip, a rebase button when there is a behind count.",
+      "Do put shipped releases on the trunk as ring stations at an even 36px pitch, `main` as the large station where the route starts.",
+      "Do mark everything an agent is working on with the flowing rainbow (the Agent Working Rule), and stop it under reduced motion.",
+      "Do dock the agents panel right at 460px in both views.",
+      "Do put each action under the station it moves the subject to, with exactly one white primary on the station that fixes the state.",
+      "Do set menu hints, captions and sentences in Inter, and wrap only a SHA, path, ref or URL inside them in Mono.",
+      "Do draw a dialog's operation as a route under its title, its steps as stops, and its form as labelled rows with a 100px label column.",
+      "Do end a dialog footer with Back then one loud control at natural width: the white primary, or the filled red button when the dialog throws work away."
     ],
     "donts": [
-      "Don't use gradient text, glows, coloured halos or drop-shadow filters, except the rainbow on agent work under the Agent Working Rule",
-      "Don't use the working hues for anything but an agent working; a waiting agent is Warn",
-      "Don't use pills (999px radius) or radii above 3px on rectangles",
-      "Don't give branch types, roles or sections their own hue",
-      "Don't use spring or bounce easing; motion is short ease-out, under 200ms",
-      "Don't put a shadow on a resting surface",
-      "Don't set functional text below 11px",
-      "Don't draw thick transit lines or a coloured route on the branch map; the red route of the trunk reference is not adopted",
-      "Don't put commits inside a branch box or wrap them in a card on the map",
-      "Don't put ahead/behind inside the box, or a separate rebase button under the commits",
-      "Don't put a coloured side bar on a box, note or callout; a note is a hairline row with a leading icon"
+      "Don't use gradient text, glows, coloured halos or drop-shadow filters, except the rainbow on agent work under the Agent Working Rule.",
+      "Don't use the working hues for anything but an agent working; a waiting agent is Warn.",
+      "Don't use pills (999px radius) or radii above 3px on rectangles.",
+      "Don't give branch types, roles or sections their own hue.",
+      "Don't use spring or bounce easing; motion is short ease-out, under 200ms.",
+      "Don't put a shadow on a resting surface.",
+      "Don't set functional text below 11px.",
+      "Don't draw thick transit lines or a coloured route on the branch map; the red route of the trunk reference is not adopted.",
+      "Don't put commits inside a branch box or wrap them in a card on the map.",
+      "Don't put ahead/behind inside the box, or a separate rebase button under the commits.",
+      "Don't put a coloured side bar on a box, note or callout; a note is a hairline row with a leading icon.",
+      "Don't stretch dialog footer buttons to equal widths or stack field labels above their controls in a dialog, except on phones.",
+      "Don't fill a red button anywhere but the last place in a dialog footer; elsewhere destructive stays the outline with red text.",
+      "Don't put a shadow on a modal; it is a hairline panel over the scrim."
     ]
   }
 }

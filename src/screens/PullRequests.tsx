@@ -338,7 +338,7 @@ function NewPrModal({ pid, repo, fork, start, onClose, onShow, onCreate }: {
       footer={
         <>
           <span className="grow" />
-          <button className="btn btn-md" onClick={onClose}>Cancel</button>
+          <button className="btn btn-md" onClick={onClose}>Back</button>
           <button className="btn btn-md btn-primary" disabled={!ready} onClick={() => onCreate({ branch: from, base: to, ...(repos && { to: on }) })}>
             <Icon name={viaFork ? "branch" : "sparkle"} size={13} />
             {viaFork ? "Fork and open pull request" : "Open pull request"}
@@ -634,6 +634,9 @@ function Detail({ pid, number }: { pid: string; number: number }) {
           onClose={() => setConfirmClose(false)}
           footer={
             <>
+              <button className="btn btn-md" autoFocus onClick={() => setConfirmClose(false)}>
+                Back
+              </button>
               <button className="btn btn-md btn-danger" disabled={close.isPending} onClick={() =>
                   close.mutate(
                     { projectId: pid, number, ...(deleteBranch && !d.fork && { deleteBranch: d.head }) },
@@ -678,7 +681,7 @@ function Detail({ pid, number }: { pid: string; number: number }) {
           footer={
             <>
               <span className="grow" />
-              <button className="btn btn-md" onClick={() => setRetarget(null)}>Cancel</button>
+              <button className="btn btn-md" onClick={() => setRetarget(null)}>Back</button>
               <button
                 className="btn btn-md btn-primary"
                 disabled={move.isPending}

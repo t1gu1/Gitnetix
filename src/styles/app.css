@@ -708,7 +708,7 @@ body.dragging-tab * {
   background: var(--raised);
   color: var(--fg);
 }
-/* Destructive: the secondary shape in the delete colour, never a red fill. */
+/* Destructive: the secondary shape in the delete colour. The one exception, a dialog's last footer button, fills red (.modal-btns). */
 .btn-danger,
 .btn.btn-danger:hover:not(:disabled) {
   color: var(--del-fg);
@@ -1113,8 +1113,15 @@ body.dragging-tab * {
   outline: 1px solid var(--fg);
   outline-offset: 2px;
 }
+/* A radio: round, an ink dot when picked (a group with none picked counts as indeterminate: it stays an empty ring). */
+.check input[type="radio"] {
+  border-radius: 50%;
+}
+.check input[type="radio"]:checked {
+  background: radial-gradient(circle, var(--fg) 0 3px, transparent 3.5px);
+}
 /* Some of a group checked: an ink bar. */
-.check input:indeterminate {
+.check input[type="checkbox"]:indeterminate {
   border-color: var(--fg);
   background: linear-gradient(var(--fg), var(--fg)) center / 8px 1.5px no-repeat;
 }
@@ -3074,7 +3081,7 @@ button.map-line-chip[aria-disabled] {
   border-bottom: 1px solid var(--line);
   background: var(--bg);
 }
-:is(.focus-head, .code-foot) kbd {
+:is(.focus-head, .code-foot, .modal-hint) kbd {
   padding: 0 5px;
   border: 1px solid var(--line2);
   border-radius: var(--r-sm);
@@ -9859,42 +9866,315 @@ button.app-row:hover > .app-row-chev {
     transform: translateY(4px);
   }
 }
+/* The head: title row, then the operation as a route (.route) when there is one; a hairline under it. */
 .modal-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 18px 20px 14px;
+  gap: 12px 4px;
+  padding: 16px 14px 14px 20px;
+  border-bottom: 1px solid var(--line);
+}
+.modal-head > .col {
+  flex: 1 1 0;
+  min-width: 0;
+  margin-right: 8px;
 }
 .modal-head h1 {
   margin: 0;
   font-size: 15px;
   font-weight: 600;
 }
+.modal-head > .btn-icon {
+  width: 28px;
+  height: 28px;
+}
+/* What moves where: names at hairline stations. The new one is hollow, a lost one red with its line, a waiting line dashed. */
+.route {
+  flex: 1 0 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  margin-right: 6px;
+}
+.route-name {
+  flex: 0 1 auto;
+  max-width: 45%;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--fg);
+}
+.route-stop {
+  flex: 0 0 auto;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--fg);
+}
+.route[data-make] .route-stop.route-to {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--fg);
+}
+.route-line {
+  flex: 1 1 40px;
+  /* The hairline shows either side of its label, whatever the width: the names give way first. */
+  padding-inline: 14px;
+  min-width: fit-content;
+  height: 1px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--fg);
+}
+.route-line:empty {
+  min-width: 40px;
+}
+.route[data-wait] .route-line {
+  background: repeating-linear-gradient(90deg, var(--fg) 0 4px, transparent 4px 8px);
+}
+.route-line > span {
+  padding: 0 8px;
+  background: var(--panel);
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.route[data-lose] .route-line,
+.route[data-lose] .route-stop.route-to {
+  background: var(--del-fg);
+}
+.route[data-lose] .route-name.route-to {
+  color: var(--del-fg);
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
 .modal-body {
   flex: 1 1 auto;
   display: flex;
   flex-direction: column;
-  gap: 18px;
-  padding: 4px 20px 20px;
+  gap: 14px;
+  padding: 16px 20px 20px;
   overflow-y: auto;
 }
 /* Stacked checkboxes read as one list, not separate sections. */
 .modal-body > .check + .check {
   margin-top: -14px;
 }
-.modal-foot {
+/* Labelled rows: the label in its column, the controls beside it; a hairline between rows. A `.field` straight in the body
+   (or its form) is one, so every dialog's form reads the same. */
+.m-row,
+:is(.modal-body, .modal-body > form, .modal-body > .col) > .field {
+  display: grid;
+  grid-template-columns: 100px minmax(0, 1fr);
+  align-items: start;
+  gap: 8px 16px;
+}
+.m-row > :first-child,
+:is(.modal-body, .modal-body > form, .modal-body > .col) > .field > :first-child {
+  grid-area: 1 / 1;
   display: flex;
-  gap: 8px;
-  padding: 14px 20px;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 1px;
+  padding-top: 7px;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 18px;
+  color: var(--muted);
+}
+:is(.m-row, .modal-body .field) > :first-child .faint {
+  font-size: 11px;
+}
+.m-row > :not(:first-child),
+:is(.modal-body, .modal-body > form, .modal-body > .col) > .field > :not(:first-child) {
+  grid-column: 2;
+  min-width: 0;
+}
+:is(.m-row, .modal-body > .field, .modal-body > form > .field, .modal-body > .col > .field) + :is(.m-row, .field) {
+  padding-top: 14px;
   border-top: 1px solid var(--line);
 }
-/* Footer buttons share the full width equally. */
-.modal-foot > * {
-  flex: 1 1 0;
+/* Phones: the label back above its controls; the types tighter, so six still fit a line with their names whole. */
+@media (max-width: 900px) and (pointer: coarse), (max-width: 480px) {
+  .modal .m-row .seg.grid > button {
+    padding-inline: 1px;
+    font-size: 11.5px;
+  }
+  /* The names need the width more than the line's label. */
+  .route-line > span {
+    display: none;
+  }
+  .route-line {
+    min-width: 40px;
+  }
+  .m-row,
+  :is(.modal-body, .modal-body > form, .modal-body > .col) > .field {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .m-row > :first-child,
+  :is(.modal-body, .modal-body > form, .modal-body > .col) > .field > :first-child {
+    grid-area: auto;
+    flex-direction: row;
+    gap: 8px;
+    padding-top: 0;
+  }
+  .m-row > :not(:first-child),
+  :is(.modal-body, .modal-body > form, .modal-body > .col) > .field > :not(:first-child) {
+    grid-column: 1;
+  }
 }
-.modal-foot > .split-btn > .split-main {
+/* A row's sentence, on the label's line. */
+.m-text {
+  margin: 0;
+  padding-top: 7px;
+  font-size: 12.5px;
+  line-height: 18px;
+}
+/* Under a control, what the pick means. */
+.m-note {
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--muted);
+}
+/* What an action does, in order: a hairline rail, fixed steps as ink squares on it, optional ones as checkboxes. */
+.stops {
+  isolation: isolate;
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+/* The rail, from each stop's marker to the next one's, under the markers. */
+.stop:not(:last-child)::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  left: 6.5px;
+  top: 16px;
+  bottom: -16px;
+  width: 1px;
+  background: var(--line2);
+}
+.stop {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 12px;
+  min-height: 32px;
+}
+/* A label that wraps keeps its box or square on its first line. */
+.stop > .check,
+.stop > .stop-fixed {
   flex: 1 1 auto;
+  display: flex;
+  align-items: flex-start;
+  min-width: 0;
+  min-height: 32px;
+  gap: 12px;
+  padding-block: 7px;
+  line-height: 18px;
+}
+.stop > .check input {
+  margin-top: 2px;
+}
+/* Types in a row's column: six to a line, so the labels keep their room. */
+.m-row .seg.grid > button {
+  padding-inline: 4px;
+}
+.stop > .stop-fixed::before {
+  content: "";
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  margin: 5.5px 3.5px 0;
+  background: var(--fg);
+}
+/* On the rail: the panel shows round its box, so the rail stops at it. */
+.stop .check input:not(:checked) {
+  position: relative;
+  background-color: var(--panel);
+}
+.stop[data-off] > .check {
+  color: var(--faint);
+}
+.stop-aside {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--faint);
+}
+.stop-more {
+  flex: 1 0 100%;
+  padding: 2px 0 8px 26px;
+}
+/* The footer: a note at the left, the buttons at their own width on the right; a secondary red one (discard, abort) at the far left.
+   Short of room, the note takes its own line and the buttons stay together under it. */
+.modal-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px 12px 20px;
+  border-top: 1px solid var(--line);
+}
+.modal-hint {
+  flex: 1 0 auto;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--faint);
+}
+.modal-btns {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+}
+.modal-btns > .btn-danger:not(:last-child) {
+  margin-right: auto;
+}
+.modal-btns > .split-btn > .split-main {
+  flex: 1 1 auto;
+}
+/* The button that throws work away: filled red, the dialog's one loud control. */
+.modal-btns > .btn-danger:last-child,
+.modal-btns > .btn.btn-danger:last-child:hover:not(:disabled) {
+  border-color: var(--del-fg);
+  background: var(--del-fg);
+  color: var(--panel);
+}
+.modal-btns > .btn.btn-danger:last-child:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--del-fg) 88%, var(--fg));
+  background: color-mix(in srgb, var(--del-fg) 88%, var(--fg));
+}
+.modal-btns > .btn-danger:last-child:disabled {
+  border-color: var(--line2);
+  background: transparent;
+  color: var(--faint);
+}
+/* Phones: the buttons share the width, the note above them; no keyboard, so no Ctrl ↵ hint. */
+@media (max-width: 900px) and (pointer: coarse), (max-width: 480px) {
+  .modal-hint {
+    flex-basis: 100%;
+    white-space: normal;
+  }
+  .modal-hint:has(> .enter-hint) {
+    display: none;
+  }
+  .modal-btns {
+    flex-basis: 100%;
+    flex-wrap: wrap;
+  }
+  .modal-btns > * {
+    flex: 1 1 0;
+    margin-right: 0;
+  }
 }
 /* Minimized new agent session (Worktrees.tsx) and new branch (NewItem.tsx): bottom left, clear of the toasts; over the page, under any modal.
    Stacked bottom up: the last one minimized lands on top. */
@@ -9997,6 +10277,61 @@ button.app-row:hover > .app-row-chev {
 }
 .run-bar[data-failed] > span {
   background: var(--del-fg);
+}
+/* The commits a rebase replays, as stations on a hairline: done in ink, the current one in the working colours (an agent on it). */
+.run-stops {
+  display: flex;
+  align-items: center;
+  height: 12px;
+}
+.run-stops > i {
+  flex: 1 1 0;
+  display: flex;
+  align-items: center;
+}
+.run-stops > i:first-child {
+  flex: 0 0 auto;
+}
+.run-stops > i::before {
+  content: "";
+  flex: 1 1 auto;
+  height: 1px;
+  background: var(--line2);
+}
+.run-stops > i:first-child::before {
+  display: none;
+}
+.run-stops > i::after {
+  content: "";
+  flex: 0 0 auto;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px var(--line2);
+}
+.run-stops > i:is([data-at="done"], [data-at="now"])::before {
+  background: var(--fg);
+}
+.run-stops > i[data-at="done"]::after {
+  background: var(--fg);
+  box-shadow: none;
+}
+.run-stops > i[data-at="now"]::after {
+  width: 11px;
+  height: 11px;
+  background: currentColor;
+  box-shadow: none;
+  animation: glow-stroke 8s steps(96) infinite;
+}
+.run-stops[data-failed] > i[data-at="now"]::after {
+  color: var(--del-fg);
+  animation: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .run-stops > i[data-at="now"]::after {
+    color: var(--g2);
+    animation: none;
+  }
 }
 .run-files {
   list-style: none;

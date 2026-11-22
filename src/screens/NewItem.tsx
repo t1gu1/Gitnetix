@@ -6,7 +6,7 @@ import { RequestField, uploads, type Attachment } from "../components/AgentLog";
 import { AgentPicker, MenuChoice, useAgentPick } from "../components/AgentPicker";
 import { BranchTypesEditor, firstType, TypePicker, typeOfName, withType } from "../components/BranchTypes";
 import { Icon } from "../components/Icon";
-import { Modal, releaseTagLabel, Seg } from "../components/ui";
+import { EnterHint, Modal, releaseTagLabel, Route, Seg } from "../components/ui";
 import { kindNoun, withPrefix, withTicket } from "../lib/kinds";
 import { flyIntoChip, type DialogShot } from "../lib/motion";
 import { useNav, type NewItemDraft } from "../lib/nav";
@@ -125,6 +125,10 @@ export function NewItem({ draft, min, onMinimize, onClose }: { draft: NewItemDra
 
   const label = kindNoun(kind);
   const branch = withTicket(withPrefix(name, kind), ticket);
+  // Where a hotfix starts: the highest version that shipped.
+  const latestTag = (ov.data?.releases ?? [])
+    .filter((r) => r.tagName)
+    .sort((a, b) => b.version.localeCompare(a.version, undefined, { numeric: true }))[0]?.tagName;
   if (min) {
     const what = kind === "release" ? "New release" : "New branch";
     // The name it will create, once there is one: what tells the chips apart.
@@ -175,12 +179,16 @@ export function NewItem({ draft, min, onMinimize, onClose }: { draft: NewItemDra
       <Modal
         ref={box}
         title="New release"
-        sub={relKind === "next" ? "Branches off your default branch" : "Branches off the latest tag"}
+        route={<Route from={relKind === "next" ? ov.data?.defaultBranch : latestTag ?? "latest tag"} to={`release/${v || "x.y.z"}`} make wait />}
         actions={headerActions}
         onClose={onClose}
         onDismiss={dismiss}
+        hint={<EnterHint verb="create" />}
         footer={
           <>
+            <button className="btn btn-md" onClick={onClose}>
+              Back
+            </button>
             <button
               className="btn btn-primary btn-md"
               disabled={!v || createRelease.isPending}
@@ -204,8 +212,15 @@ export function NewItem({ draft, min, onMinimize, onClose }: { draft: NewItemDra
           </>
         }
       >
-        <TypePicker pid={pid} size="lg" value={kind} onChange={pickKind} />
-        <Seg grid size="lg" label="Release type" value={relKind} onChange={setRelKind} options={[{ value: "next", label: "Next release" }, { value: "hotfix", label: "Hotfix" }]} />
+        <div className="m-row">
+          <span>Type</span>
+          <TypePicker pid={pid} value={kind} onChange={pickKind} />
+        </div>
+        <div className="m-row">
+          <span>Release</span>
+          <Seg grid label="Release type" value={relKind} onChange={setRelKind} options={[{ value: "next", label: "Next release" }, { value: "hotfix", label: "Hotfix" }]} />
+          <span className="m-note">{relKind === "next" ? "Branches off your default branch." : "Branches off the latest tag, to patch what shipped."}</span>
+        </div>
         <div className="field">
           <label htmlFor="ni-version">Version</label>
           <input id="ni-version" className="input mono" placeholder="2.4.0" value={version} onChange={(e) => setVersion(e.target.value.trim())} autoFocus />
@@ -238,29 +253,64 @@ export function NewItem({ draft, min, onMinimize, onClose }: { draft: NewItemDra
 
   return (
     <Modal
-      title={rel ? `New in ${tagV.label(rel.version)}` : base ? `New branch off ${base.name}` : fromTag ? `New branch off ${draft.tag}` : "New feature or fix"}
-      sub={
-        base ? <>Branches off <span className="mono">{base.name}</span> and merges back into it</>
-        : fromTag ? <>Branches off tag <span className="mono">{draft.tag}</span> and merges into <span className="mono">{ov.data?.defaultBranch}</span></>
-        : "Pick where it starts"
+      title={`New ${label}`}
+      sub={base || fromTag ? undefined : "Pick where it starts"}
+      route={
+        (base || fromTag) && (
+          <Route from={base ? base.name : draft.tag} to={branch || `${kind}/…`} label={agent ? "new worktree · agent" : where === "worktree" ? "new worktree" : "switch to it"} make wait />
+        )
       }
       ref={box}
       actions={headerActions}
       onClose={onClose}
       onDismiss={dismiss}
+      // With an agent, the prompt's own line says it: Ctrl/⌘+Enter there starts it.
+      hint={agent ? undefined : <EnterHint verb="create" />}
       footer={
         <>
+          <button className="btn btn-md" onClick={onClose}>
+            Back
+          </button>
           <button className="btn btn-primary btn-md" disabled={!ready} onClick={submit}>
             {create.isPending && <span className="spinner" />}
             Create {label}
+            {agent && " and start agent"}
           </button>
         </>
       }
     >
-      <TypePicker pid={pid} size="lg" value={kind} onChange={pickKind} />
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 }}>
-        <div className="field">
-          <label htmlFor="ni-rel">Branches off</label>
+      <div className="m-row">
+        <span>Type</span>
+        <TypePicker pid={pid} value={kind} onChange={pickKind} />
+      </div>
+      <div className="field">
+        <label htmlFor="ni-branch">
+          Name
+          {(naming || named === "ai" || named === "auto") && (
+            <span className="c-acc row" style={{ gap: 5 }}>
+              {naming ? <span className="spinner" /> : named === "ai" ? <><Icon name="sparkle" size={11} />By AI</> : "From the task"}
+            </span>
+          )}
+        </label>
+        <input
+          id="ni-branch"
+          className="input mono"
+          style={{ fontSize: 12.5 }}
+          value={name}
+          placeholder={nameFromWip ? "Empty: AI names it from your changes" : `${kind}/…`}
+          autoFocus
+          onChange={(e) => {
+            // Git names can't hold spaces: each one becomes a dash as you type.
+            const v = e.target.value.replace(/\s/g, "-");
+            setName(v);
+            setNamed("you");
+            typed.current = true;
+          }}
+        />
+      </div>
+      <div className="field">
+        <label htmlFor="ni-rel">Branches off</label>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 8 }}>
           <MenuChoice
             id="ni-rel"
             className="select menu-select"
@@ -276,86 +326,45 @@ export function NewItem({ draft, min, onMinimize, onClose }: { draft: NewItemDra
             ]}
             onChange={setFrom}
           />
-        </div>
-        <div className="field">
-          <label htmlFor="ni-ticket">Ticket <span className="faint" style={{ fontWeight: 400 }}>optional</span></label>
-          <input id="ni-ticket" className="input mono" placeholder="ATL-212" value={ticket} onChange={(e) => setTicket(e.target.value)} />
+          <input id="ni-ticket" className="input mono" aria-label="Ticket" placeholder="Ticket, optional" value={ticket} onChange={(e) => setTicket(e.target.value)} />
         </div>
       </div>
-      <div className="field">
-        <label htmlFor="ni-branch" style={{ justifyContent: "flex-start", alignItems: "center" }}>
-          <span>Branch name</span>
-          <span className="c-acc" style={{ display: "inline-flex", alignItems: "center", gap: 5, fontWeight: 400 }}>
-            {naming ? <span className="spinner" /> : named === "ai" ? <><Icon name="sparkle" size={11} />Named by AI</> : named === "auto" ? "From description" : null}
-          </span>
-          {branch && branch !== name.trim() && (
-            <span className="faint ellipsis" style={{ fontWeight: 400 }}>Creates <span className="mono">{branch}</span></span>
-          )}
-        </label>
-        <input
-          id="ni-branch"
-          className="input mono"
-          style={{ fontSize: 12.5 }}
-          value={name}
-          placeholder={nameFromWip ? "Leave empty to let AI name it from your changes" : `${kind}/…`}
-          autoFocus
-          onChange={(e) => {
-            // Git names can't hold spaces: each one becomes a dash as you type.
-            const v = e.target.value.replace(/\s/g, "-");
-            setName(v);
-            setNamed("you");
-            typed.current = true;
+      <div className="m-row">
+        <span>Work in</span>
+        <Seg
+          grid
+          label="Where to work"
+          value={where}
+          onChange={(v) => {
+            setWhere(v);
+            // An agent needs its own worktree, so switching drops it.
+            if (v === "switch") setAgent(false);
           }}
+          options={[{ value: "switch", label: "This checkout" }, { value: "worktree", label: "New worktree" }]}
         />
+        <span className="m-note">{where === "switch" ? "Switches to the new branch. Your uncommitted changes come along." : "Runs beside your current branch: good for parallel AI work."}</span>
       </div>
-      <fieldset className="col" style={{ margin: 0, padding: 0, border: 0, gap: 6 }}>
-        <legend className="muted" style={{ padding: "0 0 6px", fontSize: 12, fontWeight: 500 }}>Where to work</legend>
-        {(
-          [
-            ["switch", "Switch to the new branch", "Your uncommitted changes come along"],
-            ["worktree", "Open in a new worktree", "Runs alongside your current branch — good for parallel AI work"],
-          ] as const
-        ).map(([v, t, s]) => (
-          <button
-            key={v}
-            type="button"
-            className="radio-card"
-            aria-pressed={where === v}
-            onClick={() => {
-              setWhere(v);
-              // An agent needs its own worktree, so switching drops it.
-              if (v === "switch") setAgent(false);
-            }}
-          >
-            <span className="radio-dot" />
-            <span className="col" style={{ gap: 2 }}>
-              <span style={{ fontWeight: 500 }}>{t}</span>
-              <span className="muted" style={{ fontSize: 12 }}>{s}</span>
-            </span>
-          </button>
-        ))}
-      </fieldset>
-      <label className="check">
-        <input
-          type="checkbox"
-          checked={agent}
-          onChange={() => {
-            // An agent always gets its own worktree.
-            if (!agent) setWhere("worktree");
-            setAgent(!agent);
-          }}
-        />
-        <span>Start an AI agent on it right away</span>
-      </label>
-      {agent && (
-        <>
-          <div className="field">
-            <span>Agent</span>
-            <AgentPicker value={pick} onChange={setPick} />
-          </div>
-          <RequestField value={desc} onChange={setDesc} files={files} onFiles={setFiles} onSubmit={() => ready && submit()} projectId={pid} provider={pick.provider} />
-        </>
-      )}
+      <div className="m-row">
+        <span>
+          Agent<span className="faint">optional</span>
+        </span>
+        <div className="row" style={{ gap: 12, justifyContent: "space-between", flexWrap: "wrap" }}>
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={agent}
+              onChange={() => {
+                // An agent always gets its own worktree.
+                if (!agent) setWhere("worktree");
+                setAgent(!agent);
+              }}
+            />
+            <span>Start one right away</span>
+          </label>
+          {agent && <AgentPicker value={pick} onChange={setPick} />}
+        </div>
+        {agent && <RequestField value={desc} onChange={setDesc} files={files} onFiles={setFiles} onSubmit={() => ready && submit()} projectId={pid} provider={pick.provider} />}
+      </div>
     </Modal>
   );
 }

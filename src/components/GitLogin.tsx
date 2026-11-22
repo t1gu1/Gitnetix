@@ -28,7 +28,7 @@ function LoginForm({ host, refused }: { host: string; refused: boolean }) {
       footer={
         <>
           <button className="btn btn-md" disabled={save.isPending} onClick={close}>
-            Cancel
+            Back
           </button>
           <button className="btn btn-md btn-primary" type="submit" form="git-login" disabled={!username.trim() || !token.trim() || save.isPending}>
             {save.isPending && <span className="spinner" />}

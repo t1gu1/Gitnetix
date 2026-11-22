@@ -590,6 +590,7 @@ export function DiscardModal({ s, onClose }: { s: Session; onClose: () => void }
       onClose={onClose}
       footer={
         <>
+          <button className="btn btn-md" autoFocus onClick={onClose}>Back</button>
           <button className="btn btn-md btn-danger" onClick={() => { finish(s.key, 'discard', false); onClose(); }}>Cancel and Delete all</button>
         </>
       }

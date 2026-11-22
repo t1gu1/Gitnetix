@@ -4,7 +4,7 @@ import { queryClient, useOverview, useProjects, useTagV } from "../api/hooks";
 import { rpc } from "../api/transport";
 import type { RebaseResult, RebaseRun } from "../api/types";
 import { Icon } from "../components/Icon";
-import { ErrorBox, Modal } from "../components/ui";
+import { ErrorBox, Modal, Route } from "../components/ui";
 import { plural, timeLeft } from "../lib/format";
 import { useNav } from "../lib/nav";
 import { dismiss, heard, retrying, runKey, setMin, shownRun, startedFromHere, useRuns, type ShownRun } from "../lib/rebaseRuns";
@@ -132,12 +132,8 @@ function Run({ id, s }: { id: string; s: ShownRun }) {
   return (
     <Modal
       title={failed ? "Rebase stopped" : "Resolving the rebase with AI"}
-      sub={
-        <>
-          {other && <>{other} · </>}
-          <span className="mono">{run.branch}</span> onto <span className="mono">{onto}</span>
-        </>
-      }
+      sub={other || undefined}
+      route={<Route from={run.branch} to={onto} label="rebase onto" />}
       // Running, it only goes to the corner; stopped, the WIP panel still offers to try again or abort.
       minimize={!failed}
       onClose={failed ? () => dismiss(id) : () => setMin(id, true)}
@@ -170,9 +166,18 @@ function Run({ id, s }: { id: string; s: ShownRun }) {
               {left && ` · ${left}`}
             </span>
           </div>
-          <div className="run-bar" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(share * 100)} data-failed={failed || undefined}>
-            <span style={{ width: `${Math.max(3, share * 100)}%` }} />
-          </div>
+          {run.steps > 0 && run.steps <= 24 ? (
+            // One station per commit: replayed ones ink, the one AI is on in the working colours, red where it stopped.
+            <div className="run-stops" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(share * 100)} data-failed={failed || undefined}>
+              {Array.from({ length: run.steps }, (_, i) => (
+                <i key={i} data-at={i + 1 < run.step ? "done" : i + 1 === run.step ? "now" : undefined} />
+              ))}
+            </div>
+          ) : (
+            <div className="run-bar" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(share * 100)} data-failed={failed || undefined}>
+              <span style={{ width: `${Math.max(3, share * 100)}%` }} />
+            </div>
+          )}
           {run.subject && <span className="mono ellipsis faint" style={{ fontSize: 12 }} title={run.subject}>{run.subject}</span>}
         </div>
         {run.files.length > 0 && (

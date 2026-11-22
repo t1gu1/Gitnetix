@@ -533,6 +533,56 @@ components:
   ctx-hint:
     textColor: "{colors.faint}"
     typography: "{typography.meta}"
+  modal:
+    backgroundColor: "{colors.panel}"
+    textColor: "{colors.ink}"
+    rounded: "{rounded.md}"
+    width: "560px"
+  modal-head:
+    padding: "16px 14px 14px 20px"
+  modal-body:
+    padding: "16px 20px 20px"
+  modal-foot:
+    padding: "12px 16px 12px 20px"
+  modal-hint:
+    textColor: "{colors.faint}"
+    typography: "{typography.meta}"
+  route-station:
+    backgroundColor: "{colors.ink}"
+    rounded: "{rounded.circle}"
+    size: "9px"
+  route-station-lost:
+    backgroundColor: "{colors.delete}"
+    rounded: "{rounded.circle}"
+    size: "9px"
+  route-name:
+    textColor: "{colors.ink}"
+  modal-row-label:
+    textColor: "{colors.muted}"
+    typography: "{typography.meta}"
+    width: "100px"
+  stop:
+    textColor: "{colors.ink}"
+    typography: "{typography.body}"
+    height: "32px"
+  stop-fixed-mark:
+    backgroundColor: "{colors.ink}"
+    rounded: "{rounded.none}"
+    size: "7px"
+  button-danger:
+    backgroundColor: "transparent"
+    textColor: "{colors.delete}"
+    typography: "{typography.button}"
+    rounded: "{rounded.md}"
+    padding: "0 14px"
+    height: "30px"
+  button-danger-filled:
+    backgroundColor: "{colors.delete}"
+    textColor: "{colors.panel}"
+    typography: "{typography.button}"
+    rounded: "{rounded.md}"
+    padding: "0 14px"
+    height: "30px"
 ---
 
 # Design System: Gitnetix
@@ -553,7 +603,8 @@ Key characteristics:
 - Pull requests read as the same line: ring stations by state in the list, and each pull request's checks, review and conversations as stations on its way to the base.
 - Tickets read like a page: one-line rows with a status ring, a 1180px reading column, and the ticket's way to a release as a station line in the margin.
 - Submodules read as a pin line: the pinned, checked-out and remote-tip commits as stops on one hairline, each action under the stop it moves the submodule to.
-- White controls: solid white primary, 1px outline secondary.
+- Dialogs read as a route sheet: the operation drawn as a route under the title, labelled rows in a 100px label column, the steps it runs as stops on a rail, buttons at natural width on the right.
+- White controls: solid white primary, 1px outline secondary; a dialog's last footer button fills red when it throws work away.
 - Hue only for diff add/delete, warnings and conflicts, plus the flowing rainbow on agent work.
 - Tall condensed numerals and versions; tracked small-caps labels.
 - Thin 1.25px icon strokes; hard, short motion.
@@ -585,7 +636,7 @@ The Black & White pair highlights code in its two inks: keywords and types bold 
 
 **The Meaning Rule.** Branch type, trunk, release, props and people carry no hue. Type reads as a text label (FEAT, FIX); trunk and release read by position and the display face. Names carry no hue either, like branch types and labels: an avatar without a picture is the same neutral disc for everyone. A hue on screen must answer "added, deleted, warning or conflict", or be the Agent Working rainbow.
 
-**The Agent Working Rule.** Anything an agent is working on flows with the incumbent rainbow, and nothing else may. Text gets weight 600, a 90deg gradient of g1, g2, g3, g4, g1 at 300% size clipped to the text, flowing in 8s `steps(384)`, with no glow (the colour change is enough). Icons cycle their stroke through g1, g2, g3, g4 in 8s `steps(96)` with a `drop-shadow(0 0 5px)` of g2 at 45%; the working dot blinks and cycles the same way, with no glow. It appears on the top bar's Worktrees & agents icon, the project tab's dot while agents run, a branch box's "Claude working" info row, the selected card's Agent value, the focus head's agent pill and the agents panel's session dot. A waiting agent is Warn, never rainbow. Reduced motion stops all three animations and leaves the colours still.
+**The Agent Working Rule.** Anything an agent is working on flows with the incumbent rainbow, and nothing else may. Text gets weight 600, a 90deg gradient of g1, g2, g3, g4, g1 at 300% size clipped to the text, flowing in 8s `steps(384)`, with no glow (the colour change is enough). Icons cycle their stroke through g1, g2, g3, g4 in 8s `steps(96)` with a `drop-shadow(0 0 5px)` of g2 at 45%; the working dot blinks and cycles the same way, with no glow. It appears on the top bar's Worktrees & agents icon, the project tab's dot while agents run, a branch box's "Claude working" info row, the selected card's Agent value, the focus head's agent pill, the agents panel's session dot and the current commit's station in the AI rebase dialog (an 11px disc cycling g1 to g4 in 8s `steps(96)`, no glow; Delete once the rebase stops). A waiting agent is Warn, never rainbow. Reduced motion stops all three animations and leaves the colours still.
 
 **The Theme Rule.** Black & White is the default and what System follows; every other theme (Gitnetix Dark/Light in `app.css`, the 34 third-party themes through `tokens()` in `src/lib/themes.ts`) keeps its own ground, panel, text and accent, gets the derived steps (`--line2`, `--link`, `--ground`, `--route`, `--g1` to `--g4`) mixed from its colours unless it sets them, and takes the same shapes, type, hairlines and map structure. A third-party theme sets its raised, selected, hairline and status colours from its own palette in the palette's own roles (`own`); a colour under the floors (muted 4.5:1, faint 4:1, status and link text 4.5:1 on light panels and 4:1 on dark ones) only moves lighter or darker. Role hues are neutral in every theme: no component reads `--trunk-fg`, `--release-fg`, `--prop-fg` or `--mod-fg` for a role (`tokens()` still emits them for the marketing website, syntax highlighting and the agent-working rainbow read them).
 
@@ -627,13 +678,13 @@ All numbers use `font-variant-numeric: tabular-nums`. Nothing functional is set 
 
 ## Elevation & Depth
 
-Flat. Resting surfaces have no shadow: depth is the step from ground to panel to raised plus a 1px hairline. Only floating layers (menus, popovers, modals, toasts) get one shadow, `0 12px 32px -8px rgba(0,0,0,0.6)` with a hairline-strong border (light mode `0 12px 32px -8px rgba(15,20,30,0.18)`). No glows, no coloured halos, no drop-shadow filters, except the Agent Working Rule's soft g2 drop-shadow on agent-work icons.
+Flat. Resting surfaces have no shadow: depth is the step from ground to panel to raised plus a 1px hairline. Menus, popovers and toasts get one shadow (`--shadow`, `0 12px 32px -8px rgba(0,0,0,0.6)`; light mode `rgba(15,20,30,0.18)`). Modals get none: a panel with a 1px hairline (`--line`) border over a scrim (`rgba(5,6,8,0.55)`; light `rgba(30,30,36,0.32)`), because the bundled WebKitGTK 2.50 redraws a blurred shadow on every repaint under it. No glows, no coloured halos, no drop-shadow filters, except the Agent Working Rule's soft g2 drop-shadow on agent-work icons.
 
 Focus: `outline: 1px solid` ink, `outline-offset: 2px`. No blurred focus halo. The selected-branch card floats over the map but stays flat: panel plus hairline-strong border, no shadow.
 
 ## Shapes
 
-Corners are 3px on controls, boxes, cards and inputs, 2px on status tags, check boxes, the "+" square, the line chip and the key cap, 0 on shell bars and tabs. Circles only for avatars, status dots, trunk stations and the timeline commit marks. No pills: anything that was `border-radius: 999px` becomes 3px unless it is a dot. A dashed border or line means falling behind, idle, uncommitted, not there yet or not there at all (falling-behind box, its link and its line chip; the 6px WIP dot; a not-cloned submodule's ring, its Not cloned tag, the pin line's rail toward new remote commits and its rail when there is no remote). One square silhouette joins the circles: a submodule's remote tip is an 11px square turned 45deg, so the commit you don't have yet reads apart from the ones you do.
+Corners are 3px on controls, boxes, cards and inputs, 2px on status tags, check boxes, the "+" square, the line chip and the key cap, 0 on shell bars and tabs. Circles only for avatars, status dots, stations (trunk, route, run) and the timeline commit marks, plus radio inputs (round, an ink dot of 3px radius when picked). No pills: anything that was `border-radius: 999px` becomes 3px unless it is a dot. A dashed border or line means falling behind, idle, uncommitted, not there yet or not there at all (falling-behind box, its link and its line chip; the 6px WIP dot; a not-cloned submodule's ring, its Not cloned tag, the pin line's rail toward new remote commits and its rail when there is no remote). A dashed route line in a dialog head means the same: not happening yet. Two square silhouettes join the circles: a submodule's remote tip is an 11px square turned 45deg, so the commit you don't have yet reads apart from the ones you do; and a fixed step on a dialog's stop list is a 7px ink square with no radius, apart from the checkbox of an optional one.
 
 ## Components
 
@@ -643,7 +694,7 @@ Corners are 3px on controls, boxes, cards and inputs, 2px on status tags, check 
 - **Small:** 28px, padding 0 10px, Button Small type (sentence case), muted, ink on hover; toolbar actions and toggles.
 - **Icon:** a bare 28px square, muted, ink on hover.
 - A button's icon never shrinks: in a tight button the label gives way.
-- **Destructive:** secondary shape with delete-coloured text; kept apart from other actions by space, never placed next to the primary.
+- **Destructive:** secondary shape with delete-coloured text, everywhere but one place: the last button of a dialog footer, when the dialog exists to throw work away (Confirm, discard, drop, delete), fills with Delete, Panel text, hover 12% toward ink, disabled as the outline with a faint label (owner decision, 2026-11-22). A red button that is not the footer's last (Abort rebase beside Try again) stays outlined and sits at the far left, apart from the primary.
 
 ### Tabs (repo tabs and section tabs)
 Muted text; the active one is ink with a 2px ink underline (inset box-shadow). Repo tabs are separated by hairlines and show a 6px ink dot when that repo has activity; while agents run in it the dot follows the Agent Working Rule. The top bar's first cell (52px, hairline on the right) is the "Worktrees & agents" layers icon (18px, muted), not a logo; it flows with the rainbow while an agent runs. At the bar's right end, a 44px Settings gear cell (muted, raised and ink on hover, hairline on its left) sits before the 48px profile button.
@@ -722,7 +773,7 @@ A submodule is three commits on one line, pinned, checked out and remote tip, an
 - **Narrow pin line:** under 620px of detail the line stands up: stops run top to bottom in a 22px glyph column, the label, commit and caption beside it left-aligned, each button at the right of its stop; the rail is vertical at 10.5px, its count left-aligned under the stop, and each stop's segment down to the next rail takes that rail's style.
 - **Notes:** under the pin line, a 1px-hairline 3px box of hairline-split rows (padding 10px 14px, 13px at 1.45, 12px gaps): a leading 14px Warn icon, the sentence (Mono 12px for URLs and paths), and an optional small action at the right (Sync URL), white only when the pin line above has no white button of its own. Never a coloured side bar.
 - **Stale remotes:** when a remote check can't reach some remotes, the list stays and an error box over it (Delete border and wash, text in ink, 12px gaps, 10px from the pane edges) says "Could not reach N remotes.", names those submodules in Mono 12px and says their new counts are from the check before, with Try again as a small button inside the box on the right. A list that can't be read at all uses the same box with the reason and Try again.
-- **Empty and add:** no submodules shows a mini pin line (Pinned, Checked out, Remote in Label type, faint, glyphs drawn in Hairline Strong on a dashed rail) over the usual empty state with Add submodule as the primary. The add modal says where the submodule lands before it clones, in a 1px-hairline box with a 12px pin glyph, Mono 12px ink paths in 12.5px muted text. Its footers follow the app's full-width modal footer and uppercase button.
+- **Empty and add:** no submodules shows a mini pin line (Pinned, Checked out, Remote in Label type, faint, glyphs drawn in Hairline Strong on a dashed rail) over the usual empty state with Add submodule as the primary. The add modal says where the submodule lands before it clones, in a 1px-hairline box with a 12px pin glyph, Mono 12px ink paths in 12.5px muted text. Its footer follows the dialog footer (see Dialogs).
 
 ### Focus head (code view)
 A 48px bar above the code view. Left: a "Branch map" back control (check-toggle shape with a back icon) carrying an Esc key cap (Count type, faint, 1px hairline-strong border, 2px corners, padding 0 5px). Then crumbs in Mono 13px muted with faint › separators, the current one ink 500, followed by the CHECKED OUT tag. Pushed right, status pills in Mono 12px muted, 18px apart: "↑4 ↓2 vs v0.6.0" (↓ in Delete), the agent state with its dot (rainbow while working), "↑1 to push".
@@ -752,6 +803,20 @@ The app's right agents/terminal panel, docked below the toolbar in both views, 4
 - **Log:** padding 16px, 14px gaps, Inter 13px muted for the assistant. The user's message is plain ink text beside their 22px profile avatar (10px gap), with no rule or bubble; one sent while the agent works stays muted until it goes out. A meta line (Inter 11.5px faint) appears under a message on hover, 32px in, past the avatar. Tool rows are Mono 12px faint with a 12px file icon and Add/Delete counts. Code names inline in Mono 12px ink. Thinking is three 6px muted dots that hop 3px in four steps (1.333s, staggered), off under reduced motion.
 - **Input box:** 0 16px 16px from the panel edges, 1px hairline-strong border, 3px corners, panel fill, 12px padding and gaps; the border turns ink on focus-within. Text on top: a borderless 13px textarea (faint placeholder), growing to three lines. Under it one row: attach and dictation icon buttons, the compact model picker (28px, 1px hairline-strong outline, 3px corners, Inter 12px), a spacer, then a labelled action button. While the agent works and the box is empty it is Stop: secondary shape, Delete-coloured text. Typing swaps it to the primary Queue (agent working) or Send, each with its icon and word.
 
+### Dialogs
+Every dialog goes through `Modal` or `Confirm` (`src/components/ui.tsx`) and reads as a route sheet: what moves where, then the steps it runs, then one confirm. The approved reference is `.impeccable/mocks/modals-a.html`.
+- **Box:** 560px wide by default (up to the viewport less 16px each side, at most the viewport height less 32px), panel fill, 1px hairline border, 3px corners, no shadow, over the scrim. It rises 4px and fades in over 160ms with the standard ease.
+- **Head:** padding 16px 14px 14px 20px, a hairline under it. The title in Inter 15px 600 (never Antonio), an optional 12px muted sub-line 3px under it, then icon actions and the 28px close button at the right (a minus for a dialog that only tucks its running work into a corner chip). No kicker or eyebrow above the title.
+- **Route:** when the dialog moves something, the head's second row draws it: the source name, a 9px ink station, an ink hairline with a small Inter 11px muted label centred on it ("rebase onto", "merges into", "new worktree"), a second station and the target name. Names are Mono 12px 500 ink and give way (ellipsis, 45% each at most) before the line does. The target's station is hollow (a 1px ink ring) while it does not exist yet; the line is dashed (4px on, 4px off) while the move waits on something; when the move throws the target away the line and its station are Delete and its name is Delete, struck through. On phones the line drops its label so the names keep their room.
+- **Labelled rows:** a form inside a dialog is rows, not stacked fields. Each row is a two-column grid: a 100px label column (Inter 12px/18px muted, 7px from the top so it sits on the control's text line; a faint 11px second line when the label needs one) and the controls beside it, 16px apart. Rows are split by a hairline with 14px above it. A row's sentence sits on the label's line at 12.5px/18px; what a pick means goes under the control in 12px muted. On phones (480px, or 900px with a coarse pointer) the label goes back above its controls.
+- **Stop list:** what an action does, in the order it runs. Rows at least 32px, 12px between marker and label. A fixed step is a 7px ink square; an optional step is the 14px checkbox, and its label turns faint when off; a hairline-strong rail runs from each marker to the next, under them. A note sits at the stop's right in 11px faint; a stop's own options open under it, 26px in, only while it is on.
+- **Footer:** padding 12px 16px 12px 20px, a hairline above it. A note at the left in 12px faint: the Ctrl/⌘ ↵ hint with the primary's verb ("Ctrl ↵ create", key caps in the focus head's style), or "This cannot be undone." on a Confirm. The buttons sit together at their natural width on the right, 8px apart: Back, then the one loud control last, the white primary or, when the dialog throws work away, the filled red button. A secondary red button that is not last goes to the far left. Short of room the note takes its own line above the buttons; on phones the buttons share the width equally and the Ctrl ↵ hint is hidden.
+- **Keys:** Escape and a press on the scrim dismiss; Ctrl/⌘+Enter presses the footer's enabled primary unless a field inside took the key. A Confirm starts focus on Back, so a stray Enter throws nothing away.
+- **Words:** "Back" is the dismiss button in dialog footers. Dialogs say what they do in plain sentences; no git command is shown.
+- **Running work:** the AI rebase dialog draws the commits it replays as stations on a hairline-strong line (9px rings): replayed ones fill ink and their line turns ink, the current one is an 11px disc under the Agent Working Rule, red where the rebase stopped. Past 24 commits it falls back to a 6px Raised bar with 3px corners.
+
+**The Route Rule.** A dialog shows the operation before its form: the route of what moves where in its head, the steps it runs as stops, then labelled rows, and exactly one loud control, last in the footer.
+
 ### Context menus
 A menu item's hint sits at the right end of its row, 12px from the label, in Inter 12px faint (Meta type), clipped with an ellipsis at half the row so the label keeps its room. Plain words stay in Inter; a hint holding a SHA wraps the SHA in Mono (Copy SHA in the commit and stash menus). The Mono Rule.
 
@@ -775,6 +840,8 @@ Not built, by choice, and not components: counts on the section tabs, "fetched X
 - **Do** dock the agents panel right at 460px in both views.
 - **Do** put each action under the station it moves the subject to, with exactly one white primary on the station that fixes the state.
 - **Do** set menu hints, captions and sentences in Inter, and wrap only a SHA, path, ref or URL inside them in Mono.
+- **Do** draw a dialog's operation as a route under its title, its steps as stops, and its form as labelled rows with a 100px label column.
+- **Do** end a dialog footer with Back then one loud control at natural width: the white primary, or the filled red button when the dialog throws work away.
 
 ### Don't:
 - **Don't** use gradient text, glows, coloured halos or drop-shadow filters, except the rainbow on agent work under the Agent Working Rule.
@@ -788,3 +855,6 @@ Not built, by choice, and not components: counts on the section tabs, "fetched X
 - **Don't** put commits inside a branch box or wrap them in a card on the map.
 - **Don't** put ahead/behind inside the box, or a separate rebase button under the commits.
 - **Don't** put a coloured side bar on a box, note or callout; a note is a hairline row with a leading icon.
+- **Don't** stretch dialog footer buttons to equal widths or stack field labels above their controls in a dialog, except on phones.
+- **Don't** fill a red button anywhere but the last place in a dialog footer; elsewhere destructive stays the outline with red text.
+- **Don't** put a shadow on a modal; it is a hairline panel over the scrim.
