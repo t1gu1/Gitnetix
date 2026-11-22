@@ -14,6 +14,16 @@ the in-app update prompt.
 
 ## [Unreleased]
 
+### Added (App)
+- Draft a ticket title and description from a request, or from a branch's diff and commits.
+- Add ticket studies. A study reads throwaway checkouts of the default branch of one or more projects, runs them when useful, and writes the ticket. The checkouts are removed once the ticket is created or the session is deleted.
+- Create tickets in Jira, Linear, Trello, Asana or GitHub issues, and make a new ticket the ticket of a branch.
+- Add feature, task and bug ticket templates and a ticket language setting.
+- Add the GITNETIX_DEV_PORT variable to run the dev server on another port when port 1420 is taken. The HMR port is the dev port plus one.
+
+### Changed (App)
+- Widen the new session dialog to 760 px and move the picker beside project, branch and ticket. The request box starts at 10 rows and grows with the text until the dialog reaches the window height, then scrolls.
+
 ## [0.30.0] - 2026-11-21
 
 ### Added (App)
