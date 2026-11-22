@@ -230,6 +230,18 @@ components:
     rounded: "{rounded.md}"
     padding: "0 10px"
     height: "28px"
+  switch:
+    backgroundColor: "transparent"
+    textColor: "{colors.faint}"
+    rounded: "{rounded.md}"
+    width: "28px"
+    height: "16px"
+  switch-on:
+    backgroundColor: "{colors.ink}"
+    textColor: "{colors.ground}"
+    rounded: "{rounded.md}"
+    width: "28px"
+    height: "16px"
   icon-button:
     textColor: "{colors.muted}"
     rounded: "{rounded.md}"
@@ -583,6 +595,18 @@ components:
     rounded: "{rounded.md}"
     padding: "0 14px"
     height: "30px"
+  settings-box:
+    backgroundColor: "{colors.panel}"
+    rounded: "{rounded.md}"
+  settings-row:
+    textColor: "{colors.muted}"
+    typography: "{typography.body}"
+    height: "30px"
+  settings-value:
+    textColor: "{colors.ink}"
+    typography: "{typography.body-strong}"
+    rounded: "{rounded.sm}"
+    padding: "2px 6px"
 ---
 
 # Design System: Gitnetix
@@ -621,7 +645,7 @@ Do:
 - Do show a disabled primary as the outline with a faint label.
 - Do draw a dialog's operation as a route under its title (solid station for what exists, hollow for what will, red and struck for what is lost, dashed line for not yet), its steps as stops, and its form as labelled rows with a 100px label column.
 - Do end a dialog footer with a faint note at the left and Back then one loud control at natural width on the right.
-- (+12 more in the full file)
+- (+13 more in the full file)
 Map: src/lib/themes.ts
 Map: src/components/ui.tsx
 Map: .impeccable/mocks/slate-direction.html

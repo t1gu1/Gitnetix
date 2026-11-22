@@ -197,7 +197,7 @@ export function DictationKeys() {
 }
 
 /** A shortcut as key caps. */
-function Keys({ keys }: { keys: string }) {
+export function Keys({ keys }: { keys: string }) {
   return (
     <span className="keys">
       {keyCaps(keys).map((k, i) => (

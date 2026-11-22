@@ -320,15 +320,22 @@ a:hover {
   padding: 0 16px;
   min-width: 0;
 }
-.hdr-logo {
-  width: 28px;
-  height: 28px;
-  margin-left: -11px;
-  flex: none;
-}
 .hdr-title strong {
   font-weight: 600;
   white-space: nowrap;
+}
+/* The settings panel's title: the screen title's Display Title, its version beside it. */
+.hdr-settings {
+  margin: 0;
+  font: 600 18px/1 var(--display);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.hdr-version {
+  font-size: 11px;
+  position: relative;
+  top: 1px;
 }
 .hdr-tools {
   display: flex;
@@ -743,7 +750,6 @@ body.dragging-tab * {
     .commit-row,
     .stash-row,
     .ctx-item,
-    .app-row,
     .list-link,
     .picker-act,
     .term-tab,
@@ -1112,6 +1118,36 @@ body.dragging-tab * {
 .check input:focus-visible {
   outline: 1px solid var(--fg);
   outline-offset: 2px;
+}
+/* A switch (role="switch"): a 28x16 track with the checkbox's corners and a square knob that snaps across; on, filled ink with a
+   ground-coloured knob. Drawn with a gradient, as a checkbox's ::after is not drawn everywhere. */
+.switch {
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  appearance: none;
+  width: 28px;
+  height: 16px;
+  margin: 0;
+  border: 1px solid var(--faint);
+  border-radius: var(--r);
+  background: linear-gradient(var(--faint), var(--faint)) 2px 50% / 10px 10px no-repeat;
+  cursor: pointer;
+  transition: border-color var(--t-fast) var(--ease);
+}
+:is(label:hover > .switch, .switch:hover):not(:disabled, :checked) {
+  border-color: var(--muted);
+}
+.switch:checked {
+  border-color: var(--fg);
+  background: linear-gradient(var(--bg), var(--bg)) calc(100% - 2px) 50% / 10px 10px no-repeat var(--fg);
+}
+.switch:focus-visible {
+  outline: 1px solid var(--fg);
+  outline-offset: 2px;
+}
+.switch:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 /* A radio: round, an ink dot when picked (a group with none picked counts as indeterminate: it stays an empty ring). */
 .check input[type="radio"] {
@@ -9255,11 +9291,11 @@ button.pr-status-row:hover > .grow {
   background: var(--scrim);
   animation: fade-in var(--t) var(--ease);
 }
-/* The menu's two columns follow the drawer in, a beat apart. */
-.menu-grid:not(.menu-embed) > .menu-col {
+/* The settings follow the drawer in: the cards, then the sheet a beat later. */
+.menu-sheet > * {
   animation: rise-in var(--t) var(--ease) both;
 }
-.menu-grid:not(.menu-embed) > .menu-col + .menu-col {
+.menu-sheet > * + * {
   animation-delay: 0.05s;
 }
 @keyframes menu-in {
@@ -9300,7 +9336,7 @@ button.pr-status-row:hover > .grow {
 @media (prefers-reduced-motion: reduce) {
   .menu-panel,
   .menu-scrim,
-  .menu-col {
+  .menu-sheet > * {
     animation: none !important;
   }
 }
@@ -9320,18 +9356,10 @@ button.pr-status-row:hover > .grow {
   overflow-y: auto;
   container-type: inline-size;
 }
+/* The frame of a page with a list and a detail (AI setup, templates, logs), opened inside the panel. */
 .menu-grid {
   width: 100%;
-  max-width: 760px;
   margin-inline: auto;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  grid-template-areas: "profile" "project" "app";
-  gap: 22px;
-  align-items: start;
-}
-.menu-profile {
-  grid-area: profile;
 }
 .menu-col {
   display: flex;
@@ -9339,41 +9367,285 @@ button.pr-status-row:hover > .grow {
   gap: 6px;
   min-width: 0;
 }
-.menu-project {
-  grid-area: project;
+/* The settings home (Menu.tsx): the profile and phone cards, then every setting as a short label and its value, in a box per scope.
+   The boxes sit on the ground, one step under them, like the cards. */
+.menu-home {
+  background: var(--bg);
 }
-.menu-app {
-  grid-area: app;
+.menu-sheet {
+  width: 100%;
+  max-width: 1160px;
+  margin-inline: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
-.menu-project,
-.menu-app {
-  gap: 24px;
+.menu-duo {
+  display: flex;
+  align-items: stretch;
+  gap: 16px;
 }
-.menu-section {
-  padding: 4px 0 6px;
+.menu-duo > .profile-card {
+  flex: 1.2 1 0;
 }
-@container (min-width: 960px) {
-  .menu-grid {
-    max-width: 1040px;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    grid-template-areas: "profile profile" "project app";
-    column-gap: 40px;
+.menu-duo > .phone-card {
+  flex: 1 1 0;
+}
+/* This project over two columns, the app and AI & connections stacked in the third; every box ends on one line. */
+.sheet {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: 16px;
+}
+.sheet-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+.sheet-stack > .sheet-box:last-child {
+  flex: 1 1 auto;
+}
+/* No project open: the two app boxes side by side. */
+.sheet.solo {
+  grid-template-columns: minmax(0, 1fr);
+}
+.sheet.solo > .sheet-stack {
+  flex-direction: row;
+  align-items: flex-start;
+}
+.sheet.solo .sheet-box {
+  flex: 1 1 0;
+}
+.sheet-box {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border: 1px solid var(--line2);
+  border-radius: var(--r);
+  background: var(--panel);
+}
+.sheet-h {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  padding: 13px 16px 12px;
+  border-bottom: 1px solid var(--line2);
+}
+.sheet-h > h2 {
+  flex: 0 0 auto;
+  max-width: 100%;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+.sheet-h > .hint {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+.sheet-h > .mono {
+  flex: 0 1 auto;
+  font-size: 11px;
+}
+/* The path is cut from its start (the <bdi> keeps its characters in order): its end names the project. */
+.sheet-path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+}
+.sheet-cols {
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.sheet-col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 0 16px 8px;
+}
+.sheet-cols > .sheet-col + .sheet-col {
+  border-left: 1px solid var(--line);
+}
+.sheet-lab {
+  padding: 16px 0 4px;
+}
+.sheet-lab:first-child {
+  padding-top: 12px;
+}
+.sheet-lab[data-tip] {
+  align-self: flex-start;
+  cursor: help;
+}
+.sheet-lab[tabindex]:focus-visible {
+  outline: 1px solid var(--fg);
+  outline-offset: 2px;
+}
+/* A label's full sentence: the tooltip says it with a mouse; a touch screen, which has no hover, prints it under the label. */
+.sheet-tip,
+.sheet-lab-tip {
+  display: none;
+}
+/* A setting: its short label (the full sentence on hover), then its value, its switch, or the arrow of a page. */
+.sheet-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  min-height: 30px;
+  border-bottom: 1px solid var(--line);
+}
+.sheet-col > .sheet-row:last-child {
+  border-bottom: 0;
+}
+label.sheet-row {
+  cursor: pointer;
+}
+.sheet-k {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  transition: color var(--t-fast) var(--ease);
+}
+.sheet-row:hover > .sheet-k {
+  color: var(--fg);
+}
+.sheet-row.sub > .sheet-k {
+  padding-left: 14px;
+}
+.sheet-val {
+  flex: 0 1 auto;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-right: -6px;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--fg);
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color var(--t-fast) var(--ease);
+}
+.sheet-val:hover {
+  background: var(--sel);
+}
+.sheet-val.mono {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 400;
+}
+.sheet-val > svg,
+.sheet-link > svg {
+  flex: 0 0 auto;
+  color: var(--faint);
+}
+.sheet-link {
+  width: 100%;
+  padding: 0;
+  border-top: 0;
+  border-inline: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.sheet-link > svg {
+  margin-left: -4px;
+  transition: color var(--t-fast) var(--ease);
+}
+.sheet-link:hover > svg {
+  color: var(--fg);
+}
+.sheet-v {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 62%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg);
+  font-weight: 500;
+}
+.sheet-v.mono,
+.sheet-v > .mono {
+  font-size: 12px;
+  font-weight: 400;
+}
+.sheet-v.none {
+  color: var(--faint);
+  font-weight: 400;
+}
+/* Under the boxes: remove the open project, and the logs. */
+.sheet-foot {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+}
+.sheet-foot > .btn:first-child:not(.sheet-logs) {
+  margin-left: -8px;
+}
+.sheet-foot > .sheet-logs {
+  margin-left: auto;
+}
+@container (max-width: 860px) {
+  .menu-duo,
+  .sheet.solo > .sheet-stack {
+    flex-direction: column;
+  }
+  .sheet,
+  .sheet-cols {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .sheet-cols > .sheet-col + .sheet-col {
+    border-left: 0;
+    border-top: 1px solid var(--line);
   }
 }
-/* No project open: the app column alone, centered. */
-.menu-grid.solo {
-  max-width: 560px;
-  grid-template-columns: minmax(0, 1fr);
-  grid-template-areas: "profile" "app";
+@media (max-width: 900px) and (pointer: coarse), (max-width: 480px) {
+  .sheet-row {
+    min-height: 40px;
+  }
+}
+@media (pointer: coarse) {
+  .sheet-k {
+    padding-block: 7px;
+    white-space: normal;
+  }
+  .sheet-tip {
+    display: block;
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--faint);
+  }
+  .sheet-lab-tip {
+    display: block;
+    margin: 0 0 4px;
+  }
 }
 
-/* The active profile atop the settings (Menu.tsx): avatar, name and what it holds, its actions, then the other profiles. */
+/* The active profile atop the settings (Menu.tsx): avatar, name with its actions, what it holds, then the other profiles at the foot. */
 .profile-card {
+  min-width: 0;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-content: start;
   align-items: center;
-  gap: 14px 18px;
-  padding: 18px;
+  gap: 14px 16px;
+  padding: 18px 20px 16px;
   border: 1px solid var(--line2);
   border-radius: var(--r);
   background: var(--panel);
@@ -9381,26 +9653,42 @@ button.pr-status-row:hover > .grow {
 .profile-card > .profile-avatar {
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--p-color) 50%, transparent);
 }
-.profile-card .menu-section {
-  padding: 0;
+.profile-card-id {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.profile-card-name {
+  display: flex;
+  align-items: center;
+  gap: 4px 8px;
+  min-width: 0;
+}
+.profile-card-name > h2 {
+  flex: 0 1 auto;
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 24px;
 }
 .profile-card-actions {
+  flex: 0 0 auto;
   display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 6px;
+  gap: 4px;
+  margin-left: auto;
 }
 .profile-card-note {
   grid-column: 1 / -1;
   margin: 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
 }
 .profile-others {
   grid-column: 1 / -1;
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  padding-top: 14px;
-  border-top: 1px solid var(--line);
 }
 .profile-chip {
   display: inline-flex;
@@ -9444,12 +9732,11 @@ button.pr-status-row:hover > .grow {
   border-color: color-mix(in srgb, var(--line), var(--fg) 30%);
 }
 @container (max-width: 560px) {
-  .profile-card {
-    grid-template-columns: auto minmax(0, 1fr);
+  .profile-card-name {
+    flex-wrap: wrap;
   }
   .profile-card-actions {
-    grid-column: 1 / -1;
-    justify-content: flex-start;
+    margin-left: -8px;
   }
 }
 
@@ -9612,143 +9899,6 @@ button.pr-status-row:hover > .grow {
 .menu-embed .page-inner {
   max-width: none;
 }
-.app-list {
-  display: flex;
-  flex-direction: column;
-  border: 1px solid var(--line);
-  border-radius: var(--r);
-}
-.app-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-height: 48px;
-  padding: 0 14px 0 16px;
-  border: 0;
-  background: transparent;
-  color: var(--fg);
-  text-align: left;
-  width: 100%;
-}
-.app-list > .app-row + .app-row {
-  border-top: 1px solid var(--line);
-}
-button.app-row:hover {
-  background: var(--raised);
-}
-.app-row > svg {
-  color: var(--muted);
-  flex: 0 0 auto;
-}
-.app-row-label {
-  font-weight: 500;
-}
-.app-row-sub {
-  margin-left: auto;
-  font-size: 12px;
-  color: var(--faint);
-  text-align: right;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-/* The row opens a page. */
-.app-row > .app-row-chev {
-  color: var(--faint);
-  margin-left: -4px;
-  transition: color var(--t-fast) var(--ease);
-}
-button.app-row:hover > .app-row-chev {
-  color: var(--fg);
-}
-
-/* Menu settings: a title and hint over a framed list of rows. */
-.menu-head {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-.menu-head-name {
-  font-size: 20px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  line-height: 1.3;
-  overflow-wrap: anywhere;
-}
-.menu-head > .mono {
-  font-size: 12px;
-}
-.menu-head > .hint {
-  margin-top: 6px;
-}
-.set-group {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-width: 0;
-}
-.set-group-head {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 12px;
-  padding-inline: 2px;
-}
-.set-group-head h3,
-.set-group-title {
-  margin: 0;
-  padding-inline: 2px;
-  font-size: 13px;
-  font-weight: 600;
-}
-.set-group-head h3 {
-  padding: 0;
-}
-.set-group-head .hint {
-  margin: 0;
-  max-width: 64ch;
-}
-.set-card {
-  display: flex;
-  flex-direction: column;
-  padding: 0 14px;
-  border: 1px solid var(--line);
-  border-radius: var(--r);
-}
-.set-card > * {
-  padding-block: 6px;
-}
-.set-card > * + * {
-  border-top: 1px solid var(--line);
-}
-.set-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px 16px;
-  min-height: 44px;
-}
-.set-row > .seg.grid {
-  flex: 1 1 100%;
-}
-.set-sub {
-  margin: 0 0 8px 26px;
-}
-.set-danger {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 10px;
-  padding-top: 16px;
-  border-top: 1px solid var(--line);
-}
-.set-danger > .btn {
-  margin-left: -8px;
-}
-
 /* Gitnetix on a phone: the QR code with the address and token it holds, or what makes it possible. */
 .phone-card {
   display: grid;

@@ -230,6 +230,18 @@ components:
     rounded: "{rounded.md}"
     padding: "0 10px"
     height: "28px"
+  switch:
+    backgroundColor: "transparent"
+    textColor: "{colors.faint}"
+    rounded: "{rounded.md}"
+    width: "28px"
+    height: "16px"
+  switch-on:
+    backgroundColor: "{colors.ink}"
+    textColor: "{colors.ground}"
+    rounded: "{rounded.md}"
+    width: "28px"
+    height: "16px"
   icon-button:
     textColor: "{colors.muted}"
     rounded: "{rounded.md}"
@@ -583,6 +595,18 @@ components:
     rounded: "{rounded.md}"
     padding: "0 14px"
     height: "30px"
+  settings-box:
+    backgroundColor: "{colors.panel}"
+    rounded: "{rounded.md}"
+  settings-row:
+    textColor: "{colors.muted}"
+    typography: "{typography.body}"
+    height: "30px"
+  settings-value:
+    textColor: "{colors.ink}"
+    typography: "{typography.body-strong}"
+    rounded: "{rounded.sm}"
+    padding: "2px 6px"
 ---
 
 # Design System: Gitnetix
@@ -684,7 +708,7 @@ Focus: `outline: 1px solid` ink, `outline-offset: 2px`. No blurred focus halo. T
 
 ## Shapes
 
-Corners are 3px on controls, boxes, cards and inputs, 2px on status tags, check boxes, the "+" square, the line chip and the key cap, 0 on shell bars and tabs. Circles only for avatars, status dots, stations (trunk, route, run) and the timeline commit marks, plus radio inputs (round, an ink dot of 3px radius when picked). No pills: anything that was `border-radius: 999px` becomes 3px unless it is a dot. A dashed border or line means falling behind, idle, uncommitted, not there yet or not there at all (falling-behind box, its link and its line chip; the 6px WIP dot; a not-cloned submodule's ring, its Not cloned tag, the pin line's rail toward new remote commits and its rail when there is no remote). A dashed route line in a dialog head means the same: not happening yet. Two square silhouettes join the circles: a submodule's remote tip is an 11px square turned 45deg, so the commit you don't have yet reads apart from the ones you do; and a fixed step on a dialog's stop list is a 7px ink square with no radius, apart from the checkbox of an optional one.
+Corners are 3px on controls, boxes, cards and inputs, 2px on status tags, check boxes, the "+" square, the line chip and the key cap, 0 on shell bars and tabs. Circles only for avatars, status dots, stations (trunk, route, run) and the timeline commit marks, plus radio inputs (round, an ink dot of 3px radius when picked). No pills: anything that was `border-radius: 999px` becomes 3px unless it is a dot. A dashed border or line means falling behind, idle, uncommitted, not there yet or not there at all (falling-behind box, its link and its line chip; the 6px WIP dot; a not-cloned submodule's ring, its Not cloned tag, the pin line's rail toward new remote commits and its rail when there is no remote). A dashed route line in a dialog head means the same: not happening yet. Two square silhouettes join the circles: a submodule's remote tip is an 11px square turned 45deg, so the commit you don't have yet reads apart from the ones you do; a fixed step on a dialog's stop list is a 7px ink square with no radius, apart from the checkbox of an optional one; and a switch's 10px knob is a square with no radius.
 
 ## Components
 
@@ -704,6 +728,9 @@ Muted text; the active one is ink with a 2px ink underline (inset box-shadow). R
 
 ### Check toggles
 Map filters that switch a set on or off (Merged, Falling behind, Shipped). 28px tall, 1px hairline-strong outline, 3px corners, muted Inter 500 with a Mono 11px faint count. A 12px square box with 2px corners sits before the label: faint outline when off; filled ink with a ground check mark when on, and the label turns ink. A related action joins its toggle as a split (Falling behind | Clean up), sharing one border.
+
+### Switches
+An on/off setting in the settings panel (`.switch`, `role="switch"`). A 28x16 track with the 3px corners of the other controls and a 10px square knob 2px from the edge: faint outline and faint knob when off; filled ink with a ground-coloured knob when on. The knob snaps across with no slide. Hovering its row lifts the outline to muted; keyboard focus draws the 1px ink ring. The whole row is its label, so a click anywhere on the row flips it. Map filters stay check toggles.
 
 ### Toolbar
 The 48px row under the section tabs: the screen title in Display Title, then the Everyone/Mine segment, the check toggles, and, pushed right, a 28px icon button for search, a small outlined stash button (stash icon and "N stashes", sentence case; only when the project has stashes), a fetch icon button, and a zoom group (minus, Mono 12px percentage, plus, Fit) in one outlined 3px box.
@@ -820,6 +847,13 @@ Every dialog goes through `Modal` or `Confirm` (`src/components/ui.tsx`) and rea
 ### Context menus
 A menu item's hint sits at the right end of its row, 12px from the label, in Inter 12px faint (Meta type), clipped with an ellipsis at half the row so the label keeps its room. Plain words stay in Inter; a hint holding a SHA wraps the SHA in Mono (Copy SHA in the commit and stash menus). The Mono Rule.
 
+### Settings panel
+The panel's home is a spec sheet: every setting is a short label and its current value, changed in place. Its header is the screen title, SETTINGS in Display Title, with the version beside it in Mono 11px faint. On top, the profile card (64px avatar, name with Edit, Duplicate and Delete at top right, identity, note, other profiles) sits beside the "Gitnetix on your phone" card with its QR code. Below, a box per scope: the open project over two columns, the app and AI & connections stacked in the third, all ending on one line, and a row under them with Remove project and Logs.
+- **Box:** panel fill on the ground, 1px hairline-strong border, 3px corners; its head is the scope's name (Inter 14px 600), a faint hint and, for a project, its path in Mono 11px with `~` for the home folder, cut from its start.
+- **Row:** 30px (40px on phones) on a 1px hairline: the short label in muted Inter 13px, then its value in ink 500. A switch flips in place; a value with a chevron-down opens a context menu under it, right-aligned; a value with a chevron-right opens its page in the panel (lists such as branch types, worktree files, shortcuts, AI setup). Paths, branch-type prefixes and format strings in values are Mono; keys are key caps.
+- **Group label:** Label type (wide-tracked caps, faint) over its rows; its sentence shows on hover and keyboard focus.
+- **Full sentences:** a short label's full sentence shows on hover and on keyboard focus of its row. A touch screen has no hover, so it prints the sentence under the label in faint 12px, and each group's sentence under the group label, except where the sentence only repeats the label.
+
 ### Deliberate omissions from the mock
 Not built, by choice, and not components: counts on the section tabs, "fetched Xm ago" by the fetch control, the 44px icon rail beside the diff, and the agent's duration on map boxes.
 
@@ -842,6 +876,7 @@ Not built, by choice, and not components: counts on the section tabs, "fetched X
 - **Do** set menu hints, captions and sentences in Inter, and wrap only a SHA, path, ref or URL inside them in Mono.
 - **Do** draw a dialog's operation as a route under its title, its steps as stops, and its form as labelled rows with a 100px label column.
 - **Do** end a dialog footer with Back then one loud control at natural width: the white primary, or the filled red button when the dialog throws work away.
+- **Do** show a setting as a short muted label and its value on a hairline row: a switch for on or off, a value with a chevron for a menu or a page, the full sentence on hover and keyboard focus, printed under the label on a touch screen when it adds words.
 
 ### Don't:
 - **Don't** use gradient text, glows, coloured halos or drop-shadow filters, except the rainbow on agent work under the Agent Working Rule.

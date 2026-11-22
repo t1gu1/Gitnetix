@@ -3,26 +3,28 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties, type Reac
 import { useAction, useConfig, useProjectPrefs } from "../api/hooks";
 import { currentRemote, isLocal, isTauri, saveRemote } from "../api/transport";
 import type { Config, DialogPrefs, Project, UserProfile } from "../api/types";
+import { MenuChoice } from "../components/AgentPicker";
 import { BranchTypesEditor } from "../components/BranchTypes";
 import { Icon } from "../components/Icon";
-import { Logo } from "../components/Logo";
 import { checkUpdate, devVersion } from "../components/UpdatePrompt";
 import { DeleteProfile, ProfileAvatar, ProfileDialog, useProfiles } from "../components/Profiles";
 import { plural } from "../lib/format";
 import { useTermDefault } from "../components/Shell";
-import { Confirm, LANGS, RELEASE_LANGS, Seg } from "../components/ui";
-import { DEFAULTS, SHORTCUTS, showKeys, useKeys } from "../lib/keys";
+import { Confirm, LANGS, RELEASE_LANGS } from "../components/ui";
+import { DEFAULTS, SHORTCUTS, useKeys } from "../lib/keys";
 import { animates, useAnimations } from "../lib/motion";
 import { useNav } from "../lib/nav";
 import { THEMES } from "../lib/themes";
 import { toast } from "../lib/toast";
 import { AISetupPanes } from "./AISetup";
 import { LogsPane } from "./Logs";
-import { GROUPS, LINK_PLACEHOLDER, PhoneCard, SettingsSection, WorktreeFiles } from "./Settings";
+import { GROUPS, Keys, LINK_PLACEHOLDER, PhoneCard, SettingsSection, WorktreeFiles } from "./Settings";
 import { TemplatesPanes } from "./Templates";
 
-/** Titles of the pages opened in place inside the panel, by id: the GROUPS sections and the logs. */
-const TITLES: Record<string, string> = Object.fromEntries([...GROUPS.flatMap(([, items]) => items.map(([id, label]) => [id, label])), ["logs", "Logs"]]);
+/** Titles of the pages opened in place inside the panel, by id: the GROUPS sections, the project's pages and the logs. */
+const TITLES: Record<string, string> = Object.fromEntries([...GROUPS.flatMap(([, items]) => items.map(([id, label]) => [id, label])), ["logs", "Logs"], ["branchTypes", "Branch types"], ["projectFiles", "Worktree files"]]);
+/** Pages of the open project's settings, opened from its box. */
+const PROJECT_PAGES = ["branchTypes", "projectFiles"];
 /** Pages with a list and a detail of their own, shown in a frame instead of as a settings section. */
 const PANES = ["ai", "templates", "logs"];
 
@@ -64,8 +66,8 @@ export function Menu({ onUnpair }: { onUnpair: () => void }) {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      // A dialog over the menu (a confirmation) takes this Escape for itself.
-      if (e.key === "Escape" && !document.querySelector(".modal")) (view ? back() : close());
+      // A dialog over the menu (a confirmation) or an open value menu takes this Escape for itself.
+      if (e.key === "Escape" && !document.querySelector(".modal, .ctx-menu")) (view ? back() : close());
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -77,7 +79,7 @@ export function Menu({ onUnpair }: { onUnpair: () => void }) {
         className="menu-panel"
         role="dialog"
         aria-modal="true"
-        aria-label="Menu"
+        aria-label="Settings"
         onAnimationEnd={(e) => {
           if (closing && e.target === e.currentTarget) nav.closeMenu();
         }}
@@ -93,19 +95,12 @@ export function Menu({ onUnpair }: { onUnpair: () => void }) {
             </button>
           )}
           <div className="hdr-title">
-            {!view && <Logo className="hdr-logo" />}
-            <strong>{view ? TITLES[view] : "Gitnetix"}</strong>
+            {view ? <strong>{TITLES[view]}</strong> : <h1 className="hdr-settings">Settings</h1>}
             {!view && version && (
-              <span className="mono faint" style={{ fontSize: 9, position: "relative", top: 2, marginLeft: -3 }}>
+              <span className="mono faint hdr-version">
                 v{version}
                 {devVersion && " dev"}
               </span>
-            )}
-            {!view && project && (
-              <>
-                <span className="faint">·</span>
-                <span className="muted">{project.name}</span>
-              </>
             )}
           </div>
           {!view && isLocal && (
@@ -127,14 +122,26 @@ export function Menu({ onUnpair }: { onUnpair: () => void }) {
             </div>
           ) : view ? (
             <main className="page menu-page">
-              <div className="page-inner">{cfg && <SettingsSection id={view} cfg={cfg} />}</div>
+              <div className="page-inner">{PROJECT_PAGES.includes(view) ? project && <ProjectPage id={view} project={project} /> : cfg && <SettingsSection id={view} cfg={cfg} />}</div>
             </main>
           ) : (
-            <nav aria-label="Main menu" className="menu">
-              <div className={`menu-grid${project ? "" : " solo"}`}>
-                {cfg && <ProfileCard cfg={cfg} />}
-                {project && <ProjectSettings key={project.id} project={project} />}
-                <AppSettings cfg={cfg} open={open} onUnpair={onUnpair} />
+            <nav aria-label="Main menu" className="menu menu-home">
+              <div className="menu-sheet">
+                <div className="menu-duo">
+                  {cfg && <ProfileCard cfg={cfg} />}
+                  <PhoneSlot cfg={cfg} onUnpair={onUnpair} />
+                </div>
+                <div className={`sheet${project ? "" : " solo"}`}>
+                  {project && <ProjectSettings key={project.id} project={project} open={open} />}
+                  <AppSettings cfg={cfg} open={open} />
+                  <div className="sheet-foot">
+                    {project && <RemoveProject key={project.id} project={project} />}
+                    <button className="btn btn-sm btn-ghost sheet-logs" onClick={() => open("logs")}>
+                      <Icon name="file" size={12} />
+                      Logs
+                    </button>
+                  </div>
+                </div>
               </div>
             </nav>
           )}
@@ -145,7 +152,7 @@ export function Menu({ onUnpair }: { onUnpair: () => void }) {
   );
 }
 
-/** The active profile atop the settings, which are all its own; the other profiles to switch to, and new ones. */
+/** The active profile, first of the settings, which are all its own: its actions beside its name, the other profiles to switch to, and new ones. */
 function ProfileCard({ cfg }: { cfg: Config }) {
   const { list, active, switchTo } = useProfiles();
   const [dialog, setDialog] = useState<{ profile?: UserProfile; from?: string } | null>(null);
@@ -157,30 +164,31 @@ function ProfileCard({ cfg }: { cfg: Config }) {
   const facts = [plural(cfg.projects.length, "project"), i.githubConnected && "GitHub", i.azureConnected && "Azure DevOps", i.gitlab.connected && "GitLab", i.bitbucket.connected && "Bitbucket", i.gitea.connected && "Gitea", i.jira.length && "Jira", i.trello.length && "Trello", i.asana.length && "Asana", i.linear.length && "Linear"];
   const others = list.filter((p) => p.id !== active.id);
   return (
-    <section className="menu-col menu-profile" aria-labelledby="menu-profile-name">
-      <div className="profile-card" data-hue={active.hue != null || undefined} style={{ "--p-hue": active.hue ?? undefined } as CSSProperties}>
+    <>
+      <section className="profile-card" aria-labelledby="menu-profile-name" data-hue={active.hue != null || undefined} style={{ "--p-hue": active.hue ?? undefined } as CSSProperties}>
         <ProfileAvatar profile={active} size={64} />
-        <div className="col" style={{ gap: 2, minWidth: 0 }}>
-          <h2 className="label menu-section">Profile</h2>
-          <strong id="menu-profile-name" className="menu-head-name">{active.name}</strong>
+        <div className="profile-card-id">
+          <div className="profile-card-name">
+            <h2 id="menu-profile-name" className="ellipsis">{active.name}</h2>
+            <div className="profile-card-actions">
+              <button className="btn btn-sm" onClick={() => setDialog({ profile: active })}>
+                <Icon name="edit" size={12} />
+                Edit
+              </button>
+              <button className="btn btn-sm" onClick={() => setDialog({ from: active.id })}>
+                <Icon name="copy" size={12} />
+                Duplicate
+              </button>
+              <button className="btn btn-sm btn-ghost btn-danger" disabled={!others.length} title={others.length ? undefined : "The only profile stays"} onClick={() => setDeleting(active)}>
+                <Icon name="trash" size={12} />
+                Delete
+              </button>
+            </div>
+          </div>
           <span className="hint ellipsis" title={who || undefined}>
             {who ? `Commits as ${who}${me?.sign ? ", signed" : ""}` : "Commits with your Git config's name and email"}
           </span>
           <span className="hint">{facts.filter(Boolean).join(" · ")}</span>
-        </div>
-        <div className="profile-card-actions">
-          <button className="btn btn-sm" onClick={() => setDialog({ profile: active })}>
-            <Icon name="edit" size={12} />
-            Edit
-          </button>
-          <button className="btn btn-sm" onClick={() => setDialog({ from: active.id })}>
-            <Icon name="copy" size={12} />
-            Duplicate
-          </button>
-          <button className="btn btn-sm btn-ghost btn-danger" disabled={!others.length} title={others.length ? undefined : "The only profile stays"} onClick={() => setDeleting(active)}>
-            <Icon name="trash" size={12} />
-            Delete
-          </button>
         </div>
         <p className="hint profile-card-note">The Git identity, projects, connections, AI setup and every setting below belong to this profile. Each profile keeps its own.</p>
         <div className="profile-others">
@@ -200,166 +208,237 @@ function ProfileCard({ cfg }: { cfg: Config }) {
             New profile
           </button>
         </div>
-      </div>
+      </section>
       {dialog && <ProfileDialog {...dialog} menu onClose={() => setDialog(null)} />}
       {deleting && <DeleteProfile profile={deleting} onClose={() => setDeleting(null)} />}
-    </section>
+    </>
   );
 }
 
-/** A titled block of settings; `bare` leaves out the frame, for content that has its own. */
-function Group({ title, id, hint, action, bare, children }: { title: string; id?: string; hint?: ReactNode; action?: ReactNode; bare?: boolean; children: ReactNode }) {
+/** Gitnetix on a phone beside the profile: its QR code on the computer, the desktop it is paired with on the phone. */
+function PhoneSlot({ cfg, onUnpair }: { cfg?: Config; onUnpair: () => void }) {
+  if (isLocal) return cfg ? <PhoneCard server={cfg.server} /> : null;
   return (
-    <section className="set-group">
-      <div className="set-group-head">
-        <div className="col" style={{ gap: 2, minWidth: 0 }}>
-          <h3 id={id}>{title}</h3>
-          {hint && <p className="hint">{hint}</p>}
-        </div>
-        {action}
+    <div className="phone-card">
+      <span className="phone-icon">
+        <Icon name="phone" size={18} />
+      </span>
+      <div className="col" style={{ gap: 4, minWidth: 0 }}>
+        <strong className="phone-title">Connected to your desktop</strong>
+        <span className="mono hint ellipsis">{currentRemote()?.url}</span>
       </div>
-      {bare ? children : <div className="set-card">{children}</div>}
+      <div className="phone-foot">
+        <button
+          className="btn btn-sm btn-ghost btn-danger"
+          onClick={() => {
+            saveRemote(null);
+            onUnpair();
+          }}
+        >
+          Disconnect from this desktop
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * A short label, the full sentence when it leaves words out: shown on hover and on the row's keyboard focus, under the label on a touch screen.
+ * `restates`: the sentence only repeats the label in more words, so a touch screen leaves it out.
+ */
+function SheetKey({ label, tip, restates }: { label: string; tip?: string; restates?: boolean }) {
+  return (
+    <span className="sheet-k" data-tip-overflow={tip ? undefined : ""}>
+      {label}
+      {tip && !restates && <span className="sheet-tip">{tip}</span>}
+    </span>
+  );
+}
+
+/** A path under the user's home folder starts with ~. */
+const tilde = (path: string) => path.replace(/^(\/home\/[^/]+|\/Users\/[^/]+|[A-Za-z]:\\Users\\[^\\]+)(?=[/\\]|$)/, "~");
+
+/** A box of settings for one scope: this project, the app, AI and connections. */
+function SheetBox({ title, sub, path, className = "", children }: { title: string; sub?: string; path?: string; className?: string; children: ReactNode }) {
+  return (
+    <section className={`sheet-box ${className}`} aria-label={title}>
+      <header className="sheet-h">
+        <h2 className="ellipsis">{title}</h2>
+        {sub && <span className="hint">{sub}</span>}
+        {/* Cut from its start: the end of a path names the project. */}
+        {path && (
+          <span className="mono faint sheet-path" title={path}>
+            <bdi>{tilde(path)}</bdi>
+          </span>
+        )}
+      </header>
+      {children}
     </section>
   );
 }
 
-function check(on: boolean, flip: () => void, label: ReactNode) {
+/** A group's name; `tip` says what its settings do, on hover and keyboard focus, under the name on a touch screen. */
+function SheetLabel({ children, tip }: { children: ReactNode; tip?: string }) {
   return (
-    <label className="check">
-      <input type="checkbox" checked={on} onChange={flip} />
-      <span>{label}</span>
+    <>
+      <h3 className="label sheet-lab" data-tip={tip} tabIndex={tip ? 0 : undefined}>
+        {children}
+      </h3>
+      {tip && <p className="hint sheet-lab-tip">{tip}</p>}
+    </>
+  );
+}
+
+/** On or off, flipped in place: the whole row is the switch's label. */
+function SheetSwitch({ label, tip, restates, on, flip, disabled }: { label: string; tip?: string; restates?: boolean; on: boolean; flip: () => void; disabled?: boolean }) {
+  return (
+    <label className="sheet-row" data-tip={tip}>
+      <SheetKey label={label} tip={tip} restates={restates} />
+      <input type="checkbox" role="switch" className="switch" aria-label={tip ?? label} checked={on} disabled={disabled} onChange={flip} />
     </label>
   );
 }
 
-/** Everything set for the open project: what the AI writes in, what the dialogs start with, worktree files. */
-function ProjectSettings({ project: p }: { project: Project }) {
-  const nav = useNav();
-  const inv = [["config"]];
-  const setLang = useAction("projects.setGenLang", { invalidate: inv });
-  const remove = useAction("projects.remove", { invalidate: [["config"], ["projects"]] });
+/** One of a few values, picked from a menu under it. */
+function SheetChoice({ label, tip, restates, value, options, onChange, sub, mono }: { label: string; tip?: string; restates?: boolean; value: string; options: { value: string; label: string }[]; onChange: (v: string) => void; sub?: boolean; mono?: boolean }) {
+  return (
+    <div className={`sheet-row${sub ? " sub" : ""}`} data-tip={tip}>
+      <SheetKey label={label} tip={tip} restates={restates} />
+      <MenuChoice className={`sheet-val${mono && value === "branch" ? " mono" : ""}`} alignRight label={tip ?? label} value={value} options={options} onChange={onChange} />
+    </div>
+  );
+}
+
+/** A setting with a page of its own, opened in place: its current value, and the arrow of a row that opens. */
+function SheetLink({ label, tip, restates, value, mono, none, onClick }: { label: string; tip?: string; restates?: boolean; value?: ReactNode; mono?: boolean; none?: boolean; onClick: () => void }) {
+  return (
+    <button type="button" className="sheet-row sheet-link" data-tip={tip} onClick={onClick}>
+      <SheetKey label={label} tip={tip} restates={restates} />
+      {value != null && <span className={`sheet-v${mono ? " mono" : ""}${none ? " none" : ""}`}>{value}</span>}
+      <Icon name="chevronRight" size={12} />
+    </button>
+  );
+}
+
+const SPOKEN = [...LANGS, { value: "spoken", label: "Spoken" }];
+
+/** Everything set for the open project, in two columns: what the AI writes in, what the dialogs start with, worktree files. */
+function ProjectSettings({ project: p, open }: { project: Project; open: (id: string) => void }) {
+  const setLang = useAction("projects.setGenLang", { invalidate: [["config"]] });
   const prefs = useProjectPrefs(p.id);
   const { merge, dialogs: d } = prefs;
-  const [removing, setRemoving] = useState(false);
-  const mergeCheck = (k: "squash" | "deleteBranch" | "push" | "resolveConflicts", label: string) => check(merge[k], () => prefs.setMerge({ [k]: !merge[k] }), label);
-  const dialogCheck = (k: Exclude<keyof DialogPrefs, "finish">, label: string) => check(d[k], () => prefs.setDialogs({ [k]: !d[k] }), label);
-  const shipped = p.releases.filter((r) => r.shippedAt).length;
+  const lang = (k: "commit" | "pr" | "ticket" | "release", label: string, tip?: string) => (
+    <SheetChoice label={label} tip={tip} value={p.genLang[k]} options={k === "release" ? RELEASE_LANGS : SPOKEN} onChange={(v) => setLang.mutate({ projectId: p.id, [k]: v })} />
+  );
+  const mergeSwitch = (k: "squash" | "deleteBranch" | "push" | "resolveConflicts", label: string, tip: string, restates?: boolean) => <SheetSwitch label={label} tip={tip} restates={restates} on={merge[k]} flip={() => prefs.setMerge({ [k]: !merge[k] })} />;
+  const dialogSwitch = (k: Exclude<keyof DialogPrefs, "finish">, label: string, tip: string, restates?: boolean) => <SheetSwitch label={label} tip={tip} restates={restates} on={d[k]} flip={() => prefs.setDialogs({ [k]: !d[k] })} />;
+  const types = prefs.branchTypes.list.map((t) => t.id);
+  const paths = (l: string[]) => (l.length > 2 ? `${l.slice(0, 2).join(" ")} +${l.length - 2}` : l.join(" ") || "None");
   return (
-    <section className="menu-col menu-project" aria-labelledby="menu-this menu-project">
-      <div className="menu-head">
-        <h2 id="menu-this" className="label menu-section">This project</h2>
-        <strong id="menu-project" className="menu-head-name">{p.name}</strong>
-        <span className="mono faint ellipsis" title={p.path}>{p.path}</span>
-        <span className="hint">
-          {p.releases.length - shipped} open · {shipped} shipped releases · {Object.keys(p.branches).length} tracked branches · {p.aiCommits.length} AI-written commits
-        </span>
-      </div>
-
-      <Group title="Generation language" hint="The language the AI writes in for this project. Spoken follows your last voice dictation. Template base writes release notes in each language the template asks for. Templates stay the same.">
-        {(
-          [
-            ["commit", "Commit summary & message"],
-            ["pr", "PR title & description"],
-            ["ticket", "Tickets"],
-            ["release", "Release notes"],
-          ] as const
-        ).map(([k, label]) => (
-          <div key={k} className="set-row">
-            <span>{label}</span>
-            <Seg label={label} value={p.genLang[k]} options={k === "release" ? RELEASE_LANGS : [...LANGS, { value: "spoken", label: "Spoken" }]} onChange={(v) => setLang.mutate({ projectId: p.id, [k]: v })} />
-          </div>
-        ))}
-      </Group>
-
-      <Group title="Merging" hint="What the merge dialog starts with. Changing them there changes them here too.">
-        <div className="set-row">
-          <Seg
-            grid
+    <SheetBox className="sheet-project" title={p.name} sub="this project" path={p.path}>
+      <div className="sheet-cols">
+        <div className="sheet-col">
+          <SheetLabel tip="The language the AI writes in for this project. Spoken follows your last voice dictation. Template base writes release notes in each language the template asks for. Templates stay the same.">AI writes in</SheetLabel>
+          {lang("commit", "Commits", "Commit summary & message")}
+          {lang("pr", "Pull requests", "PR title & description")}
+          {lang("ticket", "Tickets")}
+          {lang("release", "Release notes")}
+          <SheetLabel tip="What the merge dialog starts with. Changing them there changes them here too.">Merging</SheetLabel>
+          <SheetChoice
             label="How to merge"
             value={merge.rebase ? "rebase" : "merge"}
             onChange={(v) => prefs.setMerge({ rebase: v === "rebase" })}
             options={[{ value: "merge", label: "Merge commit" }, { value: "rebase", label: "Rebase & fast-forward" }]}
           />
-        </div>
-        <div>
-          {mergeCheck("squash", "Squash the branch into one renamed commit first")}
+          {mergeSwitch("squash", "Squash first", "Squash the branch into one renamed commit first")}
           {merge.squash && (
-            <div className="set-sub">
-              <Seg
-                grid
-                label="Squashed commit summary"
-                value={merge.squashMessage}
-                onChange={(v) => prefs.setMerge({ squashMessage: v })}
-                options={[
-                  { value: "branch", label: <span className="mono">squash | branch name</span> },
-                  { value: "ai", label: <span className="row" style={{ gap: 6, justifyContent: "center" }}><Icon name="sparkle" size={11} />AI writes it</span> },
-                ]}
-              />
-            </div>
+            <SheetChoice
+              sub
+              mono
+              label="Squashed summary"
+              tip="Squashed commit summary"
+              restates
+              value={merge.squashMessage}
+              onChange={(v) => prefs.setMerge({ squashMessage: v as typeof merge.squashMessage })}
+              options={[{ value: "branch", label: "squash | branch name" }, { value: "ai", label: "AI writes it" }]}
+            />
           )}
+          {mergeSwitch("deleteBranch", "Delete the branch", "Delete the branch after merging", true)}
+          {mergeSwitch("push", "Push the target branch", "Push the target branch to origin after merging")}
+          {mergeSwitch("resolveConflicts", "Resolve conflicts with AI", "Resolve conflicts with AI and carry on (merge, rebase, cherry-pick, revert, stash)")}
+          <SheetLabel tip="Also in the menu next to the Commit button.">Committing</SheetLabel>
+          <SheetSwitch label="Push after each commit" tip="Push the branch after each commit" restates on={prefs.commit.autoPush} flip={() => prefs.setCommit({ autoPush: !prefs.commit.autoPush })} />
+          <SheetLabel tip="Pictures load from the sites that host them, which see your IP address. HTML keeps to the tags GitHub allows, with no scripts or styles. Tickets from other trackers than GitHub show pictures only. Markdown files like README.md always show their HTML; their pictures wait for this setting too.">
+            Pictures &amp; HTML
+          </SheetLabel>
+          {dialogSwitch("prMedia", "In PRs, tickets and Markdown", "Show pictures and HTML in pull requests, tickets and Markdown files", true)}
         </div>
-        {mergeCheck("deleteBranch", "Delete the branch after merging")}
-        {mergeCheck("push", "Push the target branch to origin after merging")}
-        {mergeCheck("resolveConflicts", "Resolve conflicts with AI and carry on (merge, rebase, cherry-pick, revert, stash)")}
-      </Group>
-
-      <Group title="Committing" hint="Also in the menu next to the Commit button.">
-        {check(prefs.commit.autoPush, () => prefs.setCommit({ autoPush: !prefs.commit.autoPush }), "Push the branch after each commit")}
-      </Group>
-
-      <Group title="New branches & worktrees" hint="What their dialogs start with. The new branch dialog remembers where you worked and whether an agent started; the others apply a change to that time only.">
-        {dialogCheck("newWorktree", "Give a new branch its own worktree instead of switching to it")}
-        {dialogCheck("newAgent", "Start an AI agent on a new branch right away (always in a worktree)")}
-        <div className="set-row">
-          <span>Finishing a worktree session</span>
-          <Seg label="Finishing a worktree session" value={d.finish} onChange={(finish) => prefs.setDialogs({ finish })} options={[{ value: "continue", label: "Continue on branch" }, { value: "merge", label: "Merge it" }]} />
+        <div className="sheet-col">
+          <SheetLabel tip="What their dialogs start with. The new branch dialog remembers where you worked and whether an agent started; the others apply a change to that time only.">New branches &amp; worktrees</SheetLabel>
+          {dialogSwitch("newWorktree", "Own worktree", "Give a new branch its own worktree instead of switching to it")}
+          {dialogSwitch("newAgent", "Start an agent", "Start an AI agent on a new branch right away (always in a worktree)")}
+          <SheetChoice label="Finishing a session" tip="Finishing a worktree session" restates value={d.finish} onChange={(finish) => prefs.setDialogs({ finish: finish as DialogPrefs["finish"] })} options={[{ value: "continue", label: "Continue on branch" }, { value: "merge", label: "Merge it" }]} />
+          {dialogSwitch("finishSwitch", "Then switch to it", "Switch to where the worktree's code lands once it is closed")}
+          <SheetLabel>Branch types</SheetLabel>
+          <SheetLink label="Type buttons" tip="What the new branch dialog's Type buttons offer, in this order" value={types.length > 3 ? `${types.slice(0, 3).join(" ")} +${types.length - 3}` : types.join(" ")} mono onClick={() => open("branchTypes")} />
+          <SheetLabel tip="Git leaves ignored files out of a new worktree. These are copied, or linked, from the main checkout into it.">Worktree files</SheetLabel>
+          <SheetLink label="Copied" tip="Copied from the main checkout into each new worktree" value={paths(prefs.worktreeFiles)} mono={!!prefs.worktreeFiles.length} none={!prefs.worktreeFiles.length} onClick={() => open("projectFiles")} />
+          <SheetLink label="Linked" tip="Linked to the main checkout's own, not copied" value={paths(prefs.worktreeLinks)} mono={!!prefs.worktreeLinks.length} none={!prefs.worktreeLinks.length} onClick={() => open("projectFiles")} />
+          <SheetLabel>Releases &amp; deleting</SheetLabel>
+          {dialogSwitch("shipChangelog", "Changelog before tagging", "Let AI add the branch's changes to the changelog before creating a version tag")}
+          {dialogSwitch("deleteOrigin", "Delete on origin too", "Also delete a deleted branch on origin", true)}
+          {dialogSwitch("cleanupOrigin", "Clean up on origin too", "Also delete cleaned-up behind branches on origin")}
         </div>
-        {dialogCheck("finishSwitch", "Switch to where the worktree's code lands once it is closed")}
-      </Group>
-
-      <Group title="Branch types" hint="What the new branch dialog's Type buttons offer, in this order. A prefix typed in a branch name that is not listed joins them when the branch is created, after the pinned ones." bare>
-        <BranchTypesEditor key={p.id} pid={p.id} />
-      </Group>
-
-      <Group
-        title="Worktree files"
-        hint="Git leaves ignored files out of a new worktree. These are copied from the main checkout into it, one path from the project root per line: a knowledge graph, .env, local settings. The ones in App › Worktrees are copied for every project too."
-        bare
-      >
-        <WorktreeFiles key={p.id} files={prefs.worktreeFiles} onSave={prefs.setWorktreeFiles} />
-      </Group>
-
-      <Group
-        title="Worktree links"
-        hint="Linked, not copied: the worktree reads and writes the main checkout's own, so it takes no space and changes show in both. For big folders shared by every branch. On Windows, folders need Developer Mode on. The ones in App › Worktrees are linked for every project too. A path in both lists is linked."
-        bare
-      >
-        <WorktreeFiles key={p.id} files={prefs.worktreeLinks} onSave={prefs.setWorktreeLinks} label="Worktree links" placeholder={LINK_PLACEHOLDER} />
-      </Group>
-
-      <Group
-        title="Pictures & HTML"
-        hint="Pictures load from the sites that host them, which see your IP address. HTML keeps to the tags GitHub allows, with no scripts or styles. Tickets from other trackers than GitHub show pictures only. Markdown files like README.md always show their HTML; their pictures, even the ones stored in the repository, wait for this setting too."
-      >
-        {dialogCheck("prMedia", "Show pictures and HTML in pull requests, tickets and Markdown files")}
-      </Group>
-
-      <Group title="Releases">
-        {dialogCheck("shipChangelog", "Let AI add the branch's changes to the changelog before creating a version tag")}
-      </Group>
-
-      <Group title="Deleting branches">
-        {dialogCheck("deleteOrigin", "Also delete a deleted branch on origin")}
-        {dialogCheck("cleanupOrigin", "Also delete cleaned-up behind branches on origin")}
-      </Group>
-
-      <div className="set-danger">
-        <button className="btn btn-sm btn-ghost btn-danger" onClick={() => setRemoving(true)}>
-          <Icon name="trash" size={13} />
-          Remove from Gitnetix
-        </button>
-        <span className="hint">The repository and its files stay on disk.</span>
       </div>
+    </SheetBox>
+  );
+}
+
+/** The project's pages opened from its box: branch types, and the files copied or linked into its worktrees. */
+function ProjectPage({ id, project: p }: { id: string; project: Project }) {
+  const prefs = useProjectPrefs(p.id);
+  if (id === "branchTypes")
+    return (
+      <>
+        <div className="col page-intro" style={{ gap: 6 }}>
+          <h1>Branch types</h1>
+          <p className="muted" style={{ margin: 0 }}>For {p.name}. What the new branch dialog's Type buttons offer, in this order. A prefix typed in a branch name that is not listed joins them when the branch is created, after the pinned ones.</p>
+        </div>
+        <BranchTypesEditor key={p.id} pid={p.id} />
+      </>
+    );
+  return (
+    <>
+      <div className="col page-intro" style={{ gap: 6 }}>
+        <h1>Worktree files</h1>
+        <p className="muted" style={{ margin: 0 }}>For {p.name}. Git leaves ignored files out of a new worktree. The ones in App › Worktrees are copied or linked for every project too.</p>
+      </div>
+      <section className="section">
+        <h2>Copied</h2>
+        <p className="hint" style={{ margin: 0 }}>Copied from the main checkout into each new worktree, one path from the project root per line: a knowledge graph, .env, local settings.</p>
+        <WorktreeFiles key={p.id} files={prefs.worktreeFiles} onSave={prefs.setWorktreeFiles} />
+      </section>
+      <section className="section">
+        <h2>Linked</h2>
+        <p className="hint" style={{ margin: 0 }}>Linked, not copied: the worktree reads and writes the main checkout's own, so it takes no space and changes show in both. For big folders shared by every branch. On Windows, folders need Developer Mode on. A path in both lists is linked.</p>
+        <WorktreeFiles key={p.id} files={prefs.worktreeLinks} onSave={prefs.setWorktreeLinks} label="Worktree links" placeholder={LINK_PLACEHOLDER} />
+      </section>
+    </>
+  );
+}
+
+/** Forget the open project, after a confirmation; the repository stays on disk. */
+function RemoveProject({ project: p }: { project: Project }) {
+  const nav = useNav();
+  const remove = useAction("projects.remove", { invalidate: [["config"], ["projects"]] });
+  const [removing, setRemoving] = useState(false);
+  return (
+    <>
+      <button className="btn btn-sm btn-ghost btn-danger" onClick={() => setRemoving(true)}>
+        <Icon name="trash" size={12} />
+        Remove {p.name} from Gitnetix
+      </button>
+      <span className="hint">The repository and its files stay on disk.</span>
       {removing && (
         <Confirm
           title="Remove project"
@@ -382,89 +461,48 @@ function ProjectSettings({ project: p }: { project: Project }) {
           Gitnetix forgets its releases, tracked branches and settings. The repository and its files stay on disk, and it can be added again.
         </Confirm>
       )}
-    </section>
+    </>
   );
 }
 
-/** The phone card, then every app setting as a row showing its current value, opening its page in place. */
-function AppSettings({ cfg, open, onUnpair }: { cfg?: Config; open: (id: string) => void; onUnpair: () => void }) {
+/** Every app setting, in a box for the app and one for AI and connections: a value picked in place, or a row opening its page. */
+function AppSettings({ cfg, open }: { cfg?: Config; open: (id: string) => void }) {
   const nav = useNav();
   const setUi = useAction("ui.set", { invalidate: [["config"]] });
   const keys = useKeys();
   const changedKeys = SHORTCUTS.filter((s) => keys[s.id] !== DEFAULTS[s.id]).length;
   const { off } = useAnimations();
-  const [term] = useTermDefault();
+  const [term, setTerm] = useTermDefault();
   const i = cfg?.integrations;
   const s = cfg?.server;
-  const count = (n: number, one: string) => (n ? `${n} ${one}${n > 1 ? "s" : ""}` : "None yet");
-  const value: Record<string, ReactNode> = {
-    appearance: THEMES.find((t) => t.id === nav.themePref)?.name ?? "System",
-    animations: off.length ? `${off.length} off` : "All on",
-    terminal: term === "shell" ? "Opens on Shell" : "Opens on Agent",
-    worktrees: cfg && ([cfg.worktreeFiles.length && `${count(cfg.worktreeFiles.length, "file")} copied`, cfg.worktreeLinks.length && `${cfg.worktreeLinks.length} linked`].filter(Boolean).join(", ") || "No files copied"),
-    dictation: <span className="mono">{showKeys(keys.dictation)}</span>,
-    shortcuts: changedKeys ? `${changedKeys} changed` : "Defaults",
-    ai: "Providers, models and task routing",
-    templates: "Prompts for commits, PRs and release notes",
-    git: i && ([i.githubConnected && "GitHub", i.azureConnected && "Azure DevOps", i.gitlab.connected && "GitLab", i.bitbucket.connected && "Bitbucket", i.gitea.connected && "Gitea"].filter(Boolean).join(" · ") || "Not connected"),
-    tools: i && ([i.jira.length && "Jira", i.trello.length && "Trello", i.asana.length && "Asana", i.linear.length && "Linear"].filter(Boolean).join(" · ") || "Not connected"),
-    companion: !isLocal ? "Set on the computer" : s && (s.enabled ? `On · ${s.lan ? "your network" : "this computer only"}` : "Off"),
-    logs: "Actions and errors, to copy and share",
-  };
-  const row = (id: string, label: string, icon: string) => (
-    <button key={id} className="app-row" onClick={() => open(id)}>
-      <Icon name={icon} size={16} />
-      <span className="app-row-label">{label}</span>
-      <span className="app-row-sub">{value[id]}</span>
-      <Icon name="chevronRight" size={12} className="app-row-chev" />
-    </button>
-  );
+  const files = cfg ? [cfg.worktreeFiles.length && `${cfg.worktreeFiles.length} copied`, cfg.worktreeLinks.length && `${cfg.worktreeLinks.length} linked`].filter(Boolean).join(", ") : "";
+  const git = i ? [i.githubConnected && "GitHub", i.azureConnected && "Azure DevOps", i.gitlab.connected && "GitLab", i.bitbucket.connected && "Bitbucket", i.gitea.connected && "Gitea"].filter(Boolean).join(", ") : "";
+  const trackers = i ? [i.jira.length && "Jira", i.trello.length && "Trello", i.asana.length && "Asana", i.linear.length && "Linear"].filter(Boolean).join(", ") : "";
+  const companion = !isLocal ? "Set on the computer" : s ? (s.enabled ? (s.lan ? "On, your network" : "On, this computer") : "Off") : "";
   return (
-    <section className="menu-col menu-app" aria-labelledby="menu-app">
-      <div className="menu-head">
-        <h2 id="menu-app" className="label menu-section">App</h2>
-        {isLocal ? (
-          s && <PhoneCard server={s} />
-        ) : (
-          <div className="phone-card">
-            <span className="phone-icon">
-              <Icon name="phone" size={18} />
-            </span>
-            <div className="col" style={{ gap: 4, minWidth: 0 }}>
-              <strong className="phone-title">Connected to your desktop</strong>
-              <span className="mono hint ellipsis">{currentRemote()?.url}</span>
-            </div>
-            <div className="phone-foot">
-              <button
-                className="btn btn-sm btn-ghost btn-danger"
-                onClick={() => {
-                  saveRemote(null);
-                  onUnpair();
-                }}
-              >
-                Disconnect from this desktop
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-      {GROUPS.map(([g, items], n) => (
-        <section key={g} className="set-group">
-          <h3 className="set-group-title">{g}</h3>
-          <div className="app-list">
-            {n === 0 && (
-              <div className="app-row">
-                <Icon name="globe" size={16} />
-                <span className="app-row-label">Language</span>
-                <span className="grow" />
-                <Seg label="Language" value={cfg?.ui.language ?? "en"} options={LANGS} onChange={(v) => setUi.mutate({ language: v })} />
-              </div>
-            )}
-            {items.map(([id, label, icon]) => row(id, label, icon))}
-          </div>
-        </section>
-      ))}
-      <div className="app-list">{row("logs", "Logs", "file")}</div>
-    </section>
+    <div className="sheet-stack">
+      <SheetBox title="App" sub="every project">
+        <div className="sheet-col">
+          <SheetLabel>Look &amp; feel</SheetLabel>
+          <SheetChoice label="Language" value={cfg?.ui.language ?? "en"} options={LANGS} onChange={(v) => setUi.mutate({ language: v })} />
+          <SheetLink label="Theme" value={THEMES.find((t) => t.id === nav.themePref)?.name ?? "System"} onClick={() => open("appearance")} />
+          <SheetLink label="Animations" value={off.length ? `${off.length} off` : "All on"} onClick={() => open("animations")} />
+          <SheetLabel>Work</SheetLabel>
+          <SheetChoice label="Terminal opens on" tip="What a branch's terminal opens on until a tab is picked there" value={term} options={[{ value: "agent", label: "Agent" }, { value: "shell", label: "Shell" }]} onChange={(v) => setTerm(v as typeof term)} />
+          <SheetLink label="Worktree files" tip="Copied or linked into new worktrees, for every project" value={files || "None"} none={!files} onClick={() => open("worktrees")} />
+          <SheetLink label="Voice dictation" value={<Keys keys={keys.dictation} />} onClick={() => open("dictation")} />
+          <SheetLink label="Shortcuts" value={changedKeys ? `${changedKeys} changed` : "Defaults"} onClick={() => open("shortcuts")} />
+        </div>
+      </SheetBox>
+      <SheetBox title="AI & connections">
+        <div className="sheet-col">
+          <SheetLink label="AI setup" tip="Providers, models and task routing" restates value="Providers & models" onClick={() => open("ai")} />
+          <SheetLink label="Templates" tip="Prompts for commits, PRs and release notes" value="Prompts" onClick={() => open("templates")} />
+          <SheetLink label="Git providers" value={git || "None"} none={!git} onClick={() => open("git")} />
+          <SheetLink label="Ticket trackers" tip="Jira, Trello, Asana, Linear" value={trackers || "None"} none={!trackers} onClick={() => open("tools")} />
+          <SheetLink label="Companion & MCP" value={companion} none={companion === "Off"} onClick={() => open("companion")} />
+        </div>
+      </SheetBox>
+    </div>
   );
 }

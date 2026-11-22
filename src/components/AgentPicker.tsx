@@ -145,13 +145,14 @@ export function AgentPicker({ value: saved, onChange, compact }: { value: AgentP
 /** `lead`: a mark drawn before the label in the menu row (a status ring, priority bars). */
 type Option = { value: string; label: string; hint?: string; lead?: ReactNode };
 
-type ChoiceProps = { label: string; value: string; options: Option[]; onChange: (v: string) => void; className?: string; id?: string; style?: CSSProperties; search?: string; lead?: ReactNode };
+type ChoiceProps = { label: string; value: string; options: Option[]; onChange: (v: string) => void; className?: string; id?: string; style?: CSSProperties; search?: string; lead?: ReactNode; alignRight?: boolean };
 
 /**
  * A button opening the options as a menu, like a branch's right-click one; `select menu-select` styles it as a form field.
  * `search`: the placeholder of a field filtering the options, in a wider menu (e.g. branches, whose names run long); on by itself for long lists.
+ * `alignRight`: the menu's right edge under the button's, for a value at the end of a row.
  */
-export function MenuChoice({ label, value, options, onChange, className = "picker-act", id, style, search, lead }: ChoiceProps) {
+export function MenuChoice({ label, value, options, onChange, className = "picker-act", id, style, search, lead, alignRight }: ChoiceProps) {
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   return (
     <>
@@ -164,7 +165,7 @@ export function MenuChoice({ label, value, options, onChange, className = "picke
         aria-label={label}
         onClick={(e) => {
           const r = e.currentTarget.getBoundingClientRect();
-          setMenu({ x: r.left, y: r.bottom + 2 });
+          setMenu({ x: alignRight ? r.right : r.left, y: r.bottom + 2 });
         }}
       >
         <span className="menu-lead">
@@ -177,6 +178,7 @@ export function MenuChoice({ label, value, options, onChange, className = "picke
         <ContextMenu
           x={menu.x}
           y={menu.y}
+          alignRight={alignRight}
           label={label}
           onClose={() => setMenu(null)}
           search={search ?? (options.length > SEARCH_ABOVE ? "Filter" : undefined)}
