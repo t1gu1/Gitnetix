@@ -14,6 +14,8 @@ the in-app update prompt.
 
 ## [Unreleased]
 
+## [0.32.0] - 2026-11-22
+
 ### Changed (App)
 
 - Redesign the settings panel as a spec sheet. Each setting shows a short label and its current value, grouped in boxes by scope. On/off settings are switches, menu values change in place, and the branch types and worktree files sub-pages open from the project box.
