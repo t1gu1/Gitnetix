@@ -630,7 +630,7 @@ function StartModal({ onClose, onMinimize }: { onClose: () => void; onMinimize: 
 }
 
 /** The map's file view over the page, for a file an agent named: no map here. Esc, its close button or a click beside it closes it. */
-function FileOver({ pid, branch, at, onPick, onClose }: { pid: string; branch: string; at: { mode: Mode; file: string; preview?: boolean }; onPick: (file: string) => void; onClose: () => void }) {
+export function FileOver({ pid, branch, at, onPick, onClose }: { pid: string; branch: string; at: { mode: Mode; file: string; preview?: boolean }; onPick: (file: string) => void; onClose: () => void }) {
   const nav = useNav();
   // History lives in the Workspace's full-screen branch: the file opens there.
   const history = (path: string, sha?: string) => {

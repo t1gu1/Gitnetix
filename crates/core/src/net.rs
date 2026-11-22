@@ -62,7 +62,7 @@ async fn fetch(req: reqwest::RequestBuilder, what: &str) -> crate::Result<(Strin
 }
 
 /// The picture type a file's first bytes say, for the formats every web view shows.
-fn sniff(b: &[u8]) -> Option<&'static str> {
+pub(crate) fn sniff(b: &[u8]) -> Option<&'static str> {
     match b {
         [0x89, b'P', b'N', b'G', ..] => Some("image/png"),
         [0xFF, 0xD8, 0xFF, ..] => Some("image/jpeg"),

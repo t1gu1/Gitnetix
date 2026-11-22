@@ -942,6 +942,38 @@ export interface TicketComment {
   doc?: AdfNode;
   createdAt: string;
   replies: TicketComment[];
+  /** Emoji reactions, in the order first left; missing when none. */
+  reactions?: CommentReaction[];
+}
+
+/** An emoji reaction on a ticket comment. `key`: the tracker's name for it ("+1", THUMBS_UP), what tickets.react takes
+ *  back; `emoji`: the character, when the tracker gives it. */
+export interface CommentReaction {
+  key: string;
+  emoji?: string;
+  count: number;
+  mine: boolean;
+  /** Who left one, when the tracker says. */
+  people?: string[];
+}
+
+/** A web link to lines of a file on origin's pages, from workspace.permalink. */
+export interface Permalink {
+  url: string;
+  sha: string;
+  /** The branch it took the commit from: the one asked, else the default branch. */
+  branch: string;
+}
+
+/** The lines a link into origin points at, read from the clone (workspace.linkedLines). */
+export interface LinkedLines {
+  path: string;
+  sha: string;
+  start: number;
+  end: number;
+  lines: string[];
+  /** Lines left out after the 40 shown. */
+  more: number;
 }
 
 /** When a ticket was opened and by whom, and since when it has had its status; missing or empty when the tracker doesn't say. */

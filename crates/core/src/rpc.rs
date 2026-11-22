@@ -42,6 +42,8 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("workspace.overview", "Releases, their branches and repo state; `quick` skips history checks when nothing is cached", "projectId, quick?"),
     ("workspace.files", "Changed files of a branch, or of one commit when `commit` is given", "projectId, branch, mode: branch|wip|project, commit?"),
     ("workspace.diff", "Diff of one file; in wip mode `staged` picks the side; `commit` diffs that commit (`from` = the file's old path when that commit renamed it); `full` keeps the whole file", "projectId, branch, mode, path, staged?, commit?, from?, full?"),
+    ("workspace.permalink", "A web link to lines start..end (both optional) of a file as origin has it on `branch`, else on the default branch (branch not pushed, or without the file there), for a ticket comment: url, sha (short), branch (the one it took)", "projectId, branch, path, start?, end?"),
+    ("workspace.linkedLines", "The lines a web link into the project's origin points at (workspace.permalink's, or the host's own link to a file at a commit), read from this clone: path, sha, start, end, lines (40 at most), more (lines left out); null for a link elsewhere or a commit the clone lacks", "projectId, url"),
     ("workspace.blobs", "Old and new contents of one file, base64 (image previews); same picking as workspace.diff", "projectId, branch, mode, path, staged?, commit?"),
     ("workspace.commits", "Commits a branch has that its base does not (a trunk: recent history), newest first; once all are listed, the last one, flagged `base`, is where the branch left its base; `limit` (default 200 for a trunk, 500 for a branch) is raised to reach older ones; `unreleased`: the default branch lists only its commits since its latest tag, the tagged commit as `base`; `base`: the branch it is filed under, when the caller knows it already", "projectId, branch, limit?, unreleased?, base?"),
     ("workspace.blame", "Who last changed each line of one file on the new side of its diff (the old side with old: true, for removed lines), sides picked like workspace.diff: lines, runs [sha, line count] in file order, and their commits (the all-zero sha is uncommitted work)", "projectId, branch, mode, path, commit?, staged?, old?"),
@@ -176,9 +178,10 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("tickets.assignees", "People a ticket can be assigned to (id, name): Jira assignable users, Trello board members, Asana workspace users, Linear team members, GitHub assignable users", "source, conn, id"),
     ("tickets.setAssignee", "Assign a ticket to one of tickets.assignees, or to nobody when to is empty; on Trello and GitHub that one becomes its only member or assignee", "source, conn, id, to"),
     ("tickets.fields", "Priorities, issue types and labels a Jira or Linear ticket can be set to (Jira: priorities and types; Linear: priorities and labels); empty for the other trackers", "source, conn, id"),
-    ("tickets.comments", "A ticket's comments, oldest first (id, author, body as Markdown, doc for Jira's ADF, createdAt, replies: a Linear thread's replies under its first comment)", "source, conn, id"),
+    ("tickets.comments", "A ticket's comments, oldest first (id, author, body as Markdown, doc for Jira's ADF, createdAt, replies: a Linear thread's replies under its first comment, reactions: [{key, emoji?, count, mine, people?}] on Linear, GitHub and Trello)", "source, conn, id"),
     ("tickets.activity", "When a ticket was opened and by whom, and since when it has had its status (createdAt?, createdBy, statusAt?; empty when the tracker doesn't say)", "source, conn, id"),
-    ("tickets.comment", "Post a comment (Markdown) on a Linear ticket; with parentId (the id of a thread's first comment from tickets.comments), a reply in that thread", "source, conn, id, body, parentId?"),
+    ("tickets.comment", "Post a comment on a ticket (Markdown; plain text on Asana; Jira's links become links) with files uploaded to the tracker and linked under the text (GitHub's API takes no files); with parentId (the id of a Linear thread's first comment from tickets.comments), a reply in that thread", "source, conn, id, body, parentId?, files?: [{name, data (base64) | path}]"),
+    ("tickets.react", "Leave an emoji reaction on a ticket comment, or take yours back (add false): emoji is a character, or a reaction's key from tickets.comments. Linear (any emoji), GitHub (its eight) and Trello; Jira's and Asana's APIs can't", "source, conn, id, comment, emoji, add"),
     ("tickets.picture", "A picture in a ticket that needs the tracker's sign-in (a Jira attachment's name or link, a Trello attachment, a Linear upload, a private GitHub picture), as a data: URL", "source, conn, id, url"),
     ("tickets.files", "A ticket's files (id, name, size?): Jira, Trello and Asana attachments, the files uploaded in a Linear or GitHub ticket's description and comments", "source, conn, id"),
     ("tickets.file", "A ticket's file by its id from tickets.files, as a data: URL (25 MB at most)", "source, conn, id, file"),
@@ -431,7 +434,7 @@ fn avatars_are_an_emoji_a_photo_or_a_gravatar_email() {
 }
 
 /// Reads polled all the time: logged only when they fail.
-const QUIET: &[&str] = &[".info", ".get", ".list", ".overview", ".files", ".diff", ".blobs", ".commits", ".counts", ".catalog", ".statuses", ".versions", ".projects", ".refs", ".range", ".preview", ".clear", "analytics.day", "analytics.sprints", "analytics.weekly", "shell.write", "shell.resize", "shell.scripts", "ui.setView", "github.signInPoll", "azure.signInPoll", "gitlab.signInPoll", "github.repos", "gitlab.repos", "bitbucket.repos", "gitea.repos"];
+const QUIET: &[&str] = &[".info", ".linkedLines", ".get", ".list", ".overview", ".files", ".diff", ".blobs", ".commits", ".counts", ".catalog", ".statuses", ".versions", ".projects", ".refs", ".range", ".preview", ".clear", "analytics.day", "analytics.sprints", "analytics.weekly", "shell.write", "shell.resize", "shell.scripts", "ui.setView", "github.signInPoll", "azure.signInPoll", "gitlab.signInPoll", "github.repos", "gitlab.repos", "bitbucket.repos", "gitea.repos"];
 
 /// Actions in flight.
 static BUSY: std::sync::Mutex<usize> = std::sync::Mutex::new(0);
@@ -729,6 +732,12 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
             Some(sha) => to(k.commit_diff(&s(&p, "projectId")?, &sha, &s(&p, "path")?, b(&p, "full"), os(&p, "from").as_deref()).await?),
             None => to(k.diff(&s(&p, "projectId")?, &s(&p, "branch")?, mode(&p)?, &s(&p, "path")?, p.get("staged").and_then(Value::as_bool), b(&p, "full")).await?),
         },
+        "workspace.permalink" => {
+            let line = |k: &str| p.get(k).and_then(Value::as_u64).map(|n| n as u32);
+            let lines = line("start").map(|a| (a, line("end").unwrap_or(a)));
+            to(k.permalink(&s(&p, "projectId")?, &os(&p, "branch").unwrap_or_default(), &s(&p, "path")?, lines).await?)
+        }
+        "workspace.linkedLines" => to(k.linked_lines(&s(&p, "projectId")?, &s(&p, "url")?).await?),
         "workspace.blobs" => match os(&p, "commit") {
             Some(sha) => to(k.commit_blobs(&s(&p, "projectId")?, &sha, &s(&p, "path")?).await?),
             None => to(k.blobs(&s(&p, "projectId")?, &s(&p, "branch")?, mode(&p)?, &s(&p, "path")?, p.get("staged").and_then(Value::as_bool)).await?),
@@ -1297,7 +1306,11 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
         "tickets.comments" => to(k.ticket_comments(&s(&p, "source")?, &os(&p, "conn").unwrap_or_default(), &s(&p, "id")?).await?),
         "tickets.activity" => to(k.ticket_activity(&s(&p, "source")?, &os(&p, "conn").unwrap_or_default(), &s(&p, "id")?).await?),
         "tickets.comment" => {
-            k.ticket_add_comment(&s(&p, "source")?, &os(&p, "conn").unwrap_or_default(), &s(&p, "id")?, &s(&p, "body")?, os(&p, "parentId").as_deref()).await?;
+            k.ticket_add_comment(&s(&p, "source")?, &os(&p, "conn").unwrap_or_default(), &s(&p, "id")?, &os(&p, "body").unwrap_or_default(), os(&p, "parentId").as_deref(), &files(&p)?).await?;
+            ok()
+        }
+        "tickets.react" => {
+            k.ticket_react(&s(&p, "source")?, &os(&p, "conn").unwrap_or_default(), &s(&p, "id")?, &s(&p, "comment")?, &s(&p, "emoji")?, b(&p, "add")).await?;
             ok()
         }
         "tickets.picture" => to(k.ticket_picture(&s(&p, "source")?, &os(&p, "conn").unwrap_or_default(), &s(&p, "id")?, &s(&p, "url")?).await?),

@@ -1057,7 +1057,7 @@ function Peek({ files, at, onStep, onRemove, onClose }: { files: Attachment[]; a
 }
 
 /** Files about to be sent, one chip each: a click opens them full size; × there or Remove in the preview takes one off. */
-function Drafts({ files, onFiles }: { files: Attachment[]; onFiles: (f: Attachment[]) => void }) {
+export function Drafts({ files, onFiles }: { files: Attachment[]; onFiles: (f: Attachment[]) => void }) {
   const [open, setOpen] = useState<number>();
   const remove = (i: number) => {
     onFiles(files.filter((_, j) => j !== i));
@@ -1128,7 +1128,8 @@ export function FileChip({ file, session, onOpen, onRemove }: { file: Attachment
         }
       }}
     >
-      {url ? <img src={url} alt="" /> : <Icon name={isImage(name) ? "image" : "file"} size={15} />}
+      {/* A picture that doesn't decode (damaged, or a type the web view can't draw) shows its icon, not the broken one. */}
+      {url ? <img src={url} alt="" onError={() => setUrl(undefined)} /> : <Icon name={isImage(name) ? "image" : "file"} size={15} />}
       <span className="ellipsis" data-tip-off={sent ? "" : undefined}>{name}</span>
       {typeof file !== "string" && <span className="faint">{bytes(file.size)}</span>}
       {onRemove && (
@@ -1268,7 +1269,7 @@ function ArtifactAsk({ link, onAttach, onChoose, onDismiss }: { link: string; on
 }
 
 /** Screenshots, copied images and copied files attach instead of pasting nothing. WebKitGTK (the desktop app on Linux) hands the page none of them: they come from the desktop's clipboard. */
-function paste(e: ClipboardEvent<HTMLTextAreaElement>, files: Attachment[], add: (f: Attachment[]) => void) {
+export function paste(e: ClipboardEvent<HTMLTextAreaElement>, files: Attachment[], add: (f: Attachment[]) => void) {
   const pasted = [...e.clipboardData.files];
   if (pasted.length) {
     e.preventDefault();

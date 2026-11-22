@@ -234,6 +234,28 @@ fn emoji(content: &str) -> String {
     EMOJI.iter().find(|(c, _)| *c == content).map(|(_, e)| e.to_string()).unwrap_or_else(|| content.into())
 }
 
+/// A comment read with [`COMMENT`]'s fields, its reactions that someone left.
+fn comment(c: &Value) -> Comment {
+    Comment {
+        id: c["id"].as_str().unwrap_or("").into(),
+        database_id: c["databaseId"].as_u64(),
+        author: c["author"]["login"].as_str().unwrap_or("ghost").into(),
+        body: c["body"].as_str().unwrap_or("").into(),
+        created_at: c["createdAt"].as_str().unwrap_or("").into(),
+        can_edit: c["viewerCanUpdate"] == true,
+        reactions: c["reactionGroups"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|g| g["reactors"]["totalCount"].as_u64().unwrap_or(0) > 0)
+            .map(|g| {
+                let content = g["content"].as_str().unwrap_or("").to_string();
+                Reaction { emoji: emoji(&content), content, count: g["reactors"]["totalCount"].as_u64().unwrap_or(0), mine: g["viewerHasReacted"] == true }
+            })
+            .collect(),
+    }
+}
+
 /// GitHub's error message, or what to do when an organization has not approved
 /// the Gitnetix OAuth app (GitHub names the organization between backticks).
 fn explain(msg: &str) -> String {
@@ -465,6 +487,14 @@ impl GitHub {
         Ok(self.get(&format!("{}/issues/{number}/comments?per_page=100", self.rp())).await?.as_array().cloned().unwrap_or_default())
     }
 
+    /// Issue `number`'s comments, oldest first, with their reactions: what a ticket shows and reacts to.
+    // shortcut: the first 100 only, page with `after` if a ticket ever has more.
+    pub async fn issue_thread(&self, number: u64) -> Result<Vec<Comment>> {
+        let q = format!("query($o:String!,$r:String!,$n:Int!){{repository(owner:$o,name:$r){{issue(number:$n){{comments(first:100){{nodes{{{COMMENT}}}}}}}}}}}");
+        let d = self.gql(&q, json!({ "o": self.repo.owner, "r": self.repo.repo, "n": number })).await?;
+        Ok(d["repository"]["issue"]["comments"]["nodes"].as_array().into_iter().flatten().map(comment).collect())
+    }
+
     /// Closes issue `number` as completed, or reopens it.
     pub async fn set_issue_open(&self, number: u64, open: bool) -> Result<()> {
         let body = if open { json!({ "state": "open" }) } else { json!({ "state": "closed", "state_reason": "completed" }) };
@@ -619,29 +649,6 @@ impl GitHub {
             }
         }
 
-        let comment = |c: &Value| Comment {
-            id: c["id"].as_str().unwrap_or("").into(),
-            database_id: c["databaseId"].as_u64(),
-            author: c["author"]["login"].as_str().unwrap_or("ghost").into(),
-            body: c["body"].as_str().unwrap_or("").into(),
-            created_at: c["createdAt"].as_str().unwrap_or("").into(),
-            can_edit: c["viewerCanUpdate"] == true,
-            reactions: c["reactionGroups"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter(|g| g["reactors"]["totalCount"].as_u64().unwrap_or(0) > 0)
-                .map(|g| {
-                    let content = g["content"].as_str().unwrap_or("").to_string();
-                    Reaction {
-                        emoji: emoji(&content),
-                        content,
-                        count: g["reactors"]["totalCount"].as_u64().unwrap_or(0),
-                        mine: g["viewerHasReacted"] == true,
-                    }
-                })
-                .collect(),
-        };
 
         let mut threads: Vec<Thread> = thread_nodes
             .iter()

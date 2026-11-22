@@ -909,6 +909,25 @@ fn valid_branch_name(s: &str) -> bool {
 /// File in a checkout's git dir holding its agent's ticket, out of the working tree.
 const TICKET_FILE: &str = "gitnetix-ticket.md";
 
+/// A web link to lines of a file on origin's pages, the commit it points at (short) and the branch it took it from.
+#[derive(Debug, Serialize)]
+pub struct Permalink {
+    pub url: String,
+    pub sha: String,
+    pub branch: String,
+}
+
+/// The lines a link into origin points at, read from the clone: from `start` (1-based) to `end`, `more` left out.
+#[derive(Debug, Serialize)]
+pub struct LinkedLines {
+    pub path: String,
+    pub sha: String,
+    pub start: u32,
+    pub end: u32,
+    pub lines: Vec<String>,
+    pub more: u32,
+}
+
 /// Folder in a checkout's git dir holding files sent to its agent, out of the working tree.
 // shortcut: never pruned on the main checkout (a worktree's git dir goes with it), prune per session if it grows.
 pub(crate) const ATTACH_DIR: &str = "gitnetix-attachments";
@@ -956,6 +975,37 @@ async fn attach(cwd: &Path, text: &str, files: &[Attachment]) -> Result<String> 
         list.push_str(&format!("\n- {}", dest.display()));
     }
     Ok(format!("{text}\n\nAttached files:{list}").trim_start().to_string())
+}
+
+/// The files sent with a ticket comment: their bare names and contents, 25 MB together at most.
+fn comment_files(files: &[Attachment]) -> Result<Vec<(String, Vec<u8>)>> {
+    use base64::Engine as _;
+    const CAP: u64 = 25 << 20;
+    let mut total = 0;
+    let mut out = Vec::new();
+    for f in files {
+        let name = Path::new(&f.name).file_name().and_then(|n| n.to_str()).unwrap_or("file").to_string();
+        let bytes = match (&f.data, &f.path) {
+            (Some(d), _) => base64::engine::general_purpose::STANDARD.decode(d).map_err(|e| Error::Invalid(format!("Could not read {name}: {e}")))?,
+            (None, Some(p)) => {
+                // Its size first: a dropped file can be any size.
+                total += std::fs::metadata(p)?.len();
+                if total > CAP {
+                    return Err(Error::Invalid("Files sent with a comment are limited to 25 MB together".into()));
+                }
+                std::fs::read(p).map_err(|e| Error::Invalid(format!("Could not read {name}: {e}")))?
+            }
+            (None, None) => return Err(Error::Invalid(format!("{name} has no contents"))),
+        };
+        if f.data.is_some() {
+            total += bytes.len() as u64;
+        }
+        if total > CAP {
+            return Err(Error::Invalid("Files sent with a comment are limited to 25 MB together".into()));
+        }
+        out.push((name, bytes));
+    }
+    Ok(out)
 }
 
 /// Where a file `attach` saved, or an image the agent shows, is for the checkout at `cwd`; any path outside its attachments folder is refused.
@@ -7977,16 +8027,147 @@ impl Gitnetix {
         }
     }
 
-    /// Posts a comment on a Linear ticket, or a reply under the thread whose first comment is `parent`.
-    pub async fn ticket_add_comment(&self, source: &str, conn: &str, id: &str, body: &str, parent: Option<&str>) -> Result<()> {
-        if source != "linear" {
-            return Err(Error::Invalid(format!("Commenting on {source} tickets isn't supported here")));
-        }
-        if body.trim().is_empty() {
+    /// Posts a comment on ticket `id`, or on Linear a reply under the thread whose first comment is `parent`. `files`
+    /// upload to the tracker first, then the comment links them under its text: as Markdown where the tracker reads
+    /// it (a picture shown in Linear), else by name and address. GitHub's API takes no files.
+    pub async fn ticket_add_comment(&self, source: &str, conn: &str, id: &str, body: &str, parent: Option<&str>, files: &[Attachment]) -> Result<()> {
+        if body.trim().is_empty() && files.is_empty() {
             return Err(Error::Invalid("The comment is empty".into()));
         }
-        let l = self.store.read(|c| c.integrations.linear.iter().find(|l| l.id == conn).cloned()).ok_or_else(|| Error::NotConnected(source.into()))?;
-        tickets::linear_add_comment(&tickets::linear_token(&l).await?, id, body, parent).await
+        if parent.is_some() && source != "linear" {
+            return Err(Error::Invalid(format!("{source} comments have no threads to reply in")));
+        }
+        let files = comment_files(files)?;
+        let integ = self.store.read(|c| c.integrations.clone());
+        let missing = || Error::NotConnected(source.into());
+        // The text, then a line per file.
+        let text = |links: Vec<String>| [body.trim().to_string()].into_iter().chain(links).filter(|l| !l.is_empty()).collect::<Vec<_>>().join("\n\n");
+        let md = |name: &str, url: &str| format!("[{}]({url})", name.replace(['[', ']'], ""));
+        match source {
+            "linear" => {
+                let l = integ.linear.iter().find(|l| l.id == conn).ok_or_else(missing)?;
+                let tok = tickets::linear_token(l).await?;
+                let mut links = Vec::new();
+                for (name, bytes) in &files {
+                    let url = tickets::linear_put_file(&tok, name, bytes).await?;
+                    links.push(if crate::net::sniff(bytes).is_some() { format!("!{}", md(name, &url)) } else { md(name, &url) });
+                }
+                tickets::linear_add_comment(&tok, id, &text(links), parent).await
+            }
+            "jira" => {
+                let j = integ.jira.iter().find(|j| j.id == conn).ok_or_else(missing)?;
+                let tok = tickets::jira_auth::token(j).await?;
+                let mut links = Vec::new();
+                for (name, bytes) in &files {
+                    links.push(md(name, &tickets::jira_attach(j, &tok, id, name, bytes).await?));
+                }
+                tickets::jira_add_comment(j, &tok, id, &text(links)).await
+            }
+            "trello" => {
+                let t = integ.trello.iter().find(|t| t.id == conn).ok_or_else(missing)?;
+                let tok = tickets::trello_token(t).await?;
+                let mut links = Vec::new();
+                for (name, bytes) in &files {
+                    links.push(md(name, &tickets::trello_attach(t, &tok, id, name, bytes).await?));
+                }
+                tickets::trello_add_comment(t, &tok, id, &text(links)).await
+            }
+            "asana" => {
+                let a = integ.asana.iter().find(|a| a.id == conn).ok_or_else(missing)?;
+                let tok = tickets::asana_token(a).await?;
+                let mut links = Vec::new();
+                for (name, bytes) in &files {
+                    links.push(format!("{name}: {}", tickets::asana_attach(&tok, id, name, bytes).await?));
+                }
+                tickets::asana_add_comment(&tok, id, &text(links)).await
+            }
+            "github" => {
+                if !files.is_empty() {
+                    return Err(Error::Unsupported("GitHub's API takes no files in comments".into()));
+                }
+                let (gh, number) = self.ticket_github(conn, id).await?;
+                gh.comment(number, body.trim()).await
+            }
+            other => Err(Error::Invalid(format!("unknown tracker {other}"))),
+        }
+    }
+
+    /// Leaves reaction `emoji` (a character, or a reaction's key from [`Self::ticket_comments`]) on comment `comment` of
+    /// ticket `id`, or takes the user's away. Jira's and Asana's APIs can't.
+    pub async fn ticket_react(&self, source: &str, conn: &str, id: &str, comment: &str, emoji: &str, add: bool) -> Result<()> {
+        let integ = self.store.read(|c| c.integrations.clone());
+        let missing = || Error::NotConnected(source.into());
+        match source {
+            "linear" => {
+                let l = integ.linear.iter().find(|l| l.id == conn).ok_or_else(missing)?;
+                tickets::linear_react(&tickets::linear_token(l).await?, comment, emoji, add).await
+            }
+            "trello" => {
+                let t = integ.trello.iter().find(|t| t.id == conn).ok_or_else(missing)?;
+                tickets::trello_react(t, &tickets::trello_token(t).await?, comment, emoji, add).await
+            }
+            "github" => tickets::github_react(&self.ticket_github(conn, id).await?.0, comment, emoji, add).await,
+            other => Err(Error::Unsupported(format!("{other}'s API can't change reactions"))),
+        }
+    }
+
+    /// Where origin's pages for the project's files start (`https://github.com/acme/web`) and which host that is,
+    /// read from the remote without signing in; None without an origin to link into.
+    async fn web_repo(&self, p: &Project) -> Result<Option<(&'static str, String)>> {
+        let Some(url) = self.git(p).remote_url("origin").await? else { return Ok(None) };
+        if let Some(a) = azure::parse_remote(&url) {
+            return Ok(Some(("azure", format!("https://dev.azure.com/{}/{}/_git/{}", a.org, a.project, a.repo))));
+        }
+        let Some(r) = parse_remote(&url) else { return Ok(None) };
+        let i = self.store.read(|c| c.integrations.clone());
+        let kind = providers::host_kind(&r, &i).unwrap_or("github");
+        let base = match kind {
+            // A server of one's own may serve its pages under a path: its address as connected.
+            "gitlab" => i.gitlab.url.clone().unwrap_or_else(|| providers::gitlab::CLOUD.into()),
+            "gitea" => i.gitea.url.clone().unwrap_or_default(),
+            _ => format!("https://{}{}", r.host, r.port.map(|n| format!(":{n}")).unwrap_or_default()),
+        };
+        Ok(Some((kind, format!("{}/{}/{}", base.trim_end_matches('/'), r.owner, r.repo))))
+    }
+
+    /// A web link to lines `lines` of `path` as origin has it on `branch`, else on the default branch (`branch` not
+    /// pushed, or without the file there), for a comment to point at.
+    pub async fn permalink(&self, project_id: &str, branch: &str, path: &str, lines: Option<(u32, u32)>) -> Result<Permalink> {
+        let p = self.store.project(project_id)?;
+        let (kind, root) = self.web_repo(&p).await?.ok_or_else(|| Error::NotConnected("This repository has no origin remote to link to".into()))?;
+        let git = self.git(&p);
+        let default = git.default_branch().await?;
+        for b in [branch, default.as_str()].into_iter().filter(|b| !b.is_empty()) {
+            let (ok, sha, _) = git.try_run(&["rev-parse", "--verify", "-q", &format!("refs/remotes/origin/{b}^{{commit}}")]).await?;
+            let sha = sha.trim();
+            if ok && git.try_run(&["cat-file", "-e", &format!("{sha}:{path}")]).await?.0 {
+                return Ok(Permalink { url: providers::file_link(kind, &root, sha, path, lines)?, sha: sha.chars().take(7).collect(), branch: b.into() });
+            }
+        }
+        Err(Error::Invalid(format!("{path} isn't on origin yet: push {branch} first")))
+    }
+
+    /// The lines a link into the project's origin points at (a [`Self::permalink`], or the host's own link to a file at
+    /// a commit), read from this clone: 40 at most. None for a link elsewhere, a commit the clone lacks or a binary file.
+    pub async fn linked_lines(&self, project_id: &str, url: &str) -> Result<Option<LinkedLines>> {
+        const MAX: usize = 40;
+        let p = self.store.project(project_id)?;
+        let Some((kind, root)) = self.web_repo(&p).await? else { return Ok(None) };
+        let Some((sha, path, lines)) = providers::parse_file_link(kind, &root, url) else { return Ok(None) };
+        let Some(text) = self.git(&p).show_file(&sha, &path).await?.filter(|t| !t.contains('\0')) else { return Ok(None) };
+        let all: Vec<&str> = text.lines().collect();
+        let (start, end) = lines.unwrap_or((1, all.len() as u32));
+        let first = (start.max(1) as usize - 1).min(all.len());
+        let last = (end as usize).clamp(first, all.len());
+        Ok(Some(LinkedLines {
+            sha: sha.chars().take(7).collect(),
+            start: first as u32 + 1,
+            end: last as u32,
+            // A minified line stays a line.
+            lines: all[first..last].iter().take(MAX).map(|l| l.chars().take(400).collect()).collect(),
+            more: (last - first).saturating_sub(MAX) as u32,
+            path,
+        }))
     }
 
     /// A picture in ticket `id` that needs the tracker's sign-in, as a data: URL. The sign-in only goes to the tracker.

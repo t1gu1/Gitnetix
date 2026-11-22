@@ -128,6 +128,49 @@ pub struct TicketComment {
     pub doc: Value,
     pub created_at: String,
     pub replies: Vec<TicketComment>,
+    /// Emoji reactions, in the order they were first left.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub reactions: Vec<CommentReaction>,
+}
+
+/// An emoji reaction on a comment. `key` is the tracker's name for it (Linear's "+1", GitHub's THUMBS_UP, Trello's
+/// shortName), what [`linear_react`] and the others take back; `emoji` the character, when the tracker gives it.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CommentReaction {
+    pub key: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub emoji: String,
+    pub count: u64,
+    /// The user left one.
+    pub mine: bool,
+    /// Who left one, by name, when the tracker says; the user first when `mine`.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub people: Vec<String>,
+}
+
+/// Reactions grouped by `key`, in the order each was first left, from (key, emoji, person, is it the user).
+fn grouped<'a>(each: impl IntoIterator<Item = (&'a str, &'a str, &'a str, bool)>) -> Vec<CommentReaction> {
+    let mut out: Vec<CommentReaction> = Vec::new();
+    for (key, emoji, who, mine) in each {
+        if key.is_empty() {
+            continue;
+        }
+        let i = out.iter().position(|r| r.key == key).unwrap_or_else(|| {
+            out.push(CommentReaction { key: key.into(), emoji: emoji.into(), count: 0, mine: false, people: Vec::new() });
+            out.len() - 1
+        });
+        let r = &mut out[i];
+        r.count += 1;
+        r.mine |= mine;
+        match (who.is_empty(), mine) {
+            (true, _) => {}
+            // The page names the user "You", first.
+            (false, true) => r.people.insert(0, who.into()),
+            (false, false) => r.people.push(who.into()),
+        }
+    }
+    out
 }
 
 /// When a ticket was opened and by whom, and since when it has had its status; None or empty when the tracker doesn't say.
@@ -149,6 +192,15 @@ async fn check(res: reqwest::Response, who: &str) -> Result<Value> {
     let status = res.status();
     let text = res.text().await.unwrap_or_default();
     parse(status, &text, who)
+}
+
+/// Checks an answer whose body doesn't matter: a delete or a post may send none.
+async fn done(res: reqwest::Response, who: &str) -> Result<()> {
+    let status = res.status();
+    if status.is_success() {
+        return Ok(());
+    }
+    parse(status, &res.text().await.unwrap_or_default(), who).map(|_| ())
 }
 
 fn parse(status: reqwest::StatusCode, text: &str, who: &str) -> Result<Value> {
@@ -1487,10 +1539,10 @@ pub async fn linear_set_fields(token: &str, issue: &str, edit: &FieldEdit) -> Re
 
 /// The issue's comment threads, oldest first: each top-level comment with its replies.
 pub async fn linear_comments(token: &str, issue: &str) -> Result<Vec<TicketComment>> {
-    const COMMENT: &str = "id body createdAt user { name } botActor { name } externalUser { name }";
-    let query = format!("query($id: String!) {{ issue(id: $id) {{ comments(first: 100, filter: {{ parent: {{ null: true }} }}) {{ nodes {{ {COMMENT} children(first: 50) {{ nodes {{ {COMMENT} }} }} }} }} }} }}");
+    const COMMENT: &str = "id body createdAt user { name } botActor { name } externalUser { name } reactions { emoji user { id name } externalUser { name } }";
+    let query = format!("query($id: String!) {{ viewer {{ id }} issue(id: $id) {{ comments(first: 100, filter: {{ parent: {{ null: true }} }}) {{ nodes {{ {COMMENT} children(first: 50) {{ nodes {{ {COMMENT} }} }} }} }} }} }}");
     let v = linear_gql(token, &query, json!({ "id": issue })).await?;
-    Ok(linear_threads(&v["issue"]["comments"]["nodes"]))
+    Ok(linear_threads(&v["issue"]["comments"]["nodes"], v["viewer"]["id"].as_str().unwrap_or("")))
 }
 
 /// When Linear issue `issue` was made and by whom (a person, an integration's user or a bot), and when it entered its state.
@@ -1522,7 +1574,47 @@ pub async fn linear_add_comment(token: &str, issue: &str, body: &str, parent: Op
     Ok(())
 }
 
-fn linear_threads(nodes: &Value) -> Vec<TicketComment> {
+/// Leaves `emoji` (a character, or a name from [`CommentReaction::key`]) on comment `comment`, or takes the user's away.
+pub async fn linear_react(token: &str, comment: &str, emoji: &str, add: bool) -> Result<()> {
+    if add {
+        let v = linear_gql(token, "mutation($input: ReactionCreateInput!) { reactionCreate(input: $input) { success } }", json!({ "input": { "commentId": comment, "emoji": emoji } })).await?;
+        return if v["reactionCreate"]["success"] == true { Ok(()) } else { Err(Error::Http("Linear did not add the reaction".into())) };
+    }
+    // Linear stores the name ("+1"): the user's reactions under it, or under the character's name.
+    let v = linear_gql(token, "query($id: String!) { viewer { id } comment(id: $id) { reactions { id emoji user { id } } } }", json!({ "id": comment })).await?;
+    let me = &v["viewer"]["id"];
+    let mine: Vec<&str> = v["comment"]["reactions"].as_array().into_iter().flatten().filter(|r| r["user"]["id"] == *me && r["emoji"] == emoji).filter_map(|r| r["id"].as_str()).collect();
+    for id in mine {
+        linear_gql(token, "mutation($id: String!) { reactionDelete(id: $id) { success } }", json!({ "id": id })).await?;
+    }
+    Ok(())
+}
+
+/// Uploads a file to Linear's storage for a comment to link, and returns its address there.
+pub async fn linear_put_file(token: &str, name: &str, bytes: &[u8]) -> Result<String> {
+    let mime = file_type(name, bytes);
+    let q = "mutation($c: String!, $f: String!, $s: Int!) { fileUpload(contentType: $c, filename: $f, size: $s) { success uploadFile { uploadUrl assetUrl headers { key value } } } }";
+    let v = linear_gql(token, q, json!({ "c": mime, "f": name, "s": bytes.len() })).await?;
+    let f = &v["fileUpload"]["uploadFile"];
+    let (Some(to), Some(asset)) = (f["uploadUrl"].as_str(), f["assetUrl"].as_str()) else {
+        return Err(Error::Http(format!("Linear did not take {name}")));
+    };
+    // A signed storage link: Linear's headers sign it, the token stays home.
+    let mut req = http().put(to).header("content-type", mime);
+    for h in f["headers"].as_array().into_iter().flatten() {
+        if let (Some(k), Some(val)) = (h["key"].as_str(), h["value"].as_str()) {
+            req = req.header(k, val);
+        }
+    }
+    let res = req.body(bytes.to_vec()).send().await?;
+    if !res.status().is_success() {
+        return Err(Error::Http(format!("Linear's storage refused {name} ({})", res.status())));
+    }
+    Ok(asset.into())
+}
+
+/// `me`: the viewer's id, whose reactions are the user's.
+fn linear_threads(nodes: &Value, me: &str) -> Vec<TicketComment> {
     let mut out: Vec<TicketComment> = nodes
         .as_array()
         .into_iter()
@@ -1530,7 +1622,12 @@ fn linear_threads(nodes: &Value) -> Vec<TicketComment> {
         .map(|c| {
             let s = |v: &Value| v.as_str().unwrap_or("").to_string();
             let author = [&c["user"]["name"], &c["botActor"]["name"], &c["externalUser"]["name"]].into_iter().find_map(|n| n.as_str()).unwrap_or("Unknown");
-            TicketComment { id: s(&c["id"]), author: author.into(), body: s(&c["body"]), doc: Value::Null, created_at: s(&c["createdAt"]), replies: linear_threads(&c["children"]["nodes"]) }
+            // Linear names its emoji ("+1"); the page knows their characters.
+            let reactions = grouped(c["reactions"].as_array().into_iter().flatten().map(|r| {
+                let who = r["user"]["name"].as_str().or(r["externalUser"]["name"].as_str()).unwrap_or("");
+                (r["emoji"].as_str().unwrap_or(""), "", who, !me.is_empty() && r["user"]["id"] == me)
+            }));
+            TicketComment { id: s(&c["id"]), author: author.into(), body: s(&c["body"]), doc: Value::Null, created_at: s(&c["createdAt"]), replies: linear_threads(&c["children"]["nodes"], me), reactions }
         })
         .collect();
     // Linear's dates are all ISO 8601 in UTC, so they sort as text.
@@ -1762,10 +1859,46 @@ pub fn extract_keys(text: &str) -> Vec<String> {
 
 // ---------- Comments and pictures ----------
 
+/// A file's type for an upload: a picture's from its first bytes, else from its extension.
+fn file_type(name: &str, bytes: &[u8]) -> &'static str {
+    if let Some(t) = crate::net::sniff(bytes) {
+        return t;
+    }
+    let ext = name.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase()).unwrap_or_default();
+    match ext.as_str() {
+        "svg" => "image/svg+xml",
+        "pdf" => "application/pdf",
+        "txt" | "log" => "text/plain",
+        "md" => "text/markdown",
+        "csv" => "text/csv",
+        "json" | "har" => "application/json",
+        "zip" => "application/zip",
+        "mp4" => "video/mp4",
+        "mov" => "video/quicktime",
+        "webm" => "video/webm",
+        _ => "application/octet-stream",
+    }
+}
+
+/// A multipart/form-data body: `fields`, then the file `bytes` named `name` as field `field`; with its Content-Type.
+fn form(fields: &[(&str, &str)], field: &str, name: &str, bytes: &[u8]) -> (String, Vec<u8>) {
+    let boundary = format!("gitnetix-{}-{}", crate::store::new_id(), bytes.len());
+    let mut body = Vec::with_capacity(bytes.len() + 512);
+    for (k, v) in fields {
+        body.extend_from_slice(format!("--{boundary}\r\nContent-Disposition: form-data; name=\"{k}\"\r\n\r\n{v}\r\n").as_bytes());
+    }
+    // A quote or line break in the name would end the header early.
+    let safe: String = name.chars().map(|c| if c == '"' || c.is_control() { '_' } else { c }).collect();
+    body.extend_from_slice(format!("--{boundary}\r\nContent-Disposition: form-data; name=\"{field}\"; filename=\"{safe}\"\r\nContent-Type: {}\r\n\r\n", file_type(name, bytes)).as_bytes());
+    body.extend_from_slice(bytes);
+    body.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
+    (format!("multipart/form-data; boundary={boundary}"), body)
+}
+
 /// A comment with no replies, as GitHub, Jira, Trello and Asana have them.
 fn flat_comment(id: &Value, author: &Value, body: String, created_at: String) -> TicketComment {
     let id = id.as_str().map(String::from).unwrap_or_else(|| id.to_string());
-    TicketComment { id, author: author.as_str().unwrap_or("Unknown").into(), body, doc: Value::Null, created_at, replies: Vec::new() }
+    TicketComment { id, author: author.as_str().unwrap_or("Unknown").into(), body, doc: Value::Null, created_at, replies: Vec::new(), reactions: Vec::new() }
 }
 
 /// The Jira issue's comments, oldest first, each with its ADF in `doc`.
@@ -1788,12 +1921,67 @@ pub async fn jira_comments(conf: &JiraConf, token: &str, key: &str) -> Result<Ve
 
 /// The Trello card's comments, oldest first.
 pub async fn trello_comments(conf: &TrelloConf, token: &str, card: &str) -> Result<Vec<TicketComment>> {
-    let v = check(trello_req(conf, token, reqwest::Method::GET, &format!("/cards/{card}/actions?filter=commentCard&limit=1000")).send().await?, "Trello").await?;
+    let card = path_id(card)?;
+    // The card with its comments and their reactions in one request; who the user is, to mark theirs.
+    let path = format!("/cards/{card}?fields=id&actions=commentCard&actions_limit=1000&action_reactions=true");
+    let (v, me) = tokio::join!(async { check(trello_req(conf, token, reqwest::Method::GET, &path).send().await?, "Trello").await }, trello_me(conf, token));
+    let me = me.unwrap_or_default();
     // Trello lists the newest first.
-    let mut out: Vec<TicketComment> =
-        v.as_array().into_iter().flatten().map(|a| flat_comment(&a["id"], &a["memberCreator"]["fullName"], a["data"]["text"].as_str().unwrap_or("").into(), a["date"].as_str().unwrap_or("").into())).collect();
+    let mut out: Vec<TicketComment> = v?["actions"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|a| {
+            let rx = a["reactions"].as_array().into_iter().flatten().map(|r| {
+                let e = &r["emoji"];
+                (e["shortName"].as_str().or(e["native"].as_str()).unwrap_or(""), e["native"].as_str().unwrap_or(""), r["member"]["fullName"].as_str().unwrap_or(""), !me.is_empty() && r["idMember"] == me.as_str())
+            });
+            TicketComment { reactions: grouped(rx), ..flat_comment(&a["id"], &a["memberCreator"]["fullName"], a["data"]["text"].as_str().unwrap_or("").into(), a["date"].as_str().unwrap_or("").into()) }
+        })
+        .collect();
     out.reverse();
     Ok(out)
+}
+
+/// The signed-in Trello member's id.
+async fn trello_me(conf: &TrelloConf, token: &str) -> Result<String> {
+    let v = check(trello_req(conf, token, reqwest::Method::GET, "/members/me?fields=id").send().await?, "Trello").await?;
+    Ok(v["id"].as_str().unwrap_or("").into())
+}
+
+/// Leaves `emoji` (a character, or Trello's short name from [`CommentReaction::key`]) on comment `action`, or takes the
+/// user's away.
+// shortcut: which of native, unified and shortName Trello needs alone isn't documented; untested against Trello itself.
+pub async fn trello_react(conf: &TrelloConf, token: &str, action: &str, emoji: &str, add: bool) -> Result<()> {
+    let path = format!("/actions/{}/reactions", path_id(action)?);
+    if add {
+        let named = emoji.chars().all(|c| c.is_ascii_alphanumeric() || "_+-".contains(c));
+        let unified = emoji.chars().map(|c| format!("{:X}", c as u32)).collect::<Vec<_>>().join("-");
+        let body = if named { json!({ "shortName": emoji }) } else { json!({ "native": emoji, "unified": unified }) };
+        return done(trello_req(conf, token, reqwest::Method::POST, &path).json(&body).send().await?, "Trello").await;
+    }
+    let me = trello_me(conf, token).await?;
+    let list = check(trello_req(conf, token, reqwest::Method::GET, &format!("{path}?member=false")).send().await?, "Trello").await?;
+    let mine = list.as_array().into_iter().flatten().filter(|r| r["idMember"] == me.as_str() && (r["emoji"]["shortName"] == emoji || r["emoji"]["native"] == emoji));
+    for id in mine.filter_map(|r| r["id"].as_str()) {
+        done(trello_req(conf, token, reqwest::Method::DELETE, &format!("{path}/{}", path_id(id)?)).send().await?, "Trello").await?;
+    }
+    Ok(())
+}
+
+/// Attaches a file to card `card` and returns its address on Trello.
+pub async fn trello_attach(conf: &TrelloConf, token: &str, card: &str, name: &str, bytes: &[u8]) -> Result<String> {
+    let (kind, body) = form(&[("name", name)], "file", name, bytes);
+    let res = trello_req(conf, token, reqwest::Method::POST, &format!("/cards/{}/attachments", path_id(card)?)).header(reqwest::header::CONTENT_TYPE, kind).body(body).send().await?;
+    let v = check(res, "Trello").await?;
+    // The attachment, or a list of one.
+    let a = if v.is_array() { &v[0] } else { &v };
+    a["url"].as_str().map(String::from).ok_or_else(|| Error::Http(format!("Trello did not take {name}")))
+}
+
+/// Posts `text` as a comment on card `card`.
+pub async fn trello_add_comment(conf: &TrelloConf, token: &str, card: &str, text: &str) -> Result<()> {
+    done(trello_req(conf, token, reqwest::Method::POST, &format!("/cards/{}/actions/comments", path_id(card)?)).query(&[("text", text)]).send().await?, "Trello").await
 }
 
 /// The Asana task's comments, oldest first: its stories that are comments, not changes.
@@ -1809,9 +1997,109 @@ pub async fn asana_comments(token: &str, task: &str) -> Result<Vec<TicketComment
         .collect())
 }
 
+/// Attaches a file to task `task` and returns its lasting address (it opens for people signed in to Asana).
+pub async fn asana_attach(token: &str, task: &str, name: &str, bytes: &[u8]) -> Result<String> {
+    // Asana reads a name beyond ASCII percent-encoded.
+    let encoded: String = name.bytes().map(|b| if b.is_ascii() && b != b'%' { (b as char).to_string() } else { format!("%{b:02X}") }).collect();
+    let (kind, body) = form(&[("parent", path_id(task)?)], "file", &encoded, bytes);
+    let res = http().post("https://app.asana.com/api/1.0/attachments").bearer_auth(token).header(reqwest::header::CONTENT_TYPE, kind).body(body).send().await?;
+    let v = check(res, "Asana").await?;
+    v["data"]["permanent_url"].as_str().map(String::from).ok_or_else(|| Error::Http(format!("Asana did not take {name}")))
+}
+
+/// Posts `text` (plain text) as a comment on task `task`.
+pub async fn asana_add_comment(token: &str, task: &str, text: &str) -> Result<()> {
+    let url = format!("https://app.asana.com/api/1.0/tasks/{}/stories", path_id(task)?);
+    done(http().post(url).bearer_auth(token).json(&json!({ "data": { "text": text } })).send().await?, "Asana").await
+}
+
+/// Attaches a file to issue `key` and returns its address on the site, which opens with the browser's Jira session.
+pub async fn jira_attach(conf: &JiraConf, token: &str, key: &str, name: &str, bytes: &[u8]) -> Result<String> {
+    let (kind, body) = form(&[], "file", name, bytes);
+    let res = jira_req(conf, token, reqwest::Method::POST, &format!("/rest/api/3/issue/{}/attachments", path_id(key)?))
+        // Jira refuses an upload without it (its cross-site request check).
+        .header("X-Atlassian-Token", "no-check")
+        .header(reqwest::header::CONTENT_TYPE, kind)
+        .body(body)
+        .send()
+        .await?;
+    let v = check(res, "Jira").await?;
+    let id = v[0]["id"].as_str().ok_or_else(|| Error::Http(format!("Jira did not take {name}")))?;
+    Ok(format!("{}/rest/api/3/attachment/content/{id}", conf.base_url.trim_end_matches('/')))
+}
+
+/// Posts `text` as a comment on issue `key`, its links as links.
+pub async fn jira_add_comment(conf: &JiraConf, token: &str, key: &str, text: &str) -> Result<()> {
+    let path = format!("/rest/api/3/issue/{}/comment", path_id(key)?);
+    done(jira_req(conf, token, reqwest::Method::POST, &path).json(&json!({ "body": adf_doc(text) })).send().await?, "Jira").await
+}
+
+/// Text as Atlassian Document Format: a paragraph per block between blank lines, its line breaks kept, and its links
+/// (Markdown's `[text](url)` and bare web addresses) as links.
+fn adf_doc(text: &str) -> Value {
+    static LINK: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let link = LINK.get_or_init(|| regex::Regex::new(r"\[([^\]]+)\]\((https?://[^\s)]+)\)|https?://[^\s<>()\[\]]+").expect("regex"));
+    let text_node = |t: &str, href: Option<&str>| match href {
+        Some(h) => json!({ "type": "text", "text": t, "marks": [{ "type": "link", "attrs": { "href": h } }] }),
+        None => json!({ "type": "text", "text": t }),
+    };
+    let blocks = text.replace('\r', "");
+    let paragraphs: Vec<Value> = blocks
+        .split("\n\n")
+        .filter(|b| !b.trim().is_empty())
+        .map(|b| {
+            let mut content = Vec::new();
+            for (i, line) in b.trim_matches('\n').split('\n').enumerate() {
+                if i > 0 {
+                    content.push(json!({ "type": "hardBreak" }));
+                }
+                let mut at = 0;
+                for m in link.captures_iter(line) {
+                    let whole = m.get(0).expect("match");
+                    if whole.start() > at {
+                        content.push(text_node(&line[at..whole.start()], None));
+                    }
+                    match (m.get(1), m.get(2)) {
+                        (Some(t), Some(h)) => content.push(text_node(t.as_str(), Some(h.as_str()))),
+                        // A bare address leaves the sentence's punctuation out.
+                        _ => {
+                            let url = whole.as_str().trim_end_matches(['.', ',', ';', ':', '!', '?']);
+                            content.push(text_node(url, Some(url)));
+                            if url.len() < whole.len() {
+                                content.push(text_node(&whole.as_str()[url.len()..], None));
+                            }
+                        }
+                    }
+                    at = whole.end();
+                }
+                if at < line.len() {
+                    content.push(text_node(&line[at..], None));
+                }
+            }
+            json!({ "type": "paragraph", "content": content })
+        })
+        .collect();
+    json!({ "type": "doc", "version": 1, "content": paragraphs })
+}
+
 /// The GitHub issue's comments, oldest first.
 pub async fn github_comments(gh: &GitHub, number: u64) -> Result<Vec<TicketComment>> {
-    Ok(gh.issue_comments(number).await?.iter().map(|c| flat_comment(&c["id"], &c["user"]["login"], c["body"].as_str().unwrap_or("").into(), c["created_at"].as_str().unwrap_or("").into())).collect())
+    Ok(gh
+        .issue_thread(number)
+        .await?
+        .into_iter()
+        .map(|c| TicketComment {
+            reactions: c.reactions.into_iter().map(|r| CommentReaction { key: r.content, emoji: r.emoji, count: r.count, mine: r.mine, people: Vec::new() }).collect(),
+            ..flat_comment(&json!(c.id), &json!(c.author), c.body, c.created_at)
+        })
+        .collect())
+}
+
+/// Leaves `emoji` (one of GitHub's eight, as a character or its name) on issue comment `comment`, or takes the user's away.
+pub async fn github_react(gh: &GitHub, comment: &str, emoji: &str, add: bool) -> Result<()> {
+    let content = crate::providers::github::EMOJI.iter().find(|(c, e)| *c == emoji || *e == emoji).map(|(c, _)| *c);
+    let content = content.ok_or_else(|| Error::Invalid(format!("GitHub only takes {}", crate::providers::github::EMOJI.iter().map(|(_, e)| *e).collect::<Vec<_>>().join(" "))))?;
+    gh.react(comment, content, add).await
 }
 
 // ---------- Assignees ----------
@@ -2456,19 +2744,43 @@ mod tests {
     }
 
     #[test]
+    fn jira_comments_keep_paragraphs_breaks_and_links() {
+        let doc = adf_doc("See [retry.ts:42](https://github.com/a/b/blob/1234567/retry.ts#L42) now\nand https://x.test/a.\n\n\nDone");
+        let p = &doc["content"];
+        assert_eq!(p.as_array().unwrap().len(), 2);
+        let line = &p[0]["content"];
+        assert_eq!(line[0], json!({ "type": "text", "text": "See " }));
+        assert_eq!(line[1]["text"], "retry.ts:42");
+        assert_eq!(line[1]["marks"][0]["attrs"]["href"], "https://github.com/a/b/blob/1234567/retry.ts#L42");
+        assert_eq!(line[2], json!({ "type": "text", "text": " now" }));
+        assert_eq!(line[3], json!({ "type": "hardBreak" }));
+        assert_eq!(line[5]["marks"][0]["attrs"]["href"], "https://x.test/a");
+        assert_eq!(line[6], json!({ "type": "text", "text": "." }));
+        assert_eq!(p[1]["content"][0]["text"], "Done");
+    }
+
+    #[test]
     fn linear_comments_keep_replies_under_their_thread_oldest_first() {
         let nodes = json!([
             { "id": "b", "body": "Second", "createdAt": "2026-11-14T10:00:00.000Z", "botActor": { "name": "GitHub" }, "children": { "nodes": [] } },
-            { "id": "a", "body": "First", "createdAt": "2026-11-13T10:00:00.000Z", "user": { "name": "Ana" }, "children": { "nodes": [
+            { "id": "a", "body": "First", "createdAt": "2026-11-13T10:00:00.000Z", "user": { "name": "Ana" }, "reactions": [
+                { "emoji": "+1", "user": { "id": "u2", "name": "Cy" } },
+                { "emoji": "heart", "user": null, "externalUser": { "name": "Bo" } },
+                { "emoji": "+1", "user": { "id": "me", "name": "Ana" } },
+            ], "children": { "nodes": [
                 { "id": "a2", "body": "Later reply", "createdAt": "2026-11-13T12:00:00.000Z", "user": { "name": "Ana" } },
                 { "id": "a1", "body": "Reply", "createdAt": "2026-11-13T11:00:00.000Z", "user": null, "externalUser": { "name": "Bo" } },
             ] } },
         ]);
-        let t = linear_threads(&nodes);
+        let t = linear_threads(&nodes, "me");
         let ids = |l: &[TicketComment]| l.iter().map(|c| c.id.clone()).collect::<Vec<_>>();
         assert_eq!(ids(&t), ["a", "b"]);
         assert_eq!(ids(&t[0].replies), ["a1", "a2"]);
         assert_eq!((t[0].replies[0].author.as_str(), t[1].author.as_str()), ("Bo", "GitHub"));
+        // Grouped by name in the order first left, the viewer's marked and named first, external users named.
+        let r = |key: &str, count, mine, people: &[&str]| CommentReaction { key: key.into(), emoji: String::new(), count, mine, people: people.iter().map(|p| p.to_string()).collect() };
+        assert_eq!(t[0].reactions, [r("+1", 2, true, &["Ana", "Cy"]), r("heart", 1, false, &["Bo"])]);
+        assert!(t[1].reactions.is_empty());
     }
 
     #[test]

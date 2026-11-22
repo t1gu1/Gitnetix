@@ -254,9 +254,151 @@ impl PrHost {
     }
 }
 
+/// How host `kind` (see [`host_kind`]; "github" or "azure" otherwise) shows a file at a commit, after the repository's root.
+fn file_marker(kind: &str) -> &'static [&'static str] {
+    match kind {
+        "gitlab" => &["-", "blob"],
+        "gitea" => &["src", "commit"],
+        "bitbucket" => &["src"],
+        _ => &["blob"],
+    }
+}
+
+/// A web link to lines `lines` (first and last) of `path` at commit `sha`, in the repository whose pages start at
+/// `root` (`https://github.com/acme/web`), as host `kind` writes it.
+pub fn file_link(kind: &str, root: &str, sha: &str, path: &str, lines: Option<(u32, u32)>) -> Result<String> {
+    let mut u = reqwest::Url::parse(root.trim_end_matches('/')).map_err(|e| Error::Invalid(format!("{root}: {e}")))?;
+    if kind == "azure" {
+        let mut q = u.query_pairs_mut();
+        q.append_pair("path", &format!("/{path}")).append_pair("version", &format!("GC{sha}"));
+        // Whole lines: from the first one's start to the start of the line after the last.
+        if let Some((a, b)) = lines {
+            q.append_pair("line", &a.to_string()).append_pair("lineEnd", &(b + 1).to_string()).append_pair("lineStartColumn", "1").append_pair("lineEndColumn", "1");
+        }
+        drop(q);
+        return Ok(u.to_string());
+    }
+    u.path_segments_mut().map_err(|_| Error::Invalid(format!("{root} is no web address")))?.pop_if_empty().extend(file_marker(kind)).push(sha).extend(path.split('/'));
+    if let Some((a, b)) = lines {
+        u.set_fragment(Some(&match (kind, a == b) {
+            ("bitbucket", true) => format!("lines-{a}"),
+            ("bitbucket", false) => format!("lines-{a}:{b}"),
+            (_, true) => format!("L{a}"),
+            ("gitlab", false) => format!("L{a}-{b}"),
+            (_, false) => format!("L{a}-L{b}"),
+        }));
+    }
+    Ok(u.to_string())
+}
+
+/// The commit, path and lines of a [`file_link`] (or the host's own link to a file at a commit) into the repository
+/// at `root`; None for a link anywhere else.
+pub fn parse_file_link(kind: &str, root: &str, url: &str) -> Option<(String, String, Option<(u32, u32)>)> {
+    let (u, r) = (reqwest::Url::parse(url).ok()?, reqwest::Url::parse(root.trim_end_matches('/')).ok()?);
+    if u.origin() != r.origin() {
+        return None;
+    }
+    let segs = |x: &reqwest::Url| x.path_segments().map(|s| s.filter(|p| !p.is_empty()).map(String::from).collect::<Vec<_>>()).unwrap_or_default();
+    let (us, rs) = (segs(&u), segs(&r));
+    // Hosts take owner and repository names in any case.
+    if us.len() < rs.len() || !us.iter().zip(&rs).all(|(a, b)| a.eq_ignore_ascii_case(b)) {
+        return None;
+    }
+    let sha_ok = |s: &str| (7..=40).contains(&s.len()) && s.bytes().all(|b| b.is_ascii_hexdigit());
+    if kind == "azure" {
+        let q: std::collections::HashMap<_, _> = u.query_pairs().collect();
+        let sha = q.get("version")?.strip_prefix("GC")?.to_string();
+        let path = q.get("path")?.trim_start_matches('/').to_string();
+        let num = |k: &str| q.get(k).and_then(|n| n.parse::<u32>().ok()).filter(|n| *n > 0);
+        let lines = num("line").map(|a| (a, num("lineEnd").filter(|b| *b > a).map_or(a, |b| if num("lineEndColumn") == Some(1) { b - 1 } else { b })));
+        return (us.len() == rs.len() && sha_ok(&sha) && !path.is_empty()).then_some((sha, path, lines));
+    }
+    let marker = file_marker(kind);
+    let rest = &us[rs.len()..];
+    if rest.len() < marker.len() + 2 || !rest.iter().zip(marker).all(|(a, b)| a == b) {
+        return None;
+    }
+    let (sha, file) = rest[marker.len()..].split_first()?;
+    let path = file.iter().map(|p| unpercent(p)).collect::<Option<Vec<_>>>()?.join("/");
+    sha_ok(sha).then(|| (sha.clone(), path, u.fragment().and_then(line_range)))
+}
+
+/// The lines a link's fragment points at: `L12`, `L12-L20`, `L12C3-L20C9` (GitHub, Gitea), `L12-20` (GitLab),
+/// `lines-12:20` (Bitbucket).
+fn line_range(frag: &str) -> Option<(u32, u32)> {
+    let f = frag.strip_prefix("lines-").or_else(|| frag.strip_prefix('L'))?;
+    let num = |s: &str| s.trim_start_matches('L').split('C').next()?.parse::<u32>().ok().filter(|n| *n > 0);
+    let mut parts = f.splitn(2, ['-', ':']);
+    let a = num(parts.next()?)?;
+    let b = match parts.next() {
+        Some(p) => num(p)?,
+        None => a,
+    };
+    Some((a.min(b), a.max(b)))
+}
+
+/// `s` with its %XX escapes decoded; None when that isn't UTF-8.
+fn unpercent(s: &str) -> Option<String> {
+    let b = s.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        let hex = (b[i] == b'%').then(|| b.get(i + 1..i + 3)).flatten().and_then(|h| std::str::from_utf8(h).ok()).and_then(|h| u8::from_str_radix(h, 16).ok());
+        match hex {
+            Some(n) => {
+                out.push(n);
+                i += 3;
+            }
+            None => {
+                out.push(b[i]);
+                i += 1;
+            }
+        }
+    }
+    String::from_utf8(out).ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn file_links_round_trip_on_every_host() {
+        let sha = "3f9c2a1b7e";
+        for (kind, root, want) in [
+            ("github", "https://github.com/acme/web", "https://github.com/acme/web/blob/3f9c2a1b7e/src/up%20load/a%23b.ts#L18-L23"),
+            ("gitlab", "https://gitlab.example.com/team/sub/web", "https://gitlab.example.com/team/sub/web/-/blob/3f9c2a1b7e/src/up%20load/a%23b.ts#L18-23"),
+            ("gitea", "https://git.example.com:3000/acme/web", "https://git.example.com:3000/acme/web/src/commit/3f9c2a1b7e/src/up%20load/a%23b.ts#L18-L23"),
+            ("bitbucket", "https://bitbucket.org/acme/web", "https://bitbucket.org/acme/web/src/3f9c2a1b7e/src/up%20load/a%23b.ts#lines-18:23"),
+            ("azure", "https://dev.azure.com/acme/Web/_git/web", "https://dev.azure.com/acme/Web/_git/web?path=%2Fsrc%2Fup+load%2Fa%23b.ts&version=GC3f9c2a1b7e&line=18&lineEnd=24&lineStartColumn=1&lineEndColumn=1"),
+        ] {
+            let link = file_link(kind, root, sha, "src/up load/a#b.ts", Some((18, 23))).unwrap();
+            assert_eq!(link, want, "{kind}");
+            assert_eq!(parse_file_link(kind, root, &link), Some((sha.into(), "src/up load/a#b.ts".into(), Some((18, 23)))), "{kind}");
+            // One line, and no lines.
+            let one = file_link(kind, root, sha, "a.rs", Some((7, 7))).unwrap();
+            assert_eq!(parse_file_link(kind, root, &one).unwrap().2, Some((7, 7)), "{kind}");
+            assert_eq!(parse_file_link(kind, root, &file_link(kind, root, sha, "a.rs", None).unwrap()).unwrap().2, None, "{kind}");
+        }
+    }
+
+    #[test]
+    fn file_links_elsewhere_are_not_ours() {
+        let root = "https://github.com/acme/web";
+        // GitHub's own links: columns, owner case.
+        assert_eq!(parse_file_link("github", root, "https://github.com/Acme/Web/blob/0123abcd/README.md#L3C2-L9C4"), Some(("0123abcd".into(), "README.md".into(), Some((3, 9)))));
+        for other in [
+            "https://github.com/acme/webapp/blob/0123abcd/a.rs",
+            "https://github.com/acme/web/tree/0123abcd/src",
+            "https://github.com/acme/web/blob/main/a.rs",
+            "https://gitlab.com/acme/web/blob/0123abcd/a.rs",
+            "http://github.com/acme/web/blob/0123abcd/a.rs",
+            "https://github.com/acme/web/blob/0123abcd",
+            "not a link",
+        ] {
+            assert_eq!(parse_file_link("github", root, other), None, "{other}");
+        }
+    }
 
     #[test]
     fn parses_remotes() {

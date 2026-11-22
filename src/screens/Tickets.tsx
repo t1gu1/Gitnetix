@@ -3,7 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 
 import { useAction, useFixVersions, useOverview, useProjectPrefs, useProjects, useTagV, useTicketActivity, useTicketAssignees, useTicketComments, useTicketFields, useTicketStatuses, useTickets } from "../api/hooks";
 import { openExternal, rpc } from "../api/transport";
-import type { BranchView, FieldOption, PrSummary, Suggestion, Ticket, TicketComment } from "../api/types";
+import type { BranchView, FieldOption, PrSummary, Suggestion, Ticket } from "../api/types";
 import { MenuChoice } from "../components/AgentPicker";
 import { Adf, type AdfNode } from "../components/Adf";
 import { Avatar } from "../components/Avatar";
@@ -11,6 +11,7 @@ import { ContextMenu, SEARCH_ABOVE } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
 import { PictureSource } from "../components/Picture";
 import { Resizer, usePaneWidth } from "../components/Resizer";
+import { TicketComments } from "../components/TicketComments";
 import { TicketFiles } from "../components/TicketFiles";
 import { ago, Busy, EmptyState, ErrorBox, Header, Markdown, MEDIA, MediaAsk, PICTURES, releaseTagLabel, Seg, swipeProps } from "../components/ui";
 import { lasted, plural } from "../lib/format";
@@ -537,7 +538,7 @@ function TicketDetail({
             )}
             <TicketFiles key={`${t.source}:${t.id}`} t={t} pictures={media} />
             <PictureSource.Provider value={source}>
-              <Comments t={t} html={media && (github || "pictures")} ask={commentsHidden && ask} />
+              <TicketComments t={t} name={SRC[t.source]} html={media && (github || "pictures")} ask={commentsHidden && ask} />
             </PictureSource.Provider>
           </div>
         </div>
@@ -741,81 +742,6 @@ function WorkLine({
       )}
       {station(4, "Shipped", <span className={shipped ? "tk-stn-meta" : "tk-stn-meta faint"}>{shipped ? `In ${label(shipped)}` : "Not yet"}</span>)}
     </ol>
-  );
-}
-
-/**
- * The ticket's comment threads, each first comment with its replies under it.
- * Linear's also get a box to reply in each thread, then a box for a new comment.
- */
-function Comments({ t, html, ask }: { t: Ticket; html: boolean | "pictures"; ask?: ReactNode }) {
-  const q = useTicketComments(t);
-  const threads = q.data ?? [];
-  const count = threads.reduce((n, c) => n + 1 + c.replies.length, 0);
-  const linear = t.source === "linear";
-  return (
-    <section className="section">
-      <h2>Comments {count > 0 && <span className="mono">{count}</span>}</h2>
-      {ask}
-      {q.isLoading ? (
-        <span className="muted">Loading comments…</span>
-      ) : q.error ? (
-        <ErrorBox error={q.error} />
-      ) : threads.length === 0 ? (
-        <span className="muted">No comments in {SRC[t.source]}.</span>
-      ) : (
-        <div className="col" style={{ gap: 10 }}>
-          {threads.map((c) => (
-            <article key={c.id} className="thread">
-              {[c, ...c.replies].map((r, i) => (
-                // Replies line up under the first comment's text, as in Linear.
-                <Comment key={r.id} c={r} html={html} style={i ? { paddingLeft: 54 } : undefined} />
-              ))}
-              {linear && <CommentBox t={t} parent={c.id} />}
-            </article>
-          ))}
-        </div>
-      )}
-      {linear && !q.isLoading && <CommentBox key={t.id} t={t} />}
-    </section>
-  );
-}
-
-/** Posts to the ticket in Linear: a reply in the thread that starts with `parent`, else a new comment. */
-function CommentBox({ t, parent }: { t: Ticket; parent?: string }) {
-  const [text, setText] = useState("");
-  const post = useAction<unknown, { source: string; conn: string; id: string; body: string; parentId?: string }>("tickets.comment", {
-    invalidate: [["ticketComments", t.source, t.conn, t.id]],
-  });
-  const id = parent ? `tk-reply-${parent}` : "tk-new-comment";
-  const send = () => post.mutate({ source: t.source, conn: t.conn, id: t.id, body: text, parentId: parent }, { onSuccess: () => setText("") });
-  return (
-    <div className="col" style={parent ? { padding: "10px 14px 14px", borderTop: "1px solid var(--line)" } : { marginTop: 10 }}>
-      <label htmlFor={id} className="sr-only">{parent ? "Reply" : "New comment"}</label>
-      <textarea id={id} className="textarea" rows={parent ? 2 : 3} placeholder={parent ? "Reply…" : "Leave a comment in Linear…"} value={text} onChange={(e) => setText(e.target.value)} />
-      <div className="row" style={{ justifyContent: "flex-end" }}>
-        <button className={parent ? "btn btn-sm btn-primary" : "btn btn-primary"} disabled={!text.trim() || post.isPending} onClick={send}>
-          <Busy on={post.isPending}>{null}</Busy>
-          {parent ? "Reply" : "Comment"}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-/** One comment: Jira's in its own format, the others' as Markdown (HTML only from GitHub). */
-function Comment({ c, html, style }: { c: TicketComment; html: boolean | "pictures"; style?: CSSProperties }) {
-  return (
-    <div className="comment" style={style}>
-      <Avatar name={c.author} size={28} decorative />
-      <div className="col grow" style={{ gap: 6, minWidth: 0 }}>
-        <div className="row" style={{ gap: 8 }}>
-          <span style={{ fontWeight: 500 }}>{c.author}</span>
-          <span className="faint" style={{ fontSize: 12 }}>{ago(c.createdAt)}</span>
-        </div>
-        <div className="comment-body">{c.doc ? <Adf doc={c.doc} /> : <Markdown text={c.body} html={html} breaks />}</div>
-      </div>
-    </div>
   );
 }
 

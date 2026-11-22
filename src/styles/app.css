@@ -6678,11 +6678,448 @@ main.detail.tk-detail {
 .tk-criteria > li:first-child {
   border-top: 1px solid var(--line);
 }
-.tk-read .thread {
+/* Comment threads, each in its own box on the panel ground: the first comment, its replies on a hairline from its
+   avatar, then Reply as the box's last row. The box turns ink while its reply is written, dashed while files hover it. */
+.tk-threads {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.tk-thread {
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--panel);
+}
+.tk-thread[data-writing] {
+  border-color: var(--fg);
+}
+.tk-thread[data-over] {
+  border-style: dashed;
+  border-color: var(--fg);
+}
+.tk-thread-in {
+  padding: 16px;
+}
+.tk-cm {
+  position: relative;
+  display: flex;
+  gap: 12px;
+}
+.tk-cm-main {
+  flex: 1;
+  min-width: 0;
+}
+.tk-cm-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-height: 20px;
+}
+.tk-cm-name {
+  font-weight: 500;
+}
+.tk-cm-head > .faint {
+  font-size: 12px;
+}
+.tk-cm .comment-body {
+  margin-top: 2px;
+}
+/* Text keeps a reading measure; pictures, code and tables take the column. */
+.tk-cm .comment-body :is(p, li, blockquote, h1, h2, h3, h4, h5, h6) {
+  max-width: 76ch;
+}
+/* The line from the first comment's avatar, and an elbow to each reply's. */
+.tk-cm[data-rail]::after {
+  content: "";
+  position: absolute;
+  left: 13.5px;
+  top: 34px;
+  bottom: 0;
+  border-left: 1px solid var(--line2);
+}
+.tk-replies {
+  padding-left: 40px;
+}
+.tk-reply {
+  gap: 10px;
+  padding-top: 14px;
+}
+.tk-reply::before {
+  content: "";
+  position: absolute;
+  left: -26.5px;
+  top: 0;
+  width: 20px;
+  height: 26px;
+  border-left: 1px solid var(--line2);
+  border-bottom: 1px solid var(--line2);
+  border-bottom-left-radius: 3px;
+}
+.tk-reply:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  left: -26.5px;
+  top: 20px;
+  bottom: 0;
+  border-left: 1px solid var(--line2);
+}
+.tk-reply-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 40px;
+  padding-right: 6px;
+  border-top: 1px solid var(--line);
+  border-radius: 0 0 var(--r) var(--r);
+}
+.tk-reply-open {
+  display: flex;
+  flex: 1;
+  align-self: stretch;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 0 16px;
+  border: 0;
+  border-bottom-left-radius: var(--r);
+  background: transparent;
+  color: var(--faint);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: text;
+}
+.tk-reply-open:hover {
+  background: color-mix(in srgb, var(--fg) 3%, transparent);
+  color: var(--muted);
+}
+.tk-reply-row > .btn-icon {
+  color: var(--faint);
+}
+.tk-thread[data-over] .tk-reply-open {
+  color: var(--fg);
+}
+/* Reactions under a comment; with none yet, the add button waits at the comment's top right for the pointer. */
+.tk-rx {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+.tk-rx .reaction {
+  gap: 6px;
+  padding: 0 8px 0 6px;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+.tk-rx .reaction:hover:not(:disabled) {
+  border-color: var(--line2);
+  color: var(--fg);
+}
+.tk-rx .reaction[aria-pressed="true"]:hover {
+  border-color: var(--fg);
+}
+.tk-emoji,
+.tk-pick-e {
+  font-family: "Noto Color Emoji", "Apple Color Emoji", "Segoe UI Emoji", sans-serif;
+  font-style: normal;
+}
+.tk-emoji {
+  font-size: 14px;
+  line-height: 1;
+}
+.tk-rx-add {
+  position: relative;
+}
+.tk-rx-add > .reaction {
+  width: 28px;
+  padding: 0;
+  justify-content: center;
+  color: var(--faint);
+}
+.tk-rx-add[data-open] > .reaction {
+  border-color: var(--fg);
+  color: var(--fg);
+}
+.tk-cm-head > .tk-rx-add {
+  align-self: center;
+  margin-left: auto;
+  opacity: 0;
+}
+.tk-cm:hover > .tk-cm-main > .tk-cm-head > .tk-rx-add,
+.tk-cm-head > .tk-rx-add:focus-within,
+.tk-cm-head > .tk-rx-add[data-open] {
+  opacity: 1;
+}
+/* Without hover (phones), it stands under the comment where its reactions will. */
+.tk-rx-touch {
+  display: none;
+}
+@media (hover: none) {
+  .tk-cm-head > .tk-rx-add {
+    display: none;
+  }
+  .tk-rx-touch {
+    display: flex;
+  }
+}
+/* Floating panels: emoji and repository files. */
+.tk-pop {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 6px);
+  left: 0;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--raised);
+  box-shadow: var(--shadow-pop);
+  animation: pop-in 0.16s var(--ease);
+}
+.tk-cm-head .tk-pop {
+  left: auto;
+  right: 0;
+}
+/* From the writing box's tools they open upward, over the text. */
+.tk-compose-tools .tk-pop {
+  top: auto;
+  bottom: calc(100% + 6px);
+}
+.tk-pick {
+  width: 320px;
+}
+.tk-pick > .input,
+.tk-files > .input {
+  width: 100%;
+}
+.tk-pick-scroll {
+  max-height: 248px;
+  margin-top: 4px;
+  overflow-y: auto;
+}
+.tk-pop h3 {
+  margin: 10px 4px 4px;
+  font: 600 11px/13px var(--sans);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.tk-pick-grid {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+}
+.tk-pick-e {
+  display: grid;
+  place-items: center;
+  height: 34px;
+  min-width: 34px;
+  border: 0;
+  border-radius: 2px;
+  background: none;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+.tk-pick-e:hover,
+.tk-pick-e:focus-visible {
+  background: var(--sel);
+}
+.tk-pick-row {
+  display: flex;
+  gap: 2px;
+  padding: 4px;
+}
+.tk-pick-scroll > .faint {
+  margin: 12px 4px;
+  font-size: 12px;
+}
+/* The writing box: text, the files going with it, then its tools. A thread's sits in the thread's box. */
+.tk-compose {
+  position: relative;
+  margin-top: 12px;
+  border: 1px solid var(--line2);
+  border-radius: var(--r);
+  background: var(--panel);
+}
+.tk-compose:focus-within {
+  border-color: var(--fg);
+}
+.tk-compose[data-over] {
+  border-style: dashed;
+  border-color: var(--fg);
+}
+.tk-thread .tk-compose {
+  margin: 0;
   border: 0;
   border-top: 1px solid var(--line);
-  border-radius: 0;
+  border-radius: 0 0 var(--r) var(--r);
+  background: transparent;
+}
+.tk-compose > textarea {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  padding: 12px 16px 10px;
+  border: 0;
+  background: transparent;
+  color: var(--fg);
+  font: 13px/20px var(--sans);
+  resize: none;
+  outline: none;
+}
+.tk-compose > textarea::placeholder {
+  color: var(--faint);
+}
+.tk-compose-files {
+  margin: 0;
+  padding: 0 16px 12px;
+}
+.tk-compose-tools {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 40px;
+  padding: 4px 6px 4px 4px;
+  border-top: 1px solid var(--line);
+}
+.tk-compose-tools > .hint {
+  margin: 0 8px;
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+.tk-compose-tools > .btn-sm {
+  margin-left: 4px;
+}
+.tk-tool-pop {
+  position: relative;
+  display: inline-flex;
+}
+.tk-drop {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: var(--r);
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  color: var(--fg);
+  font-size: 13px;
+  pointer-events: none;
+}
+/* The repository's files to link one, the branch's changed ones first. */
+.tk-files {
+  width: min(520px, calc(100vw - 48px));
+}
+.tk-files-list {
+  max-height: 280px;
+  margin-top: 4px;
+  overflow-y: auto;
+}
+.tk-files-list > .spinner {
+  display: block;
+  margin: 16px auto;
+}
+.tk-files-list > .faint {
+  margin: 12px 4px;
+  font-size: 12px;
+}
+.tk-file {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: 32px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 2px;
   background: none;
+  color: var(--fg);
+  font: 12px var(--mono);
+  text-align: left;
+  cursor: pointer;
+}
+.tk-file > svg {
+  flex: none;
+  color: var(--faint);
+}
+.tk-file[data-at] {
+  background: var(--sel);
+}
+.tk-file-n {
+  flex: none;
+  margin-left: auto;
+  font-size: 11px;
+}
+.tk-files-hint {
+  margin: 8px 0 0;
+  padding: 8px 4px 2px;
+  border-top: 1px solid var(--line);
+  color: var(--faint);
+  font-size: 11.5px;
+}
+/* Lines of the repository a comment links to, as the code they are. */
+.tk-code {
+  max-width: 720px;
+  margin: 10px 0 0;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--bg);
+  overflow: hidden;
+}
+.tk-code-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 4px 0 10px;
+  border-bottom: 1px solid var(--line);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.tk-code-head > svg {
+  flex: none;
+  color: var(--muted);
+}
+.tk-code-path {
+  min-width: 0;
+  overflow: hidden;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--fg);
+  font: 500 12px var(--mono);
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+.tk-code-path:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.tk-code-lines {
+  padding: 6px 0;
+  overflow-x: auto;
+  color: var(--muted);
+  font: 12px/20px var(--mono);
+}
+.tk-code-lines > div {
+  display: flex;
+  white-space: pre;
+}
+.tk-code-lines i {
+  flex: none;
+  width: 48px;
+  padding-right: 14px;
+  color: var(--faint);
+  font-style: normal;
+  text-align: right;
+  user-select: none;
+}
+.tk-code-more {
+  padding: 0 14px 8px 48px;
+  color: var(--faint);
+  font-size: 11.5px;
 }
 .tk-side {
   flex: 0 0 400px;
@@ -6933,6 +7370,21 @@ main.detail.tk-detail {
   }
   .tk-body {
     padding: 20px 16px 48px;
+  }
+  .tk-thread-in {
+    padding: 14px 12px;
+  }
+  .tk-reply-open,
+  .tk-compose > textarea {
+    padding-inline: 12px;
+  }
+  /* Touch: reactions and their add button big enough for a finger. */
+  .tk-rx .reaction,
+  .tk-cm-head > .tk-rx-add > .reaction {
+    height: 30px;
+  }
+  .tk-rx-add > .reaction {
+    width: 34px;
   }
 }
 
