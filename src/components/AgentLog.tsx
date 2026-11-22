@@ -620,7 +620,7 @@ export function AgentLog({ lines, empty, picks, onPicks, actions, thinking, work
           return (
             <div key={i} className="ag-ai">
               {marked && mark}
-              <Markdown text={b.text} />
+              <Markdown text={b.text.replace(TICKET_MARKS, "\n\n***\n\n")} />
               <Files files={shown(b.text)} session={session} />
               <Meta at={b.at} text={b.text} />
             </div>
@@ -898,6 +898,9 @@ function Gallery({ session, paths, at, onClose }: { session: string; paths: stri
 
 // A text preview shows the first MiB: the most `local_head` (src-tauri) reads.
 export const TEXT_CAP = 1 << 20;
+
+/** The lines a ticket study puts around its ticket (see `ticketDraft`): drawn as rules around it. */
+const TICKET_MARKS = /^\[\[(?:TICKET|END)\]\]$/gm;
 
 /** What a file about to be sent shows full size: the image, its text, or why it has none. */
 type Peeked = { url: string } | { text: string; cut: boolean } | { none: string };

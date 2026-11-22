@@ -5,6 +5,7 @@ import { currentRemote, isLocal } from "./api/transport";
 import { ContextMenu, type MenuItem } from "./components/ContextMenu";
 import { AgentConsent } from "./components/AgentConsent";
 import { ForkPush } from "./components/ForkPush";
+import { NewTicket } from "./components/NewTicket";
 import { GitLogin } from "./components/GitLogin";
 import { Icon } from "./components/Icon";
 import { ProfileSplash } from "./components/Profiles";
@@ -117,6 +118,7 @@ function Shell({ onUnpair }: { onUnpair: () => void }) {
           <UpdatePrompt />
           <GitLogin />
           <ForkPush />
+          <NewTicket />
           <AgentConsent />
           <SignInPrompt />
           <GitHubSignInPrompt />

@@ -9,6 +9,7 @@ import { plural } from "../lib/format";
 import { useNav } from "../lib/nav";
 import { showRun, useLocks, useRebasing } from "../lib/rebaseRuns";
 import { call, runTask, wtKey } from "../lib/tasks";
+import { openNewTicket } from "../lib/newTicket";
 import { copyToClipboard, toast } from "../lib/toast";
 import { publishName } from "./Publish";
 import { openPrOf } from "./PullRequests";
@@ -517,6 +518,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
             }),
       },
       ticket: { id: "ticket", label: <>Show ticket <span className="mono">{v.ticket}</span></>, icon: "ticket", run: () => v.ticket && nav.go({ name: "tickets", key: v.ticket }) },
+      newTicket: { id: "newTicket", label: "Create ticket from branch…", tip: `AI writes a ticket from the work on ${b}, and ${b} gets it`, icon: "ticket", run: () => openNewTicket({ projectId: pid, branch: b }) },
       delete: {
         id: "delete",
         label: v.exists ? "Delete branch…" : "Forget branch…",
@@ -586,6 +588,7 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
     }
     list.push("sep");
     if (v.ticket) list.push(a.ticket);
+    else if (v.role === "branch" && v.local) list.push(a.newTicket);
     if (t.showStashes) list.push({ id: "stashes", label: "Show stashes", icon: "stash", hint: v.stashes ? String(v.stashes) : undefined, run: t.showStashes });
     if (v.local && canChangelog) list.push(a.changelog);
     // The only way to tag a branch, a worktree's too: it is tagged where it stands.

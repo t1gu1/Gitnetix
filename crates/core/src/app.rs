@@ -7,11 +7,11 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
 
-use futures_util::{stream, StreamExt};
+use futures_util::{future::join_all, stream, StreamExt};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, OnceCell};
 
-use crate::agents::{AgentManager, AgentSession, AgentStatus, LogLine, StartArgs};
+use crate::agents::{AgentManager, AgentSession, AgentStatus, LogLine, StartArgs, StudyCheckout, TicketStudy};
 use crate::ai::{self, Resolved};
 use crate::cache::{key_of, CommitCache, LastCache, ViewCache};
 use crate::dictation::Audio;
@@ -7070,6 +7070,7 @@ impl Gitnetix {
             prompt,
             ai: r,
             notes,
+            study: None,
         })
     }
 
@@ -7265,6 +7266,16 @@ impl Gitnetix {
                 templates::prepare_release(&mut t);
                 t.body.push_str(&note);
                 vars = release_vars(&git, &from, &current, &commits, true, &projects).await;
+            }
+            "ticket" => {
+                let (base, diff, commits) = self.branch_work(&p, &current, None).await?;
+                source = format!("{current} → {base}");
+                vars.insert("project".into(), p.name.clone());
+                vars.insert("diff".into(), diff);
+                vars.insert("commits".into(), commits);
+                vars.insert("branch".into(), current.clone());
+                vars.insert("base".into(), base);
+                templates::prepare_ticket(&mut t, &vars);
             }
             "agent" => {
                 return Ok((
@@ -7470,26 +7481,34 @@ impl Gitnetix {
     /// default).
     pub async fn generate_pr(&self, project_id: &str, branch: &str, base: Option<&str>) -> Result<(String, String)> {
         let p = self.store.project(project_id)?;
-        let git = self.git(&p);
-        let base = match base.filter(|b| !b.is_empty()) {
-            Some(b) => b.to_string(),
-            None => self.base_of(&p, branch, &git.default_branch().await?).await,
-        };
         let t = self.template("pr", None, Some(&p.id))?;
         let ticket = p.branches.get(branch).and_then(|m| m.ticket.clone()).unwrap_or_else(|| "(none)".into());
-        // The default branch is its own base: through a fork, its pull request holds what it adds to origin's copy.
-        // A base picked from origin's branches may have no local copy.
-        let base_ref = if base == branch || !git.ref_exists(&format!("refs/heads/{base}")).await? { format!("origin/{base}") } else { base.clone() };
-        let (base_rev, rev) = tokio::join!(git.rev_of(&base_ref), git.rev_of(branch));
+        let (base, diff, commits) = self.branch_work(&p, branch, base).await?;
         let mut vars = BTreeMap::new();
-        vars.insert("diff".into(), git.range_diff(&format!("{base_rev}...{rev}"), 60_000).await?);
-        vars.insert("commits".into(), commit_lines(&git.log(&format!("{base_rev}..{rev}"), Some(100)).await?));
+        vars.insert("diff".into(), diff);
+        vars.insert("commits".into(), commits);
         vars.insert("branch".into(), branch.into());
         vars.insert("base".into(), base);
         vars.insert("ticket".into(), ticket);
         let out = self.ask("pr", &t, vars, &p.gen_lang.pr, None).await?;
         let (title, body) = out.split_once('\n').map(|(a, b)| (a.trim().trim_start_matches('#').trim().to_string(), b.trim().to_string())).unwrap_or((out.clone(), String::new()));
         Ok((title, body))
+    }
+
+    /// What `branch` brings over `base` (its base by default): that base, the diff (cut to 60 000 bytes) and the commits.
+    async fn branch_work(&self, p: &Project, branch: &str, base: Option<&str>) -> Result<(String, String, String)> {
+        let git = self.git(p);
+        let base = match base.filter(|b| !b.is_empty()) {
+            Some(b) => b.to_string(),
+            None => self.base_of(p, branch, &git.default_branch().await?).await,
+        };
+        // The default branch is its own base: through a fork, its pull request holds what it adds to origin's copy.
+        // A base picked from origin's branches may have no local copy.
+        let base_ref = if base == branch || !git.ref_exists(&format!("refs/heads/{base}")).await? { format!("origin/{base}") } else { base.clone() };
+        let (base_rev, rev) = tokio::join!(git.rev_of(&base_ref), git.rev_of(branch));
+        let diff = git.range_diff(&format!("{base_rev}...{rev}"), 60_000).await?;
+        let commits = commit_lines(&git.log(&format!("{base_rev}..{rev}"), Some(100)).await?);
+        Ok((base, diff, commits))
     }
 
     /// Pushes `branch` and opens its pull request into `base` (its base by default). On GitHub, an origin the user can't
@@ -7830,6 +7849,211 @@ impl Gitnetix {
             Some(e) => Err(e),
             None => Ok(None),
         }
+    }
+
+    // ---------- new tickets ----------
+
+    /// Where a ticket written in `project_id` can go, from each tracker its Tickets screen shows; a tracker that fails
+    /// is left out, its error listed.
+    pub async fn ticket_places(&self, project_id: &str) -> Result<(Vec<tickets::Place>, Vec<String>)> {
+        self.store.project(project_id)?;
+        let integ = self.store.read(|c| c.integrations.clone());
+        let shown = |repos: &[String]| crate::store::shows_in(repos, project_id);
+        // Only a project whose origin is on GitHub, with a sign-in, files GitHub issues.
+        let github = async {
+            match self.github(project_id).await {
+                Ok(gh) => vec![tickets::github_place(&gh).await.map(|p| vec![p])],
+                Err(_) => vec![],
+            }
+        };
+        let jira = join_all(integ.jira.iter().filter(|j| shown(&j.repos)).map(|j| async move { tickets::jira_places(j, &tickets::jira_auth::token(j).await?).await }));
+        let linear = join_all(integ.linear.iter().filter(|l| shown(&l.repos)).map(|l| async move { tickets::linear_places(l, &tickets::linear_token(l).await?).await }));
+        let trello = join_all(integ.trello.iter().filter(|t| shown(&t.repos)).map(|t| async move { tickets::trello_places(t, &tickets::trello_token(t).await?).await }));
+        let asana = join_all(integ.asana.iter().filter(|a| shown(&a.repos)).map(|a| async move { tickets::asana_places(a, &tickets::asana_token(a).await?).await }));
+        let (github, jira, linear, trello, asana) = tokio::join!(github, jira, linear, trello, asana);
+        let (mut places, mut errors) = (Vec::new(), Vec::new());
+        for r in github.into_iter().chain(jira).chain(linear).chain(trello).chain(asana) {
+            match r {
+                Ok(v) => places.extend(v),
+                Err(e) => errors.push(e.to_string()),
+            }
+        }
+        Ok((places, errors))
+    }
+
+    /// AI's title and description for a new ticket from `template` (the default ticket template when None): about
+    /// `request`, and with `branch`, about the work it adds over its base.
+    pub async fn draft_ticket(&self, project_id: &str, template: Option<&str>, branch: Option<&str>, request: &str, language: Option<&str>) -> Result<(String, String)> {
+        let p = self.store.project(project_id)?;
+        let mut t = self.template("ticket", template.filter(|t| !t.is_empty()), Some(&p.id))?;
+        let mut vars = BTreeMap::new();
+        vars.insert("project".into(), p.name.clone());
+        vars.insert("request".into(), request.trim().to_string());
+        if let Some(b) = branch.filter(|b| !b.is_empty()) {
+            let (base, diff, commits) = self.branch_work(&p, b, None).await?;
+            vars.insert("branch".into(), b.to_string());
+            vars.insert("base".into(), base);
+            vars.insert("diff".into(), diff);
+            vars.insert("commits".into(), commits);
+        }
+        templates::prepare_ticket(&mut t, &vars);
+        let lang = language.filter(|l| !l.is_empty()).unwrap_or(&p.gen_lang.ticket).to_string();
+        let (title, body) = templates::split_ticket(&self.ask("ticket", &t, vars, &lang, None).await?);
+        if title.is_empty() {
+            return Err(Error::Other("AI wrote no ticket. Try again.".into()));
+        }
+        Ok((title, body))
+    }
+
+    /// Creates `t` in its tracker. With `branch`, it becomes the branch's ticket; with `study`, that ticket study's
+    /// session and checkouts are deleted after.
+    pub async fn create_ticket(&self, project_id: &str, t: &tickets::NewTicket, branch: Option<&str>, study: Option<&str>) -> Result<tickets::Created> {
+        self.store.project(project_id)?;
+        if t.title.trim().is_empty() {
+            return Err(Error::Invalid("A ticket needs a title".into()));
+        }
+        let integ = self.store.read(|c| c.integrations.clone());
+        let missing = || Error::NotConnected(t.source.clone());
+        let created = match t.source.as_str() {
+            "jira" => {
+                let j = integ.jira.iter().find(|j| j.id == t.conn).ok_or_else(missing)?;
+                tickets::jira_create(j, &tickets::jira_auth::token(j).await?, t).await?
+            }
+            "linear" => {
+                let l = integ.linear.iter().find(|l| l.id == t.conn).ok_or_else(missing)?;
+                tickets::linear_create(&tickets::linear_token(l).await?, t).await?
+            }
+            "trello" => {
+                let c = integ.trello.iter().find(|c| c.id == t.conn).ok_or_else(missing)?;
+                tickets::trello_create(c, &tickets::trello_token(c).await?, t).await?
+            }
+            "asana" => {
+                let a = integ.asana.iter().find(|a| a.id == t.conn).ok_or_else(missing)?;
+                tickets::asana_create(a, &tickets::asana_token(a).await?, t).await?
+            }
+            "github" => {
+                let (owner, repo) = tickets::github_conn(&t.conn).ok_or_else(|| Error::Invalid(format!("“{}” is not a GitHub repository", t.conn)))?;
+                let api = integ.github_api.clone().filter(|s| !s.is_empty());
+                let gh = GitHub::new(RepoRef { owner: owner.into(), repo: repo.into(), ..Default::default() }, providers::github_auth::token(None).await?, api);
+                tickets::github_create(&gh, t).await?
+            }
+            other => return Err(Error::Invalid(format!("Gitnetix can't create tickets in {other}"))),
+        };
+        crate::log::info(format!("Created ticket {} in {}", created.key, t.source));
+        if let Some(b) = branch.filter(|b| !b.is_empty()) {
+            self.store.with_project(project_id, |p| Ok(link_ticket(p, b, &created.key)))?;
+            self.changed(project_id);
+        }
+        // The ticket exists: a cleanup that fails must not read as a failed create, which a retry would repeat.
+        if let Some(id) = study.filter(|s| !s.is_empty()) {
+            if let Err(e) = self.remove_agent(id).await {
+                crate::log::error(format!("Created {}, but could not delete its ticket study: {e}", created.key));
+            }
+        }
+        Ok(created)
+    }
+
+    /// Starts an agent that studies the code of `projects` (`project_id` first) in throwaway checkouts of their default
+    /// branch, running it when that helps, then writes a ticket about `request` with `template` and ends its reply with
+    /// it. Its session carries where the ticket goes; the checkouts go with it, or once its ticket is created.
+    pub async fn start_ticket_study(&self, project_id: &str, request: &str, template: Option<&str>, projects: &[String], to: TicketStudy, language: Option<&str>) -> Result<AgentSession> {
+        let p = self.store.project(project_id)?;
+        if request.trim().is_empty() {
+            return Err(Error::Invalid("Describe what the ticket is about".into()));
+        }
+        let t = self.template("ticket", template.filter(|t| !t.is_empty()), Some(&p.id))?;
+        let r = self.agent_ai(&t, Route::default())?;
+        ai::warm(&r.provider).await;
+        let mut ids = vec![project_id.to_string()];
+        for id in projects {
+            if !ids.contains(id) {
+                ids.push(id.clone());
+            }
+        }
+        let tag = format!("ticket-{}", &new_id()[..6]);
+        let mut checkouts: Vec<(StudyCheckout, String)> = Vec::new();
+        for id in &ids {
+            let made = match self.store.project(id) {
+                Ok(q) => self.study_checkout(&q, &tag).await.map(|path| (StudyCheckout { project_id: q.id.clone(), path }, q.name.clone())),
+                Err(e) => Err(e),
+            };
+            match made {
+                Ok(c) => checkouts.push(c),
+                Err(e) => {
+                    self.drop_checkouts(checkouts.iter().map(|(c, _)| c)).await;
+                    return Err(e);
+                }
+            }
+        }
+        let mut vars = BTreeMap::new();
+        vars.insert("project".into(), p.name.clone());
+        vars.insert("request".into(), request.trim().to_string());
+        let mut tt = t.clone();
+        templates::prepare_ticket(&mut tt, &vars);
+        // "spoken" is the language of the last dictation, as `ask` reads it.
+        let lang = self.gen_lang(language.filter(|l| !l.is_empty()).unwrap_or(&p.gen_lang.ticket));
+        let mut prompt = templates::fill(&tt, &vars, &lang);
+        if !t.body.contains("{language}") {
+            prompt.push_str(&format!("\n\nWrite the ticket in {}.", templates::language_name(&lang)));
+        }
+        let folders: Vec<String> = checkouts.iter().map(|(c, name)| format!("- {} ({name})", c.path)).collect();
+        let cwd = PathBuf::from(&checkouts[0].0.path);
+        let started = async {
+            // Where the agent saves the images and audio it shows: the log reads them from there only.
+            let shots = attach_root(&cwd).await?.join("shared");
+            std::fs::create_dir_all(&shots)?;
+            prompt = format!(
+                "{prompt}\n\n{}\n\n{}\n\n{}\n\n{}",
+                templates::ticket_study(&folders.join("\n")),
+                templates::CHOICE_FORMAT,
+                templates::share_media(&shots.to_string_lossy()),
+                templates::NO_AI_CREDIT
+            );
+            let notes = checkouts.iter().map(|(c, name)| LogLine::new("dim", format!("  ↳ Checked out {name} in {}", c.path))).collect();
+            let study = TicketStudy { template: t.id.clone(), checkouts: checkouts.iter().map(|(c, _)| c.clone()).collect(), ..to };
+            self.agents.start(StartArgs { project_id: project_id.into(), branch: "HEAD".into(), cwd: cwd.clone(), worktree: true, request: request.trim().into(), prompt, ai: r, notes, study: Some(study) })
+        }
+        .await;
+        if started.is_err() {
+            self.drop_checkouts(checkouts.iter().map(|(c, _)| c)).await;
+        }
+        for (c, _) in &checkouts {
+            self.changed(&c.project_id);
+        }
+        started
+    }
+
+    /// A throwaway checkout of `p`'s default branch, as origin last had it when there is a copy of it, at
+    /// `<parent>/<project>.<tag>` with the project's worktree files: what a ticket study reads and runs.
+    async fn study_checkout(&self, p: &Project, tag: &str) -> Result<String> {
+        let git = self.git(p);
+        let default = git.default_branch().await?;
+        let from = if git.ref_exists(&format!("refs/remotes/origin/{default}")).await? { format!("origin/{default}") } else { default };
+        let path = worktree_path(p, tag);
+        let dir = path.to_string_lossy().to_string();
+        git.run(&["worktree", "add", "--detach", &dir, &from]).await?;
+        init_submodules(&path).await;
+        copy_worktree_files(&self.store, p, &path).await;
+        Ok(dir)
+    }
+
+    /// Deletes ticket study checkouts, with what they hold; one that can't go is logged.
+    async fn drop_checkouts(&self, checkouts: impl Iterator<Item = &StudyCheckout>) {
+        for c in checkouts {
+            if let Err(e) = self.remove_worktree(&c.project_id, &c.path, true).await {
+                crate::log::error(format!("Could not delete the ticket study checkout {}: {e}", c.path));
+            }
+        }
+    }
+
+    /// Deletes an agent session, and a ticket study's checkouts with it.
+    pub async fn remove_agent(&self, id: &str) -> Result<()> {
+        let study = self.agents.get(id).ok().and_then(|s| s.study);
+        self.agents.remove(id)?;
+        if let Some(st) = study {
+            self.drop_checkouts(st.checkouts.iter()).await;
+        }
+        Ok(())
     }
 
     pub fn set_ticket_release(&self, project_id: &str, key: &str, release: &str) -> Result<()> {

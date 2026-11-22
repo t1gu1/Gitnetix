@@ -83,6 +83,32 @@ pub struct AgentSession {
     /// Work its run left going in the background (Claude Code), oldest first: the run waits for it before it ends.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tasks: Vec<SubTask>,
+    /// A ticket study: where its ticket goes, and the throwaway checkouts it reads.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub study: Option<TicketStudy>,
+}
+
+/// An agent writing a ticket after reading, and running when it helps, the code of throwaway checkouts of each
+/// project's default branch. The checkouts go with the session, or once its ticket is created.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct TicketStudy {
+    /// The ticket template it writes with.
+    pub template: String,
+    /// Where the ticket goes, as `tickets.create` takes it: tracker, connection, place and kind.
+    pub source: String,
+    pub conn: String,
+    pub place: String,
+    pub kind: Option<String>,
+    /// Its checkouts, the session's own first.
+    pub checkouts: Vec<StudyCheckout>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct StudyCheckout {
+    pub project_id: String,
+    pub path: String,
 }
 
 /// A sub agent, workflow or command a Claude Code run started in the background (`background_tasks_changed`).
@@ -458,6 +484,7 @@ pub struct StartArgs {
     pub ai: Resolved,
     /// Shown under the request line, e.g. what was added to the context.
     pub notes: Vec<LogLine>,
+    pub study: Option<TicketStudy>,
 }
 
 impl AgentManager {
@@ -706,6 +733,7 @@ impl AgentManager {
             limit: None,
             asks: Vec::new(),
             tasks: Vec::new(),
+            study: args.study,
         };
         self.inner.lock().unwrap().sessions.insert(id.clone(), session.clone());
         self.spawn_or_fail(&id, &args.cwd, &args.ai, &args.prompt, None)?;
@@ -1886,7 +1914,7 @@ mod tests {
         let s = AgentSession {
             id: "a".into(), project_id: "p".into(), branch: "b".into(), cwd: ".".into(), worktree: false,
             status: AgentStatus::Waiting, request: "r".into(), agent_label: String::new(), lines: vec![],
-            started_at: now(), updated_at: now(), resume_id: Some("rid".into()), ai: Some(cli("claude")), queued: vec![], pid: None, last_prompt: None, limit: None, asks: vec![], tasks: vec![],
+            started_at: now(), updated_at: now(), resume_id: Some("rid".into()), ai: Some(cli("claude")), queued: vec![], pid: None, last_prompt: None, limit: None, asks: vec![], tasks: vec![], study: None,
         };
         m.inner.lock().unwrap().sessions.insert("a".into(), s);
 
@@ -1910,7 +1938,7 @@ mod tests {
         let s = |id: &str, status, rid: Option<&str>, provider| AgentSession {
             id: id.into(), project_id: "p".into(), branch: "b".into(), cwd: "/gone".into(), worktree: false,
             status, request: "r".into(), agent_label: String::new(), lines: vec![],
-            started_at: now(), updated_at: now(), resume_id: rid.map(Into::into), ai: Some(cli(provider)), queued: vec!["q".into()], pid: None, last_prompt: None, limit: None, asks: vec![], tasks: vec![],
+            started_at: now(), updated_at: now(), resume_id: rid.map(Into::into), ai: Some(cli(provider)), queued: vec!["q".into()], pid: None, last_prompt: None, limit: None, asks: vec![], tasks: vec![], study: None,
         };
         let saved = vec![
             s("run", AgentStatus::Running, Some("rid"), "claude"),
@@ -1942,7 +1970,7 @@ mod tests {
         let s = |id: &str, pid| AgentSession {
             id: id.into(), project_id: "p".into(), branch: "b".into(), cwd: cwd.clone(), worktree: false,
             status: AgentStatus::Running, request: "r".into(), agent_label: String::new(), lines: vec![],
-            started_at: now(), updated_at: now(), resume_id: Some("rid".into()), ai: Some(cli("claude")), queued: vec!["q".into()], pid: Some(pid), last_prompt: None, limit: None, asks: vec![], tasks: vec![],
+            started_at: now(), updated_at: now(), resume_id: Some("rid".into()), ai: Some(cli("claude")), queued: vec!["q".into()], pid: Some(pid), last_prompt: None, limit: None, asks: vec![], tasks: vec![], study: None,
         };
         let saved = vec![s("live", std::process::id()), s("killed", u32::MAX)];
         std::fs::write(dir.path().join("agents.json"), serde_json::to_string(&saved).unwrap()).unwrap();
@@ -1963,7 +1991,7 @@ mod tests {
         let s = AgentSession {
             id: "a".into(), project_id: "p".into(), branch: "b".into(), cwd: ".".into(), worktree: false,
             status: AgentStatus::Running, request: "r".into(), agent_label: String::new(), lines: vec![],
-            started_at: now(), updated_at: now(), resume_id: Some("rid".into()), ai: Some(r.clone()), queued: vec![], pid: None, last_prompt: None, limit: None, asks: vec![], tasks: vec![],
+            started_at: now(), updated_at: now(), resume_id: Some("rid".into()), ai: Some(r.clone()), queued: vec![], pid: None, last_prompt: None, limit: None, asks: vec![], tasks: vec![], study: None,
         };
         m.inner.lock().unwrap().sessions.insert("a".into(), s);
         let running = || m.inner.lock().unwrap().sessions.get_mut("a").unwrap().status = AgentStatus::Running;
@@ -2000,7 +2028,7 @@ mod tests {
         let s = AgentSession {
             id: "a".into(), project_id: "p".into(), branch: "b".into(), cwd: ".".into(), worktree: false,
             status: AgentStatus::Running, request: "r".into(), agent_label: String::new(), lines: vec![],
-            started_at: now(), updated_at: now(), resume_id: Some("rid".into()), ai: Some(cli("claude")), queued: vec![], pid: None, last_prompt: None, limit: None, asks: vec![], tasks: vec![],
+            started_at: now(), updated_at: now(), resume_id: Some("rid".into()), ai: Some(cli("claude")), queued: vec![], pid: None, last_prompt: None, limit: None, asks: vec![], tasks: vec![], study: None,
         };
         // No such CLI for "q": a follow-up started by mistake fails instead of running anything.
         let q = AgentSession { id: "q".into(), ai: Some(cli("none")), queued: vec!["later".into()], ..s.clone() };
@@ -2023,7 +2051,7 @@ mod tests {
         let s = AgentSession {
             id: id.into(), project_id: "p".into(), branch: "b".into(), cwd: ".".into(), worktree: false,
             status: AgentStatus::Running, request: "r".into(), agent_label: String::new(), lines: vec![],
-            started_at: now(), updated_at: now(), resume_id: Some("rid".into()), ai: Some(cli("claude")), queued: vec![], pid: None, last_prompt: None, limit: None, asks: vec![], tasks: vec![],
+            started_at: now(), updated_at: now(), resume_id: Some("rid".into()), ai: Some(cli("claude")), queued: vec![], pid: None, last_prompt: None, limit: None, asks: vec![], tasks: vec![], study: None,
         };
         m.inner.lock().unwrap().sessions.insert(id.into(), s);
     }
@@ -2165,7 +2193,7 @@ mod tests {
         let s = |id: &str, status| AgentSession {
             id: id.into(), project_id: "p".into(), branch: "b".into(), cwd: "/gone".into(), worktree: false,
             status, request: "r".into(), agent_label: String::new(), lines: vec![],
-            started_at: now(), updated_at: now(), resume_id: Some("rid".into()), ai: Some(cli("claude")), queued: vec![], pid: None, last_prompt: None, limit: None, asks: vec![], tasks: vec![task("w", "workflow", "Review")],
+            started_at: now(), updated_at: now(), resume_id: Some("rid".into()), ai: Some(cli("claude")), queued: vec![], pid: None, last_prompt: None, limit: None, asks: vec![], tasks: vec![task("w", "workflow", "Review")], study: None,
         };
         std::fs::write(dir.path().join("agents.json"), serde_json::to_string(&[s("run", AgentStatus::Running), s("done", AgentStatus::Waiting)]).unwrap()).unwrap();
         let m = AgentManager::new(broadcast::channel(8).0, dir.path());
@@ -2182,7 +2210,7 @@ mod tests {
         let s = AgentSession {
             id: "a".into(), project_id: "p".into(), branch: "b".into(), cwd: ".".into(), worktree: false,
             status: AgentStatus::Running, request: "r".into(), agent_label: String::new(), lines: vec![],
-            started_at: now(), updated_at: now(), resume_id: None, ai: Some(cli("claude")), queued: vec![], pid: None, last_prompt: None, limit: None, asks: vec![], tasks: vec![],
+            started_at: now(), updated_at: now(), resume_id: None, ai: Some(cli("claude")), queued: vec![], pid: None, last_prompt: None, limit: None, asks: vec![], tasks: vec![], study: None,
         };
         m.inner.lock().unwrap().sessions.insert("a".into(), s);
         let saved = || std::fs::read_to_string(dir.path().join("agents.json")).unwrap_or_default();
@@ -2204,7 +2232,7 @@ mod tests {
         let s = |id: &str| AgentSession {
             id: id.into(), project_id: "p".into(), branch: "b".into(), cwd: ".".into(), worktree: false,
             status: AgentStatus::Waiting, request: "r".into(), agent_label: String::new(), lines: vec![],
-            started_at: now(), updated_at: "2000-01-01T00:00:00+00:00".into(), resume_id: None, ai: None, queued: vec![], pid: None, last_prompt: None, limit: None, asks: vec![], tasks: vec![],
+            started_at: now(), updated_at: "2000-01-01T00:00:00+00:00".into(), resume_id: None, ai: None, queued: vec![], pid: None, last_prompt: None, limit: None, asks: vec![], tasks: vec![], study: None,
         };
         std::fs::write(dir.path().join("agents.json"), serde_json::to_string(&[s("shared")]).unwrap()).unwrap();
         // The installed app and a dev build, both opened before either started a session.
@@ -2315,7 +2343,7 @@ mod tests {
         let s = AgentSession {
             id: "a".into(), project_id: "p".into(), branch: "b".into(), cwd: ".".into(), worktree: false,
             status: AgentStatus::Running, request: "r".into(), agent_label: String::new(), lines: vec![],
-            started_at: now(), updated_at: now(), resume_id: None, ai: Some(cli("claude")), queued: vec!["one".into(), "two".into()], pid: None, last_prompt: None, limit: None, asks: vec![], tasks: vec![],
+            started_at: now(), updated_at: now(), resume_id: None, ai: Some(cli("claude")), queued: vec!["one".into(), "two".into()], pid: None, last_prompt: None, limit: None, asks: vec![], tasks: vec![], study: None,
         };
         m.inner.lock().unwrap().sessions.insert("a".into(), s);
         // Another Gitnetix runs it (no run here): its queue is that one's to change.
@@ -2335,7 +2363,7 @@ mod tests {
         let s = AgentSession {
             id: "a".into(), project_id: "p".into(), branch: "b".into(), cwd: ".".into(), worktree: false,
             status: AgentStatus::Running, request: "r".into(), agent_label: String::new(), lines: vec![],
-            started_at: now(), updated_at: now(), resume_id: None, ai: Some(cli("claude")), queued: vec!["now".into()], pid: None, last_prompt: None, limit: None, asks: vec![], tasks: vec![],
+            started_at: now(), updated_at: now(), resume_id: None, ai: Some(cli("claude")), queued: vec!["now".into()], pid: None, last_prompt: None, limit: None, asks: vec![], tasks: vec![], study: None,
         };
         m.inner.lock().unwrap().sessions.insert("a".into(), s);
         let (kill, mut killed) = oneshot::channel();
@@ -2377,7 +2405,7 @@ mod tests {
         let s = AgentSession {
             id: "a".into(), project_id: "p".into(), branch: "b".into(), cwd: ".".into(), worktree: false,
             status: AgentStatus::Running, request: "r".into(), agent_label: String::new(), lines: vec![],
-            started_at: now(), updated_at: now(), resume_id: Some("rid".into()), ai: Some(cli("claude")), queued: vec![], pid: None, last_prompt: None, limit: None, asks: vec![], tasks: vec![],
+            started_at: now(), updated_at: now(), resume_id: Some("rid".into()), ai: Some(cli("claude")), queued: vec![], pid: None, last_prompt: None, limit: None, asks: vec![], tasks: vec![], study: None,
         };
         m.inner.lock().unwrap().sessions.insert("a".into(), s);
         m.inner.lock().unwrap().kills.insert("a".into(), (7, oneshot::channel().0));
@@ -2547,7 +2575,7 @@ mod tests {
         let s = AgentSession {
             id: "a".into(), project_id: "p".into(), branch: "b".into(), cwd: ".".into(), worktree: false,
             status: AgentStatus::Failed, request: "r".into(), agent_label: String::new(), lines: vec![],
-            started_at: now(), updated_at: now(), resume_id: None, ai: Some(cli("none")), queued: vec![], pid: None, last_prompt: None, limit: None, asks: vec![], tasks: vec![],
+            started_at: now(), updated_at: now(), resume_id: None, ai: Some(cli("none")), queued: vec![], pid: None, last_prompt: None, limit: None, asks: vec![], tasks: vec![], study: None,
         };
         m.inner.lock().unwrap().sessions.insert("a".into(), s);
         // A session from before saved prompts: nothing to ask again.
@@ -2580,7 +2608,7 @@ mod tests {
             id: id.into(), project_id: "p".into(), branch: "b".into(), cwd: ".".into(), worktree: false,
             status: AgentStatus::Running, request: "the task".into(), agent_label: String::new(), lines: vec![],
             started_at: now(), updated_at: now(), resume_id: None, ai: Some(r.clone()), queued: vec![], pid: None,
-            last_prompt: Some("the full task".into()), limit: None, asks: vec![], tasks: vec![],
+            last_prompt: Some("the full task".into()), limit: None, asks: vec![], tasks: vec![], study: None,
         }
     }
 

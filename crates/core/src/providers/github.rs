@@ -495,6 +495,32 @@ impl GitHub {
         Ok(d["repository"]["issue"]["comments"]["nodes"].as_array().into_iter().flatten().map(comment).collect())
     }
 
+    /// The issue types the repository's issues can have, by name; none when its owner has none (a user's repository)
+    /// or the server doesn't know them.
+    pub async fn issue_types(&self) -> Vec<String> {
+        let q = "query($o:String!,$r:String!){repository(owner:$o,name:$r){issueTypes(first:25){nodes{name}}}}";
+        let Ok(d) = self.gql(q, json!({ "o": self.repo.owner, "r": self.repo.repo })).await else { return Vec::new() };
+        d["repository"]["issueTypes"]["nodes"].as_array().into_iter().flatten().filter_map(|t| t["name"].as_str().map(String::from)).collect()
+    }
+
+    /// The repository's labels.
+    // shortcut: the first 100 only, follow the Link header if a repository ever has more.
+    pub async fn labels(&self) -> Result<Vec<Value>> {
+        Ok(self.get(&format!("{}/labels?per_page=100", self.rp())).await?.as_array().cloned().unwrap_or_default())
+    }
+
+    /// Opens an issue, with `label` and of issue type `kind` (by name) when given.
+    pub async fn create_issue(&self, title: &str, body: &str, label: Option<&str>, kind: Option<&str>) -> Result<Value> {
+        let mut issue = json!({ "title": title, "body": body });
+        if let Some(l) = label {
+            issue["labels"] = json!([l]);
+        }
+        if let Some(k) = kind {
+            issue["type"] = json!(k);
+        }
+        self.req(reqwest::Method::POST, &format!("{}/issues", self.rp()), Some(issue)).await
+    }
+
     /// Closes issue `number` as completed, or reopens it.
     pub async fn set_issue_open(&self, number: u64, open: bool) -> Result<()> {
         let body = if open { json!({ "state": "open" }) } else { json!({ "state": "closed", "state_reason": "completed" }) };

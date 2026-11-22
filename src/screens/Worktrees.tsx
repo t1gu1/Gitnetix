@@ -11,6 +11,7 @@ import { AgentPicker, MenuChoice, useAgentPick } from "../components/AgentPicker
 import { firstType, TypePicker, typeOfName, withType } from "../components/BranchTypes";
 import { ContextMenu, type MenuItem } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
+import { TicketStudyCard } from "../components/NewTicket";
 import { Resizer, usePaneWidth } from "../components/Resizer";
 import { ShellPane, TermTabs, useTermView } from "../components/Shell";
 import { ago, Confirm, Empty, EmptyState, Header, Modal, Seg, swipeProps } from "../components/ui";
@@ -100,13 +101,13 @@ export function Worktrees({ route }: { route: { key?: string } }) {
   const all: Row[] = useMemo(() => {
     const list: Row[] = (wts.data ?? []).filter((w) => !w.main).map((w) => {
       const a = (agents.data ?? []).find((x) => x.cwd === w.path) ?? w.agent ?? undefined;
-      return { key: w.path, wt: w, agent: a, projectId: w.projectId, projectName: w.projectName, branch: w.branch ?? "(detached)", path: w.path, status: a ? shownStatus(a, w) : "idle" };
+      return { key: w.path, wt: w, agent: a, projectId: w.projectId, projectName: w.projectName, branch: a?.study ? "ticket study" : (w.branch ?? "(detached)"), path: w.path, status: a ? shownStatus(a, w) : "idle" };
     });
     for (const a of agents.data ?? []) {
       if (!list.some((r) => r.agent?.id === a.id)) {
         const p = projects.find((x) => x.id === a.projectId);
         const w = wts.data?.find((x) => x.path === a.cwd);
-        list.push({ key: a.id, wt: w, agent: a, projectId: a.projectId, projectName: p?.name ?? "?", branch: a.branch, path: a.cwd, status: shownStatus(a, w) });
+        list.push({ key: a.id, wt: w, agent: a, projectId: a.projectId, projectName: p?.name ?? "?", branch: a.study ? "ticket study" : a.branch, path: a.cwd, status: shownStatus(a, w) });
       }
     }
     return list.filter((r) => !gone.has(wtKey(r.path)) && !(r.agent && gone.has(agentKey(r.agent.id))));
@@ -175,7 +176,8 @@ export function Worktrees({ route }: { route: { key?: string } }) {
                     <div key={r.key} className="wt-item" onContextMenu={(e) => openMenu(r, e)}>
                       <button className="item-btn wt-row" aria-pressed={r.key === cur?.key} title={r.path} onClick={() => { setSel(r.key); setPane("detail"); }}>
                         <span className="row" style={{ gap: 8 }}>
-                          <span className={`mono ellipsis grow${r.wt ? "" : " faint"}`}>{r.branch}</span>
+                          {/* A ticket study has no branch: its row is named in words. */}
+                          <span className={`${r.agent?.study ? "" : "mono "}ellipsis grow${r.wt ? "" : " faint"}`}>{r.branch}</span>
                           {r.wt && (r.wt.additions > 0 || r.wt.deletions > 0) && (
                             <span className="mono wt-stat"><span className="c-add">+{r.wt.additions}</span> <span className="c-del">−{r.wt.deletions}</span></span>
                           )}
@@ -201,7 +203,7 @@ export function Worktrees({ route }: { route: { key?: string } }) {
                       {/* Stacked like a branch's "+" over its "…"; alone (directory removed), the "…" takes the whole height. */}
                       <span className="tree-acts">
                         <span className="acts act-stack">
-                          {r.wt && (
+                          {r.wt && !r.agent?.study && (
                             <button className="act act-main" aria-label={show} data-tip={show} onClick={() => openInWorkspace(nav, r)}>
                               <Icon name="eye" size={14} />
                             </button>
@@ -318,7 +320,9 @@ function Detail({ r, menu, onMenuClose }: { r: Row; menu?: { x: number; y: numbe
     return !!at;
   };
   const finish = useFinishHandlers(r.projectId, actions.continueOn, (_, cwd, stay, into) => setMerging({ cwd, stay, into }));
-  const isWorktree = !!r.wt && !r.wt.main;
+  // A ticket study's throwaway checkout: no branch to finish or merge, its card creates the ticket.
+  const study = a?.study;
+  const isWorktree = !!r.wt && !r.wt.main && !study;
   const session = { projectId: r.projectId, branch: r.branch, cwd: r.path };
   // Commits like the Workspace commit box with an empty summary: AI writes the message, staged files only if any, else everything.
   const wip = useFiles(r.projectId, r.wt ? r.branch : undefined, "wip").data ?? [];
@@ -367,14 +371,14 @@ function Detail({ r, menu, onMenuClose }: { r: Row; menu?: { x: number; y: numbe
   const retry = (id: string) => msg.mutate({ id, text: "The last run failed. Read the errors above, fix them and try again." });
   // The row's "…" / right-click menu: the terminal fills the pane, so these are the worktree's only action buttons.
   const items = ([
-    a?.status === "waiting" && r.wt && { id: "commit", label: "Commit & Push changes", icon: "sparkle", hint: String(staged || changed), disabled: !changed || commit.isPending || push.isPending, run: commitPush },
+    a?.status === "waiting" && r.wt && !study && { id: "commit", label: "Commit & Push changes", icon: "sparkle", hint: String(staged || changed), disabled: !changed || commit.isPending || push.isPending, run: commitPush },
     a?.status === "failed" && { id: "retry", label: "Fix and retry with AI", icon: "sparkle", run: () => retry(a.id) },
     a?.status === "running" && { id: "pause", label: "Pause", icon: "pause", run: () => pause.mutate({ id: a.id }) },
     a?.status === "paused" && { id: "resume", label: "Resume", icon: "play", run: () => resume.mutate({ id: a.id }) },
     busy && a && { id: "stop", label: "Stop agent", icon: "stop", run: () => halt(a) },
-    r.wt && { id: "open", label: "Open in workspace", icon: "external", run: () => openInWorkspace(nav, r) },
+    r.wt && !study && { id: "open", label: "Open in workspace", icon: "external", run: () => openInWorkspace(nav, r) },
     { id: "copyName", label: "Copy workspace name", icon: "copy", run: () => copyToClipboard(r.path.split(/[\\/]/).pop() ?? r.path) },
-    a && !busy && !isWorktree && { id: "clear", label: "Clear session…", icon: "close", danger: true, run: () => setClearing(true) },
+    a && !busy && !isWorktree && { id: "clear", label: study ? "Discard study…" : "Clear session…", icon: "close", danger: true, run: () => setClearing(true) },
     isWorktree && "sep",
     wtOps && { id: "continue", label: "Continue on branch", icon: "swap", run: () => finish.continue(session, true) },
     isWorktree && lock && { id: "progress", label: "Show rebase progress", icon: "sparkle", run: () => showRun(lock.projectId, lock.branch) },
@@ -406,7 +410,7 @@ function Detail({ r, menu, onMenuClose }: { r: Row; menu?: { x: number; y: numbe
           <ShellPane projectId={r.projectId} path={r.wt ? r.path : undefined} />
         ) : (
           <>
-            <AgentLog lines={a?.lines ?? []} session={a?.id} cwd={a?.cwd} onOpenFile={openFile} projectId={r.projectId} provider={a ? a.ai?.provider : pick.provider} thinking={a?.status === "running" || msg.isPending || start.isPending || reserved.pending} working={busy} queued={a?.queued} onEditQueued={(q) => setText((t) => [q, t].filter(Boolean).join("\n\n"))} canSendNow={a?.ai?.provider === "claude" && !!a.resumeId} limit={a?.limit} asks={a?.asks} tasks={a?.tasks} onCancelLimit={a ? () => halt(a) : undefined} actions={isWorktree && <FinishWorktreeCard session={session} finish={finish} />} picks={picks} onPicks={setPicks} empty={r.wt ? "No agent session on this checkout." : "Directory removed."} />
+            <AgentLog lines={a?.lines ?? []} session={a?.id} cwd={a?.cwd} onOpenFile={openFile} projectId={r.projectId} provider={a ? a.ai?.provider : pick.provider} thinking={a?.status === "running" || msg.isPending || start.isPending || reserved.pending} working={busy} queued={a?.queued} onEditQueued={(q) => setText((t) => [q, t].filter(Boolean).join("\n\n"))} canSendNow={a?.ai?.provider === "claude" && !!a.resumeId} limit={a?.limit} asks={a?.asks} tasks={a?.tasks} onCancelLimit={a ? () => halt(a) : undefined} actions={a?.study ? <TicketStudyCard session={a} /> : isWorktree && <FinishWorktreeCard session={session} finish={finish} />} picks={picks} onPicks={setPicks} empty={r.wt ? "No agent session on this checkout." : "Directory removed."} />
             <AgentInput
               id="wt-ask"
               label="Message the agent"
@@ -448,16 +452,16 @@ function Detail({ r, menu, onMenuClose }: { r: Row; menu?: { x: number; y: numbe
       {discarding && <DiscardWorktreeModal branch={r.branch} path={r.path} onClose={() => setDiscarding(false)} onConfirm={() => finish.discard(session)} />}
       {clearing && a && (
         <Confirm
-          title="Clear agent session"
+          title={study ? "Discard ticket study" : "Clear agent session"}
           sub={<span className="mono">{r.branch}</span>}
-          action="Clear session"
+          action={study ? "Discard study" : "Clear session"}
           onBack={() => setClearing(false)}
           onConfirm={() => {
             clearSession(a);
             setClearing(false);
           }}
         >
-          The agent stops if it is working, and its conversation is deleted.
+          The agent stops if it is working, and its conversation is deleted{study ? ", with its checkouts" : ""}.
         </Confirm>
       )}
       {finish.modal}

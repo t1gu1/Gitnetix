@@ -260,6 +260,7 @@ function ProjectSettings({ project: p }: { project: Project }) {
           [
             ["commit", "Commit summary & message"],
             ["pr", "PR title & description"],
+            ["ticket", "Tickets"],
             ["release", "Release notes"],
           ] as const
         ).map(([k, label]) => (

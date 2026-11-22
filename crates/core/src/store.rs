@@ -239,11 +239,12 @@ pub struct GenLangs {
     pub commit: String,
     pub pr: String,
     pub release: String,
+    pub ticket: String,
 }
 
 impl Default for GenLangs {
     fn default() -> Self {
-        GenLangs { commit: "en".into(), pr: "en".into(), release: "en".into() }
+        GenLangs { commit: "en".into(), pr: "en".into(), release: "en".into(), ticket: "en".into() }
     }
 }
 
@@ -331,7 +332,7 @@ pub struct Route {
 pub struct AiConfig {
     pub default_provider: String,
     pub providers: BTreeMap<String, ProviderConf>,
-    /// Task id (commit, branch, pr, release, conflict, agent, triage, dictation, analytics) → route.
+    /// Task id (commit, branch, pr, ticket, release, conflict, agent, triage, dictation, analytics) → route.
     pub routing: BTreeMap<String, Route>,
 }
 
@@ -347,6 +348,7 @@ impl Default for AiConfig {
         routing.insert("commit".into(), r("claude-haiku-5-5", "low"));
         routing.insert("branch".into(), r("claude-haiku-5-5", "low"));
         routing.insert("pr".into(), r("claude-sonnet-5-5", "medium"));
+        routing.insert("ticket".into(), r("claude-sonnet-5-5", "medium"));
         routing.insert("release".into(), r("claude-sonnet-5-5", "medium"));
         routing.insert("conflict".into(), r("claude-opus-5-5", "high"));
         routing.insert("agent".into(), r("claude-opus-5-5", "xhigh"));
@@ -693,13 +695,14 @@ fn save(path: &Path, cfg: &impl Serialize) -> Result<Option<Stamp>> {
 /// A config file, with templates and worktree files added since it was written and unedited default templates brought up to date.
 fn parse(raw: &str) -> Result<Config> {
     let mut cfg: Config = serde_json::from_str(raw)?;
-    // Kinds added since the config was written get their default templates, and
+    // Kinds added since the config was written get their default templates, all of them, and
     // defaults never edited get the body this version ships.
+    let kinds: Vec<String> = cfg.templates.iter().map(|x| x.kind.clone()).collect();
     for t in default_templates() {
         if let Some(x) = cfg.templates.iter_mut().find(|x| x.id == t.id && OLD_BODIES.contains(&(&*x.id, &*x.body))) {
             x.body = t.body.clone();
         }
-        if !cfg.templates.iter().any(|x| x.kind == t.kind) {
+        if !kinds.contains(&t.kind) {
             cfg.templates.push(t);
         }
     }
@@ -973,6 +976,17 @@ mod tests {
             assert_eq!(open(id, old), today(id));
         }
         assert_eq!(open("changelog", "Edited."), "Edited.");
+    }
+
+    #[test]
+    fn configs_from_before_a_kind_get_all_its_default_templates() {
+        let dir = tempfile::tempdir().unwrap();
+        let mine = serde_json::json!({ "templates": [{ "id": "mine", "kind": "commit", "name": "Mine", "isDefault": true, "body": "Edited." }] });
+        std::fs::write(dir.path().join("config.json"), mine.to_string()).unwrap();
+        let tickets = super::Store::open(dir.path()).unwrap().read(|c| c.templates.iter().filter(|t| t.kind == "ticket").map(|t| t.id.clone()).collect::<Vec<_>>());
+        assert_eq!(tickets, ["ticket-feature", "ticket-task", "ticket-bug"]);
+        let commits = super::Store::open(dir.path()).unwrap().read(|c| c.templates.iter().filter(|t| t.kind == "commit").count());
+        assert_eq!(commits, 1, "a kind the config has keeps its own templates only");
     }
 
     #[test]

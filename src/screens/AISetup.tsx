@@ -10,6 +10,7 @@ const TASKS: [string, string][] = [
   ["commit", "Commit messages"],
   ["branch", "Branch names"],
   ["pr", "PR title & description"],
+  ["ticket", "Ticket writing"],
   ["release", "Release notes"],
   ["conflict", "Conflict resolution"],
   ["agent", "Free-form agent"],

@@ -1,4 +1,4 @@
-//! Prompt templates: how AI writes commits, branch names, PRs, release notes,
+//! Prompt templates: how AI writes commits, branch names, PRs, tickets, release notes,
 //! resolves conflicts, runs as an agent and rewrites dictations.
 
 use std::collections::BTreeMap;
@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 #[serde(default, rename_all = "camelCase")]
 pub struct Template {
     pub id: String,
-    /// global | commit | branch | pr | release | changelog | changelogMerge | conflict | agent | dictation
+    /// global | commit | branch | pr | ticket | release | changelog | changelogMerge | conflict | agent | dictation
     pub kind: String,
     pub name: String,
     /// "all" or a project id.
@@ -56,6 +56,7 @@ pub const KINDS: &[(&str, &str)] = &[
     ("commit", "Commit messages"),
     ("branch", "Branch names"),
     ("pr", "PR title & description"),
+    ("ticket", "Tickets"),
     ("release", "Release notes"),
     ("changelog", "Changelog entries"),
     ("changelogMerge", "Changelog version merge"),
@@ -70,6 +71,14 @@ pub fn variables(kind: &str) -> Vec<(&'static str, &'static str)> {
         "commit" => vec![("{diff}", "Staged diff"), ("{files}", "Changed file list"), ("{branch}", "Current branch"), ("{ticket}", "Linked ticket key"), ("{maxLength}", "Subject length rule")],
         "branch" => vec![("{description}", "What the user typed"), ("{type}", "Type the user picked, else the project's first"), ("{types}", "Types to pick from: the one the user picked, else the project's branch types"), ("{ticket}", "Linked ticket key")],
         "pr" => vec![("{diff}", "Branch diff"), ("{commits}", "Commit list"), ("{branch}", "Head branch"), ("{base}", "Base branch"), ("{ticket}", "Linked ticket")],
+        "ticket" => vec![
+            ("{request}", "What the user asked for, or their notes when writing from a branch; added at the end when left out"),
+            ("{commits}", "From a branch: the commits it adds; added at the end when left out"),
+            ("{diff}", "From a branch: its changes against its base, cut to fit; added at the end when left out"),
+            ("{branch}", "From a branch: its name"),
+            ("{base}", "From a branch: the branch it merges into"),
+            ("{project}", "Project name"),
+        ],
         "release" => vec![
             ("{commits}", "Commits in range, oldest first, with their whole message; added at the end when left out"),
             ("{branches}", "PRs and branches merged, squashed or not; added at the end when left out"),
@@ -170,10 +179,69 @@ pub fn append_missing(t: &mut Template, needed: &[(&str, &str)]) {
     }
 }
 
-/// Fill `{var}` placeholders. Rules are exposed as `{ruleKey}` too.
+/// What a ticket prompt holds when it has it, as `(var, heading)`: a template without the placeholder gets the
+/// section at the end, so AI still reads what the ticket is about.
+pub const TICKET_DATA: &[(&str, &str)] = &[
+    ("request", "What the user asked for"),
+    ("commits", "Commits on {branch} that {base} does not have yet, oldest first"),
+    ("diff", "Changes on {branch} against {base}"),
+];
+
+/// Appended to every ticket prompt, stored and custom templates included: the answer's layout, which Gitnetix reads the
+/// title and description from, and the checks that trackers show as acceptance criteria.
+pub const TICKET_FORMAT: &str = "Lay the ticket out like this: its title alone on the first line, with no type prefix, key or Markdown heading; then a blank line; then the description in Markdown. Write acceptance criteria and the other checks as task list items, \"- [ ] …\", one per line. Write only what the information here supports: never make up screens, files, numbers or people.";
+
+/// Appended to a ticket prompt written from a branch: the work is done, the ticket asks for it.
+pub const TICKET_FROM_BRANCH: &str = "The work on {branch} is done already. Write the ticket that asks for it, as if written before the work: what it brings, why, and how to check it. Never list the commits.";
+
+/// The lines around the ticket at the end of a ticket study's reply, see [`ticket_study`] and [`split_ticket`].
+pub const TICKET_START: &str = "[[TICKET]]";
+pub const TICKET_END: &str = "[[END]]";
+
+/// `t` ready to write a ticket from `vars`: the [`TICKET_DATA`] sections it leaves out and `vars` has a value for at the
+/// end, then [`TICKET_FROM_BRANCH`] when written from a branch, then [`TICKET_FORMAT`].
+pub fn prepare_ticket(t: &mut Template, vars: &BTreeMap<String, String>) {
+    let held: Vec<(&str, &str)> = TICKET_DATA.iter().copied().filter(|(v, _)| vars.get(*v).is_some_and(|x| !x.trim().is_empty())).collect();
+    append_missing(t, &held);
+    if vars.contains_key("branch") {
+        t.body.push_str("\n\n");
+        t.body.push_str(TICKET_FROM_BRANCH);
+    }
+    t.body.push_str("\n\n");
+    t.body.push_str(TICKET_FORMAT);
+}
+
+/// Appended to a ticket study's prompt: the agent reads, and runs when it helps, the checkouts in `folders` (a
+/// "- path (project)" line each) before it writes, then ends its reply with the ticket between the lines Gitnetix reads.
+pub fn ticket_study(folders: &str) -> String {
+    format!("Before you write, study the code in these folders. Each is a fresh checkout of a project's default branch, made for this ticket and deleted after it:\n{folders}\n\n- Read the code the request touches, so the ticket says where and how the work fits, with the real names of its screens, files and functions.\n- When seeing it helps, install what a project needs and run it (the app, the site or the tests) from its folder, and look at it. Use free ports, and stop everything you started before you finish.\n- Change no tracked file, and never commit or push.\n- Ask the user when the request leaves open a choice that changes the ticket.\n\nEnd your final reply with the ticket, between a line {TICKET_START} and a line {TICKET_END}.")
+}
+
+/// The title and description of an answer laid out as [`TICKET_FORMAT`] asks: between its last [`TICKET_START`] and
+/// [`TICKET_END`] when it has them (a ticket study's reply), else the whole answer.
+pub fn split_ticket(text: &str) -> (String, String) {
+    let inner = match text.rfind(TICKET_START) {
+        Some(i) => {
+            let rest = &text[i + TICKET_START.len()..];
+            rest.find(TICKET_END).map_or(rest, |j| &rest[..j])
+        }
+        None => text,
+    };
+    let mut inner = inner.trim();
+    // A model that wraps it in a code fence anyway.
+    if let Some(rest) = inner.strip_prefix("```") {
+        inner = rest.split_once('\n').map_or("", |(_, r)| r).trim_end().trim_end_matches("```").trim();
+    }
+    let (first, rest) = inner.split_once('\n').unwrap_or((inner, ""));
+    let title = first.trim().trim_start_matches('#').trim();
+    let title = title.strip_prefix("Title:").unwrap_or(title).trim().trim_matches('*').trim();
+    (title.to_string(), rest.trim().to_string())
+}
+
+/// `t`'s body with its `{var}` placeholders filled, rules as `{ruleKey}` too and `{language}`.
 /// Unknown placeholders are left as they are, and so are the ones a value holds: a file
 /// with `{path}` in it reaches AI as it is.
-pub fn render(t: &Template, vars: &BTreeMap<String, String>, language: &str) -> String {
+pub fn fill(t: &Template, vars: &BTreeMap<String, String>, language: &str) -> String {
     let mut all = vars.clone();
     for r in &t.rules {
         let v = match &r.value {
@@ -200,6 +268,12 @@ pub fn render(t: &Template, vars: &BTreeMap<String, String>, language: &str) -> 
         }
     }
     out.push_str(rest);
+    out
+}
+
+/// [`fill`], then what every one-shot prompt ends with: the language, [`NO_AI_CREDIT`] and the answer's shape.
+pub fn render(t: &Template, vars: &BTreeMap<String, String>, language: &str) -> String {
+    let mut out = fill(t, vars, language);
     if language == TEMPLATE_LANGUAGE {
         out.push_str("\n\n");
         out.push_str(TEMPLATE_LANGUAGES);
@@ -386,6 +460,28 @@ pub fn default_templates() -> Vec<Template> {
                 rule("breakingFirst", "Mention breaking changes first", "check", json!(true)),
             ],
             body: "Write a pull request title and description for {branch} → {base}.\n\nFirst line: the title, Conventional Commits style.\nThen a blank line, then the description in Markdown with these sections:\n## Summary — 1 or 2 sentences, user-facing\n## Changes — bullet list, most important first\n## How to test — numbered steps\n\nLink {ticket} at the end.\n\nCommits:\n{commits}\n\nDiff:\n{diff}\n\nWrite the result in {language}.".into(),
+            ..Default::default()
+        },
+        Template {
+            id: "ticket-feature".into(),
+            kind: "ticket".into(),
+            name: "Feature".into(),
+            is_default: true,
+            body: "Write a feature ticket for {project}.\n\nTitle: what users get, in a few words.\n\nDescription in Markdown, with these sections:\n## Context\nWho needs it and why, in 1 to 3 sentences.\n## User story\nAs a [kind of user], I want [goal], so that [benefit].\n## Acceptance criteria\nOne testable behavior per item: \"Given …, when …, then …\".\n## Out of scope\nWhat this ticket leaves out. Skip the section when nothing needs saying.\n## Technical notes\nThe screens, files, APIs or data involved, when known. Skip the section otherwise.\n\nWrite the result in {language}.".into(),
+            ..Default::default()
+        },
+        Template {
+            id: "ticket-task".into(),
+            kind: "ticket".into(),
+            name: "Task".into(),
+            body: "Write a task ticket for {project}.\n\nTitle: the work to do, starting with a verb.\n\nDescription in Markdown, with these sections:\n## Goal\nWhat the task achieves and why, in 1 to 3 sentences.\n## Steps\nThe work, in order, as a short numbered list.\n## Done when\nWhat must be true once the task is finished, one check per item.\n## Notes\nFiles, commands or links that help. Skip the section when there are none.\n\nWrite the result in {language}.".into(),
+            ..Default::default()
+        },
+        Template {
+            id: "ticket-bug".into(),
+            kind: "ticket".into(),
+            name: "Bug / Issue".into(),
+            body: "Write a bug ticket for {project}.\n\nTitle: the problem as users see it, not its cause.\n\nDescription in Markdown, with these sections:\n## Problem\nWhat goes wrong, and who it affects.\n## Steps to reproduce\nA numbered list, from a clear starting point.\n## Expected\nWhat should happen.\n## Actual\nWhat happens instead.\n## Acceptance criteria\nThe checks that prove it is fixed: the steps above give the expected result, what is around it still works, and a test covers it.\n## Notes\nLikely cause, logs, versions or environment, when known. Skip the section otherwise.\n\nWrite the result in {language}.".into(),
             ..Default::default()
         },
         Template {
@@ -584,5 +680,55 @@ mod tests {
         let out = render(&t, &v, "en");
         assert!(out.contains("Resolve the merge conflicts in src/a.ts between feat/x and main."), "{out}");
         assert!(out.contains("log(`${path} for {ours}`);"), "{out}");
+    }
+
+    #[test]
+    fn ticket_prompt_holds_what_its_template_leaves_out() {
+        let t = default_templates().into_iter().find(|t| t.id == "ticket-feature").unwrap();
+        let mut v = BTreeMap::new();
+        v.insert("project".into(), "Atlas".into());
+        v.insert("request".into(), "Export the report as CSV".into());
+        let mut from_text = t.clone();
+        prepare_ticket(&mut from_text, &v);
+        let out = render(&from_text, &v, "fr");
+        assert!(out.starts_with("Write a feature ticket for Atlas."), "{out}");
+        assert!(out.contains("What the user asked for:\nExport the report as CSV"), "{out}");
+        assert!(out.contains(TICKET_FORMAT) && !out.contains("Commits on") && !out.contains("is done already"), "{out}");
+        assert!(out.contains("Write the result in French."), "{out}");
+
+        v.insert("request".into(), " ".into());
+        v.insert("branch".into(), "feat/csv".into());
+        v.insert("base".into(), "main".into());
+        v.insert("commits".into(), "- abc1234 feat: csv export".into());
+        v.insert("diff".into(), "+csv".into());
+        let mut from_branch = t;
+        prepare_ticket(&mut from_branch, &v);
+        let out = render(&from_branch, &v, "en");
+        assert!(!out.contains("What the user asked for"), "an empty request is left out: {out}");
+        assert!(out.contains("Commits on feat/csv that main does not have yet, oldest first:\n- abc1234 feat: csv export"), "{out}");
+        assert!(out.contains("Changes on feat/csv against main:\n+csv"), "{out}");
+        assert!(out.contains("The work on feat/csv is done already."), "{out}");
+
+        let mut custom = Template { kind: "ticket".into(), body: "Ticket from {commits}".into(), ..Default::default() };
+        prepare_ticket(&mut custom, &v);
+        assert_eq!(custom.body.matches("{commits}").count(), 1, "a placeholder the template has is not added again: {}", custom.body);
+    }
+
+    #[test]
+    fn split_ticket_reads_the_title_and_description() {
+        let (title, body) = split_ticket("Export the report as CSV\n\n## Context\nTeams copy rows by hand.\n- [ ] A CSV downloads");
+        assert_eq!(title, "Export the report as CSV");
+        assert_eq!(body, "## Context\nTeams copy rows by hand.\n- [ ] A CSV downloads");
+        let (title, body) = split_ticket("# Title: **Export as CSV**\nBody");
+        assert_eq!((title.as_str(), body.as_str()), ("Export as CSV", "Body"));
+        let reply = format!("I read src/report.ts first.\n\n{TICKET_START}\nOld draft\n\nNo.\n{TICKET_END}\n\nBetter:\n\n{TICKET_START}\n```markdown\nExport as CSV\n\n- [ ] It downloads\n```\n{TICKET_END}\nTell me what to change.");
+        assert_eq!(split_ticket(&reply), ("Export as CSV".into(), "- [ ] It downloads".into()), "the last ticket of a reply, out of its code fence");
+        assert_eq!(split_ticket(""), (String::new(), String::new()));
+    }
+
+    #[test]
+    fn ticket_study_names_its_folders_and_markers() {
+        let s = ticket_study("- /tmp/atlas.ticket-ab12 (Atlas)");
+        assert!(s.contains("- /tmp/atlas.ticket-ab12 (Atlas)") && s.contains("between a line [[TICKET]] and a line [[END]]"), "{s}");
     }
 }

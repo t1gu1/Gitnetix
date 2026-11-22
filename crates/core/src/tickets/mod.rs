@@ -2037,12 +2037,6 @@ pub async fn jira_add_comment(conf: &JiraConf, token: &str, key: &str, text: &st
 /// Text as Atlassian Document Format: a paragraph per block between blank lines, its line breaks kept, and its links
 /// (Markdown's `[text](url)` and bare web addresses) as links.
 fn adf_doc(text: &str) -> Value {
-    static LINK: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-    let link = LINK.get_or_init(|| regex::Regex::new(r"\[([^\]]+)\]\((https?://[^\s)]+)\)|https?://[^\s<>()\[\]]+").expect("regex"));
-    let text_node = |t: &str, href: Option<&str>| match href {
-        Some(h) => json!({ "type": "text", "text": t, "marks": [{ "type": "link", "attrs": { "href": h } }] }),
-        None => json!({ "type": "text", "text": t }),
-    };
     let blocks = text.replace('\r', "");
     let paragraphs: Vec<Value> = blocks
         .split("\n\n")
@@ -2053,33 +2047,47 @@ fn adf_doc(text: &str) -> Value {
                 if i > 0 {
                     content.push(json!({ "type": "hardBreak" }));
                 }
-                let mut at = 0;
-                for m in link.captures_iter(line) {
-                    let whole = m.get(0).expect("match");
-                    if whole.start() > at {
-                        content.push(text_node(&line[at..whole.start()], None));
-                    }
-                    match (m.get(1), m.get(2)) {
-                        (Some(t), Some(h)) => content.push(text_node(t.as_str(), Some(h.as_str()))),
-                        // A bare address leaves the sentence's punctuation out.
-                        _ => {
-                            let url = whole.as_str().trim_end_matches(['.', ',', ';', ':', '!', '?']);
-                            content.push(text_node(url, Some(url)));
-                            if url.len() < whole.len() {
-                                content.push(text_node(&whole.as_str()[url.len()..], None));
-                            }
-                        }
-                    }
-                    at = whole.end();
-                }
-                if at < line.len() {
-                    content.push(text_node(&line[at..], None));
-                }
+                content.extend(adf_links(line, &[]));
             }
             json!({ "type": "paragraph", "content": content })
         })
         .collect();
     json!({ "type": "doc", "version": 1, "content": paragraphs })
+}
+
+/// `line` as ADF text nodes with `marks`, its links (Markdown's `[text](url)` and bare web addresses) as links.
+fn adf_links(line: &str, marks: &[Value]) -> Vec<Value> {
+    static LINK: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let link = LINK.get_or_init(|| regex::Regex::new(r"\[([^\]]+)\]\((https?://[^\s)]+)\)|https?://[^\s<>()\[\]]+").expect("regex"));
+    let text_node = |t: &str, href: Option<&str>| {
+        let mut m = marks.to_vec();
+        m.extend(href.map(|h| json!({ "type": "link", "attrs": { "href": h } })));
+        if m.is_empty() { json!({ "type": "text", "text": t }) } else { json!({ "type": "text", "text": t, "marks": m }) }
+    };
+    let mut content = Vec::new();
+    let mut at = 0;
+    for m in link.captures_iter(line) {
+        let whole = m.get(0).expect("match");
+        if whole.start() > at {
+            content.push(text_node(&line[at..whole.start()], None));
+        }
+        match (m.get(1), m.get(2)) {
+            (Some(t), Some(h)) => content.push(text_node(t.as_str(), Some(h.as_str()))),
+            // A bare address leaves the sentence's punctuation out.
+            _ => {
+                let url = whole.as_str().trim_end_matches(['.', ',', ';', ':', '!', '?']);
+                content.push(text_node(url, Some(url)));
+                if url.len() < whole.len() {
+                    content.push(text_node(&whole.as_str()[url.len()..], None));
+                }
+            }
+        }
+        at = whole.end();
+    }
+    if at < line.len() {
+        content.push(text_node(&line[at..], None));
+    }
+    content
 }
 
 /// The GitHub issue's comments, oldest first.
@@ -2478,6 +2486,412 @@ fn upload_links(text: &str, upload: impl Fn(&reqwest::Url) -> bool) -> Vec<Ticke
         out.push(TicketFile { id: link.into(), name, size: None });
     }
     out
+}
+
+// ---------- New tickets ----------
+
+/// Where a new ticket can go: a Jira project, a Linear team, a GitHub repository, the first list of a Trello board, or
+/// an Asana project (or the user's own tasks).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Place {
+    /// jira | linear | github | trello | asana
+    pub source: String,
+    /// The connection's id; `owner/repo` for GitHub.
+    pub conn: String,
+    /// What the tracker files it under: Jira project key, Linear team id, `owner/repo`, Trello list id, Asana project
+    /// gid ("" for the user's own tasks).
+    pub id: String,
+    /// "Jira · Atlas (ATL)", "Trello · Roadmap · To do".
+    pub name: String,
+    /// What it can be filed as: Jira's issue types, GitHub's issue types when the repository has them, else labels.
+    pub kinds: Vec<FieldOption>,
+    /// Jira needs one of its issue types; a label is optional elsewhere.
+    pub kind_required: bool,
+}
+
+/// A ticket to create in a [`Place`].
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NewTicket {
+    pub source: String,
+    pub conn: String,
+    pub place: String,
+    /// One of the place's kinds, by id; none when None or "".
+    #[serde(default)]
+    pub kind: Option<String>,
+    pub title: String,
+    /// Markdown.
+    #[serde(default)]
+    pub body: String,
+}
+
+impl NewTicket {
+    fn kind(&self) -> Option<&str> {
+        self.kind.as_deref().filter(|k| !k.is_empty())
+    }
+}
+
+/// A ticket just created: its key as the Tickets screen keys it, the tracker's own id, and its page.
+#[derive(Debug, Clone, Serialize)]
+pub struct Created {
+    pub key: String,
+    pub id: String,
+    pub url: String,
+}
+
+fn place(source: &str, conn: &str, id: &str, name: String, kinds: Vec<FieldOption>, kind_required: bool) -> Place {
+    Place { source: source.into(), conn: conn.into(), id: id.into(), name, kinds, kind_required }
+}
+
+fn kind_option(id: &str, name: &str) -> FieldOption {
+    FieldOption { id: id.into(), name: name.into(), color: String::new(), group: String::new() }
+}
+
+/// The connection's Jira projects (the picked ones, else every one it sees), with the issue types a ticket can be
+/// created as. Sub-tasks are left out: they need a parent.
+pub async fn jira_places(conf: &JiraConf, token: &str) -> Result<Vec<Place>> {
+    let mut out = Vec::new();
+    let mut start = 0;
+    loop {
+        let path = format!("/rest/api/3/project/search?maxResults=100&orderBy=name&expand=issueTypes&startAt={start}");
+        let v = check(jira_req(conf, token, reqwest::Method::GET, &path).send().await?, "Jira").await?;
+        let page = v["values"].as_array().cloned().unwrap_or_default();
+        start += page.len();
+        out.extend(page.iter().filter_map(|p| jira_place(conf, p)));
+        if page.is_empty() || v["isLast"].as_bool().unwrap_or(true) {
+            return Ok(out);
+        }
+    }
+}
+
+fn jira_place(conf: &JiraConf, project: &Value) -> Option<Place> {
+    let key = project["key"].as_str()?;
+    if !conf.projects.is_empty() && !conf.projects.iter().any(|k| k.eq_ignore_ascii_case(key)) {
+        return None;
+    }
+    let types = project["issueTypes"].as_array().into_iter().flatten().filter(|t| t["subtask"] != true);
+    let kinds = types.filter_map(|t| Some(kind_option(t["id"].as_str()?, t["name"].as_str()?))).collect();
+    Some(place("jira", &conf.id, key, format!("Jira · {} ({key})", project["name"].as_str().unwrap_or(key)), kinds, true))
+}
+
+/// The connection's Linear teams (the picked ones, else every one), with the labels an issue of each can take.
+pub async fn linear_places(conf: &LinearConf, token: &str) -> Result<Vec<Place>> {
+    const LABEL: &str = "nodes { id name color isGroup parent { name } }";
+    let query = format!("{{ teams(first: 250) {{ nodes {{ id key name labels(first: 250) {{ {LABEL} }} }} }} issueLabels(first: 250, filter: {{ team: {{ null: true }} }}) {{ {LABEL} }} }}");
+    Ok(linear_places_from(conf, &linear_gql(token, &query, json!({})).await?))
+}
+
+fn linear_places_from(conf: &LinearConf, v: &Value) -> Vec<Place> {
+    let picked = |t: &&Value| conf.teams.is_empty() || t["key"].as_str().is_some_and(|k| conf.teams.iter().any(|x| x.eq_ignore_ascii_case(k)));
+    v["teams"]["nodes"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(picked)
+        .filter_map(|t| {
+            let kinds = linear_label_options(&[&t["labels"]["nodes"], &v["issueLabels"]["nodes"]]);
+            Some(place("linear", &conf.id, t["id"].as_str()?, format!("Linear · {}", t["name"].as_str().unwrap_or("")), kinds, false))
+        })
+        .collect()
+}
+
+/// The repository, with its issue types when its owner has them, else its labels.
+pub async fn github_place(gh: &GitHub) -> Result<Place> {
+    let repo = github_repo(gh);
+    let types = gh.issue_types().await;
+    let kinds = if types.is_empty() {
+        gh.labels().await?.iter().filter_map(|l| l["name"].as_str()).map(|n| kind_option(&format!("label:{n}"), n)).collect()
+    } else {
+        types.iter().map(|t| kind_option(&format!("type:{t}"), t)).collect()
+    };
+    Ok(place("github", &repo, &repo, format!("GitHub · {repo}"), kinds, false))
+}
+
+/// The first open list of each of the connection's boards (the picked ones, else every open board of the user), with
+/// the board's labels: a new card goes to the end of that list, To do most often.
+pub async fn trello_places(conf: &TrelloConf, token: &str) -> Result<Vec<Place>> {
+    let mut boards: Vec<String> = conf.boards.iter().filter(|b| !b.is_empty()).cloned().collect();
+    if boards.is_empty() {
+        let me = trello_account(conf, token).await?;
+        boards = me["boards"].as_array().into_iter().flatten().filter_map(|b| b["id"].as_str().map(String::from)).collect();
+    }
+    let ask = |b: &str| trello_req(conf, token, reqwest::Method::GET, &format!("/boards/{b}?fields=name&lists=open&list_fields=name&labels=all&label_fields=name,color")).send();
+    let answers = join_all(boards.iter().map(|b| {
+        let sent = ask(b);
+        async move { check(sent.await?, "Trello").await }
+    }))
+    .await;
+    let mut out = Vec::new();
+    for board in answers {
+        out.extend(trello_place(conf, &board?));
+    }
+    Ok(out)
+}
+
+fn trello_place(conf: &TrelloConf, board: &Value) -> Option<Place> {
+    let list = board["lists"].as_array()?.first()?;
+    // A label can have a color and no name.
+    let kinds = board["labels"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|l| Some(kind_option(l["id"].as_str()?, l["name"].as_str().filter(|n| !n.is_empty()).or(l["color"].as_str())?)))
+        .collect();
+    let name = format!("Trello · {} · {}", board["name"].as_str().unwrap_or(""), list["name"].as_str().unwrap_or(""));
+    Some(place("trello", &conf.id, list["id"].as_str()?, name, kinds, false))
+}
+
+/// The connection's Asana projects, else the user's own tasks in its workspace. Asana has no ticket types.
+pub async fn asana_places(conf: &AsanaConf, token: &str) -> Result<Vec<Place>> {
+    let picked: Vec<&String> = conf.projects.iter().filter(|p| !p.is_empty()).collect();
+    if picked.is_empty() {
+        return Ok(vec![place("asana", &conf.id, "", "Asana · My tasks".into(), Vec::new(), false)]);
+    }
+    let names = join_all(picked.iter().map(|p| async move {
+        let v = check(http().get(format!("https://app.asana.com/api/1.0/projects/{p}?opt_fields=name")).bearer_auth(token).send().await?, "Asana").await?;
+        Ok::<_, Error>(v["data"]["name"].as_str().unwrap_or(p).to_string())
+    }))
+    .await;
+    picked.iter().zip(names).map(|(p, name)| Ok(place("asana", &conf.id, p, format!("Asana · {}", name?), Vec::new(), false))).collect()
+}
+
+/// Creates `t` in Jira: in project `place`, as issue type `kind`, its description as ADF so its task items show as
+/// acceptance criteria.
+pub async fn jira_create(conf: &JiraConf, token: &str, t: &NewTicket) -> Result<Created> {
+    let kind = t.kind().ok_or_else(|| Error::Invalid("Pick an issue type for the Jira ticket".into()))?;
+    let mut fields = json!({ "project": { "key": t.place }, "summary": t.title.trim(), "issuetype": { "id": kind } });
+    if !t.body.trim().is_empty() {
+        fields["description"] = adf_markdown(&t.body);
+    }
+    let v = check(jira_req(conf, token, reqwest::Method::POST, "/rest/api/3/issue").json(&json!({ "fields": fields })).send().await?, "Jira").await?;
+    let key = v["key"].as_str().ok_or_else(|| Error::Http("Jira created no issue".into()))?;
+    Ok(Created { key: key.into(), id: key.into(), url: format!("{}/browse/{key}", conf.base_url.trim_end_matches('/')) })
+}
+
+/// Creates `t` in Linear: in team `place`, with label `kind`.
+pub async fn linear_create(token: &str, t: &NewTicket) -> Result<Created> {
+    let mut input = json!({ "teamId": t.place, "title": t.title.trim(), "description": t.body });
+    if let Some(k) = t.kind() {
+        input["labelIds"] = json!([k]);
+    }
+    let v = linear_gql(token, "mutation($input: IssueCreateInput!) { issueCreate(input: $input) { success issue { id identifier url } } }", json!({ "input": input })).await?;
+    let i = &v["issueCreate"]["issue"];
+    match (i["identifier"].as_str(), i["id"].as_str()) {
+        (Some(key), Some(id)) if v["issueCreate"]["success"] == true => Ok(Created { key: key.into(), id: id.into(), url: i["url"].as_str().unwrap_or("").into() }),
+        _ => Err(Error::Http("Linear created no issue".into())),
+    }
+}
+
+/// Creates `t` as an issue of the repository, of issue type `kind` ("type:Bug") or with label `kind` ("label:bug").
+pub async fn github_create(gh: &GitHub, t: &NewTicket) -> Result<Created> {
+    let kind = t.kind();
+    let v = gh.create_issue(t.title.trim(), &t.body, kind.and_then(|k| k.strip_prefix("label:")), kind.and_then(|k| k.strip_prefix("type:"))).await?;
+    let n = v["number"].as_u64().ok_or_else(|| Error::Http("GitHub created no issue".into()))?;
+    Ok(Created { key: format!("#{n}"), id: n.to_string(), url: v["html_url"].as_str().unwrap_or("").into() })
+}
+
+/// Creates `t` as a card at the end of Trello list `place`, with label `kind`. Its task items go into checklists, which
+/// Trello and the Tickets screen show as acceptance criteria; a checklist that fails is logged, the card stays.
+pub async fn trello_create(conf: &TrelloConf, token: &str, t: &NewTicket) -> Result<Created> {
+    let (desc, lists) = task_lists(&t.body);
+    let mut card = json!({ "idList": t.place, "name": t.title.trim(), "desc": desc });
+    if let Some(k) = t.kind() {
+        card["idLabels"] = json!([k]);
+    }
+    let c = check(trello_req(conf, token, reqwest::Method::POST, "/cards").json(&card).send().await?, "Trello").await?;
+    let (Some(id), Some(link)) = (c["id"].as_str(), c["shortLink"].as_str()) else { return Err(Error::Http("Trello created no card".into())) };
+    for (name, items) in &lists {
+        if let Err(e) = trello_checklist(conf, token, id, name, items).await {
+            crate::log::error(format!("Could not add the “{name}” checklist to Trello card {link}: {e}"));
+        }
+    }
+    Ok(Created { key: format!("#{link}"), id: id.into(), url: c["url"].as_str().unwrap_or("").into() })
+}
+
+async fn trello_checklist(conf: &TrelloConf, token: &str, card: &str, name: &str, items: &[Criterion]) -> Result<()> {
+    let list = check(trello_req(conf, token, reqwest::Method::POST, "/checklists").json(&json!({ "idCard": card, "name": name })).send().await?, "Trello").await?;
+    let id = path_id(list["id"].as_str().unwrap_or(""))?;
+    for it in items {
+        done(trello_req(conf, token, reqwest::Method::POST, &format!("/checklists/{id}/checkItems")).json(&json!({ "name": it.text, "checked": it.done })).send().await?, "Trello").await?;
+    }
+    Ok(())
+}
+
+/// Creates `t` as a task of Asana project `place`, else of the user's own tasks in the workspace.
+pub async fn asana_create(conf: &AsanaConf, token: &str, t: &NewTicket) -> Result<Created> {
+    let mut data = json!({ "name": t.title.trim(), "notes": t.body });
+    if t.place.is_empty() {
+        data["workspace"] = json!(conf.workspace_gid);
+        data["assignee"] = json!("me");
+    } else {
+        data["projects"] = json!([t.place]);
+    }
+    let v = check(http().post("https://app.asana.com/api/1.0/tasks?opt_fields=permalink_url").bearer_auth(token).json(&json!({ "data": data })).send().await?, "Asana").await?;
+    let gid = v["data"]["gid"].as_str().ok_or_else(|| Error::Http("Asana created no task".into()))?;
+    Ok(Created { key: format!("AS-{gid}"), id: gid.into(), url: v["data"]["permalink_url"].as_str().unwrap_or("").into() })
+}
+
+/// A Markdown line's task list item: whether it is checked, and its text.
+fn task_item(line: &str) -> Option<(bool, &str)> {
+    let rest = bullet_item(line)?;
+    let done = match rest.get(..3)? {
+        "[ ]" => false,
+        "[x]" | "[X]" => true,
+        _ => return None,
+    };
+    Some((done, rest[3..].trim()))
+}
+
+/// A Markdown line's bullet list item.
+fn bullet_item(line: &str) -> Option<&str> {
+    line.trim_start().strip_prefix(['-', '*', '+'])?.strip_prefix(' ').map(str::trim)
+}
+
+/// A Markdown line's numbered list item, "1. text" or "1) text".
+fn numbered_item(line: &str) -> Option<&str> {
+    let t = line.trim_start();
+    let digits = t.find(|c: char| !c.is_ascii_digit()).filter(|n| *n > 0)?;
+    t[digits..].strip_prefix(['.', ')'])?.strip_prefix(' ').map(str::trim)
+}
+
+/// A Markdown heading's level and text.
+fn heading_item(line: &str) -> Option<(usize, &str)> {
+    let t = line.trim_start();
+    let level = t.bytes().take_while(|b| *b == b'#').count();
+    if !(1..=6).contains(&level) {
+        return None;
+    }
+    t[level..].strip_prefix(' ').map(|h| (level, h.trim().trim_end_matches('#').trim()))
+}
+
+/// `text` cut at each `mark`, each part with whether it sits inside a pair of them; an unpaired last mark stays text.
+fn spans<'a>(text: &'a str, mark: &str) -> Vec<(bool, &'a str)> {
+    let at: Vec<usize> = text.match_indices(mark).map(|(i, _)| i).collect();
+    let mut out = Vec::new();
+    let mut from = 0;
+    for pair in at.chunks_exact(2) {
+        out.push((false, &text[from..pair[0]]));
+        out.push((true, &text[pair[0] + mark.len()..pair[1]]));
+        from = pair[1] + mark.len();
+    }
+    out.push((false, &text[from..]));
+    out.retain(|(_, s)| !s.is_empty());
+    out
+}
+
+/// Markdown inline text as ADF text nodes: `code` spans, **bold** and links.
+fn adf_inline(text: &str) -> Vec<Value> {
+    let strong = [json!({ "type": "strong" })];
+    let mut out = Vec::new();
+    for (code, part) in spans(text, "`") {
+        if code {
+            out.push(json!({ "type": "text", "text": part, "marks": [{ "type": "code" }] }));
+            continue;
+        }
+        for (bold, part) in spans(part, "**") {
+            out.extend(adf_links(part, if bold { &strong } else { &[] }));
+        }
+    }
+    out
+}
+
+/// Lines as one ADF paragraph, their line breaks kept.
+fn adf_paragraph(lines: &[&str]) -> Value {
+    let mut content = Vec::new();
+    for (i, l) in lines.iter().enumerate() {
+        if i > 0 {
+            content.push(json!({ "type": "hardBreak" }));
+        }
+        content.extend(adf_inline(l.trim()));
+    }
+    json!({ "type": "paragraph", "content": content })
+}
+
+/// Markdown as Atlassian Document Format: headings, bullet, numbered and task lists (Jira and the Tickets screen show
+/// task items as acceptance criteria), code blocks, rules and paragraphs, with links, bold and inline code. Nested
+/// lists come out flat.
+fn adf_markdown(md: &str) -> Value {
+    let text = md.replace('\r', "");
+    let lines: Vec<&str> = text.lines().collect();
+    let starts_block = |t: &str| t.starts_with("```") || matches!(t, "---" | "***" | "___") || heading_item(t).is_some() || bullet_item(t).is_some() || numbered_item(t).is_some();
+    let mut content = Vec::new();
+    let mut i = 0;
+    while i < lines.len() {
+        let t = lines[i].trim();
+        if t.is_empty() {
+            i += 1;
+        } else if let Some(language) = t.strip_prefix("```") {
+            let end = lines[i + 1..].iter().position(|l| l.trim_start().starts_with("```")).map_or(lines.len(), |j| i + 1 + j);
+            let code = lines[i + 1..end].join("\n");
+            let mut block = json!({ "type": "codeBlock", "attrs": { "language": language.trim() }, "content": [] });
+            if !code.is_empty() {
+                block["content"] = json!([{ "type": "text", "text": code }]);
+            }
+            content.push(block);
+            i = end + 1;
+        } else if matches!(t, "---" | "***" | "___") {
+            content.push(json!({ "type": "rule" }));
+            i += 1;
+        } else if let Some((level, h)) = heading_item(t) {
+            if !h.is_empty() {
+                content.push(json!({ "type": "heading", "attrs": { "level": level }, "content": adf_inline(h) }));
+            }
+            i += 1;
+        } else if task_item(t).is_some() {
+            let mut items = Vec::new();
+            while let Some((done, text)) = lines.get(i).and_then(|l| task_item(l)) {
+                items.push(json!({ "type": "taskItem", "attrs": { "localId": crate::store::new_id(), "state": if done { "DONE" } else { "TODO" } }, "content": adf_inline(text) }));
+                i += 1;
+            }
+            content.push(json!({ "type": "taskList", "attrs": { "localId": crate::store::new_id() }, "content": items }));
+        } else if bullet_item(t).is_some() || numbered_item(t).is_some() {
+            let (kind, item): (&str, fn(&str) -> Option<&str>) = if bullet_item(t).is_some() { ("bulletList", bullet_item) } else { ("orderedList", numbered_item) };
+            let mut items = Vec::new();
+            while let Some(text) = lines.get(i).filter(|l| task_item(l).is_none()).and_then(|l| item(l)) {
+                items.push(json!({ "type": "listItem", "content": [adf_paragraph(&[text])] }));
+                i += 1;
+            }
+            content.push(json!({ "type": kind, "content": items }));
+        } else {
+            let start = i;
+            while i < lines.len() && !lines[i].trim().is_empty() && (i == start || !starts_block(lines[i].trim())) {
+                i += 1;
+            }
+            content.push(adf_paragraph(&lines[start..i]));
+        }
+    }
+    json!({ "type": "doc", "version": 1, "content": content })
+}
+
+/// Markdown's task list items taken out into checklists, each named after the heading above its items ("Checklist"
+/// without one), and the text left, without the headings it emptied: Trello keeps checks in checklists.
+fn task_lists(md: &str) -> (String, Vec<(String, Vec<Criterion>)>) {
+    let mut lists: Vec<(String, Vec<Criterion>)> = Vec::new();
+    let mut under = "Checklist".to_string();
+    let mut kept: Vec<&str> = Vec::new();
+    for line in md.lines() {
+        if let Some((_, h)) = heading_item(line) {
+            under = h.to_string();
+        } else if let Some((done, text)) = task_item(line) {
+            let c = Criterion { text: text.into(), done };
+            match lists.last_mut() {
+                Some((name, items)) if *name == under => items.push(c),
+                _ => lists.push((under.clone(), vec![c])),
+            }
+            continue;
+        }
+        kept.push(line);
+    }
+    let mut out: Vec<&str> = Vec::new();
+    for (i, line) in kept.iter().enumerate() {
+        let emptied = heading_item(line).is_some() && kept[i + 1..].iter().take_while(|l| heading_item(l).is_none()).all(|l| l.trim().is_empty());
+        let blank_again = line.trim().is_empty() && out.last().is_none_or(|l| l.trim().is_empty());
+        if !emptied && !blank_again {
+            out.push(line);
+        }
+    }
+    (out.join("\n").trim().to_string(), lists)
 }
 
 #[cfg(test)]
@@ -2915,5 +3329,81 @@ mod tests {
         assert_eq!(s.trim(), "Hello");
         assert_eq!(c.len(), 1);
         assert!(c[0].done);
+    }
+
+    #[test]
+    fn markdown_tickets_become_adf_with_their_checks_as_criteria() {
+        let md = "## Context\nTeams copy rows **by hand**,\none at a time. See https://atlas.test/report.\n\n## Steps\n1. Add `export()`\n2) Wire the button\n\n## Acceptance criteria\n- [ ] A CSV downloads\n- [x] Old exports still open\n- Plain bullet\n\n```ts\nexport();\n```\n---\nDone.";
+        let doc = adf_markdown(md);
+        let types: Vec<&str> = doc["content"].as_array().unwrap().iter().map(|n| n["type"].as_str().unwrap()).collect();
+        assert_eq!(types, ["heading", "paragraph", "heading", "orderedList", "heading", "taskList", "bulletList", "codeBlock", "rule", "paragraph"]);
+        let p = &doc["content"][1]["content"];
+        assert_eq!(p[0], json!({ "type": "text", "text": "Teams copy rows " }));
+        assert_eq!(p[1], json!({ "type": "text", "text": "by hand", "marks": [{ "type": "strong" }] }));
+        assert_eq!(p[3]["type"], "hardBreak");
+        assert_eq!(p[5]["marks"][0]["attrs"]["href"], "https://atlas.test/report", "{p}");
+        assert_eq!(doc["content"][3]["content"][0]["content"][0]["content"][1], json!({ "type": "text", "text": "export()", "marks": [{ "type": "code" }] }));
+        assert_eq!(doc["content"][3]["content"].as_array().unwrap().len(), 2, "both numbered styles");
+        assert_eq!(doc["content"][7]["attrs"]["language"], "ts");
+        assert_eq!(doc["content"][7]["content"][0]["text"], "export();");
+        let item = &doc["content"][5]["content"][1];
+        assert!(item["attrs"]["localId"].as_str().is_some_and(|id| !id.is_empty()) && item["attrs"]["state"] == "DONE", "{item}");
+        // As the Tickets screen reads a Jira description back.
+        let (mut text, mut criteria) = (String::new(), Vec::new());
+        adf_text(&doc, &mut text, &mut criteria);
+        let got: Vec<(&str, bool)> = criteria.iter().map(|c| (c.text.as_str(), c.done)).collect();
+        assert_eq!(got, [("A CSV downloads", false), ("Old exports still open", true)]);
+        assert!(text.contains("Plain bullet") && text.contains("Context"), "{text}");
+    }
+
+    #[test]
+    fn unpaired_marks_stay_text() {
+        assert_eq!(spans("a **b** c **d", "**"), [(false, "a "), (true, "b"), (false, " c **d")]);
+        assert_eq!(spans("`x`", "`"), [(true, "x")]);
+        assert_eq!(adf_inline("2 * 3 = 6"), [json!({ "type": "text", "text": "2 * 3 = 6" })]);
+        assert!(bullet_item("---").is_none() && bullet_item("**bold**").is_none() && numbered_item("2026 was").is_none());
+        assert_eq!(heading_item("### Notes ##"), Some((3, "Notes")));
+        assert_eq!(heading_item("#hashtag"), None);
+    }
+
+    #[test]
+    fn trello_cards_keep_their_checks_in_checklists() {
+        let md = "## Context\nWhy.\n\n## Acceptance criteria\n- [ ] A CSV downloads\n- [x] Old exports open\n\n## Done when\n- [ ] Docs updated\n\n## Notes\nSee the report.";
+        let (desc, lists) = task_lists(md);
+        assert_eq!(desc, "## Context\nWhy.\n\n## Notes\nSee the report.");
+        let got: Vec<(&str, Vec<(&str, bool)>)> = lists.iter().map(|(n, items)| (n.as_str(), items.iter().map(|c| (c.text.as_str(), c.done)).collect())).collect();
+        assert_eq!(got, [("Acceptance criteria", vec![("A CSV downloads", false), ("Old exports open", true)]), ("Done when", vec![("Docs updated", false)])]);
+        let (desc, lists) = task_lists("- [ ] Only a check");
+        assert_eq!((desc.as_str(), lists[0].0.as_str()), ("", "Checklist"));
+    }
+
+    #[test]
+    fn places_from_each_tracker() {
+        let jira = JiraConf { id: "j1".into(), base_url: "https://atlas.test".into(), projects: vec!["ATL".into()], ..Default::default() };
+        let project = |key: &str| json!({ "key": key, "name": "Atlas", "issueTypes": [{ "id": "1", "name": "Story" }, { "id": "2", "name": "Sub-task", "subtask": true }, { "id": "3", "name": "Bug" }] });
+        let p = jira_place(&jira, &project("atl")).unwrap();
+        assert_eq!((p.id.as_str(), p.name.as_str(), p.kind_required), ("atl", "Jira · Atlas (atl)", true));
+        assert_eq!(p.kinds.iter().map(|k| (k.id.as_str(), k.name.as_str())).collect::<Vec<_>>(), [("1", "Story"), ("3", "Bug")], "no sub-tasks");
+        assert!(jira_place(&jira, &project("MNC")).is_none(), "only the picked projects");
+
+        let linear = LinearConf { id: "l1".into(), teams: vec!["ENG".into()], ..Default::default() };
+        let v = json!({
+            "teams": { "nodes": [
+                { "id": "t-eng", "key": "ENG", "name": "Engineering", "labels": { "nodes": [{ "id": "bug", "name": "Bug" }, { "id": "g", "name": "Area", "isGroup": true }] } },
+                { "id": "t-ops", "key": "OPS", "name": "Ops", "labels": { "nodes": [] } }
+            ] },
+            "issueLabels": { "nodes": [{ "id": "feat", "name": "Feature" }] }
+        });
+        let places = linear_places_from(&linear, &v);
+        assert_eq!(places.len(), 1);
+        assert_eq!((places[0].id.as_str(), places[0].name.as_str()), ("t-eng", "Linear · Engineering"));
+        assert_eq!(places[0].kinds.iter().map(|k| k.name.as_str()).collect::<Vec<_>>(), ["Bug", "Feature"], "team and workspace labels, no groups");
+
+        let trello = TrelloConf { id: "t1".into(), ..Default::default() };
+        let board = json!({ "name": "Roadmap", "lists": [{ "id": "l-todo", "name": "To do" }, { "id": "l-done", "name": "Done" }], "labels": [{ "id": "a", "name": "Bug", "color": "red" }, { "id": "b", "name": "", "color": "green" }] });
+        let p = trello_place(&trello, &board).unwrap();
+        assert_eq!((p.id.as_str(), p.name.as_str()), ("l-todo", "Trello · Roadmap · To do"));
+        assert_eq!(p.kinds.iter().map(|k| k.name.as_str()).collect::<Vec<_>>(), ["Bug", "green"], "a nameless label goes by its color");
+        assert!(trello_place(&trello, &json!({ "name": "Empty", "lists": [] })).is_none());
     }
 }

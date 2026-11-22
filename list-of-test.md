@@ -69,6 +69,7 @@ These rules keep the suite consistent. Follow them when a case moves from `To au
 | WT-07 | Create a worktree in a repo with submodules. | The worktree gets the submodules. | Auto | `submodules.rs::worktree_gets_submodules` |
 | WT-08 | Click Continue on a branch open in a worktree. | The worktree is removed and the branch is checked out in the main checkout. Refused while the worktree has uncommitted changes. | To automate | |
 | WT-09 | Open two worktrees, merge one branch into main and move main on, then remove that worktree. | `worktrees.list` (Worktrees & agents page) and the map's branch views name the same worktrees at the same paths. The merged one keeps its `worktree`. Once removed, it leaves both. | Auto | `branch_regression.rs::wt09_worktrees_page_and_map_list_the_same_worktrees` |
+| WT-10 | With another branch and uncommitted changes in the main checkout, start a ticket study (New ticket, Study the code) on two projects, one without origin, then discard it. | Each project gets a detached checkout of origin's default branch (the local one without origin), named `<project>.ticket-<id>`. The main checkout is left as it was. Discarding deletes the session and every checkout. | Auto | `ticket_study.rs::wt10_tickets_from_a_branch_and_from_a_study_of_each_default_branch` (fake AI CLI, own test binary) |
 
 ## Branches (BR)
 

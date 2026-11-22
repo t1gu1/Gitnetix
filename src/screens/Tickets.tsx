@@ -16,6 +16,7 @@ import { TicketFiles } from "../components/TicketFiles";
 import { ago, Busy, EmptyState, ErrorBox, Header, Markdown, MEDIA, MediaAsk, PICTURES, releaseTagLabel, Seg, swipeProps } from "../components/ui";
 import { lasted, plural } from "../lib/format";
 import { useNav } from "../lib/nav";
+import { openNewTicket } from "../lib/newTicket";
 import { useStored } from "../lib/stored";
 import { toast } from "../lib/toast";
 
@@ -252,6 +253,10 @@ export function Tickets({ initial }: { initial?: string }) {
                 </span>
               </button>
             )}
+            <button className="btn btn-sm" aria-label="New ticket" data-tip="AI writes a ticket from what you describe, after studying the code if you want" onClick={() => openNewTicket({ projectId: pid })}>
+              <Icon name="plus" size={12} />
+              <span className="hide-narrow">New ticket</span>
+            </button>
           </div>
           <div className="body split">
             <section className="master" style={{ "--master-w": `${listW.width}px`, "--key-w": `${keyW}ch` } as CSSProperties} data-pane data-active={pane === "list"} aria-label="Ticket list">

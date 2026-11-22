@@ -99,6 +99,7 @@ export interface GenLangs {
   commit: string;
   pr: string;
   release: string;
+  ticket: string;
 }
 
 export interface Release {
@@ -635,6 +636,35 @@ export interface AgentSession {
   asks?: AgentAsk[];
   /** Work its run left going in the background (Claude Code), oldest first: the run waits for it before it ends. */
   tasks?: AgentTask[];
+  /** A ticket study: where its ticket goes, and the throwaway checkouts it reads. */
+  study?: TicketStudy | null;
+}
+
+/** An agent writing a ticket after reading, and running when it helps, throwaway checkouts of each project's default branch. */
+export interface TicketStudy {
+  /** The ticket template it writes with. */
+  template: string;
+  /** Where the ticket goes, as `tickets.create` takes it. */
+  source: Ticket["source"];
+  conn: string;
+  place: string;
+  kind?: string | null;
+  /** Its checkouts, the session's own first. */
+  checkouts: { projectId: string; path: string }[];
+}
+
+/** Where a new ticket can go (`tickets.places`): a Jira project, Linear team, GitHub repository, Trello list or Asana project. */
+export interface TicketPlace {
+  source: Ticket["source"];
+  /** The connection's id; `owner/repo` for GitHub. */
+  conn: string;
+  /** Jira project key, Linear team id, `owner/repo`, Trello list id, Asana project gid ("" for the user's own tasks). */
+  id: string;
+  name: string;
+  /** What it can be filed as: Jira issue types, GitHub issue types or labels, Linear and Trello labels. */
+  kinds: { id: string; name: string }[];
+  /** Jira needs one of its issue types; a label is optional elsewhere. */
+  kindRequired: boolean;
 }
 
 /** A sub agent, workflow or command an agent's run started in the background. */

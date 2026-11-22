@@ -37,7 +37,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("projects.remove", "Remove a project from the list (files untouched)", "projectId"),
     ("projects.setHidden", "Close or reopen a project's tab (data kept)", "projectId, hidden"),
     ("projects.reorder", "Set the order of projects", "ids: string[]"),
-    ("projects.setGenLang", "Language AI writes in for a project", "projectId, commit?, pr?, release?"),
+    ("projects.setGenLang", "Language AI writes in for a project", "projectId, commit?, pr?, release?, ticket?"),
     ("projects.setPrefs", "Remembered merge, commit and dialog options for a project", "projectId, merge?: {squash?, squashMessage?: branch|ai, rebase?, deleteBranch?, push?, resolveConflicts?}, commit?: {autoPush?}, dialogs?: {finish?: continue|merge, finishSwitch?, newWorktree?, newAgent?, shipPush?, shipChangelog?, deleteOrigin?, cleanupOrigin?, prMedia? (pictures and HTML in pull requests and tickets)}, worktreeFiles?: string[] (paths copied from the main checkout into new worktrees), worktreeLinks?: string[] (paths linked instead), branchTypes?: {list?: [{id, pinned?}] (the new branch dialogs' types in order, the first 12 shown; release = the new release dialog, always kept), oneRow? (6 shown), tagV?: bool|null (release tags start with v; null follows the project's existing tags)}, prRepo?: {origin, to}|null (a GitHub fork's pull requests go to `to`, owner/repo, while origin is `origin`)"),
     ("workspace.overview", "Releases, their branches and repo state; `quick` skips history checks when nothing is cached", "projectId, quick?"),
     ("workspace.files", "Changed files of a branch, or of one commit when `commit` is given", "projectId, branch, mode: branch|wip|project, commit?"),
@@ -172,6 +172,10 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("tickets.list", "Tickets from Jira, Trello, Asana, Linear and the GitHub issues of the project's repository, with their release; mine = only the user's Jira, Linear and GitHub tickets, sprint = only Jira tickets in an open sprint and Linear issues in an active cycle; cycles = a Linear team has cycles turned on", "projectId, mine?, sprint?"),
     ("tickets.get", "One ticket with its full description, by key or by the branch linked to it; null when none", "projectId, key? | branch?"),
     ("tickets.setRelease", "Plan a ticket into a release", "projectId, key, release"),
+    ("tickets.places", "Where a new ticket can go, from each tracker the project's Tickets screen shows: places [{source, conn, id, name, kinds: [{id, name}] it can be filed as (Jira issue types, GitHub issue types or labels, Linear and Trello labels), kindRequired (Jira)}] and errors (one per tracker that failed)", "projectId"),
+    ("tickets.draft", "AI title and description (Markdown, checks as \"- [ ]\" items) for a new ticket, written with a ticket template (its id, else the default one): about request, and with branch, about the work the branch adds over its base", "projectId, template?, branch?, request?, language?"),
+    ("tickets.create", "Create a ticket in a place from tickets.places, filed as one of its kinds: Jira gets the description as rich text with its checks as acceptance criteria, Trello as checklists. With branch, it becomes the branch's ticket; with study (a ticket study's session id), that session and its checkouts are deleted after. Returns key, id, url", "projectId, source, conn, place, kind?, title, body, branch?, study?"),
+    ("tickets.study", "Start an agent that studies the code of the projects (projectId first, then projects) in throwaway checkouts of their default branch, running them when it helps, asks what is unclear, then ends its reply with a ticket about request between [[TICKET]] and [[END]] lines; the session's study holds where it goes (source, conn, place, kind) for tickets.create", "projectId, request, template?, projects?, source, conn, place, kind?, language?"),
     ("tickets.triage", "AI suggestions for unplanned tickets", "projectId"),
     ("tickets.statuses", "Statuses a ticket can move to (Jira transitions, Trello lists, Asana sections, Linear workflow states, GitHub project board columns and closed/open)", "source, conn, id"),
     ("tickets.setStatus", "Move a ticket to one of tickets.statuses", "source, conn, id, to"),
@@ -676,6 +680,9 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
                 if let Some(x) = os(&p, "release") {
                     pr.gen_lang.release = x;
                 }
+                if let Some(x) = os(&p, "ticket") {
+                    pr.gen_lang.ticket = x;
+                }
                 Ok(())
             })?;
             ok()
@@ -962,7 +969,7 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
             ok()
         }
         "agents.remove" => {
-            k.agents.remove(&s(&p, "id")?)?;
+            k.remove_agent(&s(&p, "id")?).await?;
             ok()
         }
         "shell.open" => to(k.shell_open(&s(&p, "projectId")?, &s(&p, "path")?, tab(&p), u(&p, "cols")? as u16, u(&p, "rows")? as u16).await?),
@@ -1295,6 +1302,22 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
                 Some(key) => to(k.ticket(&pid, &key).await?),
                 None => to(k.branch_ticket(&pid, &s(&p, "branch")?).await?),
             }
+        }
+        "tickets.places" => {
+            let (places, errors) = k.ticket_places(&s(&p, "projectId")?).await?;
+            to(json!({ "places": places, "errors": errors }))
+        }
+        "tickets.draft" => {
+            let (title, body) = k.draft_ticket(&s(&p, "projectId")?, os(&p, "template").as_deref(), os(&p, "branch").as_deref(), &os(&p, "request").unwrap_or_default(), os(&p, "language").as_deref()).await?;
+            to(json!({ "title": title, "body": body }))
+        }
+        "tickets.create" => {
+            let t: crate::tickets::NewTicket = serde_json::from_value(p.clone())?;
+            to(k.create_ticket(&s(&p, "projectId")?, &t, os(&p, "branch").as_deref(), os(&p, "study").as_deref()).await?)
+        }
+        "tickets.study" => {
+            let to_place = crate::agents::TicketStudy { source: s(&p, "source")?, conn: os(&p, "conn").unwrap_or_default(), place: os(&p, "place").unwrap_or_default(), kind: os(&p, "kind").filter(|k| !k.is_empty()), ..Default::default() };
+            to(k.start_ticket_study(&s(&p, "projectId")?, &s(&p, "request")?, os(&p, "template").as_deref(), &list(&p, "projects")?, to_place, os(&p, "language").as_deref()).await?)
         }
         "tickets.setRelease" => {
             k.set_ticket_release(&s(&p, "projectId")?, &s(&p, "key")?, &os(&p, "release").unwrap_or_default())?;
