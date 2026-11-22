@@ -14,6 +14,8 @@ the in-app update prompt.
 
 ## [Unreleased]
 
+## [0.31.0] - 2026-11-22
+
 ### Added (App)
 - Draft a ticket title and description from a request, or from a branch's diff and commits.
 - Add ticket studies. A study reads throwaway checkouts of the default branch of one or more projects, runs them when useful, and writes the ticket. The checkouts are removed once the ticket is created or the session is deleted.
