@@ -26,6 +26,9 @@ the in-app update prompt.
 
 ### Changed (App)
 
+- Analytics, Sprints and Weekly share one layout. A rail on the left lists days, releases, sprints or weeks, each with its own bar, and picking a row shows its detail on the right without a modal. On phones the rail comes first and a tap opens the detail with a back row.
+- The headline figures on Analytics, Sprints and Weekly sit in one row without boxes. Release tags show on their day in the commits chart, and charts use shades of the text colour instead of blue, orange and green. Loading shows grey placeholder blocks, and empty and error states keep the rail in place.
+- A day's "Open in the workspace" button opens the release branch of a version tagged that day, or else the busiest branch. Each commit's branch is a link.
 - The Submodules page draws where each submodule stands as a line: the commit the project pins, the one checked out and the tip of its remote, merged where they are the same commit, with how far apart they are. Each fix sits under the commit it moves the submodule to: Back to pin, Pin this commit, Pull latest, Clone or Go commit. The list groups the submodules into Needs you and Up to date, each with a status ring, and the toolbar holds the filter, Check remotes, Add submodule and Update all. On a phone the line runs top to bottom.
 - The toolbar says when the remotes were last checked. When a check cannot reach some remotes, the list stays and names the submodules whose new commit counts are from the check before, with Try again.
 - Uncommitted files and a local URL that differs from .gitmodules show as notes under the line, the second with Sync URL. Update, Edit, Sync URL, Copy URL and Remove are in the page's ⋯ menu.
