@@ -69,6 +69,7 @@ Updates installed from inside the app don't need this again.
 ```sh
 pnpm install
 pnpm app              # desktop app in dev (tauri dev)
+GITNETIX_DEV_PORT=1430 pnpm app   # when another app already uses port 1420 (or put GITNETIX_DEV_PORT=1430 in .env.local)
 pnpm app:build        # bundle (.app / .dmg / .msi / .deb)
 cargo test --workspace
 ```

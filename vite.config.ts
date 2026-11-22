@@ -5,6 +5,8 @@ import react from "@vitejs/plugin-react";
 
 // Tauri expects a fixed port and, on mobile, a LAN-reachable dev server.
 const host = process.env.TAURI_DEV_HOST;
+// GITNETIX_DEV_PORT moves the dev server off 1420 when another app holds it (`pnpm app` passes it on to Tauri).
+const port = Number(process.env.GITNETIX_DEV_PORT) || 1420;
 // Set by `pnpm app` (scripts/dev.mjs): exists while the app runs an action.
 const busy = process.env.GITNETIX_BUSY_FILE;
 
@@ -61,10 +63,10 @@ export default defineConfig({
   plugins: [react(), inlineTouchIcon, busy ? holdWhileBusy(busy) : null],
   clearScreen: false,
   server: {
-    port: 1420,
+    port,
     strictPort: true,
     host: host || false,
-    hmr: host ? { protocol: "ws", host, port: 1421 } : undefined,
+    hmr: host ? { protocol: "ws", host, port: port + 1 } : undefined,
     watch: { ignored: ["**/src-tauri/**", "**/crates/**", "**/target/**"] },
   },
   build: {

@@ -12,6 +12,8 @@ const common = spawnSync("git", ["rev-parse", "--path-format=absolute", "--git-c
 const localEnv = join(dirname(common || ".git"), ".env.local");
 if (existsSync(localEnv)) process.loadEnvFile(localEnv);
 
+// GITNETIX_DEV_PORT (env or .env.local) picks another dev server port when another app holds 1420; vite.config.ts reads it too.
+const port = Number(process.env.GITNETIX_DEV_PORT) || 1420;
 const busy = join(tmpdir(), `gitnetix-busy-${process.pid}`);
 const env = { ...process.env, GITNETIX_BUSY_FILE: busy };
 const win = process.platform === "win32";
@@ -35,7 +37,7 @@ const stopTauri = () => (win ? spawnSync("taskkill", ["/pid", String(tauri.pid),
 function start() {
   rmSync(busy, { force: true });
   // Own process group, so one kill takes cargo and the app with it. On Windows detached would open a new console window.
-  tauri = spawn(process.execPath, [tauriPath, "dev", "--no-watch", "--config", '{"build":{"beforeDevCommand":null}}'], { stdio: ["ignore", "inherit", "inherit"], env, detached: !win });
+  tauri = spawn(process.execPath, [tauriPath, "dev", "--no-watch", "--config", JSON.stringify({ build: { beforeDevCommand: null, devUrl: `http://localhost:${port}` } })], { stdio: ["ignore", "inherit", "inherit"], env, detached: !win });
   tauri.on("exit", (code) => {
     if (restarting) {
       restarting = false;
