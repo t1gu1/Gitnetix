@@ -46,7 +46,107 @@ export function tipAt(i: number, n: number): CSSProperties {
 /** A heat cell at `share` (0 to 1): a step of the series hue, and the ink that reads on it. */
 export function heat(share: number): CSSProperties {
   const mix = Math.round(10 + Math.min(1, Math.max(0, share)) * 78);
-  return { background: `color-mix(in srgb, var(--s1) ${mix}%, var(--panel))`, color: mix >= 55 ? "#fff" : "var(--fg)" };
+  return { background: `color-mix(in srgb, var(--s1) ${mix}%, var(--panel))`, color: mix >= 55 ? "var(--bg)" : "var(--fg)" };
+}
+
+export interface Fig {
+  label: string;
+  value: string;
+  sub?: ReactNode;
+  /** Whether `sub` is good or bad news; plain when neither. */
+  good?: boolean;
+}
+
+/** The headline figures in one row split by hairlines: the number in the display face, its unit smaller. */
+export function FigStrip({ items }: { items: Fig[] }) {
+  return (
+    <section aria-label="Key figures" className="ana-figs">
+      {items.map((f) => {
+        const [, n, unit] = f.value.match(/^([−+-]?[\d.,]+)\s*(.*)$/) ?? [null, f.value, ""];
+        return (
+          <div key={f.label} className="ana-fig">
+            <span className="ana-fig-l">{f.label}</span>
+            <span className="ana-fig-v">{n}{unit && <small>{unit}</small>}</span>
+            {f.sub && <span className={`ana-fig-d${f.good === undefined ? "" : f.good ? " c-add" : " c-del"}`}>{f.sub}</span>}
+          </div>
+        );
+      })}
+    </section>
+  );
+}
+
+/** Where a page's content would be: a heading, why, the facts that help, then what to do. Left-aligned, like the page. */
+export function PageNote({ title, error, children, facts, actions }: { title: ReactNode; error?: boolean; children?: ReactNode; facts?: [string, ReactNode][]; actions?: ReactNode }) {
+  return (
+    <div className="ana-empty" role={error ? "alert" : undefined}>
+      <h3 className={error ? "ana-empty-err" : undefined}>
+        {error && <Icon name="alert" size={16} />}
+        {title}
+      </h3>
+      {children}
+      {facts && (
+        <dl className="ana-facts">
+          {facts.map(([k, v]) => (
+            <div key={k}>
+              <dt>{k}</dt>
+              <dd>{v}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      {actions && <div className="ana-acts">{actions}</div>}
+    </div>
+  );
+}
+
+/** A page note in the rail layout: the rail keeps its place (`rail`: its title) so the page does not jump when data comes. */
+export function NoteLayout({ rail, children }: { rail?: string; children: ReactNode }) {
+  return (
+    <div className="body split ana">
+      {rail && (
+        <section className="master ana-rail hide-narrow" aria-label={rail}>
+          <div className="ana-rh"><h3>{rail}</h3></div>
+          <p className="ana-rail-none">Nothing loaded</p>
+        </section>
+      )}
+      <main className="detail ana-det" data-pane data-active>{children}</main>
+    </div>
+  );
+}
+
+/** An error a tracker or Git gave, read for whether signing in again would fix it. */
+export const signInFixes = (e: unknown) => /401|403|unauthori[sz]ed|forbidden|expired|sign in|token/i.test(e instanceof Error ? e.message : String(e ?? ""));
+
+/** A rail and its page in grey blocks while the first answer loads, so nothing jumps when it lands. */
+export function RailSkeleton() {
+  return (
+    <div className="body split ana" aria-busy="true">
+      <section className="master ana-rail" data-pane data-active>
+        <div className="ana-rh"><span className="ana-sk" style={{ width: 60 }} /></div>
+        {[60, 40, 85, 70, 95, 80, 20, 15, 75, 65, 50, 40].map((w, i) => (
+          <div key={i} className="ana-row" aria-hidden="true">
+            <span className="ana-sk" style={{ width: 44 }} />
+            <span className="ana-track"><span className="ana-sk" style={{ width: `${w}%` }} /></span>
+            <span className="ana-sk" style={{ width: 16 }} />
+          </div>
+        ))}
+      </section>
+      <main className="detail ana-det hide-narrow" data-pane>
+        <div className="ana-figs">
+          {[0, 1, 2, 3, 4].map((i) => (
+            <div key={i} className="ana-fig">
+              <span className="ana-sk" style={{ width: 96 }} />
+              <span className="ana-sk" style={{ width: 56, height: 34 }} />
+              <span className="ana-sk" style={{ width: 120 }} />
+            </div>
+          ))}
+        </div>
+        <div className="ana-sk-chart" aria-hidden="true">
+          {[4, 60, 30, 40, 60, 70, 8, 8, 60, 80, 45, 55, 30, 20].map((h, i) => <span key={i} className="ana-sk" style={{ height: `${h}%` }} />)}
+        </div>
+      </main>
+    </div>
+  );
 }
 
 /** A chart's frame: title, the table view of its data and the CSV of the same rows. */

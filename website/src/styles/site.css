@@ -158,6 +158,8 @@ details summary:hover h3{color:var(--muted)}
 .hd .pg:has(>.tk-bar){flex-direction:column;overflow:hidden;container:hd/inline-size}
 /* Submodules: the toolbar above the list and the pin line (app.css's .body.split), its phone rules measured on the page. */
 .hd .pg:has(>.sm-bar){flex-direction:column;overflow:hidden;container:hd/inline-size}
+/* Analytics: the toolbar above the rail and the pick (app.css's .body.split), its phone rules measured on the page. */
+.hd .pg:has(>.ana-bar){flex-direction:column;overflow:hidden;container:hd/inline-size}
 .hd .term-bar{cursor:pointer}
 .hd .hd-shell{color:var(--muted)}
 /* A narrow demo (a phone's browser showing the desktop one): files above their code, the agent panel under the map. */

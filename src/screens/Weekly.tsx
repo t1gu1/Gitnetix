@@ -1,21 +1,25 @@
-import { type ReactNode, useMemo, useState } from "react";
+import { type CSSProperties, type ReactNode, useMemo, useState } from "react";
 
 import { useWeekly } from "../api/hooks";
 import { openExternal } from "../api/transport";
-import type { WeeklyReport } from "../api/types";
+import type { DoneTicket, WeeklyReport } from "../api/types";
 import { MenuChoice } from "../components/AgentPicker";
 import { Avatar } from "../components/Avatar";
-import { Ask, Card, type Cell, day, heat, Key, niceMax, type Qa, r1, r2, rank, span, ticks, tipAt, TipRow } from "../components/Charts";
+import { Ask, Card, type Cell, day, FigStrip, NoteLayout, PageNote, type Qa, r1, r2, RailSkeleton, rank, signInFixes, span } from "../components/Charts";
 import { AssigneePicker } from "../components/CheckPicker";
 import { Icon } from "../components/Icon";
-import { ago, Busy, Empty, EmptyState, ErrorBox, Loading } from "../components/ui";
+import { ago, Busy, Empty } from "../components/ui";
 import { downloadCsv, plural } from "../lib/format";
+import { useNav } from "../lib/nav";
 import { useStored, useStoredList } from "../lib/stored";
+import type { Pane } from "./Analytics";
 
 type Week = WeeklyReport["weeks"][number];
 
 const WEEKS = ["8", "12", "26"];
 const SUGGESTIONS = ["Is the team finishing more or less than before?", "Who finished the most, and who the least?", "Which weeks were slow?", "How long do tickets take from created to done?", "Which labels come up most, and are bugs going up?", "Write a short summary for the team."];
+
+const SOURCE: Record<DoneTicket["source"], string> = { jira: "Jira", trello: "Trello", asana: "Asana", linear: "Linear", github: "GitHub" };
 
 /** A bug by its type: "Bug", "Bogue", or a GitHub issue labelled as one. */
 const isBug = (t: { kind: string }) => /bug|bogue|défaut|defect/i.test(t.kind);
@@ -56,7 +60,8 @@ function doneRows(r: WeeklyReport): Cell[][] {
 }
 
 /** Tickets done per week and per person, from every tracker the chosen projects show tickets from. */
-export function Weekly({ ids, lead, trackers }: { ids: string[]; lead: ReactNode; trackers: string }) {
+export function Weekly({ ids, lead, header, trackers, pane, onPicked }: { ids: string[]; lead: ReactNode; header: (crumb?: string) => ReactNode; trackers: string; pane: Pane; onPicked: () => void }) {
+  const nav = useNav();
   const [weeks, setWeeks] = useStored("gnx.weekly.weeks", "12", (s) => (WEEKS.includes(s) ? s : "12"), String);
   // Tracker names of the people counted, shared with the sprints view; empty means everyone.
   const [who, setWho] = useStoredList("gnx.analytics.assignees");
@@ -65,53 +70,101 @@ export function Weekly({ ids, lead, trackers }: { ids: string[]; lead: ReactNode
   const r = useMemo(() => (q.data && who.length ? ofPeople(q.data, who) : q.data), [q.data, who]);
   const [asking, setAsking] = useState(false);
   const [chat, setChat] = useState<Qa[]>([]);
-  const [only, setOnly] = useState<{ name: string; week: string } | null>(null);
+  // The week shown (its Monday), and the person and label the ticket list is narrowed to.
+  const [week, setWeek] = useState<string | null>(null);
+  const [person, setPerson] = useState<string | null>(null);
   const [label, setLabel] = useState<string | null>(null);
 
   const controls = (
-    <div className="row wrap" style={{ margin: 0, gap: 12 }}>
+    <div className="map-bar ana-bar" data-detail={pane === "detail" || undefined}>
       {lead}
-      <MenuChoice className="select menu-select" style={{ height: 32 }} label="Weeks shown" value={weeks} options={WEEKS.map((w) => ({ value: w, label: `Last ${w} weeks` }))} onChange={setWeeks} />
+      <MenuChoice className="select menu-select" label="Weeks shown" value={weeks} options={WEEKS.map((w) => ({ value: w, label: `Last ${w} weeks` }))} onChange={setWeeks} />
       {r && <AssigneePicker everyone={everyone} who={who} onChange={setWho} />}
       <span className="grow" />
+      {r && <span className="hint hide-narrow">Synced {ago(r.syncedAt)}</span>}
       {r && (
-        <button className="btn btn-icon" aria-label="Sync now" data-tip={`Sync now · synced ${ago(r.syncedAt)}`} onClick={() => q.refetch()}>
+        <button className="btn btn-sm btn-icon" aria-label="Sync now" data-tip={`Sync now · synced ${ago(r.syncedAt)}`} onClick={() => q.refetch()}>
           <Busy on={q.isFetching}><Icon name="refresh" size={13} /></Busy>
         </button>
       )}
-      <button className="btn" disabled={!r?.tickets.length} onClick={() => setAsking(true)}>
+      <button className="btn btn-sm" disabled={!r?.tickets.length} onClick={() => setAsking(true)}>
         <Icon name="sparkle" size={12} className="c-acc" />
         Ask AI
       </button>
-      <button className="btn" disabled={!r} onClick={() => r && downloadCsv(`gitnetix-done-per-week-${weeks}w.csv`, doneRows(r))}>Export CSV</button>
+      <button className="btn btn-sm hide-narrow" disabled={!r} onClick={() => r && downloadCsv(`gitnetix-done-per-week-${weeks}w.csv`, doneRows(r))}>
+        <Icon name="download" size={12} />
+        Export CSV
+      </button>
     </div>
   );
 
   let body: ReactNode;
+  let crumb: string | undefined;
   if (q.isLoading) {
-    body = <Loading />;
+    body = <RailSkeleton />;
   } else if (!r) {
+    const signIn = signInFixes(q.error);
     body = (
-      <div className="col" style={{ gap: 12, alignItems: "center" }}>
-        <ErrorBox error={q.error} />
-        <button className="btn" onClick={() => q.refetch()}><Busy on={q.isFetching}>Retry</Busy></button>
-      </div>
+      <NoteLayout rail="Weeks">
+        <PageNote
+          title={signIn ? `${trackers} refused the request` : "The tickets done could not load"}
+          error
+          actions={
+            <>
+              <button className="btn btn-sm btn-primary" onClick={() => q.refetch()}><Busy on={q.isFetching}>Retry</Busy></button>
+              {signIn && <button className="btn btn-sm" onClick={() => nav.go({ name: "menu", section: "tools" })}>Open the tracker settings</button>}
+            </>
+          }
+        >
+          <p>{signIn ? "A tracker's sign-in has expired or lost its access. Sign in again in the tracker settings, then retry." : `None of ${trackers} answered. Retry in a moment; the Commits tab still works.`}</p>
+          {q.error && <code className="ana-err">{q.error.message}</code>}
+        </PageNote>
+      </NoteLayout>
     );
   } else if (!r.tickets.length) {
     body = (
-      <EmptyState icon="chart" title="Nothing done in these weeks" action={who.length > 0 && q.data?.tickets.length ? <button className="btn btn-md" onClick={() => setWho([])}>Show everyone</button> : undefined}>
-        No ticket was finished {who.length ? "by the people picked " : ""}in {trackers} over the last {weeks} weeks.{r.errors.length ? ` Some trackers did not answer: ${r.errors.join(" · ")}` : ""}
-      </EmptyState>
+      <NoteLayout rail="Weeks">
+        <PageNote
+          title="Nothing done in these weeks"
+          facts={[
+            ["Trackers", trackers],
+            ["Weeks shown", `The last ${weeks}`],
+            ["Counted", who.length ? who.join(", ") : "Everyone"],
+            ...(r.errors.length ? [["Did not answer", r.errors.join(" · ")] as [string, string]] : []),
+          ]}
+          actions={
+            <>
+              {who.length > 0 && q.data?.tickets.length ? <button className="btn btn-sm btn-primary" onClick={() => setWho([])}>Show everyone</button> : null}
+              {weeks !== "26" && <button className="btn btn-sm" onClick={() => setWeeks("26")}>Show 26 weeks</button>}
+            </>
+          }
+        >
+          <p>No ticket was finished {who.length ? "by the people picked " : ""}in these weeks. A ticket counts in the week it was moved to done.</p>
+        </PageNote>
+      </NoteLayout>
     );
   } else {
+    const w = r.weeks;
+    // Nothing picked yet: the last full week, or this one when it is the only one.
+    const at = Math.max(0, w.findIndex((x) => x.start === week) >= 0 ? w.findIndex((x) => x.start === week) : w.length - 2);
+    const shown = w[at];
+    crumb = `Week of ${weekLabel(shown.start)}`;
+    const go = (i: number) => { setWeek(w[i].start); setPerson(null); setLabel(null); };
     body = (
-      <div className="col spr" style={{ gap: 16 }} data-busy={q.isPlaceholderData ? "" : undefined}>
-        {r.errors.length > 0 && <div className="spr-note"><Icon name="alert" size={13} className="c-warn" />Some trackers did not answer: {r.errors.join(" · ")}</div>}
-        <Figures r={r} />
-        <PerWeek r={r} />
-        <PerPerson r={r} only={only} onPick={setOnly} />
-        <ByLabel r={r} label={label} onPick={(l) => setLabel(l === label ? null : l)} />
-        <DoneList r={r} only={only} label={label} onClear={() => { setOnly(null); setLabel(null); }} />
+      <div className="body split ana" data-busy={q.isPlaceholderData || undefined}>
+        <WeekRail r={r} at={at} onPick={(i) => { go(i); onPicked(); }} active={pane === "rail"} />
+        <main className="detail ana-det spr" data-pane data-active={pane === "detail"}>
+          {r.errors.length > 0 && (
+            <div className="ana-banner"><Icon name="alert" size={14} className="c-warn ana-banner-i" /><span><b>Some trackers did not answer:</b> {r.errors.join(" · ")}. The counts are from the others only.</span><span className="grow" /><button className="btn btn-sm" onClick={() => q.refetch()}>Retry</button></div>
+          )}
+          <div className="hide-narrow"><Figures r={r} /></div>
+          <WeekHead r={r} at={at} onGo={go} />
+          <div className="spr-grid2 even">
+            <WeekPeople r={r} at={at} person={person} onPick={(n) => setPerson(n === person ? null : n)} />
+            <WeekLabels r={r} at={at} label={label} onPick={(l) => setLabel(l === label ? null : l)} />
+          </div>
+          <DoneList r={r} week={shown.start} only={person} label={label} onClear={() => { setPerson(null); setLabel(null); }} />
+        </main>
         {asking && (
           <Ask
             title="Ask about these weeks"
@@ -129,6 +182,7 @@ export function Weekly({ ids, lead, trackers }: { ids: string[]; lead: ReactNode
   }
   return (
     <>
+      {header(crumb)}
       {controls}
       {body}
     </>
@@ -141,239 +195,198 @@ function totals(r: WeeklyReport) {
   for (const w of r.weeks) for (const [n, c] of w.people) m.set(n, (m.get(n) ?? 0) + c);
   return [...m].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
 }
+/** Tickets done in a full week on average: the running week left out. */
+function average(r: WeeklyReport) {
+  const full = r.weeks.slice(0, -1);
+  return full.length ? full.reduce((a, x) => a + x.done, 0) / full.length : null;
+}
 
 function Figures({ r }: { r: WeeklyReport }) {
   const w = r.weeks;
   const cur = w[w.length - 1];
   const prev = w[w.length - 2];
   const full = w.slice(0, -1);
-  const avg = full.length ? full.reduce((a, x) => a + x.done, 0) / full.length : 0;
+  const avg = average(r) ?? 0;
   const best = full.reduce<Week | undefined>((b, x) => (!b || x.done > b.done ? x : b), undefined);
   const leads = r.tickets.flatMap((t) => (t.leadHours != null ? [t.leadHours] : [])).sort((a, b) => a - b);
   const lead = rank(leads, 0.5);
   const people = totals(r);
   const bugs = r.tickets.filter(isBug).length;
-  const tiles: { label: string; value: string; sub: string; tone?: boolean }[] = [
-    { label: "Done this week", value: String(cur.done), sub: prev ? `${prev.done} last week` : "First week shown" },
-    { label: "Weekly average", value: String(r1(avg)), sub: `Over ${plural(full.length, "full week")}` },
-    { label: "Best week", value: String(best?.done ?? 0), sub: best ? `Week of ${weekLabel(best.start)}` : "No full week yet" },
-    { label: "Created to done", value: lead == null ? "–" : span(lead), sub: "Half the tickets took less" },
-    { label: "People", value: String(people.length), sub: people[0] ? `${people[0][0]} finished the most` : "" },
-    ...(r.points ? [{ label: "Points done", value: String(r1(w.reduce((a, x) => a + x.points, 0))), sub: "In the weeks shown" }] : []),
-    ...(bugs ? [{ label: "Bugs fixed", value: String(bugs), sub: `${Math.round((bugs / r.tickets.length) * 100)}% of the tickets done` }] : []),
-  ];
   return (
-    <section aria-label="Key figures" className="kpis spr-kpis">
-      {tiles.map((t) => (
-        <div key={t.label} className="kpi">
-          <span className="label">{t.label}</span>
-          <span className="v">{t.value}</span>
-          <span className="spr-delta faint">{t.sub}</span>
-        </div>
-      ))}
+    <FigStrip
+      items={[
+        { label: "Done this week", value: String(cur.done), sub: prev ? `${prev.done} last week` : "First week shown" },
+        { label: "Weekly average", value: String(r1(avg)), sub: `Over ${plural(full.length, "full week")}` },
+        { label: "Best week", value: String(best?.done ?? 0), sub: best ? weekLabel(best.start) : "No full week yet" },
+        { label: "Created to done", value: lead == null ? "–" : span(lead), sub: "Half the tickets took less" },
+        ...(bugs ? [{ label: "Bugs fixed", value: String(bugs), sub: `${Math.round((bugs / r.tickets.length) * 100)}% of the tickets done` }] : [{ label: "People", value: String(people.length), sub: people[0] ? `${people[0][0]} finished the most` : "" }]),
+        ...(r.points ? [{ label: "Points done", value: String(r1(w.reduce((a, x) => a + x.points, 0))), sub: "In the weeks shown" }] : []),
+      ]}
+    />
+  );
+}
+
+/** The weeks shown, newest first: each row its tickets done, marked at the average, a slow week and the running one named. */
+function WeekRail({ r, at, onPick, active }: { r: WeeklyReport; at: number; onPick: (i: number) => void; active: boolean }) {
+  const w = r.weeks;
+  const n = w.length;
+  const avg = average(r);
+  const max = Math.max(1, ...w.map((x) => x.done), avg ?? 0);
+  const total = w.reduce((a, x) => a + x.done, 0);
+  return (
+    <section className="master ana-rail" data-pane data-active={active} aria-label="Weeks">
+      <div className="show-narrow ana-rail-head"><Figures r={r} /></div>
+      <div className="ana-rh">
+        <h3>Weeks</h3>
+        <span className="hint">{total} done in {plural(n, "week")}</span>
+      </div>
+      {[...w].map((x, i) => ({ x, i })).reverse().map(({ x, i }) => {
+        const running = i === n - 1;
+        const slow = !running && avg != null && x.done < avg * 0.6;
+        return (
+          <button key={x.start} className="ana-row ana-week" data-soft={running || undefined} aria-pressed={i === at} aria-label={`Week of ${weekLabel(x.start)}: ${plural(x.done, "ticket")} done${running ? ", still running" : slow ? ", a slow week" : ""}`} onClick={() => onPick(i)}>
+            <span className="ana-row-l">{weekLabel(x.start)}</span>
+            <span className="ana-track">
+              <span className="ana-fill" style={{ "--w": x.done / max } as CSSProperties} />
+              {avg != null && <span className="ana-avg" style={{ "--w": avg / max } as CSSProperties} />}
+              {(running || slow) && <span className="ana-note">{running ? "running" : "slow"}</span>}
+            </span>
+            <span className="ana-n">{x.done}</span>
+          </button>
+        );
+      })}
+      <div className="ana-legend">
+        <span className="ana-key"><i />Tickets done</span>
+        {avg != null && <span className="ana-key"><i data-dash />Average {r1(avg)} a full week</span>}
+        <span className="ana-key"><i data-soft />This week, still running</span>
+        <button className="btn btn-ghost btn-sm" style={{ alignSelf: "flex-start" }} onClick={() => downloadCsv("gitnetix-done-per-week.csv", weekRows(r))}>
+          <Icon name="download" size={12} />
+          CSV of the weeks
+        </button>
+      </div>
     </section>
   );
 }
 
-/** Tickets done each week around the average of the finished weeks. */
-function PerWeek({ r }: { r: WeeklyReport }) {
-  const [hi, setHi] = useState(-1);
-  const w = r.weeks;
-  const n = w.length;
-  const full = w.slice(0, -1);
-  const avg = full.length ? full.reduce((a, x) => a + x.done, 0) / full.length : null;
-  const max = niceMax(Math.max(1, ...w.map((x) => x.done)));
-  const h = hi >= 0 ? w[hi] : null;
-  const every = n > 13 ? 2 : 1;
+/** The week shown: its count against the average, and steps to the weeks around it. */
+function WeekHead({ r, at, onGo }: { r: WeeklyReport; at: number; onGo: (i: number) => void }) {
+  const x = r.weeks[at];
+  const avg = average(r);
+  const running = at === r.weeks.length - 1;
+  const diff = avg == null ? null : r1(x.done - avg);
   return (
-    <Card title="Tickets done per week" hint="Finished tickets each week, Monday to Sunday. This week is still running." rows={weekRows(r)} file="gitnetix-done-per-week.csv">
-      <div className="spr-legend">
-        <Key kind="s1" label="Done" />
-        {avg != null && <Key kind="avg" label={`Average ${r1(avg)} a week`} />}
-      </div>
-      <div className="chart spr-chart tall">
-        <div className="chart-y">{ticks(max).map((t) => <span key={t.top} style={{ top: `${t.top}%` }}>{r1(t.v)}</span>)}</div>
-        <div className="chart-plot spr-plot spr-bars" onMouseLeave={() => setHi(-1)}>
-          {ticks(max).map((t) => <div key={t.top} className="spr-grid" style={{ top: `${t.top}%` }} />)}
-          {avg != null && <div className="spr-avg" style={{ bottom: `${(avg / max) * 100}%` }} />}
-          {w.map((x, i) => {
-            const low = avg != null && i < n - 1 && x.done < avg * 0.6;
-            return (
-              <button key={x.start} className={`spr-slot${hi >= 0 && hi !== i ? " dim" : ""}`} aria-label={`Week of ${weekLabel(x.start)}: ${plural(x.done, "ticket")} done`} onMouseEnter={() => setHi(i)} onFocus={() => setHi(i)} onBlur={() => setHi(-1)}>
-                <span className={`spr-bar s1 wide${i === n - 1 ? " running" : ""}`} style={{ height: `${(x.done / max) * 100}%` }}>
-                  {low && <span className="spr-flag"><Icon name="alert" size={11} /></span>}
-                </span>
-              </button>
-            );
-          })}
-          {h && (
-            <div className="chart-tip" style={tipAt(hi, n)}>
-              <div className="row" style={{ margin: 0 }}>
-                <strong className="grow">Week of {weekLabel(h.start)}</strong>
-                {hi === n - 1 && <span className="faint">so far</span>}
-              </div>
-              <TipRow kind="s1" value={String(h.done)} label={`${h.done === 1 ? "ticket" : "tickets"} done${r.points && h.points ? ` · ${r1(h.points)} pts` : ""}`} />
-              {avg != null && hi < n - 1 && (
-                <span className={`row ${h.done < avg * 0.6 ? "c-warn" : "muted"}`} style={{ gap: 6, margin: 0 }}>
-                  {h.done < avg * 0.6 && <Icon name="alert" size={11} />}
-                  {Math.abs(h.done - avg) < 0.05 ? "On the average" : `${Math.round((Math.abs(h.done - avg) / avg) * 100)}% ${h.done > avg ? "above" : "below"} the average`}
-                </span>
-              )}
-              {h.people.slice(0, 6).map(([name, c]) => (
-                <div key={name} className="row" style={{ gap: 8, margin: 0 }}>
-                  <Avatar name={name} size={16} />
-                  <span className="grow ellipsis">{name}</span>
-                  <span className="mono">{c}</span>
-                </div>
-              ))}
-              {h.people.length > 6 && <span className="faint">+ {h.people.length - 6} more</span>}
-            </div>
-          )}
-        </div>
-        <div className="spr-xl">{w.map((x, i) => <span key={x.start} className={i === n - 1 ? "sel" : undefined}>{i % every === 0 || i === n - 1 ? day(x.start) : ""}</span>)}</div>
-      </div>
-    </Card>
+    <div className="ana-dh">
+      <h3>Week of {weekLabel(x.start)}</h3>
+      <span className="muted">
+        {plural(x.done, "ticket")} done{r.points && x.points ? ` · ${r1(x.points)} pts` : ""}
+        {running ? " so far" : diff == null ? "" : Math.abs(diff) < 0.05 ? " · on the average" : ` · ${Math.abs(diff)} ${diff > 0 ? "above" : "below"} the average`}
+      </span>
+      <span className="grow" />
+      <button className="btn btn-sm" disabled={at === 0} onClick={() => onGo(at - 1)}><Icon name="chevronLeft" size={12} />Previous week</button>
+      <button className="btn btn-sm" disabled={running} onClick={() => onGo(at + 1)}>Next week<Icon name="chevronRight" size={12} /></button>
+    </div>
   );
 }
 
-/** Tickets each person finished each week: darker is more. Picking a cell lists those tickets below. */
-function PerPerson({ r, only, onPick }: { r: WeeklyReport; only: { name: string; week: string } | null; onPick: (o: { name: string; week: string }) => void }) {
-  const people = totals(r);
-  const top = Math.max(1, ...r.weeks.flatMap((w) => w.people.map(([, c]) => c)));
+/** Each person's tickets done in the week shown, with a strip of their weeks (this one outlined). Picking one narrows the list. */
+function WeekPeople({ r, at, person, onPick }: { r: WeeklyReport; at: number; person: string | null; onPick: (name: string) => void }) {
+  const x = r.weeks[at];
+  const count = (w: Week, name: string) => w.people.find(([n]) => n === name)?.[1] ?? 0;
+  const people = totals(r).map(([name, total]) => ({ name, total, now: count(x, name) })).sort((a, b) => b.now - a.now || b.total - a.total);
+  const top = Math.max(1, ...people.map((p) => p.now));
+  const cell = Math.max(1, ...r.weeks.flatMap((w) => w.people.map(([, c]) => c)));
   return (
-    <Card title="Done per person and week" hint="Darker means more tickets finished. Pick a cell to list them." rows={personRows(r)} file="gitnetix-done-per-person.csv" table={false}>
-      <div className="spr-heat-wrap">
-        <table className="spr-heat weeks">
-          <thead>
-            <tr>
-              <th scope="col" style={{ textAlign: "left" }}>Person</th>
-              {r.weeks.map((w, i) => <th key={w.start} scope="col" title={`Week of ${weekLabel(w.start)}`} className={i === r.weeks.length - 1 ? "sel" : undefined}>{day(w.start)}</th>)}
-              <th scope="col" className="spr-total">All</th>
-            </tr>
-          </thead>
-          <tbody>
-            {people.map(([name, total]) => (
-              <tr key={name}>
-                <th scope="row">
-                  <span className="row" style={{ gap: 8, margin: 0 }}>
-                    <Avatar name={name} size={20} />
-                    <span className="ellipsis">{name}</span>
-                  </span>
-                </th>
-                {r.weeks.map((w) => {
-                  const c = w.people.find(([n]) => n === name)?.[1] ?? 0;
-                  const on = only?.name === name && only.week === w.start;
-                  return (
-                    <td key={w.start}>
-                      {c ? (
-                        <button className={`spr-cell${on ? " on" : ""}`} style={heat(c / top)} data-tip={`${name}, week of ${weekLabel(w.start)}: ${plural(c, "ticket")}`} onClick={() => onPick({ name, week: w.start })}>
-                          <strong>{c}</strong>
-                        </button>
-                      ) : (
-                        <span className="spr-none-cell" aria-label="None" />
-                      )}
-                    </td>
-                  );
-                })}
-                <td className="spr-total"><strong>{total}</strong></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </Card>
-  );
-}
-
-/** Tickets done per Jira or GitHub label, most first. Picking one lists its tickets below. */
-function ByLabel({ r, label, onPick }: { r: WeeklyReport; label: string | null; onPick: (l: string) => void }) {
-  const m = new Map<string, number>();
-  for (const t of r.tickets) for (const l of t.labels ?? []) m.set(l, (m.get(l) ?? 0) + 1);
-  if (!m.size) return null;
-  const all = [...m].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-  const top = all.slice(0, 12);
-  const none = r.tickets.filter((t) => !t.labels?.length).length;
-  return (
-    <Card
-      title="Done by label"
-      hint={`Pick a label to list its tickets.${none ? ` ${plural(none, "ticket")} without a label.` : ""}`}
-      rows={[["Label", "Tickets done"], ...all.map(([l, c]): Cell[] => [l, c])]}
-      file="gitnetix-done-by-label.csv"
-    >
-      <div className="col" style={{ gap: 4 }}>
-        {top.map(([l, c]) => (
-          <button key={l} className="spr-hbar spr-hbar-btn" aria-pressed={label === l} data-tip={`${l}: ${plural(c, "ticket")} · ${Math.round((c / r.tickets.length) * 100)}% of the tickets done`} onClick={() => onPick(l)}>
-            <span className="ellipsis">{l}</span>
-            <span className="spr-hbar-bar" style={{ width: `${Math.max(2, (c / top[0][1]) * 100)}%` }}>
-              <span className="done" style={{ flexGrow: 1 }} />
+    <Card title="People" hint={`Done in the week · the strip is their ${plural(r.weeks.length, "week")}, this one outlined. Pick a person to list theirs.`} rows={personRows(r)} file="gitnetix-done-per-person.csv">
+      <div className="col" style={{ gap: 0 }}>
+        {people.map((p) => (
+          <button key={p.name} className="ana-wp" aria-pressed={person === p.name} onClick={() => onPick(p.name)} aria-label={`${p.name}: ${plural(p.now, "ticket")} this week, ${p.total} in the weeks shown`}>
+            <Avatar name={p.name} size={22} decorative />
+            <span className="ana-pr-n">
+              <span className="ellipsis">{p.name}</span>
+              <span className="hint">{p.total} in {plural(r.weeks.length, "week")}</span>
             </span>
-            <span className="mono faint">{c}</span>
+            <span className="ana-meter"><span style={{ width: `${(p.now / top) * 100}%` }} /></span>
+            <span className="mono ana-pr-v"><b>{p.now}</b></span>
+            <span className="ana-strip" aria-hidden="true">
+              {r.weeks.map((w, i) => {
+                const c = count(w, p.name);
+                return <i key={w.start} data-on={i === at || undefined} style={{ background: c ? `color-mix(in srgb, var(--fg) ${Math.round(18 + (c / cell) * 72)}%, var(--panel))` : undefined }} />;
+              })}
+            </span>
           </button>
         ))}
-        {all.length > top.length && <span className="faint" style={{ fontSize: 12 }}>The CSV holds all {all.length} labels.</span>}
       </div>
     </Card>
   );
 }
 
-/** The tickets done, newest first; one person's week when a cell is picked, one label's when a label is. */
-function DoneList({ r, only, label, onClear }: { r: WeeklyReport; only: { name: string; week: string } | null; label: string | null; onClear: () => void }) {
-  const list = r.tickets.filter((t) => (!only || (t.assignee === only.name && t.week === only.week)) && (!label || t.labels?.includes(label)));
+/** Labels of the tickets done in the week shown, over their count in all the weeks. Picking one narrows the list. */
+function WeekLabels({ r, at, label, onPick }: { r: WeeklyReport; at: number; label: string | null; onPick: (l: string) => void }) {
+  const week = r.weeks[at].start;
+  const all = new Map<string, { total: number; now: number }>();
+  for (const t of r.tickets)
+    for (const l of t.labels ?? []) {
+      const e = all.get(l) ?? { total: 0, now: 0 };
+      e.total += 1;
+      if (t.week === week) e.now += 1;
+      all.set(l, e);
+    }
+  if (!all.size) return null;
+  const list = [...all].sort((a, b) => b[1].now - a[1].now || b[1].total - a[1].total || a[0].localeCompare(b[0]));
+  const top = list.slice(0, 10);
+  const max = Math.max(...top.map(([, e]) => e.total));
+  const none = r.tickets.filter((t) => t.week === week && !t.labels?.length).length;
+  return (
+    <Card title="Labels" hint={`This week in ink over all the weeks in grey. Pick one to list its tickets.${none ? ` ${plural(none, "ticket")} this week without a label.` : ""}`} rows={[["Label", "Tickets done this week", "Tickets done in the weeks shown"], ...list.map(([l, e]): Cell[] => [l, e.now, e.total])]} file="gitnetix-done-by-label.csv">
+      <div className="col" style={{ gap: 0 }}>
+        {top.map(([l, e]) => (
+          <button key={l} className="ana-lb" aria-pressed={label === l} onClick={() => onPick(l)} aria-label={`${l}: ${e.now} this week, ${e.total} in the weeks shown`}>
+            <span className="ellipsis">{l}</span>
+            <span className="ana-lb-t">
+              <span className="ana-lb-all" style={{ width: `${(e.total / max) * 100}%` }} />
+              <span className="ana-lb-now" style={{ width: `${(e.now / max) * 100}%` }} />
+            </span>
+            <span className="mono ana-pr-v"><b>{e.now}</b></span>
+            <span className="hint ana-lb-r">{e.total} in all</span>
+          </button>
+        ))}
+        {list.length > top.length && <span className="faint" style={{ fontSize: 12, paddingTop: 6 }}>The CSV holds all {list.length} labels.</span>}
+      </div>
+    </Card>
+  );
+}
+
+/** The tickets done in the week shown, newest first; one person's when one is picked, one label's when a label is. */
+function DoneList({ r, week, only, label, onClear }: { r: WeeklyReport; week: string; only: string | null; label: string | null; onClear: () => void }) {
+  const list = r.tickets.filter((t) => t.week === week && (!only || t.assignee === only) && (!label || t.labels?.includes(label)));
   const multi = new Set(r.tickets.map((t) => t.place)).size > 1;
-  const labels = r.tickets.some((t) => t.labels?.length);
-  const picked = [only && `${only.name}, week of ${weekLabel(only.week)}`, label && `Label “${label}”`].filter(Boolean).join(" · ");
+  const picked = [only, label && `Label “${label}”`].filter(Boolean).join(" · ");
   return (
     <Card
       title="Tickets done"
-      hint={picked || `${plural(r.tickets.length, "ticket")} in the weeks shown`}
+      hint={`${plural(list.length, "ticket")} in the week of ${weekLabel(week)}${picked ? ` · ${picked}` : ""}`}
       rows={doneRows(r)}
       file="gitnetix-tickets-done.csv"
       table={false}
-      right={picked && <button className="btn btn-sm" onClick={onClear}><Icon name="close" size={11} />All tickets</button>}
+      right={picked && <button className="btn btn-sm" onClick={onClear}><Icon name="close" size={11} />Everyone's, all labels</button>}
     >
       {list.length === 0 ? (
-        <Empty>Nothing here.</Empty>
+        <Empty>{picked ? "None this week with these picks." : "Nothing done this week yet."}</Empty>
       ) : (
-        <div className="spr-table-wrap">
-          <table className="table spr-tickets">
-            <thead>
-              <tr>
-                <th>Key</th>
-                <th>Title</th>
-                {multi && <th>Where</th>}
-                {labels && <th>Labels</th>}
-                <th>Assignee</th>
-                <th>Done</th>
-                <th className="num" data-tip="From when it was created to when it was done">Created to done</th>
-              </tr>
-            </thead>
-            <tbody>
-              {list.slice(0, 200).map((t) => (
-                <tr key={`${t.source}:${t.key}`}>
-                  <td><button className="spr-keylink" onClick={() => openExternal(t.url)} data-tip="Open it">{t.key}</button></td>
-                  <td><span className="ellipsis" title={t.title}>{t.title}</span></td>
-                  {multi && <td className="muted">{t.place}</td>}
-                  {labels && (
-                    <td>
-                      <span className="row" style={{ gap: 4, margin: 0, flexWrap: "nowrap" }}>
-                        {(t.labels ?? []).slice(0, 3).map((l) => <span key={l} className="tag tk-label">{l}</span>)}
-                        {(t.labels?.length ?? 0) > 3 && <span className="faint">+{t.labels!.length - 3}</span>}
-                      </span>
-                    </td>
-                  )}
-                  <td>
-                    <span className="row" style={{ gap: 6, margin: 0 }}>
-                      <Avatar name={t.assignee} size={18} />
-                      <span className="ellipsis">{t.assignee}</span>
-                    </span>
-                  </td>
-                  <td className="faint">{day(t.doneAt)}</td>
-                  <td className="num">{t.leadHours == null ? "–" : span(t.leadHours)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {list.length > 200 && <div className="faint" style={{ padding: "10px 20px" }}>The CSV holds all {list.length}.</div>}
+        <div className="col" style={{ gap: 0 }}>
+          {list.slice(0, 200).map((t) => (
+            <div key={`${t.source}:${t.key}`} className="ana-tk ana-done">
+              <span className="tk-ring" data-status="done" aria-label="Done" />
+              <button className="spr-keylink" onClick={() => openExternal(t.url)} data-tip={`Open it in ${SOURCE[t.source]}`}>{t.key}</button>
+              <span className="ellipsis ana-tk-t" title={t.title}>{t.title}</span>
+              <span className="faint ellipsis ana-tk-l" title={(t.labels ?? []).join(", ")}>{(t.labels ?? []).join(", ")}</span>
+              <span className="muted ellipsis ana-tk-w" title={t.place}>{multi ? t.place : SOURCE[t.source]}</span>
+              <Avatar name={t.assignee} size={18} />
+              <span className="mono faint ana-tk-n" data-tip="From when it was created to when it was done">{t.leadHours == null ? "–" : span(t.leadHours)}</span>
+              <span className="faint ana-tk-age">{day(t.doneAt, { weekday: "short" })}</span>
+            </div>
+          ))}
+          {list.length > 200 && <span className="faint" style={{ paddingTop: 8 }}>The CSV holds all {list.length}.</span>}
         </div>
       )}
     </Card>

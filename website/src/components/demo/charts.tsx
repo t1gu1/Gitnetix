@@ -40,7 +40,63 @@ export function tipAt(i: number, n: number): CSSProperties {
 /** A heat cell at `share` (0 to 1): a step of the series hue, and the ink that reads on it. */
 export function heat(share: number): CSSProperties {
   const mix = Math.round(10 + Math.min(1, Math.max(0, share)) * 78);
-  return { background: `color-mix(in srgb, var(--s1) ${mix}%, var(--panel))`, color: mix >= 55 ? '#fff' : 'var(--fg)' };
+  return { background: `color-mix(in srgb, var(--s1) ${mix}%, var(--panel))`, color: mix >= 55 ? 'var(--bg)' : 'var(--fg)' };
+}
+
+export type Fig = { label: string; value: string; sub?: ReactNode; good?: boolean };
+
+/** The headline figures in one row split by hairlines: the number in the display face, its unit smaller. */
+export function FigStrip({ items }: { items: Fig[] }) {
+  return (
+    <section aria-label="Key figures" className="ana-figs">
+      {items.map((f) => {
+        const [, n, unit] = /^([−+-]?[\d.,]+)\s*(.*)$/.exec(f.value) ?? [null, f.value, ''];
+        return (
+          <div key={f.label} className="ana-fig">
+            <span className="ana-fig-l">{f.label}</span>
+            <span className="ana-fig-v">{n}{unit && <small>{unit}</small>}</span>
+            {f.sub && <span className={`ana-fig-d${f.good === undefined ? '' : f.good ? ' c-add' : ' c-del'}`}>{f.sub}</span>}
+          </div>
+        );
+      })}
+    </section>
+  );
+}
+
+/** Where a page's content would be: a heading, why, the facts that help, then what to do. */
+export function PageNote({ title, children, facts, actions }: { title: ReactNode; children?: ReactNode; facts?: [string, ReactNode][]; actions?: ReactNode }) {
+  return (
+    <div className="ana-empty">
+      <h3>{title}</h3>
+      {children}
+      {facts && (
+        <dl className="ana-facts">
+          {facts.map(([k, v]) => (
+            <div key={k}>
+              <dt>{k}</dt>
+              <dd>{v}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      {actions && <div className="ana-acts">{actions}</div>}
+    </div>
+  );
+}
+
+/** A page note in the rail layout: the rail keeps its place (`rail`: its title). */
+export function NoteLayout({ rail, children }: { rail?: string; children: ReactNode }) {
+  return (
+    <div className="body split ana">
+      {rail && (
+        <section className="master ana-rail hide-narrow" aria-label={rail}>
+          <div className="ana-rh"><h3>{rail}</h3></div>
+          <p className="ana-rail-none">Nothing loaded</p>
+        </section>
+      )}
+      <main className="detail ana-det" data-pane data-active>{children}</main>
+    </div>
+  );
 }
 
 /** A chart's frame: title, the table view of its data and the CSV of the same rows. */

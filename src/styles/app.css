@@ -10423,22 +10423,760 @@ button.app-row:hover > .app-row-chev {
   font-variant-numeric: tabular-nums;
 }
 
-/* ---------- sprint board (analytics, Jira tab) ---------- */
-/* Series hues: the validated categorical slots 1-3, stepped for each mode. Text never wears them. */
-.spr {
-  --s1: #3987e5;
-  --s2: #d95926;
-  --s3: #199e70;
-  --s4: #c98500;
-  --s-ctx: color-mix(in srgb, var(--fg) 22%, var(--panel));
-  --s-warn: #fab219;
+/* ---------- analytics: a rail of things to pick, each row its own bar, and the pick beside it ---------- */
+.ana {
   transition: opacity var(--t);
 }
-[data-theme="light"] .spr {
-  --s1: #2a78d6;
-  --s2: #eb6834;
-  --s3: #1baf7a;
-  --s4: #eda100;
+.ana[data-busy] {
+  opacity: 0.55;
+}
+.ana-rail {
+  --master-w: 380px;
+  overflow-y: auto;
+  padding-bottom: 8px;
+}
+.ana-rh {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 16px 16px 8px;
+}
+.ana-rh h3 {
+  flex: 1;
+  margin: 0;
+  font: 600 13px/18px var(--sans);
+  color: var(--fg);
+}
+.ana-sep {
+  margin-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.ana-wk {
+  display: flex;
+  justify-content: space-between;
+  padding: 12px 16px 4px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--faint);
+}
+.ana-row,
+.ana-sprint,
+.ana-pr,
+.ana-wp,
+.ana-lb {
+  width: 100%;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.ana-row {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 34px;
+  padding: 0 16px;
+}
+.ana-week {
+  grid-template-columns: 112px minmax(0, 1fr) auto;
+}
+:is(.ana-row, .ana-sprint, .ana-pr, .ana-wp, .ana-lb):is(button):hover {
+  background: var(--raised);
+}
+:is(.ana-row, .ana-sprint, .ana-wp, .ana-lb)[aria-pressed="true"] {
+  background: var(--sel);
+}
+.ana-row-l {
+  color: var(--muted);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.ana-row-l b,
+.ana-row[aria-pressed="true"] .ana-row-l {
+  color: var(--fg);
+  font-weight: 500;
+}
+.ana-row-l.mono {
+  font-size: 12px;
+  color: var(--fg);
+}
+.ana-track {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 10px;
+}
+/* Bars leave a quarter of the row for the release tag or note after them. */
+.ana-fill {
+  flex: none;
+  width: calc(var(--w, 0) * 78%);
+  min-width: 1px;
+  height: 10px;
+  border-radius: 0 2px 2px 0;
+  background: color-mix(in srgb, var(--fg) 50%, var(--panel));
+}
+.ana-row[data-soft] .ana-fill {
+  background: color-mix(in srgb, var(--fg) 22%, var(--panel));
+}
+.ana-row[aria-pressed="true"] .ana-fill {
+  background: var(--fg);
+}
+.ana-avg {
+  position: absolute;
+  top: -4px;
+  bottom: -4px;
+  left: calc(var(--w, 0) * 78%);
+  border-left: 1.5px dashed var(--muted);
+}
+.ana-n {
+  min-width: 24px;
+  font: 500 12px var(--mono);
+  color: var(--muted);
+  text-align: right;
+  white-space: nowrap;
+}
+.ana-row[aria-pressed="true"] .ana-n {
+  color: var(--fg);
+}
+.ana-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--fg);
+  white-space: nowrap;
+}
+.ana-note {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--faint);
+}
+.ana-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 12px 16px 8px;
+  border-top: 1px solid var(--line);
+}
+.ana-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.ana-key i {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  background: var(--fg);
+}
+.ana-key i[data-soft] {
+  background: color-mix(in srgb, var(--fg) 22%, var(--panel));
+}
+.ana-key i[data-dash] {
+  width: 14px;
+  height: 0;
+  border-top: 1.5px dashed var(--muted);
+  border-radius: 0;
+  background: none;
+}
+/* A sprint row: its name and numbers, completed over committed, then its percent, bugs and hours left. */
+.ana-sprint {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 16px;
+}
+.ana-sprint-1 {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.ana-sprint-1 strong {
+  font-weight: 600;
+  color: var(--fg);
+  white-space: nowrap;
+}
+.ana-sprint-1 .mono {
+  font-size: 12px;
+  color: var(--fg);
+  white-space: nowrap;
+}
+.ana-vel {
+  position: relative;
+  display: block;
+  height: 12px;
+}
+.ana-vel-c,
+.ana-vel-d {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 0 2px 2px 0;
+}
+.ana-vel-c {
+  right: 0;
+  background: color-mix(in srgb, var(--fg) 18%, var(--panel));
+}
+.ana-vel-d {
+  background: color-mix(in srgb, var(--fg) 55%, var(--panel));
+}
+.ana-sprint[aria-pressed="true"] .ana-vel-d {
+  background: var(--fg);
+}
+.ana-vel-avg {
+  position: absolute;
+  top: -4px;
+  bottom: -4px;
+  border-left: 1.5px dashed var(--muted);
+}
+.ana-sprint-3 {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-size: 12px;
+  color: var(--faint);
+}
+/* The page beside the rail. */
+.ana-det {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 24px 32px 40px;
+}
+.ana-stack,
+.ana-rail-head {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+/* Each figure has its divider on the left; the strip clips the one starting each row, so a wrapped row lines up with the first. */
+.ana-figs {
+  flex: none; /* clipped strips lose their auto min height: a long page would squash this one to nothing */
+  display: flex;
+  flex-wrap: wrap;
+  row-gap: 16px;
+  margin-left: -24px;
+  overflow: hidden;
+}
+.ana-fig {
+  flex: 1 1 0;
+  min-width: 150px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-left: -1px;
+  padding: 0 24px;
+  border-left: 1px solid var(--line);
+}
+.ana-fig-l {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--faint);
+}
+.ana-fig-v {
+  font: 500 40px/1 var(--display);
+  color: var(--fg);
+  white-space: nowrap;
+}
+.ana-fig-v small {
+  margin-left: 4px;
+  font-size: 20px;
+  color: var(--muted);
+}
+.ana-fig-d {
+  font-size: 12px;
+  color: var(--faint);
+}
+.ana-sec {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+.ana-sh {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px 16px;
+}
+.ana-sh > div:first-child {
+  flex: 1 1 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ana-sh h2,
+.ana .spr-card-head h2 {
+  margin: 0;
+  font: 600 13px/18px var(--sans);
+  color: var(--fg);
+}
+.ana-chart {
+  margin-top: 14px;
+}
+.ana-chart .chart-y,
+.ana-chart .chart-plot {
+  height: 230px;
+}
+.ana-col {
+  cursor: pointer;
+}
+.ana-col > span {
+  background: color-mix(in srgb, var(--fg) 50%, var(--panel));
+}
+.ana-col.weekend > span {
+  opacity: 1;
+  background: color-mix(in srgb, var(--fg) 22%, var(--panel));
+}
+.ana-col:hover > span {
+  background: color-mix(in srgb, var(--fg) 72%, var(--panel));
+}
+.ana-col.on > span {
+  background: var(--fg);
+}
+/* A release tagged that day: a hairline station at the end of its day, as on the branch map. */
+.ana-station {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 1;
+  border-left: 1px dashed var(--muted);
+  pointer-events: none;
+}
+.ana-station::before {
+  content: "";
+  position: absolute;
+  top: -4px;
+  left: -4.5px;
+  width: 8px;
+  height: 8px;
+  border: 1.25px solid var(--fg);
+  border-radius: 50%;
+  background: var(--bg);
+}
+.ana-station b {
+  position: absolute;
+  top: -8px;
+  left: 8px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--fg);
+  white-space: nowrap;
+}
+.ana-dh {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+.ana-dh h3 {
+  margin: 0;
+  font: 600 16px/22px var(--sans);
+  color: var(--fg);
+}
+.ana-dh h3.mono {
+  font-family: var(--mono);
+}
+.ana-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 9px;
+  border-radius: var(--r);
+  background: var(--sel);
+  font-size: 12px;
+  color: var(--fg);
+}
+.ana-day {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 560px), 1fr));
+  gap: 20px 48px;
+  margin-top: 4px;
+}
+.ana-person {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.ana-person-h {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.ana-person-h strong {
+  font-weight: 600;
+}
+.ana-cm {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr) auto minmax(0, 34%);
+  align-items: center;
+  gap: 10px;
+  min-height: 24px;
+  font-size: 12px;
+}
+.ana-cm-s {
+  color: var(--fg);
+}
+.ana-cm-t {
+  display: flex;
+  gap: 4px;
+}
+.ana-cm-b {
+  max-width: 220px;
+}
+/* A person's share: avatar, name over a ring per ticket, the bar, the numbers. */
+.ana-pr {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 170px) minmax(60px, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 46px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--line);
+}
+.ana-pr:last-child {
+  border-bottom: 0;
+}
+.ana-pr-n {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.ana-rings {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.ana-meter {
+  position: relative;
+  display: block;
+  height: 8px;
+  overflow: hidden;
+  border-radius: 0 2px 2px 0;
+  background: color-mix(in srgb, var(--fg) 12%, var(--panel));
+}
+.ana-meter > span {
+  display: block;
+  height: 100%;
+  background: var(--fg);
+}
+.ana-pr-v {
+  font-size: 12px;
+  color: var(--muted);
+  text-align: right;
+  white-space: nowrap;
+}
+.ana-pr-v b {
+  font-weight: 500;
+  color: var(--fg);
+}
+.ana-wp {
+  display: grid;
+  grid-template-columns: 22px minmax(120px, 1fr) minmax(0, 0.8fr) 24px auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 2px 4px;
+  border-bottom: 1px solid var(--line);
+}
+.ana-strip {
+  display: flex;
+  gap: 2px;
+}
+.ana-strip i {
+  width: 9px;
+  height: 14px;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--fg) 7%, var(--panel));
+}
+.ana-strip i[data-on] {
+  outline: 1px solid var(--fg);
+  outline-offset: 1px;
+}
+.ana-lb {
+  display: grid;
+  grid-template-columns: minmax(0, 110px) minmax(60px, 1fr) 24px 64px;
+  align-items: center;
+  gap: 10px;
+  min-height: 32px;
+  padding: 0 4px;
+}
+.ana-lb-t {
+  position: relative;
+  height: 8px;
+}
+.ana-lb-all,
+.ana-lb-now {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 0 2px 2px 0;
+}
+.ana-lb-all {
+  background: color-mix(in srgb, var(--fg) 14%, var(--panel));
+}
+.ana-lb-now {
+  background: var(--fg);
+}
+.ana-lb-r {
+  text-align: right;
+  white-space: nowrap;
+}
+.ana-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line2);
+  border-radius: var(--r);
+  color: var(--muted);
+}
+.ana-banner b {
+  font-weight: 500;
+  color: var(--fg);
+}
+.ana-msg {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 32px;
+}
+.ana-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 640px;
+}
+.ana-empty h3 {
+  margin: 0;
+  font: 600 18px/24px var(--sans);
+  color: var(--fg);
+}
+.ana-empty p {
+  margin: 0;
+  max-width: 64ch;
+  color: var(--muted);
+  line-height: 20px;
+}
+.ana-empty-err {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ana-empty h3.ana-empty-err {
+  color: var(--del-fg);
+}
+.ana-facts {
+  margin: 4px 0 0;
+  border-top: 1px solid var(--line);
+}
+.ana-facts > div {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+  gap: 16px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+}
+.ana-facts dt {
+  font-weight: 500;
+  color: var(--fg);
+}
+.ana-facts dd {
+  margin: 0;
+  color: var(--muted);
+}
+.ana-acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+.ana-err {
+  display: block;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--raised);
+  font: 12px/18px var(--mono);
+  color: var(--muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.ana-rail-none {
+  margin: 0;
+  padding: 8px 16px;
+  font-size: 12px;
+  color: var(--faint);
+}
+/* The picked day's count over its bar, and its date in ink on the axis. */
+.ana-col-v {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--fg);
+  pointer-events: none;
+}
+.chart-x .ana-x-on {
+  color: var(--fg);
+}
+/* A branch that opens in the workspace: underlined at rest, so it reads as a link before the pointer finds it. */
+.ana-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  text-decoration: underline;
+  text-decoration-color: var(--line2);
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.ana-link > svg {
+  flex: none;
+}
+.ana-link:hover {
+  color: var(--fg);
+  text-decoration-color: var(--fg);
+}
+/* A ticket row: ring, key, title, who, its size, how long it took or has been open. */
+.ana-tk {
+  display: grid;
+  grid-template-columns: 14px 84px minmax(0, 1fr) 18px 72px 170px;
+  align-items: center;
+  gap: 12px;
+  min-height: 32px;
+  border-bottom: 1px solid var(--line);
+}
+.ana-done {
+  grid-template-columns: 14px 84px minmax(0, 1fr) minmax(0, 150px) 96px 18px 64px 36px;
+}
+.ana-tk > .spr-keylink {
+  justify-self: start;
+}
+.ana-tk-n {
+  font-size: 12px;
+  text-align: right;
+  white-space: nowrap;
+}
+.ana-tk-age {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--faint);
+  white-space: nowrap;
+}
+.ana-tk-age.c-warn {
+  color: var(--warn-fg);
+}
+.ana-tk-l,
+.ana-tk-w {
+  font-size: 12px;
+}
+.ana-tg {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 0 6px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--faint);
+}
+.ana-more {
+  margin-left: 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--fg);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.ana-sum {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ana-sum strong {
+  font-weight: 600;
+}
+.ana-banner-i {
+  flex: none;
+}
+/* Loading: grey blocks in the page's shape, still (no pulse: it would keep the engine busy). */
+.ana-sk {
+  display: block;
+  height: 10px;
+  border-radius: 2px;
+  background: var(--raised);
+}
+.ana-sk-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  height: 230px;
+  border-bottom: 1px solid var(--line2);
+}
+.ana-sk-chart .ana-sk {
+  flex: 1;
+  border-radius: 2px 2px 0 0;
+}
+.ana-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+/* Charts in the analytics page are open sections, not boxes. */
+.ana .spr-card {
+  padding: 0;
+  border: 0;
+  background: none;
+  box-shadow: none;
+}
+.spr-grid2.even {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+/* ---------- sprint board (analytics, Jira tab) ---------- */
+/* Series: steps of ink, no hue (the Meaning Rule), so every theme's own text colour carries them. Text never wears them. */
+.spr {
+  --s1: var(--fg);
+  --s2: color-mix(in srgb, var(--fg) 62%, var(--panel));
+  --s3: color-mix(in srgb, var(--fg) 42%, var(--panel));
+  --s4: color-mix(in srgb, var(--fg) 28%, var(--panel));
+  --s-ctx: color-mix(in srgb, var(--fg) 18%, var(--panel));
+  --s-warn: var(--warn-fg);
+  transition: opacity var(--t);
 }
 /* Other projects or another sprint count: the old charts stay, faded, until the new ones come. */
 .spr[data-busy] {
@@ -10501,11 +11239,10 @@ button.app-row:hover > .app-row-chev {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  padding: 20px;
-  background: var(--panel);
 }
-.page h2.spr-title {
-  font-size: 18px;
+.spr-title {
+  margin: 0;
+  font: 600 20px/26px var(--sans);
   letter-spacing: -0.01em;
 }
 .spr-goal {
@@ -10572,10 +11309,10 @@ button.app-row:hover > .app-row-chev {
   background: color-mix(in srgb, var(--fg) 8%, transparent);
 }
 .spr-track.time > span {
-  background: color-mix(in srgb, var(--fg) 40%, var(--panel));
+  background: color-mix(in srgb, var(--fg) 45%, var(--panel));
 }
 .spr-track.work {
-  background: color-mix(in srgb, var(--s1) 20%, transparent);
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
 }
 .spr-track.work > span {
   background: var(--s1);
@@ -11460,7 +12197,149 @@ button.app-row:hover > .app-row-chev {
   /* Pull requests and tickets: the detail pane goes without the list's toolbar. */
   .pr-bar[data-detail],
   .tk-bar[data-detail],
-  .sm-bar[data-detail] {
+  .sm-bar[data-detail],
+  .ana-bar[data-detail] {
+    display: none;
+  }
+  .ana-rail-head {
+    gap: 14px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--line);
+  }
+  /* The toolbar wraps instead of scrolling: the tab switch spans the width, the rest follows in rows. */
+  .ana-bar {
+    flex-wrap: wrap;
+    overflow: visible;
+  }
+  .ana-bar > .seg {
+    flex: 1 1 auto;
+  }
+  .ana-bar > .seg:first-of-type {
+    flex-basis: 100%;
+  }
+  .ana-bar > .seg > button {
+    flex: 1 1 auto;
+  }
+  .ana-tk,
+  .ana-done {
+    grid-template-columns: 14px minmax(0, 1fr) auto;
+    gap: 2px 10px;
+    padding: 8px 0;
+  }
+  .ana-tk > .tk-ring {
+    grid-row: 1 / 3;
+  }
+  .ana-tk > .spr-keylink {
+    grid-column: 2;
+    grid-row: 1;
+    justify-self: start;
+  }
+  .ana-tk-t {
+    grid-column: 2;
+    grid-row: 2;
+    white-space: normal;
+  }
+  .ana-tk > :is(.user-avatar, img, .avatar) {
+    grid-column: 3;
+    grid-row: 1 / 3;
+  }
+  .ana-tk-n,
+  .ana-tk-w,
+  .ana-done .ana-tk-age {
+    display: none;
+  }
+  .ana-tk-l,
+  .ana-tk-age {
+    grid-column: 2;
+    grid-row: 3;
+    justify-content: flex-start;
+  }
+  .ana-facts > div {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
+  .ana-rail-head .ana-chart .chart-y,
+  .ana-rail-head .ana-chart .chart-plot {
+    height: 120px;
+  }
+  .ana-figs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    margin-left: 0;
+    overflow: visible;
+  }
+  .ana-fig {
+    min-width: 0;
+    padding: 0 12px;
+  }
+  .ana-fig:nth-child(odd) {
+    padding-left: 0;
+    border-left: 0;
+  }
+  .ana-fig-v {
+    font-size: 26px;
+  }
+  .ana-fig {
+    gap: 4px;
+  }
+  .ana-fig-v small {
+    font-size: 16px;
+  }
+  .ana-row {
+    grid-template-columns: 72px minmax(0, 1fr) auto;
+    min-height: 44px;
+  }
+  .ana-week {
+    grid-template-columns: 112px minmax(0, 1fr) auto;
+  }
+  .ana-det {
+    gap: 20px;
+    padding: 16px;
+  }
+  .ana-cm {
+    grid-template-columns: auto auto minmax(0, 1fr);
+    gap: 4px 8px;
+    padding: 6px 0;
+    border-top: 1px solid var(--line);
+  }
+  .ana-cm-s {
+    grid-row: 1;
+    grid-column: 1 / -1;
+    white-space: normal;
+  }
+  .ana-cm > :not(.ana-cm-s) {
+    grid-row: 2;
+  }
+  /* Later in the file than the 640 px rule that meant to stack them. */
+  .spr-meters,
+  .spr-grid2.even {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .ana-cm-b {
+    justify-self: end;
+    max-width: 100%;
+  }
+  .ana-pr {
+    grid-template-columns: 22px minmax(0, 1fr) auto;
+  }
+  .ana-pr .ana-meter {
+    grid-column: 2 / -1;
+    grid-row: 2;
+  }
+  .ana-wp {
+    grid-template-columns: 22px minmax(0, 1fr) 24px;
+  }
+  .ana-wp .ana-meter {
+    display: none;
+  }
+  .ana-wp .ana-strip {
+    grid-column: 2 / -1;
+    margin-bottom: 6px;
+  }
+  .ana-lb {
+    grid-template-columns: 80px minmax(0, 1fr) 24px;
+  }
+  .ana-lb-r {
     display: none;
   }
   /* Submodules: Update all under the rows, as wide as the list. */

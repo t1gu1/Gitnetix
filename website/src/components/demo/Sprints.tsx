@@ -2,9 +2,10 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { SprintBoard, SprintStat, SprintTicket, Stage, Work } from '../../../../src/api/types';
 import { Icon } from '../../../../src/components/Icon';
 import { downloadCsv, plural } from '../../../../src/lib/format';
-import { Ask, Card, day, heat, Key, LevelChip, niceMax, path, pct, r1, r2, rank, slug, span, ticks, tipAt, TipRow, weekday, type Cell, type Level, type Pt, type Qa } from './charts';
+import { Ask, Card, day, FigStrip, heat, Key, LevelChip, niceMax, NoteLayout, PageNote, path, pct, r1, r2, rank, slug, span, ticks, tipAt, TipRow, weekday, type Cell, type Level, type Pt, type Qa } from './charts';
 import { sprints as sprintsOf } from './sprintData';
-import { AssigneePicker, Avatar, Busy, Choice, Empty, EmptyState, Modal, Seg, useDemo, useLater } from './ui';
+import type { Pane } from './Analytics';
+import { AssigneePicker, Avatar, Busy, Choice, Empty, Modal, Seg, useDemo, useLater } from './ui';
 
 /** src/screens/Sprints.tsx over the made-up WEB board of ./sprintData: the same charts, tables and ticket view. */
 
@@ -28,7 +29,7 @@ const branches = (n: number) => `${n} ${n === 1 ? 'branch' : 'branches'}`;
 /** Stage colors: the validated series hues in their order, gray for time sent back to do; and the ink on each. */
 const STAGE_FILL = ['var(--s1)', 'var(--s2)', 'var(--s3)', 'var(--s4)', 'var(--s-ctx)'];
 const STAGE_KEY = ['s1', 's2', 's3', 's4', 'ctx'];
-const STAGE_INK = ['#fff', '#fff', '#fff', '#0b0b0b', 'var(--fg)'];
+const STAGE_INK = ['var(--bg)', 'var(--bg)', 'var(--fg)', 'var(--fg)', 'var(--fg)'];
 
 /** "12 pts", "1 ticket", "40 h". */
 function amount(v: number, u: Unit) {
@@ -90,8 +91,8 @@ function ticketRows(sprints: SprintStat[]): Cell[][] {
 
 /** The sprints of the WEB board. `focus`: a ticket key to open, from the Commits tab; `onDay` shows a day there;
  * `onWeekly` switches to the weekly view. */
-export function Sprints({ lead, focus, onFocused, onDay, onWeekly }: { lead: ReactNode; focus?: string | null; onFocused: () => void; onDay: (date: string) => void; onWeekly: () => void }) {
-  const { flash } = useDemo();
+export function Sprints({ lead, header, focus, onFocused, onDay, onWeekly, pane, onPicked }: { lead: ReactNode; header: (crumb?: string) => ReactNode; focus?: string | null; onFocused: () => void; onDay: (date: string) => void; onWeekly: () => void; pane: Pane; onPicked: () => void }) {
+  const { flash, go } = useDemo();
   const later = useLater();
   const [count, setCount] = useState('6');
   const [unitPref, setUnit] = useState<Unit>('points');
@@ -122,6 +123,7 @@ export function Sprints({ lead, focus, onFocused, onDay, onWeekly }: { lead: Rea
     if (hit) {
       setPick(hit.id);
       setOpened({ key: focus, sprint: hit.id });
+      onPicked();
     } else {
       flash(`${focus} is in none of the sprints shown`, true);
     }
@@ -129,51 +131,59 @@ export function Sprints({ lead, focus, onFocused, onDay, onWeekly }: { lead: Rea
   }, [focus]);
 
   const controls = (
-    <div className="row wrap" style={{ margin: 0, gap: 12 }}>
+    <div className="map-bar ana-bar" data-detail={pane === 'detail' || undefined}>
       {lead}
-      {s && (
-        <Choice className="select menu-select" style={{ height: 32 }} label="Sprint" value={String(s.id)} options={[...sprints].reverse().map((x) => ({ value: String(x.id), label: `${x.name}${x.state === 'active' ? ' · active' : ''}` }))} onChange={(v) => setPick(Number(v))} />
-      )}
       <Seg label="Count work in" value={unit} onChange={setUnit} options={UNITS.filter((u) => has(u.value)).map((u): [Unit, string] => [u.value, u.label])} />
       <Choice className="select menu-select" style={{ height: 32 }} label="Sprints shown" value={count} options={COUNTS.map((c) => ({ value: c, label: `Last ${c} sprints` }))} onChange={(v) => { setCount(v); setPick(null); }} />
       <AssigneePicker everyone={r.assignees} who={who} onChange={setWho} />
       <span className="grow" />
-      <button className="btn btn-icon" aria-label="Sync now" title="Sync now · synced 4 min ago" onClick={() => { setSyncing(true); later(900, () => { setSyncing(false); flash('Synced with Jira'); }); }}>
+      <span className="hint hide-narrow">Synced 4 min ago</span>
+      <button className="btn btn-sm btn-icon" aria-label="Sync now" title="Sync now · synced 4 min ago" onClick={() => { setSyncing(true); later(900, () => { setSyncing(false); flash('Synced with Jira'); }); }}>
         <Busy on={syncing}><Icon name="refresh" size={13} /></Busy>
       </button>
-      <button className="btn" disabled={!s} onClick={() => setAsking(true)}>
+      <button className="btn btn-sm" disabled={!s} onClick={() => setAsking(true)}>
         <Icon name="sparkle" size={12} className="c-acc" />
         Ask AI
       </button>
-      <button className="btn" onClick={() => downloadCsv(`gitnetix-sprint-tickets-${slug(board.name)}.csv`, ticketRows(board.sprints))}>Export CSV</button>
+      <button className="btn btn-sm hide-narrow" onClick={() => downloadCsv(`gitnetix-sprint-tickets-${slug(board.name)}.csv`, ticketRows(board.sprints))}>
+        <Icon name="download" size={12} />
+        Export CSV
+      </button>
     </div>
   );
 
   let body: ReactNode;
   if (!s) {
     body = (
-      <EmptyState icon="chart" title="No sprint found" action={<button className="btn btn-primary btn-md" onClick={onWeekly}>See tickets done per week</button>}>
-        No Jira board holding these projects' tickets ran a sprint lately. Sprints come from Scrum boards in Jira Software; a Kanban team's work shows per week.
-      </EmptyState>
+      <NoteLayout rail="Sprints">
+        <PageNote title="No sprint found" actions={<button className="btn btn-sm btn-primary" onClick={onWeekly}>See tickets done per week</button>}>
+          <p>No Jira board holding these projects' tickets ran a sprint lately. Sprints come from Scrum boards in Jira Software; a Kanban team's work shows per week.</p>
+        </PageNote>
+      </NoteLayout>
     );
   } else {
     const shown = opened && sprints.find((x) => x.id === opened.sprint);
     const ticket = shown && shown.tickets.find((t) => t.key === opened.key);
     body = (
-      <div className="col spr" style={{ gap: 16 }}>
-        <Hero s={s} u={unit} />
-        <Kpis s={s} prev={prev} sprints={sprints} u={unit} />
-        <div className="spr-grid2">
-          <Burndown s={s} u={unit} />
-          <Makeup s={s} u={unit} points={r.points} />
-        </div>
-        <div className="spr-grid-even">
+      <div className="body split ana">
+        <SprintRail sprints={sprints} sel={s} u={unit} hours={r.hours} board={board.name} onPick={(id) => { setPick(id); onPicked(); }} active={pane === 'rail'} />
+        <main className="detail ana-det spr" data-pane data-active={pane === 'detail'}>
+          <Hero s={s} u={unit} />
+          <Kpis s={s} prev={prev} sprints={sprints} u={unit} />
+          <div className="spr-grid2">
+            <Burndown s={s} u={unit} />
+            <SprintPeople s={s} u={unit} onPick={(name) => setCell({ name, sprint: s })} />
+          </div>
+          <SprintList s={s} u={unit} p85={p85} onOpen={open} onTickets={() => go('tickets')} />
+          <div className="spr-grid-even">
+            <Makeup s={s} u={unit} points={r.points} />
+            <Leftover sprints={sprints} sel={s} onPick={setPick} hasHours={r.hours} onOpen={open} />
+          </div>
           <Velocity sprints={sprints} sel={s.id} onPick={setPick} u={unit} />
-          <Leftover sprints={sprints} sel={s} onPick={setPick} hasHours={r.hours} onOpen={open} />
-        </div>
-        <Cycle board={board} s={s} p85={p85} onOpen={open} />
-        <People sprints={sprints} sel={s.id} u={unit} onCell={(name, sprint) => setCell({ name, sprint })} />
-        <Tickets s={s} u={unit} p85={p85} onOpen={open} />
+          <Cycle board={board} s={s} p85={p85} onOpen={open} />
+          <People sprints={sprints} sel={s.id} u={unit} onCell={(name, sprint) => setCell({ name, sprint })} />
+          <Tickets s={s} u={unit} p85={p85} onOpen={open} />
+        </main>
         {asking && (
           <Ask
             title={`Ask about ${s.name}`}
@@ -193,6 +203,7 @@ export function Sprints({ lead, focus, onFocused, onDay, onWeekly }: { lead: Rea
   }
   return (
     <>
+      {header(s?.name)}
       {controls}
       {body}
     </>
@@ -235,6 +246,92 @@ function answer(q: string, s: SprintStat, prev: SprintStat | undefined, sprints:
   }
 }
 
+/** The sprints shown, newest first: each row is its velocity, completed in ink over committed in grey, marked at the average. */
+function SprintRail({ sprints, sel: s, u, hours, board, onPick, active }: { sprints: SprintStat[]; sel: SprintStat; u: Unit; hours: boolean; board: string; onPick: (id: number) => void; active: boolean }) {
+  const sel = s.id;
+  const st = standing(s, u);
+  const closed = sprints.filter((x) => x.state === 'closed');
+  const avg = closed.length ? closed.reduce((a, x) => a + x.completed[u], 0) / closed.length : null;
+  const max = Math.max(1e-9, ...sprints.map((x) => Math.max(x.committed[u], x.completed[u])));
+  return (
+    <section className="master ana-rail" data-pane data-active={active} aria-label="Sprints">
+      {/* A phone opens on this list: the sprint on screen sums up above it. */}
+      <div className="show-narrow ana-rail-head">
+        <div className="ana-sum">
+          <strong>{s.name}</strong>
+          <span className="hint grow">{s.state === 'active' && s.workdaysDone > 0 ? `day ${Math.min(s.workdaysDone, s.workdays)} of ${s.workdays}` : `${day(s.start)} – ${day(s.complete ?? s.end)}`}</span>
+          {st.waiting ? <span className="spr-level">{st.waiting}</span> : <LevelChip level={st.level} label={st.word} />}
+        </div>
+        <div className="spr-meters">
+          <Meter label="Time gone" value={pct(s.workdaysDone, s.workdays)} detail={`${s.workdaysDone} of ${plural(s.workdays, 'working day')}`} kind="time" />
+          <Meter label="Work done" value={pct(st.p.done, st.p.total)} detail={`${amount(st.p.done, u)} of ${amount(st.p.total, u)}`} kind="work" />
+        </div>
+      </div>
+      <div className="ana-rh">
+        <h3>Sprints</h3>
+        <span className="hint">{board} · {unitName(u)}</span>
+      </div>
+      {[...sprints].reverse().map((x) => {
+        const of = Math.max(x.committed[u], x.completed[u]);
+        return (
+          <button key={x.id} className="ana-sprint" aria-pressed={x.id === sel} aria-label={`${x.name}: ${amount(x.completed[u], u)} completed of ${amount(x.committed[u], u)}`} onClick={() => onPick(x.id)}>
+            <span className="ana-sprint-1">
+              <strong>{x.name}</strong>
+              <span className="hint grow ellipsis">{x.state === 'active' ? `running${x.workdaysDone > 0 ? ` · day ${Math.min(x.workdaysDone, x.workdays)} of ${x.workdays}` : ''}` : `${day(x.start)} – ${day(x.complete ?? x.end)}`}</span>
+              <span className="mono">{num(x.completed[u], u)} / {num(x.committed[u], u)}</span>
+            </span>
+            <span className="ana-vel" style={{ width: `${(of / max) * 100}%` }}>
+              <span className="ana-vel-c" />
+              <span className="ana-vel-d" style={{ width: `${(x.completed[u] / Math.max(1e-9, of)) * 100}%` }} />
+              {avg != null && avg <= of && <span className="ana-vel-avg" style={{ left: `${(avg / of) * 100}%` }} />}
+            </span>
+            <span className="ana-sprint-3">
+              <span>{pct(x.completed[u], x.committed[u])}% done</span>
+              <span>{plural(x.bugsFixed, 'bug')} fixed</span>
+              {hours && <span>{Math.round(x.leftEstimate)} h left over</span>}
+            </span>
+          </button>
+        );
+      })}
+      <div className="ana-legend">
+        <span className="ana-key"><i />Completed</span>
+        <span className="ana-key"><i data-soft />Committed</span>
+        {avg != null && <span className="ana-key"><i data-dash />Average {amount(avg, u)}, {plural(closed.length, 'closed sprint')}</span>}
+      </div>
+    </section>
+  );
+}
+
+/** Each person's share of the sprint: completed of committed, and a ring per ticket for where it stands. Picking one lists their tickets. */
+function SprintPeople({ s, u, onPick }: { s: SprintStat; u: Unit; onPick: (name: string) => void }) {
+  const people = [...s.people].sort((a, b) => b.committed[u] - a.committed[u] || a.name.localeCompare(b.name));
+  return (
+    <section className="ana-sec" aria-label="People">
+      <div className="ana-sh">
+        <div>
+          <h2>People</h2>
+          <span className="hint">Completed of committed in {s.name} · a ring per ticket</span>
+        </div>
+      </div>
+      {people.length === 0 && <Empty>No ticket is assigned yet.</Empty>}
+      {people.map((p) => {
+        const mine = s.tickets.filter((t) => t.assignee === p.name && !t.cancelled);
+        return (
+          <button key={p.name} className="ana-pr" onClick={() => onPick(p.name)} aria-label={`${p.name}: ${amount(p.completed[u], u)} completed of ${amount(p.committed[u], u)}`}>
+            <Avatar name={p.name} size={22} decorative />
+            <span className="ana-pr-n">
+              <span className="ellipsis">{p.name}</span>
+              <span className="ana-rings">{mine.map((t) => <span key={t.key} className="tk-ring" data-status={t.completed ? 'done' : t.status} title={`${t.key} · ${t.statusLabel}`} />)}</span>
+            </span>
+            <span className="ana-meter"><span style={{ width: `${pct(p.completed[u], p.committed[u])}%` }} /></span>
+            <span className="mono ana-pr-v"><b>{num(p.completed[u], u)}</b> / {amount(p.committed[u], u)}</span>
+          </button>
+        );
+      })}
+    </section>
+  );
+}
+
 function Meter({ label, value, detail, kind }: { label: string; value: number; detail: string; kind: 'time' | 'work' }) {
   return (
     <div className="spr-meter" role="meter" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={value} aria-valuetext={`${value}%, ${detail}`}>
@@ -250,11 +347,20 @@ function Meter({ label, value, detail, kind }: { label: string; value: number; d
   );
 }
 
+/** How a sprint stands in a word: its pace's level, or why there is none yet (`waiting`). */
+function standing(s: SprintStat, u: Unit) {
+  const p = pace(s, u);
+  const running = s.state === 'active';
+  const word = (running ? { good: 'On track', warn: 'At risk', bad: 'Behind' } : { good: 'Completed', warn: 'Mostly done', bad: 'Fell short' })[p.level];
+  const waiting = early(s) ? (s.workdaysDone === 0 ? `Starts ${weekday(s.start)}` : 'First working day') : null;
+  return { p, level: p.level, word, waiting };
+}
+
 /** The sprint on screen: dates, goal, time gone against work done, and where its pace leads. */
 function Hero({ s, u }: { s: SprintStat; u: Unit }) {
   const p = pace(s, u);
   const running = s.state === 'active';
-  const word = (running ? { good: 'On track', warn: 'At risk', bad: 'Behind' } : { good: 'Completed', warn: 'Mostly done', bad: 'Fell short' })[p.level];
+  const word = standing(s, u).word;
   const left = p.total - p.done;
   const moved = s.tickets.filter((t) => t.moved).length;
   // Not past its first working day yet: no pace to read.
@@ -270,19 +376,19 @@ function Hero({ s, u }: { s: SprintStat; u: Unit }) {
       : `Last working day, with ${amount(left, u)} still to do.`
     : `${pct(p.done, p.total)}% of the committed work was completed${left > 0 ? `, ${amount(left, u)} left over` : ''}${moved ? `, and ${plural(moved, 'ticket')} moved on to a later sprint` : ''}.`;
   return (
-    <section className="card spr-hero" aria-label="Sprint">
+    <section className="spr-hero" aria-label="Sprint">
       <div className="row wrap" style={{ alignItems: 'flex-start', gap: 16, margin: 0 }}>
         <div className="col grow" style={{ gap: 6, minWidth: 0 }}>
           <div className="row" style={{ gap: 10, margin: 0 }}>
             <h2 className="spr-title">{s.name}</h2>
-            <span className={`tag${running ? ' accent' : ''}`}>{running ? 'Active' : 'Closed'}</span>
+            <span className="tag">{running ? 'Running' : 'Closed'}</span>
           </div>
           <span className="muted">
             {day(s.start)} – {day(s.complete ?? s.end)} · {running && s.workdaysDone > 0 ? `working day ${Math.min(s.workdaysDone, s.workdays)} of ${s.workdays}` : plural(s.workdays, 'working day')}
           </span>
           {s.goal && (
             <span className="spr-goal">
-              <Icon name="flag" size={12} />
+              <Icon name="flag" size={13} />
               {s.goal}
             </span>
           )}
@@ -295,18 +401,6 @@ function Hero({ s, u }: { s: SprintStat; u: Unit }) {
       </div>
       <p className="spr-say">{text}</p>
     </section>
-  );
-}
-
-function Spark({ values, at }: { values: number[]; at: number }) {
-  if (values.length < 2) return null;
-  const max = Math.max(1e-9, ...values);
-  const pts = values.map((v, i): Pt => [2 + (i / (values.length - 1)) * 76, 21 - (v / max) * 17]);
-  return (
-    <svg className="spr-spark" width={64} height={20} viewBox="0 0 80 24" aria-hidden>
-      <polyline points={pts.map((p) => p.join(',')).join(' ')} />
-      <circle cx={pts[at][0]} cy={pts[at][1]} r={3.5} />
-    </svg>
   );
 }
 
@@ -333,8 +427,8 @@ function Kpis({ s, prev, sprints, u }: { s: SprintStat; prev?: SprintStat; sprin
     return { text: `${d > 0 ? '+' : '−'}${fmt(Math.abs(d))}${vs}`, dir: Math.sign(d), good: d > 0 === upGood };
   };
   const notDone = s.tickets.filter((t) => !t.completed && !t.cancelled).length;
-  const tiles: { label: string; value: string; delta: Delta; spark?: boolean }[] = [
-    { label: running ? 'Velocity so far' : 'Velocity', value: amount(s.completed[u], u), delta: prev ? change(s.completed[u], prev.completed[u], (v) => amount(v, u)) : { text: 'No earlier sprint shown', dir: 0 }, spark: true },
+  const tiles: { label: string; value: string; delta: Delta }[] = [
+    { label: running ? 'Velocity so far' : 'Velocity', value: amount(s.completed[u], u), delta: prev ? change(s.completed[u], prev.completed[u], (v) => amount(v, u)) : { text: 'No earlier sprint shown', dir: 0 } },
     { label: 'Average velocity', value: amount(avg, u), delta: { text: closed.length ? `Over ${plural(closed.length, 'closed sprint')}` : 'No closed sprint yet', dir: 0 } },
     {
       label: 'Burn rate',
@@ -349,24 +443,7 @@ function Kpis({ s, prev, sprints, u }: { s: SprintStat; prev?: SprintStat; sprin
     },
     { label: 'Estimate left over', value: `${Math.round(s.leftEstimate).toLocaleString('en-US')} h`, delta: { text: `${Math.round(s.leftRemaining)} h remaining on ${plural(notDone, 'open ticket')}`, dir: 0 } },
   ];
-  return (
-    <section aria-label="Key figures" className="kpis spr-kpis">
-      {tiles.map((t) => (
-        <div key={t.label} className="kpi">
-          <div className="row" style={{ margin: 0, gap: 8 }}>
-            <span className="muted grow" style={{ fontSize: 12 }}>{t.label}</span>
-            {t.spark && <Spark values={sprints.map((x) => x.completed[u])} at={sprints.indexOf(s)} />}
-          </div>
-          <span className="v">{t.value}</span>
-          <span className={`spr-delta ${t.delta.good === undefined ? 'faint' : t.delta.good ? 'c-add' : 'c-del'}`}>
-            {t.delta.dir !== 0 && <Icon name={t.delta.dir > 0 ? 'chevronUp' : 'chevronDown'} size={11} />}
-            {t.delta.good === false && t.delta.dir === 0 && <Icon name="alert" size={11} />}
-            {t.delta.text}
-          </span>
-        </div>
-      ))}
-    </section>
-  );
+  return <FigStrip items={tiles.map((t) => ({ label: t.label, value: t.value, sub: t.delta.text, good: t.delta.good }))} />;
 }
 
 /** Work left at the end of each day against the ideal line, with the stretch behind it shaded and the pace carried on to the end. */
@@ -804,7 +881,7 @@ function Makeup({ s, u, points }: { s: SprintStat; u: Unit; points: boolean }) {
         <span className="muted spr-label">Status · {plural(total, 'ticket')}</span>
         <div className="spr-seg" role="img" aria-label={parts.map((x) => `${x.label}: ${x.n}`).join(', ')}>
           {parts.map((x) => (
-            <span key={x.k} style={{ flexGrow: x.n, background: x.fill, color: x.light ? '#fff' : 'var(--fg)' }} title={`${x.label}: ${plural(x.n, 'ticket')} · ${pct(x.n, total)}%`}>
+            <span key={x.k} style={{ flexGrow: x.n, background: x.fill, color: x.light ? 'var(--bg)' : 'var(--fg)' }} title={`${x.label}: ${plural(x.n, 'ticket')} · ${pct(x.n, total)}%`}>
               {x.n / total >= 0.1 ? x.n : ''}
             </span>
           ))}
@@ -843,6 +920,61 @@ function Makeup({ s, u, points }: { s: SprintStat; u: Unit; points: boolean }) {
   );
 }
 
+/** The sprint's tickets in rows grouped by where they stand: a ring, the key, the title, who has it, its size and how long it has been open. */
+function SprintList({ s, u, p85, onOpen, onTickets }: { s: SprintStat; u: Unit; p85: number | null; onOpen: (key: string, sprint: number) => void; onTickets: () => void }) {
+  const [showDone, setShowDone] = useState(false);
+  const live = s.tickets.filter((t) => !t.cancelled);
+  const at = (t: SprintTicket) => (t.completed ? 'done' : t.status);
+  const order: [SprintTicket['status'], string][] = [['progress', 'In progress'], ['review', 'In review'], ['ready', 'Ready to merge'], ['todo', 'To do'], ['done', 'Done']];
+  const size = (t: SprintTicket) => (u === 'hours' ? (t.estimate == null ? 'no estimate' : `${r1(t.estimate)} h`) : u === 'points' ? (t.points == null ? 'no points' : `${t.points} ${t.points === 1 ? 'pt' : 'pts'}`) : '');
+  const done = live.filter((t) => at(t) === 'done');
+  const doneSize = done.reduce((a, t) => a + (u === 'hours' ? t.estimate ?? 0 : t.points ?? 0), 0);
+  const med = rank(done.flatMap((t) => (t.cycleHours != null ? [t.cycleHours] : [])).sort((a, b) => a - b), 0.5);
+  const row = (t: SprintTicket) => (
+    <div key={t.key} className="ana-tk">
+      <span className="tk-ring" data-status={at(t)} aria-label={t.statusLabel} />
+      <button className="spr-keylink" onClick={() => onOpen(t.key, s.id)} title="See the ticket">{t.key}</button>
+      <span className="ellipsis ana-tk-t" title={t.title}>{t.title}</span>
+      <Avatar name={t.assignee} size={18} />
+      <span className="mono faint ana-tk-n">{size(t)}</span>
+      <span className={`ana-tk-age${old(t, p85) ? ' c-warn' : ''}`}>
+        {t.completed ? (t.cycleHours != null ? `took ${span(t.cycleHours)}` : t.doneAt ? `done ${day(t.doneAt)}` : 'done') : t.ageHours != null ? <>{old(t, p85) && <Icon name="alert" size={11} />}open {span(t.ageHours)}{old(t, p85) ? ', at risk' : ''}</> : 'not started'}
+      </span>
+    </div>
+  );
+  return (
+    <section className="ana-sec" aria-label="Tickets">
+      <div className="ana-sh">
+        <div>
+          <h2>Tickets</h2>
+          <span className="hint">{plural(live.length, 'ticket')} in {s.name}{p85 != null ? ` · open longer than ${span(p85)} (85% of tickets finish sooner) is at risk` : ''}</span>
+        </div>
+        <button className="btn btn-sm" onClick={onTickets}><Icon name="ticket" size={12} />Open in Tickets</button>
+      </div>
+      {order.map(([k, label]) => {
+        const list = live.filter((t) => at(t) === k).sort((a, b) => (b.ageHours ?? 0) - (a.ageHours ?? 0) || a.key.localeCompare(b.key, undefined, { numeric: true }));
+        if (!list.length) return null;
+        return (
+          <div key={k}>
+            <div className="ana-tg">
+              <span className="tk-ring" data-status={k} aria-hidden="true" />
+              {label}
+              <span className="mono">{list.length}</span>
+              {k === 'done' && (
+                <span className="hint">
+                  · {u === 'tickets' ? plural(list.length, 'ticket') : amount(doneSize, u)}{med != null ? ` · half took under ${span(med)}` : ''}
+                  <button className="ana-more" aria-expanded={showDone} onClick={() => setShowDone(!showDone)}>{showDone ? 'Hide' : 'Show'}</button>
+                </span>
+              )}
+            </div>
+            {(k !== 'done' || showDone) && list.map(row)}
+          </div>
+        );
+      })}
+    </section>
+  );
+}
+
 /** Whether open ticket `t` has been going longer than `p85`, what 85% of the finished tickets took at most. */
 const old = (t: SprintTicket, p85: number | null) => t.ageHours != null && p85 != null && t.ageHours > p85;
 
@@ -856,7 +988,7 @@ function Tickets({ s, u, p85, onOpen }: { s: SprintStat; u: Unit; p85: number | 
     .sort((a, b) => Number(a.completed) - Number(b.completed) || (b.remaining ?? b.estimate ?? 0) - (a.remaining ?? a.estimate ?? 0) || a.key.localeCompare(b.key, undefined, { numeric: true }));
   return (
     <Card
-      title={`Tickets of ${s.name}`}
+      title={`Ticket details, ${s.name}`}
       hint={`${s.tickets.filter((t) => t.completed).length} completed, ${open} not completed${s.cancelled ? `, ${s.cancelled} cancelled` : ''}`}
       rows={ticketRows([s])}
       file={`gitnetix-tickets-${slug(s.name)}.csv`}
