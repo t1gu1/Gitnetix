@@ -14,6 +14,8 @@ the in-app update prompt.
 
 ## [Unreleased]
 
+## [0.30.0] - 2026-11-21
+
 ### Added (App)
 
 - An open ticket's assignee can be changed from its menu in the ticket's header, or set to Unassigned. It works with Jira, Linear, GitHub, Trello and Asana. The menu lists the people the tracker allows: Jira's assignable users, the Linear team's members, the GitHub repository's assignable users, the Trello board's members or the Asana workspace's users. On Trello and GitHub, the picked person becomes the only member or assignee.
