@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="en" data-theme="dark"><head><meta charset="utf-8">
+<title>Settings sub-page mocks: Shortcuts</title>
+<link href="https://fonts.googleapis.com/css2?family=Antonio:wght@400;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="base.css">
+<style>
+/* A · Sheet */
+#mock-a .top{display:flex;align-items:flex-start;gap:24px;margin-bottom:16px}
+#mock-a .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;align-items:start}
+#mock-a .stack{display:flex;flex-direction:column;gap:16px}
+#mock-a .row{min-height:34px}
+#mock-a .row .rst{color:var(--faint);display:grid;place-items:center;width:20px;height:20px}
+#mock-a .row.changed .k::after{content:"changed";margin-left:8px;font-size:11px;color:var(--faint)}
+#mock-a .row.rec{background:var(--sel);margin:0 -16px;padding:0 16px;border-bottom-color:transparent}
+#mock-a .rec-box{display:inline-flex;align-items:center;gap:8px;height:24px;padding:0 8px;border:1px dashed var(--fg);border-radius:var(--r);color:var(--fg);font-size:12px}
+#mock-a .row.lock .k{color:var(--muted)}
+#mock-a .row.lock .kbd{background:transparent;color:var(--muted)}
+#mock-a .tip{left:208px;top:262px}
+#mock-a .tip::before{content:"";position:absolute;left:24px;top:-5px;width:8px;height:8px;background:var(--raised);border-left:1px solid var(--line2);border-top:1px solid var(--line2);transform:rotate(45deg)}
+
+/* B · Split */
+#mock-b .wrap{display:grid;grid-template-columns:248px minmax(0,1fr);height:100%}
+#mock-b .rail{padding:16px 12px;display:flex;flex-direction:column;gap:2px}
+#mock-b .rail .field{margin-bottom:12px}
+#mock-b .gi{display:flex;align-items:center;gap:10px;height:34px;padding:0 10px;border-radius:var(--r);color:var(--muted)}
+#mock-b .gi.on{background:var(--sel);color:var(--fg)}
+#mock-b .gi .n{margin-left:auto;font:500 11px var(--mono);color:var(--faint)}
+#mock-b .rail .note{margin-top:auto;padding:12px 10px 0;border-top:1px solid var(--line)}
+#mock-b .det{overflow:auto;padding:24px 28px}
+#mock-b .det-h{display:flex;align-items:baseline;gap:12px;margin-bottom:6px}
+#mock-b .det-h h2{font:600 18px/24px var(--sans)}
+#mock-b .sc{display:grid;grid-template-columns:minmax(0,1fr) 180px 92px;align-items:center;gap:16px;padding:14px 0;border-bottom:1px solid var(--line)}
+#mock-b .sc .name{font-weight:500}
+#mock-b .sc .hint{display:block;margin-top:2px}
+#mock-b .sc .keys{justify-self:end}
+#mock-b .sc .acts{display:flex;justify-content:flex-end;gap:4px}
+#mock-b .sc.picked{background:var(--raised);margin:0 -12px;padding:14px 12px;border:1px solid var(--line2);border-radius:var(--r)}
+#mock-b .rec-box{justify-self:end;display:inline-flex;align-items:center;gap:8px;height:28px;padding:0 10px;border:1px dashed var(--fg);border-radius:var(--r);font-size:12px}
+#mock-b .cursor{width:1px;height:14px;background:var(--fg)}
+#mock-b .ico{width:28px;height:28px;display:grid;place-items:center;border-radius:var(--r);color:var(--faint)}
+
+/* C · Preview: the keyboard with what each key does */
+#mock-c .pg{display:flex;flex-direction:column;gap:18px}
+#mock-c .bar{display:flex;align-items:center;gap:16px}
+#mock-c .kb{display:flex;flex-direction:column;gap:6px;padding:16px;border:1px solid var(--line2);border-radius:var(--r);background:var(--ground)}
+#mock-c .kr{display:flex;gap:6px}
+#mock-c .key{flex:1 1 0;min-width:0;height:50px;border:1px solid var(--line);border-radius:var(--r);padding:5px 6px;display:flex;flex-direction:column;justify-content:space-between;color:var(--faint);font:500 11px/1 var(--mono);background:var(--panel)}
+#mock-c .key.w125{flex-grow:1.25}#mock-c .key.w15{flex-grow:1.5}#mock-c .key.w175{flex-grow:1.75}#mock-c .key.w2{flex-grow:2}#mock-c .key.w225{flex-grow:2.25}#mock-c .key.w275{flex-grow:2.75}#mock-c .key.sp{flex-grow:5.5}
+#mock-c .key.mod{color:var(--muted);border-color:var(--line2)}
+#mock-c .key.held{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+#mock-c .key.set{border-color:var(--line2);color:var(--fg);background:var(--raised)}
+#mock-c .key.set .a{font:500 10px/12px var(--sans);color:var(--muted);letter-spacing:0;white-space:normal}
+#mock-c .key.pick{outline:1px solid var(--fg);outline-offset:1px}
+#mock-c .key .a{font:500 10px/12px var(--sans)}
+#mock-c .half{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:16px;align-items:start}#mock-c .half>.box:first-child{max-height:100%;overflow:hidden}#mock-c .half .box-b{display:grid;grid-template-columns:1fr 1fr;column-gap:24px;padding-bottom:12px}#mock-c .half .lab{grid-column:1/-1}
+#mock-c .det{padding:16px}
+#mock-c .det h3{font:600 15px/20px var(--sans);margin:6px 0 2px}
+#mock-c .det .acts{display:flex;gap:8px;margin-top:14px}
+#mock-c .legend{display:flex;gap:16px;color:var(--faint);font-size:12px}
+#mock-c .legend span{display:inline-flex;align-items:center;gap:6px}
+#mock-c .sw-l{width:12px;height:12px;border:1px solid var(--line2);border-radius:2px;background:var(--raised)}
+#mock-c .sw-l.held{background:var(--fg);border-color:var(--fg)}
+#mock-c .row{min-height:30px}
+</style>
+</head><body>
+
+<section class="mock" id="mock-a">
+  <div class="cap"><b>A · Sheet</b><span>Five boxes like the home sheet: short name, keys at the right. Click the keys to record new ones in place; the row's sentence shows on hover.</span></div>
+  <div class="panel" data-title="Shortcuts" data-tools='<button class="btn btn-sm"><i data-i="reset" data-s="12"></i>Reset all</button>'>
+    <div class="pg" style="position:relative">
+      <div class="top">
+        <p class="lead">For every project. Click a shortcut, then press the new keys: they need Ctrl, Alt or ⌘. Esc keeps the one it has.</p>
+      </div>
+      <div class="grid">
+        <div class="stack">
+          <div class="box">
+            <div class="box-h"><h2>Projects</h2></div>
+            <div class="box-b">
+              <div class="row"><span class="k">Next project</span><span class="keys"><span class="kbd">Ctrl</span><span class="kbd">→</span></span></div>
+              <div class="row"><span class="k">Previous project</span><span class="keys"><span class="kbd">Ctrl</span><span class="kbd">←</span></span></div>
+              <div class="row"><span class="k">Move project right</span><span class="keys"><span class="kbd">Ctrl</span><span class="kbd">Shift</span><span class="kbd">→</span></span></div>
+              <div class="row"><span class="k">Move project left</span><span class="keys"><span class="kbd">Ctrl</span><span class="kbd">Shift</span><span class="kbd">←</span></span></div>
+              <div class="row hov"><span class="k">Worktrees &amp; agents</span><span class="keys"><span class="kbd">Ctrl</span><span class="kbd">W</span></span></div>
+            </div>
+          </div>
+          <div class="box">
+            <div class="box-h"><h2>Pages</h2></div>
+            <div class="box-b">
+              <div class="row"><span class="k">Workspace</span><span class="keys"><span class="kbd">Ctrl</span><span class="kbd">1</span></span></div>
+              <div class="row"><span class="k">Pull requests</span><span class="keys"><span class="kbd">Ctrl</span><span class="kbd">2</span></span></div>
+              <div class="row"><span class="k">Tickets</span><span class="keys"><span class="kbd">Ctrl</span><span class="kbd">3</span></span></div>
+              <div class="row"><span class="k">Release notes</span><span class="keys"><span class="kbd">Ctrl</span><span class="kbd">4</span></span></div>
+              <div class="row"><span class="k">Submodules</span><span class="keys"><span class="kbd">Ctrl</span><span class="kbd">5</span></span></div>
+              <div class="row"><span class="k">Analytics</span><span class="keys"><span class="kbd">Ctrl</span><span class="kbd">6</span></span></div>
+            </div>
+          </div>
+          <div class="box" style="padding:14px 16px;background:var(--ground);border-color:var(--line)"><p class="hint"><i data-i="terminal" data-s="12"></i> In a terminal, Ctrl or Alt with a letter stays the shell's, like Ctrl+W to delete a word: add Shift to use such a shortcut from there. In a text box, the arrows move the caret.</p></div>
+        </div>
+        <div class="stack">
+          <div class="box">
+            <div class="box-h"><h2>Actions</h2></div>
+            <div class="box-b">
+              <div class="row changed"><span class="k">New branch</span><span class="rst" title="Back to Ctrl N"><i data-i="reset" data-s="12"></i></span><span class="keys"><span class="kbd">Ctrl</span><span class="kbd">B</span></span></div>
+              <div class="row"><span class="k">Find</span><span class="keys"><span class="kbd">Ctrl</span><span class="kbd">F</span></span></div>
+              <div class="row rec"><span class="k" style="color:var(--fg)">Voice dictation</span><span class="rec-box">Press the new keys <span class="faint">Esc keeps Ctrl D</span></span></div>
+              <div class="row"><span class="k">Settings</span><span class="keys"><span class="kbd">Ctrl</span><span class="kbd">,</span></span></div>
+              <div class="row"><span class="k">Keyboard shortcuts</span><span class="keys"><span class="kbd">Ctrl</span><span class="kbd">/</span></span></div>
+            </div>
+          </div>
+          <div class="box">
+            <div class="box-h"><h2>Window</h2></div>
+            <div class="box-b">
+              <div class="row"><span class="k">Zoom in</span><span class="keys"><span class="kbd">Ctrl</span><span class="kbd">=</span></span></div>
+              <div class="row"><span class="k">Zoom out</span><span class="keys"><span class="kbd">Ctrl</span><span class="kbd">-</span></span></div>
+              <div class="row"><span class="k">Reset zoom</span><span class="keys"><span class="kbd">Ctrl</span><span class="kbd">0</span></span></div>
+            </div>
+          </div>
+          <div class="box">
+            <div class="box-h"><h2>Built in</h2><span class="hint">can't be changed</span></div>
+            <div class="box-b">
+              <div class="row lock"><span class="k">Commit</span><span class="keys"><span class="kbd">Ctrl</span><span class="kbd">Enter</span></span></div>
+              <div class="row lock"><span class="k">Copy in a terminal</span><span class="keys"><span class="kbd">Ctrl</span><span class="kbd">Shift</span><span class="kbd">C</span></span></div>
+              <div class="row lock"><span class="k">Paste in a terminal</span><span class="keys"><span class="kbd">Ctrl</span><span class="kbd">Shift</span><span class="kbd">V</span></span></div>
+              <div class="row lock"><span class="k">Find in a terminal</span><span class="keys"><span class="kbd">Ctrl</span><span class="kbd">Shift</span><span class="kbd">F</span></span></div>
+              <div class="row lock"><span class="k">Close, or go back</span><span class="keys"><span class="kbd">Esc</span></span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="tip">Again to go back to the project</div>
+    </div>
+  </div>
+</section>
+
+<section class="mock" id="mock-b">
+  <div class="cap"><b>B · Split</b><span>Groups and a search on the left, the group's shortcuts on the right with their full sentence and their own Change and Reset.</span></div>
+  <div class="panel" data-title="Shortcuts" data-tools='<button class="btn btn-sm"><i data-i="reset" data-s="12"></i>Reset all</button>'>
+    <div class="pg flush">
+      <div class="wrap">
+        <nav class="rail">
+          <div class="field ph"><i data-i="search" data-s="12"></i>Find a shortcut or a key</div>
+          <a class="gi"><i data-i="layers" data-s="12"></i>Projects<span class="n">5</span></a>
+          <a class="gi"><i data-i="file" data-s="12"></i>Pages<span class="n">6</span></a>
+          <a class="gi on"><i data-i="sparkle" data-s="12"></i>Actions<span class="n">5</span></a>
+          <a class="gi"><i data-i="monitor" data-s="12"></i>Window<span class="n">3</span></a>
+          <a class="gi"><i data-i="lock" data-s="12"></i>Built in<span class="n">5</span></a>
+          <p class="hint note">For every project. Shortcuts need Ctrl, Alt or ⌘. In a terminal, Ctrl or Alt with a letter stays the shell's, like Ctrl+W to delete a word: add Shift to use such a shortcut from there. In a text box, the arrows move the caret.</p>
+        </nav>
+        <div class="det">
+          <div class="det-h"><h2>Actions</h2><span class="hint">1 changed</span></div>
+          <p class="hint" style="margin-bottom:12px">Click Change, then press the new keys. Esc keeps the one it has.</p>
+          <div class="sc">
+            <div><span class="name">New branch</span></div>
+            <span class="keys"><span class="kbd">Ctrl</span><span class="kbd">B</span></span>
+            <div class="acts"><button class="ico" title="Change"><i data-i="edit" data-s="12"></i></button><button class="ico" title="Back to Ctrl N"><i data-i="reset" data-s="12"></i></button></div>
+          </div>
+          <div class="sc">
+            <div><span class="name">Find</span><span class="hint">In the branches, or in the open diff</span></div>
+            <span class="keys"><span class="kbd">Ctrl</span><span class="kbd">F</span></span>
+            <div class="acts"><button class="ico" title="Change"><i data-i="edit" data-s="12"></i></button></div>
+          </div>
+          <div class="sc picked">
+            <div><span class="name">Voice dictation</span><span class="hint">Again to put the words in</span></div>
+            <span class="rec-box"><span class="cursor"></span>Press the new keys</span>
+            <div class="acts"><button class="btn btn-xs">Esc keeps Ctrl D</button></div>
+          </div>
+          <div class="sc">
+            <div><span class="name">Settings</span></div>
+            <span class="keys"><span class="kbd">Ctrl</span><span class="kbd">,</span></span>
+            <div class="acts"><button class="ico" title="Change"><i data-i="edit" data-s="12"></i></button></div>
+          </div>
+          <div class="sc">
+            <div><span class="name">Keyboard shortcuts</span></div>
+            <span class="keys"><span class="kbd">Ctrl</span><span class="kbd">/</span></span>
+            <div class="acts"><button class="ico" title="Change"><i data-i="edit" data-s="12"></i></button></div>
+          </div>
+          <div class="det-h" style="margin-top:28px"><h2>Window</h2></div>
+          <div class="sc"><div><span class="name">Zoom in</span></div><span class="keys"><span class="kbd">Ctrl</span><span class="kbd">=</span></span><div class="acts"><button class="ico" title="Change"><i data-i="edit" data-s="12"></i></button></div></div>
+          <div class="sc"><div><span class="name">Zoom out</span></div><span class="keys"><span class="kbd">Ctrl</span><span class="kbd">-</span></span><div class="acts"><button class="ico" title="Change"><i data-i="edit" data-s="12"></i></button></div></div>
+          <div class="sc"><div><span class="name">Reset zoom</span></div><span class="keys"><span class="kbd">Ctrl</span><span class="kbd">0</span></span><div class="acts"><button class="ico" title="Change"><i data-i="edit" data-s="12"></i></button></div></div>
+          <div class="det-h" style="margin-top:28px"><h2>Built in</h2><span class="hint">can't be changed</span></div>
+          <div class="sc"><div><span class="name">Commit</span><span class="hint">In the commit message</span></div><span class="keys"><span class="kbd">Ctrl</span><span class="kbd">Enter</span></span><div class="acts"><i data-i="lock" data-s="12"></i></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="mock" id="mock-c">
+  <div class="cap"><b>C · Preview</b><span>The keyboard first: hold a modifier and see what every key does. Click a key to change it; the full list stays under it.</span></div>
+  <div class="panel" data-title="Shortcuts" data-tools='<button class="btn btn-sm"><i data-i="reset" data-s="12"></i>Reset all</button>'>
+    <div class="pg">
+      <div class="bar">
+        <div class="seg"><button class="on">Ctrl</button><button>Ctrl Shift</button><button>No modifier</button></div>
+        <div class="legend"><span><i class="sw-l"></i>Has a shortcut</span><span><i class="sw-l held"></i>Held</span></div>
+        <span class="sp"></span>
+        <span class="hint">For every project · 22 shortcuts · 1 changed</span>
+      </div>
+      <div class="kb">
+        <div class="kr">
+          <div class="key">Esc</div><div class="key set"><span>1</span><span class="a">Workspace</span></div><div class="key set"><span>2</span><span class="a">Pull requests</span></div><div class="key set"><span>3</span><span class="a">Tickets</span></div><div class="key set"><span>4</span><span class="a">Release notes</span></div><div class="key set"><span>5</span><span class="a">Submodules</span></div><div class="key set"><span>6</span><span class="a">Analytics</span></div><div class="key">7</div><div class="key">8</div><div class="key">9</div><div class="key set"><span>0</span><span class="a">Reset zoom</span></div><div class="key set"><span>-</span><span class="a">Zoom out</span></div><div class="key set"><span>=</span><span class="a">Zoom in</span></div><div class="key w2">⌫</div>
+        </div>
+        <div class="kr">
+          <div class="key w15">Tab</div><div class="key">Q</div><div class="key set"><span>W</span><span class="a">Worktrees</span></div><div class="key">E</div><div class="key">R</div><div class="key">T</div><div class="key">Y</div><div class="key">U</div><div class="key">I</div><div class="key">O</div><div class="key">P</div><div class="key">[</div><div class="key">]</div><div class="key w15">\</div>
+        </div>
+        <div class="kr">
+          <div class="key w175">Caps</div><div class="key">A</div><div class="key">S</div><div class="key set pick"><span>D</span><span class="a">Dictation</span></div><div class="key set"><span>F</span><span class="a">Find</span></div><div class="key">G</div><div class="key">H</div><div class="key">J</div><div class="key">K</div><div class="key">L</div><div class="key">;</div><div class="key">'</div><div class="key w225">Enter</div>
+        </div>
+        <div class="kr">
+          <div class="key w225 mod">Shift</div><div class="key">Z</div><div class="key">X</div><div class="key">C</div><div class="key">V</div><div class="key set"><span>B</span><span class="a">New branch</span></div><div class="key">N</div><div class="key">M</div><div class="key set"><span>,</span><span class="a">Settings</span></div><div class="key">.</div><div class="key set"><span>/</span><span class="a">Shortcuts</span></div><div class="key w275 mod">Shift</div>
+        </div>
+        <div class="kr">
+          <div class="key w15 held">Ctrl</div><div class="key w125 mod">Alt</div><div class="key sp"></div><div class="key w125 mod">Alt</div><div class="key w15 held">Ctrl</div><div class="key set"><span>←</span><span class="a">Prev. project</span></div><div class="key">↑</div><div class="key">↓</div><div class="key set"><span>→</span><span class="a">Next project</span></div>
+        </div>
+      </div>
+      <div class="half">
+        <div class="box">
+          <div class="box-h"><h2>Every shortcut</h2><span class="hint">Projects, Pages, Actions, Window, Built in</span><span class="sp"></span><span class="field ph" style="height:26px;width:200px"><i data-i="search" data-s="12"></i>Find</span></div>
+          <div class="box-b">
+            <div class="lab">Actions</div>
+            <div class="row"><span class="k">New branch</span><span class="hint">changed</span><span class="keys"><span class="kbd">Ctrl</span><span class="kbd">B</span></span></div>
+            <div class="row"><span class="k">Find</span><span class="keys"><span class="kbd">Ctrl</span><span class="kbd">F</span></span></div>
+            <div class="row hov"><span class="k">Voice dictation</span><span class="keys"><span class="kbd">Ctrl</span><span class="kbd">D</span></span></div>
+            <div class="row"><span class="k">Settings</span><span class="keys"><span class="kbd">Ctrl</span><span class="kbd">,</span></span></div>
+            <div class="row"><span class="k">Keyboard shortcuts</span><span class="keys"><span class="kbd">Ctrl</span><span class="kbd">/</span></span></div>
+            <div class="lab">Window</div>
+            <div class="row"><span class="k">Zoom in</span><span class="keys"><span class="kbd">Ctrl</span><span class="kbd">=</span></span></div>
+            <div class="row"><span class="k">Zoom out</span><span class="keys"><span class="kbd">Ctrl</span><span class="kbd">-</span></span></div>
+            <div class="row"><span class="k">Reset zoom</span><span class="keys"><span class="kbd">Ctrl</span><span class="kbd">0</span></span></div>
+          </div>
+        </div>
+        <div class="box det">
+          <span class="keys"><span class="kbd">Ctrl</span><span class="kbd">D</span></span>
+          <h3>Voice dictation</h3>
+          <p class="hint">Again to put the words in.</p>
+          <div class="acts"><button class="btn btn-sm"><i data-i="keyboard" data-s="12"></i>Change keys</button><button class="btn btn-sm btn-ghost" disabled style="opacity:.45"><i data-i="reset" data-s="12"></i>Default</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script src="themes.js"></script>
+<script src="base.js"></script>
+</body></html>

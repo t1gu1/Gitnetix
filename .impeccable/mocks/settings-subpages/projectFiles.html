@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en" data-theme="dark"><head><meta charset="utf-8">
+<title>Settings sub-page mocks: Worktree files (project)</title>
+<link href="https://fonts.googleapis.com/css2?family=Antonio:wght@400;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="base.css">
+<style>
+/* shared with worktrees.html: a path row, the add field; inherited rows are faint and carry where they come from */
+.pr{display:flex;align-items:center;gap:10px;min-height:30px;border-bottom:1px solid var(--line)}
+.pr .p{flex:1;min-width:0;font:12px/18px var(--mono);color:var(--fg);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pr svg{color:var(--faint)}
+.pr.inh .p{color:var(--faint)}
+.pr.hov{background:var(--raised);margin:0 -16px;padding:0 16px}
+.add{display:flex;gap:8px;padding:10px 0 4px}
+.add .field{flex:1;font:12px var(--mono)}
+.go{display:inline-flex;align-items:center;gap:4px;color:var(--muted);font-size:12px;white-space:nowrap}
+.go:hover{color:var(--fg)}
+
+/* A */
+#mock-a .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
+#mock-a .help{cursor:help;text-decoration:underline dotted var(--faint);text-underline-offset:4px}
+#mock-a .lab{display:flex;align-items:baseline;gap:8px}
+#mock-a .lab .go{margin-left:auto;letter-spacing:0;text-transform:none;font-weight:500}
+
+/* B */
+#mock-b .split{display:grid;grid-template-columns:340px 1fr;height:100%}
+#mock-b .rail{display:flex;flex-direction:column}
+#mock-b .rail .lab{padding:16px 16px 6px;display:flex;gap:8px}
+#mock-b .rail .lab .go{margin-left:auto;letter-spacing:0;text-transform:none;font-weight:500}
+#mock-b .li{min-height:34px;padding:0 16px;font:12px var(--mono)}
+#mock-b .li svg{color:var(--faint)}
+#mock-b .li.inh{color:var(--faint)}
+#mock-b .li .tag{margin-left:auto;font-family:var(--sans)}
+#mock-b .rail .add{padding:12px 16px;margin-top:auto;border-top:1px solid var(--line)}
+#mock-b .det{padding:24px 32px;display:flex;flex-direction:column;gap:18px;overflow:auto}
+#mock-b .det-h{display:flex;align-items:center;gap:12px}
+#mock-b .det-h .p{font:500 16px/22px var(--mono)}
+#mock-b .kv{display:grid;grid-template-columns:140px 1fr;border-top:1px solid var(--line)}
+#mock-b .kv>*{padding:10px 0;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px}
+#mock-b .kv>.kk{color:var(--muted)}
+#mock-b .note{border:1px solid var(--line2);border-radius:var(--r);padding:12px 14px;color:var(--muted);font-size:12px;line-height:18px;max-width:62ch}
+#mock-b .note b{color:var(--fg);font-weight:600}
+
+/* C */
+#mock-c .flow{border:1px solid var(--line2);border-radius:var(--r)}
+#mock-c .flow-h{display:grid;grid-template-columns:1fr 92px 1fr 120px;border-bottom:1px solid var(--line2)}
+#mock-c .flow-h>div{padding:12px 16px;display:flex;flex-direction:column;gap:2px}
+#mock-c .flow-h b{font-weight:600}
+#mock-c .flow-h .mono{font-size:11px;color:var(--faint)}
+#mock-c .fl{display:grid;grid-template-columns:1fr 92px 1fr 120px;align-items:center;min-height:28px;border-bottom:1px solid var(--line)}
+#mock-c .fl:last-child{border-bottom:0}
+#mock-c .fl>div{padding:0 16px;display:flex;align-items:center;gap:8px;font:12px var(--mono);min-width:0}
+#mock-c .fl .how{justify-content:center;gap:6px;font:12px var(--sans);color:var(--muted);padding:0}
+#mock-c .fl .how .ln{flex:1;height:1px;background:var(--line2)}
+#mock-c .fl .src{font:12px var(--sans);color:var(--faint)}
+#mock-c .fl.own .src{color:var(--fg);font-weight:500}
+#mock-c .fl.git>div{color:var(--faint)}
+#mock-c .fl svg{color:var(--faint)}
+#mock-c .edit{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:24px}
+#mock-c .edit h3{display:flex;align-items:center;gap:8px;margin-bottom:4px}
+#mock-c .edit .hint{margin-bottom:10px;min-height:34px}
+#mock-c .ta{height:96px}
+#mock-c .also{white-space:nowrap;margin-top:8px;display:flex;gap:6px;align-items:baseline;color:var(--faint);font-size:12px;line-height:17px}
+#mock-c .also .mono{font-size:11px}
+</style>
+</head><body>
+
+<section class="mock" id="mock-a">
+  <div class="cap"><b>A · Sheet</b><span>The project's own paths on top, editable. Under them, faint, what every project already gets from App › Worktrees.</span></div>
+  <div class="panel" data-title="Worktree files" data-sub="lineage-app">
+    <div class="pg">
+      <div class="grid">
+        <div class="box">
+          <div class="box-h"><h2 class="help">Copied</h2><span class="hint">2 + 6 from every project</span></div>
+          <div class="box-b">
+            <div class="lab">lineage-app</div>
+            <div class="pr"><i data-i="file" data-s="12"></i><span class="p">.env.test</span></div>
+            <div class="pr"><i data-i="file" data-s="12"></i><span class="p">fixtures/large.db</span></div>
+            <div class="add"><span class="field ph">A path from the project root</span><button class="btn btn-sm"><i data-i="plus" data-s="12"></i>Add</button></div>
+            <div class="lab">Every project <a class="go">Edit in App › Worktrees<i data-i="chevR" data-s="12"></i></a></div>
+            <div class="pr inh"><i data-i="folder" data-s="12"></i><span class="p">graphify-out/</span></div>
+            <div class="pr inh"><i data-i="file" data-s="12"></i><span class="p">.claude/settings.local.json</span></div>
+            <div class="pr inh hov"><i data-i="file" data-s="12"></i><span class="p">.env</span></div>
+            <div class="pr inh"><i data-i="file" data-s="12"></i><span class="p">.env.local</span></div>
+            <div class="pr inh"><i data-i="file" data-s="12"></i><span class="p">.env.example</span></div>
+            <div class="pr inh"><i data-i="file" data-s="12"></i><span class="p">.env.example.local</span></div>
+          </div>
+        </div>
+        <div class="box">
+          <div class="box-h"><h2 class="help">Linked</h2><span class="hint">1 + 2 from every project</span></div>
+          <div class="box-b">
+            <div class="lab">lineage-app</div>
+            <div class="pr"><i data-i="link" data-s="12"></i><span class="p">target/</span></div>
+            <div class="add"><span class="field ph">A folder from the project root</span><button class="btn btn-sm"><i data-i="plus" data-s="12"></i>Add</button></div>
+            <div class="lab">Every project <a class="go">Edit<i data-i="chevR" data-s="12"></i></a></div>
+            <div class="pr inh"><i data-i="link" data-s="12"></i><span class="p">node_modules</span></div>
+            <div class="pr inh"><i data-i="link" data-s="12"></i><span class="p">.venv</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="tip" style="left:44px;top:494px">From App › Worktrees: copied into every project's new worktrees. Linked instead when the Linked list has it too.</div>
+    </div>
+  </div>
+</section>
+
+<section class="mock" id="mock-b">
+  <div class="cap"><b>B · Split</b><span>One list: this project's paths, then every project's, faint. Picking an inherited path explains where it is set instead of editing it here.</span></div>
+  <div class="panel" data-title="Worktree files" data-sub="lineage-app">
+    <div class="pg flush">
+      <div class="split">
+        <div class="rail">
+          <div class="lab">lineage-app · 3</div>
+          <div class="li on"><i data-i="file" data-s="12"></i>.env.test</div>
+          <div class="li"><i data-i="file" data-s="12"></i>fixtures/large.db</div>
+          <div class="li"><i data-i="link" data-s="12"></i>target/</div>
+          <div class="lab">Every project · 8 <a class="go">Edit<i data-i="chevR" data-s="12"></i></a></div>
+          <div class="li inh"><i data-i="folder" data-s="12"></i>graphify-out/</div>
+          <div class="li inh"><i data-i="file" data-s="12"></i>.claude/settings.local.json</div>
+          <div class="li inh"><i data-i="file" data-s="12"></i>.env</div>
+          <div class="li inh"><i data-i="file" data-s="12"></i>.env.local</div>
+          <div class="li inh"><i data-i="file" data-s="12"></i>.env.example</div>
+          <div class="li inh"><i data-i="file" data-s="12"></i>.env.example.local</div>
+          <div class="li inh"><i data-i="link" data-s="12"></i>node_modules</div>
+          <div class="li inh"><i data-i="link" data-s="12"></i>.venv</div>
+          <div class="add"><span class="field ph">A path from the project root</span><button class="btn btn-sm"><i data-i="plus" data-s="12"></i>Add</button></div>
+        </div>
+        <div class="det">
+          <div class="det-h"><i data-i="file" data-s="16"></i><span class="p">.env.test</span><span class="sp"></span><button class="btn btn-sm btn-ghost btn-danger"><i data-i="trash" data-s="12"></i>Remove</button></div>
+          <div class="kv">
+            <span class="kk">Arrives</span><span><span class="seg"><button class="on">Copied</button><button>Linked</button></span></span>
+            <span class="kk">From</span><span class="mono" style="font-size:12px">~/Projects/lineage-app/.env.test</span>
+            <span class="kk">Applies to</span><span>lineage-app only</span>
+            <span class="kk">When missing</span><span class="muted">Skipped</span>
+          </div>
+          <div class="note"><b>Copied.</b> Git leaves ignored files out of a new worktree. This one is copied from the main checkout into each new worktree, so each branch can change its own.</div>
+          <div class="note"><b>Linked</b> would make the worktree read and write the main checkout's own: no space taken, changes show in both. On Windows, folders need Developer Mode on. A path in both lists is linked.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="mock" id="mock-c">
+  <div class="cap"><b>C · Preview</b><span>What a new lineage-app worktree gets, with where each path is set. The project's own two lists below, every project's paths named under each.</span></div>
+  <div class="panel" data-title="Worktree files" data-sub="lineage-app">
+    <div class="pg">
+      <div class="flow">
+        <div class="flow-h">
+          <div><b>Main checkout</b><span class="mono">~/Projects/lineage-app</span></div>
+          <div></div>
+          <div><b>A new worktree</b><span class="mono">~/Projects/lineage-app.feat-login</span></div>
+          <div><b>Set in</b><span class="faint" style="font-size:11px">&nbsp;</span></div>
+        </div>
+        <div class="fl git"><div><i data-i="folder" data-s="12"></i>src/, package.json, …</div><div class="how"><span class="ln"></span>Git<span class="ln"></span></div><div><i data-i="folder" data-s="12"></i>src/, package.json, …</div><div class="src"></div></div>
+        <div class="fl own"><div><i data-i="file" data-s="12"></i>.env.test</div><div class="how"><span class="ln"></span>copy<span class="ln"></span></div><div><i data-i="file" data-s="12"></i>.env.test</div><div class="src">This project</div></div>
+        <div class="fl own"><div><i data-i="file" data-s="12"></i>fixtures/large.db</div><div class="how"><span class="ln"></span>copy<span class="ln"></span></div><div><i data-i="file" data-s="12"></i>fixtures/large.db</div><div class="src">This project</div></div>
+        <div class="fl own"><div><i data-i="folder" data-s="12"></i>target/</div><div class="how"><span class="ln"></span>link<span class="ln"></span></div><div><i data-i="link" data-s="12"></i>target/</div><div class="src">This project</div></div>
+        <div class="fl"><div><i data-i="folder" data-s="12"></i>graphify-out/</div><div class="how"><span class="ln"></span>copy<span class="ln"></span></div><div><i data-i="folder" data-s="12"></i>graphify-out/</div><div class="src">Every project</div></div>
+        <div class="fl"><div><i data-i="file" data-s="12"></i>.claude/settings.local.json</div><div class="how"><span class="ln"></span>copy<span class="ln"></span></div><div><i data-i="file" data-s="12"></i>.claude/settings.local.json</div><div class="src">Every project</div></div>
+        <div class="fl"><div><i data-i="file" data-s="12"></i>.env, .env.local</div><div class="how"><span class="ln"></span>copy<span class="ln"></span></div><div><i data-i="file" data-s="12"></i>.env, .env.local</div><div class="src">Every project</div></div>
+        <div class="fl"><div><i data-i="folder" data-s="12"></i>node_modules</div><div class="how"><span class="ln"></span>link<span class="ln"></span></div><div><i data-i="link" data-s="12"></i>node_modules</div><div class="src">Every project</div></div>
+      </div>
+      <div class="edit">
+        <div>
+          <h3 class="h"><i data-i="copy" data-s="12"></i>Copied</h3>
+          <p class="hint">Copied from the main checkout into each new worktree, one path from the project root per line.</p>
+          <div class="ta">.env.test
+fixtures/large.db</div>
+          <div class="also"><span>And from every project:</span><span class="mono">graphify-out/ .env +4</span><a class="go">Edit<i data-i="chevR" data-s="12"></i></a></div>
+        </div>
+        <div>
+          <h3 class="h"><i data-i="link" data-s="12"></i>Linked</h3>
+          <p class="hint">The worktree reads and writes the main checkout's own. On Windows, folders need Developer Mode on. A path in both lists is linked.</p>
+          <div class="ta">target/</div>
+          <div class="also"><span>And from every project:</span><span class="mono">node_modules .venv</span><a class="go">Edit<i data-i="chevR" data-s="12"></i></a></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script src="themes.js"></script>
+<script src="base.js"></script>
+</body></html>

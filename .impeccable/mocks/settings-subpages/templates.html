@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="en" data-theme="dark"><head><meta charset="utf-8">
+<title>Settings sub-page mocks: Templates</title>
+<link href="https://fonts.googleapis.com/css2?family=Antonio:wght@400;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="base.css">
+<style>
+.var{display:inline-flex;align-items:center;height:22px;padding:0 7px;border:1px solid var(--line2);border-radius:var(--r-sm);font:500 11px/1 var(--mono);color:var(--muted)}
+.ta .v{color:var(--fg);background:var(--sel);border-radius:2px;padding:0 2px}
+.out{font:12px/19px var(--mono);color:var(--fg);white-space:pre-wrap}
+
+/* A · Sheet */
+#mock-a .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;align-items:start}
+#mock-a .stack{display:flex;flex-direction:column;gap:12px}
+#mock-a .box-h{padding:10px 16px 9px}
+#mock-a .row{min-height:32px}
+#mock-a .row .k{color:var(--fg)}
+#mock-a .row .scope{font-size:12px;color:var(--faint);white-space:nowrap}
+#mock-a .row>svg{color:var(--faint)}
+#mock-a .row .def{font-size:11px;color:var(--muted)}
+#mock-a .box-h .hint[data-tip]{text-decoration:underline dotted var(--faint);text-underline-offset:3px}
+#mock-a .tip{left:122px;top:102px;max-width:380px}
+#mock-a .tip::before{content:"";position:absolute;left:20px;top:-5px;width:8px;height:8px;background:var(--raised);border-left:1px solid var(--line2);border-top:1px solid var(--line2);transform:rotate(45deg)}
+
+/* B · Split */
+#mock-b .wrap{display:grid;grid-template-columns:236px minmax(0,1fr) 300px;height:100%}
+#mock-b .rail{display:flex;flex-direction:column;padding:12px 8px}
+#mock-b .rail .field{margin:0 4px 10px}
+#mock-b .kind{display:flex;align-items:center;gap:8px;min-height:40px;padding:5px 8px;border-radius:var(--r)}
+#mock-b .kind b{display:block;font-weight:500}
+#mock-b .kind small{display:block;font-size:12px;color:var(--faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#mock-b .kind .n{margin-left:auto;font:500 11px var(--mono);color:var(--faint)}
+#mock-b .kind.open{background:var(--raised)}
+#mock-b .tpl{display:flex;align-items:center;gap:8px;height:30px;margin-left:16px;padding:0 8px;border-radius:var(--r);color:var(--muted)}
+#mock-b .tpl.on{background:var(--sel);color:var(--fg)}
+#mock-b .tpl .radio{width:12px;height:12px}
+#mock-b .ed{display:flex;flex-direction:column;min-height:0;border-right:1px solid var(--line)}
+#mock-b .ed-b{flex:1;overflow:auto;padding:20px 24px;display:flex;flex-direction:column;gap:16px}
+#mock-b .ed-h{display:flex;align-items:center;gap:10px}
+#mock-b .ed-h .name{font:600 18px/24px var(--sans)}
+#mock-b .f label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px}
+#mock-b .rules{border:1px solid var(--line2);border-radius:var(--r);padding:0 14px}
+#mock-b .rules .row:last-child{border-bottom:0}
+#mock-b .num{width:56px;height:24px;display:inline-flex;align-items:center;justify-content:flex-end;padding:0 8px;border:1px solid var(--line2);border-radius:var(--r);font:500 12px var(--mono);background:var(--bg)}
+#mock-b .ta{white-space:pre-wrap}
+#mock-b .vars{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+#mock-b .ed-f{display:flex;align-items:center;gap:8px;padding:12px 24px;border-top:1px solid var(--line)}
+#mock-b .pv{display:flex;flex-direction:column;gap:12px;padding:20px;overflow:auto;background:var(--ground)}
+#mock-b .pv h3{display:flex;align-items:center;gap:8px;font:600 13px/18px var(--sans)}
+#mock-b .pv .card{border:1px solid var(--line2);border-radius:var(--r);background:var(--panel);padding:12px 14px}
+
+/* C · Preview */
+#mock-c .pg{display:flex;flex-direction:column;gap:16px}
+#mock-c .kinds{display:flex;gap:6px;flex-wrap:wrap}
+#mock-c .chip{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border:1px solid var(--line2);border-radius:var(--r);color:var(--muted);white-space:nowrap}
+#mock-c .chip.on{background:var(--fg);border-color:var(--fg);color:var(--bg)}
+#mock-c .chip .n{font:500 11px var(--mono);opacity:.75}
+#mock-c .skill{display:flex;align-items:center;gap:12px;padding:10px 14px;border:1px solid var(--line2);border-radius:var(--r);background:var(--ground)}
+#mock-c .cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+#mock-c .card{display:flex;flex-direction:column;border:1px solid var(--line2);border-radius:var(--r);min-width:0}
+#mock-c .card.on{border-color:var(--fg)}
+#mock-c .card .say{padding:14px;min-height:118px;border-bottom:1px solid var(--line);background:var(--bg)}
+#mock-c .card .meta{display:flex;align-items:center;gap:8px;padding:10px 14px}
+#mock-c .card .meta b{font-weight:600}
+#mock-c .card.new{align-items:center;justify-content:center;gap:8px;color:var(--muted);border-color:var(--line)}
+#mock-c .edit{border:1px solid var(--line2);border-radius:var(--r);display:flex;flex-direction:column;flex:1;min-height:0}
+#mock-c .edit-h{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line)}
+#mock-c .edit-b{display:grid;grid-template-columns:minmax(0,1fr) 280px;flex:1;min-height:0}
+#mock-c .edit-b .ta{border:0;border-right:1px solid var(--line);border-radius:0;white-space:pre-wrap;overflow:hidden;background:transparent}
+#mock-c .edit-b .side{padding:4px 14px 12px}
+#mock-c .num{min-width:44px;height:22px;display:inline-flex;align-items:center;justify-content:flex-end;padding:0 6px;border:1px solid var(--line2);border-radius:var(--r);font:500 12px var(--mono)}
+</style>
+</head><body>
+
+<section class="mock" id="mock-a">
+  <div class="cap"><b>A · Sheet</b><span>A box per job. The radio picks the template a job uses by default, in place; a name opens its editor page. The global skill is a switch.</span></div>
+  <div class="panel" data-title="Templates" data-sub="13 templates" data-tools='<button class="btn btn-sm"><i data-i="plus" data-s="12"></i>New template</button>'>
+    <div class="pg" style="position:relative">
+      <div class="grid">
+        <div class="stack">
+          <div class="box">
+            <div class="box-h"><h2>Global skills</h2><span class="hint" data-tip>in front of every template</span></div>
+            <div class="box-b"><div class="row"><span class="k">Unslop</span><span class="scope">All projects</span><span class="sw on"></span><i data-i="chevR" data-s="12"></i></div></div>
+          </div>
+          <div class="box">
+            <div class="box-h"><h2>Commit messages</h2></div>
+            <div class="box-b">
+              <div class="row hov"><span class="radio on"></span><span class="k">Conventional commits</span><span class="def">default</span><span class="scope">All projects</span><i data-i="chevR" data-s="12"></i></div>
+              <div class="row"><span class="radio"></span><span class="k">Short imperative</span><span class="scope">All projects</span><i data-i="chevR" data-s="12"></i></div>
+            </div>
+          </div>
+          <div class="box">
+            <div class="box-h"><h2>Branch names</h2></div>
+            <div class="box-b"><div class="row"><span class="radio on"></span><span class="k mono" style="font-size:12px">type/short-slug</span><span class="def">default</span><span class="scope">All projects</span><i data-i="chevR" data-s="12"></i></div></div>
+          </div>
+          <div class="box">
+            <div class="box-h"><h2>PR title &amp; description</h2></div>
+            <div class="box-b"><div class="row"><span class="radio on"></span><span class="k">Standard PR</span><span class="def">default</span><span class="scope">All projects</span><i data-i="chevR" data-s="12"></i></div></div>
+          </div>
+          <div class="box">
+            <div class="box-h"><h2>Release notes</h2></div>
+            <div class="box-b">
+              <div class="row"><span class="radio on"></span><span class="k">Customer-facing</span><span class="def">default</span><span class="scope">All projects</span><i data-i="chevR" data-s="12"></i></div>
+              <div class="row"><span class="radio"></span><span class="k">Internal changelog</span><span class="scope">All projects</span><i data-i="chevR" data-s="12"></i></div>
+              <div class="row"><span class="radio"></span><span class="k">GitHub release</span><span class="scope">All projects</span><i data-i="chevR" data-s="12"></i></div>
+            </div>
+          </div>
+        </div>
+        <div class="stack">
+          <div class="box">
+            <div class="box-h"><h2>Changelog entries</h2></div>
+            <div class="box-b"><div class="row"><span class="radio on"></span><span class="k">Keep a Changelog</span><span class="def">default</span><span class="scope">All projects</span><i data-i="chevR" data-s="12"></i></div></div>
+          </div>
+          <div class="box">
+            <div class="box-h"><h2>Changelog version merge</h2></div>
+            <div class="box-b"><div class="row"><span class="radio on"></span><span class="k">Merge into version</span><span class="def">default</span><span class="scope">All projects</span><i data-i="chevR" data-s="12"></i></div></div>
+          </div>
+          <div class="box">
+            <div class="box-h"><h2>Conflict resolution</h2></div>
+            <div class="box-b"><div class="row"><span class="radio on"></span><span class="k">Prefer release branch</span><span class="def">default</span><span class="scope">All projects</span><i data-i="chevR" data-s="12"></i></div></div>
+          </div>
+          <div class="box">
+            <div class="box-h"><h2>Free-form agent</h2></div>
+            <div class="box-b"><div class="row"><span class="radio on"></span><span class="k">Safe git agent</span><span class="def">default</span><span class="scope">All projects</span><i data-i="chevR" data-s="12"></i></div></div>
+          </div>
+          <div class="box">
+            <div class="box-h"><h2>Voice dictation</h2></div>
+            <div class="box-b"><div class="row"><span class="radio on"></span><span class="k">Clear and structured</span><span class="def">default</span><span class="scope">All projects</span><i data-i="chevR" data-s="12"></i></div></div>
+          </div>
+          <p class="hint">A template for one project shows that project's name instead of All projects. <span class="mono">{language}</span> is filled in when you generate.</p>
+        </div>
+      </div>
+      <div class="tip">While on, these instructions go in front of every other template. Not sent with Conflict resolution and Voice dictation.</div>
+    </div>
+  </div>
+</section>
+
+<section class="mock" id="mock-b">
+  <div class="cap"><b>B · Split</b><span>Jobs on the left (each names its default), the editor in the middle with the template's rules as rows, and a live preview on the staged changes at the right.</span></div>
+  <div class="panel" data-title="Templates" data-sub="13 templates">
+    <div class="pg flush">
+      <div class="wrap">
+        <nav class="rail">
+          <div class="field ph"><i data-i="search" data-s="12"></i>Find a template</div>
+          <a class="kind"><span><b>Global skills</b><small>Unslop · on</small></span><span class="n">1</span></a>
+          <a class="kind open"><span><b>Commit messages</b><small>Conventional commits</small></span><span class="n">2</span></a>
+          <a class="tpl on"><span class="radio on"></span>Conventional commits</a>
+          <a class="tpl"><span class="radio"></span>Short imperative</a>
+          <a class="tpl"><i data-i="plus" data-s="12"></i>New commit template</a>
+          <a class="kind"><span><b>Branch names</b><small>type/short-slug</small></span><span class="n">1</span></a>
+          <a class="kind"><span><b>PR title &amp; description</b><small>Standard PR</small></span><span class="n">1</span></a>
+          <a class="kind"><span><b>Release notes</b><small>Customer-facing</small></span><span class="n">3</span></a>
+          <a class="kind"><span><b>Changelog entries</b><small>Keep a Changelog</small></span><span class="n">1</span></a>
+          <a class="kind"><span><b>Changelog version merge</b><small>Merge into version</small></span><span class="n">1</span></a>
+          <a class="kind"><span><b>Conflict resolution</b><small>Prefer release branch</small></span><span class="n">1</span></a>
+          <a class="kind"><span><b>Free-form agent</b><small>Safe git agent</small></span><span class="n">1</span></a>
+          <a class="kind"><span><b>Voice dictation</b><small>Clear and structured</small></span><span class="n">1</span></a>
+        </nav>
+        <div class="ed">
+          <div class="ed-b">
+            <div class="ed-h"><span class="name">Conventional commits</span><i data-i="edit" data-s="12" style="color:var(--faint)"></i><span class="sp"></span><label class="row-flex hint" style="gap:8px">Default for commits<span class="sw on"></span></label></div>
+            <div class="f"><label>Applies to</label><div class="seg"><button class="on">All projects</button><button>lineage-app only</button></div></div>
+            <div class="f"><label>Rules</label>
+              <div class="rules">
+                <div class="row"><span class="k">Subject max length</span><span class="num">72</span></div>
+                <div class="row"><span class="k">Include ticket key</span><span class="sw on"></span></div>
+                <div class="row"><span class="k">Add a body when more than 3 files change</span><span class="sw on"></span></div>
+              </div>
+            </div>
+            <div class="f"><label>Instructions</label>
+<div class="ta">Write a commit message for the staged changes on <span class="v">{branch}</span>.
+
+Format: Conventional Commits, type(scope): subject
+- Subject in the imperative, at most <span class="v">{maxLength}</span> characters, no period
+- Add a short body only when more than 3 files change
+- End with "Refs <span class="v">{ticket}</span>" when a ticket is linked
+
+Changed files:
+<span class="v">{files}</span>
+
+Diff:
+<span class="v">{diff}</span>
+
+Write the result in <span class="v">{language}</span>.</div>
+            </div>
+            <div class="vars"><span class="hint">Insert</span><span class="var">{branch}</span><span class="var">{files}</span><span class="var">{diff}</span><span class="var">{ticket}</span><span class="var">{maxLength}</span><span class="var">{language}</span></div>
+          </div>
+          <div class="ed-f"><button class="btn btn-sm"><i data-i="copy" data-s="12"></i>Duplicate</button><button class="btn btn-sm btn-ghost btn-danger"><i data-i="trash" data-s="12"></i>Delete</button><span class="sp"></span><span class="hint">Unsaved changes</span><button class="btn btn-primary">Save</button></div>
+        </div>
+        <aside class="pv">
+          <h3>Preview<span class="sp"></span><button class="btn btn-xs"><i data-i="refresh" data-s="12"></i>Run again</button></h3>
+          <p class="hint">On the staged changes of <span class="mono">feat/redesign-settings-panel</span>, with Unslop in front.</p>
+          <div class="card out">feat(settings): redesign settings panel as a spec sheet
+
+A box per scope with short labels, switches for on/off settings, and the full sentence on hover.</div>
+          <p class="hint">Claude Haiku 5.5 · low, from Task routing.</p>
+        </aside>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="mock" id="mock-c">
+  <div class="cap"><b>C · Preview</b><span>Pick a job, see what each of its templates writes side by side, make one the default, then edit the open one under them.</span></div>
+  <div class="panel" data-title="Templates" data-sub="13 templates">
+    <div class="pg">
+      <div class="kinds">
+        <span class="chip on">Commit messages <span class="n">2</span></span>
+        <span class="chip">Branch names <span class="n">1</span></span>
+        <span class="chip">PR title &amp; description <span class="n">1</span></span>
+        <span class="chip">Release notes <span class="n">3</span></span>
+        <span class="chip">Changelog entries <span class="n">1</span></span>
+        <span class="chip">Changelog version merge <span class="n">1</span></span>
+        <span class="chip">Conflict resolution <span class="n">1</span></span>
+        <span class="chip">Free-form agent <span class="n">1</span></span>
+        <span class="chip">Voice dictation <span class="n">1</span></span>
+      </div>
+      <div class="skill"><span class="sw on"></span><b style="font-weight:500">Unslop</b><span class="hint">Global skill, in front of every template but Conflict resolution and Voice dictation · All projects</span><span class="sp"></span><button class="btn btn-xs">Edit</button></div>
+      <div class="cards">
+        <div class="card on">
+          <div class="say out">feat(settings): redesign settings panel as a spec sheet
+
+A box per scope with short labels, switches for on/off settings, and the full sentence on hover.</div>
+          <div class="meta"><b>Conventional commits</b><span class="tag ink">Default</span><span class="sp"></span><span class="hint">All projects</span></div>
+        </div>
+        <div class="card">
+          <div class="say out">Redesign settings panel as a spec sheet</div>
+          <div class="meta"><b>Short imperative</b><span class="sp"></span><button class="btn btn-xs">Make default</button></div>
+        </div>
+        <div class="card new"><i data-i="plus" data-s="16"></i>New commit template</div>
+      </div>
+      <div class="edit">
+        <div class="edit-h"><b>Conventional commits</b><div class="seg"><button class="on">All projects</button><button>lineage-app only</button></div><span class="sp"></span><button class="btn btn-sm"><i data-i="copy" data-s="12"></i>Duplicate</button><button class="btn btn-sm btn-ghost btn-danger"><i data-i="trash" data-s="12"></i>Delete</button><button class="btn btn-primary">Save</button></div>
+        <div class="edit-b">
+<div class="ta">Write a commit message for the staged changes on <span class="v">{branch}</span>.
+
+Format: Conventional Commits, type(scope): subject
+- Subject in the imperative, at most <span class="v">{maxLength}</span> characters, no period
+- Add a short body only when more than 3 files change
+- End with "Refs <span class="v">{ticket}</span>" when a ticket is linked
+
+Changed files:
+<span class="v">{files}</span>
+
+Diff:
+<span class="v">{diff}</span>
+
+Write the result in <span class="v">{language}</span>.</div>
+          <div class="side">
+            <div class="lab">Rules</div>
+            <div class="row"><span class="k">Subject max length</span><span class="num">72</span></div>
+            <div class="row"><span class="k">Include ticket key</span><span class="sw on"></span></div>
+            <div class="row"><span class="k">Body over 3 files</span><span class="sw on"></span></div>
+            <div class="lab">Insert</div>
+            <div class="row-flex" style="flex-wrap:wrap;gap:6px"><span class="var">{branch}</span><span class="var">{files}</span><span class="var">{diff}</span><span class="var">{ticket}</span><span class="var">{language}</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script src="themes.js"></script>
+<script src="base.js"></script>
+</body></html>

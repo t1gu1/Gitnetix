@@ -740,7 +740,6 @@ body.dragging-tab * {
 }
 /* Rows, tabs and menu items ease into their hover and selection instead of snapping. */
 :is(
-    .nav-item,
     .tab-page,
     .tab-project-open,
     .tab-project-close,
@@ -1263,15 +1262,6 @@ body.dragging-tab * {
   padding: 6px 12px;
   background: var(--raised);
 }
-.route-list {
-  container-type: inline-size;
-}
-/* Task routing: once the pickers no longer fit beside the label, they go on a line below it. */
-@container (max-width: 700px) {
-  .route-label {
-    flex-basis: 100%;
-  }
-}
 .list-link {
   width: 100%;
   margin: 0;
@@ -1537,7 +1527,7 @@ html.scanning body {
   line-height: 1.5;
 }
 
-/* side nav (settings, templates, AI setup) */
+/* side nav (the website's release notes demo) */
 .sidenav {
   flex: 0 0 var(--sidenav-w, 260px);
   display: flex;
@@ -1547,40 +1537,6 @@ html.scanning body {
   background: var(--panel);
   border-right: 1px solid var(--line);
   overflow-y: auto;
-}
-.sidenav .group-label {
-  padding: 12px 10px 4px;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--faint);
-}
-.nav-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-height: 34px;
-  padding: 6px 10px;
-  border: 0;
-  border-radius: var(--r);
-  background: transparent;
-  color: var(--muted);
-  text-align: left;
-  font-size: 13px;
-  width: 100%;
-}
-.nav-item[aria-current="page"],
-.nav-item[aria-pressed="true"] {
-  background: var(--sel);
-  color: var(--fg);
-  font-weight: 500;
-}
-.nav-item:hover {
-  color: var(--fg);
-}
-.nav-item:hover:not([aria-current="page"], [aria-pressed="true"]) {
-  background: color-mix(in srgb, var(--sel) 55%, transparent);
 }
 .mono-badge {
   display: inline-flex;
@@ -9356,17 +9312,6 @@ button.pr-status-row:hover > .grow {
   overflow-y: auto;
   container-type: inline-size;
 }
-/* The frame of a page with a list and a detail (AI setup, templates, logs), opened inside the panel. */
-.menu-grid {
-  width: 100%;
-  margin-inline: auto;
-}
-.menu-col {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 0;
-}
 /* The settings home (Menu.tsx): the profile and phone cards, then every setting as a short label and its value, in a box per scope.
    The boxes sit on the ground, one step under them, like the cards. */
 .menu-home {
@@ -9447,6 +9392,18 @@ button.pr-status-row:hover > .grow {
 .sheet-h > .mono {
   flex: 0 1 auto;
   font-size: 11px;
+}
+.sheet-aside {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin: -6px -6px -6px auto;
+}
+/* A box whose actions no longer fit beside its title puts them on a line of their own. */
+.sheet-h:has(> .sheet-aside) {
+  flex-wrap: wrap;
+  row-gap: 12px;
 }
 /* The path is cut from its start (the <bdi> keeps its characters in order): its end names the project. */
 .sheet-path {
@@ -9880,25 +9837,6 @@ label.sheet-row {
     display: none;
   }
 }
-/* A page opened inside the menu panel: fills the panel, its section list and content scroll on their own. */
-.menu-grid.menu-embed {
-  flex: 1 1 auto;
-  min-height: 0;
-  max-width: none;
-  display: flex;
-  gap: 0;
-  align-items: stretch;
-  border: 1px solid var(--line);
-  border-radius: var(--r);
-  overflow: hidden;
-}
-.menu-embed > .page {
-  padding: 24px;
-  background: var(--bg);
-}
-.menu-embed .page-inner {
-  max-width: none;
-}
 /* Gitnetix on a phone: the QR code with the address and token it holds, or what makes it possible. */
 .phone-card {
   display: grid;
@@ -9960,32 +9898,6 @@ label.sheet-row {
   align-items: center;
   justify-content: space-between;
   gap: 8px 12px;
-}
-
-/* A settings section opened from the menu: one centered column, its title in the menu's header. */
-.menu-page .page-inner {
-  margin-inline: auto;
-}
-.menu-page .page-intro > h1 {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  white-space: nowrap;
-}
-/* Animations' Turn all on / off: beside the intro, or under it on a phone, nearer the list they act on than the text. */
-.anim-head {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 16px;
-}
-@media (max-width: 900px) and (pointer: coarse), (max-width: 480px) {
-  .anim-head {
-    grid-template-columns: minmax(0, 1fr);
-    margin-bottom: -16px;
-  }
 }
 
 /* ---------- modal & toasts ---------- */
@@ -10752,17 +10664,6 @@ label.sheet-row {
 }
 .keys-taken {
   color: var(--warn-fg);
-}
-.keys-list .list-row {
-  min-height: 46px;
-}
-/* Keys that can't be changed: outlined caps, lined up with the buttons' caps above. */
-.keys-list > li > .keys {
-  margin-right: 5px;
-}
-.keys-list > li > .keys kbd {
-  background: none;
-  color: var(--muted);
 }
 @media (max-width: 900px) and (pointer: coarse), (max-width: 480px) {
   /* Clear of the on-screen keyboard, the same spot while listening and rewriting. */
@@ -13838,4 +13739,1598 @@ label.sheet-row {
     border-right: 0;
     border-bottom: 1px solid var(--line);
   }
+}
+
+/* ---------- settings pages ---------- */
+/* The pages the settings sheet opens (Menu.tsx SettingsPage): boxes of rows on the sheet's ground, like the home sheet. */
+
+/* ---------- Appearance (Settings.tsx): the theme on screen drawn large, then every theme drawn as the app ---------- */
+.thm-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  gap: 24px;
+  align-items: stretch;
+}
+.thm-hero > .thm-pv {
+  height: 250px;
+}
+.thm-now {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  padding: 4px 0;
+}
+.thm-now > .hint {
+  margin: 0;
+}
+.thm-name {
+  margin: 0;
+  font: 600 30px/32px var(--display);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--fg);
+  text-wrap: balance;
+}
+.thm-mode {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: auto;
+}
+.thm-mode > .seg {
+  align-self: stretch;
+}
+.thm-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 4px;
+}
+.thm-search {
+  position: relative;
+  margin-left: auto;
+  width: 240px;
+  color: var(--faint);
+}
+.thm-search > svg {
+  position: absolute;
+  left: 9px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+.thm-search > .input {
+  width: 100%;
+  height: 28px;
+  padding-left: 27px;
+}
+.thm-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(176px, 1fr));
+  gap: 12px;
+}
+.thm-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.thm-tile > .thm-pv {
+  height: 92px;
+  transition: border-color var(--t-fast) var(--ease);
+}
+.thm-tile:hover > .thm-pv {
+  border-color: var(--muted);
+}
+.thm-tile[aria-checked="true"] > .thm-pv {
+  outline: 1px solid var(--fg);
+  outline-offset: 2px;
+}
+.thm-tile:hover,
+.thm-tile[aria-checked="true"] {
+  color: var(--fg);
+}
+.thm-tile:focus-visible {
+  outline: none;
+}
+.thm-tile:focus-visible > .thm-pv {
+  outline: 1px solid var(--fg);
+  outline-offset: 2px;
+}
+.thm-tile-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 12px;
+}
+.thm-tile-name > svg {
+  flex: none;
+}
+
+/* The app in small, in a theme's own colours: --tb ground, --tp panel, --tf text, --ta accent, --tadd added lines. */
+.thm-pv {
+  --tm: color-mix(in srgb, var(--tf) 62%, var(--tp));
+  --tl: color-mix(in srgb, var(--tf) 14%, var(--tp));
+  --tl2: color-mix(in srgb, var(--tf) 24%, var(--tp));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--line2);
+  border-radius: var(--r);
+  background: var(--tb);
+}
+.thm-pv i,
+.thm-pv b,
+.thm-pv u {
+  display: block;
+}
+.thm-pv-top {
+  display: flex;
+  align-items: center;
+  gap: 6%;
+  height: 22%;
+  min-height: 14px;
+  max-height: 34px;
+  padding: 0 5%;
+  border-bottom: 1px solid var(--tl);
+  background: var(--tp);
+}
+.thm-pv-top > b {
+  width: 14%;
+  height: 5px;
+  border-radius: 2px;
+  background: var(--tm);
+}
+.thm-pv-top > b:first-child {
+  background: var(--tf);
+}
+.thm-pv-body {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1.1fr 1fr;
+  gap: 6%;
+  padding: 6%;
+}
+.thm-pv-map {
+  position: relative;
+}
+.thm-pv-ln {
+  position: absolute;
+  left: 18%;
+  top: 6%;
+  bottom: 6%;
+  width: 1.5px;
+  background: var(--tf);
+}
+.thm-pv-ln2 {
+  position: absolute;
+  left: 58%;
+  top: 30%;
+  bottom: 24%;
+  width: 1px;
+  background: var(--tl2);
+}
+.thm-pv-st {
+  position: absolute;
+  left: calc(18% - 3px);
+  width: 7px;
+  height: 7px;
+  border: 1.5px solid var(--tf);
+  border-radius: 50%;
+  background: var(--tb);
+}
+.thm-pv-lab {
+  position: absolute;
+  left: 26%;
+  width: 44%;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--tm);
+}
+.thm-pv-lab.dim {
+  background: var(--tl2);
+}
+.thm-pv-box {
+  display: flex;
+  flex-direction: column;
+  gap: 9%;
+  padding: 7%;
+  border: 1px solid var(--tl2);
+  border-radius: 2px;
+  background: var(--tp);
+}
+.thm-pv-box > i {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 5px;
+}
+.thm-pv-box > i::before {
+  content: "";
+  width: 46%;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--tm);
+}
+.thm-pv-box > i::after {
+  content: "";
+  width: 12%;
+  height: 6px;
+  border-radius: 1px;
+  background: var(--tf);
+}
+.thm-pv-box > i:nth-child(2)::after {
+  background: transparent;
+  outline: 1px solid var(--tm);
+}
+.thm-pv-box > i.thm-pv-add {
+  width: 30%;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--tadd);
+}
+.thm-pv-box > i.thm-pv-add::before,
+.thm-pv-box > i.thm-pv-add::after {
+  content: none;
+}
+.thm-pv-box > u {
+  align-self: flex-end;
+  width: 38%;
+  height: 10px;
+  margin-top: auto;
+  border-radius: 2px;
+  background: var(--ta);
+}
+
+/* ---------- Animations (Settings.tsx): each animation playing in its own small stage, with its switch ---------- */
+.anim-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.anim-bar > .hint {
+  flex: 1 1 auto;
+  margin: 0;
+}
+.anim-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+}
+.anim-card {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border: 1px solid var(--line2);
+  border-radius: var(--r);
+  background: var(--panel);
+  cursor: pointer;
+}
+.anim-stage {
+  position: relative;
+  display: block;
+  height: 92px;
+  overflow: hidden;
+  border-bottom: 1px solid var(--line);
+  border-radius: var(--r) var(--r) 0 0;
+  background: var(--bg);
+}
+.anim-stage span,
+.anim-stage i,
+.anim-stage b {
+  display: block;
+}
+.anim-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+  padding: 0 10px;
+}
+.anim-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg);
+}
+.anim-hint {
+  display: none;
+}
+/* Off: the stage stops where it stands and fades. */
+.anim-card.off .anim-stage > * {
+  opacity: 0.35;
+}
+.anim-card.off .anim-stage *,
+.anim-card.off .anim-stage *::after,
+:root[data-idle] .anim-stage *,
+:root[data-idle] .anim-stage *::after {
+  animation-play-state: paused !important;
+}
+.anim-card.off .anim-name {
+  color: var(--faint);
+}
+@media (prefers-reduced-motion: reduce) {
+  .anim-stage *,
+  .anim-stage *::after {
+    animation: none !important;
+  }
+}
+@media (pointer: coarse) {
+  .anim-hint {
+    display: block;
+    padding: 0 10px 10px;
+    color: var(--faint);
+    font-size: 12px;
+    line-height: 1.4;
+  }
+}
+
+/* The demos: transforms and opacity only, so a full page of them stays light to draw. */
+.anim-d-line {
+  position: absolute;
+  left: 50%;
+  top: 14%;
+  bottom: 14%;
+  width: 1.5px;
+  overflow: hidden;
+  background: var(--line2);
+}
+.anim-d-line::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  height: 34%;
+  background: var(--fg);
+  animation: anim-streak 1.8s cubic-bezier(0.2, 0.7, 0.2, 1) infinite;
+}
+@keyframes anim-streak {
+  from {
+    transform: translateY(-100%);
+  }
+  to {
+    transform: translateY(300%);
+  }
+}
+.anim-d-name {
+  position: absolute;
+  inset: 0;
+  display: grid !important;
+  place-items: center;
+}
+.anim-d-name > span {
+  position: relative;
+  overflow: hidden;
+  padding: 2px 4px;
+  color: var(--fg);
+  font-size: 13px;
+  font-weight: 500;
+}
+.anim-d-name > span::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 30%;
+  background: color-mix(in srgb, var(--fg) 26%, transparent);
+  animation: anim-sweep 2.2s ease-in-out infinite;
+}
+@keyframes anim-sweep {
+  from {
+    transform: translateX(-110%);
+  }
+  to {
+    transform: translateX(360%);
+  }
+}
+.anim-d-push,
+.anim-d-wip,
+.anim-d-tip,
+.anim-d-wave,
+.anim-d-act,
+.anim-d-fold {
+  position: absolute;
+  inset: 0;
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+}
+.anim-d-btn {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--line2);
+  border-radius: var(--r);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+  animation: anim-nudge 1.6s ease-in-out infinite;
+}
+@keyframes anim-nudge {
+  0%,
+  60%,
+  100% {
+    transform: none;
+  }
+  66% {
+    transform: translateX(-3px);
+  }
+  74% {
+    transform: translateX(3px);
+  }
+  82% {
+    transform: translateX(-2px);
+  }
+  90% {
+    transform: translateX(1px);
+  }
+}
+.anim-d-wip > span {
+  padding: 3px 6px;
+  border: 1px solid var(--line2);
+  border-radius: var(--r-sm);
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  line-height: 1;
+  animation: anim-breathe 1.8s ease-in-out infinite;
+}
+@keyframes anim-breathe {
+  50% {
+    opacity: 0.35;
+  }
+}
+.anim-d-act {
+  gap: 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.anim-d-act > i {
+  position: relative;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--g1);
+}
+.anim-d-act > i::after {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border: 1px solid var(--g1);
+  border-radius: 50%;
+  animation: anim-ring 1.4s ease-out infinite;
+}
+@keyframes anim-ring {
+  from {
+    transform: scale(0.5);
+    opacity: 1;
+  }
+  to {
+    transform: scale(1.5);
+    opacity: 0;
+  }
+}
+.anim-d-tabs {
+  position: absolute;
+  left: 12%;
+  right: 12%;
+  top: 50%;
+  display: flex !important;
+  gap: 6px;
+  transform: translateY(-50%);
+}
+.anim-d-tabs > b {
+  flex: 1;
+  height: 22px;
+  border: 1px solid var(--line2);
+  border-radius: var(--r-sm);
+  background: var(--panel);
+}
+.anim-d-tabs > b:nth-child(2) {
+  border-color: var(--muted);
+  background: var(--sel);
+  animation: anim-drag 2s cubic-bezier(0.3, 1.5, 0.5, 1) infinite;
+}
+@keyframes anim-drag {
+  0%,
+  15% {
+    transform: none;
+  }
+  50%,
+  65% {
+    transform: translateX(105%) scale(1.06);
+  }
+  100% {
+    transform: none;
+  }
+}
+.anim-d-menu {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  width: 46%;
+  border-left: 1px solid var(--line2);
+  background: var(--panel);
+  animation: anim-slide 2s cubic-bezier(0.2, 0.8, 0.2, 1) infinite;
+}
+@keyframes anim-slide {
+  0% {
+    transform: translateX(100%);
+  }
+  35%,
+  80% {
+    transform: none;
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+.anim-d-page,
+.anim-d-list {
+  position: absolute;
+  inset: 18% 16%;
+  display: flex !important;
+  flex-direction: column;
+  gap: 6px;
+}
+.anim-d-page {
+  animation: anim-fadeup 2s cubic-bezier(0.2, 0.8, 0.2, 1) infinite;
+}
+.anim-d-page > b {
+  height: 6px;
+  border-radius: 2px;
+  background: var(--line2);
+}
+.anim-d-page > b:first-child {
+  width: 40%;
+  background: var(--muted);
+}
+.anim-d-list {
+  inset: 16% 18%;
+}
+.anim-d-list > b {
+  height: 8px;
+  border-radius: 2px;
+  background: var(--line2);
+  animation: anim-fadeup 2.4s cubic-bezier(0.2, 0.8, 0.2, 1) infinite;
+}
+.anim-d-list > b:nth-child(2) {
+  width: 80%;
+  animation-delay: 0.12s;
+}
+.anim-d-list > b:nth-child(3) {
+  width: 60%;
+  animation-delay: 0.24s;
+}
+.anim-d-list > b:nth-child(4) {
+  width: 70%;
+  animation-delay: 0.36s;
+}
+@keyframes anim-fadeup {
+  0% {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  40%,
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+.anim-d-dialog {
+  position: absolute;
+  inset: 22% 24%;
+  border: 1px solid var(--line2);
+  border-radius: var(--r);
+  background: var(--panel);
+  animation: anim-pop 2s cubic-bezier(0.2, 1.2, 0.4, 1) infinite;
+}
+@keyframes anim-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+  25%,
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+.anim-d-min {
+  position: absolute;
+  inset: 18% 24% 26%;
+  border: 1px solid var(--line2);
+  border-radius: var(--r);
+  background: var(--panel);
+  transform-origin: 0 100%;
+  animation: anim-shrink 2.4s cubic-bezier(0.5, 0, 0.2, 1) infinite;
+}
+@keyframes anim-shrink {
+  0%,
+  20% {
+    transform: none;
+  }
+  60%,
+  100% {
+    transform: translate(-80%, 40%) scale(0.18);
+  }
+}
+.anim-d-panes {
+  position: absolute;
+  inset: 16% 12%;
+  display: flex !important;
+  overflow: hidden;
+  border: 1px solid var(--line2);
+  border-radius: var(--r);
+}
+.anim-d-panes > b {
+  flex: 0 0 100%;
+  background: var(--panel);
+  animation: anim-pan 2.4s cubic-bezier(0.2, 0.8, 0.2, 1) infinite;
+}
+.anim-d-panes > b + b {
+  background: var(--raised);
+}
+@keyframes anim-pan {
+  0%,
+  30% {
+    transform: none;
+  }
+  55%,
+  100% {
+    transform: translateX(-100%);
+  }
+}
+.anim-d-hl {
+  position: absolute;
+  left: 14%;
+  right: 14%;
+  top: 50%;
+  display: flex !important;
+  justify-content: space-between;
+  padding-bottom: 6px;
+  transform: translateY(-50%);
+  color: var(--muted);
+  font-size: 12px;
+}
+.anim-d-hl::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 30%;
+  height: 2px;
+  background: var(--fg);
+  animation: anim-hl 2.4s cubic-bezier(0.2, 0.8, 0.2, 1) infinite;
+}
+@keyframes anim-hl {
+  0%,
+  25% {
+    transform: none;
+  }
+  50%,
+  75% {
+    transform: translateX(233%);
+  }
+  100% {
+    transform: none;
+  }
+}
+.anim-d-tip {
+  flex-direction: column;
+  gap: 6px;
+}
+.anim-d-tip > span {
+  padding: 3px 8px;
+  border: 1px solid var(--line2);
+  border-radius: var(--r);
+  background: var(--raised);
+  color: var(--fg);
+  font-size: 11px;
+  animation: anim-breathe 2s ease-in-out infinite;
+}
+.anim-d-tip > b {
+  width: 44px;
+  height: 6px;
+  border-radius: 2px;
+  background: var(--muted);
+}
+.anim-d-fold {
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.anim-d-fold > svg {
+  animation: anim-turn 2s cubic-bezier(0.2, 0.8, 0.2, 1) infinite;
+}
+@keyframes anim-turn {
+  0%,
+  30% {
+    transform: none;
+  }
+  50%,
+  80% {
+    transform: rotate(90deg);
+  }
+  100% {
+    transform: none;
+  }
+}
+.anim-d-wave {
+  gap: 3px;
+}
+.anim-d-wave > b {
+  width: 3px;
+  height: 22px;
+  border-radius: 2px;
+  background: var(--fg);
+  animation: anim-wave 1s ease-in-out infinite;
+}
+.anim-d-wave > b:nth-child(2n) {
+  animation-delay: 0.15s;
+}
+.anim-d-wave > b:nth-child(3n) {
+  animation-delay: 0.3s;
+}
+.anim-d-wave > b:nth-child(5n) {
+  animation-delay: 0.45s;
+}
+@keyframes anim-wave {
+  0%,
+  100% {
+    transform: scaleY(0.25);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+/* ---------- Voice dictation (Settings.tsx): how you dictate, and the speech model ---------- */
+.dict-lead,
+.kbs-top > .hint {
+  max-width: 68ch;
+  margin: 0;
+  font-size: 13px;
+  line-height: 19px;
+}
+.dict-grid,
+.kbs-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+.dict-credit {
+  max-width: 90ch;
+  margin: 0;
+  color: var(--faint);
+}
+/* The shortcut's keys in a sheet row: the row's height, not the list's. */
+.sheet-row .keys-input {
+  min-width: 0;
+  height: 28px;
+  margin-right: -4px;
+}
+.sheet-row .keys-input[aria-pressed="true"] {
+  border-style: dashed;
+  box-shadow: none;
+}
+.sheet-row:has(.keys-input[aria-pressed="true"]) {
+  margin-inline: -16px;
+  padding-inline: 16px;
+  background: var(--sel);
+}
+.sheet-row:has(.keys-input[aria-pressed="true"]) > .sheet-k {
+  color: var(--fg);
+}
+.keys-reset {
+  color: var(--faint);
+}
+
+/* ---------- Shortcuts (Settings.tsx): a box per group, the keys at the right of each short name ---------- */
+.kbs-top {
+  display: flex;
+  align-items: flex-start;
+  gap: 24px;
+}
+.kbs-top > .btn {
+  margin-left: auto;
+}
+.kbs-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+.kbs-changed > .sheet-k::after {
+  content: "changed";
+  margin-left: 8px;
+  color: var(--faint);
+  font-size: 11px;
+}
+.kbs-lock .keys kbd {
+  background: none;
+  color: var(--muted);
+}
+.kbs-lock > .keys {
+  margin-right: 0;
+}
+.kbs-note {
+  display: flex;
+  gap: 8px;
+  margin: 0;
+  padding: 12px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+}
+.kbs-note > svg {
+  flex: none;
+  margin-top: 3px;
+  color: var(--muted);
+}
+
+@media (max-width: 900px) and (pointer: coarse), (max-width: 760px) {
+  .thm-hero,
+  .dict-grid,
+  .kbs-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .thm-hero > .thm-pv {
+    height: 200px;
+  }
+  .anim-bar,
+  .kbs-top {
+    flex-wrap: wrap;
+  }
+}
+
+/* AI setup (AISetup.tsx): the providers and the default beside task routing; a provider's page, its connection beside its model. */
+.ais-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr);
+  gap: 16px;
+  align-items: start;
+}
+.ais-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+.ais-prow {
+  gap: 12px;
+  min-height: 40px;
+}
+.ais-prow > .sheet-k {
+  color: var(--fg);
+}
+.ais-badge {
+  width: 24px;
+  height: 24px;
+  flex-basis: 24px;
+  font-size: 10px;
+}
+.ais-status {
+  flex: 0 0 auto;
+  font-size: 12px;
+  white-space: nowrap;
+}
+/* A label whose sentence shows on hover or keyboard focus: dotted, like a term with a definition. */
+.ais-tipped {
+  text-decoration: underline dotted var(--faint);
+  text-underline-offset: 3px;
+  cursor: help;
+}
+.ais-tipped:focus-visible {
+  outline: 1px solid var(--fg);
+  outline-offset: 2px;
+}
+/* A route's AI, model and effort read as one value; each part is its own menu, the last one carries the arrow. */
+.ais-route-v {
+  flex: 0 1 auto;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+}
+.ais-route-v > .sheet-val:not(:last-child) {
+  margin-right: 0;
+  padding-inline: 3px;
+}
+.ais-route-v > .sheet-val:not(:last-child) > svg {
+  display: none;
+}
+.ais-route-v > .ais-sub,
+.ais-route-v > .ais-unset {
+  color: var(--faint);
+  font-weight: 400;
+}
+.ais-input {
+  width: 160px;
+  height: 26px;
+}
+.ais-field {
+  flex: 0 1 260px;
+  min-width: 0;
+  height: 26px;
+}
+.ais-pips {
+  display: inline-flex;
+  gap: 2px;
+}
+.ais-pips > i {
+  width: 6px;
+  height: 10px;
+  border: 1px solid var(--line2);
+  border-radius: 1px;
+}
+.ais-pips > i.on {
+  border-color: var(--fg);
+  background: var(--fg);
+}
+.ais-note {
+  margin: 0;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+.ais-note:last-child,
+.ais-actions:last-child {
+  border-bottom: 0;
+}
+.ais-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+/* Templates (Templates.tsx): a box per job in two columns, a template per row; a template's page. */
+.tpl-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+.tpl-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+.tpl-row {
+  gap: 10px;
+  min-height: 32px;
+}
+.tpl-pick {
+  min-height: 0;
+}
+.tpl-open {
+  flex: 1 1 auto;
+  align-self: stretch;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.tpl-open > .sheet-k {
+  color: var(--fg);
+}
+.tpl-open > svg {
+  flex: 0 0 auto;
+  color: var(--faint);
+  transition: color var(--t-fast) var(--ease);
+}
+.tpl-open:hover > svg {
+  color: var(--fg);
+}
+.tpl-open:focus-visible {
+  outline: 1px solid var(--fg);
+  outline-offset: 2px;
+}
+.tpl-def {
+  font-size: 11px;
+  color: var(--muted);
+}
+.tpl-scope {
+  font-size: 12px;
+  white-space: nowrap;
+  color: var(--faint);
+}
+.tpl-none {
+  margin: 0;
+  padding: 8px 0 4px;
+}
+.tpl-edit {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+.tpl-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 16px 16px;
+}
+.tpl-body > .hint {
+  margin: 0;
+}
+.tpl-text {
+  min-height: 380px;
+  font-size: 12.5px;
+}
+.tpl-insert {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.tpl-fill {
+  margin-left: auto;
+}
+.tpl-field {
+  flex: 0 1 240px;
+  min-width: 0;
+  height: 26px;
+}
+.tpl-num {
+  width: 72px;
+  height: 26px;
+}
+.tpl-var {
+  font-size: 11px;
+}
+.tpl-dirty {
+  margin: 0;
+  padding: 8px 0 0;
+  color: var(--warn-fg);
+}
+.tpl-lang {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+@container (max-width: 860px) {
+  .ais-grid,
+  .tpl-grid,
+  .tpl-edit {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ---------- Git providers, ticket trackers, companion (Connections.tsx) ---------- */
+/* A page's first line, and where its tokens go at its right. */
+.conn-lead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 16px;
+}
+.conn-lead > p {
+  flex: 0 1 auto;
+  margin: 0;
+}
+.conn-intro {
+  margin: 0;
+  max-width: 72ch;
+}
+.conn-keychain {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.conn-note {
+  margin: 0;
+}
+/* One column when every host is on one side of the Accounts box. */
+.sheet-cols.conn-solo {
+  grid-template-columns: minmax(0, 1fr);
+}
+/* A connected account's head: its name and who is signed in, Disconnect at the right. */
+.conn-acct {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+.conn-acct ~ .conn-acct {
+  margin-top: 12px;
+}
+.conn-who {
+  font-size: 12px;
+}
+/* A host with no account: its token button, then Sign in; a sign-in under way takes the line under them. */
+.conn-row {
+  flex-wrap: wrap;
+  column-gap: 6px;
+}
+.conn-row > .sheet-k {
+  margin-right: 4px;
+}
+:is(.conn-row, .conn-acct, .conn-box .sheet-row) .btn-sm {
+  height: 24px;
+}
+.conn-row .btn[aria-expanded="true"] {
+  background: var(--sel);
+  color: var(--fg);
+}
+.conn-go {
+  color: var(--fg);
+}
+.conn-row > .conn-wait {
+  flex: 1 0 100%;
+  padding-bottom: 10px;
+}
+/* What opens under a row: its fields on a raised band, label then input, the loud button last. */
+.conn-open {
+  margin: 0 -16px;
+  padding: 12px 16px 14px;
+  border-bottom: 1px solid var(--line);
+  background: var(--raised);
+}
+.conn-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.conn-fields .field:not(fieldset) {
+  display: grid;
+  grid-template-columns: minmax(96px, 150px) minmax(0, 1fr);
+  align-items: center;
+  gap: 4px 12px;
+}
+.conn-fields .field:not(fieldset) > :not(label) {
+  grid-column: 2;
+}
+.conn-fields .field:not(fieldset) > label {
+  display: block;
+}
+.conn-acts {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+/* The trackers, or the companion and the phone: two columns, one when the panel is narrow. */
+.conn-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(max(300px, calc(50% - 8px)), 1fr));
+  align-items: start;
+  gap: 16px;
+}
+.conn-grid .sheet-h > .hint {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.conn-col {
+  padding-top: 4px;
+}
+/* A tracker with no connection: what it shows, then its sign-in. */
+.conn-new {
+  padding: 14px 16px 16px;
+}
+.conn-new > .hint {
+  margin: 0;
+}
+.conn-signin {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.conn-signin > .conn-wait {
+  flex: 1 0 100%;
+}
+.conn-adds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: -4px;
+}
+.conn-gh > .sheet-row {
+  padding: 0 16px;
+  border-bottom: 0;
+}
+.conn-warn {
+  padding: 4px 16px 16px;
+}
+/* The MCP command, copied whole. */
+.conn-code {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  height: 36px;
+  margin: 12px 0 6px;
+  padding: 0 4px 0 12px;
+  border: 1px solid var(--line2);
+  border-radius: var(--r);
+  background: var(--bg);
+  font-size: 12px;
+}
+.conn-aside {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@container (max-width: 560px) {
+  .conn-fields .field:not(fieldset) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .conn-fields .field:not(fieldset) > :is(label, :not(label)) {
+    grid-column: 1;
+  }
+  .conn-aside {
+    display: none;
+  }
+}
+
+/* Worktrees and Worktree files (WorktreePaths.tsx): a Copied and a Linked box side by side, one path per row, the field adding one under them. */
+.wtp-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+@container (max-width: 720px) {
+  .wtp-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+/* A box title whose full sentence shows on hover. */
+.wtp-help {
+  cursor: help;
+  text-decoration: underline dotted var(--faint);
+  text-underline-offset: 4px;
+}
+.wtp-help:focus-visible {
+  outline: 1px solid var(--fg);
+  outline-offset: 2px;
+}
+.wtp-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 30px;
+  margin-inline: -16px;
+  padding-inline: 16px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+}
+.wtp-row:hover {
+  background: var(--raised);
+}
+.wtp-row > svg {
+  flex: none;
+  color: var(--faint);
+}
+.wtp-inherited {
+  color: var(--faint);
+  cursor: default;
+}
+.wtp-inherited:last-child {
+  border-bottom: 0;
+}
+/* Remove shows on the row under the pointer, and stays reachable from the keyboard. */
+.wtp-x {
+  width: 24px;
+  height: 24px;
+  margin-right: -6px;
+  opacity: 0;
+}
+.wtp-row:hover > .wtp-x,
+.wtp-x:focus-visible {
+  opacity: 1;
+}
+.wtp-none {
+  padding: 8px 0 0;
+  color: var(--faint);
+}
+.wtp-add {
+  display: flex;
+  gap: 8px;
+  padding: 10px 0 4px;
+}
+.wtp-add > .input {
+  min-width: 0;
+  font-size: 12px;
+}
+.wtp-lab {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 8px;
+}
+.wtp-lab > .sheet-val {
+  margin-bottom: 1px;
+  color: var(--muted);
+}
+.wtp-lab > .sheet-val:hover {
+  color: var(--fg);
+}
+@media (pointer: coarse) {
+  .wtp-row {
+    min-height: 40px;
+  }
+  .wtp-x {
+    opacity: 1;
+  }
+}
+
+/* Branch types (BranchTypes.tsx, `sheet`): the shown types in the dialog's rows, a column each, then Not shown and Add a type side by side.
+   Move, remove and an unset pin show on the row under the pointer; a set pin stays. */
+.bty {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.bty[data-dragging],
+.bty[data-dragging] * {
+  cursor: grabbing;
+}
+.bty-lead {
+  max-width: 68ch;
+  margin: 0;
+}
+.bty-one {
+  grid-template-columns: minmax(0, 1fr);
+}
+.bty-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.bty-row {
+  gap: 4px;
+  min-height: 32px;
+  margin-inline: -16px;
+  padding: 0 10px 0 16px;
+  border-bottom: 1px solid var(--line);
+}
+.bty-list > .bty-row:last-child {
+  border-bottom: 0;
+}
+.bty-row:hover {
+  background: var(--raised);
+}
+.bty-row > .type-grip {
+  margin-left: -6px;
+}
+.bty-n {
+  width: 20px;
+  margin-right: 6px;
+  text-align: right;
+  font-size: 11px;
+  color: var(--faint);
+}
+.bty-row > .grow {
+  color: var(--fg);
+  font-weight: 500;
+}
+.bty-row > .grow > .mono {
+  margin-left: 4px;
+  font-size: 12px;
+  font-weight: 400;
+}
+.bty-row[data-hidden] > .grow {
+  color: var(--faint);
+}
+.bty-row > .btn-icon {
+  width: 24px;
+  height: 24px;
+}
+.bty-row > :is(.type-act, .type-pin) {
+  opacity: 0;
+}
+.bty-row:is(:hover, :focus-within) > :is(.type-act, .type-pin),
+.bty-row[data-pinned] > .type-pin {
+  opacity: 1;
+}
+/* Last on the row: the actions that show on hover open to its left, and it never moves. */
+.bty-row > .type-tag {
+  order: 1;
+  height: 22px;
+  padding: 0 6px;
+  border-color: var(--line2);
+  color: var(--fg);
+}
+.bty-under {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+.bty-note {
+  padding: 10px 0 4px;
+}
+.bty-list + .bty-note {
+  margin-inline: -16px;
+  padding-inline: 16px;
+  border-top: 1px solid var(--line);
+}
+.bty-add {
+  gap: 8px;
+  padding-block: 12px;
+}
+.bty-add .input {
+  min-width: 0;
+  font-size: 12px;
+}
+.bty-add p {
+  margin: 0;
+}
+/* The Add button as tall as its field. */
+:is(.wtp-add, .bty-add form) > .btn {
+  height: auto;
+  align-self: stretch;
+}
+@container (max-width: 720px) {
+  .bty .sheet-cols,
+  .bty-under {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .bty .sheet-cols > .sheet-col + .sheet-col {
+    border-left: 0;
+    border-top: 1px solid var(--line);
+  }
+}
+@media (pointer: coarse) {
+  .bty-row {
+    min-height: 40px;
+  }
+  .bty-row > :is(.type-act, .type-pin) {
+    opacity: 1;
+  }
+}
+/* A narrow panel with the row's tools always shown: the release tag goes under its name, so the name keeps its room. */
+@container (max-width: 560px) {
+  .bty-row:has(> .type-tag) {
+    flex-wrap: wrap;
+    padding-bottom: 8px;
+  }
+  .bty-row:has(> .type-tag) > .grow {
+    flex-basis: 0;
+    min-width: 0;
+  }
+  .bty-row:has(> .type-tag)::after {
+    content: "";
+    order: 9;
+    flex-basis: 100%;
+  }
+  .bty-row > .type-tag {
+    order: 10;
+    margin-left: 44px;
+  }
+}
+
+/* Logs (Logs.tsx): this run and the file on disk side by side, then the entries filling the rest of the panel, scrolled inside. */
+.menu-sheet:has(> .lgs) {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.lgs {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.lgs-top {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+.lgs-copy {
+  width: 22px;
+  height: 22px;
+  margin-right: -6px;
+}
+.lgs-entries {
+  flex: 1 1 auto;
+  min-height: 280px;
+}
+.lgs-entries > .sheet-h {
+  align-items: center;
+}
+.lgs-find {
+  width: 220px;
+  height: 28px;
+}
+.lgs-lines {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+  font: 12px/18px var(--mono);
+}
+.lgs-l {
+  display: grid;
+  grid-template-columns: 64px 48px minmax(0, 1fr);
+  gap: 10px;
+  padding: 4px 16px;
+  border-bottom: 1px solid var(--line);
+}
+.lgs-t {
+  color: var(--faint);
+  white-space: nowrap;
+}
+.lgs-lv {
+  color: var(--faint);
+  font: 600 11px/18px var(--sans);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.lgs-m {
+  min-width: 0;
+  color: var(--fg);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.lgs-l[data-done] > .lgs-m {
+  color: var(--muted);
+}
+.lgs-l[data-error] > :is(.lgs-lv, .lgs-m) {
+  color: var(--del-fg);
+}
+.lgs-none {
+  padding: 12px 16px;
+  font-family: var(--sans);
+}
+@container (max-width: 720px) {
+  .lgs-top {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .lgs-entries > .sheet-h {
+    flex-wrap: wrap;
+  }
+  .lgs-entries .sheet-aside {
+    flex-basis: 100%;
+    margin: 4px 0 0;
+  }
+  .lgs-find {
+    flex: 1 1 auto;
+    width: auto;
+    min-width: 0;
+  }
+  .lgs-l {
+    grid-template-columns: 64px minmax(0, 1fr);
+  }
+  .lgs-lv {
+    display: none;
+  }
+}
+.sheet-v.lgs-err {
+  color: var(--del-fg);
 }

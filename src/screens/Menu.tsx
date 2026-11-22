@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 
 import { useAction, useConfig, useProjectPrefs } from "../api/hooks";
 import { currentRemote, isLocal, isTauri, saveRemote } from "../api/transport";
 import type { Config, DialogPrefs, Project, UserProfile } from "../api/types";
-import { MenuChoice } from "../components/AgentPicker";
-import { BranchTypesEditor } from "../components/BranchTypes";
+import { BranchTypesPage } from "../components/BranchTypes";
 import { Icon } from "../components/Icon";
+import { PageToolsSlot, SheetBox, SheetChoice, SheetLabel, SheetLink, SheetSwitch } from "../components/Sheet";
 import { checkUpdate, devVersion } from "../components/UpdatePrompt";
 import { DeleteProfile, ProfileAvatar, ProfileDialog, useProfiles } from "../components/Profiles";
 import { plural } from "../lib/format";
@@ -18,15 +18,13 @@ import { THEMES } from "../lib/themes";
 import { toast } from "../lib/toast";
 import { AISetupPanes } from "./AISetup";
 import { LogsPane } from "./Logs";
-import { GROUPS, Keys, LINK_PLACEHOLDER, PhoneCard, SettingsSection, WorktreeFiles } from "./Settings";
+import { Companion, GitProviders, Integrations, PhoneCard } from "./Connections";
+import { Animations, Appearance, DictationSection, GROUPS, Keys, ShortcutsSection } from "./Settings";
 import { TemplatesPanes } from "./Templates";
+import { ProjectFilesPage, WorktreesSection } from "./WorktreePaths";
 
 /** Titles of the pages opened in place inside the panel, by id: the GROUPS sections, the project's pages and the logs. */
 const TITLES: Record<string, string> = Object.fromEntries([...GROUPS.flatMap(([, items]) => items.map(([id, label]) => [id, label])), ["logs", "Logs"], ["branchTypes", "Branch types"], ["projectFiles", "Worktree files"]]);
-/** Pages of the open project's settings, opened from its box. */
-const PROJECT_PAGES = ["branchTypes", "projectFiles"];
-/** Pages with a list and a detail of their own, shown in a frame instead of as a settings section. */
-const PANES = ["ai", "templates", "logs"];
 
 export function Menu({ onUnpair }: { onUnpair: () => void }) {
   const nav = useNav();
@@ -36,8 +34,16 @@ export function Menu({ onUnpair }: { onUnpair: () => void }) {
   // Pages opened in place inside the panel, newest last; empty shows the menu itself. Back pops one.
   const [views, setViews] = useState<string[]>(() => (nav.menuSection ? [nav.menuSection] : []));
   const view = views[views.length - 1];
-  const open = (id: string) => setViews((vs) => [...vs, id]);
+  // A page under a page ("ai:claude", "templates:<id>") names itself when opened: its provider, its template.
+  const [named, setNamed] = useState<Record<string, string>>({});
+  // Opening the page already shown only renames it (a template renamed in its editor).
+  const open = (id: string, title?: string) => {
+    if (title) setNamed((n) => ({ ...n, [id]: title }));
+    setViews((vs) => (vs[vs.length - 1] === id ? vs : [...vs, id]));
+  };
   const closeBtn = useRef<HTMLButtonElement>(null);
+  // The header spot a page fills with its own actions.
+  const [tools, setTools] = useState<HTMLDivElement | null>(null);
   // The app's own version; a plain browser has no app to ask. A dev build shows the release tag it builds on.
   const [version, setVersion] = useState<string | null>(devVersion ?? null);
   useEffect(() => {
@@ -95,7 +101,7 @@ export function Menu({ onUnpair }: { onUnpair: () => void }) {
             </button>
           )}
           <div className="hdr-title">
-            {view ? <strong>{TITLES[view]}</strong> : <h1 className="hdr-settings">Settings</h1>}
+            {view ? <strong>{TITLES[view] ?? named[view]}</strong> : <h1 className="hdr-settings">Settings</h1>}
             {!view && version && (
               <span className="mono faint hdr-version">
                 v{version}
@@ -103,6 +109,7 @@ export function Menu({ onUnpair }: { onUnpair: () => void }) {
               </span>
             )}
           </div>
+          {view && <div className="hdr-tools" ref={setTools} />}
           {!view && isLocal && (
             <div className="hdr-tools">
               <button className="btn btn-ghost btn-sm" disabled={checking} onClick={check}>
@@ -112,17 +119,14 @@ export function Menu({ onUnpair }: { onUnpair: () => void }) {
           )}
         </header>
         <div className="menu-wrap">
-          {view && PANES.includes(view) ? (
-            <div className="menu">
-              <div className={`menu-grid menu-embed${view === "templates" ? " split" : ""}`}>
-                {view === "ai" && <AISetupPanes />}
-                {view === "templates" && <TemplatesPanes />}
-                {view === "logs" && <LogsPane />}
+          {view ? (
+            // A page opened from the sheet sits on the same ground, in the same width, as the sheet.
+            <main className="menu menu-home" key={view}>
+              <div className="menu-sheet">
+                <PageToolsSlot.Provider value={tools}>
+                  <SettingsPage id={view} cfg={cfg} project={project} open={open} back={back} />
+                </PageToolsSlot.Provider>
               </div>
-            </div>
-          ) : view ? (
-            <main className="page menu-page">
-              <div className="page-inner">{PROJECT_PAGES.includes(view) ? project && <ProjectPage id={view} project={project} /> : cfg && <SettingsSection id={view} cfg={cfg} />}</div>
             </main>
           ) : (
             <nav aria-label="Main menu" className="menu menu-home">
@@ -150,6 +154,26 @@ export function Menu({ onUnpair }: { onUnpair: () => void }) {
       <div className="menu-scrim" onClick={close} aria-hidden="true" />
     </div>
   );
+}
+
+/** A page of the panel, opened from a row of the sheet; `open` opens a page under it, like a provider of AI setup or a template. */
+function SettingsPage({ id, cfg, project, open, back }: { id: string; cfg?: Config; project?: Project; open: (id: string, title?: string) => void; back: () => void }) {
+  const [page, sub] = id.split(/:(.*)/);
+  if (page === "ai") return <AISetupPanes sub={sub} open={open} />;
+  if (page === "templates") return <TemplatesPanes sub={sub} open={open} back={back} />;
+  if (page === "logs") return <LogsPane />;
+  if (page === "appearance") return <Appearance />;
+  if (page === "animations") return <Animations />;
+  if (page === "dictation") return <DictationSection open={open} />;
+  if (page === "shortcuts") return <ShortcutsSection />;
+  if (page === "branchTypes") return project ? <BranchTypesPage key={project.id} project={project} /> : null;
+  if (page === "projectFiles") return project ? <ProjectFilesPage key={project.id} project={project} open={open} /> : null;
+  if (!cfg) return null;
+  if (page === "worktrees") return <WorktreesSection cfg={cfg} open={open} />;
+  if (page === "git") return <GitProviders cfg={cfg} />;
+  if (page === "tools") return <Integrations cfg={cfg} open={open} />;
+  if (page === "companion") return <Companion cfg={cfg} />;
+  return null;
 }
 
 /** The active profile, first of the settings, which are all its own: its actions beside its name, the other profiles to switch to, and new ones. */
@@ -242,83 +266,6 @@ function PhoneSlot({ cfg, onUnpair }: { cfg?: Config; onUnpair: () => void }) {
   );
 }
 
-/**
- * A short label, the full sentence when it leaves words out: shown on hover and on the row's keyboard focus, under the label on a touch screen.
- * `restates`: the sentence only repeats the label in more words, so a touch screen leaves it out.
- */
-function SheetKey({ label, tip, restates }: { label: string; tip?: string; restates?: boolean }) {
-  return (
-    <span className="sheet-k" data-tip-overflow={tip ? undefined : ""}>
-      {label}
-      {tip && !restates && <span className="sheet-tip">{tip}</span>}
-    </span>
-  );
-}
-
-/** A path under the user's home folder starts with ~. */
-const tilde = (path: string) => path.replace(/^(\/home\/[^/]+|\/Users\/[^/]+|[A-Za-z]:\\Users\\[^\\]+)(?=[/\\]|$)/, "~");
-
-/** A box of settings for one scope: this project, the app, AI and connections. */
-function SheetBox({ title, sub, path, className = "", children }: { title: string; sub?: string; path?: string; className?: string; children: ReactNode }) {
-  return (
-    <section className={`sheet-box ${className}`} aria-label={title}>
-      <header className="sheet-h">
-        <h2 className="ellipsis">{title}</h2>
-        {sub && <span className="hint">{sub}</span>}
-        {/* Cut from its start: the end of a path names the project. */}
-        {path && (
-          <span className="mono faint sheet-path" title={path}>
-            <bdi>{tilde(path)}</bdi>
-          </span>
-        )}
-      </header>
-      {children}
-    </section>
-  );
-}
-
-/** A group's name; `tip` says what its settings do, on hover and keyboard focus, under the name on a touch screen. */
-function SheetLabel({ children, tip }: { children: ReactNode; tip?: string }) {
-  return (
-    <>
-      <h3 className="label sheet-lab" data-tip={tip} tabIndex={tip ? 0 : undefined}>
-        {children}
-      </h3>
-      {tip && <p className="hint sheet-lab-tip">{tip}</p>}
-    </>
-  );
-}
-
-/** On or off, flipped in place: the whole row is the switch's label. */
-function SheetSwitch({ label, tip, restates, on, flip, disabled }: { label: string; tip?: string; restates?: boolean; on: boolean; flip: () => void; disabled?: boolean }) {
-  return (
-    <label className="sheet-row" data-tip={tip}>
-      <SheetKey label={label} tip={tip} restates={restates} />
-      <input type="checkbox" role="switch" className="switch" aria-label={tip ?? label} checked={on} disabled={disabled} onChange={flip} />
-    </label>
-  );
-}
-
-/** One of a few values, picked from a menu under it. */
-function SheetChoice({ label, tip, restates, value, options, onChange, sub, mono }: { label: string; tip?: string; restates?: boolean; value: string; options: { value: string; label: string }[]; onChange: (v: string) => void; sub?: boolean; mono?: boolean }) {
-  return (
-    <div className={`sheet-row${sub ? " sub" : ""}`} data-tip={tip}>
-      <SheetKey label={label} tip={tip} restates={restates} />
-      <MenuChoice className={`sheet-val${mono && value === "branch" ? " mono" : ""}`} alignRight label={tip ?? label} value={value} options={options} onChange={onChange} />
-    </div>
-  );
-}
-
-/** A setting with a page of its own, opened in place: its current value, and the arrow of a row that opens. */
-function SheetLink({ label, tip, restates, value, mono, none, onClick }: { label: string; tip?: string; restates?: boolean; value?: ReactNode; mono?: boolean; none?: boolean; onClick: () => void }) {
-  return (
-    <button type="button" className="sheet-row sheet-link" data-tip={tip} onClick={onClick}>
-      <SheetKey label={label} tip={tip} restates={restates} />
-      {value != null && <span className={`sheet-v${mono ? " mono" : ""}${none ? " none" : ""}`}>{value}</span>}
-      <Icon name="chevronRight" size={12} />
-    </button>
-  );
-}
 
 const SPOKEN = [...LANGS, { value: "spoken", label: "Spoken" }];
 
@@ -391,39 +338,6 @@ function ProjectSettings({ project: p, open }: { project: Project; open: (id: st
         </div>
       </div>
     </SheetBox>
-  );
-}
-
-/** The project's pages opened from its box: branch types, and the files copied or linked into its worktrees. */
-function ProjectPage({ id, project: p }: { id: string; project: Project }) {
-  const prefs = useProjectPrefs(p.id);
-  if (id === "branchTypes")
-    return (
-      <>
-        <div className="col page-intro" style={{ gap: 6 }}>
-          <h1>Branch types</h1>
-          <p className="muted" style={{ margin: 0 }}>For {p.name}. What the new branch dialog's Type buttons offer, in this order. A prefix typed in a branch name that is not listed joins them when the branch is created, after the pinned ones.</p>
-        </div>
-        <BranchTypesEditor key={p.id} pid={p.id} />
-      </>
-    );
-  return (
-    <>
-      <div className="col page-intro" style={{ gap: 6 }}>
-        <h1>Worktree files</h1>
-        <p className="muted" style={{ margin: 0 }}>For {p.name}. Git leaves ignored files out of a new worktree. The ones in App › Worktrees are copied or linked for every project too.</p>
-      </div>
-      <section className="section">
-        <h2>Copied</h2>
-        <p className="hint" style={{ margin: 0 }}>Copied from the main checkout into each new worktree, one path from the project root per line: a knowledge graph, .env, local settings.</p>
-        <WorktreeFiles key={p.id} files={prefs.worktreeFiles} onSave={prefs.setWorktreeFiles} />
-      </section>
-      <section className="section">
-        <h2>Linked</h2>
-        <p className="hint" style={{ margin: 0 }}>Linked, not copied: the worktree reads and writes the main checkout's own, so it takes no space and changes show in both. For big folders shared by every branch. On Windows, folders need Developer Mode on. A path in both lists is linked.</p>
-        <WorktreeFiles key={p.id} files={prefs.worktreeLinks} onSave={prefs.setWorktreeLinks} label="Worktree links" placeholder={LINK_PLACEHOLDER} />
-      </section>
-    </>
   );
 }
 

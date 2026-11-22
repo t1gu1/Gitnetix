@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en" data-theme="dark"><head><meta charset="utf-8">
+<title>Settings sub-page mocks: Ticket trackers</title>
+<link href="https://fonts.googleapis.com/css2?family=Antonio:wght@400;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="base.css">
+<style>
+/* A · Sheet */
+#mock-a .top{display:flex;align-items:baseline;gap:16px;margin-bottom:16px}
+#mock-a .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+#mock-a .box-h .sp+.btn{margin:-6px -6px -6px 0}
+#mock-a .empty{padding:16px;display:flex;flex-direction:column;gap:10px;align-items:flex-start}
+#mock-a .gh{margin-top:16px}
+#mock-a .gh .row{padding:0 16px;border-bottom:0}
+#mock-a .k.tipped{flex:0 0 auto;border-bottom:1px dotted var(--faint)}
+/* B · Split */
+#mock-b .split{display:grid;grid-template-columns:300px 1fr;height:100%}
+#mock-b .rail{display:flex;flex-direction:column}
+#mock-b .rail .lab{padding:16px 16px 6px}
+#mock-b .li{padding:10px 16px}
+#mock-b .li .nm{font-weight:500}
+#mock-b .li .sub.st-ok{color:var(--add)}
+#mock-b .add{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:4px 16px 16px}
+#mock-b .add .btn{justify-content:flex-start}
+#mock-b .rail-foot{margin-top:auto;padding:14px 16px;border-top:1px solid var(--line);display:flex;gap:10px;align-items:flex-start;color:var(--faint);font-size:12px;line-height:17px}
+#mock-b .det{padding:24px 32px;overflow:auto;display:flex;flex-direction:column;gap:20px}
+#mock-b .det-h{display:flex;align-items:center;gap:14px}
+#mock-b .det-h .mark{width:40px;height:40px;font-size:12px}
+#mock-b .grp{display:flex;flex-direction:column;gap:8px}
+#mock-b .grp-h{display:flex;align-items:baseline;gap:10px}
+#mock-b .grp-h b{font-weight:500}
+#mock-b .checks{display:grid;grid-template-columns:repeat(3,1fr);border:1px solid var(--line2);border-radius:var(--r)}
+#mock-b .checks>span{display:flex;align-items:center;gap:10px;height:36px;padding:0 12px;border-bottom:1px solid var(--line)}
+#mock-b .checks>span:nth-last-child(-n+3){border-bottom:0}
+#mock-b .checks>span:not(:nth-child(3n+1)){border-left:1px solid var(--line)}
+#mock-b .actions{display:flex;gap:8px;align-items:center;padding-top:4px}
+/* C · Preview */
+#mock-c .prev{border:1px solid var(--line2);border-radius:var(--r)}
+#mock-c .prev-h{display:flex;align-items:baseline;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line2)}
+#mock-c .tk{display:grid;grid-template-columns:96px 1fr 220px 92px 120px;align-items:center;gap:12px;height:44px;padding:0 16px;border-bottom:1px solid var(--line)}
+#mock-c .tk:last-child{border-bottom:0}
+#mock-c .tk .id{font:500 12px var(--mono);color:var(--muted)}
+#mock-c .tk .t{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#mock-c .tk .br{font:12px var(--mono);color:var(--muted);display:flex;align-items:center;gap:6px;white-space:nowrap}
+#mock-c .tk .rel{font:12px var(--mono);color:var(--fg)}
+#mock-c .tk .src{color:var(--faint);font-size:12px;text-align:right}
+#mock-c .h2{display:flex;align-items:baseline;gap:12px;margin:28px 0 12px}
+#mock-c .trk{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid var(--line2);border-radius:var(--r)}
+#mock-c .trk>div{padding:16px;display:flex;flex-direction:column;gap:10px;min-height:196px}
+#mock-c .trk>div+div{border-left:1px solid var(--line2)}
+#mock-c .trk .on{background:var(--raised)}
+#mock-c .trk .nm{font-weight:600}
+#mock-c .trk .kv{display:flex;justify-content:space-between;gap:8px;font-size:12px;border-bottom:1px solid var(--line);padding-bottom:6px}
+#mock-c .trk .kv>span:first-child{color:var(--muted)}
+#mock-c .trk .btns{margin-top:auto;display:flex;flex-direction:column;gap:6px;align-items:flex-start}
+#mock-c .foot{display:flex;gap:10px;align-items:center;margin-top:16px;color:var(--faint);font-size:12px}
+</style>
+</head><body>
+
+<section class="mock" id="mock-a">
+  <div class="cap"><b>A · Sheet</b><span>A box per tracker: a connection's site, account, filters and projects as rows; a tracker with none shows its sign-in. GitHub issues as the last row.</span></div>
+  <div class="panel" data-title="Jira, Trello, Asana, Linear">
+    <div class="pg">
+      <div class="top"><p class="lead">Tickets show in Tickets, linked to their branch and release.</p><span class="sp"></span><span class="hint row-flex"><i data-i="lock" data-s="12"></i>Tokens stay in your OS keychain</span></div>
+      <div class="grid">
+        <div class="box">
+          <div class="box-h"><h2>Jira</h2><span class="hint st-ok">Connected as Sam Lee</span><span class="sp"></span><button class="btn btn-xs">Disconnect</button></div>
+          <div class="box-b">
+            <div class="row"><span class="k">Site</span><span class="v mono">yourteam.atlassian.net</span></div>
+            <div class="row"><span class="k">Signed in with</span><span class="v">Atlassian</span></div>
+            <div class="row hov"><span class="k tipped">JQL</span><span class="sp"></span><span class="v none">None</span><i data-i="chevR" data-s="12"></i></div>
+            <div class="row"><span class="k">Jira projects</span><span class="v">ATL, WEB</span><i data-i="chevR" data-s="12"></i></div>
+            <div class="row"><span class="k">Show in</span><span class="v">Every project</span><i data-i="chevR" data-s="12"></i></div>
+            <div class="row"><span class="k">Replace with an API token</span><i data-i="chevR" data-s="12"></i></div>
+          </div>
+        </div>
+        <div class="box">
+          <div class="box-h"><h2>Linear</h2><span class="hint st-ok">Connected as Sam Lee</span><span class="sp"></span><button class="btn btn-xs">Disconnect</button></div>
+          <div class="box-b">
+            <div class="row"><span class="k">Workspace</span><span class="v">Acme</span></div>
+            <div class="row"><span class="k">Signed in with</span><span class="v">Linear</span></div>
+            <div class="row"><span class="k">Linear teams</span><span class="v">Platform, Mobile</span><i data-i="chevR" data-s="12"></i></div>
+            <div class="row"><span class="k">Show in</span><span class="v">lineage-app</span><i data-i="chevR" data-s="12"></i></div>
+            <div class="row"><span class="k">Replace with a personal API key</span><i data-i="chevR" data-s="12"></i></div>
+          </div>
+        </div>
+        <div class="box">
+          <div class="box-h"><h2>Trello</h2><span class="hint">Not connected</span></div>
+          <div class="empty"><span class="hint">Cards assigned to you, or from the boards you pick.</span><div class="row-flex"><button class="btn btn-primary">Sign in with Trello</button><button class="btn btn-sm btn-ghost">Use an API key and token instead</button></div></div>
+        </div>
+        <div class="box">
+          <div class="box-h"><h2>Asana</h2><span class="hint">Not connected</span></div>
+          <div class="empty"><span class="hint">Tasks from one workspace and the projects you pick.</span><div class="row-flex"><button class="btn btn-primary">Sign in with Asana</button><button class="btn btn-sm btn-ghost">Use a personal access token instead</button></div></div>
+        </div>
+      </div>
+      <div class="row-flex" style="margin-top:12px;gap:8px"><button class="btn btn-sm"><i data-i="plus" data-s="12"></i>Another Jira site</button><button class="btn btn-sm"><i data-i="plus" data-s="12"></i>Another Linear workspace</button></div>
+      <div class="box gh"><div class="row"><span class="mark" style="width:22px;height:22px;font-size:9px">GH</span><span class="k">GitHub issues</span><span class="hint">Board column and labels, through the GitHub account</span><span class="v">From Git providers</span><i data-i="chevR" data-s="12"></i></div></div>
+    </div>
+    <div class="tip" style="left:48px;top:276px">Optional Jira query that narrows the tickets, like <span class="mono" style="font-variant-ligatures:none">project = ATL AND statusCategory != Done</span></div>
+  </div>
+</section>
+
+<section class="mock" id="mock-b">
+  <div class="cap"><b>B · Split</b><span>Connections on the left, add one under them; the picked connection on the right with its places and projects to tick, Save last.</span></div>
+  <div class="panel" data-title="Jira, Trello, Asana, Linear">
+    <div class="pg flush">
+      <div class="split">
+        <div class="rail">
+          <div class="lab">Connections</div>
+          <div class="li"><span class="mark">JR</span><span style="min-width:0"><span class="nm">Jira Cloud</span><span class="sub st-ok">yourteam.atlassian.net</span></span></div>
+          <div class="li on"><span class="mark" style="color:var(--fg);border-color:var(--fg)">LN</span><span style="min-width:0"><span class="nm">Linear · Acme</span><span class="sub st-ok">Connected as Sam Lee</span></span><span class="sp"></span><i data-i="chevR" data-s="12"></i></div>
+          <div class="lab">Add a connection</div>
+          <div class="add">
+            <button class="btn btn-sm"><i data-i="plus" data-s="12"></i>Jira</button>
+            <button class="btn btn-sm"><i data-i="plus" data-s="12"></i>Trello</button>
+            <button class="btn btn-sm"><i data-i="plus" data-s="12"></i>Asana</button>
+            <button class="btn btn-sm"><i data-i="plus" data-s="12"></i>Linear</button>
+          </div>
+          <div class="rail-foot"><i data-i="info" data-s="12"></i><span>GitHub issues need no connection here: a project whose origin is on GitHub shows its issues, with their project board column and labels, through the account under Git providers.</span></div>
+        </div>
+        <div class="det">
+          <div class="det-h"><span class="mark">LN</span><div style="flex:1"><h3 class="h" style="font-size:16px">Linear · Acme</h3><span class="hint st-ok">Connected as Sam Lee</span><span class="hint"> · signed in with Linear</span></div><button class="btn btn-sm">Disconnect</button></div>
+          <div class="grp">
+            <div class="grp-h"><b>Linear teams</b><span class="hint">None ticked = every team.</span></div>
+            <div class="checks">
+              <span><i class="ck on"><i data-i="check" data-s="12"></i></i>Platform</span>
+              <span><i class="ck on"><i data-i="check" data-s="12"></i></i>Mobile</span>
+              <span><i class="ck"></i>Design</span>
+              <span><i class="ck"></i>Growth</span>
+              <span><i class="ck"></i>Infra</span>
+              <span><i class="ck"></i>Support</span>
+            </div>
+          </div>
+          <div class="grp">
+            <div class="grp-h"><b>Show in these projects</b><span class="hint">None ticked = every project.</span></div>
+            <div class="checks">
+              <span><i class="ck on"><i data-i="check" data-s="12"></i></i>lineage-app</span>
+              <span><i class="ck"></i>api-gateway</span>
+              <span><i class="ck"></i>docs-site</span>
+            </div>
+          </div>
+          <div class="grp">
+            <div class="grp-h"><b>Personal API key</b><span class="hint">Signed in with Linear: no key needed.</span></div>
+            <div><button class="btn btn-sm">Replace with a personal API key</button></div>
+          </div>
+          <div class="actions"><span class="sp"></span><span class="hint">2 teams in lineage-app</span><button class="btn btn-primary">Save</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="mock" id="mock-c">
+  <div class="cap"><b>C · Preview</b><span>The result first: tickets as they arrive in Tickets with their branch and release; then the four trackers side by side, connected ones with their filters.</span></div>
+  <div class="panel" data-title="Jira, Trello, Asana, Linear">
+    <div class="pg">
+      <div class="prev">
+        <div class="prev-h"><h3 class="h">In Tickets</h3><span class="hint">The latest from your connections, linked to their branch and release</span></div>
+        <div class="tk"><span class="id">ATL-142</span><span class="t">Retry failed webhook deliveries</span><span class="br"><i data-i="branch" data-s="12"></i>feat/webhook-retry</span><span class="rel">v0.33.0</span><span class="src">Jira · ATL</span></div>
+        <div class="tk"><span class="id">PLA-88</span><span class="t">Cache branch views per ref fingerprint</span><span class="br"><i data-i="branch" data-s="12"></i>perf/view-cache</span><span class="rel">v0.33.0</span><span class="src">Linear · Platform</span></div>
+        <div class="tk"><span class="id">WEB-31</span><span class="t">Settings sub-pages read like the home sheet</span><span class="br faint" style="font-family:var(--sans)"><i data-i="branch" data-s="12"></i>No branch yet</span><span class="rel faint">None</span><span class="src">Jira · WEB</span></div>
+        <div class="tk"><span class="id">#412</span><span class="t">Phone pairing fails behind a proxy</span><span class="br"><i data-i="branch" data-s="12"></i>fix/pair-proxy</span><span class="rel">v0.32.1</span><span class="src">GitHub issues</span></div>
+      </div>
+      <div class="h2"><h3 class="h">Trackers</h3><span class="hint">Tokens go to your OS keychain.</span></div>
+      <div class="trk">
+        <div class="on"><div class="row-flex"><span class="mark" style="color:var(--fg);border-color:var(--fg)">JR</span><span class="sp"></span><span class="hint st-ok">Connected</span></div><div class="nm">Jira</div>
+          <div class="kv"><span>Site</span><span class="mono">yourteam.atlassian.net</span></div><div class="kv"><span>Projects</span><span>ATL, WEB</span></div><div class="kv"><span>JQL</span><span class="faint">None</span></div>
+          <div class="btns"><button class="btn btn-xs">Edit filters</button><button class="btn btn-xs btn-ghost">Disconnect</button></div></div>
+        <div class="on"><div class="row-flex"><span class="mark" style="color:var(--fg);border-color:var(--fg)">LN</span><span class="sp"></span><span class="hint st-ok">Connected</span></div><div class="nm">Linear</div>
+          <div class="kv"><span>Workspace</span><span>Acme</span></div><div class="kv"><span>Teams</span><span>Platform, Mobile</span></div><div class="kv"><span>Show in</span><span>lineage-app</span></div>
+          <div class="btns"><button class="btn btn-xs">Edit filters</button><button class="btn btn-xs btn-ghost">Disconnect</button></div></div>
+        <div><div class="row-flex"><span class="mark">TR</span><span class="sp"></span><span class="hint faint">Not connected</span></div><div class="nm">Trello</div><span class="hint">Cards assigned to you, or from the boards you pick.</span>
+          <div class="btns"><button class="btn btn-sm" style="color:var(--fg)">Sign in with Trello</button><button class="btn btn-xs btn-ghost">API key and token</button></div></div>
+        <div><div class="row-flex"><span class="mark">AS</span><span class="sp"></span><span class="hint faint">Not connected</span></div><div class="nm">Asana</div><span class="hint">Tasks from one workspace and the projects you pick.</span>
+          <div class="btns"><button class="btn btn-sm" style="color:var(--fg)">Sign in with Asana</button><button class="btn btn-xs btn-ghost">Personal access token</button></div></div>
+      </div>
+      <div class="foot"><i data-i="info" data-s="12"></i><span>GitHub issues need no connection here: they come through the account under Git providers.</span><span class="sp"></span><button class="btn btn-xs"><i data-i="plus" data-s="12"></i>Another Jira site or Linear workspace</button></div>
+    </div>
+  </div>
+</section>
+<script src="themes.js"></script>
+<script src="base.js"></script>
+</body></html>

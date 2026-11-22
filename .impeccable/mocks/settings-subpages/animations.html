@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en" data-theme="dark"><head><meta charset="utf-8">
+<title>Settings sub-page mocks: Animations</title>
+<link href="https://fonts.googleapis.com/css2?family=Antonio:wght@400;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="base.css">
+<style>
+/* demo stages: each animation acted out in small (shared by B and C) */
+.stage{position:relative;overflow:hidden;background:var(--bg);border:1px solid var(--line);border-radius:var(--r)}
+.d-line{position:absolute;left:50%;top:14%;bottom:14%;width:1.5px;background:var(--line2)}
+.d-line::after{content:"";position:absolute;left:0;width:1.5px;height:34%;background:var(--fg);animation:streak 1.8s cubic-bezier(.2,.7,.2,1) infinite}
+@keyframes streak{from{top:-34%}to{top:100%}}
+.d-name{position:absolute;inset:0;display:grid;place-items:center;font:500 13px var(--mono);color:var(--fg)}
+.d-name span{position:relative;overflow:hidden;padding:2px 4px}
+.d-name span::after{content:"";position:absolute;top:0;bottom:0;width:30%;background:color-mix(in srgb,var(--fg) 26%,transparent);animation:sweep 2.2s ease-in-out infinite}
+@keyframes sweep{from{left:-35%}to{left:110%}}
+.d-push{position:absolute;inset:0;display:grid;place-items:center}
+.d-push .btn{animation:nudge 1.6s ease-in-out infinite}
+@keyframes nudge{0%,60%,100%{transform:none}66%{transform:translateX(-3px)}74%{transform:translateX(3px)}82%{transform:translateX(-2px)}90%{transform:translateX(1px)}}
+.d-wip{position:absolute;inset:0;display:grid;place-items:center}
+.d-wip .tag{animation:breathe 1.8s ease-in-out infinite}
+@keyframes breathe{50%{opacity:.35}}
+.d-act{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;gap:10px;color:var(--muted);font-size:12px}
+.d-act i{position:relative;width:7px;height:7px;border-radius:50%;background:var(--g1)}
+.d-act i::after{content:"";position:absolute;inset:-4px;border-radius:50%;border:1px solid var(--g1);animation:ring 1.4s ease-out infinite}
+@keyframes ring{from{transform:scale(.5);opacity:1}to{transform:scale(1.5);opacity:0}}
+.d-tabs{position:absolute;left:12%;right:12%;top:50%;transform:translateY(-50%);display:flex;gap:6px}
+.d-tabs b{flex:1;height:22px;border:1px solid var(--line2);border-radius:var(--r-sm);background:var(--panel)}
+.d-tabs b:nth-child(2){background:var(--sel);border-color:var(--muted);animation:drag 2s cubic-bezier(.3,1.5,.5,1) infinite}
+@keyframes drag{0%,15%{transform:none}50%,65%{transform:translateX(105%) scale(1.06)}100%{transform:none}}
+.d-menu{position:absolute;top:0;bottom:0;right:0;width:46%;background:var(--panel);border-left:1px solid var(--line2);animation:slidein 2s cubic-bezier(.2,.8,.2,1) infinite}
+@keyframes slidein{0%{transform:translateX(100%)}35%,80%{transform:none}100%{transform:translateX(100%)}}
+.d-page{position:absolute;inset:18% 16%;display:flex;flex-direction:column;gap:6px;animation:fadeup 2s cubic-bezier(.2,.8,.2,1) infinite}
+.d-page b{height:6px;border-radius:2px;background:var(--line2)}
+.d-page b:first-child{width:40%;background:var(--muted)}
+@keyframes fadeup{0%{opacity:0;transform:translateY(8px)}40%,100%{opacity:1;transform:none}}
+.d-list{position:absolute;inset:16% 18%;display:flex;flex-direction:column;gap:6px}
+.d-list b{height:8px;border-radius:2px;background:var(--line2);animation:fadeup 2.4s cubic-bezier(.2,.8,.2,1) infinite}
+.d-list b:nth-child(2){animation-delay:.12s;width:80%}.d-list b:nth-child(3){animation-delay:.24s;width:60%}.d-list b:nth-child(4){animation-delay:.36s;width:70%}
+.d-dialog{position:absolute;left:24%;right:24%;top:22%;bottom:22%;border:1px solid var(--line2);border-radius:var(--r);background:var(--panel);animation:pop 2s cubic-bezier(.2,1.2,.4,1) infinite}
+@keyframes pop{0%{transform:scale(.92);opacity:0}25%,100%{transform:none;opacity:1}}
+.d-min{position:absolute;left:24%;right:24%;top:18%;bottom:26%;border:1px solid var(--line2);border-radius:var(--r);background:var(--panel);transform-origin:0 100%;animation:shrink 2.4s cubic-bezier(.5,0,.2,1) infinite}
+@keyframes shrink{0%,20%{transform:none}60%,100%{transform:translate(-80%,40%) scale(.18)}}
+.d-panes{position:absolute;inset:16% 12%;display:flex;overflow:hidden;border:1px solid var(--line2);border-radius:var(--r)}
+.d-panes b{flex:0 0 100%;background:var(--panel);animation:pan 2.4s cubic-bezier(.2,.8,.2,1) infinite}
+.d-panes b+b{background:var(--raised)}
+@keyframes pan{0%,30%{transform:none}55%,100%{transform:translateX(-100%)}}
+.d-hl{position:absolute;left:14%;right:14%;top:50%;transform:translateY(-50%);display:flex;justify-content:space-between;color:var(--muted);font-size:12px;padding-bottom:6px}
+.d-hl::after{content:"";position:absolute;bottom:0;left:0;width:30%;height:2px;background:var(--fg);animation:hl 2.4s cubic-bezier(.2,.8,.2,1) infinite}
+@keyframes hl{0%,25%{left:0}50%,75%{left:70%}100%{left:0}}
+.d-tip{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px}
+.d-tip span{padding:3px 8px;border:1px solid var(--line2);border-radius:var(--r);background:var(--raised);font-size:11px;animation:breathe 2s ease-in-out infinite}
+.d-tip b{width:44px;height:6px;border-radius:2px;background:var(--muted)}
+.d-fold{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;gap:8px;color:var(--muted);font-size:12px}
+.d-fold svg{animation:turn 2s cubic-bezier(.2,.8,.2,1) infinite}
+@keyframes turn{0%,30%{transform:none}50%,80%{transform:rotate(90deg)}100%{transform:none}}
+.d-wave{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;gap:3px}
+.d-wave b{width:3px;height:22px;border-radius:2px;background:var(--fg);animation:wave 1s ease-in-out infinite}
+.d-wave b:nth-child(2n){animation-delay:.15s}.d-wave b:nth-child(3n){animation-delay:.3s}.d-wave b:nth-child(5n){animation-delay:.45s}
+@keyframes wave{0%,100%{transform:scaleY(.25)}50%{transform:scaleY(1)}}
+
+/* A */
+#mock-a .top{display:flex;align-items:center;gap:12px;margin-bottom:16px}
+#mock-a .count{font:600 30px/30px var(--display);color:var(--fg)}
+#mock-a .cols>.box-b{padding-bottom:8px}
+#mock-a .row{cursor:pointer}
+#mock-a .wide{grid-column:1/-1}
+#mock-a .tri{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}
+#mock-a .tri>.box-b+.box-b{border-left:1px solid var(--line)}
+#mock-a .foot{display:flex;align-items:center;gap:8px;margin-top:12px;color:var(--faint);font-size:12px}
+
+/* B */
+#mock-b .split{display:grid;grid-template-columns:360px 1fr;height:100%}
+#mock-b .rail-h{display:flex;align-items:center;gap:8px;padding:12px 16px;border-bottom:1px solid var(--line)}
+#mock-b .li{min-height:40px;padding:6px 16px}
+#mock-b .li .n{flex:1}
+#mock-b .li.off .n{color:var(--faint)}
+#mock-b .detail{padding:28px 32px;display:flex;flex-direction:column;gap:16px}
+#mock-b .stage{height:300px}
+#mock-b .d-line{width:2px}
+#mock-b .d-line::after{width:2px}
+#mock-b .bst{position:absolute;left:calc(50% - 5px);width:11px;height:11px;border-radius:50%;border:1.5px solid var(--fg);background:var(--bg)}
+#mock-b .blab{position:absolute;left:calc(50% + 16px);font:12px var(--mono);color:var(--fg)}
+#mock-b .meta{display:flex;align-items:center;gap:12px}
+#mock-b .where{border:1px solid var(--line2);border-radius:var(--r)}
+#mock-b .where .row{padding:0 14px}
+
+/* C */
+#mock-c .pg{display:flex;flex-direction:column;gap:16px}
+#mock-c .bar{display:flex;align-items:center;gap:10px}
+#mock-c .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+#mock-c .card{border:1px solid var(--line2);border-radius:var(--r);display:flex;flex-direction:column}
+#mock-c .card .stage{height:92px;border:0;border-bottom:1px solid var(--line);border-radius:var(--r) var(--r) 0 0}
+#mock-c .card .row{padding:0 10px;border:0;min-height:36px}
+#mock-c .card .k{color:var(--fg)}
+#mock-c .card.off .stage>*{animation-play-state:paused!important;opacity:.35}
+#mock-c .card.off .stage *{animation-play-state:paused!important}
+#mock-c .card.off .k{color:var(--faint)}
+</style>
+</head><body>
+<section class="mock" id="mock-a">
+  <div class="cap"><b>A · Sheet</b><span>Sixteen switches in three short-label columns grouped as signals, moving around and appearing; the long description on hover.</span></div>
+  <div class="panel" data-title="Animations">
+    <div class="pg">
+      <div class="top">
+        <span class="count">15<span class="faint" style="font-size:20px"> / 16</span></span>
+        <span class="hint">on, for every project</span>
+        <span class="sp"></span>
+        <button class="btn">Turn all on</button><button class="btn">Turn all off</button>
+      </div>
+      <div class="box">
+        <div class="box-h"><h2>Motion</h2><span class="hint">With reduced motion on in your system settings, they all stay off.</span></div>
+        <div class="tri">
+          <div class="box-b">
+            <div class="lab">Signals</div>
+            <div class="row"><span class="k">Branch path pulse</span><span class="sw on"></span></div>
+            <div class="row"><span class="k">Current branch shine</span><span class="sw on"></span></div>
+            <div class="row"><span class="k">Push button nudge</span><span class="sw on"></span></div>
+            <div class="row"><span class="k">WIP badge pulse</span><span class="sw"></span></div>
+            <div class="row"><span class="k">Activity pulse</span><span class="sw on"></span></div>
+            <div class="row"><span class="k">Dictation wave</span><span class="sw on"></span></div>
+          </div>
+          <div class="box-b">
+            <div class="lab">Moving around</div>
+            <div class="row"><span class="k">Project tab drag</span><span class="sw on"></span></div>
+            <div class="row"><span class="k">Menu slide</span><span class="sw on"></span></div>
+            <div class="row"><span class="k">Page fade</span><span class="sw on"></span></div>
+            <div class="row"><span class="k">Tab highlight slide</span><span class="sw on"></span></div>
+            <div class="row hov"><span class="k">Panel slide</span><span class="sw on"></span></div>
+          </div>
+          <div class="box-b">
+            <div class="lab">Appearing</div>
+            <div class="row"><span class="k">List entrances</span><span class="sw on"></span></div>
+            <div class="row"><span class="k">Dialog pop</span><span class="sw on"></span></div>
+            <div class="row"><span class="k">Minimize to the corner</span><span class="sw on"></span></div>
+            <div class="row"><span class="k">Tooltip fade</span><span class="sw on"></span></div>
+            <div class="row"><span class="k">Folding arrows</span><span class="sw on"></span></div>
+          </div>
+        </div>
+      </div>
+      <div class="foot"><i data-i="info"></i>Hover a name for what it moves. A click anywhere on a row flips it.</div>
+      <div class="tip" style="left:392px;top:346px;max-width:320px">On mobile, a branch's Timeline and Code panels sliding in when switching between them</div>
+    </div>
+  </div>
+</section>
+
+<section class="mock" id="mock-b">
+  <div class="cap"><b>B · Split</b><span>The list of switches on the left; the picked animation plays on the right with its full description.</span></div>
+  <div class="panel" data-title="Animations" data-tools='<button class="btn btn-sm">Turn all on</button><button class="btn btn-sm">Turn all off</button>'>
+    <div class="pg flush">
+      <div class="split">
+        <div class="rail">
+          <div class="rail-h"><span class="hint">15 of 16 on</span><span class="sp"></span><span class="hint faint">reduced motion turns all off</span></div>
+          <div class="list" id="b-list"></div>
+        </div>
+        <div class="detail">
+          <div class="meta"><h3 class="h" style="font-size:16px">Branch path pulse</h3><span class="sp"></span><span class="hint">On</span><span class="sw on"></span></div>
+          <div class="stage"><span class="d-line"></span><span class="bst" style="top:22%"></span><span class="blab" style="top:calc(22% - 7px)">feat/undo-stack</span><span class="bst" style="top:62%"></span><span class="blab faint" style="top:calc(62% - 7px)">main</span></div>
+          <p class="lead">The streak running down the checked-out branch's line on the branch map.</p>
+          <div class="where">
+            <div class="row"><span class="k">Shows on</span><span class="v">Branch map</span></div>
+            <div class="row" style="border:0"><span class="k">Preview</span><button class="btn btn-xs"><i data-i="refresh" data-s="12"></i>Play again</button></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="mock" id="mock-c">
+  <div class="cap"><b>C · Preview</b><span>Every animation plays in its own small stage; a switched-off one freezes and fades, so the page shows what you get.</span></div>
+  <div class="panel" data-title="Animations">
+    <div class="pg">
+      <div class="bar">
+        <span class="hint">For every project. With reduced motion on in your system settings, they all stay off.</span>
+        <span class="sp"></span>
+        <button class="btn">Turn all on</button><button class="btn">Turn all off</button>
+      </div>
+      <div class="grid" id="c-grid"></div>
+    </div>
+  </div>
+</section>
+<script>
+const A = [
+  ["Branch path pulse", '<span class="d-line"></span>'],
+  ["Current branch shine", '<div class="d-name"><span>feat/undo-stack</span></div>'],
+  ["Push button nudge", '<div class="d-push"><button class="btn btn-sm"><svg class="i s12" viewBox="0 0 16 16"><path d="M8 13V3M4 7l4-4 4 4"/></svg>Push 2</button></div>'],
+  ["WIP badge pulse", '<div class="d-wip"><span class="tag">WIP 3</span></div>', true],
+  ["Activity pulse", '<div class="d-act"><i></i>Agent working</div>'],
+  ["Project tab drag", '<div class="d-tabs"><b></b><b></b><b></b></div>'],
+  ["Menu slide", '<span class="d-menu"></span>'],
+  ["Page fade", '<div class="d-page"><b></b><b></b><b></b><b></b></div>'],
+  ["List entrances", '<div class="d-list"><b></b><b></b><b></b><b></b></div>'],
+  ["Dialog pop", '<span class="d-dialog"></span>'],
+  ["Minimize to the corner", '<span class="d-min"></span>'],
+  ["Panel slide", '<div class="d-panes"><b></b><b></b></div>'],
+  ["Tab highlight slide", '<div class="d-hl"><span>Workspace</span><span>Tickets</span><span>Releases</span></div>'],
+  ["Tooltip fade", '<div class="d-tip"><span>Copy the path</span><b></b></div>'],
+  ["Folding arrows", '<div class="d-fold"><svg class="i s12" viewBox="0 0 16 16"><path d="M6 4l4 4-4 4"/></svg>3 commits</div>'],
+  ["Dictation wave", '<div class="d-wave">' + "<b></b>".repeat(9) + "</div>"],
+];
+document.getElementById("b-list").innerHTML = A.map(([n, , off], i) => `<div class="li${i === 0 ? " on" : ""}${off ? " off" : ""}"><span class="n">${n}</span><span class="sw${off ? "" : " on"}"></span></div>`).join("");
+document.getElementById("c-grid").innerHTML = A.map(([n, d, off]) => `<div class="card${off ? " off" : ""}"><div class="stage">${d}</div><div class="row"><span class="k">${n}</span><span class="sw${off ? "" : " on"}"></span></div></div>`).join("");
+</script>
+<script src="base.js"></script>
+</body></html>

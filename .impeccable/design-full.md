@@ -673,7 +673,7 @@ The Black & White pair highlights code in its two inks: keywords and types bold 
 Character: one loud condensed voice for the few numbers and versions that matter; everything else is small, even and tabular.
 
 ### Hierarchy
-- **Display** (Antonio 600, 30px, line-height 1): the next release in its box on the branch map (`v0.6.0`) and on a ticket's Release station.
+- **Display** (Antonio 600, 30px, line-height 1): the next release in its box on the branch map (`v0.6.0`) and on a ticket's Release station; uppercase with 0.02em tracking, the current theme's name on the Appearance page.
 - **Display Title** (Antonio 600, 18px, line-height 1, 0.06em tracking, uppercase): screen titles at the left of the toolbar (BRANCH MAP).
 - **Page Title** (Antonio 600, 24px, line-height 1, 0.05em tracking, uppercase): the title of a full page (Analytics, Tickets, Templates, AI setup). **Hero Title** (Antonio 600, 32px, 0.04em, uppercase): the welcome screen's heading.
 - **Display Numeral** (Antonio 600, 44px, line-height 1): headline counts with a Label caption under them (Ahead / Behind / WIP files on the selected card; KPI values in Analytics, Sprints, Weekly).
@@ -692,7 +692,7 @@ Character: one loud condensed voice for the few numbers and versions that matter
 All numbers use `font-variant-numeric: tabular-nums`. Nothing functional is set below 11px.
 
 ### Named Rules
-**The One Loud Voice Rule.** Antonio is used only for screen and page titles, the welcome heading, the next release and headline numerals. Shipped versions read in Mono. Never Antonio for body, buttons, labels or branch names.
+**The One Loud Voice Rule.** Antonio is used only for screen and page titles, the welcome heading, the next release, headline numerals and the current theme's name on the Appearance page. Shipped versions read in Mono. Never Antonio for body, buttons, labels or branch names.
 
 **The Mono Rule.** Mono is for what a machine hands back: paths, SHAs, refs, URLs and code, plus the Count role's tabular numbers and key caps. Plain words are never Mono: menu hints, captions and sentences are Inter, and a hint or sentence that holds a SHA or path wraps only that string in Mono (the menus' Copy SHA hint, the stale-remote box's submodule names).
 
@@ -849,10 +849,24 @@ A menu item's hint sits at the right end of its row, 12px from the label, in Int
 
 ### Settings panel
 The panel's home is a spec sheet: every setting is a short label and its current value, changed in place. Its header is the screen title, SETTINGS in Display Title, with the version beside it in Mono 11px faint. On top, the profile card (64px avatar, name with Edit, Duplicate and Delete at top right, identity, note, other profiles) sits beside the "Gitnetix on your phone" card with its QR code. Below, a box per scope: the open project over two columns, the app and AI & connections stacked in the third, all ending on one line, and a row under them with Remove project and Logs.
-- **Box:** panel fill on the ground, 1px hairline-strong border, 3px corners; its head is the scope's name (Inter 14px 600), a faint hint and, for a project, its path in Mono 11px with `~` for the home folder, cut from its start.
+- **Box:** panel fill on the ground, 1px hairline-strong border, 3px corners; its head is the scope's name (Inter 14px 600), a faint hint and, for a project, its path in Mono 11px with `~` for the home folder, cut from its start. Its actions (`aside`) sit at the right of the head; when they no longer fit beside the title they wrap to a line of their own.
 - **Row:** 30px (40px on phones) on a 1px hairline: the short label in muted Inter 13px, then its value in ink 500. A switch flips in place; a value with a chevron-down opens a context menu under it, right-aligned; a value with a chevron-right opens its page in the panel (lists such as branch types, worktree files, shortcuts, AI setup). Paths, branch-type prefixes and format strings in values are Mono; keys are key caps.
 - **Group label:** Label type (wide-tracked caps, faint) over its rows; its sentence shows on hover and keyboard focus.
 - **Full sentences:** a short label's full sentence shows on hover and on keyboard focus of its row. A touch screen has no hover, so it prints the sentence under the label in faint 12px, and each group's sentence under the group label, except where the sentence only repeats the label.
+
+### Settings pages
+Every page the sheet opens (`SettingsPage` in `Menu.tsx`) is built from the same pieces (`src/components/Sheet.tsx`: SheetBox, SheetLabel, SheetSwitch, SheetChoice, SheetLink, SheetRow) on the home's ground and width (`.menu.menu-home > .menu-sheet`, 1160px max), boxes 16px apart. Two pages lead with a preview instead (owner pick): Appearance and Animations. Page CSS sits at the end of `app.css` under "settings pages", one prefix per page.
+- **Header:** the panel header carries the page's name in place of SETTINGS, with Back. A page's own actions (Reset all, Copy all and Clear, the template count) render at the header's right through `PageTools`, never inside the page. A page under a page (an AI provider, a template) opens in place with its own name in the header.
+- **Custom rows:** a row whose right side is not a value, switch or arrow (key caps, a status, buttons, a field) is a SheetRow on the same 30px hairline.
+- **Appearance (`.thm-*`):** the current theme drawn large (250px, 200px on phones) beside its name in Display and the System / Dark / Light segment; under it every theme as a tile (auto-fill from 176px, 92px drawing) that draws the app in that theme's own ground, panel, text and accent. Hover lifts the drawing's border to muted; the picked or focused tile gets a 1px ink outline 2px out.
+- **Animations (`.anim-*`):** a card per animation (auto-fill from 220px, hairline-strong border, 3px corners) with a 92px stage on the ground looping that animation, and a 36px row with its name and switch. An off card stops where it stands and fades its stage to 35%; every stage stops under reduced motion and when the app is idle.
+- **Shortcuts (`.kbs-*`):** a box per group, the keys as key caps at the right of each short name. A changed shortcut adds a faint 11px "changed" after its label and a reset icon; recording turns the row to the selection fill with a dashed key field. Locked keys show their caps unfilled in muted.
+- **AI setup (`.ais-*`):** the providers box and the default box beside task routing (1 : 1.25). Effort is a row of level bars: 6x10px cells 2px apart with 1px corners, hairline-strong outline, filled ink up to the level. Routing groups tasks under Writing, Thinking and Agents; each reads AI, model and effort as one value of three menus, the arrow on the last. A task on the default AI reads just "Default AI".
+- **Templates (`.tpl-*`):** a box per job in two columns, a template per row; its radio picks the job's default, and global skills are switches at the row's end.
+- **Worktree paths (`.wtp-*`):** one path per 30px row with a leading faint file, folder or link icon, its remove button shown on hover and keyboard focus, an add field with its button as tall as the field; paths inherited from elsewhere read faint.
+- **Branch types (`.bty-*`):** Row 1 and Row 2 in two columns of 32px rows, each type's tag last on its row; its tools show on hover and keyboard focus, always on touch. In a narrow panel the release tag wraps under its name.
+- **Logs (`.lgs-*`):** this run and the file on disk side by side, then the entries box filling the rest of the panel height, scrolled inside, with an All / Errors segment and Find in its head; entries are Mono 12px rows of time, level and message.
+- **Search fields** on these pages carry `data-no-mic`, so dictation adds no mic to a search bar.
 
 ### Deliberate omissions from the mock
 Not built, by choice, and not components: counts on the section tabs, "fetched Xm ago" by the fetch control, the 44px icon rail beside the diff, and the agent's duration on map boxes.
@@ -877,6 +891,7 @@ Not built, by choice, and not components: counts on the section tabs, "fetched X
 - **Do** draw a dialog's operation as a route under its title, its steps as stops, and its form as labelled rows with a 100px label column.
 - **Do** end a dialog footer with Back then one loud control at natural width: the white primary, or the filled red button when the dialog throws work away.
 - **Do** show a setting as a short muted label and its value on a hairline row: a switch for on or off, a value with a chevron for a menu or a page, the full sentence on hover and keyboard focus, printed under the label on a touch screen when it adds words.
+- **Do** build every settings page from the sheet's boxes and rows on its ground and width, with the page's own actions in the panel header; only Appearance and Animations lead with a preview.
 
 ### Don't:
 - **Don't** use gradient text, glows, coloured halos or drop-shadow filters, except the rainbow on agent work under the Agent Working Rule.

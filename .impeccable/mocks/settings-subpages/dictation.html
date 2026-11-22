@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en" data-theme="dark"><head><meta charset="utf-8">
+<title>Settings sub-page mocks: Voice dictation</title>
+<link href="https://fonts.googleapis.com/css2?family=Antonio:wght@400;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="base.css">
+<style>
+/* the voice bars (Dictation wave) */
+.wave{display:inline-flex;align-items:center;gap:3px;height:22px}
+.wave b{width:3px;height:100%;border-radius:2px;background:var(--fg);animation:wv 1s ease-in-out infinite}
+.wave b:nth-child(2n){animation-delay:.15s}.wave b:nth-child(3n){animation-delay:.3s}.wave b:nth-child(5n){animation-delay:.45s}
+@keyframes wv{0%,100%{transform:scaleY(.25)}50%{transform:scaleY(1)}}
+
+/* A */
+#mock-a .intro{display:flex;align-items:flex-start;gap:24px;margin-bottom:20px}
+#mock-a .intro .lead{flex:1}
+#mock-a .grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;align-items:start}
+#mock-a .row{min-height:36px}
+#mock-a .v .kbd{font-weight:500}
+#mock-a .priv{display:flex;align-items:center;gap:8px;margin-top:16px;padding:10px 14px;border:1px solid var(--line2);border-radius:var(--r);color:var(--muted);font-size:12px}
+#mock-a .priv svg{color:var(--fg)}
+#mock-a .credit{margin-top:16px;color:var(--faint);font-size:12px;line-height:17px;max-width:90ch}
+
+/* B: the route of a dictation as stops */
+#mock-b .split{display:grid;grid-template-columns:320px 1fr;height:100%}
+#mock-b .route{padding:24px 0;position:relative}
+#mock-b .stop{position:relative;display:flex;gap:14px;padding:12px 20px 12px 24px;align-items:flex-start}
+#mock-b .stop::before{content:"";position:absolute;left:31px;top:0;bottom:0;width:1px;background:var(--line2)}
+#mock-b .stop:first-child::before{top:22px}
+#mock-b .stop:last-child::before{bottom:calc(100% - 22px)}
+#mock-b .st{position:relative;z-index:1;flex:none;width:15px;height:15px;margin-top:2px;border-radius:50%;border:1.5px solid var(--muted);background:var(--panel)}
+#mock-b .stop.on{background:var(--sel)}
+#mock-b .stop.on .st{border-color:var(--fg);background:var(--fg)}
+#mock-b .stop.skip .st{border-style:dashed}
+#mock-b .stop b{display:block;font-weight:600}
+#mock-b .stop>div>span{display:block;color:var(--faint);font-size:12px;line-height:17px;margin-top:2px}
+#mock-b .stop .v{display:inline-flex!important;margin-top:8px}
+#mock-b .detail{padding:28px 32px;display:flex;flex-direction:column;gap:18px;overflow:auto}
+#mock-b .detail .box-b .row{min-height:36px}
+#mock-b .sends{display:flex;flex-wrap:wrap;gap:6px}
+#mock-b .sends .tag{height:22px;font:500 12px var(--sans);letter-spacing:0;text-transform:none;color:var(--fg)}
+
+/* C */
+#mock-c .pg{display:flex;flex-direction:column;gap:20px}
+#mock-c .demo{border:1px solid var(--line2);border-radius:var(--r);background:var(--bg);padding:20px}
+#mock-c .box-try{position:relative;border:1px solid var(--fg);border-radius:var(--r);background:var(--panel);padding:12px 14px 12px;min-height:96px;font-size:13px;line-height:20px;color:var(--fg)}
+#mock-c .box-try .ctrl{position:absolute;right:10px;bottom:10px;display:flex;align-items:center;gap:10px}
+#mock-c .caret{display:inline-block;width:1px;height:16px;background:var(--fg);vertical-align:-3px}
+#mock-c .pair{display:grid;grid-template-columns:1fr 32px 1fr;gap:0;align-items:stretch;margin-top:16px}
+#mock-c .pair>div{border:1px solid var(--line2);border-radius:var(--r);padding:12px 14px;display:flex;flex-direction:column;gap:8px}
+#mock-c .pair .arrow{border:0;display:grid;place-items:center;color:var(--faint);padding:0}
+#mock-c .said{color:var(--muted);font-size:13px;line-height:20px}
+#mock-c .wrote{color:var(--fg);font-size:13px;line-height:20px}
+#mock-c .wrote code{font:12px var(--mono)}
+#mock-c .controls{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));border:1px solid var(--line2);border-radius:var(--r)}
+#mock-c .controls>div{padding:14px 16px;display:flex;flex-direction:column;gap:8px;min-width:0}
+#mock-c .controls>div+div{border-left:1px solid var(--line)}
+#mock-c .controls .top{display:flex;align-items:center;gap:8px}
+#mock-c .controls .top b{flex:1;font-weight:600}
+</style>
+</head><body>
+<section class="mock" id="mock-a">
+  <div class="cap"><b>A · Sheet</b><span>Two boxes: how you dictate, and the speech model. The long AI sentence moves to hover; the privacy line stays in sight.</span></div>
+  <div class="panel" data-title="Voice dictation">
+    <div class="pg">
+      <div class="intro">
+        <p class="lead">Speak into any text box. Press the shortcut or click the mic at the right of the box to start listening, then press either again or Stop to put the words in.</p>
+      </div>
+      <div class="grid">
+        <div class="box">
+          <div class="box-h"><h2>Dictating</h2><span class="hint">every project</span></div>
+          <div class="box-b">
+            <div class="row"><span class="k">Shortcut</span><span class="v"><span class="keys"><span class="kbd">Ctrl</span><span class="kbd">D</span></span></span></div>
+            <div class="row"><span class="k">Leaves the computer</span><span class="v">Only with Rewrite with AI</span></div>
+            <div class="row hov"><span class="k">Rewrite with AI</span><span class="sw on"></span></div>
+            <div class="row"><span class="k">AI that rewrites</span><span class="v">Claude Haiku 5.5 <i data-i="chevR" data-s="12"></i></span></div>
+          </div>
+        </div>
+        <div class="box">
+          <div class="box-h"><h2>Speech model</h2><span class="hint">on this computer</span></div>
+          <div class="box-b">
+            <div class="row"><span class="k">Model</span><span class="v">Parakeet Ultra</span></div>
+            <div class="row"><span class="k">Languages</span><span class="v">English, French + 23 more</span></div>
+            <div class="row"><span class="k">Download</span><span class="v">740 MB, the first time</span></div>
+            <div class="row"><span class="k">From</span><span class="v">Hugging Face</span></div>
+          </div>
+        </div>
+      </div>
+            <p class="credit">Parakeet Ultra by Moondream, built on NVIDIA Parakeet TDT 0.6B v3, both under CC BY 4.0 (<span class="mono">creativecommons.org/licenses/by/4.0</span>), quantized to 8 bits for transcribe.cpp.</p>
+      <div class="tip" style="left:40px;top:290px;max-width:440px">AI turns what you said into clear, structured text, and fixes misheard names with the project's files, branch, ticket and recent commits. Sends the words and that context to the AI set for "Voice dictation" in AI setup (Ollama stays on this computer). Skipped when no AI is set up.</div>
+    </div>
+  </div>
+</section>
+
+<section class="mock" id="mock-b">
+  <div class="cap"><b>B · Split</b><span>A dictation as its route: listen, turn speech into text, rewrite, put in. Pick a stop to set it; the stop that leaves the computer says so.</span></div>
+  <div class="panel" data-title="Voice dictation">
+    <div class="pg flush">
+      <div class="split">
+        <div class="rail route">
+          <div class="stop"><span class="st"></span><div><b>Listen</b><span>Shortcut or the mic in the box</span><span class="v keys"><span class="kbd">Ctrl</span><span class="kbd">D</span></span></div></div>
+          <div class="stop"><span class="st"></span><div><b>Speech to text</b><span>Parakeet Ultra, on this computer</span></div></div>
+          <div class="stop on"><span class="st"></span><div><b>Rewrite with AI</b><span>Claude Haiku 5.5, leaves the computer</span></div></div>
+          <div class="stop"><span class="st"></span><div><b>Put in</b><span>Press the shortcut again or Stop</span></div></div>
+        </div>
+        <div class="detail">
+          <div class="row-flex"><h3 class="h" style="font-size:16px">Rewrite with AI</h3><span class="sp"></span><span class="hint">On</span><span class="sw on"></span></div>
+          <p class="lead">AI turns what you said into clear, structured text, and fixes misheard names with the project's files, branch, ticket and recent commits. Skipped when no AI is set up.</p>
+          <div class="box">
+            <div class="box-b">
+              <div class="row"><span class="k">AI</span><span class="v">Claude · Claude Haiku 5.5 · low <i data-i="chevR" data-s="12"></i></span></div>
+              <div class="row"><span class="k">Set in</span><span class="v">AI setup, task "Voice dictation"</span></div>
+            </div>
+          </div>
+          <div>
+            <div class="lab" style="padding-top:0">Sent with your words</div>
+            <div class="sends"><span class="tag">The words</span><span class="tag">Project files</span><span class="tag">Branch</span><span class="tag">Ticket</span><span class="tag">Recent commits</span></div>
+          </div>
+          <p class="hint"><i data-i="info" data-s="12"></i> Ollama stays on this computer. Without Rewrite with AI, nothing you say leaves the computer.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="mock" id="mock-c">
+  <div class="cap"><b>C · Preview</b><span>A text box to try it in, and what you said next to what Rewrite with AI writes; the three settings under it.</span></div>
+  <div class="panel" data-title="Voice dictation">
+    <div class="pg">
+      <p class="lead">Speak into any text box. Press the shortcut or click the mic at the right of the box to start listening, then press either again or Stop to put the words in.</p>
+      <div class="demo">
+        <div class="box-try">fix the merge button on the pull request screen so it waits for the checks<span class="caret"></span>
+          <div class="ctrl"><span class="wave"><b></b><b></b><b></b><b></b><b></b><b></b><b></b></span><span class="hint">Listening</span><button class="btn btn-sm">Stop</button></div>
+        </div>
+        <div class="pair">
+          <div><span class="lab" style="padding:0">You said</span><p class="said">uh so fix the merge button on the pull request screen so it like waits for the checks on the pr screen dot tsx file</p></div>
+          <div class="arrow"><i data-i="arrowR"></i></div>
+          <div><span class="lab" style="padding:0">Rewrite with AI writes</span><p class="wrote">Fix the merge button on the pull request screen so it waits for the checks (<code>src/screens/PullRequests.tsx</code>).</p></div>
+        </div>
+        <p class="hint" style="margin-top:10px">Example. Try it in the box: it is not saved anywhere.</p>
+      </div>
+      <div class="controls">
+        <div><div class="top"><b>Shortcut</b><span class="keys"><span class="kbd">Ctrl</span><span class="kbd">D</span></span></div><span class="hint">Click it, then press the new keys. They need Ctrl, Alt or ⌘. Esc keeps the current one.</span></div>
+        <div><div class="top"><b>Rewrite with AI</b><span class="sw on"></span></div><span class="hint">Sends the words, project files, branch, ticket and recent commits to Claude Haiku 5.5 (AI setup). Skipped when no AI is set up.</span></div>
+        <div><div class="top"><b>Speech model</b><span class="v">740 MB</span></div><span class="hint">Parakeet Ultra, on this computer: English, French and 23 more, even mixed in one sentence. Downloaded the first time.</span></div>
+      </div>
+      <p class="hint faint">Parakeet Ultra by Moondream, built on NVIDIA Parakeet TDT 0.6B v3, both under CC BY 4.0, quantized to 8 bits for transcribe.cpp. Without Rewrite with AI, nothing you say leaves the computer.</p>
+    </div>
+  </div>
+</section>
+<script src="base.js"></script>
+</body></html>

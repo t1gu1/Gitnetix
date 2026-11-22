@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en" data-theme="dark"><head><meta charset="utf-8">
+<title>Settings sub-page mocks: Git providers</title>
+<link href="https://fonts.googleapis.com/css2?family=Antonio:wght@400;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="base.css">
+<style>
+/* A · Sheet */
+#mock-a .top{display:flex;align-items:baseline;gap:16px;margin-bottom:16px}
+#mock-a .row .btn-xs{margin-right:-4px}
+#mock-a .row.sub>.k{padding-left:14px}
+#mock-a .acct{display:flex;align-items:center;gap:10px;padding:14px 0 12px;border-bottom:1px solid var(--line)}
+#mock-a .acct .av{width:28px;height:28px;border-radius:50%;background:var(--line2);display:grid;place-items:center;font:600 11px var(--sans);color:var(--fg)}
+#mock-a .open{background:var(--raised);margin:0 -16px;padding:4px 16px 14px;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:10px}
+#mock-a .open .f{display:grid;grid-template-columns:120px 1fr;align-items:center;gap:10px}
+#mock-a .open .f>span:first-child{color:var(--muted)}
+#mock-a .foot{display:flex;gap:16px;margin-top:16px;color:var(--faint);font-size:12px;align-items:center}
+/* B · Split */
+#mock-b .split{display:grid;grid-template-columns:280px 1fr;height:100%}
+#mock-b .rail{display:flex;flex-direction:column}
+#mock-b .rail .lab{padding:16px 16px 6px}
+#mock-b .li{padding:10px 16px;cursor:pointer}
+#mock-b .li .nm{font-weight:500}
+#mock-b .li .sub.st-ok{color:var(--add)}
+#mock-b .rail-foot{margin-top:auto;padding:16px;color:var(--faint);font-size:12px;line-height:17px;border-top:1px solid var(--line)}
+#mock-b .det{padding:28px 32px;overflow:auto;display:flex;flex-direction:column;gap:22px}
+#mock-b .det-h{display:flex;align-items:center;gap:14px}
+#mock-b .det-h .mark{width:40px;height:40px;font-size:12px}
+#mock-b .uses{display:grid;grid-template-columns:repeat(3,1fr);border:1px solid var(--line2);border-radius:var(--r)}
+#mock-b .uses>div{padding:12px 14px;display:flex;flex-direction:column;gap:4px}
+#mock-b .uses>div+div{border-left:1px solid var(--line2)}
+#mock-b .uses b{font-weight:500;color:var(--fg)}
+#mock-b .or{display:flex;align-items:center;gap:12px;color:var(--faint);font-size:12px}
+#mock-b .or::before,#mock-b .or::after{content:"";flex:1;height:1px;background:var(--line)}
+#mock-b .form{display:flex;flex-direction:column;gap:14px;max-width:520px}
+#mock-b .form label{display:flex;flex-direction:column;gap:6px}
+#mock-b .form label>span:first-child{font-weight:500}
+/* C · Preview */
+#mock-c .route{border:1px solid var(--line2);border-radius:var(--r)}
+#mock-c .route-h{display:grid;grid-template-columns:200px 1fr 220px 190px;gap:0;padding:10px 16px;border-bottom:1px solid var(--line2);color:var(--faint);font:600 11px/14px var(--sans);letter-spacing:.14em;text-transform:uppercase}
+#mock-c .rt{display:grid;grid-template-columns:200px 1fr 220px 190px;align-items:center;padding:0 16px;height:64px;border-bottom:1px solid var(--line)}
+#mock-c .rt:last-child{border-bottom:0}
+#mock-c .rt .pj{font-weight:500}
+#mock-c .rt .line{position:relative;height:16px;display:flex;align-items:center;margin-right:16px}
+#mock-c .rt .line::before{content:"";position:absolute;left:0;right:0;top:50%;height:1.5px;background:var(--fg)}
+#mock-c .rt.off .line::before{height:0;border-top:1px dashed var(--faint);background:none}
+#mock-c .rt .line span{position:relative;background:var(--panel);padding:0 8px;margin-left:12px;font-size:12px;color:var(--muted)}
+#mock-c .stn{width:9px;height:9px;border:1.5px solid var(--fg);border-radius:50%;background:var(--panel);position:relative;margin-right:10px;flex:none}
+#mock-c .rt.off .stn{border-color:var(--faint)}
+#mock-c .host{display:flex;align-items:center;gap:0}
+#mock-c .does{color:var(--muted);font-size:12px;line-height:17px}
+#mock-c .tiles{display:grid;grid-template-columns:repeat(5,1fr);margin-top:12px;border:1px solid var(--line2);border-radius:var(--r)}
+#mock-c .tile{padding:16px;display:flex;flex-direction:column;gap:10px;min-height:168px}
+#mock-c .tile+.tile{border-left:1px solid var(--line2)}
+#mock-c .tile.on{background:var(--raised)}
+#mock-c .foot{display:flex;gap:10px;align-items:center;margin-top:16px;color:var(--faint);font-size:12px}
+#mock-c .tile .nm{font-weight:600}
+#mock-c .tile .btns{margin-top:auto;display:flex;flex-direction:column;gap:6px;align-items:flex-start}
+#mock-c .h2{display:flex;align-items:baseline;gap:12px;margin:28px 0 0}
+</style>
+</head><body>
+
+<section class="mock" id="mock-a">
+  <div class="cap"><b>A · Sheet</b><span>One box: the connected account with its facts on the left, the others as one row each with Sign in on the right; a token form opens under its row.</span></div>
+  <div class="panel" data-title="Git providers">
+    <div class="pg">
+      <div class="top"><p class="lead">Used to open PRs, read reviews and publish releases.</p><span class="sp"></span><span class="hint row-flex"><i data-i="lock" data-s="12"></i>Tokens stay in your OS keychain</span></div>
+      <div class="box">
+        <div class="box-h"><h2>Accounts</h2><span class="hint">1 of 5 connected</span></div>
+        <div class="cols">
+          <div class="box-b">
+            <div class="lab">Connected</div>
+            <div class="acct"><span class="mark">GH</span><div style="flex:1;min-width:0"><div style="font-weight:600">GitHub</div><div class="hint st-ok">Signed in as gh-team</div></div><button class="btn btn-sm">Disconnect</button></div>
+            <div class="row"><span class="k">Account</span><span class="v">gh-team</span></div>
+            <div class="row"><span class="k">Signed in with</span><span class="v">Browser sign-in</span></div>
+            <div class="row"><span class="k">Token</span><span class="v">In keychain</span></div>
+            <div class="row hov"><span class="k" style="flex:0 0 auto;border-bottom:1px dotted var(--faint)">API base</span><span class="sp"></span><span class="v mono none">api.github.com</span></div>
+            <div class="row"><span class="k">Projects on GitHub</span><span class="v">lineage-app</span></div>
+            <div class="row hov"><span class="k">Replace with a personal access token</span><i data-i="chevR" data-s="12"></i></div>
+          </div>
+          <div class="box-b">
+            <div class="lab">Not connected</div>
+            <div class="row"><span class="k">Azure DevOps</span><button class="btn btn-xs">Token</button><button class="btn btn-xs" style="color:var(--fg)">Sign in</button></div>
+            <div class="row"><span class="k">GitLab</span><button class="btn btn-xs">Self-managed or token</button><button class="btn btn-xs" style="color:var(--fg)">Sign in</button></div>
+            <div class="row"><span class="k">Bitbucket</span><button class="btn btn-xs">API token</button><button class="btn btn-xs" style="color:var(--fg)">Sign in</button></div>
+            <div class="row hov" style="border-bottom:0"><span class="k" id="gt-k">Gitea</span><span class="v none">Server and token</span><i data-i="chevD" data-s="12"></i></div>
+            <div class="open">
+              <div class="f"><span>Server</span><span class="field mono ph">https://gitea.example.com</span></div>
+              <div class="f"><span>OAuth app ID</span><span class="field mono ph">To sign in</span></div>
+              <div class="f"><span>Access token</span><span class="field mono ph">••••••••</span></div>
+              <div class="row-flex" style="justify-content:flex-end;gap:8px"><button class="btn btn-sm">Cancel</button><button class="btn btn-primary">Connect</button></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="foot"><i data-i="info" data-s="12"></i><span>GitHub issues and project boards come through the GitHub account above: no ticket tracker needed.</span></div>
+    </div>
+    <div class="tip" style="left:64px;top:396px">GitHub Enterprise only: the API address of your own server. Empty for github.com.</div>
+  </div>
+</section>
+
+<section class="mock" id="mock-b">
+  <div class="cap"><b>B · Split</b><span>Providers on the left with their state; the picked one on the right: what it is used for, the sign-in, then the token form below a divider.</span></div>
+  <div class="panel" data-title="Git providers">
+    <div class="pg flush">
+      <div class="split">
+        <div class="rail">
+          <div class="lab">Connected</div>
+          <div class="li"><span class="mark">GH</span><span style="min-width:0"><span class="nm">GitHub</span><span class="sub st-ok">Signed in as gh-team</span></span></div>
+          <div class="lab">Not connected</div>
+          <div class="li"><span class="mark">AZ</span><span><span class="nm">Azure DevOps</span><span class="sub">Not connected</span></span></div>
+          <div class="li on"><span class="mark" style="color:var(--fg);border-color:var(--fg)">GL</span><span><span class="nm">GitLab</span><span class="sub">Not connected</span></span><span class="sp"></span><i data-i="chevR" data-s="12"></i></div>
+          <div class="li"><span class="mark">BB</span><span><span class="nm">Bitbucket</span><span class="sub">Not connected</span></span></div>
+          <div class="li"><span class="mark">GT</span><span><span class="nm">Gitea</span><span class="sub">Not connected</span></span></div>
+          <div class="rail-foot">Used to open PRs, read reviews and publish releases. Tokens are stored in your OS keychain.</div>
+        </div>
+        <div class="det">
+          <div class="det-h"><span class="mark">GL</span><div><h3 class="h" style="font-size:16px">GitLab</h3><span class="hint">Not connected · gitlab.com or your own server</span></div></div>
+          <div class="uses">
+            <div><b>Pull requests</b><span class="hint">Open merge requests from a branch</span></div>
+            <div><b>Reviews</b><span class="hint">Read comments and approvals</span></div>
+            <div><b>Releases</b><span class="hint">Publish a tag's release notes</span></div>
+          </div>
+          <div class="row-flex" style="gap:12px"><button class="btn btn-primary">Sign in with GitLab</button><span class="hint">Opens gitlab.com and shows a code to confirm.</span></div>
+          <div class="or">or with a self-managed GitLab or a token</div>
+          <div class="form">
+            <label><span>Server <span class="faint" style="font-weight:400">self-managed only</span></span><span class="field mono ph">https://gitlab.example.com</span></label>
+            <label><span>OAuth application ID <span class="faint" style="font-weight:400">to sign in</span></span><span class="field mono ph">Registered on your server</span></label>
+            <label><span>Personal access token</span><span class="field mono ph">glpat-…</span><span class="hint">Personal access token with the api scope.</span></label>
+            <div><button class="btn">Connect</button></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="mock" id="mock-c">
+  <div class="cap"><b>C · Preview</b><span>What it changes first: each project's origin and the account that opens its PRs, a dashed line where none can; then the five providers as tiles.</span></div>
+  <div class="panel" data-title="Git providers">
+    <div class="pg">
+      <div class="route">
+        <div class="route-h"><span>Project</span><span>Origin</span><span>Account</span><span>Can do</span></div>
+        <div class="rt"><span class="pj">lineage-app</span><span class="line"><span class="mono">github.com/team/lineage-app</span></span><span class="host"><span class="stn"></span><span>GitHub · gh-team</span></span><span class="does">PRs, reviews, releases</span></div>
+        <div class="rt"><span class="pj">api-gateway</span><span class="line"><span class="mono">github.com/team/api-gateway</span></span><span class="host"><span class="stn"></span><span>GitHub · gh-team</span></span><span class="does">PRs, reviews, releases</span></div>
+        <div class="rt off"><span class="pj">docs-site</span><span class="line"><span class="mono">gitlab.com/team/docs-site</span></span><span class="host"><span class="stn"></span><span class="faint">GitLab · not connected</span></span><span class="row-flex"><button class="btn btn-sm" style="color:var(--fg)">Sign in to GitLab</button></span></div>
+      </div>
+      <div class="h2"><h3 class="h">Providers</h3><span class="hint">Tokens are stored in your OS keychain.</span></div>
+      <div class="tiles">
+        <div class="tile on"><span class="mark" style="color:var(--fg);border-color:var(--fg)">GH</span><div><div class="nm">GitHub</div><div class="hint st-ok">Signed in as gh-team</div></div><div class="btns"><button class="btn btn-xs">Replace with a token</button><button class="btn btn-xs">Disconnect</button></div></div>
+        <div class="tile"><span class="mark">AZ</span><div><div class="nm">Azure DevOps</div><div class="hint faint">Not connected</div></div><div class="btns"><button class="btn btn-sm" style="color:var(--fg)">Sign in</button><button class="btn btn-xs btn-ghost">Personal access token</button></div></div>
+        <div class="tile"><span class="mark">GL</span><div><div class="nm">GitLab</div><div class="hint faint">Not connected</div></div><div class="btns"><button class="btn btn-sm" style="color:var(--fg)">Sign in</button><button class="btn btn-xs btn-ghost">Self-managed or token</button></div></div>
+        <div class="tile"><span class="mark">BB</span><div><div class="nm">Bitbucket</div><div class="hint faint">Not connected</div></div><div class="btns"><button class="btn btn-sm" style="color:var(--fg)">Sign in</button><button class="btn btn-xs btn-ghost">API token</button></div></div>
+        <div class="tile"><span class="mark">GT</span><div><div class="nm">Gitea</div><div class="hint faint">Not connected</div></div><div class="btns"><button class="btn btn-sm" style="color:var(--fg)">Connect a server</button></div></div>
+      </div>
+      <div class="foot"><i data-i="info" data-s="12"></i><span>GitHub issues and project boards come through the GitHub account: no ticket tracker needed.</span></div>
+    </div>
+  </div>
+</section>
+<script src="themes.js"></script>
+<script src="base.js"></script>
+</body></html>

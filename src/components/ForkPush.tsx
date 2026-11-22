@@ -1,7 +1,7 @@
 import { useAction, useConfig } from "../api/hooks";
 import { endForkAsk, useForkAsk, type ForkAsk } from "../lib/forkAsk";
 import { useNav } from "../lib/nav";
-import { DeviceSignIn } from "../screens/Settings";
+import { DeviceSignIn } from "../screens/Connections";
 import { Modal } from "./ui";
 
 /** Offers a fork when GitHub refused a push to origin (a clone of someone else's project): forks it to the user's

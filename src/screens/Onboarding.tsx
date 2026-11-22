@@ -10,7 +10,8 @@ import { Loading } from "../components/ui";
 import { useKeys } from "../lib/keys";
 import { useNav } from "../lib/nav";
 import { useStored } from "../lib/stored";
-import { DictationKeys, GitHosts, PhoneCard, ThemeChoices, TicketConnections } from "./Settings";
+import { GitHosts, PhoneCard, TicketConnections } from "./Connections";
+import { DictationKeys, ThemeChoices } from "./Settings";
 
 /** How a step moves on; no `back` on the first one. `name`: the profile being set up, when not the first launch's. */
 type Steps = { back?: () => void; next: () => void; name?: string };
@@ -264,9 +265,7 @@ function GitHostStep(s: Steps) {
   return (
     <>
       <Head title="Connect your Git provider">GitHub, Azure DevOps, GitLab, Bitbucket or Gitea, to open pull requests, read reviews and publish releases. Tokens go to your OS keychain.</Head>
-      <ul className="list">
-        <GitHosts cfg={cfg} />
-      </ul>
+      <GitHosts cfg={cfg} />
       <Foot {...s} entered={[cfg.integrations.githubConnected, cfg.integrations.azureConnected, cfg.integrations.gitlab.connected, cfg.integrations.bitbucket.connected, cfg.integrations.gitea.connected].some(Boolean)} onNext={s.next} />
     </>
   );

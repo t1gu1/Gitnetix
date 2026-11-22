@@ -607,6 +607,23 @@ components:
     typography: "{typography.body-strong}"
     rounded: "{rounded.sm}"
     padding: "2px 6px"
+  theme-tile:
+    backgroundColor: "{colors.ground}"
+    textColor: "{colors.muted}"
+    rounded: "{rounded.md}"
+    height: "92px"
+  anim-card:
+    backgroundColor: "{colors.panel}"
+    textColor: "{colors.ink}"
+    rounded: "{rounded.md}"
+  effort-pip:
+    backgroundColor: "transparent"
+    rounded: "1px"
+    size: "6px 10px"
+  effort-pip-on:
+    backgroundColor: "{colors.ink}"
+    rounded: "1px"
+    size: "6px 10px"
 ---
 
 # Design System: Gitnetix
@@ -622,7 +639,7 @@ Rules:
 - The Meaning Rule. Branch type, trunk, release, props and people carry no hue; a hue answers added, deleted, warning or conflict, or is the Agent Working rainbow.
 - The Agent Working Rule. Anything an agent is working on flows with the incumbent rainbow (`--g1` to `--g4`), and nothing else may, except a skill called in a prompt box; this includes the current commit's station in the AI rebase dialog. A waiting agent is Warn.
 - The Theme Rule. Black & White is the default and what System follows; the other 36 themes keep their own ground, panel, text and accent, get the derived steps mixed from their colours, and take the same shapes, type, hairlines and map structure.
-- The One Loud Voice Rule. Antonio is used only for screen and page titles, the welcome heading, the next release and headline numerals; dialog titles are Inter 15px 600.
+- The One Loud Voice Rule. Antonio is used only for screen and page titles, the welcome heading, the next release, headline numerals and the current theme's name on Appearance; dialog titles are Inter 15px 600.
 - The Hairline Rule. Every map line is a hairline: 1.5px route, 1px other links, dashed 3/4 when falling behind.
 - The Mono Rule. Mono is for what a machine hands back: paths, SHAs, refs, URLs and code, plus the Count role's tabular numbers and key caps; plain words (menu hints, captions, route labels) are Inter.
 - The Station Action Rule. On a station line each action sits under the stop it moves the subject to, and exactly one white primary goes on the stop that fixes the state.
@@ -645,9 +662,10 @@ Do:
 - Do show a disabled primary as the outline with a faint label.
 - Do draw a dialog's operation as a route under its title (solid station for what exists, hollow for what will, red and struck for what is lost, dashed line for not yet), its steps as stops, and its form as labelled rows with a 100px label column.
 - Do end a dialog footer with a faint note at the left and Back then one loud control at natural width on the right.
-- (+13 more in the full file)
+- (+14 more in the full file)
 Map: src/lib/themes.ts
 Map: src/components/ui.tsx
+Map: src/components/Sheet.tsx
 Map: .impeccable/mocks/slate-direction.html
 Map: .impeccable/mocks/modals-a.html
 Full: .impeccable/design-full.md (read a section when you need its detail)

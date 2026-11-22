@@ -2,7 +2,7 @@ import { useState } from "react";
 
 import { useAction, useConfig } from "../api/hooks";
 import { endGitLogin, useGitLoginAsk } from "../lib/gitLogin";
-import { DeviceSignIn } from "../screens/Settings";
+import { DeviceSignIn } from "../screens/Connections";
 import { Modal } from "./ui";
 
 /** Asks for the login git needs to sign in to an HTTPS host, keeps it in the keychain, then runs again what failed. */

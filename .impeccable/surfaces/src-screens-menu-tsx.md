@@ -2,12 +2,12 @@
 version: 1
 slug: "src-screens-menu-tsx"
 primary_target: "src/screens/Menu.tsx"
-related_targets: ["src/styles/app.css"]
+related_targets: ["src/styles/app.css", "src/components/Sheet.tsx", "src/screens/Settings.tsx", "src/screens/AISetup.tsx", "src/screens/Templates.tsx", "src/screens/Connections.tsx", "src/screens/WorktreePaths.tsx", "src/screens/Logs.tsx", "src/components/BranchTypes.tsx"]
 ---
 
 # Surface: Settings panel (Menu home)
 
-Scope: the settings panel's home view (`src/screens/Menu.tsx` root view, styles in `src/styles/app.css`), visitor mode Operate. Developers open it from the profile button to change how one project or the whole app behaves, then go back to work. Sub-pages (AI setup, templates, logs, appearance, shortcuts and the rest) keep their own layouts; out of scope here.
+Scope: the settings panel's home view (`src/screens/Menu.tsx` root view, styles in `src/styles/app.css`), visitor mode Operate. Developers open it from the profile button to change how one project or the whole app behaves, then go back to work. Since 2026-11-22 the pages it opens (`SettingsPage` in Menu.tsx) are in scope too: they sit on the same ground, in the same width, built from the same boxes and rows (`src/components/Sheet.tsx`).
 
 ## Direction contract
 
@@ -29,3 +29,10 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
 - Spec sheet framing F1: a box per scope; Remove and Logs in a row under the boxes.
 - Short labels with the full sentence on hover.
 - After the build: DESIGN.md gains the Switch and the settings sheet (box, row, value); on a touch screen a row's full sentence prints only when it adds words (`restates` rows skip it); the panel header is SETTINGS in Display Title with the version.
+
+## Sub-pages (owner decisions 2026-11-22)
+
+- Mocks: `.impeccable/mocks/settings-subpages/<id>.html`, three per page in three families: A · Sheet (the home's boxes and short-label rows), B · Split (list left, detail right), C · Preview (the result first).
+- Picks: Appearance C (the theme on screen drawn large, then every theme drawn as the app), Animations C (each animation playing in its own small stage, with its switch); every other page A: Voice dictation, Shortcuts, AI setup, Templates, Git providers, Ticket trackers, Companion & MCP, Worktrees, Worktree files, Branch types, Logs.
+- A page under a page opens in place with its own name in the header: a provider of AI setup (`ai:<provider>`), a template's editor (`templates:<id>`).
+- Built with real data only: rows the mocks invented (accounts, counts, project paths) are left out; the log file's size needs an RPC and is not shown.

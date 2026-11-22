@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en" data-theme="dark"><head><meta charset="utf-8">
+<title>Settings sub-page mocks: AI setup</title>
+<link href="https://fonts.googleapis.com/css2?family=Antonio:wght@400;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="base.css">
+<style>
+/* shared: effort pips, five steps from Low to Max */
+.pips{display:inline-flex;gap:2px}
+.pips i{width:6px;height:10px;border:1px solid var(--line2);border-radius:1px}
+.pips i.f{background:var(--fg);border-color:var(--fg)}
+
+/* A · Sheet */
+#mock-a .grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.25fr);gap:16px;align-items:start}
+#mock-a .stack{display:flex;flex-direction:column;gap:16px}
+#mock-a .prow{min-height:40px;gap:12px}
+#mock-a .prow .mark{width:24px;height:24px;font-size:9px}
+#mock-a .prow .k{color:var(--fg)}
+#mock-a .prow .st{font-size:12px;color:var(--faint);white-space:nowrap}
+#mock-a .prow .st.ok{color:var(--add)}
+#mock-a .prow .st.warn{color:var(--warn)}
+#mock-a .row .v .faint{font-weight:400}
+#mock-a .row.sub>.k{padding-left:14px}
+#mock-a .lab[data-tip]{text-decoration:underline dotted var(--faint);text-underline-offset:3px;align-self:flex-start}
+#mock-a .tip{left:520px;top:100px;max-width:330px}
+#mock-a .tip::before{content:"";position:absolute;left:20px;top:-5px;width:8px;height:8px;background:var(--raised);border-left:1px solid var(--line2);border-top:1px solid var(--line2);transform:rotate(45deg)}
+
+/* B · Split */
+#mock-b .wrap{display:grid;grid-template-columns:264px minmax(0,1fr);height:100%}
+#mock-b .rail{display:flex;flex-direction:column}
+#mock-b .rsec{padding:14px 12px 6px;font:600 11px/14px var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--faint)}
+#mock-b .ri{display:flex;align-items:center;gap:10px;min-height:44px;margin:0 8px;padding:6px 8px;border-radius:var(--r)}
+#mock-b .ri.on{background:var(--sel)}
+#mock-b .ri .mark{width:26px;height:26px;font-size:9px}
+#mock-b .ri b{display:block;font-weight:500;color:var(--fg)}
+#mock-b .ri small{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--faint)}
+#mock-b .ri .tag{margin-left:auto}
+#mock-b .rail .foot{margin-top:auto;padding:12px 16px;border-top:1px solid var(--line)}
+#mock-b .det{overflow:auto;padding:22px 28px 28px;display:flex;flex-direction:column;gap:22px}
+#mock-b .dh{display:flex;align-items:center;gap:14px}
+#mock-b .dh .mark{width:40px;height:40px;font-size:12px}
+#mock-b .dh h2{font:600 18px/22px var(--sans)}
+#mock-b .sec h3{font:600 13px/18px var(--sans);margin-bottom:8px;display:flex;align-items:baseline;gap:8px}
+#mock-b .conn{display:flex;flex-direction:column;border:1px solid var(--line2);border-radius:var(--r)}
+#mock-b .conn .top{display:flex;align-items:center;gap:12px;padding:12px 14px;border-bottom:1px solid var(--line)}
+#mock-b .conn .bot{display:flex;align-items:center;gap:8px;padding:10px 14px}
+#mock-b .mrow{display:grid;grid-template-columns:minmax(0,1fr) 240px;gap:16px;align-items:end}
+#mock-b .mrow label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px}
+#mock-b .mrow .select{width:100%;justify-content:space-between}
+#mock-b .t{display:grid;grid-template-columns:minmax(0,1fr) 170px 90px 28px;align-items:center;gap:12px;min-height:36px;border-bottom:1px solid var(--line)}
+#mock-b .t .select{height:26px;justify-content:space-between}
+#mock-b .t .extra{grid-column:1/-1;display:flex;gap:12px;align-items:center;padding:2px 0 10px 16px}#mock-b .t.ff{border-bottom:1px solid var(--line);padding-top:6px}
+
+/* C · Preview: the route of each task, provider to model to effort */
+#mock-c .pg{display:flex;flex-direction:column;gap:16px}
+#mock-c .provs{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:8px}
+#mock-c .pv{display:flex;flex-direction:column;gap:8px;padding:10px;border:1px solid var(--line2);border-radius:var(--r);min-width:0}
+#mock-c .pv.on{border-color:var(--fg)}
+#mock-c .pv .top{display:flex;align-items:center;gap:8px}
+#mock-c .pv .mark{width:24px;height:24px;font-size:9px}
+#mock-c .pv b{font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#mock-c .pv small{font-size:11px;color:var(--faint);display:flex;align-items:center;gap:6px;white-space:nowrap}
+#mock-c .pv.off{border-color:var(--line)}#mock-c .pv.off b{color:var(--muted)}
+#mock-c .strip{display:flex;align-items:center;gap:12px;padding:10px 14px;border:1px solid var(--line2);border-radius:var(--r);background:var(--ground)}
+#mock-c .board{border:1px solid var(--line2);border-radius:var(--r);display:flex;flex-direction:column}
+#mock-c .bh{display:grid;grid-template-columns:270px minmax(0,1fr) 150px 110px;gap:0;padding:10px 16px;border-bottom:1px solid var(--line2);font:600 11px/14px var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--faint)}
+#mock-c .rt{display:grid;grid-template-columns:270px minmax(0,1fr) 150px 110px;align-items:center;min-height:38px;padding:0 16px;border-bottom:1px solid var(--line)}
+#mock-c .rt:last-child{border-bottom:0}
+#mock-c .rt .task{color:var(--fg);display:flex;align-items:center;gap:6px;white-space:nowrap}
+#mock-c .rt .line{display:flex;align-items:center;gap:0;padding-right:14px}
+#mock-c .rt .line::before{content:"";width:8px;height:8px;border:1px solid var(--fg);border-radius:50%;flex:none}
+#mock-c .rt .line .wire{flex:1;height:0;border-top:1.5px solid var(--line2)}
+#mock-c .rt .line .who{display:inline-flex;align-items:center;gap:8px;padding:2px 8px 2px 4px;border:1px solid var(--line2);border-radius:var(--r);white-space:nowrap}
+#mock-c .rt .line .who .mark{width:18px;height:18px;font-size:8px;border:0;background:var(--raised)}
+#mock-c .rt.def .line .wire{border-top-style:dashed}
+#mock-c .rt .model{white-space:nowrap}
+#mock-c .rt .eff{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:12px}
+#mock-c .rt.hov{background:var(--raised)}
+#mock-c .menu{position:absolute;z-index:3;width:220px;padding:4px;border:1px solid var(--line2);border-radius:var(--r);background:var(--raised);box-shadow:0 8px 24px rgba(0,0,0,.4)}
+#mock-c .menu div{display:flex;align-items:center;gap:8px;height:28px;padding:0 8px;border-radius:var(--r-sm)}
+#mock-c .menu div.on{background:var(--sel)}
+#mock-c .menu .mark{width:18px;height:18px;font-size:8px}
+#mock-c .menu small{margin-left:auto;font-size:11px;color:var(--faint)}
+</style>
+</head><body>
+
+<section class="mock" id="mock-a">
+  <div class="cap"><b>A · Sheet</b><span>Three boxes: providers (each opens its connection page), the default AI, and task routing as value rows with menus under them.</span></div>
+  <div class="panel" data-title="AI setup">
+    <div class="pg" style="position:relative">
+      <div class="grid">
+        <div class="stack">
+          <div class="box">
+            <div class="box-h"><h2>Providers</h2><span class="hint">1 connected</span></div>
+            <div class="box-b">
+              <div class="row prow"><span class="mark">CL</span><span class="k">Claude</span><span class="tag ink">Default</span><span class="st ok">Local CLI</span><i data-i="chevR" data-s="12"></i></div>
+              <div class="row prow"><span class="mark">CX</span><span class="k">Codex</span><span class="st">Not connected</span><i data-i="chevR" data-s="12"></i></div>
+              <div class="row prow"><span class="mark">GM</span><span class="k">Gemini</span><span class="st warn">CLI found · not tested</span><i data-i="chevR" data-s="12"></i></div>
+              <div class="row prow"><span class="mark">CP</span><span class="k">GitHub Copilot</span><span class="st">Not connected</span><i data-i="chevR" data-s="12"></i></div>
+              <div class="row prow"><span class="mark">MI</span><span class="k">Mistral</span><span class="st">Not connected</span><i data-i="chevR" data-s="12"></i></div>
+              <div class="row prow"><span class="mark">OL</span><span class="k">Ollama</span><span class="st">Not connected</span><i data-i="chevR" data-s="12"></i></div>
+              <div class="row prow"><span class="mark">++</span><span class="k">Other</span><span class="st">Not connected</span><i data-i="chevR" data-s="12"></i></div>
+            </div>
+          </div>
+          <div class="box">
+            <div class="box-h"><h2>Default</h2><span class="hint">when a task has no AI of its own</span></div>
+            <div class="box-b">
+              <div class="row"><span class="k">AI</span><span class="v">Claude <i data-i="chevD" data-s="12"></i></span></div>
+              <div class="row"><span class="k">Model</span><span class="v">Default model <i data-i="chevD" data-s="12"></i></span></div>
+              <div class="row"><span class="k">Effort</span><span class="pips"><i class="f"></i><i class="f"></i><i class="f"></i><i></i><i></i></span><span class="v">High <i data-i="chevD" data-s="12"></i></span></div>
+            </div>
+          </div>
+          <p class="hint">Connect as many as you like, then choose which one does what in Task routing.</p>
+        </div>
+        <div class="box">
+          <div class="box-h"><h2>Task routing</h2><span class="hint">AI · model · effort</span></div>
+          <div class="box-b">
+            <div class="lab">Writing</div>
+            <div class="row"><span class="k">Commit messages</span><span class="v">Claude <span class="faint">Haiku 5.5 · low</span><i data-i="chevD" data-s="12"></i></span></div>
+            <div class="row"><span class="k">Branch names</span><span class="v">Claude <span class="faint">Haiku 5.5 · low</span><i data-i="chevD" data-s="12"></i></span></div>
+            <div class="row"><span class="k">PR title &amp; description</span><span class="v">Claude <span class="faint">Sonnet 5.5 · medium</span><i data-i="chevD" data-s="12"></i></span></div>
+            <div class="row"><span class="k">Ticket writing</span><span class="v none">Default AI <i data-i="chevD" data-s="12"></i></span></div>
+            <div class="row"><span class="k">Release notes</span><span class="v">Claude <span class="faint">Sonnet 5.5 · medium</span><i data-i="chevD" data-s="12"></i></span></div>
+            <div class="row"><span class="k">Voice dictation</span><span class="v">Claude <span class="faint">Haiku 5.5 · low</span><i data-i="chevD" data-s="12"></i></span></div>
+            <div class="lab">Thinking</div>
+            <div class="row"><span class="k">Conflict resolution</span><span class="v">Claude <span class="faint">Opus 5.5 · high</span><i data-i="chevD" data-s="12"></i></span></div>
+            <div class="row"><span class="k">Ticket triage</span><span class="v">Claude <span class="faint">Haiku 5.5 · low</span><i data-i="chevD" data-s="12"></i></span></div>
+            <div class="row"><span class="k">Sprint questions</span><span class="v">Claude <span class="faint">Sonnet 5.5 · medium</span><i data-i="chevD" data-s="12"></i></span></div>
+            <div class="lab">Agents</div>
+            <div class="row"><span class="k">Free-form agent</span><span class="v">Claude <span class="faint">Opus 5.5 · xhigh</span><i data-i="chevD" data-s="12"></i></span></div>
+            <div class="row sub"><span class="k">Permissions</span><span class="v">Bypass <i data-i="chevD" data-s="12"></i></span></div>
+            <div class="row sub"><span class="k">Ultracode</span><span class="sw on"></span></div>
+          </div>
+        </div>
+      </div>
+      <div class="tip">Which AI handles each job. Every task follows the default AI unless picked here. Agents need a CLI provider.</div>
+    </div>
+  </div>
+</section>
+
+<section class="mock" id="mock-b">
+  <div class="cap"><b>B · Split</b><span>Rail: Task routing first, then each provider with its state. A provider's page shows its connection, its default model and the tasks it runs.</span></div>
+  <div class="panel" data-title="AI setup">
+    <div class="pg flush">
+      <div class="wrap">
+        <nav class="rail">
+          <div class="rsec">Routing</div>
+          <a class="ri"><span class="mark"><i data-i="branch" data-s="12"></i></span><span><b>Task routing</b><small>10 tasks · 9 on Claude</small></span></a>
+          <div class="rsec">Providers</div>
+          <a class="ri on"><span class="mark">CL</span><span><b>Claude</b><small><i class="dot ok"></i>Local CLI</small></span><span class="tag ink">Default</span></a>
+          <a class="ri"><span class="mark">CX</span><span><b>Codex</b><small><i class="dot"></i>Not connected</small></span></a>
+          <a class="ri"><span class="mark">GM</span><span><b>Gemini</b><small><i class="dot warn"></i>CLI found · not tested</small></span></a>
+          <a class="ri"><span class="mark">CP</span><span><b>GitHub Copilot</b><small><i class="dot"></i>Not connected</small></span></a>
+          <a class="ri"><span class="mark">MI</span><span><b>Mistral</b><small><i class="dot"></i>Not connected</small></span></a>
+          <a class="ri"><span class="mark">OL</span><span><b>Ollama</b><small><i class="dot"></i>Not connected</small></span></a>
+          <a class="ri"><span class="mark">++</span><span><b>Other</b><small><i class="dot"></i>Not connected</small></span></a>
+          <p class="hint foot">Connect as many as you like, then choose which one does what in Task routing.</p>
+        </nav>
+        <div class="det">
+          <div class="dh"><span class="mark">CL</span><div><h2>Claude</h2><span class="hint">Anthropic</span></div><span class="sp"></span><span class="tag ink">Default AI for every project</span></div>
+          <div class="sec">
+            <h3>Connection <span class="hint">How Gitnetix talks to it</span></h3>
+            <div class="conn">
+              <div class="top">
+                <div class="seg"><button class="on">Local CLI</button><button>API key</button></div>
+                <span class="hint">Uses the CLI installed on this computer and its own sign-in. No key stored in Gitnetix.</span>
+              </div>
+              <div class="bot">
+                <i class="dot ok"></i><span>claude found</span><span class="mono faint" style="font-size:12px">/home/t1gu1/.cache/gnx-bench/map-rig/bin/claude</span>
+                <span class="sp"></span>
+                <button class="btn btn-sm">Sign in with the CLI</button><button class="btn btn-sm">Test connection</button>
+              </div>
+            </div>
+          </div>
+          <div class="sec">
+            <h3>Model <span class="hint">Used when a task has no model of its own</span></h3>
+            <div class="mrow">
+              <div><label>Default model</label><span class="select">Default model <i data-i="chevD" data-s="12"></i></span></div>
+              <div><label>Effort</label><div class="seg" style="width:100%;display:flex"><button style="flex:1;padding:0">Low</button><button style="flex:1;padding:0">Med</button><button class="on" style="flex:1;padding:0">High</button><button style="flex:1;padding:0">XHigh</button><button style="flex:1;padding:0">Max</button></div></div>
+            </div>
+            <p class="hint" style="margin-top:6px">Higher effort thinks longer: better for conflicts and agent work, slower for commit messages.</p>
+          </div>
+          <div class="sec">
+            <h3>Runs these tasks <span class="hint">9 of 10 · move one in Task routing</span></h3>
+            <div class="t"><span>Commit messages</span><span class="select">Claude Haiku 5.5 <i data-i="chevD" data-s="12"></i></span><span class="select">low <i data-i="chevD" data-s="12"></i></span><i data-i="dots" data-s="12"></i></div>
+            <div class="t"><span>Branch names</span><span class="select">Claude Haiku 5.5 <i data-i="chevD" data-s="12"></i></span><span class="select">low <i data-i="chevD" data-s="12"></i></span><i data-i="dots" data-s="12"></i></div>
+            <div class="t"><span>PR title &amp; description</span><span class="select">Claude Sonnet 5.5 <i data-i="chevD" data-s="12"></i></span><span class="select">medium <i data-i="chevD" data-s="12"></i></span><i data-i="dots" data-s="12"></i></div>
+            <div class="t"><span>Release notes</span><span class="select">Claude Sonnet 5.5 <i data-i="chevD" data-s="12"></i></span><span class="select">medium <i data-i="chevD" data-s="12"></i></span><i data-i="dots" data-s="12"></i></div>
+            <div class="t"><span>Conflict resolution</span><span class="select">Claude Opus 5.5 <i data-i="chevD" data-s="12"></i></span><span class="select">high <i data-i="chevD" data-s="12"></i></span><i data-i="dots" data-s="12"></i></div>
+            <div class="t ff"><span>Free-form agent</span><span class="select">Claude Opus 5.5 <i data-i="chevD" data-s="12"></i></span><span class="select">xhigh <i data-i="chevD" data-s="12"></i></span><i data-i="dots" data-s="12"></i>
+              <div class="extra"><span class="hint">Permissions</span><span class="select">Bypass <i data-i="chevD" data-s="12"></i></span><label class="row-flex" style="gap:8px"><span class="sw on"></span>Ultracode</label></div>
+            </div>
+            <div class="t"><span class="faint">Ticket triage · Voice dictation · Sprint questions</span><span></span><span></span><i data-i="chevD" data-s="12"></i></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="mock" id="mock-c">
+  <div class="cap"><b>C · Preview</b><span>Who does what, first: every task's route to its AI, model and effort. Providers sit on top as a strip; the picked one's connection shows under it.</span></div>
+  <div class="panel" data-title="AI setup">
+    <div class="pg" style="position:relative">
+      <div class="provs">
+        <div class="pv on"><div class="top"><span class="mark">CL</span><b>Claude</b></div><small><i class="dot ok"></i>Local CLI · default</small></div>
+        <div class="pv off"><div class="top"><span class="mark">CX</span><b>Codex</b></div><small><i class="dot"></i>Not connected</small></div>
+        <div class="pv"><div class="top"><span class="mark">GM</span><b>Gemini</b></div><small><i class="dot warn"></i>Not tested</small></div>
+        <div class="pv off"><div class="top"><span class="mark">CP</span><b>Copilot</b></div><small><i class="dot"></i>Not connected</small></div>
+        <div class="pv off"><div class="top"><span class="mark">MI</span><b>Mistral</b></div><small><i class="dot"></i>Not connected</small></div>
+        <div class="pv off"><div class="top"><span class="mark">OL</span><b>Ollama</b></div><small><i class="dot"></i>Not connected</small></div>
+        <div class="pv off"><div class="top"><span class="mark">++</span><b>Other</b></div><small><i class="dot"></i>Not connected</small></div>
+      </div>
+      <div class="strip">
+        <div class="seg"><button class="on">Local CLI</button><button>API key</button></div>
+        <i class="dot ok"></i><span class="mono" style="font-size:12px">/home/t1gu1/.cache/gnx-bench/map-rig/bin/claude</span>
+        <span class="sp"></span>
+        <button class="btn btn-sm">Sign in with the CLI</button><button class="btn btn-sm">Test connection</button>
+        <span class="tag ink">Default AI</span>
+      </div>
+      <div class="board">
+        <div class="bh"><span>Task</span><span>AI</span><span>Model</span><span>Effort</span></div>
+        <div class="rt def"><span class="task">Default</span><span class="line"><span class="wire"></span><span class="who"><span class="mark">CL</span>Claude</span></span><span class="model">Default model</span><span class="eff"><span class="pips"><i class="f"></i><i class="f"></i><i class="f"></i><i></i><i></i></span>high</span></div>
+        <div class="rt"><span class="task">Commit messages</span><span class="line"><span class="wire"></span><span class="who"><span class="mark">CL</span>Claude</span></span><span class="model">Haiku 5.5</span><span class="eff"><span class="pips"><i class="f"></i><i></i><i></i><i></i><i></i></span>low</span></div>
+        <div class="rt"><span class="task">Branch names</span><span class="line"><span class="wire"></span><span class="who"><span class="mark">CL</span>Claude</span></span><span class="model">Haiku 5.5</span><span class="eff"><span class="pips"><i class="f"></i><i></i><i></i><i></i><i></i></span>low</span></div>
+        <div class="rt"><span class="task">PR title &amp; description</span><span class="line"><span class="wire"></span><span class="who"><span class="mark">CL</span>Claude</span></span><span class="model">Sonnet 5.5</span><span class="eff"><span class="pips"><i class="f"></i><i class="f"></i><i></i><i></i><i></i></span>medium</span></div>
+        <div class="rt def hov"><span class="task">Ticket writing</span><span class="line"><span class="wire"></span><span class="who faint">follows Default</span></span><span class="model faint">Provider default</span><span class="eff faint">default</span></div>
+        <div class="rt"><span class="task">Release notes</span><span class="line"><span class="wire"></span><span class="who"><span class="mark">CL</span>Claude</span></span><span class="model">Sonnet 5.5</span><span class="eff"><span class="pips"><i class="f"></i><i class="f"></i><i></i><i></i><i></i></span>medium</span></div>
+        <div class="rt"><span class="task">Conflict resolution</span><span class="line"><span class="wire"></span><span class="who"><span class="mark">CL</span>Claude</span></span><span class="model">Opus 5.5</span><span class="eff"><span class="pips"><i class="f"></i><i class="f"></i><i class="f"></i><i></i><i></i></span>high</span></div>
+        <div class="rt"><span class="task">Free-form agent <span class="tag" style="margin-left:4px">Bypass</span><span class="tag">Ultracode</span></span><span class="line"><span class="wire"></span><span class="who"><span class="mark">CL</span>Claude</span></span><span class="model">Opus 5.5</span><span class="eff"><span class="pips"><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i><i></i></span>xhigh</span></div>
+        <div class="rt"><span class="task">Ticket triage</span><span class="line"><span class="wire"></span><span class="who"><span class="mark">CL</span>Claude</span></span><span class="model">Haiku 5.5</span><span class="eff"><span class="pips"><i class="f"></i><i></i><i></i><i></i><i></i></span>low</span></div>
+        <div class="rt"><span class="task">Voice dictation</span><span class="line"><span class="wire"></span><span class="who"><span class="mark">CL</span>Claude</span></span><span class="model">Haiku 5.5</span><span class="eff"><span class="pips"><i class="f"></i><i></i><i></i><i></i><i></i></span>low</span></div>
+        <div class="rt"><span class="task">Sprint questions</span><span class="line"><span class="wire"></span><span class="who"><span class="mark">CL</span>Claude</span></span><span class="model">Sonnet 5.5</span><span class="eff"><span class="pips"><i class="f"></i><i class="f"></i><i></i><i></i><i></i></span>medium</span></div>
+      </div>
+      <p class="hint">Every task follows Default unless picked here; click a route, a model or an effort to change it. Agents need a CLI provider. Higher effort thinks longer: better for conflicts and agent work, slower for commit messages.</p>
+      <div class="menu" style="left:556px;top:396px">
+        <div><span class="mark">··</span>Default AI<small>Claude</small></div>
+        <div class="on"><span class="mark">CL</span>Claude<small>Local CLI</small></div>
+        <div><span class="mark">GM</span>Gemini<small>Not tested</small></div>
+        <div class="faint"><span class="mark">CX</span>Codex<small>Connect first</small></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script src="themes.js"></script>
+<script src="base.js"></script>
+</body></html>

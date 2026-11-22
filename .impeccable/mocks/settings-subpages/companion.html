@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en" data-theme="dark"><head><meta charset="utf-8">
+<title>Settings sub-page mocks: Companion & MCP</title>
+<link href="https://fonts.googleapis.com/css2?family=Antonio:wght@400;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="base.css">
+<style>
+.qr{flex:none;background:#fff;padding:7px;border-radius:var(--r);line-height:0}
+.qr svg{width:100%;height:100%;display:block}
+.kv{display:grid;grid-template-columns:auto 1fr auto;align-items:center;column-gap:12px;border:1px solid var(--line2);border-radius:var(--r);padding:4px 6px 4px 12px}
+.kv>span:nth-child(3n+1){font:600 10px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--faint)}
+.kv>span:nth-child(3n+2){font:13px/28px var(--mono);color:var(--fg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kv .ic{width:24px;height:24px;display:grid;place-items:center;color:var(--muted)}
+.warnbox{border:1px solid color-mix(in srgb,var(--warn) 45%,transparent);background:var(--warn-bg);border-radius:var(--r);padding:10px 12px;display:flex;gap:10px;color:var(--fg);font-size:12px;line-height:17px}
+.warnbox svg{color:var(--warn);margin-top:2px}
+.code{display:flex;align-items:center;gap:10px;border:1px solid var(--line2);border-radius:var(--r);background:var(--bg);padding:0 6px 0 12px;height:36px;font:12px var(--mono);color:var(--fg)}
+.code .ic{margin-left:auto;width:24px;height:24px;display:grid;place-items:center;color:var(--muted)}
+/* A · Sheet */
+#mock-a .top{display:flex;align-items:baseline;gap:16px;margin-bottom:16px}
+#mock-a .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
+#mock-a .k.tipped{flex:0 0 auto;border-bottom:1px dotted var(--faint)}
+#mock-a .phone{padding:16px;display:flex;gap:16px}
+#mock-a .phone .qr{width:128px;height:128px}
+#mock-a .phone-foot{padding:0 16px 16px;display:flex;flex-direction:column;gap:10px;align-items:flex-start}
+#mock-a .mcp{margin-top:16px}
+#mock-a .mcp .box-b{gap:0}
+#mock-a .mcp .code{margin:12px 0 8px}
+/* B · Split */
+#mock-b .split{display:grid;grid-template-columns:260px 1fr;height:100%}
+#mock-b .rail{display:flex;flex-direction:column}
+#mock-b .li{padding:12px 16px;min-height:58px}
+#mock-b .li .nm{font-weight:500}
+#mock-b .li .sub.st-ok{color:var(--add)}
+#mock-b .rail-foot{margin-top:auto;padding:14px 16px;border-top:1px solid var(--line);color:var(--faint);font-size:12px;line-height:17px}
+#mock-b .det{padding:24px 32px;overflow:auto;display:flex;flex-direction:column;gap:20px}
+#mock-b .pair{display:grid;grid-template-columns:220px 1fr;gap:28px;align-items:start}
+#mock-b .pair .qr{width:220px;height:220px;padding:10px}
+#mock-b .steps{display:flex;flex-direction:column;border:1px solid var(--line2);border-radius:var(--r)}
+#mock-b .steps>div{display:flex;gap:12px;padding:12px 14px;border-bottom:1px solid var(--line)}
+#mock-b .steps>div:last-child{border-bottom:0}
+#mock-b .steps .n{flex:none;width:20px;height:20px;border:1px solid var(--line2);border-radius:50%;display:grid;place-items:center;font:500 11px var(--mono);color:var(--muted)}
+#mock-b .steps b{font-weight:500;display:block;margin-bottom:2px}
+/* C · Preview */
+#mock-c .map{position:relative;border:1px solid var(--line2);border-radius:var(--r);padding:28px 32px 24px}
+#mock-c .stops{display:grid;grid-template-columns:repeat(4,1fr);position:relative}
+#mock-c .stops::before{content:"";position:absolute;left:12.5%;right:12.5%;top:7px;height:1.5px;background:var(--fg)}
+#mock-c .stop{display:flex;flex-direction:column;align-items:center;gap:6px;position:relative;text-align:center}
+#mock-c .stop .st{width:16px;height:16px;border:1.5px solid var(--fg);border-radius:50%;background:var(--panel)}
+#mock-c .stop.app .st{background:var(--fg)}
+#mock-c .stop b{font-weight:600;margin-top:6px}
+#mock-c .stop .hint{max-width:200px}
+#mock-c .via{position:absolute;top:-16px;font:11px var(--mono);color:var(--muted);transform:translateX(-50%);background:var(--panel);padding:0 6px}
+#mock-c .under{display:grid;grid-template-columns:repeat(4,1fr);gap:0;margin-top:16px;border:1px solid var(--line2);border-radius:var(--r)}
+#mock-c .under>div{padding:16px;display:flex;flex-direction:column;gap:10px;min-width:0}
+#mock-c .under>div+div{border-left:1px solid var(--line2)}
+#mock-c .under .qr{width:140px;height:140px}
+#mock-c .under .row{min-height:30px}
+#mock-c .under .lab{padding:0 0 2px}
+</style>
+</head><body>
+
+<section class="mock" id="mock-a">
+  <div class="cap"><b>A · Sheet</b><span>Two boxes like the home: the API's switches and token as rows, the phone card beside it; the MCP command in a box below.</span></div>
+  <div class="panel" data-title="Companion &amp; MCP">
+    <div class="pg">
+      <div class="top"><p class="lead">The companion API exposes every Gitnetix action over HTTP, for the phone and for AI agents through MCP.</p></div>
+      <div class="grid">
+        <div class="box">
+          <div class="box-h"><h2>Companion API</h2><span class="hint">On, your network</span></div>
+          <div class="box-b">
+            <div class="lab">Access</div>
+            <div class="row"><span class="k">API</span><span class="v mono">port 7961</span><i class="sw on"></i></div>
+            <div class="row hov"><span class="k tipped">Devices on my network</span><span class="sp"></span><i class="sw on"></i></div>
+            <div class="row"><span class="k">Firewall</span><button class="btn btn-xs">Allow through firewall</button></div>
+            <div class="lab">Pairing token</div>
+            <div class="row"><span class="k">Token</span><span class="v mono">maprig…</span><button class="btn btn-xs"><i data-i="copy" data-s="12"></i>Copy</button></div>
+            <div class="row"><span class="k">Paired devices</span><button class="btn btn-xs btn-danger">New token (unpairs devices)</button></div>
+          </div>
+          <div style="padding:4px 16px 16px"><div class="warnbox"><i data-i="warn" data-s="12"></i><span>Devices on your network can also reach this computer over plain HTTP. Keep this on only on networks you trust, and off on public or shared Wi-Fi.</span></div></div>
+        </div>
+        <div class="box">
+          <div class="box-h"><h2>Gitnetix on your phone</h2></div>
+          <div class="phone">
+            <div class="qr" data-qr></div>
+            <div style="display:flex;flex-direction:column;gap:12px;min-width:0;flex:1">
+              <span class="hint">Scan it with the phone camera: Gitnetix opens in its browser, already paired.</span>
+              <div class="kv"><span>Address</span><span>192.168.1.42:7961</span><span class="ic"><i data-i="copy" data-s="12"></i></span><span>Token</span><span>maprig…</span><span class="ic"><i data-i="copy" data-s="12"></i></span></div>
+            </div>
+          </div>
+          <div class="phone-foot"><span class="hint">The first time, the browser warns that the connection isn't private: open the details and continue to the site. Then it allows voice dictation. The code holds the token: don't share it.</span></div>
+        </div>
+      </div>
+      <div class="box mcp">
+        <div class="box-h"><h2>MCP server</h2><span class="hint">Needs the app running</span></div>
+        <div class="box-b">
+          <div class="code" style="margin-top:14px"><span class="faint">$</span>claude mcp add gitnetix -- gitnetix-mcp<span class="ic"><i data-i="copy" data-s="12"></i></span></div>
+          <div class="row"><span class="k">Binary</span><span class="v mono">gitnetix-mcp</span><span class="hint">built next to the app, speaks MCP over stdio</span></div>
+          <div class="row"><span class="k">Tools</span><span class="v mono" style="overflow:hidden;text-overflow:ellipsis">projects_list, workspace_overview, items_create, agents_start, prs_review…</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="tip" style="left:56px;top:226px;max-width:420px">Allow devices on my network (needed for the phone). Phones connect over HTTPS with a certificate made on this computer. Anyone with the token on the same network can run Git commands and agents here: turn it on only on networks you trust, or use a VPN like Tailscale.</div>
+  </div>
+</section>
+
+<section class="mock" id="mock-b">
+  <div class="cap"><b>B · Split</b><span>The three parts on the left with their state; the picked one on the right. Phone picked: a big code, how pairing goes, the token actions.</span></div>
+  <div class="panel" data-title="Companion &amp; MCP">
+    <div class="pg flush">
+      <div class="split">
+        <div class="rail">
+          <div class="li"><span class="mark">API</span><span style="min-width:0"><span class="nm">Companion API</span><span class="sub st-ok">On · port 7961 · your network</span></span></div>
+          <div class="li on"><span class="mark" style="color:var(--fg);border-color:var(--fg)"><i data-i="phone" data-s="12"></i></span><span style="min-width:0"><span class="nm">Phone</span><span class="sub">Ready to pair</span></span><span class="sp"></span><i data-i="chevR" data-s="12"></i></div>
+          <div class="li"><span class="mark">MCP</span><span style="min-width:0"><span class="nm">MCP server</span><span class="sub">gitnetix-mcp, over stdio</span></span></div>
+          <div class="rail-foot">The companion API exposes every Gitnetix action over HTTP. The mobile app uses it to manage releases, agents, PRs and tickets, and the MCP server uses it so AI agents can drive Gitnetix.</div>
+        </div>
+        <div class="det">
+          <div><h3 class="h" style="font-size:16px">Gitnetix on your phone</h3><span class="hint">Opens in the phone's browser, already paired.</span></div>
+          <div class="pair">
+            <div class="qr" data-qr></div>
+            <div style="display:flex;flex-direction:column;gap:14px">
+              <div class="steps">
+                <div><span class="n">1</span><span><b>Scan the code</b><span class="hint">With the phone camera, on the same network as this computer.</span></span></div>
+                <div><span class="n">2</span><span><b>Continue past the warning</b><span class="hint">The certificate is made on this computer: open the details and continue to the site, once.</span></span></div>
+                <div><span class="n">3</span><span><b>It stays paired</b><span class="hint">Until a new token below unpairs every device.</span></span></div>
+              </div>
+              <div class="kv"><span>Address</span><span>192.168.1.42:7961</span><span class="ic"><i data-i="copy" data-s="12"></i></span><span>Token</span><span>maprig…</span><span class="ic"><i data-i="copy" data-s="12"></i></span></div>
+            </div>
+          </div>
+          <div class="warnbox"><i data-i="warn" data-s="12"></i><span>The code holds the token. Anyone with it on the same network can run Git commands and agents on this computer. Turn network access on only on networks you trust, or use a VPN like Tailscale.</span></div>
+          <div class="row-flex" style="gap:8px"><button class="btn">Copy token</button><button class="btn btn-sm">Allow through firewall</button><span class="sp"></span><button class="btn btn-danger">New token (unpairs devices)</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="mock" id="mock-c">
+  <div class="cap"><b>C · Preview</b><span>The connection drawn first as a line: phone, network, Gitnetix, MCP; each stop's switch or action sits under it.</span></div>
+  <div class="panel" data-title="Companion &amp; MCP">
+    <div class="pg">
+      <div class="map">
+        <div class="stops">
+          <div class="stop"><span class="st"></span><b>Your phone</b><span class="hint">Opens Gitnetix in its browser</span></div>
+          <div class="stop"><span class="st"></span><b>Your network</b><span class="hint mono">https://192.168.1.42:7961</span></div>
+          <div class="stop app"><span class="st"></span><b>Gitnetix</b><span class="hint">Companion API on port 7961</span></div>
+          <div class="stop"><span class="st"></span><b>AI agents</b><span class="hint">Through gitnetix-mcp, over stdio</span></div>
+        </div>
+      </div>
+      <div class="under">
+        <div>
+          <span class="lab">Pair</span>
+          <div class="qr" data-qr></div>
+          <span class="hint">Scan with the phone camera, then continue past the browser's warning once.</span>
+        </div>
+        <div>
+          <span class="lab">Network</span>
+          <div class="row"><span class="k">Devices on my network</span><i class="sw on"></i></div>
+          <div class="row"><span class="k">Firewall</span><button class="btn btn-xs">Allow</button></div>
+          <div class="warnbox"><i data-i="warn" data-s="12"></i><span>Plain HTTP is reachable too. Keep it on only on networks you trust, or use a VPN like Tailscale.</span></div>
+        </div>
+        <div>
+          <span class="lab">API</span>
+          <div class="row"><span class="k">Companion API</span><i class="sw on"></i></div>
+          <div class="row"><span class="k">Port</span><span class="v mono">7961</span></div>
+          <div class="row"><span class="k">Token</span><span class="v mono">maprig…</span><button class="btn btn-xs"><i data-i="copy" data-s="12"></i></button></div>
+          <button class="btn btn-xs btn-danger" style="align-self:flex-start">New token (unpairs devices)</button>
+        </div>
+        <div>
+          <span class="lab">MCP</span>
+          <span class="hint">Add it to Claude Code. The app must be running.</span>
+          <div class="code" style="height:auto;padding:8px 6px 8px 10px;align-items:flex-start;white-space:normal;line-height:18px"><span>claude mcp add gitnetix -- gitnetix-mcp</span><span class="ic"><i data-i="copy" data-s="12"></i></span></div>
+          <span class="hint">Each RPC becomes a tool: <span class="mono">projects_list</span>, <span class="mono">agents_start</span>, <span class="mono">prs_review</span>…</span>
+        </div>
+      </div>
+      <p class="hint" style="margin-top:16px;max-width:90ch">Phones connect over HTTPS with a certificate made on this computer, so their browser warns once and then allows voice dictation. The pairing token protects every call.</p>
+    </div>
+  </div>
+</section>
+<script src="themes.js"></script>
+<script src="base.js"></script>
+<script type="module">
+import { renderSVG } from "/node_modules/uqr/dist/index.mjs";
+const svg = renderSVG("https://192.168.1.42:7961/#token=maprig");
+document.querySelectorAll("[data-qr]").forEach((e) => (e.innerHTML = svg));
+</script>
+</body></html>

@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { useAiCatalog } from "../api/hooks";
 import { isLocal, rpc } from "../api/transport";
-import { DeviceSignIn } from "../screens/Settings";
+import { DeviceSignIn } from "../screens/Connections";
 import { ErrorBox, Modal } from "./ui";
 
 /** An AI CLI failed because its sign-in expired: offers to sign in again from here. */

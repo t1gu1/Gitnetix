@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en" data-theme="dark"><head><meta charset="utf-8">
+<title>Settings sub-page mocks: Logs</title>
+<link href="https://fonts.googleapis.com/css2?family=Antonio:wght@400;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="base.css">
+<style>
+/* a log line: time, level, text */
+.ll{display:grid;grid-template-columns:64px 50px 1fr;gap:10px;padding:4px 16px;font:12px/18px var(--mono);border-bottom:1px solid var(--line)}
+.ll .t{color:var(--faint)}
+.ll .lv{color:var(--faint);font:600 10px/18px var(--sans);letter-spacing:.12em;text-transform:uppercase}
+.ll.err .lv,.ll.err .m{color:var(--del)}
+.ll .m{color:var(--fg);min-width:0;overflow-wrap:anywhere}
+.ll .m .faint{color:var(--faint)}
+.ll.done .m{color:var(--muted)}
+.ll .x{display:inline-flex;margin-left:8px;padding:0 5px;border:1px solid var(--line2);border-radius:var(--r-sm);font:500 11px/16px var(--mono);color:var(--muted)}
+.search{width:240px}
+
+/* A */
+#mock-a .pg{display:flex;flex-direction:column;gap:16px}
+#mock-a .top{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+#mock-a .logbox{flex:1;min-height:0}
+#mock-a .logbox .box-h{align-items:center}
+#mock-a .logbox .box-h .seg{margin:-6px 0 -6px auto}
+#mock-a .lines{overflow:hidden;flex:1}
+#mock-a .help{cursor:help;text-decoration:underline dotted var(--faint);text-underline-offset:4px}
+
+/* B */
+#mock-b .split{display:grid;grid-template-columns:300px 1fr;height:100%}
+#mock-b .rail .lab{padding:16px 16px 6px}
+#mock-b .li{min-height:38px;padding:0 16px}
+#mock-b .li .c{margin-left:auto;font:12px var(--mono);color:var(--faint)}
+#mock-b .li .c.st-err{color:var(--del)}
+#mock-b .li .mono{font-size:12px}
+#mock-b .det{display:flex;flex-direction:column;min-height:0}
+#mock-b .det-h{display:flex;align-items:center;gap:10px;padding:16px 24px;border-bottom:1px solid var(--line)}
+#mock-b .det-h .mono{font-size:14px;font-weight:500}
+#mock-b .grp{margin:16px 24px 0;border:1px solid var(--line2);border-radius:var(--r)}
+#mock-b .grp-h{display:flex;align-items:baseline;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line)}
+#mock-b .grp pre{padding:10px 14px;font:12px/19px var(--mono);color:var(--fg);white-space:pre-wrap;border-bottom:1px solid var(--line)}
+#mock-b .grp pre .d{color:var(--del)}
+#mock-b .refs{display:grid;grid-template-columns:1fr auto auto;gap:6px 16px;padding:10px 14px;font:12px/18px var(--mono)}
+#mock-b .refs .faint{font-size:11px}
+
+/* C */
+#mock-c .bar{display:flex;align-items:center;gap:10px;padding:12px 24px;border-bottom:1px solid var(--line)}
+#mock-c .stream{flex:1;overflow:hidden;padding:8px 0}
+#mock-c .burst{display:grid;grid-template-columns:96px 1fr;padding:6px 24px}
+#mock-c .burst+.burst{border-top:1px solid var(--line)}
+#mock-c .burst .t{font:12px/20px var(--mono);color:var(--faint)}
+#mock-c .burst .b{display:flex;flex-direction:column;gap:2px;min-width:0}
+#mock-c .e{display:flex;align-items:baseline;gap:8px;font:12px/20px var(--mono);color:var(--muted)}
+#mock-c .e .ok{color:var(--faint);margin-left:auto;font-size:11px}
+#mock-c .e.err{color:var(--del)}
+#mock-c .fold{margin:2px 0 4px 16px;padding:8px 12px;border:1px solid var(--line2);border-radius:var(--r);font:12px/19px var(--mono);color:var(--muted)}
+#mock-c .fold .faint{font-size:11px}
+#mock-c .start{display:flex;align-items:center;gap:10px;padding:10px 24px;color:var(--muted);font-size:12px}
+#mock-c .start::before,#mock-c .start::after{content:"";flex:1;height:1px;background:var(--line2)}
+#mock-c .foot{display:flex;align-items:center;gap:10px;padding:12px 24px;border-top:1px solid var(--line)}
+</style>
+</head><body>
+
+<section class="mock" id="mock-a">
+  <div class="cap"><b>A · Sheet</b><span>Two boxes say what the log holds and what it shows; the lines sit in a third box, with time, level and text in columns so errors stand out.</span></div>
+  <div class="panel" data-title="Logs" data-tools='<button class="btn btn-sm"><i data-i="copy" data-s="12"></i>Copy all</button><button class="btn btn-sm btn-ghost"><i data-i="trash" data-s="12"></i>Clear</button>'>
+    <div class="pg">
+      <div class="top">
+        <div class="box">
+          <div class="box-h"><h2 class="help">This run</h2><span class="hint">since 16:02</span></div>
+          <div class="box-b">
+            <div class="row"><span class="k">Entries</span><span class="v">1,204</span></div>
+            <div class="row"><span class="k">Errors</span><span class="v st-err">38</span></div>
+            <div class="row"><span class="k">Version</span><span class="v mono">v0.32.0 dev · feat/redesign-settings-subpages</span></div>
+          </div>
+        </div>
+        <div class="box">
+          <div class="box-h"><h2>On disk</h2><span class="hint">every run</span></div>
+          <div class="box-b">
+            <div class="row"><span class="k">File</span><span class="v mono">~/.config/gitnetix/logs/gitnetix.log</span><i data-i="copy" data-s="12"></i></div>
+            <div class="row"><span class="k">Size</span><span class="v">1.8 MB <span class="faint" style="font-weight:400">of 5 MB</span></span></div>
+            <div class="row"><span class="k">Older</span><span class="v mono">gitnetix.old.log</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="box logbox">
+        <div class="box-h"><h2>Entries</h2><span class="hint">newest last</span><span class="seg"><button class="on">All</button><button>Errors · 38</button></span><span class="field ph search" style="height:28px"><i data-i="search" data-s="12"></i>Find</span></div>
+        <div class="lines">
+          <div class="ll"><span class="t">16:24:51</span><span class="lv">info</span><span class="m">Will attempt to branches.autoFetch <span class="faint">{"back":false,"projectId":"6206cd86ad21"}</span></span></div>
+          <div class="ll done"><span class="t">16:24:51</span><span class="lv">info</span><span class="m">Done branches.autoFetch in 3ms</span></div>
+          <div class="ll"><span class="t">16:25:04</span><span class="lv">info</span><span class="m">Will attempt to workspace.rebaseRuns <span class="faint">{}</span></span></div>
+          <div class="ll done"><span class="t">16:25:04</span><span class="lv">info</span><span class="m">Done workspace.rebaseRuns in 0ms</span></div>
+          <div class="ll"><span class="t">16:25:04</span><span class="lv">info</span><span class="m">Will attempt to branches.autoFetch <span class="faint">{"back":true,"projectId":"6206cd86ad21"}</span></span></div>
+          <div class="ll done"><span class="t">16:25:04</span><span class="lv">info</span><span class="m">Done branches.autoFetch in 2ms</span></div>
+          <div class="ll err"><span class="t">16:25:04</span><span class="lv">error</span><span class="m">git rev-parse refs/remotes/origin/fix/webkitgtk-dialog-scroll failed: fatal: ambiguous argument 'refs/remotes/origin/fix/webkitgtk-dialog-scroll': unknown revision or path not in the working tree.<br><span class="faint">Use '--' to separate paths from revisions, like this: 'git &lt;command&gt; [&lt;revision&gt;...] -- [&lt;file&gt;...]'</span></span></div>
+          <div class="ll err"><span class="t">16:25:04</span><span class="lv">error</span><span class="m">git rev-parse refs/remotes/origin/release/0.21.5 failed: fatal: ambiguous argument 'refs/remotes/origin/release/0.21.5': unknown revision or path not in the working tree.<br><span class="faint">Use '--' to separate paths from revisions, like this: 'git &lt;command&gt; [&lt;revision&gt;...] -- [&lt;file&gt;...]'</span></span></div>
+          <div class="ll err"><span class="t">16:25:04</span><span class="lv">error</span><span class="m">git rev-parse refs/remotes/origin/feat/undo-stack failed: fatal: ambiguous argument 'refs/remotes/origin/feat/undo-stack': unknown revision or path not in the working tree.</span></div>
+          <div class="ll"><span class="t">16:25:09</span><span class="lv">info</span><span class="m">Will attempt to branches.autoFetch <span class="faint">{"back":false,"projectId":"6206cd86ad21"}</span></span></div>
+          <div class="ll done"><span class="t">16:25:09</span><span class="lv">info</span><span class="m">Done branches.autoFetch in 3ms</span></div>
+          <div class="ll"><span class="t">16:25:13</span><span class="lv">info</span><span class="m">Will attempt to ai.models <span class="faint">{"id":"claude"}</span></span></div>
+          <div class="ll done"><span class="t">16:25:13</span><span class="lv">info</span><span class="m">Done ai.models in 0ms</span></div>
+          <div class="ll"><span class="t">16:25:14</span><span class="lv">info</span><span class="m">Will attempt to branches.autoFetch <span class="faint">{"back":false,"projectId":"6206cd86ad21"}</span></span></div>
+          <div class="ll done"><span class="t">16:25:14</span><span class="lv">info</span><span class="m">Done branches.autoFetch in 3ms</span></div>
+          <div class="ll"><span class="t">16:25:19</span><span class="lv">info</span><span class="m">Will attempt to branches.autoFetch <span class="faint">{"back":false,"projectId":"6206cd86ad21"}</span></span></div>
+          <div class="ll done"><span class="t">16:25:19</span><span class="lv">info</span><span class="m">Done branches.autoFetch in 3ms</span></div>
+        </div>
+      </div>
+      <div class="tip" style="left:190px;top:72px;max-width:360px">Every action the app attempts and every error, since it started. Copy it to share with an agent.</div>
+    </div>
+  </div>
+</section>
+
+<section class="mock" id="mock-b">
+  <div class="cap"><b>B · Split</b><span>Entries grouped by what ran, errors first. Picking a group folds its repeats: one message, the refs it hit, how often and when.</span></div>
+  <div class="panel" data-title="Logs" data-tools='<button class="btn btn-sm"><i data-i="copy" data-s="12"></i>Copy all</button><button class="btn btn-sm btn-ghost"><i data-i="trash" data-s="12"></i>Clear</button>'>
+    <div class="pg flush">
+      <div class="split">
+        <div class="rail">
+          <div class="li"><span>Everything</span><span class="c">1,204</span></div>
+          <div class="lab">Errors · 38</div>
+          <div class="li on"><span class="mono">git rev-parse</span><span class="c st-err">36</span></div>
+          <div class="li"><span class="mono">prs.get</span><span class="c st-err">2</span></div>
+          <div class="lab">Actions</div>
+          <div class="li"><span class="mono">branches.autoFetch</span><span class="c">824</span></div>
+          <div class="li"><span class="mono">workspace.rebaseRuns</span><span class="c">296</span></div>
+          <div class="li"><span class="mono">ai.models</span><span class="c">8</span></div>
+          <div class="li"><span class="mono">projects.open</span><span class="c">2</span></div>
+          <div class="hint" style="padding:16px">Since Gitnetix started at 16:02. Every run is also in <span class="mono" style="font-size:11px">~/.config/gitnetix/logs/gitnetix.log</span>.</div>
+        </div>
+        <div class="det">
+          <div class="det-h"><span class="mono">git rev-parse</span><span class="hint">36 errors · 4 refs · 16:14 to 16:25</span><span class="sp"></span><button class="btn btn-sm"><i data-i="copy" data-s="12"></i>Copy these</button></div>
+          <div class="grp">
+            <div class="grp-h"><span class="st-err" style="font-weight:600">failed</span><span class="hint">the same message for each ref</span></div>
+            <pre><span class="d">fatal: ambiguous argument 'refs/remotes/origin/<b>&lt;ref&gt;</b>': unknown revision
+or path not in the working tree.</span>
+Use '--' to separate paths from revisions, like this:
+'git &lt;command&gt; [&lt;revision&gt;...] -- [&lt;file&gt;...]'</pre>
+            <div class="refs">
+              <span>fix/webkitgtk-dialog-scroll</span><span class="faint">×9</span><span class="faint">last 16:25:04</span>
+              <span>release/0.21.5</span><span class="faint">×9</span><span class="faint">last 16:25:04</span>
+              <span>feat/undo-stack</span><span class="faint">×9</span><span class="faint">last 16:25:04</span>
+              <span>release/0.22.0</span><span class="faint">×9</span><span class="faint">last 16:25:04</span>
+            </div>
+          </div>
+          <div class="grp">
+            <div class="grp-h"><span class="hint">Around the last one</span></div>
+            <div class="ll"><span class="t">16:25:04</span><span class="lv">info</span><span class="m">Will attempt to branches.autoFetch <span class="faint">{"back":true}</span></span></div>
+            <div class="ll done"><span class="t">16:25:04</span><span class="lv">info</span><span class="m">Done branches.autoFetch in 2ms</span></div>
+            <div class="ll err"><span class="t">16:25:04</span><span class="lv">error</span><span class="m">git rev-parse refs/remotes/origin/release/0.22.0 failed</span></div>
+            <div class="ll" style="border-bottom:0"><span class="t">16:25:09</span><span class="lv">info</span><span class="m">Will attempt to branches.autoFetch <span class="faint">{"back":false}</span></span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="mock" id="mock-c">
+  <div class="cap"><b>C · Preview</b><span>The log read as it happened: lines grouped by the second they ran, each action with its time taken, repeated errors folded into one block. Copy takes what the filter shows.</span></div>
+  <div class="panel" data-title="Logs">
+    <div class="bar"><span class="seg"><button class="on">All</button><button>Errors · 38</button><button>Actions</button></span><span class="field ph search"><i data-i="search" data-s="12"></i>Find in the log</span><span class="sp"></span><span class="hint">1,204 entries since 16:02</span></div>
+    <div class="stream">
+      <div class="start">Started Gitnetix v0.32.0 dev · feat/redesign-settings-subpages · 16:02:11</div>
+      <div class="burst"><span class="t">16:24:51</span><div class="b"><div class="e">branches.autoFetch <span class="faint">{"back":false,"projectId":"6206cd86ad21"}</span><span class="ok">done 3ms</span></div></div></div>
+      <div class="burst"><span class="t">16:25:04</span><div class="b">
+        <div class="e">workspace.rebaseRuns <span class="faint">{}</span><span class="ok">done 0ms · ×2</span></div>
+        <div class="e">branches.autoFetch <span class="faint">{"back":true,"projectId":"6206cd86ad21"}</span><span class="ok">done 2ms</span></div>
+        <div class="e err">git rev-parse failed for 4 refs: unknown revision or path not in the working tree</div>
+        <div class="fold">refs/remotes/origin/fix/webkitgtk-dialog-scroll<br>refs/remotes/origin/release/0.21.5<br>refs/remotes/origin/feat/undo-stack<br>refs/remotes/origin/release/0.22.0<br><span class="faint">fatal: ambiguous argument '…': Use '--' to separate paths from revisions, like this: 'git &lt;command&gt; [&lt;revision&gt;...] -- [&lt;file&gt;...]'</span></div>
+      </div></div>
+      <div class="burst"><span class="t">16:25:09</span><div class="b"><div class="e">branches.autoFetch <span class="faint">{"back":false,"projectId":"6206cd86ad21"}</span><span class="ok">done 3ms</span></div></div></div>
+      <div class="burst"><span class="t">16:25:13</span><div class="b"><div class="e">ai.models <span class="faint">{"id":"claude"}</span><span class="ok">done 0ms</span></div></div></div>
+      <div class="burst"><span class="t">16:25:14</span><div class="b"><div class="e">branches.autoFetch <span class="faint">{"back":false,"projectId":"6206cd86ad21"}</span><span class="ok">done 3ms</span></div></div></div>
+      <div class="burst"><span class="t">16:25:19</span><div class="b"><div class="e">branches.autoFetch <span class="faint">{"back":false,"projectId":"6206cd86ad21"}</span><span class="ok">done 3ms</span></div></div></div>
+      <div class="burst"><span class="t">16:25:22</span><div class="b"><div class="e err">prs.get failed after 2ms: unsupported: remote <span>~/.cache/gnx-bench/map-rig/repos/origin.git</span></div></div></div>
+      <div class="burst"><span class="t">16:25:24</span><div class="b"><div class="e">branches.autoFetch <span class="faint">{"back":false,"projectId":"6206cd86ad21"}</span><span class="ok">done 3ms</span></div></div></div>
+      <div class="burst"><span class="t">16:25:29</span><div class="b"><div class="e">branches.autoFetch <span class="faint">{"back":false,"projectId":"6206cd86ad21"}</span><span class="ok">done 3ms</span></div></div></div>
+      <div class="burst"><span class="t">16:25:31</span><div class="b"><div class="e">ai.models <span class="faint">{"id":"claude"}</span><span class="ok">done 1ms</span></div></div></div>
+      <div class="burst"><span class="t">16:25:34</span><div class="b"><div class="e">branches.autoFetch <span class="faint">{"back":false,"projectId":"6206cd86ad21"}</span><span class="ok">done 3ms</span></div></div></div>
+      <div class="burst"><span class="t">16:25:39</span><div class="b"><div class="e">branches.autoFetch <span class="faint">{"back":false,"projectId":"6206cd86ad21"}</span><span class="ok">done 3ms</span></div></div></div>
+      </div>
+    <div class="foot"><span class="hint">Every action the app attempts and every error, since it started. Also in <span class="mono" style="font-size:11px">~/.config/gitnetix/logs/gitnetix.log</span>.</span><span class="sp"></span><button class="btn btn-sm btn-ghost"><i data-i="trash" data-s="12"></i>Clear</button><button class="btn btn-primary"><i data-i="copy" data-s="12"></i>Copy all</button></div>
+  </div>
+</section>
+
+<script src="themes.js"></script>
+<script src="base.js"></script>
+</body></html>

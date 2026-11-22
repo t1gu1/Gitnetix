@@ -1,9 +1,10 @@
-import { Fragment, useRef, useState } from "react";
+import { Fragment, useRef, useState, type PointerEvent } from "react";
 
 import { useProjectPrefs, useTagV } from "../api/hooks";
-import type { BranchType } from "../api/types";
+import type { BranchType, Project } from "../api/types";
 import { KINDS, kindOf } from "../lib/kinds";
 import { Icon } from "./Icon";
+import { SheetBox, SheetLabel } from "./Sheet";
 import { moveTo } from "./TopBar";
 import { Seg } from "./ui";
 
@@ -63,8 +64,9 @@ export function TypePicker({ pid, value, onChange, release = true, size }: { pid
   return <Seg grid cols={6} size={size} label="Type" value={value} onChange={onChange} options={options} />;
 }
 
-/** Order, pin, add and remove the project's branch types, and pick one row or two. Release opens the new release dialog: it moves but stays; its row also picks how version tags read. */
-export function BranchTypesEditor({ pid }: { pid: string }) {
+/** Order, pin, add and remove the project's branch types, and pick one row or two. Release opens the new release dialog: it moves but stays; its row also picks how version tags read.
+ * `sheet`: the settings page's layout, the shown types in the dialog's rows, then the ones not shown and the field adding one, each in a box. */
+export function BranchTypesEditor({ pid, sheet }: { pid: string; sheet?: boolean }) {
   const { branchTypes: t, setBranchTypes } = useProjectPrefs(pid);
   const tagV = useTagV(pid);
   const [typed, setTyped] = useState("");
@@ -86,6 +88,13 @@ export function BranchTypesEditor({ pid }: { pid: string }) {
       const r = x.id !== id && rows.current.get(x.id)?.getBoundingClientRect();
       return r && r.top + r.height / 2 < y;
     }).length;
+  // In the sheet the rows sit in columns and boxes: the slot is the row under the pointer.
+  const slotAt = (e: PointerEvent, d: { id: string; index: number }) => {
+    if (!sheet) return indexAt(d.id, e.clientY);
+    const over = (document.elementFromPoint(e.clientX, e.clientY)?.closest("[data-type]") as HTMLElement | null)?.dataset.type;
+    const i = shown.findIndex((x) => x.id === over);
+    return i < 0 ? d.index : i;
+  };
   const endDrag = () => {
     if (drag && shown.map((x) => x.id).join() !== t.list.map((x) => x.id).join()) save(shown);
     setDrag(null);
@@ -98,84 +107,79 @@ export function BranchTypesEditor({ pid }: { pid: string }) {
     save(placed(t.list, id));
     setTyped("");
   };
-  return (
-    <div className="col" style={{ gap: 10 }}>
-      <Seg grid label="Types shown" value={t.oneRow ? "one" : "two"} onChange={(v) => setBranchTypes({ oneRow: v === "one" })} options={[{ value: "two", label: "Two rows · 12" }, { value: "one", label: "One row · 6" }]} />
-      <ul
-        className="list type-list"
-        aria-label="Branch types"
-        data-dragging={drag ? "" : undefined}
-        onPointerMove={(e) => {
-          if (!drag) return;
-          // A release the page never got (focus lost, another window took the mouse): hand the capture back, which ends the drag.
-          if (!(e.buttons & 1)) return e.currentTarget.hasPointerCapture(e.pointerId) ? e.currentTarget.releasePointerCapture(e.pointerId) : endDrag();
-          const index = indexAt(drag.id, e.clientY);
-          if (index !== drag.index) setDrag({ ...drag, index });
-        }}
-        onLostPointerCapture={endDrag}
-      >
-        {shown.map((x, i) => {
-          const label = typeLabel(x.id);
-          return (
-            <Fragment key={x.id}>
-              {i === max && <li className="type-cut hint">Not shown · offered when a branch name starts with one. Release always shows</li>}
-              <li ref={(el) => void (el ? rows.current.set(x.id, el) : rows.current.delete(x.id))} className="type-row" data-hidden={i >= max || undefined} data-dragging={drag?.id === x.id || undefined}>
-                <span
-                  className="type-grip faint"
-                  aria-hidden
-                  data-tip="Drag to reorder"
-                  onPointerDown={(e) => {
-                    if (e.button !== 0) return;
-                    e.currentTarget.closest("ul")!.setPointerCapture(e.pointerId);
-                    setDrag({ id: x.id, index: i });
-                  }}
-                >
-                  <Icon name="grip" />
-                </span>
-                <span className="grow ellipsis">
-                  {label} <span className="mono faint">{x.id === "release" ? "release/x.y.z" : `${x.id}/`}</span>
-                </span>
-                {/* Out of the label, which ellipsizes: the toggle never gets cut. Its text names it for screen readers. */}
-                {x.id === "release" && (
-                  <button
-                    className="btn btn-ghost btn-sm type-tag"
-                    style={{ flexShrink: 0 }}
-                    data-tip={`Version tags read ${tagV.label("x.y.z")}: click for ${tagV.v ? "x.y.z" : "vx.y.z"}. Remembered for this project`}
-                    disabled={!!drag}
-                    onClick={() => tagV.setV(!tagV.v)}
-                  >
-                    tag <span className="mono">{tagV.label("x.y.z")}</span>
-                  </button>
-                )}
-                <button
-                  className={`btn btn-ghost btn-icon btn-sm${x.pinned ? " c-acc" : ""}`}
-                  aria-pressed={x.pinned}
-                  aria-label={`Pin ${label}`}
-                  data-tip={x.pinned ? "Pinned: keeps its place when a type is added" : "Pin: keep its place when a type is added"}
-                  onClick={() => save(t.list.map((y, j) => (j === i ? { ...y, pinned: !y.pinned } : y)))}
-                >
-                  <Icon name="pin" />
-                </button>
-                <button className="btn btn-ghost btn-icon btn-sm" aria-label={`Move ${label} up`} disabled={i === 0 || !!drag} onClick={() => move(i, -1)}>
-                  <Icon name="chevronUp" />
-                </button>
-                <button className="btn btn-ghost btn-icon btn-sm" aria-label={`Move ${label} down`} disabled={i === t.list.length - 1 || !!drag} onClick={() => move(i, 1)}>
-                  <Icon name="chevronDown" />
-                </button>
-                <button
-                  className="btn btn-ghost btn-icon btn-sm"
-                  aria-label={`Remove ${label}`}
-                  data-tip={x.id === "release" ? "Opens the new release dialog: it stays" : undefined}
-                  disabled={x.id === "release"}
-                  onClick={() => save(t.list.filter((_, j) => j !== i))}
-                >
-                  <Icon name="trash" />
-                </button>
-              </li>
-            </Fragment>
-          );
-        })}
-      </ul>
+  const dragging = {
+    "data-dragging": drag ? "" : undefined,
+    onPointerMove: (e: PointerEvent<HTMLElement>) => {
+      if (!drag) return;
+      // A release the page never got (focus lost, another window took the mouse): hand the capture back, which ends the drag.
+      if (!(e.buttons & 1)) return e.currentTarget.hasPointerCapture(e.pointerId) ? e.currentTarget.releasePointerCapture(e.pointerId) : endDrag();
+      const index = slotAt(e, drag);
+      if (index !== drag.index) setDrag({ ...drag, index });
+    },
+    onLostPointerCapture: endDrag,
+  };
+  const row = (x: BranchType, i: number) => {
+    const label = typeLabel(x.id);
+    return (
+      <li key={x.id} ref={(el) => void (el ? rows.current.set(x.id, el) : rows.current.delete(x.id))} className={`type-row${sheet ? " bty-row" : ""}`} data-type={x.id} data-hidden={i >= max || undefined} data-pinned={x.pinned || undefined} data-dragging={drag?.id === x.id || undefined}>
+        <span
+          className="type-grip faint"
+          aria-hidden
+          data-tip="Drag to reorder"
+          onPointerDown={(e) => {
+            if (e.button !== 0) return;
+            // The list (the sheet's boxes) holds the capture: the dragged row's DOM node moves as it is reordered, which would drop it.
+            e.currentTarget.closest(sheet ? ".bty" : "ul")!.setPointerCapture(e.pointerId);
+            setDrag({ id: x.id, index: i });
+          }}
+        >
+          <Icon name="grip" />
+        </span>
+        {sheet && <span className="mono bty-n">{i + 1}</span>}
+        <span className="grow ellipsis">
+          {label} <span className="mono faint">{x.id === "release" ? "release/x.y.z" : `${x.id}/`}</span>
+        </span>
+        {/* Out of the label, which ellipsizes: the toggle never gets cut. Its text names it for screen readers. */}
+        {x.id === "release" && (
+          <button
+            className="btn btn-ghost btn-sm type-tag"
+            style={{ flexShrink: 0 }}
+            data-tip={`Version tags read ${tagV.label("x.y.z")}: click for ${tagV.v ? "x.y.z" : "vx.y.z"}. Remembered for this project`}
+            disabled={!!drag}
+            onClick={() => tagV.setV(!tagV.v)}
+          >
+            tag <span className="mono">{tagV.label("x.y.z")}</span>
+          </button>
+        )}
+        <button
+          className={`btn btn-ghost btn-icon btn-sm type-pin${x.pinned ? " c-acc" : ""}`}
+          aria-pressed={x.pinned}
+          aria-label={`Pin ${label}`}
+          data-tip={x.pinned ? "Pinned: keeps its place when a type is added" : "Pin: keep its place when a type is added"}
+          onClick={() => save(t.list.map((y, j) => (j === i ? { ...y, pinned: !y.pinned } : y)))}
+        >
+          <Icon name="pin" />
+        </button>
+        <button className="btn btn-ghost btn-icon btn-sm type-act" aria-label={`Move ${label} up`} disabled={i === 0 || !!drag} onClick={() => move(i, -1)}>
+          <Icon name="chevronUp" />
+        </button>
+        <button className="btn btn-ghost btn-icon btn-sm type-act" aria-label={`Move ${label} down`} disabled={i === t.list.length - 1 || !!drag} onClick={() => move(i, 1)}>
+          <Icon name="chevronDown" />
+        </button>
+        <button
+          className="btn btn-ghost btn-icon btn-sm type-act"
+          aria-label={`Remove ${label}`}
+          data-tip={x.id === "release" ? "Opens the new release dialog: it stays" : undefined}
+          disabled={x.id === "release"}
+          onClick={() => save(t.list.filter((_, j) => j !== i))}
+        >
+          <Icon name="trash" />
+        </button>
+      </li>
+    );
+  };
+  const adding = (
+    <>
       <form
         className="row"
         style={{ gap: 8 }}
@@ -185,12 +189,76 @@ export function BranchTypesEditor({ pid }: { pid: string }) {
         }}
       >
         <input className="input mono grow" aria-label="New type" placeholder="A prefix, like wip" value={typed} onChange={(e) => setTyped(e.target.value)} />
-        <button className="btn" disabled={!validType(id) || listed}>
+        <button className={sheet ? "btn btn-sm" : "btn"} disabled={!validType(id) || listed}>
           <Icon name="plus" size={12} />
           Add
         </button>
       </form>
       {typed.trim() && (listed ? <p className="hint">{typeLabel(id)} is in the list.</p> : !validType(id) && <p className="hint c-del">A type is one part of a branch name: letters, digits, dots, dashes and underscores.</p>)}
+    </>
+  );
+  const rowsSeg = <Seg grid={!sheet} label="Types shown" value={t.oneRow ? "one" : "two"} onChange={(v) => setBranchTypes({ oneRow: v === "one" })} options={[{ value: "two", label: "Two rows · 12" }, { value: "one", label: "One row · 6" }]} />;
+  if (sheet) {
+    // The shown types as the dialog lays them out: six to a row.
+    const lines = t.oneRow ? [shown.slice(0, 6)] : [shown.slice(0, 6), shown.slice(6, 12)];
+    const hidden = shown.slice(max);
+    return (
+      <div className="bty" {...dragging}>
+        <SheetBox title="Type buttons" sub={`${Math.min(max, shown.length)} shown`} aside={rowsSeg}>
+          <div className={`sheet-cols${t.oneRow ? " bty-one" : ""}`}>
+            {lines.map((line, r) => (
+              <div key={r} className="sheet-col">
+                <SheetLabel>{t.oneRow ? "The row" : `Row ${r + 1}`}</SheetLabel>
+                <ul className="bty-list" aria-label={t.oneRow ? "Type buttons" : `Type buttons, row ${r + 1}`}>
+                  {line.map((x, j) => row(x, r * 6 + j))}
+                </ul>
+              </div>
+            ))}
+          </div>
+        </SheetBox>
+        <div className="bty-under">
+          <SheetBox title="Not shown" sub={hidden.length ? String(hidden.length) : undefined}>
+            <div className="sheet-col">
+              {hidden.length > 0 && (
+                <ul className="bty-list" aria-label="Types not shown">
+                  {hidden.map((x, j) => row(x, max + j))}
+                </ul>
+              )}
+              <p className="hint bty-note">Offered when a branch name starts with one. Release always shows.</p>
+            </div>
+          </SheetBox>
+          <SheetBox title="Add a type">
+            <div className="sheet-col bty-add">
+              {adding}
+              <p className="hint">It goes in the first place that is not pinned.</p>
+            </div>
+          </SheetBox>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="col" style={{ gap: 10 }}>
+      {rowsSeg}
+      <ul className="list type-list" aria-label="Branch types" {...dragging}>
+        {shown.map((x, i) => (
+          <Fragment key={x.id}>
+            {i === max && <li className="type-cut hint">Not shown · offered when a branch name starts with one. Release always shows</li>}
+            {row(x, i)}
+          </Fragment>
+        ))}
+      </ul>
+      {adding}
     </div>
+  );
+}
+
+/** The open project's branch types, a page of the settings panel. */
+export function BranchTypesPage({ project: p }: { project: Project }) {
+  return (
+    <>
+      <p className="hint bty-lead">For {p.name}. What the new branch dialog's Type buttons offer, in this order. A prefix typed in a branch name that is not listed joins them when the branch is created, after the pinned ones.</p>
+      <BranchTypesEditor pid={p.id} sheet />
+    </>
   );
 }

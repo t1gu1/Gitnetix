@@ -995,6 +995,14 @@
       "description": "The last footer button of a dialog that throws work away (Confirm, discard, drop): filled Delete, Panel text; the note says This cannot be undone. Focus starts on Back.",
       "html": "<div class=\"ds-dfoot\"><span class=\"ds-dhint\">This cannot be undone.</span><button class=\"ds-db\">Back</button><button class=\"ds-db ds-dfill\">Delete branch</button></div>",
       "css": ".ds-dfoot{display:flex;align-items:center;gap:8px;padding:12px 16px 12px 20px;border-top:1px solid var(--line,#1f2732);background:var(--panel,#0f141b)}.ds-dhint{flex:1;font:400 12px/16px Inter,system-ui,sans-serif;color:var(--faint,#808b9a)}.ds-db{height:30px;padding:0 14px;border:1px solid var(--line2,#2c3644);border-radius:3px;background:transparent;color:var(--fg,#e9eef4);font:600 11px/13px Inter,system-ui,sans-serif;letter-spacing:.12em;text-transform:uppercase;cursor:pointer;transition:background 120ms cubic-bezier(.2,0,0,1)}.ds-db:hover{background:var(--raised,#151b24)}.ds-db:focus-visible{outline:1px solid var(--fg,#e9eef4);outline-offset:2px}.ds-db.ds-dfill{border-color:var(--del-fg,#ff7b72);background:var(--del-fg,#ff7b72);color:var(--panel,#0f141b)}.ds-db.ds-dfill:hover{background:color-mix(in srgb,var(--del-fg,#ff7b72) 88%,var(--fg,#e9eef4));border-color:color-mix(in srgb,var(--del-fg,#ff7b72) 88%,var(--fg,#e9eef4))}.ds-db.ds-dfill:active{transform:translateY(1px)}"
+    },
+    {
+      "name": "Settings Page",
+      "kind": "card",
+      "refersTo": "settings-box",
+      "description": "A page the settings sheet opens, built from the sheet's pieces (src/components/Sheet.tsx) on its ground and width: a box per concern (panel fill, 1px Hairline Strong, 3px corners) with a 14px 600 head, a faint hint and its actions at the right (wrapping to their own line when narrow), then 30px hairline rows of a muted short label and its value, switch, chevron, key caps or level bars (6x10px cells, filled ink to the level). A page's own actions go in the panel header via PageTools. Appearance and Animations lead with a preview instead: theme tiles drawing the app in each theme's colours, and small looping stages with a switch per card.",
+      "html": "<div class=\"ds-sp\"><section><header><h2>AI setup</h2><span class=\"h\">for this app</span><span class=\"a\"><button>Reset all</button></span></header><div class=\"r\"><span>Default AI</span><b>Claude</b></div><div class=\"r\"><span>Effort</span><i class=\"p\"><i class=\"on\"></i><i class=\"on\"></i><i class=\"on\"></i><i></i><i></i></i></div><div class=\"r\"><span>Commit message</span><b>Default AI</b></div><div class=\"r\"><span>Open shortcuts</span><kbd>Ctrl</kbd><kbd>K</kbd></div></section></div>",
+      "css": ".ds-sp{width:520px;padding:16px;background:#0a0d12;font:13px/1.4 Inter,system-ui,sans-serif;color:#e9eef4}.ds-sp section{border:1px solid #2c3644;border-radius:3px;background:#0f141b}.ds-sp header{display:flex;align-items:baseline;flex-wrap:wrap;gap:8px;padding:13px 16px 12px;border-bottom:1px solid #2c3644}.ds-sp h2{margin:0;font-size:14px;font-weight:600}.ds-sp .h{color:#808b9a;font-size:12px}.ds-sp .a{margin:-6px -6px -6px auto}.ds-sp button{all:unset;cursor:pointer;height:26px;padding:0 10px;border:1px solid #2c3644;border-radius:3px;font:500 12px/24px Inter,sans-serif;color:#a3aebb;box-sizing:border-box}.ds-sp button:focus-visible{outline:1px solid #e9eef4;outline-offset:2px}.ds-sp .r{display:flex;align-items:center;gap:6px;min-height:30px;margin:0 16px;border-bottom:1px solid #1f2732}.ds-sp .r:last-child{border-bottom:0}.ds-sp .r>span{flex:1;color:#a3aebb}.ds-sp .r>b{font-weight:500}.ds-sp .p{display:inline-flex;gap:2px}.ds-sp .p i{width:6px;height:10px;border:1px solid #2c3644;border-radius:1px;box-sizing:border-box}.ds-sp .p i.on{background:#e9eef4;border-color:#e9eef4}.ds-sp kbd{font:11px/18px 'JetBrains Mono',monospace;padding:0 5px;border:1px solid #2c3644;border-radius:2px;color:#a3aebb}"
     }
   ],
   "narrative": {
@@ -1035,7 +1043,7 @@
       },
       {
         "name": "The One Loud Voice Rule",
-        "body": "Antonio is used only for screen and page titles, the welcome heading, the next release and headline numerals. Shipped versions read in Mono. Never Antonio for body, buttons, labels or branch names.",
+        "body": "Antonio is used only for screen and page titles, the welcome heading, the next release, headline numerals and the current theme's name on the Appearance page. Shipped versions read in Mono. Never Antonio for body, buttons, labels or branch names.",
         "section": "typography"
       },
       {
@@ -1075,7 +1083,8 @@
       "Do put each action under the station it moves the subject to, with exactly one white primary on the station that fixes the state.",
       "Do set menu hints, captions and sentences in Inter, and wrap only a SHA, path, ref or URL inside them in Mono.",
       "Do draw a dialog's operation as a route under its title, its steps as stops, and its form as labelled rows with a 100px label column.",
-      "Do end a dialog footer with Back then one loud control at natural width: the white primary, or the filled red button when the dialog throws work away."
+      "Do end a dialog footer with Back then one loud control at natural width: the white primary, or the filled red button when the dialog throws work away.",
+      "Do build every settings page from the sheet's boxes and rows on its ground and width, with the page's own actions in the panel header; only Appearance and Animations lead with a preview."
     ],
     "donts": [
       "Don't use gradient text, glows, coloured halos or drop-shadow filters, except the rainbow on agent work under the Agent Working Rule.",

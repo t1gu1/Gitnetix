@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en" data-theme="dark"><head><meta charset="utf-8">
+<title>Settings sub-page mocks: Branch types</title>
+<link href="https://fonts.googleapis.com/css2?family=Antonio:wght@400;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="base.css">
+<style>
+/* a type row: grip, place, button label, prefix, then pin and moves */
+.tr{display:flex;align-items:center;gap:10px;min-height:32px;border-bottom:1px solid var(--line)}
+.tr .g{color:var(--faint);cursor:grab}
+.tr .n{width:18px;text-align:right;font:11px var(--mono);color:var(--faint)}
+.tr .l{color:var(--fg);font-weight:500}
+.tr .px{font:12px var(--mono);color:var(--faint)}
+.tr .act{display:flex;gap:2px;color:var(--faint)}
+.tr .act button{width:24px;height:24px;display:grid;place-items:center;border-radius:var(--r-sm);color:var(--faint)}
+.tr .act button.pin-on{color:var(--fg)}
+.tr .act button.dim{opacity:.35}
+.tr .act .mv{visibility:hidden}
+.tr.hov{background:var(--raised)}
+.tr.hov .act .mv{visibility:visible}
+.tr.hidden .l,.tr.hidden .px{color:var(--faint)}
+.tagv{font:12px var(--mono);color:var(--fg);padding:2px 6px;border:1px solid var(--line2);border-radius:var(--r-sm)}
+.add{display:flex;gap:8px}
+.add .field{flex:1;font:12px var(--mono)}
+
+/* A */
+#mock-a .box-h .seg{margin:-6px 0 -6px auto}
+#mock-a .cols>.box-b{padding-bottom:4px}
+#mock-a .tr.hov{margin:0 -16px;padding:0 16px}
+#mock-a .box-b>.tr:last-child{border-bottom:0}
+#mock-a .lead{margin-bottom:16px}
+#mock-a .under{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px;align-items:start}
+#mock-a .under .box-b{padding-bottom:12px}
+#mock-a .under .hint{padding:10px 0 2px}
+
+/* B */
+#mock-b .split{display:grid;grid-template-columns:360px 1fr;height:100%}
+#mock-b .rail{display:flex;flex-direction:column}
+#mock-b .rail .tr{padding:0 16px 0 12px}
+#mock-b .rail .tr.on{background:var(--sel)}
+#mock-b .rail .lab{padding:14px 16px 6px}
+#mock-b .rail .add{padding:12px 16px;margin-top:auto;border-top:1px solid var(--line)}
+#mock-b .det{padding:24px 32px;display:flex;flex-direction:column;gap:20px;overflow:auto}
+#mock-b .det-h{display:flex;align-items:baseline;gap:12px}
+#mock-b .det-h .title{font-size:24px}
+#mock-b .kv{display:grid;grid-template-columns:150px 1fr;border-top:1px solid var(--line)}
+#mock-b .kv>*{min-height:44px;padding:8px 0;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px}
+#mock-b .kv>.kk{color:var(--muted)}
+#mock-b .kv .hint{margin-left:4px}
+
+/* C */
+#mock-c .pv{border:1px solid var(--line2);border-radius:var(--r);padding:16px}
+#mock-c .pv-h{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+#mock-c .grid6{display:grid;grid-template-columns:repeat(6,1fr);border:1px solid var(--line2);border-radius:var(--r);overflow:hidden}
+#mock-c .grid6>span{height:30px;display:grid;place-items:center;color:var(--muted);font-weight:500;border-right:1px solid var(--line2);border-bottom:1px solid var(--line2)}
+#mock-c .grid6>span:nth-child(6n){border-right:0}
+#mock-c .grid6>span:nth-last-child(-n+6){border-bottom:0}
+#mock-c .grid6>span.on{background:var(--fg);color:var(--bg)}
+#mock-c .grid6>span.pin{color:var(--fg)}
+#mock-c .pv-f{display:flex;align-items:center;gap:10px;margin-top:12px}
+#mock-c .pv-f .field{flex:1;font:12px var(--mono)}
+#mock-c table{width:100%;border-collapse:collapse;margin-top:20px}
+#mock-c th{text-align:left;font:600 11px var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--faint);padding:0 8px 8px;border-bottom:1px solid var(--line2)}
+#mock-c td{padding:0 8px;height:30px;border-bottom:1px solid var(--line)}
+#mock-c td.n{width:28px;text-align:right;font:11px var(--mono);color:var(--faint)}
+#mock-c td.px{font:12px var(--mono);color:var(--muted)}
+#mock-c td.l{font-weight:500}
+#mock-c tr.sep td{height:32px;color:var(--faint);font-size:12px;background:var(--raised)}
+#mock-c tr.hidden td.l,#mock-c tr.hidden td.px{color:var(--faint)}
+#mock-c td.act{width:110px;text-align:right;color:var(--faint)}
+#mock-c td.act svg{margin-left:10px}
+#mock-c .foot{display:flex;gap:16px;align-items:center;margin-top:14px}
+#mock-c .foot .add{flex:0 0 380px}
+</style>
+</head><body>
+
+<section class="mock" id="mock-a">
+  <div class="cap"><b>A · Sheet</b><span>The twelve shown types laid out as the dialog's two rows, one column each. Hidden ones and Add in their own boxes; pin, move and remove appear on the row under the pointer.</span></div>
+  <div class="panel" data-title="Branch types" data-sub="lineage-app">
+    <div class="pg">
+      <p class="lead">What the new branch dialog's Type buttons offer, in this order. A prefix typed in a branch name that is not listed joins them when the branch is created, after the pinned ones.</p>
+      <div class="box">
+        <div class="box-h"><h2>Type buttons</h2><span class="hint">12 shown</span><span class="seg"><button class="on">Two rows · 12</button><button>One row · 6</button></span></div>
+        <div class="cols">
+          <div class="box-b">
+            <div class="lab">Row 1</div>
+            <div class="tr"><i data-i="grip" data-s="12"></i><span class="n">1</span><span class="l">Feature</span><span class="px">feat/</span><span class="sp"></span><span class="act"><button class="pin-on"><i data-i="pin" data-s="12"></i></button></span></div>
+            <div class="tr hov"><i data-i="grip" data-s="12"></i><span class="n">2</span><span class="l">Fix</span><span class="px">fix/</span><span class="sp"></span><span class="act"><button class="mv"><i data-i="chevU" data-s="12"></i></button><button class="mv"><i data-i="chevD" data-s="12"></i></button><button class="mv"><i data-i="trash" data-s="12"></i></button><button class="pin-on" id="pinA"><i data-i="pin" data-s="12"></i></button></span></div>
+            <div class="tr"><i data-i="grip" data-s="12"></i><span class="n">3</span><span class="l">Refactor</span><span class="px">refactor/</span></div>
+            <div class="tr"><i data-i="grip" data-s="12"></i><span class="n">4</span><span class="l">Perf</span><span class="px">perf/</span></div>
+            <div class="tr"><i data-i="grip" data-s="12"></i><span class="n">5</span><span class="l">Style</span><span class="px">style/</span></div>
+            <div class="tr"><i data-i="grip" data-s="12"></i><span class="n">6</span><span class="l">Test</span><span class="px">test/</span></div>
+          </div>
+          <div class="box-b">
+            <div class="lab">Row 2</div>
+            <div class="tr"><i data-i="grip" data-s="12"></i><span class="n">7</span><span class="l">Docs</span><span class="px">docs/</span></div>
+            <div class="tr"><i data-i="grip" data-s="12"></i><span class="n">8</span><span class="l">Chore</span><span class="px">chore/</span></div>
+            <div class="tr"><i data-i="grip" data-s="12"></i><span class="n">9</span><span class="l">CI</span><span class="px">ci/</span></div>
+            <div class="tr"><i data-i="grip" data-s="12"></i><span class="n">10</span><span class="l">A11y</span><span class="px">a11y/</span></div>
+            <div class="tr"><i data-i="grip" data-s="12"></i><span class="n">11</span><span class="l">POC</span><span class="px">poc/</span></div>
+            <div class="tr"><i data-i="grip" data-s="12"></i><span class="n">12</span><span class="l">Release</span><span class="px">release/x.y.z</span><span class="sp"></span><span class="tagv">tag vx.y.z</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="under">
+        <div class="box">
+          <div class="box-h"><h2>Not shown</h2><span class="hint">1</span></div>
+          <div class="box-b">
+            <div class="tr hidden" style="border-bottom:0"><i data-i="grip" data-s="12"></i><span class="n">13</span><span class="l">Build</span><span class="px">build/</span></div>
+            <p class="hint" style="border-top:1px solid var(--line)">Offered when a branch name starts with one. Release always shows.</p>
+          </div>
+        </div>
+        <div class="box">
+          <div class="box-h"><h2>Add a type</h2></div>
+          <div class="box-b">
+            <div class="add" style="padding-top:12px"><span class="field ph">A prefix, like wip</span><button class="btn btn-sm"><i data-i="plus" data-s="12"></i>Add</button></div>
+            <p class="hint">It goes in the first place that is not pinned.</p>
+          </div>
+        </div>
+      </div>
+      <div class="tip" style="left:400px;top:256px">Pinned: keeps its place when a type is added</div>
+    </div>
+  </div>
+</section>
+
+<section class="mock" id="mock-b">
+  <div class="cap"><b>B · Split</b><span>The ordered list on the left, as it reads in the dialog. The picked type's settings on the right: its tag format, pin and place, with Release's rule stated where Remove would be.</span></div>
+  <div class="panel" data-title="Branch types" data-sub="lineage-app" data-tools='<span class="seg"><button class="on">Two rows · 12</button><button>One row · 6</button></span>'>
+    <div class="pg flush">
+      <div class="split">
+        <div class="rail">
+          <div class="lab">Shown · 12</div>
+          <div class="tr"><i data-i="grip" data-s="12"></i><span class="n">1</span><span class="l">Feature</span><span class="px">feat/</span><span class="sp"></span><span class="act"><button class="pin-on"><i data-i="pin" data-s="12"></i></button></span></div>
+          <div class="tr"><i data-i="grip" data-s="12"></i><span class="n">2</span><span class="l">Fix</span><span class="px">fix/</span><span class="sp"></span><span class="act"><button class="pin-on"><i data-i="pin" data-s="12"></i></button></span></div>
+          <div class="tr"><i data-i="grip" data-s="12"></i><span class="n">3</span><span class="l">Refactor</span><span class="px">refactor/</span></div>
+          <div class="tr"><i data-i="grip" data-s="12"></i><span class="n">4</span><span class="l">Perf</span><span class="px">perf/</span></div>
+          <div class="tr"><i data-i="grip" data-s="12"></i><span class="n">5</span><span class="l">Style</span><span class="px">style/</span></div>
+          <div class="tr"><i data-i="grip" data-s="12"></i><span class="n">6</span><span class="l">Test</span><span class="px">test/</span></div>
+          <div class="tr"><i data-i="grip" data-s="12"></i><span class="n">7</span><span class="l">Docs</span><span class="px">docs/</span></div>
+          <div class="tr"><i data-i="grip" data-s="12"></i><span class="n">8</span><span class="l">Chore</span><span class="px">chore/</span></div>
+          <div class="tr"><i data-i="grip" data-s="12"></i><span class="n">9</span><span class="l">CI</span><span class="px">ci/</span></div>
+          <div class="tr"><i data-i="grip" data-s="12"></i><span class="n">10</span><span class="l">A11y</span><span class="px">a11y/</span></div>
+          <div class="tr"><i data-i="grip" data-s="12"></i><span class="n">11</span><span class="l">POC</span><span class="px">poc/</span></div>
+          <div class="tr on"><i data-i="grip" data-s="12"></i><span class="n">12</span><span class="l">Release</span><span class="px">release/x.y.z</span></div>
+          <div class="lab">Not shown · 1</div>
+          <div class="tr hidden"><i data-i="grip" data-s="12"></i><span class="n">13</span><span class="l">Build</span><span class="px">build/</span></div>
+          <div class="add"><span class="field ph">A prefix, like wip</span><button class="btn btn-sm"><i data-i="plus" data-s="12"></i>Add</button></div>
+        </div>
+        <div class="det">
+          <div class="det-h"><span class="title">Release</span><span class="mono muted">release/x.y.z</span></div>
+          <div class="kv">
+            <span class="kk">Version tags</span><span><span class="seg"><button class="on">vx.y.z</button><button>x.y.z</button></span><span class="hint">Remembered for this project</span></span>
+            <span class="kk">Pinned</span><span><span class="sw"></span><span class="hint">Keeps its place when a type is added</span></span>
+            <span class="kk">Place</span><span>12 of 12 shown<span class="sp"></span><button class="btn btn-xs"><i data-i="chevU" data-s="12"></i>Up</button><button class="btn btn-xs" disabled style="opacity:.4"><i data-i="chevD" data-s="12"></i>Down</button></span>
+            <span class="kk">Remove</span><span class="muted"><i data-i="lock" data-s="12"></i>Opens the new release dialog: it stays</span>
+          </div>
+          <p class="hint" style="max-width:60ch">What the new branch dialog's Type buttons offer, in this order. A prefix typed in a branch name that is not listed joins them when the branch is created, after the pinned ones.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="mock" id="mock-c">
+  <div class="cap"><b>C · Preview</b><span>The dialog's Type buttons as they will look, pinned ones in ink text. The order table under it edits them; a band marks where the dialog stops showing types.</span></div>
+  <div class="panel" data-title="Branch types" data-sub="lineage-app">
+    <div class="pg">
+      <div class="pv">
+        <div class="pv-h"><h3 class="h">In the new branch dialog</h3><span class="sp"></span><span class="seg"><button class="on">Two rows · 12</button><button>One row · 6</button></span></div>
+        <div class="grid6">
+          <span class="on">Feature</span><span class="pin">Fix</span><span>Refactor</span><span>Perf</span><span>Style</span><span>Test</span>
+          <span>Docs</span><span>Chore</span><span>CI</span><span>A11y</span><span>POC</span><span>Release</span>
+        </div>
+        <div class="pv-f"><span class="faint" style="width:44px">Name</span><span class="field">feat/<span class="faint">login-form</span></span></div>
+      </div>
+      <table>
+        <thead><tr><th></th><th>Button</th><th>Prefix</th><th>Pinned</th><th></th></tr></thead>
+        <tbody>
+          <tr><td class="n">1</td><td class="l">Feature</td><td class="px">feat/</td><td><span class="sw on" style="display:inline-block"></span></td><td class="act"><i data-i="chevU" data-s="12"></i><i data-i="chevD" data-s="12"></i><i data-i="trash" data-s="12"></i></td></tr>
+          <tr><td class="n">2</td><td class="l">Fix</td><td class="px">fix/</td><td><span class="sw on" style="display:inline-block"></span></td><td class="act"><i data-i="chevU" data-s="12"></i><i data-i="chevD" data-s="12"></i><i data-i="trash" data-s="12"></i></td></tr>
+          <tr><td class="n">3</td><td class="l">Refactor</td><td class="px">refactor/</td><td><span class="sw" style="display:inline-block"></span></td><td class="act"><i data-i="chevU" data-s="12"></i><i data-i="chevD" data-s="12"></i><i data-i="trash" data-s="12"></i></td></tr>
+          <tr><td class="n">4</td><td class="l">Perf</td><td class="px">perf/</td><td><span class="sw" style="display:inline-block"></span></td><td class="act"><i data-i="chevU" data-s="12"></i><i data-i="chevD" data-s="12"></i><i data-i="trash" data-s="12"></i></td></tr>
+          <tr><td class="n">5</td><td class="l">Style</td><td class="px">style/</td><td><span class="sw" style="display:inline-block"></span></td><td class="act"><i data-i="chevU" data-s="12"></i><i data-i="chevD" data-s="12"></i><i data-i="trash" data-s="12"></i></td></tr>
+          <tr><td class="n">6</td><td class="l">Test</td><td class="px">test/</td><td><span class="sw" style="display:inline-block"></span></td><td class="act"><i data-i="chevU" data-s="12"></i><i data-i="chevD" data-s="12"></i><i data-i="trash" data-s="12"></i></td></tr>
+          <tr><td class="n">7</td><td class="l">Docs</td><td class="px">docs/</td><td><span class="sw" style="display:inline-block"></span></td><td class="act"><i data-i="chevU" data-s="12"></i><i data-i="chevD" data-s="12"></i><i data-i="trash" data-s="12"></i></td></tr>
+          <tr><td class="n">8</td><td class="l">Chore</td><td class="px">chore/</td><td><span class="sw" style="display:inline-block"></span></td><td class="act"><i data-i="chevU" data-s="12"></i><i data-i="chevD" data-s="12"></i><i data-i="trash" data-s="12"></i></td></tr>
+          <tr><td class="n">9</td><td class="l">CI</td><td class="px">ci/</td><td><span class="sw" style="display:inline-block"></span></td><td class="act"><i data-i="chevU" data-s="12"></i><i data-i="chevD" data-s="12"></i><i data-i="trash" data-s="12"></i></td></tr>
+          <tr><td class="n">10</td><td class="l">A11y</td><td class="px">a11y/</td><td><span class="sw" style="display:inline-block"></span></td><td class="act"><i data-i="chevU" data-s="12"></i><i data-i="chevD" data-s="12"></i><i data-i="trash" data-s="12"></i></td></tr>
+          <tr><td class="n">11</td><td class="l">POC</td><td class="px">poc/</td><td><span class="sw" style="display:inline-block"></span></td><td class="act"><i data-i="chevU" data-s="12"></i><i data-i="chevD" data-s="12"></i><i data-i="trash" data-s="12"></i></td></tr>
+          <tr><td class="n">12</td><td class="l">Release</td><td class="px">release/x.y.z <span class="tagv" style="margin-left:8px">tag vx.y.z</span></td><td><span class="sw" style="display:inline-block"></span></td><td class="act"><i data-i="chevU" data-s="12"></i><i data-i="chevD" data-s="12"></i><span style="opacity:.35"><i data-i="trash" data-s="12"></i></span></td></tr>
+          <tr class="sep"><td></td><td colspan="4">Not shown · offered when a branch name starts with one. Release always shows.</td></tr>
+          <tr class="hidden"><td class="n">13</td><td class="l">Build</td><td class="px">build/</td><td><span class="sw" style="display:inline-block"></span></td><td class="act"><i data-i="chevU" data-s="12"></i><i data-i="chevD" data-s="12"></i><i data-i="trash" data-s="12"></i></td></tr>
+        </tbody>
+      </table>
+      <div class="foot"><div class="add"><span class="field ph">A prefix, like wip</span><button class="btn btn-sm"><i data-i="plus" data-s="12"></i>Add</button></div><span class="hint">A prefix typed in a branch name joins after the pinned ones when the branch is created.</span></div>
+    </div>
+  </div>
+</section>
+
+<script src="themes.js"></script>
+<script src="base.js"></script>
+</body></html>

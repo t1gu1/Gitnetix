@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en" data-theme="dark"><head><meta charset="utf-8">
+<title>Settings sub-page mocks: Appearance</title>
+<link href="https://fonts.googleapis.com/css2?family=Antonio:wght@400;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="base.css">
+<style>
+/* a theme in small: its panel, its text and accent dots */
+.sw3{flex:none;display:inline-grid;grid-template-columns:repeat(2,6px);gap:3px;padding:4px;border:1px solid var(--line);border-radius:var(--r-sm)}
+.sw3 i{width:6px;height:6px;border-radius:50%}
+/* a variant chip: picked = ink outline and check */
+.chip{display:inline-flex;align-items:center;gap:7px;height:26px;padding:0 9px 0 4px;border:1px solid var(--line2);border-radius:var(--r);color:var(--muted);white-space:nowrap}
+.chip:hover{color:var(--fg);background:var(--raised)}
+.chip.on{border-color:var(--fg);color:var(--fg)}
+.chip.on svg{color:var(--fg)}
+/* the app in small, in a theme's colours (--tb ground, --tp panel, --tf text, --ta accent) */
+.pv{--tm:color-mix(in srgb,var(--tf) 62%,var(--tp));--tl:color-mix(in srgb,var(--tf) 14%,var(--tp));--tl2:color-mix(in srgb,var(--tf) 24%,var(--tp));background:var(--tb);border:1px solid var(--line2);border-radius:var(--r);overflow:hidden;display:flex;flex-direction:column;color:var(--tf)}
+.pv-top{height:22%;max-height:34px;min-height:14px;display:flex;align-items:center;gap:6%;padding:0 5%;border-bottom:1px solid var(--tl);background:var(--tp)}
+.pv-top b{height:5px;width:14%;border-radius:2px;background:var(--tm)}
+.pv-top b:first-child{background:var(--tf)}
+.pv-body{flex:1;display:grid;grid-template-columns:1.1fr 1fr;gap:6%;padding:6%}
+.pv-map{position:relative}
+.pv-map .ln{position:absolute;left:18%;top:6%;bottom:6%;width:1.5px;background:var(--tf)}
+.pv-map .ln2{position:absolute;left:58%;top:30%;bottom:24%;width:1px;background:var(--tl2)}
+.pv-map .st{position:absolute;left:calc(18% - 3px);width:7px;height:7px;border-radius:50%;border:1.5px solid var(--tf);background:var(--tb)}
+.pv-map .lab{all:unset;position:absolute;left:26%;height:4px;width:44%;border-radius:2px;background:var(--tm)}
+.pv-box{border:1px solid var(--tl2);border-radius:2px;background:var(--tp);padding:7%;display:flex;flex-direction:column;gap:9%}
+.pv-box i{display:flex;align-items:center;justify-content:space-between;height:5px}
+.pv-box i::before{content:"";height:4px;width:46%;border-radius:2px;background:var(--tm)}
+.pv-box i::after{content:"";height:6px;width:12%;border-radius:1px;background:var(--tf)}
+.pv-box i:nth-child(2)::after{background:transparent;outline:1px solid var(--tm)}
+.pv-box u{margin-top:auto;align-self:flex-end;height:10px;width:38%;border-radius:2px;background:var(--ta)}
+.pv-add{height:4px;width:30%;border-radius:2px;background:#5fd39a;opacity:.85}
+
+/* A: families as rows */
+#mock-a .grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.35fr);gap:16px;align-items:start}
+#mock-a .row{min-height:40px;gap:12px}
+#mock-a .row>.k{flex:0 0 120px}
+#mock-a .vars{display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end;flex:1;padding:6px 0}
+#mock-a .stack{display:flex;flex-direction:column;gap:16px}
+#mock-a .sysnote{display:flex;gap:8px;align-items:flex-start;padding:10px 0 4px;color:var(--faint);font-size:12px;line-height:17px}
+
+/* B: list + preview */
+#mock-b .split{display:grid;grid-template-columns:340px 1fr;height:100%}
+#mock-b .rail{display:flex;flex-direction:column}
+#mock-b .rail-h{padding:16px;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:10px}
+#mock-b .glab{padding:14px 16px 6px}
+#mock-b .li{min-height:38px;padding:6px 16px;gap:10px}
+#mock-b .li .n{flex:1}
+#mock-b .li .c{color:var(--faint);font-size:12px}
+#mock-b .li.on .c{color:var(--muted)}
+#mock-b .detail{padding:28px 32px;display:flex;flex-direction:column;gap:18px;overflow:auto}
+#mock-b .pv{height:290px}
+#mock-b .facts{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid var(--line2);border-radius:var(--r)}
+#mock-b .facts>div{padding:10px 12px;display:flex;flex-direction:column;gap:6px}
+#mock-b .facts>div+div{border-left:1px solid var(--line)}
+#mock-b .facts .faint{font-size:12px}
+#mock-b .hex{display:flex;align-items:center;gap:6px;font:12px var(--mono);color:var(--fg)}
+#mock-b .hex i{width:10px;height:10px;border-radius:2px;border:1px solid var(--line2)}
+
+/* C: big preview, then tiles that are previews */
+#mock-c .pg{display:flex;flex-direction:column;gap:20px}
+#mock-c .hero{display:grid;grid-template-columns:1fr 280px;gap:24px;align-items:stretch}
+#mock-c .hero .pv{height:250px}
+#mock-c .now{display:flex;flex-direction:column;gap:12px;padding:4px 0}
+#mock-c .now .title{font-size:30px;line-height:32px}
+#mock-c .tiles{display:grid;grid-template-columns:repeat(5,1fr);gap:12px}
+#mock-c .tile{display:flex;flex-direction:column;gap:7px;color:var(--muted)}
+#mock-c .tile .pv{height:92px}
+#mock-c .tile .pv-top{min-height:12px}
+#mock-c .tile.on .pv{outline:1px solid var(--fg);outline-offset:2px}
+#mock-c .tile.on{color:var(--fg)}
+#mock-c .tile span{display:flex;align-items:center;gap:6px;font-size:12px;white-space:nowrap;overflow:hidden}
+#mock-c .bar{display:flex;align-items:center;gap:12px}
+#mock-c .bar .lab{padding:0}
+</style>
+</head><body>
+<section class="mock" id="mock-a">
+  <div class="cap"><b>A · Sheet</b><span>One row per theme family, its versions as chips: all 38 themes on one screen, no scroll. The full sentence stays on hover.</span></div>
+  <div class="panel" data-title="Appearance">
+    <div class="pg">
+      <div class="grid">
+        <div class="stack">
+          <div class="box">
+            <div class="box-h"><h2>Gitnetix original</h2><span class="hint">every project</span></div>
+            <div class="box-b" id="a-orig"></div>
+          </div>
+          <div class="box">
+            <div class="box-h"><h2>Now</h2></div>
+            <div class="box-b">
+              <div class="row"><span class="k">Theme</span><span class="v">Gitnetix Black &amp; White</span></div>
+              
+              <div class="sysnote"><i data-i="info"></i><span>A pick applies at once. Each family's versions are what the light / dark toggle moves between.</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="box">
+          <div class="box-h"><h2>More themes</h2><span class="hint">34 in 11 families</span></div>
+          <div class="box-b" id="a-more"></div>
+        </div>
+      </div>
+      <div class="tip" style="left:60px;top:236px;max-width:270px">System follows your computer's light or dark mode, in Gitnetix Black &amp; White or its light version.</div>
+    </div>
+  </div>
+</section>
+
+<section class="mock" id="mock-b">
+  <div class="cap"><b>B · Split</b><span>Families on the left with a search; the picked theme drawn as the app on the right, its versions and colours under it.</span></div>
+  <div class="panel" data-title="Appearance">
+    <div class="pg flush">
+      <div class="split">
+        <div class="rail">
+          <div class="rail-h">
+            <div class="field ph"><i data-i="search"></i>Search 38 themes</div>
+          </div>
+          <div id="b-list"></div>
+        </div>
+        <div class="detail">
+          <div class="row-flex"><h3 class="title" style="font-size:24px">Tokyo Night</h3><span class="sp"></span><span class="hint">Applied</span><i data-i="check"></i></div>
+          <div class="pv" id="b-pv"></div>
+          <div class="row-flex" style="gap:10px"><span class="lab" style="padding:0;width:84px">Version</span><div class="seg" id="b-seg"></div></div>
+          <div class="facts" id="b-facts"></div>
+          <p class="hint">A pick applies at once, for every project. The light / dark toggle moves between this family's versions.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="mock" id="mock-c">
+  <div class="cap"><b>C · Preview</b><span>The current theme drawn large first; every other theme is a small drawing of the app, not a swatch.</span></div>
+  <div class="panel" data-title="Appearance">
+    <div class="pg">
+      <div class="hero">
+        <div class="pv" id="c-pv"></div>
+        <div class="now">
+          <span class="hint">Every project</span>
+          <h3 class="title">Gitnetix Black &amp; White</h3>
+          <p class="hint">System follows your computer's light or dark mode, in Gitnetix Black &amp; White or its light version.</p>
+          <div class="sp"></div>
+          <div class="seg"><button>System</button><button class="on">Dark</button><button>Light</button></div>
+          <span class="hint faint">Dark and Light pick this family's versions.</span>
+        </div>
+      </div>
+      <div class="bar"><span class="lab">All themes</span><span class="sp"></span><div class="field ph" style="width:240px;height:28px"><i data-i="search"></i>Search</div></div>
+      <div class="tiles" id="c-tiles"></div>
+    </div>
+  </div>
+</section>
+<script src="themes.js"></script>
+<script>
+const T = window.THEMES.map(([id, name, family, light, bg, panel, fg, accent]) => ({ id, name, family, light, bg, panel, fg, accent }));
+const fams = [...new Set(T.map((t) => t.family))];
+const short = (t) => t.name.startsWith(t.family) ? t.name.slice(t.family.length).trim() || (t.light ? "Light" : "Dark") : t.name;
+const sw = (t) => `<span class="sw3" style="background:${t.panel}"><i style="background:${t.fg}"></i><i style="background:${t.accent}"></i><i style="background:${t.light ? "#127a4b" : "#5fd39a"}"></i><i style="background:${t.light ? "#c0362c" : "#ff7b72"}"></i></span>`;
+const chip = (t, on) => `<button class="chip${on ? " on" : ""}">${sw(t)}${short(t)}${on ? '<i data-i="check" data-s="12"></i>' : ""}</button>`;
+const pv = (t) => `<div class="pv-top"><b></b><b></b><b></b></div><div class="pv-body"><div class="pv-map"><span class="ln"></span><span class="ln2"></span><span class="st" style="top:14%"></span><span class="lab" style="top:15%"></span><span class="st" style="top:52%"></span><span class="lab" style="top:53%;width:30%"></span><span class="lab" style="top:63%;width:20%;background:var(--tl2)"></span></div><div class="pv-box"><i></i><i></i><i></i><span class="pv-add"></span><u></u></div></div>`;
+const paint = (el, t) => { el.style.cssText += `--tb:${t.bg};--tp:${t.panel};--tf:${t.fg};--ta:${t.accent}`; el.innerHTML = pv(t); };
+const byFam = (f) => T.filter((t) => t.family === f);
+const cur = "gitnetix-bw";
+
+// A
+const sys = { panel: "#0f141b", fg: "#e9eef4", accent: "#f2f5f8", light: false };
+document.getElementById("a-orig").innerHTML =
+  `<div class="row hov"><span class="k">System</span><div class="vars"><button class="chip"><span class="sw3" style="background:#0f141b"><i style="background:#e9eef4"></i><i style="background:#f2f5f8"></i><i style="background:#fff"></i><i style="background:#0b0f14"></i></span>Dark or light</button></div></div>` +
+  ["Gitnetix Black & White", "Gitnetix"].map((f) => `<div class="row"><span class="k">${f.replace("Gitnetix ", "") === "Gitnetix" ? "Gitnetix" : "Black & White"}</span><div class="vars">${byFam(f).map((t) => chip(t, t.id === cur)).join("")}</div></div>`).join("");
+document.getElementById("a-more").innerHTML = fams.filter((f) => !f.startsWith("Gitnetix")).map((f) => `<div class="row"><span class="k">${f}</span><div class="vars">${byFam(f).map((t) => chip(t, false)).join("")}</div></div>`).join("");
+
+// B
+const pick = T.find((t) => t.id === "tokyo-night");
+document.getElementById("b-list").innerHTML = ["Gitnetix original", "More themes"].map((g, gi) => `<div class="lab glab">${g}</div>` + (gi === 0 ? ["System", ...fams.filter((f) => f.startsWith("Gitnetix"))] : fams.filter((f) => !f.startsWith("Gitnetix"))).map((f) => {
+  const ts = f === "System" ? [T[0], T[1]] : byFam(f);
+  const on = f === pick.family;
+  return `<div class="li${on ? " on" : ""}">${sw(on ? pick : ts[0])}<span class="n">${f === "Gitnetix Black & White" ? "Black & White" : f}</span><span class="c">${f === "System" ? "follows the computer" : ts.length > 1 ? ts.length + " versions" : ""}</span>${f === "Gitnetix Black & White" ? '<span class="tag">Now</span>' : ""}</div>`;
+}).join("")).join("");
+paint(document.getElementById("b-pv"), pick);
+document.getElementById("b-seg").innerHTML = byFam(pick.family).map((t) => `<button class="${t.id === pick.id ? "on" : ""}">${short(t)}</button>`).join("");
+document.getElementById("b-facts").innerHTML = [["Ground", pick.bg], ["Panels", pick.panel], ["Text", pick.fg], ["Accent", pick.accent]].map(([k, c]) => `<div><span class="faint">${k}</span><span class="hex"><i style="background:${c}"></i>${c}</span></div>`).join("");
+
+// C
+paint(document.getElementById("c-pv"), T[0]);
+document.getElementById("c-tiles").innerHTML = T.map((t) => `<button class="tile${t.id === cur ? " on" : ""}"><div class="pv" data-t="${t.id}"></div><span>${t.id === cur ? '<i data-i="check" data-s="12"></i>' : ""}${t.name}</span></button>`).join("");
+document.querySelectorAll("#c-tiles .pv").forEach((el) => paint(el, T.find((t) => t.id === el.dataset.t)));
+</script>
+<script src="base.js"></script>
+</body></html>
