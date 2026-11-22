@@ -566,6 +566,7 @@ function StartModal({ onClose, onMinimize }: { onClose: () => void; onMinimize: 
   return (
     <Modal
       title="New agent session"
+      width={760}
       actions={
         <button className="btn btn-ghost btn-icon" aria-label="Minimize" data-tip="Minimize · comes back from the chip in the corner" onClick={onMinimize}>
           <Icon name="minus" />
@@ -583,13 +584,14 @@ function StartModal({ onClose, onMinimize }: { onClose: () => void; onMinimize: 
       }
     >
       <Seg<"existing" | "new"> grid label="Branch" value={mode} onChange={(m) => set({ mode: m })} options={[{ value: "existing", label: "Existing branch" }, { value: "new", label: "New branch" }]} />
-      <div className="row" style={{ gap: 10, alignItems: "flex-start" }}>
+      {/* Wraps on a phone: the ticket and agent go to a second line instead of squeezing the project and branch away. */}
+      <div className="row" style={{ gap: 10, alignItems: "flex-start", flexWrap: "wrap" }}>
         {/* Set shares, twice as much for the branch: a long picked name gets cut instead of squeezing the project. */}
-        <div className="field" style={{ flex: "1 1 0", minWidth: 0 }}>
+        <div className="field" style={{ flex: "1 1 0", minWidth: 90 }}>
           <span>Project</span>
           <MenuChoice className="select menu-select glow-name" label="Project" value={pid} options={projects.map((p) => ({ value: p.id, label: p.name }))} onChange={(v) => set({ pid: v, branch: undefined, from: undefined, mode: undefined, ticket: undefined })} />
         </div>
-        <div className="field" style={{ flex: "2 1 0", minWidth: 0 }}>
+        <div className="field" style={{ flex: "2 1 0", minWidth: 150 }}>
           <span>{fresh ? "Branches off" : "Branch"}</span>
           <MenuChoice
             className="select menu-select glow-name"
@@ -601,9 +603,13 @@ function StartModal({ onClose, onMinimize }: { onClose: () => void; onMinimize: 
           />
         </div>
         {/* Linked to the branch: the agent gets the ticket's content from Jira, Trello, Asana or Linear. */}
-        <div className="field" style={{ flex: "0 1 140px", minWidth: 0 }}>
+        <div className="field" style={{ flex: "0 1 110px", minWidth: 0 }}>
           <label htmlFor="ag-ticket">Ticket <span className="faint" style={{ fontWeight: 400 }}>optional</span></label>
           <input id="ag-ticket" className="input mono" placeholder="ATL-212" value={ticket} onChange={(e) => set({ ticket: e.target.value })} />
+        </div>
+        <div className="field" style={{ flex: "0 1 auto", minWidth: 0 }}>
+          <span>Agent</span>
+          <AgentPicker value={pick} onChange={setPick} />
         </div>
       </div>
       {fresh && <TypePicker pid={pid} release={false} value={kind} onChange={(k) => set({ kind: k, name: withType(name, k) })} />}
@@ -624,10 +630,6 @@ function StartModal({ onClose, onMinimize }: { onClose: () => void; onMinimize: 
       {!fresh && branch && branch === ov?.currentBranch && (
         <p className="hint">{branch} is checked out in the main checkout: it is switched off it first, which needs no uncommitted changes there.</p>
       )}
-      <div className="field">
-        <span>Agent</span>
-        <AgentPicker value={pick} onChange={setPick} />
-      </div>
       <RequestField value={request} onChange={setRequest} files={files} onFiles={setFiles} onSubmit={() => ready && go()} projectId={pid} provider={pick.provider} />
     </Modal>
   );

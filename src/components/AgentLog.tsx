@@ -1461,8 +1461,17 @@ export function RequestField({ value, onChange, files, onFiles, onSubmit, projec
     }
     shown.current = files.length;
   }, [files.length]);
+  // Grows with the text until the modal reaches the window's height (its max-height), then scrolls. Never shrinks, so a box dragged taller stays.
+  useLayoutEffect(() => {
+    const el = box.current;
+    const modal = el?.closest<HTMLElement>(".modal");
+    if (!el || !modal) return;
+    const want = el.scrollHeight + el.offsetHeight - el.clientHeight;
+    const room = innerHeight - 32 - modal.offsetHeight;
+    if (want > el.offsetHeight && room > 0) el.style.height = `${Math.min(want, el.offsetHeight + room)}px`;
+  }, [value]);
   return (
-    <div ref={field} className="field">
+    <div ref={field} className="field field-stack">
       <label htmlFor="ag-req">What should the agent do?</label>
       <div className="skill-box">
         {skills.marks}
@@ -1471,7 +1480,7 @@ export function RequestField({ value, onChange, files, onFiles, onSubmit, projec
           ref={box}
           {...skills.bind}
           className="textarea"
-          rows={5}
+          rows={10}
           placeholder="Let users sign in with Google and GitHub."
           value={value}
           onChange={(e) => onChange(e.target.value)}

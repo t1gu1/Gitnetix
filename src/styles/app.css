@@ -6132,6 +6132,10 @@ button.picker-act {
   gap: 8px;
   padding: 0 12px;
 }
+/* In a row of fields (the agent session dialog): as wide as its cell, like the selects beside it. */
+.row > .field > .agent-field {
+  align-self: stretch;
+}
 .effort-bars {
   flex: none;
   display: inline-flex;
@@ -10026,6 +10030,17 @@ button.app-row:hover > .app-row-chev {
   :is(.modal-body, .modal-body > form, .modal-body > .col) > .field > :not(:first-child) {
     grid-column: 1;
   }
+}
+/* An agent's request: its label above, so the box takes the dialog's full width. */
+.modal-body > .field.field-stack {
+  grid-template-columns: minmax(0, 1fr);
+}
+.modal-body > .field.field-stack > :first-child {
+  grid-area: auto;
+  padding-top: 0;
+}
+.modal-body > .field.field-stack > :not(:first-child) {
+  grid-column: 1;
 }
 /* A row's sentence, on the label's line. */
 .m-text {

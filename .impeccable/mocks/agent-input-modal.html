@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en" data-theme="dark"><head><meta charset="utf-8">
+<title>Gitnetix agent request box mocks</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0a0d12;--ground:#0f151d;--panel:#0f141b;--raised:#151b24;--sel:#1b2330;--line:#1f2732;--line2:#2c3644;--fg:#e9eef4;--muted:#a3aebb;--faint:#808b9a;--accent:#f2f5f8;--on-accent:#0a0d12;--g1:#f7c48a;--g2:#c4a7ff;--g3:#5fd0e0;--g4:#62d6ae;--scrim:rgba(5,6,8,.62);--sans:"Inter",system-ui,sans-serif;--mono:"JetBrains Mono",ui-monospace,monospace;--r:3px;color-scheme:dark}
+*{box-sizing:border-box;margin:0;padding:0}
+html{background:#05070a}
+body{font:13px/18px var(--sans);color:#c7d0db;padding:28px 0 56px;display:flex;flex-direction:column;align-items:center;gap:14px;-webkit-font-smoothing:antialiased}
+.cap{width:1440px;display:flex;gap:16px;align-items:baseline;color:#8995a5;font-size:13px;margin-top:22px}
+.cap b{color:#e9eef4;font:600 15px var(--sans);white-space:nowrap}
+.app{position:relative;width:1440px;height:900px;overflow:hidden;background:var(--bg);color:var(--fg);border:1px solid #1f2732}
+svg.i{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.25;stroke-linecap:round;stroke-linejoin:round;flex:none}
+svg.s{width:12px;height:12px}
+
+/* The page behind, just enough to read as the app. */
+.bg-hdr{height:44px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:18px;padding:0 16px;font-weight:500;color:var(--muted)}
+.bg-hdr b{color:var(--fg);font-weight:600}
+.bg-map{position:absolute;inset:44px 0 0 0;background:var(--ground)}
+.bg-map i{position:absolute;height:1.5px;background:#344050}
+.bg-map u{position:absolute;width:150px;height:62px;border:1px solid var(--line);background:var(--panel);border-radius:var(--r)}
+.scrim{position:absolute;inset:0;background:var(--scrim);display:flex;align-items:center;justify-content:center;padding:16px}
+
+/* Modal, as in app.css. */
+.modal{width:560px;max-width:100%;max-height:calc(100% - 32px);display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.modal-head{display:flex;align-items:center;gap:4px;padding:16px 14px 14px 20px;border-bottom:1px solid var(--line)}
+.modal-head .col{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+.modal-head h1{font-size:15px;font-weight:600;line-height:20px}
+.sub{font-size:12px;color:var(--muted)}.sub strong{color:var(--fg);font-weight:600}
+.btn-icon{width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;border-radius:var(--r);color:var(--muted);border:1px solid transparent}
+.btn-icon.on{color:var(--fg);border-color:var(--line2)}
+.modal-body{flex:1 1 auto;display:flex;flex-direction:column;gap:14px;padding:16px 20px 20px;min-height:0}
+.modal-foot{display:flex;align-items:center;gap:8px;padding:12px 16px 12px 20px;border-top:1px solid var(--line)}
+.modal-hint{flex:1;font-size:12px;color:var(--faint)}
+.kbd{font:500 11px var(--mono);color:var(--muted);border:1px solid var(--line2);border-radius:2px;padding:0 4px}
+.btn{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 12px;border-radius:var(--r);font:500 12.5px var(--sans);border:1px solid var(--line2);color:var(--fg);background:transparent;white-space:nowrap}
+.btn-primary{background:var(--accent);color:var(--on-accent);border-color:var(--accent);height:32px;padding:0 16px;font-weight:600}
+.btn-ghost{border-color:transparent;color:var(--muted);height:26px;padding:0 8px;font-size:12px}
+
+.field{display:flex;flex-direction:column;gap:6px;min-width:0}
+.field>.lab{font-size:12px;font-weight:500;color:var(--muted);display:flex;gap:6px}
+.faint{color:var(--faint);font-weight:400}
+.input{height:32px;padding:0 10px;border:1px solid var(--line2);border-radius:var(--r);background:var(--bg);color:var(--fg);font-size:12.5px;display:flex;align-items:center;gap:8px;min-width:0;white-space:nowrap;overflow:hidden}
+.input .grow{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.input.mono{font-family:var(--mono);font-size:12px}
+.input .ph{color:var(--faint)}
+.row{display:flex;gap:10px;align-items:flex-start}
+.seg{display:grid;grid-template-columns:1fr 1fr;border:1px solid var(--line2);border-radius:var(--r);padding:2px;gap:2px}
+.seg span{height:26px;display:flex;align-items:center;justify-content:center;font-size:12.5px;font-weight:500;color:var(--muted);border-radius:2px}
+.seg span.on{background:var(--fg);color:var(--bg)}
+
+/* The request box. */
+.box{position:relative;flex:1;display:flex;flex-direction:column;border:1px solid var(--fg);border-radius:var(--r);background:var(--bg);min-height:0}
+.box .txt{flex:1;padding:10px 12px;font-size:13px;line-height:20px;color:var(--fg);white-space:pre-wrap;overflow:hidden}
+.skill{background:linear-gradient(90deg,var(--g1),var(--g2),var(--g3),var(--g4));-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;font-weight:inherit}
+.caret{display:inline-block;width:1px;height:16px;background:var(--fg);vertical-align:-3px;margin-left:1px}
+.grip{position:absolute;right:3px;bottom:3px;width:9px;height:9px;border-right:1px solid var(--line2);border-bottom:1px solid var(--line2)}
+.mic{position:absolute;right:8px;bottom:8px;width:24px;height:24px;border-radius:var(--r);display:flex;align-items:center;justify-content:center;color:var(--muted)}
+.tools{display:flex;align-items:center;justify-content:space-between}
+.hint{font-size:12px;color:var(--faint)}
+
+/* Callouts for the reader of the mock, not part of the design. */
+.note{position:absolute;font:500 12px/16px var(--sans);color:#0a0d12;background:#f2f5f8;padding:4px 8px;border-radius:2px;white-space:nowrap}
+.dim{position:absolute;border:1px dashed rgba(242,245,248,.5);pointer-events:none}
+.dim span{position:absolute;top:-22px;left:50%;transform:translateX(-50%);font:500 11px var(--mono);color:#e9eef4;background:#05070a;padding:1px 6px;border:1px solid #2c3644;border-radius:2px;white-space:nowrap}
+
+/* B: rows on the left, the box down the right. */
+.split{display:grid;grid-template-columns:300px minmax(0,1fr);flex:1;min-height:0}
+.split>.left{display:flex;flex-direction:column;gap:14px;padding:16px 20px 20px;border-right:1px solid var(--line);background:var(--ground)}
+.split>.right{display:flex;flex-direction:column;gap:8px;padding:16px 20px 20px;min-height:0}
+
+/* C: settings folded into one line of chips. */
+.sum{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.chip{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 9px;border:1px solid var(--line2);border-radius:var(--r);font-size:12px;color:var(--fg);background:var(--bg)}
+.chip.mono{font-family:var(--mono);font-size:11.5px}
+.chip svg{color:var(--muted)}
+.sum .sep{flex:1}
+</style></head><body>
+
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="minus" viewBox="0 0 16 16"><path d="M3.5 8h9"/></symbol>
+  <symbol id="x" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></symbol>
+  <symbol id="play" viewBox="0 0 16 16"><path d="M5 3.5v9l7-4.5z" fill="currentColor"/></symbol>
+  <symbol id="attach" viewBox="0 0 16 16"><path d="M11.5 7.5 7.3 11.7a2.6 2.6 0 0 1-3.7-3.7l4.6-4.6a1.7 1.7 0 0 1 2.5 2.5L6.2 10.4a.9.9 0 0 1-1.2-1.2l4-4"/></symbol>
+  <symbol id="chev" viewBox="0 0 16 16"><path d="M4.5 6.5 8 10l3.5-3.5"/></symbol>
+  <symbol id="expand" viewBox="0 0 16 16"><path d="M9.5 2.5h4v4M13.5 2.5 9 7M6.5 13.5h-4v-4M2.5 13.5 7 9"/></symbol>
+  <symbol id="collapse" viewBox="0 0 16 16"><path d="M13 7H9V3M9 7l4.5-4.5M3 9h4v4M7 9l-4.5 4.5"/></symbol>
+  <symbol id="mic" viewBox="0 0 16 16"><rect x="6" y="2" width="4" height="7.5" rx="2"/><path d="M3.5 8a4.5 4.5 0 0 0 9 0M8 12.5V14"/></symbol>
+  <symbol id="branch" viewBox="0 0 16 16"><circle cx="4.5" cy="3.5" r="1.5"/><circle cx="4.5" cy="12.5" r="1.5"/><circle cx="11.5" cy="5.5" r="1.5"/><path d="M4.5 5v6M11.5 7c0 3-7 2-7 4"/></symbol>
+  <symbol id="folder" viewBox="0 0 16 16"><path d="M2 4.5h4.5l1.5 1.5h6v6.5H2z"/></symbol>
+  <symbol id="spark" viewBox="0 0 16 16"><path d="M8 2v3M8 11v3M2 8h3M11 8h3M4 4l2 2M10 10l2 2M12 4l-2 2M6 10l-2 2"/></symbol>
+</svg>
+
+<!-- Shared page behind each modal. -->
+<template id="bg">
+  <div class="bg-hdr"><b>Gitnetix</b><span>Workspace</span><span>Tickets</span><span>Pull requests</span><span>Analytics</span></div>
+  <div class="bg-map">
+    <i style="left:0;right:0;top:120px"></i><i style="left:220px;width:520px;top:300px"></i><i style="left:520px;width:620px;top:480px"></i><i style="left:260px;width:400px;top:640px"></i>
+    <u style="left:180px;top:90px"></u><u style="left:560px;top:90px"></u><u style="left:980px;top:90px"></u><u style="left:300px;top:270px"></u><u style="left:640px;top:450px"></u><u style="left:1040px;top:450px"></u><u style="left:340px;top:610px"></u>
+  </div>
+</template>
+
+<!-- ================= A ================= -->
+<div class="cap"><b>A. Wider, and the box grows</b><span>560 → 760 px wide. Project, branch, ticket and agent share one row. The box starts at 10 lines, grows as you type until the modal reaches the window's height, then scrolls. Smallest code change: CSS plus <code>rows</code>.</span></div>
+<div class="app" id="a">
+  <div class="scrim">
+    <div class="modal" style="width:760px;height:760px">
+      <div class="modal-head">
+        <div class="col"><h1>New agent session</h1><span class="sub">Runs in its own worktree on <strong>feat/modal-wider-agent-input</strong></span></div>
+        <span class="btn-icon"><svg class="i"><use href="#minus"/></svg></span>
+        <span class="btn-icon"><svg class="i"><use href="#x"/></svg></span>
+      </div>
+      <div class="modal-body">
+        <div class="field"><span class="lab">Branch</span><div class="seg"><span class="on">Existing branch</span><span>New branch</span></div></div>
+        <div class="row">
+          <div class="field" style="flex:1 1 0"><span class="lab">Project</span><div class="input"><span class="grow">Gitnetix</span><svg class="i s"><use href="#chev"/></svg></div></div>
+          <div class="field" style="flex:1.7 1 0"><span class="lab">Branch</span><div class="input"><span class="grow">feat/modal-wider-agent-input</span><svg class="i s"><use href="#chev"/></svg></div></div>
+          <div class="field" style="flex:0 1 110px"><span class="lab">Ticket <span class="faint">optional</span></span><div class="input mono"><span class="ph">ATL-212</span></div></div>
+          <div class="field" style="flex:1.5 1 0"><span class="lab">Agent</span><div class="input"><span class="grow">Claude · Opus 5.5 · xhigh</span><svg class="i s"><use href="#chev"/></svg></div></div>
+        </div>
+        <div class="field" style="flex:1;min-height:0">
+          <span class="lab">What should the agent do?</span>
+          <div class="box">
+            <div class="txt"><span class="skill">/impeccable</span>
+
+For modal width agent text box, is there a way to make that textbox bigger?
+Like make the modal larger?<span class="caret"></span></div>
+            <span class="mic"><svg class="i"><use href="#mic"/></svg></span>
+          </div>
+          <div class="tools"><span class="btn btn-ghost"><svg class="i s"><use href="#attach"/></svg>Attach files</span><span class="hint">/ for skills · drop files to attach</span></div>
+        </div>
+      </div>
+      <div class="modal-foot"><span class="modal-hint"><span class="kbd">Ctrl ↵</span> to start</span><span class="btn btn-primary"><svg class="i s"><use href="#play"/></svg>Start</span></div>
+    </div>
+  </div>
+  <div class="dim" style="left:340px;top:56px;width:760px;height:1px;border-width:1px 0 0"><span>760 px (was 560)</span></div>
+  <div class="note" style="left:1112px;top:440px">Box fills what is left,<br>grows to the window's height</div>
+</div>
+
+<!-- ================= B ================= -->
+<div class="cap"><b>B. Composer: settings left, box right</b><span>1040 px wide. Settings stack in a 300 px column on the left; the request box takes the whole right side, full height of the modal (about 620 px). Reads like writing a message, with the options to one side.</span></div>
+<div class="app" id="b">
+  <div class="scrim">
+    <div class="modal" style="width:1040px;height:720px">
+      <div class="modal-head">
+        <div class="col"><h1>New agent session</h1><span class="sub">Runs in its own worktree on <strong>feat/modal-wider-agent-input</strong></span></div>
+        <span class="btn-icon"><svg class="i"><use href="#minus"/></svg></span>
+        <span class="btn-icon"><svg class="i"><use href="#x"/></svg></span>
+      </div>
+      <div class="split">
+        <div class="left">
+          <div class="field"><span class="lab">Branch</span><div class="seg"><span class="on">Existing</span><span>New</span></div></div>
+          <div class="field"><span class="lab">Project</span><div class="input"><span class="grow">Gitnetix</span><svg class="i s"><use href="#chev"/></svg></div></div>
+          <div class="field"><span class="lab">Branch</span><div class="input"><span class="grow">feat/modal-wider-agent-input</span><svg class="i s"><use href="#chev"/></svg></div></div>
+          <div class="field"><span class="lab">Ticket <span class="faint">optional</span></span><div class="input mono"><span class="ph">ATL-212</span></div></div>
+          <div class="field"><span class="lab">Agent</span><div class="input"><span class="grow">Claude</span><svg class="i s"><use href="#chev"/></svg></div>
+            <div class="row" style="gap:6px"><div class="input" style="flex:1"><span class="grow">Opus 5.5</span><svg class="i s"><use href="#chev"/></svg></div><div class="input" style="flex:0 0 90px"><span class="grow">xhigh</span><svg class="i s"><use href="#chev"/></svg></div></div>
+          </div>
+        </div>
+        <div class="right">
+          <span class="lab" style="font-size:12px;font-weight:500;color:var(--muted)">What should the agent do?</span>
+          <div class="box">
+            <div class="txt"><span class="skill">/impeccable</span>
+
+For modal width agent text box, is there a way to make that textbox bigger?
+Like make the modal larger?<span class="caret"></span></div>
+            <span class="mic"><svg class="i"><use href="#mic"/></svg></span>
+          </div>
+          <div class="tools"><span class="btn btn-ghost"><svg class="i s"><use href="#attach"/></svg>Attach files</span><span class="hint">/ for skills · drop files to attach</span></div>
+        </div>
+      </div>
+      <div class="modal-foot"><span class="modal-hint"><span class="kbd">Ctrl ↵</span> to start</span><span class="btn btn-primary"><svg class="i s"><use href="#play"/></svg>Start</span></div>
+    </div>
+  </div>
+  <div class="dim" style="left:200px;top:76px;width:1040px;height:1px;border-width:1px 0 0"><span>1040 px</span></div>
+  <div class="note" style="left:560px;top:844px;transform:translateX(-50%)">Phone or narrow window: the left column moves above the box</div>
+</div>
+
+<!-- ================= C ================= -->
+<div class="cap"><b>C. Expand button: same modal, opens to full window</b><span>Default stays 560 px. A new expand icon next to Minimize grows the modal to the whole window; the settings fold into one line of chips (click one to change it), and the box takes everything else. The choice is remembered.</span></div>
+<div class="app" id="c">
+  <div class="scrim" style="padding:32px">
+    <div class="modal" style="width:100%;height:100%;max-height:none">
+      <div class="modal-head">
+        <div class="col"><h1>New agent session</h1><span class="sub">Runs in its own worktree on <strong>feat/modal-wider-agent-input</strong></span></div>
+        <span class="btn-icon on"><svg class="i"><use href="#collapse"/></svg></span>
+        <span class="btn-icon"><svg class="i"><use href="#minus"/></svg></span>
+        <span class="btn-icon"><svg class="i"><use href="#x"/></svg></span>
+      </div>
+      <div class="modal-body">
+        <div class="sum">
+          <span class="chip">Existing branch<svg class="i s"><use href="#chev"/></svg></span>
+          <span class="chip"><svg class="i s"><use href="#folder"/></svg>Gitnetix<svg class="i s"><use href="#chev"/></svg></span>
+          <span class="chip mono"><svg class="i s"><use href="#branch"/></svg>feat/modal-wider-agent-input<svg class="i s"><use href="#chev"/></svg></span>
+          <span class="chip"><span class="faint">Ticket</span><svg class="i s"><use href="#chev"/></svg></span>
+          <span class="chip"><svg class="i s"><use href="#spark"/></svg>Claude · Opus 5.5 · xhigh<svg class="i s"><use href="#chev"/></svg></span>
+        </div>
+        <div class="box">
+          <div class="txt" style="max-width:none"><span class="skill">/impeccable</span>
+
+For modal width agent text box, is there a way to make that textbox bigger?
+Like make the modal larger?<span class="caret"></span></div>
+          <span class="mic"><svg class="i"><use href="#mic"/></svg></span>
+        </div>
+        <div class="tools"><span class="btn btn-ghost"><svg class="i s"><use href="#attach"/></svg>Attach files</span><span class="hint">/ for skills · drop files to attach</span></div>
+      </div>
+      <div class="modal-foot"><span class="modal-hint"><span class="kbd">Ctrl ↵</span> to start · <span class="kbd">Ctrl ⇧ E</span> back to the small window</span><span class="btn btn-primary"><svg class="i s"><use href="#play"/></svg>Start</span></div>
+    </div>
+  </div>
+  <div class="note" style="right:52px;top:96px">Expand / shrink</div>
+</div>
+
+<script>for (const a of document.querySelectorAll(".app")) a.prepend(document.getElementById("bg").content.cloneNode(true));</script>
+</body></html>

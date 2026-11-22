@@ -261,6 +261,8 @@ export function NewItem({ draft, min, onMinimize, onClose }: { draft: NewItemDra
         )
       }
       ref={box}
+      // Wider with an agent, for its request box.
+      width={agent ? 760 : undefined}
       actions={headerActions}
       onClose={onClose}
       onDismiss={dismiss}
